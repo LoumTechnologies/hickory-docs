@@ -326,7 +326,7 @@ def language_cache_acceptance(driver, folder):
 
 
 def debug_thread_acceptance(driver, folder):
-    path="thread_debug.py";source=(folder/path).read_text();driver.act("open",path=path);driver.act("remember-editor",path=path);size=driver.act("editor-size",path=path)
+    path="%2F λ?#.py" if "--debug-literal" in sys.argv else "thread_debug.py";source=(folder/path).read_text();driver.act("open",path=path);driver.act("remember-editor",path=path);size=driver.act("editor-size",path=path)
     driver.act("debug-breakpoint",line=14);driver.act("debug-start",path=path)
     try: eventually(lambda:any("paused" in state for state in driver.act("debug-state")),True)
     except AssertionError as error: raise AssertionError(driver.act("debug-diagnostics")) from error
@@ -335,12 +335,19 @@ def debug_thread_acceptance(driver, folder):
     expected=sum(len(line) for line in source.splitlines(keepends=True)[:position["line"]-1]);eventually(lambda:driver.act("construction-source",path=path,selection=True)["head"],expected)
     eventually(lambda:"worker_value = 'worker' · str" in driver.act("debug-locals"),True)
     assert "WORKER" in driver.act("debug-watch",expression="worker_value.upper()"),"Worker expression was not evaluated in its selected frame"
+    expression="{'nested': {'answer': 41}}";driver.act("debug-watch",expression=expression);assert "nested" in driver.act("debug-expand",name=expression);expanded=driver.act("debug-expand",name="nested");assert "answer" in expanded and "41" in expanded,expanded
+    wire=driver.act("debug-wire");children=[item for item in wire if item.get("op")=="children"];assert len(children)>=2 and all(all(item.get(field) is not None for field in ["stop","thread","frame","request_id"]) for item in children),children
+
     assert driver.act("editor-is-retained",path=path) and driver.act("editor-size",path=path)==size and (folder/path).read_text()==source
     driver.act("debug-thread-select",id=original);position=driver.act("debug-frame-select",name="<module>");assert position["line"]>0,position
     expected=sum(len(line) for line in source.splitlines(keepends=True)[:position["line"]-1]);eventually(lambda:driver.act("construction-source",path=path,selection=True)["head"],expected)
     try: eventually(lambda:"main_value = 'main' · str" in driver.act("debug-locals"),True)
     except AssertionError as error: raise AssertionError({"values":driver.act("debug-values"),"surface":driver.act("debug-diagnostics")}) from error
     assert "MAIN" in driver.act("debug-watch",expression="main_value.upper()"),"Main expression was not evaluated after thread return"
+    assert driver.act("debug-move",kind="run_to",line=15)["supported"],"Engine-composed Run to line unavailable";assert driver.act("debug-frame-select",name="<module>")["line"]==15
+    jump=driver.act("debug-move",kind="jump",line=14)
+    if jump["supported"]:assert driver.act("debug-frame-select",name="<module>")["line"]==14
+
     driver.act("debug-stop");eventually(lambda:not any("paused" in state for state in driver.act("debug-state")),True)
     assert driver.act("editor-is-retained",path=path) and driver.act("editor-size",path=path)==size and (folder/path).read_text()==source
 
@@ -744,8 +751,9 @@ if __name__ == "__main__":
             virtualenv=Path(os.environ.get("HICKORY_THREAD_TEST_VENV",str(ROOT/"target/thread-debug-env"))).resolve()
             if not (virtualenv/"bin/python").exists():raise RuntimeError("Prepare the explicit debugpy test virtualenv first: "+str(virtualenv))
             (folder/".venv").symlink_to(virtualenv,target_is_directory=True)
-            (folder/".hick-launch.json").write_text(json.dumps({"version":1,"profiles":[{"id":"thread-test","name":"Thread test","program":"thread_debug.py","default":True}]}))
-            (folder/"thread_debug.py").write_text("import threading\nimport time\nready = threading.Event()\nfinish = threading.Event()\ndef worker():\n    worker_value = 'worker'\n    ready.set()\n    while not finish.is_set():\n        worker_value = 'worker'\nthread = threading.Thread(target=worker, name='Hickory worker')\nthread.start()\nready.wait()\nmain_value = 'main'\npause_marker = 1\nfinish.set()\nthread.join()\n")
+            debug_path="%2F λ?#.py" if "--debug-literal" in sys.argv else "thread_debug.py"
+            (folder/".hick-launch.json").write_text(json.dumps({"version":1,"profiles":[{"id":"thread-test","name":"Thread test","program":debug_path,"default":True}]}))
+            (folder/debug_path).write_text("import threading\nimport time\nready = threading.Event()\nfinish = threading.Event()\ndef worker():\n    worker_value = 'worker'\n    ready.set()\n    while not finish.is_set():\n        worker_value = 'worker'\nthread = threading.Thread(target=worker, name='Hickory worker')\nthread.start()\nready.wait()\nmain_value = 'main'\npause_marker = 1\nfinish.set()\nthread.join()\n")
         if "--agent-only" in sys.argv:
             (folder / "sessions").mkdir()
             (folder / "sessions/agent.md").write_text("""<hick:session xmlns:hick="http://www.hickorydocs.com/1.0" start="2026-11-13T10:00:00Z" doc=".hick-workspace-agent">

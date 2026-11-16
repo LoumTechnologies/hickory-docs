@@ -42,7 +42,7 @@ export function useDebugLaunchActions(view: EditorView | null, targets: Target[]
   const current = () => !!view?.dom.isConnected && view.state.doc === capture;
   const launch = async (key: string): Promise<UiOutcome> => {
     const target = targets.find(target => target.key === key);
-    if (!target || target.disabled || !current()) return { status: "unavailable", reason: "Launch target changed, closed or is disabled. Observe the current source controls again." };
+    if (!target || target.disabled || !current()) {const reason="The displayed code changed, closed, or its launch target is disabled. Observe the current source controls again.";setFailure({capture:view?.state.doc,message:reason});return {status:"unavailable",reason};}
     if (pending.current) return { status: "unavailable", reason: "A launch callback is already pending" };
     pending.current = true; setFailure(null);
     try {

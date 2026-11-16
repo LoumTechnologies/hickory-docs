@@ -579,7 +579,7 @@ The tint on the paused line. A background only — never a height.
 
 <storycode:copy id="f-9df55a31763b-pausedHighlight">
 /** The tint on the paused line. A background only — never a height. */
-const pausedHighlight = EditorView.decorations.compute([pausedField], (state) => {
+const pausedHighlight = EditorView.decorations.compute(["doc",pausedField], (state) => {
   const line = state.field(pausedField);
   if (line === null || line < 0 || line >= state.doc.lines) return Decoration.none;
   const from = state.doc.line(line + 1).from;
@@ -609,7 +609,7 @@ The brief tint that says "here" after moving to another frame's line.
 
 <storycode:copy id="f-9df55a31763b-flashHighlight">
 /** The brief tint that says "here" after moving to another frame's line. */
-const flashHighlight = EditorView.decorations.compute([flashField], (state) => {
+const flashHighlight = EditorView.decorations.compute(["doc",flashField], (state) => {
   const line = state.field(flashField);
   if (line === null || line < 0 || line >= state.doc.lines) return Decoration.none;
   const from = state.doc.line(line + 1).from;
@@ -2069,6 +2069,11 @@ Protects docs/guarantees/debugging/a-breakpoint-can-carry-a-condition.md
 <storycode:copy id="f-8d12c7278102-expression_statement-13">
 // Protects docs/guarantees/debugging/a-breakpoint-can-carry-a-condition.md
 describe("a conditional breakpoint is visibly one", () => {
+  it('retires document-relative highlights when authored text becomes shorter before capability effects arrive',()=>{
+    const view=new EditorView({parent:document.body,state:EditorState.create({doc:'first\nsecond\nthird\nfourth\n',extensions:debugEditor({onToggleBreakpoint:()=>{},language:'python'})})});
+    try{view.dispatch({effects:setPausedLine.of(3)});view.dispatch({changes:{from:0,to:view.state.doc.length,insert:'short'}});expect(()=>view.dispatch({effects:setPausedLine.of(null)})).not.toThrow();expect(view.state.doc.toString()).toBe('short');}finally{view.destroy();}
+  });
+
   it("computes `conditional` from what is set, rather than assuming false", () => {
     const effects = debugStateEffects({
       breakpoints: [

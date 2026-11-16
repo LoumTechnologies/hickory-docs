@@ -25,7 +25,7 @@ import { compileProgram } from "./compile";
 import type { LiteralFile } from "../../editor/hickLang";
 import { Inspector, preview } from "./inspect";
 
-export interface BrowserInput { observationRevision?: string; source: string; revision: string; file: LiteralFile; }
+export interface BrowserInput { sourceHash?:string;observationRevision?: string; source: string; revision: string; file: LiteralFile; }
 </storycode:copy>
 <a id="f-6c24fa24bf81-BrowserEvent"></a>
 ### `BrowserEvent`
@@ -68,6 +68,13 @@ export class BrowserRun {
   private lastThrown: RuntimeEvent | null = null;
   private evidence = 0;
   private stopSequence = 0;
+  private pauseGeneration=0;
+  private issuedReferences=new Map<number,number>();
+  assertScope(stop:unknown,thread:unknown,frame:unknown,optionalFrame=false){
+    if(!this.paused||stop!==this.pauseGeneration||thread!==0||(!optionalFrame||frame!==undefined)&&(!Number.isInteger(frame)||!this.frameScopes.has(frame as number)))throw Error('Obsolete browser pause/thread/frame');
+  }
+  private issue(variables:import('../client').Variable[],frame:number){for(const value of variables)if(value.variables_reference>0)this.issuedReferences.set(value.variables_reference,frame);return variables;}
+  threads(request_id:string){if(!this.paused)throw Error('Threads require a current pause');this.emit({event:'threads',session:this.session,stop:this.pauseGeneration,selected:0,request_id,threads:[{id:0,name:'Browser worker'}]});}
   private interpreter: Interpreter;
   private program: ReturnType<typeof compileProgram>;
   private inspector = new Inspector();
@@ -128,14 +135,14 @@ export class BrowserRun {
       }
     };
     collect(this.interpreter.ast);
-    this.emit({ event: "started", doc, session, capabilities: BROWSER_CAPABILITIES, breakpoints: this.bind() });
+    this.emit({ event: "started", doc, session, capabilities: BROWSER_CAPABILITIES,source_hash:input.sourceHash, breakpoints: this.bind() });
   }
   private bind() {
     return this.breakpoints.map((b) => ({ line: b.line,
       state: this.executable.has(b.line) && !b.condition && !b.hit_condition && !b.log_message ? "bound" as const : "refused" as const,
       message: !this.executable.has(b.line) ? "No executable statement on this line" : b.condition || b.hit_condition || b.log_message ? "Browser breakpoint conditions are unavailable" : undefined }));
   }
-  setBreakpoints(breakpoints: DebugBreakpoint[]) { this.breakpoints = breakpoints; this.emit({ event: "breakpoints", session: this.session, breakpoints: this.bind() }); }
+  setBreakpoints(breakpoints: DebugBreakpoint[]) { this.breakpoints = breakpoints; this.emit({ event: "breakpoints", session: this.session,source_hash:this.input.sourceHash, breakpoints: this.bind() }); }
   pause() { this.pauseRequested = true; }
   step(how: Step) {
     if (!["continue", "in", "out", "over"].includes(how)) throw new Error("This browser backend cannot reverse or restart a frame");
@@ -228,7 +235,7 @@ export class BrowserRun {
     if (!this.paused) throw new Error("Frame inspection requires a paused session");
     const top = this.interpreter.stateStack.at(-1);
     if (!top) return;
-    this.inspector.reset();
+    if(reason!=="frame"){this.pauseGeneration++;this.inspector.reset();this.issuedReferences.clear();}
     this.frameScopes.clear();
     const calls = this.calls().reverse();
     const frames: Frame[] = [];
@@ -237,14 +244,14 @@ export class BrowserRun {
     for (let i = 0; i <= calls.length; i++) {
       const call = calls[i];
       const name = call ? call.func_?.node?.id?.name ?? this.program.code.slice(call.node.start, call.node.end).split("(")[0] : "<program>";
-      frames.push({ id: i + 1, name, line, source: this.input.file.path, in_document: line !== null });
+      frames.push({ id: i + 1, name, line, source:this.doc,source_hash:this.input.sourceHash??null,source_line:line, in_document: line !== null });
       this.frameScopes.set(i + 1, scope);
       if (call) { scope = call.scope; line = this.program.lineAt(call.node.start); }
     }
     const selectedScope = this.frameScopes.get(selected ?? 1) ?? top.scope;
-    const variables = this.inspector.locals(selectedScope, this.builtins);
+    const variables = this.issue(this.inspector.locals(selectedScope, this.builtins),selected??1);
     this.captureReading(reason, frames, variables.map(v => [v.name, v.value]), selected ?? 1);
-    this.emit({ event: "stopped", observation_scope: this.reading?.scope, session: this.session, reason, frames,
+    this.emit({ event: "stopped", observation_scope: this.reading?.scope, session: this.session,stop:this.pauseGeneration,thread:0, reason, frames,
       selected_frame: selected ?? 1,
       variables, line: frames.find((f) => f.id === selected)?.line ?? frames[0].line });
   }
@@ -300,11 +307,13 @@ export class BrowserRun {
       this.addAnnotation(line, frame ?? 1, { kind: "expression", expression, value: variable.value, receipt: `${this.session}:evaluation:${this.evidence}` });
       this.emit({ event: "reading", session: this.session, reading: structuredClone(this.reading) });
     }
-    this.emit({ event: "value", session: this.session, expression, value: variable.value, type: variable.type ?? null, reference: variable.variables_reference });
+    this.issue([variable],frame??1);
+    this.emit({ event: "value",stop:this.pauseGeneration,thread:0,frame:frame??1, session: this.session, expression, value: variable.value, type: variable.type_name??variable.type ?? null, reference: variable.variables_reference });
   }
-  children(reference: number) {
+  children(reference: number,frame=1) {
     if (!this.paused) throw new Error("Values belong to a paused session");
-    this.emit({ event: "children", session: this.session, reference, variables: this.inspector.children(reference) });
+    if(this.issuedReferences.get(reference)!==frame)throw Error('Value reference was not reported for this frame');
+    this.emit({ event: "children",stop:this.pauseGeneration,thread:0,frame, session: this.session, reference, variables: this.issue(this.inspector.children(reference),frame) });
   }
 }
 </storycode:copy>
@@ -359,6 +368,13 @@ function pause(events: BrowserEvent[]) { const event = [...events].reverse().fin
 
 <storycode:copy id="f-de529cc60d5d-expression_statement">
 describe("browser interpreter", () => {
+  it("owns numeric pause/thread/frame scope and retires issued references across execution",()=>{
+    const {run,events,drain}=start("var object = { nested: { value: 41 } };\nconsole.log(object);\nconsole.log(object);",[{line:3},{line:4}]);drain();
+    const first=pause(events);expect(first.thread).toBe(0);expect(first.stop).toBeGreaterThan(0);expect(()=>run.assertScope(first.stop,0,first.frames[0].id)).not.toThrow();expect(()=>run.assertScope(first.stop,1,first.frames[0].id)).toThrow();
+    const value=first.variables.find(value=>value.name==='object')!;run.children(value.variables_reference,first.frames[0].id);expect(events.at(-1)).toMatchObject({event:'children',stop:first.stop,thread:0,frame:first.frames[0].id});
+    expect(()=>run.children(value.variables_reference,999)).toThrow('not reported');run.report('frame',first.frames[0].id);expect(pause(events).stop).toBe(first.stop);
+    run.step('continue');drain();expect(pause(events).stop).toBeGreaterThan(first.stop!);expect(()=>run.assertScope(first.stop,0,first.frames[0].id)).toThrow();expect(()=>run.children(value.variables_reference,first.frames[0].id)).toThrow('not reported');
+  });
   it("pauses before the statement, steps into/out of a function and continues to output", () => {
     const { run, events, drain } = start("function price(n) {\n  var total = n * 3;\n  return total;\n}\nvar input = 4;\nvar result = price(input);\nconsole.log(result);", [{ line: 7 }, { line: 8 }]);
     drain();

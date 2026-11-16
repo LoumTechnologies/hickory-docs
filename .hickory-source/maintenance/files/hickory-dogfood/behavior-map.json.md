@@ -41525,6 +41525,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "construction": "fragments",
       "fragments": [
         "f-32f353d4cad8-Mapping",
+        "debug-plain-launch-snapshots",
         "f-32f353d4cad8-impl-Mapping",
         "f-32f353d4cad8-canonical_with_missing_tail",
         "f-32f353d4cad8-same_file",
@@ -41646,9 +41647,11 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "f-3c41c22e0551-use_declaration-2",
         "f-3c41c22e0551-Launch",
         "f-3c41c22e0551-wait_for_start_debugging",
+        "debug-launch-source-admission",
         "f-3c41c22e0551-impl-Session",
         "f-3c41c22e0551-wait_for_event",
         "f-3c41c22e0551-merge",
+        "debug-source-admission-tests",
         "f-3c41c22e0551-tests"
       ],
       "anchor": "output-3c41c22e0551",
@@ -41685,7 +41688,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "f-41b419af990c-SourceSet",
         "f-41b419af990c-Sources",
         "f-41b419af990c-impl-Session",
-        "f-41b419af990c-impl-Sources"
+        "f-41b419af990c-impl-Sources",
+        "source-breakpoints-session-transaction-witness"
       ],
       "anchor": "output-41b419af990c",
       "narrative_owner": "mechanism:crates/hick-dap"
@@ -45761,7 +45765,9 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "f-3058901b5b2e-ProjectContexts",
         "f-3058901b5b2e-ProjectContext",
         "f-3058901b5b2e-impl-ProjectContexts",
-        "f-3058901b5b2e-impl-ProjectContext"
+        "f-3058901b5b2e-impl-ProjectContext",
+        "captured-source-uri-boundary",
+        "captured-source-uri-tests"
       ],
       "anchor": "output-3058901b5b2e",
       "narrative_owner": "mechanism:crates/hick-lsp"
@@ -50422,6 +50428,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "f-05e2104e1cc1-Identity",
         "f-05e2104e1cc1-impl-LaunchContext",
         "f-05e2104e1cc1-impl-Registry",
+        "debug-source-document-identity",
         "f-05e2104e1cc1-safe_cwd",
         "f-05e2104e1cc1-run_build"
       ],
@@ -50459,12 +50466,14 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "fragments": [
         "f-24a9413a429b-profiles",
         "f-24a9413a429b-reading",
-        "f-24a9413a429b-use_declaration",
         "f-24a9413a429b-use_declaration-2",
+        "f-24a9413a429b-use_declaration",
         "f-24a9413a429b-IDLE_TIMEOUT",
         "f-24a9413a429b-Live",
+        "debug-reference-provenance",
         "f-24a9413a429b-impl-Live",
         "f-24a9413a429b-Registry",
+        "debug-session-identity",
         "f-24a9413a429b-impl-Registry",
         "f-24a9413a429b-tracing_adapter",
         "f-24a9413a429b-is_document",
@@ -53132,6 +53141,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "f-b6fc115ecefd-about_of",
         "f-b6fc115ecefd-lines_of",
         "f-b6fc115ecefd-Failure",
+        "debug-observation-admission",
         "f-b6fc115ecefd-handle_inner",
         "f-b6fc115ecefd-settle",
         "f-b6fc115ecefd-settle_in_place",
@@ -53202,9 +53212,11 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "construction": "fragments",
       "fragments": [
         "f-9c1c3fe2ca3c-document",
+        "debug-breakpoint-source-admission",
         "f-9c1c3fe2ca3c-initial",
         "f-9c1c3fe2ca3c-set",
-        "f-9c1c3fe2ca3c-statuses"
+        "f-9c1c3fe2ca3c-statuses",
+        "debug-breakpoint-intent-update"
       ],
       "anchor": "output-9c1c3fe2ca3c",
       "narrative_owner": "mechanism:crates/hickory-cli"
@@ -70881,6 +70893,114 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "construction": "fragments",
       "fragments": [
         "resource-editor-routes-android-tests"
+      ]
+    },
+    "apps/android-simple/app/src/main/java/com/hickorydocs/simple/NativeDebugModels.kt": {
+      "source": ".hickory-source/frontends/apps/android-simple/app/src/main/java/com/hickorydocs/simple/Engine.kt.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "8650fc060d6d4ee45d77e1f9458f0c481d57c83737c68cc0a8bd8149dcc098d8",
+      "construction": "fragments",
+      "fragments": [
+        "simple-android-debug-model-core"
+      ],
+      "anchor": "simple-android-debug-model-core"
+    },
+    "apps/web/src/simple/EditorMounts.ts": {
+      "source": ".hickory-source/frontends/editor-mounts.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "da5e2e578bf21e188131baa4b8c9f9a729ad7eafc3016dd3b8ba4f33e297c12e",
+      "construction": "fragments",
+      "fragments": [
+        "simple-editor-mounts-browser"
+      ]
+    },
+    "apps/web/src/simple/EditorMounts.test.ts": {
+      "source": ".hickory-source/frontends/editor-mounts.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "6a25c231d36c7f5a7c58c74f83e937c64027f044f787d943b6008d3718c91003",
+      "construction": "fragments",
+      "fragments": [
+        "simple-editor-mounts-browser-tests"
+      ]
+    },
+    "crates/hickory-cli/src/launch_inventory.rs": {
+      "source": ".hickory-source/mechanisms/crates/hickory-cli/src/launch_inventory.rs.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "584baf7a113790a820db988baf4cfb8109804b230b058a6eacacdfd14b03bfd7",
+      "construction": "fragments",
+      "fragments": [
+        "launch-inventory-interface",
+        "physical-launch-source-inventory",
+        "physical-launch-path-policy",
+        "launch-input-domains",
+        "launch-inventory-domain-tests"
+      ],
+      "narrative_owner": "mechanism:crates/hickory-cli"
+    },
+    "scripts/test-native-debug.py": {
+      "source": ".hickory-source/frontends/scripts/test-native-debug.py.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "ecdb5f5bd64a324969a542607611feb65f277e7be863f953ff853da7d048d506",
+      "construction": "fragments",
+      "fragments": [
+        "simple-native-debug-fixture",
+        "simple-native-debug-host-runners",
+        "simple-native-debug-runner-entry"
+      ]
+    },
+    "apps/web/src/debug/SourceGuards.ts": {
+      "source": ".hickory-source/frontends/debugger-source-guards-browser.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "5b085cb45c09f085e66b0e483fab77d4e217d3ff0bb056fab1e47b91139b4e07",
+      "construction": "fragments",
+      "fragments": [
+        "debug-source-reading-browser",
+        "debug-breakpoint-intents-browser"
+      ]
+    },
+    "apps/web/src/debug/SourceGuards.test.ts": {
+      "source": ".hickory-source/frontends/debugger-source-guards-browser.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "384d32fecbe790a72730852be03b26b958ba95be6ec91f69de55d667c75dd4eb",
+      "construction": "fragments",
+      "fragments": [
+        "debug-source-guards-browser-tests"
+      ]
+    },
+    "apps/web/src/debug/DebugValueTree.ts": {
+      "source": ".hickory-source/frontends/debugger-values-browser.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "c237b174a4e53ddad4dfec1e06f223cad86717550a15d96c4f530ff064c6c38c",
+      "construction": "fragments",
+      "fragments": [
+        "debug-value-tree-browser"
+      ]
+    },
+    "apps/web/src/debug/DebugValueTree.test.ts": {
+      "source": ".hickory-source/frontends/debugger-values-browser.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "8c3acc1df16206ac24e9fdcea0876745ea5a58bbe324b66f378209a32995f3b0",
+      "construction": "fragments",
+      "fragments": [
+        "debug-value-tree-browser-tests"
       ]
     }
   },

@@ -75,6 +75,8 @@ import { debugEditor, debugStateEffects, revealLine } from "../debug/cmDebug";
 import { isDebuggable } from "../debug/languages";
 import { IDLE_SESSION } from "../debug/useDebugger";
 import { isWorkspaceSource, useFollowingDebugSession } from "../debug/plainDebugHosts";
+import {DebugSourceSignal,type DebugSourceCapability} from "../debug/SourceGuards";
+import {documentUri} from "../lsp/documentUri";
 
 export function PlainFilePane({
   path,
@@ -170,6 +172,8 @@ export function PlainFilePane({
   // only once the file has loaded, so the server never sees an empty file
   // stand in for a real one.
   const [liveText, setLiveTextState] = useState<string | null>(null);
+  const sourceSignal=useMemo(()=>new DebugSourceSignal(),[path]),sourceIdentity=useMemo(()=>({path}),[path]),sourceNamespace=useRef<string|null>(null),sourceMounted=useRef(true);
+  useEffect(()=>{sourceMounted.current=true;return()=>{sourceMounted.current=false;};},[path]);
   // The buffer's last text, readable after the view is gone. The draft
   // keeper's final flush runs during unmount, AFTER the effect that destroys
   // the view — React runs cleanups in declaration order — and reading an
@@ -181,6 +185,7 @@ export function PlainFilePane({
   const onSourceRef = useRef(onSource);
   onSourceRef.current = onSource;
   const setLiveText = useCallback((text: string) => {
+    lastTextRef.current=text;sourceSignal.changed();
     onSourceRef.current?.(path, text);
     setLiveTextState(text);
   }, [path]);
@@ -196,7 +201,8 @@ export function PlainFilePane({
   // and a session held here would die the moment another tab was fronted.
   // The pane reads the session through a ref inside the editor's callbacks,
   // which were built once and must see the current state.
-  const debug = useFollowingDebugSession(path) ?? IDLE_SESSION;
+  const sourceCapability=useMemo<DebugSourceCapability>(()=>({read:uri=>{const text=lastTextRef.current,workspace=sourceNamespace.current,revision=sourceSignal.revision;if(!workspace||uri!==documentUri(path))throw Error('This source namespace is still loading or changed.');return {uri,workspace,namespace:workspace,identity:sourceIdentity,text,saved:!saver.hasPendingEdits()&&saver.baseContent()===text,current:()=>sourceMounted.current&&sourceNamespace.current===workspace&&sourceSignal.revision===revision&&lastTextRef.current===text};},subscribe:sourceSignal.subscribe}),[path,sourceIdentity,sourceSignal]);
+  const debug = useFollowingDebugSession(path,undefined,undefined,undefined,sourceCapability) ?? IDLE_SESSION;
   const debugRef = useRef(debug);
   debugRef.current = debug;
   // Selecting a frame is asking to go there. A frame in this file is
@@ -223,7 +229,7 @@ export function PlainFilePane({
       createPlainSaver({
         put: (content, baseHash, force) => api.saveFile(path, content, baseHash, force),
         onState: (state) => {
-          setSaveState(state);
+          setSaveState(state);sourceSignal.changed();
           if (state.kind === "idle" || state.kind === "saved") {
             onUnsavedRef.current?.(false, actionsRef.current);
           }
@@ -264,7 +270,7 @@ export function PlainFilePane({
         saver.load(loaded.content, loaded.hash);
         void api.files().then(
           (files) => {
-            if (!live) return;
+            if (!live) return;sourceNamespace.current=files.root_path??null;sourceSignal.changed();
             const find = (nodes: typeof files.tree): string | null => {
               for (const node of nodes) {
                 if (node.path === path) return node.generated_by ?? null;
@@ -729,7 +735,7 @@ export function PlainFilePane({
       )}
       {/* The debugger's chrome, above the file it debugs — nothing while
           idle. The same strip a document's block gets. */}
-      <DebugStrip reading={debug.reading} readingChanged={observationSourceChanged(debug.reading, railView?.state.doc.toString())}
+      <DebugStrip variableRoots={debug.variableRoots} valueNode={debug.valueNode} valueHistory={debug.valueHistory} valueNotice={debug.valueNotice} expandValue={debug.expandValue} collapseValue={debug.collapseValue} closeValues={debug.closeValues} refreshState={debug.refreshState} positionSourceBound={debug.positionSourceBound} launchNotices={debug.launchNotices} breakpointNotice={debug.breakpointNotice} breakpointIntentions={debug.breakpointIntentions} onRunTo={debug.runTo} onJumpTo={debug.jumpTo} variables={debug.variables} threads={debug.threads} selectedThread={debug.selectedThread} threadStop={debug.threadStop} threadPending={debug.threadPending} threadSelecting={debug.threadSelecting} threadMessage={debug.threadMessage} frameVariablesPending={debug.frameVariablesPending} frameVariablesMessage={debug.frameVariablesMessage} stackMessage={debug.stackMessage} historicalFrames={debug.historicalFrames} observationScope={debug.observationScope} readThreads={debug.readThreads} selectThread={debug.selectThread} reading={debug.reading} readingChanged={observationSourceChanged(debug.reading, railView?.state.doc.toString())}
         editorView={railView}
         pausedLine={debug.pausedLine}
         status={debug.status}

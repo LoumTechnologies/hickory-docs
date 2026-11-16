@@ -46,7 +46,7 @@ pub async fn list(
         .profiles()
         .map_err(|e| ApiError::unprocessable(format!("{e:#}")))?;
     Ok(Json(
-        json!({"debug_protocol":2,"profiles":profiles,"fingerprint":context.fingerprint(),"viewed":context.viewed,"workspace":state.index.root(),"configuration":crate::launch_profiles::CONFIG}),
+        json!({"debug_protocol":3,"notices":context.notices(),"profiles":profiles,"fingerprint":context.fingerprint(),"viewed":context.viewed,"workspace":state.index.root(),"configuration":crate::launch_profiles::CONFIG}),
     ))
 }
 #[derive(Deserialize)]
@@ -66,7 +66,6 @@ pub async fn run(State(state): State<LocalState>, Json(body): Json<Run>) -> ApiR
         .map(|s| Json(json!(s)))
         .map_err(|e| ApiError::unprocessable(format!("{e:#}")))
 }
-
 /// A terminal is the single Run mechanism for both profiles and test gutters.
 pub(super) fn open_run(
     state: &LocalState,
@@ -104,7 +103,6 @@ pub(super) fn open_run(
     });
     Ok(summary)
 }
-
 fn terminal_command(profile: &crate::launch_profiles::Profile, argv: &[String]) -> Vec<String> {
     let d = &profile.definition;
     #[cfg(not(windows))]

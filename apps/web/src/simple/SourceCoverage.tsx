@@ -15,12 +15,12 @@ export function SourceCoverageProvider({workspace,children}:{workspace:string;ch
 }
 export function useCoverageLineActions(buffer:Buffer,view:EditorView|null){
  const model=useContext(Context);useSyncExternalStore(model?.digests.subscribe??idle,model?.digests.snapshot??zero);
- useEffect(()=>{if(!model?.rows[buffer.file.path]||buffer.transient)return;const read=()=>model.digests.enqueue(buffer.file.path,buffer.text,()=>buffer.text);read();return buffer.subscribe(read);},[model?.digests,model?.rows,buffer]);
- if(!model?.run||!view||view.state.doc.toString()!==buffer.text.replace(/\r\n/g,'\n'))return [];
+ useEffect(()=>{if(!model?.rows[buffer.file.path]||buffer.transient||buffer.resourceDeleted)return;const read=()=>model.digests.enqueue(buffer.file.path,buffer.text,()=>buffer.text);read();return buffer.subscribe(read);},[model?.digests,model?.rows,buffer,buffer.resourceDeleted]);
+ if(buffer.resourceDeleted||!model?.run||!view||view.state.doc.toString()!==buffer.text.replace(/\r\n/g,'\n'))return [];
  const path=buffer.file.path,source=buffer.text,run=model.run;
  if(model.digests.current(path,source)!==run.identity.source_hashes[path]?.toLowerCase())return [];
  return (model.rows[path]??[]).filter(row=>row.line<view.state.doc.lines).map(row=>({at:view.state.doc.line(row.line+1).from,glyph:row.state==='covered'?'●':row.state==='uncovered'?'○':'◐',tone:row.state==='covered'?'#248047':row.state==='uncovered'?'#b94a48':'#a66b00',label:`Coverage ${row.state} · ${row.count===null?'count unavailable':`count ${row.count}`} · ${row.origins.length} measured location(s)`,run:()=>{
-  if(selectedCoverage()?.id!==run.id||model.digests.current(path,buffer.text)!==run.identity.source_hashes[path]?.toLowerCase())return;
+  if(buffer.resourceDeleted||selectedCoverage()?.id!==run.id||model.digests.current(path,buffer.text)!==run.identity.source_hashes[path]?.toLowerCase())return;
   window.dispatchEvent(new CustomEvent(SOURCE_COVERAGE_INSPECTION,{detail:{path,id:run.id}}));
  }}));
 }

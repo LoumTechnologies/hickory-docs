@@ -198,7 +198,6 @@ impl Reading {
         result
     }
 }
-
 /// Non-runtime providers do not fabricate a run or stop identity.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -236,7 +235,6 @@ pub struct ProviderAnnotation {
     pub uncertainty: Option<String>,
     pub payload: serde_json::Value,
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -425,7 +423,6 @@ mod tests {
         );
     }
 }
-
 impl Reading {
     /// Source-adjacent textual equivalent with immutable byte lineage. Payload text is data.
     pub fn agent_projection(&self) -> serde_json::Value {
@@ -445,7 +442,6 @@ impl Reading {
         serde_json::json!({"schema_version":self.schema_version,"source":{"id":self.source.id,"uri":self.source.uri,"revision":self.source.revision},"scope":self.scope,"excerpts":excerpts,"annotations":self.annotations,"unsupported":self.unsupported})
     }
 }
-
 impl Run {
     /// Adapt every existing provider record to the common envelope, without a second store.
     pub fn provider_annotations(&self) -> Result<Vec<ProviderAnnotation>> {
@@ -532,7 +528,6 @@ impl Run {
             .collect()
     }
 }
-
 #[cfg(test)]
 mod shared_fixture_tests {
     use super::*;
@@ -553,7 +548,6 @@ mod shared_fixture_tests {
         assert_eq!(serde_json::from_value::<Reading>(json).unwrap(), reading);
     }
 }
-
 #[cfg(test)]
 mod provider_projection_tests {
     use super::*;

@@ -34,6 +34,7 @@ Related contracts: [Debug the latest atomic project that still contains the disp
 ### `decode`
 
 <storycode:copy id="f-455afcfce7fd-decode">
+import {capturedDocumentUri} from "../lsp/documentUri";
 import { inlineEvaluationOwner } from "../debug/inlineEval";
 import { CapturedReferences } from "./CapturedReferences";
 import { useUiCommands, useUiRevision } from "../lib/uiActionBridge";
@@ -62,7 +63,7 @@ import { debugEditor, debugStateEffects } from "../debug/cmDebug";
 import { DebugStrip } from "../debug/DebugStrip";
 import { languageFromPath } from "../editor/languages";
 
-const decode = (entry: ProjectEntry) => new TextDecoder("utf-8", {fatal:true}).decode(new Uint8Array(entry.bytes));
+const decode = (entry: ProjectEntry) => new TextDecoder("utf-8", {fatal:true,ignoreBOM:true}).decode(new Uint8Array(entry.bytes));
 </storycode:copy>
 <a id="f-455afcfce7fd-offset"></a>
 ### `offset`
@@ -120,7 +121,7 @@ export function ComparisonTools({path,source,view,children}: {path:string;source
   const active = selected?.find(e => e.path === activePath && e.kind === "file");
   const displayMatches = !!displayed && decode(displayed) === source.text;
   const context = registration?.project === selected && displayMatches ? registration : null;
-  const uri = context && active ? `${context.uri}${active.path}` : "";
+  const uri = context && active ? source.codeUri??capturedDocumentUri(context.uri,active.path) : "";
   const referenceScope = JSON.stringify([context?.id, uri, source.id, source.text]);
   const lsp = useWorkspaceLsp(uri,active ? decode(active) : "");
   const debug = useFollowingDebugSession(uri, source.debugOwner) ?? IDLE_SESSION;
@@ -158,7 +159,7 @@ export function ComparisonTools({path,source,view,children}: {path:string;source
         try {
           const target=projectPosition(current.local,current.selected,path,new TextEncoder().encode(current.source.text.slice(0,at)).length);
           if (!target) return null;
-          return {uri:`${current.context.uri}${target[0]}`,position:position(current.selected.find(e=>e.path===target[0])!.bytes,target[1])};
+          return {uri:capturedDocumentUri(current.context.uri,target[0]),position:position(current.selected.find(e=>e.path===target[0])!.bytes,target[1])};
         } catch { return null; }
       };
     const extensions = [
@@ -234,13 +235,13 @@ export function ComparisonTools({path,source,view,children}: {path:string;source
     {canDebug && <DebugLaunchAction view={view} label={`Debug ${path} · ${source.label}`} disabled={!context || busy || !displayMatches || !exact} onStart={()=>launch()} onProfiles={()=>launch(true)} hint={selection?.latest ? "Debug this code · latest project" : "Debug this code · latest project containing this version of the file"} />}
     <DebugStrip {...debug} locationActions={<ProjectDebugLinks owner={source.debugOwner ?? uri} debug={debug}/>} editorView={view} pausedLine={exact ? debug.pausedLine : null} program={path}
       onSelectFrame={id=> {
-        debug.selectFrame(id); const frame=debug.frames.find(f=>f.id===id);
-        if (frame && revealPreferredDebugLocation(source.debugOwner ?? uri, frame)) return;
-        if (frame?.source?.startsWith("hick-project:///") && frame.source!==uri)
-          void openCapturedCode({uri:frame.source,range:{start:{line:frame.source_line ?? 0,character:0},end:{line:frame.source_line ?? 0,character:0}}},source.debugOwner ?? uri).catch(e=>setError(String(e)));
-        else if (view && frame?.line !== null && frame?.line !== undefined) revealLine(view,frame.line);
+        debug.selectFrame(id);const captured=debug.captureFrame?.(id);if(!captured){setError('This frame reading retired; choose a current frame.');return;}const frame=captured.frame,bound=!!frame.source_hash&&!(frame.source_reference&&frame.source_reference>0);
+        if(bound&&captured.current()&&revealPreferredDebugLocation(source.debugOwner??uri,frame))return;
+        if(frame.source?.startsWith('hick-project:///')&&frame.source!==uri)void openCapturedCode({uri:frame.source,range:{start:{line:frame.source_line??0,character:0},end:{line:frame.source_line??0,character:0}}},source.debugOwner??uri,captured.current,bound).catch(error=>setError(String(error)));
+        else if(bound&&captured.current()&&view&&frame.line!==null&&frame.line!==undefined)revealLine(view,frame.line);
+        if(!bound)setError('Captured file remains readable; this frame has no confirmed source position.');
       }} onStep={debug.step} onStart={()=>launch()} onStop={debug.stop}
-      onJumpHere={()=> {if(view && exact) debug.jumpTo(view.state.doc.lineAt(view.state.selection.main.head).number-1);}}
+      onRunTo={debug.runTo} onJumpTo={debug.jumpTo} onJumpHere={()=> {if(view && exact) debug.jumpTo(view.state.doc.lineAt(view.state.selection.main.head).number-1);}}
       onAddWatch={()=>{void prompt.askText("Expression to watch:", "", { agent: true }).then(expression=>{if(expression)debug.addWatch(expression);});}}
       onToggleExceptionFilter={debug.toggleExceptionFilter} onRemoveWatch={debug.removeWatch}
       onInstall={async offer=> {await api.installTool(offer.kind,offer.language);}} />
@@ -831,5 +832,11 @@ fn generated_code_selection_uses_displayed_bytes_instead_of_the_previous_file_co
 - Executed checks: [the run record](../../../evidence/focused-checks.md) lists actual executions.
 - Human judgment: stakeholder priorities confirmed; individual requirement acceptance remains unrecorded.
 - Dependencies: exact cited-file hashes are in the capture and source entries. Transitive source and environment changes can also stale evidence.
+
+## Focused browser receipt — 2026-11-16
+
+The actual Chromium fixture `captured literal filename uses guarded launch and generated-source navigation` passed against the fresh protocol-3 engine and debugpy fixture. It used the existing patch gutter, profile selection, watch prompt, generated-code reading and Stop controls. `%2F #.py` retained its encoded captured URI and remained distinct from `%252F #.py`; the Start and Started hashes matched the exact captured file bytes, `marker` evaluated to 41, the generated reading showed the correct paused source, and host file bytes remained unchanged. This verifies captured mapping identity, not an executed-version or complete environment closure.
+
+Reproduce with `HICKORY_E2E_DEBUG=1 HICKORY_LITERATE_TEST_ENGINE="$PWD/target/source-edit-focus/debug/examples/engine_client" HICKORY_THREAD_TEST_VENV="$PWD/target/thread-debug-env" scripts/test-literate-editor.sh --grep 'captured literal filename'`. The explicit virtualenv contained debugpy 1.8.22. Focused captured/navigation/launch-rail checks passed (26 cases, followed by the added readable-unknown-position case); TypeScript checking passed. Firefox, WebKit, physical input and accessibility acceptance were not executed for this checkpoint. Adapter-owned source-reference retrieval remains unsupported; available captured text can be opened without claiming its frame position.
 
 </storycode:doc>

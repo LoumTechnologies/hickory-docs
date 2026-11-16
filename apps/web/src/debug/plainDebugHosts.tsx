@@ -33,6 +33,8 @@ import { retainCapturedContext } from "../lib/capturedContexts";
 import { publishPausedElsewhere, usePausedElsewhere } from "../lib/pausedElsewhere";
 import type { DebugSession } from "./useDebugger";
 import { useWorkspaceDebugger } from "./useDebugger";
+import {savedDebugSources,type DebugSourceCapability} from "./SourceGuards";
+import {documentUri,capturedDocumentUri} from "../lsp/documentUri";
 
 /** Whether a frame's source is a file in the folder the app opened. */
 export function isWorkspaceSource(source: string | null | undefined): source is string {
@@ -40,7 +42,24 @@ export function isWorkspaceSource(source: string | null | undefined): source is 
 }
 
 // The paths that want a host, and the session each host currently holds.
-let wanted: readonly string[] = [];
+interface PlainHost {readonly id:string;readonly path:string;readonly identity?:object;launchCurrent?:()=>boolean;source?:DebugSourceCapability}
+let wanted: readonly PlainHost[] = [];
+let bufferHosts=new WeakMap<object,PlainHost>();
+const liveDebug=(debug:DebugSession|undefined|null)=>!!debug&&(debug.isActive?.()??["starting","running","paused","unconfirmed","stopping"].includes(debug.status));
+/** The retained buffer owns its running launch, even when its current address changes. */
+export function plainDebugOwner(path:string,identity?:object):PlainHost {
+ if(!identity)return {id:path,path};
+ const held=bufferHosts.get(identity);
+ if(held&&(held.path===path||liveDebug(sessions.get(held.id))))return held;
+ const next={id:`plain-buffer:${crypto.randomUUID()}`,path,identity};bufferHosts.set(identity,next);return next;
+}
+export function hasActivePlainDebugSession(identity:object):boolean {const owner=bufferHosts.get(identity);return !!owner&&liveDebug(sessions.get(owner.id));}
+/** Explicit copied-source retirement revokes its idle UI actor, never a live launch. */
+export function retirePlainDebugIdentity(identity:object):boolean {
+ const ids=new Set(wanted.filter(host=>host.identity===identity).map(host=>host.id)),owner=bufferHosts.get(identity);if(owner)ids.add(owner.id);
+ if([...ids].some(id=>liveDebug(sessions.get(id))))return false;
+ bufferHosts.delete(identity);wanted=wanted.filter(host=>!ids.has(host.id));for(const id of ids){sessions.delete(id);publishPausedElsewhere(id,null);clearPreferredDebugSurface(id);}emit();return true;
+}
 const sessions = new Map<string, DebugSession>();
 const listeners = new Set<() => void>();
 
@@ -54,41 +73,50 @@ function subscribe(listener: () => void): () => void {
 }
 
 /** Ask for a host for `path`. Idempotent; hosts are never removed. */
-export function ensurePlainDebugHost(path: string): void {
-  if (wanted.includes(path)) return;
-  wanted = [...wanted, path];
+export function ensurePlainDebugHost(value: string|PlainHost): void {
+  const host=typeof value==='string'?{id:value,path:value}:value;
+  if (wanted.some(held=>held.id===host.id)) return;
+  wanted = [...wanted, host];
   emit();
 }
 
-function wantedPaths(): readonly string[] {
+function wantedPaths(): readonly PlainHost[] {
   return wanted;
 }
 
 /** The session for `path`, or null until its host has mounted. */
-export function usePlainDebugSession(path: string): DebugSession | null {
-  useEffect(() => { if (path) ensurePlainDebugHost(path); }, [path]);
+export function usePlainDebugSession(path: string,identity?:object,launchCurrent?:()=>boolean,source?:DebugSourceCapability): DebugSession | null {
+  const owner=plainDebugOwner(path,identity);
+  if(source)owner.source=source;
+  if(identity)owner.launchCurrent=()=>owner.path===path&&(launchCurrent?.()??true);
+  useEffect(() => { if (path) ensurePlainDebugHost(owner); }, [owner.id,owner.path]);
   return useSyncExternalStore(
     subscribe,
-    () => sessions.get(path) ?? null,
+    () => sessions.get(owner.id) ?? null,
     () => null,
   );
 }
 
 /** Test seam. */
 export function resetPlainDebugHosts(): void {
-  wanted = [];
+  wanted = [];bufferHosts=new WeakMap();
   sessions.clear();
   emit();
 }
 
-function Host({ path }: { path: string }) {
-  const debug = useWorkspaceDebugger(path);
+function Host({ host }: {host:PlainHost}) {
+  const {path,id}=host;
+  const access=useMemo<DebugSourceCapability>(()=>({read:uri=>{
+    if(uri===documentUri(path)&&host.source)return host.source.read(uri);
+    const held=wanted.find(item=>documentUri(item.path)===uri&&item.source);return held?.source?.read(uri)??savedDebugSources.read(uri);
+  },subscribe:listener=>host.source?.subscribe?.(listener)??(()=>{})}),[host,path]);
+  const debug = useWorkspaceDebugger(path,id,()=>host.launchCurrent?.()??true,access);
   useEffect(() => {
-    sessions.set(path, debug);
+    sessions.set(id, debug);
     emit();
-  }, [path, debug]);
+  }, [id, debug]);
 
-  const active = ["starting", "running", "paused"].includes(debug.status);
+  const active = ["starting", "running", "paused", "unconfirmed", "stopping"].includes(debug.status);
   useEffect(() => {
     if (active) return retainCapturedContext(path);
   }, [path, active]);
@@ -99,9 +127,9 @@ function Host({ path }: { path: string }) {
   // the session ends; only this owner can clear what it published.
   useEffect(() => {
     const top = debug.frames[0],captured=top&&debug.captureFrame?.(top.id);
-    if (["idle", "finished", "failed"].includes(debug.status)) clearPreferredDebugSurface(path);
-    if (debug.status === "paused" && top && captured?.current() && revealPreferredDebugLocation(path, top)) {
-      publishPausedElsewhere(path, top.source && typeof top.source_line === "number" ? {path:top.source,line:top.source_line} : null);
+    if (["idle", "finished", "failed"].includes(debug.status)) clearPreferredDebugSurface(id);
+    if (debug.status === "paused" && top && captured?.current() && revealPreferredDebugLocation(id, top)) {
+      publishPausedElsewhere(id, top.source && typeof top.source_line === "number" ? {path:top.source,line:top.source_line} : null);
       return;
     }
     if (
@@ -111,15 +139,15 @@ function Host({ path }: { path: string }) {
       (top.source?.startsWith("hick-project:///") || isWorkspaceSource(top.source)) &&
       typeof top.source_line === "number"
     ) {
-      publishPausedElsewhere(path, { path: top.source!, line: top.source_line });
+      publishPausedElsewhere(id, { path: top.source!, line: top.source_line });
       if (top.source!.startsWith("hick-project:///")) {
-        void openCapturedCode({uri:top.source!,range:{start:{line:top.source_line,character:0},end:{line:top.source_line,character:0}}}, path,captured.current).catch(() => {});
+        void openCapturedCode({uri:top.source!,range:{start:{line:top.source_line,character:0},end:{line:top.source_line,character:0}}}, id,captured.current).catch(() => {});
       } else openCapturedLocation(top.source!,top.source_line+1,top.source_hash??null,captured.current,top.source_reference);
     } else {
-      publishPausedElsewhere(path, null);
+      publishPausedElsewhere(id, null);
     }
-  }, [debug.status, debug.frames, path]);
-  return <ProjectDebugSurface owner={path} debug={debug}/>;
+  }, [debug.status, debug.frames, path,id]);
+  return <ProjectDebugSurface owner={id} debug={debug}/>;
 }
 
 /** Mount once, in the workspace: one host per path a pane has asked for. */
@@ -128,8 +156,8 @@ export function PlainDebugHosts() {
   return (
     <>
       <LaunchProfiles />
-      {paths.map((path) => (
-        <Host key={path} path={path} />
+      {paths.map((host) => (
+        <Host key={host.id} host={host} />
       ))}
     </>
   );
@@ -142,20 +170,21 @@ export function usePublishDebugSession(owner: string, debug: DebugSession) {
 }
 
 /** Borrow execution controls from the session that opened this callee. */
-export function useFollowingDebugSession(path: string, explicitOwner?: string): DebugSession | null {
-  const own = usePlainDebugSession(path);
+export function useFollowingDebugSession(path: string, explicitOwner?: string,identity?:object,launchCurrent?:()=>boolean,sourceCapability?:DebugSourceCapability): DebugSession | null {
+  const own = usePlainDebugSession(path,identity,launchCurrent,sourceCapability);
+  const ownId=plainDebugOwner(path,identity).id;
   const key=capturedSourceKey(path);
   const saved=useSyncExternalStore(subscribeBreakpointPreferences,()=>breakpointPreferences(key),()=>undefined);
   const ownRef=useRef(own);ownRef.current=own;
-  const ownActive=!!own && ["starting","paused","running"].includes(own.status);
-  useEffect(()=>{if(saved && ownRef.current && !ownActive)ownRef.current.replaceBreakpoints(saved);},[saved,key,!!own,ownActive]);
+  const ownActive=liveDebug(own);
+  useEffect(()=>{if(saved && ownRef.current && !ownActive)ownRef.current.replaceBreakpoints(saved,key??undefined);},[saved,key,!!own,ownActive]);
   const elsewhere = usePausedElsewhere();
   const followed = useRef({path, owner:explicitOwner});
   if (followed.current.path !== path) followed.current = {path, owner:explicitOwner};
   if (explicitOwner) followed.current.owner = explicitOwner;
-  if (elsewhere?.path === path) followed.current.owner = elsewhere.owner;
+  if (!ownActive&&elsewhere?.path === path) followed.current.owner = elsewhere.owner;
   const borrowed = useSyncExternalStore(subscribe, () => sessions.get(followed.current.owner ?? "") ?? null, () => null);
-  const source = path.startsWith("hick-project:///") ? path : `hick:///${path}`;
+  const source = documentUri(path);
   const active = borrowed && ["paused","running"].includes(borrowed.status) && followed.current.owner !== path;
   useEffect(()=> {
     if (!active || !own || !borrowed) return;
@@ -165,23 +194,26 @@ export function useFollowingDebugSession(path: string, explicitOwner?: string): 
   },[active,borrowed,source,own]);
   const direct = useMemo(()=>own ? {...own,start:(program?:string, sources: Record<string, import("./useDebugger").HeldBreakpoint[]> = {}, project?: string, profile?: import("./launchProfiles").LaunchSelection)=> {
     const captured = /^hick-project:\/\/\/[^/]+\//.exec(path)?.[0];
-    const initial = Object.fromEntries([...sessions].filter(([other])=>other!==path &&
+    const initial = Object.fromEntries([...sessions].filter(([owner])=>owner!==ownId).map(([owner,session])=>[wanted.find(host=>host.id===owner)?.path??owner,session] as const).filter(([other])=>other!==path &&
       isDebuggable(languageFromPath(other)) && (captured ? other.startsWith(captured) : isWorkspaceSource(other)))
-      .map(([other,session])=>[other.startsWith("hick-project:///")?other:`hick:///${other}`,session.breakpoints]));
+      .map(([other,session])=>[documentUri(other),session.breakpoints]));
     if(captured)for(const file of capturedFiles(path)) {
-      const uri=`${captured}${file}`, held=breakpointPreferences(capturedSourceKey(uri));
+      const uri=capturedDocumentUri(captured,file), held=breakpointPreferences(capturedSourceKey(uri));
       if(uri!==path && held)initial[uri]=held;
     }
-    own.start(program,{...initial,...sources},project,profile);
-  }} : null,[own,path]);
-  if (!borrowed || !["starting", "running", "paused"].includes(borrowed.status) || followed.current.owner === path) return preferences(direct,key);
+    // Only model-captured intentions can cross controller boundaries. A legacy
+    // path/line preference remains readable but cannot borrow this launch's bytes.
+    const origins=Object.assign({},...[...sessions].filter(([owner])=>owner!==ownId).map(([,session])=>session.capturedBreakpointIntents?.()??{}));
+    own.start(program,{...initial,...sources},project,profile,origins);
+  }} : null,[own,path,ownId]);
+  if (ownActive||!borrowed || !["starting", "running", "paused", "unconfirmed", "stopping"].includes(borrowed.status) || followed.current.owner === ownId) return preferences(direct,key);
   const frame = borrowed.frames.find(f => f.source === path);
   const pausedLine = frame?.source_line ?? (elsewhere?.path === path ? elsewhere.line : null);
   const breakpoints = borrowed.sourceBreakpoints[source] ?? own?.breakpoints ?? [];
   return preferences({ ...borrowed, pausedLine, program: borrowed.program ?? followed.current.owner ?? null,
     // These protocol verbs address the launch file, not the viewed callee.
     // Never send a callee's line number as a line in the launch file.
-    capabilities: borrowed.capabilities ? {...borrowed.capabilities, goto_targets:false} : null,
+    capabilities: borrowed.capabilities ? {...borrowed.capabilities, goto_targets:false,run_to:false} : null,
     jumpTo: () => {}, runTo: () => {},
     frames: borrowed.frames.map(f => ({ ...f, in_document: f.source === path, line: f.source === path ? (f.source_line ?? null) : null })),
     breakpoints,

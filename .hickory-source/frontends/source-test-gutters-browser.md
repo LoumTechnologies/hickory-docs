@@ -5,6 +5,8 @@ For maintainers changing workspace services independently of the editor renderer
 
 The editor supplies text immediately; a separate bounded source index reads test declarations in the background. A source-bound hint uses the existing right-hand action column and overflow grid. Clicking it activates the existing buffer, then refreshes the full floating test view with current drafts before offering execution. Cached gutter facts never authorize a run. Other saved construction contributors can differ from retained drafts, so this fresh inspection is required even when the primary text still matches.
 
+A retained deleted editor remains readable for its captured debugger, but its old spelling can already belong to another source. Reject deleted handles before producing or invoking path-based inspection hints; restoring the exact handle re-enables its ordinary current-source capabilities.
+
 <ui:copy id="source-test-gutters-browser">
 import {createContext,useContext,useEffect,useMemo,useSyncExternalStore,type ReactNode} from "react";
 import type {EditorView} from "@codemirror/view";
@@ -24,16 +26,16 @@ export function SourceTestGutterProvider({workspace,children}:{workspace:string;
 export function useSourceTestLineActions(buffer:Buffer,view:EditorView|null) {
   const index=useContext(Context);useSyncExternalStore(index?.subscribe??idleSubscribe,index?.snapshot??zero);
   useEffect(()=>{
-    if(!index||buffer.transient)return;
-    const read=()=>index.enqueue(buffer.file.path,buffer.text,()=>buffer.text);
+    if(!index||buffer.transient||buffer.resourceDeleted)return;
+    const read=()=>{if(!buffer.resourceDeleted)index.enqueue(buffer.file.path,buffer.text,()=>buffer.text);};
     read();return buffer.subscribe(read);
-  },[index,buffer]);
+  },[index,buffer,buffer.resourceDeleted]);
   const record=index?.current(buffer.file.path,buffer.text);
-  if(!view||view.state.doc.toString()!==buffer.text.replace(/\r\n/g,"\n"))return [];
+  if(buffer.resourceDeleted||!view||view.state.doc.toString()!==buffer.text.replace(/\r\n/g,"\n"))return [];
   const grouped=new Map<number,string[]>();
   for(const row of indexedTestRows(record)){const names=grouped.get(row.line)??[];names.push(row.candidate.name);grouped.set(row.line,names);}
   return [...grouped].filter(([line])=>line<view.state.doc.lines).map(([line,names])=>({at:view.state.doc.line(line+1).from,label:`Inspect source tests: ${names.join(", ")}`,run:()=>{
-    if(!index?.current(buffer.file.path,buffer.text))return;
+    if(buffer.resourceDeleted||!index?.current(buffer.file.path,buffer.text))return;
     window.dispatchEvent(new CustomEvent(SOURCE_TEST_INSPECTION,{detail:{path:buffer.file.path,name:names.length===1?names[0]:"",serial:Date.now()}}));
   }}));
 }

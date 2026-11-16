@@ -33,12 +33,10 @@ use tokio::sync::{broadcast, mpsc};
 
 use crate::adapter::Adapter;
 use crate::protocol::Event;
-#[path = "source_breakpoints.rs"]
-mod source_breakpoints;
-
 #[path = "private_capture_session.rs"]
 mod private_capture_session;
-
+#[path = "source_breakpoints.rs"]
+mod source_breakpoints;
 /// What this adapter can actually do, read from its `initialize` reply.
 ///
 /// Every control the UI offers is gated on one of these. A button that is
@@ -49,6 +47,9 @@ pub struct Capabilities {
     /// Individual adapter reads may still refuse and remain explicit failures.
     #[serde(default)]
     pub frame_locals: bool,
+    /// A source-guarded temporary breakpoint implements primary-source run-to.
+    #[serde(default)]
+    pub run_to: bool,
     pub conditional_breakpoints: bool,
     pub hit_conditional_breakpoints: bool,
     pub log_points: bool,
@@ -75,12 +76,12 @@ pub struct ExceptionFilter {
     pub id: String,
     pub label: String,
 }
-
 impl Capabilities {
     fn from_initialize(body: &Value) -> Self {
         let flag = |name: &str| body.get(name).and_then(Value::as_bool).unwrap_or(false);
         Self {
             frame_locals: true,
+            run_to: true,
             conditional_breakpoints: flag("supportsConditionalBreakpoints"),
             hit_conditional_breakpoints: flag("supportsHitConditionalBreakpoints"),
             log_points: flag("supportsLogPoints"),
@@ -125,14 +126,14 @@ pub struct Breakpoint {
     #[serde(default)]
     pub log_message: Option<String>,
 }
-
 /// A breakpoint set in a source other than the session's entry document.
 pub struct SourceBreakpoints {
     pub source: String,
+    /// Required by guarded UI startup; trusted internal callers may omit it.
+    pub source_hash: Option<String>,
     pub document: PathBuf,
     pub breakpoints: Vec<Breakpoint>,
 }
-
 /// What came back when a breakpoint was set.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BreakpointStatus {
@@ -153,7 +154,6 @@ pub struct BreakpointStatus {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub moved_to: Option<u32>,
 }
-
 /// Whether a breakpoint is bound, and the reason a bool was not enough.
 ///
 /// `setBreakpoints` answers `verified: false` for two situations DAP does not
@@ -185,7 +185,6 @@ pub enum BindState {
     /// no generated code at all.
     Refused,
 }
-
 impl BindState {
     /// Whether the program will definitely not stop here.
     pub fn is_refused(self) -> bool {
@@ -197,7 +196,6 @@ impl BindState {
         self == BindState::Bound
     }
 }
-
 /// Read a `stopped` event body.
 fn stopped_from(body: &Value) -> Stopped {
     Stopped {
@@ -229,7 +227,6 @@ fn stopped_from(body: &Value) -> Stopped {
 #[path = "stack_frame.rs"]
 mod stack_frame;
 pub use stack_frame::Frame;
-
 /// One adapter-reported thread. Names and identities are observations, not
 /// evidence that every thread is paused or that a source revision is current.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -255,7 +252,6 @@ fn decode_threads(body: &Value) -> Result<Vec<Thread>> {
     }
     Ok(threads)
 }
-
 #[cfg(test)]
 #[test]
 fn thread_lists_retain_adapter_identity_and_refuse_ambiguous_values() {
@@ -297,7 +293,6 @@ fn thread_lists_retain_adapter_identity_and_refuse_ambiguous_values() {
         assert!(decode_threads(&body).is_err(), "accepted {body}");
     }
 }
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Variable {
     pub name: String,
@@ -317,7 +312,6 @@ pub struct Variable {
 pub struct Exit {
     pub code: Option<i64>,
 }
-
 /// Why the program stopped.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Stopped {
@@ -345,7 +339,6 @@ pub enum Step {
     /// True reverse execution, where an adapter has it.
     Back,
 }
-
 impl Step {
     fn command(self) -> &'static str {
         match self {
@@ -358,7 +351,6 @@ impl Step {
         }
     }
 }
-
 /// One cell, being debugged.
 pub struct Session {
     // Retain ordinary adapter output before configurationDone can start the
@@ -411,9 +403,7 @@ pub struct Session {
     /// exit is already recorded.
     exit: Arc<std::sync::Mutex<Option<Exit>>>,
 }
-
 use crate::mapping::Mapping;
-
 /// How the program under test is started.
 pub struct Launch {
     /// The adapter command, from discovery.
@@ -439,7 +429,6 @@ pub struct Launch {
     /// `extra` can still override them.
     pub extra: Value,
 }
-
 /// Wait for the adapter to ask us to start a child session, and answer it.
 ///
 /// The answer matters: DAP is bidirectional and js-debug waits on this one
@@ -481,7 +470,48 @@ async fn wait_for_start_debugging(
         .cloned()
         .unwrap_or_else(|| json!({})))
 }
-
+impl Session {
+    fn checked_mapping(
+        mapping: Arc<Mapping>,
+        sources: &[SourceBreakpoints],
+    ) -> Result<Arc<Mapping>> {
+        let mut pinned = (*mapping).clone();
+        for set in sources {
+            if let Some(expected) = &set.source_hash {
+                if pinned.is_identity() {
+                    let bytes =
+                        std::fs::read(&set.document).context("Reading guarded launch source")?;
+                    anyhow::ensure!(
+                        Mapping::source_digest(&bytes) == *expected,
+                        "Launch source changed. Save or reload it and prepare Debug again."
+                    );
+                    let line_count = bytes.iter().filter(|byte| **byte == b'\n').count() + 1;
+                    anyhow::ensure!(
+                        set.breakpoints
+                            .iter()
+                            .all(|bp| (bp.line as usize) < line_count),
+                        "Launch breakpoint lies outside its source. Refresh the breakpoint positions and try Debug again."
+                    );
+                    pinned.capture_initial_source(&set.document, &bytes);
+                }
+                anyhow::ensure!(
+                    pinned.source_hash(&set.document).as_ref() == Some(expected),
+                    "Breakpoint source does not match the captured launch project. Choose Debug again."
+                );
+            }
+        }
+        Ok(Arc::new(pinned))
+    }
+    pub fn source_hash(&self, document: &std::path::Path) -> Option<String> {
+        self.mapping.source_hash(document)
+    }
+    pub fn primary_source_hash(&self) -> Option<String> {
+        self.mapping.source_hash(self.mapping.document())
+    }
+    pub fn source_document(&self) -> &std::path::Path {
+        self.mapping.document()
+    }
+}
 impl Session {
     pub async fn start_with_sources(
         launch: Launch,
@@ -489,6 +519,7 @@ impl Session {
         breakpoints: &[Breakpoint],
         sources: &[SourceBreakpoints],
     ) -> Result<(Self, Vec<BreakpointStatus>)> {
+        let mapping = Self::checked_mapping(mapping, sources)?;
         let adapter = Adapter::start(&launch.adapter, launch.transport).await?;
         let extra = launch.extra.clone();
         Self::start_on(adapter, None, &launch, extra, mapping, breakpoints, sources).await
@@ -704,11 +735,15 @@ impl Session {
             stops: tokio::sync::Mutex::new(stops),
             exit,
         };
-        let statuses = session.set_breakpoints(breakpoints).await?;
+        session.set_breakpoints(breakpoints).await?;
         for set in source_breakpoints {
-            session
-                .set_source_breakpoints(&set.source, &set.document, &set.breakpoints)
-                .await?;
+            if set.source.is_empty() {
+                session.set_breakpoints(&set.breakpoints).await?;
+            } else {
+                session
+                    .set_source_breakpoints(&set.source, &set.document, &set.breakpoints)
+                    .await?;
+            }
         }
         session
             .adapter
@@ -740,6 +775,7 @@ impl Session {
             ))
             .await;
         }
+        let statuses = session.breakpoint_statuses();
         Ok((session, statuses))
     }
 
@@ -1231,7 +1267,6 @@ async fn wait_for_event(
         }
     }
 }
-
 /// Merge `extra` over `base`, one level deep.
 fn merge(base: &mut Value, extra: &Value) {
     let (Some(base), Some(extra)) = (base.as_object_mut(), extra.as_object()) else {
@@ -1241,7 +1276,49 @@ fn merge(base: &mut Value, extra: &Value) {
         base.insert(key.clone(), value.clone());
     }
 }
-
+#[cfg(test)]
+mod source_admission_tests {
+    use super::*;
+    #[test]
+    fn launch_positions_require_pinned_and_current_bytes_before_adapter_start() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("main.py");
+        std::fs::write(&path, "value=1\n").unwrap();
+        let mapping = Arc::new(Mapping::identity(&path));
+        let expected = mapping.source_hash(&path).unwrap();
+        let set = SourceBreakpoints {
+            source: String::new(),
+            document: path.clone(),
+            source_hash: Some(expected),
+            breakpoints: vec![],
+        };
+        assert!(Session::checked_mapping(mapping.clone(), std::slice::from_ref(&set)).is_ok());
+        std::fs::write(&path, "value=2\n").unwrap();
+        assert!(Session::checked_mapping(mapping, std::slice::from_ref(&set)).is_err());
+    }
+    #[test]
+    fn requested_plain_source_joins_only_the_initial_snapshot() {
+        let root = tempfile::tempdir().unwrap();
+        let primary = root.path().join("main.py");
+        let other = root.path().join("helper.py");
+        std::fs::write(&primary, "import helper\n").unwrap();
+        std::fs::write(&other, "answer=41\n").unwrap();
+        let mapping = Arc::new(Mapping::identity(&primary));
+        assert!(mapping.source_hash(&other).is_none());
+        let hash = Mapping::source_digest(b"answer=41\n");
+        let set = SourceBreakpoints {
+            source: "hick:///helper.py".into(),
+            document: other.clone(),
+            source_hash: Some(hash.clone()),
+            breakpoints: vec![],
+        };
+        let pinned = Session::checked_mapping(mapping, std::slice::from_ref(&set)).unwrap();
+        assert_eq!(pinned.source_hash(&other), Some(hash.clone()));
+        std::fs::write(&other, "answer=42\n").unwrap();
+        assert_eq!(pinned.source_hash(&other), Some(hash));
+        assert!(Session::checked_mapping(pinned, std::slice::from_ref(&set)).is_err());
+    }
+}
 #[cfg(test)]
 #[path = "session/tests/tests.rs"]
 mod tests;

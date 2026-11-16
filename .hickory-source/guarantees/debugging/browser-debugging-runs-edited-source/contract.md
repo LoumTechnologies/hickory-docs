@@ -167,11 +167,11 @@ export function preview(value: IValue): string {
 export class Inspector {
   private references = new Map<number, IObject>();
   private next = 1;
-  reset() { this.references.clear(); this.next = 1; }
+  reset() { this.references.clear(); }
   variable(name: string, value: IValue): Variable {
     let reference = 0;
     if (value && typeof value === "object") { reference = this.next++; this.references.set(reference, value); }
-    return { name, value: preview(value), type: value === null ? "null" : typeof value, variables_reference: reference };
+    return { name, value: preview(value), type_name: value === null ? "null" : typeof value, variables_reference: reference };
   }
   children(reference: number): Variable[] {
     const object = this.references.get(reference);
@@ -279,7 +279,7 @@ Related contracts: [Browser debugging runs edited source](contract.md).
 
 <storycode:copy id="f-eded76a6db69-run">
 import { BrowserRun } from "./runtime";
-import type { BrowserInput } from "./runtime";
+import type { BrowserInput,BrowserEvent } from "./runtime";
 import type { DebugBreakpoint, Step } from "../client";
 
 let run: BrowserRun | null = null;
@@ -302,30 +302,48 @@ function schedule() {
 <a id="f-eded76a6db69-expression_statement"></a>
 ### `expression_statement`
 
+The local worker is a separate capability provider. Its transport hashes the
+captured authored document itself; the worker compares that provider receipt
+before constructing a run. Pause generations, thread zero, frame membership and
+issued object references come from the interpreter. A caller's matching-looking
+scope fields alone cannot authorize a read. Frame-local reads preserve the pause
+and produce a scoped reply; actual execution retires references. The maintained
+runtime witnesses exercise those boundaries without claiming native execution
+or physical input acceptance.
+
 <storycode:copy id="f-eded76a6db69-expression_statement">
+// Validate provider-owned pause/reference state before dispatch; packet scope is
+// never accepted merely because a caller echoed the right-looking numbers.
+let pending:Record<string,unknown>|null=null;
+function publish(event:BrowserEvent){
+  if(event.event==='started')event={...event,request_id:typeof pending?.request_id==='string'?pending.request_id:undefined};
+  if(pending&&['value','children','breakpoints','failed'].includes(event.event))event={...event,request_id:pending.request_id} as BrowserEvent;
+  if(event.event==='stopped'&&pending?.op==='state'&&pending.frame!==undefined)event={event:'frame_variables',session:event.session,stop:event.stop!,thread:0,frame:Number(pending.frame),request_id:String(pending.request_id),variables:event.variables};
+  globalThis.postMessage(event);
+}
 globalThis.onmessage = (event: MessageEvent<Record<string, unknown> & { input: BrowserInput }>) => {
-  const request = event.data;
+  const request=event.data;pending=request;
   try {
-    if (request.op === "start") {
-      run?.stop();
-      run = new BrowserRun(request.input, String(request.session), String(request.doc), request.breakpoints as DebugBreakpoint[], (e) => globalThis.postMessage(e));
-      schedule();
-      return;
+    if(request.op==='start'){
+      if(typeof request.request_id!=='string'||request.source_hash!==request.input.sourceHash)throw Error('Missing captured browser source proof.');
+      run?.stop();run=new BrowserRun(request.input,String(request.session),String(request.doc),request.breakpoints as DebugBreakpoint[],publish);schedule();return;
     }
-    if (!run || request.session !== run.session) throw new Error("Unknown browser session");
-    switch (request.op) {
-      case "step": run.step(request.how as Step); schedule(); break;
-      case "pause": run.pause(); schedule(); break;
-      case "state": run.report("frame", request.frame as number | undefined); break;
-      case "breakpoints": run.setBreakpoints(request.breakpoints as DebugBreakpoint[]); break;
-      case "eval": run.evaluate(String(request.expression), request.frame as number | undefined); break;
-      case "children": run.children(Number(request.reference)); break;
-      default: throw new Error(`Unsupported browser debug action: ${request.op}`);
+    if(!run||request.session!==run.session)throw Error('Unknown browser session');
+    const effect=['step','eval','children'].includes(String(request.op))||request.op==='state'&&request.frame!==undefined;
+    if(effect){if(typeof request.request_id!=='string')throw Error('Missing inspection request identity');run.assertScope(request.stop,request.thread,request.frame,request.op==='step'&&request.frame===undefined);}
+    switch(request.op){
+      case 'step':run.step(request.how as Step);schedule();break;
+      case 'pause':run.pause();schedule();break;
+      case 'threads':run.threads(String(request.request_id));break;
+      case 'select_thread':run.assertScope(request.stop,request.thread,undefined,true);run.report();run.threads(String(request.request_id));break;
+      case 'state':if(request.frame!==undefined)run.report('frame',Number(request.frame));else throw Error('No queued browser stop is available');break;
+      case 'breakpoints':if(typeof request.request_id!=='string'||request.source_hash!==run.input.sourceHash)throw Error('Breakpoint source proof differs from captured browser source');run.setBreakpoints(request.breakpoints as DebugBreakpoint[]);break;
+      case 'eval':if(typeof request.expression!=='string')throw Error('Expression must be a string');run.evaluate(request.expression,Number(request.frame));break;
+      case 'children':if(typeof request.reference!=='number'||!Number.isSafeInteger(request.reference)||request.reference<=0)throw Error('Invalid issued value reference');run.children(request.reference,Number(request.frame));break;
+      default:throw Error(`Unsupported browser debug action: ${request.op}`);
     }
-  } catch (e) {
-    globalThis.postMessage({ event: "failed", session: run?.session ?? null, doc: request.doc, about: request.op,
-      message: e instanceof Error ? e.message : String(e) });
-  }
+  } catch(e){publish({event:'failed',session:run?.session??null,doc:request.doc,about:request.op,request_id:request.request_id,scope_retired:false,message:e instanceof Error?e.message:String(e)} as BrowserEvent);}
+  finally{pending=null;}
 };
 </storycode:copy>
 
@@ -358,5 +376,11 @@ The selections below preserve the original byte order. Narrative reading order d
 - Executed checks: [the run record](../../../evidence/focused-checks.md) lists actual executions.
 - Human judgment: stakeholder priorities confirmed; individual requirement acceptance remains unrecorded.
 - Dependencies: exact cited-file hashes are in the capture and source entries. Transitive source and environment changes can also stale evidence.
+
+## Focused offline browser receipt — 2026-11-16
+
+The production site build and two Chromium embedding flows passed with engine API requests aborted and WebSocket construction forbidden: JavaScript breakpoint, step in/out, watch, explicit placement on edited source and offline restart; and execution errors, unsupported syntax, shorter-source replacement, stale-reading notice and immediate Stop. The shorter-source flow previously exposed a document-relative highlight crash; the focused real EditorView regression and the actual retry now pass. The local provider computes its own authored URI/hash and interpreter-owned pause/frame/reference stamps; it does not borrow engine catalog authority or echo a supplied hash as proof.
+
+The focused interpreter suite passed 12 cases, including reference retirement across actual execution and non-mutating frame reads. The Chromium command selected `js: real breakpoint|errors, unsupported syntax, stale source and immediate Stop` from `browserEmbedding.spec.ts`, using an isolated dynamic-port equivalent of `playwright.embed.config.ts`. TypeScript UI execution, Firefox, WebKit and physical/accessibility acceptance were not rerun in this checkpoint. These receipts do not establish every retained embedding feature or an executed-version closure for external providers.
 
 </storycode:doc>

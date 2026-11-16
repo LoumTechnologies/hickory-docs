@@ -23,7 +23,7 @@ type Context = {id:string;uri:string;workspace?:string};
 ### `files`
 
 <storycode:copy id="f-62754565d899-files">
-const files = new Map<string,{entries:Record<string,unknown>;workspace:string}>();
+const files = new Map<string,{entries:Record<string,unknown>;workspace:string;root:string}>();
 </storycode:copy>
 <a id="f-62754565d899-capturedFiles"></a>
 ### `capturedFiles`
@@ -36,12 +36,18 @@ export function capturedFiles(uri:string):string[] {
 <a id="f-62754565d899-capturedSourceKey"></a>
 ### `capturedSourceKey`
 
+Captured preference keys already contain workspace, source path and exact bytes. Expose those immutable bytes as a source capability rather than treating path-only wishes as authority. Decode serialized URI paths once, so literal percent signs and query/hash characters keep their source identity.
+
 <storycode:copy id="f-62754565d899-capturedSourceKey">
 export function capturedSourceKey(uri:string):string|null {
   const id=idOf(uri);if(!id)return null;
-  const context=files.get(id), path=uri.slice(uri.indexOf(id)+id.length+1);
+  const context=files.get(id);let path:string;try{if(uri.includes("?")||uri.includes("#"))return null;path=decodeURIComponent(uri.slice(uri.indexOf(id)+id.length+1));}catch{return null;}
   const entry=context?.entries[path] as {bytes?:number[];kind?:string}|undefined;
   return entry?.bytes && context ? JSON.stringify([context.workspace,path,entry.bytes]) : null;
+}
+export function capturedSourceData(uri:string):{bytes:Uint8Array;workspace:string;namespace:string;identity:string;provenance:string;current:()=>boolean}|null {
+ const id=idOf(uri),provenance=capturedSourceKey(uri);if(!id||!provenance)return null;const context=files.get(id)!;let path:string;try{path=decodeURIComponent(uri.slice(uri.indexOf(id)+id.length+1));}catch{return null;}
+ const entry=context.entries[path] as {bytes?:number[]}|undefined;if(!entry?.bytes)return null;return {bytes:new Uint8Array(entry.bytes),workspace:context.root,namespace:context.workspace,identity:JSON.stringify([context.workspace,path]),provenance,current:()=>files.get(id)===context&&capturedSourceKey(uri)===provenance};
 }
 </storycode:copy>
 <a id="f-62754565d899-Shared"></a>
@@ -76,7 +82,7 @@ export async function acquireCapturedContext(entries: Record<string, unknown>, n
   if (!held) {
     held = {users:0, promise:request<Context>("POST", "/api/project-contexts", {snapshot:{entries}})};
     shared.set(key,held);
-    held.promise = held.promise.then(context => { keys.set(context.id,key); files.set(context.id,{entries,workspace:`${context.workspace ?? "workspace"}:${namespace}`}); return context; }, error => { shared.delete(key); throw error; });
+    held.promise = held.promise.then(context => { keys.set(context.id,key); files.set(context.id,{entries,workspace:`${context.workspace ?? "workspace"}:${namespace}`,root:context.workspace??"workspace"}); return context; }, error => { shared.delete(key); throw error; });
   }
   const record = held;
   record.users++;

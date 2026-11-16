@@ -30,6 +30,8 @@ Implementation review: not verified. Executed checks and human judgment are reco
 
 ## Implementation
 
+[Physical and constructed launch inputs](../../../mechanisms/crates/hickory-cli/src/launch_inventory.rs.md) share read-only provider facts while retaining their own path rules.
+
 <a id="output-3b3668793103"></a>
 ## `apps/web/src/debug/plainDebugHosts.test.tsx`
 
@@ -45,7 +47,7 @@ import { act, cleanup, renderHook } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { publishPausedElsewhere, resetPausedElsewhere } from "../lib/pausedElsewhere";
 import { IDLE_SESSION } from "./useDebugger";
-import { isWorkspaceSource, resetPlainDebugHosts, useFollowingDebugSession, usePublishDebugSession } from "./plainDebugHosts";
+import { isWorkspaceSource,plainDebugOwner,hasActivePlainDebugSession,retirePlainDebugIdentity, resetPlainDebugHosts, useFollowingDebugSession, usePublishDebugSession } from "./plainDebugHosts";
 
 afterEach(()=>{cleanup();resetPlainDebugHosts();resetPausedElsewhere();});
 </storycode:copy>
@@ -104,7 +106,7 @@ it("includes cleared file sets when collecting saved breakpoints for another lau
     return useFollowingDebugSession("app.py");
   });
   act(()=>hook.result.current?.start());
-  expect(start).toHaveBeenCalledWith(undefined,{"hick:///helpers.py":[]},undefined,undefined);
+  expect(start).toHaveBeenCalledWith(undefined,{"hick:///helpers.py":[]},undefined,undefined,{});
 });
 
 </storycode:copy>
@@ -130,11 +132,22 @@ it("carries standing library breakpoints into a different compatible capture and
   try {
     act(()=>rememberBreakpointPreferences(key,[{line:1,state:"pending",condition:"x > 0"}]));
     act(()=>hook.result.current?.start(undefined,{},undefined,{id:"app",fingerprint:"f"}));
-    expect(start).toHaveBeenLastCalledWith(undefined,{[`${second.uri}library.py`]:[{line:1,state:"pending",condition:"x > 0",hit_condition:undefined,log_message:undefined}]},undefined,{id:"app",fingerprint:"f"});
+    expect(start).toHaveBeenLastCalledWith(undefined,{[`${second.uri}library.py`]:[{line:1,state:"pending",condition:"x > 0",hit_condition:undefined,log_message:undefined}]},undefined,{id:"app",fingerprint:"f"},{});
     act(()=>rememberBreakpointPreferences(key,[]));
     act(()=>hook.result.current?.start());
-    expect(start).toHaveBeenLastCalledWith(undefined,{[`${second.uri}library.py`]:[]},undefined,undefined);
+    expect(start).toHaveBeenLastCalledWith(undefined,{[`${second.uri}library.py`]:[]},undefined,undefined,{});
   } finally {hook.unmount();first.release();second.release();spy.mockRestore();}
+});
+
+it("pins active launches to retained buffer identity through moves, swaps and reused spellings",()=>{
+ const first={},second={},fresh={},stop=vi.fn(),foreignStop=vi.fn(),frame={id:0,name:"main",source:"old.py",line:1,source_line:1,in_document:true,source_hash:"a".repeat(64)};
+ const a=plainDebugOwner("old.py",first),b=plainDebugOwner("other.py",second);const debug={...IDLE_SESSION,status:"paused" as const,stop,frames:[frame],selectedFrame:0};
+ const foreign={...IDLE_SESSION,status:"running" as const,stop:foreignStop};
+ const hook=renderHook(({path,other,session})=>{usePublishDebugSession(a.id,session);usePublishDebugSession(b.id,foreign);return [useFollowingDebugSession(path,undefined,first),useFollowingDebugSession(other,undefined,second)];},{initialProps:{path:"old.py",other:"other.py",session:debug as typeof IDLE_SESSION}});
+ hook.rerender({path:"other.py",other:"old.py",session:debug});expect(plainDebugOwner("other.py",first)).toBe(a);expect(plainDebugOwner("old.py",second)).toBe(b);expect(hook.result.current[0]?.frames[0]).toBe(frame);expect(frame.source).toBe("old.py");
+ act(()=>publishPausedElsewhere(b.id,{path:"other.py",line:99}));hook.result.current[0]?.stop();expect(stop).toHaveBeenCalledOnce();expect(foreignStop).not.toHaveBeenCalled();
+ const reused=plainDebugOwner("old.py",fresh);expect(reused.id).not.toBe(a.id);expect(reused.id).not.toBe(b.id);expect(hasActivePlainDebugSession(first)).toBe(true);expect(retirePlainDebugIdentity(first)).toBe(false);
+ hook.rerender({path:"other.py",other:"old.py",session:{...debug,status:"finished"}});expect(plainDebugOwner("other.py",first).id).not.toBe(a.id);expect(hasActivePlainDebugSession(first)).toBe(false);expect(retirePlainDebugIdentity(first)).toBe(true);expect(plainDebugOwner("old.py",first).id).not.toBe(a.id);
 });
 </storycode:copy>
 
@@ -190,6 +203,8 @@ import { retainCapturedContext } from "../lib/capturedContexts";
 import { publishPausedElsewhere, usePausedElsewhere } from "../lib/pausedElsewhere";
 import type { DebugSession } from "./useDebugger";
 import { useWorkspaceDebugger } from "./useDebugger";
+import {savedDebugSources,type DebugSourceCapability} from "./SourceGuards";
+import {documentUri,capturedDocumentUri} from "../lsp/documentUri";
 
 /** Whether a frame's source is a file in the folder the app opened. */
 export function isWorkspaceSource(source: string | null | undefined): source is string {
@@ -200,11 +215,30 @@ export function isWorkspaceSource(source: string | null | undefined): source is 
 <a id="f-238f66c701b0-wanted"></a>
 ### `wanted`
 
+A source path is an address, while a retained buffer is the editor identity. Simple editors supply that identity: a live host pins its launch URI across rename, swap and deletion, and a newly opened buffer at the old spelling gets an independent host. Once execution is inactive, a relocated buffer may acquire a new host for its current address; no running snapshot is relabeled or relaunched. Legacy rich readers still use their existing path owner.
+
 The paths that want a host, and the session each host currently holds.
 
 <storycode:copy id="f-238f66c701b0-wanted">
 // The paths that want a host, and the session each host currently holds.
-let wanted: readonly string[] = [];
+interface PlainHost {readonly id:string;readonly path:string;readonly identity?:object;launchCurrent?:()=>boolean;source?:DebugSourceCapability}
+let wanted: readonly PlainHost[] = [];
+let bufferHosts=new WeakMap<object,PlainHost>();
+const liveDebug=(debug:DebugSession|undefined|null)=>!!debug&&(debug.isActive?.()??["starting","running","paused","unconfirmed","stopping"].includes(debug.status));
+/** The retained buffer owns its running launch, even when its current address changes. */
+export function plainDebugOwner(path:string,identity?:object):PlainHost {
+ if(!identity)return {id:path,path};
+ const held=bufferHosts.get(identity);
+ if(held&&(held.path===path||liveDebug(sessions.get(held.id))))return held;
+ const next={id:`plain-buffer:${crypto.randomUUID()}`,path,identity};bufferHosts.set(identity,next);return next;
+}
+export function hasActivePlainDebugSession(identity:object):boolean {const owner=bufferHosts.get(identity);return !!owner&&liveDebug(sessions.get(owner.id));}
+/** Explicit copied-source retirement revokes its idle UI actor, never a live launch. */
+export function retirePlainDebugIdentity(identity:object):boolean {
+ const ids=new Set(wanted.filter(host=>host.identity===identity).map(host=>host.id)),owner=bufferHosts.get(identity);if(owner)ids.add(owner.id);
+ if([...ids].some(id=>liveDebug(sessions.get(id))))return false;
+ bufferHosts.delete(identity);wanted=wanted.filter(host=>!ids.has(host.id));for(const id of ids){sessions.delete(id);publishPausedElsewhere(id,null);clearPreferredDebugSurface(id);}emit();return true;
+}
 </storycode:copy>
 <a id="f-238f66c701b0-sessions"></a>
 ### `sessions`
@@ -245,9 +279,10 @@ Ask for a host for `path`. Idempotent; hosts are never removed.
 
 <storycode:copy id="f-238f66c701b0-ensurePlainDebugHost">
 /** Ask for a host for `path`. Idempotent; hosts are never removed. */
-export function ensurePlainDebugHost(path: string): void {
-  if (wanted.includes(path)) return;
-  wanted = [...wanted, path];
+export function ensurePlainDebugHost(value: string|PlainHost): void {
+  const host=typeof value==='string'?{id:value,path:value}:value;
+  if (wanted.some(held=>held.id===host.id)) return;
+  wanted = [...wanted, host];
   emit();
 }
 
@@ -256,7 +291,7 @@ export function ensurePlainDebugHost(path: string): void {
 ### `wantedPaths`
 
 <storycode:copy id="f-238f66c701b0-wantedPaths">
-function wantedPaths(): readonly string[] {
+function wantedPaths(): readonly PlainHost[] {
   return wanted;
 }
 
@@ -268,11 +303,14 @@ The session for `path`, or null until its host has mounted.
 
 <storycode:copy id="f-238f66c701b0-usePlainDebugSession">
 /** The session for `path`, or null until its host has mounted. */
-export function usePlainDebugSession(path: string): DebugSession | null {
-  useEffect(() => { if (path) ensurePlainDebugHost(path); }, [path]);
+export function usePlainDebugSession(path: string,identity?:object,launchCurrent?:()=>boolean,source?:DebugSourceCapability): DebugSession | null {
+  const owner=plainDebugOwner(path,identity);
+  if(source)owner.source=source;
+  if(identity)owner.launchCurrent=()=>owner.path===path&&(launchCurrent?.()??true);
+  useEffect(() => { if (path) ensurePlainDebugHost(owner); }, [owner.id,owner.path]);
   return useSyncExternalStore(
     subscribe,
-    () => sessions.get(path) ?? null,
+    () => sessions.get(owner.id) ?? null,
     () => null,
   );
 }
@@ -284,7 +322,7 @@ export function usePlainDebugSession(path: string): DebugSession | null {
 <storycode:copy id="f-238f66c701b0-resetPlainDebugHosts">
 /** Test seam. */
 export function resetPlainDebugHosts(): void {
-  wanted = [];
+  wanted = [];bufferHosts=new WeakMap();
   sessions.clear();
   emit();
 }
@@ -294,14 +332,19 @@ export function resetPlainDebugHosts(): void {
 ### `Host`
 
 <storycode:copy id="f-238f66c701b0-Host">
-function Host({ path }: { path: string }) {
-  const debug = useWorkspaceDebugger(path);
+function Host({ host }: {host:PlainHost}) {
+  const {path,id}=host;
+  const access=useMemo<DebugSourceCapability>(()=>({read:uri=>{
+    if(uri===documentUri(path)&&host.source)return host.source.read(uri);
+    const held=wanted.find(item=>documentUri(item.path)===uri&&item.source);return held?.source?.read(uri)??savedDebugSources.read(uri);
+  },subscribe:listener=>host.source?.subscribe?.(listener)??(()=>{})}),[host,path]);
+  const debug = useWorkspaceDebugger(path,id,()=>host.launchCurrent?.()??true,access);
   useEffect(() => {
-    sessions.set(path, debug);
+    sessions.set(id, debug);
     emit();
-  }, [path, debug]);
+  }, [id, debug]);
 
-  const active = ["starting", "running", "paused"].includes(debug.status);
+  const active = ["starting", "running", "paused", "unconfirmed", "stopping"].includes(debug.status);
   useEffect(() => {
     if (active) return retainCapturedContext(path);
   }, [path, active]);
@@ -312,9 +355,9 @@ function Host({ path }: { path: string }) {
   // the session ends; only this owner can clear what it published.
   useEffect(() => {
     const top = debug.frames[0],captured=top&&debug.captureFrame?.(top.id);
-    if (["idle", "finished", "failed"].includes(debug.status)) clearPreferredDebugSurface(path);
-    if (debug.status === "paused" && top && captured?.current() && revealPreferredDebugLocation(path, top)) {
-      publishPausedElsewhere(path, top.source && typeof top.source_line === "number" ? {path:top.source,line:top.source_line} : null);
+    if (["idle", "finished", "failed"].includes(debug.status)) clearPreferredDebugSurface(id);
+    if (debug.status === "paused" && top && captured?.current() && revealPreferredDebugLocation(id, top)) {
+      publishPausedElsewhere(id, top.source && typeof top.source_line === "number" ? {path:top.source,line:top.source_line} : null);
       return;
     }
     if (
@@ -324,15 +367,15 @@ function Host({ path }: { path: string }) {
       (top.source?.startsWith("hick-project:///") || isWorkspaceSource(top.source)) &&
       typeof top.source_line === "number"
     ) {
-      publishPausedElsewhere(path, { path: top.source!, line: top.source_line });
+      publishPausedElsewhere(id, { path: top.source!, line: top.source_line });
       if (top.source!.startsWith("hick-project:///")) {
-        void openCapturedCode({uri:top.source!,range:{start:{line:top.source_line,character:0},end:{line:top.source_line,character:0}}}, path,captured.current).catch(() => {});
+        void openCapturedCode({uri:top.source!,range:{start:{line:top.source_line,character:0},end:{line:top.source_line,character:0}}}, id,captured.current).catch(() => {});
       } else openCapturedLocation(top.source!,top.source_line+1,top.source_hash??null,captured.current,top.source_reference);
     } else {
-      publishPausedElsewhere(path, null);
+      publishPausedElsewhere(id, null);
     }
-  }, [debug.status, debug.frames, path]);
-  return <ProjectDebugSurface owner={path} debug={debug}/>;
+  }, [debug.status, debug.frames, path,id]);
+  return <ProjectDebugSurface owner={id} debug={debug}/>;
 }
 
 </storycode:copy>
@@ -348,8 +391,8 @@ export function PlainDebugHosts() {
   return (
     <>
       <LaunchProfiles />
-      {paths.map((path) => (
-        <Host key={path} path={path} />
+      {paths.map((host) => (
+        <Host key={host.id} host={host} />
       ))}
     </>
   );
@@ -376,20 +419,21 @@ Borrow execution controls from the session that opened this callee.
 
 <storycode:copy id="f-238f66c701b0-useFollowingDebugSession">
 /** Borrow execution controls from the session that opened this callee. */
-export function useFollowingDebugSession(path: string, explicitOwner?: string): DebugSession | null {
-  const own = usePlainDebugSession(path);
+export function useFollowingDebugSession(path: string, explicitOwner?: string,identity?:object,launchCurrent?:()=>boolean,sourceCapability?:DebugSourceCapability): DebugSession | null {
+  const own = usePlainDebugSession(path,identity,launchCurrent,sourceCapability);
+  const ownId=plainDebugOwner(path,identity).id;
   const key=capturedSourceKey(path);
   const saved=useSyncExternalStore(subscribeBreakpointPreferences,()=>breakpointPreferences(key),()=>undefined);
   const ownRef=useRef(own);ownRef.current=own;
-  const ownActive=!!own && ["starting","paused","running"].includes(own.status);
-  useEffect(()=>{if(saved && ownRef.current && !ownActive)ownRef.current.replaceBreakpoints(saved);},[saved,key,!!own,ownActive]);
+  const ownActive=liveDebug(own);
+  useEffect(()=>{if(saved && ownRef.current && !ownActive)ownRef.current.replaceBreakpoints(saved,key??undefined);},[saved,key,!!own,ownActive]);
   const elsewhere = usePausedElsewhere();
   const followed = useRef({path, owner:explicitOwner});
   if (followed.current.path !== path) followed.current = {path, owner:explicitOwner};
   if (explicitOwner) followed.current.owner = explicitOwner;
-  if (elsewhere?.path === path) followed.current.owner = elsewhere.owner;
+  if (!ownActive&&elsewhere?.path === path) followed.current.owner = elsewhere.owner;
   const borrowed = useSyncExternalStore(subscribe, () => sessions.get(followed.current.owner ?? "") ?? null, () => null);
-  const source = path.startsWith("hick-project:///") ? path : `hick:///${path}`;
+  const source = documentUri(path);
   const active = borrowed && ["paused","running"].includes(borrowed.status) && followed.current.owner !== path;
   useEffect(()=> {
     if (!active || !own || !borrowed) return;
@@ -399,23 +443,26 @@ export function useFollowingDebugSession(path: string, explicitOwner?: string): 
   },[active,borrowed,source,own]);
   const direct = useMemo(()=>own ? {...own,start:(program?:string, sources: Record<string, import("./useDebugger").HeldBreakpoint[]> = {}, project?: string, profile?: import("./launchProfiles").LaunchSelection)=> {
     const captured = /^hick-project:\/\/\/[^/]+\//.exec(path)?.[0];
-    const initial = Object.fromEntries([...sessions].filter(([other])=>other!==path &&
+    const initial = Object.fromEntries([...sessions].filter(([owner])=>owner!==ownId).map(([owner,session])=>[wanted.find(host=>host.id===owner)?.path??owner,session] as const).filter(([other])=>other!==path &&
       isDebuggable(languageFromPath(other)) && (captured ? other.startsWith(captured) : isWorkspaceSource(other)))
-      .map(([other,session])=>[other.startsWith("hick-project:///")?other:`hick:///${other}`,session.breakpoints]));
+      .map(([other,session])=>[documentUri(other),session.breakpoints]));
     if(captured)for(const file of capturedFiles(path)) {
-      const uri=`${captured}${file}`, held=breakpointPreferences(capturedSourceKey(uri));
+      const uri=capturedDocumentUri(captured,file), held=breakpointPreferences(capturedSourceKey(uri));
       if(uri!==path && held)initial[uri]=held;
     }
-    own.start(program,{...initial,...sources},project,profile);
-  }} : null,[own,path]);
-  if (!borrowed || !["starting", "running", "paused"].includes(borrowed.status) || followed.current.owner === path) return preferences(direct,key);
+    // Only model-captured intentions can cross controller boundaries. A legacy
+    // path/line preference remains readable but cannot borrow this launch's bytes.
+    const origins=Object.assign({},...[...sessions].filter(([owner])=>owner!==ownId).map(([,session])=>session.capturedBreakpointIntents?.()??{}));
+    own.start(program,{...initial,...sources},project,profile,origins);
+  }} : null,[own,path,ownId]);
+  if (ownActive||!borrowed || !["starting", "running", "paused", "unconfirmed", "stopping"].includes(borrowed.status) || followed.current.owner === ownId) return preferences(direct,key);
   const frame = borrowed.frames.find(f => f.source === path);
   const pausedLine = frame?.source_line ?? (elsewhere?.path === path ? elsewhere.line : null);
   const breakpoints = borrowed.sourceBreakpoints[source] ?? own?.breakpoints ?? [];
   return preferences({ ...borrowed, pausedLine, program: borrowed.program ?? followed.current.owner ?? null,
     // These protocol verbs address the launch file, not the viewed callee.
     // Never send a callee's line number as a line in the launch file.
-    capabilities: borrowed.capabilities ? {...borrowed.capabilities, goto_targets:false} : null,
+    capabilities: borrowed.capabilities ? {...borrowed.capabilities, goto_targets:false,run_to:false} : null,
     jumpTo: () => {}, runTo: () => {},
     frames: borrowed.frames.map(f => ({ ...f, in_document: f.source === path, line: f.source === path ? (f.source_line ?? null) : null })),
     breakpoints,
@@ -672,7 +719,7 @@ export function ProjectDebugSurface({owner, debug}: {owner:string; debug:DebugSe
   },[surface,debug.status]);
   if (!surface?.view.dom.isConnected || !["running","paused"].includes(debug.status)) return null;
   return <>
-    <DebugStrip {...debug} locationActions={<ProjectDebugLinks owner={owner} debug={debug}/>} capabilities={debug.capabilities ? {...debug.capabilities, goto_targets:false} : null} editorView={surface.view} pausedLine={null}
+    <DebugStrip {...debug} locationActions={<ProjectDebugLinks owner={owner} debug={debug}/>} capabilities={debug.capabilities ? {...debug.capabilities, goto_targets:false,run_to:false} : null} editorView={surface.view} pausedLine={null}
       onSelectFrame={id => {debug.selectFrame(id); const frame=debug.frames.find(f=>f.id===id); if(frame)revealPreferredDebugLocation(owner,frame);}}
       onStep={debug.step} onStart={() => debug.start()} onStop={debug.stop} onJumpHere={() => {}}
       onAddWatch={() => { void prompt.askText("Expression to watch:", "", { agent: true }).then(expression => { if(expression) debug.addWatch(expression); }); }} onToggleExceptionFilter={debug.toggleExceptionFilter} onRemoveWatch={debug.removeWatch} />
@@ -756,8 +803,8 @@ Resolve a profile independently from the source whose breakpoints are primary.
 <storycode:copy id="f-05e2104e1cc1-ProfileSelection">
 //! Resolve a profile independently from the source whose breakpoints are primary.
 use super::*;
-use crate::launch_profiles::{self, Profile};
-use hick_lang::{ProjectEntry, ProjectTree};
+use crate::launch_profiles::{self, LaunchInputs, PhysicalSources, Profile};
+use hick_lang::ProjectEntry;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tokio::io::{AsyncBufReadExt, BufReader};
@@ -768,14 +815,13 @@ pub struct ProfileSelection {
     pub id: String,
     pub fingerprint: String,
 }
-
 </storycode:copy>
 <a id="f-05e2104e1cc1-LaunchContext"></a>
 ### `LaunchContext`
 
 <storycode:copy id="f-05e2104e1cc1-LaunchContext">
 pub struct LaunchContext {
-    pub tree: ProjectTree,
+    pub inputs: LaunchInputs,
     pub root: PathBuf,
     pub viewed: String,
     identity: Identity,
@@ -796,9 +842,16 @@ enum Identity {
 
 <storycode:copy id="f-05e2104e1cc1-impl-LaunchContext">
 impl LaunchContext {
+    pub fn notices(&self) -> &[String] {
+        self.inputs.inventory().notices()
+    }
     pub fn fingerprint(&self) -> String {
         let mut h = Sha256::new();
-        for (path, entry) in self.tree.entries() {
+        h.update(match &self.inputs {
+            LaunchInputs::Workspace(_) => b"physical".as_slice(),
+            LaunchInputs::Constructed(_) => b"constructed".as_slice(),
+        });
+        for (path, entry) in self.inputs.inventory().entries() {
             h.update((path.len() as u64).to_le_bytes());
             h.update(path.as_bytes());
             h.update((entry.bytes.len() as u64).to_le_bytes());
@@ -820,7 +873,8 @@ impl LaunchContext {
     pub fn check_expected(&self, code: Option<&str>, document: Option<&str>) -> Result<()> {
         if let Some(code) = code {
             anyhow::ensure!(
-                self.tree
+                self.inputs
+                    .inventory()
                     .get(&self.viewed)
                     .is_some_and(|e| e.bytes.as_ref() == code.as_bytes()),
                 "The saved file differs from the displayed code. Save or reload it before choosing a launch profile."
@@ -835,30 +889,50 @@ impl LaunchContext {
         Ok(())
     }
     pub fn profiles(&self) -> Result<Vec<Profile>> {
-        launch_profiles::discover(&self.tree).map_err(anyhow::Error::msg)
+        launch_profiles::discover(self.inputs.inventory()).map_err(anyhow::Error::msg)
     }
     pub fn selected(&self, selection: &ProfileSelection) -> Result<Profile> {
         anyhow::ensure!(
             self.fingerprint() == selection.fingerprint,
             "The project changed after choosing a launch profile. Open Launch profiles and choose again."
         );
-        launch_profiles::select(&self.tree, Some(&selection.id)).map_err(anyhow::Error::msg)
+        launch_profiles::select(self.inputs.inventory(), Some(&selection.id))
+            .map_err(anyhow::Error::msg)
     }
     pub fn prepare(&self) -> Result<(PathBuf, Option<tempfile::TempDir>)> {
         if matches!(self.identity, Identity::Plain(_)) {
             return Ok((self.root.clone(), None));
         }
         let scratch = tempfile::tempdir()?;
-        hick_lsp::write_tree(scratch.path(), &self.tree).map_err(anyhow::Error::msg)?;
+        let tree = self
+            .inputs
+            .project()
+            .context("Launch inputs are not a constructed project")?;
+        hick_lsp::write_tree(scratch.path(), tree).map_err(anyhow::Error::msg)?;
         Ok((scratch.path().to_path_buf(), Some(scratch)))
     }
     fn mapping(&self, root: &Path) -> Result<Mapping> {
         match &self.identity {
-            Identity::Captured(id) => Mapping::captured(&self.tree, root, id, &self.viewed),
+            Identity::Captured(id) => Mapping::captured(
+                self.inputs
+                    .project()
+                    .context("Captured launch has no constructed project")?,
+                root,
+                id,
+                &self.viewed,
+            ),
             Identity::Document(path, state, raw_source) => {
                 Ok(Mapping::for_state(path, state, root)?.with_observation_source(raw_source))
             }
-            Identity::Plain(path) => Ok(Mapping::identity(path)),
+            Identity::Plain(path) => Ok(Mapping::identity(path).with_plain_sources(
+                root,
+                self.inputs
+                    .inventory()
+                    .entries()
+                    .iter()
+                    .filter(|(_, entry)| entry.kind == hick_lang::EntryKind::File)
+                    .map(|(path, entry)| (path.as_str(), entry.bytes.as_ref())),
+            )),
         }
     }
 }
@@ -881,19 +955,13 @@ impl Registry {
                 .get(&tower_lsp::lsp_types::Url::parse(uri)?)
                 .map_err(anyhow::Error::msg)?;
             return Ok(LaunchContext {
-                tree: capture.tree.clone(),
+                inputs: LaunchInputs::Constructed(capture.tree.clone()),
                 root: root.into(),
                 viewed: path,
                 identity: Identity::Captured(id),
             });
         }
-        let relative = uri.strip_prefix("hick:///").unwrap_or(uri);
-        hick_lang::validate_project_path(relative).map_err(anyhow::Error::msg)?;
-        let path = root.join(relative).canonicalize()?;
-        anyhow::ensure!(
-            path.starts_with(root.canonicalize()?),
-            "Launch source is outside the open folder. Choose a file inside this workspace."
-        );
+        let path = source_document(root, uri)?;
         if is_document(&path) {
             let source = std::fs::read_to_string(&path)?;
             let endpoint =
@@ -929,7 +997,7 @@ impl Registry {
                     .into()
             };
             return Ok(LaunchContext {
-                tree,
+                inputs: LaunchInputs::Constructed(tree),
                 root: path.parent().unwrap_or(root).into(),
                 viewed: target,
                 identity: Identity::Document(path, Box::new(state), source),
@@ -937,24 +1005,40 @@ impl Registry {
         }
         // Workspace discovery respects gitignore, never follows directory symlinks,
         // and reads source/manifests only. It does not materialize a second workspace.
-        let mut tree = ProjectTree::default();
+        let mut tree = PhysicalSources::default();
         for item in ignore::WalkBuilder::new(root)
             .hidden(false)
             .follow_links(false)
             .build()
         {
-            let item = item?;
+            let item = match item {
+                Ok(item) => item,
+                Err(error) => {
+                    tree.skip(format!("Some launch inputs could not be observed: {error}"));
+                    continue;
+                }
+            };
             if !item.file_type().is_some_and(|t| t.is_file()) {
                 continue;
             }
-            let relative = item
-                .path()
-                .strip_prefix(root)?
-                .to_string_lossy()
-                .replace('\\', "/");
-            let relevant = [".py", ".js", ".mjs", ".cjs", ".rs", ".go", ".cs", ".csproj"]
-                .iter()
-                .any(|e| relative.ends_with(e))
+            let relative_path = item.path().strip_prefix(root)?;
+            let Some(relative) = relative_path.to_str() else {
+                tree.skip(format!(
+                    "Skipped a non-UTF-8 physical source name: {:?}",
+                    relative_path
+                ));
+                continue;
+            };
+            #[cfg(windows)]
+            let relative = relative.replace('\\', "/");
+            if let Err(error) = launch_profiles::inventory::validate_workspace_path(&relative) {
+                tree.skip(error);
+                continue;
+            }
+            let relevant = hick_dap::language_of(std::path::Path::new(&relative)).is_some()
+                || [".py", ".js", ".mjs", ".cjs", ".rs", ".go", ".cs", ".csproj"]
+                    .iter()
+                    .any(|e| relative.ends_with(e))
                 || [
                     launch_profiles::CONFIG,
                     "package.json",
@@ -965,8 +1049,17 @@ impl Registry {
                 ]
                 .contains(&item.file_name().to_string_lossy().as_ref());
             if relevant {
-                tree.insert(&relative, ProjectEntry::file(std::fs::read(item.path())?))
-                    .map_err(anyhow::Error::msg)?;
+                match std::fs::read(item.path()) {
+                    Ok(bytes) => {
+                        tree.insert(&relative, ProjectEntry::file(bytes))
+                            .map_err(anyhow::Error::msg)?;
+                    }
+                    Err(error) => {
+                        tree.skip(format!(
+                            "Source {relative:?} was not captured for launch discovery: {error}"
+                        ));
+                    }
+                }
             }
         }
         // Hidden config remains available even if the user's ignore rules hide it.
@@ -985,12 +1078,15 @@ impl Registry {
         }
         let viewed = path
             .strip_prefix(root.canonicalize()?)?
-            .to_string_lossy()
-            .replace('\\', "/");
+            .to_str()
+            .ok_or_else(|| anyhow::anyhow!("The viewed source name is not UTF-8"))?
+            .to_owned();
+        #[cfg(windows)]
+        let viewed = viewed.replace('\\', "/");
         tree.insert(&viewed, ProjectEntry::file(std::fs::read(&path)?))
             .map_err(anyhow::Error::msg)?;
         Ok(LaunchContext {
-            tree,
+            inputs: LaunchInputs::Workspace(tree),
             root: root.into(),
             viewed,
             identity: Identity::Plain(path),
@@ -1005,6 +1101,7 @@ impl Registry {
         sources: &[hick_dap::SourceBreakpoints],
         on_build: &mut (dyn FnMut(BuildOutput) + Send),
     ) -> Result<(String, Arc<Live>, Vec<BreakpointStatus>)> {
+        self.ensure_session_namespace()?;
         let profile = context.selected(selection)?;
         anyhow::ensure!(
             profile.can_debug,
@@ -1066,11 +1163,71 @@ impl Registry {
             sources,
         )
         .await?;
-        Ok(self.register(session, scratch, statuses).await)
+        self.register(session, scratch, statuses).await
     }
 }
-
 </storycode:copy>
+<a id="debug-source-document-identity"></a>
+### Decode a source identity once, then confine its physical path
+
+A URI path is not a filesystem spelling. Decode percent escapes exactly once so
+literal percent signs, question marks and Unicode keep their identity. Refuse
+malformed escapes, query/fragment ambiguity, traversal and symlink escapes before
+using the same resolver for profile discovery, launch and live breakpoints.
+Captured-project URIs remain owned by the immutable session mapping.
+
+<storycode:copy id="debug-source-document-identity">
+pub(crate) fn source_document(root: &Path, source: &str) -> Result<PathBuf> {
+    if source.starts_with("hick-project:///") {
+        return Ok(PathBuf::from(source));
+    }
+    let relative = if let Some(encoded) = source.strip_prefix("hick:///") {
+        anyhow::ensure!(
+            !encoded.contains(['?', '#']),
+            "Encode literal query/fragment characters in the source URI, then request Debug again."
+        );
+        let input = encoded.as_bytes();
+        let mut bytes = Vec::with_capacity(input.len());
+        let mut at = 0;
+        while at < input.len() {
+            if input[at] == b'%' {
+                let digits = input.get(at + 1..at + 3).context(
+                    "Malformed source URI escape. Encode its literal percent signs and try again.",
+                )?;
+                let hex = |b: u8| (b as char).to_digit(16).map(|n| n as u8);
+                let byte = hex(digits[0]).zip(hex(digits[1])).map(|(a,b)|a*16+b).context("Malformed source URI escape. Encode its literal percent signs and try again.")?;
+                bytes.push(byte);
+                at += 3;
+            } else {
+                bytes.push(input[at]);
+                at += 1;
+            }
+        }
+        String::from_utf8(bytes)
+            .context("Source URI is not valid UTF-8. Choose a workspace source again.")?
+    } else {
+        source.to_owned()
+    };
+    launch_profiles::inventory::validate_workspace_path(&relative).map_err(anyhow::Error::msg)?;
+    let path = root.join(&relative).canonicalize().with_context(|| {
+        format!("Cannot resolve source {relative}. Save or reopen it before Debug.")
+    })?;
+    anyhow::ensure!(
+        path.to_str().is_some(),
+        "The adapter cannot represent this exact source path as UTF-8. Choose a supported source path."
+    );
+    anyhow::ensure!(
+        path.starts_with(root.canonicalize()?),
+        "Debug source is outside the open folder. Choose a workspace source."
+    );
+    anyhow::ensure!(
+        std::fs::symlink_metadata(&path)?.is_file(),
+        "Debug source must be a regular file. Choose a source file."
+    );
+    Ok(path)
+}
+</storycode:copy>
+
 <a id="f-05e2104e1cc1-safe_cwd"></a>
 ### `safe_cwd`
 
@@ -1134,7 +1291,7 @@ async fn run_build(
 
 The selections below preserve the original byte order. Narrative reading order does not change the output.
 
-<storycode:file path="crates/hickory-cli/src/debug_profiles.rs"><storycode:paste select="#f-05e2104e1cc1-ProfileSelection"/><storycode:paste select="#f-05e2104e1cc1-LaunchContext"/><storycode:paste select="#f-05e2104e1cc1-Identity"/><storycode:paste select="#f-05e2104e1cc1-impl-LaunchContext"/><storycode:paste select="#f-05e2104e1cc1-impl-Registry"/><storycode:paste select="#f-05e2104e1cc1-safe_cwd"/><storycode:paste select="#f-05e2104e1cc1-run_build"/></storycode:file>
+<storycode:file path="crates/hickory-cli/src/debug_profiles.rs"><storycode:paste select="#f-05e2104e1cc1-ProfileSelection"/><storycode:paste select="#f-05e2104e1cc1-LaunchContext"/><storycode:paste select="#f-05e2104e1cc1-Identity"/><storycode:paste select="#f-05e2104e1cc1-impl-LaunchContext"/><storycode:paste select="#f-05e2104e1cc1-impl-Registry"/><storycode:paste select="#debug-source-document-identity"/><storycode:paste select="#f-05e2104e1cc1-safe_cwd"/><storycode:paste select="#f-05e2104e1cc1-run_build"/></storycode:file>
 
 <a id="output-01e001976095"></a>
 ## `crates/hickory-cli/src/launch_profiles.rs`
@@ -1148,12 +1305,14 @@ Launch discovery is read-only. Providers and manual profiles produce one model.
 
 <storycode:copy id="f-01e001976095-CONFIG">
 //! Launch discovery is read-only. Providers and manual profiles produce one model.
-use hick_lang::{EntryKind, ProjectTree};
+use hick_lang::EntryKind;
+#[path = "launch_inventory.rs"]
+pub mod inventory;
+pub use inventory::{LaunchInputs, PhysicalSources, SourceInventory};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
 pub const CONFIG: &str = ".hick-launch.json";
-
 </storycode:copy>
 <a id="f-01e001976095-Definition"></a>
 ### `Definition`
@@ -1212,7 +1371,6 @@ struct Config {
     version: u32,
     profiles: Vec<Definition>,
 }
-
 </storycode:copy>
 <a id="f-01e001976095-Provider"></a>
 ### `Provider`
@@ -1222,7 +1380,7 @@ Each provider receives the same immutable project, without starting tools.
 <storycode:copy id="f-01e001976095-Provider">
 /// Each provider receives the same immutable project, without starting tools.
 pub trait Provider {
-    fn discover(&self, tree: &ProjectTree) -> Result<Vec<Profile>, String>;
+    fn discover(&self, tree: &dyn SourceInventory) -> Result<Vec<Profile>, String>;
 }
 </storycode:copy>
 <a id="f-01e001976095-Applications"></a>
@@ -1242,7 +1400,6 @@ pub struct PackageScripts;
 
 <storycode:copy id="f-01e001976095-PythonTests">
 pub struct PythonTests;
-
 </storycode:copy>
 <a id="f-01e001976095-profile"></a>
 ### `profile`
@@ -1298,7 +1455,7 @@ pub fn command_profile(
 ### `text`
 
 <storycode:copy id="f-01e001976095-text">
-fn text<'a>(tree: &'a ProjectTree, path: &str) -> Option<&'a str> {
+fn text<'a>(tree: &'a dyn SourceInventory, path: &str) -> Option<&'a str> {
     let entry = tree.get(path)?;
     (entry.kind == EntryKind::File)
         .then(|| std::str::from_utf8(&entry.bytes).ok())
@@ -1313,7 +1470,7 @@ Conservative syntax-shaped discovery, not a claim about call-graph reachability.
 <storycode:copy id="f-01e001976095-impl-Provider-for-Applications">
 /// Conservative syntax-shaped discovery, not a claim about call-graph reachability.
 impl Provider for Applications {
-    fn discover(&self, tree: &ProjectTree) -> Result<Vec<Profile>, String> {
+    fn discover(&self, tree: &dyn SourceInventory) -> Result<Vec<Profile>, String> {
         let mut found = vec![];
         for path in tree.entries().keys() {
             let Some(source) = text(tree, path) else {
@@ -1391,7 +1548,7 @@ impl Provider for Applications {
 
 <storycode:copy id="f-01e001976095-impl-Provider-for-PackageScripts">
 impl Provider for PackageScripts {
-    fn discover(&self, tree: &ProjectTree) -> Result<Vec<Profile>, String> {
+    fn discover(&self, tree: &dyn SourceInventory) -> Result<Vec<Profile>, String> {
         let mut found = vec![];
         for path in tree
             .entries()
@@ -1426,7 +1583,7 @@ impl Provider for PackageScripts {
 
 <storycode:copy id="f-01e001976095-impl-Provider-for-PythonTests">
 impl Provider for PythonTests {
-    fn discover(&self, tree: &ProjectTree) -> Result<Vec<Profile>, String> {
+    fn discover(&self, tree: &dyn SourceInventory) -> Result<Vec<Profile>, String> {
         let mut found = vec![];
         for path in tree.entries().keys().filter(|p| p.ends_with(".py")) {
             let Some(source) = text(tree, path) else {
@@ -1462,14 +1619,13 @@ impl Provider for PythonTests {
         Ok(found)
     }
 }
-
 </storycode:copy>
 <a id="f-01e001976095-discover_with"></a>
 ### `discover_with`
 
 <storycode:copy id="f-01e001976095-discover_with">
 pub fn discover_with(
-    tree: &ProjectTree,
+    tree: &dyn SourceInventory,
     providers: &[&dyn Provider],
 ) -> Result<Vec<Profile>, String> {
     let mut found = BTreeMap::new();
@@ -1526,7 +1682,7 @@ pub fn discover_with(
 ### `discover`
 
 <storycode:copy id="f-01e001976095-discover">
-pub fn discover(tree: &ProjectTree) -> Result<Vec<Profile>, String> {
+pub fn discover(tree: &dyn SourceInventory) -> Result<Vec<Profile>, String> {
     discover_with(tree, &[&Applications, &PackageScripts, &PythonTests])
 }
 </storycode:copy>
@@ -1534,7 +1690,7 @@ pub fn discover(tree: &ProjectTree) -> Result<Vec<Profile>, String> {
 ### `select`
 
 <storycode:copy id="f-01e001976095-select">
-pub fn select(tree: &ProjectTree, id: Option<&str>) -> Result<Profile, String> {
+pub fn select(tree: &dyn SourceInventory, id: Option<&str>) -> Result<Profile, String> {
     let profiles = discover(tree)?;
     if let Some(id) = id {
         return profiles.into_iter().find(|p| p.definition.id == id).ok_or_else(|| format!("Launch profile {id} is absent from this project version. Choose another profile."));
@@ -1556,7 +1712,7 @@ pub fn select(tree: &ProjectTree, id: Option<&str>) -> Result<Profile, String> {
 ### `validate`
 
 <storycode:copy id="f-01e001976095-validate">
-fn validate(p: &Definition, tree: &ProjectTree, origin: &str) -> Result<(), String> {
+fn validate(p: &Definition, tree: &dyn SourceInventory, origin: &str) -> Result<(), String> {
     let fail = |message: &str| format!("Launch profile {} from {origin}: {message}", p.id);
     if p.id.trim().is_empty() || p.name.trim().is_empty() {
         return Err(fail("id and name cannot be empty"));
@@ -1565,7 +1721,7 @@ fn validate(p: &Definition, tree: &ProjectTree, origin: &str) -> Result<(), Stri
         return Err(fail("specify exactly one of program or command"));
     }
     if let Some(path) = &p.program {
-        hick_lang::validate_project_path(path).map_err(|e| fail(&e))?;
+        tree.validate_path(path).map_err(|e| fail(&e))?;
         if tree.get(path).is_none_or(|e| e.kind != EntryKind::File) {
             return Err(fail(
                 "program must name a regular file in this project version",
@@ -1573,10 +1729,10 @@ fn validate(p: &Definition, tree: &ProjectTree, origin: &str) -> Result<(), Stri
         }
     }
     if let Some(path) = &p.artifact {
-        hick_lang::validate_project_path(path).map_err(|e| fail(&e))?;
+        tree.validate_path(path).map_err(|e| fail(&e))?;
     }
     if p.cwd != "." {
-        hick_lang::validate_project_path(&p.cwd).map_err(|e| fail(&e))?;
+        tree.validate_path(&p.cwd).map_err(|e| fail(&e))?;
     }
     if p.command.first().is_some_and(|s| s.is_empty())
         || p.build.first().is_some_and(|s| s.is_empty())
@@ -1601,7 +1757,6 @@ fn validate(p: &Definition, tree: &ProjectTree, origin: &str) -> Result<(), Stri
     }
     Ok(())
 }
-
 </storycode:copy>
 <a id="f-01e001976095-impl-Profile"></a>
 ### `impl-Profile`
@@ -1725,7 +1880,7 @@ pub async fn list(
         .profiles()
         .map_err(|e| ApiError::unprocessable(format!("{e:#}")))?;
     Ok(Json(
-        json!({"debug_protocol":2,"profiles":profiles,"fingerprint":context.fingerprint(),"viewed":context.viewed,"workspace":state.index.root(),"configuration":crate::launch_profiles::CONFIG}),
+        json!({"debug_protocol":3,"notices":context.notices(),"profiles":profiles,"fingerprint":context.fingerprint(),"viewed":context.viewed,"workspace":state.index.root(),"configuration":crate::launch_profiles::CONFIG}),
     ))
 }
 </storycode:copy>
@@ -1755,7 +1910,6 @@ pub async fn run(State(state): State<LocalState>, Json(body): Json<Run>) -> ApiR
         .map(|s| Json(json!(s)))
         .map_err(|e| ApiError::unprocessable(format!("{e:#}")))
 }
-
 </storycode:copy>
 <a id="f-97a426cc0869-open_run"></a>
 ### `open_run`
@@ -1800,7 +1954,6 @@ pub(super) fn open_run(
     });
     Ok(summary)
 }
-
 </storycode:copy>
 <a id="f-97a426cc0869-terminal_command"></a>
 ### `terminal_command`
@@ -2018,7 +2171,7 @@ struct ExampleProvider;
 
 <storycode:copy id="f-7149d905428b-impl-Provider-for-ExampleProvider">
 impl Provider for ExampleProvider {
-    fn discover(&self, _: &ProjectTree) -> Result<Vec<Profile>, String> {
+    fn discover(&self, _: &dyn launch_profiles::SourceInventory) -> Result<Vec<Profile>, String> {
         Ok(vec![launch_profiles::command_profile(
             "custom".into(),
             "Provider target".into(),

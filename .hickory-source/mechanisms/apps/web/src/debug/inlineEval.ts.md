@@ -148,7 +148,10 @@ export function inlineEval(options: DebugEditorOptions, paused: StateField<numbe
   const current = (view: EditorView) => { const widget = widgets.get(view); return widget?.current() ? widget : undefined; };
   const id = crypto.randomUUID(), visible = (view: EditorView) => !!current(view), expanded = (view: EditorView) => !!current(view)?.shown();
   const unavailable: UiOutcome = { status: "unavailable", reason: "Inline evaluation is closed or its source/stop/frame retired" };
-  return [tick, EditorView.decorations.compute(["doc", paused, tick], state => {
+  // The collapsed affordance must occupy the code's existing line box. Native
+  // button padding otherwise adds eight pixels that disappear when source proof
+  // retires, moving every later line and CodeMirror's retained scroll anchor.
+  return [EditorView.baseTheme({'.cm-eval-toggle':{font:'inherit',lineHeight:'inherit',padding:'0',border:'0',background:'transparent',color:'GrayText',cursor:'pointer',verticalAlign:'baseline'}}),tick, EditorView.decorations.compute(["doc", paused, tick], state => {
     if (!options.onEvaluate) return Decoration.none;
     const line = state.field(paused);
     if (line === null || line < 0 || line >= state.doc.lines) return Decoration.none;

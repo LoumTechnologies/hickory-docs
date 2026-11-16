@@ -14,6 +14,7 @@ Each client reads text before requesting optional capabilities. A save uses the 
 <ui:include file="apps/web/src/simple/layout.ts.md" />
 <ui:include file="apps/web/src/simple/buffers.ts.md" />
 <ui:include file="apps/web/src/simple/Document.tsx.md" />
+<ui:include file="editor-mounts.md" />
 <ui:include file="apps/web/src/simple/Agent.tsx.md" />
 <ui:include file="apps/web/src/simple/App.tsx.md" />
 <ui:include file="apps/web/src/simple/main.tsx.md" />
@@ -50,6 +51,7 @@ Each client reads text before requesting optional capabilities. A save uses the 
 <ui:include file=".github/workflows/simple-frontends.yml.md" />
 <ui:include file="scripts/simple-browser-driver.mjs.md" />
 <ui:include file="scripts/test-simple-browser.py.md" />
+<ui:include file="scripts/test-native-debug.py.md" />
 <ui:include file="apps/web/src/simple/Terminal.tsx.md" />
 <ui:include file="apps/apple-simple/Sources/TerminalPane.swift.md" />
 <ui:include file="apps/android-simple/app/src/main/java/com/hickorydocs/simple/TerminalPane.kt.md" />
@@ -227,5 +229,9 @@ Each client reads text before requesting optional capabilities. A save uses the 
 <ui:include file="source-recovery.md" />
 
 <ui:include file="resource-editors.md" />
+
+<ui:include file="debugger-source-guards-browser.md" />
+
+<ui:include file="debugger-values-browser.md" />
 
 </ui:doc>

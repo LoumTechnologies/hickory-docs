@@ -1,8 +1,9 @@
-import { useId, useRef, useState, type ReactNode } from "react";
+import { useId, useRef, useState,useEffect, type ReactNode } from "react";
 import { UiActionsVisibility, useUiCommands, useUiPendingHumanActions } from "../lib/uiActionBridge";
 
 /** Occasional tab actions stay discoverable without occupying the toolbar. */
-export function MoreActions({ children, label = "More actions", glyph = "⚙" }: { children: ReactNode; label?: string; glyph?: ReactNode }) {
+export function MoreActions({ children, label = "More actions", glyph = "⚙",retainOnAction=false,onOpenChange }: { children: ReactNode; label?: string; glyph?: ReactNode;retainOnAction?:boolean;onOpenChange?:(open:boolean)=>void }) {
+  const onVisibility=useRef(onOpenChange);onVisibility.current=onOpenChange;
   const id = useId();
   const details = useRef<HTMLDetailsElement>(null);
   const [open, setOpen] = useState(false);
@@ -18,11 +19,12 @@ export function MoreActions({ children, label = "More actions", glyph = "⚙" }:
       if (!details.current) return { status: "unavailable", reason: "Menu was closed" };
       const next = !details.current.open;
       epoch.current++;
-      details.current.open = next; setOpen(next); setError("");
+      details.current.open = next; setOpen(next); setError("");onVisibility.current?.(next);
       return { status: "completed", value: { open: next, coverage: "Disclosed menu children use their own registered descriptors" } };
     },
   } }]);
-  const close = () => { if (details.current) details.current.open = false; setOpen(false); };
+  const close = () => {const wasOpen=details.current?.open;if(details.current)details.current.open=false;setOpen(false);if(wasOpen)onVisibility.current?.(false);};
+  useEffect(()=>()=>{if(details.current?.open)onVisibility.current?.(false);},[]);
   return <details ref={details} open={open} className="more-actions" onClickCapture={() => { beforeClick.current = new Set(pending().map(request => request.id)); }} onKeyDown={event => {
     if (event.key === "Escape") { close(); details.current?.querySelector("summary")?.focus(); event.stopPropagation(); }
   }}><summary aria-label={label} onClick={event => {
@@ -30,7 +32,7 @@ export function MoreActions({ children, label = "More actions", glyph = "⚙" }:
   }} title={label}>{glyph}</summary>
     {error && <span role="alert">{error}</span>}
     <div className="more-actions__items" onClick={event => {
-      if (!(event.target as HTMLElement).closest("button")) return;
+      if (retainOnAction||!(event.target as HTMLElement).closest("button")) return;
       const generation = epoch.current;
       const requests = pending().filter(request => !beforeClick.current.has(request.id));
       if (!requests.length) close();

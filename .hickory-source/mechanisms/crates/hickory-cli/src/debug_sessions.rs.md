@@ -67,14 +67,13 @@ mod reading;
 ### `use_declaration`
 
 <storycode:copy id="f-24a9413a429b-use_declaration">
-pub(crate) use profiles::safe_cwd;
+pub(crate) use profiles::{safe_cwd, source_document};
 </storycode:copy>
 <a id="f-24a9413a429b-use_declaration-2"></a>
 ### `use_declaration`
 
 <storycode:copy id="f-24a9413a429b-use_declaration-2">
 pub use profiles::{LaunchContext, ProfileSelection};
-
 </storycode:copy>
 <a id="f-24a9413a429b-IDLE_TIMEOUT"></a>
 ### `IDLE_TIMEOUT`
@@ -84,7 +83,6 @@ How long a session may sit untouched before it is ended for us.
 <storycode:copy id="f-24a9413a429b-IDLE_TIMEOUT">
 /// How long a session may sit untouched before it is ended for us.
 pub const IDLE_TIMEOUT: Duration = Duration::from_secs(15 * 60);
-
 </storycode:copy>
 <a id="f-24a9413a429b-Live"></a>
 ### `Live`
@@ -99,7 +97,15 @@ A started session, plus what a caller needs to keep talking to it.
 
 <storycode:copy id="f-24a9413a429b-Live">
 /// A started session, plus what a caller needs to keep talking to it.
+#[derive(Clone)]
+pub struct BreakpointIntent {
+    pub request_id: String,
+    pub source_hash: String,
+}
+
 pub struct Live {
+    pub breakpoint_intents: std::sync::Mutex<HashMap<String, BreakpointIntent>>,
+    pub value_references: Mutex<HashMap<(u64, i64, i64), std::collections::HashSet<i64>>>,
     pub source_aliases: Vec<String>,
     pub operation: Arc<Mutex<()>>,
     pub breakpoint_operation: Mutex<()>,
@@ -116,8 +122,70 @@ pub struct Live {
     pub thread_id: Mutex<Option<i64>>,
     last_touched: Mutex<Instant>,
 }
-
 </storycode:copy>
+<a id="debug-reference-provenance"></a>
+### Keep composite references inside their observed frame
+
+Adapters can reuse numeric references. Record the roots returned by locals,
+evaluation and expansion under the exact stop, selected thread and frame.
+Unknown references refuse before adapter access. Motion and thread selection
+retire this bounded table instead of granting a new frame an old capability.
+
+<storycode:copy id="debug-reference-provenance">
+impl Live {
+    /// A variablesReference is meaningful only where the adapter reported it.
+    /// Retire the entire table after motion or thread selection; selecting a
+    /// caller still needs that caller's own observed reference roots.
+    pub async fn remember_values(
+        &self,
+        stop: u64,
+        thread: i64,
+        frame: i64,
+        values: &[hick_dap::Variable],
+    ) -> Result<()> {
+        let mut table = self.value_references.lock().await;
+        anyhow::ensure!(
+            table.contains_key(&(stop, thread, frame)) || table.len() < 64,
+            "Variable frame budget exceeded. Resume or restart the debugger before reading more frames."
+        );
+        let known = table.entry((stop, thread, frame)).or_default();
+        for value in values {
+            anyhow::ensure!(
+                (0..=i32::MAX as i64).contains(&value.variables_reference),
+                "Adapter reported an invalid variable reference. Read this frame again."
+            );
+            if value.variables_reference > 0 {
+                known.insert(value.variables_reference);
+            }
+        }
+        anyhow::ensure!(
+            known.len() <= 16384,
+            "Variable reference budget exceeded. Resume or restart before expanding more values."
+        );
+        Ok(())
+    }
+    pub async fn require_reference(
+        &self,
+        stop: u64,
+        thread: i64,
+        frame: i64,
+        reference: i64,
+    ) -> Result<()> {
+        anyhow::ensure!(
+            reference > 0
+                && self
+                    .value_references
+                    .lock()
+                    .await
+                    .get(&(stop, thread, frame))
+                    .is_some_and(|values| values.contains(&reference)),
+            "Variable reference was not reported in this stopped frame. Read its locals or evaluate the expression again."
+        );
+        Ok(())
+    }
+}
+</storycode:copy>
+
 <a id="f-24a9413a429b-impl-Live"></a>
 ### `impl-Live`
 
@@ -137,7 +205,6 @@ impl Live {
         self.last_touched.lock().await.elapsed()
     }
 }
-
 </storycode:copy>
 <a id="f-24a9413a429b-Registry"></a>
 ### `Registry`
@@ -147,11 +214,54 @@ impl Live {
 pub struct Registry {
     sessions: Mutex<HashMap<String, Arc<Live>>>,
     next_id: AtomicU64,
+    session_namespace: std::sync::OnceLock<Result<String, String>>,
     projects: Arc<hick_lsp::ProjectContexts>,
     host_root: Option<PathBuf>,
 }
-
 </storycode:copy>
+<a id="debug-session-identity"></a>
+### Keep session identity distinct across engine lifetimes
+
+A restarted engine resets its counter. Reusing the old session spelling could
+make delayed cleanup from a previously owned launch stop a new session. Allocate
+one namespace per registry and keep its local counter inside that namespace;
+frontends continue treating the entire identifier as opaque.
+
+<storycode:copy id="debug-session-identity">
+impl Registry {
+    fn ensure_session_namespace(&self) -> Result<&str> {
+        let value=self.session_namespace.get_or_init(|| {
+            let mut nonce=[0u8;16];
+            getrandom::fill(&mut nonce).map_err(|error|format!("Cannot allocate a debugger identity: {error}. Restart the engine when system randomness is available."))?;
+            Ok(nonce.iter().map(|byte|format!("{byte:02x}")).collect())
+        });
+        value.as_deref().map_err(|error| anyhow::anyhow!("{error}"))
+    }
+    fn next_session_identity(&self) -> Result<String> {
+        Ok(format!(
+            "dbg-{}-{}",
+            self.ensure_session_namespace()?,
+            self.next_id.fetch_add(1, Ordering::SeqCst)
+        ))
+    }
+}
+#[cfg(test)]
+mod session_identity_tests {
+    use super::*;
+    #[test]
+    fn delayed_owned_cleanup_cannot_name_a_restarted_engines_session() {
+        let previous = Registry::new();
+        let first = previous.next_session_identity().unwrap();
+        let second = previous.next_session_identity().unwrap();
+        let restarted = Registry::new();
+        let after_restart = restarted.next_session_identity().unwrap();
+        assert_ne!(first, second);
+        assert_ne!(first, after_restart);
+        assert_ne!(second, after_restart);
+    }
+}
+</storycode:copy>
+
 <a id="f-24a9413a429b-impl-Registry"></a>
 ### `impl-Registry`
 
@@ -173,6 +283,7 @@ impl Registry {
         breakpoints: &[Breakpoint],
         on_build: &mut (dyn FnMut(BuildOutput) + Send),
     ) -> Result<(String, Arc<Live>, Vec<BreakpointStatus>)> {
+        self.ensure_session_namespace()?;
         self.start_captured_with_sources(uri, breakpoints, &[], on_build)
             .await
     }
@@ -183,6 +294,7 @@ impl Registry {
         sources: &[hick_dap::SourceBreakpoints],
         on_build: &mut (dyn FnMut(BuildOutput) + Send),
     ) -> Result<(String, Arc<Live>, Vec<BreakpointStatus>)> {
+        self.ensure_session_namespace()?;
         let (id, path, context) = self.projects.get(uri).map_err(anyhow::Error::msg)?;
         let scratch = tempfile::tempdir()?;
         hick_lsp::write_tree(scratch.path(), &context.tree).map_err(anyhow::Error::msg)?;
@@ -206,7 +318,7 @@ impl Registry {
             sources,
         )
         .await?;
-        Ok(self.register(session, Some(scratch), statuses).await)
+        self.register(session, Some(scratch), statuses).await
     }
 
     /// Start a session over one document, in a scratch clone of its project
@@ -229,6 +341,7 @@ impl Registry {
         program: Option<&str>,
         on_build: &mut (dyn FnMut(BuildOutput) + Send),
     ) -> Result<(String, Arc<Live>, Vec<BreakpointStatus>)> {
+        self.ensure_session_namespace()?;
         self.start_at(
             document,
             breakpoints,
@@ -246,6 +359,7 @@ impl Registry {
         endpoint: &hick_lsp::ProjectEndpoint,
         on_build: &mut (dyn FnMut(BuildOutput) + Send),
     ) -> Result<(String, Arc<Live>, Vec<BreakpointStatus>)> {
+        self.ensure_session_namespace()?;
         self.start_at_with_sources(document, breakpoints, program, endpoint, &[], on_build)
             .await
     }
@@ -258,6 +372,7 @@ impl Registry {
         sources: &[hick_dap::SourceBreakpoints],
         on_build: &mut (dyn FnMut(BuildOutput) + Send),
     ) -> Result<(String, Arc<Live>, Vec<BreakpointStatus>)> {
+        self.ensure_session_namespace()?;
         if !is_document(document) {
             // No folder was named, so the repository the file is in stands
             // in for it — the same bound a plain file's language server
@@ -333,7 +448,7 @@ impl Registry {
         )
         .await?;
 
-        Ok(self.register(session, Some(scratch), statuses).await)
+        self.register(session, Some(scratch), statuses).await
     }
 
     /// Start a session over a file that is not a document, in its own
@@ -359,6 +474,7 @@ impl Registry {
         breakpoints: &[Breakpoint],
         on_build: &mut (dyn FnMut(BuildOutput) + Send),
     ) -> Result<(String, Arc<Live>, Vec<BreakpointStatus>)> {
+        self.ensure_session_namespace()?;
         self.start_plain_with_sources(file, root, breakpoints, &[], on_build)
             .await
     }
@@ -370,6 +486,7 @@ impl Registry {
         sources: &[hick_dap::SourceBreakpoints],
         on_build: &mut (dyn FnMut(BuildOutput) + Send),
     ) -> Result<(String, Arc<Live>, Vec<BreakpointStatus>)> {
+        self.ensure_session_namespace()?;
         if !file.is_file() {
             bail!(
                 "{} is not a file in this folder, so there is nothing to debug.",
@@ -402,7 +519,7 @@ impl Registry {
             sources,
         )
         .await?;
-        Ok(self.register(session, None, statuses).await)
+        self.register(session, None, statuses).await
     }
 
     async fn register(
@@ -410,8 +527,14 @@ impl Registry {
         session: Session,
         scratch: Option<tempfile::TempDir>,
         statuses: Vec<BreakpointStatus>,
-    ) -> (String, Arc<Live>, Vec<BreakpointStatus>) {
-        let id = format!("dbg-{}", self.next_id.fetch_add(1, Ordering::SeqCst));
+    ) -> Result<(String, Arc<Live>, Vec<BreakpointStatus>)> {
+        let id = match self.next_session_identity() {
+            Ok(id) => id,
+            Err(error) => {
+                session.shutdown().await;
+                return Err(error);
+            }
+        };
         let observations = hick_observe::Run::new(
             session.observation_source.clone().into_iter().collect(),
             std::time::SystemTime::now()
@@ -435,6 +558,8 @@ impl Registry {
             })
             .unwrap_or_default();
         let live = Arc::new(Live {
+            breakpoint_intents: std::sync::Mutex::new(HashMap::new()),
+            value_references: Mutex::new(HashMap::new()),
             source_aliases,
             operation: Arc::new(Mutex::new(())),
             breakpoint_operation: Mutex::new(()),
@@ -448,7 +573,7 @@ impl Registry {
             last_touched: Mutex::new(Instant::now()),
         });
         self.sessions.lock().await.insert(id.clone(), live.clone());
-        (id, live, statuses)
+        Ok((id, live, statuses))
     }
 
     /// Look a session up, and mark it as still wanted.
@@ -537,7 +662,6 @@ impl Registry {
         self.len().await == 0
     }
 }
-
 </storycode:copy>
 <a id="f-24a9413a429b-tracing_adapter"></a>
 ### `tracing_adapter`
@@ -551,7 +675,6 @@ fn tracing_adapter(found: &hick_dap::Discovered) {
         "discovered a debug adapter"
     );
 }
-
 </storycode:copy>
 <a id="f-24a9413a429b-is_document"></a>
 ### `is_document`
@@ -570,7 +693,6 @@ language server.
 pub fn is_document(path: &Path) -> bool {
     path.extension().is_some_and(|ext| ext == "md")
 }
-
 </storycode:copy>
 <a id="f-24a9413a429b-repository_of"></a>
 ### `repository_of`
@@ -592,7 +714,6 @@ fn repository_of(file: &Path) -> PathBuf {
         dir = parent;
     }
 }
-
 </storycode:copy>
 <a id="f-24a9413a429b-project_dir_of"></a>
 ### `project_dir_of`
@@ -648,7 +769,6 @@ fn project_dir_of(root: &Path, file: &Path) -> PathBuf {
     }
     own
 }
-
 </storycode:copy>
 <a id="f-24a9413a429b-tests"></a>
 ### `tests`
@@ -802,6 +922,6 @@ class Program
 
 The selections below preserve the original byte order. Narrative reading order does not change the output.
 
-<storycode:file path="crates/hickory-cli/src/debug_sessions.rs"><storycode:paste select="#f-24a9413a429b-profiles"/><storycode:paste select="#f-24a9413a429b-reading"/><storycode:paste select="#f-24a9413a429b-use_declaration"/><storycode:paste select="#f-24a9413a429b-use_declaration-2"/><storycode:paste select="#f-24a9413a429b-IDLE_TIMEOUT"/><storycode:paste select="#f-24a9413a429b-Live"/><storycode:paste select="#f-24a9413a429b-impl-Live"/><storycode:paste select="#f-24a9413a429b-Registry"/><storycode:paste select="#f-24a9413a429b-impl-Registry"/><storycode:paste select="#f-24a9413a429b-tracing_adapter"/><storycode:paste select="#f-24a9413a429b-is_document"/><storycode:paste select="#f-24a9413a429b-repository_of"/><storycode:paste select="#f-24a9413a429b-project_dir_of"/><storycode:paste select="#f-24a9413a429b-tests"/></storycode:file>
+<storycode:file path="crates/hickory-cli/src/debug_sessions.rs"><storycode:paste select="#f-24a9413a429b-profiles"/><storycode:paste select="#f-24a9413a429b-reading"/><storycode:paste select="#f-24a9413a429b-use_declaration-2"/><storycode:paste select="#f-24a9413a429b-use_declaration"/><storycode:paste select="#f-24a9413a429b-IDLE_TIMEOUT"/><storycode:paste select="#f-24a9413a429b-Live"/><storycode:paste select="#debug-reference-provenance"/><storycode:paste select="#f-24a9413a429b-impl-Live"/><storycode:paste select="#f-24a9413a429b-Registry"/><storycode:paste select="#debug-session-identity"/><storycode:paste select="#f-24a9413a429b-impl-Registry"/><storycode:paste select="#f-24a9413a429b-tracing_adapter"/><storycode:paste select="#f-24a9413a429b-is_document"/><storycode:paste select="#f-24a9413a429b-repository_of"/><storycode:paste select="#f-24a9413a429b-project_dir_of"/><storycode:paste select="#f-24a9413a429b-tests"/></storycode:file>
 
 </storycode:doc>

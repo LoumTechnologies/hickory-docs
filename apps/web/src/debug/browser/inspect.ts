@@ -12,11 +12,11 @@ export function preview(value: IValue): string {
 export class Inspector {
   private references = new Map<number, IObject>();
   private next = 1;
-  reset() { this.references.clear(); this.next = 1; }
+  reset() { this.references.clear(); }
   variable(name: string, value: IValue): Variable {
     let reference = 0;
     if (value && typeof value === "object") { reference = this.next++; this.references.set(reference, value); }
-    return { name, value: preview(value), type: value === null ? "null" : typeof value, variables_reference: reference };
+    return { name, value: preview(value), type_name: value === null ? "null" : typeof value, variables_reference: reference };
   }
   children(reference: number): Variable[] {
     const object = this.references.get(reference);

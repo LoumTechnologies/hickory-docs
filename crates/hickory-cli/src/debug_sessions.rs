@@ -28,14 +28,20 @@ use tokio::sync::Mutex;
 mod profiles;
 #[path = "debug_reading.rs"]
 mod reading;
-pub(crate) use profiles::safe_cwd;
 pub use profiles::{LaunchContext, ProfileSelection};
-
+pub(crate) use profiles::{safe_cwd, source_document};
 /// How long a session may sit untouched before it is ended for us.
 pub const IDLE_TIMEOUT: Duration = Duration::from_secs(15 * 60);
-
 /// A started session, plus what a caller needs to keep talking to it.
+#[derive(Clone)]
+pub struct BreakpointIntent {
+    pub request_id: String,
+    pub source_hash: String,
+}
+
 pub struct Live {
+    pub breakpoint_intents: std::sync::Mutex<HashMap<String, BreakpointIntent>>,
+    pub value_references: Mutex<HashMap<(u64, i64, i64), std::collections::HashSet<i64>>>,
     pub source_aliases: Vec<String>,
     pub operation: Arc<Mutex<()>>,
     pub breakpoint_operation: Mutex<()>,
@@ -52,7 +58,58 @@ pub struct Live {
     pub thread_id: Mutex<Option<i64>>,
     last_touched: Mutex<Instant>,
 }
-
+impl Live {
+    /// A variablesReference is meaningful only where the adapter reported it.
+    /// Retire the entire table after motion or thread selection; selecting a
+    /// caller still needs that caller's own observed reference roots.
+    pub async fn remember_values(
+        &self,
+        stop: u64,
+        thread: i64,
+        frame: i64,
+        values: &[hick_dap::Variable],
+    ) -> Result<()> {
+        let mut table = self.value_references.lock().await;
+        anyhow::ensure!(
+            table.contains_key(&(stop, thread, frame)) || table.len() < 64,
+            "Variable frame budget exceeded. Resume or restart the debugger before reading more frames."
+        );
+        let known = table.entry((stop, thread, frame)).or_default();
+        for value in values {
+            anyhow::ensure!(
+                (0..=i32::MAX as i64).contains(&value.variables_reference),
+                "Adapter reported an invalid variable reference. Read this frame again."
+            );
+            if value.variables_reference > 0 {
+                known.insert(value.variables_reference);
+            }
+        }
+        anyhow::ensure!(
+            known.len() <= 16384,
+            "Variable reference budget exceeded. Resume or restart before expanding more values."
+        );
+        Ok(())
+    }
+    pub async fn require_reference(
+        &self,
+        stop: u64,
+        thread: i64,
+        frame: i64,
+        reference: i64,
+    ) -> Result<()> {
+        anyhow::ensure!(
+            reference > 0
+                && self
+                    .value_references
+                    .lock()
+                    .await
+                    .get(&(stop, thread, frame))
+                    .is_some_and(|values| values.contains(&reference)),
+            "Variable reference was not reported in this stopped frame. Read its locals or evaluate the expression again."
+        );
+        Ok(())
+    }
+}
 impl Live {
     /// Where a document's debuggee ran — for tests that check it is gone
     /// afterwards. A plain file has no scratch copy and answers `None`.
@@ -68,15 +125,46 @@ impl Live {
         self.last_touched.lock().await.elapsed()
     }
 }
-
 #[derive(Default)]
 pub struct Registry {
     sessions: Mutex<HashMap<String, Arc<Live>>>,
     next_id: AtomicU64,
+    session_namespace: std::sync::OnceLock<Result<String, String>>,
     projects: Arc<hick_lsp::ProjectContexts>,
     host_root: Option<PathBuf>,
 }
-
+impl Registry {
+    fn ensure_session_namespace(&self) -> Result<&str> {
+        let value=self.session_namespace.get_or_init(|| {
+            let mut nonce=[0u8;16];
+            getrandom::fill(&mut nonce).map_err(|error|format!("Cannot allocate a debugger identity: {error}. Restart the engine when system randomness is available."))?;
+            Ok(nonce.iter().map(|byte|format!("{byte:02x}")).collect())
+        });
+        value.as_deref().map_err(|error| anyhow::anyhow!("{error}"))
+    }
+    fn next_session_identity(&self) -> Result<String> {
+        Ok(format!(
+            "dbg-{}-{}",
+            self.ensure_session_namespace()?,
+            self.next_id.fetch_add(1, Ordering::SeqCst)
+        ))
+    }
+}
+#[cfg(test)]
+mod session_identity_tests {
+    use super::*;
+    #[test]
+    fn delayed_owned_cleanup_cannot_name_a_restarted_engines_session() {
+        let previous = Registry::new();
+        let first = previous.next_session_identity().unwrap();
+        let second = previous.next_session_identity().unwrap();
+        let restarted = Registry::new();
+        let after_restart = restarted.next_session_identity().unwrap();
+        assert_ne!(first, second);
+        assert_ne!(first, after_restart);
+        assert_ne!(second, after_restart);
+    }
+}
 impl Registry {
     pub fn new() -> Self {
         Self::default()
@@ -94,6 +182,7 @@ impl Registry {
         breakpoints: &[Breakpoint],
         on_build: &mut (dyn FnMut(BuildOutput) + Send),
     ) -> Result<(String, Arc<Live>, Vec<BreakpointStatus>)> {
+        self.ensure_session_namespace()?;
         self.start_captured_with_sources(uri, breakpoints, &[], on_build)
             .await
     }
@@ -104,6 +193,7 @@ impl Registry {
         sources: &[hick_dap::SourceBreakpoints],
         on_build: &mut (dyn FnMut(BuildOutput) + Send),
     ) -> Result<(String, Arc<Live>, Vec<BreakpointStatus>)> {
+        self.ensure_session_namespace()?;
         let (id, path, context) = self.projects.get(uri).map_err(anyhow::Error::msg)?;
         let scratch = tempfile::tempdir()?;
         hick_lsp::write_tree(scratch.path(), &context.tree).map_err(anyhow::Error::msg)?;
@@ -127,7 +217,7 @@ impl Registry {
             sources,
         )
         .await?;
-        Ok(self.register(session, Some(scratch), statuses).await)
+        self.register(session, Some(scratch), statuses).await
     }
 
     /// Start a session over one document, in a scratch clone of its project
@@ -150,6 +240,7 @@ impl Registry {
         program: Option<&str>,
         on_build: &mut (dyn FnMut(BuildOutput) + Send),
     ) -> Result<(String, Arc<Live>, Vec<BreakpointStatus>)> {
+        self.ensure_session_namespace()?;
         self.start_at(
             document,
             breakpoints,
@@ -167,6 +258,7 @@ impl Registry {
         endpoint: &hick_lsp::ProjectEndpoint,
         on_build: &mut (dyn FnMut(BuildOutput) + Send),
     ) -> Result<(String, Arc<Live>, Vec<BreakpointStatus>)> {
+        self.ensure_session_namespace()?;
         self.start_at_with_sources(document, breakpoints, program, endpoint, &[], on_build)
             .await
     }
@@ -179,6 +271,7 @@ impl Registry {
         sources: &[hick_dap::SourceBreakpoints],
         on_build: &mut (dyn FnMut(BuildOutput) + Send),
     ) -> Result<(String, Arc<Live>, Vec<BreakpointStatus>)> {
+        self.ensure_session_namespace()?;
         if !is_document(document) {
             // No folder was named, so the repository the file is in stands
             // in for it — the same bound a plain file's language server
@@ -254,7 +347,7 @@ impl Registry {
         )
         .await?;
 
-        Ok(self.register(session, Some(scratch), statuses).await)
+        self.register(session, Some(scratch), statuses).await
     }
 
     /// Start a session over a file that is not a document, in its own
@@ -280,6 +373,7 @@ impl Registry {
         breakpoints: &[Breakpoint],
         on_build: &mut (dyn FnMut(BuildOutput) + Send),
     ) -> Result<(String, Arc<Live>, Vec<BreakpointStatus>)> {
+        self.ensure_session_namespace()?;
         self.start_plain_with_sources(file, root, breakpoints, &[], on_build)
             .await
     }
@@ -291,6 +385,7 @@ impl Registry {
         sources: &[hick_dap::SourceBreakpoints],
         on_build: &mut (dyn FnMut(BuildOutput) + Send),
     ) -> Result<(String, Arc<Live>, Vec<BreakpointStatus>)> {
+        self.ensure_session_namespace()?;
         if !file.is_file() {
             bail!(
                 "{} is not a file in this folder, so there is nothing to debug.",
@@ -323,7 +418,7 @@ impl Registry {
             sources,
         )
         .await?;
-        Ok(self.register(session, None, statuses).await)
+        self.register(session, None, statuses).await
     }
 
     async fn register(
@@ -331,8 +426,14 @@ impl Registry {
         session: Session,
         scratch: Option<tempfile::TempDir>,
         statuses: Vec<BreakpointStatus>,
-    ) -> (String, Arc<Live>, Vec<BreakpointStatus>) {
-        let id = format!("dbg-{}", self.next_id.fetch_add(1, Ordering::SeqCst));
+    ) -> Result<(String, Arc<Live>, Vec<BreakpointStatus>)> {
+        let id = match self.next_session_identity() {
+            Ok(id) => id,
+            Err(error) => {
+                session.shutdown().await;
+                return Err(error);
+            }
+        };
         let observations = hick_observe::Run::new(
             session.observation_source.clone().into_iter().collect(),
             std::time::SystemTime::now()
@@ -356,6 +457,8 @@ impl Registry {
             })
             .unwrap_or_default();
         let live = Arc::new(Live {
+            breakpoint_intents: std::sync::Mutex::new(HashMap::new()),
+            value_references: Mutex::new(HashMap::new()),
             source_aliases,
             operation: Arc::new(Mutex::new(())),
             breakpoint_operation: Mutex::new(()),
@@ -369,7 +472,7 @@ impl Registry {
             last_touched: Mutex::new(Instant::now()),
         });
         self.sessions.lock().await.insert(id.clone(), live.clone());
-        (id, live, statuses)
+        Ok((id, live, statuses))
     }
 
     /// Look a session up, and mark it as still wanted.
@@ -458,7 +561,6 @@ impl Registry {
         self.len().await == 0
     }
 }
-
 fn tracing_adapter(found: &hick_dap::Discovered) {
     tracing::info!(
         adapter = found.adapter,
@@ -467,7 +569,6 @@ fn tracing_adapter(found: &hick_dap::Discovered) {
         "discovered a debug adapter"
     );
 }
-
 /// The language of a generated file, by extension, for adapter routing.
 ///
 /// Whether a path is a Markdown document, as opposed to a file to debug as
@@ -476,7 +577,6 @@ fn tracing_adapter(found: &hick_dap::Discovered) {
 pub fn is_document(path: &Path) -> bool {
     path.extension().is_some_and(|ext| ext == "md")
 }
-
 /// The nearest ancestor holding a `.git`, else the file's own directory.
 fn repository_of(file: &Path) -> PathBuf {
     let own = file.parent().unwrap_or(Path::new(".")).to_path_buf();
@@ -491,7 +591,6 @@ fn repository_of(file: &Path) -> PathBuf {
         dir = parent;
     }
 }
-
 /// The directory a plain file's program runs in: the nearest project above
 /// it (`Cargo.toml`, `package.json`, `pyproject.toml`, `go.mod`, a
 /// `.csproj`), stopping at `root`, else the file's own directory.
@@ -535,7 +634,6 @@ fn project_dir_of(root: &Path, file: &Path) -> PathBuf {
     }
     own
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;

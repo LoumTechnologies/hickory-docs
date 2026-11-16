@@ -63,6 +63,7 @@ it("releases late captured code instead of publishing/opening for a retired debu
   expect(publishReading).toHaveBeenCalledWith(`captured:${target.uri}`, expect.objectContaining({ before: "x", after: "x", debugOwner: "owner", location: target.range.start, dispose: release }));
   expect(openReading).toHaveBeenCalledWith(`captured:${target.uri}`, "a.py");
 });
+it('keeps byte-preserving captured text readable without inventing an unknown frame position',async()=>{const release=vi.fn();vi.mocked(retainCapturedContext).mockReturnValue(release);vi.mocked(request).mockResolvedValue({path:'%2F #.py',bytes:[239,187,191,120],files:[]});const target={uri:'hick-project:///fixture/%252F%20%23.py',range:{start:{line:99,character:0},end:{line:99,character:0}}};await openCapturedCode(target,'owner',()=>true,false);expect(publishReading).toHaveBeenCalledWith(`captured:${target.uri}`,expect.objectContaining({after:'\uFEFFx',location:undefined,dispose:release}));expect(request).toHaveBeenCalledWith('GET','/api/project-contexts/file?uri='+encodeURIComponent(target.uri));});
 </storycode:copy>
 
 ### Assemble `apps/web/src/lib/capturedCode.test.ts`

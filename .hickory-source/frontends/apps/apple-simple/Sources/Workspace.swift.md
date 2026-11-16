@@ -337,6 +337,7 @@ normal capability setup. Deleted dirty buffers still guard workspace switching.
             addresses[Data(from.utf8)]=route.to ?? retainedResourceTab(buffer)
         }
         let adoptedLayout=try layout.remappingTabs(addresses)
+        debugger?.resourceNamespaceChanged(routes)
         generation=UUID();loading.values.forEach{$0.cancel()};loading=[:]
         // Release every old URI before attaching any destination: swaps otherwise
         // collide with the other editor's still-live language subscription.
@@ -388,7 +389,7 @@ The remaining workspace operations reuse the adopted buffers and current namespa
             languageConnection?.close();languageConnection=nil
             analysis.stop(); analysis=WorkspaceAnalysis(); showAnalysis=false; showEverywhere=false;showTests=false;showReview=false;showHistory=false;showAttribution=false;showConstruction=false;showRecovery=false;gitAttribution.close();gitAttribution=GitAttributionModel(path:"");gitHistory.close();gitHistory=GitHistoryModel();gitReview.close();gitReview=GitReviewModel();showCoverage=false;coverage.stop();coverage=SimpleCoverageState();testSources=TestSourcesModel();sourceTestIndex?.stop();sourceTestIndex=nil
             generation = UUID(); changes.reset(); search.invalidate(); showWorkspaceSearch = false; engine = next; debugger = NativeDebugger(engine: next)
-            if let debug=debugger {debug.onLocation={ [weak self,weak debug] location in guard let self,let debug else{return};let scope=self.generation;Task {[weak self,weak debug] in guard let self,let debug,self.generation==scope else{return};await self.revealDebug(location,debug:debug)}}}; files = tree.tree; rootFiles = tree.tree; navigationTrail = NavigationTrail(); retainedResourceEditors = [:]; buffers = [:]; loading.values.forEach { $0.cancel() }; loading = [:]
+            if let debug=debugger {debug.sourceBuffers={ [weak self] in guard let self else{return []};return Array(self.buffers.values)+Array(self.retainedResourceEditors.values)};debug.onLocation={ [weak self,weak debug] location in guard let self,let debug else{return};let scope=self.generation;Task {[weak self,weak debug] in guard let self,let debug,self.generation==scope else{return};await self.revealDebug(location,debug:debug)}}}; files = tree.tree; rootFiles = tree.tree; navigationTrail = NavigationTrail(); retainedResourceEditors = [:]; buffers = [:]; loading.values.forEach { $0.cancel() }; loading = [:]
             layout = PaneLayout(); focused = "document-group"; status = tree.root
             return true
         } catch { status = error.localizedDescription; return false }
@@ -523,7 +524,7 @@ Foreground file opening and background intelligence share one acquisition path. 
             show(path);status=path
             if let arrived=currentSemanticLocation(){navigationTrail.record(from:departed,to:arrived)}
             guard let proof=location.sourceHash,proof.range(of:"^[0-9a-f]{64}$",options:.regularExpression) != nil else{status=location.sourceReference.map{$0>0 ? "Opened \(path) without a position; this frame uses adapter-provided source reference \($0), not saved file bytes.":"Opened \(path) without a position; this frame has no captured source revision."} ?? "Opened \(path) without a position; this frame has no captured source revision.";return}
-            guard debug.sourceMatches(buffer),nativeSourceHash(buffer.text)==proof else{status="Opened \(path) without a position; current text differs from the captured launch/construction source.";return}
+            guard debug.admitSourceReading(buffer,path:path,proof:proof),debug.sourceMatches(buffer),nativeSourceHash(buffer.text)==proof else{status="Opened \(path) without a position; current source identity or bytes are not a confirmed original launch/construction source.";return}
             let source=buffer.text,selection=buffer.selection,targetFocus=focused
             guard location.line>=0,languageOffset(source,["line":location.line,"character":0]) != nil else{status="Opened \(path); stopped position does not fit its captured source.";return}
             for _ in 0..<20 {

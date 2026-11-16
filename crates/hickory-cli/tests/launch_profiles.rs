@@ -119,7 +119,7 @@ fn manifest_scripts_and_test_definitions_become_run_only_targets() {
 }
 struct ExampleProvider;
 impl Provider for ExampleProvider {
-    fn discover(&self, _: &ProjectTree) -> Result<Vec<Profile>, String> {
+    fn discover(&self, _: &dyn launch_profiles::SourceInventory) -> Result<Vec<Profile>, String> {
         Ok(vec![launch_profiles::command_profile(
             "custom".into(),
             "Provider target".into(),

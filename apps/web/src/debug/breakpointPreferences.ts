@@ -7,6 +7,6 @@ export const subscribeBreakpointPreferences=(listener:()=>void)=>{listeners.add(
 export const breakpointPreferences=(key:string|null):HeldBreakpoint[]|undefined=>key?held.get(key):undefined;
 export function rememberBreakpointPreferences(key:string|null,breakpoints:HeldBreakpoint[]) {
   if(!key)return;
-  held.set(key,breakpoints.map(({line,condition,hit_condition,log_message})=>({line,condition,hit_condition,log_message,state:"pending"})));
+  held.set(key,breakpoints.map(({line,requested_line,condition,hit_condition,log_message})=>({line:requested_line??line,condition,hit_condition,log_message,state:"pending"})));
   for(const listener of listeners)listener();
 }

@@ -802,7 +802,7 @@ private class NativeTableController(val buffer: DocumentBuffer, val scope: kotli
                             val visual = current.getLineForVerticalPosition(point.y + scroll.value - with(density) { 8.dp.toPx() })
                             val offset = editorSourceOffset(current.getLineStart(visual), replacements)
                             val line = inlineLineAt(offset, inline.lineStarts)
-                            if (inlineDebugPath(source, buffer.file.path, line) != null) debug?.toggle(buffer.file.path, line)
+                            if (inlineDebugPath(source, buffer.file.path, line) != null) debug?.toggle(buffer, line)
                         }
                     }
                 }) {
@@ -1147,7 +1147,7 @@ fun debugLineOffset(source: String, line: Int): Int? {
                 val line = starts?.let { inlineLineAt(offset, it) } ?: source.take(offset).count { it == '\n' }
                 val top = layout.getLineTop(visual) - scroll.value + with(density) { 8.dp.toPx() }
                 if (top < 0 || top > height) continue
-                val held = debug.breakpoints[buffer.file.path]?.firstOrNull { it.optInt("line", -1) == line }
+                val held = debug.breakpointRows(buffer).firstOrNull { it.optInt("line", -1) == line }
                 val actions = mutableListOf<Triple<String, String, () -> Unit>>()
                 coverageLines[line]?.let {row->actions.add(Triple(if(row.state=="covered")"●" else if(row.state=="uncovered")"○" else "◐","Coverage ${row.state} · ${row.count?.let {"count $it"} ?: "count unavailable"} · ${row.origins.size} measured location(s)",{buffer.inspectCoverage?.invoke(line)}))}
                 if(line in testLines)actions.add(Triple("▷","Inspect source tests",{buffer.inspectTests?.invoke(line)}))
@@ -1190,6 +1190,8 @@ fun debugLineOffset(source: String, line: Int): Int? {
                     }
                     DropdownMenu(expanded = opened == line, onDismissRequest = { opened = null }) {
                         Column(Modifier.width(300.dp).heightIn(max = 460.dp).verticalScroll(rememberScrollState()).padding(8.dp)) {
+                            var variableInspection by remember(debug,line){mutableStateOf<String?>(null)}
+                            DisposableEffect(debug,line,opened==line){val token=if(opened==line)debug.variableTree.open() else null;variableInspection=token;onDispose{token?.let{debug.variableTree.close(it)}}}
                             Text("Line ${line + 1} · ${debug.status}", fontSize = 12.sp)
                             if (buffer.inlineMarkup.source == buffer.text) buffer.inlineMarkup.equations.filter { it.line == line }.take(4).forEach { equation ->
                                 key(buffer.text, equation.from) {
@@ -1225,23 +1227,39 @@ fun debugLineOffset(source: String, line: Int): Int? {
                             if (buffer.file.docID != null) TextButton(onClick = { scope.launch { buffer.refreshReceipts() } }) { Text("↻ Refresh recorded output") }
                             if (inlineDebugPath(source, buffer.file.path, line, true) != null || inlineDebugPath(source, buffer.file.path, line) != null) {
                             if(debug.owner.isNotEmpty())Text("Debugger · ${debug.owner} · ${debug.status}",fontSize=12.sp)
+                            if(debug.breakpointNotice(buffer).isNotEmpty())Text(debug.breakpointNotice(buffer),fontSize=12.sp)
+                            debug.breakpointModel.intents[buffer.debugIdentity]?.let{intent->if(intent.source.text!=buffer.text||intent.source.path!=buffer.file.path){Text("Retained intentions: "+intent.marks.joinToString{"line ${it.optInt("line")+1}"},fontSize=12.sp);TextButton(enabled=!debug.active,onClick={debug.discardBreakpointIntentions(buffer)}){Text("Discard stale intentions")}}}
                             if (buffer.dirty) Text("Save edited text before launching. Values belong to the source that ran.", fontSize = 12.sp)
                             FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                                 TextButton(enabled = !debug.active && !buffer.dirty && !buffer.saving, onClick = { scope.launch { debug.prepare(buffer, line) } }) { Text("▷ Debug") }
-                                if (inlineDebugPath(source, buffer.file.path, line) != null) TextButton(onClick = { debug.toggle(buffer.file.path, line) }) { Text("● Breakpoint") }
+                                if (inlineDebugPath(source, buffer.file.path, line) != null) TextButton(onClick = { debug.toggle(buffer, line) }) { Text("● Breakpoint") }
                                 if (debug.status == "paused") {
                                     listOf("Continue" to "continue", "Step over" to "over", "Step in" to "in", "Step out" to "out").forEach { (label, how) -> TextButton(onClick = { debug.step(how) }) { Text(label) } }
                                     if (debug.capabilities.optBoolean("step_back")) TextButton(onClick = { debug.step("back") }) { Text("↶ Step back") }
+                                    if(debug.capabilities.optBoolean("run_to")||debug.capabilities.optBoolean("goto_targets")){
+                                        var destinationLine by remember(buffer.debugIdentity,line){mutableStateOf((line+1).toString())}
+                                        OutlinedTextField(destinationLine,{destinationLine=it},label={Text("Saved source line (1-based)")},singleLine=true)
+                                        val destination=destinationLine.toIntOrNull()?.takeIf{it>0}?.minus(1)
+                                        if(debug.capabilities.optBoolean("run_to"))TextButton(enabled=destination!=null,onClick={destination?.let{debug.moveTo(buffer,it)}}){Text("Run to source line")}
+                                        if(debug.capabilities.optBoolean("goto_targets"))TextButton(enabled=destination!=null,onClick={destination?.let{debug.moveTo(buffer,it,true)}}){Text("Move instruction pointer to source line")}
+                                    }
                                 }
                                 if (debug.active) TextButton(onClick = { debug.stop() }) { Text("■ Stop") }
                             }
                             if (debug.owner == buffer.file.path) debug.targets.forEach { target -> TextButton(onClick = { scope.launch { debug.prepare(buffer, program = target.path) } }) { Text("Debug file ${target.path}") } }
-                            debug.profiles.forEach { profile -> TextButton(onClick = { debug.launch(profile); opened = null }) { Text("Debug ${profile.optString("name")}") } }
+                            debug.profiles.forEach { profile -> TextButton(onClick = { scope.launch{debug.launch(profile); opened = null} }) { Text("Debug ${profile.optString("name")}") } }
                             if (debug.offer != null) TextButton(onClick = { scope.launch { debug.install() } }) { Text("⇩ Install debugger") }
                             if (debug.message.isNotBlank()) Text(debug.message, fontSize = 12.sp)
+                            debug.catalogNotices.forEach{Text(it,fontSize=12.sp)}
+                            if(debug.status!="paused"&&!debug.framesCurrent&&debug.frames.isNotEmpty()){
+                                Text("Previous stack · no current pause confirmed",fontSize=12.sp)
+                                var historyPage by remember(debug.frames){mutableStateOf(0)}
+                                if(debug.frames.size>64)Row{TextButton(enabled=historyPage>0,onClick={historyPage--}){Text("Previous historical frames")};TextButton(enabled=(historyPage+1)*64<debug.frames.size,onClick={historyPage++}){Text("Next historical frames")}}
+                                debug.frames.drop(historyPage*64).take(64).forEach{Text(it.optString("name","Frame"),fontSize=12.sp)}
+                            }
                             if (debug.capabilities.optBoolean("conditional_breakpoints")) {
                                 OutlinedTextField(value = condition, onValueChange = { condition = it }, label = { Text("Breakpoint condition") })
-                                TextButton(onClick = { debug.toggle(buffer.file.path, line, condition) }) { Text("✓ Apply condition") }
+                                TextButton(onClick = { debug.toggle(buffer, line, condition) }) { Text("✓ Apply condition") }
                             }
                             if (debug.status == "paused") {
                                 Text("Source positions use captured launch/mapping text when bound. Matching text does not establish execution coverage.",fontSize=12.sp)
@@ -1262,10 +1280,12 @@ fun debugLineOffset(source: String, line: Int): Int? {
                                 Text(if(debug.framesCurrent)"${debug.frames.size} reported frames" else "Previous stack · current stack unavailable",fontSize=12.sp)
                                 if(debug.frames.size>64)Row{TextButton(enabled=framePage>0,onClick={framePage--}){Text("Previous frames")};TextButton(enabled=(framePage+1)*64<debug.frames.size,onClick={framePage++}){Text("Next frames")}}
                                 debug.frames.drop(framePage*64).take(64).forEach { frame -> TextButton(enabled=debug.framesCurrent,onClick = { debug.select(frame) }) { Text(frame.optString("name", "Frame")) } }
-                                var localsPage by remember(debug.variables){mutableStateOf(0)}
-                                if(debug.variables.size>64)Row{TextButton(enabled=localsPage>0,onClick={localsPage--}){Text("Previous locals")};TextButton(enabled=(localsPage+1)*64<debug.variables.size,onClick={localsPage++}){Text("Next locals")}}
-                                debug.variables.drop(localsPage*64).take(64).forEach { variable -> Text("${variable.optString("name")} = ${variable.optString("value")}", fontSize = 12.sp) }
-                                debug.values.forEach { (key, value) -> Row { Text("$key = $value", modifier = Modifier.weight(1f)); if (key in debug.watches) TextButton(onClick = { debug.removeWatch(key) }) { Text("×") } } }
+                                if(debug.variableTree.notice.isNotEmpty())Text(debug.variableTree.notice,fontSize=12.sp)
+                                variableInspection?.let{inspection->debug.variableTree.groups.forEach{(group,nodes)->
+                                    if(group=="locals")Text("Frame locals",fontSize=12.sp)
+                                    NativeVariableRows(debug,nodes,inspection)
+                                    if(group.startsWith("eval:")&&group.removePrefix("eval:") in debug.watches)TextButton(onClick={debug.removeWatch(group.removePrefix("eval:"))}){Text("Remove watch ${group.removePrefix("eval:")}")}
+                                }}
                             }
                             }
                         }
@@ -1279,6 +1299,23 @@ fun debugLineOffset(source: String, line: Int): Int? {
             }
         }
     }
+}
+
+@Composable private fun NativeVariableRows(debug:NativeDebugger,nodes:List<NativeVariableNode>,inspection:String){
+    var page by remember(nodes){mutableStateOf(0)}
+    if(nodes.size>64)Row{TextButton(enabled=page>0,onClick={page--}){Text("Previous values")};TextButton(enabled=(page+1)*64<nodes.size,onClick={page++}){Text("Next values")}}
+    nodes.drop(page*64).take(64).forEach{node->key(node.id){
+        val expanded=debug.variableTree.expansions[node.id]
+        Column(Modifier.padding(start=if(node.depth==0)0.dp else 8.dp)){
+            if(node.reference==null)Text("${node.name} = ${node.value}",fontSize=12.sp)
+            else TextButton(enabled=expanded?.pending==null,onClick={if(expanded!=null)debug.variableTree.collapse(node,inspection) else debug.expandVariable(node,inspection)},modifier=Modifier.semantics{contentDescription=if(expanded!=null)"Collapse ${node.name}" else "Expand ${node.name}"}){Text("${if(expanded!=null)"▾" else "▸"} ${node.name} = ${node.value}")}
+            expanded?.let{reading->
+                if(reading.message.isNotEmpty())Text(reading.message,fontSize=12.sp)
+                NativeVariableRows(debug,reading.children,inspection)
+                if(reading.pending==null&&reading.children.isEmpty()&&reading.message!="No reported children.")TextButton(onClick={debug.expandVariable(node,inspection)}){Text("Retry children for ${node.name}")}
+            }
+        }
+    }}
 }
 
 // Compose's animation clock honors the system animator duration scale.

@@ -136,7 +136,7 @@ export function ProjectDebugSurface({owner, debug}: {owner:string; debug:DebugSe
   },[surface,debug.status]);
   if (!surface?.view.dom.isConnected || !["running","paused"].includes(debug.status)) return null;
   return <>
-    <DebugStrip {...debug} locationActions={<ProjectDebugLinks owner={owner} debug={debug}/>} capabilities={debug.capabilities ? {...debug.capabilities, goto_targets:false} : null} editorView={surface.view} pausedLine={null}
+    <DebugStrip {...debug} locationActions={<ProjectDebugLinks owner={owner} debug={debug}/>} capabilities={debug.capabilities ? {...debug.capabilities, goto_targets:false,run_to:false} : null} editorView={surface.view} pausedLine={null}
       onSelectFrame={id => {debug.selectFrame(id); const frame=debug.frames.find(f=>f.id===id); if(frame)revealPreferredDebugLocation(owner,frame);}}
       onStep={debug.step} onStart={() => debug.start()} onStop={debug.stop} onJumpHere={() => {}}
       onAddWatch={() => { void prompt.askText("Expression to watch:", "", { agent: true }).then(expression => { if(expression) debug.addWatch(expression); }); }} onToggleExceptionFilter={debug.toggleExceptionFilter} onRemoveWatch={debug.removeWatch} />

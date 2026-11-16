@@ -49,6 +49,7 @@ Reject malformed namespaces and missing or stale captures before returning any r
 import {Buffer,type Buffers} from './buffers';
 import type {FileNode} from '../api/types';
 import {editorForBuffer} from './Document';
+import {captureRetainedEditorViewport} from './EditorMounts';
 import {EditorView} from '@codemirror/view';
 import {isolateHistory} from '@codemirror/commands';
 import type {Transaction} from '@codemirror/state';
@@ -106,6 +107,8 @@ Capture current buffer authority before network publication. Adoption preflights
 every editor before removing addresses, retires delayed reads and retains deleted
 objects outside the writable namespace. Ordinary Save cannot write those objects.
 
+A confirmed source deletion may leave a live debugger whose code still needs a readable control surface. Retain that exact buffer under a transient, NUL-prefixed tab alias; NUL cannot be a saved path, and the alias never enters engine requests or source ownership. Restoration replaces the alias with the newly confirmed real address. Save As retires only the original object after the copied text still matches; a different buffer reusing its old spelling survives.
+
 <ui:copy id="resource-editor-adoption-browser">
 export function captureResourceEditors(buffers:Buffers,patches:readonly ResourceEditorPatch[],restoring:ReadonlyMap<string,Buffer>=new Map()):()=>boolean {
  const paths=patches.map(patch=>({path:patch.path,buffer:buffers.values.get(patch.path)}));
@@ -122,7 +125,7 @@ export function adoptResourceReceipt(buffers:Buffers,patches:readonly ResourceEd
  const routes=routeResourceEditors(patches,live,held),prepared:{route:ResourceEditorRoute<Buffer>;buffer:Buffer;view?:EditorView;transaction?:Transaction}[]=[];
  for(const route of routes){
   const entry=route.to===null?undefined:files.get(route.to)!;
-  const buffer=route.editor??new Buffer(entry!.file,route.after!,entry!.hash,()=>buffers.changed());
+  const buffer=route.editor??new Buffer(entry!.file,route.after!,entry!.hash,()=>buffers.changed(),false,buffers.workspace);
   const view=editorForBuffer(buffer)?.view;
   if(view&&(view.composing||view.state.doc.toString()!==buffer.text||view.state.readOnly||!view.state.facet(EditorView.editable)))throw new Error('Finish composition and inspect recovery before adopting source editors.');
   if(route.to!==null&&!patches.some(p=>p.path===route.to&&p.before)&&buffers.values.has(route.to))throw new Error('A destination editor appeared after review. Preserve it and inspect recovery.');
@@ -130,14 +133,17 @@ export function adoptResourceReceipt(buffers:Buffers,patches:readonly ResourceEd
   if(transaction&&transaction.newDoc.toString()!==route.after)throw new Error('Editor refused the complete resource change. Inspect recovery.');
   prepared.push({route,buffer,view,transaction});
  }
+ // Capture attached geometry before the host loses its old styled parent.
+ // Publication/source guards above remain the only mutation authority.
+ for(const {buffer} of prepared){const editor=editorForBuffer(buffer);if(editor)captureRetainedEditorViewport(editor);}
  // All failures above precede mutation. Stable buffer objects keep cached renderers.
  buffers.retirePendingReads();
  for(const {route} of prepared)if(route.from!==null)buffers.values.delete(route.from);
  for(const {route,buffer,view,transaction} of prepared){
-  if(route.to===null){buffer.resourceDeleted=true;retained.set(route.identity,buffer);continue;}
+  if(route.to===null){buffer.sourceRevision++;buffer.resourceDeleted=true;retained.set(route.identity,buffer);continue;}
   const entry=files.get(route.to)!;
   if(view&&transaction)view.update([transaction]);
-  buffer.file=entry.file;buffer.text=route.after!;buffer.base=entry.saved.text;buffer.hash=entry.hash;buffer.resourceDeleted=false;buffer.error='';
+  buffer.sourceRevision++;buffer.file=entry.file;buffer.text=route.after!;buffer.base=entry.saved.text;buffer.hash=entry.hash;buffer.resourceDeleted=false;buffer.error='';
   buffers.values.set(route.to,buffer);for(const [id,held] of retained)if(held===buffer)retained.delete(id);
  }
  for(const {buffer} of prepared)buffer.publish();buffers.changed();return routes;
@@ -197,6 +203,27 @@ export async function publishResourceRestore(buffers:Buffers,review:ResourceRest
 
 
 /** Route tabs by reviewed source identity, retaining deleted placement for inverse restoration. */
+/** UI-only aliases never enter a resource request or the saved namespace. */
+export class RetainedResourceTabs {
+ readonly buffers=new Map<string,Buffer>();private aliases=new WeakMap<Buffer,string>();private copies=new WeakMap<Buffer,string>();
+ routes(routes:readonly ResourceEditorRoute<Buffer>[],keep:(buffer:Buffer)=>boolean):ResourceEditorRoute<Buffer>[] {
+  return routes.map(route=>{const buffer=route.editor;if(!buffer)return route;const held=this.aliases.get(buffer);
+   if(route.to===null&&keep(buffer)){const alias=held??`\0retained-resource:${crypto.randomUUID()}`;this.aliases.set(buffer,alias);this.buffers.set(alias,buffer);return {...route,to:alias};}
+   if(route.to!==null&&held&&this.buffers.get(held)===buffer){this.buffers.delete(held);this.aliases.delete(buffer);this.copies.delete(buffer);return {...route,from:held};}
+   return route;
+  });
+ }
+ copied(buffer:Buffer){return this.copies.get(buffer)===buffer.text;}
+ noteCopy(buffer:Buffer,text:string){if(buffer.text===text)this.copies.set(buffer,text);}
+ retire(buffer:Buffer){const alias=this.aliases.get(buffer);if(alias&&this.buffers.get(alias)===buffer)this.buffers.delete(alias);this.aliases.delete(buffer);this.copies.delete(buffer);}
+}
+/** Copy publication does not authorize deleting a different editor now at the old spelling. */
+export function retireCopiedBuffer(buffers:Buffers,source:Buffer,text:string):boolean {
+ if(source.text!==text)return false;
+ for(const [path,buffer] of buffers.values)if(buffer===source)buffers.values.delete(path);
+ for(const [id,buffer] of buffers.retainedResources)if(buffer===source)buffers.retainedResources.delete(id);
+ return true;
+}
 export function resourceLayout(layout:Layout,routes:readonly ResourceEditorRoute<Buffer>[],placements:Map<Buffer,{group:string;index:number;active:boolean}>):Layout {
  const byPath=new Map(routes.filter(route=>route.from!==null).map(route=>[route.from!,route]));
  for(const group of groups(layout))group.tabs.forEach((path,index)=>{const route=byPath.get(path);if(route?.to===null&&route.editor)placements.set(route.editor,{group:group.id,index,active:group.active===path});});
@@ -385,7 +412,7 @@ vi.mock('./Document',()=>({editorForBuffer:(buffer:Buffer)=>views.get(buffer)}))
 import {EditorState} from '@codemirror/state';
 import {history,undoDepth} from '@codemirror/commands';
 import {WorkspaceChangeHistory} from './ChangePlan';
-import {prepareResourceSave,prepareResourceRestore,publishResourceRestore,resourceLayout,routeResourceEditors,adoptResourceReceipt,captureResourceEditors,type ResourceEditorPatch,type ResourceReceipt,type ResourceSaved} from './ResourceEditors';
+import {prepareResourceSave,prepareResourceRestore,publishResourceRestore,RetainedResourceTabs,retireCopiedBuffer,resourceLayout,routeResourceEditors,adoptResourceReceipt,captureResourceEditors,type ResourceEditorPatch,type ResourceReceipt,type ResourceSaved} from './ResourceEditors';
 // Contract: .hickory-source/frontends/contract.md (resource namespace preservation).
 const source=(identity:string,text=identity)=>({identity,text});
 describe('resource editor identity routing',()=>{
@@ -498,6 +525,14 @@ describe('resource editor identity routing',()=>{
   expect(()=>routeResourceEditors([patch],live,new Map([['a',capture]]))).toThrow();expect(()=>routeResourceEditors([patch,{path:'b.py',before:source('b'),after:null}],new Map([...live,['b',{editor,source:'b'}]]))).toThrow();
   expect(editor.undo).toEqual(['retained']);
   const exact=routeResourceEditors([{path:'é.py',before:null,after:source('é')},{path:'e\u0301.py',before:null,after:source('e\u0301')}],new Map());expect(exact).toHaveLength(2);
+ });
+ it('retains active deleted editor tabs, restores the same route and retires only an exact copied handle',()=>{
+  const buffers=new Buffers(()=>{}),original=new Buffer({path:'old.py',name:'old.py',dir:false},'retained','old',()=>{}),independent=new Buffer({path:'old.py',name:'old.py',dir:false},'independent','new',()=>{}),tabs=new RetainedResourceTabs();
+  const layout={id:'one',tabs:['old.py'],active:'old.py'};const deletion={identity:'source',from:'old.py',to:null,editor:original,before:'retained',after:null};original.resourceDeleted=true;buffers.retainedResources.set('source',original);buffers.values.set('old.py',independent);
+  const held=resourceLayout(layout,tabs.routes([deletion],buffer=>buffer===original),new Map());const alias=(held as typeof layout).active!;expect(alias.startsWith('\0')).toBe(true);expect(tabs.buffers.get(alias)).toBe(original);expect(buffers.values.get('old.py')).toBe(independent);
+  const restored=resourceLayout(held,tabs.routes([{...deletion,from:null,to:'restored.py',after:'retained'}],()=>false),new Map());expect((restored as typeof layout).tabs).toEqual(['restored.py']);expect(tabs.buffers.size).toBe(0);
+  expect(retireCopiedBuffer(buffers,original,'stale')).toBe(false);expect(buffers.retainedResources.get('source')).toBe(original);tabs.noteCopy(original,original.text);expect(tabs.copied(original)).toBe(true);original.edit('new unsaved');expect(tabs.copied(original)).toBe(false);
+  expect(retireCopiedBuffer(buffers,original,original.text)).toBe(true);expect(buffers.retainedResources.size).toBe(0);expect(buffers.values.get('old.py')).toBe(independent);
  });
 });
 </ui:copy>

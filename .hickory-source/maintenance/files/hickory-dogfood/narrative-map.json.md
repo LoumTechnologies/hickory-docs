@@ -154394,6 +154394,76 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "basis": "explained-behavior"
     },
     {
+      "id": "debug-source-document-identity",
+      "output": "crates/hickory-cli/src/debug_profiles.rs",
+      "page": ".hickory-source/guarantees/debugging/launch-profiles-choose-targets-within-the-viewed-project/contract.md",
+      "symbol": "Decode source identities once and confine physical paths",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "debug-observation-admission",
+      "output": "crates/hickory-cli/src/serve/debug_bridge.rs",
+      "page": ".hickory-source/mechanisms/crates/hickory-cli/src/serve/debug_bridge.rs.md",
+      "symbol": "Admit debugger effects against observed stops and frames",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "debug-launch-source-admission",
+      "output": "crates/hick-dap/src/session.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-dap/src/session.rs.md",
+      "symbol": "Check captured source positions before adapter startup",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "debug-source-admission-tests",
+      "output": "crates/hick-dap/src/session.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-dap/src/session.rs.md",
+      "symbol": "Exercise launch source refusal before adapter effects",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "debug-plain-launch-snapshots",
+      "output": "crates/hick-dap/src/mapping.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-dap/src/mapping.rs.md",
+      "symbol": "Retain already observed plain project sources",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "debug-reference-provenance",
+      "output": "crates/hickory-cli/src/debug_sessions.rs",
+      "page": ".hickory-source/mechanisms/crates/hickory-cli/src/debug_sessions.rs.md",
+      "symbol": "Bound composite references to their observed frame",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "debug-breakpoint-source-admission",
+      "output": "crates/hickory-cli/src/serve/debug_sources.rs",
+      "page": ".hickory-source/mechanisms/crates/hickory-cli/src/serve/debug_sources.rs.md",
+      "symbol": "Confirm captured source hashes and accepted breakpoint tickets",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-android-debug-model-core",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/NativeDebugModels.kt",
+      "page": ".hickory-source/frontends/apps/android-simple/app/src/main/java/com/hickorydocs/simple/Engine.kt.md",
+      "symbol": "Separate source intentions and scoped variable observations from transport",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-editor-mounts-browser",
+      "output": "apps/web/src/simple/EditorMounts.ts",
+      "page": ".hickory-source/frontends/editor-mounts.md",
+      "symbol": "Admit retained viewport restoration by exact editor mount lifetime",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-editor-mounts-browser-tests",
+      "output": "apps/web/src/simple/EditorMounts.test.ts",
+      "page": ".hickory-source/frontends/editor-mounts.md",
+      "symbol": "Reject obsolete restoration after source, input or mount changes",
+      "basis": "explained-behavior"
+    },
+    {
       "id": "preserve-unchanged-materialized-entry",
       "output": "crates/hick-project-env/src/tree.rs",
       "page": ".hickory-source/mechanisms/crates/hick-project-env/src/tree.rs.md",
@@ -154405,6 +154475,132 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "output": "crates/hick-project-env/src/tree.rs",
       "page": ".hickory-source/mechanisms/crates/hick-project-env/src/tree.rs.md",
       "symbol": "Exercise unchanged publication and whole-plan safety refusals",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "launch-inventory-interface",
+      "output": "crates/hickory-cli/src/launch_inventory.rs",
+      "page": ".hickory-source/mechanisms/crates/hickory-cli/src/launch_inventory.rs.md",
+      "symbol": "launch inventory interface",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "physical-launch-source-inventory",
+      "output": "crates/hickory-cli/src/launch_inventory.rs",
+      "page": ".hickory-source/mechanisms/crates/hickory-cli/src/launch_inventory.rs.md",
+      "symbol": "physical launch source inventory",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "physical-launch-path-policy",
+      "output": "crates/hickory-cli/src/launch_inventory.rs",
+      "page": ".hickory-source/mechanisms/crates/hickory-cli/src/launch_inventory.rs.md",
+      "symbol": "physical launch path policy",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "launch-input-domains",
+      "output": "crates/hickory-cli/src/launch_inventory.rs",
+      "page": ".hickory-source/mechanisms/crates/hickory-cli/src/launch_inventory.rs.md",
+      "symbol": "launch input domains",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "launch-inventory-domain-tests",
+      "output": "crates/hickory-cli/src/launch_inventory.rs",
+      "page": ".hickory-source/mechanisms/crates/hickory-cli/src/launch_inventory.rs.md",
+      "symbol": "launch inventory domain tests",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-native-debug-fixture",
+      "output": "scripts/test-native-debug.py",
+      "page": ".hickory-source/frontends/scripts/test-native-debug.py.md",
+      "symbol": "simple native debug fixture",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-native-debug-host-runners",
+      "output": "scripts/test-native-debug.py",
+      "page": ".hickory-source/frontends/scripts/test-native-debug.py.md",
+      "symbol": "simple native debug host runners",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-native-debug-runner-entry",
+      "output": "scripts/test-native-debug.py",
+      "page": ".hickory-source/frontends/scripts/test-native-debug.py.md",
+      "symbol": "simple native debug runner entry",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "debug-source-reading-browser",
+      "output": "apps/web/src/debug/SourceGuards.ts",
+      "page": ".hickory-source/frontends/debugger-source-guards-browser.md",
+      "symbol": "debug source reading browser",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "debug-breakpoint-intents-browser",
+      "output": "apps/web/src/debug/SourceGuards.ts",
+      "page": ".hickory-source/frontends/debugger-source-guards-browser.md",
+      "symbol": "debug breakpoint intents browser",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "debug-source-guards-browser-tests",
+      "output": "apps/web/src/debug/SourceGuards.test.ts",
+      "page": ".hickory-source/frontends/debugger-source-guards-browser.md",
+      "symbol": "debug source guards browser tests",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "debug-value-tree-browser",
+      "output": "apps/web/src/debug/DebugValueTree.ts",
+      "page": ".hickory-source/frontends/debugger-values-browser.md",
+      "symbol": "debug value tree browser",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "debug-value-tree-browser-tests",
+      "output": "apps/web/src/debug/DebugValueTree.test.ts",
+      "page": ".hickory-source/frontends/debugger-values-browser.md",
+      "symbol": "debug value tree browser tests",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "debug-session-identity",
+      "output": "crates/hickory-cli/src/debug_sessions.rs",
+      "page": ".hickory-source/mechanisms/crates/hickory-cli/src/debug_sessions.rs.md",
+      "symbol": "debug session identity",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "captured-source-uri-boundary",
+      "output": "crates/hick-lsp/src/project_contexts.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-lsp/src/project_contexts.rs.md",
+      "symbol": "captured source uri boundary",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "captured-source-uri-tests",
+      "output": "crates/hick-lsp/src/project_contexts.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-lsp/src/project_contexts.rs.md",
+      "symbol": "captured source uri tests",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "debug-breakpoint-intent-update",
+      "output": "crates/hickory-cli/src/serve/debug_sources.rs",
+      "page": ".hickory-source/mechanisms/crates/hickory-cli/src/serve/debug_sources.rs.md",
+      "symbol": "debug breakpoint intent update",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-breakpoints-session-transaction-witness",
+      "output": "crates/hick-dap/src/source_breakpoints.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-dap/src/source_breakpoints.rs.md",
+      "symbol": "source breakpoints session transaction witness",
       "basis": "explained-behavior"
     }
   ],

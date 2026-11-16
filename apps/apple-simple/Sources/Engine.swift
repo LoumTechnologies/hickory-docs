@@ -533,17 +533,18 @@ func rebaseNativeTokens(_ tokens: [NativeSemanticToken], from old: String, to ne
     }
 
 }
-func nativeDebugURI(_ path:String)->String {languageURI(path)}
+func nativeDebugURI(_ path:String)->String {path.hasPrefix("hick://") ? path:languageURI(path)}
 struct DebugLine: Equatable { var line: Int; var y: Double; var height: Double }
 struct NativeDebugProfile: Decodable, Identifiable {
     var id: String; var name: String; var program: String?; var can_debug: Bool
+    var exactID:Data {Data(id.utf8)}
 }
 struct NativeDebugTarget: Identifiable { var path: String; var line: Int; var end: Int; var id: String { "\(path):\(line)" } }
 struct NativeDebugRender: Decodable {
     struct Block: Decodable { var kind: String; var path: String?; var span: [Int]? }
     var blocks: [Block]
 }
-struct NativeDebugCatalog: Decodable {var profiles:[NativeDebugProfile];var fingerprint:String;var viewed:String?;var debug_protocol:Int?}
+struct NativeDebugCatalog: Decodable {var profiles:[NativeDebugProfile];var fingerprint:String;var viewed:String?;var debug_protocol:Int?;var notices:[String]?}
 struct NativeRunOutput: Equatable {
     var category: String; var text: String; var source: String?; var line: Int?
 }
@@ -589,9 +590,14 @@ struct NativeDebugValues:ExpressibleByDictionaryLiteral {
 private struct NativeDebugExpressionRequest {var expression:String;var request:NativeDebugEvaluation}
 
 private struct NativeDebugValue:Decodable {
-    var expression:String;var value:String;var stop:UInt64;private var runtimeThread:NativeDebugID?;private var runtimeFrame:NativeDebugID?;var thread:Int64? {runtimeThread.map{Int64($0.value)}};var frame:Int? {runtimeFrame.map{Int($0.value)}};var request_id:String?
-    private enum CodingKeys:String,CodingKey {case expression,value,stop,runtimeThread="thread",runtimeFrame="frame",request_id}
+    var expression:String;var value:String;var stop:UInt64;private var runtimeThread:NativeDebugID?;private var runtimeFrame:NativeDebugID?;var thread:Int64? {runtimeThread.map{Int64($0.value)}};var frame:Int? {runtimeFrame.map{Int($0.value)}};var request_id:String?;var reference:Int64?
+    private enum CodingKeys:String,CodingKey {case expression,value,stop,runtimeThread="thread",runtimeFrame="frame",request_id,reference}
 }
+struct NativeDebugVariableRow:Identifiable {var id:UUID;var depth:Int;var name:String;var value:String;var reference:Int64;var expanded=false;var pending=false;var retryable=false;var notice="";var children:[UUID]=[]}
+private struct NativeDebugExpansion {var request:NativeDebugEvaluation;var node:UUID;var reference:Int64}
+private struct NativeDebugSourceIdentity {var buffer:NativeDebugBufferRef;var id:UUID;var path:String;var confirmed:Bool}
+private struct NativeDebugBreakpointRequest {var id:String;var source:String}
+private final class NativeDebugBufferRef {weak var buffer:DocumentBuffer?;init(_ buffer:DocumentBuffer){self.buffer=buffer}}
 private struct NativeDebugVariable:Decodable {var name:String;var value:String;var type_name:String?;var variables_reference:Int64?}
 private struct NativeDebugFrameVariables:Decodable {
     var session:String;var stop:UInt64;private var runtimeThread:NativeDebugID?;private var runtimeFrame:NativeDebugID?;var thread:Int64? {runtimeThread.map{Int64($0.value)}};var frame:Int? {runtimeFrame.map{Int($0.value)}};var request_id:String?;var variables:[NativeDebugVariable]
@@ -633,7 +639,21 @@ private struct NativeDebugFrameVariables:Decodable {
     var frames: [[String: Any]] = []
     var variables: [[String: Any]] = []
     var capabilities: [String: Any] = [:]
-    var breakpoints: [String: [[String: Any]]] = [:]
+    private(set) var breakpoints: [String: [[String: Any]]] = [:]
+    private var intentSources:[Data:String]=[:]
+    private var boundSources:[Data:String]=[:]
+    private var breakpointRequests:[Data:NativeDebugBreakpointRequest]=[:]
+    private var breakpointBuffers:[Data:NativeDebugBufferRef]=[:]
+    var breakpointNotice=""
+    private var retainedBreakpointIntents:[Data:[[String:Any]]]=[:]
+    func retainedBreakpointReading(_ path:String)->[String] {let key=Data(path.utf8);var retained=retainedBreakpointIntents[key] ?? [];if let source=intentSources[key],let buffer=breakpointBuffers[key]?.buffer,!exactUTF8(source,buffer.text){retained += breakpointIntents(path).map{mark in var item=mark;item["source_hash"]=nativeSourceHash(source);return item}}else if intentSources[key]==nil{retained += breakpointIntents(path)};return retained.map{"Earlier source \(($0["source_hash"] as? String ?? "unknown").prefix(8)): line \(($0["line"] as? Int ?? 0)+1)"+(($0["condition"] as? String).map{" if \($0)"} ?? "")}}
+    private var variableNodes:[UUID:NativeDebugVariableRow]=[:]
+    private var variableRoots:[UUID]=[]
+    private var evaluationRoots:[Data:UUID]=[:]
+    private var expansions:[String:NativeDebugExpansion]=[:]
+    private var movementRequest:(id:String,stackNotice:String)?
+    private(set) var pauseUnconfirmed=false
+    var visibleVariableRows:[NativeDebugVariableRow] {var result:[NativeDebugVariableRow]=[];func visit(_ id:UUID){guard let node=variableNodes[id] else{return};result.append(node);if node.expanded {for child in node.children{visit(child)}}};for id in variableRoots{visit(id)};return result}
     var output: [NativeRunOutput] = []
     var values=NativeDebugValues()
     var watches: [String] = []
@@ -641,13 +661,22 @@ private struct NativeDebugFrameVariables:Decodable {
     var targets: [NativeDebugTarget] = []
     private var launchProgram: String?
     var catalog: NativeDebugCatalog?
+    var catalogNotices:[String]=[]
+    @ObservationIgnored var sourceBuffers:(()->[DocumentBuffer])?
+    private var sourceIdentities:[Data:NativeDebugSourceIdentity]=[:]
+    private var intentOwners:[Data:UUID]=[:]
+    private var sourceNamespace:UInt64=0
+    private var launchNamespace:UInt64=0
+    private var preparationNamespace:UInt64=0
     var launchSource = ""
+    private var launchBoundHash:String?
     private var sourceHashes:[Data:String]=[:]
     private var ambiguousSources=Set<Data>()
     var pausedLine: Int?
     var selectedFrame: Int?
     var offer: [String: String]?
     @ObservationIgnored var onLocation: ((NativeDebugLocation) -> Void)?
+    @ObservationIgnored var observeRequestForTest: (([String:Any])->Void)?
     @ObservationIgnored var emitForTest: (([String: Any]) -> Void)?
     private let engine: Engine
     private weak var launchBuffer: DocumentBuffer?
@@ -666,6 +695,9 @@ private struct NativeDebugFrameVariables:Decodable {
         retiredLaunches=Array(retiredLaunches.suffix(64));pendingLaunch=nil;activeLaunch=nil
     }
     @discardableResult func beginLaunchRequest()->String {
+        launchNamespace=sourceNamespace;sourceIdentities=[:]
+        for buffer in (sourceBuffers?() ?? [])+[launchBuffer].compactMap({$0})+breakpointBuffers.values.compactMap({$0.buffer}) where !buffer.resourceDeleted {let key=Data(buffer.file.path.utf8);if sourceIdentities[key]==nil{sourceIdentities[key]=NativeDebugSourceIdentity(buffer:NativeDebugBufferRef(buffer),id:buffer.id,path:buffer.file.path,confirmed:true)}}
+        launchBoundHash=nil;boundSources=[:];breakpointRequests=[:];sourceHashes=[Data(owner.utf8):nativeSourceHash(launchSource)];ambiguousSources=[]
         retireLaunches();let id=UUID().uuidString;pendingLaunch=NativeDebugLaunch(id:id,doc:nativeDebugURI(owner));sessionID=nil;stopPending=false;message="";status="starting";return id
     }
     private func stopRetiredLaunch(_ event:[String:Any])->Bool {
@@ -673,7 +705,7 @@ private struct NativeDebugFrameVariables:Decodable {
         send(["op":"stop","session":session]);return true
     }
     init(engine: Engine) { self.engine = engine }
-    var active: Bool { ["starting", "running", "paused", "stopping"].contains(status) }
+    var active: Bool { ["starting", "running", "unconfirmed", "paused", "stopping"].contains(status) }
     var hasSessionReading:Bool {active || sessionID != nil || status=="finished" || status=="failed" || status=="unavailable" || !output.isEmpty}
     func line(in path: String) -> Int? {
         guard status == "paused",stackNotice.isEmpty,let reference=selectedSourceReference,reference<=0 else { return nil }
@@ -720,14 +752,31 @@ private struct NativeDebugFrameVariables:Decodable {
     private func sourceProof(_ path:String)->String? {
         let key=Data(path.utf8)
         guard let reference=selectedSourceReference,reference<=0,!ambiguousSources.contains(key) else{return nil}
-        if exactUTF8(path,owner){return nativeSourceHash(launchSource)}
+        if exactUTF8(path,owner){return launchBoundHash==nativeSourceHash(launchSource) ? launchBoundHash:nil}
         guard let frame=frames.first(where:{nativeDebugID($0["id"])==selectedFrame}),exactUTF8(frame["source"] as? String,path),let hash=frame["source_hash"] as? String,hash.range(of:"^[0-9a-f]{64}$",options:.regularExpression) != nil,sourceHashes[key]==hash else{return nil}
         return hash
     }
+    private func identityMatches(_ buffer:DocumentBuffer,path:String,confirmed:Bool)->Bool {guard !buffer.resourceDeleted,exactUTF8(buffer.file.path,path),let identity=sourceIdentities[Data(path.utf8)],identity.id==buffer.id,identity.buffer.buffer === buffer else{return false};return !confirmed || identity.confirmed}
+    @discardableResult func admitSourceReading(_ buffer:DocumentBuffer,path:String,proof:String)->Bool {
+        guard !buffer.dirty,!buffer.saving,!buffer.resourceDeleted,exactUTF8(buffer.file.path,path),sourceProof(path)==proof,nativeSourceHash(buffer.text)==proof else{return false}
+        let key=Data(path.utf8)
+        if let known=sourceIdentities[key] {return known.id==buffer.id && known.buffer.buffer === buffer && known.confirmed}
+        guard sourceNamespace==launchNamespace else{return false}
+        sourceIdentities[key]=NativeDebugSourceIdentity(buffer:NativeDebugBufferRef(buffer),id:buffer.id,path:path,confirmed:true);return true
+    }
     func sourceMatches(_ buffer:DocumentBuffer)->Bool {
-        guard !buffer.dirty,let proof=sourceProof(buffer.file.path) else{return false}
-        if exactUTF8(buffer.file.path,owner){return exactUTF8(buffer.text,launchSource)}
+        guard !buffer.dirty,!buffer.saving,identityMatches(buffer,path:buffer.file.path,confirmed:true),let proof=sourceProof(buffer.file.path) else{return false}
         return proof==nativeSourceHash(buffer.text)
+    }
+    func resourceNamespaceChanged(_ routes:[ResourceEditorRoute<DocumentBuffer>]) {
+        if sourceNamespace==launchNamespace {for route in routes {if let path=route.from,let buffer=route.editor,exactUTF8(buffer.file.path,path),sourceIdentities[Data(path.utf8)]==nil{sourceIdentities[Data(path.utf8)]=NativeDebugSourceIdentity(buffer:NativeDebugBufferRef(buffer),id:buffer.id,path:path,confirmed:false)}}}
+        sourceNamespace &+= 1;frameSnapshot=UUID();breakpointRequests=[:];boundSources=[:]
+        for key in sourceIdentities.keys {sourceIdentities[key]?.confirmed=false}
+        breakpointNotice="Resource ownership changed. Captured runtime controls/history remain; source positions and breakpoint receipts need fresh original-identity proof."
+    }
+    private func confirmKnownSource(_ path:String,hash:String) {
+        let key=Data(path.utf8);guard var identity=sourceIdentities[key],let buffer=identity.buffer.buffer,identity.id==buffer.id,!buffer.resourceDeleted,!buffer.dirty,!buffer.saving,exactUTF8(buffer.file.path,identity.path),nativeSourceHash(buffer.text)==hash else{return}
+        identity.confirmed=true;sourceIdentities[key]=identity
     }
     func locationCurrent(_ location:NativeDebugLocation)->Bool {status=="paused" && stackNotice.isEmpty && location.snapshot==frameSnapshot && location.session==sessionID && location.stop==latestThreadStop && location.thread==selectedThread && location.frame==selectedFrame}
     private func sourcePath(_ path:String)->Bool {!path.isEmpty && !path.contains("\0") && path.split(separator:"/",omittingEmptySubsequences:false).allSatisfy{!$0.isEmpty && $0 != "." && $0 != ".."}}
@@ -746,21 +795,24 @@ private struct NativeDebugFrameVariables:Decodable {
     }
     private func revealLocation(path:String,line:Int) {if let location=sourceLocation(path:path,line:line){onLocation?(location)}}
     private func compatibleDebugger(_ catalog:NativeDebugCatalog)->Bool {
-        guard (catalog.debug_protocol ?? 0)>=2 else{self.catalog=nil;profiles=[];status="unavailable";message="Scoped debugging is unavailable from this engine. Update/reconnect an engine with debug protocol 2 before Debug. No Start command was sent.";return false}
+        guard (catalog.debug_protocol ?? 0)>=3 else{self.catalog=nil;profiles=[];status="unavailable";message="Scoped debugging is unavailable from this engine. Update/reconnect an engine with debug protocol 3 before Debug. No Start command was sent.";return false}
         return true
     }
     func prepare(_ buffer: DocumentBuffer, line: Int = 0, program: String? = nil) async {
         guard !active else { message = "Stop the current debugger before launching another program."; return }
+        guard !buffer.resourceDeleted else{message="Deleted source is retained history. Restore its proven identity or save a copy before a new launch.";return}
         guard !buffer.dirty, !buffer.saving else { message = "Save this file before debugging so the adapter runs the displayed text."; return }
-        close(); let current = epoch
-        owner = buffer.file.path; launchBuffer = buffer; launchSource = buffer.text; sourceHashes = [Data(owner.utf8):nativeSourceHash(launchSource)];ambiguousSources=[]; message = "Resolving launch targets…"; profiles = []; targets = []
+        guard !breakpoints.keys.contains(where:{$0==buffer.file.path && !exactUTF8($0,buffer.file.path)}) else{status="unavailable";message="This native host cannot distinguish two canonically equivalent breakpoint path keys. Source is retained; no Debug command was sent.";return}
+        close(); let current = epoch;preparationNamespace=sourceNamespace;catalogNotices=[]
+        owner = buffer.file.path; launchBuffer = buffer;breakpointBuffers[Data(owner.utf8)]=NativeDebugBufferRef(buffer); launchSource = buffer.text; sourceHashes = [Data(owner.utf8):nativeSourceHash(launchSource)];ambiguousSources=[]; message = "Resolving launch targets…"; profiles = []; targets = []
         do {
             let literate = buffer.file.doc_id != nil || ["md", "markdown"].contains((owner as NSString).pathExtension.lowercased())
             var target = program ?? inlineDebugPath(buffer.text, path: owner, line: line, launch: true) ?? inlineDebugPath(buffer.text, path: owner, line: line)
             if literate && target == nil {
                 guard let id = buffer.file.doc_id else { message = "Refresh files to discover this document before choosing a file block to debug."; return }
                 let rendered: NativeDebugRender = try await engine.request("GET", "/api/docs/" + id + "/render")
-                guard epoch == current, exactUTF8(buffer.text,launchSource), !buffer.dirty else { return }
+                guard epoch==current else{return}
+                guard preparationNamespace==sourceNamespace,!buffer.resourceDeleted,exactUTF8(buffer.file.path,owner),exactUTF8(buffer.text,launchSource),!buffer.dirty,!buffer.saving else{message="Source identity or text changed during launch preparation. Choose Debug on the current saved source.";return}
                 targets = rendered.blocks.compactMap { block in
                     guard block.kind == "file", let path = block.path, let span = block.span, span.count == 2,
                           span[0] >= 0, span[1] >= span[0], span[1] <= launchSource.utf8.count else { return nil }
@@ -774,18 +826,19 @@ private struct NativeDebugFrameVariables:Decodable {
             var query: [String: Any] = ["uri": nativeDebugURI(owner), literate ? "expected_document" : "expected_source": launchSource]
             if let target { query["program"] = target }
             let result: NativeDebugCatalog = try await engine.request("POST", "/api/launch-profiles", body: query)
-            guard epoch == current, exactUTF8(buffer.text,launchSource), !buffer.dirty else { return }
+            guard epoch==current else{return}
+                guard preparationNamespace==sourceNamespace,!buffer.resourceDeleted,exactUTF8(buffer.file.path,owner),exactUTF8(buffer.text,launchSource),!buffer.dirty,!buffer.saving else{message="Source identity or text changed during launch preparation. Choose Debug on the current saved source.";return}
             guard compatibleDebugger(result) else{return}
-            catalog = result; profiles = result.profiles.filter(\.can_debug)
-            if let automatic = profiles.first(where: { $0.program == (target ?? result.viewed ?? owner) }) ?? (profiles.count == 1 ? profiles.first : nil) { launch(automatic); return }
+            catalogNotices=result.notices ?? [];catalog = result; profiles = result.profiles.filter(\.can_debug)
+            if let automatic = profiles.first(where: { exactUTF8($0.program,target ?? result.viewed ?? owner) }) ?? (profiles.count == 1 ? profiles.first : nil) { launch(automatic); return }
             message = profiles.isEmpty ? "No debug launch targets. Configure a debug profile in this project and try again." : "Choose a debug target."
         } catch { if epoch == current { message = "\(error.localizedDescription) Save or refresh this file and try debugging again." } }
     }
     func launch(_ profile: NativeDebugProfile) {
         guard let catalog else{message="Resolve a current scoped launch profile before Debug. No Start command was sent.";return}
         guard compatibleDebugger(catalog) else{return}
-        guard let buffer = launchBuffer, profiles.contains(where: { $0.id == profile.id }),
-              exactUTF8(buffer.text,launchSource), !buffer.dirty, !buffer.saving, !active else {
+        guard let buffer = launchBuffer, profiles.contains(where: { exactUTF8($0.id,profile.id) && exactUTF8($0.program,profile.program) }),
+              preparationNamespace==sourceNamespace,!buffer.resourceDeleted,exactUTF8(buffer.file.path,owner),exactUTF8(buffer.text,launchSource), !buffer.dirty, !buffer.saving, !active else {
             message = "The source or launch target changed. Save and choose Debug again."; return
         }
         let launch=beginLaunchRequest();message = ""; profiles = []; values = [:]; variables = []; frames = []; pausedLine = nil; offer = nil
@@ -806,10 +859,20 @@ private struct NativeDebugFrameVariables:Decodable {
         var request: [String: Any] = ["op": "start", "request_id":launch,"doc": nativeDebugURI(owner), "breakpoints": breakpoints[owner] ?? [],
             "profile": ["id": profile.id, "fingerprint": catalog.fingerprint]]
         if let launchProgram { request["program"] = launchProgram }
-        request["sources"] = Dictionary(uniqueKeysWithValues: breakpoints.filter { $0.key != owner }.map { (nativeDebugURI($0.key), $0.value) })
+        let primaryKey=Data(owner.utf8)
+        if intentSources[primaryKey]==nil {if breakpointIntents(owner).isEmpty{intentSources[primaryKey]=launchSource}else{breakpointNotice="Breakpoint intentions without a captured source remain unbound. Place them explicitly on current text before launch binding."}}
+        if let source=intentSources[primaryKey],!exactUTF8(source,launchSource){breakpointNotice="Earlier source intentions are retained. This launch omitted stale positions; place intentions explicitly on current source."}
+        request["source_hash"]=nativeSourceHash(launchSource)
+        let primaryOwned=intentOwners[primaryKey]==launchBuffer?.id
+        request["breakpoints"]=primaryOwned && intentSources[primaryKey].map{exactUTF8($0,launchSource)}==true ? breakpointIntents(owner):[]
+        if (primaryOwned || breakpointIntents(owner).isEmpty) && intentSources[primaryKey].map({exactUTF8($0,launchSource)})==true{breakpointRequests[primaryKey]=NativeDebugBreakpointRequest(id:launch,source:launchSource)}
+        var sources:[String:[[String:Any]]]=[:],hashes:[String:String]=[:]
+        for (path,_) in breakpoints where !exactUTF8(path,owner) {let key=Data(path.utf8);if let source=intentSources[key],let buffer=breakpointBuffers[key]?.buffer,!buffer.dirty,!buffer.saving,!buffer.resourceDeleted,exactUTF8(buffer.file.path,path),intentOwners[key]==buffer.id,exactUTF8(source,buffer.text){sources[nativeDebugURI(path)]=breakpointIntents(path);hashes[nativeDebugURI(path)]=nativeSourceHash(source);breakpointRequests[key]=NativeDebugBreakpointRequest(id:launch,source:source)}}
+        request["sources"]=sources;request["source_hashes"]=hashes
         send(request)
     }
     private func send(_ request: [String: Any]) {
+        observeRequestForTest?(request)
         if let emitForTest { emitForTest(request); return }
         guard let socket, let bytes = try? JSONSerialization.data(withJSONObject: request) else { return }
         let previous = sender, current = epoch
@@ -839,15 +902,18 @@ private struct NativeDebugFrameVariables:Decodable {
         }else {guard let id=event["session"] as? String,id==sessionID else{return}}
         switch kind {
         case "started":
-            activeLaunch=pendingLaunch;pendingLaunch=nil
+            launchBoundHash=(event["source_hash"] as? String)==nativeSourceHash(launchSource) ? event["source_hash"] as? String:nil
+            if launchBoundHash==nil {message="The engine did not confirm the captured primary source hash. Runtime controls remain available; primary source positions and movement are unbound."}
+            pauseUnconfirmed=false;movementRequest=nil;activeLaunch=pendingLaunch;pendingLaunch=nil
             resetThreads();output = []
             sessionID = event["session"] as? String; capabilities = event["capabilities"] as? [String: Any] ?? [:]; status = "running"
-            bind(event["breakpoints"] as? [[String: Any]] ?? [], path: owner)
+            receiveBreakpointReceipt(event,path:owner)
             if stopPending { stopPending = false; stop() }
         case "stopped":
-            guard let bytes=try? JSONSerialization.data(withJSONObject:event),let pause=try? JSONDecoder().decode(NativeDebugThreadPause.self,from:bytes) else{pauseIdentityKnown=false;stackNotice="Stopped response has no valid integer thread/stop identity. Earlier frames are historical; refresh through a current engine.";threadNotice=stackNotice;values=[:];evaluations=[:];frameRequest=nil;frameBusy=false;frameVariablesCurrent=false;threadRequest=nil;threadBusy=false;return}
+            guard let bytes=try? JSONSerialization.data(withJSONObject:event),let pause=try? JSONDecoder().decode(NativeDebugThreadPause.self,from:bytes) else{clearVariableTree();pauseIdentityKnown=false;stackNotice="Stopped response has no valid integer thread/stop identity. Earlier frames are historical; refresh through a current engine.";threadNotice=stackNotice;values=[:];evaluations=[:];frameRequest=nil;frameBusy=false;frameVariablesCurrent=false;threadRequest=nil;threadBusy=false;return}
             guard status != "stopping" else{return}
-            if let latestThreadStop {guard pause.stop>=latestThreadStop,status != "running" || pause.stop>latestThreadStop else{return}}
+            if let latestThreadStop {guard pause.stop>=latestThreadStop,!["running","unconfirmed"].contains(status) || pause.stop>latestThreadStop else{return}}
+            pauseUnconfirmed=false;movementRequest=nil
             let previousFrames=frames,samePause=pause.stop==latestThreadStop && pause.thread==selectedThread
             pauseIdentityKnown=true;refreshingPause=false;admitThreadPause(pause);values=[:];evaluations=[:];evaluationNotice="";frameRequest=nil;frameBusy=false;frameSnapshot=UUID()
             stackNotice=(event["stack_error"] as? String).map{"Provider stack read refused: "+$0} ?? ""
@@ -863,15 +929,19 @@ private struct NativeDebugFrameVariables:Decodable {
             if let raw=event["selected_frame"],!(raw is NSNull),nativeDebugID(raw)==nil {selectedFrame=nil;stackNotice="Provider selected-frame identity is malformed or outside signed int32.";frameVariablesCurrent=false;variables=[]}
             if stackNotice.isEmpty {
                 retainSourceProofs()
+                for frame in frames {if let path=frame["source"] as? String,let hash=frame["source_hash"] as? String{confirmKnownSource(path,hash:hash)}}
                 if let top = frames.first, let path = top["source"] as? String, let line = nativeDebugLine(top["source_line"]) { revealLocation(path:path,line:line) }
                 else if let pausedLine { revealLocation(path:owner,line:pausedLine) }
             }
+            resetVariableTree()
             for expression in watches { evaluate(expression, watch: true) }
         case "threads":receiveThreads(event)
         case "frame_variables":receiveFrameVariables(event)
-        case "breakpoints": bind(event["breakpoints"] as? [[String: Any]] ?? [], path: owner)
+        case "children":receiveChildren(event)
+        case "breakpoints":receiveBreakpointReceipt(event,path:owner)
         case "source_breakpoints":
-            if let source = event["source"] as? String, source.hasPrefix("hick:///") { bind(event["breakpoints"] as? [[String: Any]] ?? [], path: String(source.dropFirst(8))) }
+            guard let source=event["source"] as? String,let ticket=event["request_id"] as? String,let key=breakpointRequests.first(where:{entry in entry.value.id==ticket && String(data:entry.key,encoding:.utf8).map{exactUTF8(nativeDebugURI($0),source)}==true})?.key,let path=String(data:key,encoding:.utf8) else{return}
+            receiveBreakpointReceipt(event,path:path)
         case "run_output":
             output = Array((output + (event["events"] as? [[String: Any]] ?? []).compactMap { item in
                 guard let text = item["text"] as? String else { return nil }
@@ -880,8 +950,15 @@ private struct NativeDebugFrameVariables:Decodable {
         case "value":
             guard status=="paused",let bytes=try? JSONSerialization.data(withJSONObject:event),let value=try? JSONDecoder().decode(NativeDebugValue.self,from:bytes),let request=evaluations[Data(value.expression.utf8)]?.request,value.request_id==request.id,value.stop==request.stop,value.stop==latestThreadStop,value.thread==request.thread,value.thread==selectedThread,value.frame==request.frame,value.frame==selectedFrame else{return}
             evaluations.removeValue(forKey:Data(value.expression.utf8));values[value.expression]=value.value
+            if let reference=value.reference,reference>0,reference<=Int64(Int32.max) {let node=variableNode(["name":value.expression,"value":value.value,"variables_reference":reference],depth:0);evaluationRoots[Data(value.expression.utf8)]=node.id;variableNodes[node.id]=node;variableRoots.append(node.id)}
         case "finished", "ended": retireLaunches();resetThreads();status = "finished"; sessionID = nil; pausedLine = nil; variables = []; frames = []; values = [:]
         case "failed":
+            if ["breakpoints","source_breakpoints"].contains(event["about"] as? String ?? "") {guard let id=event["request_id"] as? String,let key=breakpointRequests.first(where:{$0.value.id==id})?.key else{return};breakpointRequests.removeValue(forKey:key);boundSources=[:];breakpointNotice="Breakpoint binding refused: "+(event["message"] as? String ?? "Provider could not bind current source.");return}
+            if ["step","jump","run_to"].contains(event["about"] as? String ?? "") {guard status=="running",let id=event["request_id"] as? String,let request=movementRequest,id==request.id else{return};movementRequest=nil
+                let retired=event["scope_retired"].map{raw->Bool in guard let number=raw as? NSNumber,CFGetTypeID(number)==CFBooleanGetTypeID() else{return true};return number.boolValue} ?? false
+                if retired {retireThreadChoices();pauseIdentityKnown=false;pauseUnconfirmed=true;status="unconfirmed";pausedLine=nil;variables=[];values=[:];stackNotice="Pause not confirmed after movement. Earlier stack frames are historical; positions, evaluation and further movement are unavailable until an actual newer stop is reported.";message=(event["message"] as? String ?? "Next stop could not be observed.")+" The current session and Stop remain available."}
+                else {stackNotice=request.stackNotice;status="paused";message=(event["message"] as? String ?? "Runtime movement refused.")+" The previous paused observation is retained; refresh it before another movement."};return}
+            if event["about"] as? String=="children",let id=event["request_id"] as? String {guard let request=expansions.removeValue(forKey:id),scopeCurrent(request.request),var node=variableNodes[request.node] else{return};node.pending=false;node.retryable=true;node.notice="Provider expansion refused: "+(event["message"] as? String ?? "Unknown error");variableNodes[node.id]=node;return}
             if event["about"] as? String=="state",let id=event["request_id"] as? String {
                 guard let request=frameRequest,request.id==id else{return}
                 frameRequest=nil;frameBusy=false;frameVariablesCurrent=false;frameNotice=(event["message"] as? String ?? "Frame variables could not be read.")+" The selected stack and source are retained.";return
@@ -902,18 +979,31 @@ private struct NativeDebugFrameVariables:Decodable {
         default: break
         }
     }
+    private func scopeCurrent(_ request:NativeDebugEvaluation)->Bool {status=="paused" && request.stop==latestThreadStop && request.thread==selectedThread && request.frame==selectedFrame && canInspectFrame}
+    private func clearVariableTree(){variableNodes=[:];variableRoots=[];evaluationRoots=[:];expansions=[:]}
+    private func retireExpressionRoot(_ expression:String){guard let id=evaluationRoots.removeValue(forKey:Data(expression.utf8)) else{return};func remove(_ id:UUID){if let node=variableNodes.removeValue(forKey:id){for child in node.children{remove(child)}};expansions=expansions.filter{$0.value.node != id}};remove(id);variableRoots.removeAll{$0==id}}
+    private func variableNode(_ value:[String:Any],depth:Int)->NativeDebugVariableRow {NativeDebugVariableRow(id:UUID(),depth:depth,name:value["name"] as? String ?? "",value:value["value"] as? String ?? "",reference:nativeDebugID(value["variables_reference"]).map(Int64.init) ?? 0)}
+    private func resetVariableTree(){clearVariableTree();for value in variables.prefix(10000){let node=variableNode(value,depth:0);variableNodes[node.id]=node;variableRoots.append(node.id)}}
+    func toggleVariable(_ id:UUID){guard canInspectFrame,var node=variableNodes[id],node.reference>0 else{return};if node.expanded {node.expanded=false;variableNodes[id]=node;return};node.expanded=true;variableNodes[id]=node;if !node.children.isEmpty || node.notice=="No child variables reported."{return};if node.depth>=32 || variableNodes.count>=10000 {node.notice="Expansion display limit reached (32 levels / 10,000 variables).";variableNodes[id]=node;return};readChildren(id)}
+    func readChildren(_ id:UUID){guard canInspectFrame,let sessionID,let stop=latestThreadStop,let thread=selectedThread,let frame=selectedFrame,var node=variableNodes[id],node.reference>0,!node.pending,node.depth<32,variableNodes.count<10000 else{return};let ticket=UUID().uuidString;node.pending=true;node.retryable=false;node.notice="";variableNodes[id]=node;expansions[ticket]=NativeDebugExpansion(request:NativeDebugEvaluation(id:ticket,stop:stop,thread:thread,frame:frame),node:id,reference:node.reference);send(["op":"children","session":sessionID,"stop":stop,"thread":thread,"frame":frame,"reference":node.reference,"request_id":ticket])}
+    private func receiveChildren(_ event:[String:Any]) {guard let ticket=event["request_id"] as? String,let request=expansions[ticket],scopeCurrent(request.request),var node=variableNodes[request.node] else{return}
+        guard let bytes=try? JSONSerialization.data(withJSONObject:event),let scope=try? JSONDecoder().decode(NativeDebugFrameVariables.self,from:bytes),scope.stop==request.request.stop,scope.thread==request.request.thread,scope.frame==request.request.frame,nativeDebugID(event["reference"]).map(Int64.init)==request.reference else{expansions.removeValue(forKey:ticket);node.pending=false;node.retryable=true;node.notice="Child response did not confirm the current stopped frame/reference scope. Earlier values and controls are retained.";variableNodes[node.id]=node;return}
+        expansions.removeValue(forKey:ticket);node.pending=false;node.retryable=false
+        guard let children=event["variables"] as? [[String:Any]],children.count<=10000-variableNodes.count,children.allSatisfy({$0["name"] is String && $0["value"] is String && ($0["variables_reference"]==nil || nativeDebugID($0["variables_reference"]).map{$0>=0}==true)}) else{node.notice="Expansion is malformed or exceeds the 10,000-variable display limit.";variableNodes[node.id]=node;return}
+        for value in children {let child=variableNode(value,depth:node.depth+1);variableNodes[child.id]=child;node.children.append(child.id)};node.notice=children.isEmpty ? "No child variables reported.":"";variableNodes[node.id]=node
+    }
     private func resetThreads() {
-        threads=[];threadStop=nil;selectedThread=nil;threadRequest=nil;threadBusy=false;refreshingPause=false;threadNotice="";pauseIdentityKnown=false;latestThreadStop=nil;threadSnapshot=UUID();frameSnapshot=UUID();evaluations=[:];evaluationNotice="";frameRequest=nil;frameBusy=false;frameVariablesCurrent=false;frameNotice="";stackNotice="";threadPage=0
+        pauseUnconfirmed=false;clearVariableTree();threads=[];threadStop=nil;selectedThread=nil;threadRequest=nil;threadBusy=false;refreshingPause=false;threadNotice="";pauseIdentityKnown=false;latestThreadStop=nil;threadSnapshot=UUID();frameSnapshot=UUID();evaluations=[:];evaluationNotice="";frameRequest=nil;frameBusy=false;frameVariablesCurrent=false;frameNotice="";stackNotice="";threadPage=0
     }
     private func retireThreadChoices() {
-        threads=[];threadStop=nil;threadRequest=nil;threadBusy=false;refreshingPause=false;threadSnapshot=UUID();frameSnapshot=UUID();evaluations=[:];evaluationNotice="";frameRequest=nil;frameBusy=false;frameVariablesCurrent=false;frameNotice="";stackNotice="";threadPage=0
+        clearVariableTree();threads=[];threadStop=nil;threadRequest=nil;threadBusy=false;refreshingPause=false;threadSnapshot=UUID();frameSnapshot=UUID();evaluations=[:];evaluationNotice="";frameRequest=nil;frameBusy=false;frameVariablesCurrent=false;frameNotice="";stackNotice="";threadPage=0
     }
     private func admitThreadPause(_ pause:NativeDebugThreadPause?) {
         guard let pause else{resetThreads();threadNotice="This stopped response has no thread observation. Update the engine before selecting threads.";return}
         let changed=latestThreadStop != pause.stop || selectedThread != pause.thread
         latestThreadStop=pause.stop;selectedThread=pause.thread
         if changed {
-            threads=[];threadStop=nil;threadSnapshot=UUID();threadPage=0;threadNotice="Read reported threads for this stopped state."
+            clearVariableTree();threads=[];threadStop=nil;threadSnapshot=UUID();threadPage=0;threadNotice="Read reported threads for this stopped state."
             // A confirmed selection arrives as Stopped followed by its correlated
             // Threads response. Keep only that handoff; all older reads retire.
             if var request=threadRequest,request.thread==pause.thread,pause.stop>request.stop {request.stop=pause.stop;threadRequest=request}
@@ -932,13 +1022,13 @@ private struct NativeDebugFrameVariables:Decodable {
         guard status=="paused",let request=frameRequest,event["request_id"] as? String==request.id else{return}
         guard let bytes=try? JSONSerialization.data(withJSONObject:event),let value=try? JSONDecoder().decode(NativeDebugFrameVariables.self,from:bytes),value.session==sessionID,value.stop==request.stop,value.stop==latestThreadStop,value.thread==request.thread,value.thread==selectedThread,value.frame==request.frame,value.frame==selectedFrame,value.variables.count<=10000 else{frameRequest=nil;frameBusy=false;frameVariablesCurrent=false;frameNotice="Frame variables response is malformed, stale or exceeds the response limit. Current frames are retained; refresh and read again.";return}
         frameRequest=nil;frameBusy=false;frameVariablesCurrent=true
-        variables=value.variables.map{item in ["name":item.name,"value":item.value,"type_name":item.type_name as Any? ?? NSNull(),"variables_reference":item.variables_reference ?? 0]}
+        variables=value.variables.map{item in ["name":item.name,"value":item.value,"type_name":item.type_name as Any? ?? NSNull(),"variables_reference":item.variables_reference ?? 0]};resetVariableTree()
         if selectedFrame==nativeDebugID(frames.first?["id"]) {topVariables=variables}
         frameNotice=variables.isEmpty ? "No variables were reported for this frame.":"Variables reported for the selected stopped frame."
     }
     func readFrameLocals() {
         guard canReadFrameLocals,let sessionID,let stop=latestThreadStop,let thread=selectedThread,let frame=selectedFrame else{return}
-        let id=UUID().uuidString;frameRequest=NativeDebugEvaluation(id:id,stop:stop,thread:thread,frame:frame);frameBusy=true;frameVariablesCurrent=false;frameNotice="Reading selected-frame variables…"
+        clearVariableTree();let id=UUID().uuidString;frameRequest=NativeDebugEvaluation(id:id,stop:stop,thread:thread,frame:frame);frameBusy=true;frameVariablesCurrent=false;frameNotice="Reading selected-frame variables…"
         send(["op":"state","session":sessionID,"stop":stop,"thread":thread,"frame":frame,"request_id":id])
     }
     func refreshPausedState() {
@@ -956,33 +1046,54 @@ private struct NativeDebugFrameVariables:Decodable {
         let id=UUID().uuidString;threadRequest=NativeDebugThreadRequest(id:id,stop:stop,thread:thread);threadBusy=true;threadNotice="Requesting the selected thread’s stopped stack…"
         send(["op":"select_thread","session":sessionID,"thread":thread,"stop":stop,"request_id":id])
     }
-    private func bind(_ statuses: [[String: Any]], path: String) {
-        let held = breakpoints[path] ?? []
-        breakpoints[path] = statuses.map { status in
-            var result = held.first(where: { ($0["line"] as? Int) == (status["line"] as? Int) }) ?? [:]
-            result.merge(status) { _, latest in latest }
-            if let moved = status["moved_to"] as? Int { result["line"] = moved }
-            return result
-        }
+    private func breakpointIntents(_ path:String)->[[String:Any]] {(breakpoints[path] ?? []).map{mark in var clean:[String:Any]=["line":mark["line"] ?? 0];if let condition=mark["condition"] as? String{clean["condition"]=condition};return clean}}
+    func sourceChanged(_ buffer:DocumentBuffer) {let key=Data(buffer.file.path.utf8);breakpointBuffers[key]=NativeDebugBufferRef(buffer);guard !(breakpoints[buffer.file.path] ?? []).isEmpty || breakpointRequests[key] != nil || boundSources[key] != nil else{return};if buffer.dirty || intentSources[key].map({!exactUTF8($0,buffer.text)})==true {breakpointRequests.removeValue(forKey:key);boundSources.removeValue(forKey:key);breakpointNotice="Breakpoint intentions belong to earlier text. Save and explicitly update them before binding new positions."}}
+    func breakpointMarkers(_ buffer:DocumentBuffer)->[[String:Any]] {guard !breakpoints.keys.contains(where:{$0==buffer.file.path && !exactUTF8($0,buffer.file.path)}) else{return []};let key=Data(buffer.file.path.utf8);guard identityMatches(buffer,path:buffer.file.path,confirmed:true),intentOwners[key]==buffer.id,!buffer.dirty,let source=intentSources[key],exactUTF8(source,buffer.text) else{return []};let bound=sessionID != nil && active && boundSources[key].map{exactUTF8($0,buffer.text)}==true;return (breakpoints[buffer.file.path] ?? []).map{mark in var item=mark;if bound {item["line"]=item["display_line"] ?? item["line"]}else{item["state"]="pending"};return item}}
+    private func receiveBreakpointReceipt(_ event:[String:Any],path:String) {let key=Data(path.utf8);guard let request=breakpointRequests[key],event["request_id"] as? String==request.id else{return};guard event["source_hash"] as? String==nativeSourceHash(request.source),intentSources[key].map({exactUTF8($0,request.source)})==true else{breakpointRequests.removeValue(forKey:key);boundSources.removeValue(forKey:key);breakpointNotice="Breakpoint receipt did not confirm the captured intention source. Positions remain unbound.";return};if let buffer=breakpointBuffers[key]?.buffer {guard identityMatches(buffer,path:path,confirmed:false),intentOwners[key]==buffer.id,!buffer.dirty,!buffer.saving,exactUTF8(buffer.file.path,path),exactUTF8(buffer.text,request.source) else{breakpointRequests.removeValue(forKey:key);boundSources.removeValue(forKey:key);breakpointNotice="Editor ownership/text changed before the breakpoint receipt. Positions remain unbound.";return}}
+        let statuses=event["breakpoints"] as? [[String:Any]] ?? [];guard statuses.allSatisfy({nativeDebugLine($0["line"]) != nil && ($0["moved_to"]==nil || $0["moved_to"] is NSNull || nativeDebugLine($0["moved_to"]) != nil)}) else{breakpointNotice="Malformed breakpoint receipt refused; intentions retained.";return};var held=breakpoints[path] ?? []
+        for index in held.indices {if let status=statuses.first(where:{$0["line"] as? Int==held[index]["line"] as? Int}) {held[index]["state"]=status["state"];held[index]["display_line"]=nativeDebugLine(status["moved_to"]) ?? nativeDebugLine(held[index]["line"]);held[index]["message"]=status["message"]}}
+        breakpoints[path]=held;if let buffer=breakpointBuffers[key]?.buffer {confirmKnownSource(path,hash:nativeSourceHash(request.source));guard identityMatches(buffer,path:path,confirmed:true) else{return}};boundSources[key]=request.source;if !ambiguousSources.contains(key){sourceHashes[key]=nativeSourceHash(request.source)};breakpointRequests.removeValue(forKey:key);breakpointNotice="Breakpoint statuses confirmed for captured source."
     }
-    func toggle(_ path: String, line: Int, condition: String? = nil) {
-        guard line >= 0 else { return }
-        var held = breakpoints[path] ?? []
-        if let index = held.firstIndex(where: { $0["line"] as? Int == line }) {
-            if let condition { held[index]["condition"] = condition } else { held.remove(at: index) }
-        } else { var mark: [String: Any] = ["line": line]; if let condition { mark["condition"] = condition }; held.append(mark) }
-        breakpoints[path] = held
-        if let sessionID {
-            send(path == owner ? ["op": "breakpoints", "session": sessionID, "breakpoints": held] : ["op": "source_breakpoints", "session": sessionID, "source": nativeDebugURI(path), "breakpoints": held])
-        }
+    func toggle(_ buffer:DocumentBuffer,line:Int,condition:String?=nil) {
+        guard line>=0,line<buffer.text.components(separatedBy:"\n").count else{breakpointNotice="Breakpoint position is outside current source.";return}
+        let key=Data(buffer.file.path.utf8)
+        if intentOwners[key] != buffer.id,!breakpointIntents(buffer.file.path).isEmpty {retainedBreakpointIntents[key,default:[]] += breakpointIntents(buffer.file.path).map{mark in var item=mark;item["source_hash"]=intentSources[key].map(nativeSourceHash) ?? "unknown";return item};breakpoints[buffer.file.path]=[];intentSources.removeValue(forKey:key)}
+        intentOwners[key]=buffer.id;breakpointBuffers[key]=NativeDebugBufferRef(buffer)
+        if sourceIdentities[key]==nil,sourceNamespace==launchNamespace,let proof=exactUTF8(buffer.file.path,owner) ? launchBoundHash:sourceHashes[key] {_ = admitSourceReading(buffer,path:buffer.file.path,proof:proof)}
+        toggle(buffer.file.path,line:line,condition:condition,source:buffer.text,writable:!buffer.dirty && !buffer.saving && !buffer.resourceDeleted)
+    }
+    func toggle(_ path:String,line:Int,condition:String?=nil,source:String?=nil,writable:Bool=true) {guard line>=0,line<=Int(Int32.max) else{breakpointNotice="Invalid breakpoint coordinate refused; current intentions are retained.";return};guard !breakpoints.keys.contains(where:{$0==path && !exactUTF8($0,path)}) else{breakpointNotice="Canonical-equivalent native breakpoint path aliases are unsupported; no request was sent.";return};let key=Data(path.utf8);let text=source
+        if text==nil {var unknown:[String:Any]=["line":line,"source_hash":"unknown"];if let condition{unknown["condition"]=condition};retainedBreakpointIntents[key,default:[]].append(unknown);breakpointNotice="Unbound path-only intention retained. Place it explicitly on current source; no coordinates were sent.";return}
+        if let text,line>=text.components(separatedBy:"\n").count {breakpointNotice="Breakpoint position is outside the captured source. Current intentions are retained.";return}
+        if let text,let buffer=breakpointBuffers[key]?.buffer,(!exactUTF8(buffer.file.path,path) || !exactUTF8(buffer.text,text)){breakpointNotice="Stale breakpoint source/ownership refused. Current intentions and editor text are retained.";return}
+        if let text,!breakpointIntents(path).isEmpty,intentSources[key].map({!exactUTF8($0,text)}) ?? true {let previous=intentSources[key];retainedBreakpointIntents[key]=(retainedBreakpointIntents[key] ?? [])+breakpointIntents(path).map{mark in var retained=mark;retained["source_hash"]=previous.map(nativeSourceHash) ?? "unknown";return retained};breakpoints[path]=[];breakpointNotice="Earlier source breakpoint intentions remain readable; place new intentions explicitly on current text."};if let text{intentSources[key]=text}
+        let bound=boundSources[key].flatMap{saved in text.map{exactUTF8(saved,$0)}} ?? false
+        let index=(breakpoints[path] ?? []).firstIndex{$0["line"] as? Int==line} ?? (bound ? (breakpoints[path] ?? []).firstIndex{$0["display_line"] as? Int==line}:nil)
+        var held=breakpointIntents(path);if let index {if let condition{held[index]["condition"]=condition}else{held.remove(at:index)}}else{var mark:[String:Any]=["line":line];if let condition{mark["condition"]=condition};held.append(mark)}
+        breakpoints[path]=held;boundSources.removeValue(forKey:key);breakpointRequests.removeValue(forKey:key)
+        guard writable,let text,let sessionID,["running","paused"].contains(status) else{breakpointNotice="Breakpoint intention retained; binding requires saved source and a running compatible session.";return}
+        if let buffer=breakpointBuffers[key]?.buffer {guard identityMatches(buffer,path:path,confirmed:false),intentOwners[key]==buffer.id,!buffer.dirty,!buffer.saving,exactUTF8(buffer.file.path,path),exactUTF8(buffer.text,text) else{breakpointNotice="Breakpoint intention retained, but current editor ownership/text is not the captured source. No coordinates were sent.";return}}
+        guard let original=breakpointBuffers[key]?.buffer,identityMatches(original,path:path,confirmed:false),intentOwners[key]==original.id else{breakpointNotice="This source is not the captured original Buffer identity. Intention retained without runtime effects.";return}
+        let captured=exactUTF8(path,owner) ? launchBoundHash:(!ambiguousSources.contains(key) ? sourceHashes[key]:nil)
+        guard captured==nativeSourceHash(text) else{breakpointNotice="Breakpoint intention retained for current saved text. This session did not capture those bytes; launch current source before binding positions.";return}
+        let id=UUID().uuidString;breakpointRequests[key]=NativeDebugBreakpointRequest(id:id,source:text)
+        var request:[String:Any]=["op":exactUTF8(path,owner) ? "breakpoints":"source_breakpoints","session":sessionID,"breakpoints":held,"source_hash":nativeSourceHash(text),"request_id":id];if !exactUTF8(path,owner){request["source"]=nativeDebugURI(path)};send(request)
     }
     func step(_ how: String) {
         guard canResume,let sessionID,stackNotice.isEmpty || how=="continue" else { return }
-        var request: [String: Any] = ["op": "step", "session": sessionID, "how": how]
+        guard let stop=latestThreadStop,let thread=selectedThread else{return}
+        let ticket=UUID().uuidString;movementRequest=(ticket,stackNotice)
+        var request: [String: Any] = ["op": "step", "session": sessionID, "how": how,"stop":stop,"thread":thread,"request_id":ticket]
         if stackNotice.isEmpty,let selectedFrame { request["frame"] = selectedFrame }
         retireThreadChoices();status = "running"; pausedLine = nil; variables = []; values = [:]; send(request)
     }
+    func canMoveToSource(_ buffer:DocumentBuffer,how:String)->Bool {canInspectFrame && sourceMatches(buffer) && exactUTF8(buffer.file.path,owner) && (capabilities[how=="jump" ? "goto_targets":"run_to"] as? Bool==true)}
+    func moveToSource(_ buffer:DocumentBuffer,line:Int,how:String) {guard ["jump","run_to"].contains(how),line>=0,line<buffer.text.components(separatedBy:"\n").count,canMoveToSource(buffer,how:how),let sessionID,let stop=latestThreadStop,let thread=selectedThread else{message="Runtime target requires the unchanged captured primary source and a supported paused adapter.";return};let ticket=UUID().uuidString;movementRequest=(ticket,stackNotice)
+        let request:[String:Any]=["op":how,"session":sessionID,"line":line,"stop":stop,"thread":thread,"request_id":ticket,"source_hash":nativeSourceHash(buffer.text)]
+        retireThreadChoices();status="running";pausedLine=nil;variables=[];values=[:];send(request)
+    }
     func stop() {
+        movementRequest=nil
         guard let sessionID else {
             if status == "starting" || status == "stopping" { stopPending = true; status = "stopping"; message = "Stopping as soon as the adapter acknowledges launch…" }
             return
@@ -990,18 +1101,20 @@ private struct NativeDebugFrameVariables:Decodable {
         retireThreadChoices();status = "stopping"; pausedLine = nil; variables = []; values = [:]; send(["op": "stop", "session": sessionID])
     }
     func isWatched(_ expression:String)->Bool {watches.contains{exactUTF8($0,expression)}}
-    func removeWatch(_ expression:String) {watches.removeAll{exactUTF8($0,expression)};values.removeValue(forKey:expression);evaluations.removeValue(forKey:Data(expression.utf8))}
+    func removeWatch(_ expression:String) {retireExpressionRoot(expression);watches.removeAll{exactUTF8($0,expression)};values.removeValue(forKey:expression);evaluations.removeValue(forKey:Data(expression.utf8))}
     func evaluate(_ expression: String, watch: Bool = false) {
         guard canEvaluate,let sessionID,let stop=latestThreadStop,let thread=selectedThread,!expression.isEmpty else{return}
         if watch && !isWatched(expression) {watches.append(expression)}
-        evaluationNotice="";let id=UUID().uuidString;evaluations[Data(expression.utf8)]=NativeDebugExpressionRequest(expression:expression,request:NativeDebugEvaluation(id:id,stop:stop,thread:thread,frame:selectedFrame))
+        retireExpressionRoot(expression);values.removeValue(forKey:expression);evaluationNotice="";let id=UUID().uuidString;evaluations[Data(expression.utf8)]=NativeDebugExpressionRequest(expression:expression,request:NativeDebugEvaluation(id:id,stop:stop,thread:thread,frame:selectedFrame))
         var request:[String:Any]=["op":"eval","session":sessionID,"expression":expression,"context":watch ? "watch":"repl","stop":stop,"thread":thread,"request_id":id]
         if let selectedFrame {request["frame"]=selectedFrame};send(request)
     }
     func select(_ frame:[String:Any],snapshot:UUID?=nil) {
         guard status=="paused",snapshot==nil || snapshot==frameSnapshot,let id=nativeDebugID(frame["id"]),frames.contains(where:{nativeDebugID($0["id"])==id}),threadRequest?.thread==nil,!refreshingPause,stackNotice.isEmpty else{return}
-        selectedFrame=id;evaluations=[:];evaluationNotice="";frameRequest=nil;frameBusy=false;frameVariablesCurrent=false
+        clearVariableTree();selectedFrame=id;evaluations=[:];evaluationNotice="";frameRequest=nil;frameBusy=false;frameVariablesCurrent=false
         variables = selectedFrame == nativeDebugID(frames.first?["id"]) ? topVariables : []; values = [:]
+        if let path=frame["source"] as? String,let hash=frame["source_hash"] as? String{confirmKnownSource(path,hash:hash)}
+        else if frame["in_document"] as? Bool==true,let hash=launchBoundHash{confirmKnownSource(owner,hash:hash)}
         readFrameLocals()
         for expression in watches { evaluate(expression, watch: true) }
         if let path = frame["source"] as? String, let line = nativeDebugLine(frame["source_line"]) { revealLocation(path:path,line:line) }

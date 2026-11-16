@@ -110,7 +110,7 @@ export function DebugLaunchRail({ view, onStart, onProfiles, plainPath, enabled 
   }, [view, plainPath]);
   const lineActions=new Map<number,typeof actions>();for(const action of actions){const rows=lineActions.get(action.at)??[];rows.push(action);lineActions.set(action.at,rows);}
   return <div className="cm-debug-rail" aria-label="Script debugging">
-    {controls.error && <p role="alert">{controls.error}</p>}
+    {controls.error && <p role="alert" style={{position:"absolute",right:"100%",top:0,margin:0,minWidth:"16rem",maxWidth:"24rem",maxHeight:"40vh",overflow:"auto",padding:4,background:"Canvas",border:"1px solid GrayText"}}>{controls.error}</p>}
     {view && [...lineActions].map(([at,items]) => {
       const launch = targets.find(target => target.at === at),single=items.length===1?items[0]:null;
       return <DebugRailGroup key={`fold:${at}`} view={view} at={at}>
@@ -175,7 +175,7 @@ export function DebugLaunchAction({ view, label, onStart, disabled = false, hint
     return () => window.removeEventListener("keydown", key);
   }, [view]);
   return view && rail ? createPortal(<DebugRailGroup view={view} at={0}>
-    {controls.error && <p role="alert">{controls.error}</p>}
+    {controls.error && <p role="alert" style={{position:"absolute",right:"100%",top:0,margin:0,minWidth:"16rem",maxWidth:"24rem",maxHeight:"40vh",overflow:"auto",padding:4,background:"Canvas",border:"1px solid GrayText"}}>{controls.error}</p>}
     <button type="button" className="cm-debug-start debug-icon" aria-label={label} data-tip={hint ?? `${label} · ${formatBinding(bindingOf("debug.start") || bindingOf("debug.continue"))}`} disabled={disabled} onClick={start}>▷</button>
     {onProfiles && <button type="button" className="debug-icon" aria-label={`Launch profiles for ${label}`} data-tip="Choose a Run or Debug profile" disabled={disabled} onClick={() => void controls.launch("profiles")}>⋯</button>}
   </DebugRailGroup>, rail) : null;

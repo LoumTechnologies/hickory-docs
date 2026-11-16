@@ -384,7 +384,7 @@ const pausedField = StateField.define<number | null>({
 });
 
 /** The tint on the paused line. A background only — never a height. */
-const pausedHighlight = EditorView.decorations.compute([pausedField], (state) => {
+const pausedHighlight = EditorView.decorations.compute(["doc",pausedField], (state) => {
   const line = state.field(pausedField);
   if (line === null || line < 0 || line >= state.doc.lines) return Decoration.none;
   const from = state.doc.line(line + 1).from;
@@ -402,7 +402,7 @@ const flashField = StateField.define<number | null>({
 });
 
 /** The brief tint that says "here" after moving to another frame's line. */
-const flashHighlight = EditorView.decorations.compute([flashField], (state) => {
+const flashHighlight = EditorView.decorations.compute(["doc",flashField], (state) => {
   const line = state.field(flashField);
   if (line === null || line < 0 || line >= state.doc.lines) return Decoration.none;
   const from = state.doc.line(line + 1).from;

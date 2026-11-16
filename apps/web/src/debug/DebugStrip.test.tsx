@@ -430,3 +430,4 @@ it("reads complete selected-frame locals only while current, distinguishing pend
  rendered.rerender(<DebugStrip {...base({variables:[]})}/>);expect(locals()?.textContent).toContain("No variables reported");
  rendered.rerender(<DebugStrip {...base({variables,status:"running"})}/>);expect(locals()).toBeNull();
 });
+it('keeps automatic launch inventory notices readable in the existing floating options',()=>{const rendered=render(<DebugStrip {...base({launchNotices:['Unreadable source remains unsupported.']})}/>);try{const options=rendered.container.querySelector('[aria-label="Debug options"]')!;fireEvent.click(options);expect(rendered.container.querySelector('[aria-label="Launch source notices"]')?.textContent).toContain('Unreadable source remains unsupported.');}finally{rendered.unmount();}});

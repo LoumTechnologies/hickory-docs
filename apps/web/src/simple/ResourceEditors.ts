@@ -1,6 +1,7 @@
 import {Buffer,type Buffers} from './buffers';
 import type {FileNode} from '../api/types';
 import {editorForBuffer} from './Document';
+import {captureRetainedEditorViewport} from './EditorMounts';
 import {EditorView} from '@codemirror/view';
 import {isolateHistory} from '@codemirror/commands';
 import type {Transaction} from '@codemirror/state';
@@ -59,7 +60,7 @@ export function adoptResourceReceipt(buffers:Buffers,patches:readonly ResourceEd
  const routes=routeResourceEditors(patches,live,held),prepared:{route:ResourceEditorRoute<Buffer>;buffer:Buffer;view?:EditorView;transaction?:Transaction}[]=[];
  for(const route of routes){
   const entry=route.to===null?undefined:files.get(route.to)!;
-  const buffer=route.editor??new Buffer(entry!.file,route.after!,entry!.hash,()=>buffers.changed());
+  const buffer=route.editor??new Buffer(entry!.file,route.after!,entry!.hash,()=>buffers.changed(),false,buffers.workspace);
   const view=editorForBuffer(buffer)?.view;
   if(view&&(view.composing||view.state.doc.toString()!==buffer.text||view.state.readOnly||!view.state.facet(EditorView.editable)))throw new Error('Finish composition and inspect recovery before adopting source editors.');
   if(route.to!==null&&!patches.some(p=>p.path===route.to&&p.before)&&buffers.values.has(route.to))throw new Error('A destination editor appeared after review. Preserve it and inspect recovery.');
@@ -67,14 +68,17 @@ export function adoptResourceReceipt(buffers:Buffers,patches:readonly ResourceEd
   if(transaction&&transaction.newDoc.toString()!==route.after)throw new Error('Editor refused the complete resource change. Inspect recovery.');
   prepared.push({route,buffer,view,transaction});
  }
+ // Capture attached geometry before the host loses its old styled parent.
+ // Publication/source guards above remain the only mutation authority.
+ for(const {buffer} of prepared){const editor=editorForBuffer(buffer);if(editor)captureRetainedEditorViewport(editor);}
  // All failures above precede mutation. Stable buffer objects keep cached renderers.
  buffers.retirePendingReads();
  for(const {route} of prepared)if(route.from!==null)buffers.values.delete(route.from);
  for(const {route,buffer,view,transaction} of prepared){
-  if(route.to===null){buffer.resourceDeleted=true;retained.set(route.identity,buffer);continue;}
+  if(route.to===null){buffer.sourceRevision++;buffer.resourceDeleted=true;retained.set(route.identity,buffer);continue;}
   const entry=files.get(route.to)!;
   if(view&&transaction)view.update([transaction]);
-  buffer.file=entry.file;buffer.text=route.after!;buffer.base=entry.saved.text;buffer.hash=entry.hash;buffer.resourceDeleted=false;buffer.error='';
+  buffer.sourceRevision++;buffer.file=entry.file;buffer.text=route.after!;buffer.base=entry.saved.text;buffer.hash=entry.hash;buffer.resourceDeleted=false;buffer.error='';
   buffers.values.set(route.to,buffer);for(const [id,held] of retained)if(held===buffer)retained.delete(id);
  }
  for(const {buffer} of prepared)buffer.publish();buffers.changed();return routes;
@@ -134,6 +138,27 @@ export async function publishResourceRestore(buffers:Buffers,review:ResourceRest
 
 
 /** Route tabs by reviewed source identity, retaining deleted placement for inverse restoration. */
+/** UI-only aliases never enter a resource request or the saved namespace. */
+export class RetainedResourceTabs {
+ readonly buffers=new Map<string,Buffer>();private aliases=new WeakMap<Buffer,string>();private copies=new WeakMap<Buffer,string>();
+ routes(routes:readonly ResourceEditorRoute<Buffer>[],keep:(buffer:Buffer)=>boolean):ResourceEditorRoute<Buffer>[] {
+  return routes.map(route=>{const buffer=route.editor;if(!buffer)return route;const held=this.aliases.get(buffer);
+   if(route.to===null&&keep(buffer)){const alias=held??`\0retained-resource:${crypto.randomUUID()}`;this.aliases.set(buffer,alias);this.buffers.set(alias,buffer);return {...route,to:alias};}
+   if(route.to!==null&&held&&this.buffers.get(held)===buffer){this.buffers.delete(held);this.aliases.delete(buffer);this.copies.delete(buffer);return {...route,from:held};}
+   return route;
+  });
+ }
+ copied(buffer:Buffer){return this.copies.get(buffer)===buffer.text;}
+ noteCopy(buffer:Buffer,text:string){if(buffer.text===text)this.copies.set(buffer,text);}
+ retire(buffer:Buffer){const alias=this.aliases.get(buffer);if(alias&&this.buffers.get(alias)===buffer)this.buffers.delete(alias);this.aliases.delete(buffer);this.copies.delete(buffer);}
+}
+/** Copy publication does not authorize deleting a different editor now at the old spelling. */
+export function retireCopiedBuffer(buffers:Buffers,source:Buffer,text:string):boolean {
+ if(source.text!==text)return false;
+ for(const [path,buffer] of buffers.values)if(buffer===source)buffers.values.delete(path);
+ for(const [id,buffer] of buffers.retainedResources)if(buffer===source)buffers.retainedResources.delete(id);
+ return true;
+}
 export function resourceLayout(layout:Layout,routes:readonly ResourceEditorRoute<Buffer>[],placements:Map<Buffer,{group:string;index:number;active:boolean}>):Layout {
  const byPath=new Map(routes.filter(route=>route.from!==null).map(route=>[route.from!,route]));
  for(const group of groups(layout))group.tabs.forEach((path,index)=>{const route=byPath.get(path);if(route?.to===null&&route.editor)placements.set(route.editor,{group:group.id,index,active:group.active===path});});

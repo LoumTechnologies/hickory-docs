@@ -8,6 +8,7 @@ import type { EditorView } from "@codemirror/view";
 import { DocumentEmbed } from "./DocumentEmbed";
 import type { DocumentEmbedProps } from "./DocumentEmbed";
 import { createBrowserDebugger } from "../debug/browser/transport";
+import {documentUri} from "../lsp/documentUri";
 import { useDebuggerOver } from "../debug/useDebugger";
 import { DebugStrip } from "../debug/DebugStrip";
 import { debugEditor, debugStateEffects } from "../debug/cmDebug";
@@ -35,10 +36,11 @@ export function DebuggableDocument(props: DebuggableDocumentProps) {
   const [view, setView] = useState<EditorView | null>(null);
   const ready = useCallback((value: EditorView | null) => { setView(value); current.current.onViewReady?.(value); }, []);
   const [watch, setWatch] = useState("");
-  const [children, setChildren] = useState<Record<number, Variable[]>>({});
+
   useEffect(() => {
     const local = createBrowserDebugger({
-      readDocument: () => { capturedRevision.current = current.current.revision; setRunSource(current.current.source); return { source: current.current.source, revision: current.current.revision }; },
+      readDocument: () => ({uri:documentUri(current.current.path),source:current.current.source,revision:current.current.revision}),
+      onCapture:source=>{capturedRevision.current=source.revision;setRunSource(source.source);},
       onRuntime: (run) => { runtimeHistoryRef.current.observe(run); current.current.onRuntime?.(run); },
       onOutput: (text) => setOutput((previous) => previous + text),
       onRevision: (revision) => { setRunRevision(revision); setOutput(""); },
@@ -46,11 +48,11 @@ export function DebuggableDocument(props: DebuggableDocumentProps) {
     setBackend(local);
     const off = local.client.on((event) => {
       if (event.event === "finished" && typeof event.exit_code === "number") current.current.onExecutionResult?.({ revision: capturedRevision.current, exitCode: event.exit_code });
-      if (event.event === "children") setChildren((previous) => ({ ...previous, [event.reference]: event.variables }));
-      if (event.event === "stopped" || event.event === "ended") setChildren({});
+
     });
     return () => { off(); local.dispose(); };
   }, []);
+  useEffect(()=>{backend?.sourceChanged();},[backend,props.source,props.revision]);
   const initial = useRef({ source: props.source, breakpoint: props.startPausedAt });
   const startedOn = useRef<typeof backend>(null);
   const debug = useDebuggerOver(backend?.client ?? null, props.path,
@@ -81,12 +83,18 @@ export function DebuggableDocument(props: DebuggableDocumentProps) {
     if (event.event === "started") setSession(event.session);
     if (event.event === "finished" || event.event === "ended") setSession(null);
   }), [backend]);
+  // Projection comes only from the controller's current node lifetime. Numeric
+  // references are display keys here, never independent response authority.
+  const children:Record<number,Variable[]>={},nodes=new Map<number,string>();
+  const asVariable=(node:NonNullable<ReturnType<NonNullable<typeof debug.valueNode>>>):Variable=>({name:node.name,value:node.value,type_name:node.type??undefined,variables_reference:node.reference});
+  const collectNodes=(ids:readonly string[])=>{for(const id of ids){const node=debug.valueNode?.(id);if(!node)continue;if(node.reference>0)nodes.set(node.reference,id);if(node.expanded&&node.children){children[node.reference]=node.children.map(child=>debug.valueNode?.(child)).filter((value):value is NonNullable<typeof value>=>!!value).map(asVariable);collectNodes(node.children);}}};
+  collectNodes((debug.variableRoots??[]).map(node=>node.id));
   const parent = `browser-document:${props.path}:${useId()}`;
   const actionRevision = useUiRevision(() => [props.revision, props.source, runRevision, runSource, debug.status, debug.reading?.scope, session, watch, children]);
   const expandable = new Set<number>();
   const collect = (values: Variable[], depth = 0) => { for (const variable of values) if (variable.variables_reference > 0 && depth < 5) { expandable.add(variable.variables_reference); if (children[variable.variables_reference]) collect(children[variable.variables_reference], depth + 1); } };
   collect(debug.variables);
-  const expandVariable = (reference: number) => { if (!session || stale || !expandable.has(reference)) throw Error("Variable is unavailable at the current source/stop"); backend?.client.children(session, reference); };
+  const expandVariable = (reference: number) => { if (!session || stale || !expandable.has(reference)) throw Error("Variable is unavailable at the current source/stop"); const id=nodes.get(reference);if(!id)throw Error("This value inspection is obsolete");debug.expandValue?.(id); };
   const submitWatch = () => { if (!stale && watch.trim()) { debug.addWatch(watch.trim()); setWatch(""); } };
   useUiReading("browser document runtime", { path: props.path, revision: props.revision, run_revision: runRevision, stale, status: debug.status, output, watch_draft: debug.status === "paused" ? watch : null, expanded_variables: debug.status === "paused" ? children : {} });
   useUiCommands([
@@ -112,7 +120,7 @@ export function DebuggableDocument(props: DebuggableDocumentProps) {
       {debug.status === "running" && <button type="button" onClick={() => backend?.pause()}>Pause</button>}
       {stale && <span role="status">Running previous revision {runRevision}. <button type="button" onClick={start}>Restart with edits</button></span>}
     </div>
-    <DebugStrip reading={debug.reading} readingChanged={stale} status={debug.status} message={debug.message} capabilities={debug.capabilities}
+    <DebugStrip launchNotices={debug.launchNotices} reading={debug.reading} readingChanged={stale} status={debug.status} message={debug.message} capabilities={debug.capabilities}
       frames={debug.frames} selectedFrame={debug.selectedFrame} watches={debug.watches} exitCode={debug.exitCode}
       onStart={start} onStop={debug.stop} onStep={debug.step} onSelectFrame={debug.selectFrame}
       onJumpHere={() => {}} onAddWatch={() => document.getElementById(`watch-${props.path}`)?.focus()}

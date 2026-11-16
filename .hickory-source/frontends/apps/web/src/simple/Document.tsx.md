@@ -214,7 +214,9 @@ function localFold(state: EditorState, from: number, markdown: boolean) {
   if (!ranges) { ranges = new Map(simpleFoldRanges(state.doc.toString(), markdown).map(range => [range.from, range])); foldCache.set(state.doc, ranges); }
   return ranges.get(state.doc.lineAt(from).to) ?? null;
 }
-const editors = new WeakMap<Buffer, { view: EditorView; language: Compartment; prose: Compartment; completion:Compartment; address:Compartment;interaction:number; richAttached?: boolean; toggleBreakpoint?: (line: number) => void }>();
+import {mountRetainedEditor,type RetainedEditorMount} from "./EditorMounts";
+const debugPositions=new WeakMap<Buffer,string>();
+const editors = new WeakMap<Buffer, RetainedEditorMount&{ language: Compartment; prose: Compartment; completion:Compartment; address:Compartment; richAttached?: boolean; toggleBreakpoint?: (line: number) => void }>();
 export const SIMPLE_EDITOR_ATTACHED = "hickory:simple-editor-attached";
 export function editorForBuffer(buffer: Buffer) { return editors.get(buffer); }
 export function openFind(buffer: Buffer) { const view = editors.get(buffer)?.view; if (view) openSearchPanel(view); }
@@ -237,7 +239,7 @@ export function runEditorCommand(buffer: Buffer,command: "tools"|"rectangle"|"cu
   view.dispatch({selection:EditorSelection.create(ranges),scrollIntoView:true});return true;
 }
 
-export function Document({ buffer }: { buffer: Buffer }) {
+export function Document({ buffer,current }: { buffer: Buffer;current?:()=>boolean }) {
   const host = useRef<HTMLDivElement>(null);
   const [csvReady, setCsvReady] = useState(false);
   const [railWidth, setRailWidth] = useState(24);
@@ -259,10 +261,12 @@ export function Document({ buffer }: { buffer: Buffer }) {
   const language = languageFromPath(buffer.file.path);
   const literate = /\.(md|markdown)$/i.test(buffer.file.path);
   const debuggable = !buffer.transient && (literate || isDebuggable(language));
-  const debug = useFollowingDebugSession(buffer.file.path) ?? IDLE_SESSION;
+  const debug = useFollowingDebugSession(buffer.file.path,undefined,buffer,()=>!buffer.resourceDeleted&&(current?.()??true),{
+    read:()=>{const file=buffer.file,text=buffer.text,namespace=buffer.namespace,revision=buffer.sourceRevision;return {uri:documentUri(file.path),workspace:namespace,namespace,identity:buffer,text,saved:!buffer.dirty&&!buffer.saving&&!buffer.resourceDeleted,current:()=>buffer.file===file&&buffer.sourceRevision===revision&&buffer.text===text&&buffer.namespace===namespace&&!buffer.resourceDeleted&&(current?.()??true)};},subscribe:buffer.subscribe
+  }) ?? IDLE_SESSION;
   const debugRef = useRef(debug); debugRef.current = debug;
   const changed = buffer.dirty || observationSourceChanged(debug.reading, buffer.text);
-  const frame=debug.frames.find(item=>item.id===debug.selectedFrame),frameHash=frame?.in_document&&!(frame.source_reference&&frame.source_reference>0)?frame.source_hash:null;
+  const frame=debug.frames.find(item=>item.id===debug.selectedFrame),frameHash=frame?.in_document&&debug.positionSourceBound!==false&&!(frame.source_reference&&frame.source_reference>0)?frame.source_hash:null;
   const [debugBinding,setDebugBinding]=useState<{source:string;hash:string;frame:number;current:()=>boolean;interaction:number}|null>(null);
   const sourceBound=!!debugBinding&&debugBinding.source===buffer.text&&debugBinding.hash===frameHash&&debugBinding.frame===debug.selectedFrame&&debugBinding.current();
   useEffect(()=>{if(debug.status!=="paused"||!frame||!frame.in_document||!frameHash||!/^[0-9a-f]{64}$/.test(frameHash))return;const captured=debug.captureFrame?.(frame.id);if(!captured)return;
@@ -335,10 +339,11 @@ export function Document({ buffer }: { buffer: Buffer }) {
     }
     cached.view.dispatch({effects:cached.address.reconfigure(EditorView.contentAttributes.of({"aria-label":buffer.file.path}))});
     cached.toggleBreakpoint = line => { if (!buffer.transient) debugRef.current.toggleBreakpoint(line); };
-    host.current?.append(cached.view.dom);
+    if(!host.current)return;
+    const held=cached,release=mountRetainedEditor(buffer,held,host.current,()=>editors.get(buffer)===held);
     window.dispatchEvent(new Event(SIMPLE_EDITOR_ATTACHED));
     setView(cached.view);
-    return () => { cached.view.dom.remove(); };
+    return release;
   }, [buffer]);
   useEffect(() => {
     if (!parserReady || !/\.(md|markdown)$/i.test(buffer.file.path) || buffer.text.length > 200_000) return;
@@ -404,9 +409,10 @@ export function Document({ buffer }: { buffer: Buffer }) {
     if (!view || !debuggable || literate && !parserReady) return;
     view.dispatch({ effects: setDebuggerOutput.of({ events: changed ? [] : debug.output ?? [], program: debug.program, literate, path: buffer.file.path }) });
     view.dispatch({ effects: debugStateEffects(!positionCurrent ? { ...debug, pausedLine: null, variables: [], frames: [], watches: [] } : {...debug,pausedLine:positionLine}) });
-    if (positionCurrent&&positionLine!==null&&positionLine!==undefined&&debugBinding?.interaction===editorForBuffer(buffer)?.interaction) {
-      const line = view.state.doc.line(positionLine+1);
-      view.dispatch({ effects: EditorView.scrollIntoView(line.from, { y: "nearest" }) });
+    if(debug.status==="starting"||debug.status==="running")debugPositions.delete(buffer);
+    if (positionCurrent&&positionLine!==null&&positionLine!==undefined) {
+      const key=JSON.stringify([debug.observationScope?.run??null,debug.threadStop??null,debug.selectedThread??null,debug.selectedFrame,positionLine]);
+      if(debugPositions.get(buffer)!==key){debugPositions.set(buffer,key);if(debugBinding?.interaction===editorForBuffer(buffer)?.interaction){const line=view.state.doc.line(positionLine+1);view.dispatch({effects:EditorView.scrollIntoView(line.from,{y:"nearest"})});}}
     }
   }, [view, debuggable, debug, changed,positionCurrent,positionLine,debugBinding, literate, parserReady]);
   useEffect(() => {
@@ -421,6 +427,7 @@ export function Document({ buffer }: { buffer: Buffer }) {
     reveal(); return onRevealLine(path => { if (path === buffer.file.path) reveal(); });
   }, [view, buffer]);
   const start = async (program?: string) => {
+    if(buffer.resourceDeleted){setDebugNotice("This retained source was deleted. Its existing debugger still addresses the captured launch; save a copy before starting a new session.");return;}
     if (buffer.dirty || buffer.saving) { setDebugNotice("Save this file before debugging so the debugger runs the text shown here."); return; }
     setDebugNotice("");
     const source = buffer.text, target = literate ? program : undefined;
@@ -457,7 +464,7 @@ export function Document({ buffer }: { buffer: Buffer }) {
     {debuggable && view && (!literate || parserReady) && <DebugStrip editorView={view} pausedLine={positionCurrent?positionLine:null}
       status={debug.status} program={debug.program} message={debug.message} offerInstall={debug.offerInstall}
       onInstall={offer => api.installTool(offer.kind, offer.language).then(() => undefined)}
-      variables={debug.variables} threads={debug.threads} selectedThread={debug.selectedThread} threadStop={debug.threadStop} threadPending={debug.threadPending} threadSelecting={debug.threadSelecting} threadMessage={debug.threadMessage} frameVariablesPending={debug.frameVariablesPending} frameVariablesMessage={debug.frameVariablesMessage} stackMessage={debug.stackMessage} historicalFrames={debug.historicalFrames} observationScope={debug.observationScope} readThreads={debug.readThreads} selectThread={debug.selectThread}
+      variableRoots={debug.variableRoots} valueNode={debug.valueNode} valueHistory={debug.valueHistory} valueNotice={debug.valueNotice} expandValue={debug.expandValue} collapseValue={debug.collapseValue} closeValues={debug.closeValues} refreshState={debug.refreshState} positionSourceBound={debug.positionSourceBound} launchNotices={debug.launchNotices} breakpointNotice={debug.breakpointNotice} breakpointIntentions={debug.breakpointIntentions} onRunTo={debug.runTo} onJumpTo={debug.jumpTo} variables={debug.variables} threads={debug.threads} selectedThread={debug.selectedThread} threadStop={debug.threadStop} threadPending={debug.threadPending} threadSelecting={debug.threadSelecting} threadMessage={debug.threadMessage} frameVariablesPending={debug.frameVariablesPending} frameVariablesMessage={debug.frameVariablesMessage} stackMessage={debug.stackMessage} historicalFrames={debug.historicalFrames} observationScope={debug.observationScope} readThreads={debug.readThreads} selectThread={debug.selectThread}
       capabilities={debug.capabilities} frames={debug.frames} selectedFrame={debug.selectedFrame}
       watches={debug.watches} exitCode={debug.exitCode} buildOutput={debug.buildOutput}
       onSelectFrame={id => {debug.selectFrame(id);const captured=debug.captureFrame?.(id);if(!captured){setDebugNotice("Debugger frame changed; select it again from the current stack.");return;}const frame=captured.frame,path=frame.in_document?buffer.file.path:frame.source,line=frame.in_document?frame.line:frame.source_line;if(path)openCapturedLocation(path,line==null?null:line+1,frame.source_hash??null,captured.current,frame.source_reference);}}

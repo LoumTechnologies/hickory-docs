@@ -1,3 +1,4 @@
+import {capturedDocumentUri} from "../lsp/documentUri";
 import { inlineEvaluationOwner } from "../debug/inlineEval";
 import { CapturedReferences } from "./CapturedReferences";
 import { useUiCommands, useUiRevision } from "../lib/uiActionBridge";
@@ -26,7 +27,7 @@ import { debugEditor, debugStateEffects } from "../debug/cmDebug";
 import { DebugStrip } from "../debug/DebugStrip";
 import { languageFromPath } from "../editor/languages";
 
-const decode = (entry: ProjectEntry) => new TextDecoder("utf-8", {fatal:true}).decode(new Uint8Array(entry.bytes));
+const decode = (entry: ProjectEntry) => new TextDecoder("utf-8", {fatal:true,ignoreBOM:true}).decode(new Uint8Array(entry.bytes));
 function offset(text: string, line: number, column: number): number | null {
   const lines = text.split("\n");
   if (line >= lines.length || column > lines[line].length) return null;
@@ -62,7 +63,7 @@ export function ComparisonTools({path,source,view,children}: {path:string;source
   const active = selected?.find(e => e.path === activePath && e.kind === "file");
   const displayMatches = !!displayed && decode(displayed) === source.text;
   const context = registration?.project === selected && displayMatches ? registration : null;
-  const uri = context && active ? `${context.uri}${active.path}` : "";
+  const uri = context && active ? source.codeUri??capturedDocumentUri(context.uri,active.path) : "";
   const referenceScope = JSON.stringify([context?.id, uri, source.id, source.text]);
   const lsp = useWorkspaceLsp(uri,active ? decode(active) : "");
   const debug = useFollowingDebugSession(uri, source.debugOwner) ?? IDLE_SESSION;
@@ -100,7 +101,7 @@ export function ComparisonTools({path,source,view,children}: {path:string;source
         try {
           const target=projectPosition(current.local,current.selected,path,new TextEncoder().encode(current.source.text.slice(0,at)).length);
           if (!target) return null;
-          return {uri:`${current.context.uri}${target[0]}`,position:position(current.selected.find(e=>e.path===target[0])!.bytes,target[1])};
+          return {uri:capturedDocumentUri(current.context.uri,target[0]),position:position(current.selected.find(e=>e.path===target[0])!.bytes,target[1])};
         } catch { return null; }
       };
     const extensions = [
@@ -176,13 +177,13 @@ export function ComparisonTools({path,source,view,children}: {path:string;source
     {canDebug && <DebugLaunchAction view={view} label={`Debug ${path} · ${source.label}`} disabled={!context || busy || !displayMatches || !exact} onStart={()=>launch()} onProfiles={()=>launch(true)} hint={selection?.latest ? "Debug this code · latest project" : "Debug this code · latest project containing this version of the file"} />}
     <DebugStrip {...debug} locationActions={<ProjectDebugLinks owner={source.debugOwner ?? uri} debug={debug}/>} editorView={view} pausedLine={exact ? debug.pausedLine : null} program={path}
       onSelectFrame={id=> {
-        debug.selectFrame(id); const frame=debug.frames.find(f=>f.id===id);
-        if (frame && revealPreferredDebugLocation(source.debugOwner ?? uri, frame)) return;
-        if (frame?.source?.startsWith("hick-project:///") && frame.source!==uri)
-          void openCapturedCode({uri:frame.source,range:{start:{line:frame.source_line ?? 0,character:0},end:{line:frame.source_line ?? 0,character:0}}},source.debugOwner ?? uri).catch(e=>setError(String(e)));
-        else if (view && frame?.line !== null && frame?.line !== undefined) revealLine(view,frame.line);
+        debug.selectFrame(id);const captured=debug.captureFrame?.(id);if(!captured){setError('This frame reading retired; choose a current frame.');return;}const frame=captured.frame,bound=!!frame.source_hash&&!(frame.source_reference&&frame.source_reference>0);
+        if(bound&&captured.current()&&revealPreferredDebugLocation(source.debugOwner??uri,frame))return;
+        if(frame.source?.startsWith('hick-project:///')&&frame.source!==uri)void openCapturedCode({uri:frame.source,range:{start:{line:frame.source_line??0,character:0},end:{line:frame.source_line??0,character:0}}},source.debugOwner??uri,captured.current,bound).catch(error=>setError(String(error)));
+        else if(bound&&captured.current()&&view&&frame.line!==null&&frame.line!==undefined)revealLine(view,frame.line);
+        if(!bound)setError('Captured file remains readable; this frame has no confirmed source position.');
       }} onStep={debug.step} onStart={()=>launch()} onStop={debug.stop}
-      onJumpHere={()=> {if(view && exact) debug.jumpTo(view.state.doc.lineAt(view.state.selection.main.head).number-1);}}
+      onRunTo={debug.runTo} onJumpTo={debug.jumpTo} onJumpHere={()=> {if(view && exact) debug.jumpTo(view.state.doc.lineAt(view.state.selection.main.head).number-1);}}
       onAddWatch={()=>{void prompt.askText("Expression to watch:", "", { agent: true }).then(expression=>{if(expression)debug.addWatch(expression);});}}
       onToggleExceptionFilter={debug.toggleExceptionFilter} onRemoveWatch={debug.removeWatch}
       onInstall={async offer=> {await api.installTool(offer.kind,offer.language);}} />

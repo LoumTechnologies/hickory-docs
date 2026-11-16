@@ -65,9 +65,6 @@ use tokio::sync::{broadcast, mpsc};
 
 use crate::adapter::Adapter;
 use crate::protocol::Event;
-#[path = "source_breakpoints.rs"]
-mod source_breakpoints;
-
 </storycode:copy>
 <a id="f-3c41c22e0551-private_capture_session"></a>
 ### `private_capture_session`
@@ -75,7 +72,8 @@ mod source_breakpoints;
 <storycode:copy id="f-3c41c22e0551-private_capture_session">
 #[path = "private_capture_session.rs"]
 mod private_capture_session;
-
+#[path = "source_breakpoints.rs"]
+mod source_breakpoints;
 </storycode:copy>
 <a id="f-3c41c22e0551-Capabilities"></a>
 ### `Capabilities`
@@ -95,6 +93,9 @@ pub struct Capabilities {
     /// Individual adapter reads may still refuse and remain explicit failures.
     #[serde(default)]
     pub frame_locals: bool,
+    /// A source-guarded temporary breakpoint implements primary-source run-to.
+    #[serde(default)]
+    pub run_to: bool,
     pub conditional_breakpoints: bool,
     pub hit_conditional_breakpoints: bool,
     pub log_points: bool,
@@ -126,7 +127,6 @@ pub struct ExceptionFilter {
     pub id: String,
     pub label: String,
 }
-
 </storycode:copy>
 <a id="f-3c41c22e0551-impl-Capabilities"></a>
 ### `impl-Capabilities`
@@ -137,6 +137,7 @@ impl Capabilities {
         let flag = |name: &str| body.get(name).and_then(Value::as_bool).unwrap_or(false);
         Self {
             frame_locals: true,
+            run_to: true,
             conditional_breakpoints: flag("supportsConditionalBreakpoints"),
             hit_conditional_breakpoints: flag("supportsHitConditionalBreakpoints"),
             log_points: flag("supportsLogPoints"),
@@ -188,7 +189,6 @@ pub struct Breakpoint {
     #[serde(default)]
     pub log_message: Option<String>,
 }
-
 </storycode:copy>
 <a id="f-3c41c22e0551-SourceBreakpoints"></a>
 ### `SourceBreakpoints`
@@ -199,10 +199,11 @@ A breakpoint set in a source other than the session's entry document.
 /// A breakpoint set in a source other than the session's entry document.
 pub struct SourceBreakpoints {
     pub source: String,
+    /// Required by guarded UI startup; trusted internal callers may omit it.
+    pub source_hash: Option<String>,
     pub document: PathBuf,
     pub breakpoints: Vec<Breakpoint>,
 }
-
 </storycode:copy>
 <a id="f-3c41c22e0551-BreakpointStatus"></a>
 ### `BreakpointStatus`
@@ -228,7 +229,6 @@ pub struct BreakpointStatus {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub moved_to: Option<u32>,
 }
-
 </storycode:copy>
 <a id="f-3c41c22e0551-BindState"></a>
 ### `BindState`
@@ -280,7 +280,6 @@ pub enum BindState {
     /// no generated code at all.
     Refused,
 }
-
 </storycode:copy>
 <a id="f-3c41c22e0551-impl-BindState"></a>
 ### `impl-BindState`
@@ -297,7 +296,6 @@ impl BindState {
         self == BindState::Bound
     }
 }
-
 </storycode:copy>
 <a id="f-3c41c22e0551-stopped_from"></a>
 ### `stopped_from`
@@ -344,7 +342,6 @@ mod stack_frame;
 
 <storycode:copy id="f-3c41c22e0551-use_declaration">
 pub use stack_frame::Frame;
-
 </storycode:copy>
 ### Admit a bounded reported thread observation
 
@@ -376,7 +373,6 @@ fn decode_threads(body: &Value) -> Result<Vec<Thread>> {
     }
     Ok(threads)
 }
-
 </storycode:copy>
 
 ### Check thread identity and refusal boundaries
@@ -425,7 +421,6 @@ fn thread_lists_retain_adapter_identity_and_refuse_ambiguous_values() {
         assert!(decode_threads(&body).is_err(), "accepted {body}");
     }
 }
-
 </storycode:copy>
 
 <a id="f-3c41c22e0551-Variable"></a>
@@ -463,7 +458,6 @@ order — so the code stays optional even once the end itself is certain.
 pub struct Exit {
     pub code: Option<i64>,
 }
-
 </storycode:copy>
 <a id="f-3c41c22e0551-Stopped"></a>
 ### `Stopped`
@@ -501,7 +495,6 @@ pub enum Step {
     /// True reverse execution, where an adapter has it.
     Back,
 }
-
 </storycode:copy>
 <a id="f-3c41c22e0551-impl-Step"></a>
 ### `impl-Step`
@@ -519,7 +512,6 @@ impl Step {
         }
     }
 }
-
 </storycode:copy>
 <a id="f-3c41c22e0551-Session"></a>
 ### `Session`
@@ -577,14 +569,12 @@ pub struct Session {
     /// exit is already recorded.
     exit: Arc<std::sync::Mutex<Option<Exit>>>,
 }
-
 </storycode:copy>
 <a id="f-3c41c22e0551-use_declaration-2"></a>
 ### `use_declaration`
 
 <storycode:copy id="f-3c41c22e0551-use_declaration-2">
 use crate::mapping::Mapping;
-
 </storycode:copy>
 <a id="f-3c41c22e0551-Launch"></a>
 ### `Launch`
@@ -615,7 +605,6 @@ pub struct Launch {
     /// `extra` can still override them.
     pub extra: Value,
 }
-
 </storycode:copy>
 <a id="f-3c41c22e0551-wait_for_start_debugging"></a>
 ### `wait_for_start_debugging`
@@ -669,8 +658,60 @@ async fn wait_for_start_debugging(
         .cloned()
         .unwrap_or_else(|| json!({})))
 }
-
 </storycode:copy>
+<a id="debug-launch-source-admission"></a>
+### Verify captured source positions before adapter startup
+
+The UI supplies hashes of the exact text that owns its positions. Compare both
+the pinned mapping and current physical identity before starting an adapter.
+Additional plain sources may join this snapshot only before startup, never by
+borrowing a file read after a pause. Internal capture callers can omit UI stamps.
+
+<storycode:copy id="debug-launch-source-admission">
+impl Session {
+    fn checked_mapping(
+        mapping: Arc<Mapping>,
+        sources: &[SourceBreakpoints],
+    ) -> Result<Arc<Mapping>> {
+        let mut pinned = (*mapping).clone();
+        for set in sources {
+            if let Some(expected) = &set.source_hash {
+                if pinned.is_identity() {
+                    let bytes =
+                        std::fs::read(&set.document).context("Reading guarded launch source")?;
+                    anyhow::ensure!(
+                        Mapping::source_digest(&bytes) == *expected,
+                        "Launch source changed. Save or reload it and prepare Debug again."
+                    );
+                    let line_count = bytes.iter().filter(|byte| **byte == b'\n').count() + 1;
+                    anyhow::ensure!(
+                        set.breakpoints
+                            .iter()
+                            .all(|bp| (bp.line as usize) < line_count),
+                        "Launch breakpoint lies outside its source. Refresh the breakpoint positions and try Debug again."
+                    );
+                    pinned.capture_initial_source(&set.document, &bytes);
+                }
+                anyhow::ensure!(
+                    pinned.source_hash(&set.document).as_ref() == Some(expected),
+                    "Breakpoint source does not match the captured launch project. Choose Debug again."
+                );
+            }
+        }
+        Ok(Arc::new(pinned))
+    }
+    pub fn source_hash(&self, document: &std::path::Path) -> Option<String> {
+        self.mapping.source_hash(document)
+    }
+    pub fn primary_source_hash(&self) -> Option<String> {
+        self.mapping.source_hash(self.mapping.document())
+    }
+    pub fn source_document(&self) -> &std::path::Path {
+        self.mapping.document()
+    }
+}
+</storycode:copy>
+
 <a id="f-3c41c22e0551-impl-Session"></a>
 ### `impl-Session`
 
@@ -695,6 +736,7 @@ impl Session {
         breakpoints: &[Breakpoint],
         sources: &[SourceBreakpoints],
     ) -> Result<(Self, Vec<BreakpointStatus>)> {
+        let mapping = Self::checked_mapping(mapping, sources)?;
         let adapter = Adapter::start(&launch.adapter, launch.transport).await?;
         let extra = launch.extra.clone();
         Self::start_on(adapter, None, &launch, extra, mapping, breakpoints, sources).await
@@ -910,11 +952,15 @@ impl Session {
             stops: tokio::sync::Mutex::new(stops),
             exit,
         };
-        let statuses = session.set_breakpoints(breakpoints).await?;
+        session.set_breakpoints(breakpoints).await?;
         for set in source_breakpoints {
-            session
-                .set_source_breakpoints(&set.source, &set.document, &set.breakpoints)
-                .await?;
+            if set.source.is_empty() {
+                session.set_breakpoints(&set.breakpoints).await?;
+            } else {
+                session
+                    .set_source_breakpoints(&set.source, &set.document, &set.breakpoints)
+                    .await?;
+            }
         }
         session
             .adapter
@@ -946,6 +992,7 @@ impl Session {
             ))
             .await;
         }
+        let statuses = session.breakpoint_statuses();
         Ok((session, statuses))
     }
 
@@ -1442,7 +1489,6 @@ async fn wait_for_event(
         }
     }
 }
-
 </storycode:copy>
 <a id="f-3c41c22e0551-merge"></a>
 ### `merge`
@@ -1457,8 +1503,61 @@ fn merge(base: &mut Value, extra: &Value) {
         base.insert(key.clone(), value.clone());
     }
 }
-
 </storycode:copy>
+<a id="debug-source-admission-tests"></a>
+### Exercise source admission without starting a provider
+
+These checks change physical source after capture and demand refusal before
+the adapter-start call. They also demonstrate that a late disk change cannot
+replace the hash retained by a launch mapping. Actual adapter and host flows
+remain separate integration receipts.
+
+<storycode:copy id="debug-source-admission-tests">
+#[cfg(test)]
+mod source_admission_tests {
+    use super::*;
+    #[test]
+    fn launch_positions_require_pinned_and_current_bytes_before_adapter_start() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("main.py");
+        std::fs::write(&path, "value=1\n").unwrap();
+        let mapping = Arc::new(Mapping::identity(&path));
+        let expected = mapping.source_hash(&path).unwrap();
+        let set = SourceBreakpoints {
+            source: String::new(),
+            document: path.clone(),
+            source_hash: Some(expected),
+            breakpoints: vec![],
+        };
+        assert!(Session::checked_mapping(mapping.clone(), std::slice::from_ref(&set)).is_ok());
+        std::fs::write(&path, "value=2\n").unwrap();
+        assert!(Session::checked_mapping(mapping, std::slice::from_ref(&set)).is_err());
+    }
+    #[test]
+    fn requested_plain_source_joins_only_the_initial_snapshot() {
+        let root = tempfile::tempdir().unwrap();
+        let primary = root.path().join("main.py");
+        let other = root.path().join("helper.py");
+        std::fs::write(&primary, "import helper\n").unwrap();
+        std::fs::write(&other, "answer=41\n").unwrap();
+        let mapping = Arc::new(Mapping::identity(&primary));
+        assert!(mapping.source_hash(&other).is_none());
+        let hash = Mapping::source_digest(b"answer=41\n");
+        let set = SourceBreakpoints {
+            source: "hick:///helper.py".into(),
+            document: other.clone(),
+            source_hash: Some(hash.clone()),
+            breakpoints: vec![],
+        };
+        let pinned = Session::checked_mapping(mapping, std::slice::from_ref(&set)).unwrap();
+        assert_eq!(pinned.source_hash(&other), Some(hash.clone()));
+        std::fs::write(&other, "answer=42\n").unwrap();
+        assert_eq!(pinned.source_hash(&other), Some(hash));
+        assert!(Session::checked_mapping(pinned, std::slice::from_ref(&set)).is_err());
+    }
+}
+</storycode:copy>
+
 <a id="f-3c41c22e0551-tests"></a>
 ### `tests`
 
@@ -1472,6 +1571,6 @@ mod tests;
 
 The selections below preserve the original byte order. Narrative reading order does not change the output.
 
-<storycode:file path="crates/hick-dap/src/session.rs"><storycode:paste select="#f-3c41c22e0551-source_breakpoints"/><storycode:paste select="#f-3c41c22e0551-private_capture_session"/><storycode:paste select="#f-3c41c22e0551-Capabilities"/><storycode:paste select="#f-3c41c22e0551-ExceptionFilter"/><storycode:paste select="#f-3c41c22e0551-impl-Capabilities"/><storycode:paste select="#f-3c41c22e0551-Breakpoint"/><storycode:paste select="#f-3c41c22e0551-SourceBreakpoints"/><storycode:paste select="#f-3c41c22e0551-BreakpointStatus"/><storycode:paste select="#f-3c41c22e0551-BindState"/><storycode:paste select="#f-3c41c22e0551-impl-BindState"/><storycode:paste select="#f-3c41c22e0551-stopped_from"/><storycode:paste select="#f-3c41c22e0551-stack_frame"/><storycode:paste select="#f-3c41c22e0551-use_declaration"/><storycode:paste select="#debug-thread-observations"/><storycode:paste select="#debug-thread-observation-tests"/><storycode:paste select="#f-3c41c22e0551-Variable"/><storycode:paste select="#f-3c41c22e0551-Exit"/><storycode:paste select="#f-3c41c22e0551-Stopped"/><storycode:paste select="#f-3c41c22e0551-Step"/><storycode:paste select="#f-3c41c22e0551-impl-Step"/><storycode:paste select="#f-3c41c22e0551-Session"/><storycode:paste select="#f-3c41c22e0551-use_declaration-2"/><storycode:paste select="#f-3c41c22e0551-Launch"/><storycode:paste select="#f-3c41c22e0551-wait_for_start_debugging"/><storycode:paste select="#f-3c41c22e0551-impl-Session"/><storycode:paste select="#f-3c41c22e0551-wait_for_event"/><storycode:paste select="#f-3c41c22e0551-merge"/><storycode:paste select="#f-3c41c22e0551-tests"/></storycode:file>
+<storycode:file path="crates/hick-dap/src/session.rs"><storycode:paste select="#f-3c41c22e0551-source_breakpoints"/><storycode:paste select="#f-3c41c22e0551-private_capture_session"/><storycode:paste select="#f-3c41c22e0551-Capabilities"/><storycode:paste select="#f-3c41c22e0551-ExceptionFilter"/><storycode:paste select="#f-3c41c22e0551-impl-Capabilities"/><storycode:paste select="#f-3c41c22e0551-Breakpoint"/><storycode:paste select="#f-3c41c22e0551-SourceBreakpoints"/><storycode:paste select="#f-3c41c22e0551-BreakpointStatus"/><storycode:paste select="#f-3c41c22e0551-BindState"/><storycode:paste select="#f-3c41c22e0551-impl-BindState"/><storycode:paste select="#f-3c41c22e0551-stopped_from"/><storycode:paste select="#f-3c41c22e0551-stack_frame"/><storycode:paste select="#f-3c41c22e0551-use_declaration"/><storycode:paste select="#debug-thread-observations"/><storycode:paste select="#debug-thread-observation-tests"/><storycode:paste select="#f-3c41c22e0551-Variable"/><storycode:paste select="#f-3c41c22e0551-Exit"/><storycode:paste select="#f-3c41c22e0551-Stopped"/><storycode:paste select="#f-3c41c22e0551-Step"/><storycode:paste select="#f-3c41c22e0551-impl-Step"/><storycode:paste select="#f-3c41c22e0551-Session"/><storycode:paste select="#f-3c41c22e0551-use_declaration-2"/><storycode:paste select="#f-3c41c22e0551-Launch"/><storycode:paste select="#f-3c41c22e0551-wait_for_start_debugging"/><storycode:paste select="#debug-launch-source-admission"/><storycode:paste select="#f-3c41c22e0551-impl-Session"/><storycode:paste select="#f-3c41c22e0551-wait_for_event"/><storycode:paste select="#f-3c41c22e0551-merge"/><storycode:paste select="#debug-source-admission-tests"/><storycode:paste select="#f-3c41c22e0551-tests"/></storycode:file>
 
 </storycode:doc>

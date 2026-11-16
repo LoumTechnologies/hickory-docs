@@ -399,4 +399,7 @@ Follow the named module below to its maintained code, original rationale and rel
 - [`crates/hickory-cli/tests/weave_reads_naturally.rs`](tests/weave_reads_naturally.rs.md)
 <storycode:include file="tests/weave_reads_naturally.rs.md" />
 
+- [Read-only launch inventories and physical source paths](src/launch_inventory.rs.md)
+<storycode:include file="src/launch_inventory.rs.md" />
+
 </storycode:doc>

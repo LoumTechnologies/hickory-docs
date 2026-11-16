@@ -84,9 +84,9 @@ export async function runBrowserPrediction(seal: BrowserSeal, inputs: BrowserInp
         const abort = () => finish(true);
         const timer = setTimeout(() => finish(true), 10000);
         signal.addEventListener("abort", abort, { once: true });
-        backend = createBrowserDebugger({ readDocument: () => ({ source: seal.source, revision: seal.identity.source }), onOutput: text => { if (output.length + text.length > 65536) finish(true); else output += text; }, onRuntime: run => { if (run.status !== "running") finish(run.status !== "completed", run); } });
+        backend = createBrowserDebugger({ readDocument: () => ({uri:"hick:///browser-prediction.md", source: seal.source, revision: seal.identity.source }), onOutput: text => { if (output.length + text.length > 65536) finish(true); else output += text; }, onRuntime: run => { if (run.status !== "running") finish(run.status !== "completed", run); } });
         backend.client.on(event => { if (event.event === "failed" || event.event === "stopped") finish(true); });
-        backend.client.start("browser-prediction.md", [], "deadline.js");
+        backend.client.start("hick:///browser-prediction.md", [], "deadline.js","new",{},undefined,crypto.randomUUID(),seal.identity.source,{});
       });
       await checkRuntimeAssets(seal);
       if (!current() || signal.aborted || run.sources.find(source => source.id === "document")?.revision !== seal.identity.source || run.truncated || run.missing_artifacts.length) throw Error("Browser result identity unavailable");

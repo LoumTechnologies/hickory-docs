@@ -133,6 +133,12 @@ Require exact original actions and producing provider identity, return complete 
                 {"textDocument":{"uri":base+"/moved.py","version":None},"edits":[{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":5}},"newText":"other_fixed"}]},
                 {"kind":"delete","uri":base+"/delete.py"}
             ]}
+        if os.environ.get("HICKORY_CONTROLLED_DEBUG_RESOURCE_PHASE"):
+            phase=open(os.environ["HICKORY_CONTROLLED_DEBUG_RESOURCE_PHASE"]).read().strip();base=uri.rsplit("/",1)[0]
+            rename=lambda old,new:{"kind":"rename","oldUri":base+"/"+old,"newUri":base+"/"+new}
+            create=lambda path:[{"kind":"create","uri":base+"/"+path},{"textDocument":{"uri":base+"/"+path,"version":None},"edits":[{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":0}},"newText":"replacement = 99\n"}]}]
+            operations={"move":[rename("a.py","moved.py")],"swap":[rename("moved.py","swap.py"),rename("other.py","moved.py"),rename("swap.py","other.py")],"delete":[{"kind":"delete","uri":base+"/other.py"}],"recreate-a":create("a.py"),"recreate-other":create("other.py")}
+            result["edit"]={"documentChanges":operations[phase]}
         if opaque.get("slow"):
             def release(identity=identity,result=result):
                 deadline=time.monotonic()+10

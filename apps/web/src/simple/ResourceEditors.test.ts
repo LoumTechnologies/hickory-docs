@@ -7,7 +7,7 @@ vi.mock('./Document',()=>({editorForBuffer:(buffer:Buffer)=>views.get(buffer)}))
 import {EditorState} from '@codemirror/state';
 import {history,undoDepth} from '@codemirror/commands';
 import {WorkspaceChangeHistory} from './ChangePlan';
-import {prepareResourceSave,prepareResourceRestore,publishResourceRestore,resourceLayout,routeResourceEditors,adoptResourceReceipt,captureResourceEditors,type ResourceEditorPatch,type ResourceReceipt,type ResourceSaved} from './ResourceEditors';
+import {prepareResourceSave,prepareResourceRestore,publishResourceRestore,RetainedResourceTabs,retireCopiedBuffer,resourceLayout,routeResourceEditors,adoptResourceReceipt,captureResourceEditors,type ResourceEditorPatch,type ResourceReceipt,type ResourceSaved} from './ResourceEditors';
 // Contract: .hickory-source/frontends/contract.md (resource namespace preservation).
 const source=(identity:string,text=identity)=>({identity,text});
 describe('resource editor identity routing',()=>{
@@ -120,5 +120,13 @@ describe('resource editor identity routing',()=>{
   expect(()=>routeResourceEditors([patch],live,new Map([['a',capture]]))).toThrow();expect(()=>routeResourceEditors([patch,{path:'b.py',before:source('b'),after:null}],new Map([...live,['b',{editor,source:'b'}]]))).toThrow();
   expect(editor.undo).toEqual(['retained']);
   const exact=routeResourceEditors([{path:'é.py',before:null,after:source('é')},{path:'e\u0301.py',before:null,after:source('e\u0301')}],new Map());expect(exact).toHaveLength(2);
+ });
+ it('retains active deleted editor tabs, restores the same route and retires only an exact copied handle',()=>{
+  const buffers=new Buffers(()=>{}),original=new Buffer({path:'old.py',name:'old.py',dir:false},'retained','old',()=>{}),independent=new Buffer({path:'old.py',name:'old.py',dir:false},'independent','new',()=>{}),tabs=new RetainedResourceTabs();
+  const layout={id:'one',tabs:['old.py'],active:'old.py'};const deletion={identity:'source',from:'old.py',to:null,editor:original,before:'retained',after:null};original.resourceDeleted=true;buffers.retainedResources.set('source',original);buffers.values.set('old.py',independent);
+  const held=resourceLayout(layout,tabs.routes([deletion],buffer=>buffer===original),new Map());const alias=(held as typeof layout).active!;expect(alias.startsWith('\0')).toBe(true);expect(tabs.buffers.get(alias)).toBe(original);expect(buffers.values.get('old.py')).toBe(independent);
+  const restored=resourceLayout(held,tabs.routes([{...deletion,from:null,to:'restored.py',after:'retained'}],()=>false),new Map());expect((restored as typeof layout).tabs).toEqual(['restored.py']);expect(tabs.buffers.size).toBe(0);
+  expect(retireCopiedBuffer(buffers,original,'stale')).toBe(false);expect(buffers.retainedResources.get('source')).toBe(original);tabs.noteCopy(original,original.text);expect(tabs.copied(original)).toBe(true);original.edit('new unsaved');expect(tabs.copied(original)).toBe(false);
+  expect(retireCopiedBuffer(buffers,original,original.text)).toBe(true);expect(buffers.retainedResources.size).toBe(0);expect(buffers.values.get('old.py')).toBe(independent);
  });
 });

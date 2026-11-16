@@ -1,7 +1,9 @@
 <ui:doc xmlns:ui="http://www.hickorydocs.com/1.0">
-# Keep the comparison frontends equivalent within their declared slice
+# Build equivalent IDE workflows across the simple frontends
 
-For maintainers extending the new frontends without silently changing the comparison.
+For maintainers implementing the complete IDE contract across browser, macOS,
+iOS and Android while preserving the compact editor. Earlier dated slice receipts
+retain their original limits; they do not narrow the required outcomes below.
 
 ## IDE parity required by the maintainer
 
@@ -24,7 +26,7 @@ These are required outcomes. Existing verification paragraphs establish only the
 ## Current integration ledger
 
 This ledger reconciles the required outcome with the implementation inspected on
-2026-11-15. The dated paragraphs below retain focused evidence for their own
+2026-11-16. The dated paragraphs below retain focused evidence for their own
 revisions; they do not collectively certify complete parity. A foundation or a
 model witness is not a completed host interaction. Work in progress stays open
 until reconstruction, focused safety checks and the connected path pass.
@@ -44,6 +46,84 @@ until reconstruction, focused safety checks and the connected path pass.
 Physical native input, assistive technology and device IME acceptance remain
 unverified unless an explicit executed receipt says otherwise. No row is a claim
 of complete JetBrains/ReSharper parity.
+
+## Guarded debugger integration in progress, 2026-11-16
+
+Protocol 3 adds exact source hashes and intent receipts for breakpoint changes,
+stop/thread/frame admission for motion and observation, and explicit retirement
+of a pause when an effect cannot confirm its replacement. Child expansion must
+use a reference actually observed in the selected frame. These are shared
+provider boundaries, not proof that every host has adopted them. Two actual
+shared debugpy witnesses passed scoped nested reading, forged-reference refusal,
+stale motion refusal and source-bound breakpoint refusal without changing source.
+
+Physical workspace discovery now has a read-only inventory separate from a
+constructed portable output tree. Its exact filenames must not weaken generated
+output publication rules. Compilation and two focused inventory checks passed, preserving distinct Unicode
+identities and generated-output refusal. The URI resolution witness passed exact
+percent decoding, malformed/traversal refusal and symlink confinement. Session
+identities include a per-registry random namespace; its restart/late-cleanup
+witness passed. Android’s isolated actual startup, worker/main recursive reading
+and literal-filename breakpoint witnesses passed without skips. Apple’s isolated actual startup, worker/main recursive reading and literal-source
+condition/breakpoint paths also passed without skips under full Xcode. The first
+Command Line Tools build failed; the later SwiftBuild run emitted no requested
+XML, so the runner now requires exact per-case XCTest start/pass receipts. Neither
+exit status nor test discovery alone is accepted.
+
+Captured project addresses now use one shared encode/decode boundary for language
+and debugger providers. Two context checks and one bidirectional mapping/hash
+check passed literal percent/hash filenames, malformed address refusal and
+foreign captured identity refusal. A subsequent actual debugpy witness caught a
+missed primary-breakpoint decoder, which has been corrected. Its rerun passed
+canonical literal-source launch, bound breakpoint, exact frame URI/hash, scoped
+`41` evaluation, conditional binding and Stop without changing host sources or
+materializing the context in the host workspace. Connected browser
+captured-literal acceptance subsequently passed through the real patch gutter:
+encoded launch, exact source bytes/hash, distinct percent-looking sibling,
+`marker = 41`, generated-source navigation, Stop and unchanged host bytes.
+
+A failed multi-file breakpoint replacement may have partially affected the
+adapter. The engine suspends accepted receipts during delivery and restores them
+only after whole-operation success. Two focused transition checks passed for
+failure/cancellation and successful replacement. Desired DAP sets now commit only
+after successful delivery, retaining possibly touched file addresses for cleanup.
+Two fake stdio-adapter Session tests passed partial delivery failure and
+cancellation across root/new-source replacements, retained accepted wishes,
+explicit clearing of possibly touched files and no failed-wish retry. The same
+checks now assert that temporary run-to delivery preserves the user's root wishes.
+Android passed its new failure-authority case in a sixteen-case model/protocol
+run with four opt-in live cases skipped; that run preserves the prior nineteen
+case no-skip positive integration receipt rather than replacing it.
+
+Browser protocol 3 passed a 194-case focused checkpoint and subsequent captured
+reading/launch rail checks, with TypeScript checking. Actual ordinary and physical
+literal-source flows passed thread/frame selection, recursive `answer = 41`,
+floating Run To/Jump and retained editor geometry/source. The full resource
+move/swap/delete/recreate/undo/redo/Stop/guarded Save As flow passed exact editor,
+selection, scroll, undo and geometry checks. Two browser-local actual flows passed
+with engine HTTP/WebSocket access blocked, including offline stepping/watches,
+source rebind, explicit errors, shorter edited documents and Stop. The captured-literal patch-gutter flow also passed launch, watch, correct paused
+generated-source reading and Stop without host writes. A byte-preserving captured
+reading check keeps BOM text readable without inventing an unknown frame position.
+
+Android's final focused set passed all twenty cases without skips, including four
+actual-engine cases and the correlated failure-authority check. Paused resource
+move, guarded menu Undo and fresh conditional-breakpoint binding retained editor
+identity, selection, scroll and undo. The isolated fixture included the
+literal-name sibling throughout. Source-test Debug remains an open outcome.
+Apple's final thirty-eight-case focused run passed thirty-seven executed cases
+with one independent stock-SwiftUI accessibility baseline skip. All four actual
+flows passed: startup/condition/step/run-to/jump, literal physical filename,
+worker/main recursive reading, and paused resource move/menu Undo/menu Redo with
+independent same-byte name recreation. Runtime identity, native editor, selection,
+geometry and undo remained retained; no replacement source gained position or
+breakpoint authority. The iOS build passed separately. Physical input and assistive technology
+remain unverified. Both owned native-runner commands also executed their four
+actual controller/transport cases without skips. Concurrent Run To and live
+breakpoint replacement still need serialized-state acceptance; executed movement
+flows are sequential. Firefox/WebKit and supported native adapter breadth are not
+established by Python/debugpy and local Chromium receipts. This entry is a
+progress ledger, not complete debugger parity.
 
 ## Debugger threads and scoped observations, 2026-11-15
 
@@ -78,13 +158,14 @@ Button also proved inaccessible in this XCTest host. Its product reachability
 assertions remain unexecuted. The final native suite had nineteen executed passes,
 including both live flows, and that one explicit harness-capability skip.
 
-Additional integration work remains explicit: resource-renaming an active debug
+At that revision, additional integration work remained explicit: resource-renaming an active debug
 source must hand off the retained session identity; stale raw movement requests
-need engine stop/thread admission; source references need adapter-backed reading; raw DAP stdout needs a normalized
-browser output projection; literal URI path handling needs shared normalization;
+need engine stop/thread admission; source references need adapter-backed reading; normalized stdout projection still needs connected browser verification; literal URI path handling needs shared normalization;
 and the current
 stack request is bounded to fifty frames. These are not completed by the thread
-model or by the live shared-engine witnesses. Older engines now refuse before
+model or by the live shared-engine witnesses. The 2026-11-16 entry above records
+which of those items subsequently passed; source references and stack paging
+remain open. Older engines now refuse before
 Debug launch effects through catalog protocol admission; ordinary Run remains
 independent. The Python manual-collection stop/flush witness also passed,
 retaining uncovered branches without inventing a manual verdict.

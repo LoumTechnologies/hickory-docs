@@ -22,6 +22,7 @@
 //! That is what makes "no amount of stepping can change the file" a fact
 //! about the plumbing rather than a promise about behaviour.
 
+use anyhow::Context;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -32,13 +33,11 @@ use serde_json::{Value, json};
 use tokio::sync::mpsc;
 
 use crate::debug_sessions::Registry;
-#[path = "debug_sources.rs"]
-mod sources;
-
 #[path = "debug_protocol.rs"]
 mod protocol;
+#[path = "debug_sources.rs"]
+mod sources;
 pub use protocol::{InstallOffer, Request, Response};
-
 /// Handle one request and produce the responses to send back.
 ///
 /// Returns several because one action often has two answers: a step both
@@ -78,7 +77,13 @@ async fn handle_with(
         | Request::SelectThread { request_id, .. }
         | Request::State { request_id, .. }
         | Request::Eval { request_id, .. }
-        | Request::Children { request_id, .. } => request_id.clone(),
+        | Request::Children { request_id, .. }
+        | Request::Breakpoints { request_id, .. }
+        | Request::SourceBreakpoints { request_id, .. }
+        | Request::Step { request_id, .. }
+        | Request::Jump { request_id, .. }
+        | Request::RunTo { request_id, .. }
+        | Request::SetVariable { request_id, .. } => request_id.clone(),
         _ => None,
     };
     let lines = lines_of(&request);
@@ -100,7 +105,9 @@ async fn handle_with(
         Some(live)
             if matches!(
                 request,
-                Request::Breakpoints { .. } | Request::SourceBreakpoints { .. }
+                Request::Breakpoints { .. }
+                    | Request::SourceBreakpoints { .. }
+                    | Request::SetExceptionBreakpoints { .. }
             ) =>
         {
             Some(live.breakpoint_operation.lock().await)
@@ -135,7 +142,24 @@ async fn handle_with(
         });
     }
     match result {
-        Ok(responses) => out.extend(responses),
+        Ok(mut responses) => {
+            for response in &mut responses {
+                if let Response::Failed {
+                    request_id: id,
+                    about: operation,
+                    ..
+                } = response
+                {
+                    if id.is_none() {
+                        *id = request_id.clone();
+                    }
+                    if operation.is_none() {
+                        *operation = Some(about.to_owned());
+                    }
+                }
+            }
+            out.extend(responses);
+        }
         Err((session, error)) => {
             // Typed, not string-matched: `MissingAdapter` exists so this
             // decision is made on a fact rather than on the wording of a
@@ -148,6 +172,7 @@ async fn handle_with(
                     language: missing.language.clone(),
                 });
             out.push(Response::Failed {
+                scope_retired: false,
                 request_id,
                 doc: if session.is_none() { doc } else { None },
                 session,
@@ -218,7 +243,6 @@ fn build_event(line: BuildOutput, since: std::time::Instant) -> Value {
         BuildOutput::Exit(code) => json!({ "t": t, "kind": "exit", "code": code }),
     }
 }
-
 /// The name of the request, for a failure to point at.
 fn about_of(request: &Request) -> &'static str {
     match request {
@@ -239,7 +263,6 @@ fn about_of(request: &Request) -> &'static str {
         Request::Stop { .. } => "stop",
     }
 }
-
 /// The document lines a request is about, when it is about lines.
 fn lines_of(request: &Request) -> Vec<u32> {
     match request {
@@ -250,9 +273,56 @@ fn lines_of(request: &Request) -> Vec<u32> {
         _ => Vec::new(),
     }
 }
-
 type Failure = (Option<String>, anyhow::Error);
-
+fn intent_ticket(value: Option<&str>) -> anyhow::Result<&str> {
+    let value = value.context(
+        "Debugger request identity is missing. Refresh this debugger with a compatible client.",
+    )?;
+    anyhow::ensure!(
+        !value.is_empty() && value.len() <= 256 && !value.chars().any(char::is_control),
+        "Debugger request identity is invalid. Refresh its controls and retry."
+    );
+    Ok(value)
+}
+async fn observed_scope(
+    live: &crate::debug_sessions::Live,
+    stop: Option<u64>,
+    thread: Option<i64>,
+    request_id: Option<&str>,
+) -> anyhow::Result<(u64, i64)> {
+    intent_ticket(request_id)?;
+    let actual_stop = *live.stop_generation.lock().await;
+    let actual_thread = (*live.thread_id.lock().await)
+        .context("The debugger has no stopped thread. Pause it before this operation.")?;
+    anyhow::ensure!(
+        live.stopped.lock().await.is_some()
+            && stop == Some(actual_stop)
+            && thread == Some(actual_thread),
+        "Debugger observation changed. Read the current stopped frame before trying again."
+    );
+    Ok((actual_stop, actual_thread))
+}
+async fn observed_frame(
+    live: &crate::debug_sessions::Live,
+    thread: i64,
+    frame: Option<i64>,
+) -> anyhow::Result<i64> {
+    let frame = frame.context("Select a current stopped frame before this operation.")?;
+    anyhow::ensure!(
+        live.session
+            .stack(thread)
+            .await?
+            .iter()
+            .any(|entry| entry.id == frame),
+        "Frame does not belong to the current stopped thread. Read its stack again."
+    );
+    Ok(frame)
+}
+async fn retire_values(live: &crate::debug_sessions::Live) {
+    *live.reading.lock().await = None;
+    live.value_references.lock().await.clear();
+    *live.stop_generation.lock().await += 1;
+}
 async fn handle_inner(
     registry: &Arc<Registry>,
     root: &std::path::Path,
@@ -277,14 +347,18 @@ async fn handle_inner(
                 .resolve_location(&location, &scope)
                 .await
                 .map_err(|e| (Some(session.clone()), e))?;
-            *live.reading.lock().await = None;
-            *live.stop_generation.lock().await += 1;
-            let thread = live.thread_id.lock().await.unwrap_or(1);
+            let thread = (*live.thread_id.lock().await)
+                .context("Pause the debugger before a located action")
+                .map_err(|e| (Some(session.clone()), e))?;
             match how {
                 protocol::LocatedAction::RunTo => live.session.run_to(line, thread).await,
                 protocol::LocatedAction::Jump => live.session.jump_to(line, thread).await,
             }
             .map_err(|e| (Some(session.clone()), e))?;
+            retire_values(&live).await;
+            if matches!(how, protocol::LocatedAction::RunTo) {
+                *live.stopped.lock().await = None;
+            }
             Ok(match how {
                 protocol::LocatedAction::Jump => settle_in_place(root, &session, &live).await,
                 protocol::LocatedAction::RunTo => settle(registry, root, &session, &live).await,
@@ -294,8 +368,19 @@ async fn handle_inner(
             session,
             source,
             breakpoints,
+            source_hash,
+            request_id,
         } => Ok(vec![
-            sources::set(registry, root, session, source, breakpoints).await,
+            sources::set(
+                registry,
+                root,
+                session,
+                source,
+                breakpoints,
+                source_hash,
+                request_id,
+            )
+            .await,
         ]),
         Request::Start {
             doc,
@@ -305,9 +390,34 @@ async fn handle_inner(
             project,
             profile,
             sources,
+            source_hash,
+            source_hashes,
         } => {
-            let sources = sources::initial(root, sources).map_err(|e| (None, e))?;
-            let path = resolve(root, &doc);
+            intent_ticket(request_id.as_deref()).map_err(|e| (None, e))?;
+            let primary_hash = sources::valid_hash(source_hash.as_deref())
+                .map_err(|e| (None, e))?
+                .to_owned();
+            let mut sources =
+                sources::initial(root, sources, source_hashes).map_err(|e| (None, e))?;
+            let path = resolve(root, &doc).map_err(|e| (None, e))?;
+            if !doc.starts_with("hick-project:///") {
+                if super::source_tests::digest(&std::fs::read(&path).map_err(|e| (None, e.into()))?)
+                    != primary_hash
+                {
+                    return Err((
+                        None,
+                        anyhow::anyhow!(
+                            "Displayed launch source changed. Save or reload it before Debug."
+                        ),
+                    ));
+                }
+            }
+            sources.push(hick_dap::SourceBreakpoints {
+                source: String::new(),
+                document: path.clone(),
+                source_hash: Some(primary_hash),
+                breakpoints: breakpoints.clone(),
+            });
             let endpoint = hick_lsp::ProjectEndpoint::parse(project.as_deref().unwrap_or("new"))
                 .map_err(|e| (None, anyhow::Error::msg(e)))?;
             let since = std::time::Instant::now();
@@ -326,18 +436,18 @@ async fn handle_inner(
                     )
                     .map_err(|e| (None, e))?;
                 registry
-                    .start_profile(context, &profile, &breakpoints, &sources, &mut on_build)
+                    .start_profile(context, &profile, &[], &sources, &mut on_build)
                     .await
             } else if doc.starts_with("hick-project:///") {
                 let uri = tower_lsp::lsp_types::Url::parse(&doc).map_err(|e| (None, e.into()))?;
                 registry
-                    .start_captured_with_sources(&uri, &breakpoints, &sources, &mut on_build)
+                    .start_captured_with_sources(&uri, &[], &sources, &mut on_build)
                     .await
             } else if crate::debug_sessions::is_document(&path) {
                 registry
                     .start_at_with_sources(
                         &path,
-                        &breakpoints,
+                        &[],
                         program.as_deref(),
                         &endpoint,
                         &sources,
@@ -346,10 +456,22 @@ async fn handle_inner(
                     .await
             } else {
                 registry
-                    .start_plain_with_sources(&path, root, &breakpoints, &sources, &mut on_build)
+                    .start_plain_with_sources(&path, root, &[], &sources, &mut on_build)
                     .await
             };
             let (session, live, statuses) = started.map_err(|e| (None, e))?;
+            {
+                let mut intents = live.breakpoint_intents.lock().unwrap();
+                for set in &sources {
+                    intents.insert(
+                        set.source.clone(),
+                        crate::debug_sessions::BreakpointIntent {
+                            request_id: request_id.clone().unwrap(),
+                            source_hash: set.source_hash.clone().unwrap(),
+                        },
+                    );
+                }
+            }
             *started_live = Some(live.clone());
             *started_operation = Some(live.operation.clone().lock_owned().await);
             let mut out = Vec::new();
@@ -365,6 +487,7 @@ async fn handle_inner(
                 session: session.clone(),
                 doc,
                 capabilities: live.session.capabilities().clone(),
+                source_hash: live.session.primary_source_hash(),
                 breakpoints: statuses,
             });
             out.extend(sources::statuses(&session, &live));
@@ -378,20 +501,35 @@ async fn handle_inner(
         Request::Breakpoints {
             session,
             breakpoints,
+            source_hash,
+            request_id,
         } => {
             let live = registry
                 .get(&session)
                 .await
                 .map_err(|e| (Some(session.clone()), e))?;
-            let statuses = live
-                .session
+            let ticket = intent_ticket(request_id.as_deref())
+                .map_err(|e| (Some(session.clone()), e))?
+                .to_owned();
+            let lines = breakpoints
+                .iter()
+                .map(|value| value.line)
+                .collect::<Vec<_>>();
+            let hash = sources::validate_primary(&live, source_hash.as_deref(), &lines)
+                .map_err(|e| (Some(session.clone()), e))?;
+            let update = sources::IntentUpdate::begin(&live.breakpoint_intents);
+            live.session
                 .set_breakpoints(&breakpoints)
                 .await
                 .map_err(|e| (Some(session.clone()), e))?;
-            Ok(vec![Response::Breakpoints {
-                session,
-                breakpoints: statuses,
-            }])
+            update.accept(
+                String::new(),
+                crate::debug_sessions::BreakpointIntent {
+                    request_id: ticket,
+                    source_hash: hash,
+                },
+            );
+            Ok(vec![sources::primary_status(&session, &live)])
         }
 
         Request::Threads {
@@ -472,8 +610,7 @@ async fn handle_inner(
                 .await
                 .map_err(|error| (Some(session.clone()), error))?;
             *live.thread_id.lock().await = Some(thread);
-            *live.stop_generation.lock().await += 1;
-            *live.reading.lock().await = None;
+            retire_values(&live).await;
             let stop = *live.stop_generation.lock().await;
             let mut replies = position_with(root, &session, &live, "thread selection").await;
             replies.push(Response::Threads {
@@ -497,23 +634,10 @@ async fn handle_inner(
                 .await
                 .map_err(|e| (Some(session.clone()), e))?;
             if let Some(frame) = frame {
-                let stop = *live.stop_generation.lock().await;
-                let thread = (*live.thread_id.lock().await).ok_or_else(|| {
-                    (
-                        Some(session.clone()),
-                        anyhow::anyhow!("Pause the debugger before reading frame locals"),
-                    )
-                })?;
-                if expected_stop.is_some_and(|expected| expected != stop)
-                    || expected_thread.is_some_and(|expected| expected != thread)
-                {
-                    return Err((
-                        Some(session),
-                        anyhow::anyhow!(
-                            "Frame-local scope changed. Read the current paused stack again."
-                        ),
-                    ));
-                }
+                let (stop, thread) =
+                    observed_scope(&live, expected_stop, expected_thread, request_id.as_deref())
+                        .await
+                        .map_err(|e| (Some(session.clone()), e))?;
                 let frames = live
                     .session
                     .stack(thread)
@@ -532,6 +656,9 @@ async fn handle_inner(
                     .variables(frame)
                     .await
                     .map_err(|error| (Some(session.clone()), error))?;
+                live.remember_values(stop, thread, frame, &variables)
+                    .await
+                    .map_err(|e| (Some(session.clone()), e))?;
                 Ok(vec![Response::FrameVariables {
                     session,
                     stop,
@@ -541,6 +668,17 @@ async fn handle_inner(
                     variables,
                 }])
             } else {
+                // If a previous observation failed after resume, only a new
+                // actual stop can restore authority. A bounded refresh may
+                // consume that queued stop; it never rebrands the old frame.
+                if live.stopped.lock().await.is_none() {
+                    if let Ok(Some(stopped)) =
+                        live.session.wait_for_stop(Duration::from_millis(400)).await
+                    {
+                        *live.thread_id.lock().await = Some(stopped.thread_id);
+                        *live.stopped.lock().await = Some(stopped);
+                    }
+                }
                 Ok(position(root, &session, &live).await)
             }
         }
@@ -558,46 +696,24 @@ async fn handle_inner(
                 .get(&session)
                 .await
                 .map_err(|e| (Some(session.clone()), e))?;
-            let stop = *live.stop_generation.lock().await;
-            let thread = *live.thread_id.lock().await;
-            if thread.is_none()
-                || expected_stop.is_some_and(|expected| expected != stop)
-                || expected_thread.is_some_and(|expected| Some(expected) != thread)
-            {
-                return Err((
-                    Some(session),
-                    anyhow::anyhow!(
-                        "Evaluation scope changed. Read the current paused frame again."
-                    ),
-                ));
-            }
-            let frame = match frame {
-                Some(frame) => Some(frame),
-                None => top_frame(&live).await,
-            };
-            if let (Some(frame), Some(thread)) = (frame, thread) {
-                let frames = live
-                    .session
-                    .stack(thread)
+            let (stop, thread) =
+                observed_scope(&live, expected_stop, expected_thread, request_id.as_deref())
                     .await
-                    .map_err(|error| (Some(session.clone()), error))?;
-                if !frames.iter().any(|entry| entry.id == frame) {
-                    return Err((
-                        Some(session),
-                        anyhow::anyhow!(
-                            "The requested frame does not belong to the selected thread. Read its stack again."
-                        ),
-                    ));
-                }
-            }
+                    .map_err(|e| (Some(session.clone()), e))?;
+            let frame = observed_frame(&live, thread, frame)
+                .await
+                .map_err(|e| (Some(session.clone()), e))?;
             let value = live
                 .session
-                .evaluate(&expression, frame, &context)
+                .evaluate(&expression, Some(frame), &context)
+                .await
+                .map_err(|e| (Some(session.clone()), e))?;
+            live.remember_values(stop, thread, frame, std::slice::from_ref(&value))
                 .await
                 .map_err(|e| (Some(session.clone()), e))?;
             let mut out = Vec::new();
             if let Some(reading) = live
-                .record_expression(&expression, &value.value, frame)
+                .record_expression(&expression, &value.value, Some(frame))
                 .await
                 .map_err(|e| (Some(session.clone()), e))?
             {
@@ -609,8 +725,8 @@ async fn handle_inner(
             out.push(Response::Value {
                 session,
                 stop,
-                thread,
-                frame,
+                thread: Some(thread),
+                frame: Some(frame),
                 request_id,
                 expression,
                 value: value.value,
@@ -624,111 +740,157 @@ async fn handle_inner(
             session,
             how,
             frame,
-        } => {
-            let live = registry
-                .get(&session)
-                .await
-                .map_err(|e| (Some(session.clone()), e))?;
-            let thread = live.thread_id.lock().await.unwrap_or(1);
-            let frame = match frame {
-                Some(frame) => Some(frame),
-                None => top_frame(&live).await,
-            };
-            *live.reading.lock().await = None;
-            *live.stop_generation.lock().await += 1;
-            live.session
-                .step(how, thread, frame)
-                .await
-                .map_err(|e| (Some(session.clone()), e))?;
-            Ok(settle(registry, root, &session, &live).await)
-        }
-
-        Request::Jump { session, line } => {
-            let live = registry
-                .get(&session)
-                .await
-                .map_err(|e| (Some(session.clone()), e))?;
-            let thread = live.thread_id.lock().await.unwrap_or(1);
-            *live.reading.lock().await = None;
-            *live.stop_generation.lock().await += 1;
-            live.session
-                .jump_to(line, thread)
-                .await
-                .map_err(|e| (Some(session.clone()), e))?;
-            Ok(settle_in_place(root, &session, &live).await)
-        }
-
-        Request::RunTo { session, line } => {
-            let live = registry
-                .get(&session)
-                .await
-                .map_err(|e| (Some(session.clone()), e))?;
-            let thread = live.thread_id.lock().await.unwrap_or(1);
-            *live.reading.lock().await = None;
-            *live.stop_generation.lock().await += 1;
-            live.session
-                .run_to(line, thread)
-                .await
-                .map_err(|e| (Some(session.clone()), e))?;
-            Ok(settle(registry, root, &session, &live).await)
-        }
-
-        Request::Children {
-            session,
-            reference,
-            stop: expected_stop,
-            thread: expected_thread,
+            stop,
+            thread,
             request_id,
         } => {
             let live = registry
                 .get(&session)
                 .await
                 .map_err(|e| (Some(session.clone()), e))?;
-            let stop = *live.stop_generation.lock().await;
-            let thread = *live.thread_id.lock().await;
-            if thread.is_none()
-                || expected_stop.is_some_and(|expected| expected != stop)
-                || expected_thread.is_some_and(|expected| Some(expected) != thread)
-            {
-                return Err((
-                    Some(session),
-                    anyhow::anyhow!(
-                        "Variable expansion scope changed. Read the current paused frame again."
-                    ),
-                ));
-            }
+            let (_, thread) = observed_scope(&live, stop, thread, request_id.as_deref())
+                .await
+                .map_err(|e| (Some(session.clone()), e))?;
+            let frame = match frame {
+                Some(frame) => Some(
+                    observed_frame(&live, thread, Some(frame))
+                        .await
+                        .map_err(|e| (Some(session.clone()), e))?,
+                ),
+                None if matches!(how, hick_dap::Step::DropFrame) => {
+                    return Err((
+                        Some(session),
+                        anyhow::anyhow!(
+                            "Drop frame requires a current frame. Read its stack before trying again."
+                        ),
+                    ));
+                }
+                None => None,
+            };
+            live.session
+                .step(how, thread, frame)
+                .await
+                .map_err(|e| (Some(session.clone()), e))?;
+            retire_values(&live).await;
+            *live.stopped.lock().await = None;
+            Ok(settle(registry, root, &session, &live).await)
+        }
+        Request::Jump {
+            session,
+            line,
+            stop,
+            thread,
+            request_id,
+            source_hash,
+        } => {
+            let live = registry
+                .get(&session)
+                .await
+                .map_err(|e| (Some(session.clone()), e))?;
+            let (_, thread) = observed_scope(&live, stop, thread, request_id.as_deref())
+                .await
+                .map_err(|e| (Some(session.clone()), e))?;
+            sources::validate_primary(&live, source_hash.as_deref(), &[line])
+                .map_err(|e| (Some(session.clone()), e))?;
+            live.session
+                .jump_to(line, thread)
+                .await
+                .map_err(|e| (Some(session.clone()), e))?;
+            retire_values(&live).await;
+            Ok(settle_in_place(root, &session, &live).await)
+        }
+        Request::RunTo {
+            session,
+            line,
+            stop,
+            thread,
+            request_id,
+            source_hash,
+        } => {
+            let live = registry
+                .get(&session)
+                .await
+                .map_err(|e| (Some(session.clone()), e))?;
+            let (_, thread) = observed_scope(&live, stop, thread, request_id.as_deref())
+                .await
+                .map_err(|e| (Some(session.clone()), e))?;
+            sources::validate_primary(&live, source_hash.as_deref(), &[line])
+                .map_err(|e| (Some(session.clone()), e))?;
+            live.session
+                .run_to(line, thread)
+                .await
+                .map_err(|e| (Some(session.clone()), e))?;
+            retire_values(&live).await;
+            *live.stopped.lock().await = None;
+            Ok(settle(registry, root, &session, &live).await)
+        }
+
+        Request::Children {
+            session,
+            reference,
+            stop,
+            thread,
+            frame,
+            request_id,
+        } => {
+            let live = registry
+                .get(&session)
+                .await
+                .map_err(|e| (Some(session.clone()), e))?;
+            let (stop, thread) = observed_scope(&live, stop, thread, request_id.as_deref())
+                .await
+                .map_err(|e| (Some(session.clone()), e))?;
+            let frame = observed_frame(&live, thread, frame)
+                .await
+                .map_err(|e| (Some(session.clone()), e))?;
+            live.require_reference(stop, thread, frame, reference)
+                .await
+                .map_err(|e| (Some(session.clone()), e))?;
             let variables = live
                 .session
                 .children(reference)
                 .await
                 .map_err(|e| (Some(session.clone()), e))?;
+            live.remember_values(stop, thread, frame, &variables)
+                .await
+                .map_err(|e| (Some(session.clone()), e))?;
             Ok(vec![Response::Children {
                 session,
                 stop,
-                thread,
+                thread: Some(thread),
+                frame: Some(frame),
                 request_id,
                 reference,
                 variables,
             }])
         }
-
         Request::SetVariable {
             session,
             container,
             name,
             value,
+            stop,
+            thread,
+            frame,
+            request_id,
         } => {
             let live = registry
                 .get(&session)
+                .await
+                .map_err(|e| (Some(session.clone()), e))?;
+            let (stop, thread) = observed_scope(&live, stop, thread, request_id.as_deref())
+                .await
+                .map_err(|e| (Some(session.clone()), e))?;
+            let frame = observed_frame(&live, thread, frame)
+                .await
+                .map_err(|e| (Some(session.clone()), e))?;
+            live.require_reference(stop, thread, frame, container)
                 .await
                 .map_err(|e| (Some(session.clone()), e))?;
             live.session
                 .set_variable(container, &name, &value)
                 .await
                 .map_err(|e| (Some(session.clone()), e))?;
-            // Re-read the position: changing a value changes what the inline
-            // display should show, and recomputing it here saves the client
-            // from knowing that.
             Ok(position(root, &session, &live).await)
         }
 
@@ -771,16 +933,7 @@ async fn settle(
         Ok(Some(stopped)) => {
             *live.thread_id.lock().await = Some(stopped.thread_id);
             *live.stopped.lock().await = Some(stopped.clone());
-            let mut out = vec![Response::Breakpoints {
-                session: session.to_string(),
-                // Re-read rather than reuse the set-time answer: for a
-                // compiled language every breakpoint is unconfirmed until the
-                // module loads, and the adapter's `breakpoint` event has
-                // arrived by the time the program is stopped. Without this
-                // the gutter draws every C# breakpoint half-filled forever
-                // while the program stops on it perfectly.
-                breakpoints: live.session.breakpoint_statuses(),
-            }];
+            let mut out = vec![sources::primary_status(session, live)];
             out.extend(sources::statuses(session, live));
             out.extend(position_with(root, session, live, &stopped.reason).await);
             out
@@ -794,6 +947,7 @@ async fn settle(
             }]
         }
         Err(error) => vec![Response::Failed {
+            scope_retired: true,
             request_id: None,
             session: Some(session.to_string()),
             doc: None,
@@ -804,7 +958,6 @@ async fn settle(
         }],
     }
 }
-
 /// Answer a move that leaves the program *already stopped*.
 ///
 /// A jump moves the instruction pointer without resuming, and the protocol
@@ -825,7 +978,6 @@ async fn settle_in_place(
     }
     position_with(root, session, live, "goto").await
 }
-
 async fn position(
     root: &std::path::Path,
     session: &str,
@@ -833,7 +985,6 @@ async fn position(
 ) -> Vec<Response> {
     position_with(root, session, live, "state").await
 }
-
 /// A frame's source, in the client's own scheme when it is a file in the
 /// folder the app opened.
 ///
@@ -863,7 +1014,6 @@ pub fn relative_source(root: &std::path::Path, frame: hick_dap::Frame) -> hick_d
         None => frame,
     }
 }
-
 /// The stack, the top frame's variables, and the line the gutter marks.
 async fn position_with(
     root: &std::path::Path,
@@ -871,6 +1021,9 @@ async fn position_with(
     live: &Arc<crate::debug_sessions::Live>,
     reason: &str,
 ) -> Vec<Response> {
+    if live.stopped.lock().await.is_none() {
+        return vec![Response::Failed {scope_retired:true,request_id:None,session:Some(session.to_owned()),doc:None,message:"A current pause is not confirmed. Keep the retained stack as history and use Stop or pause the running program before reading another frame.".into(),about:None,lines:vec![],offer_install:None}];
+    }
     let thread = match *live.thread_id.lock().await {
         Some(thread) => thread,
         None => {
@@ -890,13 +1043,25 @@ async fn position_with(
         ),
         Err(error) => (Vec::new(), Some(error.to_string())),
     };
-    let (variables, variables_error) = match frames.first() {
+    let (mut variables, mut variables_error) = match frames.first() {
         Some(frame) => match live.session.variables(frame.id).await {
             Ok(variables) => (variables, None),
             Err(error) => (Vec::new(), Some(error.to_string())),
         },
         None => (Vec::new(), None),
     };
+    if variables_error.is_none()
+        && let Some(frame) = frames.first()
+    {
+        let stop = *live.stop_generation.lock().await;
+        if let Err(error) = live
+            .remember_values(stop, thread, frame.id, &variables)
+            .await
+        {
+            variables.clear();
+            variables_error = Some(error.to_string());
+        }
+    }
     let mut out = Vec::new();
     if stack_error.is_none()
         && variables_error.is_none()
@@ -933,6 +1098,7 @@ async fn position_with(
     });
     out
 }
+#[cfg(test)]
 async fn top_frame(live: &Arc<crate::debug_sessions::Live>) -> Option<i64> {
     let thread = (*live.thread_id.lock().await)?;
     live.session
@@ -942,15 +1108,10 @@ async fn top_frame(live: &Arc<crate::debug_sessions::Live>) -> Option<i64> {
         .first()
         .map(|frame| frame.id)
 }
-
 /// The client names a document in its own scheme; this is where it lives.
-fn resolve(root: &std::path::Path, doc: &str) -> PathBuf {
-    let relative = doc
-        .strip_prefix("hick:///")
-        .unwrap_or_else(|| doc.trim_start_matches('/'));
-    root.join(relative)
+fn resolve(root: &std::path::Path, doc: &str) -> anyhow::Result<PathBuf> {
+    crate::debug_sessions::source_document(root, doc)
 }
-
 /// Send one response as a `0x03` frame.
 pub fn frame_of(response: &Response) -> Vec<u8> {
     let mut frame = vec![CHANNEL_DEBUG];
@@ -958,12 +1119,10 @@ pub fn frame_of(response: &Response) -> Vec<u8> {
     frame.extend_from_slice(&body);
     frame
 }
-
 /// Parse a `0x03` frame from the client.
 pub fn request_of(data: &[u8]) -> Result<Request, serde_json::Error> {
     serde_json::from_slice(&data[1..])
 }
-
 /// Send responses to the client, dropping them if it has gone.
 pub fn reply(tx: &mpsc::UnboundedSender<Vec<u8>>, responses: &[Response]) {
     for response in responses {
@@ -972,7 +1131,6 @@ pub fn reply(tx: &mpsc::UnboundedSender<Vec<u8>>, responses: &[Response]) {
         }
     }
 }
-
 /// The shape the client sees, for its own tests.
 pub fn describe() -> Value {
     json!({
@@ -987,7 +1145,6 @@ pub fn describe() -> Value {
         ],
     })
 }
-
 #[cfg(test)]
 #[path = "debug_bridge/tests/tests.rs"]
 mod tests;

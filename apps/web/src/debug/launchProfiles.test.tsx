@@ -8,13 +8,13 @@ vi.mock("../api/client",()=>({request:vi.fn()}));
 vi.mock("../lib/revealLine",()=>({showTerminalRequest:vi.fn()}));
 const profile=(id:string,debug=true):LaunchProfile=>({id,name:id,origin:"application",program:"app.py",command:[],args:[],env:{},cwd:".",build:[],default:false,can_debug:debug});
 let workspace=0;
-const catalog=(profiles:LaunchProfile[],fingerprint="one")=>({debug_protocol:2,profiles,fingerprint,viewed:"library.py",workspace:`/test/${workspace}`,configuration:".hick-launch.json"});
+const catalog=(profiles:LaunchProfile[],fingerprint="one")=>({debug_protocol:3,profiles,fingerprint,viewed:"library.py",workspace:`/test/${workspace}`,configuration:".hick-launch.json"});
 beforeEach(()=>{workspace++;vi.clearAllMocks();});
 afterEach(()=>{cleanup();});
 
 it("refuses old-daemon direct startup without effects and leaves picker Run usable",async()=>{
  const effect=vi.fn();vi.mocked(request).mockResolvedValue({...catalog([profile("app")]),debug_protocol:undefined});
- await expect(withDebugProtocol({uri:"hick:///app.py"},effect)).rejects.toThrow("protocol 2");expect(effect).not.toHaveBeenCalled();
+ await expect(withDebugProtocol({uri:"hick:///app.py"},effect)).rejects.toThrow("protocol 3");expect(effect).not.toHaveBeenCalled();
  render(<LaunchProfiles/>);const pending=launchWithProfiles({uri:"hick:///app.py"},effect);await screen.findByRole("button",{name:"Run app"});expect((screen.getByRole("button",{name:"Debug app"}) as HTMLButtonElement).disabled).toBe(true);
  fireEvent.click(screen.getByRole("button",{name:"Close launch profiles"}));await pending;expect(effect).not.toHaveBeenCalled();
 });

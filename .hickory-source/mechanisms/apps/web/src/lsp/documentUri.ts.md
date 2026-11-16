@@ -17,6 +17,13 @@ A filesystem path is not already a URI: encode literal %, #, ? and spaces.
 
 <storycode:copy id="f-81eed3045737-documentUri">
 /** A filesystem path is not already a URI: encode literal %, #, ? and spaces. */
+/** Construct a captured URI from a serialized capture root and a raw authored path.
+ * Existing captured document URIs are already encoded and must remain verbatim. */
+export function capturedDocumentUri(root:string,path:string):string {
+  if(!/^hick-project:\/\/\/[^/?#]+\/$/.test(root))throw Error("Invalid captured source root");
+  if(path.startsWith("hick-project:///"))return path;
+  return root+path.replace(/^\/+/,"").split("/").map(encodeURIComponent).join("/");
+}
 export function documentUri(path: string, projectContext = "new"): string {
   if (path.startsWith("hick-project:///")) return path;
   const encoded = path.replace(/^\/+/, "").split("/").map(encodeURIComponent).join("/");
@@ -61,8 +68,10 @@ Present and edit the shared engine state. Browser-side revisions, pending reques
 
 <storycode:copy id="f-0653978670b7-expression_statement">
 import { expect, it } from "vitest";
-import { documentUri, sameDocumentUri } from "./documentUri";
+import { documentUri, capturedDocumentUri, sameDocumentUri } from "./documentUri";
 it("encodes filesystem paths once, retaining literal percent, hash and question mark names", () => {
+  expect(capturedDocumentUri("hick-project:///capture/","%2F λ?#.py")).toBe("hick-project:///capture/%252F%20%CE%BB%3F%23.py");
+  expect(capturedDocumentUri("hick-project:///capture/","hick-project:///other/a%20b.py")).toBe("hick-project:///other/a%20b.py");
   expect(documentUri("/Application Support/main.cpp")).toBe("hick:///Application%20Support/main.cpp");
   expect(documentUri("notes/a%20b#c?.cpp", "old")).toBe("hick:///notes/a%2520b%23c%3F.cpp?hick-project=old");
   expect(documentUri("hick-project:///capture/library.cpp")).toBe("hick-project:///capture/library.cpp");

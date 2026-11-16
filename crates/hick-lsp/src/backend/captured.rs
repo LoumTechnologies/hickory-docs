@@ -35,7 +35,9 @@ impl HickBackend {
             let Ok(physical) = Url::from_file_path(directory.join(path)) else {
                 continue;
             };
-            let Ok(display) = Url::parse(&format!("hick-project:///{id}/{path}")) else {
+            let Ok(display) = crate::ProjectContexts::source_uri(&id, path)
+                .and_then(|uri| Url::parse(&uri).map_err(|error| error.to_string()))
+            else {
                 continue;
             };
             index.insert(

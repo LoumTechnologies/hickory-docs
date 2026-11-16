@@ -47,10 +47,11 @@ export function useDebugActions(path: string, debug: DebugSession, epoch: () => 
   const instance = useId();
   const parent = `debug:${path}:${instance}`;
   const renderedEpoch = epoch();
-  const revision = useUiRevision(() => [sourceIdentity, epoch(), debug.status, debug.reading?.source.revision, debug.reading?.scope, debug.selectedFrame,debug.threadStop,debug.selectedThread,debug.threads,debug.threadPending,debug.threadSelecting,debug.threadMessage,debug.frameVariablesPending,debug.frameVariablesMessage,debug.stackMessage,debug.observationScope, debug.breakpoints, debug.watches, debug.exceptionFilters]);
+  const revision = useUiRevision(() => [sourceIdentity, epoch(), debug.status, debug.reading?.source.revision, debug.reading?.scope, debug.selectedFrame,debug.threadStop,debug.selectedThread,debug.threads,debug.threadPending,debug.threadSelecting,debug.threadMessage,debug.frameVariablesPending,debug.frameVariablesMessage,debug.stackMessage,debug.observationScope,debug.positionSourceBound,debug.breakpointNotice,debug.breakpointIntentions,debug.variableRoots,debug.valueHistory,debug.valueNotice, debug.breakpoints, debug.watches, debug.exceptionFilters]);
   const fresh = () => available && epoch() === renderedEpoch;
   const paused = () => fresh() && debug.status === "paused";
   const positionReady=()=>paused()&&!debug.threadSelecting;
+  const sourcePositionReady=()=>positionReady()&&debug.positionSourceBound!==false&&!!debug.frames.find(frame=>frame.id===debug.selectedFrame)?.in_document;
   const commands: { key: string; command: UiCommand }[] = [];
   function add(id: string, label: string, parameters: Record<string, UiField>, enabled: () => boolean, execute: UiCommand["execute"], value?: () => UiValue) {
     commands.push({ key: `${parent}/${id}`, command: {
@@ -60,10 +61,10 @@ export function useDebugActions(path: string, debug: DebugSession, epoch: () => 
     } });
   }
   const requested = (): { status: "completed"; value: UiValue } => ({ status: "completed", value: { dispatch: "requested", runtime_result: "Observe debugger state and retained run evidence" } });
-  const collections = () => ({ threads:debug.threads??[],historicalFrames:debug.historicalFrames??[], frames: debug.frames, variables: debug.variables, breakpoints: debug.breakpoints, sourceBreakpoints: debug.sourceBreakpoints, watches: debug.watches, lastValue: debug.lastValue, buildOutput: debug.buildOutput, locations: debug.reading?.locations ?? [], annotations: debug.reading?.annotations ?? [], unsupported: debug.reading?.unsupported ?? [], capabilities: debug.capabilities });
+  const collections = () => ({ valueRoots:debug.variableRoots??[],valueHistory:debug.valueHistory??[],breakpointIntentions:debug.breakpointIntentions??[],threads:debug.threads??[],historicalFrames:debug.historicalFrames??[], frames: debug.frames, variables: debug.variables, breakpoints: debug.breakpoints, sourceBreakpoints: debug.sourceBreakpoints, watches: debug.watches, lastValue: debug.lastValue, buildOutput: debug.buildOutput, locations: debug.reading?.locations ?? [], annotations: debug.reading?.annotations ?? [], unsupported: debug.reading?.unsupported ?? [], capabilities: debug.capabilities });
   add("state", "Read debugger state", {}, fresh, async () => ({ status: "completed", value: snapshot() }), () => json({ status: debug.status, program: debug.program, selectedFrame: debug.selectedFrame, scope: debug.reading?.scope ?? null, detail: "Invoke state, then explicitly read bounded detail bytes" }));
   function snapshot() {
-    return json({ status: debug.status, message: debug.message?.slice(0, 2048), program: debug.program, selectedFrame: debug.selectedFrame,observationScope:debug.observationScope,threadStop:debug.threadStop,selectedThread:debug.selectedThread,threadMessage:debug.threadMessage,frameVariablesMessage:debug.frameVariablesMessage,stackMessage:debug.stackMessage, exitCode: debug.exitCode,
+    return json({ status: debug.status, message: debug.message?.slice(0, 2048), program: debug.program, selectedFrame: debug.selectedFrame,observationScope:debug.observationScope,threadStop:debug.threadStop,selectedThread:debug.selectedThread,threadMessage:debug.threadMessage,frameVariablesMessage:debug.frameVariablesMessage,positionSourceBound:debug.positionSourceBound,breakpointNotice:debug.breakpointNotice,valueNotice:debug.valueNotice,stackMessage:debug.stackMessage, exitCode: debug.exitCode,
       collections: Object.fromEntries(Object.entries(collections()).map(([key, value]) => [key, { items: Array.isArray(value) ? value.length : null, read: "Read debugger detail bytes" }])),
       evidence: debug.reading ? { source: { id: debug.reading.source.id, uri: debug.reading.source.uri, revision: debug.reading.source.revision }, scope: debug.reading.scope, annotations: debug.reading.annotations.filter(item => ["paused", "breakpoint_bound"].includes(item.payload.kind)).slice(0, 64), coverage: "At most 64 pause/bound annotations; request detail bytes for full collections" } : null });
   }
@@ -104,8 +105,11 @@ export function useDebugActions(path: string, debug: DebugSession, epoch: () => 
     if (!debug.capabilities?.exception_filters.some(item => item.id === args.filter)) return { status: "unavailable", reason: "Unknown adapter exception filter" };
     debug.toggleExceptionFilter(String(args.filter)); return requested();
   });
-  add("jump", "Move instruction pointer", { line }, () => positionReady() && !!debug.capabilities?.goto_targets, async args => { debug.jumpTo(Number(args.line)); return requested(); });
-  add("run-to", "Run to document line", { line }, positionReady, async args => { debug.runTo(Number(args.line)); return requested(); });
+  add("jump", "Move instruction pointer", { line }, () => sourcePositionReady() && !!debug.capabilities?.goto_targets, async args => { debug.jumpTo(Number(args.line)); return requested(); });
+  add("run-to", "Run to document line", { line }, ()=>sourcePositionReady()&&!!debug.capabilities?.run_to, async args => { debug.runTo(Number(args.line)); return requested(); });
+  add("refresh-stop","Read current debugger stop",{},()=>fresh()&&debug.status==='unconfirmed'&&!!debug.refreshState,async()=>{debug.refreshState?.();return requested();});
+  add("expand-value","Expand reported debugger value",{node:text},()=>positionReady()&&!!debug.expandValue,async args=>{const node=debug.valueNode?.(String(args.node));if(!node||node.reference<=0||node.pending)return {status:'unavailable',reason:'Value node or its inspection scope retired'};debug.expandValue?.(node.id);return requested();});
+  add("collapse-value","Collapse reported debugger value",{node:text},()=>fresh()&&!!debug.collapseValue,async args=>{const node=debug.valueNode?.(String(args.node));if(!node)return {status:'unavailable',reason:'Value node retired'};debug.collapseValue?.(node.id);return requested();});
   useUiCommands(commands);
 }
 </storycode:copy>

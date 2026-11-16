@@ -31,7 +31,7 @@ import { WorkspaceAnalysisView, requestWorkspaceAnalysis } from "./WorkspaceAnal
 import { WorkspaceSearch } from "./WorkspaceSearch";
 import {SourceRecoveryView} from "./SourceRecovery";
 import {WorkspaceChangeHistory} from "./ChangePlan";
-import {resourceLayout,type ResourceEditorRoute} from "./ResourceEditors";
+import {resourceLayout,RetainedResourceTabs,retireCopiedBuffer,type ResourceEditorRoute} from "./ResourceEditors";
 import {ConstructionReadingView,constructionPointOffset} from "./ConstructionReading";
 import {GitAttributionView} from "./GitAttribution";
 import {GitHistoryView,type GitHistoryRequest} from "./GitHistory";
@@ -45,7 +45,7 @@ import { editorForBuffer } from "./Document";
 import { TooltipLayer } from "../components/TooltipLayer";
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api/client";
-import { PlainDebugHosts } from "../debug/plainDebugHosts";
+import { PlainDebugHosts,hasActivePlainDebugSession,retirePlainDebugIdentity } from "../debug/plainDebugHosts";
 import { onOpenLocation, openLocation, revealLine } from "../lib/revealLine";
 import type { FileNode } from "../api/types";
 import { Buffer, Buffers } from "./buffers";
@@ -105,6 +105,8 @@ export function App() {
   const [changeHistory]=useState(()=>new WorkspaceChangeHistory());
   const [buffers] = useState(() => new Buffers(() => refresh(value => value + 1)));
   const requested = useRef(new Map<string, string>());
+  const [retainedTabs]=useState(()=>new RetainedResourceTabs());
+  const bufferForTab=(tab:string)=>retainedTabs.buffers.get(tab)??buffers.values.get(tab);
   const resourcePlacements=useRef(new Map<Buffer,{group:string;index:number;active:boolean}>());
   function newTab() {
     const path = `Untitled-${crypto.randomUUID()}`;
@@ -126,7 +128,7 @@ export function App() {
     if (!source || source.saving) return;
     const path = window.prompt("Save As — new path in this workspace", source.file.path.startsWith("Untitled-") ? "" : source.file.path);
     if (!path) return;
-    if (path === source.file.path) { await source.save(); return; }
+    if (path === source.file.path) { if(source.resourceDeleted)setNotice("This source was deleted. Choose a new unused path to save its retained text.");else await source.save(); return; }
     const text = source.text; source.saving = true; source.publish();
     try {
       if (/\.md$/i.test(path)) await api.createDoc("local", path, text);
@@ -139,7 +141,10 @@ export function App() {
       await loadFiles();
       const opened = await api.openFile(path);
       await open({ name: path.split("/").at(-1)!, path, dir: false, doc_id: opened.doc_id });
-      if (source.text === text) { setLayout(current => remove(current, source.file.path)); buffers.values.delete(source.file.path); }
+      if (source.text === text) {
+        if(hasActivePlainDebugSession(source)){retainedTabs.noteCopy(source,text);setNotice("Copy saved. The original launch source remains readable until you stop or close its debugger tab.");}
+        else {const tabs=groups(liveLayout.current).flatMap(group=>group.tabs).filter(tab=>bufferForTab(tab)===source);if(retireCopiedBuffer(buffers,source,text)){retirePlainDebugIdentity(source);retainedTabs.retire(source);setLayout(current=>tabs.reduce((next,tab)=>remove(next,tab),current));}}
+      }
 
     } catch (error) { setNotice(`${String(error)} Original edits are retained. Choose a new unused path and retry Save As.`); }
     finally { source.saving = false; source.publish(); refresh(value => value + 1); }
@@ -152,7 +157,7 @@ export function App() {
     }
   }
   async function loadFiles() {
-    try { const response = await api.files(); setTree(response.tree); setWorkspaceFiles(response.tree); setWorkspaceRoot(response.root); setStatus(response.root); }
+    try { const response = await api.files(); buffers.workspace=response.root_path??"";setTree(response.tree); setWorkspaceFiles(response.tree); setWorkspaceRoot(response.root); setStatus(response.root); }
     catch (error) { setNotice(`${String(error)} Start the Hickory backend, then choose Refresh files.`); }
   }
   useEffect(() => { void loadFiles(); }, []);
@@ -162,7 +167,7 @@ export function App() {
   }, [buffers, agent, terminal]);
   const currentGroup = groups(layout).find(group => group.id === focused) ?? groups(layout)[0];
   const active = currentGroup.active;
-  const buffer = active ? buffers.values.get(active) : undefined;
+  const buffer = active ? bufferForTab(active) : undefined;
   async function openTerminal() { openTab("terminal"); await terminal.open(); }
   function openTab(tab: string) {
     const owner = groups(layout).find(group => group.tabs.includes(tab));
@@ -237,8 +242,10 @@ export function App() {
   }
   function close(tab: string) {
     for(const [group,path] of requested.current)if(path===tab)requested.current.delete(group);
-    const candidate = buffers.values.get(tab);
-    if (candidate?.dirty || candidate?.saving) { setNotice("Unsaved edits retained. Save this document before closing its tab."); return; }
+    const candidate = bufferForTab(tab);
+    if(candidate?.resourceDeleted&&hasActivePlainDebugSession(candidate)){setNotice("Stop the debugger before closing its retained deleted source. Its existing controls remain available here.");return;}
+    if (candidate?.saving || candidate?.dirty&&!retainedTabs.copied(candidate)) { setNotice("Unsaved edits retained. Save this document before closing its tab."); return; }
+    if(candidate?.resourceDeleted&&retainedTabs.copied(candidate)&&!hasActivePlainDebugSession(candidate)){retireCopiedBuffer(buffers,candidate,candidate.text);retirePlainDebugIdentity(candidate);retainedTabs.retire(candidate);}
     setLayout(current => remove(current, tab));
   }
   function divide(axis: Axis) { setLayout(current => split(current, currentGroup.id, axis, crypto.randomUUID())); }
@@ -265,13 +272,13 @@ The window keyboard handler consumes Ctrl/Cmd+N before the browser default and u
 Menu and tab-strip commands expose the same operations as native menus. Empty leaves accept drops. Recursive splits retain arbitrary arrangements; resizing updates only their proportions.
 
 <ui:copy id="simple-e8a50a27b2-1">
-  const label = (tab: string) => tab === "files" ? "Files" : tab === "agent" ? "Agent" : tab === "terminal" ? "Terminal" : `${buffers.values.get(tab)?.file.name ?? tab.split("/").at(-1)}${buffers.values.get(tab)?.dirty ? " •" : ""}`;
+  const label = (tab: string) => tab === "files" ? "Files" : tab === "agent" ? "Agent" : tab === "terminal" ? "Terminal" : `${bufferForTab(tab)?.file.name ?? tab.split("/").at(-1)}${bufferForTab(tab)?.resourceDeleted?" (deleted source)":""}${bufferForTab(tab)?.dirty ? " •" : ""}`;
   function content(tab: string) {
     if (tab === "files") return <div className="file-tree" aria-label="Files"><Tree nodes={tree} open={openFileVisit} /></div>;
     if (tab === "terminal") return <Terminal session={terminal} />;
     if (tab === "agent") return <Agent session={agent} />;
-    const document = buffers.values.get(tab);
-    return document ? <Document key={document.file.path} buffer={document} /> : null;
+    const document = bufferForTab(tab);
+    return document ? <Document key={document.file.path} buffer={document} current={()=>!document.resourceDeleted&&document.namespace===buffers.workspace&&buffers.values.get(document.file.path)===document} /> : null;
   }
   // Keep the scroll recipient while the pointer rests. Scrolling content under
   // a stationary cursor must not silently transfer the next wheel to a grid.
@@ -307,7 +314,7 @@ Menu and tab-strip commands expose the same operations as native menus. Empty le
       document.removeEventListener("wheel", wheel, true);
     };
   }, []);
-  const context:CommandContext={...sourceSnippetContext(buffer),editor:!!buffer,writable:!!buffer&&!buffer.readonly,dirty:buffer?.dirty??false,saving:buffer?.saving??false,back:trail.canBack,forward:trail.canForward,tab:!!active,groups:groups(layout).length};
+  const context:CommandContext={...sourceSnippetContext(buffer),editor:!!buffer,writable:!!buffer&&!buffer.readonly&&!buffer.resourceDeleted,dirty:buffer?.dirty??false,saving:buffer?.saving??false,back:trail.canBack,forward:trail.canForward,tab:!!active,groups:groups(layout).length};
   const contextRef=useRef(context);contextRef.current=context;
   const handlers:Record<string,()=>void>={
     "file.open":()=>{void openPath();},"file.directory":()=>{void openPath(true);},"file.new":newTab,"file.window":()=>{window.open(window.location.href,"_blank","noopener");},
@@ -360,13 +367,13 @@ Menu and tab-strip commands expose the same operations as native menus. Empty le
       openLocation(point.path,point.line,point.character,true,source);setShowTests(false);
     }} terminal={id=>{terminal.id=id;terminal.error="";terminal.publish();openTab("terminal");setShowTests(false);}} />
     <SearchEverywhereView visible={showEverywhere} setVisible={setShowEverywhere} buffers={buffers} files={workspaceFiles} analysis={analysis} commands={commands} openFile={path=>{const file=buffers.values.get(path)?.file??findPath(path);if(file)void openFileVisit(file);else setNotice("File no longer listed. Refresh the workspace.");}} focusCurrent={()=>{if(buffer)editorForBuffer(buffer)?.view.focus();}} />
-    <WorkspaceChanges history={changeHistory} adoptResources={routes=>{requested.current.clear();const next=resourceLayout(liveLayout.current,routes,resourcePlacements.current);liveLayout.current=next;setLayout(next);void loadFiles();}} files={workspaceFiles} buffers={buffers} current={() => buffer} focus={() => { if (buffer) editorForBuffer(buffer)?.view.focus(); }} />
+    <WorkspaceChanges history={changeHistory} adoptResources={routes=>{requested.current.clear();const next=resourceLayout(liveLayout.current,retainedTabs.routes(routes,hasActivePlainDebugSession),resourcePlacements.current);liveLayout.current=next;setLayout(next);void loadFiles();}} files={workspaceFiles} buffers={buffers} current={() => buffer} focus={() => { if (buffer) editorForBuffer(buffer)?.view.focus(); }} />
     <WorkspaceSearch visible={showWorkspaceSearch} close={() => { setShowWorkspaceSearch(false); if (buffer) editorForBuffer(buffer)?.view.focus(); }} buffers={buffers} files={workspaceFiles} />
     {showRecovery&&<SourceRecoveryView key={"recovery:"+workspaceRoot} buffers={buffers} epoch={()=>changeHistory.stamp()} alive={()=>workspaceIdentity.current===workspaceRoot} acquire={async path=>{
       const identity=workspaceIdentity.current,response=await api.files();if(workspaceIdentity.current!==identity||response.root!==identity)throw new Error("Workspace changed. Read recovery again.");
       const find=(nodes:FileNode[]):FileNode|undefined=>{for(const file of nodes){if(file.path===path&&!file.dir)return file;const nested=find(file.children??[]);if(nested)return nested;}};
       const file=buffers.values.get(path)?.file??find(response.tree);if(!file)throw new Error("Recovery source is not available in the current workspace: "+path);return await buffers.open(file);
-    }} adopt={(routes:ResourceEditorRoute<Buffer>[],recovery:string)=>{changeHistory.record({kind:"resource",recovery});requested.current.clear();const next=resourceLayout(liveLayout.current,routes,resourcePlacements.current);liveLayout.current=next;setLayout(next);void loadFiles();setNotice("Source restoration confirmed; saved baselines and drafts are retained separately.");}} close={()=>{setShowRecovery(false);if(buffer)editorForBuffer(buffer)?.view.focus();}}/>}
+    }} adopt={(routes:ResourceEditorRoute<Buffer>[],recovery:string)=>{changeHistory.record({kind:"resource",recovery});requested.current.clear();const next=resourceLayout(liveLayout.current,retainedTabs.routes(routes,hasActivePlainDebugSession),resourcePlacements.current);liveLayout.current=next;setLayout(next);void loadFiles();setNotice("Source restoration confirmed; saved baselines and drafts are retained separately.");}} close={()=>{setShowRecovery(false);if(buffer)editorForBuffer(buffer)?.view.focus();}}/>}
     {showConstruction&&<ConstructionReadingView key={"construction:"+workspaceRoot} sources={()=>Object.fromEntries([...buffers.values].filter(([,item])=>!item.readonly).map(([path,item])=>[path,item.text]))} navigate={async(point,current)=>{
       const identity=workspaceIdentity.current,file=buffers.values.get(point.path)?.file??findPath(point.path);if(!file)throw new Error("Source no longer listed. Refresh the construction reading.");
       const target=await buffers.open(file),source=target.text;
@@ -380,7 +387,7 @@ Menu and tab-strip commands expose the same operations as native menus. Empty le
     {attributionPath!==null&&<GitAttributionView key={"attribution:"+workspaceRoot} workspace={workspaceRoot} path={attributionPath} close={()=>{setAttributionPath(null);if(buffer)editorForBuffer(buffer)?.view.focus();}} readCommit={(sha,title)=>{setAttributionPath(null);setShowReview(false);setHistoryRequest({kind:'commit',sha,title});setShowHistory(true);}} />}
     <GitHistoryView key={"history:"+workspaceRoot} workspace={workspaceRoot} visible={showHistory} request={historyRequest} close={()=>{setShowHistory(false);if(buffer)editorForBuffer(buffer)?.view.focus();}} />
     <GitReviewView key={workspaceRoot} workspace={workspaceRoot} acquire={async path=>{const scope=workspaceRoot;if(workspaceIdentity.current!==scope)throw new Error("Workspace changed. Prepare the conflict again.");const file=buffers.values.get(path)?.file??findPath(path);if(!file||file.dir)throw new Error("Conflict source is no longer listed. Refresh files and try again.");const target=await buffers.open(file);if(workspaceIdentity.current!==scope)throw new Error("Workspace changed. Prepare the conflict again.");return target;}} visible={showReview} close={()=>{setShowReview(false);if(buffer)editorForBuffer(buffer)?.view.focus();}} />
-    <footer role="status" title={[notice,buffer?.completionNotice].filter(Boolean).join(" · ")}><WorkspaceAnalysisView buffers={buffers} files={workspaceFiles} model={analysis} focusCurrent={() => { if (buffer) editorForBuffer(buffer)?.view.focus(); }} /><WorkspaceProblems buffers={buffers} visible={showProblems} setVisible={setShowProblems} current={currentLocation} focusCurrent={() => { if (buffer) editorForBuffer(buffer)?.view.focus(); }} />{notice ? `${notice} · ` : ""}{buffer?.completionNotice?`${buffer.completionNotice} · `:""}{buffer ? `${buffer.file.name} · ${buffer.readonly ? "Read-only" : buffer.saving ? "Saving…" : buffer.dirty ? "Modified" : "Saved"}` : status}</footer>
+    <footer role="status" title={[notice,buffer?.completionNotice].filter(Boolean).join(" · ")}><WorkspaceAnalysisView buffers={buffers} files={workspaceFiles} model={analysis} focusCurrent={() => { if (buffer) editorForBuffer(buffer)?.view.focus(); }} /><WorkspaceProblems buffers={buffers} visible={showProblems} setVisible={setShowProblems} current={currentLocation} focusCurrent={() => { if (buffer) editorForBuffer(buffer)?.view.focus(); }} />{notice ? `${notice} · ` : ""}{buffer?.completionNotice?`${buffer.completionNotice} · `:""}{buffer ? `${buffer.file.name} · ${buffer.resourceDeleted?"Deleted source · retained snapshot":buffer.readonly ? "Read-only" : buffer.saving ? "Saving…" : buffer.dirty ? "Modified" : "Saved"}` : status}</footer>
   </main></SourceCoverageProvider></SourceTestGutterProvider></SimpleLanguages>;
 }
 function Tree({ nodes, open }: { nodes: FileNode[]; open: (file: FileNode) => void }) {

@@ -45,7 +45,7 @@ export const breakpointPreferences=(key:string|null):HeldBreakpoint[]|undefined=
 <storycode:copy id="f-9ef53203ebd0-rememberBreakpointPreferences">
 export function rememberBreakpointPreferences(key:string|null,breakpoints:HeldBreakpoint[]) {
   if(!key)return;
-  held.set(key,breakpoints.map(({line,condition,hit_condition,log_message})=>({line,condition,hit_condition,log_message,state:"pending"})));
+  held.set(key,breakpoints.map(({line,requested_line,condition,hit_condition,log_message})=>({line:requested_line??line,condition,hit_condition,log_message,state:"pending"})));
   for(const listener of listeners)listener();
 }
 </storycode:copy>

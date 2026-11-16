@@ -43,17 +43,19 @@ export interface LaunchProfile {
 <a id="f-1a7a9a03aa8d-Catalog"></a>
 ### `Catalog`
 
-Startup identity correlation requires protocol 2. Read-only catalog negotiation happens before any Start effect; old engines still expose Run and readable code. The actual hook rechecks rather than trusting picker metadata.
+Startup identity correlation requires protocol 3. Read-only catalog negotiation happens before any Start effect; old engines still expose Run and readable code. The actual hook rechecks rather than trusting picker metadata.
 
 <storycode:copy id="f-1a7a9a03aa8d-Catalog">
-interface Catalog { debug_protocol?: number; profiles: LaunchProfile[]; fingerprint: string; viewed: string; workspace: string; configuration: string }
-export const debugProtocolNotice="This engine does not advertise debugger protocol 2. Restart or update the engine to debug safely. Run remains available.";
-export const supportsDebugProtocol=(catalog:{debug_protocol?:unknown})=>typeof catalog.debug_protocol==="number"&&Number.isInteger(catalog.debug_protocol)&&catalog.debug_protocol>=2;
+interface Catalog { notices?:unknown;debug_protocol?: number; profiles: LaunchProfile[]; fingerprint: string; viewed: string; workspace: string; configuration: string }
+/** Inventory notices are readable metadata, bounded independently of launch. */
+export const launchCatalogNotices=(catalog:{notices?:unknown}):string[]=>Array.isArray(catalog.notices)?catalog.notices.filter((value):value is string=>typeof value==='string').slice(0,64).map(value=>value.slice(0,4096)):[];
+export const debugProtocolNotice="This engine does not advertise debugger protocol 3. Restart or update the engine to debug safely. Run remains available.";
+export const supportsDebugProtocol=(catalog:{debug_protocol?:unknown})=>typeof catalog.debug_protocol==="number"&&Number.isInteger(catalog.debug_protocol)&&catalog.debug_protocol>=3;
 /** Recheck at every actual Start, including action-search callers that bypass the picker. */
-export async function withDebugProtocol(query:LaunchQuery,effect:()=>void):Promise<void>{
+export async function withDebugProtocol(query:LaunchQuery,effect:(catalog:{workspace:string;notices?:unknown})=>void|Promise<void>):Promise<void>{
   const catalog=await request<Catalog>("POST","/api/launch-profiles",query);
   if(!supportsDebugProtocol(catalog))throw new Error(debugProtocolNotice);
-  effect();
+  await effect(catalog);
 }
 </storycode:copy>
 <a id="f-1a7a9a03aa8d-Choice"></a>
@@ -193,6 +195,7 @@ export function LaunchProfiles() {
       {state.notice && <p role="status">{state.notice}</p>}
       {state.error && <p role="alert">{state.error}</p>}
       {state.catalog && <>
+        {!!launchCatalogNotices(state.catalog).length&&<section aria-label="Launch source notices"><strong>Source inventory notices</strong>{launchCatalogNotices(state.catalog).map((notice,index)=><p key={index} role="status">{notice}</p>)}</section>}
         {!supportsDebugProtocol(state.catalog)&&<p role="status">{debugProtocolNotice}</p>}
         <p className="muted">For {state.catalog.viewed} · {state.contextLabel ?? "Latest compatible project"}</p>
         {!state.catalog.profiles.length && <p>No launch targets found. Add a profile in {state.catalog.configuration}.</p>}
@@ -262,7 +265,7 @@ let workspace=0;
 ### `catalog`
 
 <storycode:copy id="f-af7d3cd605b8-catalog">
-const catalog=(profiles:LaunchProfile[],fingerprint="one")=>({debug_protocol:2,profiles,fingerprint,viewed:"library.py",workspace:`/test/${workspace}`,configuration:".hick-launch.json"});
+const catalog=(profiles:LaunchProfile[],fingerprint="one")=>({debug_protocol:3,profiles,fingerprint,viewed:"library.py",workspace:`/test/${workspace}`,configuration:".hick-launch.json"});
 </storycode:copy>
 <a id="f-af7d3cd605b8-expression_statement-3"></a>
 ### `expression_statement`
@@ -278,7 +281,7 @@ afterEach(()=>{cleanup();});
 
 it("refuses old-daemon direct startup without effects and leaves picker Run usable",async()=>{
  const effect=vi.fn();vi.mocked(request).mockResolvedValue({...catalog([profile("app")]),debug_protocol:undefined});
- await expect(withDebugProtocol({uri:"hick:///app.py"},effect)).rejects.toThrow("protocol 2");expect(effect).not.toHaveBeenCalled();
+ await expect(withDebugProtocol({uri:"hick:///app.py"},effect)).rejects.toThrow("protocol 3");expect(effect).not.toHaveBeenCalled();
  render(<LaunchProfiles/>);const pending=launchWithProfiles({uri:"hick:///app.py"},effect);await screen.findByRole("button",{name:"Run app"});expect((screen.getByRole("button",{name:"Debug app"}) as HTMLButtonElement).disabled).toBe(true);
  fireEvent.click(screen.getByRole("button",{name:"Close launch profiles"}));await pending;expect(effect).not.toHaveBeenCalled();
 });

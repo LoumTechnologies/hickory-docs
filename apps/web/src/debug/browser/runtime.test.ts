@@ -16,6 +16,13 @@ function start(code: string, breakpoints: DebugBreakpoint[] = [], language = "js
 function pause(events: BrowserEvent[]) { const event = [...events].reverse().find((e) => e.event === "stopped"); if (!event || event.event !== "stopped") throw Error("Expected real pause"); return event; }
 
 describe("browser interpreter", () => {
+  it("owns numeric pause/thread/frame scope and retires issued references across execution",()=>{
+    const {run,events,drain}=start("var object = { nested: { value: 41 } };\nconsole.log(object);\nconsole.log(object);",[{line:3},{line:4}]);drain();
+    const first=pause(events);expect(first.thread).toBe(0);expect(first.stop).toBeGreaterThan(0);expect(()=>run.assertScope(first.stop,0,first.frames[0].id)).not.toThrow();expect(()=>run.assertScope(first.stop,1,first.frames[0].id)).toThrow();
+    const value=first.variables.find(value=>value.name==='object')!;run.children(value.variables_reference,first.frames[0].id);expect(events.at(-1)).toMatchObject({event:'children',stop:first.stop,thread:0,frame:first.frames[0].id});
+    expect(()=>run.children(value.variables_reference,999)).toThrow('not reported');run.report('frame',first.frames[0].id);expect(pause(events).stop).toBe(first.stop);
+    run.step('continue');drain();expect(pause(events).stop).toBeGreaterThan(first.stop!);expect(()=>run.assertScope(first.stop,0,first.frames[0].id)).toThrow();expect(()=>run.children(value.variables_reference,first.frames[0].id)).toThrow('not reported');
+  });
   it("pauses before the statement, steps into/out of a function and continues to output", () => {
     const { run, events, drain } = start("function price(n) {\n  var total = n * 3;\n  return total;\n}\nvar input = 4;\nvar result = price(input);\nconsole.log(result);", [{ line: 7 }, { line: 8 }]);
     drain();

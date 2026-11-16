@@ -20,12 +20,14 @@ import type { RuntimeRun } from "../runtimeObservations";
 import { DebugClient, CHANNEL_DEBUG } from "../client";
 import type { DebugEvent } from "../client";
 import { loadHickLang, materializeLiteralFiles } from "../../editor/hickLang";
+import {debugUTF8,DebugSourceSignal} from "../SourceGuards";
 import type { BrowserEvent } from "./runtime";
 import workerAsset from "./worker.ts?worker&url";
 
 export interface BrowserDebuggerOptions {
-  /** Read only at Start. The worker receives an immutable revision. */
-  readDocument: () => { source: string; revision: string };
+  /** Read the current authored model without side effects; Start captures an immutable revision. */
+  readDocument: () => { uri:string;source: string; revision: string };
+  onCapture?: (source:{source:string;revision:string})=>void;
   onOutput?: (text: string, category: "stdout" | "stderr") => void;
   onRevision?: (revision: string) => void;
   onRuntime?: (run: RuntimeRun) => void;
@@ -40,6 +42,8 @@ Instance-scoped transport for the existing product debug client.
 <storycode:copy id="f-4357b3feff1c-createBrowserDebugger">
 /** Instance-scoped transport for the existing product debug client. */
 export function createBrowserDebugger(options: BrowserDebuggerOptions) {
+  const workspace=`browser-provider:${crypto.randomUUID()}`,identity={},sourceSignal=new DebugSourceSignal();
+  const sources={subscribe:sourceSignal.subscribe,read:(uri:string)=>{const held=options.readDocument();if(uri!==held.uri)throw Error("Browser source address no longer belongs to this document");return {uri,workspace,namespace:workspace,identity,text:held.source,saved:true,current:()=>{const latest=options.readDocument();return !disposed&&latest.uri===held.uri&&latest.source===held.source&&latest.revision===held.revision;}};}};
   let worker: Worker | null = null;
   let session: string | null = null;
   let generation = 0;
@@ -70,7 +74,7 @@ export function createBrowserDebugger(options: BrowserDebuggerOptions) {
     frame[0] = CHANNEL_DEBUG; frame.set(body, 1); client.handleFrame(frame);
   }
   function terminate() { worker?.terminate(); worker = null; generation++; }
-  const client = new DebugClient({ cancelStart() { terminate(); session = null; }, send(frame) {
+  const client = new DebugClient({ provider:{protocol:3,workspace,sources},cancelStart() { terminate(); session = null; }, send(frame) {
     if (disposed) return;
     const request = JSON.parse(new TextDecoder().decode(frame.subarray(1))) as Record<string, unknown>;
     if (request.op === "stop") {
@@ -88,15 +92,20 @@ export function createBrowserDebugger(options: BrowserDebuggerOptions) {
     const previous = session;
     if (previous) emit({ event: "ended", session: previous });
     session = null;
-    void Promise.all([loadHickLang(), loadRunner(), crypto.subtle.digest("SHA-256", new TextEncoder().encode(frozen.source))]).then(([, url, digest]) => {
+    void Promise.all([loadHickLang(), loadRunner(), crypto.subtle.digest("SHA-256", debugUTF8(frozen.source))]).then(([, url, digest]) => {
       if (disposed || current !== generation) return;
+      const sourceHash=[...new Uint8Array(digest)].map(b=>b.toString(16).padStart(2,"0")).join("");
+      if(request.doc!==frozen.uri)throw Error("Browser document source address changed before capture.");
+      if(request.source_hash!==sourceHash)throw Error("Browser authored source changed before capture.");
+      if(Object.keys((request.source_hashes??{}) as object).length)throw Error("Browser interpreter cannot prove additional authored source mappings.");
+      options.onCapture?.(frozen);
       const files = materializeLiteralFiles(frozen.source);
       const file = request.program ? files.find((f) => f.path === request.program) : files.find((f) => /\.(js|ts)$/.test(f.path));
       if (!file) throw new Error("No literal .js or .ts file in this document");
       session = `browser-${crypto.randomUUID()}`;
       options.onRevision?.(frozen.revision);
       let started = false;
-      const startRequest = { ...request, session, input: { ...frozen, file, observationRevision: [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2, "0")).join("") } };
+      const startRequest = { ...request, session, input: { ...frozen, file, sourceHash, observationRevision: [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2, "0")).join("") } };
       function launch(url: string, fallback: boolean) {
         worker = new Worker(url, import.meta.env.DEV ? { type: "module" } : undefined);
         worker.onmessage = (message: MessageEvent<BrowserEvent>) => {
@@ -134,6 +143,7 @@ export function createBrowserDebugger(options: BrowserDebuggerOptions) {
             launch(dataRunner, false);
             return;
           }
+          if(started&&session){const failed=session;emit({event:'failed',session:failed,message:error.message||'Browser worker stopped unexpectedly'});emit({event:'finished',session:failed,exit_code:1});terminate();session=null;return;}
           emit({ event: "failed", session: null, doc: String(request.doc),request_id:typeof request.request_id==="string"?request.request_id:undefined,about:"start", message: error.message || "Browser runtime could not load (check the host worker-src policy)" });
           terminate(); session = null;
         };
@@ -144,7 +154,7 @@ export function createBrowserDebugger(options: BrowserDebuggerOptions) {
       if (current === generation && !disposed) emit({ event: "failed", session: null, doc: String(request.doc), about: "start",request_id:typeof request.request_id==="string"?request.request_id:undefined, message: String(e) });
     });
   } });
-  return { client,
+  return { client,sourceChanged:()=>sourceSignal.changed(),
     pause() { if (session) worker?.postMessage({ op: "pause", session }); },
     dispose() { if (runtime?.status === "running") options.onRuntime?.({ ...runtime, status: "cancelled" }); disposed = true; terminate(); session = null; if (runnerUrl) URL.revokeObjectURL(runnerUrl); runnerUrl = null; runnerBytes = null; dataRunner = null; },
   };

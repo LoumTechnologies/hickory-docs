@@ -91,6 +91,8 @@ export interface DebugCapabilities {
   step_back: boolean;
   /** Move the instruction pointer within the frame — the other way back. */
   goto_targets: boolean;
+  /** Engine-composed temporary-breakpoint movement. */
+  run_to?:boolean;
   exception_filters: { id: string; label: string }[];
 }
 
@@ -110,6 +112,7 @@ export type DebugEvent =
   | { event: "reading"; session: string; reading: import("./observations").ObservationReading }
   | {
       event: "started";
+      source_hash?:string|null;
       request_id?:string|null;
       session: string;
       /** The file this session runs, exactly as `start` named it. Every
@@ -133,10 +136,10 @@ export type DebugEvent =
       line: number | null;
       selected_frame?: number;
     }
-  | { event: "breakpoints"; session: string; breakpoints: BreakpointStatus[] }
-  | { event: "source_breakpoints"; session: string; source: string; breakpoints: BreakpointStatus[] }
+  | { event: "breakpoints"; session: string; breakpoints: BreakpointStatus[];source_hash?:string|null;request_id?:string|null }
+  | { event: "source_breakpoints"; session: string; source: string; breakpoints: BreakpointStatus[];source_hash?:string|null;request_id?:string|null }
   | { event: "value"; session: string; expression: string; value: string; type_name?: string | null; type?: string | null; reference: number;stop?:number;thread?:number|null;frame?:number|null;request_id?:string|null }
-  | { event: "children"; session: string; reference: number; variables: Variable[];stop?:number;thread?:number|null;request_id?:string|null }
+  | { event: "children"; session: string; reference: number; variables: Variable[];stop?:number;thread?:number|null;frame?:number|null;request_id?:string|null }
   | {
       /**
        * The program ran to its end. The server reaps the session with it —
@@ -157,6 +160,7 @@ export type DebugEvent =
   | { event: "build"; doc?: string;request_id?:string|null; events: TranscriptEvent[] }
   | {
       event: "failed";
+      scope_retired?:boolean;
       session: string | null;
       /** The file a failed START was for, when the failure has no session
        * to name instead. */
@@ -205,6 +209,7 @@ export class DebugThreads {
   const selected=this.pending?.session===session&&this.pending.target===thread&&next.stop>this.pending.stop;
   this.scope=next;this.reading=null;this.message=null;if(!selected){this.pending=null;this.busy=false;}return true;
  }
+ restore(scope:{session:string;stop:number;thread:number}):boolean {if(!this.latest||this.latest.session!==scope.session||this.latest.stop!==scope.stop||this.latest.thread!==scope.thread)return false;this.scope={...scope};this.reading=null;this.pending=null;this.busy=false;this.message=null;return true;}
  reset(){this.latest=null;this.clear();}
  clear(){this.scope=null;this.reading=null;this.pending=null;this.busy=false;this.message=null;}
  read():{session:string;request:string}|null {if(this.selecting){this.message='Wait for the selected thread stack before another thread read.';return null;}if(!this.scope){this.message='Pause the debugger before reading threads.';return null;}const request='threads-'+(++this.sequence);this.pending={request,session:this.scope.session,stop:this.scope.stop};this.busy=true;this.message=null;return {session:this.scope.session,request};}
@@ -219,7 +224,7 @@ export class DebugThreads {
   }
   this.reading={...event,threads:event.threads.map(item=>({id:item.id,name:item.name}))};this.pending=null;this.busy=false;this.message=null;return true;
  }
- failed(message:string,request?:string|null):boolean{if(request&&this.pending?.request!==request)return false;this.busy=false;this.message=message;return true;}
+ failed(message:string,request?:string|null):boolean{if(typeof request!=='string'||this.pending?.request!==request)return false;this.pending=null;this.busy=false;this.message=message;return true;}
 }
 /**
  * The server's own verbs, spelled exactly as it deserializes them.
@@ -234,12 +239,15 @@ export type Step = "over" | "in" | "out" | "continue" | "drop_frame" | "back";
 export interface DebugWire {
   send(frame: Uint8Array): void;
   cancelStart?: (doc: string) => void;
+  /** Independent providers negotiate their own guarded protocol and source authority. */
+  provider?: {protocol:number;workspace:string;sources:import("./SourceGuards").DebugSourceCapability};
 }
 
 export class DebugClient {
   private listeners = new Set<(event: DebugEvent) => void>();
 
   constructor(private wire: DebugWire) {}
+  get provider(){return this.wire.provider;}
 
   /** Feed a socket frame in. True when it was ours. */
   handleFrame(frame: Uint8Array): boolean {
@@ -267,30 +275,30 @@ export class DebugClient {
     this.wire.send(frame);
   }
 
-  start(doc: string, breakpoints: DebugBreakpoint[], program?: string, project?: string, sources?: Record<string, DebugBreakpoint[]>, profile?: import("./launchProfiles").LaunchSelection,request_id?:string) {
+  start(doc: string, breakpoints: DebugBreakpoint[], program?: string, project?: string, sources?: Record<string, DebugBreakpoint[]>, profile?: import("./launchProfiles").LaunchSelection,request_id?:string,source_hash?:string,source_hashes?:Record<string,string>) {
     // `program` names which generated file to run. A document with two
     // Python files has two answers, and picking the first is right only by
     // accident.
-    this.send({ op: "start", doc, breakpoints, program,...(request_id?{request_id}:{}), ...(profile ? {profile:{id:profile.id,fingerprint:profile.fingerprint}} : {}), ...(project && project !== "new" ? {project} : {}), ...(sources && Object.keys(sources).length ? {sources} : {}) });
+    this.send({ op: "start", doc, breakpoints, program,source_hash,source_hashes,...(request_id?{request_id}:{}), ...(profile ? {profile:{id:profile.id,fingerprint:profile.fingerprint}} : {}), ...(project && project !== "new" ? {project} : {}), ...(sources && Object.keys(sources).length ? {sources} : {}) });
   }
 
   located(session: string, location: string, scope: import("./observations").ObservationScope, how: "jump" | "run_to") {
     this.send({ op: "located", session, location, scope, how });
   }
 
-  setBreakpoints(session: string, breakpoints: DebugBreakpoint[]) {
-    this.send({ op: "breakpoints", session, breakpoints });
+  setBreakpoints(session: string, breakpoints: DebugBreakpoint[],source_hash?:string,request_id?:string) {
+    this.send({ op: "breakpoints", session, breakpoints,source_hash,request_id });
   }
 
-  setSourceBreakpoints(session: string, source: string, breakpoints: DebugBreakpoint[]) {
-    this.send({ op: "source_breakpoints", session, source, breakpoints });
+  setSourceBreakpoints(session: string, source: string, breakpoints: DebugBreakpoint[],source_hash?:string,request_id?:string) {
+    this.send({ op: "source_breakpoints", session, source, breakpoints,source_hash,request_id });
   }
 
   threads(session:string,request_id:string){this.send({op:"threads",session,request_id});}
 
   selectThread(session:string,thread:number,stop:number,request_id:string){this.send({op:"select_thread",session,thread,stop,request_id});}
 
-  state(session: string, frame?: number,scope?:{stop:number;thread:number;request_id:string}) {
+  state(session: string, frame?: number,scope?:{stop?:number;thread?:number;request_id:string}) {
     this.send({ op: "state", session, ...(frame === undefined ? {} : { frame }),...scope });
   }
 
@@ -308,20 +316,20 @@ export class DebugClient {
     this.send({ op: "eval", session, expression, context, frame,...scope });
   }
 
-  step(session: string, how: Step, frame?: number) {
-    this.send({ op: "step", session, how, frame });
+  step(session: string, how: Step, frame?: number,scope?:{stop:number;thread:number;request_id:string}) {
+    this.send({ op: "step", session, how, frame,...scope });
   }
 
   /** Move the instruction pointer to a line in the current frame. */
-  jump(session: string, line: number) {
-    this.send({ op: "jump", session, line });
+  jump(session: string, line: number,scope?:{stop:number;thread:number;request_id:string;source_hash:string}) {
+    this.send({ op: "jump", session, line,...scope });
   }
 
-  runTo(session: string, line: number) {
-    this.send({ op: "run_to", session, line });
+  runTo(session: string, line: number,scope?:{stop:number;thread:number;request_id:string;source_hash:string}) {
+    this.send({ op: "run_to", session, line,...scope });
   }
 
-  children(session: string, reference: number,scope?:{stop:number;thread:number;request_id:string}) {
+  children(session: string, reference: number,scope?:{stop:number;thread:number;frame:number;request_id:string}) {
     this.send({ op: "children", session, reference,...scope });
   }
 

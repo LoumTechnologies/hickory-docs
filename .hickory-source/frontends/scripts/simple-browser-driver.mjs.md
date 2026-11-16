@@ -25,6 +25,7 @@ import { createInterface } from "node:readline";
 let browser, page, nativeTable;
 const rememberedEditors = new Map();
 const pageErrors = [];
+const debugWire=[];
 const lines = createInterface({ input: process.stdin });
 async function menu(name, action) {
   await page.locator("nav").getByText(name, { exact: true }).click();
@@ -40,6 +41,7 @@ try {
         case "launch":
           browser = await chromium.launch({ headless: true }); page = await browser.newPage({ viewport: { width: 1100, height: 750 } });
           page.on("pageerror", error => { pageErrors.push(String(error)); if (pageErrors.length > 8) pageErrors.shift(); });
+          page.on("websocket",socket=>{for(const direction of ["framesent","framereceived"])socket.on(direction,({payload})=>{try{if(typeof payload==='string'||payload[0]!==3)return;const value=JSON.parse(new TextDecoder().decode(payload.subarray(1)));debugWire.push({direction,op:value.op,event:value.event,session:value.session,doc:value.doc,stop:value.stop,thread:value.thread,frame:value.frame,request_id:value.request_id,reference:value.reference});if(debugWire.length>512)debugWire.shift();}catch{}});});
           await page.goto(request.url); break;
         case "browser-surface":
           await page.close(); page = await browser.newPage({ viewport: { width: 1100, height: 750 } }); await page.goto(request.url); break;
@@ -179,6 +181,7 @@ try {
         case "source-tests-revisions": {const panel=page.getByRole("dialog",{name:"Source tests",exact:true});await panel.getByText("Saved revisions checked at admission",{exact:true}).click();value=await panel.innerText();break;}
         case "source-tests-close": await page.getByRole("button",{name:"Close source tests",exact:true}).click();break;
         case "remember-editor": rememberedEditors.set(request.path, await editor(request.path).elementHandle()); break;
+        case "editor-position":await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));value=await editor(request.path).evaluate(async(node,position)=>{const {EditorView}=await import("/node_modules/@codemirror/view/dist/index.js");const view=EditorView.findFromDOM(node);if(position.anchor!==undefined)view.dispatch({selection:{anchor:position.anchor}});if(position.y!==undefined)view.scrollDOM.scrollTop=position.y;await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));return {anchor:view.state.selection.main.anchor,head:view.state.selection.main.head,y:view.scrollDOM.scrollTop,x:view.scrollDOM.scrollLeft};},request);break;
         case "editor-is-retained": value = await editor(request.path).evaluate((node, previous) => node === previous, rememberedEditors.get(request.previous??request.path)); break;
         case "navigate-history":
           await menu("Edit", request.direction === "back" ? "Navigate back" : "Navigate forward");
@@ -601,6 +604,15 @@ try {
         }
         case "debug-frame-select":{const summary=page.getByLabel("Debug options",{exact:true}).last();if(!await summary.evaluate(node=>node.parentElement.open))await summary.click();const stack=page.getByLabel("Call stack",{exact:true});const option=await stack.locator('option').evaluateAll((options,name)=>options.find(item=>item.textContent.startsWith(name+' —'))?.value,request.name);if(!option)throw Error('Requested frame absent: '+request.name+'; '+await stack.textContent());const label=await stack.locator('option').evaluateAll((options,value)=>options.find(item=>item.value===value)?.textContent,option);await stack.selectOption(option);value={label,line:Number(/ — line (\d+)$/.exec(label??'')?.[1]??0)};break;}
         case "debug-watch":{const summary=page.getByLabel("Debug options",{exact:true}).last();if(!await summary.evaluate(node=>node.parentElement.open))await summary.click();page.once('dialog',dialog=>dialog.accept(request.expression));await summary.locator('..').getByRole('button',{name:'+ watch',exact:true}).click();await page.waitForFunction(expression=>{const value=Array.from(document.querySelectorAll('output[aria-label]')).find(node=>node.getAttribute('aria-label')==='Value of watch '+expression);return !!value&&!value.textContent.startsWith('No value reported');},request.expression);if(!await summary.evaluate(node=>node.parentElement.open))await summary.click();value=await page.getByLabel('Value of watch '+request.expression,{exact:true}).textContent();break;}
+        case "debug-expand":{
+          const options=page.getByLabel("Debug options",{exact:true}).last();if(!await options.evaluate(node=>node.parentElement.open))await options.click();
+          const names=[request.name,`'${request.name}'`,`"${request.name}"`];let button=null;for(const name of names){const candidate=page.getByRole('button',{name:`Expand value ${name}`,exact:true}).last();if(await candidate.count()){button=candidate;break;}}if(!button)throw Error('No current expandable value '+request.name);
+          const node=button.locator('..'),id=await node.getAttribute('data-debug-value-node');await button.click();await page.waitForFunction(id=>{const node=document.querySelector(`[data-debug-value-node="${id}"]`);return !!node&&!node.textContent.includes('Reading children…');},id);value=await page.locator(`[data-debug-value-node="${id}"]`).textContent();break;
+        }
+        case "debug-move":{
+          const options=page.getByLabel('Debug options',{exact:true}).last();if(!await options.evaluate(node=>node.parentElement.open))await options.click();const label=request.kind==='run_to'?'Run to line':'Move instruction pointer to line',button=page.getByRole('button',{name:label,exact:true}).last();if(!await button.count()){value={supported:false};break;}
+          await page.getByLabel('Debugger target line',{exact:true}).last().fill(String(request.line));await button.click();await page.waitForFunction(line=>{const stack=document.querySelector('select[aria-label="Call stack"]');const option=stack?.selectedOptions?.[0];return !!option&&option.textContent.endsWith(' — line '+line);},String(request.line));value={supported:true};break;
+        }
         case "debug-start":
           await page.getByRole("button", { name: `Debug ${request.path}`, exact: true }).click(); break;
         case "debug-step":
@@ -609,7 +621,9 @@ try {
           {const options=page.getByLabel("Debug options",{exact:true}).last();if(await options.count()&&await options.evaluate(node=>node.parentElement.open))await options.click();}
           await page.getByRole("button", { name: "Stop", exact: true }).click(); break;
         case "debug-state": value = await page.locator(".debug-strip__status").allTextContents(); break;
-        case "debug-locals":{const locals=page.getByRole("region",{name:"Selected-frame locals",exact:true});value=await locals.count()?await locals.textContent():"";break;}
+        case "debug-locals":{const locals=page.getByRole("region",{name:/^Selected-frame (locals|values)$/});value=await locals.count()?await locals.textContent():"";break;}
+        case "debug-wire":value=debugWire;break;
+        case "source-tab":await page.getByRole("tab",{name:request.label,exact:true}).click();break;
         case "debug-diagnostics": value={text:await page.locator("body").innerText(),errors:pageErrors};break;
         case "debug-values": value = await page.locator(".cm-debug-value").allTextContents(); break;
         case "debug-breakpoint":

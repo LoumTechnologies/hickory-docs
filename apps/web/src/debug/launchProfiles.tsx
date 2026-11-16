@@ -11,14 +11,16 @@ export interface LaunchProfile {
   id: string; name: string; origin: string; program: string | null; command: string[];
   args: string[]; env: Record<string,string>; cwd: string; build: string[]; default: boolean; can_debug: boolean;
 }
-interface Catalog { debug_protocol?: number; profiles: LaunchProfile[]; fingerprint: string; viewed: string; workspace: string; configuration: string }
-export const debugProtocolNotice="This engine does not advertise debugger protocol 2. Restart or update the engine to debug safely. Run remains available.";
-export const supportsDebugProtocol=(catalog:{debug_protocol?:unknown})=>typeof catalog.debug_protocol==="number"&&Number.isInteger(catalog.debug_protocol)&&catalog.debug_protocol>=2;
+interface Catalog { notices?:unknown;debug_protocol?: number; profiles: LaunchProfile[]; fingerprint: string; viewed: string; workspace: string; configuration: string }
+/** Inventory notices are readable metadata, bounded independently of launch. */
+export const launchCatalogNotices=(catalog:{notices?:unknown}):string[]=>Array.isArray(catalog.notices)?catalog.notices.filter((value):value is string=>typeof value==='string').slice(0,64).map(value=>value.slice(0,4096)):[];
+export const debugProtocolNotice="This engine does not advertise debugger protocol 3. Restart or update the engine to debug safely. Run remains available.";
+export const supportsDebugProtocol=(catalog:{debug_protocol?:unknown})=>typeof catalog.debug_protocol==="number"&&Number.isInteger(catalog.debug_protocol)&&catalog.debug_protocol>=3;
 /** Recheck at every actual Start, including action-search callers that bypass the picker. */
-export async function withDebugProtocol(query:LaunchQuery,effect:()=>void):Promise<void>{
+export async function withDebugProtocol(query:LaunchQuery,effect:(catalog:{workspace:string;notices?:unknown})=>void|Promise<void>):Promise<void>{
   const catalog=await request<Catalog>("POST","/api/launch-profiles",query);
   if(!supportsDebugProtocol(catalog))throw new Error(debugProtocolNotice);
-  effect();
+  await effect(catalog);
 }
 type Choice = { profile: LaunchProfile; mode: "run" | "debug" };
 interface Picker { notice?: string; contextLabel?: string; catalog?: Catalog; error?: string; settle: (value: Choice | null) => void; anchor: DOMRect | null }
@@ -99,6 +101,7 @@ export function LaunchProfiles() {
       {state.notice && <p role="status">{state.notice}</p>}
       {state.error && <p role="alert">{state.error}</p>}
       {state.catalog && <>
+        {!!launchCatalogNotices(state.catalog).length&&<section aria-label="Launch source notices"><strong>Source inventory notices</strong>{launchCatalogNotices(state.catalog).map((notice,index)=><p key={index} role="status">{notice}</p>)}</section>}
         {!supportsDebugProtocol(state.catalog)&&<p role="status">{debugProtocolNotice}</p>}
         <p className="muted">For {state.catalog.viewed} · {state.contextLabel ?? "Latest compatible project"}</p>
         {!state.catalog.profiles.length && <p>No launch targets found. Add a profile in {state.catalog.configuration}.</p>}

@@ -12,7 +12,9 @@ import { getWorkspaceRealtime, type Realtime } from "../api/realtime";
 import type { TranscriptEvent } from "../api/types";
 import { DebugClient,DebugThreads,DebugLaunches,debugAdapterId } from "./client";
 import {documentUri} from "../lsp/documentUri";
-import {withDebugProtocol} from "./launchProfiles";
+import {withDebugProtocol,launchCatalogNotices} from "./launchProfiles";
+import {DebugBreakpointModel,savedDebugSources,stampDebugSource,type DebugSourceCapability,type DebugSourceReading,type DebugSourceProof,type CapturedDebugIntent} from "./SourceGuards";
+import {DebugValueTree,type DebugValueScope,type DebugValueNode} from "./DebugValueTree";
 import type {
   BreakpointStatus,
   DebugBreakpoint,
@@ -23,7 +25,7 @@ import type {
   Variable,
 } from "./client";
 
-export type DebugStatus = "idle" | "starting" | "paused" | "running" | "finished" | "failed";
+export type DebugStatus = "idle" | "starting" | "paused" | "running" | "unconfirmed" | "stopping" | "finished" | "failed";
 
 /** One watched expression, and what it held the last time anyone asked. */
 export interface Watch {
@@ -33,6 +35,22 @@ export interface Watch {
 }
 
 export interface DebugSession {
+  /** Synchronous private lifecycle admission, before a React publication commits. */
+  isActive?():boolean;
+  breakpointRows?():HeldBreakpoint[];
+  capturedBreakpointIntents?():Record<string,CapturedDebugIntent>;
+  launchNotices?:string[];
+  breakpointNotice?:string|null;
+  breakpointIntentions?:{source:string;marks:import("./client").DebugBreakpoint[];namespace:string|null}[];
+  variableRoots?:DebugValueNode[];
+  valueNode?:(id:string)=>DebugValueNode|null;
+  valueHistory?:string[];
+  valueNotice?:string|null;
+  expandValue?:(id:string)=>void;
+  collapseValue?:(id:string)=>void;
+  closeValues?:()=>void;
+  refreshState?:()=>void;
+  positionSourceBound?:boolean;
   output?: { category: string; text: string; source?: string | null; line?: number | null }[];
   reading?: import("./observations").ObservationReading | null;
   /** A tool this machine can fetch, when a missing one is why the last
@@ -91,8 +109,8 @@ export interface DebugSession {
 
   /** Debug one generated file. Omitted means the first debuggable one. */
   launchTarget?: string | null;
-  start(program?: string, sources?: Record<string, HeldBreakpoint[]>, project?: string, profile?: import("./launchProfiles").LaunchSelection): void;
-  replaceBreakpoints(breakpoints: HeldBreakpoint[]): void;
+  start(program?: string, sources?: Record<string, HeldBreakpoint[]>, project?: string, profile?: import("./launchProfiles").LaunchSelection,origins?:Record<string,CapturedDebugIntent>): void;
+  replaceBreakpoints(breakpoints: HeldBreakpoint[],provenance?:string): void;
   stop(): void;
   step(how: Step): void;
   jumpTo(line: number): void;
@@ -134,6 +152,7 @@ export interface DebugSession {
  * `BreakpointStatus` — it has to survive every status the server sends.
  */
 export interface HeldBreakpoint extends BreakpointStatus {
+  requested_line?:number;
   /** Stop only when this is true, in the debuggee's own language. */
   condition?: string;
   /** Stop only on the Nth hit — the adapter's own syntax. */
@@ -159,33 +178,14 @@ export function isConditional(breakpoint: HeldBreakpoint): boolean {
  * That is why the match is made against the status BEFORE the move is
  * applied, where both the requested and the bound line are still in hand.
  */
-function followMoves(previous: HeldBreakpoint[], statuses: BreakpointStatus[]): HeldBreakpoint[] {
-  return statuses.map((status) => {
-    const held =
-      previous.find((breakpoint) => breakpoint.line === status.line) ??
-      (status.moved_to === undefined
-        ? undefined
-        : previous.find((breakpoint) => breakpoint.line === status.moved_to));
-    const moved =
-      status.moved_to === undefined || status.moved_to === status.line
-        ? status
-        : { ...status, line: status.moved_to, moved_to: undefined };
-    return {
-      ...moved,
-      condition: held?.condition,
-      hit_condition: held?.hit_condition,
-      log_message: held?.log_message,
-    };
-  });
-}
-
+// SourceGuards owns complete receipt admission and only then projects provider moves.
 /**
  * The wire form: only what was actually set, so an adapter is never handed
  * an empty condition string to parse.
  */
 function onTheWire(breakpoints: HeldBreakpoint[]): DebugBreakpoint[] {
   return breakpoints.map((breakpoint) => ({
-    line: breakpoint.line,
+    line: breakpoint.requested_line??breakpoint.line,
     ...(breakpoint.condition ? { condition: breakpoint.condition } : {}),
     ...(breakpoint.hit_condition ? { hit_condition: breakpoint.hit_condition } : {}),
     ...(breakpoint.log_message ? { log_message: breakpoint.log_message } : {}),
@@ -256,7 +256,7 @@ export const IDLE_SESSION: DebugSession = {
 };
 
 /** A debugger for one document, over the document's own socket. */
-export function useDebugger(realtime: Realtime, docPath: string, projectContext = "new"): DebugSession {
+export function useDebugger(realtime: Realtime, docPath: string, projectContext = "new",sourceCapability?:DebugSourceCapability): DebugSession {
   const client = useMemo(() => {
     const channel = realtime.debug?.();
     return channel ? new DebugClient(channel) : null;
@@ -271,7 +271,7 @@ export function useDebugger(realtime: Realtime, docPath: string, projectContext 
     return () => realtime.onDebugFrame?.(() => false);
   }, [client, realtime]);
 
-  return useDebuggerOver(client, docPath, [], projectContext);
+  return useDebuggerOver(client, docPath, [], projectContext,undefined,undefined,sourceCapability);
 }
 
 // The workspace's one debug client, shared by every plain file.
@@ -302,12 +302,16 @@ export function resetWorkspaceDebugger(): void {
  * workspace connection. The same verbs, the same events, at the file's
  * own path; the server debugs a file that is not a document as itself.
  */
-export function useWorkspaceDebugger(path: string): DebugSession {
+export function useWorkspaceDebugger(path: string,uiSource?:unknown,launchCurrent?:()=>boolean,sourceCapability?:DebugSourceCapability): DebugSession {
   const client = useMemo(() => workspaceDebugClient(), []);
-  return useDebuggerOver(client, path);
+  return useDebuggerOver(client, path,[],"new",uiSource,launchCurrent,sourceCapability);
 }
 
-export function useDebuggerOver(client: DebugClient | null, docPath: string, initialBreakpoints: readonly number[] = [], projectContext = "new", uiSource?: unknown): DebugSession {
+export function useDebuggerOver(client: DebugClient | null, docPath: string, initialBreakpoints: readonly number[] = [], projectContext = "new", uiSource?: unknown,launchCurrent?:()=>boolean,sourceCapability?:DebugSourceCapability): DebugSession {
+  sourceCapability=sourceCapability??client?.provider?.sources??savedDebugSources;
+  const uri = useMemo(() => documentUri(docPath), [docPath]);
+  const sourceAccess=useRef(sourceCapability);sourceAccess.current=sourceCapability;
+  const launchAdmission=useRef(launchCurrent);launchAdmission.current=launchCurrent;
   const eventEpoch = useRef(0);
   const readingOwner = useRef(Symbol("debugger-capture"));
   const [, renderEventEpoch] = useState(0);
@@ -331,22 +335,28 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
     setMessage(null);
     setOfferInstall(null);
   }, []);
-  const [capabilities, setCapabilities] = useState<DebugCapabilities | null>(null);
+  const [capabilities, setCapabilities] = useState<DebugCapabilities | null>(null);const capabilitiesRef=useRef<DebugCapabilities|null>(null);
   const [pausedLine, setPausedLine] = useState<number | null>(null);
   const [frames, setFrames] = useState<Frame[]>([]),[historicalFrames,setHistoricalFrames]=useState<Frame[]>([]);
   const currentFrames=useRef<Frame[]>(frames);
   const [launches]=useState(()=>new DebugLaunches());
   const [threadModel]=useState(()=>new DebugThreads()),[threadRevision,paintThreads]=useState(0);
   const refreshThreads=()=>paintThreads(value=>value+1);
-  const [variables, setVariables] = useState<Variable[]>([]);
+  const [variables, setVariables] = useState<Variable[]>([]);const variablesRef=useRef<Variable[]>([]);
+  const holdVariables=(next:Variable[])=>{variablesRef.current=next;setVariables(next);};
   const localsByFrame=useRef(new Map<number,Variable[]>());
   const [frameVariablesPending,setFrameVariablesPending]=useState(false),[frameVariablesMessage,setFrameVariablesMessage]=useState<string|null>(null),[stackMessage,setStackMessage]=useState<string|null>(null);
   const ownerLifetime=useRef(0),ownerMounted=useRef(true);
   const frameRead=useRef<{session:string;stop:number;thread:number;frame:number;request:string}|null>(null),frameSequence=useRef(0);
   const [selectedFrame, setSelectedFrame] = useState<number | null>(null);
   const selectedFrameRef=useRef<number|null>(null);
-  const evaluationSequence=useRef(0),evaluationRequests=useRef(new Map<string,{expression:string;stop:number;thread:number;frame:number|null}>()),latestEvaluation=useRef(new Map<string,string>());
-  const [breakpoints, setBreakpoints] = useState<HeldBreakpoint[]>(() => initialBreakpoints.map((line) => ({ line, state: "bound" })));
+  const evaluationSequence=useRef(0),evaluationRequests=useRef(new Map<string,{expression:string;context:"hover"|"watch"|"repl";stop:number;thread:number;frame:number|null}>()),latestEvaluation=useRef(new Map<string,string>());
+  const [breakpointModel]=useState(()=>{const model=new DebugBreakpointModel();model.unknown(uri,initialBreakpoints.map(line=>({line})));return model;}),[,paintPolicy]=useState(0);
+  const sourceReadings=useRef(new Map<string,DebugSourceReading>()),runProofs=useRef(new Map<string,DebugSourceProof>()),runHashes=useRef(new Map<string,string>()),sourceOperations=useRef(new Map<string,number>()),preparedStart=useRef<{request:string;proofs:Map<string,DebugSourceProof>}|null>(null);
+  const [valueTree]=useState(()=>new DebugValueTree()),[treeRevision,paintTree]=useState(0),refreshTree=()=>paintTree(value=>value+1);
+  const movement=useRef<{request:string;session:string;scope:{session:string;stop:number;thread:number};frames:Frame[];variables:Variable[];selected:number|null;observation:import("./observations").ObservationScope|null;roots:DebugValueNode[]}|null>(null),refreshTicket=useRef<string|null>(null);
+  const [launchNotices,setLaunchNotices]=useState<string[]>([]);
+  const [breakpoints,setBreakpoints]=useState<HeldBreakpoint[]>([]);
   const [sourceBreakpoints, holdSources] = useState<Record<string, HeldBreakpoint[]>>({});
   // Which file this session is running, for the panel to say so: "paused" is
   // ambiguous in a document that generates three programs.
@@ -379,16 +389,36 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
   function retireObservationScope(){scopeRef.current=null;setObservationScope(null);pendingReadings.current.clear();}
   function retireFrameRead(){frameRead.current=null;setFrameVariablesPending(false);setFrameVariablesMessage(null);}
   function retireEvaluations(){evaluationRequests.current.clear();latestEvaluation.current.clear();for(const resolve of pendingValues.current.values())resolve(null);pendingValues.current.clear();setLastValue(null);}
+  const currentRows=(source=uri)=>breakpointModel.rows(source,sourceReadings.current.get(source)??null,sessionRef.current,runHashes.current.get(source)??null) as HeldBreakpoint[];
+  function repaintBreakpoints(){setBreakpoints(currentRows());holdSources(Object.fromEntries(breakpointModel.sources().filter(source=>source!==uri).map(source=>[source,currentRows(source)])));paintPolicy(value=>value+1);}
+  function readSource(source:string):DebugSourceReading|Promise<DebugSourceReading>{const result=sourceAccess.current.read(source);const admit=(reading:DebugSourceReading)=>{if(reading.uri!==source||!reading.current())throw Error('The current source reading changed before Debug. Observe it again.');sourceReadings.current.set(source,reading);return reading;};return result instanceof Promise?result.then(admit):admit(result);}
+  function capturedIntents():Record<string,CapturedDebugIntent>{return Object.fromEntries(breakpointModel.sources().flatMap(source=>{const intent=breakpointModel.captured(source);return intent?[[source,intent]]:[];}));}
+  function launchBound():boolean {const proof=runProofs.current.get(uri);return !!proof&&proof.hash===runHashes.current.get(uri);}
+  function primaryBound():boolean {const proof=runProofs.current.get(uri);return !!proof&&proof.current()&&proof.hash===runHashes.current.get(uri)&&launchAdmission.current?.()!==false;}
+  async function sendIntent(source:string,reading:DebugSourceReading,operation:number){
+    const session=sessionRef.current;if(!client||!session||!['paused','running','unconfirmed'].includes(statusRef.current)||!reading.saved)return;
+    const proof=await stampDebugSource(reading);if(!ownerMounted.current||sessionRef.current!==session||sourceOperations.current.get(source)!==operation||!proof.current())return;
+    const launch=runProofs.current.get(source);if(!launch||launch.workspace!==proof.workspace||launch.namespace!==proof.namespace||launch.identity!==proof.identity||runHashes.current.get(source)!==proof.hash)return;
+    const ticket=breakpointModel.request(source,proof,session);if(!ticket)return;repaintBreakpoints();if(source===uri)client.setBreakpoints(session,ticket.marks,proof.hash,ticket.request);else client.setSourceBreakpoints(session,source,ticket.marks,proof.hash,ticket.request);
+  }
+  function editIntent(source:string,transform:(marks:import('./client').DebugBreakpoint[])=>import('./client').DebugBreakpoint[]){
+    const operation=(sourceOperations.current.get(source)??0)+1;sourceOperations.current.set(source,operation);
+    const apply=(reading:DebugSourceReading)=>{if(sourceOperations.current.get(source)!==operation||!ownerMounted.current)return;breakpointModel.change(source,reading,transform);repaintBreakpoints();void sendIntent(source,reading,operation).catch(error=>{if(sourceOperations.current.get(source)===operation)setMessage(error instanceof Error?error.message:String(error));});};
+    try{const reading=readSource(source);if(reading instanceof Promise)void reading.then(apply).catch(error=>{if(sourceOperations.current.get(source)===operation)setMessage(error instanceof Error?error.message:String(error));});else apply(reading);}catch(error){setMessage(error instanceof Error?error.message:String(error));}
+  }
+  const valueScope=():DebugValueScope|null=>{const scope=threadModel.scope,frame=selectedFrameRef.current;return sessionRef.current&&statusRef.current==='paused'&&!threadModel.selecting&&scope&&debugAdapterId(frame)&&currentFrames.current.some(value=>value.id===frame)?{...scope,frame}:null;};
+  function replaceTreeLocals(values:Variable[]){const scope=valueScope();if(!scope)return;valueTree.setScope(scope);valueTree.replace('locals',scope,values);refreshTree();}
+  useEffect(()=>sourceCapability.subscribe?.(()=>{repaintBreakpoints();}),[sourceCapability.subscribe]);
   function askValue(session:string,expression:string,context:"hover"|"watch"|"repl",frame?:number){
     if(!client||threadModel.selecting)return;if(frame!==undefined&&!debugAdapterId(frame)){setMessage("Selected frame identity cannot be represented exactly by this connection.");return;}const scope=threadModel.scope;
-    if(!scope){client.evaluate(session,expression,context,frame);return;}
+    if(!scope||statusRef.current!=="paused"||frame===undefined||!currentFrames.current.some(value=>value.id===frame))return;
+    valueTree.remove(`expression:${expression}`);refreshTree();
     const request_id="eval-"+(++evaluationSequence.current),previous=latestEvaluation.current.get(expression);if(previous)evaluationRequests.current.delete(previous);
     if(evaluationRequests.current.size>=512){const oldest=evaluationRequests.current.keys().next().value;if(oldest)evaluationRequests.current.delete(oldest);}
-    latestEvaluation.current.set(expression,request_id);evaluationRequests.current.set(request_id,{expression,stop:scope.stop,thread:scope.thread,frame:frame??null});client.evaluate(session,expression,context,frame,{stop:scope.stop,thread:scope.thread,request_id});
+    latestEvaluation.current.set(expression,request_id);evaluationRequests.current.set(request_id,{expression,context,stop:scope.stop,thread:scope.thread,frame:frame??null});client.evaluate(session,expression,context,frame,{stop:scope.stop,thread:scope.thread,request_id});
   }
 
 
-  const uri = useMemo(() => documentUri(docPath), [docPath]);
   useEffect(() => { retainDebugReading(readingOwner.current, reading); return () => retainDebugReading(readingOwner.current, null); }, [reading]);
 
   useEffect(() => {
@@ -424,10 +454,13 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
           setReading(null);
           sessionRef.current = event.session;
           setOutput([]);
-          setCapabilities(event.capabilities);
-          setBreakpoints((current) => followMoves(current, event.breakpoints));
-          threadModel.reset();retireObservationScope();currentFrames.current=[];setFrames([]);setHistoricalFrames([]);setVariables([]);selectedFrameRef.current=null;setSelectedFrame(null);setPausedLine(null);retireFrameRead();retireEvaluations();refreshThreads();holdStatus("running");
-          clearFailure();
+          capabilitiesRef.current=event.capabilities;setCapabilities(event.capabilities);
+          const prepared=preparedStart.current;runProofs.current=prepared&&prepared.request===event.request_id?new Map(prepared.proofs):new Map();runHashes.current.clear();
+          if(typeof event.source_hash==='string')runHashes.current.set(uri,event.source_hash);
+          breakpointModel.bindLaunch(event.session,event.request_id!);breakpointModel.admit(uri,event.session,event.request_id,event.source_hash,event.breakpoints);repaintBreakpoints();
+          valueTree.retire();refreshTree();movement.current=null;refreshTicket.current=null;
+          threadModel.reset();retireObservationScope();currentFrames.current=[];setFrames([]);setHistoricalFrames([]);holdVariables([]);selectedFrameRef.current=null;setSelectedFrame(null);setPausedLine(null);retireFrameRead();retireEvaluations();refreshThreads();holdStatus("running");
+          clearFailure();if(!primaryBound())setMessage("The engine did not confirm the captured primary source hash. Session controls remain available, but source positions and breakpoint effects are unbound.");
           setExitCode(null);
           // Re-applied to the new session. A standing "stop on uncaught"
           // that quietly stopped applying on the second run would be worse
@@ -438,43 +471,50 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
           }
           break;
         }
-        case "threads":
-          if(threadModel.accept(event))refreshThreads();else refreshThreads();
-          break;
+        case "threads": {
+          const selecting=threadModel.selecting;if(threadModel.accept(event)&&selecting)replaceTreeLocals(variablesRef.current);refreshThreads();break;
+        }
         case "stopped": {
-          const previousThreadScope=threadModel.scope;if(!threadModel.stopped(event.session,event.stop,event.thread))break;refreshThreads();
-          const samePause=!!previousThreadScope&&previousThreadScope===threadModel.scope,reportedFrame=event.selected_frame??event.frames[0]?.id??null;
-          const chosenFrame=samePause&&event.frames.some(frame=>frame.id===selectedFrameRef.current)?selectedFrameRef.current:reportedFrame;
-          if(!samePause||!!frameRead.current&&frameRead.current.frame!==chosenFrame)retireFrameRead();setStackMessage(event.stack_error??null);if(!samePause||chosenFrame===reportedFrame)setFrameVariablesMessage(event.variables_error??null);
-          if(!samePause)localsByFrame.current.clear();if(reportedFrame!==null&&!event.variables_error)localsByFrame.current.set(reportedFrame,event.variables);
+          const frameIds=new Set<number>();
+          if(!Array.isArray(event.frames)||!Array.isArray(event.variables)||event.frames.length>4096||event.variables.length>16384||event.frames.some(frame=>!frame||!debugAdapterId(frame.id)||frameIds.has(frame.id)||(frameIds.add(frame.id),false)||typeof frame.name!=='string')||event.variables.some(value=>!value||typeof value.name!=='string'||typeof value.value!=='string'||!Number.isSafeInteger(value.variables_reference)||value.variables_reference<0)){
+            setMessage('Malformed stopped observation refused; prior readable state retained.');break;
+          }
+          if(!Number.isSafeInteger(event.stop)||(event.stop as number)<0||!debugAdapterId(event.thread)){setMessage("The engine stop has no exact pause/thread identity; no positions or evaluation scope were adopted.");break;}
+          const stopped={...event,frames:event.stack_error?[]:event.frames,variables:event.stack_error||event.variables_error?[]:event.variables};
+          const previousThreadScope=threadModel.scope;if(!threadModel.stopped(stopped.session,stopped.stop,stopped.thread))break;refreshThreads();
+          const samePause=!!previousThreadScope&&previousThreadScope===threadModel.scope,reportedFrame=stopped.selected_frame??stopped.frames[0]?.id??null;
+          const chosenFrame=samePause&&stopped.frames.some(frame=>frame.id===selectedFrameRef.current)?selectedFrameRef.current:reportedFrame;
+          if(!samePause||!!frameRead.current&&frameRead.current.frame!==chosenFrame)retireFrameRead();setStackMessage(stopped.stack_error??null);if(!samePause||chosenFrame===reportedFrame)setFrameVariablesMessage(stopped.variables_error??null);
+          if(!samePause)localsByFrame.current.clear();if(reportedFrame!==null&&!stopped.variables_error)localsByFrame.current.set(reportedFrame,stopped.variables);
           if(previousThreadScope!==threadModel.scope){retireEvaluations();setWatches(current=>current.map(watch=>({...watch,value:null})));}
-          const observed=event.observation_scope??(samePause?scopeRef.current:null);scopeRef.current=observed;setObservationScope(observed);
+          const observed=stopped.observation_scope??(samePause?scopeRef.current:null);scopeRef.current=observed;setObservationScope(observed);
           setReading(current=>observed?(pendingReadings.current.get(observationKey(observed))??(current&&observationKey(current.scope)===observationKey(observed)?current:null)):null);
           holdStatus("paused");
-          setPausedLine(chosenFrame===reportedFrame?event.line:event.frames.find(frame=>frame.id===chosenFrame)?.line??null);
-          if(event.stack_error){const previous=currentFrames.current;setHistoricalFrames(held=>previous.length?previous:held);}else setHistoricalFrames([]);currentFrames.current=event.frames;setFrames(event.frames);
-          setVariables(chosenFrame===reportedFrame?event.variables:localsByFrame.current.get(chosenFrame!)??[]);
+          setPausedLine(chosenFrame===reportedFrame?stopped.line:stopped.frames.find(frame=>frame.id===chosenFrame)?.line??null);
+          if(stopped.stack_error){const previous=currentFrames.current;setHistoricalFrames(held=>previous.length?previous:held);}else setHistoricalFrames([]);currentFrames.current=stopped.frames;setFrames(stopped.frames);
+          holdVariables(chosenFrame===reportedFrame?stopped.variables:localsByFrame.current.get(chosenFrame!)??[]);
           selectedFrameRef.current=chosenFrame;
           setSelectedFrame(selectedFrameRef.current);
+          movement.current=null;refreshTicket.current=null;valueTree.retire();if(!stopped.variables_error)replaceTreeLocals(variablesRef.current);else refreshTree();
           clearFailure();
           break;
         }
-        case "breakpoints":
-          setBreakpoints((current) => followMoves(current, event.breakpoints));
-          break;
-        case "source_breakpoints":
-          holdSources(current=>({...current,[event.source]:followMoves(current[event.source] ?? [],event.breakpoints)}));
-          break;
+        case "breakpoints": {
+          if(breakpointModel.admit(uri,event.session,event.request_id,event.source_hash,event.breakpoints)){const proof=breakpointModel.acceptedProof(uri);if(proof)runProofs.current.set(uri,proof);repaintBreakpoints();}break;
+        }
+        case "source_breakpoints": {
+          const source=event.source||uri;if(breakpointModel.admit(source,event.session,event.request_id,event.source_hash,event.breakpoints)){if(typeof event.source_hash==='string')runHashes.current.set(source,event.source_hash);const proof=breakpointModel.acceptedProof(source);if(proof)runProofs.current.set(source,proof);repaintBreakpoints();}break;
+        }
         case "frame_variables": {
           const requested=frameRead.current,scope=threadModel.scope;if(!requested||!scope||statusRef.current!=="paused"||event.request_id!==requested.request||event.stop!==scope.stop||event.thread!==scope.thread||event.frame!==selectedFrameRef.current||requested.stop!==scope.stop||requested.thread!==scope.thread||requested.frame!==event.frame)break;
-          frameRead.current=null;setFrameVariablesPending(false);setFrameVariablesMessage(null);localsByFrame.current.set(event.frame,event.variables);setVariables(event.variables);break;
+          frameRead.current=null;setFrameVariablesPending(false);setFrameVariablesMessage(null);localsByFrame.current.set(event.frame,event.variables);holdVariables(event.variables);replaceTreeLocals(event.variables);break;
         }
         case "value": {
           if(statusRef.current!=="paused")break;
           const scope=threadModel.scope;
-          if(scope){const request=event.request_id&&evaluationRequests.current.get(event.request_id);if(!request||request.expression!==event.expression||latestEvaluation.current.get(event.expression)!==event.request_id||event.stop!==scope.stop||event.thread!==scope.thread||event.frame!==selectedFrameRef.current||request.stop!==scope.stop||request.thread!==scope.thread||request.frame!==selectedFrameRef.current)break;evaluationRequests.current.delete(event.request_id!);latestEvaluation.current.delete(event.expression);}
-          else if(event.stop!==undefined||event.thread!==undefined)break;
+          if(!scope)break;{const request=event.request_id&&evaluationRequests.current.get(event.request_id);if(!request||request.expression!==event.expression||latestEvaluation.current.get(event.expression)!==event.request_id||event.stop!==scope.stop||event.thread!==scope.thread||event.frame!==selectedFrameRef.current||request.stop!==scope.stop||request.thread!==scope.thread||request.frame!==selectedFrameRef.current)break;evaluationRequests.current.delete(event.request_id!);latestEvaluation.current.delete(event.expression);}
           setLastValue({ expression: event.expression, value: event.value, type: event.type_name??event.type??null });
+          const inspected=valueScope();if(inspected&&Number.isSafeInteger(event.reference)&&event.reference>=0){valueTree.setScope(inspected);valueTree.replace(`expression:${event.expression}`,inspected,[{name:event.expression,value:event.value,type:event.type_name??event.type??null,variables_reference:event.reference}]);refreshTree();}
           // Answers carry the expression they answer, and the watch list is
           // keyed by expression — that string IS the correlation id. A watch
           // and a hover for the same expression both get the answer, which
@@ -491,8 +531,10 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
           }
           break;
         }
+        case "children":
+          if(valueTree.admit(event))refreshTree();break;
         case "finished":
-          launches.retire();
+          launches.retire();movement.current=null;refreshTicket.current=null;valueTree.retire();refreshTree();
           // The server reaped the session with the program: the id no longer
           // answers, so forget it NOW. A step, hover or stop sent after this
           // would be a request to a dead session, answered only by an error.
@@ -501,33 +543,43 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
           setExitCode(event.exit_code ?? null);
           setPausedLine(null);
           currentFrames.current=[];setFrames([]);setHistoricalFrames([]);
-          setVariables([]);
+          holdVariables([]);
           setSelectedFrame(null);
           // The expressions survive — they are for the next run — but their
           // values belonged to a process that no longer exists.
           setWatches((current) => current.map((watch) => ({ ...watch, value: null })));
           break;
         case "ended":
+          movement.current=null;refreshTicket.current=null;valueTree.retire();refreshTree();
           launches.retire();
           sessionRef.current = null;
           threadModel.clear();retireObservationScope();retireFrameRead();retireEvaluations();refreshThreads();holdStatus("idle");
           clearFailure();
           setPausedLine(null);
           currentFrames.current=[];setFrames([]);setHistoricalFrames([]);
-          setVariables([]);
+          holdVariables([]);
           setCapabilities(null);
           setWatches((current) => current.map((watch) => ({ ...watch, value: null })));
           break;
         case "failed": {
-          if(event.about==="state"&&event.request_id){const requested=frameRead.current;if(!requested||requested.request!==event.request_id)break;frameRead.current=null;setFrameVariablesPending(false);setFrameVariablesMessage(event.message);break;}
-          if(event.about==="threads"||event.about==="select_thread"){if(threadModel.failed(event.message,event.request_id))refreshThreads();break;}
-          if (event.about === "source_breakpoints") {
-            setMessage(`Could not update breakpoints in ${event.doc ?? "this source"}: ${event.message}`);
-            const source=event.doc;
-            if(source)holdSources(current=>({...current,[source]:(current[source] ?? []).map(bp=>({...bp,state:"refused" as const,message:event.message}))}));
+          if(event.about==='children'){if(valueTree.fail(event.request_id,event.message))refreshTree();break;}
+          if(event.about==='step'||event.about==='jump'||event.about==='run_to'){
+            const prior=movement.current;if(!prior||event.request_id!==prior.request||event.session!==prior.session)break;movement.current=null;setMessage(event.message);
+            if(event.scope_retired===false&&sessionRef.current===prior.session&&threadModel.restore(prior.scope)){
+              currentFrames.current=prior.frames;setFrames(prior.frames);holdVariables(prior.variables);selectedFrameRef.current=prior.selected;setSelectedFrame(prior.selected);setPausedLine(prior.frames.find(frame=>frame.id===prior.selected)?.line??null);scopeRef.current=prior.observation;setObservationScope(prior.observation);holdStatus('paused');
+              const scope=valueScope();if(scope){valueTree.setScope(scope);const slots=new Map<string,Variable[]>();for(const root of prior.roots){const rows=slots.get(root.slot)??[];rows.push({name:root.name,value:root.value,type_name:root.type,variables_reference:root.reference});slots.set(root.slot,rows);}for(const [slot,rows] of slots)valueTree.replace(slot,scope,rows);}refreshTree();refreshThreads();
+            }else {setHistoricalFrames(prior.frames);currentFrames.current=[];setFrames([]);holdVariables([]);selectedFrameRef.current=null;setSelectedFrame(null);setPausedLine(null);threadModel.clear();retireObservationScope();retireFrameRead();retireEvaluations();valueTree.retire();refreshTree();refreshThreads();holdStatus('unconfirmed');}
             break;
           }
-          if(event.about==="eval"&&event.request_id){const request=evaluationRequests.current.get(event.request_id);if(!request||latestEvaluation.current.get(request.expression)!==event.request_id)break;evaluationRequests.current.delete(event.request_id);latestEvaluation.current.delete(request.expression);const waiting=pendingValues.current.get(request.expression);pendingValues.current.delete(request.expression);waiting?.(null);setMessage(event.message);break;}
+          if(event.about==='state'&&typeof event.request_id==='string'&&event.request_id===refreshTicket.current){refreshTicket.current=null;setMessage(event.message);break;}
+          if(event.about==='breakpoints'||event.about==='source_breakpoints'){
+            const source=event.about==='breakpoints'?uri:event.doc||uri;if(breakpointModel.failed(source,event.session??'',event.request_id,event.message)){repaintBreakpoints();}break;
+          }
+          if(event.about==="state"&&event.request_id){const requested=frameRead.current;if(!requested||requested.request!==event.request_id)break;frameRead.current=null;setFrameVariablesPending(false);setFrameVariablesMessage(event.message);break;}
+          if(event.about==="threads"||event.about==="select_thread"){if(threadModel.failed(event.message,event.request_id)){if(event.scope_retired){setHistoricalFrames(currentFrames.current);currentFrames.current=[];setFrames([]);holdVariables([]);selectedFrameRef.current=null;setSelectedFrame(null);setPausedLine(null);threadModel.clear();retireObservationScope();retireFrameRead();retireEvaluations();valueTree.retire();refreshTree();holdStatus("unconfirmed");}else if(event.about==="select_thread")replaceTreeLocals(variablesRef.current);refreshThreads();}break;}
+          if(event.about==="state"&&!event.request_id)break;
+          if(event.about==="eval"&&!event.request_id)break;
+          if(event.about==="eval"&&event.request_id){const request=evaluationRequests.current.get(event.request_id);if(!request||latestEvaluation.current.get(request.expression)!==event.request_id)break;evaluationRequests.current.delete(event.request_id);latestEvaluation.current.delete(request.expression);const waiting=pendingValues.current.get(request.expression);pendingValues.current.delete(request.expression);waiting?.(null);if(request.context!=="hover")setMessage(event.message);break;}
           const stillWaiting = [...pendingValues.current.values()];
           pendingValues.current.clear();
           for (const resolve of stillWaiting) resolve(null);
@@ -535,19 +587,6 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
           // breakpoint. It is marked broken, with the reason on hover, and
           // says nothing in the panel — where it would outlive its cause and
           // read as if it were about whatever you did next.
-          if (event.about === "breakpoints" || event.about === "start") {
-            const broken = new Set(event.lines ?? []);
-            if (broken.size > 0) {
-              setBreakpoints((current) =>
-                current.map((breakpoint) =>
-                  broken.has(breakpoint.line)
-                    ? { ...breakpoint, state: "refused" as const, message: event.message }
-                    : breakpoint,
-                ),
-              );
-              if (event.about === "breakpoints") break;
-            }
-          }
           // A hover that could not be answered is not news. It resolves to
           // nothing and the tooltip shows the type alone; putting the
           // adapter's `NameError` in the panel would report our own question
@@ -574,47 +613,16 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
   useEffect(() => {
     ownerMounted.current=true;ownerLifetime.current++;
     return () => {
-      ownerMounted.current=false;ownerLifetime.current++;scopeRef.current=null;pendingReadings.current.clear();launches.retire();const session=sessionRef.current;sessionRef.current=null;statusRef.current="idle";currentFrames.current=[];frameRead.current=null;evaluationRequests.current.clear();latestEvaluation.current.clear();for(const resolve of pendingValues.current.values())resolve(null);pendingValues.current.clear();
+      ownerMounted.current=false;ownerLifetime.current++;movement.current=null;refreshTicket.current=null;valueTree.retire();scopeRef.current=null;pendingReadings.current.clear();launches.retire();const session=sessionRef.current;sessionRef.current=null;statusRef.current="idle";currentFrames.current=[];frameRead.current=null;evaluationRequests.current.clear();latestEvaluation.current.clear();for(const resolve of pendingValues.current.values())resolve(null);pendingValues.current.clear();
       if (client && session) client.stop(session);
     };
   }, [client,uri]);
 
-  const toggleBreakpoint = useCallback(
-    (line: number) => {
-      setBreakpoints((current) => {
-        const without = current.filter((breakpoint) => breakpoint.line !== line);
-        const next =
-          without.length === current.length
-            ? // Optimistically bound: the adapter's answer replaces this a
-              // moment later, and a dot that appears only after a round trip
-              // feels broken. Not "pending", which would flash a half-filled
-              // dot on every click in a language that binds instantly.
-              [...current, { line, state: "bound" as const }]
-            : without;
-        // Only a session that is still running can be told. After the
-        // program ends the adapter answers `setBreakpoints` with "Server
-        // disconnected unexpectedly", which is true and useless: the
-        // breakpoint is for the NEXT run, and it is kept here until then.
-        const session = sessionRef.current;
-        if (client && session && (statusRef.current === "paused" || statusRef.current === "running")) {
-          clearFailure();
-          client.setBreakpoints(session, onTheWire(next));
-        }
-        return next.sort((a, b) => a.line - b.line);
-      });
-    },
-    [client],
-  );
-
-  const setSourceBreakpoints = useCallback((source: string, next: HeldBreakpoint[]) => {
-    const prepared = next.map(bp=>({...bp, condition:bp.condition?.trim() || undefined,
-      hit_condition:bp.hit_condition?.trim() || undefined, log_message:bp.log_message?.trim() || undefined,
-      state:"pending" as const,message:undefined}));
-    holdSources(current=>({...current,[source]:prepared}));
-    const session = sessionRef.current;
-    if (client && session && ["paused","running"].includes(statusRef.current))
-      client.setSourceBreakpoints(session,source,onTheWire(prepared));
-  }, [client]);
+  const toggleBreakpoint = useCallback((line:number)=>{
+    const held=currentRows().find(row=>row.line===line),requested=held?.requested_line??line;
+    editIntent(uri,marks=>marks.some(mark=>mark.line===requested)?marks.filter(mark=>mark.line!==requested):[...marks,{line:requested}]);
+  },[client,uri]);
+  const setSourceBreakpoints=useCallback((source:string,next:HeldBreakpoint[])=>editIntent(source,()=>onTheWire(next)),[client,uri]);
 
   const toggleExceptionFilter = useCallback(
     (id: string) => {
@@ -636,76 +644,51 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
     [client],
   );
 
-  const setBreakpointCondition = useCallback(
-    (
-      line: number,
-      patch: { condition?: string; hit_condition?: string; log_message?: string },
-    ) => {
-      setBreakpoints((current) => {
-        // An empty string clears; `undefined` in the patch leaves that field
-        // alone, so a popover can send only what it edited. Trimmed here
-        // rather than in the caller: a condition of three spaces is not a
-        // condition, and an adapter handed one reports a parse error about
-        // code the person never wrote.
-        const clean = (value: string | undefined) => {
-          const trimmed = value?.trim();
-          return trimmed ? trimmed : undefined;
-        };
-        const next = current.map((breakpoint) =>
-          breakpoint.line === line
-            ? {
-                ...breakpoint,
-                condition:
-                  "condition" in patch ? clean(patch.condition) : breakpoint.condition,
-                hit_condition:
-                  "hit_condition" in patch
-                    ? clean(patch.hit_condition)
-                    : breakpoint.hit_condition,
-                log_message:
-                  "log_message" in patch ? clean(patch.log_message) : breakpoint.log_message,
-              }
-            : breakpoint,
-        );
-        // Same rule as toggling: only a live session can be told, and the
-        // condition is kept here for the next run either way.
-        const session = sessionRef.current;
-        if (
-          client &&
-          session &&
-          (statusRef.current === "paused" || statusRef.current === "running")
-        ) {
-          clearFailure();
-          client.setBreakpoints(session, onTheWire(next));
-        }
-        return next;
-      });
-    },
-    [client, clearFailure],
-  );
+  const setBreakpointCondition=useCallback((line:number,patch:{condition?:string;hit_condition?:string;log_message?:string})=>{
+    const held=currentRows().find(row=>row.line===line),requested=held?.requested_line??line;
+    editIntent(uri,marks=>marks.map(mark=>mark.line===requested?{...mark,...patch}:mark));
+  },[client,uri]);
+  const replaceBreakpoints=useCallback((next:HeldBreakpoint[],provenance?:string)=>{
+    breakpointModel.unknown(uri,onTheWire(next));repaintBreakpoints();if(!provenance)return;
+    try{const reading=readSource(uri);void Promise.resolve(reading).then(value=>{if(!ownerMounted.current)return;breakpointModel.preferences(uri,value,onTheWire(next),provenance);repaintBreakpoints();}).catch(error=>setMessage(error instanceof Error?error.message:String(error)));}catch(error){setMessage(error instanceof Error?error.message:String(error));}
+  },[uri]);
 
   const launchProfile = useRef<import("./launchProfiles").LaunchSelection>();
   const launchContext = useRef(projectContext);
   useEffect(() => { launchContext.current = projectContext; launchProfile.current = undefined; }, [uri, projectContext]);
-  const start = useCallback(
-    (program?: string, sources: Record<string, HeldBreakpoint[]> = {}, selection?: string, profile?: import("./launchProfiles").LaunchSelection) => {
-      if (!client) return;
-      const previous=sessionRef.current;const request_id=launches.begin();
-      threadModel.clear();retireObservationScope();retireFrameRead();retireEvaluations();refreshThreads();holdStatus("starting");
-      clearFailure();
-      setProgram(program ?? null);
-      const initial = {...sourceBreakpoints,...sources};
-      holdSources(initial);
-      launchContext.current = selection ?? launchContext.current;
-      launchProfile.current = profile ?? (selection !== undefined ? undefined : launchProfile.current);
-      setLaunchTarget(launchProfile.current?.name ?? null);
-      const context=launchContext.current,chosen=launchProfile.current,lifetime=ownerLifetime.current;
-      void withDebugProtocol({uri,project:context,program},()=>{if(!ownerMounted.current||ownerLifetime.current!==lifetime||launchContext.current!==context||launchProfile.current!==chosen||!launches.matches(request_id))return;sessionRef.current=null;if(previous)client.stop(previous);client.start(uri, onTheWire(breakpoints), program, launchContext.current, Object.fromEntries(Object.entries(initial).filter(([,bps])=>bps.length).map(([source,bps])=>[source,onTheWire(bps)])), chosen,request_id);}).catch(error=>{if(!ownerMounted.current||!launches.matches(request_id))return;launches.retire();holdStatus("failed");setMessage(error instanceof Error?error.message:String(error));});
-    },
-    [client, uri, breakpoints, sourceBreakpoints, clearFailure, projectContext],
-  );
+  const start=useCallback((program?:string,sources:Record<string,HeldBreakpoint[]>={},selection?:string,profile?:import('./launchProfiles').LaunchSelection,origins:Record<string,CapturedDebugIntent>={})=>{
+    if(!client)return;if(launchAdmission.current?.()===false){setMessage('This source address is no longer owned by this editor. Existing controls still address its captured launch.');return;}
+    const previous=sessionRef.current,request_id=launches.begin(),lifetime=ownerLifetime.current;launchContext.current=selection??launchContext.current;launchProfile.current=profile??(selection!==undefined?undefined:launchProfile.current);
+    const context=launchContext.current,chosen=launchProfile.current;threadModel.clear();retireObservationScope();retireFrameRead();retireEvaluations();valueTree.retire();refreshTree();refreshThreads();holdStatus('starting');clearFailure();setProgram(program??null);setLaunchTarget(chosen?.name??null);
+    for(const [source,marks] of Object.entries(sources))if(source!==uri)breakpointModel.unknown(source,onTheWire(marks));
+    const candidates=new Set([...breakpointModel.sources(),...Object.keys(origins)]);candidates.delete(uri);
+    let primary:DebugSourceReading|Promise<DebugSourceReading>;const additional=new Map<string,DebugSourceReading|Promise<DebugSourceReading>>();
+    try{primary=readSource(uri);for(const source of candidates){const known=origins[source]??breakpointModel.captured(source);if(known&&(known.reading.current()||known.reading.provenance))additional.set(source,readSource(source));}}catch(error){launches.retire();holdStatus('failed');setMessage(error instanceof Error?error.message:String(error));return;}
+    const initial=Promise.resolve(primary);initial.catch(()=>{});for(const reading of additional.values())Promise.resolve(reading).catch(()=>{});
+    const local=client.provider;
+    const protocol=local?(action:(catalog:{workspace:string;notices?:unknown})=>Promise<void>)=>local.protocol>=3?action({workspace:local.workspace}):Promise.reject(Error('This debugger provider does not implement guarded protocol3.')):(action:(catalog:{workspace:string;notices?:unknown})=>Promise<void>)=>withDebugProtocol({uri,project:context,program},action);
+    void protocol(async catalog=>{
+      if(ownerMounted.current&&ownerLifetime.current===lifetime&&launches.matches(request_id))setLaunchNotices(launchCatalogNotices(catalog));
+      const reading=await initial;
+      // Embedded startPausedAt is an explicit placement in this provider's
+      // authored model, unlike unknown persisted path/line preferences.
+      if(local&&initialBreakpoints.length&&!breakpointModel.captured(uri))breakpointModel.change(uri,reading,()=>initialBreakpoints.map(line=>({line})));
+      if(reading.workspace!==catalog.workspace)throw Error(`Debugger source belongs to another workspace namespace (${JSON.stringify(reading.workspace)}; current ${JSON.stringify(catalog.workspace)}). Reload it before Debug.`);
+      const proof=await stampDebugSource(reading),proofs=new Map<string,DebugSourceProof>([[uri,proof]]),sets:Record<string,import('./client').DebugBreakpoint[]>=Object.create(null),hashes:Record<string,string>=Object.create(null);
+      for(const [source,pending] of additional){const current=await pending,captured=origins[source];if(captured&&!breakpointModel.adopt(source,current,captured))continue;const known=breakpointModel.captured(source);if(!known||!current.saved||!known.reading.current()&&!current.provenance)continue;
+        const stamped=await stampDebugSource(current);if(stamped.workspace!==reading.workspace)throw Error('An additional breakpoint source belongs to another workspace.');const ticket=breakpointModel.request(source,stamped,null,request_id);if(!ticket)continue;sets[source]=ticket.marks;hashes[source]=stamped.hash;proofs.set(source,stamped);
+      }
+      const root=breakpointModel.request(uri,proof,null,request_id);
+      if(!ownerMounted.current||ownerLifetime.current!==lifetime||launchContext.current!==context||launchProfile.current!==chosen||!launches.matches(request_id))return;
+      if(launchAdmission.current?.()===false||[...proofs.values()].some(value=>!value.current()))throw Error('Source ownership changed during debugger preparation. Observe it again.');
+      preparedStart.current={request:request_id,proofs};runHashes.current.clear();runProofs.current.clear();repaintBreakpoints();sessionRef.current=null;if(previous)client.stop(previous);
+      client.start(uri,root?.marks??[],program,context,sets,chosen,request_id,proof.hash,hashes);
+    }).catch(error=>{if(!ownerMounted.current||!launches.matches(request_id))return;launches.retire();holdStatus('failed');setMessage(error instanceof Error?error.message:String(error));});
+  },[client,uri,projectContext]);
 
   const stop = useCallback(() => {
-    launches.retire();
+    launches.retire();movement.current=null;refreshTicket.current=null;
+    if(sessionRef.current){setHistoricalFrames(currentFrames.current);currentFrames.current=[];setFrames([]);holdVariables([]);selectedFrameRef.current=null;setSelectedFrame(null);setPausedLine(null);threadModel.clear();retireObservationScope();retireFrameRead();retireEvaluations();valueTree.retire();refreshTree();refreshThreads();holdStatus('stopping');setMessage('Stopping debugger…');}
     if (client && statusRef.current === "starting") client.cancelStart(uri);
     if (client && sessionRef.current) {
       client.stop(sessionRef.current);
@@ -720,32 +703,25 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
     setExitCode(null);
   }, [client, uri]);
 
-  const step = useCallback(
-    (how: Step) => {
-      if (!client || !sessionRef.current||threadModel.selecting) return;
-      threadModel.clear();retireObservationScope();retireFrameRead();retireEvaluations();refreshThreads();holdStatus("running");
-      client.step(sessionRef.current, how, selectedFrame ?? undefined);
-    },
-    [client, selectedFrame],
-  );
-
-  const jumpTo = useCallback(
-    (line: number) => {
-      if (!client || !sessionRef.current||threadModel.selecting) return;
-      threadModel.clear();retireObservationScope();retireFrameRead();retireEvaluations();refreshThreads();holdStatus("running");
-      client.jump(sessionRef.current, line);
-    },
-    [client],
-  );
-
-  const runTo = useCallback(
-    (line: number) => {
-      if (!client || !sessionRef.current||threadModel.selecting) return;
-      threadModel.clear();retireObservationScope();retireFrameRead();retireEvaluations();refreshThreads();holdStatus("running");
-      client.runTo(sessionRef.current, line);
-    },
-    [client],
-  );
+  function moveDebug(kind:Step|'jump'|'run_to',line?:number){
+    const session=sessionRef.current,scope=threadModel.scope;if(!client||!session||statusRef.current!=='paused'||!scope||threadModel.selecting||movement.current)return;
+    const selected=selectedFrameRef.current,frame=currentFrames.current.find(value=>value.id===selected);
+    if(kind==='drop_frame'&&(!frame||!capabilitiesRef.current?.restart_frame)){setMessage('A current reported frame is required to restart it.');return;}
+    let hash:string|undefined;if(kind==='jump'||kind==='run_to'){
+      const proof=runProofs.current.get(uri);if(!frame?.in_document||!primaryBound()||!proof||line===undefined||!Number.isInteger(line)||line<0||line>=proof.lines){setMessage('Choose a current captured primary-source frame and exact source line before positional movement.');return;}
+      if(kind==='jump'&&!capabilitiesRef.current?.goto_targets||kind==='run_to'&&!capabilitiesRef.current?.run_to){setMessage('The current provider does not support this positional movement.');return;}hash=proof.hash;
+    }
+    const request=crypto.randomUUID();movement.current={request,session,scope:{...scope},frames:currentFrames.current,variables:variablesRef.current,selected,observation:scopeRef.current,roots:valueTree.roots()};
+    setHistoricalFrames(currentFrames.current);currentFrames.current=[];setFrames([]);holdVariables([]);selectedFrameRef.current=null;setSelectedFrame(null);setPausedLine(null);threadModel.clear();retireObservationScope();retireFrameRead();retireEvaluations();valueTree.retire();refreshTree();refreshThreads();holdStatus('running');
+    const ticket={stop:scope.stop,thread:scope.thread,request_id:request};if(kind==='jump')client.jump(session,line!,{...ticket,source_hash:hash!});else if(kind==='run_to')client.runTo(session,line!,{...ticket,source_hash:hash!});else client.step(session,kind,frame?.id,ticket);
+  }
+  const step=useCallback((how:Step)=>moveDebug(how),[client,uri]);
+  const jumpTo=useCallback((line:number)=>moveDebug('jump',line),[client,uri]);
+  const runTo=useCallback((line:number)=>moveDebug('run_to',line),[client,uri]);
+  const refreshState=useCallback(()=>{const session=sessionRef.current;if(!client||!session||statusRef.current!=='unconfirmed'||refreshTicket.current)return;const request_id=crypto.randomUUID();refreshTicket.current=request_id;client.state(session,undefined,{request_id});setMessage('Reading an actual queued stop; the previous pause remains historical until confirmed.');},[client]);
+  const expandValue=useCallback((id:string)=>{const scope=valueScope();if(!client||!scope)return;const request=valueTree.expand(id);refreshTree();if(request)client.children(request.session,request.reference,{stop:request.stop,thread:request.thread,frame:request.frame,request_id:request.request_id});},[client]);
+  const collapseValue=useCallback((id:string)=>{valueTree.collapse(id);refreshTree();},[]);
+  const closeValues=useCallback(()=>{if(valueTree.closeInspection())refreshTree();},[]);
 
   const evaluate = useCallback(
     (expression: string, context: "hover" | "watch" | "repl" = "repl") => {
@@ -818,6 +794,7 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
   );
 
   const removeWatch = useCallback((expression: string) => {
+    valueTree.remove(`expression:${expression}`);const request=latestEvaluation.current.get(expression);if(request)evaluationRequests.current.delete(request);latestEvaluation.current.delete(expression);const waiting=pendingValues.current.get(expression);pendingValues.current.delete(expression);waiting?.(null);refreshTree();
     setWatches((current) => current.filter((watch) => watch.expression !== expression));
   }, []);
 
@@ -834,18 +811,18 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
   }, [status, selectedFrame, watchKey, client,threadModel.scope?.stop,threadModel.scope?.thread]);
 
   const readThreads=useCallback(()=>{if(!client||statusRef.current!=="paused"||!sessionRef.current)return;const request=threadModel.read();refreshThreads();if(request&&request.session===sessionRef.current)client.threads(request.session,request.request);},[client,threadModel]);
-  const selectThread=useCallback((id:number)=>{if(!client||statusRef.current!=="paused"||!sessionRef.current)return;const request=threadModel.select(id);refreshThreads();if(request&&request.session===sessionRef.current)client.selectThread(request.session,id,request.stop,request.request);},[client,threadModel]);
+  const selectThread=useCallback((id:number)=>{if(!client||statusRef.current!=="paused"||!sessionRef.current)return;const request=threadModel.select(id);refreshThreads();if(request&&request.session===sessionRef.current){retireFrameRead();retireEvaluations();valueTree.retire();refreshTree();client.selectThread(request.session,id,request.stop,request.request);}},[client,threadModel]);
 
   const captureFrame=useCallback((id:number)=>{const frame=currentFrames.current.find(item=>item.id===id),session=sessionRef.current,scope=threadModel.scope,lifetime=ownerLifetime.current;
     if(!frame||!session||statusRef.current!=="paused"||selectedFrameRef.current!==id||threadModel.selecting)return null;
-    return {frame:Object.freeze({...frame}),current:()=>{const latest=currentFrames.current.find(item=>item.id===id);return ownerMounted.current&&ownerLifetime.current===lifetime&&sessionRef.current===session&&statusRef.current==="paused"&&!!latest&&["name","source","source_line","line","in_document","source_hash","source_reference"].every(key=>latest[key as keyof Frame]===frame[key as keyof Frame])&&selectedFrameRef.current===id&&!threadModel.selecting&&(!scope?threadModel.scope===null:threadModel.scope?.stop===scope.stop&&threadModel.scope.thread===scope.thread);}};
+    return {frame:Object.freeze({...frame,source_hash:!launchBound()||frame.in_document&&!primaryBound()?null:frame.source_hash}),current:()=>{const latest=currentFrames.current.find(item=>item.id===id);return ownerMounted.current&&ownerLifetime.current===lifetime&&sessionRef.current===session&&statusRef.current==="paused"&&!!latest&&["name","source","source_line","line","in_document","source_hash","source_reference"].every(key=>latest[key as keyof Frame]===frame[key as keyof Frame])&&selectedFrameRef.current===id&&!threadModel.selecting&&(!scope?threadModel.scope===null:threadModel.scope?.stop===scope.stop&&threadModel.scope.thread===scope.thread);}};
   },[threadModel]);
 
   const selectFrame = useCallback(
     (id: number) => {
       const frame = frames.find((candidate) => candidate.id === id);
       if(currentFrames.current!==frames||!frame||!debugAdapterId(id)||statusRef.current!=="paused"||threadModel.selecting)return;
-      retireFrameRead();retireEvaluations();setVariables(localsByFrame.current.get(id)??[]);setWatches(current=>current.map(watch=>({...watch,value:null})));selectedFrameRef.current=id;setSelectedFrame(id);
+      retireFrameRead();retireEvaluations();valueTree.retire();refreshTree();holdVariables(localsByFrame.current.get(id)??[]);setWatches(current=>current.map(watch=>({...watch,value:null})));selectedFrameRef.current=id;setSelectedFrame(id);if(localsByFrame.current.has(id))replaceTreeLocals(localsByFrame.current.get(id)!);
       // Selecting a frame moves the paused marker with it, because the line
       // you are looking at should be the line whose values you are reading.
       if (frame?.line !== undefined) setPausedLine(frame.line);
@@ -860,6 +837,11 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
   // workspace — on every keystroke of the document beside it.
   const controller = useMemo(
     () => ({
+      isActive:()=>["starting","running","paused","unconfirmed","stopping"].includes(statusRef.current),
+      launchNotices,breakpointRows:()=>currentRows(),capturedBreakpointIntents:capturedIntents,
+      breakpointNotice:breakpointModel.notice(uri,sourceReadings.current.get(uri)??null,sessionRef.current,runHashes.current.get(uri)??null),
+      breakpointIntentions:breakpointModel.sources().map(source=>({source,marks:breakpointModel.desired(source),namespace:breakpointModel.captured(source)?.reading.namespace??null})),
+      variableRoots:valueTree.roots(),valueNode:(id:string)=>valueTree.node(id),valueHistory:[...valueTree.historical],valueNotice:valueTree.notice,expandValue,collapseValue,closeValues,refreshState,positionSourceBound:primaryBound(),
       reading,
       status,
       message,
@@ -872,9 +854,9 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
       threads:threadModel.reading?.threads??[],selectedThread:threadModel.scope?.thread??null,threadStop:threadModel.scope?.stop??null,threadPending:threadModel.busy,threadSelecting:threadModel.selecting,threadMessage:threadModel.message,frameVariablesPending,frameVariablesMessage,stackMessage,historicalFrames,observationScope,captureFrame,readThreads,selectThread,
       variables,
       selectedFrame,
-      breakpoints,
+      breakpoints:currentRows(),
       sourceBreakpoints, setSourceBreakpoints,
-      replaceBreakpoints: setBreakpoints,
+      replaceBreakpoints,
       exitCode,
       buildOutput,
       output,
@@ -897,7 +879,7 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
       removeWatch,
     }),
     [
-      threadRevision,readThreads,selectThread,frameVariablesPending,frameVariablesMessage,stackMessage,historicalFrames,observationScope,captureFrame,
+      launchNotices,treeRevision,expandValue,collapseValue,closeValues,refreshState,threadRevision,readThreads,selectThread,frameVariablesPending,frameVariablesMessage,stackMessage,historicalFrames,observationScope,captureFrame,
       reading,
       status,
       message,
@@ -910,7 +892,7 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
       variables,
       selectedFrame,
       breakpoints,
-      sourceBreakpoints, setSourceBreakpoints,
+      sourceBreakpoints, setSourceBreakpoints,replaceBreakpoints,
       exitCode,
       buildOutput,
       output,

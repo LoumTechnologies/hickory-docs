@@ -101,6 +101,50 @@ print(result)
   expect(errors).toEqual([]);
 });
 
+
+// Exercise captured URI construction through the real comparison gutter, not
+// direct debugger RPC. Both percent-distinct names must retain their bytes.
+test('captured literal filename uses guarded launch and generated-source navigation',async({page})=>{
+  test.setTimeout(120_000);test.skip(!process.env.HICKORY_E2E_DEBUG,'Requires the explicit real debugpy fixture.');
+  const {createHash}=await import('node:crypto'),{readFile}=await import('node:fs/promises');const errors:string[]=[],wire:Record<string,any>[]=[];
+  page.on('pageerror',error=>errors.push(error.message));page.on('websocket',socket=>{for(const kind of ['framesent','framereceived'] as const)socket.on(kind,({payload})=>{try{if(typeof payload==='string'||payload[0]!==3)return;wire.push(JSON.parse(new TextDecoder().decode(payload.subarray(1))));}catch{}});});
+  const primary='%2F #.py',distinct='%252F #.py';
+  const source=`# Captured literal debugger
+<hick:project/>
+<hick:file id="profile" path=".hick-launch.json">
+{"version":1,"profiles":[{"id":"literal","name":"Captured literal","program":"${primary}","default":true}]}
+</hick:file>
+<hick:file id="helper" path="helpers.py">
+def answer():
+    return 41
+</hick:file>
+<hick:file id="distinct" path="${distinct}">
+marker = 999
+</hick:file>
+<hick:file id="main" path="${primary}">
+from helpers import answer
+marker = answer()
+print(marker)
+</hick:file>
+<hick:patch id="change" after="main">
+--- a/${primary}
++++ b/${primary}
+@@ -1,3 +1,3 @@
+ from helpers import answer
+-marker = answer()
++marker = answer() + 0
+ print(marker)
+</hick:patch>`;
+  await page.request.put('/api/workspace/ui',{data:{state:null}});const response=await page.request.post('/api/projects/local/docs',{data:{path:'captured-literal.md',source}});expect(response.ok()).toBeTruthy();const note=await response.json();
+  await page.goto(`/#/docs/${note.id}`);const patch=page.getByRole('region',{name:'Project patch editor'});await expect(patch.locator('.comparison-panes--side-by-side')).toBeVisible();const after=patch.locator('.comparison-side').last();
+  const tree=await (await page.request.get('/api/files')).json(),read=async(path:string)=>readFile(`${tree.root_path}/${path}`).catch(error=>{if(error.code==='ENOENT')return null;throw error;}),before=await read(primary),other=await read(distinct);
+  const printLine=after.locator('.cm-line').filter({hasText:/^print\(marker\)$/});await printLine.scrollIntoViewIfNeeded();const line=await printLine.boundingBox(),gutter=await after.locator('.cm-breakpoint-gutter').boundingBox();if(!line||!gutter)throw Error('Captured breakpoint gutter unavailable');await page.mouse.click(gutter.x+gutter.width/2,line.y+line.height/2);await expect(after.locator('.cm-bp')).toHaveCount(1);
+  await patch.getByRole('button',{name:`Debug ${primary} · After this patch`,exact:true}).click();const bar=page.getByRole('toolbar',{name:'Debugger'}).last();await expect(bar.getByRole('button',{name:'Continue',exact:true})).toBeVisible({timeout:90_000});
+  const start=wire.find(event=>event.op==='start');expect(start?.doc).toMatch(/^hick-project:\/\/\/[^/]+\/%252F%20%23\.py$/);const fileResponse=await page.request.get('/api/project-contexts/file?uri='+encodeURIComponent(start!.doc));expect(fileResponse.ok()).toBeTruthy();const file=await fileResponse.json(),bytes=new Uint8Array(file.bytes);expect(file.path).toBe(primary);expect(new TextDecoder().decode(bytes)).toContain('marker = answer() + 0');expect(file.files.some((entry:{path:string})=>entry.path===distinct)).toBe(true);const hash=createHash('sha256').update(bytes).digest('hex');expect(start?.source_hash).toBe(hash);expect(wire.find(event=>event.event==='started')?.source_hash).toBe(hash);
+  await bar.getByLabel('Debug options',{exact:true}).click();await bar.getByRole('button',{name:'+ watch',exact:true}).click();const prompt=page.getByRole('dialog',{name:'Expression to watch:',exact:true});await prompt.getByRole('textbox').fill('marker');await prompt.getByRole('button',{name:'Apply',exact:true}).click();await expect(bar.getByLabel('Value of watch marker',{exact:true})).toHaveText('41');
+  await page.getByRole('button',{name:'Show generated code',exact:true}).last().click();const reading=page.getByRole('region',{name:`Code · ${primary}`,exact:true});await expect(reading).toBeVisible();await expect(reading.locator('.cm-content')).toContainText('marker = answer() + 0');await expect(reading.locator('.cm-paused-line')).toContainText('print(marker)');
+  const capturedBar=reading.getByRole('toolbar',{name:'Debugger'});await capturedBar.getByRole('button',{name:'Stop',exact:true}).click();await expect(capturedBar.getByRole('button',{name:'Stop',exact:true})).toHaveCount(0);expect(await read(primary)).toEqual(before);expect(await read(distinct)).toEqual(other);expect(errors).toEqual([]);
+});
 for (const calleeOnly of [false,true]) test(`patch debugger keeps a later welcome definition in the literate document · ${calleeOnly ? "callee breakpoint" : "step into"}`, async ({page}) => {
   test.setTimeout(120_000);
   test.skip(!process.env.HICKORY_E2E_DEBUG, "Use just test-unified-debug-ui.");

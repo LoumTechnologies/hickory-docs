@@ -78,6 +78,14 @@ for (const language of ["js", "ts"]) {
     await context.setOffline(true);
     await page.getByLabel("Debug source", { exact: true }).fill((await page.getByLabel("Debug source", { exact: true }).inputValue()).replace("= 4;", "= 6;"));
     await expect(pane.locator(".cm-content")).toContainText("= 6;");
+    // The prior line intention belongs to the older authored bytes. Explicitly
+    // place it on the edited source rather than silently rebinding its line.
+    await expect(pane.locator('.cm-bp')).toHaveCount(0);
+    const revisedNumber=await gutters.filter({hasText:/^8$/}).boundingBox();
+    const revisedGutter=await pane.locator('.cm-breakpoint-gutter').boundingBox();
+    if(!revisedNumber||!revisedGutter)throw Error('Expected current source placement gutter');
+    await page.mouse.click(revisedGutter.x+revisedGutter.width/2,revisedNumber.y+revisedNumber.height/2);
+
     await page.getByRole("button", { name: "Debug document", exact: true }).click();
     await expect(page.getByLabel("Live variables")).toContainText("input = 6");
     await page.getByRole("button", { name: "Continue", exact: true }).click();

@@ -666,7 +666,6 @@ impl Reading {
         result
     }
 }
-
 </storycode:copy>
 <a id="f-a6f0ea9e8feb-EvidenceOrigin"></a>
 ### `EvidenceOrigin`
@@ -716,7 +715,6 @@ pub struct ProviderAnnotation {
     pub uncertainty: Option<String>,
     pub payload: serde_json::Value,
 }
-
 </storycode:copy>
 <a id="f-a6f0ea9e8feb-tests"></a>
 ### `tests`
@@ -910,7 +908,6 @@ mod tests {
         );
     }
 }
-
 </storycode:copy>
 <a id="f-a6f0ea9e8feb-impl-Reading-2"></a>
 ### `impl-Reading`
@@ -935,7 +932,6 @@ impl Reading {
         serde_json::json!({"schema_version":self.schema_version,"source":{"id":self.source.id,"uri":self.source.uri,"revision":self.source.revision},"scope":self.scope,"excerpts":excerpts,"annotations":self.annotations,"unsupported":self.unsupported})
     }
 }
-
 </storycode:copy>
 <a id="f-a6f0ea9e8feb-impl-Run"></a>
 ### `impl-Run`
@@ -1027,7 +1023,6 @@ impl Run {
             .collect()
     }
 }
-
 </storycode:copy>
 <a id="f-a6f0ea9e8feb-shared_fixture_tests"></a>
 ### `shared_fixture_tests`
@@ -1053,7 +1048,6 @@ mod shared_fixture_tests {
         assert_eq!(serde_json::from_value::<Reading>(json).unwrap(), reading);
     }
 }
-
 </storycode:copy>
 <a id="f-a6f0ea9e8feb-provider_projection_tests"></a>
 ### `provider_projection_tests`
@@ -1368,7 +1362,6 @@ fn agent_action_fixture_uses_opaque_handles_without_display_line_arithmetic() {
         _ => panic!("expected located action"),
     }
 }
-
 </storycode:copy>
 <a id="f-83c29f05f862-real_adapter_relocation_and_stale_actions_share_the_reading"></a>
 ### `real_adapter_relocation_and_stale_actions_share_the_reading`
@@ -1397,7 +1390,9 @@ async fn real_adapter_relocation_and_stale_actions_share_the_reading() {
         &registry,
         dir.path(),
         Request::Start {
-            request_id: None,
+            request_id: Some("reading-start".into()),
+            source_hash: Some(super::super::source_tests::digest(source.as_bytes())),
+            source_hashes: Default::default(),
             doc: "hick:///demo.md".into(),
             breakpoints: vec![hick_dap::Breakpoint {
                 line: 3,
@@ -1465,13 +1460,20 @@ async fn real_adapter_relocation_and_stale_actions_share_the_reading() {
         |r| matches!(r, Response::Failed { message, .. } if message.contains("source changed"))
     ));
     std::fs::write(&path, source).unwrap();
+    let current = registry.get(&session).await.unwrap();
+    let current_stop = *current.stop_generation.lock().await;
+    let current_thread = *current.thread_id.lock().await;
+    let current_frame = top_frame(&current).await;
     let _ = handle(
         &registry,
         dir.path(),
         Request::Step {
             session: session.clone(),
             how: hick_dap::Step::Over,
-            frame: None,
+            frame: current_frame,
+            stop: Some(current_stop),
+            thread: current_thread,
+            request_id: Some("reading-step".into()),
         },
     )
     .await;
@@ -1489,7 +1491,6 @@ async fn real_adapter_relocation_and_stale_actions_share_the_reading() {
     assert!(stale.iter().any(|r| matches!(r, Response::Failed { .. })));
     registry.reap(&session).await;
 }
-
 </storycode:copy>
 <a id="f-83c29f05f862-a_failed_build_reaches_the_client_before_the_failure"></a>
 ### `a_failed_build_reaches_the_client_before_the_failure`
@@ -1527,7 +1528,11 @@ async fn a_failed_build_reaches_the_client_before_the_failure() {
         &registry,
         dir.path(),
         Request::Start {
-            request_id: None,
+            request_id: Some("failure-start".into()),
+            source_hash: Some(super::super::source_tests::digest(
+                &std::fs::read(dir.path().join("a.md")).unwrap(),
+            )),
+            source_hashes: Default::default(),
             doc: "hick:///a.md".into(),
             breakpoints: vec![],
             program: None,
@@ -1575,7 +1580,6 @@ async fn a_failed_build_reaches_the_client_before_the_failure() {
         assert!(build_at < failed_at, "the build arrived after the failure");
     }
 }
-
 </storycode:copy>
 <a id="f-83c29f05f862-a_build_line_is_shaped_like_a_transcript_event"></a>
 ### `a_build_line_is_shaped_like_a_transcript_event`
@@ -1602,22 +1606,51 @@ fn a_build_line_is_shaped_like_a_transcript_event() {
     assert_eq!(exit["kind"], "exit");
     assert_eq!(exit["code"], 1);
 }
-
 </storycode:copy>
 <a id="f-83c29f05f862-a_document_is_named_in_the_clients_scheme"></a>
 ### `a_document_is_named_in_the_clients_scheme`
 
 <storycode:copy id="f-83c29f05f862-a_document_is_named_in_the_clients_scheme">
+// Contract: .hickory-source/frontends/contract.md
 #[test]
 fn a_document_is_named_in_the_clients_scheme() {
-    // The browser never learns where the file is on disk, exactly as on
-    // the language channel.
-    let root = std::path::Path::new("/home/u/project");
-    assert_eq!(resolve(root, "hick:///docs/a.md"), root.join("docs/a.md"));
-    assert_eq!(resolve(root, "/docs/a.md"), root.join("docs/a.md"));
-    assert_eq!(resolve(root, "a.md"), root.join("a.md"));
+    let folder = tempfile::tempdir().unwrap();
+    let root = folder.path();
+    std::fs::create_dir(root.join("docs")).unwrap();
+    std::fs::write(root.join("docs/a.md"), "source").unwrap();
+    assert_eq!(
+        resolve(root, "hick:///docs/a.md").unwrap(),
+        root.join("docs/a.md").canonicalize().unwrap()
+    );
+    let literal = "%2F λ?#.py";
+    std::fs::write(root.join(literal), "value=1\n").unwrap();
+    assert_eq!(
+        resolve(root, "hick:///%252F%20%CE%BB%3F%23.py").unwrap(),
+        root.join(literal).canonicalize().unwrap()
+    );
+    assert_eq!(
+        resolve(root, literal).unwrap(),
+        root.join(literal).canonicalize().unwrap()
+    );
+    for invalid in [
+        "hick:///../outside",
+        "hick:///%2e%2e/outside",
+        "hick:///bad%",
+        "hick:///bad%ZZ",
+        "hick:///a?query",
+        "hick:///a#fragment",
+        "/docs/a.md",
+        "file:///etc/passwd",
+    ] {
+        assert!(resolve(root, invalid).is_err(), "Accepted {invalid}");
+    }
+    #[cfg(unix)]
+    {
+        let outside = tempfile::NamedTempFile::new().unwrap();
+        std::os::unix::fs::symlink(outside.path(), root.join("escape.py")).unwrap();
+        assert!(resolve(root, "hick:///escape.py").is_err());
+    }
 }
-
 </storycode:copy>
 <a id="f-83c29f05f862-requests_parse_from_their_frame"></a>
 ### `requests_parse_from_their_frame`
@@ -1648,7 +1681,6 @@ fn requests_parse_from_their_frame() {
         other => panic!("wrong request: {other:?}"),
     }
 }
-
 </storycode:copy>
 <a id="f-83c29f05f862-a_step_names_the_session_apis_own_verb"></a>
 ### `a_step_names_the_session_apis_own_verb`
@@ -1663,7 +1695,6 @@ fn a_step_names_the_session_apis_own_verb() {
         other => panic!("wrong request: {other:?}"),
     }
 }
-
 </storycode:copy>
 <a id="f-83c29f05f862-a_response_frame_is_tagged_with_the_debug_channel"></a>
 ### `a_response_frame_is_tagged_with_the_debug_channel`
@@ -1679,7 +1710,6 @@ fn a_response_frame_is_tagged_with_the_debug_channel() {
     assert_eq!(value["event"], "ended");
     assert_eq!(value["session"], "dbg-0");
 }
-
 </storycode:copy>
 <a id="f-83c29f05f862-a_failure_carries_words_rather_than_a_code"></a>
 ### `a_failure_carries_words_rather_than_a_code`
@@ -1690,6 +1720,7 @@ fn a_failure_carries_words_rather_than_a_code() {
     // The UI shows this text; a code would need a second table nobody
     // would keep in step.
     let frame = frame_of(&Response::Failed {
+        scope_retired: false,
         request_id: None,
         doc: None,
         session: Some("dbg-1".into()),
@@ -1706,7 +1737,6 @@ fn a_failure_carries_words_rather_than_a_code() {
     assert_eq!(value["about"], "breakpoints");
     assert_eq!(value["lines"][0], 4);
 }
-
 </storycode:copy>
 <a id="f-83c29f05f862-a_failure_about_nothing_in_particular_carries_no_lines"></a>
 ### `a_failure_about_nothing_in_particular_carries_no_lines`
@@ -1717,6 +1747,7 @@ fn a_failure_about_nothing_in_particular_carries_no_lines() {
     // `about`/`lines` are omitted rather than sent empty: a UI that keys
     // on their presence should not have to know two spellings of absent.
     let frame = frame_of(&Response::Failed {
+        scope_retired: false,
         request_id: None,
         doc: None,
         session: None,
@@ -1729,7 +1760,6 @@ fn a_failure_about_nothing_in_particular_carries_no_lines() {
     assert!(value.get("about").is_none(), "{value}");
     assert!(value.get("lines").is_none(), "{value}");
 }
-
 </storycode:copy>
 <a id="f-83c29f05f862-the_channel_carries_no_way_to_edit_anything"></a>
 ### `the_channel_carries_no_way_to_edit_anything`
@@ -1764,6 +1794,18 @@ by default means unexecuted unless explicitly invoked with `--ignored`; set
 `HICKORY_THREAD_TEST_VENV` to a virtualenv containing debugpy, or prepare
 `target/thread-debug-env`. The separate host witnesses must still establish
 menus, retained editor state and obsolete reply rejection.
+
+The captured-literal witness registers two percent-distinct project names in
+memory and starts the canonical captured source URI through the real debugger
+service. It checks the paused frame URI/hash, scoped value 41 and live conditional
+breakpoint receipt, then stops the owned session. Host directory entries and
+retained project bytes must remain unchanged; debugging may use only its private
+scratch clone, without materializing the retained comparison context. The
+explicit ignored test executed successfully on 2026-11-16 with the shared
+`target/thread-debug-env` virtualenv (one test, zero skipped). Its first execution
+exposed the primary captured-address decoder still using a raw URI split; the
+subsequent shared primary mapping fix passed this actual service/DAP path. This
+does not establish frontend pointer, keyboard or accessibility acceptance.
 
 <storycode:copy id="debugger-thread-stop-witness">
 #[cfg(unix)]
@@ -1808,7 +1850,7 @@ async fn real_threads_select_current_stack_and_refuse_stale_scope_without_source
     let started = ask(
         &registry,
         root.path(),
-        json!({"op":"start","doc":"hick:///main.py","request_id":"launch-threads","breakpoints":[{"line":breakpoint}]}),
+        json!({"op":"start","doc":"hick:///main.py","request_id":"launch-threads","source_hash":super::super::source_tests::digest(source.as_bytes()),"breakpoints":[{"line":breakpoint}]}),
     )
     .await;
     let session = event(&started, "started")["session"]
@@ -1897,14 +1939,103 @@ async fn real_threads_select_current_stack_and_refuse_stale_scope_without_source
     assert_eq!(value["thread"], worker);
     assert_eq!(value["frame"], worker_frame);
     assert_eq!(value["request_id"], "worker-value");
+    // Contract: .hickory-source/frontends/contract.md. A reported root can
+    // expand only under the frame that observed it; descendants join that scope.
+    let composite=ask(&registry,root.path(),json!({"op":"eval","session":session,"expression":"{'nested': {'answer': marker}}","frame":worker_frame,"context":"watch","stop":worker_stop,"thread":worker,"request_id":"composite"})).await;
+    let reference = event(&composite, "value")["reference"].as_i64().unwrap();
+    assert!(reference > 0);
+    let unknown=ask(&registry,root.path(),json!({"op":"children","session":session,"reference":i32::MAX,"frame":worker_frame,"stop":worker_stop,"thread":worker,"request_id":"unknown-reference"})).await;
+    assert_eq!(event(&unknown, "failed")["request_id"], "unknown-reference");
+    assert_eq!(event(&unknown, "failed")["scope_retired"], false);
+    let expanded=ask(&registry,root.path(),json!({"op":"children","session":session,"reference":reference,"frame":worker_frame,"stop":worker_stop,"thread":worker,"request_id":"nested-root"})).await;
+    let expanded = event(&expanded, "children");
+    assert_eq!(expanded["frame"], worker_frame);
+    let nested = expanded["variables"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| {
+            row["name"]
+                .as_str()
+                .is_some_and(|name| name.contains("nested"))
+        })
+        .unwrap()["variables_reference"]
+        .as_i64()
+        .unwrap();
+    let answer=ask(&registry,root.path(),json!({"op":"children","session":session,"reference":nested,"frame":worker_frame,"stop":worker_stop,"thread":worker,"request_id":"nested-answer"})).await;
+    assert!(
+        event(&answer, "children")["variables"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|row| row["name"]
+                .as_str()
+                .is_some_and(|name| name.contains("answer"))
+                && row["value"] == "41")
+    );
+    let unscoped=ask(&registry,root.path(),json!({"op":"eval","session":session,"expression":"globals().__setitem__('forbidden_probe', True)","frame":worker_frame,"context":"repl","request_id":"unscoped-effect"})).await;
+    assert_eq!(event(&unscoped, "failed")["request_id"], "unscoped-effect");
+    let probe=ask(&registry,root.path(),json!({"op":"eval","session":session,"expression":"'forbidden_probe' in globals()","frame":worker_frame,"context":"watch","stop":worker_stop,"thread":worker,"request_id":"probe-absent"})).await;
+    assert_eq!(event(&probe, "value")["value"], "False");
+    let hash = super::super::source_tests::digest(source.as_bytes());
+    let baseline = serde_json::to_value(
+        registry
+            .get(&session)
+            .await
+            .unwrap()
+            .session
+            .breakpoint_statuses(),
+    )
+    .unwrap();
+    for (id, revision, line) in [
+        ("wrong-source", "0".repeat(64), breakpoint as u32),
+        ("outside-source", hash.clone(), u32::MAX),
+    ] {
+        let refused=ask(&registry,root.path(),json!({"op":"breakpoints","session":session,"source_hash":revision,"request_id":id,"breakpoints":[{"line":line}]})).await;
+        assert_eq!(event(&refused, "failed")["request_id"], id);
+        assert_eq!(
+            serde_json::to_value(
+                registry
+                    .get(&session)
+                    .await
+                    .unwrap()
+                    .session
+                    .breakpoint_statuses()
+            )
+            .unwrap(),
+            baseline
+        );
+    }
+    std::fs::write(
+        root.path().join("main.py"),
+        format!("{source}# changed saved bytes\n"),
+    )
+    .unwrap();
+    let changed=ask(&registry,root.path(),json!({"op":"breakpoints","session":session,"source_hash":hash,"request_id":"changed-saved","breakpoints":[{"line":breakpoint}]})).await;
+    assert_eq!(event(&changed, "failed")["request_id"], "changed-saved");
+    std::fs::write(root.path().join("main.py"), source).unwrap();
     let stale = ask(&registry, root.path(), json!({"op":"eval","session":session,"expression":"marker","frame":worker_frame,"context":"watch","stop":stop,"thread":worker,"request_id":"old-value"})).await;
     assert_eq!(event(&stale, "failed")["request_id"], "old-value");
     let selected = ask(&registry, root.path(), json!({"op":"select_thread","session":session,"thread":main,"stop":worker_stop,"request_id":"select-main"})).await;
-    assert_eq!(event(&selected, "stopped")["thread"], main);
+    let main_pause = event(&selected, "stopped");
+    assert_eq!(main_pause["thread"], main);
+    let main_stop = main_pause["stop"].as_u64().unwrap();
+    let main_frame = main_pause["frames"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["name"] == "<module>")
+        .unwrap()["id"]
+        .as_i64()
+        .unwrap();
+    let retired=ask(&registry,root.path(),json!({"op":"children","session":session,"reference":reference,"frame":main_frame,"stop":main_stop,"thread":main,"request_id":"retired-reference"})).await;
+    assert_eq!(event(&retired, "failed")["request_id"], "retired-reference");
+    let stale_move=ask(&registry,root.path(),json!({"op":"step","session":session,"how":"continue","stop":worker_stop,"thread":worker,"frame":worker_frame,"request_id":"stale-resume"})).await;
+    assert_eq!(event(&stale_move, "failed")["request_id"], "stale-resume");
     let done = ask(
         &registry,
         root.path(),
-        json!({"op":"step","session":session,"how":"continue"}),
+        json!({"op":"step","session":session,"how":"continue","stop":main_stop,"thread":main,"frame":main_frame,"request_id":"finish-worker"}),
     )
     .await;
     assert!(
@@ -1945,7 +2076,7 @@ async fn real_running_launch_exposes_session_for_stop_and_live_breakpoints() {
                 &registry,
                 &path,
                 serde_json::from_value(
-                    json!({"op":"start","doc":"hick:///running.py","request_id":"launch-running","breakpoints":[]}),
+                    json!({"op":"start","doc":"hick:///running.py","request_id":"launch-running","source_hash":super::super::source_tests::digest(source.as_bytes()),"breakpoints":[]}),
                 )
                 .unwrap(),
                 &tx,
@@ -1969,7 +2100,7 @@ async fn real_running_launch_exposes_session_for_stop_and_live_breakpoints() {
     })
     .await
     .expect("A running program hid its real session until its first stop");
-    let breakpoints = tokio::time::timeout(Duration::from_secs(10), handle(&registry, root.path(), serde_json::from_value(json!({"op":"breakpoints","session":session,"breakpoints":[{"line":2,"condition":"False"}]})).unwrap())).await.expect("Live breakpoints waited for the program to stop");
+    let breakpoints = tokio::time::timeout(Duration::from_secs(10), handle(&registry, root.path(), serde_json::from_value(json!({"op":"breakpoints","session":session,"source_hash":super::super::source_tests::digest(source.as_bytes()),"request_id":"live-conditional","breakpoints":[{"line":2,"condition":"False"}]})).unwrap())).await.expect("Live breakpoints waited for the program to stop");
     assert!(
         breakpoints
             .iter()
@@ -2001,6 +2132,150 @@ async fn real_running_launch_exposes_session_for_stop_and_live_breakpoints() {
         std::fs::read_to_string(root.path().join("running.py")).unwrap(),
         source
     );
+}
+
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "requires debugpy in HICKORY_THREAD_TEST_VENV or target/thread-debug-env"]
+async fn real_captured_literal_source_round_trips_through_debugpy_without_host_writes() {
+    async fn ask(registry: &Arc<Registry>, root: &std::path::Path, value: Value) -> Vec<Value> {
+        tokio::time::timeout(
+            Duration::from_secs(30),
+            handle(registry, root, serde_json::from_value(value).unwrap()),
+        )
+        .await
+        .expect("Captured-source debugger request did not settle")
+        .into_iter()
+        .map(|response| serde_json::to_value(response).unwrap())
+        .collect()
+    }
+    fn event<'a>(rows: &'a [Value], kind: &str) -> &'a Value {
+        rows.iter()
+            .find(|row| row["event"] == kind)
+            .unwrap_or_else(|| panic!("Missing {kind}: {rows:?}"))
+    }
+    fn host_entries(root: &std::path::Path) -> Vec<std::ffi::OsString> {
+        let mut entries = std::fs::read_dir(root)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect::<Vec<_>>();
+        entries.sort();
+        entries
+    }
+    let host_root = tempfile::tempdir().unwrap();
+    std::fs::create_dir(host_root.path().join(".git")).unwrap();
+    let venv = std::env::var_os("HICKORY_THREAD_TEST_VENV")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/thread-debug-env")
+        });
+    assert!(
+        venv.join("bin/python").exists(),
+        "Prepare the explicit debugpy test virtualenv first"
+    );
+    let environment = std::fs::canonicalize(venv).unwrap();
+    std::os::unix::fs::symlink(&environment, host_root.path().join(".venv")).unwrap();
+    let baseline = host_entries(host_root.path());
+    let primary = "literal %2F #.py";
+    let distinct = "literal %252F #.py";
+    let source = "marker = 41\nmarker += 0\nprint(marker)\n";
+    let other = "raise RuntimeError('Wrong captured percent spelling executed')\n";
+    let hash = super::super::source_tests::digest(source.as_bytes());
+    let mut tree = hick_lang::ProjectTree::default();
+    tree.insert(
+        primary,
+        hick_lang::ProjectEntry::file(source.as_bytes().to_vec()),
+    )
+    .unwrap();
+    tree.insert(
+        distinct,
+        hick_lang::ProjectEntry::file(other.as_bytes().to_vec()),
+    )
+    .unwrap();
+    let projects = Arc::new(hick_lsp::ProjectContexts::default());
+    let capture = "a1b2c3d4e5f60718";
+    projects.register(capture, tree).unwrap();
+    let uri = hick_lsp::ProjectContexts::source_uri(capture, primary).unwrap();
+    let other_uri = hick_lsp::ProjectContexts::source_uri(capture, distinct).unwrap();
+    assert_ne!(uri, other_uri);
+    assert!(uri.contains("%252F%20%23.py"), "{uri}");
+    assert!(other_uri.contains("%25252F%20%23.py"), "{other_uri}");
+    let (_, path, context) = projects
+        .get(&tower_lsp::lsp_types::Url::parse(&uri).unwrap())
+        .unwrap();
+    assert_eq!(path, primary);
+    assert!(!context.is_materialized());
+    let registry = Arc::new(Registry::with_projects(
+        projects.clone(),
+        host_root.path().to_path_buf(),
+    ));
+    let started=ask(&registry,host_root.path(),json!({"op":"start","doc":uri,"request_id":"captured-literal-launch","source_hash":hash,"breakpoints":[{"line":1}]})).await;
+    let launch = event(&started, "started");
+    assert_eq!(launch["doc"], uri);
+    assert_eq!(launch["request_id"], "captured-literal-launch");
+    assert_eq!(launch["source_hash"], hash);
+    let session = launch["session"].as_str().unwrap().to_owned();
+    let stopped = event(&started, "stopped");
+    let stop = stopped["stop"].as_u64().unwrap();
+    let thread = stopped["thread"].as_i64().unwrap();
+    let frame = stopped["frames"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|frame| frame["name"] == "<module>")
+        .unwrap();
+    assert_eq!(frame["source"], uri, "{frame}");
+    assert_eq!(frame["source_hash"], hash, "{frame}");
+    assert_ne!(frame["source"], other_uri);
+    assert_eq!(frame["source_line"], 1);
+    assert_eq!(stopped["line"], 1);
+    let frame_id = frame["id"].as_i64().unwrap();
+    let evaluated=ask(&registry,host_root.path(),json!({"op":"eval","session":session,"expression":"marker","context":"watch","frame":frame_id,"stop":stop,"thread":thread,"request_id":"captured-literal-value"})).await;
+    let value = event(&evaluated, "value");
+    assert_eq!(value["value"], "41");
+    assert_eq!(value["stop"], stop);
+    assert_eq!(value["thread"], thread);
+    assert_eq!(value["frame"], frame_id);
+    assert_eq!(value["request_id"], "captured-literal-value");
+    let changed=ask(&registry,host_root.path(),json!({"op":"breakpoints","session":session,"source_hash":hash,"request_id":"captured-literal-condition","breakpoints":[{"line":1,"condition":"marker == 41"}]})).await;
+    let receipt = event(&changed, "breakpoints");
+    assert_eq!(receipt["request_id"], "captured-literal-condition");
+    assert_eq!(receipt["source_hash"], hash);
+    assert!(
+        receipt["breakpoints"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|mark| mark["line"] == 1 && mark["state"] == "bound"),
+        "{receipt}"
+    );
+    let ended = ask(
+        &registry,
+        host_root.path(),
+        json!({"op":"stop","session":session}),
+    )
+    .await;
+    assert_eq!(event(&ended, "ended")["session"], session);
+    assert!(registry.get(&session).await.is_err());
+    assert!(
+        !context.is_materialized(),
+        "Debugging must not materialize the retained comparison context"
+    );
+    assert_eq!(
+        context.tree.get(primary).unwrap().bytes.as_ref(),
+        source.as_bytes()
+    );
+    assert_eq!(
+        context.tree.get(distinct).unwrap().bytes.as_ref(),
+        other.as_bytes()
+    );
+    assert_eq!(host_entries(host_root.path()), baseline);
+    assert_eq!(
+        std::fs::read_link(host_root.path().join(".venv")).unwrap(),
+        environment
+    );
+    assert!(!host_root.path().join(primary).exists());
+    assert!(!host_root.path().join(distinct).exists());
 }
 </storycode:copy>
 

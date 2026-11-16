@@ -194,6 +194,8 @@ import { lspFeatures } from "../lsp/cmLspFeatures";
 
 <storycode:copy id="f-bfb59577f48b-import_statement-23">
 import { useDebugger } from "../debug/useDebugger";
+import {documentUri} from "../lsp/documentUri";
+import {DebugSourceSignal,type DebugSourceCapability} from "../debug/SourceGuards";
 </storycode:copy>
 <a id="f-bfb59577f48b-import_statement-24"></a>
 ### `import_statement`
@@ -545,14 +547,18 @@ function useDocumentSession(
     (path: string) => openGeneratedFor(docId, path),
     [openGeneratedFor, docId],
   );
-  const [doc, setDoc] = useState<Doc | null>(null);
+  const sourceSignal=useMemo(()=>new DebugSourceSignal(),[docId]),debugDoc=useRef<Doc|null>(null),debugNamespace=useRef<string|null>(null),debugDirty=useRef<string|null>(null);
+  const [doc,setDocState]=useState<Doc|null>(null);
+  const setDoc=useCallback((next:Doc|null)=>{debugDoc.current=next;sourceSignal.changed();setDocState(next);},[sourceSignal]);
+  useEffect(()=>{let current=true;debugNamespace.current=null;void api.files().then(files=>{if(current){debugNamespace.current=files.root_path??null;sourceSignal.changed();}},()=>{});return()=>{current=false;debugNamespace.current=null;};},[docId,sourceSignal]);
   const [blocks, setBlocks] = useState<Block[] | null>(null);
   const [fatalError, setFatalError] = useState<string | null>(null);
   const [renderError, setRenderError] = useState<string | null>(null);
   const [runningCells, setRunningCells] = useState<Set<string>>(new Set());
   const [banner, setBanner] = useState<Banner>(null);
   const [selectSpan, setSelectSpan] = useState<[number, number] | null>(null);
-  const [dirtySource, setDirtySource] = useState<string | null>(null);
+  const [dirtySource,setDirtySourceState]=useState<string|null>(null);
+  const setDirtySource=useCallback((next:string|null)=>{debugDirty.current=next;sourceSignal.changed();setDirtySourceState(next);},[sourceSignal]);
   const { savedSource, setSavedSource, syncState, setSyncState } = useDocumentPersistence(docId, doc, dirtySource, stored => { setDoc(stored); void refreshRender(stored.source); });
   const [references, setReferences] = useState<{ locations: LspLocation[]; query: string } | null>(
     null,
@@ -597,7 +603,11 @@ function useDocumentSession(
   // The debugger. It is a READER: nothing it does can change the document,
   // its generated files, or a recorded transcript — the channel carries no
   // edit operation and the debuggee runs in a scratch copy.
-  const debug = useDebugger(realtime, doc?.path ?? "");
+  const debugSources=useMemo<DebugSourceCapability>(()=>({read:uri=>{
+    const source=debugDoc.current,workspace=debugNamespace.current,revision=sourceSignal.revision;if(!source||!workspace||documentUri(source.path)!==uri)throw Error('The document source namespace is still loading or changed.');
+    const text=debugDirty.current??source.source;return {uri,workspace,namespace:workspace,identity:source.id,text,saved:text===source.source,current:()=>sourceSignal.revision===revision&&debugNamespace.current===workspace&&debugDoc.current?.id===source.id&&debugDoc.current.path===source.path&&(debugDirty.current??debugDoc.current.source)===text};
+  },subscribe:sourceSignal.subscribe}),[sourceSignal]);
+  const debug = useDebugger(realtime, doc?.path ?? "","new",debugSources);
   usePublishDebugSession(doc?.path ?? "", debug);
   const debugRef = useRef(debug);
   debugRef.current = debug;

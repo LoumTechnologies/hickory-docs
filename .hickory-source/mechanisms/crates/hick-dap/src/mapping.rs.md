@@ -15,7 +15,8 @@ Related contracts: [A frame stays in document coordinates](../../../../guarantee
 
 Keep source digests with the captured mapping, rather than reading a file after
 the debugger stops and calling that its execution revision. Plain launch captures
-only its primary source; external frames stay unknown. Compiler-backed mappings
+its primary source and requested breakpoint sources before adapter startup; a
+profile also retains its already observed project sources. Other frames stay unknown. Compiler-backed mappings
 retain their pinned contributor digests. These identify launch/construction bytes,
 not immutable runtime inputs or proof of which sources executed. Hosts can use a
 matching digest to admit a source position while keeping that evidence limit clear.
@@ -28,6 +29,7 @@ use std::{
 };
 
 /// Document <-> generated-file coordinates for the files a cell can stop in.
+#[derive(Clone)]
 pub struct Mapping {
     observation_source: Option<Vec<u8>>,
     source_hashes: HashMap<PathBuf, String>,
@@ -40,14 +42,54 @@ pub struct Mapping {
     plain: bool,
     captured: Option<(String, PathBuf)>,
 }
-
 </storycode:copy>
+<a id="debug-plain-launch-snapshots"></a>
+### Retain already observed project sources
+
+A profile already observed its source tree to select a launch target. Reuse
+those bytes rather than rereading them after a stop. A requested extra source
+can join a plain launch before startup; later unknown sources stay unbound.
+The startup guard separately checks requested physical bytes still match.
+
+<storycode:copy id="debug-plain-launch-snapshots">
+impl Mapping {
+    /// Extend an identity mapping with the already captured launch project.
+    /// These are snapshot identities, not evidence of runtime execution.
+    pub fn with_plain_sources<'a>(
+        mut self,
+        root: &Path,
+        sources: impl IntoIterator<Item = (&'a str, &'a [u8])>,
+    ) -> Self {
+        if self.plain {
+            for (name, bytes) in sources {
+                if std::str::from_utf8(bytes).is_ok() {
+                    let path = root.join(name);
+                    self.source_hashes
+                        .insert(path.clone(), Self::source_digest(bytes));
+                    if same_file(&path, &self.document) {
+                        self.observation_source = Some(bytes.to_vec());
+                    }
+                }
+            }
+        }
+        self
+    }
+    pub(crate) fn capture_initial_source(&mut self, path: &Path, bytes: &[u8]) {
+        if self.plain {
+            self.source_hashes
+                .entry(path.to_path_buf())
+                .or_insert_with(|| Self::source_digest(bytes));
+        }
+    }
+}
+</storycode:copy>
+
 <a id="f-32f353d4cad8-impl-Mapping"></a>
 ### `impl-Mapping`
 
 <storycode:copy id="f-32f353d4cad8-impl-Mapping">
 impl Mapping {
-    fn hash(source: &[u8]) -> String {
+    pub(crate) fn source_digest(source: &[u8]) -> String {
         hick_observe::Source::capture(String::new(), String::new(), source.to_vec()).revision
     }
 
@@ -71,6 +113,9 @@ impl Mapping {
         program: &str,
     ) -> Result<Self> {
         let root = workdir.canonicalize()?;
+        let document = PathBuf::from(
+            hick_lsp::ProjectContexts::source_uri(id, program).map_err(anyhow::Error::msg)?,
+        );
         let files = tree
             .entries()
             .iter()
@@ -91,8 +136,11 @@ impl Mapping {
                 .iter()
                 .map(|(path, entry)| {
                     (
-                        PathBuf::from(format!("hick-project:///{id}/{path}")),
-                        Self::hash(&entry.bytes),
+                        PathBuf::from(
+                            hick_lsp::ProjectContexts::source_uri(id, path)
+                                .expect("captured tree paths are validated"),
+                        ),
+                        Self::source_digest(&entry.bytes),
                     )
                 })
                 .collect(),
@@ -101,7 +149,7 @@ impl Mapping {
                 .get(program)
                 .map(|entry| entry.bytes.to_vec()),
             files,
-            document: PathBuf::from(format!("hick-project:///{id}/{program}")),
+            document,
             plain: false,
             captured: Some((id.into(), root)),
         })
@@ -118,7 +166,7 @@ impl Mapping {
         Self {
             source_hashes: source
                 .as_ref()
-                .map(|source| HashMap::from([(file.to_path_buf(), Self::hash(source))]))
+                .map(|source| HashMap::from([(file.to_path_buf(), Self::source_digest(source))]))
                 .unwrap_or_default(),
             observation_source: source,
             files: HashMap::new(),
@@ -130,8 +178,10 @@ impl Mapping {
 
     pub fn with_observation_source(mut self, source: &str) -> Self {
         self.observation_source = Some(source.as_bytes().to_vec());
-        self.source_hashes
-            .insert(self.document.clone(), Self::hash(source.as_bytes()));
+        self.source_hashes.insert(
+            self.document.clone(),
+            Self::source_digest(source.as_bytes()),
+        );
         self
     }
 
@@ -172,12 +222,12 @@ impl Mapping {
                 .map(|(path, source)| {
                     (
                         document.parent().unwrap_or(Path::new(".")).join(path),
-                        Self::hash(source.as_bytes()),
+                        Self::source_digest(source.as_bytes()),
                     )
                 })
                 .chain(std::iter::once((
                     document.to_path_buf(),
-                    Self::hash(state.doc.source.as_bytes()),
+                    Self::source_digest(state.doc.source.as_bytes()),
                 )))
                 .collect(),
             observation_source: Some(state.doc.source.as_bytes().to_vec()),
@@ -190,12 +240,8 @@ impl Mapping {
 
     /// Document line -> (generated file, line) for setting a breakpoint.
     pub fn to_generated(&self, line: u32) -> Option<(PathBuf, u32)> {
-        if let Some((_, root)) = &self.captured {
-            let name = self.document.to_str()?.splitn(5, '/').nth(4)?;
-            return self
-                .files
-                .contains_key(&root.join(name))
-                .then_some((root.join(name), line));
+        if self.captured.is_some() {
+            return self.to_generated_in(&self.document, line);
         }
         if self.plain {
             // Compilers write canonical source paths into debug symbols. Keep
@@ -234,7 +280,10 @@ impl Mapping {
             let full = path.canonicalize().unwrap_or_else(|_| path.into());
             let name = full.strip_prefix(root).ok()?.to_str()?.replace('\\', "/");
             self.files.get(&full)?.to_source(line, 0)?;
-            return Some((PathBuf::from(format!("hick-project:///{id}/{name}")), line));
+            return Some((
+                PathBuf::from(hick_lsp::ProjectContexts::source_uri(id, &name).ok()?),
+                line,
+            ));
         }
         let map = self.file_map(path)?;
         let (document, line, _) = map.source_document(line, 0)?;
@@ -247,8 +296,11 @@ impl Mapping {
     }
     pub fn to_generated_in(&self, document: &Path, line: u32) -> Option<(PathBuf, u32)> {
         if let Some((id, root)) = &self.captured {
-            let prefix = format!("hick-project:///{id}/");
-            let name = document.to_str()?.strip_prefix(&prefix)?;
+            let (context, name) =
+                hick_lsp::ProjectContexts::decode_source_uri(document.to_str()?).ok()?;
+            if &context != id {
+                return None;
+            }
             let path = root.join(name).canonicalize().ok()?;
             return (line < self.files.get(&path)?.virtual_lines()).then_some((path, line));
         }
@@ -327,7 +379,6 @@ fn canonical_with_missing_tail(path: &Path) -> Option<PathBuf> {
         ancestor = ancestor.parent()?;
     }
 }
-
 </storycode:copy>
 <a id="f-32f353d4cad8-same_file"></a>
 ### `same_file`
@@ -354,7 +405,6 @@ pub(crate) fn same_file(a: &Path, b: &Path) -> bool {
         _ => false,
     }
 }
-
 </storycode:copy>
 <a id="f-32f353d4cad8-observation_tests"></a>
 ### `observation_tests`
@@ -386,7 +436,7 @@ mod observation_tests {
         let path = root.path().join("main.py");
         std::fs::write(&path, "é = 1\n").unwrap();
         let captured = Mapping::identity(&path);
-        let expected = Mapping::hash("é = 1\n".as_bytes());
+        let expected = Mapping::source_digest("é = 1\n".as_bytes());
         std::fs::write(&path, "e\u{301} = 1\n").unwrap();
         assert_eq!(captured.source_hash(&path), Some(expected.clone()));
         assert_ne!(Mapping::identity(&path).source_hash(&path), Some(expected));
@@ -413,8 +463,34 @@ mod observation_tests {
         assert_eq!(source, root.path().join("part.md"));
         assert_eq!(
             mapping.source_hash(&source),
-            Some(Mapping::hash(part.as_bytes()))
+            Some(Mapping::source_digest(part.as_bytes()))
         );
+    }
+    #[test]
+    fn captured_literal_names_keep_one_hash_and_bidirectional_address() {
+        let directory = tempfile::tempdir().unwrap();
+        let name = "literal %2F #.py";
+        let text = b"value=1\nprint(value)\n";
+        std::fs::write(directory.path().join(name), text).unwrap();
+        let mut tree = hick_lang::ProjectTree::default();
+        tree.insert(name, hick_lang::ProjectEntry::file(text.to_vec()))
+            .unwrap();
+        let id = "0123456789abcdef";
+        let mapping = Mapping::captured(&tree, directory.path(), id, name).unwrap();
+        let physical = directory.path().join(name).canonicalize().unwrap();
+        let (uri, line) = mapping.source_location(&physical, 1).unwrap();
+        assert_eq!(
+            uri.to_str().unwrap(),
+            "hick-project:///0123456789abcdef/literal%20%252F%20%23.py"
+        );
+        assert_eq!(mapping.to_generated(1), Some((physical.clone(), 1)));
+        assert_eq!(mapping.to_generated_in(&uri, line), Some((physical, 1)));
+        assert_eq!(
+            mapping.source_hash(&uri),
+            Some(Mapping::source_digest(text))
+        );
+        let foreign = PathBuf::from("hick-project:///fedcba9876543210/literal%20%252F%20%23.py");
+        assert!(mapping.to_generated_in(&foreign, 1).is_none());
     }
 }
 </storycode:copy>
@@ -423,6 +499,6 @@ mod observation_tests {
 
 The selections below preserve the original byte order. Narrative reading order does not change the output.
 
-<storycode:file path="crates/hick-dap/src/mapping.rs"><storycode:paste select="#f-32f353d4cad8-Mapping"/><storycode:paste select="#f-32f353d4cad8-impl-Mapping"/><storycode:paste select="#f-32f353d4cad8-canonical_with_missing_tail"/><storycode:paste select="#f-32f353d4cad8-same_file"/><storycode:paste select="#f-32f353d4cad8-observation_tests"/></storycode:file>
+<storycode:file path="crates/hick-dap/src/mapping.rs"><storycode:paste select="#f-32f353d4cad8-Mapping"/><storycode:paste select="#debug-plain-launch-snapshots"/><storycode:paste select="#f-32f353d4cad8-impl-Mapping"/><storycode:paste select="#f-32f353d4cad8-canonical_with_missing_tail"/><storycode:paste select="#f-32f353d4cad8-same_file"/><storycode:paste select="#f-32f353d4cad8-observation_tests"/></storycode:file>
 
 </storycode:doc>

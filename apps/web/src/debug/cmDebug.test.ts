@@ -645,6 +645,11 @@ describe("a plain file's breakpoints", () => {
 
 // Protects docs/guarantees/debugging/a-breakpoint-can-carry-a-condition.md
 describe("a conditional breakpoint is visibly one", () => {
+  it('retires document-relative highlights when authored text becomes shorter before capability effects arrive',()=>{
+    const view=new EditorView({parent:document.body,state:EditorState.create({doc:'first\nsecond\nthird\nfourth\n',extensions:debugEditor({onToggleBreakpoint:()=>{},language:'python'})})});
+    try{view.dispatch({effects:setPausedLine.of(3)});view.dispatch({changes:{from:0,to:view.state.doc.length,insert:'short'}});expect(()=>view.dispatch({effects:setPausedLine.of(null)})).not.toThrow();expect(view.state.doc.toString()).toBe('short');}finally{view.destroy();}
+  });
+
   it("computes `conditional` from what is set, rather than assuming false", () => {
     const effects = debugStateEffects({
       breakpoints: [

@@ -48,7 +48,8 @@ with socket.socket() as s:
     s.bind(('127.0.0.1',0)); print(s.getsockname()[1])
 PY
 )
-HICKORY_STATE_DIR="$run_dir/state" target/debug/examples/engine_client "$run_dir/project" literate-e2e "http://127.0.0.1:$ui_port" > "$run_dir/client.log" 2> "$run_dir/engine.log" &
+if [ -n "${HICKORY_THREAD_TEST_VENV:-}" ]; then ln -s "$HICKORY_THREAD_TEST_VENV" "$run_dir/project/.venv"; fi
+HICKORY_STATE_DIR="$run_dir/state" "${HICKORY_LITERATE_TEST_ENGINE:-target/debug/examples/engine_client}" "$run_dir/project" literate-e2e "http://127.0.0.1:$ui_port" > "$run_dir/client.log" 2> "$run_dir/engine.log" &
 client_pid=$!
 for _ in $(seq 1 100); do
   [ ! -s "$run_dir/client.log" ] || break

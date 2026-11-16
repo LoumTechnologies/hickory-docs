@@ -1,10 +1,12 @@
 //! Launch discovery is read-only. Providers and manual profiles produce one model.
-use hick_lang::{EntryKind, ProjectTree};
+use hick_lang::EntryKind;
+#[path = "launch_inventory.rs"]
+pub mod inventory;
+pub use inventory::{LaunchInputs, PhysicalSources, SourceInventory};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
 pub const CONFIG: &str = ".hick-launch.json";
-
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct Definition {
@@ -43,15 +45,13 @@ struct Config {
     version: u32,
     profiles: Vec<Definition>,
 }
-
 /// Each provider receives the same immutable project, without starting tools.
 pub trait Provider {
-    fn discover(&self, tree: &ProjectTree) -> Result<Vec<Profile>, String>;
+    fn discover(&self, tree: &dyn SourceInventory) -> Result<Vec<Profile>, String>;
 }
 pub struct Applications;
 pub struct PackageScripts;
 pub struct PythonTests;
-
 fn profile(
     id: String,
     name: String,
@@ -90,7 +90,7 @@ pub fn command_profile(
 ) -> Profile {
     profile(id, name, None, command, cwd, origin)
 }
-fn text<'a>(tree: &'a ProjectTree, path: &str) -> Option<&'a str> {
+fn text<'a>(tree: &'a dyn SourceInventory, path: &str) -> Option<&'a str> {
     let entry = tree.get(path)?;
     (entry.kind == EntryKind::File)
         .then(|| std::str::from_utf8(&entry.bytes).ok())
@@ -98,7 +98,7 @@ fn text<'a>(tree: &'a ProjectTree, path: &str) -> Option<&'a str> {
 }
 /// Conservative syntax-shaped discovery, not a claim about call-graph reachability.
 impl Provider for Applications {
-    fn discover(&self, tree: &ProjectTree) -> Result<Vec<Profile>, String> {
+    fn discover(&self, tree: &dyn SourceInventory) -> Result<Vec<Profile>, String> {
         let mut found = vec![];
         for path in tree.entries().keys() {
             let Some(source) = text(tree, path) else {
@@ -171,7 +171,7 @@ impl Provider for Applications {
     }
 }
 impl Provider for PackageScripts {
-    fn discover(&self, tree: &ProjectTree) -> Result<Vec<Profile>, String> {
+    fn discover(&self, tree: &dyn SourceInventory) -> Result<Vec<Profile>, String> {
         let mut found = vec![];
         for path in tree
             .entries()
@@ -201,7 +201,7 @@ impl Provider for PackageScripts {
     }
 }
 impl Provider for PythonTests {
-    fn discover(&self, tree: &ProjectTree) -> Result<Vec<Profile>, String> {
+    fn discover(&self, tree: &dyn SourceInventory) -> Result<Vec<Profile>, String> {
         let mut found = vec![];
         for path in tree.entries().keys().filter(|p| p.ends_with(".py")) {
             let Some(source) = text(tree, path) else {
@@ -237,9 +237,8 @@ impl Provider for PythonTests {
         Ok(found)
     }
 }
-
 pub fn discover_with(
-    tree: &ProjectTree,
+    tree: &dyn SourceInventory,
     providers: &[&dyn Provider],
 ) -> Result<Vec<Profile>, String> {
     let mut found = BTreeMap::new();
@@ -291,10 +290,10 @@ pub fn discover_with(
     }
     Ok(result)
 }
-pub fn discover(tree: &ProjectTree) -> Result<Vec<Profile>, String> {
+pub fn discover(tree: &dyn SourceInventory) -> Result<Vec<Profile>, String> {
     discover_with(tree, &[&Applications, &PackageScripts, &PythonTests])
 }
-pub fn select(tree: &ProjectTree, id: Option<&str>) -> Result<Profile, String> {
+pub fn select(tree: &dyn SourceInventory, id: Option<&str>) -> Result<Profile, String> {
     let profiles = discover(tree)?;
     if let Some(id) = id {
         return profiles.into_iter().find(|p| p.definition.id == id).ok_or_else(|| format!("Launch profile {id} is absent from this project version. Choose another profile."));
@@ -311,7 +310,7 @@ pub fn select(tree: &ProjectTree, id: Option<&str>) -> Result<Profile, String> {
         profiles.len()
     ))
 }
-fn validate(p: &Definition, tree: &ProjectTree, origin: &str) -> Result<(), String> {
+fn validate(p: &Definition, tree: &dyn SourceInventory, origin: &str) -> Result<(), String> {
     let fail = |message: &str| format!("Launch profile {} from {origin}: {message}", p.id);
     if p.id.trim().is_empty() || p.name.trim().is_empty() {
         return Err(fail("id and name cannot be empty"));
@@ -320,7 +319,7 @@ fn validate(p: &Definition, tree: &ProjectTree, origin: &str) -> Result<(), Stri
         return Err(fail("specify exactly one of program or command"));
     }
     if let Some(path) = &p.program {
-        hick_lang::validate_project_path(path).map_err(|e| fail(&e))?;
+        tree.validate_path(path).map_err(|e| fail(&e))?;
         if tree.get(path).is_none_or(|e| e.kind != EntryKind::File) {
             return Err(fail(
                 "program must name a regular file in this project version",
@@ -328,10 +327,10 @@ fn validate(p: &Definition, tree: &ProjectTree, origin: &str) -> Result<(), Stri
         }
     }
     if let Some(path) = &p.artifact {
-        hick_lang::validate_project_path(path).map_err(|e| fail(&e))?;
+        tree.validate_path(path).map_err(|e| fail(&e))?;
     }
     if p.cwd != "." {
-        hick_lang::validate_project_path(&p.cwd).map_err(|e| fail(&e))?;
+        tree.validate_path(&p.cwd).map_err(|e| fail(&e))?;
     }
     if p.command.first().is_some_and(|s| s.is_empty())
         || p.build.first().is_some_and(|s| s.is_empty())
@@ -356,7 +355,6 @@ fn validate(p: &Definition, tree: &ProjectTree, origin: &str) -> Result<(), Stri
     }
     Ok(())
 }
-
 impl Profile {
     pub fn run_argv(&self, root: &std::path::Path) -> Result<Vec<String>, String> {
         let d = &self.definition;

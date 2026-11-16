@@ -9,9 +9,10 @@ export class Buffer {
   completionNotice="";
   setCompletionNotice(value:string){if(this.completionNotice===value)return;this.completionNotice=value;this.publish();this.shellChanged();}
   version = 0;
+  sourceRevision=0;
   private listeners = new Set<() => void>();
   resourceDeleted = false;
-  constructor(public file: FileNode, content: string, hash: string, private shellChanged: () => void, readonly transient = false) {
+  constructor(public file: FileNode, content: string, hash: string, private shellChanged: () => void, readonly transient = false,public namespace = "") {
     this.text = this.base = content; this.hash = hash;
   }
   get dirty() { return this.text !== this.base; }
@@ -21,7 +22,7 @@ export class Buffer {
   publish() { this.version++; this.listeners.forEach(listener => listener()); }
   edit(text: string) {
     if (this.readonly) return;
-    const dirty = this.dirty; this.text = text; this.publish();
+    const dirty = this.dirty;if(this.text!==text)this.sourceRevision++; this.text = text; this.publish();
     if (dirty !== this.dirty) this.shellChanged();
   }
   async save() {
@@ -31,13 +32,17 @@ export class Buffer {
     try {
       if (this.file.doc_id) await api.saveDoc(this.file.doc_id, text, { source: base, disk: base });
       else this.hash = (await api.saveFile(this.file.path, text, hash)).hash;
-      this.base = text;
+      this.base = text;this.sourceRevision++;
     } catch (error) {
       this.error = `${String(error)} Your edits are retained. Copy them before closing; compare with the file on disk before retrying.`;
     } finally { this.saving = false; this.publish(); this.shellChanged(); }
   }
 }
 export class Buffers {
+  private namespace="";
+  get workspace(){return this.namespace;}
+  set workspace(value:string){const initial=!this.namespace;this.namespace=value;if(initial&&value)for(const buffer of this.values.values())if(!buffer.namespace){buffer.namespace=value;buffer.sourceRevision++;buffer.publish();}}
+
   values = new Map<string, Buffer>();
   retainedResources = new Map<string, Buffer>();
   private namespaceRevision = 0;
@@ -57,7 +62,7 @@ export class Buffers {
     const request = read.then(data => {
       if (revision !== this.namespaceRevision) throw new Error("Source addresses changed while opening. Choose the file again.");
       const available = this.values.get(file.path); if (available) return available;
-      const buffer = new Buffer(file, data.content, data.hash, this.changed);
+      const buffer = new Buffer(file, data.content, data.hash, this.changed,false,this.workspace);
       this.values.set(file.path, buffer); this.changed(); return buffer;
     }).finally(() => { if(this.pending.get(file.path)===request)this.pending.delete(file.path); });
     this.pending.set(file.path, request); return request;

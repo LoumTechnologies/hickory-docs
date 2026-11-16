@@ -2,7 +2,7 @@ import { act, cleanup, renderHook } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { publishPausedElsewhere, resetPausedElsewhere } from "../lib/pausedElsewhere";
 import { IDLE_SESSION } from "./useDebugger";
-import { isWorkspaceSource, resetPlainDebugHosts, useFollowingDebugSession, usePublishDebugSession } from "./plainDebugHosts";
+import { isWorkspaceSource,plainDebugOwner,hasActivePlainDebugSession,retirePlainDebugIdentity, resetPlainDebugHosts, useFollowingDebugSession, usePublishDebugSession } from "./plainDebugHosts";
 
 afterEach(()=>{cleanup();resetPlainDebugHosts();resetPausedElsewhere();});
 it("keeps execution controls in a callee while stepping and running, including document-owned sessions",()=>{
@@ -46,7 +46,7 @@ it("includes cleared file sets when collecting saved breakpoints for another lau
     return useFollowingDebugSession("app.py");
   });
   act(()=>hook.result.current?.start());
-  expect(start).toHaveBeenCalledWith(undefined,{"hick:///helpers.py":[]},undefined,undefined);
+  expect(start).toHaveBeenCalledWith(undefined,{"hick:///helpers.py":[]},undefined,undefined,{});
 });
 
 // Guarantee: docs/guarantees/debugging/launch-profiles-choose-targets-within-the-viewed-project.md
@@ -67,9 +67,20 @@ it("carries standing library breakpoints into a different compatible capture and
   try {
     act(()=>rememberBreakpointPreferences(key,[{line:1,state:"pending",condition:"x > 0"}]));
     act(()=>hook.result.current?.start(undefined,{},undefined,{id:"app",fingerprint:"f"}));
-    expect(start).toHaveBeenLastCalledWith(undefined,{[`${second.uri}library.py`]:[{line:1,state:"pending",condition:"x > 0",hit_condition:undefined,log_message:undefined}]},undefined,{id:"app",fingerprint:"f"});
+    expect(start).toHaveBeenLastCalledWith(undefined,{[`${second.uri}library.py`]:[{line:1,state:"pending",condition:"x > 0",hit_condition:undefined,log_message:undefined}]},undefined,{id:"app",fingerprint:"f"},{});
     act(()=>rememberBreakpointPreferences(key,[]));
     act(()=>hook.result.current?.start());
-    expect(start).toHaveBeenLastCalledWith(undefined,{[`${second.uri}library.py`]:[]},undefined,undefined);
+    expect(start).toHaveBeenLastCalledWith(undefined,{[`${second.uri}library.py`]:[]},undefined,undefined,{});
   } finally {hook.unmount();first.release();second.release();spy.mockRestore();}
+});
+
+it("pins active launches to retained buffer identity through moves, swaps and reused spellings",()=>{
+ const first={},second={},fresh={},stop=vi.fn(),foreignStop=vi.fn(),frame={id:0,name:"main",source:"old.py",line:1,source_line:1,in_document:true,source_hash:"a".repeat(64)};
+ const a=plainDebugOwner("old.py",first),b=plainDebugOwner("other.py",second);const debug={...IDLE_SESSION,status:"paused" as const,stop,frames:[frame],selectedFrame:0};
+ const foreign={...IDLE_SESSION,status:"running" as const,stop:foreignStop};
+ const hook=renderHook(({path,other,session})=>{usePublishDebugSession(a.id,session);usePublishDebugSession(b.id,foreign);return [useFollowingDebugSession(path,undefined,first),useFollowingDebugSession(other,undefined,second)];},{initialProps:{path:"old.py",other:"other.py",session:debug as typeof IDLE_SESSION}});
+ hook.rerender({path:"other.py",other:"old.py",session:debug});expect(plainDebugOwner("other.py",first)).toBe(a);expect(plainDebugOwner("old.py",second)).toBe(b);expect(hook.result.current[0]?.frames[0]).toBe(frame);expect(frame.source).toBe("old.py");
+ act(()=>publishPausedElsewhere(b.id,{path:"other.py",line:99}));hook.result.current[0]?.stop();expect(stop).toHaveBeenCalledOnce();expect(foreignStop).not.toHaveBeenCalled();
+ const reused=plainDebugOwner("old.py",fresh);expect(reused.id).not.toBe(a.id);expect(reused.id).not.toBe(b.id);expect(hasActivePlainDebugSession(first)).toBe(true);expect(retirePlainDebugIdentity(first)).toBe(false);
+ hook.rerender({path:"other.py",other:"old.py",session:{...debug,status:"finished"}});expect(plainDebugOwner("other.py",first).id).not.toBe(a.id);expect(hasActivePlainDebugSession(first)).toBe(false);expect(retirePlainDebugIdentity(first)).toBe(true);expect(plainDebugOwner("old.py",first).id).not.toBe(a.id);
 });

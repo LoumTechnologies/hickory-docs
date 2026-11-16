@@ -264,7 +264,7 @@ export interface DebugStripProps {
   editorView?: EditorView | null;
   /** Zero-based line in the displayed editor. */
   pausedLine?: number | null;
-  status: "idle" | "starting" | "paused" | "running" | "finished" | "failed";
+  status: "idle" | "starting" | "paused" | "running" | "unconfirmed" | "stopping" | "finished" | "failed";
   /** Which generated file this session is running. */
   program?: string | null;
   launchTarget?: string | null;
@@ -276,6 +276,15 @@ export interface DebugStripProps {
   capabilities: DebugCapabilities | null;
   frames: Frame[];
   variables?:Variable[];
+  variableRoots?:import('./DebugValueTree').DebugValueNode[];
+  valueNode?:(id:string)=>import('./DebugValueTree').DebugValueNode|null;
+  valueHistory?:string[];valueNotice?:string|null;
+  expandValue?:(id:string)=>void;collapseValue?:(id:string)=>void;closeValues?:()=>void;
+  refreshState?:()=>void;positionSourceBound?:boolean;
+  launchNotices?:string[];
+  breakpointNotice?:string|null;
+  breakpointIntentions?:{source:string;marks:import('./client').DebugBreakpoint[];namespace:string|null}[];
+  onRunTo?:(line:number)=>void;onJumpTo?:(line:number)=>void;
   threads?:import("./client").DebugThread[];
   selectedThread?:number|null;
   threadStop?:number|null;
@@ -327,6 +336,8 @@ const STATUS_WORD: Record<DebugStripProps["status"], string> = {
   idle: "",
   starting: "starting…",
   running: "running…",
+  unconfirmed:"unconfirmed · stop observation unavailable",
+  stopping:"stopping…",
   paused: "paused",
   finished: "finished",
   failed: "failed",
@@ -360,11 +371,16 @@ export function statusWord(status: DebugStripProps["status"], exitCode?: number 
 Thread inspection lives inside the existing floating Debug options menu. It adds no gutter slot or content-space reservation. The selector shows only the admitted current list, keeps the confirmed selection while a request is pending, and explicitly distinguishes an unavailable stop identity from an unread or failed provider capability.
 
 <storycode:copy id="f-09306f4ec1a5-DebugStrip">
+function DebugValueRow({node,read,expand,collapse}:{node:import('./DebugValueTree').DebugValueNode;read?:DebugStripProps['valueNode'];expand?:DebugStripProps['expandValue'];collapse?:DebugStripProps['collapseValue']}){
+ return <div style={{marginLeft:node.depth?8:0}} data-debug-value-node={node.id}><code>{node.name} = {node.value.slice(0,4096)}{node.type?` · ${node.type}`:''}</code>{node.value.length>4096&&<small> Value abbreviated; debugger detail reading retains the reported value.</small>}{node.reference>0&&<button type="button" aria-label={`${node.expanded?'Collapse':'Expand'} value ${node.name}`} disabled={!!node.pending||!(node.expanded?collapse:expand)} onClick={()=>node.expanded?collapse?.(node.id):expand?.(node.id)}>{node.expanded?'−':'+'}</button>}{node.pending&&<p role="status">Reading children…</p>}{node.error&&<><p role="status">{node.error}</p><button type="button" onClick={()=>expand?.(node.id)}>Retry children of {node.name}</button></>}{node.expanded&&node.children?.length===0&&<p>No children reported.</p>}{node.expanded&&node.children?.map(id=>{const child=read?.(id);return child?<DebugValueRow key={id} node={child} read={read} expand={node.pending?undefined:expand} collapse={collapse}/>:null;})}</div>;
+}
+
 export function DebugStrip(props: DebugStripProps) {
   const attemptedInstallations = useRef(new Set<string>());
   useEffect(() => {
     if (["idle", "paused", "running", "finished"].includes(props.status)) attemptedInstallations.current.clear();
   }, [props.status]);
+  const [targetLine,setTargetLine]=useState("1");
   const paused = props.status === "paused",selectedSourceFrame=props.frames.find(frame=>frame.id===props.selectedFrame);
   // A terminal state: the session no longer exists, and the strip's job is
   // to say how it ended and offer the way back in.
@@ -375,7 +391,7 @@ export function DebugStrip(props: DebugStripProps) {
   // The keys the tooltips promise. Bound only while a step can act, so the
   // browser keeps its own F5 the rest of the time.
   useEffect(() => {
-    if (!["paused", "running", "starting"].includes(status)) return;
+    if (!["paused", "running", "starting","unconfirmed","stopping"].includes(status)) return;
     const onKey = (event: KeyboardEvent) => {
       if (event.defaultPrevented || (props.editorView && !debugViewFocused(props.editorView))) return;
       if (isAction(event, "debug.stop")) { event.preventDefault(); props.onStop(); return; }
@@ -493,7 +509,7 @@ export function DebugStrip(props: DebugStripProps) {
       {props.locationActions}
       {/* The stack, as a combo box: pick a frame, and the gutter marks, the
           paused line and the inline values follow it. */}
-      <MoreActions glyph="⚙" label="Debug options">
+      <MoreActions glyph="⚙" label="Debug options" retainOnAction onOpenChange={open=>{if(!open)props.closeValues?.();}}>
       <span>{props.launchTarget ?? props.program ?? ""} · {statusWord(props.status, props.exitCode)}</span>
       {!over && <>
       {paused&&props.frames.length>0&&<p>{(selectedSourceFrame?.source_reference??0)>0?"The adapter owns this frame source; workspace text is not its source bytes.":selectedSourceFrame?.source_hash?"Source identities come from captured mappings and are checked before navigation; they do not prove the executed runtime revision.":"Frame source identity is unbound; locations open readable text without a precise source position."}</p>}
@@ -501,8 +517,13 @@ export function DebugStrip(props: DebugStripProps) {
         <p role="status">{props.threadMessage??(props.threadPending?'Reading adapter threads…':props.threadStop==null?'Current stop identity unavailable; thread selection is not supported by this connection.':props.threads?.length?'Adapter-reported threads at this pause. A reported thread may still be running.':'No thread list requested at this pause.')}</p>
         {!!props.threads?.length&&<label>Thread <select aria-label="Debugger thread" value={props.selectedThread??''} disabled={props.threadPending||!props.selectThread} onChange={event=>props.selectThread?.(Number(event.target.value))}>{props.threads.map(thread=><option key={thread.id} value={thread.id}>{thread.name} · {thread.id}</option>)}</select></label>}
       </section>}
+      {props.status==='unconfirmed'&&<button type="button" onClick={props.refreshState} disabled={!props.refreshState}>Read current stop</button>}
+      {props.breakpointNotice&&<p role="status">{props.breakpointNotice}</p>}
+      {!!props.breakpointIntentions?.some(intent=>intent.marks.length)&&<details><summary>Retained breakpoint intentions</summary><pre>{props.breakpointIntentions.map(intent=>`${intent.source} · ${intent.namespace??'namespace unconfirmed'}\n${intent.marks.map(mark=>`  line ${mark.line+1}${mark.condition?` if ${mark.condition}`:''}${mark.hit_condition?` hit ${mark.hit_condition}`:''}${mark.log_message?` log ${mark.log_message}`:''}`).join('\n')}`).join('\n')}</pre></details>}
+      {paused&&(props.capabilities?.run_to||props.capabilities?.goto_targets)&&<section aria-label="Positional debugger movement"><label>Target line <input aria-label="Debugger target line" type="number" min="1" value={targetLine} onChange={event=>setTargetLine(event.target.value)}/></label>{props.capabilities?.run_to&&<button type="button" disabled={!props.onRunTo||!props.capabilities?.run_to||props.threadSelecting||!props.positionSourceBound||!selectedSourceFrame?.in_document||!Number.isSafeInteger(Number(targetLine))||Number(targetLine)<1} onClick={()=>props.onRunTo?.(Number(targetLine)-1)}>Run to line</button>}{props.capabilities?.goto_targets&&<button type="button" disabled={!props.onJumpTo||!props.capabilities?.goto_targets||props.threadSelecting||!props.positionSourceBound||!selectedSourceFrame?.in_document||!Number.isSafeInteger(Number(targetLine))||Number(targetLine)<1} onClick={()=>props.onJumpTo?.(Number(targetLine)-1)}>Move instruction pointer to line</button>}</section>}
+      {!!props.launchNotices?.length&&<section aria-label="Launch source notices"><strong>Source inventory notices</strong>{props.launchNotices.map((notice,index)=><p key={index} role="status">{notice}</p>)}</section>}
       {props.stackMessage&&<p role="status">Stack read unavailable: {props.stackMessage}</p>}{props.frameVariablesMessage&&<p role="status">Frame locals unavailable: {props.frameVariablesMessage}</p>}{props.frameVariablesPending&&<p role="status">Reading selected-frame locals…</p>}
-      {!!props.stackMessage&&!!props.historicalFrames?.length&&<details><summary>Previous reported stack · historical, not navigable</summary><pre>{props.historicalFrames.map(frameLabel).join("\n")}</pre></details>}
+      {(!paused||!!props.stackMessage)&&!!props.historicalFrames?.length&&<details><summary>Previous reported stack · historical, not navigable</summary><pre>{props.historicalFrames.map(frameLabel).join("\n")}</pre></details>}
       {props.frames.length > 0 && (
         <select
           className="debug-strip__stack"
@@ -518,7 +539,10 @@ export function DebugStrip(props: DebugStripProps) {
           ))}
         </select>
       )}
-      {paused&&!props.threadSelecting&&!props.stackMessage&&!props.frameVariablesPending&&!props.frameVariablesMessage&&props.variables!==undefined&&(props.selectedFrame===props.frames[0]?.id||props.capabilities?.frame_locals)&&<section aria-label="Selected-frame locals"><strong>Selected-frame locals</strong>{props.variables.length?<pre>{props.variables.slice(0,512).map(variable=>{const type=variable.type_name??variable.type;return `${variable.name} = ${variable.value}${type?` · ${type}`:''}`;}).join('\n')}</pre>:<p>No variables reported for this frame.</p>}{props.variables.length>512&&<p>Showing the first 512 of {props.variables.length} reported variables.</p>}</section>}
+      {paused&&!props.threadSelecting&&!props.stackMessage&&!props.frameVariablesPending&&!props.frameVariablesMessage&&props.variableRoots===undefined&&props.variables!==undefined&&(props.selectedFrame===props.frames[0]?.id||props.capabilities?.frame_locals)&&<section aria-label="Selected-frame locals"><strong>Selected-frame locals</strong>{props.variables.length?<pre>{props.variables.slice(0,512).map(variable=>{const type=variable.type_name??variable.type;return `${variable.name} = ${variable.value}${type?` · ${type}`:''}`;}).join('\n')}</pre>:<p>No variables reported for this frame.</p>}{props.variables.length>512&&<p>Showing the first 512 of {props.variables.length} reported variables.</p>}</section>}
+      {props.valueNotice&&<p role="status">{props.valueNotice}</p>}
+      {paused&&!props.threadSelecting&&props.variableRoots!==undefined&&<section aria-label="Selected-frame values">{props.variableRoots.length?props.variableRoots.map(node=><DebugValueRow key={node.id} node={node} read={props.valueNode} expand={props.expandValue} collapse={props.collapseValue}/>):<p>{props.frameVariablesPending?'Reading selected-frame locals…':props.frameVariablesMessage?'Selected-frame values unavailable.':'No values reported for this frame.'}</p>}</section>}
+      {!!props.valueHistory?.length&&<details><summary>Previous values · historical</summary><pre>{props.valueHistory.join('\n')}</pre></details>}
       {paused&&props.frames.length>0&&props.selectedFrame!==props.frames[0]?.id&&!props.capabilities?.frame_locals&&<p>Local variables are not reported for this frame; use an explicit watch or expression.</p>}
       {/* The adapter's OWN exception filters. Never a list written here:
           Python offers "raised" and "uncaught", a JVM offers caught and
@@ -1099,6 +1123,7 @@ it("reads complete selected-frame locals only while current, distinguishing pend
  rendered.rerender(<DebugStrip {...base({variables:[]})}/>);expect(locals()?.textContent).toContain("No variables reported");
  rendered.rerender(<DebugStrip {...base({variables,status:"running"})}/>);expect(locals()).toBeNull();
 });
+it('keeps automatic launch inventory notices readable in the existing floating options',()=>{const rendered=render(<DebugStrip {...base({launchNotices:['Unreadable source remains unsupported.']})}/>);try{const options=rendered.container.querySelector('[aria-label="Debug options"]')!;fireEvent.click(options);expect(rendered.container.querySelector('[aria-label="Launch source notices"]')?.textContent).toContain('Unreadable source remains unsupported.');}finally{rendered.unmount();}});
 </storycode:copy>
 
 ### Assemble `apps/web/src/debug/DebugStrip.test.tsx`

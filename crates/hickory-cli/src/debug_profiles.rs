@@ -1,7 +1,7 @@
 //! Resolve a profile independently from the source whose breakpoints are primary.
 use super::*;
-use crate::launch_profiles::{self, Profile};
-use hick_lang::{ProjectEntry, ProjectTree};
+use crate::launch_profiles::{self, LaunchInputs, PhysicalSources, Profile};
+use hick_lang::ProjectEntry;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tokio::io::{AsyncBufReadExt, BufReader};
@@ -12,9 +12,8 @@ pub struct ProfileSelection {
     pub id: String,
     pub fingerprint: String,
 }
-
 pub struct LaunchContext {
-    pub tree: ProjectTree,
+    pub inputs: LaunchInputs,
     pub root: PathBuf,
     pub viewed: String,
     identity: Identity,
@@ -25,9 +24,16 @@ enum Identity {
     Plain(PathBuf),
 }
 impl LaunchContext {
+    pub fn notices(&self) -> &[String] {
+        self.inputs.inventory().notices()
+    }
     pub fn fingerprint(&self) -> String {
         let mut h = Sha256::new();
-        for (path, entry) in self.tree.entries() {
+        h.update(match &self.inputs {
+            LaunchInputs::Workspace(_) => b"physical".as_slice(),
+            LaunchInputs::Constructed(_) => b"constructed".as_slice(),
+        });
+        for (path, entry) in self.inputs.inventory().entries() {
             h.update((path.len() as u64).to_le_bytes());
             h.update(path.as_bytes());
             h.update((entry.bytes.len() as u64).to_le_bytes());
@@ -49,7 +55,8 @@ impl LaunchContext {
     pub fn check_expected(&self, code: Option<&str>, document: Option<&str>) -> Result<()> {
         if let Some(code) = code {
             anyhow::ensure!(
-                self.tree
+                self.inputs
+                    .inventory()
                     .get(&self.viewed)
                     .is_some_and(|e| e.bytes.as_ref() == code.as_bytes()),
                 "The saved file differs from the displayed code. Save or reload it before choosing a launch profile."
@@ -64,30 +71,50 @@ impl LaunchContext {
         Ok(())
     }
     pub fn profiles(&self) -> Result<Vec<Profile>> {
-        launch_profiles::discover(&self.tree).map_err(anyhow::Error::msg)
+        launch_profiles::discover(self.inputs.inventory()).map_err(anyhow::Error::msg)
     }
     pub fn selected(&self, selection: &ProfileSelection) -> Result<Profile> {
         anyhow::ensure!(
             self.fingerprint() == selection.fingerprint,
             "The project changed after choosing a launch profile. Open Launch profiles and choose again."
         );
-        launch_profiles::select(&self.tree, Some(&selection.id)).map_err(anyhow::Error::msg)
+        launch_profiles::select(self.inputs.inventory(), Some(&selection.id))
+            .map_err(anyhow::Error::msg)
     }
     pub fn prepare(&self) -> Result<(PathBuf, Option<tempfile::TempDir>)> {
         if matches!(self.identity, Identity::Plain(_)) {
             return Ok((self.root.clone(), None));
         }
         let scratch = tempfile::tempdir()?;
-        hick_lsp::write_tree(scratch.path(), &self.tree).map_err(anyhow::Error::msg)?;
+        let tree = self
+            .inputs
+            .project()
+            .context("Launch inputs are not a constructed project")?;
+        hick_lsp::write_tree(scratch.path(), tree).map_err(anyhow::Error::msg)?;
         Ok((scratch.path().to_path_buf(), Some(scratch)))
     }
     fn mapping(&self, root: &Path) -> Result<Mapping> {
         match &self.identity {
-            Identity::Captured(id) => Mapping::captured(&self.tree, root, id, &self.viewed),
+            Identity::Captured(id) => Mapping::captured(
+                self.inputs
+                    .project()
+                    .context("Captured launch has no constructed project")?,
+                root,
+                id,
+                &self.viewed,
+            ),
             Identity::Document(path, state, raw_source) => {
                 Ok(Mapping::for_state(path, state, root)?.with_observation_source(raw_source))
             }
-            Identity::Plain(path) => Ok(Mapping::identity(path)),
+            Identity::Plain(path) => Ok(Mapping::identity(path).with_plain_sources(
+                root,
+                self.inputs
+                    .inventory()
+                    .entries()
+                    .iter()
+                    .filter(|(_, entry)| entry.kind == hick_lang::EntryKind::File)
+                    .map(|(path, entry)| (path.as_str(), entry.bytes.as_ref())),
+            )),
         }
     }
 }
@@ -105,19 +132,13 @@ impl Registry {
                 .get(&tower_lsp::lsp_types::Url::parse(uri)?)
                 .map_err(anyhow::Error::msg)?;
             return Ok(LaunchContext {
-                tree: capture.tree.clone(),
+                inputs: LaunchInputs::Constructed(capture.tree.clone()),
                 root: root.into(),
                 viewed: path,
                 identity: Identity::Captured(id),
             });
         }
-        let relative = uri.strip_prefix("hick:///").unwrap_or(uri);
-        hick_lang::validate_project_path(relative).map_err(anyhow::Error::msg)?;
-        let path = root.join(relative).canonicalize()?;
-        anyhow::ensure!(
-            path.starts_with(root.canonicalize()?),
-            "Launch source is outside the open folder. Choose a file inside this workspace."
-        );
+        let path = source_document(root, uri)?;
         if is_document(&path) {
             let source = std::fs::read_to_string(&path)?;
             let endpoint =
@@ -153,7 +174,7 @@ impl Registry {
                     .into()
             };
             return Ok(LaunchContext {
-                tree,
+                inputs: LaunchInputs::Constructed(tree),
                 root: path.parent().unwrap_or(root).into(),
                 viewed: target,
                 identity: Identity::Document(path, Box::new(state), source),
@@ -161,24 +182,40 @@ impl Registry {
         }
         // Workspace discovery respects gitignore, never follows directory symlinks,
         // and reads source/manifests only. It does not materialize a second workspace.
-        let mut tree = ProjectTree::default();
+        let mut tree = PhysicalSources::default();
         for item in ignore::WalkBuilder::new(root)
             .hidden(false)
             .follow_links(false)
             .build()
         {
-            let item = item?;
+            let item = match item {
+                Ok(item) => item,
+                Err(error) => {
+                    tree.skip(format!("Some launch inputs could not be observed: {error}"));
+                    continue;
+                }
+            };
             if !item.file_type().is_some_and(|t| t.is_file()) {
                 continue;
             }
-            let relative = item
-                .path()
-                .strip_prefix(root)?
-                .to_string_lossy()
-                .replace('\\', "/");
-            let relevant = [".py", ".js", ".mjs", ".cjs", ".rs", ".go", ".cs", ".csproj"]
-                .iter()
-                .any(|e| relative.ends_with(e))
+            let relative_path = item.path().strip_prefix(root)?;
+            let Some(relative) = relative_path.to_str() else {
+                tree.skip(format!(
+                    "Skipped a non-UTF-8 physical source name: {:?}",
+                    relative_path
+                ));
+                continue;
+            };
+            #[cfg(windows)]
+            let relative = relative.replace('\\', "/");
+            if let Err(error) = launch_profiles::inventory::validate_workspace_path(&relative) {
+                tree.skip(error);
+                continue;
+            }
+            let relevant = hick_dap::language_of(std::path::Path::new(&relative)).is_some()
+                || [".py", ".js", ".mjs", ".cjs", ".rs", ".go", ".cs", ".csproj"]
+                    .iter()
+                    .any(|e| relative.ends_with(e))
                 || [
                     launch_profiles::CONFIG,
                     "package.json",
@@ -189,8 +226,17 @@ impl Registry {
                 ]
                 .contains(&item.file_name().to_string_lossy().as_ref());
             if relevant {
-                tree.insert(&relative, ProjectEntry::file(std::fs::read(item.path())?))
-                    .map_err(anyhow::Error::msg)?;
+                match std::fs::read(item.path()) {
+                    Ok(bytes) => {
+                        tree.insert(&relative, ProjectEntry::file(bytes))
+                            .map_err(anyhow::Error::msg)?;
+                    }
+                    Err(error) => {
+                        tree.skip(format!(
+                            "Source {relative:?} was not captured for launch discovery: {error}"
+                        ));
+                    }
+                }
             }
         }
         // Hidden config remains available even if the user's ignore rules hide it.
@@ -209,12 +255,15 @@ impl Registry {
         }
         let viewed = path
             .strip_prefix(root.canonicalize()?)?
-            .to_string_lossy()
-            .replace('\\', "/");
+            .to_str()
+            .ok_or_else(|| anyhow::anyhow!("The viewed source name is not UTF-8"))?
+            .to_owned();
+        #[cfg(windows)]
+        let viewed = viewed.replace('\\', "/");
         tree.insert(&viewed, ProjectEntry::file(std::fs::read(&path)?))
             .map_err(anyhow::Error::msg)?;
         Ok(LaunchContext {
-            tree,
+            inputs: LaunchInputs::Workspace(tree),
             root: root.into(),
             viewed,
             identity: Identity::Plain(path),
@@ -229,6 +278,7 @@ impl Registry {
         sources: &[hick_dap::SourceBreakpoints],
         on_build: &mut (dyn FnMut(BuildOutput) + Send),
     ) -> Result<(String, Arc<Live>, Vec<BreakpointStatus>)> {
+        self.ensure_session_namespace()?;
         let profile = context.selected(selection)?;
         anyhow::ensure!(
             profile.can_debug,
@@ -290,10 +340,58 @@ impl Registry {
             sources,
         )
         .await?;
-        Ok(self.register(session, scratch, statuses).await)
+        self.register(session, scratch, statuses).await
     }
 }
-
+pub(crate) fn source_document(root: &Path, source: &str) -> Result<PathBuf> {
+    if source.starts_with("hick-project:///") {
+        return Ok(PathBuf::from(source));
+    }
+    let relative = if let Some(encoded) = source.strip_prefix("hick:///") {
+        anyhow::ensure!(
+            !encoded.contains(['?', '#']),
+            "Encode literal query/fragment characters in the source URI, then request Debug again."
+        );
+        let input = encoded.as_bytes();
+        let mut bytes = Vec::with_capacity(input.len());
+        let mut at = 0;
+        while at < input.len() {
+            if input[at] == b'%' {
+                let digits = input.get(at + 1..at + 3).context(
+                    "Malformed source URI escape. Encode its literal percent signs and try again.",
+                )?;
+                let hex = |b: u8| (b as char).to_digit(16).map(|n| n as u8);
+                let byte = hex(digits[0]).zip(hex(digits[1])).map(|(a,b)|a*16+b).context("Malformed source URI escape. Encode its literal percent signs and try again.")?;
+                bytes.push(byte);
+                at += 3;
+            } else {
+                bytes.push(input[at]);
+                at += 1;
+            }
+        }
+        String::from_utf8(bytes)
+            .context("Source URI is not valid UTF-8. Choose a workspace source again.")?
+    } else {
+        source.to_owned()
+    };
+    launch_profiles::inventory::validate_workspace_path(&relative).map_err(anyhow::Error::msg)?;
+    let path = root.join(&relative).canonicalize().with_context(|| {
+        format!("Cannot resolve source {relative}. Save or reopen it before Debug.")
+    })?;
+    anyhow::ensure!(
+        path.to_str().is_some(),
+        "The adapter cannot represent this exact source path as UTF-8. Choose a supported source path."
+    );
+    anyhow::ensure!(
+        path.starts_with(root.canonicalize()?),
+        "Debug source is outside the open folder. Choose a workspace source."
+    );
+    anyhow::ensure!(
+        std::fs::symlink_metadata(&path)?.is_file(),
+        "Debug source must be a regular file. Choose a source file."
+    );
+    Ok(path)
+}
 pub(crate) fn safe_cwd(root: &Path, relative: &str) -> Result<PathBuf> {
     let path = root.join(relative).canonicalize().with_context(|| {
         format!(

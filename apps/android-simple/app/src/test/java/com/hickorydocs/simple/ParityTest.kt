@@ -709,24 +709,108 @@ class ParityTest {
 }
 class NativeDebugTest {
     private fun file() = FileNode("main.py", "main.py", false, emptyList(), null, null)
-    private suspend fun threadDebugger(protocol:Any?=2,adopt:Boolean=true,block:suspend(NativeDebugger,MutableList<JSONObject>)->Unit)=kotlinx.coroutines.coroutineScope{
+    private suspend fun threadDebugger(protocol:Any?=3,adopt:Boolean=true,notices:Any?=null,block:suspend(NativeDebugger,MutableList<JSONObject>)->Unit)=kotlinx.coroutines.coroutineScope{
         val listener=com.sun.net.httpserver.HttpServer.create(java.net.InetSocketAddress("127.0.0.1",0),0)
-        listener.createContext("/api/launch-profiles"){exchange->val payload=JSONObject("""{"profiles":[{"id":"python","name":"Python","can_debug":true,"program":"main.py"}],"fingerprint":"current"}""");if(protocol!=null)payload.put("debug_protocol",protocol);val bytes=payload.toString().toByteArray();exchange.sendResponseHeaders(200,bytes.size.toLong());exchange.responseBody.use{it.write(bytes)}};listener.start()
+        listener.createContext("/api/launch-profiles"){exchange->val payload=JSONObject("""{"profiles":[{"id":"python","name":"Python","can_debug":true,"program":"main.py"}],"fingerprint":"current"}""");if(protocol!=null)payload.put("debug_protocol",protocol);if(notices!=null)payload.put("notices",notices);val bytes=payload.toString().toByteArray();exchange.sendResponseHeaders(200,bytes.size.toLong());exchange.responseBody.use{it.write(bytes)}};listener.start()
         val debug=NativeDebugger(Engine("http://127.0.0.1:${listener.address.port}"),this);val requests=mutableListOf<JSONObject>();debug.emitForTest={requests.add(it)}
-        try{debug.prepare(DocumentBuffer(file(),FileText("value = 1\n","saved")));if(adopt)debug.receive(JSONObject("""{"event":"started","doc":"hick:///main.py","session":"ours","breakpoints":[],"capabilities":{"frame_locals":true}}""").put("request_id",requests.last().getString("request_id")));block(debug,requests)}finally{debug.close();listener.stop(0)}
+        try{debug.prepare(DocumentBuffer(file(),FileText("value = 1\n","saved")));if(adopt)debug.receive(JSONObject("""{"event":"started","doc":"hick:///main.py","session":"ours","breakpoints":[],"capabilities":{"frame_locals":true}}""").put("request_id",requests.last().getString("request_id")).put("source_hash",requests.last().getString("source_hash")));block(debug,requests)}finally{debug.close();listener.stop(0)}
     }
     private fun threadStop(stop:Long,thread:Long,frame:Long)=JSONObject("""{"event":"stopped","session":"ours","line":0,"frames":[{"name":"frame","source":"main.py","source_line":0}],"variables":[{"name":"value","value":"retained"}]}""").put("stop",stop).put("thread",thread).apply{getJSONArray("frames").getJSONObject(0).put("id",frame)}
     private fun threadReply(request:String,stop:Long,thread:Long)=JSONObject("""{"event":"threads","session":"ours","threads":[{"id":10,"name":"Main"},{"id":20,"name":"Worker"}]}""").put("stop",stop).put("selected",thread).put("request_id",request)
+    @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+    @Test fun resourceLineageRejectsIdenticalByteOccupantsAndRetainsExecutionEditor()=kotlinx.coroutines.runBlocking{
+        val background=kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob()+kotlinx.coroutines.Dispatchers.Unconfined)
+        try{threadDebugger{debug,requests->
+            val workspace=Workspace(background);workspace.engine=Engine("http://127.0.0.1:1");workspace.debugger=debug
+            val primary=debug.sourceEditor("main.py")!!;val text=primary.text;val peerFile=FileNode("peer.py","peer.py",false,emptyList(),null,null);val peer=DocumentBuffer(peerFile,FileText(text,"saved"));workspace.buffers["main.py"]=primary;workspace.buffers["peer.py"]=peer;workspace.rootFiles=listOf(file(),peerFile);workspace.show("main.py")
+            primary.state.edit{append("# prior edit\n")};primary.state.undoState.undo();primary.state.edit{selection=androidx.compose.ui.text.TextRange(2)};primary.sourceScroll.scrollTo(7);val state=primary.state;assertTrue(state.undoState.canRedo)
+            debug.receive(threadStop(1,10,7));workspace.revealDebug("main.py",0);val held=primary.debugRevealCurrent;assertTrue(held());assertTrue(debug.sourceMatches(primary));assertFalse(debug.sourceMatches(peer))
+            fun source(id:String)=ResourceSource(id,text)
+            fun adopt(patches:List<ResourceEditorPatch>,restoring:Map<String,DocumentBuffer> = emptyMap()){
+                val expected=patches.associate{patch->patch.path to (patch.after?.let{ResourceSaved("file",it.text,debugHash(it.text),false,false,null)} ?: ResourceSaved("missing"))}
+                val files=patches.mapNotNull{patch->patch.after?.let{ResourcePublishedFile(FileNode(patch.path,patch.path,false,emptyList(),null,null),expected.getValue(patch.path),"sha256:"+debugHash(it.text))}}
+                val receipt=ResourcePublication(1,"request","workspace","context",true,"record",patches.map{it.path},expected,files)
+                workspace.adoptResourceReceipt(patches,receipt,"request","workspace","context",expected,workspace.captureResourceEditors(patches,restoring),restoring)
+            }
+            adopt(listOf(ResourceEditorPatch("main.py",source("a"),source("b")),ResourceEditorPatch("peer.py",source("b"),source("a"))))
+            assertSame(primary,workspace.buffers["peer.py"]);assertSame(peer,workspace.buffers["main.py"]);assertFalse(held());assertFalse(debug.sourceMatches(primary));assertFalse(debug.sourceMatches(peer));assertTrue(debug.breakpointRows(peer).isEmpty())
+            workspace.revealDebug("main.py",0);assertSame(primary,workspace.currentBuffer);assertFalse(primary.debugRevealCurrent());assertTrue(workspace.status.contains("unbound"));val before=requests.size;debug.toggle(peer,0,"value == 1");debug.toggle(primary,0,"value == 1");assertEquals(before,requests.size)
+            assertSame(state,primary.state);assertEquals(2,state.selection.start);assertEquals(7,primary.sourceScroll.value);assertTrue(state.undoState.canRedo);assertEquals("main.py",debug.owner)
+            adopt(listOf(ResourceEditorPatch("main.py",source("b"),source("a")),ResourceEditorPatch("peer.py",source("a"),source("b"))));assertTrue(debug.sourceMatches(primary));assertFalse(debug.sourceMatches(peer))
+            adopt(listOf(ResourceEditorPatch("main.py",source("a"),null)));assertTrue(primary.resourceDeleted);assertFalse(debug.sourceMatches(primary));assertTrue(debug.hasInspection)
+            adopt(listOf(ResourceEditorPatch("main.py",null,source("c"))));val independent=workspace.buffers.getValue("main.py");assertNotSame(primary,independent);assertFalse(debug.sourceMatches(independent));debug.select(debug.frames.first());workspace.revealDebug("main.py",0);assertSame(primary,workspace.currentBuffer);assertFalse(primary.debugRevealCurrent());val current=requests.size;debug.toggle(independent,0,"value == 1");assertEquals(current,requests.size)
+            adopt(listOf(ResourceEditorPatch("main.py",source("c"),null)));adopt(listOf(ResourceEditorPatch("main.py",null,source("restored"))),mapOf("restored" to primary));assertSame(primary,workspace.buffers["main.py"]);assertTrue(debug.sourceMatches(primary));assertSame(state,primary.state);assertTrue(state.undoState.canRedo)
+            val helper=DocumentBuffer(FileNode("helper.py","helper.py",false,emptyList(),null,null),FileText(text,"saved"));debug.frames.first().put("source","helper.py").put("source_hash",debugHash(text));debug.rememberSource(helper);assertFalse(debug.sourceMatches(helper));assertTrue(debug.framesCurrent);assertEquals("paused",debug.status);debug.stop();assertEquals("stop",requests.last().getString("op"))
+        }}finally{background.coroutineContext[kotlinx.coroutines.Job]?.cancel()}
+    }
+    @Test fun catalogInputNoticesSurviveAutomaticLaunch()=kotlinx.coroutines.runBlocking{
+        threadDebugger(notices=org.json.JSONArray().put("Skipped unsupported physical input.")){debug,_->assertEquals("running",debug.status);assertEquals(listOf("Skipped unsupported physical input."),debug.catalogNotices)}
+        assertTrue(nativeCatalogNotices(JSONObject()).isEmpty());assertTrue(nativeCatalogNotices(JSONObject().put("notices",true)).single().contains("could not be read"));assertEquals(65,nativeCatalogNotices(JSONObject().put("notices",org.json.JSONArray((0..64).map{"notice"}))).size)
+    }
+    @Test fun incompletePauseNeverGrantsEvaluationOrMovementAuthority()=kotlinx.coroutines.runBlocking{
+        threadDebugger{debug,requests->
+            debug.receive(threadStop(1,10,100).apply{remove("stop")});assertFalse(debug.framesCurrent);assertNull(debug.line("main.py"));val count=requests.size;debug.evaluate("value");debug.step("over");assertEquals(count,requests.size)
+            debug.receive(JSONObject().put("event","value").put("session","ours").put("expression","value").put("value","unbound"));assertTrue(debug.values.isEmpty());debug.stop();assertEquals("stop",requests.last().getString("op"))
+        }
+    }
+    @Test fun recursiveValuesRejectReusedReferencesAndClosedInspectorReplies(){
+        val tree=NativeVariableTree();val scope=NativeDebugScope("session","5",-1,0);val token=tree.open()
+        fun rows()=listOf(JSONObject().put("name","root").put("value","dict").put("variables_reference",1))
+        fun reply(request:NativeVariableRequest,reference:Int=1,empty:Boolean=false)=scope.put(JSONObject().put("event","children").put("request_id",request.request).put("reference",reference).put("variables",org.json.JSONArray(if(empty)emptyList<JSONObject>() else listOf(JSONObject().put("name","nested").put("value","list").put("variables_reference",2)))))
+        tree.replace(scope,"locals",rows());val old=tree.groups.getValue("locals").single();val held=tree.expand(old,token)!!;assertNotNull(tree.expansions[old.id]!!.pending)
+        tree.replace(scope,"locals",rows());val current=tree.groups.getValue("locals").single();assertNotEquals(old.id,current.id);assertFalse(tree.admit(reply(held)));assertNull(tree.expand(old,token))
+        val request=tree.expand(current,token)!!;assertFalse(tree.admit(reply(request,9)));assertFalse(tree.admit(reply(request).put("frame",1)));assertTrue(tree.admit(reply(request)));val nested=tree.expansions[current.id]!!.children.single();val child=tree.expand(nested,token)!!
+        tree.collapse(current,token);assertFalse(tree.admit(reply(child,2)));assertNull(tree.expand(nested,token))
+        val empty=tree.expand(current,token)!!;assertTrue(tree.admit(reply(empty,empty=true)));assertEquals("No reported children.",tree.expansions[current.id]!!.message)
+        val failed=tree.expand(current,token)!!;assertTrue(tree.refuse(failed.request,"provider refused"));assertEquals("provider refused",tree.expansions[current.id]!!.message)
+        val closing=tree.expand(current,token)!!;tree.close(token);assertFalse(tree.admit(reply(closing)));val reopened=tree.open();assertNull(tree.expand(current,token));assertNotNull(tree.expand(current,reopened))
+        tree.replace(scope.copy(stop="6"),"locals",rows());assertNull(tree.expand(current,reopened));tree.clear();assertTrue(tree.groups.isEmpty())
+    }
+    @Test fun breakpointReceiptsRequireLatestSourceAndConditionIntent(){
+        val path="literal %2F λ?#.py";val uri=languageURI(path);assertEquals(path,SemanticLocation(uri,0,0).path);assertTrue(uri.contains("%252F"));assertTrue(uri.contains("%3F%23"))
+        val source=NativeSourceSnapshot("editor",path,"first\nsecond\n",true,true);val model=NativeBreakpointModel();val hash=debugHash(source.text)
+        val initial=model.toggle(source,0,"value > 0");model.stamp(source.identity,initial.revision,hash);model.request(source,"session","old")
+        val revised=model.toggle(source,0,"value > 1");model.stamp(source.identity,revised.revision,hash);model.request(source,"session","new")
+        fun receipt(vararg rows:JSONObject)=JSONObject().put("breakpoints",org.json.JSONArray(rows.toList()))
+        val bound=receipt(JSONObject().put("line",0).put("moved_to",1).put("state","bound"))
+        assertFalse(model.admit(source,bound,"session","old",hash));assertFalse(model.admit(source.copy(text="edited"),bound,"session","new",hash));assertFalse(model.admit(source.copy(saved=false),bound,"session","new",hash));assertTrue(model.rows(source.copy(text="edited"),"session",hash).isEmpty())
+        assertFalse(model.admit(source,receipt(JSONObject().put("line",1)),"session","new",hash));assertFalse(model.admit(source,receipt(JSONObject().put("line",0),JSONObject().put("line",0)),"session","new",hash));assertFalse(model.admit(source,receipt(JSONObject().put("line",0).put("moved_to",999)),"session","new",hash))
+        assertTrue(model.admit(source,bound,"session","new",hash));assertEquals("value > 1",model.rows(source,"session",hash).single().getString("condition"));assertEquals(1,model.rows(source,"session",hash).single().getInt("line"));assertFalse(model.admit(source,bound,"session","new",hash))
+        model.request(source,"session","refused");assertFalse(model.refuse("other","refused","wrong session"));assertFalse(model.refuse("session","old","held refusal"));assertTrue(model.refuse("session","refused","provider refused"));assertEquals("refused",model.rows(source,"session",hash).single().getString("state"));assertTrue(model.notice(source,"session",hash).contains("provider refused"));assertFalse(model.refuse("session","refused","duplicate"))
+        model.readdress(source.copy(path="renamed.py"));assertTrue(model.rows(source,"session",hash).isEmpty());assertTrue(model.receipts.isEmpty())
+    }
+    @Test fun breakpointFailureRetiresAllBoundAndPendingAuthorityWithoutLosingPause()=kotlinx.coroutines.runBlocking{
+        threadDebugger{debug,_->
+            debug.receive(threadStop(5,10,100));val frames=debug.frames;val model=debug.breakpointModel
+            val sources=(1..3).map{NativeSourceSnapshot("editor-$it","source-$it.py","value = 1\n",true,true)};val hash=debugHash(sources.first().text)
+            fun bound()=JSONObject().put("breakpoints",org.json.JSONArray().put(JSONObject().put("line",0).put("state","bound")))
+            for((index,source) in sources.withIndex()){val intent=model.toggle(source,0,"value == 1");model.stamp(source.identity,intent.revision,hash);model.request(source,"ours","bound-$index");assertTrue(model.admit(source,bound(),"ours","bound-$index",hash))}
+            val first=sources[0];val changed=model.toggle(first,0,"value == 2");model.stamp(first.identity,changed.revision,hash);model.request(first,"ours","failed-update");model.request(sources[1],"ours","held-other-source");assertEquals("bound",model.rows(sources[2],"ours",hash).single().getString("state"))
+            debug.receive(JSONObject().put("event","failed").put("session","ours").put("request_id","failed-update").put("message","Adapter rejected the replacement set"))
+            assertEquals("paused",debug.status);assertEquals("ours",debug.sessionID);assertSame(frames,debug.frames);assertTrue(debug.framesCurrent);assertEquals(3,model.intents.size);assertEquals("value == 2",model.intents.getValue(first.identity).marks.single().getString("condition"))
+            assertTrue(model.receipts.values.flatMap{it.marks}.none{it.optString("state")=="bound"});for(source in sources)assertTrue(model.notice(source,"ours",hash).contains("Adapter rejected"))
+            assertFalse(model.admit(sources[1],bound(),"ours","held-other-source",hash));assertFalse(model.admit(sources[2],bound(),"ours","",hash));assertFalse(model.admit(sources[2],bound(),"ours","bound-2",hash));assertTrue(model.rows(sources[2],"ours",hash).all{it.optString("state")!="bound"})
+            model.request(sources[2],"ours","explicit-fresh");assertTrue(model.admit(sources[2],bound(),"ours","explicit-fresh",hash));assertEquals("bound",model.rows(sources[2],"ours",hash).single().getString("state"));assertFalse(model.refuse("ours","failed-update","duplicate failure"))
+        }
+    }
+    @Test fun movementFailureDistinguishesRefusalFromRetiredPause()=kotlinx.coroutines.runBlocking{
+        threadDebugger{debug,requests->
+            debug.receive(threadStop(5,10,100));val edited=DocumentBuffer(file(),FileText("value = 1\n","saved"));edited.state.edit{append("# draft\n")};val before=requests.size;debug.moveTo(edited,0);assertEquals(before,requests.size);assertEquals("paused",debug.status);debug.step("over");val first=requests.last();assertEquals(5,first.getInt("stop"));assertEquals(10,first.getInt("thread"));assertEquals(100,first.getInt("frame"))
+            debug.receive(JSONObject().put("event","failed").put("session","ours").put("request_id",first.getString("request_id")).put("scope_retired",false).put("message","provider refused"));assertEquals("paused",debug.status);assertTrue(debug.framesCurrent)
+            debug.step("over");val next=requests.last();debug.receive(JSONObject().put("event","failed").put("session","ours").put("request_id",first.getString("request_id")).put("message","held refusal"));assertEquals("running",debug.status)
+            debug.receive(JSONObject().put("event","failed").put("session","ours").put("request_id",next.getString("request_id")).put("scope_retired",true).put("message","stop read failed"));assertEquals("running",debug.status);assertFalse(debug.framesCurrent);assertTrue(debug.frames.isNotEmpty());val count=requests.size;debug.evaluate("value");debug.step("over");assertEquals(count,requests.size);debug.stop();assertEquals("stop",requests.last().getString("op"))
+        }
+    }
     @Test fun unsupportedDebuggerCatalogNeverStartsOrChangesTheEditor()=kotlinx.coroutines.runBlocking{
-        for(protocol in listOf<Any?>(null,1,true,"2",2.5))threadDebugger(protocol=protocol,adopt=false){debug,requests->
+        for(protocol in listOf<Any?>(null,1,2,true,"3",3.5))threadDebugger(protocol=protocol,adopt=false){debug,requests->
             val buffer=DocumentBuffer(file(),FileText("value = 1\n","saved"));buffer.state.edit{selection=androidx.compose.ui.text.TextRange(2)};buffer.sourceScroll.scrollTo(7);val state=buffer.state
-            debug.prepare(buffer);assertTrue(requests.isEmpty());assertNull(debug.sessionID);assertFalse(debug.active);assertTrue(debug.message.contains("scoped debugger protocol 2"));assertTrue(debug.hasInspection);assertSame(state,buffer.state);assertEquals("value = 1\n",buffer.text);assertEquals(2,buffer.state.selection.start);assertEquals(7,buffer.sourceScroll.value);assertFalse(buffer.dirty)
+            debug.prepare(buffer);assertTrue(requests.isEmpty());assertNull(debug.sessionID);assertFalse(debug.active);assertTrue(debug.message.contains("source-bound debugger protocol 3"));assertTrue(debug.hasInspection);assertSame(state,buffer.state);assertEquals("value = 1\n",buffer.text);assertEquals(2,buffer.state.selection.start);assertEquals(7,buffer.sourceScroll.value);assertFalse(buffer.dirty)
         }
     }
     @Test fun startupRepliesRequireExactLaunchAndRetiredCleanupNeverStopsForeignSessions()=kotlinx.coroutines.runBlocking{
         threadDebugger{debug,requests->
             val old=requests.first{it.optString("op")=="start"}.getString("request_id");val buffer=DocumentBuffer(file(),FileText("value = 1\n","saved"));debug.close();debug.prepare(buffer);val current=requests.last().getString("request_id");assertNotEquals(old,current)
-            fun started(id:String,session:String)=JSONObject().put("event","started").put("doc","hick:///main.py").put("request_id",id).put("session",session).put("breakpoints",org.json.JSONArray())
+            fun started(id:String,session:String)=JSONObject().put("event","started").put("doc","hick:///main.py").put("request_id",id).put("session",session).put("source_hash",debugHash("value = 1\n")).put("breakpoints",org.json.JSONArray())
             val count=requests.size;debug.receive(started("foreign","unrelated"));assertEquals(count,requests.size);assertNull(debug.sessionID)
             debug.receive(started(old,"retired"));assertEquals("stop",requests.last().getString("op"));assertEquals("retired",requests.last().getString("session"));assertEquals("starting",debug.status);assertNull(debug.sessionID);val cleaned=requests.size;debug.receive(started(old,"retired"));assertEquals(cleaned,requests.size)
             debug.receive(JSONObject().put("event","build").put("doc","hick:///main.py").put("request_id",old).put("events",org.json.JSONArray().put(JSONObject().put("data","old build"))));assertFalse(debug.message.contains("old build"))
@@ -797,7 +881,7 @@ class NativeDebugTest {
         var captured = JSONObject()
         listener.createContext("/api/launch-profiles") { exchange ->
             captured = JSONObject(exchange.requestBody.bufferedReader().readText())
-            val bytes = """{"debug_protocol":2,"profiles":[{"id":"other","name":"Other","can_debug":true,"program":"other.py"},{"id":"python","name":"Python","can_debug":true,"program":"main.py"}],"fingerprint":"current"}""".toByteArray()
+            val bytes = """{"debug_protocol":3,"profiles":[{"id":"other","name":"Other","can_debug":true,"program":"other.py"},{"id":"python","name":"Python","can_debug":true,"program":"main.py"}],"fingerprint":"current"}""".toByteArray()
             exchange.sendResponseHeaders(200, bytes.size.toLong()); exchange.responseBody.use { it.write(bytes) }
         }
         listener.createContext("/api/docs/managed/render") { exchange ->
@@ -808,18 +892,18 @@ class NativeDebugTest {
         try {
             val buffer = DocumentBuffer(file(), FileText("value = 1\nprint(value)\n", "hash"))
             val requests = mutableListOf<JSONObject>(); debug.emitForTest = { requests.add(it) }
-            debug.toggle("main.py", 0, "value > 0")
+            debug.toggle(buffer, 0, "value > 0")
             debug.prepare(buffer); assertEquals(buffer.text, captured.getString("expected_source"))
             assertEquals("starting", debug.status); assertTrue(debug.profiles.isEmpty());assertTrue(debug.hasInspection)
             assertEquals("python", requests.single().getJSONObject("profile").getString("id"))
             val launchRequest=requests.last().getString("request_id")
             debug.receive(JSONObject("""{"event":"started","doc":"hick:///other.py","session":"wrong"}""").put("request_id",launchRequest)); assertNull(debug.sessionID)
-            debug.receive(JSONObject("""{"event":"started","doc":"hick:///main.py","session":"ours","breakpoints":[{"line":0,"moved_to":1,"state":"bound"}]}""").put("request_id",launchRequest))
+            debug.receive(JSONObject("""{"event":"started","doc":"hick:///main.py","session":"ours","breakpoints":[{"line":0,"moved_to":1,"state":"bound"}]}""").put("request_id",launchRequest).put("source_hash",debugHash(buffer.text)))
             assertEquals("value > 0", debug.breakpoints["main.py"]!!.first().getString("condition"))
             assertEquals(1, debug.breakpoints["main.py"]!!.first().getInt("line"))
             debug.receive(JSONObject("""{"event":"stopped","session":"old","line":0}""")); assertEquals("running", debug.status)
             var revealed = ""; debug.onLocation = { path, line -> revealed = "$path:$line" }
-            debug.receive(JSONObject("""{"event":"stopped","session":"ours","line":null,"frames":[{"id":7,"name":"helper","source":"helper.py","source_line":2}],"variables":[{"name":"value","value":"1"}]}"""))
+            debug.receive(JSONObject("""{"event":"stopped","session":"ours","stop":1,"thread":10,"line":null,"frames":[{"id":7,"name":"helper","source":"helper.py","source_line":2}],"variables":[{"name":"value","value":"1"}]}"""))
             assertTrue(debug.hasInspection)
             assertEquals("helper.py:2", revealed); assertEquals(2, debug.line("helper.py"))
             val helper = DocumentBuffer(FileNode("helper.py", "helper.py", false, emptyList(), null, null), FileText("before", "base"))
@@ -833,7 +917,7 @@ class NativeDebugTest {
             debug.receive(JSONObject("""{"event":"value","session":"ours","expression":"value","value":"old"}""")); assertTrue(debug.values.isEmpty())
             debug.close(); debug.prepare(buffer);val pendingLaunch=requests.last().getString("request_id"); requests.clear(); debug.stop()
             assertEquals("stopping", debug.status); assertTrue(requests.isEmpty())
-            debug.receive(JSONObject("""{"event":"started","doc":"hick:///main.py","session":"late","breakpoints":[]}""").put("request_id",pendingLaunch))
+            debug.receive(JSONObject("""{"event":"started","doc":"hick:///main.py","session":"late","breakpoints":[]}""").put("request_id",pendingLaunch).put("source_hash",debugHash(buffer.text)))
             assertEquals("stop", requests.last().getString("op")); assertEquals("late", requests.last().getString("session"))
             buffer.state.edit { append("edited") }; debug.close(); debug.prepare(buffer)
             assertTrue(debug.message.contains("Save this file")); assertFalse(debug.sourceMatches(buffer));assertTrue(debug.hasInspection)
@@ -845,7 +929,7 @@ class NativeDebugTest {
     @Test fun debugRevealRetainsEditorsAndRequiresCapturedSourceAndPauseIdentity()=kotlinx.coroutines.runBlocking{
         threadDebugger{debug,_->
             val workspace=Workspace(this);workspace.engine=Engine("http://127.0.0.1:1");workspace.debugger=debug
-            val primary=DocumentBuffer(file(),FileText("value = 1\n","saved"));val helperFile=FileNode("helper.py","helper.py",false,emptyList(),null,null);val helper=DocumentBuffer(helperFile,FileText("first\nsecond\nthird\n","saved"));workspace.buffers["main.py"]=primary;workspace.buffers["helper.py"]=helper;workspace.rootFiles=listOf(file(),helperFile);workspace.files=emptyList();workspace.directoryScope="elsewhere";workspace.show("main.py")
+            val primary=debug.sourceEditor("main.py")!!;val helperFile=FileNode("helper.py","helper.py",false,emptyList(),null,null);val helper=DocumentBuffer(helperFile,FileText("first\nsecond\nthird\n","saved"));workspace.buffers["main.py"]=primary;workspace.buffers["helper.py"]=helper;workspace.rootFiles=listOf(file(),helperFile);workspace.files=emptyList();workspace.directoryScope="elsewhere";workspace.show("main.py")
             debug.receive(threadStop(1,10,7));workspace.revealDebug("main.py",0);assertSame(primary,workspace.currentBuffer);assertNotNull(primary.debugReveal);val held=primary.debugRevealCurrent;assertTrue(held());debug.step("over");assertFalse(held())
             val stopped=threadStop(3,20,9);stopped.getJSONArray("frames").getJSONObject(0).put("source","helper.py").put("source_line",2);debug.receive(stopped);workspace.revealDebug("helper.py",2)
             assertSame(helper,workspace.currentBuffer);assertNull(helper.debugReveal);assertTrue(workspace.status.contains("unbound"));assertEquals("elsewhere",workspace.directoryScope)
@@ -859,7 +943,7 @@ class NativeDebugTest {
         val engine=Engine(origin!!);val file=FileNode("debug.py","debug.py",false,emptyList(),null,null);val loaded=engine.file(file);val buffer=DocumentBuffer(file,loaded);val state=buffer.state;val debug=NativeDebugger(engine,this)
         try{
             val line=loaded.content.lines().indexOfFirst{"# hickory-thread-breakpoint" in it};check(line>=0){"The live native thread fixture needs the shared breakpoint marker in debug.py."}
-            debug.toggle(file.path,line);debug.prepare(buffer)
+            debug.toggle(buffer,line);debug.prepare(buffer)
             suspend fun await(label:String,condition:()->Boolean){kotlinx.coroutines.withTimeout(45000){while(!condition()){check(debug.status!="failed"){"$label: ${debug.message}"};kotlinx.coroutines.delay(25)}}}
             await("Initial paused thread list"){debug.status=="paused"&&debug.threadReading!=null&&!debug.threadBusy}
             val first=debug.threadReading!!;val main=first.selected;val worker=first.threads.firstOrNull{it.name.contains("hickory-worker")} ?: error("The fixture did not report its named active worker: ${first.threads}")
@@ -867,11 +951,45 @@ class NativeDebugTest {
             val frame=debug.frames.firstOrNull{it.optString("name").contains("worker")} ?: debug.frames.first();debug.select(frame)
             await("Selected worker frame locals"){debug.variables.any{it.optString("name")=="worker_value"&&it.optString("value")=="41"}&&debug.frameNotice.contains("reported locals for this frame.")}
             debug.evaluate("worker_value");await("Worker value"){debug.values["worker_value"]=="41"}
+            val inspection=debug.variableTree.open();val nested=debug.variableTree.groups["locals"].orEmpty().firstOrNull{it.name=="worker_nested"} ?: error("The v3 fixture must report worker_nested")
+            debug.expandVariable(nested,inspection);await("Reported nested dictionary children"){debug.variableTree.expansions[nested.id]?.children?.isNotEmpty()==true}
+            val items=debug.variableTree.expansions.getValue(nested.id).children.firstOrNull{it.name.trim('\'','"')=="items"} ?: error("Dictionary children: ${debug.variableTree.expansions.getValue(nested.id).children.map{it.name}}");debug.expandVariable(items,inspection);await("Reported nested list children"){debug.variableTree.expansions[items.id]?.children?.isNotEmpty()==true}
+            val item=debug.variableTree.expansions.getValue(items.id).children.firstOrNull{it.name in listOf("0","[0]")} ?: error("List children: ${debug.variableTree.expansions.getValue(items.id).children.map{it.name}}");debug.expandVariable(item,inspection);await("Reported recursive dictionary value"){debug.variableTree.expansions[item.id]?.children?.any{it.name.trim('\'','"')=="value"&&it.value=="41"}==true};debug.variableTree.close(inspection)
+
             val frames=debug.frames;val selector=debug.threadReading!!;val previous=debug.message;debug.evaluate("__hickory_missing_value__")
             await("Explicit unavailable expression"){debug.message!=previous&&debug.message.contains("Choose another current frame/thread")};assertEquals("paused",debug.status);assertSame(frames,debug.frames);assertSame(selector,debug.threadReading)
             debug.selectThread(selector,main);await("Return to main thread"){debug.threadReading?.selected==main&&!debug.threadBusy&&debug.framesCurrent};debug.evaluate("main_value");await("Main value"){debug.values["main_value"]=="7"}
             assertSame(state,buffer.state);assertEquals(loaded.content,buffer.text);assertEquals(loaded.content,engine.file(file).content);assertFalse(buffer.dirty)
             debug.stop();await("Stopped session"){!debug.active}
+        }finally{if(debug.active)debug.stop();debug.close()}
+    }
+    @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+    @Test(timeout=180000) fun livePausedResourceLineageChannel()=kotlinx.coroutines.runBlocking{
+        val origin=System.getenv("HICKORY_NATIVE_DEBUG_ORIGIN");org.junit.Assume.assumeNotNull(origin)
+        val background=kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob()+kotlinx.coroutines.Dispatchers.Unconfined);val engine=Engine(origin!!);val workspace=Workspace(background);workspace.engine=engine;workspace.rootFiles=engine.files().second
+        val debug=NativeDebugger(engine,this);workspace.debugger=debug
+        val file=FileNode("debug.py","debug.py",false,emptyList(),null,null);val buffer=workspace.loadBuffer(file);buffer.language?.close();buffer.language=null;workspace.show("debug.py");val original=buffer.text;val state=buffer.state
+        suspend fun await(label:String,ready:()->Boolean){kotlinx.coroutines.withTimeout(45000){while(!ready()){check(debug.status!="failed"){"$label: ${debug.message}"};kotlinx.coroutines.delay(25)}}}
+        try{
+            state.edit{append("# previous draft\n")};state.undoState.undo();state.edit{selection=androidx.compose.ui.text.TextRange(2)};buffer.sourceScroll.scrollTo(7);assertTrue(state.undoState.canRedo)
+            val line=original.lines().indexOfFirst{"# hickory-thread-breakpoint" in it};check(line>=0);debug.toggle(buffer,line);debug.prepare(buffer);await("Paused source before resource move"){debug.status=="paused"&&debug.threadReading!=null};workspace.revealDebug("debug.py",line);val held=debug.locationGuard("debug.py",line);assertTrue(held());assertTrue(debug.sourceMatches(buffer))
+            val edit=JSONObject().put("documentChanges",org.json.JSONArray().put(JSONObject().put("kind","rename").put("oldUri",languageURI("debug.py")).put("newUri",languageURI("lineage-moved.py"))))
+            val resources=workspace.resourceChanges;resources.prepare(workspace,"Move paused source",edit);assertNotNull(resources.notice,resources.review);resources.apply(workspace);assertFalse(resources.notice,resources.hasPending);assertSame(buffer,workspace.buffers["lineage-moved.py"]);assertFalse(held());assertFalse(debug.sourceMatches(buffer));assertFalse(debug.positionSourceMatches(buffer));assertEquals("debug.py",debug.owner)
+            assertEquals(original,engine.file(buffer.file).content);val revision=debug.breakpointModel.intents.getValue(buffer.debugIdentity).revision;debug.toggle(buffer,line,"main_value == 7");assertEquals(revision,debug.breakpointModel.intents.getValue(buffer.debugIdentity).revision);debug.select(debug.frames.first());workspace.revealDebug("debug.py",line);assertSame(buffer,workspace.currentBuffer);assertFalse(buffer.debugRevealCurrent());assertSame(state,buffer.state);assertEquals(2,state.selection.start);assertEquals(7,buffer.sourceScroll.value);assertTrue(state.undoState.canRedo)
+            workspace.changes.open("undo",workspace);await("Guarded menu Undo resource review"){!resources.busy&&resources.review!=null};resources.apply(workspace);assertFalse(resources.notice,resources.hasPending);assertSame(buffer,workspace.buffers["debug.py"]);assertEquals(original,engine.file(file).content);assertTrue(debug.sourceMatches(buffer));assertFalse(buffer.resourceDeleted)
+            assertTrue(debug.breakpointRows(buffer).all{it.optString("state")!="bound"});debug.toggle(buffer,line,"main_value == 7");await("Restored original editor live condition binding"){debug.breakpointModel.receipts[buffer.debugIdentity]?.marks?.any{it.optString("state")=="bound"&&it.optString("condition")=="main_value == 7"}==true}
+            assertSame(state,buffer.state);assertEquals(original,buffer.text);assertTrue(state.undoState.canRedo);debug.stop();await("Stopped restored session"){!debug.active}
+        }finally{if(debug.active)debug.stop();debug.close();background.coroutineContext[kotlinx.coroutines.Job]?.cancel()}
+    }
+    @Test(timeout=90000) fun liveLiteralPathBreakpointChannel()=kotlinx.coroutines.runBlocking{
+        val origin=System.getenv("HICKORY_NATIVE_DEBUG_ORIGIN");org.junit.Assume.assumeNotNull(origin)
+        val path="literal %2F λ?#.py";val engine=Engine(origin!!);val file=FileNode(path,path,false,emptyList(),null,null);val loaded=engine.file(file);val buffer=DocumentBuffer(file,loaded);val debug=NativeDebugger(engine,this)
+        suspend fun await(label:String,ready:()->Boolean){repeat(600){if(ready())return;if(debug.status=="failed")error("$label: ${debug.message}");kotlinx.coroutines.delay(50)};error("$label: ${debug.status}: ${debug.message}")}
+        try{
+            debug.toggle(buffer,1);debug.prepare(buffer);await("Literal-path source breakpoint pause"){debug.status=="paused"};assertEquals(path,debug.owner);assertEquals(1,debug.line(path));assertEquals(loaded.content,buffer.text)
+            debug.toggle(buffer,1,"value == 1");await("Literal-path live condition receipt"){debug.breakpointModel.receipts[buffer.debugIdentity]?.marks?.singleOrNull()?.let{it.optString("condition")=="value == 1"&&it.optString("state")=="bound"}==true}
+            val revision=debug.breakpointModel.intents.getValue(buffer.debugIdentity).revision;buffer.state.edit{append("# unsaved\n")};debug.toggle(buffer,1,"value == 2");assertEquals(revision,debug.breakpointModel.intents.getValue(buffer.debugIdentity).revision);assertTrue(debug.breakpointRows(buffer).isEmpty());assertTrue(debug.message.contains("unbound",ignoreCase=true));assertEquals(loaded.content,engine.file(file).content);assertTrue(buffer.dirty)
+            debug.stop();await("Literal-path session stopped"){!debug.active}
         }finally{if(debug.active)debug.stop();debug.close()}
     }
     @Test fun liveNativeDebugChannel() = kotlinx.coroutines.runBlocking {
@@ -880,7 +998,7 @@ class NativeDebugTest {
         val engine = Engine(origin!!); val file = FileNode("debug.py", "debug.py", false, emptyList(), null, null)
         val loaded = engine.file(file); val buffer = DocumentBuffer(file, loaded); val debug = NativeDebugger(engine, this)
         try {
-            debug.toggle(file.path, 1); debug.prepare(buffer)
+            debug.toggle(buffer, 1); debug.prepare(buffer)
             suspend fun paused() { repeat(200) { if (debug.status == "paused" || debug.status == "failed") return; kotlinx.coroutines.delay(50) } }
             paused(); assertEquals(debug.message, "paused", debug.status); debug.step("over"); paused()
             assertEquals(debug.message, "paused", debug.status); assertTrue(debug.variables.isNotEmpty())

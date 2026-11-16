@@ -58,6 +58,7 @@ import kotlinx.coroutines.async
 import java.util.UUID
 
 class DocumentBuffer(file: FileNode, loaded: FileText) {
+    val debugIdentity=UUID.randomUUID().toString()
     var file by mutableStateOf(file)
     var resourceDeleted by mutableStateOf(false)
     val sourceScroll = androidx.compose.foundation.ScrollState(0)
@@ -363,6 +364,7 @@ normal capability setup. Deleted dirty buffers still guard workspace switching.
             retainedResourceTabs.filterValues{it===buffer}.keys.forEach{addresses[it]=destination}
         }
         val nextLayout=layout.copy(nodes=layout.nodes.mapValues{(_,node)->node.copy(tabs=node.tabs.map{addresses[it] ?: it},active=node.active?.let{addresses[it] ?: it})})
+        debugger?.resourceSourcesChanged(targets.map{(route,buffer)->NativeSourceRoute(buffer.debugIdentity,route.from,route.to,route.after,route.to?.let{path->files.getValue(path).saved.text==route.after}==true)})
         generation=UUID.randomUUID();loading.values.forEach{it.cancel()};loading.clear();newestOpen.clear()
         // Retire the whole URI namespace before attaching destinations, including swaps.
         for((_,buffer) in targets){buffer.language?.close();buffer.language=null}
@@ -461,6 +463,7 @@ Foreground file opening and background intelligence share one acquisition path. 
         buffer.testIndex=sourceTestIndex
         buffer.inspectTests={line->workspaceScope.launch {inspectTestSource(buffer,line)}}
         buffer.receiptEngine = server
+        debugger?.registerSource(buffer,confirmedAddressChange=existing!=null)
         if(languageConnection==null) languageConnection=NativeLanguageConnection(server,workspaceScope)
         buffer.language = NativeLanguage(server,buffer,workspaceScope,languageConnection); buffer.language?.start()
         return buffer
@@ -513,16 +516,18 @@ Foreground file opening and background intelligence share one acquisition path. 
     suspend fun revealDebug(path: String, line: Int) {
         val debug=debugger ?: return;val request=++debugRevealTicket;val current=generation;val group=focused;val departed=active;val locationCurrent=debug.locationGuard(path,line)
         fun find(nodes: List<FileNode>): FileNode? { nodes.forEach { if (it.path == path) return it; find(it.children)?.let { child -> return child } }; return null }
-        val file=(buffers[path]?.file ?: find(rootFiles))?.takeUnless{it.dir} ?: run{status="Reported debugger source is not in this workspace. Refresh files to inspect it.";return}
+        val original=debug.sourceEditor(path)?.takeIf{editor->buffers.values.any{it===editor}||retainedResourceTabs.values.any{it===editor}}
+        val address=original?.let{editor->buffers.entries.firstOrNull{it.value===editor}?.key ?: retainedResourceTabs.entries.firstOrNull{it.value===editor}?.key} ?: path
+        val file=(original?.file ?: buffers[path]?.file ?: find(rootFiles))?.takeUnless{it.dir} ?: run{status="Reported debugger source is not in this workspace. Refresh files to inspect it.";return}
         if(!locationCurrent())return
-        val buffer=loadBuffer(file)
+        val buffer=original ?: loadBuffer(file)
         if(generation!=current||debugger!==debug||request!=debugRevealTicket||!locationCurrent()||focused!=group||active!=departed)return
-        show(path) // Readable text is visible before optional hash/provenance work.
+        show(address) // The retained execution editor wins over a new same-spelling occupant.
         val visibleGroup=focused;val selection=buffer.state.selection;val scroll=buffer.sourceScroll.value
         debug.rememberSource(buffer)
-        val valid={generation==current&&debugger===debug&&request==debugRevealTicket&&locationCurrent()&&focused==visibleGroup&&active==path&&buffers[path]===buffer&&debug.positionSourceMatches(buffer)&&buffer.state.selection==selection&&buffer.sourceScroll.value==scroll}
+        val valid={generation==current&&debugger===debug&&request==debugRevealTicket&&locationCurrent()&&focused==visibleGroup&&active==address&&bufferForTab(address)===buffer&&debug.positionSourceMatches(buffer)&&buffer.state.selection==selection&&buffer.sourceScroll.value==scroll}
         if(!valid()){
-            if(generation==current&&request==debugRevealTicket&&active==path)status=if(debug.adapterSourceRequired)"Opened saved path text. Adapter source is unavailable here; its positive source reference forbids a precise disk-source reveal." else if(!debug.positionSourceMatches(buffer))"Opened reported debugger source. Its text is unbound to captured launch/mapping source, so no precise position was revealed." else "Debugger position or editor interaction changed. The editor is retained; choose the current frame again to reveal its captured position."
+            if(generation==current&&request==debugRevealTicket&&active==address)status=if(debug.adapterSourceRequired)"Opened saved path text. Adapter source is unavailable here; its positive source reference forbids a precise disk-source reveal." else if(!debug.positionSourceMatches(buffer))"Opened reported debugger source. Its text is unbound to captured launch/mapping source, so no precise position was revealed." else "Debugger position or editor interaction changed. The editor is retained; choose the current frame again to reveal its captured position."
             return
         }
         val source=buffer.text;buffer.debugRevealSource=source;buffer.debugRevealCurrent={valid()&&buffer.text==source}

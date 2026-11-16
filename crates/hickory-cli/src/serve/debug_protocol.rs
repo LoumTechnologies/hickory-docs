@@ -25,16 +25,28 @@ pub enum Request {
         profile: Option<crate::debug_sessions::ProfileSelection>,
         #[serde(default)]
         sources: std::collections::HashMap<String, Vec<Breakpoint>>,
+        #[serde(default)]
+        source_hash: Option<String>,
+        #[serde(default)]
+        source_hashes: std::collections::HashMap<String, String>,
     },
     /// Replace the breakpoint set while a session is running.
     Breakpoints {
         session: String,
         breakpoints: Vec<Breakpoint>,
+        #[serde(default)]
+        source_hash: Option<String>,
+        #[serde(default)]
+        request_id: Option<String>,
     },
     SourceBreakpoints {
         session: String,
         source: String,
         breakpoints: Vec<Breakpoint>,
+        #[serde(default)]
+        source_hash: Option<String>,
+        #[serde(default)]
+        request_id: Option<String>,
     },
     /// Revision/stop-bound action; conveys no evaluation permission.
     Located {
@@ -90,16 +102,38 @@ pub enum Request {
         how: Step,
         #[serde(default)]
         frame: Option<i64>,
+        #[serde(default)]
+        stop: Option<u64>,
+        #[serde(default)]
+        thread: Option<i64>,
+        #[serde(default)]
+        request_id: Option<String>,
     },
     /// Move the instruction pointer to a document line in this frame.
     Jump {
         session: String,
         line: u32,
+        #[serde(default)]
+        stop: Option<u64>,
+        #[serde(default)]
+        thread: Option<i64>,
+        #[serde(default)]
+        request_id: Option<String>,
+        #[serde(default)]
+        source_hash: Option<String>,
     },
     /// Run to a line without leaving a breakpoint behind.
     RunTo {
         session: String,
         line: u32,
+        #[serde(default)]
+        stop: Option<u64>,
+        #[serde(default)]
+        thread: Option<i64>,
+        #[serde(default)]
+        request_id: Option<String>,
+        #[serde(default)]
+        source_hash: Option<String>,
     },
     /// Expand one composite value.
     Children {
@@ -111,6 +145,8 @@ pub enum Request {
         thread: Option<i64>,
         #[serde(default)]
         request_id: Option<String>,
+        #[serde(default)]
+        frame: Option<i64>,
     },
     /// Stop when an exception is thrown, by the adapter's own filter ids.
     ///
@@ -128,6 +164,14 @@ pub enum Request {
         container: i64,
         name: String,
         value: String,
+        #[serde(default)]
+        stop: Option<u64>,
+        #[serde(default)]
+        thread: Option<i64>,
+        #[serde(default)]
+        request_id: Option<String>,
+        #[serde(default)]
+        frame: Option<i64>,
     },
     Stop {
         session: String,
@@ -154,18 +198,15 @@ impl Request {
         }
     }
 }
-
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum LocatedAction {
     RunTo,
     Jump,
 }
-
 fn repl() -> String {
     "repl".to_string()
 }
-
 /// What the app is told.
 #[derive(Debug, Serialize)]
 #[serde(tag = "event", rename_all = "snake_case")]
@@ -190,6 +231,7 @@ pub enum Response {
         doc: String,
         capabilities: hick_dap::Capabilities,
         breakpoints: Vec<hick_dap::BreakpointStatus>,
+        source_hash: Option<String>,
     },
     /// Where execution is now — the paused line the gutter marks, and the
     /// values the editor shows inline.
@@ -218,6 +260,8 @@ pub enum Response {
     Breakpoints {
         session: String,
         breakpoints: Vec<hick_dap::BreakpointStatus>,
+        request_id: Option<String>,
+        source_hash: Option<String>,
     },
     Threads {
         session: String,
@@ -230,6 +274,8 @@ pub enum Response {
         session: String,
         source: String,
         breakpoints: Vec<hick_dap::BreakpointStatus>,
+        request_id: Option<String>,
+        source_hash: Option<String>,
     },
     Value {
         session: String,
@@ -250,6 +296,7 @@ pub enum Response {
         thread: Option<i64>,
         request_id: Option<String>,
         variables: Vec<hick_dap::Variable>,
+        frame: Option<i64>,
     },
     /// The program ended. Not an error: it is what `continue` usually does.
     ///
@@ -289,6 +336,8 @@ pub enum Response {
     },
     /// Something did not work, in words a person can act on.
     Failed {
+        /// No current pause can be restored from this failed operation.
+        scope_retired: bool,
         session: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         request_id: Option<String>,
