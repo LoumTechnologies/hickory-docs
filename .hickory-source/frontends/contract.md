@@ -25,25 +25,30 @@ These are required outcomes. Existing verification paragraphs establish only the
 
 ## Checkpoint requested during implementation
 
-The current checkpoint is intentionally partial. The latest source includes
-publication protocol2, loaded physical guard maps and an Apple connected-reading
-port; these are not yet certified by the earlier end-to-end receipts below.
-Scoped current checks pass Rust compilation and proposal models, browser
-37-case guard/graph/conflict checks and TypeScript checking, and Android 22-case
-compilation/guard checks. Three positive Rust ownership fixtures initially lacked
-the newly required original guards; after a narrow fixture correction all
-eighteen ownership cases pass. The new Apple graph view initially had two operator-spacing
-compile errors; symmetric whitespace fixes parse successfully, while its full
-typecheck remains pending at this checkpoint.
+The requested checkpoint was committed as `4a612978`. Its focused receipts include
+Rust source-ownership guards (18 cases), proposal admission, browser guard/graph/
+conflict models and typechecking, Android integration models, and the Apple build.
+The Apple graph port builds for macOS and iOS and passes its four local cases;
+the actual native graph flow now passes after correcting retained-process query encoding.
+Android's corrected complete adapter-source actual flow now passes without skips.
 
-Still unfinished here: rollback proof for a foreign same-byte occupant, original
-publication proof for inverse restoration, final legacy-history migration checks,
-post-effect owned-process retention (currently unwired helper code), the next
-all-suffix/unaddressed graph authority migration, agent proposal host application,
-and the remaining parity outcomes in the ledger. Android's first actual
-adapter-source run reached real literal content but failed on a test-only Step
-spelling; the corrected complete flow has not yet passed. These are open work,
-not completion claims. No broad regression run or status monitoring was performed.
+The next safety checkpoint adds physically observed equal-byte namespace swaps
+and rollback refusal for foreign replacements (11 focused publisher cases pass).
+Persisted inverse proof and legacy-history reading pass eight source-history and
+five restoration cases. Post-effect owned-process retention passes seventeen
+shared graph cases, including foreign-Hub and forged disk-terminal refusals; its
+complete root-loss browser acceptance is still pending.
+All-suffix/unaddressed graph authority, agent proposal host application and the
+other open ledger outcomes remain required. No broad regression run or status
+monitoring was performed.
+
+The debugger now has an endpoint-attach engine primitive. Its real TCP protocol
+witness passes: attach rather than launch, detach with terminateDebuggee false,
+external frames retain raw coordinates and source references without editor
+revision proof, and mapped run-to/jump/breakpoints refuse. The four focused source
+admission cases and two partial/canceled breakpoint transaction cases pass. This establishes the transport safety boundary;
+profile/host selection, real-provider attachment and usable host acceptance remain
+open, so attach is not yet counted as a completed user workflow.
 
 ## Current integration ledger
 

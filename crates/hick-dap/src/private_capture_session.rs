@@ -25,6 +25,6 @@ impl Session {
         );
         let adapter = Adapter::start_private(&launch.adapter, launch.transport).await?;
         let extra = launch.extra.clone();
-        Self::start_on(adapter, None, &launch, extra, mapping, breakpoints, &[]).await
+        Self::start_on(adapter, None, &launch, extra, mapping, breakpoints, &[], false).await
     }
 }

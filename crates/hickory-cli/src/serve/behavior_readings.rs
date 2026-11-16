@@ -520,9 +520,13 @@ pub async fn verify(
             "Unsupported behavior verification protocol.",
         ));
     }
-    let engine=root_lease(&state)?;root_current(&state,&request.engine_workspace_id)?;
     let request_fingerprint =
         intent_fingerprint(&request).map_err(|e| ApiError::bad_request(e.to_string()))?;
+    if let Some(owned)=store::owned(&state.resource_root,&state.terminals,&request.request_id).map_err(ApiError::conflict)? {
+        if owned.value["request_fingerprint"]!=request_fingerprint{return Err(ApiError::conflict("This request ID belongs to another complete verification intention."));}
+        return observe_owned(&state,&request.request_id,owned).map(Json);
+    }
+    let engine=root_lease(&state)?;root_current(&state,&request.engine_workspace_id)?;
     let root = state.index.root().to_path_buf();
     let context = request.context.clone();
     let build_root = root.clone();
@@ -548,7 +552,7 @@ pub async fn verify(
             ));
         }
         root_current(&state,&engine)?;
-        return Ok(Json(receipt));
+        let mut historical=receipt;if historical["terminal"].is_object(){historical["terminal_snapshot"]=historical["terminal"].clone();historical["terminal"]=Value::Null;}historical["notice"]=json!("Historical consumed request. This engine has no positively owned process for it; no replacement was started.");return Ok(Json(historical));
     }
     let check = built.value["graph"]["checks"]
         .as_array()
@@ -565,8 +569,11 @@ pub async fn verify(
     let checked_sources=tokio::task::spawn_blocking(move||checked_execution_parts(&guard_root,&guard_context,&guard_sources,guard_tree.as_ref(),physical_outputs)).await.map_err(|error|ApiError::internal(error.to_string()))?.map_err(ApiError::conflict)?;
     root_current(&state,&engine)?;
     let mut receipt = json!({"version":1,"engine_workspace_id":engine,"workspace_identity_kind":"physical-root-v1","request_id":request.request_id,"request_fingerprint":request_fingerprint,"workspace_id":request.workspace_id,"reading_fingerprint":request.reading_fingerprint,"check_id":request.check_id,"label":check["label"],"profile":request.profile,"relationship":if request.profile.is_some(){"user-declared profile for this check"}else{"detected declaration in explicitly related module"},"started_ms":std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis(),"status":"admitting","outcome":"unknown","source_hashes":checked_sources,"execution_inputs_frozen":false,"notice":"Process-only verification; no collected test verdict is inferred."});
-    store::reserve(&root, &request.request_id, &receipt).map_err(ApiError::conflict)?;
-    root_current(&state,&engine)?;
+    if let Some(owned)=store::claim_owned(&state.resource_root,&state.terminals,&engine,&request.request_id,&receipt).map_err(ApiError::conflict)? {return observe_owned(&state,&request.request_id,owned).map(Json);}
+    if let Err(error)=store::reserve(&root,&request.request_id,&receipt){receipt["status"]=json!("request-refused");receipt["error"]=json!(error);store::update_owned(&state.resource_root,&state.terminals,&request.request_id,None,receipt.clone(),None,false).map_err(ApiError::internal)?;return Ok(Json(receipt));}
+    store::disk_reserved(&state.resource_root,&state.terminals,&request.request_id).map_err(ApiError::internal)?;
+    if let Err(error)=root_current(&state,&engine){receipt["status"]=json!("request-refused");receipt["error"]=json!(error.detail());let owned=store::update_owned(&state.resource_root,&state.terminals,&request.request_id,None,receipt,None,false).map_err(ApiError::internal)?;return observe_owned(&state,&request.request_id,owned).map(Json);}
+
     let profile=request.profile.clone();let query=if profile.is_some(){Some(profile_query(&request.context,&built)?)}else{None};let provider=state.clone();let provider_engine=engine.clone();let runtime=tokio::runtime::Handle::current();let fingerprint=scan.fingerprint.clone();let analysis=built.analysis;
     let result=tokio::task::spawn_blocking(move||runtime.block_on(async move {
     root_current(&provider,&provider_engine)?;
@@ -593,54 +600,47 @@ pub async fn verify(
         )
         .await
     }
-    })).await.map_err(|error|ApiError::internal(error.to_string()))?;
+    })).await.unwrap_or_else(|error|Err(ApiError::internal(error.to_string())));
     match result {
         Ok(Json(value)) => {
             receipt["status"] = json!("process-running");
             receipt["terminal"] = terminal_receipt(&value);
         }
         Err(error) => {
-            receipt["status"] = json!("admission-refused");
+            receipt["status"] = json!("admission-unknown");
             receipt["error"] = json!(error.detail().chars().take(4096).collect::<String>());
         }
     }
-    root_current(&state,&engine).map_err(|error|ApiError::internal(format!("Workspace changed after dispatch; the original request outcome is uncertain and must not be retried: {}",error.detail())))?;
-    store::save(&root, &request.request_id, &receipt).map_err(ApiError::internal)?;
-    Ok(Json(receipt))
+    let known=receipt["terminal"]["id"].as_str().filter(|id|state.terminals.get(id).is_some()).map(str::to_owned);
+    let owned=store::update_owned(&state.resource_root,&state.terminals,&request.request_id,None,receipt,known,false).map_err(ApiError::internal)?;
+    observe_owned(&state,&request.request_id,owned).map(Json)
 }
 pub async fn verification(
     State(state): State<LocalState>,
     Query(query): Query<VerificationQuery>,
 ) -> ApiResult<Json<Value>> {
+    if let Some(owned)=store::owned(&state.resource_root,&state.terminals,&query.id).map_err(ApiError::unprocessable)? {return observe_owned(&state,&query.id,owned).map(Json);}
     let engine=root_lease(&state)?;
-    let root = state.index.root();
-    let mut receipt = store::existing(root, &query.id)
-        .map_err(ApiError::unprocessable)?
-        .ok_or_else(|| {
-            ApiError::not_found("Unknown verification request. No check was retried.")
-        })?;
-    if let Some(terminal) = receipt["terminal"]["id"]
-        .as_str()
-        .and_then(|id| state.terminals.get(id))
-    {
-        receipt["terminal"] = terminal_receipt(&json!(terminal.summary()));
-        let output = terminal.screen_text();
-        receipt["output"] = json!(output.chars().take(65536).collect::<String>());
-        receipt["output_truncated"] = json!(output.chars().count() > 65536);
-        if let Some(exit) = terminal.exit_code() {
-            receipt["status"] = json!("process-finished");
-            receipt["exit_code"] = json!(exit);
-            receipt["outcome"] = json!("process-only");
-        }
-    } else if receipt["terminal"]["id"].is_string() {
-        receipt["terminal_snapshot"]=receipt["terminal"].clone();
-        receipt["terminal"]=Value::Null;
-        if receipt["status"]!="process-finished" {receipt["status"]=json!("process-unavailable");receipt["outcome"]=json!("unknown");}
-        receipt["notice"]=json!("Historical process identity is unavailable in this engine. Its retained observations remain readable; no replacement was adopted or restarted.");
-    }
-    store::save(root, &query.id, &receipt).map_err(ApiError::internal)?;
+    let mut receipt=store::existing(state.index.root(),&query.id).map_err(ApiError::unprocessable)?.ok_or_else(||ApiError::not_found("Unknown verification request. No check was retried."))?;
     root_current(&state,&engine)?;
+    if receipt["terminal"].is_object(){receipt["terminal_snapshot"]=receipt["terminal"].clone();receipt["terminal"]=Value::Null;}
+    receipt["notice"]=json!("Historical receipt only. This engine has no positively owned process for this request; no replacement was adopted or restarted.");
     Ok(Json(receipt))
+}
+
+fn observe_owned(state:&LocalState,id:&str,snapshot:store::OwnedSnapshot)->ApiResult<Value>{
+    let mut receipt=snapshot.value;
+    if let Some(terminal)=snapshot.known_terminal.as_deref().and_then(|id|state.terminals.get(id)){
+        receipt["terminal"]=terminal_receipt(&json!(terminal.summary()));
+        let output=terminal.screen_text();receipt["output"]=json!(output.chars().take(65536).collect::<String>());receipt["output_truncated"]=json!(output.chars().count()>65536);
+        if let Some(exit)=terminal.exit_code(){receipt["status"]=json!("process-finished");receipt["exit_code"]=json!(exit);receipt["outcome"]=json!("process-only");}
+    }else if snapshot.known_terminal.is_some(){receipt["terminal_snapshot"]=receipt["terminal"].clone();receipt["terminal"]=Value::Null;if receipt["status"]!="process-finished"{receipt["status"]=json!("process-unavailable");receipt["outcome"]=json!("unknown");}}
+    let current=state.resource_root.check(state.index.root()).is_ok();receipt["workspace_current"]=json!(current);
+    if !current{receipt["source_origin"]=json!("historical-unverified");receipt["notice"]=json!("Workspace physical identity changed. Only this engine's positively owned process remains observable; source relationships are historical and no new execution is authorized.");}
+    let observed=store::update_owned(&state.resource_root,&state.terminals,id,Some(snapshot.revision),receipt,None,false).map_err(ApiError::internal)?;
+    // Memory is authoritative for owned processes. Persist only under the still-held original root.
+    if current&&snapshot.disk_reserved&&state.resource_root.check(state.index.root()).is_ok()&&store::save(state.index.root(),id,&observed.value).is_ok(){store::acknowledge_persisted(&state.resource_root,&state.terminals,id,observed.revision).map_err(ApiError::internal)?;}
+    Ok(observed.value)
 }
 #[derive(Clone,Deserialize)]
 #[serde(deny_unknown_fields)]

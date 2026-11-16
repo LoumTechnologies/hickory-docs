@@ -282,6 +282,8 @@ pub async fn create(State(state):State<LocalState>,Json(request):Json<CreateRequ
 
 ## Carry ordinary history across a proven resource namespace transition
 
+An inverse must prove that the original publication still owns every result name. The private persisted lineage evidence binds the complete original resource receipt, exact manifest and physical workspace to its writer-observed after identities. Reopening an independently recreated same-byte file cannot acquire that proof through a fresh editor guard. Legacy or prepared records remain readable, with inverse application unavailable. Preparation checks this proof before presenting the inverse; publication repeats it before any writes.
+
 Resource publication already owns coordinated moves, swaps and restoration. This bridge records no additional source writes. Before publication it pins the exact physical observations and reviewed logical source identities into the private history journal. Only a complete resource receipt and writer-held after identities may connect those observations. Equal text in an independently recreated name creates no edge. Deletion retains a readable terminal observation; a later inverse must name the original recovery and pass its own complete publication before history can follow it.
 
 <ui:copy id="source-save-history-lineage">
@@ -302,6 +304,28 @@ fn validate_physical_namespace(root:&Path,saved:&BTreeMap<String,SavedSource>,id
  for(path,expected)in saved{let actual=observe(root,path)?;let identity=if matches!(actual,SavedSource::File{..}){Some(stamp(&root.join(path))?)}else{None};if &actual!=expected||matches!(actual,SavedSource::File{..})&&identities.get(path)!=identity.as_ref(){return Err(format!("Source lineage physical observation changed at {path}. No old history authority was attached."))}}
  Ok(())
 }
+/// A retained inverse may consume only the original producer's current result.
+/// Fresh equal bytes or a freshly loaded guard do not prove that result's lineage.
+pub(super) fn validate_resource_after(root:&Path,recovery:&super::resource_journal::Recovery)->Result<(),String>{
+ if !recovery.all_paths_recorded_applied{return Err("The retained resource publication is incomplete; its inverse has no confirmed source authority.".into())}
+ let store=storage(root)?;let workspace=workspace(root)?;let mut cursor=None;let mut found=None;let mut cost=0usize;
+ for _ in 0..20{let page=super::resource_journal::list_recoveries(&store,cursor.as_deref())?;
+  for id in page.ids{let record=super::resource_journal::read_recovery(&store,&id)?;
+   let Ok(context)=serde_json::from_str::<LineageContext>(&record.manifest.context)else{continue};
+   if context.kind!=LINEAGE_KIND||context.resource_id!=recovery.id{continue}
+   cost=cost.saturating_add(serde_json::to_vec(&record.manifest).map_err(|e|e.to_string())?.len());if cost>32*1024*1024{return Err("Inverse source proof exceeds its bounded reading.".into())}
+   if context.workspace!=workspace||context.manifest_sha256!=recovery.manifest_sha256||record.manifest.before!=recovery.manifest.before||record.manifest.after!=recovery.manifest.after||record.unrecognized_files.as_slice()!=["source-lineage.json"]{return Err("The retained original resource proof is foreign, prepared or changed. Its text remains readable.".into())}
+   let bytes=super::resource_journal::read_regular(&store.join(".hick-cache/resource-changes").join(&id).join("source-lineage.json"),2*1024*1024)?;
+   let evidence:LineageEvidence=serde_json::from_slice(&bytes).map_err(|e|e.to_string())?;
+   if evidence.version!=1||evidence.private_manifest_sha256!=record.manifest_sha256||evidence.manifest_sha256!=recovery.manifest_sha256||found.is_some(){return Err("Original resource source proof is corrupt or ambiguous.".into())}
+   found=Some(evidence.after_identities);
+  }cursor=page.next;if cursor.is_none(){break}
+ }
+ if cursor.is_some(){return Err("Original resource proof was not uniquely resolved within the bounded reading.".into())}
+ let identities=found.ok_or("This historical resource has no retained producer source proof. Its inverse is unavailable; inspect its text without applying it.")?;
+ validate_physical_namespace(root,&recovery.manifest.after,&identities)
+}
+
 pub(super) fn prepare_resource_lineage(root:&Path,resource_id:&str,manifest:&Manifest,before_identities:&BTreeMap<String,String>)->Result<ResourceLineageCapture,String>{
  let original=super::resource_journal::read_recovery(root,resource_id)?;
  let bytes=serde_json::to_vec(manifest).map_err(|e|e.to_string())?;
@@ -310,6 +334,7 @@ pub(super) fn prepare_resource_lineage(root:&Path,resource_id:&str,manifest:&Man
  let mut restored=BTreeMap::new();
  if let Some(origin)=&manifest.restore_of{
   let prior=super::resource_journal::read_recovery(root,&origin.recovery_id)?;
+  validate_resource_after(root,&prior)?;
   if prior.fingerprint!=origin.fingerprint||!prior.all_paths_recorded_applied{return Err("Restored history requires the exact original complete resource receipt.".into())}
   let mut cursor=None;let mut found=None;
   for _ in 0..20{let page=super::resource_journal::list_recoveries(&storage(root)?,cursor.as_deref())?;for id in page.ids{
@@ -479,8 +504,9 @@ mod tests {
   assert!(resource_history_edges(root.path(),&workspace(root.path()).unwrap()).unwrap().0.is_empty());
   for(sequence,path)in ["a.txt","b.txt"].into_iter().enumerate(){batch.receipt(&Receipt{sequence,path:path.into(),state:"applied".into(),error:None}).unwrap()}
   finish_resource_lineage(root.path(),&manifest,capture,&BTreeMap::from([("b.txt".into(),after)])).unwrap();
+  let original=super::super::resource_journal::read_recovery(root.path(),&batch.id).unwrap();validate_resource_after(root.path(),&original).unwrap();
   let workspace=workspace(root.path()).unwrap();let(entries,_)=retained(root.path(),"b.txt",&workspace).unwrap();let(edges,notices)=resource_history_edges(root.path(),&workspace).unwrap();assert!(notices.is_empty(),"{notices:?}");assert!(lineage(&entries,&saved,&stamp(&b).unwrap(),&edges).contains(save_id));
-  std::fs::remove_file(&b).unwrap();std::fs::write(&b,"new").unwrap();assert!(lineage(&entries,&saved,&stamp(&b).unwrap(),&edges).is_empty());
+  std::fs::remove_file(&b).unwrap();std::fs::write(&b,"new").unwrap();assert!(lineage(&entries,&saved,&stamp(&b).unwrap(),&edges).is_empty());assert!(validate_resource_after(root.path(),&original).is_err());
  }
  #[test]fn guarded_delete_restoration_recovers_only_the_original_retained_lineage(){
   let root=tempfile::tempdir().unwrap();let path=root.path().join("a.txt");std::fs::write(&path,"old").unwrap();let save_id="11111111111111111111111111111111";save(root.path(),save_id,"new").unwrap();let saved=observe(root.path(),"a.txt").unwrap();
@@ -505,6 +531,12 @@ mod tests {
   let(entries,_)=retained(root.path(),"a.txt",&workspace).unwrap();let(_,current)=super::super::resource_inputs::saved_target(root.path(),"a.txt").unwrap();assert_eq!(lineage(&entries,&current,&stamp(&path).unwrap(),&[]).len(),2);
   std::fs::remove_file(&path).unwrap();std::fs::write(&path,"newer").unwrap();assert!(lineage(&entries,&current,&stamp(&path).unwrap(),&[]).is_empty());
   assert!(write(root.path(),&path,"newer",Some(second),Some(&super::super::workspace_fs::view::hash(b"newer")),||panic!("recreated source must not execute")).is_err());
+ }
+ #[test]fn earlier_workspace_identity_keeps_retained_text_without_restore_or_retry_authority(){
+  let root=tempfile::tempdir().unwrap();let path=root.path().join("a.txt");std::fs::write(&path,"old").unwrap();let current_id="11111111111111111111111111111111";save(root.path(),current_id,"new").unwrap();
+  let old_id="88888888888888888888888888888888";let store=storage(root.path()).unwrap();let original=super::super::resource_journal::read_recovery(&store,current_id).unwrap();let old=read_entry(root.path(),current_id).unwrap();let mut manifest=original.manifest;let mut capture=old.capture;capture.workspace=super::super::workspace_fs::view::hash(b"legacy path-only workspace identity");manifest.workspace=capture.workspace.clone();manifest.context=serde_json::to_string(&capture).unwrap();manifest.reviewed_plan.context=manifest.context.clone();manifest.request_id=Some(old_id.into());
+  let batch=Batch::begin(&store,&manifest).unwrap();batch.receipt(&Receipt{sequence:0,path:capture.journal_path.clone(),state:"applied".into(),error:None}).unwrap();let mut evidence=old.evidence.unwrap();evidence.manifest_sha256=super::super::resource_journal::read_recovery(&store,old_id).unwrap().manifest_sha256;batch.append_source_evidence(&serde_json::to_vec(&evidence).unwrap()).unwrap();
+  let(entries,notices)=retained(root.path(),"a.txt",&workspace(root.path()).unwrap()).unwrap();let legacy=entries.iter().find(|entry|entry.id==old_id).unwrap();assert!(!legacy.namespace_current);assert_eq!(text(&legacy.before).unwrap(),"old");assert_eq!(text(&legacy.after).unwrap(),"new");assert!(notices.iter().any(|notice|notice.contains("historical and readable")));assert!(!lineage(&entries,&observe(root.path(),"a.txt").unwrap(),&stamp(&path).unwrap(),&[]).contains(old_id));assert!(replay(root.path(),&path,"new",Some(old_id),Some(&capture.request_fingerprint)).is_err());
  }
  #[test]fn failed_and_unknown_writers_are_readable_without_published_authority(){
   let root=tempfile::tempdir().unwrap();let path=root.path().join("a.txt");std::fs::write(&path,"old").unwrap();

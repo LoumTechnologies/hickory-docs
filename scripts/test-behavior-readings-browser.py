@@ -9,7 +9,10 @@ def prepare(root):
  (root/'hickory-dogfood').mkdir();sibling=root/'sibling-ran.txt';manual=root/'manual-ran.txt';stale_manual=root/'stale-manual-ran.txt'
  implementation='def answer():\n    return 41\n';unrelated='def test_unrelated():\n    pass\n'
  test=f'from a import answer\nfrom pathlib import Path\ndef test_selected():\n    assert answer() == 41\ndef test_sibling():\n    Path({str(sibling)!r}).write_text("unwanted")\n'
- launch={'version':1,'profiles':[{'id':'manual-check','name':'Explicit manual check','command':['python3','-c',f'from pathlib import Path; Path({str(manual)!r}).write_text("ran")'],'default':True},{'id':'stale-manual-check','name':'Stale manual check','command':['python3','-c',f'from pathlib import Path; Path({str(stale_manual)!r}).write_text("unwanted")']}]}
+ held_ready=root.parent/'held-ready.txt';held_release=root.parent/'held-release.txt'
+ held_loop=f'while not Path({str(held_release)!r}).exists(): time.sleep(.05)'
+ held_code=f'from pathlib import Path; import time; Path({str(held_ready)!r}).write_text("ready"); exec({held_loop!r}); print("owned process complete",flush=True)'
+ launch={'version':1,'profiles':[{'id':'held-manual-check','name':'Held manual check','command':['python3','-c',held_code]},{'id':'manual-check','name':'Explicit manual check','command':['python3','-c',f'from pathlib import Path; Path({str(manual)!r}).write_text("ran")'],'default':True},{'id':'stale-manual-check','name':'Stale manual check','command':['python3','-c',f'from pathlib import Path; Path({str(stale_manual)!r}).write_text("unwanted")']}]}
  entry='<h:doc xmlns:h="http://www.hickorydocs.com/1.0">\n<h:project sources="source.md"/>\n</h:doc>\n'
  marker='Later explanation for the declared answer'
  source=('<h:doc xmlns:h="http://www.hickorydocs.com/1.0">\n<h:file path="a.py"><h:paste select="#answer"/></h:file>\n<h:file path="test_a.py">\n'+test+'</h:file>\n<h:file path="test_undeclared.py">\n'+unrelated+'</h:file>\n<h:file path=".hick-launch.json">\n'+json.dumps(launch)+'\n</h:file>\n<h:file path="pyproject.toml">\n[tool.uv]\n</h:file>\n'+('Earlier retained source context 😀.\n'*220)+'\n## '+marker+'\n\nOnly the explicit compiler and metadata relationships authorize this reading.\n<h:copy id="answer">\n'+implementation+'</h:copy>\n</h:doc>\n')
@@ -19,7 +22,7 @@ def prepare(root):
  metadata={'format':1,'contracts':{'answer':{'page':'behavior.md','title':'Answer behavior','disposition':'retained-requirement','references':['a.py'],'tests':[{'runner':'pytest','file':'test_a.py','name':'test_selected'},{'runner':'unconfigured-check','file':'manual.check','name':'Explicit unsupported check'}]}},'constructors':{'a.py':{'source':'source.md'}}}
  narrative={'format':1,'paired_test_modules':[{'implementation':'a.py','tests':'test_a.py','page':'source.md'}],'fragments':[{'id':'answer','page':'source.md','output':'a.py','symbol':'answer','basis':'needs-explanation'}]}
  (root/'hickory-dogfood/behavior-map.json').write_text(json.dumps(metadata));(root/'hickory-dogfood/narrative-map.json').write_text(json.dumps(narrative));(root/'.hickory-native-behavior-fixture').write_text('owned-native-behavior-v1\n');subprocess.run(['git','init','-q',str(root)],check=True)
- return {'workspace':str(root),'entry':'project.md','focus':'a.py','source_file':'source.md','source_text':source,'implementation_text':implementation,'selected':'test_selected','unsupported':'Explicit unsupported check','profile':'Explicit manual check','sibling':str(sibling),'manual':str(manual),'stale_manual':str(stale_manual),'later_marker':marker,'fragment':'answer'}
+ return {'workspace':str(root),'entry':'project.md','focus':'a.py','source_file':'source.md','source_text':source,'implementation_text':implementation,'selected':'test_selected','unsupported':'Explicit unsupported check','profile':'Explicit manual check','sibling':str(sibling),'manual':str(manual),'stale_manual':str(stale_manual),'later_marker':marker,'fragment':'answer','held_ready':str(held_ready),'held_release':str(held_release)}
 def api(origin,path,body=None,expected=200):
  request=urllib.request.Request(origin+path,data=None if body is None else json.dumps(body).encode(),headers={'Content-Type':'application/json'})
  try:
@@ -91,8 +94,21 @@ def main():
    assert driver.act('editor-is-retained',path='source.md');assert driver.act('editor-size',path='source.md')==size
    driver.act('construction-history',redo=False);assert driver.act('construction-source',path='source.md')==source;driver.act('construction-history',redo=True);assert driver.act('construction-source',path='source.md')==dirty['source']
    assert (root/'source.md').read_text()==source and (root/'a.py').read_text()==implementation;assert not sibling.exists();assert not driver.act('debug-diagnostics')['errors']
+   # The process belongs to the admitted engine, independently of its source directory.
+   driver.act('construction-history',redo=False);driver.act('construction-read',entry='project.md',focus='a.py');driver.act('behavior-ready');driver.act('behavior-check',label='Explicit unsupported check');driver.act('behavior-profiles',label='Held manual check');driver.act('behavior-profile-run')
+   deadline=time.monotonic()+10
+   while time.monotonic()<deadline and not Path(details['held_ready']).exists():time.sleep(.05)
+   assert Path(details['held_ready']).read_text()=='ready'
+   held=driver.act('behavior-last-request');owned=api(backend,'/api/behavior/verification?id='+held['request_id']);assert owned['terminal']['id'];known_terminal=owned['terminal']['id']
    # Identical bytes cannot rebind an old reading to a replacement directory.
    retired=root.with_name('retained-original');root.rename(retired);shutil.copytree(retired,root,symlinks=True)
+   cache_before={path.name:path.read_bytes() for path in verify_receipts(root)}
+   observation=api(backend,'/api/behavior/verification?id='+held['request_id']);assert observation['workspace_current'] is False and observation['terminal']['id']==known_terminal,observation
+   replay=api(backend,'/api/behavior/verify',held);assert replay['terminal']['id']==known_terminal and replay['workspace_current'] is False
+   Path(details['held_release']).write_text('release');text=driver.act('behavior-finished');assert 'process-finished' in text and 'Workspace physical identity changed' in text,text[-3000:]
+   final=api(backend,'/api/behavior/verification?id='+held['request_id']);assert final['terminal']['id']==known_terminal and final['status']=='process-finished' and final['exit_code']==0,final
+   assert {path.name:path.read_bytes() for path in verify_receipts(root)}==cache_before
+   assert driver.act('editor-is-retained',path='source.md') and driver.act('editor-size',path='source.md')==size
    identity=uuid.uuid4().hex;api(backend,'/api/behavior/verify',{**proof,'request_id':identity},expected=409);assert not (root/'.hick-cache/behavior-verification'/f'{identity}.json').exists()
    fixture.stop(engine)
    restarted=fixture.start([os.environ.get('HICKORY_SIMPLE_TEST_ENGINE',str(ROOT/'target/source-edit-focus/debug/examples/engine_client')),str(root),'window',ui],env=environment);processes.append(restarted);new_origin=fixture.origin(restarted)
@@ -100,7 +116,7 @@ def main():
    api(new_origin,'/api/behavior/verify',{**proof,'request_id':identity},expected=409)
    api(new_origin,'/api/behavior/verify',{**proof,'engine_workspace_id':fresh['engine_workspace_id'],'request_id':identity},expected=409)
    assert not (root/'.hick-cache/behavior-verification'/f'{identity}.json').exists()
-   print('PASS: later-fragment full captured reading; explicit contract/explanation/compiler/test edges; unrelated-test exclusion; selected pytest and exact user profile; full-intent replay/stale output/inventory/foreign refusal; genuine pytest-cov/JUnit plus manual/stale/legacy distinctions; retained process-only links, editor/selection/geometry/unsaved/native undo/redo, unchanged source bytes; identical-byte root replacement and old-reading/new-engine refusal')
+   print('PASS: later-fragment full captured reading; explicit contract/explanation/compiler/test edges; unrelated-test exclusion; selected pytest and exact user profile; full-intent replay/stale output/inventory/foreign refusal; genuine pytest-cov/JUnit plus manual/stale/legacy distinctions; retained process-only links, editor/selection/geometry/unsaved/native undo/redo, unchanged source bytes; identical-byte root replacement, independently owned post-effect process retention without foreign cache writes, and old-reading/new-engine refusal')
   finally:
    if driver:driver.close()
    for process in reversed(processes):fixture.stop(process)

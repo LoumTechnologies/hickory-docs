@@ -97,7 +97,7 @@ pub(super) fn list(root: &Path) -> Result<Value, String> {
         }
         budget -= meta.len();
         match read_retained(root, id) {
-            Ok(Some(mut record)) => {let current=record["workspace_identity_kind"]=="physical-root-v1"&&super::super::resource_inputs::RootIdentity::fingerprint(root).ok().is_some_and(|identity|record["workspace_id"]==identity);if current{record["origin"]=json!("current-workspace");}else{record["origin"]=json!("unknown");record["terminal"]=Value::Null;record["freshness"]=json!("origin-unknown");record["notice"]=json!("Retained historical origin is unconfirmed; no live process or replay authority is attached.");}records.push(record)},
+            Ok(Some(mut record)) => {if record["terminal"].is_object(){record["terminal_snapshot"]=record["terminal"].clone();record["terminal"]=Value::Null;}let current=record["workspace_identity_kind"]=="physical-root-v1"&&super::super::resource_inputs::RootIdentity::fingerprint(root).ok().is_some_and(|identity|record["workspace_id"]==identity);if current{record["origin"]=json!("current-workspace");}else{record["origin"]=json!("unknown");record["terminal"]=Value::Null;record["freshness"]=json!("origin-unknown");record["notice"]=json!("Retained historical origin is unconfirmed; no live process or replay authority is attached.");}records.push(record)},
             Ok(None) => {}
             Err(_) => unknown += 1,
         }
@@ -127,6 +127,7 @@ pub(super) fn claim_owned(scope:&Arc<RootScope>,hub:&Arc<hick_term::Terminals>,r
  cache.rows.push_back(OwnedProcess{scope:scope.clone(),hub:Arc::downgrade(hub),runtime:runtime.into(),id:id.into(),intent:intent.into(),value,known_terminal:None,revision:0,quota,disk_reserved:false,persisted:false});cache.bytes+=quota;Ok(None)
 }
 pub(super) fn disk_reserved(scope:&Arc<RootScope>,hub:&Arc<hick_term::Terminals>,id:&str)->Result<(),String>{let mut cache=owned_cache()?;let row=cache.rows.iter_mut().find(|row|row.id==id&&row.belongs(scope,hub)).ok_or("Owned request disappeared before persistence.")?;row.disk_reserved=true;row.persisted=true;Ok(())}
+pub(super) fn acknowledge_persisted(scope:&Arc<RootScope>,hub:&Arc<hick_term::Terminals>,id:&str,revision:u64)->Result<(),String>{let mut cache=owned_cache()?;let row=cache.rows.iter_mut().find(|row|row.id==id&&row.belongs(scope,hub)).ok_or("Owned persistence acknowledgement lost its request.")?;if row.revision==revision{row.persisted=true;}Ok(())}
 /// Updates are CAS observations; a held older read cannot replace a newer final outcome.
 pub(super) fn update_owned(scope:&Arc<RootScope>,hub:&Arc<hick_term::Terminals>,id:&str,expected:Option<u64>,mut value:Value,known_terminal:Option<String>,persisted:bool)->Result<OwnedSnapshot,String>{
  let mut cache=owned_cache()?;let row=cache.rows.iter_mut().find(|row|row.id==id&&row.belongs(scope,hub)).ok_or("The original engine no longer owns this verification request.")?;
@@ -142,6 +143,22 @@ pub(super) fn update_owned(scope:&Arc<RootScope>,hub:&Arc<hick_term::Terminals>,
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn owned_intentions_survive_root_replacement_without_borrowing_another_engine_or_process(){
+        let temp=tempfile::tempdir().unwrap();let path=temp.path().join("workspace");std::fs::create_dir(&path).unwrap();
+        let scope=Arc::new(RootScope::bind(&path));let hub=Arc::new(hick_term::Terminals::new(Default::default()));let id="abcdefabcdefabcdefabcdefabcdefab";let value=json!({"request_fingerprint":"a".repeat(64),"status":"admitting"});
+        assert!(claim_owned(&scope,&hub,"11111111111111111111111111111111",id,&value).unwrap().is_none());
+        let initial=owned(&scope,&hub,id).unwrap().unwrap();
+        let mut running=value.clone();running["status"]=json!("process-running");let running=update_owned(&scope,&hub,id,Some(initial.revision),running,Some("positively-returned-process".into()),false).unwrap();
+        std::fs::rename(&path,temp.path().join("retired")).unwrap();std::fs::create_dir(&path).unwrap();assert!(scope.check(&path).is_err());
+        assert_eq!(owned(&scope,&hub,id).unwrap().unwrap().known_terminal.as_deref(),Some("positively-returned-process"));
+        let replacement=Arc::new(RootScope::bind(&path));assert!(owned(&replacement,&hub,id).unwrap().is_none());let foreign=Arc::new(hick_term::Terminals::new(Default::default()));assert!(owned(&scope,&foreign,id).unwrap().is_none());
+        let mut changed=value.clone();changed["request_fingerprint"]=json!("b".repeat(64));assert!(claim_owned(&scope,&hub,"11111111111111111111111111111111",id,&changed).is_err());
+        assert!(update_owned(&scope,&hub,id,None,running.value.clone(),Some("foreign-process".into()),false).is_err());
+        let mut final_value=running.value.clone();final_value["status"]=json!("process-finished");let finished=update_owned(&scope,&hub,id,Some(running.revision),final_value,None,false).unwrap();
+        assert_eq!(update_owned(&scope,&hub,id,Some(running.revision),running.value,None,false).unwrap().revision,finished.revision);
+    }
+
     #[test]
     fn unretainable_inputs_refuse_before_consuming_the_request(){let root=tempfile::tempdir().unwrap();let id="11111111111111111111111111111111";assert!(reserve(root.path(),id,&json!({"checked_sources":"x".repeat(1024*1024+1)})).is_err());assert!(!path(root.path(),id,false).unwrap().exists());let value=json!({"workspace_identity_kind":"physical-root-v1","workspace_id":super::super::super::resource_inputs::RootIdentity::fingerprint(root.path()).unwrap(),"request_id":id,"status":"admitting"});reserve(root.path(),id,&value).unwrap();assert!(existing(root.path(),id).unwrap().is_some());}
 
@@ -163,6 +180,9 @@ mod tests {
         assert!(existing(root.path(), id).is_err());
         assert!(existing(root.path(), "../escape").is_err());
     }
+    #[test]
+    fn disk_receipts_never_grant_live_terminal_authority_even_with_current_origin(){let root=tempfile::tempdir().unwrap();let id="33333333333333333333333333333333";let value=json!({"workspace_identity_kind":"physical-root-v1","workspace_id":RootScope::fingerprint(root.path()).unwrap(),"engine_workspace_id":"e".repeat(32),"request_id":id,"terminal":{"id":"forged-owned-id"},"status":"process-running"});reserve(root.path(),id,&value).unwrap();let value=list(root.path()).unwrap();assert_eq!(value["records"][0]["origin"],"current-workspace");assert!(value["records"][0]["terminal"].is_null());assert_eq!(value["records"][0]["terminal_snapshot"]["id"],"forged-owned-id");}
+
     #[test]
     fn legacy_path_only_origins_remain_readable_without_replay_or_terminal_authority(){let root=tempfile::tempdir().unwrap();let id="22222222222222222222222222222222";let old=json!({"version":1,"request_id":id,"workspace_id":hash(root.path().canonicalize().unwrap().as_os_str().as_encoded_bytes()),"label":"Legacy result","status":"process-finished","terminal":{"id":"old-process"}});reserve(root.path(),id,&old).unwrap();assert!(existing(root.path(),id).is_err());let value=list(root.path()).unwrap();let row=&value["records"][0];assert_eq!(row["label"],"Legacy result");assert_eq!(row["origin"],"unknown");assert!(row["terminal"].is_null());}
 

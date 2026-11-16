@@ -358,6 +358,7 @@ impl Step {
 }
 /// One cell, being debugged.
 pub struct Session {
+    attached: bool,
     // Retain ordinary adapter output before configurationDone can start the
     // program. A late UI subscriber must not lose the first print statement.
     output: Arc<std::sync::Mutex<Vec<Value>>>,
@@ -517,10 +518,10 @@ impl Session {
         Ok(Arc::new(pinned))
     }
     pub fn source_hash(&self, document: &std::path::Path) -> Option<String> {
-        self.mapping.source_hash(document)
+        if self.attached { None } else { self.mapping.source_hash(document) }
     }
     pub fn primary_source_hash(&self) -> Option<String> {
-        self.mapping.source_hash(self.mapping.document())
+        if self.attached { None } else { self.mapping.source_hash(self.mapping.document()) }
     }
     pub fn source_document(&self) -> &std::path::Path {
         self.mapping.document()
@@ -536,7 +537,27 @@ impl Session {
         let mapping = Self::checked_mapping(mapping, sources)?;
         let adapter = Adapter::start(&launch.adapter, launch.transport).await?;
         let extra = launch.extra.clone();
-        Self::start_on(adapter, None, &launch, extra, mapping, breakpoints, sources).await
+        Self::start_on(adapter, None, &launch, extra, mapping, breakpoints, sources, false).await
+    }
+
+    /// Attach to an explicitly selected loopback DAP endpoint. The external
+    /// process has no captured-source authority and is detached on shutdown.
+    pub async fn attach_to_endpoint(
+        port: u16,
+        arguments: Value,
+        mapping: Arc<Mapping>,
+    ) -> Result<Self> {
+        anyhow::ensure!(port != 0, "Choose a nonzero adapter endpoint port");
+        anyhow::ensure!(arguments.is_object(), "Attach arguments must be an object");
+        let adapter = Adapter::attach(port).await?;
+        let launch = Launch {
+            adapter: Vec::new(), transport: crate::adapter::Transport::Stdio,
+            adapter_extra: json!({}), multi_session: false,
+            program: PathBuf::new(), cwd: PathBuf::new(), extra: arguments.clone(),
+        };
+        let (session, _) = Self::start_on(adapter, None, &launch, arguments,
+            mapping, &[], &[], true).await?;
+        Ok(session)
     }
 
     /// Start a session on one connection, following a child if the adapter
@@ -555,6 +576,7 @@ impl Session {
         mapping: Arc<Mapping>,
         breakpoints: &[Breakpoint],
         source_breakpoints: &[SourceBreakpoints],
+        attached: bool,
     ) -> Result<(Self, Vec<BreakpointStatus>)> {
         // Subscribed BEFORE initialize: `initialized` arrives as an event and
         // routinely beats the response to the request that caused it.
@@ -594,6 +616,7 @@ impl Session {
             "justMyCode": true,
             "console": "internalConsole",
         });
+        if attached { launch_args = json!({}); }
         merge(&mut launch_args, &launch.adapter_extra);
         // For a child this is the configuration the adapter handed back,
         // `__pendingTargetId` and all — which is what names the target this
@@ -613,7 +636,7 @@ impl Session {
         // `initialized` EVENT, set breakpoints, send configurationDone — and
         // only then does the launch response arrive.
         adapter
-            .notify("launch", launch_args)
+            .notify(if attached { "attach" } else { "launch" }, launch_args)
             .await
             .context("sending launch")?;
 
@@ -733,8 +756,9 @@ impl Session {
         });
 
         let is_supervisor = launch.multi_session && parent.is_none();
-        let observation_source = mapping.observation_source();
+        let observation_source = if attached { None } else { mapping.observation_source() };
         let session = Self {
+            attached,
             output,
             observation_source,
             parent,
@@ -788,6 +812,7 @@ impl Session {
                 mapping.clone(),
                 breakpoints,
                 source_breakpoints,
+                attached,
             ))
             .await;
         }
@@ -941,7 +966,16 @@ impl Session {
                 }
                 total = Some(reported);
             }
-            let page = Frame::from_response(&self.mapping, &body)?;
+            let mut page = Frame::from_response(&self.mapping, &body)?;
+            if self.attached {
+                for frame in &mut page {
+                    frame.line = None;
+                    frame.in_document = false;
+                    frame.source_hash = None;
+                    frame.source = frame.adapter_source.clone();
+                    frame.source_line = frame.adapter_line;
+                }
+            }
             let count = page.len();
             if frames.len().saturating_add(count) > 4096 {
                 bail!("Adapter stack exceeds the 4096-frame interactive budget");
@@ -1112,6 +1146,7 @@ impl Session {
     /// hand (set breakpoint, continue, remove breakpoint) would race the
     /// program.
     pub async fn run_to(&self, line: u32, thread_id: i64) -> Result<()> {
+        anyhow::ensure!(!self.attached, "External process source revision is unverified; source-coordinate execution is unavailable");
         let _transition = self.breakpoint_transition.lock().await;
         if self.running_to.lock().await.is_some() {
             bail!("A run-to breakpoint is still pending; wait for its stop or reconcile breakpoints");
@@ -1178,6 +1213,7 @@ impl Session {
     /// only place it is meaningful: jumping into a different function would
     /// arrive with the wrong locals.
     pub async fn jump_to(&self, line: u32, thread_id: i64) -> Result<()> {
+        anyhow::ensure!(!self.attached, "External process source revision is unverified; source-coordinate execution is unavailable");
         if !self.capabilities.goto_targets {
             bail!(
                 "this debug adapter cannot move the instruction pointer. Neither it nor drop \
@@ -1291,9 +1327,9 @@ impl Session {
         // The child first, then the connection that owns the server process.
         // The other order kills the server while the session it is running
         // is still being told to stop.
-        self.adapter.shutdown().await;
+        self.adapter.disconnect(!self.attached).await;
         if let Some(parent) = &self.parent {
-            parent.shutdown().await;
+            parent.disconnect(!self.attached).await;
         }
     }
 }
@@ -1329,6 +1365,75 @@ fn merge(base: &mut Value, extra: &Value) {
 #[cfg(test)]
 mod source_admission_tests {
     use super::*;
+    // A real TCP exchange checks the attach ordering and the disconnect bit;
+    // matching path text must not confer source authority on an external target.
+    #[tokio::test]
+    async fn endpoint_attach_detaches_and_keeps_frames_unverified() {
+        use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("main.py");
+        std::fs::write(&path, "answer=41\n").unwrap();
+        let mapping = Arc::new(Mapping::identity(&path));
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let (read, mut write) = stream.into_split();
+            let mut read = BufReader::new(read);
+            let mut commands = Vec::new();
+            loop {
+                let mut length = 0;
+                loop {
+                    let mut header = String::new();
+                    assert!(read.read_line(&mut header).await.unwrap() > 0);
+                    if header == "\r\n" { break; }
+                    if let Some(value) = header.strip_prefix("Content-Length:") {
+                        length = value.trim().parse::<usize>().unwrap();
+                    }
+                }
+                let mut bytes = vec![0; length];
+                read.read_exact(&mut bytes).await.unwrap();
+                let request: Value = serde_json::from_slice(&bytes).unwrap();
+                let command = request["command"].as_str().unwrap();
+                commands.push(command.to_owned());
+                if command == "disconnect" {
+                    assert_eq!(request["arguments"]["terminateDebuggee"], false);
+                    return commands;
+                }
+                let body = match command {
+                    "stackTrace" => json!({"totalFrames":1,"stackFrames":[{
+                        "id":7,"name":"external","line":1,
+                        "source":{"path":path,"sourceReference":12}
+                    }]}),
+                    _ => json!({}),
+                };
+                let response = json!({"seq":1,"type":"response","request_seq":request["seq"],
+                    "success":true,"command":command,"body":body});
+                write.write_all(&crate::protocol::frame(&response)).await.unwrap();
+                if command == "attach" {
+                    let event = json!({"seq":2,"type":"event","event":"initialized"});
+                    write.write_all(&crate::protocol::frame(&event)).await.unwrap();
+                }
+                write.flush().await.unwrap();
+            }
+        });
+        let session = Session::attach_to_endpoint(port, json!({"justMyCode":false}), mapping).await.unwrap();
+        assert!(session.observation_source.is_none());
+        assert!(session.primary_source_hash().is_none());
+        assert!(session.set_breakpoints(&[Breakpoint { line:0, condition:None, hit_condition:None, log_message:None }]).await.is_err());
+        let frames = session.stack(1).await.unwrap();
+        assert_eq!(frames.len(), 1);
+        assert!(!frames[0].in_document);
+        assert!(frames[0].line.is_none() && frames[0].source_hash.is_none());
+        assert_eq!(frames[0].source_reference, Some(12));
+        assert!(session.run_to(0, 1).await.is_err());
+        assert!(session.jump_to(0, 1).await.is_err());
+        session.shutdown().await;
+        let commands = server.await.unwrap();
+        assert!(commands.contains(&"attach".into()));
+        assert!(!commands.contains(&"launch".into()));
+    }
+
     #[test]
     fn module_launch_omits_only_explicitly_cleared_program() {
         let mut arguments = json!({"program":null,"module":"pytest","args":["test_x.py"]});

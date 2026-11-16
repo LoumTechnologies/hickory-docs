@@ -379,7 +379,7 @@ fn scan_captured(
     if language != "markdown" && request.project_entry.is_none() {
         let found = candidates::detect(language, &request.source)?;
         result.syntax_complete = found.syntax_complete;
-        result.notices = found.notices;
+        result.notices.extend(found.notices);
         result.scanned_files = 1;
         for item in found.candidates {
             let at = point(&path, item.line, item.character, &result.input_hash);

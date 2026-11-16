@@ -44,7 +44,11 @@ func validateConnectedBehaviorPage(_ page:ConnectedBehaviorPage,reading:Connecte
  private var transport:Transport?;private var engine:Engine?;private var ticket=UUID();private var pageTicket=UUID();private var pageReading:UUID?;private var valid:()->Bool={false};private var consumed:[String:(String,UUID)]=[:]
  private(set) var value:ConnectedBehaviorReading?;private(set) var page:ConnectedBehaviorPage?;private(set) var receipts:[ConnectedBehaviorReceipt]=[];private(set) var profiles:[ConnectedBehaviorProfile]=[];private(set) var busy=false;private(set) var pageBusy=false;private(set) var notice=""
  init(transport:Transport?=nil){self.transport=transport}
- private func call(_ engine:Engine,_ path:String,_ body:[String:Any]?=nil)async throws->ResourceJSON {if let transport{return try await transport(path,body)};return try await engine.request(body==nil ? "GET":"POST",path,body:body)}
+ private func call(_ engine:Engine,_ path:String,_ body:[String:Any]?=nil)async throws->ResourceJSON {
+  if let transport{return try await transport(path,body)}
+  guard let endpoint=URLComponents(string:path),endpoint.scheme==nil,endpoint.host==nil,endpoint.path.hasPrefix("/") else{throw EngineError(message:"Invalid internal behavior endpoint.")}
+  return try await engine.request(body==nil ? "GET":"POST",endpoint.path,query:endpoint.queryItems ?? [],body:body)
+ }
  var current:Bool{value != nil&&valid()}
  var currentPage:Bool{current&&page != nil&&pageReading==ticket}
  func close(){ticket=UUID();pageTicket=UUID();valid={false};busy=false;pageBusy=false;profiles=[]}
@@ -101,7 +105,7 @@ func validateConnectedBehaviorPage(_ page:ConnectedBehaviorPage,reading:Connecte
 
 ## Keep richer readings inside the existing floating surface
 
-A node preview, full Unicode-scalar pages, provenance details and qualified evidence are read-only observations. No source page supplies writable positions. Only an explicit selected supported source-test candidate or a separately selected existing profile can start verification. The immutable request is consumed before sending; an uncertain response retains its identity and cannot create a replacement process. Refresh reads only that original receipt. A process exit remains a process outcome, and legacy or origin-unknown records never attach a live terminal.
+A node preview, full Unicode-scalar pages, provenance details and qualified evidence are read-only observations. No source page supplies writable positions. Only an explicit selected supported source-test candidate or a separately selected existing profile can start verification. The immutable request is consumed before sending; an uncertain response retains its identity and cannot create a replacement process. Refresh reads only that original receipt. Separate URL path and query items at the Engine boundary: putting a retained request query into URLComponents.path would percent-encode its question mark and stop real polling even though an injected transport fixture accepts the string. A process exit remains a process outcome, and legacy or origin-unknown records never attach a live terminal.
 
 <ui:copy id="behavior-readings-apple-view">
 struct ConnectedBehaviorView:View {
@@ -150,7 +154,7 @@ struct ConnectedBehaviorView:View {
 <ui:file path="apps/apple-simple/Sources/BehaviorReading.swift"><ui:paste select="#behavior-readings-apple-core"/><ui:paste select="#behavior-readings-apple-view"/></ui:file>
 ## Check stale authority separately from a live provider flow
 
-The focused model fixtures exercise physical-root/runtime/context admission, held and failed reads, one-shot verification, explicit profiles, scoped receipt refresh and exact Unicode-scalar source pages. The opt-in macOS fixture uses the maintained real-engine graph workspace, a real WorkspaceView/NSTextView and provider-owned selected pytest/manual profile. It retains editor identity and geometry, saved bytes, unsaved text and native Undo/Redo. These newly authored checks are unexecuted until canonical generation; pointer interaction, physical IME and assistive technology acceptance remain unverified.
+The focused model fixtures exercise physical-root/runtime/context admission, held and failed reads, one-shot verification, explicit profiles, scoped receipt refresh and exact Unicode-scalar source pages. The opt-in macOS fixture uses the maintained real-engine graph workspace, a real WorkspaceView/NSTextView and provider-owned selected pytest/manual profile. It retains editor identity and geometry, saved bytes, unsaved text and native Undo/Redo. Canonical macOS compilation and four selected model tests passed with zero skips; the iOS simulator product build also passed. The real WorkspaceView/NSTextView fixture then passed exactly one actual case with zero skips after correcting retained-process polling to use the Engine query argument. It read complete source/fragment pages, ran the selected pytest without its sibling and an explicitly selected existing profile, retained process-only outcomes, and preserved editor identity/geometry, saved bytes, unsaved text and native Undo/Redo. Earlier actual attempts reached graph/source reading but failed during polling because the query was encoded into the path; no unrelated language-service behavior was disabled. Xcode27 SwiftBuild ignored xunit-output, so the final temporary harness required the exact XCTest case passed line and Executed1/0fail console receipt when no XML appeared. A fifth real Engine HTTP encoder fixture is newly authored and awaits canonical execution. Pointer interaction, physical IME and assistive technology acceptance remain unverified.
 
 <ui:copy id="behavior-readings-apple-tests">
 import XCTest
@@ -182,6 +186,14 @@ import Darwin
   let engine=try engine(),context=try context();await model.read(engine:engine,namespace:"/fixture",runtime:runtime,context:context,current:{true});await model.run("selected");XCTAssertEqual(starts,1);XCTAssertEqual(model.receipts.first?.status,"request-pending");await model.run("selected");XCTAssertEqual(starts,1);model.close();await model.read(engine:engine,namespace:"/fixture",runtime:runtime,context:context,current:{true});await model.run("selected");XCTAssertEqual(starts,1)
   lost=false;await model.refresh(try XCTUnwrap(model.receipts.first));XCTAssertEqual(model.receipts.first?.outcome,"process-only");await model.read(engine:engine,namespace:"/fixture",runtime:runtime,context:context,current:{true});await model.chooseProfiles();let profile=try XCTUnwrap(model.profiles.first);await model.run("selected",profile:profile);XCTAssertEqual(starts,2);let confirmed=try XCTUnwrap(model.receipts.first);tamper=true;await model.refresh(confirmed);XCTAssertEqual(model.receipts.first?.engine_workspace_id,runtime);XCTAssertTrue(model.notice.contains("another"))
  }
+ func testRetainedProcessPollingUsesRealEngineQueryEncoding()async throws {
+  let configuration=URLSessionConfiguration.ephemeral;configuration.protocolClasses=[ResponseProtocol.self];let session=URLSession(configuration:configuration);defer{session.invalidateAndCancel();ResponseProtocol.responsesByPath=[:]};ResponseProtocol.resetRequests();ResponseProtocol.status=200;ResponseProtocol.response=Data()
+  var receipt:[String:Any]=["version":1,"request_id":String(repeating:"1",count:32),"workspace_id":physical,"engine_workspace_id":runtime,"origin":"current-workspace","reading_fingerprint":fingerprint,"check_id":"selected","status":"process-running","outcome":"unknown","profile":NSNull()]
+  ResponseProtocol.responsesByPath=["/api/behavior/reading":try connectedBehaviorData(reading(["receipts":["records":[receipt]]]))]
+  receipt["status"]="process-finished";receipt["outcome"]="process-only";ResponseProtocol.responsesByPath["/api/behavior/verification"]=try JSONSerialization.data(withJSONObject:receipt)
+  let model=ConnectedBehaviorModel();await model.read(engine:try Engine(address:"http://fixture.invalid",session:session),namespace:"/fixture",runtime:runtime,context:try context(),current:{true});let original=try XCTUnwrap(model.receipts.first);await model.refresh(original)
+  let url=try XCTUnwrap(ResponseProtocol.requestedURL);XCTAssertEqual(url.path,"/api/behavior/verification");XCTAssertEqual(URLComponents(url:url,resolvingAgainstBaseURL:false)?.queryItems,[URLQueryItem(name:"id",value:original.id)]);XCTAssertEqual(model.receipts.first?.status,"process-finished",model.notice);XCTAssertEqual(model.receipts.first?.outcome,"process-only")
+ }
  func testFullSourceScalarPagesRequireHashesOriginsAndReadingLifetime()async throws {
   let source="😀"+String(repeating:"x",count:5000),hash=nativeSourceHash("😀"+String(repeating:"x",count:5000))
   let node:[String:Any]=["id":"source","kind":"source","path":"source.md","source_path":"source.md","fragment_id":NSNull(),"label":"Source","hash":hash,"preview":"abbreviated","status":"captured"]
@@ -194,19 +206,28 @@ import Darwin
  func testLiveNativeConnectedBehaviorSourcePagesVerificationAndEditorRetention()async throws {
   guard let origin=ProcessInfo.processInfo.environment["HICKORY_NATIVE_BEHAVIOR_ORIGIN"] else{throw XCTSkip("Use the maintained owned behavior fixture")};guard let path=ProcessInfo.processInfo.environment["HICKORY_NATIVE_BEHAVIOR_WORKSPACE"],let canonical=path.withCString({realpath($0,nil)}) else{throw EngineError(message:"Use an owned behavior workspace")};defer{free(canonical)}
   _ = NSApplication.shared;NSApp.setActivationPolicy(.regular);let engine=try Engine(address:origin),space=Workspace(),model=ConnectedBehaviorModel();space.engine=engine
+  print("Apple behavior actual stage: load owned marker")
   let marker=try await engine.file(FileNode(name:".hickory-native-behavior-fixture",path:".hickory-native-behavior-fixture",dir:false));XCTAssertEqual(marker.content,"owned-native-behavior-v1\n");guard marker.content=="owned-native-behavior-v1\n" else{return}
+  print("Apple behavior actual stage: load file namespace")
   let listing=try await engine.files();XCTAssertEqual(listing.root_path,String(cString:canonical));space.sourceRootAddress=listing.root_path;space.sourceWorkspaceID=listing.workspace_id;space.rootFiles=listing.tree
   func find(_ rows:[FileNode])->FileNode?{for row in rows{if exactUTF8(row.path,"source.md"){return row};if let child=find(row.children ?? []){return child}};return nil}
+  print("Apple behavior actual stage: load actual source editor")
   let buffer=try await space.loadBuffer(XCTUnwrap(find(listing.tree))),source=buffer.text;XCTAssertFalse(buffer.readOnly);space.layout.activate(buffer.file.path,in:"document-group")
+  print("Apple behavior actual stage: mount real WorkspaceView")
   let host=NSHostingView(rootView:WorkspaceView(workspace:space)),window=NSWindow(contentRect:NSRect(x:0,y:0,width:840,height:560),styleMask:[.titled],backing:.buffered,defer:false);window.contentView=host;window.makeKeyAndOrderFront(nil);host.layoutSubtreeIfNeeded()
   defer{model.close();space.sourceTestIndex?.stop();for b in space.buffers.values{b.language?.close()};window.orderOut(nil)}
   func editor(_ view:NSView)->NSTextView?{if let text=view as? NSTextView{return text};return view.subviews.lazy.compactMap{editor($0)}.first}
   for _ in 0..<200{if editor(host) != nil{break};try await Task.sleep(for:.milliseconds(10))};let native=try XCTUnwrap(editor(host)),scroll=try XCTUnwrap(native.enclosingScrollView),identity=try XCTUnwrap(buffer.sourceEditorState?()).identity,geometry=scroll.convert(scroll.bounds,to:host),manager=try XCTUnwrap(native.undoManager)
+  print("Apple behavior actual stage: read physical-root graph")
   space.showConstruction=true;await model.read(space,entry:"project.md",focus:"a.py");let value=try XCTUnwrap(model.value,model.notice);XCTAssertEqual(value.namespace,listing.root_path);XCTAssertEqual(value.engine_workspace_id,listing.workspace_id);XCTAssertTrue(connectedBehaviorHex(value.workspace_id));let contract=try XCTUnwrap(value.graph.nodes.values.first{$0.kind=="contract"});await model.readSource(contract.id);XCTAssertEqual(model.page?.text,try String(contentsOfFile:path+"/behavior.md",encoding:.utf8))
+  print("Apple behavior actual stage: read full explanation pages")
   let explanation=try XCTUnwrap(value.graph.nodes.values.first{$0.kind=="explanation"});await model.readSource(explanation.id);XCTAssertEqual(model.page?.target_status,"observed-fragment-context");XCTAssertEqual(model.page?.fragment_id,"answer");await model.readSource(explanation.id,offset:0);var full="";while let page=model.page{full+=page.text;guard let next=page.next else{break};await model.continueSource(page,offset:next)};XCTAssertEqual(full,source)
+  print("Apple behavior actual stage: run selected relevant check")
   let check=try XCTUnwrap(value.graph.checks.first{$0.label.contains("test_selected")});await model.run(check.id);XCTAssertEqual(model.receipts.count,1,model.notice)
   func finish(_ id:String)async throws->ConnectedBehaviorReceipt{for _ in 0..<300{let receipt=try XCTUnwrap(model.receipts.first{$0.id==id});if receipt.status=="process-finished"{return receipt};await model.refresh(receipt);try await Task.sleep(for:.milliseconds(20))};throw EngineError(message:"Verification did not finish: "+model.notice)}
+  print("Apple behavior actual stage: observe retained process and chosen manual profile")
   let selected=try await finish(XCTUnwrap(model.receipts.first).id);XCTAssertEqual(selected.outcome,"process-only");XCTAssertFalse(FileManager.default.fileExists(atPath:path+"/sibling-ran.txt"));let unsupported=try XCTUnwrap(value.graph.checks.first{$0.label.contains("Explicit unsupported check")});await model.run(unsupported.id);XCTAssertEqual(model.receipts.count,1);await model.chooseProfiles();let profile=try XCTUnwrap(model.profiles.first{$0.name=="Explicit manual check"});await model.run(unsupported.id,profile:profile);_ = try await finish(XCTUnwrap(model.receipts.first).id);XCTAssertEqual(try String(contentsOfFile:path+"/manual-ran.txt",encoding:.utf8),"ran")
+  print("Apple behavior actual stage: verify native identity and undo")
   XCTAssertTrue(editor(host) === native);XCTAssertEqual(try XCTUnwrap(buffer.sourceEditorState?()).identity,identity);XCTAssertEqual(scroll.convert(scroll.bounds,to:host),geometry);XCTAssertEqual(buffer.text,source);native.setSelectedRange(NSRange(location:native.string.utf16.count,length:0));native.insertText("\nretained unsaved text\n",replacementRange:native.selectedRange());let draft=buffer.text,selection=native.selectedRange(),count=model.receipts.count;await model.run(check.id);XCTAssertEqual(model.receipts.count,count);XCTAssertEqual(native.selectedRange(),selection);XCTAssertEqual(buffer.text,draft);manager.undo();XCTAssertEqual(buffer.text,source);manager.redo();XCTAssertEqual(buffer.text,draft);XCTAssertEqual(try String(contentsOfFile:path+"/source.md",encoding:.utf8),source)
  }
 #endif

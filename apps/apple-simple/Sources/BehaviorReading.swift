@@ -36,7 +36,11 @@ func validateConnectedBehaviorPage(_ page:ConnectedBehaviorPage,reading:Connecte
  private var transport:Transport?;private var engine:Engine?;private var ticket=UUID();private var pageTicket=UUID();private var pageReading:UUID?;private var valid:()->Bool={false};private var consumed:[String:(String,UUID)]=[:]
  private(set) var value:ConnectedBehaviorReading?;private(set) var page:ConnectedBehaviorPage?;private(set) var receipts:[ConnectedBehaviorReceipt]=[];private(set) var profiles:[ConnectedBehaviorProfile]=[];private(set) var busy=false;private(set) var pageBusy=false;private(set) var notice=""
  init(transport:Transport?=nil){self.transport=transport}
- private func call(_ engine:Engine,_ path:String,_ body:[String:Any]?=nil)async throws->ResourceJSON {if let transport{return try await transport(path,body)};return try await engine.request(body==nil ? "GET":"POST",path,body:body)}
+ private func call(_ engine:Engine,_ path:String,_ body:[String:Any]?=nil)async throws->ResourceJSON {
+  if let transport{return try await transport(path,body)}
+  guard let endpoint=URLComponents(string:path),endpoint.scheme==nil,endpoint.host==nil,endpoint.path.hasPrefix("/") else{throw EngineError(message:"Invalid internal behavior endpoint.")}
+  return try await engine.request(body==nil ? "GET":"POST",endpoint.path,query:endpoint.queryItems ?? [],body:body)
+ }
  var current:Bool{value != nil&&valid()}
  var currentPage:Bool{current&&page != nil&&pageReading==ticket}
  func close(){ticket=UUID();pageTicket=UUID();valid={false};busy=false;pageBusy=false;profiles=[]}

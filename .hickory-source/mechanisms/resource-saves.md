@@ -119,9 +119,10 @@ fn room_write(
     path: &str,
     before: &SavedSource,
     after: &SavedSource,
+    force_identity:bool,
 ) -> Result<super::resource_publish::ObservedWrite, String> {
     if !path.ends_with(".md") {
-        return super::resource_publish::replace_observed(root, path, before, after);
+        return super::resource_publish::replace_observed_for_identity(root, path, before, after,force_identity);
     }
     let id = if matches!(before, SavedSource::File { .. }) {
         state.store.register_source(&state.index, path)
@@ -131,7 +132,7 @@ fn room_write(
     runtime.block_on(async {
         let mut written = None;
         let mut persist = || -> anyhow::Result<()> {
-            written = Some(super::resource_publish::replace_observed(root, path, before, after).map_err(anyhow::Error::msg)?);
+            written = Some(super::resource_publish::replace_observed_for_identity(root, path, before, after,force_identity).map_err(anyhow::Error::msg)?);
             Ok(())
         };
         let accepted = match (before, after) {
@@ -300,7 +301,7 @@ pub(super) async fn publish_guarded(
         let mut outcome = super::resource_publish::publish_observed_guarded_with(root, &state.resource_root, &manifest,
             |published| { admission(root)?;super::resource_inputs::validate_guard_map(root,&saved_guards,published)?; super::source_tests::check_saved_sources(root, &dependencies).map(|_| ()).map_err(|error|error.detail().to_string()) },
             |published| { admission(root)?;super::resource_inputs::validate_guard_map(root,&saved_guards,published)?; super::source_tests::check_saved_sources(root, &dependencies).map(|_| ()).map_err(|error|error.detail().to_string()) },
-            |path, before, after| room_write(&state, &runtime, root, path, before, after), transactional_rollback)?;
+            |path, before, after,force| room_write(&state, &runtime, root, path, before, after,force), transactional_rollback)?;
         if outcome.complete {
             for (path, expected) in &manifest.after {
                 match super::resource_inputs::saved_target(root, path) {

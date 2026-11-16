@@ -77,6 +77,11 @@ impl Session {
         breakpoints: &[Breakpoint],
         commit_root: bool,
     ) -> Result<Vec<BreakpointStatus>> {
+        if self.attached {
+            anyhow::ensure!(breakpoints.is_empty(), "External process source revision is unverified; mapped breakpoints are unavailable");
+            return Ok(Vec::new());
+        }
+
         let _serial = self.sources.serial.lock().await;
         let sets = {
             let mut desired = self.sources.desired.lock().unwrap().clone();

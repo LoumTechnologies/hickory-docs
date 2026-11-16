@@ -373,8 +373,14 @@ impl Adapter {
 
     /// End the adapter, politely then not.
     pub async fn shutdown(&self) {
+        self.disconnect(true).await;
+    }
+
+    /// Detach leaves a process we did not launch alive. Only the adapter child
+    /// owned by this connection may be reaped after the disconnect request.
+    pub async fn disconnect(&self, terminate_debuggee: bool) {
         let _ = self
-            .notify("disconnect", json!({ "terminateDebuggee": true }))
+            .notify("disconnect", json!({ "terminateDebuggee": terminate_debuggee }))
             .await;
         // A short grace period, then the hammer: a debug adapter that will
         // not exit holds the debuggee, and the debuggee holds a workdir.
