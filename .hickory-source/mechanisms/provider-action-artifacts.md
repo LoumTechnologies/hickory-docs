@@ -5,6 +5,18 @@ For maintainers adding provider operations independently of the editor presentat
 
 An action holds the original child payload and child process handle, not whichever provider answered last. Every installed source/ownership mapping has a fresh revision; a content-free graph fingerprint retires actions after replacement, addition, removal or changed ownership. Diagnostic-cache updates alone do not replace source identity. The engine checks this graph before and after provider reads and before projection. Tokens select held data and never authorize writes or provider-command execution.
 
+Focused resource integration (2026-11-15): the ordered projection and acquisition
+witnesses passed, including generated/external refusal, annotations, virtual-version
+retirement and literal URI escaping. The actual-engine opaque-action protocol
+witness passed original-payload routing, caller substitution refusal and stale/foreign
+token refusal. The controlled-provider browser resource flow passed unopened-source
+acquisition, complete ordered resource review, explicit publication and guarded
+undo/redo. Its real plain-file path exposed and corrected an incorrect assumption
+that an identity map's primary URI always used the client `hick` scheme: the
+workspace wire supplies confined physical `file` identities inside the language
+engine. These are protocol and connected browser receipts, not language-analysis
+completeness or native physical-input acceptance.
+
 ## provider-source-graph-identity
 
 A mapping revision names one installed construction. Rebuilding an identical construction conservatively retires old provider state. Sort and frame identities before hashing so iteration order cannot change the graph identity; source content is not copied into the token store. The focused witness checks stable ordering and changed source/owner membership.
@@ -288,7 +300,7 @@ Build provider context from the child’s own diagnostics. Read its actual capab
         let index = self.index_snapshot().await;
         self.require_provider_revision(&revision).await?;
         let workspace_root = self.workspace_root.read().await.clone();
-        let mut translated = translate_edit_uris(result.clone(), &index)
+        let mut translated = translate_provider_edits(result.clone(), &index, workspace_root.as_ref())
             .map_err(tower_lsp::jsonrpc::Error::invalid_params)?;
         let entries = translated.as_array_mut().expect("translated action list");
         let mut held = self.prepared_actions.lock().await;
@@ -375,7 +387,7 @@ The lookup token selects held data; every other caller-supplied field is ignored
         self.require_provider_revision(&revision).await?;
         let workspace_root = self.workspace_root.read().await.clone();
         let discovery = discover_action_sources(&original, &index, workspace_root.as_ref());
-        let mapped = translate_edit_uris(json!([original]), &index)
+        let mapped = translate_provider_edits(json!([original]), &index, workspace_root.as_ref())
             .map_err(tower_lsp::jsonrpc::Error::invalid_params)?;
         let mut action = mapped
             .as_array()
@@ -433,12 +445,34 @@ fn discover_action_sources(
         if !uris.is_empty() {
             return None;
         }
+        let mut introduced = std::collections::HashSet::new();
         for change in changes.as_array()? {
-            if change.get("kind").is_some() {
-                return None;
+            match change.get("kind").and_then(Value::as_str) {
+                Some("create") => {
+                    introduced.insert(uri_key(change.get("uri")?.as_str()?));
+                }
+                Some("rename") => {
+                    let old = change.get("oldUri")?.as_str()?;
+                    if !introduced.remove(&uri_key(old)) {
+                        uris.push(old.to_owned());
+                    }
+                    introduced.insert(uri_key(change.get("newUri")?.as_str()?));
+                }
+                Some("delete") => {
+                    let old = change.get("uri")?.as_str()?;
+                    if !introduced.remove(&uri_key(old)) {
+                        uris.push(old.to_owned());
+                    }
+                }
+                Some(_) => return None,
+                None => {
+                    change.get("edits")?.as_array()?;
+                    let uri = change.pointer("/textDocument/uri")?.as_str()?;
+                    if !introduced.contains(&uri_key(uri)) {
+                        uris.push(uri.to_owned());
+                    }
+                }
             }
-            change.get("edits")?.as_array()?;
-            uris.push(change.pointer("/textDocument/uri")?.as_str()?.to_owned());
         }
     }
     let root = root?.to_file_path().ok()?;
@@ -471,7 +505,6 @@ fn discover_action_sources(
     object.insert("data".into(), json!({"hickory_acquire":missing.into_iter().map(|uri|json!({"uri":uri})).collect::<Vec<_>>()}));
     Some(answer)
 }
-
 </ui:copy>
 
 ## Refuse unavailable identities outside discovery scope
@@ -506,6 +539,18 @@ mod discovery_tests {
         let mut command = action;
         command["command"] = json!({"command":"effect"});
         assert!(discover_action_sources(&command, &index, Some(&root)).is_none());
+        let resources = json!({"title":"Move and generate","edit":{"documentChanges":[
+            {"kind":"rename","oldUri":"file:///workspace/old.py","newUri":"file:///workspace/moved.py"},
+            {"textDocument":{"uri":"file:///workspace/moved.py"},"edits":[]},
+            {"kind":"create","uri":"file:///workspace/new.py"},
+            {"textDocument":{"uri":"file:///workspace/new.py"},"edits":[]}
+        ]}});
+        let discovered = discover_action_sources(&resources, &index, Some(&root)).unwrap();
+        assert!(discovered.get("edit").is_none());
+        assert_eq!(
+            discovered["data"]["hickory_acquire"],
+            json!([{"uri":"file:///workspace/old.py"}])
+        );
     }
 }
 </ui:copy>

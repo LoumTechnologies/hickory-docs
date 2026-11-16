@@ -609,6 +609,12 @@ The selections below preserve the original byte order. Narrative reading order d
 
 ## Keep or refuse a complete edit
 
+The ordered resource witness keeps create, text, move, text and delete in their
+original sequence, drops virtual versions, preserves review annotations and
+refuses external or generated whole-file targets. A disabled resource action
+must not remove a usable sibling. This checks projection only; engine publication
+and frontend receipt adoption have separate focused witnesses.
+
 These focused witnesses distinguish a whole rename from independently available code actions. They require both source targets, exact range projection for each map, refusal of an unmapped target and resource operations, preservation of opaque resolve tokens, and retirement of virtual version counters. No test applies edits to disk.
 
 <storycode:copy id="source-edit-complete-proposal-tests">
@@ -658,6 +664,83 @@ fn source_edit_proposals_keep_all_targets_or_refuse() {
     assert!(translate_edit_uris(json!({"changes":{one:[edit.clone(),{"range":{"start":{"line":0,"character":1},"end":{"line":0,"character":3}},"newText":"conflict"}]}}), &index).is_err());
     let malformed = json!({"changes":{one:[{"range":{"start":{"line":4294967296u64,"character":0},"end":{"line":4294967296u64,"character":1}},"newText":"bad"}]}});
     assert!(translate_edit_uris(malformed, &index).is_err());
+    let root = Url::parse("file:///workspace/").unwrap();
+    let plain = index_with(
+        "file:///workspace/a.py",
+        "hick:///a.py",
+        PositionMap::identity(4),
+    );
+    let ordered = json!({"documentChanges":[
+        {"kind":"create","uri":"file:///workspace/new.py","annotationId":"create"},
+        {"textDocument":{"uri":"file:///workspace/new.py","version":42},"edits":[edit.clone()]},
+        {"kind":"rename","oldUri":"file:///workspace/a.py","newUri":"file:///workspace/moved.py"},
+        {"textDocument":{"uri":"file:///workspace/moved.py","version":99},"edits":[edit.clone()]},
+        {"kind":"delete","uri":"file:///workspace/new.py"}
+    ],"changeAnnotations":{"create":{"label":"New source"}}});
+    let projected = translate_provider_edits(ordered.clone(), &plain, Some(&root)).unwrap();
+    let rows = projected["documentChanges"].as_array().unwrap();
+    assert_eq!(rows.len(), 5);
+    assert_eq!(rows[0]["uri"], "hick:///new.py");
+    assert_eq!(rows[0]["annotationId"], "create");
+    assert_eq!(rows[1]["textDocument"]["uri"], "hick:///new.py");
+    assert!(rows[1]["textDocument"]["version"].is_null());
+    assert_eq!(rows[2]["oldUri"], "hick:///a.py");
+    assert_eq!(rows[2]["newUri"], "hick:///moved.py");
+    assert_eq!(rows[3]["textDocument"]["uri"], "hick:///moved.py");
+    assert_eq!(rows[4]["uri"], "hick:///new.py");
+    assert_eq!(projected["changeAnnotations"], ordered["changeAnnotations"]);
+    assert!(translate_provider_edits(ordered, &plain, None).is_err());
+    for uri in [
+        "file:///outside.py",
+        "file:///workspace/",
+        "https://example.com/source",
+        "file:///workspace/a.py?other",
+    ] {
+        assert!(
+            translate_provider_edits(
+                json!({"documentChanges":[{"kind":"create","uri":uri}]}),
+                &plain,
+                Some(&root)
+            )
+            .is_err()
+        );
+    }
+    // Generated fragments cannot gain whole-file ownership; siblings remain usable.
+    let actions = json!([{"title":"bad","edit":{"documentChanges":[{"kind":"delete","uri":one}]}},{"title":"good","edit":{"documentChanges":[{"kind":"create","uri":"file:///workspace/new.py"}]}}]);
+    let projected = translate_provider_edits(actions, &index, Some(&root)).unwrap();
+    assert!(projected[0].get("edit").is_none());
+    assert!(
+        projected[0]["disabled"]["reason"]
+            .as_str()
+            .unwrap()
+            .contains("generated")
+    );
+    assert_eq!(
+        projected[1]["edit"]["documentChanges"][0]["uri"],
+        "hick:///new.py"
+    );
+    let literal = Url::from_file_path("/workspace/%2F λ?#.py").unwrap();
+    let projected = translate_provider_edits(
+        json!({"documentChanges":[{"kind":"create","uri":literal}]}),
+        &plain,
+        Some(&root),
+    )
+    .unwrap();
+    assert_eq!(
+        projected["documentChanges"][0]["uri"],
+        "hick:///%252F%20%CE%BB%3F%23.py"
+    );
+    let wire = index_with(
+        "file:///workspace/a.py",
+        "file:///workspace/a.py",
+        PositionMap::identity(4),
+    );
+    let projected = translate_provider_edits(
+        json!({"documentChanges":[{"kind":"rename","oldUri":"file:///workspace/a.py","newUri":"file:///workspace/moved.py"}]}),
+        &wire,
+        Some(&root),
+    ).unwrap();
+    assert_eq!(projected["documentChanges"][0]["oldUri"], "hick:///a.py");
 }
 #[test]
 fn source_edit_proposals_disable_only_incomplete_actions_and_preserve_data() {

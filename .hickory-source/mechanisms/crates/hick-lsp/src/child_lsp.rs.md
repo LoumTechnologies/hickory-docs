@@ -269,7 +269,7 @@ impl ChildLspHandle {
                 serde_json::json!([{ "uri": root_uri, "name": "Hickory workspace" }])
             },
             "capabilities": {
-                "workspace": { "symbol": {}, "configuration": true, "workspaceEdit": { "documentChanges": true } },
+                "workspace": { "symbol": {}, "configuration": true, "workspaceEdit": { "documentChanges": true, "resourceOperations": ["create", "rename", "delete"] } },
                 "textDocument": {
                     "publishDiagnostics": {
                         "relatedInformation": false,

@@ -95,7 +95,7 @@ impl HickBackend {
         let index = self.index_snapshot().await;
         self.require_provider_revision(&revision).await?;
         let workspace_root = self.workspace_root.read().await.clone();
-        let mut translated = translate_edit_uris(result.clone(), &index)
+        let mut translated = translate_provider_edits(result.clone(), &index, workspace_root.as_ref())
             .map_err(tower_lsp::jsonrpc::Error::invalid_params)?;
         let entries = translated.as_array_mut().expect("translated action list");
         let mut held = self.prepared_actions.lock().await;
@@ -177,7 +177,7 @@ impl HickBackend {
         self.require_provider_revision(&revision).await?;
         let workspace_root = self.workspace_root.read().await.clone();
         let discovery = discover_action_sources(&original, &index, workspace_root.as_ref());
-        let mapped = translate_edit_uris(json!([original]), &index)
+        let mapped = translate_provider_edits(json!([original]), &index, workspace_root.as_ref())
             .map_err(tower_lsp::jsonrpc::Error::invalid_params)?;
         let mut action = mapped
             .as_array()
@@ -228,12 +228,34 @@ fn discover_action_sources(
         if !uris.is_empty() {
             return None;
         }
+        let mut introduced = std::collections::HashSet::new();
         for change in changes.as_array()? {
-            if change.get("kind").is_some() {
-                return None;
+            match change.get("kind").and_then(Value::as_str) {
+                Some("create") => {
+                    introduced.insert(uri_key(change.get("uri")?.as_str()?));
+                }
+                Some("rename") => {
+                    let old = change.get("oldUri")?.as_str()?;
+                    if !introduced.remove(&uri_key(old)) {
+                        uris.push(old.to_owned());
+                    }
+                    introduced.insert(uri_key(change.get("newUri")?.as_str()?));
+                }
+                Some("delete") => {
+                    let old = change.get("uri")?.as_str()?;
+                    if !introduced.remove(&uri_key(old)) {
+                        uris.push(old.to_owned());
+                    }
+                }
+                Some(_) => return None,
+                None => {
+                    change.get("edits")?.as_array()?;
+                    let uri = change.pointer("/textDocument/uri")?.as_str()?;
+                    if !introduced.contains(&uri_key(uri)) {
+                        uris.push(uri.to_owned());
+                    }
+                }
             }
-            change.get("edits")?.as_array()?;
-            uris.push(change.pointer("/textDocument/uri")?.as_str()?.to_owned());
         }
     }
     let root = root?.to_file_path().ok()?;
@@ -266,7 +288,6 @@ fn discover_action_sources(
     object.insert("data".into(), json!({"hickory_acquire":missing.into_iter().map(|uri|json!({"uri":uri})).collect::<Vec<_>>()}));
     Some(answer)
 }
-
 #[cfg(test)]
 mod discovery_tests {
     use super::*;
@@ -294,5 +315,17 @@ mod discovery_tests {
         let mut command = action;
         command["command"] = json!({"command":"effect"});
         assert!(discover_action_sources(&command, &index, Some(&root)).is_none());
+        let resources = json!({"title":"Move and generate","edit":{"documentChanges":[
+            {"kind":"rename","oldUri":"file:///workspace/old.py","newUri":"file:///workspace/moved.py"},
+            {"textDocument":{"uri":"file:///workspace/moved.py"},"edits":[]},
+            {"kind":"create","uri":"file:///workspace/new.py"},
+            {"textDocument":{"uri":"file:///workspace/new.py"},"edits":[]}
+        ]}});
+        let discovered = discover_action_sources(&resources, &index, Some(&root)).unwrap();
+        assert!(discovered.get("edit").is_none());
+        assert_eq!(
+            discovered["data"]["hickory_acquire"],
+            json!([{"uri":"file:///workspace/old.py"}])
+        );
     }
 }

@@ -1226,6 +1226,186 @@ pub(crate) fn uri_key(uri: &str) -> String {
     }
 }
 
+/// Resource operations retain provider order and are reviewed by the resource
+/// publisher. Only whole identity-mapped sources may change address; generated
+/// fragments never acquire whole-file ownership from a resource operation.
+pub(crate) fn translate_provider_edits(
+    value: serde_json::Value,
+    index: &HashMap<String, (Url, PositionMap)>,
+    root: Option<&Url>,
+) -> std::result::Result<serde_json::Value, String> {
+    use serde_json::{Value, json};
+    fn workspace(
+        value: Value,
+        index: &HashMap<String, (Url, PositionMap)>,
+        root: Option<&Url>,
+    ) -> std::result::Result<Value, String> {
+        let Some(rows) = value.get("documentChanges").and_then(Value::as_array) else {
+            return translate_edit_uris(value, index);
+        };
+        if !rows.iter().any(|row| row.get("kind").is_some()) {
+            return translate_edit_uris(value, index);
+        }
+        if value.get("changes").is_some() || rows.len() > 10_000 {
+            return Err(
+                "Review one bounded ordered resource proposal; no changes were applied.".into(),
+            );
+        }
+        let root = root
+            .and_then(|root| root.to_file_path().ok())
+            .ok_or("Resource proposals require an explicit workspace root.")?;
+        let address = |raw: &str,
+                       maps: &HashMap<String, (Url, PositionMap)>|
+         -> std::result::Result<Url, String> {
+            let mut uri = Url::parse(raw).map_err(|_| "Invalid resource URI")?;
+            if uri.query().is_some() || uri.fragment().is_some() {
+                return Err("Resource paths cannot carry queries or fragments.".into());
+            }
+            if let Some((source, map)) = maps.get(&uri_key(raw)) {
+                if !map.is_identity() {
+                    return Err("A resource operation cannot rename, create over or delete a generated source fragment. Change its authored construction.".into());
+                }
+                if source.scheme() == "hick" {
+                    let mut source = source.clone();
+                    source.set_query(None);
+                    source.set_fragment(None);
+                    return Ok(source);
+                }
+                // The workspace wire converts authored hick URIs to file URIs
+                // before the language engine. Identity sources remain authored;
+                // their physical path must still be confined to this root.
+                uri = source.clone();
+            }
+            let path = uri
+                .to_file_path()
+                .map_err(|_| "Resource targets must be workspace files")?;
+            let relative = path
+                .strip_prefix(&root)
+                .map_err(|_| "Resource target is outside the workspace")?;
+            if relative.as_os_str().is_empty()
+                || relative
+                    .components()
+                    .any(|part| !matches!(part, std::path::Component::Normal(_)))
+            {
+                return Err("Resource targets must be exact workspace-relative files.".into());
+            }
+            let mut source = Url::parse("hick:///").expect("literal source URI");
+            {
+                let mut segments = source
+                    .path_segments_mut()
+                    .map_err(|_| "Invalid source URI base")?;
+                segments.clear();
+                for part in relative.components() {
+                    segments.push(
+                        part.as_os_str()
+                            .to_str()
+                            .ok_or("Resource path is not exact Unicode source text")?,
+                    );
+                }
+            }
+            Ok(source)
+        };
+        let mut maps = index.clone();
+        let mut retired = std::collections::HashSet::new();
+        let mut output = Vec::new();
+        for row in rows {
+            if let Some(kind) = row.get("kind") {
+                let kind = kind.as_str().ok_or("Invalid resource operation kind")?;
+                let mut projected = row.clone();
+                match kind {
+                    "create" => {
+                        let raw = row
+                            .get("uri")
+                            .and_then(Value::as_str)
+                            .ok_or("Missing create URI")?;
+                        let source = address(raw, &maps)?;
+                        projected["uri"] = json!(source);
+                        maps.insert(uri_key(raw), (source, PositionMap::identity(u32::MAX)));
+                        retired.remove(&uri_key(raw));
+                    }
+                    "rename" => {
+                        let old = row
+                            .get("oldUri")
+                            .and_then(Value::as_str)
+                            .ok_or("Missing old resource URI")?;
+                        let new = row
+                            .get("newUri")
+                            .and_then(Value::as_str)
+                            .ok_or("Missing new resource URI")?;
+                        projected["oldUri"] = json!(address(old, &maps)?);
+                        let source = address(new, &maps)?;
+                        projected["newUri"] = json!(source);
+                        maps.remove(&uri_key(old));
+                        retired.insert(uri_key(old));
+                        maps.insert(uri_key(new), (source, PositionMap::identity(u32::MAX)));
+                        retired.remove(&uri_key(new));
+                    }
+                    "delete" => {
+                        let raw = row
+                            .get("uri")
+                            .and_then(Value::as_str)
+                            .ok_or("Missing delete URI")?;
+                        projected["uri"] = json!(address(raw, &maps)?);
+                        maps.remove(&uri_key(raw));
+                        retired.insert(uri_key(raw));
+                    }
+                    _ => {
+                        return Err(
+                            "Unsupported resource operation; no changes were applied.".into()
+                        );
+                    }
+                }
+                output.push(projected);
+            } else {
+                let raw = row
+                    .pointer("/textDocument/uri")
+                    .and_then(Value::as_str)
+                    .ok_or("Missing text resource URI")?;
+                if retired.contains(&uri_key(raw)) {
+                    return Err(
+                        "Text edits address a retired source path; no changes were applied.".into(),
+                    );
+                }
+                let projected = translate_edit_uris(json!({"documentChanges":[row]}), &maps)?;
+                output.extend(
+                    projected["documentChanges"]
+                        .as_array()
+                        .ok_or("Invalid projected resource text edits")?
+                        .clone(),
+                );
+            }
+        }
+        let mut answer = json!({"documentChanges":output});
+        if let Some(annotations) = value.get("changeAnnotations") {
+            answer["changeAnnotations"] = annotations.clone();
+        }
+        Ok(answer)
+    }
+    if let Value::Array(actions) = value {
+        return Ok(Value::Array(
+            actions
+                .into_iter()
+                .map(|mut action| {
+                    if let Some(edit) = action.get("edit").cloned() {
+                        match workspace(edit, index, root) {
+                            Ok(edit) => action["edit"] = edit,
+                            Err(reason) => {
+                                if let Some(object) = action.as_object_mut() {
+                                    object.remove("edit");
+                                    object.remove("command");
+                                    object.insert("disabled".into(), json!({"reason":reason}));
+                                }
+                            }
+                        }
+                    }
+                    action
+                })
+                .collect(),
+        ));
+    }
+    workspace(value, index, root)
+}
+
 /// Translate a complete proposed edit, never a filtered subset of one.
 /// Opaque provider data and command arguments stay byte-for-byte unchanged.
 pub(crate) fn translate_edit_uris(
@@ -2393,7 +2573,8 @@ impl LanguageServer for HickBackend {
             return Ok(None);
         };
         let index = self.index_snapshot().await;
-        let translated = translate_edit_uris(result, &index)
+        let workspace_root = self.workspace_root.read().await.clone();
+        let translated = translate_provider_edits(result, &index, workspace_root.as_ref())
             .map_err(tower_lsp::jsonrpc::Error::invalid_params)?;
         serde_json::from_value(translated)
             .map(Some)
