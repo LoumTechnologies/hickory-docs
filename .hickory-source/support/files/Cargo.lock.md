@@ -3509,6 +3509,7 @@ name = "hick-term"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "getrandom 0.3.4",
  "portable-pty",
  "serde",
  "tempfile",

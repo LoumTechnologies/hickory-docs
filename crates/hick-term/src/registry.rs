@@ -5,7 +5,7 @@
 //! you claims its place whether its tab is open, buried, or closed.
 
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use anyhow::{Result, bail};
@@ -19,7 +19,6 @@ use crate::turbo::turbo_choice;
 pub struct Terminals {
     config: TermConfig,
     sessions: Mutex<Vec<Arc<Session>>>,
-    next_id: AtomicU64,
     /// Whether routine declared prompts are answered without you. Off until
     /// someone turns it on, and never restored from disk — an auto-answerer
     /// that survives a restart you did not ask for is a surprise nobody
@@ -32,7 +31,6 @@ impl Terminals {
         Terminals {
             config,
             sessions: Mutex::new(Vec::new()),
-            next_id: AtomicU64::new(1),
             turbo: AtomicBool::new(false),
         }
     }
@@ -80,7 +78,13 @@ impl Terminals {
                 spec.cwd.display()
             );
         }
-        let id = format!("term-{}", self.next_id.fetch_add(1, Ordering::SeqCst));
+        // Persisted Run/verification links outlive a registry restart. A
+        // fresh term-1 must never acquire an older process's identity.
+        // Allocate independently for each session and fail before spawning
+        // if entropy is unavailable; there is no reusable fallback.
+        let mut nonce = [0u8; 16];
+        getrandom::fill(&mut nonce).map_err(|error| anyhow::anyhow!("Cannot allocate an independent terminal identity: {error}"))?;
+        let id = format!("term-{}", nonce.iter().map(|byte| format!("{byte:02x}")).collect::<String>());
         let session = Session::spawn(id, spec, &self.config)?;
         self.sessions
             .lock()
@@ -187,6 +191,23 @@ mod tests {
             argv: vec!["cat".to_string()],
             monitor,
         }
+    }
+
+    #[test]
+    fn a_fresh_registry_never_adopts_an_older_terminal_link() {
+        let directory=tempfile::tempdir().unwrap();
+        let first=Terminals::new(TermConfig::default());
+        let original=first.open(spec(directory.path(),false)).unwrap();
+        let original_id=original.id.clone();
+        first.close(&original_id).unwrap();
+        drop(original);drop(first);
+        let restarted=Terminals::new(TermConfig::default());
+        let replacement=restarted.open(spec(directory.path(),false)).unwrap();
+        assert_ne!(replacement.id,original_id);
+        assert!(restarted.get(&original_id).is_none());
+        assert!(replacement.id.starts_with("term-"));
+        assert_eq!(replacement.id.len(),37);
+        restarted.close(&replacement.id).unwrap();
     }
 
     /// Protects docs/guarantees/terminal/a-terminal-outlives-its-pane.md
