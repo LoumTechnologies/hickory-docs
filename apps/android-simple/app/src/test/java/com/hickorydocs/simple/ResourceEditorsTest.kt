@@ -13,6 +13,14 @@ class ResourceEditorsTest {
   val created=routeResourceEditors<Editor>(listOf(ResourceEditorPatch("new.py",null,ResourceSource("new",""))),emptyMap());assertNull(created.single().editor);assertEquals("",created.single().after)
   assertEquals(2,editor.selection);assertEquals(108,editor.scroll);assertEquals(listOf("old"),editor.undo)
  }
+ @Test fun confirmedReceiptRequiresWholeNamespaceAndSeparateSavedBaseline(){
+  val saved=ResourceSaved("file","saved","a".repeat(64),false,false,null);val absent=ResourceSaved("missing")
+  val patches=listOf(ResourceEditorPatch("old.py",ResourceSource("a","dirty"),null),ResourceEditorPatch("new.py",null,ResourceSource("a","dirty")))
+  val receipt=ResourcePublication(1,"request","workspace","context",true,"record",listOf("old.py","new.py"),mapOf("old.py" to absent,"new.py" to saved),listOf(ResourcePublishedFile("new.py",saved,"fresh")))
+  fun confirm(value:ResourcePublication<String>)=confirmedResourceFiles(patches,value,"request","workspace","context",mapOf("old.py" to absent,"new.py" to saved)){it to true}
+  assertEquals("saved",confirm(receipt).getValue("new.py").saved.text)
+  for(value in listOf(receipt.copy(complete=false),receipt.copy(request="other"),receipt.copy(files=receipt.files+receipt.files),receipt.copy(applied=listOf("new.py")))){try{confirm(value);fail("Expected refusal")}catch(_:IllegalArgumentException){}}
+ }
  @Test fun completePreflightAndByteExactNamespaces(){
   val editor=Editor();val capture=ResourceEditorCapture(editor,"a");val a=ResourceSource("a","a");val patch=ResourceEditorPatch("a.py",a,null)
   fun refuses(block:()->Unit){try{block();fail("Expected refusal")}catch(_:IllegalArgumentException){}}

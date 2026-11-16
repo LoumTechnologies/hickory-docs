@@ -14,7 +14,10 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.async
 import java.util.UUID
 
-class DocumentBuffer(val file: FileNode, loaded: FileText) {
+class DocumentBuffer(file: FileNode, loaded: FileText) {
+    var file by mutableStateOf(file)
+    var resourceDeleted by mutableStateOf(false)
+    val sourceScroll = androidx.compose.foundation.ScrollState(0)
     var receiptEngine: Engine? = null
     var receiptSource by mutableStateOf("")
     var receipts by mutableStateOf<List<org.json.JSONObject>>(emptyList())
@@ -155,7 +158,7 @@ class DocumentBuffer(val file: FileNode, loaded: FileText) {
     val dirty by derivedStateOf { text != base }
     val readOnly get() = file.generatedBy != null
     suspend fun save(engine: Engine) {
-        if (!dirty || saving || readOnly) return
+        if (resourceDeleted || !dirty || saving || readOnly) return
         val submitted = text; val previous = base; val previousHash = hash
         saving = true; error = ""
         try { hash = engine.save(file, submitted, previous, previousHash); base = submitted }
@@ -244,6 +247,42 @@ class Workspace(private val backgroundScope: kotlinx.coroutines.CoroutineScope? 
     var rootFiles by mutableStateOf<List<FileNode>>(emptyList())
     var files by mutableStateOf<List<FileNode>>(emptyList())
     val buffers = mutableStateMapOf<String, DocumentBuffer>()
+    val retainedResourceEditors=mutableMapOf<String,DocumentBuffer>()
+    fun captureResourceEditors(patches:List<ResourceEditorPatch>,restoring:Map<String,DocumentBuffer> = emptyMap()):()->Boolean {
+        val paths=patches.associate{it.path to buffers[it.path]}
+        data class Capture(val buffer:DocumentBuffer,val text:String,val base:String,val hash:String,val file:FileNode)
+        val captures=(paths.values.filterNotNull()+restoring.values).distinct().map{Capture(it,it.text,it.base,it.hash,it.file)}
+        val session=generation
+        return {generation==session&&paths.all{(path,buffer)->buffers[path]===buffer}&&captures.all{it.buffer.text==it.text&&it.buffer.base==it.base&&it.buffer.hash==it.hash&&it.buffer.file===it.file&&!it.buffer.saving}}
+    }
+    fun adoptResourceReceipt(patches:List<ResourceEditorPatch>,receipt:ResourcePublication<FileNode>,request:String,workspace:String,context:String,expected:Map<String,ResourceSaved>,current:()->Boolean,restoring:Map<String,DocumentBuffer> = emptyMap()):List<ResourceEditorRoute<DocumentBuffer>> {
+        val server=engine ?: error("Reconnect and inspect Source recovery before changing editors.")
+        check(current()) {"Editor drafts or baselines changed after review. Preserve them and inspect Source recovery."}
+        val files=confirmedResourceFiles(patches,receipt,request,workspace,context,expected){it.path to (!it.dir&&it.generatedBy==null)}
+        val live=patches.mapNotNull{patch->patch.before?.let{before->val buffer=buffers[patch.path] ?: error("Source editor unavailable. Inspect recovery.");check(!buffer.saving&&!buffer.readOnly){"Source editor is saving or read-only. Inspect recovery."};before.identity to ResourceEditorCapture(buffer,buffer.text)}}.toMap()
+        check(restoring.values.all{buffer->buffer.resourceDeleted&&retainedResourceEditors.values.any{it===buffer}&&buffers.values.none{it===buffer}}){"Restoration must select a retained deleted editor. Inspect Source recovery."}
+        val routes=routeResourceEditors(patches,live,restoring.mapValues{ResourceEditorCapture(it.value,it.value.text)})
+        val targets=routes.map{route->val entry=route.to?.let{files.getValue(it)};route to (route.editor ?: DocumentBuffer(entry!!.file,FileText(route.after!!,entry.hash)))}
+        for((route,buffer) in targets){
+            check(buffer.state.composition==null){"Finish composition before adopting source editors. Inspect recovery."}
+            check(route.to==null||patches.any{it.path==route.to&&it.before!=null}||!buffers.containsKey(route.to)){"A destination editor appeared after review. Inspect recovery."}
+        }
+        generation=UUID.randomUUID();loading.values.forEach{it.cancel()};loading.clear()
+        // Retire the whole URI namespace before attaching destinations, including swaps.
+        for((_,buffer) in targets){buffer.language?.close();buffer.language=null}
+        for((route,_) in targets)route.from?.let{buffers.remove(it)}
+        for((route,buffer) in targets){
+            val path=route.to
+            if(path==null){buffer.resourceDeleted=true;retainedResourceEditors[route.identity]=buffer;continue}
+            val entry=files.getValue(path)
+            if(buffer.text!=route.after){buffer.state.edit{replace(0,length,route.after!!)}}
+            buffer.file=entry.file;buffer.base=entry.saved.text!!;buffer.hash=entry.hash;buffer.resourceDeleted=false;buffer.error=""
+            buffers[path]=buffer;retainedResourceEditors.entries.removeAll{it.value===buffer}
+            retainBuffer(entry.file,FileText(route.after!!,entry.hash),server,buffer)
+        }
+        return routes
+    }
+
     var status by mutableStateOf("Connect to a Hickory workspace server")
     var debugger by mutableStateOf<NativeDebugger?>(null)
     var engine by mutableStateOf<Engine?>(null)
@@ -257,7 +296,7 @@ class Workspace(private val backgroundScope: kotlinx.coroutines.CoroutineScope? 
     val terminal = TerminalSession()
     val active get() = layout.nodes[focused]?.active
     val currentBuffer get() = buffers[active]
-    val hasUnsavedChanges get() = agent.prompt.isNotEmpty() || agent.running || buffers.values.any { it.dirty || it.saving } || debugger?.active == true
+    val hasUnsavedChanges get() = agent.prompt.isNotEmpty() || agent.running || (buffers.values+retainedResourceEditors.values).any { it.dirty || it.saving } || debugger?.active == true
     suspend fun connect(): Boolean {
         if (connecting) return false
         if (hasUnsavedChanges) { status = "Save documents and send or clear draft messages before changing workspace servers."; return false }
@@ -267,7 +306,7 @@ class Workspace(private val backgroundScope: kotlinx.coroutines.CoroutineScope? 
             agent.turns = emptyList(); agent.error = ""; terminal.id = null; terminal.error = ""
             debugger?.close(); debugger = NativeDebugger(next, workspaceScope)
             debugger?.onLocation = { path, line -> workspaceScope.launch { revealDebug(path, line) } }
-            buffers.values.forEach { it.language?.close() }; languageConnection?.close();languageConnection=null; analysis.stop();analysis=WorkspaceAnalysis();showAnalysis=false;showEverywhere=false;showTests=false;showReview=false;showHistory=false;showAttribution=false;showConstruction=false;showRecovery=false;gitAttribution.close();gitAttribution=GitAttributionModel("");gitHistory.close();gitHistory=GitHistoryModel();gitReview.close();gitReview=GitReviewModel();showCoverage=false;coverage.stop();coverage=SimpleCoverageState();testSources=TestSourcesModel();sourceTestIndex?.stop();sourceTestIndex=null;generation = UUID.randomUUID(); changes.reset(); search.invalidate(); showWorkspaceSearch = false; engine = next; files = tree; rootFiles = tree; navigationTrail = NavigationTrail(); buffers.clear(); loading.values.forEach {it.cancel()}; loading.clear()
+            buffers.values.forEach { it.language?.close() }; languageConnection?.close();languageConnection=null; analysis.stop();analysis=WorkspaceAnalysis();showAnalysis=false;showEverywhere=false;showTests=false;showReview=false;showHistory=false;showAttribution=false;showConstruction=false;showRecovery=false;gitAttribution.close();gitAttribution=GitAttributionModel("");gitHistory.close();gitHistory=GitHistoryModel();gitReview.close();gitReview=GitReviewModel();showCoverage=false;coverage.stop();coverage=SimpleCoverageState();testSources=TestSourcesModel();sourceTestIndex?.stop();sourceTestIndex=null;generation = UUID.randomUUID(); changes.reset(); search.invalidate(); showWorkspaceSearch = false; engine = next; files = tree; rootFiles = tree; navigationTrail = NavigationTrail(); retainedResourceEditors.clear(); buffers.clear(); loading.values.forEach {it.cancel()}; loading.clear()
             layout = PaneLayout(); focused = "document-group"; status = root
             return true
         } catch (cancelled: CancellationException) { throw cancelled }
@@ -295,8 +334,8 @@ class Workspace(private val backgroundScope: kotlinx.coroutines.CoroutineScope? 
         try { return pending.await() }
         finally { if(generation == current) loading.remove(file.path) }
     }
-    private fun retainBuffer(file: FileNode, text: FileText, server: Engine): DocumentBuffer {
-        val buffer = DocumentBuffer(file, text)
+    private fun retainBuffer(file: FileNode, text: FileText, server: Engine, existing:DocumentBuffer?=null): DocumentBuffer {
+        val buffer = existing ?: DocumentBuffer(file, text)
         buffers[file.path] = buffer
         buffer.rememberNavigation = { from, to -> navigationTrail = navigationTrail.record(from, to) }
         buffer.openSemanticLocation = { location -> workspaceScope.launch { openSemanticLocation(location) } }

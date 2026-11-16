@@ -154196,6 +154196,62 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/frontends/resource-editors.md",
       "symbol": "resource-editor-routes-android-tests",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "resource-editor-confirmation-browser",
+      "output": "apps/web/src/simple/ResourceEditors.ts",
+      "page": ".hickory-source/frontends/resource-editors.md",
+      "symbol": "resource-editor-confirmation-browser",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "resource-editor-adoption-browser",
+      "output": "apps/web/src/simple/ResourceEditors.ts",
+      "page": ".hickory-source/frontends/resource-editors.md",
+      "symbol": "resource-editor-adoption-browser",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "resource-editor-confirmation-apple",
+      "output": "apps/apple-simple/Sources/ResourceEditors.swift",
+      "page": ".hickory-source/frontends/resource-editors.md",
+      "symbol": "resource-editor-confirmation-apple",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "resource-editor-confirmation-android",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/ResourceEditors.kt",
+      "page": ".hickory-source/frontends/resource-editors.md",
+      "symbol": "resource-editor-confirmation-android",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-resource-adoption-apple",
+      "output": "apps/apple-simple/Sources/Workspace.swift",
+      "page": ".hickory-source/frontends/apps/apple-simple/Sources/Workspace.swift.md",
+      "symbol": "simple-resource-adoption-apple",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-resource-adoption-apple-workspace",
+      "output": "apps/apple-simple/Sources/Workspace.swift",
+      "page": ".hickory-source/frontends/apps/apple-simple/Sources/Workspace.swift.md",
+      "symbol": "simple-resource-adoption-apple-workspace",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-resource-adoption-android",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/Workspace.kt",
+      "page": ".hickory-source/frontends/apps/android-simple/app/src/main/java/com/hickorydocs/simple/Workspace.kt.md",
+      "symbol": "simple-resource-adoption-android",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-resource-adoption-android-workspace",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/Workspace.kt",
+      "page": ".hickory-source/frontends/apps/android-simple/app/src/main/java/com/hickorydocs/simple/Workspace.kt.md",
+      "symbol": "simple-resource-adoption-android-workspace",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

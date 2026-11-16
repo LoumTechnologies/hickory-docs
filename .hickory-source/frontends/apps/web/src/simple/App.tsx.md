@@ -152,7 +152,7 @@ export function App() {
   }
   useEffect(() => { void loadFiles(); }, []);
   useEffect(() => {
-    const warn = (event: BeforeUnloadEvent) => { if (agent.prompt.length > 0 || agent.busy || [...buffers.values.values()].some(buffer => buffer.dirty || buffer.saving)) event.preventDefault(); };
+    const warn = (event: BeforeUnloadEvent) => { if (agent.prompt.length > 0 || agent.busy || buffers.hasUnsavedChanges) event.preventDefault(); };
     window.addEventListener("beforeunload", warn); return () => window.removeEventListener("beforeunload", warn);
   }, [buffers, agent, terminal]);
   const currentGroup = groups(layout).find(group => group.id === focused) ?? groups(layout)[0];

@@ -889,4 +889,26 @@ renderer retention during deletion, language-session rebinding, menu-driven
 resource apply/restoration and coordinated saved/draft undo remain required on
 all hosts. This evidence does not establish frontend resource apply/undo parity.
 
+## Confirm resource receipts before adopting live buffers
+
+Browser, Apple and Android now provide live buffer adoption seams over the routing
+model. Complete request/workspace/context identity, every applied path, the exact
+reviewed saved states and surviving file metadata are checked before mutation.
+Moves retain the buffer and cached renderer identity; deletion holds the buffer
+outside the writable namespace, and restoration requires an explicitly retained
+handle. Saved baseline text and draft text remain independent. Local draft or
+baseline changes refuse adoption. Namespace changes retire pending opens, native
+language sessions rebind to current addresses, and deleted dirty buffers still
+participate in unsaved-change guards. Android viewport state lives in its buffer.
+
+Focused evidence: five browser cases include live CodeMirror/buffer adoption with
+retained selection, scroll and undo depth, separate restored baseline/draft text,
+and partial/stale receipt refusal. Three native cases per implementation cover
+receipt admission and opaque handle routing. TypeScript checking, Xcode-backed
+macOS compilation/selected XCTest, Android compilation/selected JUnit, and the iOS
+simulator build pass. Native live renderer adoption is not established by those
+model checks. Resource publication callers, tab-address adoption, existing-menu
+Save/restoration and coordinated saved/draft undo remain outstanding on all hosts;
+the new seams alone do not complete the requested IDE parity contract.
+
 </ui:doc>

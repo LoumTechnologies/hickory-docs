@@ -22,3 +22,27 @@ func routeResourceEditors<Editor:AnyObject>(_ patches:[ResourceEditorPatch],live
  for patch in patches {if let side=patch.after {let id=key(side.identity);if before[id]==nil{order.append(id)}}}
  return order.map{id in let a=before[id],b=after[id];return ResourceEditorRoute(identity:(a ?? b)!.identity,from:a?.path,to:b?.path,before:a?.source,after:b?.source,editor:(captured[id] ?? held[id])?.editor)}
 }
+
+struct ResourceSaved:Codable {
+ var kind:String;var text:String?;var sha256:String?;var readonly:Bool?;var executable:Bool?;var mode:Int?
+ func matches(_ other:ResourceSaved)->Bool {
+  func exact(_ a:String?,_ b:String?)->Bool {a.map{Data($0.utf8)}==b.map{Data($0.utf8)}}
+  return exact(kind,other.kind) && (kind=="missing" || kind=="file" && exact(text,other.text) && exact(sha256,other.sha256) && readonly==other.readonly && executable==other.executable && mode==other.mode)
+ }
+}
+struct ResourcePublication<File:Decodable>:Decodable {
+ struct Outcome:Decodable {var complete:Bool;var recovery:String;var applied:[String]}
+ struct Entry:Decodable {var file:File;var saved:ResourceSaved;var hash:String}
+ var version:Int;var request_id:String;var workspace:String;var context:String;var outcome:Outcome;var saved_sources:[String:ResourceSaved]?;var source_files:[Entry]
+}
+func confirmedResourceFiles<File>(_ patches:[ResourceEditorPatch],receipt:ResourcePublication<File>,request:String,workspace:String,context:String,expected:[String:ResourceSaved],address:(File)->(path:String,authored:Bool)) throws->[Data:ResourcePublication<File>.Entry] {
+ func key(_ value:String)->Data {Data(value.utf8)}
+ func refuse()->NSError {NSError(domain:"ResourceEditors",code:2,userInfo:[NSLocalizedDescriptionKey:"Resource publication is not completely confirmed for this review. Inspect Source recovery before changing editors."])}
+ guard receipt.version==1,key(receipt.request_id)==key(request),key(receipt.workspace)==key(workspace),key(receipt.context)==key(context),receipt.outcome.complete,!receipt.outcome.recovery.isEmpty,let saved=receipt.saved_sources else{throw refuse()}
+ let paths=Set(patches.map{key($0.path)}),savedByKey=Dictionary(uniqueKeysWithValues:saved.map{(key($0.key),$0.value)}),expectedByKey=Dictionary(uniqueKeysWithValues:expected.map{(key($0.key),$0.value)})
+ guard paths.count==patches.count,Set(savedByKey.keys)==paths,Set(expectedByKey.keys)==paths,Set(receipt.outcome.applied.map{key($0)})==paths,receipt.outcome.applied.count==paths.count else{throw refuse()}
+ for patch in patches {guard let state=savedByKey[key(patch.path)],let reviewed=expectedByKey[key(patch.path)],state.matches(reviewed),(state.kind=="file")==((patch.after) != nil) else{throw refuse()}}
+ var files:[Data:ResourcePublication<File>.Entry]=[:]
+ for entry in receipt.source_files {let target=address(entry.file),path=key(target.path);guard paths.contains(path),files[path]==nil,target.authored,let state=savedByKey[path],state.kind=="file",state.matches(entry.saved),state.text != nil else{throw refuse()};files[path]=entry}
+ guard files.count==patches.filter({$0.after != nil}).count else{throw refuse()};return files
+}

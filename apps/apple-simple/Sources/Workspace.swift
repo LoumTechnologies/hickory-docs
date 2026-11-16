@@ -5,7 +5,8 @@ import Observation
     let id = UUID()
     var showSnippetTools=false
     @ObservationIgnored lazy var snippets=SourceSnippetController(buffer:self)
-    let file: FileNode
+    var file: FileNode
+    var resourceDeleted = false
     private var sourceValue:ExactSourceText {
         didSet {let changed = !exactUTF8(text,base);if dirty != changed {dirty=changed};if sourceValue != oldValue {snippets.sourceChanged(text);language?.changed();refreshInline()}}
     }
@@ -171,7 +172,7 @@ import Observation
         self.file = file; self.sourceValue = ExactSourceText(text.content); base = text.content; hash = text.hash; refreshInline()
     }
     func save(using engine: Engine) async {
-        guard dirty, !saving, !readOnly else { return }
+        guard !resourceDeleted, dirty, !saving, !readOnly else { return }
         let submitted = text, previous = base, previousHash = hash
         saving = true; error = ""
         defer { saving = false }
@@ -258,6 +259,52 @@ import Observation
     var rootFiles: [FileNode] = []
     var files: [FileNode] = []
     var buffers: [String: DocumentBuffer] = [:]
+    var retainedResourceEditors:[String:DocumentBuffer]=[:]
+    func captureResourceEditors(_ patches:[ResourceEditorPatch],restoring:[String:DocumentBuffer]=[:])->()->Bool {
+        let session=generation
+        let paths=patches.map{($0.path,buffers[$0.path])}
+        let snapshots=(paths.compactMap{$0.1}+Array(restoring.values)).map{($0,$0.text,$0.base,$0.hash,$0.file.path)}
+        return { [weak self] in
+            guard let self,self.generation==session else{return false}
+            return paths.allSatisfy { self.buffers[$0.0] === $0.1 } && snapshots.allSatisfy {
+                exactUTF8($0.0.text,$0.1) && exactUTF8($0.0.base,$0.2) && exactUTF8($0.0.hash,$0.3) && exactUTF8($0.0.file.path,$0.4) && !$0.0.saving
+            }
+        }
+    }
+    func adoptResourceReceipt(_ patches:[ResourceEditorPatch],receipt:ResourcePublication<FileNode>,request:String,workspace:String,context:String,expected:[String:ResourceSaved],current:()->Bool,restoring:[String:DocumentBuffer]=[:]) throws->[ResourceEditorRoute<DocumentBuffer>] {
+        guard current(),let engine else{throw EngineError(message:"Editor drafts or baselines changed after review. Preserve them and inspect Source recovery.")}
+        let files=try confirmedResourceFiles(patches,receipt:receipt,request:request,workspace:workspace,context:context,expected:expected){($0.path,!$0.dir && $0.generated_by==nil)}
+        var live:[String:ResourceEditorCapture<DocumentBuffer>]=[:]
+        for patch in patches {if let before=patch.before {guard let buffer=buffers[patch.path],!buffer.saving,!buffer.readOnly else{throw EngineError(message:"Source editor unavailable. Preserve drafts and inspect recovery.")};live[before.identity]=ResourceEditorCapture(editor:buffer,source:buffer.text)}}
+        guard restoring.values.allSatisfy({buffer in buffer.resourceDeleted && retainedResourceEditors.values.contains(where:{$0 === buffer}) && !buffers.values.contains(where:{$0 === buffer})}) else{throw EngineError(message:"Restoration must select a retained deleted editor. Inspect Source recovery.")}
+        let routes=try routeResourceEditors(patches,live:live,retained:restoring.mapValues{ResourceEditorCapture(editor:$0,source:$0.text)})
+        let targets=routes.map{route->(ResourceEditorRoute<DocumentBuffer>,DocumentBuffer,[NativeSourceEdit]) in
+            let entry=route.to.flatMap{files[Data($0.utf8)]}
+            let buffer=route.editor ?? DocumentBuffer(file:entry!.file,text:FileText(path:entry!.file.path,content:route.after!,hash:entry!.hash))
+            let edits=route.after.flatMap{exactUTF8(buffer.text,$0) ? nil:[NativeSourceEdit(range:NSRange(location:0,length:buffer.text.utf16.count),text:$0)]} ?? []
+            return (route,buffer,edits)
+        }
+        for (route,buffer,edits) in targets {
+            if let path=route.to,!patches.contains(where:{exactUTF8($0.path,path)&&$0.before != nil}),buffers[path] != nil {throw EngineError(message:"A destination editor appeared after review. Inspect recovery.")}
+            let probe=edits.isEmpty ? [NativeSourceEdit(range:NSRange(location:0,length:0),text:"")]:edits
+            if buffer.applySourceEdits != nil,buffer.canReflectWorkspaceEdits?(probe,buffer.text) != true {throw EngineError(message:"Finish composition before adopting source editors. Inspect recovery.")}
+        }
+        generation=UUID();loading.values.forEach{$0.cancel()};loading=[:]
+        // Release every old URI before attaching any destination: swaps otherwise
+        // collide with the other editor's still-live language subscription.
+        for (_,buffer,_) in targets {buffer.language?.close();buffer.language=nil}
+        for (route,_,_) in targets {if let path=route.from {buffers.removeValue(forKey:path)}}
+        for (route,buffer,edits) in targets {
+            guard let path=route.to,let entry=files[Data(path.utf8)] else{buffer.resourceDeleted=true;retainedResourceEditors[route.identity]=buffer;continue}
+            let before=buffer.text
+            if !edits.isEmpty {buffer.text=route.after!;_ = buffer.reflectWorkspaceEdits?(edits,before,route.after!)}
+            buffer.file=entry.file;buffer.base=entry.saved.text!;buffer.hash=entry.hash;buffer.resourceDeleted=false;buffer.error=""
+            buffers[path]=buffer;retainedResourceEditors = retainedResourceEditors.filter{$0.value !== buffer}
+            _ = retainBuffer(entry.file,text:FileText(path:path,content:route.after!,hash:entry.hash),engine:engine,existing:buffer)
+        }
+        return routes
+    }
+
     var status = "Connect to a Hickory workspace server"
     var debugger: NativeDebugger?
     var engine: Engine?
@@ -272,7 +319,7 @@ import Observation
     var sourceNavigationEpoch:UUID {generation}
     var active: String? { layout.nodes[focused]?.active }
     var currentBuffer: DocumentBuffer? { active.flatMap { buffers[$0] } }
-    var hasUnsavedChanges: Bool { !agent.prompt.isEmpty || agent.running || buffers.values.contains { $0.dirty || $0.saving } || debugger?.active == true }
+    var hasUnsavedChanges: Bool { !agent.prompt.isEmpty || agent.running || (Array(buffers.values)+Array(retainedResourceEditors.values)).contains { $0.dirty || $0.saving } || debugger?.active == true }
     func connect() async -> Bool {
         guard !connecting else { return false }
         guard !hasUnsavedChanges else { status = "Save documents and send or clear draft messages before changing workspace servers."; return false }
@@ -287,7 +334,7 @@ import Observation
             languageConnection?.close();languageConnection=nil
             analysis.stop(); analysis=WorkspaceAnalysis(); showAnalysis=false; showEverywhere=false;showTests=false;showReview=false;showHistory=false;showAttribution=false;showConstruction=false;showRecovery=false;gitAttribution.close();gitAttribution=GitAttributionModel(path:"");gitHistory.close();gitHistory=GitHistoryModel();gitReview.close();gitReview=GitReviewModel();showCoverage=false;coverage.stop();coverage=SimpleCoverageState();testSources=TestSourcesModel();sourceTestIndex?.stop();sourceTestIndex=nil
             generation = UUID(); changes.reset(); search.invalidate(); showWorkspaceSearch = false; engine = next; debugger = NativeDebugger(engine: next)
-            debugger?.onLocation = { [weak self] path, line in Task { await self?.revealDebug(path, line: line) } }; files = tree.tree; rootFiles = tree.tree; navigationTrail = NavigationTrail(); buffers = [:]; loading.values.forEach { $0.cancel() }; loading = [:]
+            debugger?.onLocation = { [weak self] path, line in Task { await self?.revealDebug(path, line: line) } }; files = tree.tree; rootFiles = tree.tree; navigationTrail = NavigationTrail(); retainedResourceEditors = [:]; buffers = [:]; loading.values.forEach { $0.cancel() }; loading = [:]
             layout = PaneLayout(); focused = "document-group"; status = tree.root
             return true
         } catch { status = error.localizedDescription; return false }
@@ -313,8 +360,8 @@ import Observation
         defer { if generation == current { loading.removeValue(forKey:file.path) } }
         return try await pending.value
     }
-    private func retainBuffer(_ file: FileNode, text: FileText, engine: Engine) -> DocumentBuffer {
-        let buffer = DocumentBuffer(file: file, text: text)
+    private func retainBuffer(_ file: FileNode, text: FileText, engine: Engine, existing:DocumentBuffer?=nil) -> DocumentBuffer {
+        let buffer = existing ?? DocumentBuffer(file: file, text: text)
         buffers[file.path] = buffer
         buffer.openDiagramFile = { [weak self, weak buffer] href in
             guard let self, let buffer, let path = diagramFilePath(href, relativeTo: buffer.file.path) else { return }

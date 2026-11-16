@@ -806,7 +806,7 @@ Attach the grid only to an inline snapshot that still matches the field. Measure
         buffer.focusSource = focus
         onDispose { if (buffer.focusSource === focus) buffer.focusSource = null }
     }
-    val scroll = rememberScrollState()
+    val scroll = buffer.sourceScroll
     val scope = rememberCoroutineScope()
     var menu by remember { mutableStateOf(false) }
     LaunchedEffect(buffer.showSnippetTools){if(buffer.showSnippetTools){menu=true;buffer.showSnippetTools=false}}

@@ -67360,6 +67360,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "construction": "fragments",
       "fragments": [
         "simple-230bbf9308-0",
+        "simple-resource-adoption-apple",
+        "simple-resource-adoption-apple-workspace",
         "simple-230bbf9308-1"
       ]
     },
@@ -67558,6 +67560,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "construction": "fragments",
       "fragments": [
         "simple-f6fdc8535c-0",
+        "simple-resource-adoption-android",
+        "simple-resource-adoption-android-workspace",
         "simple-f6fdc8535c-1"
       ]
     },
@@ -70795,7 +70799,9 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "sha256": "6d58f661db58f54aa45abf981486e4ad5c3bd283b467d3d5a5ec1ddc05846867",
       "construction": "fragments",
       "fragments": [
-        "resource-editor-routes-browser"
+        "resource-editor-routes-browser",
+        "resource-editor-confirmation-browser",
+        "resource-editor-adoption-browser"
       ]
     },
     "apps/apple-simple/Sources/ResourceEditors.swift": {
@@ -70806,7 +70812,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "sha256": "50e708ee121579e63d4373a6b6b41d7438e43cf1e76e49fc458e0d7ea4fe92c0",
       "construction": "fragments",
       "fragments": [
-        "resource-editor-routes-apple"
+        "resource-editor-routes-apple",
+        "resource-editor-confirmation-apple"
       ]
     },
     "apps/android-simple/app/src/main/java/com/hickorydocs/simple/ResourceEditors.kt": {
@@ -70817,7 +70824,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "sha256": "4e1a8a6a72def054408e3c5e76ed1d7e6c5bb62e8bf4691606cd81c7cf34ab50",
       "construction": "fragments",
       "fragments": [
-        "resource-editor-routes-android"
+        "resource-editor-routes-android",
+        "resource-editor-confirmation-android"
       ]
     },
     "apps/web/src/simple/ResourceEditors.test.ts": {

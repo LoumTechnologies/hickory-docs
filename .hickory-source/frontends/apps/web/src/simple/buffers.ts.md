@@ -20,7 +20,8 @@ export class Buffer {
   setCompletionNotice(value:string){if(this.completionNotice===value)return;this.completionNotice=value;this.publish();this.shellChanged();}
   version = 0;
   private listeners = new Set<() => void>();
-  constructor(readonly file: FileNode, content: string, hash: string, private shellChanged: () => void, readonly transient = false) {
+  resourceDeleted = false;
+  constructor(public file: FileNode, content: string, hash: string, private shellChanged: () => void, readonly transient = false) {
     this.text = this.base = content; this.hash = hash;
   }
   get dirty() { return this.text !== this.base; }
@@ -39,7 +40,7 @@ Capture text and revision once when Save is pressed. Never fetch a new baseline 
 
 <ui:copy id="simple-964718fb75-1">
   async save() {
-    if (this.transient || this.readonly || this.saving || !this.dirty) return;
+    if (this.resourceDeleted || this.transient || this.readonly || this.saving || !this.dirty) return;
     const text = this.text, base = this.base, hash = this.hash;
     this.saving = true; this.error = ""; this.shellChanged(); this.publish();
     try {
@@ -53,21 +54,27 @@ Capture text and revision once when Save is pressed. Never fetch a new baseline 
 }
 export class Buffers {
   values = new Map<string, Buffer>();
+  retainedResources = new Map<string, Buffer>();
+  private namespaceRevision = 0;
+  retirePendingReads() { this.namespaceRevision++; this.pending.clear(); }
+  get hasUnsavedChanges() { return [...this.values.values(),...this.retainedResources.values()].some(buffer=>buffer.dirty||buffer.saving); }
   private pending = new Map<string, Promise<Buffer>>();
-  constructor(private changed: () => void) {}
+  constructor(public changed: () => void) {}
   open(file: FileNode): Promise<Buffer> {
     const current = this.values.get(file.path);
     if (current) return Promise.resolve(current);
     const pending = this.pending.get(file.path);
     if (pending) return pending;
+    const revision = this.namespaceRevision;
     const read = file.doc_id
       ? api.doc(file.doc_id).then(doc => ({ content: doc.source, hash: "" }))
       : api.file(file.path);
     const request = read.then(data => {
+      if (revision !== this.namespaceRevision) throw new Error("Source addresses changed while opening. Choose the file again.");
       const available = this.values.get(file.path); if (available) return available;
       const buffer = new Buffer(file, data.content, data.hash, this.changed);
       this.values.set(file.path, buffer); this.changed(); return buffer;
-    }).finally(() => this.pending.delete(file.path));
+    }).finally(() => { if(this.pending.get(file.path)===request)this.pending.delete(file.path); });
     this.pending.set(file.path, request); return request;
   }
 }
