@@ -244,4 +244,5 @@ Each client reads text before requesting optional capabilities. A save uses the 
 
 <ui:include file="scripts/test-native-templates.py.md" />
 
+<ui:include file="debug-adapter-sources-browser.md" />
 </ui:doc>

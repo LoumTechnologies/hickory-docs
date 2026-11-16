@@ -82,6 +82,8 @@ mod sources;
 ### `use_declaration`
 
 <storycode:copy id="f-b6fc115ecefd-use_declaration">
+#[path = "debug_adapter_sources.rs"]
+mod adapter_sources;
 pub use protocol::{InstallOffer, Request, Response};
 </storycode:copy>
 <a id="f-b6fc115ecefd-handle"></a>
@@ -141,6 +143,7 @@ async fn handle_with(
     let about = about_of(&request);
     let request_id = match &request {
         Request::StartTest(value) => Some(value.request_id.clone()),
+        Request::Source(value) => Some(value.request_id.clone()),
         Request::Start { request_id, .. }
         | Request::Threads { request_id, .. }
         | Request::SelectThread { request_id, .. }
@@ -171,7 +174,7 @@ async fn handle_with(
         None => None,
     };
     let _operation = match &operation_live {
-        Some(_) if matches!(request, Request::Stop { .. }) => None,
+        Some(_) if matches!(request, Request::Stop { .. } | Request::Source(_)) => None,
         Some(live)
             if matches!(
                 request,
@@ -337,6 +340,7 @@ fn about_of(request: &Request) -> &'static str {
         Request::SourceBreakpoints { .. } => "source_breakpoints",
         Request::State { .. } => "state",
         Request::Threads { .. } => "threads",
+        Request::Source(_) => "source",
         Request::SelectThread { .. } => "select_thread",
         Request::Located { .. } => "located",
         Request::Eval { .. } => "eval",
@@ -428,6 +432,7 @@ async fn observed_frame(
     Ok(frame)
 }
 async fn retire_values(live: &crate::debug_sessions::Live) {
+    live.adapter_sources.lock().await.clear();
     *live.reading.lock().await = None;
     live.value_references.lock().await.clear();
     *live.stop_generation.lock().await += 1;
@@ -495,6 +500,7 @@ async fn handle_inner(
     };
     match request {
         Request::StartTest(_) => unreachable!("Test launch was normalized above"),
+        Request::Source(request) => adapter_sources::read(registry, request).await,
         Request::Located {
             session,
             location,
@@ -1294,6 +1300,8 @@ async fn position_with(
         ),
         Err(error) => (Vec::new(), Some(error.to_string())),
     };
+    let source_stop = *live.stop_generation.lock().await;
+    *live.adapter_sources.lock().await = adapter_sources::reported(&frames, source_stop, thread);
     let (mut variables, mut variables_error) = match frames.first() {
         Some(frame) => match live.session.variables(frame.id).await {
             Ok(variables) => (variables, None),

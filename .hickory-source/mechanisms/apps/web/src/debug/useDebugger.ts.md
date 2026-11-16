@@ -35,6 +35,7 @@ import { retainDebugReading } from "./readingCapture";
 import { getWorkspaceRealtime, type Realtime } from "../api/realtime";
 import type { TranscriptEvent } from "../api/types";
 import { DebugClient,DebugThreads,DebugLaunches,debugAdapterId } from "./client";
+import {AdapterSourceReading} from "./AdapterSourceReading";
 import {documentUri} from "../lsp/documentUri";
 import {withDebugProtocol,launchCatalogNotices} from "./launchProfiles";
 import {prepareSourceTestDebug,sourceTestDebugStarted,sourceTestDebugBinding,retainedSourceTestDebugChoice,type PreparedSourceTestDebug,type SourceTestDebugProcess} from "../simple/TestSources";
@@ -72,6 +73,8 @@ export interface Watch {
 
 <storycode:copy id="f-597e991b795b-DebugSession">
 export interface DebugSession {
+  adapterSource?:AdapterSourceReading;
+  readAdapterSource?(id?:number):void;
   /** Synchronous private lifecycle admission, before a React publication commits. */
   isActive?():boolean;
   startSourceTest?(prepared:PreparedSourceTestDebug,current:()=>boolean):Promise<SourceTestDebugProcess>;
@@ -540,10 +543,12 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
   // event, so the request is parked here until its answer arrives.
   const pendingValues = useRef(new Map<string, (value: string | null) => void>());
 
+  const [adapterSourceVersion,paintAdapterSource]=useState(0);
+  const adapterSource=useMemo(()=>new AdapterSourceReading(()=>paintAdapterSource(value=>value+1)),[]);
   function holdStatus(next:DebugStatus){statusRef.current=next;setStatus(next);if(sessionRef.current&&testHistory.current.has(sessionRef.current))publishTest(sessionRef.current,next);}
   function observationKey(scope:import("./observations").ObservationScope){return JSON.stringify([scope.session??null,scope.run,scope.stop,scope.frame,scope.invocation]);}
   function retireObservationScope(){scopeRef.current=null;setObservationScope(null);pendingReadings.current.clear();}
-  function retireFrameRead(){frameRead.current=null;setFrameVariablesPending(false);setFrameVariablesMessage(null);}
+  function retireFrameRead(){adapterSource.retire();frameRead.current=null;setFrameVariablesPending(false);setFrameVariablesMessage(null);}
   function retireEvaluations(){evaluationRequests.current.clear();latestEvaluation.current.clear();for(const resolve of pendingValues.current.values())resolve(null);pendingValues.current.clear();setLastValue(null);}
   const currentRows=(source=uri)=>breakpointModel.rows(source,sourceReadings.current.get(source)??null,sessionRef.current,runHashes.current.get(source)??null) as HeldBreakpoint[];
   function repaintBreakpoints(){setBreakpoints(currentRows());holdSources(Object.fromEntries(breakpointModel.sources().filter(source=>source!==uri).map(source=>[source,currentRows(source)])));paintPolicy(value=>value+1);}
@@ -667,6 +672,7 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
         case "source_breakpoints": {
           const source=event.source||uri;if(breakpointModel.admit(source,event.session,event.request_id,event.source_hash,event.breakpoints)){if(typeof event.source_hash==='string')runHashes.current.set(source,event.source_hash);const proof=breakpointModel.acceptedProof(source);if(proof)runProofs.current.set(source,proof);repaintBreakpoints();}break;
         }
+        case "adapter_source": {void adapterSource.accept(event);break;}
         case "frame_variables": {
           const requested=frameRead.current,scope=threadModel.scope;if(!requested||!scope||statusRef.current!=="paused"||event.request_id!==requested.request||event.stop!==scope.stop||event.thread!==scope.thread||event.frame!==selectedFrameRef.current||requested.stop!==scope.stop||requested.thread!==scope.thread||requested.frame!==event.frame)break;
           frameRead.current=null;setFrameVariablesPending(false);setFrameVariablesMessage(null);localsByFrame.current.set(event.frame,event.variables);holdVariables(event.variables);replaceTreeLocals(event.variables);break;
@@ -726,6 +732,7 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
           setWatches((current) => current.map((watch) => ({ ...watch, value: null })));
           break;
         case "failed": {
+          if(event.about==='source'){adapterSource.failed(event.session,event.request_id,event.message);break;}
           if(!event.session&&pendingTest.current?.request===event.request_id)rejectTest(Error(event.message));
           if(event.about==='children'){if(valueTree.fail(event.request_id,event.message))refreshTree();break;}
           if(event.about==='step'||event.about==='jump'||event.about==='run_to'){
@@ -778,7 +785,7 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
   useEffect(() => {
     ownerMounted.current=true;ownerLifetime.current++;
     return () => {
-      ownerMounted.current=false;ownerLifetime.current++;rejectTest(Error("Debugger owner closed before test admission."));movement.current=null;refreshTicket.current=null;valueTree.retire();scopeRef.current=null;pendingReadings.current.clear();launches.retire();const session=sessionRef.current;sessionRef.current=null;statusRef.current="idle";currentFrames.current=[];frameRead.current=null;evaluationRequests.current.clear();latestEvaluation.current.clear();for(const resolve of pendingValues.current.values())resolve(null);pendingValues.current.clear();
+      ownerMounted.current=false;ownerLifetime.current++;adapterSource.retire();rejectTest(Error("Debugger owner closed before test admission."));movement.current=null;refreshTicket.current=null;valueTree.retire();scopeRef.current=null;pendingReadings.current.clear();launches.retire();const session=sessionRef.current;sessionRef.current=null;statusRef.current="idle";currentFrames.current=[];frameRead.current=null;evaluationRequests.current.clear();latestEvaluation.current.clear();for(const resolve of pendingValues.current.values())resolve(null);pendingValues.current.clear();
       if (client && session) client.stop(session);
     };
   }, [client,uri]);
@@ -998,6 +1005,13 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
     return {frame:Object.freeze({...frame,source_hash:!launchBound()||frame.in_document&&!primaryBound()?null:frame.source_hash}),current:()=>{const latest=currentFrames.current.find(item=>item.id===id);return ownerMounted.current&&ownerLifetime.current===lifetime&&sessionRef.current===session&&statusRef.current==="paused"&&!!latest&&["name","source","source_line","line","in_document","source_hash","source_reference"].every(key=>latest[key as keyof Frame]===frame[key as keyof Frame])&&selectedFrameRef.current===id&&!threadModel.selecting&&(!scope?threadModel.scope===null:threadModel.scope?.stop===scope.stop&&threadModel.scope.thread===scope.thread);}};
   },[threadModel]);
 
+  const readAdapterSource=useCallback((id:number|undefined=selectedFrameRef.current??undefined)=>{
+    const session=sessionRef.current,scope=threadModel.scope,captured=id===undefined?null:captureFrame(id);
+    if(capabilitiesRef.current?.source_content!==true){setMessage('This engine does not support reading adapter-owned source; workspace text was not substituted.');return;}
+    if(!client||!session||!scope||id===undefined||!captured||!(captured.frame.source_reference&&captured.frame.source_reference>0)){setMessage('Select a current stopped frame with adapter-owned source before reading it.');return;}
+    adapterSource.read({session,stop:scope.stop,thread:scope.thread,frame:id,reference:captured.frame.source_reference},captured.current,(held,request)=>client.source(held.session,held.reference,held.frame,{stop:held.stop,thread:held.thread,request_id:request}));
+  },[client,threadModel,captureFrame,adapterSource]);
+
   const selectFrame = useCallback(
     (id: number) => {
       const frame = frames.find((candidate) => candidate.id === id);
@@ -1018,6 +1032,7 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
   const controller = useMemo(
     () => ({
       startSourceTest,cancelSourceTestStart,releaseSourceTest,
+      adapterSource,readAdapterSource,
       sourceTestIntent:testIntent.current,sourceTest:testContext.current?testHistory.current.get(testContext.current)??null:null,
       sourceTestProcesses:()=>[...testHistory.current.values()].map(record=>({...record})),sourceTestInspectable:(session:string)=>testContext.current===session&&(sessionRef.current===session||!['starting','running','paused','unconfirmed','stopping'].includes(statusRef.current)&&lastOwnedSession.current===session),
       isActive:()=>["starting","running","paused","unconfirmed","stopping"].includes(statusRef.current),
@@ -1062,6 +1077,7 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
       removeWatch,
     }),
     [
+      adapterSourceVersion,adapterSource,readAdapterSource,
       testEpoch,startSourceTest,cancelSourceTestStart,releaseSourceTest,launchNotices,treeRevision,expandValue,collapseValue,closeValues,refreshState,threadRevision,readThreads,selectThread,frameVariablesPending,frameVariablesMessage,stackMessage,historicalFrames,observationScope,captureFrame,
       reading,
       status,
@@ -2030,7 +2046,33 @@ describe('source-test Debug guarded host',()=>{
 
 The selections below preserve the original byte order. Narrative reading order does not change the output.
 
-<storycode:file path="apps/web/src/debug/useDebugger.test.ts"><storycode:paste select="#f-101aa3d58173-FakeSocket"/><storycode:paste select="#f-101aa3d58173-STARTED"/><storycode:paste select="#f-101aa3d58173-STOPPED"/><storycode:paste select="#f-101aa3d58173-open"/><storycode:paste select="#f-101aa3d58173-expression_statement"/><storycode:paste select="#f-101aa3d58173-expression_statement-2"/><storycode:paste select="#f-101aa3d58173-expression_statement-3"/><storycode:paste select="#f-101aa3d58173-expression_statement-4"/><storycode:paste select="#f-101aa3d58173-expression_statement-5"/></storycode:file>
+## Keep adapter-source failures independent of debugger movement
+
+These focused socket-hook cases drive real channel frames through the client and
+hook, not a renderer flag. Exact source receipt identity is required; motion
+retires its scope while retaining historical text. Missing old-engine support
+sends no unknown operation, and a provider source refusal leaves the paused stack
+usable. Owned adapter/host integration remains separate acceptance.
+
+<storycode:copy id="debug-adapter-source-hook-tests">
+describe("adapter-owned source hook integration",()=>{
+ it("reads only the exact current frame reference and retires source authority on motion",async()=>{
+  const {socket,hook}=open(),result=hook.result,frames=[{...STOPPED.frames[0],line:null,source:'same-name.py',in_document:false,source_hash:null,source_reference:123,source_line:0}];
+  await settle(()=>result.current.start());await settle(()=>{socket.deliver({...STARTED,capabilities:{...STARTED.capabilities,source_content:true}});socket.deliver({...STOPPED,stop:60,thread:1,frames,variables:[]});});
+  await settle(()=>result.current.readAdapterSource?.());const request=socket.sent.at(-1) as {op:string;session:string;stop:number;thread:number;frame:number;reference:number;request_id:string};expect(request).toMatchObject({op:'source',session:'dbg-0',stop:60,thread:1,frame:frames[0].id,reference:123});
+  const content='<b>literal source</b>\n😀',source_hash=[...new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(content)))].map(byte=>byte.toString(16).padStart(2,'0')).join(''),reply={...request,event:'adapter_source',content,source_hash,mime_type:'text/html'};
+  await settle(()=>socket.deliver({...reply,reference:456}));expect(result.current.adapterSource?.value).toBeNull();await settle(()=>socket.deliver(reply));expect(result.current.adapterSource?.value?.content).toBe(content);expect(result.current.adapterSource?.current()).toBe(true);expect(result.current.status).toBe('paused');expect(result.current.frames).toEqual(frames);
+  await settle(()=>result.current.step('over'));expect(result.current.adapterSource?.current()).toBe(false);await settle(()=>socket.deliver(reply));expect(result.current.status).toBe('running');expect(result.current.adapterSource?.value?.content).toBe(content);hook.unmount();
+ });
+ it("keeps old-engine support and optional provider failures local to the source reading",async()=>{
+  const {socket,hook}=open(),result=hook.result,frames=[{...STOPPED.frames[0],source_reference:123,in_document:false,source:'runtime.py',line:null}];await settle(()=>result.current.start());await settle(()=>{socket.deliver(STARTED);socket.deliver({...STOPPED,stop:70,thread:1,frames,variables:[]});});
+  const sent=socket.sent.length;await settle(()=>result.current.readAdapterSource?.());expect(socket.sent).toHaveLength(sent);expect(result.current.status).toBe('paused');expect(result.current.message).toContain('does not support');
+  await settle(()=>result.current.start());await settle(()=>{socket.deliver({...STARTED,capabilities:{...STARTED.capabilities,source_content:true}});socket.deliver({...STOPPED,stop:71,thread:1,frames,variables:[]});});await settle(()=>result.current.readAdapterSource?.());const request=socket.sent.at(-1) as {request_id:string};await settle(()=>socket.deliver({event:'failed',session:'dbg-0',about:'source',request_id:request.request_id,message:'Adapter source unavailable',scope_retired:false}));expect(result.current.adapterSource?.notice).toContain('unavailable');expect(result.current.status).toBe('paused');expect(result.current.frames).toEqual(frames);hook.unmount();
+ });
+});
+</storycode:copy>
+
+<storycode:file path="apps/web/src/debug/useDebugger.test.ts"><storycode:paste select="#f-101aa3d58173-FakeSocket"/><storycode:paste select="#f-101aa3d58173-STARTED"/><storycode:paste select="#f-101aa3d58173-STOPPED"/><storycode:paste select="#f-101aa3d58173-open"/><storycode:paste select="#f-101aa3d58173-expression_statement"/><storycode:paste select="#f-101aa3d58173-expression_statement-2"/><storycode:paste select="#f-101aa3d58173-expression_statement-3"/><storycode:paste select="#f-101aa3d58173-expression_statement-4"/><storycode:paste select="#f-101aa3d58173-expression_statement-5"/><storycode:paste select="#debug-adapter-source-hook-tests"/></storycode:file>
 
 
 </storycode:doc>

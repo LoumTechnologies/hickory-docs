@@ -27405,7 +27405,8 @@
         "f-101aa3d58173-expression_statement-2",
         "f-101aa3d58173-expression_statement-3",
         "f-101aa3d58173-expression_statement-4",
-        "f-101aa3d58173-expression_statement-5"
+        "f-101aa3d58173-expression_statement-5",
+        "debug-adapter-source-hook-tests"
       ],
       "anchor": "output-101aa3d58173",
       "narrative_owner": "mechanism:apps/web"
@@ -41646,7 +41647,8 @@
         "f-3c41c22e0551-wait_for_event",
         "f-3c41c22e0551-merge",
         "debug-source-admission-tests",
-        "f-3c41c22e0551-tests"
+        "f-3c41c22e0551-tests",
+        "debug-adapter-source-content"
       ],
       "anchor": "output-3c41c22e0551",
       "narrative_owner": "mechanism:crates/hick-dap"
@@ -71243,6 +71245,75 @@
         "native-source-draft-history-tests"
       ],
       "narrative_owner": "mechanism:source-completion-acceptance"
+    },
+    "scripts/test-debug-adapter-sources.py": {
+      "source": ".hickory-source/mechanisms/debug-adapter-sources.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "test",
+      "sha256": "6e880c08e60587cba34e67409f6528397da277ad656c292cdd4a5881073c3fed",
+      "construction": "fragments",
+      "fragments": [
+        "debug-adapter-source-real-browser-witness"
+      ],
+      "narrative_owner": "mechanism:debug-adapter-sources"
+    },
+    "crates/hickory-cli/src/serve/debug_adapter_sources.rs": {
+      "source": ".hickory-source/mechanisms/debug-adapter-sources.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "b49d9052ba8c13e5472b0374ff980ac911d47b8e72a1d1efb070164c7bdfc745",
+      "construction": "fragments",
+      "fragments": [
+        "debug-adapter-source-admission",
+        "debug-adapter-source-tests"
+      ],
+      "narrative_owner": "mechanism:debug-adapter-sources"
+    },
+    "apps/web/src/debug/AdapterSourceReading.test.ts": {
+      "source": ".hickory-source/frontends/debug-adapter-sources-browser.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "5e2ea22597093e8e5c85312fd16ca4b7be03af7d36675171820396cee572f714",
+      "construction": "fragments",
+      "fragments": [
+        "debug-adapter-source-browser-tests"
+      ]
+    },
+    "apps/web/src/debug/AdapterSourcePanel.test.tsx": {
+      "source": ".hickory-source/frontends/debug-adapter-sources-browser.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "09b04de40a0c51cb6b3e6a75b6b3482e32e517bc6d6ab16768295a47dff04e83",
+      "construction": "fragments",
+      "fragments": [
+        "debug-adapter-source-browser-view-tests"
+      ]
+    },
+    "apps/web/src/debug/AdapterSourceReading.ts": {
+      "source": ".hickory-source/frontends/debug-adapter-sources-browser.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "c4933d68216be646b159794cdf25e17dad2356fb4de619cccf5e012ed597f057",
+      "construction": "fragments",
+      "fragments": [
+        "debug-adapter-source-browser-model"
+      ]
+    },
+    "apps/web/src/debug/AdapterSourcePanel.tsx": {
+      "source": ".hickory-source/frontends/debug-adapter-sources-browser.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "eafa190a43cb0e10fdd3aafd6c034e14095ef444f333766bc6098962a21d9f1d",
+      "construction": "fragments",
+      "fragments": [
+        "debug-adapter-source-browser-view"
+      ]
     }
   },
   "evidence_records": [

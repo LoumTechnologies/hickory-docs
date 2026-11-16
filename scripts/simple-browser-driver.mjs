@@ -615,6 +615,8 @@ try {
           const options=page.getByLabel('Debug options',{exact:true}).last();if(!await options.evaluate(node=>node.parentElement.open))await options.click();const label=request.kind==='run_to'?'Run to line':'Move instruction pointer to line',button=page.getByRole('button',{name:label,exact:true}).last();if(!await button.count()){value={supported:false};break;}
           await page.getByLabel('Debugger target line',{exact:true}).last().fill(String(request.line));await button.click();await page.waitForFunction(line=>{const stack=document.querySelector('select[aria-label="Call stack"]');const option=stack?.selectedOptions?.[0];return !!option&&option.textContent.endsWith(' — line '+line);},String(request.line));value={supported:true};break;
         }
+        case "adapter-source-request":{const summary=page.getByLabel("Debug options",{exact:true}).last();if(!await summary.evaluate(node=>node.parentElement.open))await summary.click();await summary.locator("..").getByRole("button",{name:"Read adapter source",exact:true}).click();break;}
+        case "adapter-source-state":{const region=page.getByRole("region",{name:"Adapter-owned source",exact:true});value=await region.count()?{present:true,text:await region.innerText(),pre:await region.locator("pre").count()?await region.locator("pre").textContent():null,bold:await page.locator("b").count()>0}:{present:false,text:"",pre:null,bold:await page.locator("b").count()>0};break;}
         case "debug-start":
           await page.getByRole("button", { name: `Debug ${request.path}`, exact: true }).click(); break;
         case "debug-continue":await page.getByRole("button",{name:"Continue",exact:true}).click();break;

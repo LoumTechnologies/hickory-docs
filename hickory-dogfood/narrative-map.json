@@ -154972,6 +154972,69 @@
       "page": ".hickory-source/mechanisms/source-completion-acceptance.md",
       "symbol": "native source draft history tests",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "debug-adapter-source-admission",
+      "output": "crates/hickory-cli/src/serve/debug_adapter_sources.rs",
+      "page": ".hickory-source/mechanisms/debug-adapter-sources.md",
+      "symbol": "debug adapter source admission",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "debug-adapter-source-tests",
+      "output": "crates/hickory-cli/src/serve/debug_adapter_sources.rs",
+      "page": ".hickory-source/mechanisms/debug-adapter-sources.md",
+      "symbol": "debug adapter source tests",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "debug-adapter-source-content",
+      "output": "crates/hick-dap/src/session.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-dap/src/session.rs.md",
+      "symbol": "debug adapter source content",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "debug-adapter-source-browser-tests",
+      "output": "apps/web/src/debug/AdapterSourceReading.test.ts",
+      "page": ".hickory-source/frontends/debug-adapter-sources-browser.md",
+      "symbol": "debug adapter source browser tests",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "debug-adapter-source-browser-view-tests",
+      "output": "apps/web/src/debug/AdapterSourcePanel.test.tsx",
+      "page": ".hickory-source/frontends/debug-adapter-sources-browser.md",
+      "symbol": "debug adapter source browser view tests",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "debug-adapter-source-browser-model",
+      "output": "apps/web/src/debug/AdapterSourceReading.ts",
+      "page": ".hickory-source/frontends/debug-adapter-sources-browser.md",
+      "symbol": "debug adapter source browser model",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "debug-adapter-source-browser-view",
+      "output": "apps/web/src/debug/AdapterSourcePanel.tsx",
+      "page": ".hickory-source/frontends/debug-adapter-sources-browser.md",
+      "symbol": "debug adapter source browser view",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "debug-adapter-source-real-browser-witness",
+      "output": "scripts/test-debug-adapter-sources.py",
+      "page": ".hickory-source/mechanisms/debug-adapter-sources.md",
+      "symbol": "debug adapter source real browser witness",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "debug-adapter-source-hook-tests",
+      "output": "apps/web/src/debug/useDebugger.test.ts",
+      "page": ".hickory-source/mechanisms/apps/web/src/debug/useDebugger.ts.md",
+      "symbol": "debug adapter source hook tests",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

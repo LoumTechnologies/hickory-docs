@@ -89,6 +89,10 @@ present and silently does nothing is worse than one that is absent.
 /// present and silently does nothing is worse than one that is absent.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Capabilities {
+    /// The engine supports scope-bound reading of positive adapter source references.
+    /// An individual provider can still refuse the content request explicitly.
+    #[serde(default)]
+    pub source_content: bool,
     /// The engine can query DAP's base scopes/variables for a selected frame.
     /// Individual adapter reads may still refuse and remain explicit failures.
     #[serde(default)]
@@ -137,6 +141,7 @@ impl Capabilities {
         let flag = |name: &str| body.get(name).and_then(Value::as_bool).unwrap_or(false);
         Self {
             frame_locals: true,
+            source_content: true,
             run_to: true,
             conditional_breakpoints: flag("supportsConditionalBreakpoints"),
             hit_conditional_breakpoints: flag("supportsHitConditionalBreakpoints"),
@@ -1644,6 +1649,33 @@ mod tests;
 
 The selections below preserve the original byte order. Narrative reading order does not change the output.
 
-<storycode:file path="crates/hick-dap/src/session.rs"><storycode:paste select="#f-3c41c22e0551-source_breakpoints"/><storycode:paste select="#f-3c41c22e0551-private_capture_session"/><storycode:paste select="#f-3c41c22e0551-Capabilities"/><storycode:paste select="#f-3c41c22e0551-ExceptionFilter"/><storycode:paste select="#f-3c41c22e0551-impl-Capabilities"/><storycode:paste select="#f-3c41c22e0551-Breakpoint"/><storycode:paste select="#f-3c41c22e0551-SourceBreakpoints"/><storycode:paste select="#f-3c41c22e0551-BreakpointStatus"/><storycode:paste select="#f-3c41c22e0551-BindState"/><storycode:paste select="#f-3c41c22e0551-impl-BindState"/><storycode:paste select="#f-3c41c22e0551-stopped_from"/><storycode:paste select="#f-3c41c22e0551-stack_frame"/><storycode:paste select="#f-3c41c22e0551-use_declaration"/><storycode:paste select="#debug-thread-observations"/><storycode:paste select="#debug-thread-observation-tests"/><storycode:paste select="#f-3c41c22e0551-Variable"/><storycode:paste select="#f-3c41c22e0551-Exit"/><storycode:paste select="#f-3c41c22e0551-Stopped"/><storycode:paste select="#f-3c41c22e0551-Step"/><storycode:paste select="#f-3c41c22e0551-impl-Step"/><storycode:paste select="#f-3c41c22e0551-Session"/><storycode:paste select="#f-3c41c22e0551-use_declaration-2"/><storycode:paste select="#f-3c41c22e0551-Launch"/><storycode:paste select="#f-3c41c22e0551-wait_for_start_debugging"/><storycode:paste select="#debug-launch-source-admission"/><storycode:paste select="#f-3c41c22e0551-impl-Session"/><storycode:paste select="#f-3c41c22e0551-wait_for_event"/><storycode:paste select="#f-3c41c22e0551-merge"/><storycode:paste select="#debug-source-admission-tests"/><storycode:paste select="#f-3c41c22e0551-tests"/></storycode:file>
+## Read literal source bytes supplied by a stopped adapter
+
+A positive adapter source reference names no filesystem path. Bound the reference,
+text bytes and MIME metadata, and return literal content only. The shared
+[stopped-frame admission](../../../debug-adapter-sources.md) checks that the
+current frame actually reported the reference; this low-level transport method
+alone grants no workspace edit, navigation or breakpoint authority.
+
+<storycode:copy id="debug-adapter-source-content">
+impl Session {
+    /// Read bytes owned by the adapter, never a same-named workspace file.
+    pub async fn source_content(&self, reference: i64) -> Result<(String, Option<String>)> {
+        if !(1..=i32::MAX as i64).contains(&reference) { bail!("Adapter source reference is invalid"); }
+        let body = self.adapter.request("source", json!({"sourceReference":reference})).await?;
+        let content = body.get("content").and_then(Value::as_str).context("Adapter returned no readable source content")?;
+        if content.len() > 8 * 1024 * 1024 { bail!("Adapter source exceeds the 8 MiB reading budget"); }
+        let mime = match body.get("mimeType") {
+            None | Some(Value::Null) => None,
+            Some(Value::String(value)) if value.len() <= 256 && !value.chars().any(char::is_control) => Some(value.clone()),
+            _ => bail!("Adapter returned an invalid source MIME observation"),
+        };
+        Ok((content.to_owned(), mime))
+    }
+
+}
+</storycode:copy>
+
+<storycode:file path="crates/hick-dap/src/session.rs"><storycode:paste select="#f-3c41c22e0551-source_breakpoints"/><storycode:paste select="#f-3c41c22e0551-private_capture_session"/><storycode:paste select="#f-3c41c22e0551-Capabilities"/><storycode:paste select="#f-3c41c22e0551-ExceptionFilter"/><storycode:paste select="#f-3c41c22e0551-impl-Capabilities"/><storycode:paste select="#f-3c41c22e0551-Breakpoint"/><storycode:paste select="#f-3c41c22e0551-SourceBreakpoints"/><storycode:paste select="#f-3c41c22e0551-BreakpointStatus"/><storycode:paste select="#f-3c41c22e0551-BindState"/><storycode:paste select="#f-3c41c22e0551-impl-BindState"/><storycode:paste select="#f-3c41c22e0551-stopped_from"/><storycode:paste select="#f-3c41c22e0551-stack_frame"/><storycode:paste select="#f-3c41c22e0551-use_declaration"/><storycode:paste select="#debug-thread-observations"/><storycode:paste select="#debug-thread-observation-tests"/><storycode:paste select="#f-3c41c22e0551-Variable"/><storycode:paste select="#f-3c41c22e0551-Exit"/><storycode:paste select="#f-3c41c22e0551-Stopped"/><storycode:paste select="#f-3c41c22e0551-Step"/><storycode:paste select="#f-3c41c22e0551-impl-Step"/><storycode:paste select="#f-3c41c22e0551-Session"/><storycode:paste select="#f-3c41c22e0551-use_declaration-2"/><storycode:paste select="#f-3c41c22e0551-Launch"/><storycode:paste select="#f-3c41c22e0551-wait_for_start_debugging"/><storycode:paste select="#debug-launch-source-admission"/><storycode:paste select="#f-3c41c22e0551-impl-Session"/><storycode:paste select="#f-3c41c22e0551-wait_for_event"/><storycode:paste select="#f-3c41c22e0551-merge"/><storycode:paste select="#debug-source-admission-tests"/><storycode:paste select="#f-3c41c22e0551-tests"/><storycode:paste select="#debug-adapter-source-content"/></storycode:file>
 
 </storycode:doc>

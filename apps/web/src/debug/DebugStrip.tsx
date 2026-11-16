@@ -2,6 +2,7 @@ import { useUiCommands, useUiRevision } from "../lib/uiActionBridge";
 import { useUiReading } from "../lib/uiReading";
 import type { UiOutcome } from "../lib/uiActions";
 import { ObservationReading } from "./ObservationReading";
+import {AdapterSourcePanel} from "./AdapterSourcePanel";
 import { MoreActions } from "../components/MoreActions";
 // The debugger's chrome, dissolved into the block it debugs.
 //
@@ -183,6 +184,8 @@ function IconButton({
 }
 
 export interface DebugStripProps {
+  adapterSource?:import("./AdapterSourceReading").AdapterSourceReading;
+  readAdapterSource?:(id?:number)=>void;
   readingChanged?: boolean;
   reading?: import("./observations").ObservationReading | null;
   locationActions?: ReactNode;
@@ -421,6 +424,8 @@ export function DebugStrip(props: DebugStripProps) {
       <span>{props.launchTarget ?? props.program ?? ""} · {statusWord(props.status, props.exitCode)}</span>
       {testChoice&&<section aria-label="Test debug process"><strong>{testChoice.candidateName} · {testChoice.selection.kind}</strong><p>Process-only debugger state: {props.sourceTest?.phase??props.status}. Collected test verdicts are unavailable.</p>{!['starting','running','paused','unconfirmed','stopping'].includes(props.status)&&<button type="button" onClick={props.releaseSourceTest}>Release retained test selection</button>}<p>Use Source tests to prepare a fresh Debug choice. This session does not restart as an ordinary program.</p></section>}
       {!over && <>
+      {paused&&props.capabilities?.source_content===true&&(selectedSourceFrame?.source_reference??0)>0&&props.readAdapterSource&&<button onClick={()=>props.readAdapterSource?.(props.selectedFrame??undefined)}>Read adapter source</button>}
+      {props.adapterSource&&<AdapterSourcePanel model={props.adapterSource}/>}
       {paused&&props.frames.length>0&&<p>{(selectedSourceFrame?.source_reference??0)>0?"The adapter owns this frame source; workspace text is not its source bytes.":selectedSourceFrame?.source_hash?"Source identities come from captured mappings and are checked before navigation; they do not prove the executed runtime revision.":"Frame source identity is unbound; locations open readable text without a precise source position."}</p>}
       {paused&&props.readThreads&&<section aria-label="Debugger threads"><button type="button" disabled={props.threadStop==null||props.threadSelecting} onClick={props.readThreads}>{props.threadPending?'Refresh thread request':'Read threads'}</button>
         <p role="status">{props.threadMessage??(props.threadPending?'Reading adapter threads…':props.threadStop==null?'Current stop identity unavailable; thread selection is not supported by this connection.':props.threads?.length?'Adapter-reported threads at this pause. A reported thread may still be running.':'No thread list requested at this pause.')}</p>

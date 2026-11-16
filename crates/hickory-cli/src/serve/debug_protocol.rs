@@ -8,6 +8,7 @@ use serde_json::Value;
 #[serde(tag = "op", rename_all = "snake_case")]
 pub enum Request {
     StartTest(TestStart),
+    Source(super::adapter_sources::Request),
     /// Start a session over a document, with breakpoints in document lines.
     Start {
         doc: String,
@@ -184,6 +185,7 @@ impl Request {
     pub fn session_id(&self) -> Option<&str> {
         match self {
             Self::Start { .. } | Self::StartTest(_) => None,
+            Self::Source(request) => Some(&request.session),
             Self::Located { session, .. }
             | Self::Breakpoints { session, .. }
             | Self::SourceBreakpoints { session, .. }
@@ -214,6 +216,17 @@ fn repl() -> String {
 #[derive(Debug, Serialize)]
 #[serde(tag = "event", rename_all = "snake_case")]
 pub enum Response {
+    AdapterSource {
+        session: String,
+        stop: u64,
+        thread: i64,
+        frame: i64,
+        reference: i64,
+        request_id: String,
+        content: String,
+        source_hash: String,
+        mime_type: Option<String>,
+    },
     /// Read-only run output; locations are optional adapter facts, never guesses.
     RunOutput {
         session: String,

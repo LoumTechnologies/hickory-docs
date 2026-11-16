@@ -345,4 +345,5 @@ is included with that control; opening a document is not generation authority.
 
 <storycode:include file="source-template-service.md" />
 
+<storycode:include file="debug-adapter-sources.md" />
 </storycode:doc>

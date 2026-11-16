@@ -123,6 +123,8 @@ What this adapter can do. Every control is gated on one of these.
 <storycode:copy id="f-9c2c3f79dace-DebugCapabilities">
 /** What this adapter can do. Every control is gated on one of these. */
 export interface DebugCapabilities {
+  /** Explicit engine wire support; missing on older endpoints. */
+  source_content?:boolean;
   /** Transport can return another frame's locals through state(frame). */
   frame_locals?: boolean;
   conditional_breakpoints: boolean;
@@ -167,6 +169,7 @@ export type BindState = "bound" | "pending" | "refused";
 
 <storycode:copy id="f-9c2c3f79dace-DebugEvent">
 export type DebugEvent =
+  | import("./AdapterSourceReading").AdapterSourceEvent
   | DebugThreadEvent
   | {event:"frame_variables";session:string;stop:number;thread:number;frame:number;request_id?:string|null;variables:Variable[]}
   | { event: "run_output"; session: string; events: { category: string; text: string; source?: string | null; line?: number | null }[] }
@@ -341,6 +344,10 @@ export class DebugClient {
   threads(session:string,request_id:string){this.send({op:"threads",session,request_id});}
 
   selectThread(session:string,thread:number,stop:number,request_id:string){this.send({op:"select_thread",session,thread,stop,request_id});}
+
+  source(session:string,reference:number,frame:number,scope:{stop:number;thread:number;request_id:string}) {
+    this.send({op:"source",session,reference,frame,...scope});
+  }
 
   state(session: string, frame?: number,scope?:{stop?:number;thread?:number;request_id:string}) {
     this.send({ op: "state", session, ...(frame === undefined ? {} : { frame }),...scope });

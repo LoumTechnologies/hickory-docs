@@ -104,6 +104,8 @@ pub struct BreakpointIntent {
 }
 
 pub struct Live {
+    /// Positive references actually reported in the current stopped stack.
+    pub adapter_sources: Mutex<HashMap<(u64, i64, i64), i64>>,
     pub breakpoint_intents: std::sync::Mutex<HashMap<String, BreakpointIntent>>,
     pub value_references: Mutex<HashMap<(u64, i64, i64), std::collections::HashSet<i64>>>,
     pub source_aliases: Vec<String>,
@@ -559,6 +561,7 @@ impl Registry {
             .unwrap_or_default();
         let live = Arc::new(Live {
             breakpoint_intents: std::sync::Mutex::new(HashMap::new()),
+            adapter_sources: Mutex::new(HashMap::new()),
             value_references: Mutex::new(HashMap::new()),
             source_aliases,
             operation: Arc::new(Mutex::new(())),

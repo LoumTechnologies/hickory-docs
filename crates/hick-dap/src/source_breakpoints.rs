@@ -301,6 +301,11 @@ while True:
             settled.write_text('partial replacement answered')
         else:
             respond(request, {'breakpoints':[{'id':identity+i,'verified':True,'line':mark['line']} for i,mark in enumerate(marks)]})
+    elif command == 'source':
+        mode = fault.read_text() if fault.exists() else ''
+        content = ('x' * (8 * 1024 * 1024 + 1)) if mode == 'source-too-large' else '<b>literal source</b>\n😀'
+        mime = 'text/\nhtml' if mode == 'source-bad-mime' else 'text/html'
+        respond(request, {'content':content, 'mimeType':mime})
     elif command == 'stackTrace':
         start = request['arguments'].get('startFrame', 0)
         levels = request['arguments'].get('levels', 50)
@@ -565,6 +570,15 @@ while True:
         assert!(session.stack(1).await.unwrap_err().to_string().contains("repeated a frame"));
         std::fs::write(&fault, "stack-short").unwrap();
         assert!(session.stack(1).await.unwrap_err().to_string().contains("before its reported total"));
+        std::fs::remove_file(&fault).unwrap();
+        let (content, mime) = session.source_content(123).await.unwrap();
+        assert_eq!(content, "<b>literal source</b>\n😀");
+        assert_eq!(mime.as_deref(), Some("text/html"));
+        assert!(session.source_content(0).await.unwrap_err().to_string().contains("reference is invalid"));
+        for mode in ["source-too-large", "source-bad-mime"] {
+            std::fs::write(&fault, mode).unwrap();
+            assert!(session.source_content(123).await.is_err());
+        }
         std::fs::remove_file(&fault).unwrap();
         assert_eq!(*session.running_to.lock().await, None);
         assert!(!session.sources.desired.lock().unwrap()[""].breakpoints.iter().any(|bp|bp.line == 2));

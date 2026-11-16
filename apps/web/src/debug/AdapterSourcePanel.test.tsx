@@ -1,0 +1,6 @@
+import {beforeAll,expect,it} from 'vitest';
+import {render,screen,fireEvent} from '@testing-library/react';
+import {AdapterSourceReading} from './AdapterSourceReading';
+import {AdapterSourcePanel} from './AdapterSourcePanel';
+beforeAll(async()=>{const name='node:'+'crypto';const {webcrypto}=await import(name);Object.defineProperty(globalThis,'crypto',{value:webcrypto,configurable:true});});
+it('renders MIME-labelled markup literally and pages surrogate boundaries without omitting text',()=>{const model=new AdapterSourceReading(),text='x'.repeat(3999)+'😀<b>literal</b>';model.value={event:'adapter_source',session:'owned',stop:1,thread:2,frame:3,reference:4,request_id:'request',content:text,source_hash:'a'.repeat(64),mime_type:'text/html'};const {container}=render(<AdapterSourcePanel model={model}/>);expect(container.querySelector('b')).toBeNull();expect(container.querySelector('pre')?.textContent).toContain('😀');fireEvent.click(screen.getByRole('button',{name:'Next source text'}));expect(container.querySelector('pre')?.textContent).toContain('😀<b>literal</b>');expect(container.querySelector('b')).toBeNull();expect(screen.getByText(/Historical stopped-frame receipt/)).toBeTruthy();});
