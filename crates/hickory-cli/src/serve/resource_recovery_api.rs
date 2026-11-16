@@ -232,7 +232,7 @@ fn summary(recovery: Recovery, query: InspectRequest, workspace: &str) -> Result
     }
     Ok(
         json!({"version":1,"workspace":workspace,"id":recovery.id,"fingerprint":recovery.fingerprint,"manifest_sha256":recovery.manifest_sha256,
-        "recorded_workspace":recovery.manifest.workspace,"record_version":recovery.manifest.version,"restore_of":recovery.manifest.restore_of,"context":recovery.manifest.context,"title":recovery.manifest.title.chars().take(256).collect::<String>(),"title_truncated":recovery.manifest.title.chars().count()>256,
+        "recorded_workspace":recovery.manifest.workspace,"record_version":recovery.manifest.version,"request_id":recovery.manifest.request_id,"restore_of":recovery.manifest.restore_of,"context":recovery.manifest.context,"title":recovery.manifest.title.chars().take(256).collect::<String>(),"title_truncated":recovery.manifest.title.chars().count()>256,
         "paths":paths,"receipts":recovery.receipts,"unrecognized_files":recovery.unrecognized_files,"all_paths_recorded_applied":recovery.all_paths_recorded_applied,"draft_text":text,"saved_text":saved_text}),
     )
 }

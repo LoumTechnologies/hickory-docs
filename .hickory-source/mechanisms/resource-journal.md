@@ -16,6 +16,22 @@ snapshot and cannot be promoted to complete undo records.
 
 This store exposes no resource-save route. A publisher must recheck generated ownership in both candidate saved and draft construction namespaces, including explicit source absence, before writing any candidate destination. Retaining a record does not substitute for that authority check.
 
+When an engine publication has a request identity, retain its canonical lowercase
+identity in the manifest and use it as the batch address. A disconnected client
+can inspect that exact address after restart through the existing recovery reader.
+Creating the directory still uses no-clobber semantics: the same identity cannot
+publish again over its old evidence. Older records without request identities
+keep randomly allocated addresses. A missing record does not prove that a request
+never started; inspection is historical evidence and never automatic replay.
+
+Focused verification (2026-11-15): the resource-specific CLI selection executed
+47 passing cases, including exact request-addressed reopening, duplicate batch
+refusal and invalid identity refusal before recovery IO. The rebuilt actual-engine
+resource service witness passed original-request lookup across process restart
+with unchanged saved files and retained evidence fingerprints. These checks do
+not recover a request that stopped before its manifest was retained, and never
+infer a successful save from a historical receipt.
+
 <ui:copy id="resource-save-recovery-record">
 //! Explicit resource saves retain their before/after states before publishing source.
 use super::{
@@ -37,6 +53,8 @@ pub struct Manifest {
     pub reviewed_plan: ResourcePlan,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub restore_of: Option<RestorationOrigin>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<String>,
     pub before: BTreeMap<String, SavedSource>,
     pub after: BTreeMap<String, SavedSource>,
 }
@@ -123,6 +141,11 @@ fn same_saved_draft(saved: &SavedSource, draft: &SourceState) -> bool {
     }
 }
 fn manifest_bytes(manifest: &Manifest) -> Result<Vec<u8>, String> {
+    if manifest.request_id.as_ref().is_some_and(|id| {
+        id.len() != 32 || !id.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    }) {
+        return Err("Recovery request identity must be 32 lowercase hexadecimal characters.".into());
+    }
     if !matches!(manifest.version, 2 | 3)
         || (manifest.version == 2 && manifest.restore_of.is_some())
         || (manifest.version == 3 && manifest.restore_of.is_none())
@@ -200,10 +223,14 @@ impl Batch {
             directory.push(part);
             regular_directory(&directory)?;
         }
-        let mut nonce = [0u8; 16];
-        getrandom::fill(&mut nonce)
-            .map_err(|error| format!("Cannot allocate resource recovery identity: {error}"))?;
-        let id = hex::encode(nonce);
+        let id = if let Some(id) = &manifest.request_id {
+            id.clone()
+        } else {
+            let mut nonce = [0u8; 16];
+            getrandom::fill(&mut nonce)
+                .map_err(|error| format!("Cannot allocate resource recovery identity: {error}"))?;
+            hex::encode(nonce)
+        };
         directory.push(&id);
         std::fs::create_dir(&directory)
             .map_err(|error| format!("Cannot create a new resource recovery batch: {error}"))?;
@@ -270,6 +297,7 @@ mod tests {
     pub(super) fn manifest() -> Manifest {
         Manifest {
             version: 2,
+            request_id: None,
             restore_of: None,
             reviewed_plan: ResourcePlan {
                 version: 1,
@@ -330,6 +358,30 @@ mod tests {
                     },
                 ),
             ]),
+        }
+    }
+    #[test]
+    fn publication_request_addresses_survive_restart_without_replay() {
+        let root = tempfile::tempdir().unwrap();
+        let id = "0123456789abcdef0123456789abcdef";
+        let mut expected = manifest();
+        expected.request_id = Some(id.into());
+        let batch = Batch::begin(root.path(), &expected).unwrap();
+        assert_eq!(batch.id, id);
+        drop(batch);
+        // Reopening evidence needs no process-held attempt table or batch handle.
+        let retained = read_recovery(root.path(), id).unwrap();
+        assert_eq!(retained.manifest.request_id.as_deref(), Some(id));
+        assert!(!retained.all_paths_recorded_applied);
+        assert!(retained.receipts.is_empty());
+        assert!(Batch::begin(root.path(), &expected).is_err());
+        assert_eq!(read_recovery(root.path(), id).unwrap().fingerprint, retained.fingerprint);
+        assert!(!root.path().join("a.py").exists());
+        for invalid in ["../outside", "ABCDEF0123456789abcdef0123456789", ""] {
+            let fresh = tempfile::tempdir().unwrap();
+            expected.request_id = Some(invalid.into());
+            assert!(Batch::begin(fresh.path(), &expected).is_err());
+            assert!(!fresh.path().join(".hick-cache").exists());
         }
     }
     #[test]
@@ -542,6 +594,7 @@ impl Manifest {
         }
         Ok(Self {
             version: 2,
+            request_id: None,
             workspace: inputs.workspace.clone(),
             context: inputs.context.clone(),
             title: plan.title.clone(),
@@ -900,6 +953,7 @@ impl Manifest {
         }
         let manifest = Self {
             version: 3,
+            request_id: None,
             workspace: restoration.workspace.clone(),
             context: restoration.context.clone(),
             title: restoration.plan.title.clone(),

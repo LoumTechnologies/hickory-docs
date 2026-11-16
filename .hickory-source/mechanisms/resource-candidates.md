@@ -25,6 +25,20 @@ unconsumed draft at the same address: consumption must match the candidate text
 hash. Seven existing candidate cases pass unchanged. This is internal analysis
 for later restoration admission, not a working undo command.
 
+Receipt adoption needs the exact reviewed saved states, including creation
+permissions chosen by the engine's host. Return those states with the consequences
+and bind them into its fingerprint. A browser or phone must not guess the server's
+filesystem permissions. Ordinary saves derive them through the recovery manifest
+constructor; restoration uses its independently validated saved projection.
+
+Focused verification (2026-11-15): the new engine-metadata candidate witness
+passed creation with host-selected private permissions, inherited move metadata,
+exact hashes and absent materialization. The independent saved/draft projection
+witness checks the returned complete saved map. All 47 selected resource CLI
+cases passed. The rebuilt service witness confirmed equality between reviewed
+saved states and the later complete publication receipt; this is server protocol
+evidence, not frontend adoption acceptance.
+
 <ui:copy id="resource-candidate-ownership">
 //! Evaluate the saved and draft construction layers of a proposed resource namespace.
 use super::{
@@ -61,6 +75,7 @@ pub struct Facts {
     pub fingerprint: String,
     pub saved: Layer,
     pub draft: Layer,
+    pub saved_sources: BTreeMap<String, super::resource_inputs::SavedSource>,
     pub checked_saved_sources: BTreeMap<String, String>,
     pub protected_targets: Vec<String>,
     pub source_files_modified: bool,
@@ -360,6 +375,10 @@ pub(crate) fn analyze_with_saved(
         fingerprint: String::new(),
         saved,
         draft,
+        saved_sources: match saved_after {
+            Some(states) => states.clone(),
+            None => super::resource_journal::Manifest::from_review(inputs, plan)?.after,
+        },
         checked_saved_sources: snapshot.checks,
         protected_targets,
         source_files_modified: false,

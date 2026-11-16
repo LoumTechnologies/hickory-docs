@@ -33,6 +33,7 @@ pub struct Facts {
     pub fingerprint: String,
     pub saved: Layer,
     pub draft: Layer,
+    pub saved_sources: BTreeMap<String, super::resource_inputs::SavedSource>,
     pub checked_saved_sources: BTreeMap<String, String>,
     pub protected_targets: Vec<String>,
     pub source_files_modified: bool,
@@ -332,6 +333,10 @@ pub(crate) fn analyze_with_saved(
         fingerprint: String::new(),
         saved,
         draft,
+        saved_sources: match saved_after {
+            Some(states) => states.clone(),
+            None => super::resource_journal::Manifest::from_review(inputs, plan)?.after,
+        },
         checked_saved_sources: snapshot.checks,
         protected_targets,
         source_files_modified: false,

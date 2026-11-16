@@ -242,12 +242,15 @@ pub(super) enum EntryTransition {
 }
 pub(super) async fn publish(
     state: LocalState,
-    manifest: Manifest,
+    mut manifest: Manifest,
     facts: super::resource_candidates::Facts,
     request_id: String,
     protected_entries: Vec<String>,
     entry_policy: EntryTransition,
 ) -> Result<Value, String> {
+    // The durable record can be found by the original request after a lost reply
+    // or process restart. It is evidence, never permission to repeat publication.
+    manifest.request_id = Some(request_id.to_ascii_lowercase());
     let runtime = tokio::runtime::Handle::current();
     tokio::task::spawn_blocking(move || {
         let root = state.index.root();

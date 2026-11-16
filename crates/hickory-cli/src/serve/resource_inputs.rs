@@ -924,6 +924,31 @@ mod candidate_tests {
         assert!(!root.join("after.py").exists());
     }
     #[test]
+    fn candidate_receipts_expose_engine_chosen_creation_and_move_metadata() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        project(root);
+        std::fs::write(root.join("old.py"), "old\n").unwrap();
+        let previous = saved_target(root, "old.py").unwrap().1;
+        let request = request(json!({"documentChanges":[
+            {"kind":"rename","oldUri":"hick:///old.py","newUri":"hick:///moved.py"},
+            {"kind":"create","uri":"hick:///new.py"},
+            text("new.py", "", "new\n")
+        ]}));
+        let facts = analyze(root, &request).unwrap();
+        assert_eq!(facts.saved_sources["old.py"], SavedSource::Missing);
+        assert_eq!(facts.saved_sources["moved.py"], previous);
+        let SavedSource::File { text, sha256, mode, readonly, executable } = &facts.saved_sources["new.py"] else { panic!("missing saved candidate") };
+        assert_eq!(text, "new\n");
+        assert_eq!(sha256, &sha(text.as_bytes()));
+        assert!(!readonly && !executable);
+        assert_eq!(*mode, if cfg!(unix) { Some(0o600) } else { None });
+        assert_eq!(facts.saved_sources.len(), 3);
+        assert!(!root.join("new.py").exists());
+        assert!(!root.join("moved.py").exists());
+        assert_eq!(std::fs::read_to_string(root.join("old.py")).unwrap(), "old\n");
+    }
+    #[test]
     fn source_changes_can_change_constructed_outputs_without_writing_them() {
         let temp = tempfile::tempdir().unwrap();
         let root = temp.path();
@@ -1137,6 +1162,7 @@ mod restored_saved_candidate_tests {
         )
         .unwrap();
         assert!(facts.saved.output_paths.contains("saved-output.py"));
+        assert_eq!(facts.saved_sources, projection);
         assert!(!facts.saved.output_paths.contains("draft-output.py"));
         assert!(facts.draft.output_paths.contains("draft-output.py"));
         assert!(!facts.draft.output_paths.contains("saved-output.py"));

@@ -1009,6 +1009,31 @@ mod candidate_tests {
         assert!(!root.join("after.py").exists());
     }
     #[test]
+    fn candidate_receipts_expose_engine_chosen_creation_and_move_metadata() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        project(root);
+        std::fs::write(root.join("old.py"), "old\n").unwrap();
+        let previous = saved_target(root, "old.py").unwrap().1;
+        let request = request(json!({"documentChanges":[
+            {"kind":"rename","oldUri":"hick:///old.py","newUri":"hick:///moved.py"},
+            {"kind":"create","uri":"hick:///new.py"},
+            text("new.py", "", "new\n")
+        ]}));
+        let facts = analyze(root, &request).unwrap();
+        assert_eq!(facts.saved_sources["old.py"], SavedSource::Missing);
+        assert_eq!(facts.saved_sources["moved.py"], previous);
+        let SavedSource::File { text, sha256, mode, readonly, executable } = &facts.saved_sources["new.py"] else { panic!("missing saved candidate") };
+        assert_eq!(text, "new\n");
+        assert_eq!(sha256, &sha(text.as_bytes()));
+        assert!(!readonly && !executable);
+        assert_eq!(*mode, if cfg!(unix) { Some(0o600) } else { None });
+        assert_eq!(facts.saved_sources.len(), 3);
+        assert!(!root.join("new.py").exists());
+        assert!(!root.join("moved.py").exists());
+        assert_eq!(std::fs::read_to_string(root.join("old.py")).unwrap(), "old\n");
+    }
+    #[test]
     fn source_changes_can_change_constructed_outputs_without_writing_them() {
         let temp = tempfile::tempdir().unwrap();
         let root = temp.path();
@@ -1229,6 +1254,7 @@ mod restored_saved_candidate_tests {
         )
         .unwrap();
         assert!(facts.saved.output_paths.contains("saved-output.py"));
+        assert_eq!(facts.saved_sources, projection);
         assert!(!facts.saved.output_paths.contains("draft-output.py"));
         assert!(facts.draft.output_paths.contains("draft-output.py"));
         assert!(!facts.draft.output_paths.contains("saved-output.py"));
@@ -1408,6 +1434,10 @@ def main():
    with urllib.request.urlopen(origin+"/api/changes/resource-recoveries",timeout=30) as reply:
     discovered=json.load(reply);assert discovered["workspace"]==reviewed_save["proposal"]["inputs"]["workspace"] and discovered["ids"]==[Path(outcome["recovery"]).parent.name]
    record_id=discovered["ids"][0]
+   assert record_id==reviewed_save["request_id"]
+   assert consequences["saved_sources"]==saved_result["saved_sources"]
+   with urllib.request.urlopen(origin+"/api/changes/resource-recovery?id="+reviewed_save["request_id"],timeout=30) as reply:
+    exact=json.load(reply);assert exact["request_id"]==reviewed_save["request_id"] and exact["id"]==record_id
    for query,key,expected in [("saved=before","saved_text",saved),("draft=before","draft_text",draft)]:
     with urllib.request.urlopen(origin+"/api/changes/resource-recovery?id="+record_id+"&path=a.py&"+query,timeout=30) as reply:assert json.load(reply)[key]==expected
 
@@ -1503,7 +1533,15 @@ def main():
    redone=call("changes/restore-resources",{"request_id":"7"*32,"reviewed_fingerprint":redo["consequences"]["fingerprint"],"reviewed_recovery_fingerprint":redo["restoration"]["recovery_fingerprint"],"proposal":redo_proposal})
    assert redone["outcome"]["complete"] and not (root/"a.py").exists() and (root/"b.py").read_text()=="renamed\n# unsaved draft\n"
    assert read_recovery(original_id)["fingerprint"]==inspection["fingerprint"]
-   print("PASS: actual resource acquisition, planning and candidate ownership; explicit guarded save of a moved dirty draft, retained saved/draft recovery, duplicate/status identity, changed-request refusal, stale-source and generated-destination refusal, authored document retirement/move, canonical-entry ownership guard, read-only recovery inspection, separate saved/draft restore and redo, evidence refusal, retained restoration result")
+   # A fresh process has no in-memory attempt table. Its original request address
+   # still finds exact historical evidence; this does not replay publication.
+   before_restart={path.name:path.read_bytes() for path in root.iterdir() if path.is_file()}
+   fixture.stop(engine);engine=None
+   engine=fixture.start([os.environ.get("HICKORY_SIMPLE_TEST_ENGINE",str(ROOT/"target/source-edit-focus/debug/examples/engine_client")),str(root),"window","http://127.0.0.1:1"],env={**os.environ,"HICKORY_STATE_DIR":str(folder/"state")});origin=fixture.origin(engine)
+   with urllib.request.urlopen(origin+"/api/changes/resource-recovery?id="+reviewed_save["request_id"],timeout=30) as reply:
+    recovered=json.load(reply);assert recovered["request_id"]==reviewed_save["request_id"] and recovered["fingerprint"]==inspection["fingerprint"]
+   assert before_restart=={path.name:path.read_bytes() for path in root.iterdir() if path.is_file()}
+   print("PASS: actual resource acquisition, planning and candidate ownership; explicit guarded save of a moved dirty draft, retained saved/draft recovery, duplicate/status identity, changed-request refusal, stale-source and generated-destination refusal, authored document retirement/move, canonical-entry ownership guard, read-only recovery inspection, separate saved/draft restore and redo, evidence refusal, exact request-addressed recovery across restart without replay")
   finally:
    if engine:fixture.stop(engine)
 if __name__=="__main__":main()
