@@ -45,10 +45,10 @@ literally, and a reported filename never triggers a same-named workspace fallbac
 import {useState} from 'react';
 import type {AdapterSourceReading} from './AdapterSourceReading';
 export function AdapterSourcePanel({model}:{model:AdapterSourceReading}){
- const [page,setPage]=useState(0),value=model.value,last=Math.max(0,Math.ceil((value?.content.length??0)/4000)-1),shown=Math.min(page,last);
- let from=shown*4000,to=Math.min(value?.content.length??0,from+4000);
- if(value&&from>0&&/[\uDC00-\uDFFF]/.test(value.content[from]??''))from--;
- if(value&&to<value.content.length&&/[\uDC00-\uDFFF]/.test(value.content[to]??''))to++;
+ const [page,setPage]=useState(0),value=model.value,length=value?.content.length??0;
+ const crosses=(at:number)=>!!value&&at>0&&/[\uD800-\uDBFF]/.test(value.content[at-1]??'')&&/[\uDC00-\uDFFF]/.test(value.content[at]??'');
+ const last=Math.max(0,Math.ceil(length/4000)-1-(length>4000&&length%4000===1&&crosses(length-1)?1:0)),shown=Math.min(page,last);
+ const start=shown*4000,end=(shown+1)*4000,from=start+(crosses(start)?1:0),to=Math.min(length,end+(crosses(end)?1:0));
  if(!value&&!model.notice&&!model.busy)return null;
  return <section aria-label="Adapter-owned source"><header><strong>Adapter-owned source</strong><button onClick={()=>model.close()}>Close source reading</button></header><p role="status">{model.notice}</p>{value&&<><p>{model.current()?'Captured current stopped-frame receipt':'Historical stopped-frame receipt'} · reference {value.reference} · frame {value.frame} · SHA-256 {value.source_hash}</p><p>MIME observation: {value.mime_type??'unspecified'}. Literal read-only text; no workspace file was substituted.</p><pre style={{whiteSpace:'pre-wrap'}}>{value.content.slice(from,to)}</pre><button disabled={!shown} onClick={()=>setPage(shown-1)}>Previous source text</button><span>{shown+1}/{last+1}</span><button disabled={shown===last} onClick={()=>setPage(shown+1)}>Next source text</button></>}</section>;
 }
@@ -57,7 +57,9 @@ export function AdapterSourcePanel({model}:{model:AdapterSourceReading}){
 
 Focused models reject foreign replies, stale contexts, invalid references,
 oversized content and malformed MIME observations. The rendered component keeps
-HTML literal and preserves a surrogate pair at a page boundary. These checks do
+HTML literal and assigns a surrogate pair crossing a page boundary to exactly
+one page. Concatenating consecutive pages reconstructs the exact receipt without
+a duplicate scalar or an empty trailing page. These checks do
 not establish live provider or cross-platform host acceptance.
 
 <ui:copy id="debug-adapter-source-browser-tests">
@@ -78,7 +80,8 @@ import {render,screen,fireEvent} from '@testing-library/react';
 import {AdapterSourceReading} from './AdapterSourceReading';
 import {AdapterSourcePanel} from './AdapterSourcePanel';
 beforeAll(async()=>{const name='node:'+'crypto';const {webcrypto}=await import(name);Object.defineProperty(globalThis,'crypto',{value:webcrypto,configurable:true});});
-it('renders MIME-labelled markup literally and pages surrogate boundaries without omitting text',()=>{const model=new AdapterSourceReading(),text='x'.repeat(3999)+'😀<b>literal</b>';model.value={event:'adapter_source',session:'owned',stop:1,thread:2,frame:3,reference:4,request_id:'request',content:text,source_hash:'a'.repeat(64),mime_type:'text/html'};const {container}=render(<AdapterSourcePanel model={model}/>);expect(container.querySelector('b')).toBeNull();expect(container.querySelector('pre')?.textContent).toContain('😀');fireEvent.click(screen.getByRole('button',{name:'Next source text'}));expect(container.querySelector('pre')?.textContent).toContain('😀<b>literal</b>');expect(container.querySelector('b')).toBeNull();expect(screen.getByText(/Historical stopped-frame receipt/)).toBeTruthy();});
+it('renders MIME-labelled markup literally and pages surrogate boundaries without omitting text',()=>{const model=new AdapterSourceReading(),text='x'.repeat(3999)+'😀<b>literal</b>';model.value={event:'adapter_source',session:'owned',stop:1,thread:2,frame:3,reference:4,request_id:'request',content:text,source_hash:'a'.repeat(64),mime_type:'text/html'};const {container,unmount}=render(<AdapterSourcePanel model={model}/>);expect(container.querySelector('b')).toBeNull();expect(container.querySelector('pre')?.textContent).toContain('😀');const first=container.querySelector('pre')!.textContent!;fireEvent.click(screen.getByRole('button',{name:'Next source text'}));const second=container.querySelector('pre')!.textContent!;expect(second).toBe('<b>literal</b>');expect(first+second).toBe(text);expect(container.querySelector('b')).toBeNull();expect(screen.getByText(/Historical stopped-frame receipt/)).toBeTruthy();unmount();});
+it('does not offer an empty page when the final scalar crosses the nominal boundary',()=>{const model=new AdapterSourceReading(),text='x'.repeat(3999)+'😀';model.value={event:'adapter_source',session:'owned',stop:1,thread:2,frame:3,reference:4,request_id:'request',content:text,source_hash:'a'.repeat(64),mime_type:null};const {container,unmount}=render(<AdapterSourcePanel model={model}/>);expect(container.querySelector('pre')?.textContent).toBe(text);expect((screen.getByRole('button',{name:'Next source text'}) as HTMLButtonElement).disabled).toBe(true);unmount();});
 </ui:copy>
 <ui:file path="apps/web/src/debug/AdapterSourceReading.test.ts"><ui:paste select="#debug-adapter-source-browser-tests"/></ui:file>
 <ui:file path="apps/web/src/debug/AdapterSourcePanel.test.tsx"><ui:paste select="#debug-adapter-source-browser-view-tests"/></ui:file>
