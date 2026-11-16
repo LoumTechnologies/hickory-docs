@@ -15,6 +15,15 @@ its location instead of deleting the only recoverable copy.
 
 `test-static-source` is the focused checkpoint for the bulk index, provenance projection, installed CLI artifacts and read-only viewer. `site` exports the declared project through the same product command, installs only frozen npm dependencies for analysis, and supplies an explicit public source-link prefix. Other languages retain their registered syntax grammars without starting an LSP by default.
 
+
+`native-debug-smoke apple/android` is an additive scoped real-system acceptance
+command. It preserves `simple-test` and all existing recipe names/coverage. Its
+thin recipe bootstraps the dependency-free Rust preparation adapter, which reuses
+the existing four-flow native fixture runner and installs only missing pinned
+project-local dependencies. The [native debugger reading](../../frontends/scripts/test-native-debug.py.md)
+records machine SDK requirements, tool/cache ownership, caller inventory and
+verification limits. This smoke does not claim device input or accessibility.
+
 <maint:entry path="justfile">
 # Hickory Docs task runner — the only entry point for project tasks.
 
@@ -971,6 +980,14 @@ simple-test platform="browser":
       android) mkdir -p target; rustc --edition=2021 scripts/simple-android-gradle.rs -o target/simple-android-gradle; target/simple-android-gradle :app:testDebugUnitTest :app:assembleDebug ;;
       *) echo 'Choose browser, apple or android.' >&2; exit 2 ;;
     esac
+
+# Four real engine/debugpy/native-controller flows; prepares locked local dependencies.
+native-debug-smoke platform:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    mkdir -p target
+    if [ ! -x target/native-debug-smoke-runner ] || [ scripts/native-debug-smoke.rs -nt target/native-debug-smoke-runner ]; then rustc --edition 2024 scripts/native-debug-smoke.rs -o target/native-debug-smoke-runner; fi
+    target/native-debug-smoke-runner {{quote(platform)}}
 
 # Comparison frontends; commits rebuild/relaunch every target, including mobile.
 simple-dev platform="browser": _dev-supervisor

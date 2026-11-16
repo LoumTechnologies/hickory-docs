@@ -954,6 +954,14 @@ simple-test platform="browser":
       *) echo 'Choose browser, apple or android.' >&2; exit 2 ;;
     esac
 
+# Four real engine/debugpy/native-controller flows; prepares locked local dependencies.
+native-debug-smoke platform:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    mkdir -p target
+    if [ ! -x target/native-debug-smoke-runner ] || [ scripts/native-debug-smoke.rs -nt target/native-debug-smoke-runner ]; then rustc --edition 2024 scripts/native-debug-smoke.rs -o target/native-debug-smoke-runner; fi
+    target/native-debug-smoke-runner {{quote(platform)}}
+
 # Comparison frontends; commits rebuild/relaunch every target, including mobile.
 simple-dev platform="browser": _dev-supervisor
     {{ if platform == "browser" { "target/dev-supervisor " } else if platform == "apple" { "target/dev-supervisor " } else { "" } }}cargo run --quiet --locked -p hickory-cli --example simple_dev -- {{quote(platform)}}

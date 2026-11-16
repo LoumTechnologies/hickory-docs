@@ -71024,6 +71024,21 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "fragments": [
         "test-debug-android-witness"
       ]
+    },
+    "scripts/native-debug-smoke.rs": {
+      "source": ".hickory-source/frontends/scripts/test-native-debug.py.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "f11a0b8bbe12e86c1bb4b5fd05154187149fda956388c2758fd6090715b1b25f",
+      "construction": "fragments",
+      "fragments": [
+        "native-debug-smoke-process-tools",
+        "native-debug-smoke-python",
+        "native-debug-smoke-gradle",
+        "native-debug-smoke-preparation",
+        "native-debug-smoke-preparation-tests"
+      ]
     }
   },
   "evidence_records": [

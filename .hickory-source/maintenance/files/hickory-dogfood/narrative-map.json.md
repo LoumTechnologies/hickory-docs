@@ -154616,6 +154616,41 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/mechanisms/crates/hick-dap/src/source_breakpoints.rs.md",
       "symbol": "source breakpoints session transaction witness",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "native-debug-smoke-process-tools",
+      "output": "scripts/native-debug-smoke.rs",
+      "page": ".hickory-source/frontends/scripts/test-native-debug.py.md",
+      "symbol": "native debug smoke process tools",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "native-debug-smoke-python",
+      "output": "scripts/native-debug-smoke.rs",
+      "page": ".hickory-source/frontends/scripts/test-native-debug.py.md",
+      "symbol": "native debug smoke python",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "native-debug-smoke-gradle",
+      "output": "scripts/native-debug-smoke.rs",
+      "page": ".hickory-source/frontends/scripts/test-native-debug.py.md",
+      "symbol": "native debug smoke gradle",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "native-debug-smoke-preparation",
+      "output": "scripts/native-debug-smoke.rs",
+      "page": ".hickory-source/frontends/scripts/test-native-debug.py.md",
+      "symbol": "native debug smoke preparation",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "native-debug-smoke-preparation-tests",
+      "output": "scripts/native-debug-smoke.rs",
+      "page": ".hickory-source/frontends/scripts/test-native-debug.py.md",
+      "symbol": "native debug smoke preparation tests",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

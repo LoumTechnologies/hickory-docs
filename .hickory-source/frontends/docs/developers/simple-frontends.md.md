@@ -223,6 +223,7 @@ Use [the TypeScript playground](../../examples/simple-lsp/README.md) for local s
 - `just simple-test browser`: TypeScript checking, focused layout/save tests and the small production build.
 - `just simple-test apple`: Swift model and save-protocol witnesses.
 - `just simple-test android`: Gradle unit tests, followed by debug APK compilation.
+- `just native-debug-smoke apple` or `android`: exactly four actual engine/debugpy/native-controller flows, including threads/nested values, literal paths and paused-source move/Undo. Prepares the locked engine and pinned target-local debugpy/Gradle dependencies automatically; requires installed Rust/C compiler, Python 3.10+, and full Xcode or Android SDK/JDK. It preserves `simple-test` scope and does not certify device input or accessibility. See [preparation and evidence](../../.hickory-source/frontends/scripts/test-native-debug.py.md).
 - `just simple-build ios`: unsigned simulator build of the shared Apple source.
 - `python3 scripts/test-simple-browser.py`: real browser flows against an isolated real backend. Requires the built `engine_client` example, Node dependencies and an installed Playwright Chromium.
 
