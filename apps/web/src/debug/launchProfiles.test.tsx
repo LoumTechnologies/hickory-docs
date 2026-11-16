@@ -3,14 +3,21 @@ import {act,cleanup,fireEvent,render,screen,waitFor} from "@testing-library/reac
 import {afterEach,beforeEach,expect,it,vi} from "vitest";
 import {request} from "../api/client";
 import {showTerminalRequest} from "../lib/revealLine";
-import {LaunchProfiles,launchWithProfiles,type LaunchProfile} from "./launchProfiles";
+import {LaunchProfiles,launchWithProfiles,withDebugProtocol,type LaunchProfile} from "./launchProfiles";
 vi.mock("../api/client",()=>({request:vi.fn()}));
 vi.mock("../lib/revealLine",()=>({showTerminalRequest:vi.fn()}));
 const profile=(id:string,debug=true):LaunchProfile=>({id,name:id,origin:"application",program:"app.py",command:[],args:[],env:{},cwd:".",build:[],default:false,can_debug:debug});
 let workspace=0;
-const catalog=(profiles:LaunchProfile[],fingerprint="one")=>({profiles,fingerprint,viewed:"library.py",workspace:`/test/${workspace}`,configuration:".hick-launch.json"});
+const catalog=(profiles:LaunchProfile[],fingerprint="one")=>({debug_protocol:2,profiles,fingerprint,viewed:"library.py",workspace:`/test/${workspace}`,configuration:".hick-launch.json"});
 beforeEach(()=>{workspace++;vi.clearAllMocks();});
 afterEach(()=>{cleanup();});
+
+it("refuses old-daemon direct startup without effects and leaves picker Run usable",async()=>{
+ const effect=vi.fn();vi.mocked(request).mockResolvedValue({...catalog([profile("app")]),debug_protocol:undefined});
+ await expect(withDebugProtocol({uri:"hick:///app.py"},effect)).rejects.toThrow("protocol 2");expect(effect).not.toHaveBeenCalled();
+ render(<LaunchProfiles/>);const pending=launchWithProfiles({uri:"hick:///app.py"},effect);await screen.findByRole("button",{name:"Run app"});expect((screen.getByRole("button",{name:"Debug app"}) as HTMLButtonElement).disabled).toBe(true);
+ fireEvent.click(screen.getByRole("button",{name:"Close launch profiles"}));await pending;expect(effect).not.toHaveBeenCalled();
+});
 // Guarantee: docs/guarantees/debugging/launch-profiles-choose-targets-within-the-viewed-project.md
 it("uses the one discovered app while keeping the viewed library as the debug source",async()=>{
   vi.mocked(request).mockResolvedValue(catalog([profile("greeting")]));

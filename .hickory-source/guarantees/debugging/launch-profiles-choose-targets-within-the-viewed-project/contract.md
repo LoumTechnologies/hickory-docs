@@ -184,7 +184,7 @@ import { clearPreferredDebugSurface, revealPreferredDebugLocation } from "./pref
 import { isDebuggable } from "./languages";
 import { languageFromPath } from "../editor/languages";
 
-import { openLocation } from "../lib/revealLine";
+import { openCapturedLocation } from "../lib/revealLine";
 import { openCapturedCode } from "../lib/capturedCode";
 import { retainCapturedContext } from "../lib/capturedContexts";
 import { publishPausedElsewhere, usePausedElsewhere } from "../lib/pausedElsewhere";
@@ -311,23 +311,23 @@ function Host({ path }: { path: string }) {
   // file opens it in any IDE. Cleared the moment the program moves on or
   // the session ends; only this owner can clear what it published.
   useEffect(() => {
-    const top = debug.frames[0];
+    const top = debug.frames[0],captured=top&&debug.captureFrame?.(top.id);
     if (["idle", "finished", "failed"].includes(debug.status)) clearPreferredDebugSurface(path);
-    if (debug.status === "paused" && top && revealPreferredDebugLocation(path, top)) {
+    if (debug.status === "paused" && top && captured?.current() && revealPreferredDebugLocation(path, top)) {
       publishPausedElsewhere(path, top.source && typeof top.source_line === "number" ? {path:top.source,line:top.source_line} : null);
       return;
     }
     if (
       debug.status === "paused" &&
-      top &&
+      top &&captured?.current()&&
       !top.in_document &&
       (top.source?.startsWith("hick-project:///") || isWorkspaceSource(top.source)) &&
       typeof top.source_line === "number"
     ) {
       publishPausedElsewhere(path, { path: top.source!, line: top.source_line });
       if (top.source!.startsWith("hick-project:///")) {
-        void openCapturedCode({uri:top.source!,range:{start:{line:top.source_line,character:0},end:{line:top.source_line,character:0}}}, path).catch(() => {});
-      } else openLocation(top.source!, top.source_line + 1);
+        void openCapturedCode({uri:top.source!,range:{start:{line:top.source_line,character:0},end:{line:top.source_line,character:0}}}, path,captured.current).catch(() => {});
+      } else openCapturedLocation(top.source!,top.source_line+1,top.source_hash??null,captured.current,top.source_reference);
     } else {
       publishPausedElsewhere(path, null);
     }
@@ -1710,6 +1710,11 @@ fn context(
 <a id="f-97a426cc0869-list"></a>
 ### `list`
 
+Debug launches require scoped startup and observation replies. Advertise that
+implemented wire contract in the read-only catalog so a newer frontend can refuse
+an older engine before starting a process it cannot safely identify. Ordinary
+Run profiles remain independent of this debugger capability.
+
 <storycode:copy id="f-97a426cc0869-list">
 pub async fn list(
     State(state): State<LocalState>,
@@ -1720,7 +1725,7 @@ pub async fn list(
         .profiles()
         .map_err(|e| ApiError::unprocessable(format!("{e:#}")))?;
     Ok(Json(
-        json!({"profiles":profiles,"fingerprint":context.fingerprint(),"viewed":context.viewed,"workspace":state.index.root(),"configuration":crate::launch_profiles::CONFIG}),
+        json!({"debug_protocol":2,"profiles":profiles,"fingerprint":context.fingerprint(),"viewed":context.viewed,"workspace":state.index.root(),"configuration":crate::launch_profiles::CONFIG}),
     ))
 }
 </storycode:copy>

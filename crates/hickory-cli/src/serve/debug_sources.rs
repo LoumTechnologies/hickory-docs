@@ -52,6 +52,7 @@ pub(super) async fn set(
         Ok(breakpoints) => breakpoints,
         Err(error) => {
             return Response::Failed {
+                request_id: None,
                 session: Some(session),
                 doc: Some(source),
                 message: format!("{error:#}"),

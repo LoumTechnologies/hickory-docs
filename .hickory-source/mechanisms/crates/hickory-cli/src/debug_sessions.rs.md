@@ -89,13 +89,20 @@ pub const IDLE_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 <a id="f-24a9413a429b-Live"></a>
 ### `Live`
 
+Keep positional operations ordered through response publication. The owned
+session mutex can span initial launch without hiding the real session identity;
+breakpoint configuration has its own ordered lane so it remains usable while
+execution waits for a stop. Explicit Stop bypasses both waits and closes the
+adapter. These are engine operation lifetimes, independent of any window's editor.
+
 A started session, plus what a caller needs to keep talking to it.
 
 <storycode:copy id="f-24a9413a429b-Live">
 /// A started session, plus what a caller needs to keep talking to it.
 pub struct Live {
     pub source_aliases: Vec<String>,
-    pub operation: Mutex<()>,
+    pub operation: Arc<Mutex<()>>,
+    pub breakpoint_operation: Mutex<()>,
     pub stop_generation: Mutex<u64>,
     pub stopped: Mutex<Option<hick_dap::Stopped>>,
     pub observations: Mutex<hick_observe::Run>,
@@ -429,7 +436,8 @@ impl Registry {
             .unwrap_or_default();
         let live = Arc::new(Live {
             source_aliases,
-            operation: Mutex::new(()),
+            operation: Arc::new(Mutex::new(())),
+            breakpoint_operation: Mutex::new(()),
             stop_generation: Mutex::new(1),
             stopped: Mutex::new(None),
             observations: Mutex::new(observations),

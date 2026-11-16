@@ -126,6 +126,8 @@ class DocumentBuffer(file: FileNode, loaded: FileText) {
         if (text != source || state.composition != null || !validSourceEdits(listOf(NativeSourceEdit(from, to, "")), source.length)) return false
         if (!applyingMulti) clearMulti()
         clearFolds(); state.edit { selection = TextRange(from, to) }
+        val selected=state.selection;val scroll=sourceScroll.value
+        debugRevealSource=source;debugRevealCurrent={text==source&&state.selection==selected&&sourceScroll.value==scroll}
         debugReveal = source.take(from).count { it == '\n' } to ((debugReveal?.second ?: 0) + 1)
         return true
     }
@@ -152,6 +154,8 @@ class DocumentBuffer(file: FileNode, loaded: FileText) {
     var base by mutableStateOf(loaded.content)
     var hash = loaded.hash
     var debugReveal by mutableStateOf<Pair<Int, Int>?>(null)
+    var debugRevealSource:String?=null
+    var debugRevealCurrent:()->Boolean={true}
     var saving by mutableStateOf(false)
     var error by mutableStateOf("")
     val text get() = state.text.toString()
@@ -437,10 +441,24 @@ class Workspace(private val backgroundScope: kotlinx.coroutines.CoroutineScope? 
             ?: run { status = "Location no longer fits $path. Query again."; return }
         if (buffer.selectSourceRange(offset, offset, source)) { if (recordHistory) navigationTrail = navigationTrail.record(departed, location); buffer.focusSource?.invoke(); onRevealed() }
     }
+    private var debugRevealTicket=0L
     suspend fun revealDebug(path: String, line: Int) {
+        val debug=debugger ?: return;val request=++debugRevealTicket;val current=generation;val group=focused;val departed=active;val locationCurrent=debug.locationGuard(path,line)
         fun find(nodes: List<FileNode>): FileNode? { nodes.forEach { if (it.path == path) return it; find(it.children)?.let { child -> return child } }; return null }
-        val file = find(files) ?: return
-        open(file); buffers[path]?.let { buffer -> debugger?.rememberSource(buffer); buffer.debugReveal = line to ((buffer.debugReveal?.second ?: 0) + 1) }
+        val file=(buffers[path]?.file ?: find(rootFiles))?.takeUnless{it.dir} ?: run{status="Reported debugger source is not in this workspace. Refresh files to inspect it.";return}
+        if(!locationCurrent())return
+        val buffer=loadBuffer(file)
+        if(generation!=current||debugger!==debug||request!=debugRevealTicket||!locationCurrent()||focused!=group||active!=departed)return
+        show(path) // Readable text is visible before optional hash/provenance work.
+        val visibleGroup=focused;val selection=buffer.state.selection;val scroll=buffer.sourceScroll.value
+        debug.rememberSource(buffer)
+        val valid={generation==current&&debugger===debug&&request==debugRevealTicket&&locationCurrent()&&focused==visibleGroup&&active==path&&buffers[path]===buffer&&debug.positionSourceMatches(buffer)&&buffer.state.selection==selection&&buffer.sourceScroll.value==scroll}
+        if(!valid()){
+            if(generation==current&&request==debugRevealTicket&&active==path)status=if(debug.adapterSourceRequired)"Opened saved path text. Adapter source is unavailable here; its positive source reference forbids a precise disk-source reveal." else if(!debug.positionSourceMatches(buffer))"Opened reported debugger source. Its text is unbound to captured launch/mapping source, so no precise position was revealed." else "Debugger position or editor interaction changed. The editor is retained; choose the current frame again to reveal its captured position."
+            return
+        }
+        val source=buffer.text;buffer.debugRevealSource=source;buffer.debugRevealCurrent={valid()&&buffer.text==source}
+        buffer.debugReveal=line to ((buffer.debugReveal?.second ?: 0)+1)
     }
     override fun onCleared() { sourceTestIndex?.stop(); buffers.values.forEach { it.language?.close() }; languageConnection?.close(); debugger?.close(); super.onCleared() }
     suspend fun openTerminal() {

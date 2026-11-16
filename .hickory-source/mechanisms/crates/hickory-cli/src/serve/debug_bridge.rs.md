@@ -88,6 +88,14 @@ pub use protocol::{InstallOffer, Request, Response};
 <a id="f-b6fc115ecefd-handle"></a>
 ### `handle`
 
+Session execution and response publication share one operation lifetime. Socket
+tasks can run independently so editing never waits for a debuggee, but enqueue
+the complete response group while the session mutex is still held. Releasing it
+before enqueueing permits a delayed old reading to follow a newer thread change.
+The synchronous delivery callback closes that gap without another scheduler or
+locking the editor. Evaluation and expansion also carry explicit request/pause
+scope so clients can reject superseded answers independently of transport order.
+
 Handle one request and produce the responses to send back.
 Returns several because one action often has two answers: a step both
 moves and lands somewhere, and the app wants the landing.
@@ -103,13 +111,44 @@ output events retain their separate streaming interface.
 ///
 /// Returns several because one action often has two answers: a step both
 /// moves and lands somewhere, and the app wants the landing.
+#[cfg(test)]
 pub async fn handle(
     registry: &Arc<Registry>,
     root: &std::path::Path,
     request: Request,
 ) -> Vec<Response> {
+    handle_with(registry, root, request, |_| {}).await
+}
+
+/// Queue a complete response group before releasing the session operation lock.
+/// Sockets spawn independent tasks; serial execution alone cannot order replies
+/// if an old task is descheduled between returning and enqueueing its answer.
+pub async fn dispatch(
+    registry: &Arc<Registry>,
+    root: &std::path::Path,
+    request: Request,
+    tx: &mpsc::UnboundedSender<Vec<u8>>,
+) {
+    let _ = handle_with(registry, root, request, |responses| reply(tx, responses)).await;
+}
+
+async fn handle_with(
+    registry: &Arc<Registry>,
+    root: &std::path::Path,
+    request: Request,
+    mut deliver: impl FnMut(&[Response]) + Send,
+) -> Vec<Response> {
     let output_id = request.session_id().map(str::to_owned);
     let about = about_of(&request);
+    let request_id = match &request {
+        Request::Start { request_id, .. }
+        | Request::Threads { request_id, .. }
+        | Request::SelectThread { request_id, .. }
+        | Request::State { request_id, .. }
+        | Request::Eval { request_id, .. }
+        | Request::Children { request_id, .. } => request_id.clone(),
+        _ => None,
+    };
     let lines = lines_of(&request);
     let doc = match &request {
         Request::Start { doc, .. } => Some(doc.clone()),
@@ -120,23 +159,45 @@ pub async fn handle(
     // error arm, and anything gathered in there would go with it.
     let mut built: Vec<Value> = Vec::new();
     // Serialize state/evaluation/movement so a receipt cannot cross a resume.
-    let operation_live = match if matches!(request, Request::Stop { .. }) {
-        None
-    } else {
-        request.session_id()
-    } {
+    let operation_live = match request.session_id() {
         Some(id) => registry.get(id).await.ok(),
         None => None,
     };
     let _operation = match &operation_live {
+        Some(_) if matches!(request, Request::Stop { .. }) => None,
+        Some(live)
+            if matches!(
+                request,
+                Request::Breakpoints { .. } | Request::SourceBreakpoints { .. }
+            ) =>
+        {
+            Some(live.breakpoint_operation.lock().await)
+        }
         Some(live) => Some(live.operation.lock().await),
         None => None,
     };
     let mut started_live = None;
-    let result = handle_inner(registry, root, request, &mut built, &mut started_live).await;
+    let mut started_operation = None;
+    let mut delivered_prefix = 0;
+    let mut progress = |responses: &[Response]| {
+        deliver(responses);
+        delivered_prefix += responses.len();
+    };
+    let result = handle_inner(
+        registry,
+        root,
+        request,
+        &mut built,
+        &mut started_live,
+        &mut started_operation,
+        &mut progress,
+    )
+    .await;
+    drop(progress);
     let mut out = Vec::new();
     if !built.is_empty() {
         out.push(Response::Build {
+            request_id: request_id.clone(),
             doc: doc.clone().unwrap_or_default(),
             events: built,
         });
@@ -155,6 +216,7 @@ pub async fn handle(
                     language: missing.language.clone(),
                 });
             out.push(Response::Failed {
+                request_id,
                 doc: if session.is_none() { doc } else { None },
                 session,
                 message: format!("{error:#}"),
@@ -204,9 +266,9 @@ pub async fn handle(
             }
         }
     }
+    deliver(&out[delivered_prefix..]);
     out
 }
-
 </storycode:copy>
 <a id="f-b6fc115ecefd-build_event"></a>
 ### `build_event`
@@ -248,6 +310,8 @@ fn about_of(request: &Request) -> &'static str {
         Request::Breakpoints { .. } => "breakpoints",
         Request::SourceBreakpoints { .. } => "source_breakpoints",
         Request::State { .. } => "state",
+        Request::Threads { .. } => "threads",
+        Request::SelectThread { .. } => "select_thread",
         Request::Located { .. } => "located",
         Request::Eval { .. } => "eval",
         Request::Step { .. } => "step",
@@ -289,6 +353,23 @@ type Failure = (Option<String>, anyhow::Error);
 <a id="f-b6fc115ecefd-handle_inner"></a>
 ### `handle_inner`
 
+Thread discovery is an independent adapter read over a stopped session. Return
+the current stop generation beside reported identities. Selection re-reads the
+adapter's list, requires that same stop generation and successfully reads the
+chosen thread's stack before changing workspace debugger state. A running or
+vanished thread therefore leaves the previous readable frames intact. Changing
+thread retires source-location reading authority and creates a fresh observation;
+it does not claim every reported thread is paused. The existing per-session
+operation lock serializes these reads with stepping and evaluation.
+
+Require either the actual stopped thread or the adapter's explicit
+`allThreadsStopped` observation before selecting another thread. Missing stop
+identity never becomes an invented thread 1. Frame-local reads validate the
+selected thread's current stack and return a separately scoped result. Stack or
+locals failures stay explicit and cannot create an observed-empty evidence
+reading. Interactive waits have no capture deadline: publish Started promptly,
+keep live breakpoint updates and Stop available, then report actual stop/end.
+
 <storycode:copy id="f-b6fc115ecefd-handle_inner">
 async fn handle_inner(
     registry: &Arc<Registry>,
@@ -296,6 +377,8 @@ async fn handle_inner(
     request: Request,
     built: &mut Vec<Value>,
     started_live: &mut Option<Arc<crate::debug_sessions::Live>>,
+    started_operation: &mut Option<tokio::sync::OwnedMutexGuard<()>>,
+    progress: &mut (impl FnMut(&[Response]) + Send),
 ) -> Result<Vec<Response>, Failure> {
     match request {
         Request::Located {
@@ -334,6 +417,7 @@ async fn handle_inner(
         ]),
         Request::Start {
             doc,
+            request_id,
             breakpoints,
             program,
             project,
@@ -385,15 +469,26 @@ async fn handle_inner(
             };
             let (session, live, statuses) = started.map_err(|e| (None, e))?;
             *started_live = Some(live.clone());
-            let mut out = vec![Response::Started {
+            *started_operation = Some(live.operation.clone().lock_owned().await);
+            let mut out = Vec::new();
+            if !built.is_empty() {
+                out.push(Response::Build {
+                    request_id: request_id.clone(),
+                    doc: doc.clone(),
+                    events: std::mem::take(built),
+                });
+            }
+            out.push(Response::Started {
+                request_id,
                 session: session.clone(),
                 doc,
                 capabilities: live.session.capabilities().clone(),
                 breakpoints: statuses,
-            }];
+            });
             out.extend(sources::statuses(&session, &live));
-            // Run to the first stop before answering, so the UI never shows a
-            // started session with no position in it.
+            // Expose the real session immediately, so Stop and live breakpoint
+            // updates work while a program runs towards its first stop.
+            progress(&out);
             out.extend(settle(registry, root, &session, &live).await);
             Ok(out)
         }
@@ -417,12 +512,155 @@ async fn handle_inner(
             }])
         }
 
-        Request::State { session } => {
+        Request::Threads {
+            session,
+            request_id,
+        } => {
+            let live = registry
+                .get(&session)
+                .await
+                .map_err(|error| (Some(session.clone()), error))?;
+            let selected = (*live.thread_id.lock().await).ok_or_else(|| {
+                (
+                    Some(session.clone()),
+                    anyhow::anyhow!("Pause the debugger before reading threads"),
+                )
+            })?;
+            let stop = *live.stop_generation.lock().await;
+            let threads = live
+                .session
+                .threads()
+                .await
+                .map_err(|error| (Some(session.clone()), error))?;
+            Ok(vec![Response::Threads {
+                session,
+                request_id,
+                stop,
+                selected,
+                threads,
+            }])
+        }
+        Request::SelectThread {
+            session,
+            thread,
+            stop,
+            request_id,
+        } => {
+            let live = registry
+                .get(&session)
+                .await
+                .map_err(|error| (Some(session.clone()), error))?;
+            if live.thread_id.lock().await.is_none() || *live.stop_generation.lock().await != stop {
+                return Err((
+                    Some(session),
+                    anyhow::anyhow!("The stopped thread observation changed. Read threads again."),
+                ));
+            }
+            if !live
+                .stopped
+                .lock()
+                .await
+                .as_ref()
+                .is_some_and(|stopped| stopped.all_threads_stopped || stopped.thread_id == thread)
+            {
+                return Err((
+                    Some(session),
+                    anyhow::anyhow!(
+                        "The adapter has not reported this thread stopped. Pause it before selecting its stack."
+                    ),
+                ));
+            }
+            let threads = live
+                .session
+                .threads()
+                .await
+                .map_err(|error| (Some(session.clone()), error))?;
+            if !threads.iter().any(|entry| entry.id == thread) {
+                return Err((
+                    Some(session),
+                    anyhow::anyhow!(
+                        "The selected thread is no longer reported by the adapter. Read threads again."
+                    ),
+                ));
+            }
+            // A reported thread may still be running. Require a real stack read
+            // before changing selection; adapter refusal leaves prior frames intact.
+            live.session
+                .stack(thread)
+                .await
+                .map_err(|error| (Some(session.clone()), error))?;
+            *live.thread_id.lock().await = Some(thread);
+            *live.stop_generation.lock().await += 1;
+            *live.reading.lock().await = None;
+            let stop = *live.stop_generation.lock().await;
+            let mut replies = position_with(root, &session, &live, "thread selection").await;
+            replies.push(Response::Threads {
+                session,
+                request_id,
+                stop,
+                selected: thread,
+                threads,
+            });
+            Ok(replies)
+        }
+        Request::State {
+            session,
+            frame,
+            stop: expected_stop,
+            thread: expected_thread,
+            request_id,
+        } => {
             let live = registry
                 .get(&session)
                 .await
                 .map_err(|e| (Some(session.clone()), e))?;
-            Ok(position(root, &session, &live).await)
+            if let Some(frame) = frame {
+                let stop = *live.stop_generation.lock().await;
+                let thread = (*live.thread_id.lock().await).ok_or_else(|| {
+                    (
+                        Some(session.clone()),
+                        anyhow::anyhow!("Pause the debugger before reading frame locals"),
+                    )
+                })?;
+                if expected_stop.is_some_and(|expected| expected != stop)
+                    || expected_thread.is_some_and(|expected| expected != thread)
+                {
+                    return Err((
+                        Some(session),
+                        anyhow::anyhow!(
+                            "Frame-local scope changed. Read the current paused stack again."
+                        ),
+                    ));
+                }
+                let frames = live
+                    .session
+                    .stack(thread)
+                    .await
+                    .map_err(|error| (Some(session.clone()), error))?;
+                if !frames.iter().any(|entry| entry.id == frame) {
+                    return Err((
+                        Some(session),
+                        anyhow::anyhow!(
+                            "The requested locals frame is outside the selected thread. Read its stack again."
+                        ),
+                    ));
+                }
+                let variables = live
+                    .session
+                    .variables(frame)
+                    .await
+                    .map_err(|error| (Some(session.clone()), error))?;
+                Ok(vec![Response::FrameVariables {
+                    session,
+                    stop,
+                    thread,
+                    frame,
+                    request_id,
+                    variables,
+                }])
+            } else {
+                Ok(position(root, &session, &live).await)
+            }
         }
 
         Request::Eval {
@@ -430,15 +668,46 @@ async fn handle_inner(
             expression,
             frame,
             context,
+            stop: expected_stop,
+            thread: expected_thread,
+            request_id,
         } => {
             let live = registry
                 .get(&session)
                 .await
                 .map_err(|e| (Some(session.clone()), e))?;
+            let stop = *live.stop_generation.lock().await;
+            let thread = *live.thread_id.lock().await;
+            if thread.is_none()
+                || expected_stop.is_some_and(|expected| expected != stop)
+                || expected_thread.is_some_and(|expected| Some(expected) != thread)
+            {
+                return Err((
+                    Some(session),
+                    anyhow::anyhow!(
+                        "Evaluation scope changed. Read the current paused frame again."
+                    ),
+                ));
+            }
             let frame = match frame {
                 Some(frame) => Some(frame),
                 None => top_frame(&live).await,
             };
+            if let (Some(frame), Some(thread)) = (frame, thread) {
+                let frames = live
+                    .session
+                    .stack(thread)
+                    .await
+                    .map_err(|error| (Some(session.clone()), error))?;
+                if !frames.iter().any(|entry| entry.id == frame) {
+                    return Err((
+                        Some(session),
+                        anyhow::anyhow!(
+                            "The requested frame does not belong to the selected thread. Read its stack again."
+                        ),
+                    ));
+                }
+            }
             let value = live
                 .session
                 .evaluate(&expression, frame, &context)
@@ -457,6 +726,10 @@ async fn handle_inner(
             }
             out.push(Response::Value {
                 session,
+                stop,
+                thread,
+                frame,
+                request_id,
                 expression,
                 value: value.value,
                 type_name: value.type_name,
@@ -518,11 +791,30 @@ async fn handle_inner(
             Ok(settle(registry, root, &session, &live).await)
         }
 
-        Request::Children { session, reference } => {
+        Request::Children {
+            session,
+            reference,
+            stop: expected_stop,
+            thread: expected_thread,
+            request_id,
+        } => {
             let live = registry
                 .get(&session)
                 .await
                 .map_err(|e| (Some(session.clone()), e))?;
+            let stop = *live.stop_generation.lock().await;
+            let thread = *live.thread_id.lock().await;
+            if thread.is_none()
+                || expected_stop.is_some_and(|expected| expected != stop)
+                || expected_thread.is_some_and(|expected| Some(expected) != thread)
+            {
+                return Err((
+                    Some(session),
+                    anyhow::anyhow!(
+                        "Variable expansion scope changed. Read the current paused frame again."
+                    ),
+                ));
+            }
             let variables = live
                 .session
                 .children(reference)
@@ -530,6 +822,9 @@ async fn handle_inner(
                 .map_err(|e| (Some(session.clone()), e))?;
             Ok(vec![Response::Children {
                 session,
+                stop,
+                thread,
+                request_id,
                 reference,
                 variables,
             }])
@@ -577,7 +872,6 @@ async fn handle_inner(
         }
     }
 }
-
 </storycode:copy>
 <a id="f-b6fc115ecefd-settle"></a>
 ### `settle`
@@ -603,7 +897,7 @@ async fn settle(
     session: &str,
     live: &Arc<crate::debug_sessions::Live>,
 ) -> Vec<Response> {
-    match live.session.wait_for_stop(Duration::from_secs(60)).await {
+    match live.session.wait_until_stop().await {
         Ok(Some(stopped)) => {
             *live.thread_id.lock().await = Some(stopped.thread_id);
             *live.stopped.lock().await = Some(stopped.clone());
@@ -630,6 +924,7 @@ async fn settle(
             }]
         }
         Err(error) => vec![Response::Failed {
+            request_id: None,
             session: Some(session.to_string()),
             doc: None,
             message: format!("{error:#}"),
@@ -754,28 +1049,35 @@ async fn position_with(
             }];
         }
     };
-    let frames: Vec<hick_dap::Frame> = live
-        .session
-        .stack(thread)
-        .await
-        .unwrap_or_default()
-        .into_iter()
-        .map(|frame| relative_source(root, frame))
-        .collect();
-    let variables = match frames.first() {
-        Some(frame) => live.session.variables(frame.id).await.unwrap_or_default(),
-        None => Vec::new(),
+    let (frames, stack_error) = match live.session.stack(thread).await {
+        Ok(frames) => (
+            frames
+                .into_iter()
+                .map(|frame| relative_source(root, frame))
+                .collect::<Vec<_>>(),
+            None,
+        ),
+        Err(error) => (Vec::new(), Some(error.to_string())),
+    };
+    let (variables, variables_error) = match frames.first() {
+        Some(frame) => match live.session.variables(frame.id).await {
+            Ok(variables) => (variables, None),
+            Err(error) => (Vec::new(), Some(error.to_string())),
+        },
+        None => (Vec::new(), None),
     };
     let mut out = Vec::new();
-    if let Ok(Some(reading)) = live
-        .capture_reading(
-            session,
-            reason,
-            &frames,
-            &variables,
-            frames.first().map(|f| f.id),
-        )
-        .await
+    if stack_error.is_none()
+        && variables_error.is_none()
+        && let Ok(Some(reading)) = live
+            .capture_reading(
+                session,
+                reason,
+                &frames,
+                &variables,
+                frames.first().map(|f| f.id),
+            )
+            .await
     {
         out.push(Response::Reading {
             session: session.into(),
@@ -787,6 +1089,10 @@ async fn position_with(
         _ => None,
     });
     out.push(Response::Stopped {
+        stop: *live.stop_generation.lock().await,
+        thread,
+        stack_error,
+        variables_error,
         observation_scope,
         session: session.to_string(),
         reason: reason.to_string(),
@@ -796,7 +1102,6 @@ async fn position_with(
     });
     out
 }
-
 </storycode:copy>
 <a id="f-b6fc115ecefd-top_frame"></a>
 ### `top_frame`
@@ -858,9 +1163,9 @@ Send responses to the client, dropping them if it has gone.
 
 <storycode:copy id="f-b6fc115ecefd-reply">
 /// Send responses to the client, dropping them if it has gone.
-pub fn reply(tx: &mpsc::UnboundedSender<Vec<u8>>, responses: Vec<Response>) {
+pub fn reply(tx: &mpsc::UnboundedSender<Vec<u8>>, responses: &[Response]) {
     for response in responses {
-        if tx.send(frame_of(&response)).is_err() {
+        if tx.send(frame_of(response)).is_err() {
             return;
         }
     }
@@ -879,11 +1184,11 @@ pub fn describe() -> Value {
         "channel": CHANNEL_DEBUG,
         "requests": [
             "start", "breakpoints", "state", "eval", "step", "jump", "run_to",
-            "children", "exception_breakpoints", "set_variable", "stop", "located"
+            "children", "exception_breakpoints", "set_variable", "stop", "located", "threads", "select_thread"
         ],
         "responses": [
             "started", "stopped", "breakpoints", "value", "children",
-            "finished", "ended", "failed", "build", "reading"
+            "finished", "ended", "failed", "build", "reading", "threads", "frame_variables"
         ],
     })
 }

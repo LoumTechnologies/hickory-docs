@@ -709,12 +709,95 @@ class ParityTest {
 }
 class NativeDebugTest {
     private fun file() = FileNode("main.py", "main.py", false, emptyList(), null, null)
+    private suspend fun threadDebugger(protocol:Any?=2,adopt:Boolean=true,block:suspend(NativeDebugger,MutableList<JSONObject>)->Unit)=kotlinx.coroutines.coroutineScope{
+        val listener=com.sun.net.httpserver.HttpServer.create(java.net.InetSocketAddress("127.0.0.1",0),0)
+        listener.createContext("/api/launch-profiles"){exchange->val payload=JSONObject("""{"profiles":[{"id":"python","name":"Python","can_debug":true,"program":"main.py"}],"fingerprint":"current"}""");if(protocol!=null)payload.put("debug_protocol",protocol);val bytes=payload.toString().toByteArray();exchange.sendResponseHeaders(200,bytes.size.toLong());exchange.responseBody.use{it.write(bytes)}};listener.start()
+        val debug=NativeDebugger(Engine("http://127.0.0.1:${listener.address.port}"),this);val requests=mutableListOf<JSONObject>();debug.emitForTest={requests.add(it)}
+        try{debug.prepare(DocumentBuffer(file(),FileText("value = 1\n","saved")));if(adopt)debug.receive(JSONObject("""{"event":"started","doc":"hick:///main.py","session":"ours","breakpoints":[],"capabilities":{"frame_locals":true}}""").put("request_id",requests.last().getString("request_id")));block(debug,requests)}finally{debug.close();listener.stop(0)}
+    }
+    private fun threadStop(stop:Long,thread:Long,frame:Long)=JSONObject("""{"event":"stopped","session":"ours","line":0,"frames":[{"name":"frame","source":"main.py","source_line":0}],"variables":[{"name":"value","value":"retained"}]}""").put("stop",stop).put("thread",thread).apply{getJSONArray("frames").getJSONObject(0).put("id",frame)}
+    private fun threadReply(request:String,stop:Long,thread:Long)=JSONObject("""{"event":"threads","session":"ours","threads":[{"id":10,"name":"Main"},{"id":20,"name":"Worker"}]}""").put("stop",stop).put("selected",thread).put("request_id",request)
+    @Test fun unsupportedDebuggerCatalogNeverStartsOrChangesTheEditor()=kotlinx.coroutines.runBlocking{
+        for(protocol in listOf<Any?>(null,1,true,"2",2.5))threadDebugger(protocol=protocol,adopt=false){debug,requests->
+            val buffer=DocumentBuffer(file(),FileText("value = 1\n","saved"));buffer.state.edit{selection=androidx.compose.ui.text.TextRange(2)};buffer.sourceScroll.scrollTo(7);val state=buffer.state
+            debug.prepare(buffer);assertTrue(requests.isEmpty());assertNull(debug.sessionID);assertFalse(debug.active);assertTrue(debug.message.contains("scoped debugger protocol 2"));assertTrue(debug.hasInspection);assertSame(state,buffer.state);assertEquals("value = 1\n",buffer.text);assertEquals(2,buffer.state.selection.start);assertEquals(7,buffer.sourceScroll.value);assertFalse(buffer.dirty)
+        }
+    }
+    @Test fun startupRepliesRequireExactLaunchAndRetiredCleanupNeverStopsForeignSessions()=kotlinx.coroutines.runBlocking{
+        threadDebugger{debug,requests->
+            val old=requests.first{it.optString("op")=="start"}.getString("request_id");val buffer=DocumentBuffer(file(),FileText("value = 1\n","saved"));debug.close();debug.prepare(buffer);val current=requests.last().getString("request_id");assertNotEquals(old,current)
+            fun started(id:String,session:String)=JSONObject().put("event","started").put("doc","hick:///main.py").put("request_id",id).put("session",session).put("breakpoints",org.json.JSONArray())
+            val count=requests.size;debug.receive(started("foreign","unrelated"));assertEquals(count,requests.size);assertNull(debug.sessionID)
+            debug.receive(started(old,"retired"));assertEquals("stop",requests.last().getString("op"));assertEquals("retired",requests.last().getString("session"));assertEquals("starting",debug.status);assertNull(debug.sessionID);val cleaned=requests.size;debug.receive(started(old,"retired"));assertEquals(cleaned,requests.size)
+            debug.receive(JSONObject().put("event","build").put("doc","hick:///main.py").put("request_id",old).put("events",org.json.JSONArray().put(JSONObject().put("data","old build"))));assertFalse(debug.message.contains("old build"))
+            debug.receive(JSONObject().put("event","failed").put("doc","hick:///main.py").put("session",JSONObject.NULL).put("request_id",old).put("message","old failure"));assertEquals("starting",debug.status)
+            debug.receive(JSONObject().put("event","build").put("doc","hick:///main.py").put("request_id",current).put("events",org.json.JSONArray().put(JSONObject().put("data","current build"))));assertTrue(debug.message.contains("current build"));debug.receive(started(current,"new"));assertEquals("new",debug.sessionID);assertEquals("running",debug.status)
+            repeat(65){debug.close();debug.prepare(buffer)};val bounded=requests.size;debug.receive(started(current,"evicted"));assertEquals(bounded,requests.size);assertNull(debug.sessionID)
+            val pending=requests.last().getString("request_id");debug.receive(JSONObject().put("event","failed").put("doc","hick:///main.py").put("session",JSONObject.NULL).put("request_id",pending).put("message","Current launch failed"));assertEquals("failed",debug.status);assertTrue(debug.hasInspection);debug.receive(started(pending,"failed-owned"));assertEquals("stop",requests.last().getString("op"));assertEquals("failed-owned",requests.last().getString("session"));assertEquals("failed",debug.status)
+        }
+    }
+    @Test fun threadListsAndSelectionRetainFramesAndRejectObsoleteObservations()=kotlinx.coroutines.runBlocking{
+        threadDebugger{debug,requests->
+            debug.receive(threadStop(1,10,7));val frames=debug.frames;val variables=debug.variables;val first=requests.last().getString("request_id")
+            debug.receive(threadReply("old-$first",1,10));assertNull(debug.threadReading)
+            debug.receive(threadReply(first,0,10));assertNull(debug.threadReading);assertSame(frames,debug.frames);assertSame(variables,debug.variables)
+            debug.readThreads();debug.receive(threadReply(requests.last().getString("request_id"),1,10));val observed=debug.threadReading!!
+            debug.selectThread(observed,20);val selection=requests.last();assertEquals("select_thread",selection.getString("op"));assertEquals(1,selection.getLong("stop"));assertSame(frames,debug.frames);assertSame(variables,debug.variables)
+            val selecting=requests.size;debug.step("over");debug.select(frames.first());debug.evaluate("value");debug.readThreads();assertEquals(selecting,requests.size);assertEquals("paused",debug.status);assertSame(frames,debug.frames)
+            debug.receive(JSONObject().put("event","failed").put("session","ours").put("request_id",selection.getString("request_id")).put("message","Thread is running"));assertEquals("paused",debug.status);assertEquals("ours",debug.sessionID);assertSame(frames,debug.frames);assertSame(observed,debug.threadReading);assertFalse(debug.threadBusy)
+            debug.readThreads();debug.receive(threadReply(requests.last().getString("request_id"),1,10));val fresh=debug.threadReading!!;val count=requests.size;debug.selectThread(observed,20);assertEquals(count,requests.size)
+            debug.selectThread(fresh,20);val selectedRequest=requests.last().getString("request_id");debug.receive(threadStop(2,20,8));assertTrue(debug.threadBusy);assertNull(debug.threadReading);assertEquals(8,debug.frames.first().getLong("id"));debug.receive(threadReply(selectedRequest,2,20));assertEquals(20,debug.threadReading!!.selected);assertFalse(debug.threadBusy)
+            val selectedFrames=debug.frames;val selectedReading=debug.threadReading;debug.readThreads();val refresh=requests.last().getString("request_id");debug.receive(JSONObject().put("event","failed").put("session","ours").put("request_id","foreign").put("message","Old failure"));assertTrue(debug.threadBusy)
+            debug.receive(JSONObject().put("event","failed").put("session","ours").put("request_id",refresh).put("message","Read failed"));assertFalse(debug.threadBusy);assertSame(selectedFrames,debug.frames);assertSame(selectedReading,debug.threadReading)
+            debug.step("over");debug.receive(threadReply(refresh,2,20));assertNull(debug.threadReading);debug.receive(threadStop(2,20,8));assertEquals("running",debug.status);debug.receive(threadStop(4,10,9));assertEquals("paused",debug.status);assertEquals(9,debug.frames.first().getLong("id"))
+            val optional=requests.last().getString("request_id");val beforeStep=requests.size;assertTrue(debug.threadBusy);debug.step("over");assertEquals(beforeStep+1,requests.size);assertEquals("running",debug.status);debug.receive(threadReply(optional,4,10));assertNull(debug.threadReading)
+        }
+    }
+    @Test fun evaluationRepliesRequireLatestRequestAndExactStopThreadFrame()=kotlinx.coroutines.runBlocking{
+        threadDebugger{debug,requests->
+            debug.receive(threadStop(1,10,7));debug.receive(threadReply(requests.last().getString("request_id"),1,10));val oldFrame=debug.frames.first();debug.evaluate("value");val old=requests.last().getString("request_id");debug.evaluate("value");val latest=requests.last().getString("request_id")
+            fun value(request:String,stop:Long,thread:Long,frame:Long,text:String)=JSONObject().put("event","value").put("session","ours").put("request_id",request).put("stop",stop).put("thread",thread).put("frame",frame).put("expression","value").put("value",text)
+            debug.receive(value(old,1,10,7,"old"));assertTrue(debug.values.isEmpty());debug.receive(value(latest,1,10,7,"current"));assertEquals("current",debug.values["value"])
+            debug.step("over");debug.receive(threadStop(3,20,8));debug.receive(threadReply(requests.last().getString("request_id"),3,20));debug.evaluate("value");val current=requests.last();assertEquals(3,current.getLong("stop"));assertEquals(20,current.getLong("thread"));assertEquals(8,current.getLong("frame"))
+            debug.receive(value(latest,1,10,7,"old pause"));debug.receive(value(current.getString("request_id"),3,10,8,"wrong thread"));debug.receive(value(current.getString("request_id"),3,20,7,"wrong frame"));assertTrue(debug.values.isEmpty())
+            debug.receive(value(current.getString("request_id"),3,20,8,"new pause"));assertEquals("new pause",debug.values["value"]);val count=requests.size;debug.select(oldFrame);assertEquals(count,requests.size);assertEquals("paused",debug.status)
+            val frames=debug.frames;val selector=debug.threadReading!!;debug.evaluate("unsupported");debug.receive(JSONObject().put("event","failed").put("session","ours").put("request_id",requests.last().getString("request_id")).put("message","Adapter cannot evaluate this suspended frame"));assertEquals("paused",debug.status);assertEquals("ours",debug.sessionID);assertSame(frames,debug.frames);assertSame(selector,debug.threadReading);debug.selectThread(selector,10);assertEquals("select_thread",requests.last().getString("op"));assertEquals(10,requests.last().getLong("thread"))
+        }
+    }
+    @Test fun threadDecoderRejectsMalformedRowsAndPreservesUnsignedStopIdentity(){
+        val stop="18446744073709551615";val event=threadReply("request",1,10).put("stop",java.math.BigInteger(stop));val result=nativeThreadReading(event,"ours",stop,10,"request");assertEquals(stop,result.stop);assertEquals(listOf(10L,20L),result.threads.map{it.id})
+        fun refused(raw:JSONObject){assertTrue(runCatching{nativeThreadReading(raw,"ours",stop,10,"request")}.isFailure)}
+        refused(JSONObject(event.toString()).put("stop",1.0));refused(JSONObject(event.toString()).put("request_id","older"));refused(JSONObject(event.toString()).put("selected",20))
+        refused(JSONObject(event.toString()).apply{getJSONArray("threads").put(JSONObject().put("id",10).put("name","duplicate"))})
+        refused(JSONObject(event.toString()).apply{getJSONArray("threads").getJSONObject(0).put("name","x".repeat(4097))})
+        refused(JSONObject(event.toString()).put("threads",org.json.JSONArray()))
+        for(id in listOf<Any>(true,1.5,2147483648L,-2147483649L))refused(JSONObject(event.toString()).apply{getJSONArray("threads").getJSONObject(0).put("id",id)})
+    }
+    @Test fun zeroAndNegativeThreadFrameIdsRemainScopedIdentities()=kotlinx.coroutines.runBlocking{
+        threadDebugger{debug,requests->
+            fun reply(request:String,stop:Long,selected:Long)=threadReply(request,stop,selected).put("threads",org.json.JSONArray().put(JSONObject().put("id",0).put("name","Zero")).put(JSONObject().put("id",-7).put("name","Negative")))
+            debug.receive(threadStop(1,0,-1));debug.receive(reply(requests.last().getString("request_id"),1,0));val reading=debug.threadReading!!;assertEquals(0,reading.selected);debug.selectThread(reading,-7);val selected=requests.last();assertEquals(-7,selected.getLong("thread"));debug.receive(threadStop(2,-7,-2));debug.receive(reply(selected.getString("request_id"),2,-7));assertEquals(-7,debug.threadReading!!.selected)
+            debug.evaluate("signed");val request=requests.last();assertEquals(-2,request.getLong("frame"));assertEquals(-7,request.getLong("thread"));debug.receive(JSONObject().put("event","value").put("session","ours").put("request_id",request.getString("request_id")).put("stop",2).put("thread",-7).put("frame",-2).put("expression","signed").put("value","valid"));assertEquals("valid",debug.values["signed"])
+        }
+    }
+    @Test fun frameLocalsRequireLatestScopeAndStackRefusalsRetainReadableHistory()=kotlinx.coroutines.runBlocking{
+        threadDebugger{debug,requests->
+            val stopped=threadStop(1,10,7);stopped.getJSONArray("frames").put(JSONObject().put("id",8).put("name","caller").put("source","main.py").put("source_line",0));debug.receive(stopped)
+            val caller=debug.frames[1];var invalidations=0;androidx.compose.runtime.snapshots.Snapshot.sendApplyNotifications();val observer=androidx.compose.runtime.snapshots.SnapshotStateObserver{it()};observer.start()
+            try{observer.observeReads("selected-frame",{_:String->invalidations++}){debug.line("main.py")};debug.select(caller);androidx.compose.runtime.snapshots.Snapshot.sendApplyNotifications();assertTrue("Frame selection must invalidate the gutter before locals arrive",invalidations>0)}finally{observer.stop()}
+            val request=requests.last();assertEquals("state",request.getString("op"));assertEquals(8,request.getLong("frame"));assertTrue(debug.variables.isEmpty())
+            fun locals(id:String,stop:Long,thread:Long,frame:Long)=JSONObject().put("event","frame_variables").put("session","ours").put("request_id",id).put("stop",stop).put("thread",thread).put("frame",frame).put("variables",org.json.JSONArray().put(JSONObject().put("name","caller_value").put("value","41")))
+            val id=request.getString("request_id");debug.receive(locals(id,1,10,7));debug.receive(locals("old-$id",1,10,8));assertTrue(debug.variables.isEmpty());debug.receive(locals(id,1,10,8));assertEquals("caller_value",debug.variables.single().getString("name"))
+            val frames=debug.frames;val variables=debug.variables;debug.readFrameVariables();debug.receive(JSONObject().put("event","failed").put("session","ours").put("request_id",requests.last().getString("request_id")).put("message","Scopes unavailable"));assertSame(frames,debug.frames);assertSame(variables,debug.variables);assertEquals("paused",debug.status);assertTrue(debug.frameNotice.contains("Scopes unavailable"))
+            debug.step("over");debug.receive(threadStop(3,20,9).put("stack_error","Adapter stack unavailable").put("variables_error","Scopes unavailable"));assertSame(frames,debug.frames);assertFalse(debug.framesCurrent);assertNull(debug.line("main.py"));assertTrue(debug.variables.isEmpty());assertTrue(debug.frameNotice.contains("Adapter stack unavailable"));val count=requests.size;debug.select(caller);debug.evaluate("caller_value");assertEquals(count,requests.size)
+        }
+    }
     @Test fun nativeDebugSessionAndPendingStop() = kotlinx.coroutines.runBlocking {
         val listener = com.sun.net.httpserver.HttpServer.create(java.net.InetSocketAddress("127.0.0.1", 0), 0)
         var captured = JSONObject()
         listener.createContext("/api/launch-profiles") { exchange ->
             captured = JSONObject(exchange.requestBody.bufferedReader().readText())
-            val bytes = """{"profiles":[{"id":"other","name":"Other","can_debug":true,"program":"other.py"},{"id":"python","name":"Python","can_debug":true,"program":"main.py"}],"fingerprint":"current"}""".toByteArray()
+            val bytes = """{"debug_protocol":2,"profiles":[{"id":"other","name":"Other","can_debug":true,"program":"other.py"},{"id":"python","name":"Python","can_debug":true,"program":"main.py"}],"fingerprint":"current"}""".toByteArray()
             exchange.sendResponseHeaders(200, bytes.size.toLong()); exchange.responseBody.use { it.write(bytes) }
         }
         listener.createContext("/api/docs/managed/render") { exchange ->
@@ -727,33 +810,69 @@ class NativeDebugTest {
             val requests = mutableListOf<JSONObject>(); debug.emitForTest = { requests.add(it) }
             debug.toggle("main.py", 0, "value > 0")
             debug.prepare(buffer); assertEquals(buffer.text, captured.getString("expected_source"))
-            assertEquals("starting", debug.status); assertTrue(debug.profiles.isEmpty())
+            assertEquals("starting", debug.status); assertTrue(debug.profiles.isEmpty());assertTrue(debug.hasInspection)
             assertEquals("python", requests.single().getJSONObject("profile").getString("id"))
-            debug.receive(JSONObject("""{"event":"started","doc":"hick:///other.py","session":"wrong"}""")); assertNull(debug.sessionID)
-            debug.receive(JSONObject("""{"event":"started","doc":"hick:///main.py","session":"ours","breakpoints":[{"line":0,"moved_to":1,"state":"bound"}]}"""))
+            val launchRequest=requests.last().getString("request_id")
+            debug.receive(JSONObject("""{"event":"started","doc":"hick:///other.py","session":"wrong"}""").put("request_id",launchRequest)); assertNull(debug.sessionID)
+            debug.receive(JSONObject("""{"event":"started","doc":"hick:///main.py","session":"ours","breakpoints":[{"line":0,"moved_to":1,"state":"bound"}]}""").put("request_id",launchRequest))
             assertEquals("value > 0", debug.breakpoints["main.py"]!!.first().getString("condition"))
             assertEquals(1, debug.breakpoints["main.py"]!!.first().getInt("line"))
             debug.receive(JSONObject("""{"event":"stopped","session":"old","line":0}""")); assertEquals("running", debug.status)
             var revealed = ""; debug.onLocation = { path, line -> revealed = "$path:$line" }
             debug.receive(JSONObject("""{"event":"stopped","session":"ours","line":null,"frames":[{"id":7,"name":"helper","source":"helper.py","source_line":2}],"variables":[{"name":"value","value":"1"}]}"""))
+            assertTrue(debug.hasInspection)
             assertEquals("helper.py:2", revealed); assertEquals(2, debug.line("helper.py"))
             val helper = DocumentBuffer(FileNode("helper.py", "helper.py", false, emptyList(), null, null), FileText("before", "base"))
-            debug.rememberSource(helper); assertTrue(debug.sourceMatches(helper))
+            debug.rememberSource(helper); assertFalse(debug.sourceMatches(helper))
+            debug.frames.first().put("source_hash",java.security.MessageDigest.getInstance("SHA-256").digest(helper.text.toByteArray(Charsets.UTF_8)).joinToString(""){"%02x".format(it)})
+            debug.rememberSource(helper);assertTrue(debug.sourceMatches(helper))
             helper.state.edit { replace(0, length, "saved replacement") }; helper.base = helper.text
             assertFalse(debug.sourceMatches(helper))
             debug.evaluate("value", true); assertEquals(7, requests.last().getInt("frame"))
             debug.step("over"); assertEquals("over", requests.last().getString("how")); assertTrue(debug.variables.isEmpty())
             debug.receive(JSONObject("""{"event":"value","session":"ours","expression":"value","value":"old"}""")); assertTrue(debug.values.isEmpty())
-            debug.close(); debug.prepare(buffer); requests.clear(); debug.stop()
+            debug.close(); debug.prepare(buffer);val pendingLaunch=requests.last().getString("request_id"); requests.clear(); debug.stop()
             assertEquals("stopping", debug.status); assertTrue(requests.isEmpty())
-            debug.receive(JSONObject("""{"event":"started","doc":"hick:///main.py","session":"late","breakpoints":[]}"""))
+            debug.receive(JSONObject("""{"event":"started","doc":"hick:///main.py","session":"late","breakpoints":[]}""").put("request_id",pendingLaunch))
             assertEquals("stop", requests.last().getString("op")); assertEquals("late", requests.last().getString("session"))
             buffer.state.edit { append("edited") }; debug.close(); debug.prepare(buffer)
-            assertTrue(debug.message.contains("Save this file")); assertFalse(debug.sourceMatches(buffer))
+            assertTrue(debug.message.contains("Save this file")); assertFalse(debug.sourceMatches(buffer));assertTrue(debug.hasInspection)
             val managed = DocumentBuffer(FileNode("source.md", "source.md", false, emptyList(), "managed", null), FileText("<h:file path=\"main.py\">print(1)</h:file>", "base"))
             debug.prepare(managed)
             assertEquals("main.py", captured.getString("program")); assertEquals(managed.text, captured.getString("expected_document")); assertFalse(captured.has("expected_source"))
         } finally { debug.close(); listener.stop(0) }
+    }
+    @Test fun debugRevealRetainsEditorsAndRequiresCapturedSourceAndPauseIdentity()=kotlinx.coroutines.runBlocking{
+        threadDebugger{debug,_->
+            val workspace=Workspace(this);workspace.engine=Engine("http://127.0.0.1:1");workspace.debugger=debug
+            val primary=DocumentBuffer(file(),FileText("value = 1\n","saved"));val helperFile=FileNode("helper.py","helper.py",false,emptyList(),null,null);val helper=DocumentBuffer(helperFile,FileText("first\nsecond\nthird\n","saved"));workspace.buffers["main.py"]=primary;workspace.buffers["helper.py"]=helper;workspace.rootFiles=listOf(file(),helperFile);workspace.files=emptyList();workspace.directoryScope="elsewhere";workspace.show("main.py")
+            debug.receive(threadStop(1,10,7));workspace.revealDebug("main.py",0);assertSame(primary,workspace.currentBuffer);assertNotNull(primary.debugReveal);val held=primary.debugRevealCurrent;assertTrue(held());debug.step("over");assertFalse(held())
+            val stopped=threadStop(3,20,9);stopped.getJSONArray("frames").getJSONObject(0).put("source","helper.py").put("source_line",2);debug.receive(stopped);workspace.revealDebug("helper.py",2)
+            assertSame(helper,workspace.currentBuffer);assertNull(helper.debugReveal);assertTrue(workspace.status.contains("unbound"));assertEquals("elsewhere",workspace.directoryScope)
+            debug.frames.first().put("source_hash",java.security.MessageDigest.getInstance("SHA-256").digest(helper.text.toByteArray(Charsets.UTF_8)).joinToString(""){"%02x".format(it)});workspace.revealDebug("helper.py",2);assertNotNull(helper.debugReveal);assertTrue(helper.debugRevealCurrent())
+            debug.frames.first().put("source_reference",1);assertTrue(debug.sourceMatches(helper));assertFalse(debug.positionSourceMatches(helper));workspace.revealDebug("helper.py",2);assertTrue(workspace.status.contains("Adapter source"));assertFalse(helper.debugRevealCurrent());debug.frames.first().put("source_reference",0)
+            workspace.revealDebug("helper.py",2);helper.state.edit{selection=androidx.compose.ui.text.TextRange(1)};assertFalse(helper.debugRevealCurrent());workspace.revealDebug("helper.py",2);assertTrue(helper.debugRevealCurrent());helper.sourceScroll.scrollTo(12);assertFalse(helper.debugRevealCurrent());workspace.revealDebug("helper.py",2);helper.state.edit{replace(0,length,"independent draft")};assertFalse(helper.debugRevealCurrent());assertSame(helper,workspace.currentBuffer)
+        }
+    }
+    @Test(timeout=150000) fun liveNativeThreadChannel()=kotlinx.coroutines.runBlocking{
+        val origin=System.getenv("HICKORY_NATIVE_DEBUG_ORIGIN");org.junit.Assume.assumeNotNull(origin)
+        val engine=Engine(origin!!);val file=FileNode("debug.py","debug.py",false,emptyList(),null,null);val loaded=engine.file(file);val buffer=DocumentBuffer(file,loaded);val state=buffer.state;val debug=NativeDebugger(engine,this)
+        try{
+            val line=loaded.content.lines().indexOfFirst{"# hickory-thread-breakpoint" in it};check(line>=0){"The live native thread fixture needs the shared breakpoint marker in debug.py."}
+            debug.toggle(file.path,line);debug.prepare(buffer)
+            suspend fun await(label:String,condition:()->Boolean){kotlinx.coroutines.withTimeout(45000){while(!condition()){check(debug.status!="failed"){"$label: ${debug.message}"};kotlinx.coroutines.delay(25)}}}
+            await("Initial paused thread list"){debug.status=="paused"&&debug.threadReading!=null&&!debug.threadBusy}
+            val first=debug.threadReading!!;val main=first.selected;val worker=first.threads.firstOrNull{it.name.contains("hickory-worker")} ?: error("The fixture did not report its named active worker: ${first.threads}")
+            debug.selectThread(first,worker.id);await("Worker selection"){debug.threadReading?.selected==worker.id&&!debug.threadBusy&&debug.framesCurrent}
+            val frame=debug.frames.firstOrNull{it.optString("name").contains("worker")} ?: debug.frames.first();debug.select(frame)
+            await("Selected worker frame locals"){debug.variables.any{it.optString("name")=="worker_value"&&it.optString("value")=="41"}&&debug.frameNotice.contains("reported locals for this frame.")}
+            debug.evaluate("worker_value");await("Worker value"){debug.values["worker_value"]=="41"}
+            val frames=debug.frames;val selector=debug.threadReading!!;val previous=debug.message;debug.evaluate("__hickory_missing_value__")
+            await("Explicit unavailable expression"){debug.message!=previous&&debug.message.contains("Choose another current frame/thread")};assertEquals("paused",debug.status);assertSame(frames,debug.frames);assertSame(selector,debug.threadReading)
+            debug.selectThread(selector,main);await("Return to main thread"){debug.threadReading?.selected==main&&!debug.threadBusy&&debug.framesCurrent};debug.evaluate("main_value");await("Main value"){debug.values["main_value"]=="7"}
+            assertSame(state,buffer.state);assertEquals(loaded.content,buffer.text);assertEquals(loaded.content,engine.file(file).content);assertFalse(buffer.dirty)
+            debug.stop();await("Stopped session"){!debug.active}
+        }finally{if(debug.active)debug.stop();debug.close()}
     }
     @Test fun liveNativeDebugChannel() = kotlinx.coroutines.runBlocking {
         val origin = System.getenv("HICKORY_NATIVE_DEBUG_ORIGIN")

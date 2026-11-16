@@ -154308,6 +154308,90 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/frontends/source-recovery.md",
       "symbol": "Wire of reviewed source resources",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "debugger-thread-stop-witness",
+      "output": "crates/hickory-cli/src/serve/debug_bridge/tests/tests.rs",
+      "page": ".hickory-source/guarantees/debugging/source-anchored-observation-reading/contract.md",
+      "symbol": "Select only an adapter-reported thread at its current stop",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "simple-android-thread-observations",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/Engine.kt",
+      "page": ".hickory-source/frontends/apps/android-simple/app/src/main/java/com/hickorydocs/simple/Engine.kt.md",
+      "symbol": "Bind reported threads to their exact stopped observation",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "debug-thread-observations-browser",
+      "output": "apps/web/src/debug/client.ts",
+      "page": ".hickory-source/mechanisms/apps/web/src/debug/client.ts.md",
+      "symbol": "Keep thread results inside their stopped request scope",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "debug-launch-observations-browser",
+      "output": "apps/web/src/debug/client.ts",
+      "page": ".hickory-source/mechanisms/apps/web/src/debug/client.ts.md",
+      "symbol": "Admit only the matching owned launch response",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "debug-frame-decoding",
+      "output": "crates/hick-dap/src/stack_frame.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-dap/src/stack_frame.rs.md",
+      "symbol": "Refuse ambiguous frame identities and unknown source positions",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "debug-frame-decoding-tests",
+      "output": "crates/hick-dap/src/stack_frame.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-dap/src/stack_frame.rs.md",
+      "symbol": "Check signed frame identities and absent source authority",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "debug-thread-observations",
+      "output": "crates/hick-dap/src/session.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-dap/src/session.rs.md",
+      "symbol": "Admit bounded reported thread observations",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "debug-thread-observation-tests",
+      "output": "crates/hick-dap/src/session.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-dap/src/session.rs.md",
+      "symbol": "Check thread identity and refusal boundaries",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "native-debug-workspace-session-apple",
+      "output": "apps/apple-simple/Sources/Engine.swift",
+      "page": ".hickory-source/frontends/apps/apple-simple/Sources/Engine.swift.md",
+      "symbol": "Own the workspace debugger session before commands",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "native-debug-reply-admission-apple",
+      "output": "apps/apple-simple/Sources/Engine.swift",
+      "page": ".hickory-source/frontends/apps/apple-simple/Sources/Engine.swift.md",
+      "symbol": "Admit debugger replies against observed scope",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "native-debug-inspection-requests-apple",
+      "output": "apps/apple-simple/Sources/Engine.swift",
+      "page": ".hickory-source/frontends/apps/apple-simple/Sources/Engine.swift.md",
+      "symbol": "Read the current scoped debugger inspection",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "native-debug-session-commands-apple",
+      "output": "apps/apple-simple/Sources/Engine.swift",
+      "page": ".hickory-source/frontends/apps/apple-simple/Sources/Engine.swift.md",
+      "symbol": "Apply explicit debugger commands and exact expression identity",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

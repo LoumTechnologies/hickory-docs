@@ -421,3 +421,12 @@ it("cancels the originating setup request without claiming to undo a shared down
     expect(screen.getByRole("alert").textContent).toContain("Installation may have completed");
   } finally { rendered.unmount(); }
 });
+
+it("reads complete selected-frame locals only while current, distinguishing pending, refused and empty",()=>{
+ const variables=[{name:"not_in_source",value:"41",type_name:"int",variables_reference:0}];const rendered=render(<DebugStrip {...base({variables})}/>);
+ const locals=()=>screen.queryByRole("region",{name:"Selected-frame locals"});expect(locals()?.textContent).toContain("not_in_source = 41 · int");
+ rendered.rerender(<DebugStrip {...base({variables,frameVariablesPending:true})}/>);expect(locals()).toBeNull();
+ rendered.rerender(<DebugStrip {...base({variables,frameVariablesMessage:"provider refused"})}/>);expect(locals()).toBeNull();expect(screen.getByText("Frame locals unavailable: provider refused")).toBeTruthy();
+ rendered.rerender(<DebugStrip {...base({variables:[]})}/>);expect(locals()?.textContent).toContain("No variables reported");
+ rendered.rerender(<DebugStrip {...base({variables,status:"running"})}/>);expect(locals()).toBeNull();
+});

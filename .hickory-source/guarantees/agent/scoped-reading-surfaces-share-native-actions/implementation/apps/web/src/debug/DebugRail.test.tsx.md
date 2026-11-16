@@ -213,6 +213,16 @@ it("retires projection launch callbacks when an identical-label target is replac
   await act(async () => { expect(await registry.act(registry.scope, { id: "acp:fixture", kind: "agent" }, { handle: handle(), arguments: {}, request_id: "disabled-projection" })).toMatchObject({ status: "disabled" }); });
   expect(second).toHaveBeenCalledTimes(1);
 });
+
+
+it("reaches thread reading and guarded selection inside existing floating debug options",async()=>{
+ const {act}=await import("@testing-library/react");
+ const container=editor("paused source\n"),read=vi.fn(),select=vi.fn(),original=view.state;
+ const props:DebugStripProps={editorView:view,pausedLine:0,status:"paused",program:"app.py",message:null,capabilities:null,frames:[],selectedFrame:null,watches:[],exceptionFilters:[],onSelectFrame:vi.fn(),onStep:vi.fn(),onJumpHere:vi.fn(),onStart:vi.fn(),onStop:vi.fn(),onAddWatch:vi.fn(),onToggleExceptionFilter:vi.fn(),onRemoveWatch:vi.fn(),threadStop:7,threads:[{id:1,name:"main"},{id:2,name:"worker"}],selectedThread:1,readThreads:read,selectThread:select};
+ render(<DebugLaunchRail view={view} onStart={vi.fn()} plainPath="app.py"/>,{container});const rendered=render(<DebugStrip {...props}/>);const options=screen.getByLabelText("Debug options");await act(async()=>{fireEvent.click(options);});
+ fireEvent.click(screen.getByRole("button",{name:"Read threads"}));expect(read).toHaveBeenCalledOnce();await act(async()=>{fireEvent.click(options);});fireEvent.change(screen.getByRole("combobox",{name:"Debugger thread"}),{target:{value:"2"}});expect(select).toHaveBeenCalledWith(2);
+ expect(view.state).toBe(original);expect(screen.getByRole("combobox",{name:"Debugger thread"}).closest("details")).not.toBeNull();rendered.rerender(<DebugStrip {...props} threadPending={true}/>);expect((screen.getByRole("combobox",{name:"Debugger thread"}) as HTMLSelectElement).disabled).toBe(true);expect(view.state).toBe(original);
+});
 </storycode:copy>
 
 ### Assemble `apps/web/src/debug/DebugRail.test.tsx`

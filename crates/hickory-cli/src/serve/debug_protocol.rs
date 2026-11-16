@@ -11,6 +11,8 @@ pub enum Request {
     Start {
         doc: String,
         #[serde(default)]
+        request_id: Option<String>,
+        #[serde(default)]
         breakpoints: Vec<Breakpoint>,
         /// Which generated file to run. Omitted means "the first one that can
         /// be debugged", which is only ever right by accident once a document
@@ -44,6 +46,28 @@ pub enum Request {
     /// Where are we, and what is in scope.
     State {
         session: String,
+        #[serde(default)]
+        frame: Option<i64>,
+        #[serde(default)]
+        stop: Option<u64>,
+        #[serde(default)]
+        thread: Option<i64>,
+        #[serde(default)]
+        request_id: Option<String>,
+    },
+    /// Read reported threads without changing the selected stack.
+    Threads {
+        session: String,
+        #[serde(default)]
+        request_id: Option<String>,
+    },
+    /// Selection is bound to the exact stopped observation that listed it.
+    SelectThread {
+        session: String,
+        thread: i64,
+        stop: u64,
+        #[serde(default)]
+        request_id: Option<String>,
     },
     /// Evaluate in a frame. `context` is DAP's: `hover`, `watch` or `repl`.
     Eval {
@@ -53,6 +77,12 @@ pub enum Request {
         frame: Option<i64>,
         #[serde(default = "repl")]
         context: String,
+        #[serde(default)]
+        stop: Option<u64>,
+        #[serde(default)]
+        thread: Option<i64>,
+        #[serde(default)]
+        request_id: Option<String>,
     },
     /// Move. `how` is the session API's own verb.
     Step {
@@ -75,6 +105,12 @@ pub enum Request {
     Children {
         session: String,
         reference: i64,
+        #[serde(default)]
+        stop: Option<u64>,
+        #[serde(default)]
+        thread: Option<i64>,
+        #[serde(default)]
+        request_id: Option<String>,
     },
     /// Stop when an exception is thrown, by the adapter's own filter ids.
     ///
@@ -97,7 +133,6 @@ pub enum Request {
         session: String,
     },
 }
-
 impl Request {
     pub fn session_id(&self) -> Option<&str> {
         match self {
@@ -105,7 +140,9 @@ impl Request {
             Self::Located { session, .. }
             | Self::Breakpoints { session, .. }
             | Self::SourceBreakpoints { session, .. }
-            | Self::State { session }
+            | Self::State { session, .. }
+            | Self::Threads { session, .. }
+            | Self::SelectThread { session, .. }
             | Self::Eval { session, .. }
             | Self::Step { session, .. }
             | Self::Jump { session, .. }
@@ -144,6 +181,8 @@ pub enum Response {
     },
     Started {
         session: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        request_id: Option<String>,
         /// The document (or plain file) this session runs, exactly as the
         /// client named it in `start`. The workspace socket is shared by
         /// every plain-file pane, so an answer must say which pane it is
@@ -155,6 +194,10 @@ pub enum Response {
     /// Where execution is now — the paused line the gutter marks, and the
     /// values the editor shows inline.
     Stopped {
+        stop: u64,
+        thread: i64,
+        stack_error: Option<String>,
+        variables_error: Option<String>,
         observation_scope: Option<hick_observe::reading::Scope>,
         session: String,
         reason: String,
@@ -164,9 +207,24 @@ pub enum Response {
         /// hunt for it.
         line: Option<u32>,
     },
+    FrameVariables {
+        session: String,
+        stop: u64,
+        thread: i64,
+        frame: i64,
+        request_id: Option<String>,
+        variables: Vec<hick_dap::Variable>,
+    },
     Breakpoints {
         session: String,
         breakpoints: Vec<hick_dap::BreakpointStatus>,
+    },
+    Threads {
+        session: String,
+        request_id: Option<String>,
+        stop: u64,
+        selected: i64,
+        threads: Vec<hick_dap::session::Thread>,
     },
     SourceBreakpoints {
         session: String,
@@ -175,6 +233,10 @@ pub enum Response {
     },
     Value {
         session: String,
+        stop: u64,
+        thread: Option<i64>,
+        frame: Option<i64>,
+        request_id: Option<String>,
         expression: String,
         value: String,
         #[serde(rename = "type")]
@@ -184,6 +246,9 @@ pub enum Response {
     Children {
         session: String,
         reference: i64,
+        stop: u64,
+        thread: Option<i64>,
+        request_id: Option<String>,
         variables: Vec<hick_dap::Variable>,
     },
     /// The program ended. Not an error: it is what `continue` usually does.
@@ -216,6 +281,8 @@ pub enum Response {
     /// fails says why in MSBuild's own words, and "build failed" throws all
     /// of that away.
     Build {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        request_id: Option<String>,
         /// Which start this build belongs to, as the client named it.
         doc: String,
         events: Vec<Value>,
@@ -223,6 +290,8 @@ pub enum Response {
     /// Something did not work, in words a person can act on.
     Failed {
         session: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        request_id: Option<String>,
         /// The document a failed START was for, so a pane on a shared
         /// socket can tell its own refusal from a neighbour's. Absent when
         /// the failure has a session to name instead.
@@ -251,7 +320,6 @@ pub enum Response {
         offer_install: Option<InstallOffer>,
     },
 }
-
 /// A missing tool the app can offer to fetch.
 #[derive(Debug, Clone, Serialize)]
 pub struct InstallOffer {

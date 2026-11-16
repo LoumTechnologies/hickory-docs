@@ -213,8 +213,7 @@ fn forward_debug(
                 if crate::engine::private_policy::active().unwrap_or(true) {
                     return;
                 }
-                let responses = super::debug_bridge::handle(&registry, &root, request).await;
-                super::debug_bridge::reply(&tx, responses);
+                super::debug_bridge::dispatch(&registry, &root, request, &tx).await;
             });
         }
         Err(e) => log::debug!("unparseable debug frame on {key}: {e}"),

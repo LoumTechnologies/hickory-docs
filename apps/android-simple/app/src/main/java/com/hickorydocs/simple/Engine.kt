@@ -102,6 +102,23 @@ class Engine(address: String) {
     }
 
 }
+data class NativeDebugThread(val id:Long,val name:String)
+data class NativeThreadReading(val session:String,val stop:String,val selected:Long,val request:String,val threads:List<NativeDebugThread>)
+private fun debugInteger(value:Any?):Long?=(value as? Number)?.toString()?.toLongOrNull()?.takeIf{it in Int.MIN_VALUE.toLong()..Int.MAX_VALUE.toLong()}
+private fun debugStop(value:Any?):String? {
+    val text=(value as? Number)?.toString() ?: return null
+    if(!text.matches(Regex("0|[1-9][0-9]{0,19}")))return null
+    return text.takeIf{java.math.BigInteger(it)<=java.math.BigInteger("18446744073709551615")}
+}
+fun nativeThreadReading(event:JSONObject,session:String,stop:String,selected:Long,request:String):NativeThreadReading {
+    fun requireReading(value:Boolean){require(value){"Thread observation changed or is unavailable. Read threads again; the paused stack is retained."}}
+    requireReading(event.optString("event")=="threads"&&event.optString("session")==session&&debugStop(event.opt("stop"))==stop&&event.optString("request_id")==request&&debugInteger(event.opt("selected"))==selected)
+    val rows=event.optJSONArray("threads");requireReading(rows!=null&&rows.length()<=4096)
+    val identities=mutableSetOf<Long>()
+    val threads=(0 until rows!!.length()).map{index->val row=rows.optJSONObject(index);val id=row?.let{debugInteger(it.opt("id"))};val name=row?.opt("name") as? String;requireReading(id!=null&&identities.add(id)&&name!=null&&name.length<=4096);NativeDebugThread(id!!,name!!)}
+    requireReading(selected in identities)
+    return NativeThreadReading(session,stop,selected,request,threads)
+}
 fun debugURI(path: String): String = "hick:///" + path.trimStart('/')
 data class NativeDebugTarget(val path: String, val line: Int, val end: Int)
 private val debugHTTP = OkHttpClient.Builder().retryOnConnectionFailure(false).build()
@@ -113,6 +130,20 @@ class NativeDebugger(private val engine: Engine, private val scope: CoroutineSco
     var sessionID: String? = null; private set
     var frames by mutableStateOf<List<JSONObject>>(emptyList()); private set
     var variables by mutableStateOf<List<JSONObject>>(emptyList()); private set
+    var threadReading by mutableStateOf<NativeThreadReading?>(null);private set
+    var threadNotice by mutableStateOf("");private set
+    var threadBusy by mutableStateOf(false);private set
+    var frameNotice by mutableStateOf("");private set
+    var framesCurrent by mutableStateOf(false);private set
+    private var stoppedGeneration:String?=null
+    private var stoppedThread:Long?=null
+    private var threadRequest:String?=null
+    private var selectingThread:Long?=null
+    private val pendingValues=mutableMapOf<String,String>()
+    private var frameRequest:String?=null
+    private var launchRequest:String?=null
+    private var launchDocument:String?=null
+    private val retiredLaunches=linkedMapOf<String,String>()
     var capabilities by mutableStateOf(JSONObject()); private set
     var breakpoints by mutableStateOf<Map<String, List<JSONObject>>>(emptyMap()); private set
     var output by mutableStateOf<List<NativeRunOutput>>(emptyList()); private set
@@ -127,7 +158,7 @@ class NativeDebugger(private val engine: Engine, private val scope: CoroutineSco
     private var catalog: JSONObject? = null
     private var launchBuffer: DocumentBuffer? = null
     private var pausedLine: Int? = null
-    private var selectedFrame: Int? = null
+    private var selectedFrame by mutableStateOf<Long?>(null)
     private var topVariables: List<JSONObject> = emptyList()
     private var stopPending = false
     private var epoch = UUID.randomUUID()
@@ -135,12 +166,13 @@ class NativeDebugger(private val engine: Engine, private val scope: CoroutineSco
     var onLocation: ((String, Int) -> Unit)? = null
     var emitForTest: ((JSONObject) -> Unit)? = null
     val active get() = status in listOf("starting", "running", "paused", "stopping")
+    val hasInspection get()=active||owner.isNotEmpty()&&(status!="idle"||message.isNotBlank()||profiles.isNotEmpty()||offer!=null||output.isNotEmpty())
     fun line(path: String): Int? {
-        if (status != "paused") return null
-        val frame = frames.firstOrNull { it.optInt("id") == selectedFrame } ?: frames.firstOrNull()
+        if (status != "paused"||!framesCurrent) return null
+        val frame = frames.firstOrNull { it.optLong("id") == selectedFrame } ?: frames.firstOrNull()
         if (path == owner && frame?.optBoolean("in_document") == true) return if (frame.isNull("line")) null else frame.getInt("line")
         if (frame?.optString("source") == path) return if (frame.isNull("source_line")) null else frame.getInt("source_line")
-        return if (path == owner && selectedFrame == frames.firstOrNull()?.optInt("id")) pausedLine else null
+        return if (path == owner && selectedFrame == frames.firstOrNull()?.optLong("id")) pausedLine else null
     }
     fun outputPlacements(buffer: DocumentBuffer): Map<Int, String> {
         if (!sourceMatches(buffer)) return emptyMap()
@@ -170,7 +202,22 @@ class NativeDebugger(private val engine: Engine, private val scope: CoroutineSco
         return result
     }
     fun sourceMatches(buffer: DocumentBuffer) = !buffer.dirty && buffer.text == (if (buffer.file.path == owner) launchSource else sourceSnapshots[buffer.file.path])
-    fun rememberSource(buffer: DocumentBuffer) { if (active && buffer.file.path !in sourceSnapshots) sourceSnapshots = sourceSnapshots + (buffer.file.path to buffer.base) }
+    val adapterSourceRequired get()=frames.firstOrNull{debugInteger(it.opt("id"))==selectedFrame}?.let{(it.opt("source_reference") as? Number)?.toString()?.toLongOrNull()?.let{reference->reference>0}}==true
+    fun positionSourceMatches(buffer:DocumentBuffer)=!adapterSourceRequired&&sourceMatches(buffer)
+    suspend fun rememberSource(buffer: DocumentBuffer) {
+        if(buffer.file.path==owner||status!="paused"||!framesCurrent||buffer.dirty)return
+        val frame=frames.firstOrNull{debugInteger(it.opt("id"))==selectedFrame} ?: return
+        if((frame.opt("source_reference") as? Number)?.toString()?.toLongOrNull()?.let{it>0}==true)return
+        if(frame.optional("source")!=buffer.file.path)return
+        val expected=frame.optional("source_hash")?.removePrefix("sha256:")?.lowercase()?.takeIf{it.matches(Regex("[0-9a-f]{64}"))} ?: return
+        val source=buffer.text;val file=buffer.file;val session=sessionID;val stop=stoppedGeneration;val thread=stoppedThread;val selected=selectedFrame
+        val hash=kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default){java.security.MessageDigest.getInstance("SHA-256").digest(source.toByteArray(Charsets.UTF_8)).joinToString(""){"%02x".format(it)}}
+        if(status=="paused"&&framesCurrent&&sessionID==session&&stoppedGeneration==stop&&stoppedThread==thread&&selectedFrame==selected&&buffer.file===file&&buffer.text==source&&!buffer.dirty&&hash==expected)sourceSnapshots=sourceSnapshots+(file.path to source)
+    }
+    fun locationGuard(path:String,line:Int):()->Boolean {
+        val session=sessionID;val stop=stoppedGeneration;val thread=stoppedThread;val frame=selectedFrame;val connection=epoch
+        return {epoch==connection&&sessionID==session&&status=="paused"&&framesCurrent&&stoppedGeneration==stop&&stoppedThread==thread&&selectedFrame==frame&&this.line(path)==line}
+    }
     suspend fun prepare(buffer: DocumentBuffer, line: Int = 0, program: String? = null) {
         if (active) { message = "Stop the current debugger before launching another program."; return }
         if (buffer.dirty || buffer.saving) { message = "Save this file before debugging so the adapter runs the displayed text."; return }
@@ -196,6 +243,8 @@ class NativeDebugger(private val engine: Engine, private val scope: CoroutineSco
             if (target != null) query.put("program", target)
             val result = engine.request("POST", "/api/launch-profiles", query)
             if (epoch != current || buffer.text != launchSource || buffer.dirty) return
+            val protocol=(result.opt("debug_protocol") as? Number)?.toString()?.toIntOrNull()
+            if(protocol==null||protocol<2){catalog=null;profiles=emptyList();offer=null;message="Debug unavailable: this engine does not support scoped debugger protocol 2. Reconnect with the updated engine before launching; the source editor remains unchanged.";return}
             catalog = result; profiles = result.getJSONArray("profiles").objects().filter { it.optBoolean("can_debug") }
             val automatic = profiles.firstOrNull { it.optString("program") == (target ?: result.optString("viewed", owner)) } ?: profiles.singleOrNull()
             if (automatic != null) { launch(automatic); return }
@@ -209,13 +258,14 @@ class NativeDebugger(private val engine: Engine, private val scope: CoroutineSco
             message = "The source or launch target changed. Save and choose Debug again."; return
         }
         status = "starting"; message = ""; profiles = emptyList(); values = emptyMap(); variables = emptyList(); frames = emptyList(); pausedLine = null; offer = null
+        launchRequest=UUID.randomUUID().toString();launchDocument=debugURI(owner)
         val current = epoch
         if (emitForTest == null) socket = debugHTTP.newWebSocket(Request.Builder().url(engine.debugURL).build(), object : WebSocketListener() {
             override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
                 val data = bytes.toByteArray()
                 if (data.size < 2 || data[0] != 3.toByte()) return
                 val event = runCatching { JSONObject(data.copyOfRange(1, data.size).toString(Charsets.UTF_8)) }.getOrNull() ?: return
-                scope.launch { if (epoch == current) receive(event) }
+                scope.launch { if (epoch == current) receive(event) else if(event.optString("event")=="started")cleanupRetiredLaunch(event) }
             }
             override fun onFailure(webSocket: WebSocket, failure: Throwable, response: Response?) {
                 scope.launch { if (epoch == current) fail("Debugger disconnected: ${failure.message}. Reconnect explicitly; commands were not retried.") }
@@ -225,7 +275,7 @@ class NativeDebugger(private val engine: Engine, private val scope: CoroutineSco
                 scope.launch { if (epoch == current && active) fail("Debugger connection closed. Reconnect explicitly; commands were not retried.") }
             }
         })
-        val request = JSONObject().put("op", "start").put("doc", debugURI(owner)).put("breakpoints", JSONArray(breakpoints[owner].orEmpty()))
+        val request = JSONObject().put("op", "start").put("request_id",launchRequest).put("doc", debugURI(owner)).put("breakpoints", JSONArray(breakpoints[owner].orEmpty()))
             .put("profile", JSONObject().put("id", profile.getString("id")).put("fingerprint", catalog.getString("fingerprint")))
         launchProgram?.let { request.put("program", it) }
         val sources = JSONObject(); breakpoints.filterKeys { it != owner }.forEach { (path, held) -> sources.put(debugURI(path), JSONArray(held)) }; request.put("sources", sources)
@@ -235,29 +285,87 @@ class NativeDebugger(private val engine: Engine, private val scope: CoroutineSco
         emitForTest?.let { it(request); return }
         if (socket?.send((byteArrayOf(3) + request.toString().toByteArray(Charsets.UTF_8)).toByteString()) != true) fail("Debugger command was not sent. Reconnect explicitly; it was not retried.")
     }
-    private fun fail(detail: String) { status = "failed"; message = detail; sessionID = null; pausedLine = null; variables = emptyList(); frames = emptyList(); values = emptyMap() }
-    fun close() { stopPending = false; epoch = UUID.randomUUID(); socket?.cancel(); socket = null; sessionID = null; status = "idle"; pausedLine = null; frames = emptyList(); variables = emptyList(); values = emptyMap(); profiles = emptyList() }
+    private fun retireThreads(forgetStop:Boolean=false){threadReading=null;threadNotice="";threadBusy=false;threadRequest=null;selectingThread=null;pendingValues.clear();frameRequest=null;frameNotice="";framesCurrent=false;if(forgetStop){stoppedGeneration=null;stoppedThread=null;selectedFrame=null}}
+    private fun retireLaunch(){val id=launchRequest;val doc=launchDocument;if(id!=null&&doc!=null){retiredLaunches[id]=doc;while(retiredLaunches.size>64)retiredLaunches.remove(retiredLaunches.keys.first())};launchRequest=null;launchDocument=null}
+    private fun cleanupRetiredLaunch(event:JSONObject):Boolean {
+        val request=event.optional("request_id") ?: return false
+        if(retiredLaunches[request]!=event.optString("doc"))return false
+        retiredLaunches.remove(request)
+        val session=event.optional("session") ?: return true
+        if(session==sessionID)return true
+        val stop=JSONObject().put("op","stop").put("session",session);val emit=emitForTest
+        if(emit!=null)emit(stop) else if(socket?.send((byteArrayOf(3)+stop.toString().toByteArray(Charsets.UTF_8)).toByteString())!=true)message="Cleanup of retired owned debugger session $session was not confirmed. Inspect it before further debug work; no cleanup command was retried."
+        return true
+    }
+    private fun fail(detail: String) { retireLaunch();retireThreads(true);status = "failed"; message = detail; sessionID = null; pausedLine = null; variables = emptyList(); frames = emptyList(); values = emptyMap() }
+    fun close() { retireLaunch();retireThreads(true);stopPending = false; epoch = UUID.randomUUID(); socket?.cancel(); socket = null; sessionID = null; status = "idle"; pausedLine = null; frames = emptyList(); variables = emptyList(); values = emptyMap(); profiles = emptyList() }
     fun receive(event: JSONObject) {
         val kind = event.optString("event")
-        if (kind in listOf("started", "build") || (kind == "failed" && event.isNull("session"))) {
-            if (event.optString("doc") != debugURI(owner) || status !in listOf("starting", "stopping")) return
+        if(kind=="started"){
+            val request=event.optional("request_id");val doc=event.optString("doc")
+            if(request!=launchRequest||doc!=launchDocument){
+                cleanupRetiredLaunch(event)
+                return
+            }
+            if(request==null||status !in listOf("starting","stopping"))return
+        }else if(kind=="build"||(kind=="failed"&&event.isNull("session"))){
+            if(event.optional("request_id")==null||event.optional("request_id")!=launchRequest||event.optString("doc")!=launchDocument)return
+            if(kind=="build"&&!active||kind=="failed"&&status !in listOf("starting","stopping"))return
         } else if (event.optional("session") == null || event.optional("session") != sessionID) return
         when (kind) {
-            "started" -> { output = emptyList(); sessionID = event.getString("session"); capabilities = event.optJSONObject("capabilities") ?: JSONObject(); status = "running"; bind(event.optJSONArray("breakpoints"), owner); if (stopPending) { stopPending = false; stop() } }
+            "started" -> { retireThreads(true);message="";output = emptyList(); sessionID = event.getString("session"); capabilities = event.optJSONObject("capabilities") ?: JSONObject(); status = "running"; bind(event.optJSONArray("breakpoints"), owner); if (stopPending) { stopPending = false; stop() } }
             "stopped" -> {
-                status = "paused"; frames = event.optJSONArray("frames")?.objects().orEmpty(); variables = event.optJSONArray("variables")?.objects().orEmpty(); topVariables = variables
-                pausedLine = if (event.isNull("line")) null else event.getInt("line"); selectedFrame = if (!event.isNull("selected_frame")) event.getInt("selected_frame") else frames.firstOrNull()?.optInt("id")
-                val top = frames.firstOrNull(); val path = top?.optional("source"); val line = top?.let { if (it.isNull("source_line")) null else it.getInt("source_line") }
+                if(status=="stopping")return
+                val stop=debugStop(event.opt("stop"));val thread=debugInteger(event.opt("thread"));val previous=stoppedGeneration
+                if(previous!=null&&(stop==null||java.math.BigInteger(stop)<java.math.BigInteger(previous)||(stop==previous&&status!="paused")))return
+                val changed=stop!=previous||thread!=stoppedThread
+                val selectedReply=stop!=null&&thread!=null&&selectingThread==thread&&threadRequest!=null&&threadBusy
+                if(changed){message="";threadReading=null;values=emptyMap();pendingValues.clear();frameRequest=null;if(!selectedReply){threadRequest=null;selectingThread=null;threadBusy=false}}
+                stoppedGeneration=stop;stoppedThread=thread
+                val stackError=event.optional("stack_error");val variablesError=event.optional("variables_error")
+                if(stackError!=null){values=emptyMap();pendingValues.clear();frameRequest=null}
+                frameNotice=listOfNotNull(stackError?.let{"Stack unavailable: $it"},variablesError?.let{"Frame locals unavailable: $it"}).joinToString("\n")
+                status = "paused";if(stackError==null)frames = event.optJSONArray("frames")?.objects().orEmpty();framesCurrent=stackError==null
+                variables = if(stackError==null&&variablesError==null)event.optJSONArray("variables")?.objects().orEmpty() else emptyList();topVariables = variables
+                pausedLine = if (event.isNull("line")) null else event.getInt("line"); selectedFrame = if (!changed&&frames.any{debugInteger(it.opt("id"))==selectedFrame})selectedFrame else if (!event.isNull("selected_frame")) event.getLong("selected_frame") else frames.firstOrNull()?.let{debugInteger(it.opt("id"))}
+                if(!framesCurrent)selectedFrame=null
+                variables=if(selectedFrame==frames.firstOrNull()?.let{debugInteger(it.opt("id"))})topVariables else emptyList()
+                val top = frames.firstOrNull().takeIf{framesCurrent}; val path = top?.optional("source"); val line = top?.let { if (it.isNull("source_line")) null else it.getInt("source_line") }
                 if (path != null && line != null && !path.startsWith('/') && ':' !in path) onLocation?.invoke(path, line)
-                else pausedLine?.let { onLocation?.invoke(owner, it) }
+                else if(framesCurrent)pausedLine?.let { onLocation?.invoke(owner, it) }
                 watches.forEach { evaluate(it, true) }
+                if(stop==null||thread==null)threadNotice="Thread inspection requires a current engine pause observation. Reconnect with the updated engine; the paused stack remains readable."
+                else if(!selectedReply&&changed)readThreads()
+            }
+            "threads" -> {
+                if(status!="paused"||event.optional("request_id")!=threadRequest||threadRequest==null)return
+                try{threadReading=nativeThreadReading(event,sessionID!!,stoppedGeneration ?: return,stoppedThread ?: return,threadRequest!!);threadNotice="${threadReading!!.threads.size} reported threads for this pause."}
+                catch(error:IllegalArgumentException){threadNotice=error.message.orEmpty()}
+                threadRequest=null;selectingThread=null;threadBusy=false
+            }
+            "frame_variables" -> {
+                val request=frameRequest ?: return
+                if(status!="paused"||!framesCurrent||event.optional("request_id")!=request||debugStop(event.opt("stop"))!=stoppedGeneration||debugInteger(event.opt("thread"))!=stoppedThread||debugInteger(event.opt("frame"))!=selectedFrame)return
+                try{val rows=event.optJSONArray("variables");require(rows!=null&&rows.length()<=4096){"Frame locals exceed the supported reading. Choose another frame or evaluate a named value."};val next=(0 until rows!!.length()).map{rows.optJSONObject(it) ?: error("Malformed frame locals. Read this frame again.")};variables=next;frameNotice="${next.size} reported locals for this frame."}
+                catch(error:Exception){frameNotice=error.message.orEmpty()};frameRequest=null
             }
             "breakpoints" -> bind(event.optJSONArray("breakpoints"), owner)
             "source_breakpoints" -> event.optional("source")?.takeIf { it.startsWith("hick:///") }?.removePrefix("hick:///")?.let { bind(event.optJSONArray("breakpoints"), it) }
             "run_output" -> output = (output + event.optJSONArray("events")?.objects().orEmpty().map { item -> NativeRunOutput(item.optString("category", "stdout"), item.optString("text"), item.optional("source"), if (item.has("line") && !item.isNull("line")) item.optInt("line") else null) }).takeLast(256)
-            "value" -> if (status == "paused") values = values + (event.getString("expression") to event.getString("value"))
-            "finished", "ended" -> { status = "finished"; sessionID = null; pausedLine = null; frames = emptyList(); variables = emptyList(); values = emptyMap() }
-            "failed" -> { offer = event.optJSONObject("offer_install"); if (sessionID == null) fail(event.optString("message", "Debug launch failed. Check adapter installation and try again.")) else message = event.optString("message") + " Review the paused state before trying again." }
+            "value" -> if (status == "paused") {
+                val expression=event.optString("expression")
+                if(stoppedGeneration!=null&&(pendingValues[expression]==null||debugStop(event.opt("stop"))!=stoppedGeneration||debugInteger(event.opt("thread"))!=stoppedThread||debugInteger(event.opt("frame"))!=selectedFrame||event.optional("request_id")!=pendingValues[expression]))return
+                pendingValues.remove(expression);values = values + (expression to event.getString("value"))
+            }
+            "finished", "ended" -> { retireThreads(true);status = "finished"; sessionID = null; pausedLine = null; frames = emptyList(); variables = emptyList(); values = emptyMap() }
+            "failed" -> {
+                val request=event.optional("request_id");val expression=pendingValues.entries.firstOrNull{it.value==request}?.key
+                if(request!=null&&request!=threadRequest&&request!=frameRequest&&request!=launchRequest&&expression==null)return
+                if(request!=null&&request==threadRequest){threadRequest=null;selectingThread=null;threadBusy=false;threadNotice=event.optString("message")+" Read threads again; the paused stack is retained.";return}
+                if(request!=null&&request==frameRequest){frameRequest=null;frameNotice=event.optString("message")+" Read locals again or choose another current frame/thread; the paused stack is retained.";return}
+                expression?.let{pendingValues.remove(it);message=event.optString("message")+" Choose another current frame/thread or evaluate at a later pause.";return}
+                offer = event.optJSONObject("offer_install"); if (sessionID == null) fail(event.optString("message", "Debug launch failed. Check adapter installation and try again.")) else message = event.optString("message") + " Review the paused state before trying again."
+            }
             "build" -> message = event.optJSONArray("events")?.objects()?.joinToString("") { it.optString("data") }.orEmpty()
         }
     }
@@ -276,28 +384,56 @@ class NativeDebugger(private val engine: Engine, private val scope: CoroutineSco
         breakpoints = breakpoints + (path to held)
         sessionID?.let { id -> send(JSONObject().put("op", if (path == owner) "breakpoints" else "source_breakpoints").put("session", id).put("source", debugURI(path)).put("breakpoints", JSONArray(held))) }
     }
+    fun readThreads() {
+        if(selectingThread!=null){threadNotice="Wait for the selected thread's paused stack before refreshing threads.";return}
+        val session=sessionID;val stop=stoppedGeneration;val thread=stoppedThread
+        if(status!="paused"||session==null||stop==null||thread==null){threadNotice="Pause with a current engine observation before reading threads.";return}
+        val request=UUID.randomUUID().toString();threadRequest=request;selectingThread=null;threadBusy=true;threadNotice="Reading reported threads…"
+        send(JSONObject().put("op","threads").put("session",session).put("request_id",request))
+    }
+    fun selectThread(reading:NativeThreadReading,thread:Long) {
+        if(threadBusy||status!="paused"||threadReading!==reading||reading.session!=sessionID||reading.stop!=stoppedGeneration||reading.selected!=stoppedThread||reading.threads.none{it.id==thread}){threadNotice="Thread selection changed. Read the current thread list and choose again.";return}
+        if(thread==reading.selected)return
+        val request=UUID.randomUUID().toString();threadRequest=request;selectingThread=thread;threadBusy=true;threadNotice="Reading the selected thread's paused stack…"
+        send(JSONObject().put("op","select_thread").put("session",reading.session).put("thread",thread).put("stop",java.math.BigInteger(reading.stop)).put("request_id",request))
+    }
     fun step(how: String) {
         val id = sessionID ?: return; if (status != "paused") return
+        if(selectingThread!=null){message="Wait for the selected thread's paused stack before stepping, or inspect a reported selection failure.";return}
+        retireThreads()
         status = "running"; pausedLine = null; variables = emptyList(); values = emptyMap()
         send(JSONObject().put("op", "step").put("session", id).put("how", how).apply { selectedFrame?.let { put("frame", it) } })
     }
     fun stop() {
         val id = sessionID ?: run { if (status in listOf("starting", "stopping")) { stopPending = true; status = "stopping"; message = "Stopping as soon as the adapter acknowledges launch…" }; return }
-        status = "stopping"; pausedLine = null; variables = emptyList(); values = emptyMap(); send(JSONObject().put("op", "stop").put("session", id))
+        retireThreads();status = "stopping"; pausedLine = null; variables = emptyList(); values = emptyMap(); send(JSONObject().put("op", "stop").put("session", id))
     }
     fun evaluate(expression: String, watch: Boolean = false) {
         val id = sessionID ?: return; if (status != "paused" || expression.isBlank()) return
+        if(selectingThread!=null){message="Wait for the selected thread's paused stack before evaluating an expression.";return}
+        if(!framesCurrent||selectedFrame==null){message="A current frame is unavailable. Choose another reported thread or wait for a fresh pause before evaluating.";return}
         if (watch && expression !in watches) watches = watches + expression
-        send(JSONObject().put("op", "eval").put("session", id).put("expression", expression).put("context", if (watch) "watch" else "repl").apply { selectedFrame?.let { put("frame", it) } })
+        val request=UUID.randomUUID().toString();pendingValues[expression]=request;values=values-expression
+        send(JSONObject().put("op", "eval").put("session", id).put("expression", expression).put("request_id",request).put("context", if (watch) "watch" else "repl").apply { selectedFrame?.let { put("frame", it) };stoppedGeneration?.let{put("stop",java.math.BigInteger(it))};stoppedThread?.let{put("thread",it)} })
     }
-    fun removeWatch(expression: String) { watches = watches - expression; values = values - expression }
+    fun removeWatch(expression: String) { watches = watches - expression; values = values - expression;pendingValues.remove(expression) }
     fun select(frame: JSONObject) {
-        selectedFrame = frame.optInt("id")
-        variables = if (selectedFrame == frames.firstOrNull()?.optInt("id")) topVariables else emptyList(); values = emptyMap()
+        if(selectingThread!=null){message="Wait for the selected thread's paused stack before choosing a frame.";return}
+        if(status!="paused"||!framesCurrent||frames.none{it===frame}){message="Frame observation changed. Select a frame from the current paused stack.";return}
+        selectedFrame = debugInteger(frame.opt("id")) ?: return
+        variables = if (selectedFrame == frames.firstOrNull()?.optLong("id")) topVariables else emptyList(); values = emptyMap();pendingValues.clear()
         watches.forEach { evaluate(it, true) }
+        readFrameVariables()
         val path = frame.optional("source")
         if (path != null && !path.startsWith('/') && ':' !in path && !frame.isNull("source_line")) onLocation?.invoke(path, frame.getInt("source_line"))
         else if (!frame.isNull("line")) onLocation?.invoke(owner, frame.getInt("line"))
+    }
+    fun readFrameVariables(){
+        val session=sessionID;val stop=stoppedGeneration;val thread=stoppedThread;val frame=selectedFrame
+        if(status!="paused"||!framesCurrent||selectingThread!=null||session==null||stop==null||thread==null||frame==null){frameNotice="Choose a current paused frame before reading its locals.";return}
+        if(!capabilities.optBoolean("frame_locals")){frameNotice="Frame locals are unavailable from this engine. Reconnect with the updated engine; the paused stack remains readable.";return}
+        val request=UUID.randomUUID().toString();frameRequest=request;frameNotice="Reading this frame's locals…"
+        send(JSONObject().put("op","state").put("session",session).put("frame",frame).put("stop",java.math.BigInteger(stop)).put("thread",thread).put("request_id",request))
     }
     suspend fun install() {
         val offer = offer ?: return; val current = epoch

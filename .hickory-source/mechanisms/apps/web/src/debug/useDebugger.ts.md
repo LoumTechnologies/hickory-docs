@@ -34,7 +34,9 @@ import { useDebugActions } from "./uiDebugActions";
 import { retainDebugReading } from "./readingCapture";
 import { getWorkspaceRealtime, type Realtime } from "../api/realtime";
 import type { TranscriptEvent } from "../api/types";
-import { DebugClient } from "./client";
+import { DebugClient,DebugThreads,DebugLaunches,debugAdapterId } from "./client";
+import {documentUri} from "../lsp/documentUri";
+import {withDebugProtocol} from "./launchProfiles";
 import type {
   BreakpointStatus,
   DebugBreakpoint,
@@ -80,6 +82,20 @@ export interface DebugSession {
   /** 0-based document line execution is paused on. */
   pausedLine: number | null;
   frames: Frame[];
+  threads?:import("./client").DebugThread[];
+  selectedThread?:number|null;
+  threadStop?:number|null;
+  threadPending?:boolean;
+  threadSelecting?:boolean;
+  threadMessage?:string|null;
+  frameVariablesPending?:boolean;
+  frameVariablesMessage?:string|null;
+  stackMessage?:string|null;
+  historicalFrames?:Frame[];
+  observationScope?:import("./observations").ObservationScope|null;
+  captureFrame?(id:number):{frame:Frame;current:()=>boolean}|null;
+  readThreads?():void;
+  selectThread?(id:number):void;
   variables: Variable[];
   selectedFrame: number | null;
   /** Where the user has asked to stop, whether or not it bound. */
@@ -432,12 +448,15 @@ export function useWorkspaceDebugger(path: string): DebugSession {
 <a id="f-597e991b795b-useDebuggerOver"></a>
 ### `useDebuggerOver`
 
+Thread reads share the document session controller but fail independently of paused frames and locals. Source/frame changes invalidate held callbacks. Retire thread scope immediately when execution resumes; a late list must not attach to a later pause. Confirmed thread changes clear old evaluation values and re-evaluate watches for the new stop. Evidence uses an opaque scope tuple rather than the numeric debugger pause generation: hold early readings by their complete scope and promote only the exact Stopped scope. Startup preflights the read-only protocol catalog even for direct action-search requests; a caller-owned launch ticket and captured owner/project/profile retire delayed replies before they can send Start.
+
 <storycode:copy id="f-597e991b795b-useDebuggerOver">
 export function useDebuggerOver(client: DebugClient | null, docPath: string, initialBreakpoints: readonly number[] = [], projectContext = "new", uiSource?: unknown): DebugSession {
   const eventEpoch = useRef(0);
   const readingOwner = useRef(Symbol("debugger-capture"));
   const [, renderEventEpoch] = useState(0);
   const [reading, setReading] = useState<import("./observations").ObservationReading | null>(null);
+  const [observationScope,setObservationScope]=useState<import("./observations").ObservationScope|null>(null),scopeRef=useRef<import("./observations").ObservationScope|null>(null),pendingReadings=useRef(new Map<string,import("./observations").ObservationReading>());
   const [status, setStatus] = useState<DebugStatus>("idle");
   const [message, setMessage] = useState<string | null>(null);
   // A missing tool this machine can fetch, carried out of the failure so the
@@ -458,9 +477,19 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
   }, []);
   const [capabilities, setCapabilities] = useState<DebugCapabilities | null>(null);
   const [pausedLine, setPausedLine] = useState<number | null>(null);
-  const [frames, setFrames] = useState<Frame[]>([]);
+  const [frames, setFrames] = useState<Frame[]>([]),[historicalFrames,setHistoricalFrames]=useState<Frame[]>([]);
+  const currentFrames=useRef<Frame[]>(frames);
+  const [launches]=useState(()=>new DebugLaunches());
+  const [threadModel]=useState(()=>new DebugThreads()),[threadRevision,paintThreads]=useState(0);
+  const refreshThreads=()=>paintThreads(value=>value+1);
   const [variables, setVariables] = useState<Variable[]>([]);
+  const localsByFrame=useRef(new Map<number,Variable[]>());
+  const [frameVariablesPending,setFrameVariablesPending]=useState(false),[frameVariablesMessage,setFrameVariablesMessage]=useState<string|null>(null),[stackMessage,setStackMessage]=useState<string|null>(null);
+  const ownerLifetime=useRef(0),ownerMounted=useRef(true);
+  const frameRead=useRef<{session:string;stop:number;thread:number;frame:number;request:string}|null>(null),frameSequence=useRef(0);
   const [selectedFrame, setSelectedFrame] = useState<number | null>(null);
+  const selectedFrameRef=useRef<number|null>(null);
+  const evaluationSequence=useRef(0),evaluationRequests=useRef(new Map<string,{expression:string;stop:number;thread:number;frame:number|null}>()),latestEvaluation=useRef(new Map<string,string>());
   const [breakpoints, setBreakpoints] = useState<HeldBreakpoint[]>(() => initialBreakpoints.map((line) => ({ line, state: "bound" })));
   const [sourceBreakpoints, holdSources] = useState<Record<string, HeldBreakpoint[]>>({});
   // Which file this session is running, for the panel to say so: "paused" is
@@ -489,9 +518,21 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
   // event, so the request is parked here until its answer arrives.
   const pendingValues = useRef(new Map<string, (value: string | null) => void>());
 
-  statusRef.current = status;
+  function holdStatus(next:DebugStatus){statusRef.current=next;setStatus(next);}
+  function observationKey(scope:import("./observations").ObservationScope){return JSON.stringify([scope.session??null,scope.run,scope.stop,scope.frame,scope.invocation]);}
+  function retireObservationScope(){scopeRef.current=null;setObservationScope(null);pendingReadings.current.clear();}
+  function retireFrameRead(){frameRead.current=null;setFrameVariablesPending(false);setFrameVariablesMessage(null);}
+  function retireEvaluations(){evaluationRequests.current.clear();latestEvaluation.current.clear();for(const resolve of pendingValues.current.values())resolve(null);pendingValues.current.clear();setLastValue(null);}
+  function askValue(session:string,expression:string,context:"hover"|"watch"|"repl",frame?:number){
+    if(!client||threadModel.selecting)return;if(frame!==undefined&&!debugAdapterId(frame)){setMessage("Selected frame identity cannot be represented exactly by this connection.");return;}const scope=threadModel.scope;
+    if(!scope){client.evaluate(session,expression,context,frame);return;}
+    const request_id="eval-"+(++evaluationSequence.current),previous=latestEvaluation.current.get(expression);if(previous)evaluationRequests.current.delete(previous);
+    if(evaluationRequests.current.size>=512){const oldest=evaluationRequests.current.keys().next().value;if(oldest)evaluationRequests.current.delete(oldest);}
+    latestEvaluation.current.set(expression,request_id);evaluationRequests.current.set(request_id,{expression,stop:scope.stop,thread:scope.thread,frame:frame??null});client.evaluate(session,expression,context,frame,{stop:scope.stop,thread:scope.thread,request_id});
+  }
 
-  const uri = useMemo(() => docPath.startsWith("hick-project:///") ? docPath : `hick:///${docPath.replace(/^\/+/, "")}`, [docPath]);
+
+  const uri = useMemo(() => documentUri(docPath), [docPath]);
   useEffect(() => { retainDebugReading(readingOwner.current, reading); return () => retainDebugReading(readingOwner.current, null); }, [reading]);
 
   useEffect(() => {
@@ -501,15 +542,23 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
       // Before `started` there is no session to match, so a start that is
       // still in flight is recognised by the file it named.
       if (!eventIsOurs(event, uri, sessionRef.current)) return;
+      if(event.event==="started"){
+        if(!event.request_id&&launches.current&&statusRef.current==="starting"){setMessage("A debugger startup reply has no caller identity; this view has not adopted it and the request remains unconfirmed.");return;}
+        const admission=launches.started(event.request_id,event.session);if(admission==="retired"){if(event.session!==sessionRef.current)client.stop(event.session);return;}if(admission!=="current")return;
+      }else if(event.event==="build"||event.event==="failed"&&!event.session&&(event.about===undefined||event.about==="start")){
+        if(!launches.matches(event.request_id))return;
+      }
       eventEpoch.current++;
       renderEventEpoch(eventEpoch.current);
       switch (event.event) {
         case "run_output":
           setOutput(current => [...current, ...event.events].slice(-256));
           break;
-        case "reading":
-          setReading(event.reading);
+        case "reading": {
+          const key=observationKey(event.reading.scope);pendingReadings.current.set(key,event.reading);while(pendingReadings.current.size>16)pendingReadings.current.delete(pendingReadings.current.keys().next().value!);
+          if(!scopeRef.current||observationKey(scopeRef.current)===key)setReading(event.reading);
           break;
+        }
         case "build":
           // Replaces rather than appends: a build belongs to the start that
           // ran it, and the last one is the one on screen.
@@ -521,7 +570,7 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
           setOutput([]);
           setCapabilities(event.capabilities);
           setBreakpoints((current) => followMoves(current, event.breakpoints));
-          setStatus("running");
+          threadModel.reset();retireObservationScope();currentFrames.current=[];setFrames([]);setHistoricalFrames([]);setVariables([]);selectedFrameRef.current=null;setSelectedFrame(null);setPausedLine(null);retireFrameRead();retireEvaluations();refreshThreads();holdStatus("running");
           clearFailure();
           setExitCode(null);
           // Re-applied to the new session. A standing "stop on uncaught"
@@ -533,23 +582,43 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
           }
           break;
         }
-        case "stopped":
-          setReading(current => event.observation_scope && current && ["session", "run", "stop", "frame", "invocation"].every(key => current.scope[key as keyof typeof current.scope] === event.observation_scope![key as keyof typeof current.scope]) ? current : null);
-          setStatus("paused");
-          setPausedLine(event.line);
-          setFrames(event.frames);
-          setVariables(event.variables);
-          setSelectedFrame(event.selected_frame ?? event.frames[0]?.id ?? null);
+        case "threads":
+          if(threadModel.accept(event))refreshThreads();else refreshThreads();
+          break;
+        case "stopped": {
+          const previousThreadScope=threadModel.scope;if(!threadModel.stopped(event.session,event.stop,event.thread))break;refreshThreads();
+          const samePause=!!previousThreadScope&&previousThreadScope===threadModel.scope,reportedFrame=event.selected_frame??event.frames[0]?.id??null;
+          const chosenFrame=samePause&&event.frames.some(frame=>frame.id===selectedFrameRef.current)?selectedFrameRef.current:reportedFrame;
+          if(!samePause||!!frameRead.current&&frameRead.current.frame!==chosenFrame)retireFrameRead();setStackMessage(event.stack_error??null);if(!samePause||chosenFrame===reportedFrame)setFrameVariablesMessage(event.variables_error??null);
+          if(!samePause)localsByFrame.current.clear();if(reportedFrame!==null&&!event.variables_error)localsByFrame.current.set(reportedFrame,event.variables);
+          if(previousThreadScope!==threadModel.scope){retireEvaluations();setWatches(current=>current.map(watch=>({...watch,value:null})));}
+          const observed=event.observation_scope??(samePause?scopeRef.current:null);scopeRef.current=observed;setObservationScope(observed);
+          setReading(current=>observed?(pendingReadings.current.get(observationKey(observed))??(current&&observationKey(current.scope)===observationKey(observed)?current:null)):null);
+          holdStatus("paused");
+          setPausedLine(chosenFrame===reportedFrame?event.line:event.frames.find(frame=>frame.id===chosenFrame)?.line??null);
+          if(event.stack_error){const previous=currentFrames.current;setHistoricalFrames(held=>previous.length?previous:held);}else setHistoricalFrames([]);currentFrames.current=event.frames;setFrames(event.frames);
+          setVariables(chosenFrame===reportedFrame?event.variables:localsByFrame.current.get(chosenFrame!)??[]);
+          selectedFrameRef.current=chosenFrame;
+          setSelectedFrame(selectedFrameRef.current);
           clearFailure();
           break;
+        }
         case "breakpoints":
           setBreakpoints((current) => followMoves(current, event.breakpoints));
           break;
         case "source_breakpoints":
           holdSources(current=>({...current,[event.source]:followMoves(current[event.source] ?? [],event.breakpoints)}));
           break;
+        case "frame_variables": {
+          const requested=frameRead.current,scope=threadModel.scope;if(!requested||!scope||statusRef.current!=="paused"||event.request_id!==requested.request||event.stop!==scope.stop||event.thread!==scope.thread||event.frame!==selectedFrameRef.current||requested.stop!==scope.stop||requested.thread!==scope.thread||requested.frame!==event.frame)break;
+          frameRead.current=null;setFrameVariablesPending(false);setFrameVariablesMessage(null);localsByFrame.current.set(event.frame,event.variables);setVariables(event.variables);break;
+        }
         case "value": {
-          setLastValue({ expression: event.expression, value: event.value, type: event.type });
+          if(statusRef.current!=="paused")break;
+          const scope=threadModel.scope;
+          if(scope){const request=event.request_id&&evaluationRequests.current.get(event.request_id);if(!request||request.expression!==event.expression||latestEvaluation.current.get(event.expression)!==event.request_id||event.stop!==scope.stop||event.thread!==scope.thread||event.frame!==selectedFrameRef.current||request.stop!==scope.stop||request.thread!==scope.thread||request.frame!==selectedFrameRef.current)break;evaluationRequests.current.delete(event.request_id!);latestEvaluation.current.delete(event.expression);}
+          else if(event.stop!==undefined||event.thread!==undefined)break;
+          setLastValue({ expression: event.expression, value: event.value, type: event.type_name??event.type??null });
           // Answers carry the expression they answer, and the watch list is
           // keyed by expression — that string IS the correlation id. A watch
           // and a hover for the same expression both get the answer, which
@@ -567,14 +636,15 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
           break;
         }
         case "finished":
+          launches.retire();
           // The server reaped the session with the program: the id no longer
           // answers, so forget it NOW. A step, hover or stop sent after this
           // would be a request to a dead session, answered only by an error.
           sessionRef.current = null;
-          setStatus("finished");
+          threadModel.clear();retireObservationScope();retireFrameRead();retireEvaluations();refreshThreads();holdStatus("finished");
           setExitCode(event.exit_code ?? null);
           setPausedLine(null);
-          setFrames([]);
+          currentFrames.current=[];setFrames([]);setHistoricalFrames([]);
           setVariables([]);
           setSelectedFrame(null);
           // The expressions survive — they are for the next run — but their
@@ -582,22 +652,26 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
           setWatches((current) => current.map((watch) => ({ ...watch, value: null })));
           break;
         case "ended":
+          launches.retire();
           sessionRef.current = null;
-          setStatus("idle");
+          threadModel.clear();retireObservationScope();retireFrameRead();retireEvaluations();refreshThreads();holdStatus("idle");
           clearFailure();
           setPausedLine(null);
-          setFrames([]);
+          currentFrames.current=[];setFrames([]);setHistoricalFrames([]);
           setVariables([]);
           setCapabilities(null);
           setWatches((current) => current.map((watch) => ({ ...watch, value: null })));
           break;
         case "failed": {
+          if(event.about==="state"&&event.request_id){const requested=frameRead.current;if(!requested||requested.request!==event.request_id)break;frameRead.current=null;setFrameVariablesPending(false);setFrameVariablesMessage(event.message);break;}
+          if(event.about==="threads"||event.about==="select_thread"){if(threadModel.failed(event.message,event.request_id))refreshThreads();break;}
           if (event.about === "source_breakpoints") {
             setMessage(`Could not update breakpoints in ${event.doc ?? "this source"}: ${event.message}`);
             const source=event.doc;
             if(source)holdSources(current=>({...current,[source]:(current[source] ?? []).map(bp=>({...bp,state:"refused" as const,message:event.message}))}));
             break;
           }
+          if(event.about==="eval"&&event.request_id){const request=evaluationRequests.current.get(event.request_id);if(!request||latestEvaluation.current.get(request.expression)!==event.request_id)break;evaluationRequests.current.delete(event.request_id);latestEvaluation.current.delete(request.expression);const waiting=pendingValues.current.get(request.expression);pendingValues.current.delete(request.expression);waiting?.(null);setMessage(event.message);break;}
           const stillWaiting = [...pendingValues.current.values()];
           pendingValues.current.clear();
           for (const resolve of stillWaiting) resolve(null);
@@ -631,7 +705,7 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
           // "Finished" already IS a terminal state: a stray failure arriving
           // after the program ended must not redress a clean end as a broken
           // one.
-          if (!sessionRef.current && statusRef.current !== "finished") setStatus("failed");
+          if (!sessionRef.current && statusRef.current !== "finished") holdStatus("failed");
           break;
         }
       }
@@ -642,10 +716,12 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
   // A window that closes mid-session leaves a process running; the server
   // sweeps it, but saying so promptly is cheaper than waiting for the sweep.
   useEffect(() => {
+    ownerMounted.current=true;ownerLifetime.current++;
     return () => {
-      if (client && sessionRef.current) client.stop(sessionRef.current);
+      ownerMounted.current=false;ownerLifetime.current++;scopeRef.current=null;pendingReadings.current.clear();launches.retire();const session=sessionRef.current;sessionRef.current=null;statusRef.current="idle";currentFrames.current=[];frameRead.current=null;evaluationRequests.current.clear();latestEvaluation.current.clear();for(const resolve of pendingValues.current.values())resolve(null);pendingValues.current.clear();
+      if (client && session) client.stop(session);
     };
-  }, [client]);
+  }, [client,uri]);
 
   const toggleBreakpoint = useCallback(
     (line: number) => {
@@ -757,7 +833,8 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
   const start = useCallback(
     (program?: string, sources: Record<string, HeldBreakpoint[]> = {}, selection?: string, profile?: import("./launchProfiles").LaunchSelection) => {
       if (!client) return;
-      setStatus("starting");
+      const previous=sessionRef.current;const request_id=launches.begin();
+      threadModel.clear();retireObservationScope();retireFrameRead();retireEvaluations();refreshThreads();holdStatus("starting");
       clearFailure();
       setProgram(program ?? null);
       const initial = {...sourceBreakpoints,...sources};
@@ -765,12 +842,14 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
       launchContext.current = selection ?? launchContext.current;
       launchProfile.current = profile ?? (selection !== undefined ? undefined : launchProfile.current);
       setLaunchTarget(launchProfile.current?.name ?? null);
-      client.start(uri, onTheWire(breakpoints), program, launchContext.current, Object.fromEntries(Object.entries(initial).filter(([,bps])=>bps.length).map(([source,bps])=>[source,onTheWire(bps)])), launchProfile.current);
+      const context=launchContext.current,chosen=launchProfile.current,lifetime=ownerLifetime.current;
+      void withDebugProtocol({uri,project:context,program},()=>{if(!ownerMounted.current||ownerLifetime.current!==lifetime||launchContext.current!==context||launchProfile.current!==chosen||!launches.matches(request_id))return;sessionRef.current=null;if(previous)client.stop(previous);client.start(uri, onTheWire(breakpoints), program, launchContext.current, Object.fromEntries(Object.entries(initial).filter(([,bps])=>bps.length).map(([source,bps])=>[source,onTheWire(bps)])), chosen,request_id);}).catch(error=>{if(!ownerMounted.current||!launches.matches(request_id))return;launches.retire();holdStatus("failed");setMessage(error instanceof Error?error.message:String(error));});
     },
     [client, uri, breakpoints, sourceBreakpoints, clearFailure, projectContext],
   );
 
   const stop = useCallback(() => {
+    launches.retire();
     if (client && statusRef.current === "starting") client.cancelStart(uri);
     if (client && sessionRef.current) {
       client.stop(sessionRef.current);
@@ -779,7 +858,7 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
     // No session to tell — the server already reaped it when the program
     // finished (or the start failed). Stop is then only a dismissal: clear
     // the strip's chrome locally, sending nothing to a session that is gone.
-    setStatus("idle");
+    threadModel.clear();retireObservationScope();retireFrameRead();retireEvaluations();refreshThreads();holdStatus("idle");
     clearFailure();
     setCapabilities(null);
     setExitCode(null);
@@ -787,8 +866,8 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
 
   const step = useCallback(
     (how: Step) => {
-      if (!client || !sessionRef.current) return;
-      setStatus("running");
+      if (!client || !sessionRef.current||threadModel.selecting) return;
+      threadModel.clear();retireObservationScope();retireFrameRead();retireEvaluations();refreshThreads();holdStatus("running");
       client.step(sessionRef.current, how, selectedFrame ?? undefined);
     },
     [client, selectedFrame],
@@ -796,8 +875,8 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
 
   const jumpTo = useCallback(
     (line: number) => {
-      if (!client || !sessionRef.current) return;
-      setStatus("running");
+      if (!client || !sessionRef.current||threadModel.selecting) return;
+      threadModel.clear();retireObservationScope();retireFrameRead();retireEvaluations();refreshThreads();holdStatus("running");
       client.jump(sessionRef.current, line);
     },
     [client],
@@ -805,8 +884,8 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
 
   const runTo = useCallback(
     (line: number) => {
-      if (!client || !sessionRef.current) return;
-      setStatus("running");
+      if (!client || !sessionRef.current||threadModel.selecting) return;
+      threadModel.clear();retireObservationScope();retireFrameRead();retireEvaluations();refreshThreads();holdStatus("running");
       client.runTo(sessionRef.current, line);
     },
     [client],
@@ -815,14 +894,14 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
   const evaluate = useCallback(
     (expression: string, context: "hover" | "watch" | "repl" = "repl") => {
       if (!client || !sessionRef.current) return;
-      client.evaluate(sessionRef.current, expression, context, selectedFrame ?? undefined);
+      askValue(sessionRef.current, expression, context, selectedFrame ?? undefined);
     },
     [client, selectedFrame],
   );
 
   const valueAt = useCallback(
     (expression: string): Promise<string | null> => {
-      if (!client || !sessionRef.current || status !== "paused") return Promise.resolve(null);
+      if (!client || !sessionRef.current || status !== "paused"||threadModel.selecting||selectedFrame===null||!debugAdapterId(selectedFrame)) return Promise.resolve(null);
       // Only names this frame has. The debugger is not a spell-checker: asking
       // it about every word the pointer crosses — a word in the prose, a tag
       // name, a comment — earns a `NameError` per hover, and the error is
@@ -835,11 +914,11 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
       }
       return new Promise((resolve) => {
         pendingValues.current.set(expression, resolve);
-        client.evaluate(sessionRef.current!, expression, "hover", selectedFrame ?? undefined);
+        askValue(sessionRef.current!, expression, "hover", selectedFrame ?? undefined);
         // A hover that never answers must not leave the tooltip waiting
         // forever on a program that has moved on.
         setTimeout(() => {
-          if (pendingValues.current.delete(expression)) resolve(null);
+          if (pendingValues.current.get(expression)===resolve){pendingValues.current.delete(expression);resolve(null);}
         }, 2000);
       });
     },
@@ -848,16 +927,16 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
 
   const query = useCallback(
     (expression: string): Promise<string | null> => {
-      if (!client || !sessionRef.current || statusRef.current !== "paused") {
+      if (!client || !sessionRef.current || statusRef.current !== "paused"||threadModel.selecting||selectedFrame===null||!debugAdapterId(selectedFrame)) {
         return Promise.resolve(null);
       }
       return new Promise((resolve) => {
         pendingValues.current.set(expression, resolve);
         // `repl` context: the person typed this, so a side effect is their
         // business — unlike a hover, which must never have one.
-        client.evaluate(sessionRef.current!, expression, "repl", selectedFrame ?? undefined);
+        askValue(sessionRef.current!, expression, "repl", selectedFrame ?? undefined);
         setTimeout(() => {
-          if (pendingValues.current.delete(expression)) resolve(null);
+          if (pendingValues.current.get(expression)===resolve){pendingValues.current.delete(expression);resolve(null);}
         }, 5000);
       });
     },
@@ -875,8 +954,8 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
       );
       // Answer immediately when there is a frame to ask; otherwise the
       // re-evaluate effect covers it at the next pause.
-      if (client && sessionRef.current && statusRef.current === "paused") {
-        client.evaluate(sessionRef.current, trimmed, "watch", selectedFrame ?? undefined);
+      if (client && sessionRef.current && statusRef.current === "paused"&&selectedFrame!==null) {
+        askValue(sessionRef.current, trimmed, "watch", selectedFrame ?? undefined);
       }
     },
     [client, selectedFrame],
@@ -892,20 +971,29 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
   // replaces the array) does not re-ask the question it answers.
   const watchKey = watches.map((watch) => watch.expression).join("\n");
   useEffect(() => {
-    if (status !== "paused" || !client || !sessionRef.current) return;
+    if (status !== "paused" || !client || !sessionRef.current||selectedFrame===null) return;
     for (const expression of watchKey ? watchKey.split("\n") : []) {
-      client.evaluate(sessionRef.current, expression, "watch", selectedFrame ?? undefined);
+      askValue(sessionRef.current, expression, "watch", selectedFrame ?? undefined);
     }
-  }, [status, selectedFrame, watchKey, client]);
+  }, [status, selectedFrame, watchKey, client,threadModel.scope?.stop,threadModel.scope?.thread]);
+
+  const readThreads=useCallback(()=>{if(!client||statusRef.current!=="paused"||!sessionRef.current)return;const request=threadModel.read();refreshThreads();if(request&&request.session===sessionRef.current)client.threads(request.session,request.request);},[client,threadModel]);
+  const selectThread=useCallback((id:number)=>{if(!client||statusRef.current!=="paused"||!sessionRef.current)return;const request=threadModel.select(id);refreshThreads();if(request&&request.session===sessionRef.current)client.selectThread(request.session,id,request.stop,request.request);},[client,threadModel]);
+
+  const captureFrame=useCallback((id:number)=>{const frame=currentFrames.current.find(item=>item.id===id),session=sessionRef.current,scope=threadModel.scope,lifetime=ownerLifetime.current;
+    if(!frame||!session||statusRef.current!=="paused"||selectedFrameRef.current!==id||threadModel.selecting)return null;
+    return {frame:Object.freeze({...frame}),current:()=>{const latest=currentFrames.current.find(item=>item.id===id);return ownerMounted.current&&ownerLifetime.current===lifetime&&sessionRef.current===session&&statusRef.current==="paused"&&!!latest&&["name","source","source_line","line","in_document","source_hash","source_reference"].every(key=>latest[key as keyof Frame]===frame[key as keyof Frame])&&selectedFrameRef.current===id&&!threadModel.selecting&&(!scope?threadModel.scope===null:threadModel.scope?.stop===scope.stop&&threadModel.scope.thread===scope.thread);}};
+  },[threadModel]);
 
   const selectFrame = useCallback(
     (id: number) => {
-      setSelectedFrame(id);
       const frame = frames.find((candidate) => candidate.id === id);
+      if(currentFrames.current!==frames||!frame||!debugAdapterId(id)||statusRef.current!=="paused"||threadModel.selecting)return;
+      retireFrameRead();retireEvaluations();setVariables(localsByFrame.current.get(id)??[]);setWatches(current=>current.map(watch=>({...watch,value:null})));selectedFrameRef.current=id;setSelectedFrame(id);
       // Selecting a frame moves the paused marker with it, because the line
       // you are looking at should be the line whose values you are reading.
       if (frame?.line !== undefined) setPausedLine(frame.line);
-      if (capabilities?.frame_locals && client && sessionRef.current) client.state(sessionRef.current, id);
+      if (capabilities?.frame_locals && client && sessionRef.current){const scope=threadModel.scope;if(scope){const request="locals-"+(++frameSequence.current);frameRead.current={session:sessionRef.current,stop:scope.stop,thread:scope.thread,frame:id,request};setFrameVariablesPending(true);client.state(sessionRef.current,id,{stop:scope.stop,thread:scope.thread,request_id:request});}else client.state(sessionRef.current,id);}
     },
     [frames, capabilities, client],
   );
@@ -925,6 +1013,7 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
       capabilities,
       pausedLine,
       frames,
+      threads:threadModel.reading?.threads??[],selectedThread:threadModel.scope?.thread??null,threadStop:threadModel.scope?.stop??null,threadPending:threadModel.busy,threadSelecting:threadModel.selecting,threadMessage:threadModel.message,frameVariablesPending,frameVariablesMessage,stackMessage,historicalFrames,observationScope,captureFrame,readThreads,selectThread,
       variables,
       selectedFrame,
       breakpoints,
@@ -952,6 +1041,7 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
       removeWatch,
     }),
     [
+      threadRevision,readThreads,selectThread,frameVariablesPending,frameVariablesMessage,stackMessage,historicalFrames,observationScope,captureFrame,
       reading,
       status,
       message,
@@ -1015,9 +1105,11 @@ Related contracts: [A Breakpoint Can Carry A Condition](../../../../../guarantee
 
 <storycode:copy id="f-101aa3d58173-FakeSocket">
 import { act, renderHook, waitFor } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it,vi } from "vitest";
+import {withDebugProtocol} from "./launchProfiles";
+vi.mock("./launchProfiles",()=>({withDebugProtocol:vi.fn((_query:unknown,effect:()=>void)=>{effect();return Promise.resolve();})}));
 import type { Realtime } from "../api/realtime";
-import { DebugClient } from "./client";
+import { DebugClient,DebugThreads,DebugLaunches,debugAdapterId } from "./client";
 import { eventIsOurs, useDebugger, useDebuggerOver } from "./useDebugger";
 
 /**
@@ -1060,6 +1152,7 @@ class FakeSocket {
 
   /** What the engine says, arriving as a real `0x03` frame. */
   deliver(event: Record<string, unknown>) {
+    if(event.request_id===undefined&&(event.event==="started"||event.event==="build"||event.event==="failed"&&!event.session&&(event.about===undefined||event.about==="start"))){const start=[...this.sent].reverse().find(item=>(item as {op?:string}).op==="start") as {request_id?:string}|undefined;event={...event,request_id:start?.request_id};}
     const body = new TextEncoder().encode(JSON.stringify(event));
     const frame = new Uint8Array(body.length + 1);
     frame[0] = 0x03;
@@ -1565,7 +1658,7 @@ describe("two panes on one socket", () => {
     act(() => a.result.current.start());
     expect(sent[0]).toMatchObject({ op: "start", doc: "hick:///tools/a.py" });
     act(() => {
-      client.handleFrame(frame({ ...STARTED, doc: "hick:///tools/a.py" }));
+      client.handleFrame(frame({ ...STARTED, doc: "hick:///tools/a.py",request_id:(sent[0] as {request_id:string}).request_id }));
     });
     await waitFor(() => expect(a.result.current.status).toBe("running"));
     expect(b.result.current.status).toBe("idle");
@@ -1586,7 +1679,7 @@ describe("two panes on one socket", () => {
           session: null,
           doc: "hick:///tools/b.py",
           message: "no debug adapter for python on this machine",
-          about: "start",
+          about: "start",request_id:(sent.at(-1) as {request_id:string}).request_id,
         }),
       );
     });
@@ -1789,6 +1882,97 @@ it("keeps the clicked source context for restart and replaces it for a different
   act(() => hook.result.current.start("other.py", {}, "new"));
   expect(socket.sent.at(-1)).not.toHaveProperty("project");
   hook.unmount();
+});
+
+
+describe("source-current debugger thread observations",()=>{
+ it("admits only the latest exact stopped list and never selects optimistically",()=>{
+  const model=new DebugThreads();model.stopped("session",3,1);const first=model.read()!,second=model.read()!;
+  const event=(request:string,stop=3,selected=1)=>({event:"threads" as const,session:"session",stop,selected,request_id:request,threads:[{id:1,name:"main"},{id:2,name:"worker"}]});
+  expect(model.accept(event(first.request))).toBe(false);expect(model.accept(event(second.request,2))).toBe(false);expect(model.accept({...event(second.request),session:"foreign"})).toBe(false);expect(model.accept(event(second.request))).toBe(true);
+  const selected=model.select(2)!;expect(selected.stop).toBe(3);expect(model.scope?.thread).toBe(1);expect(model.select(1)).toBeNull();model.stopped("session",4,2);expect(model.reading).toBeNull();expect(model.accept(event(selected.request,4,2))).toBe(true);expect(model.scope?.thread).toBe(2);
+  model.clear();expect(model.accept(event(selected.request,4,2))).toBe(false);expect(model.select(2)).toBeNull();
+ });
+ it("rejects malformed identities and retires unrelated stop generations while keeping optional failures local",()=>{
+  const model=new DebugThreads();model.stopped("session",1,1);const read=model.read()!,event={event:"threads" as const,session:"session",stop:1,selected:1,request_id:read.request,threads:[{id:1,name:"main"}]};expect(model.accept(event)).toBe(true);
+  const refresh=model.read()!;expect(model.failed("provider unavailable","old request")).toBe(false);expect(model.busy).toBe(true);expect(model.failed("provider unavailable",refresh.request)).toBe(true);expect(model.reading?.threads).toEqual([{id:1,name:"main"}]);
+  const next=model.read()!;expect(model.accept({...event,request_id:next.request,threads:[{id:1,name:"a"},{id:1,name:"b"}]})).toBe(false);expect(model.reading?.threads).toEqual([{id:1,name:"main"}]);model.stopped("session",2,1);expect(model.accept({...event,request_id:next.request})).toBe(false);
+  expect(model.stopped("session",Number.MAX_SAFE_INTEGER+1,1)).toBe(false);expect(model.scope).toEqual({session:"session",stop:2,thread:1});
+ });
+ it("routes wire thread reads and selection through the hook without failing the paused stack",async()=>{
+  const {socket,hook}=open(),result=hook.result;act(()=>result.current.start());act(()=>{socket.deliver(STARTED);socket.deliver({...STOPPED,stop:7,thread:1});});await waitFor(()=>expect(result.current.status).toBe("paused"));
+  const frames=result.current.frames;act(()=>result.current.readThreads?.());const request=socket.sent.at(-1) as {op:string;request_id:string};expect(request.op).toBe("threads");
+  act(()=>socket.deliver({event:"failed",session:"dbg-0",about:"threads",request_id:request.request_id,message:"adapter read unavailable"}));expect(result.current.status).toBe("paused");expect(result.current.frames).toBe(frames);expect(result.current.threadMessage).toContain("unavailable");
+  act(()=>result.current.readThreads?.());const latest=socket.sent.at(-1) as {request_id:string};act(()=>socket.deliver({event:"threads",session:"dbg-0",stop:7,selected:1,request_id:latest.request_id,threads:[{id:1,name:"main"},{id:2,name:"worker"}]}));await waitFor(()=>expect(result.current.threads).toHaveLength(2));
+  act(()=>result.current.selectThread?.(2));const selection=socket.sent.at(-1) as {op:string;stop:number;request_id:string};expect(selection.op).toBe("select_thread");expect(selection.stop).toBe(7);expect(result.current.selectedThread).toBe(1);const sent=socket.sent.length;act(()=>{result.current.step("over");result.current.readThreads?.();result.current.selectFrame(2);});expect(socket.sent).toHaveLength(sent);expect(await result.current.query("quantity")).toBeNull();
+  act(()=>socket.deliver({...STOPPED,stop:8,thread:2}));act(()=>socket.deliver({event:"threads",session:"dbg-0",stop:8,selected:2,request_id:selection.request_id,threads:[{id:1,name:"main"},{id:2,name:"worker"}]}));await waitFor(()=>expect(result.current.selectedThread).toBe(2));expect(result.current.status).toBe("paused");
+ });
+ it("correlates values to the requested stop, thread, frame and request before settling current expressions",async()=>{
+  const {socket,hook}=open(),result=hook.result;act(()=>result.current.start());act(()=>{socket.deliver(STARTED);socket.deliver({...STOPPED,stop:10,thread:1});});
+  let value!:Promise<string|null>;act(()=>{value=result.current.query("quantity");});const first=socket.sent.at(-1) as {request_id:string;stop:number;thread:number};expect(first.stop).toBe(10);expect(first.thread).toBe(1);
+  const reply={event:"value",session:"dbg-0",expression:"quantity",value:"2",type_name:"int",type:"legacy",reference:0,frame:2,thread:1,stop:10,request_id:first.request_id};
+  act(()=>socket.deliver({...reply,stop:9}));expect(result.current.lastValue).toBeNull();act(()=>socket.deliver({...reply,frame:99}));expect(result.current.lastValue).toBeNull();await act(async()=>{socket.deliver(reply);expect(await value).toBe("2");});expect(result.current.lastValue?.type).toBe("int");
+  let stale!:Promise<string|null>;act(()=>{stale=result.current.query("quantity");});const old=socket.sent.at(-1) as {request_id:string};await act(async()=>{socket.deliver({...STOPPED,stop:11,thread:2});expect(await stale).toBeNull();});
+  act(()=>socket.deliver({...reply,request_id:old.request_id}));expect(result.current.lastValue).toBeNull();
+  act(()=>{value=result.current.query("quantity");});const latest=socket.sent.at(-1) as {request_id:string};act(()=>socket.deliver({event:"failed",session:"dbg-0",about:"eval",request_id:old.request_id,message:"old evaluation failed"}));await act(async()=>{socket.deliver({...reply,stop:11,thread:2,request_id:latest.request_id,value:"worker"});expect(await value).toBe("worker");});
+ });
+
+ it("does not relabel top-frame locals as another frame and keeps evaluation refusal local",async()=>{
+  const {socket,hook}=open(),result=hook.result;act(()=>result.current.start());const frames=[...STOPPED.frames,{id:3,name:"worker",line:8,source:"orders.py",in_document:true}];act(()=>{socket.deliver(STARTED);socket.deliver({...STOPPED,stop:30,thread:2,frames});});
+  act(()=>result.current.selectFrame(3));expect(result.current.selectedFrame).toBe(3);expect(result.current.variables).toEqual([]);let value!:Promise<string|null>;act(()=>{value=result.current.query("worker_value");});const query=socket.sent.at(-1) as {request_id:string;frame:number};expect(query.frame).toBe(3);
+  await act(async()=>{socket.deliver({event:"failed",session:"dbg-0",about:"eval",request_id:query.request_id,message:"Unable to find thread for evaluation"});expect(await value).toBeNull();});expect(result.current.status).toBe("paused");expect(result.current.frames).toEqual(frames);expect(result.current.selectedThread).toBe(2);
+  act(()=>result.current.selectFrame(2));expect(result.current.variables).toEqual(STOPPED.variables);expect(result.current.status).toBe("paused");
+ });
+
+ it("admits only current selected-frame locals and keeps failed optional scopes separate from the stack",async()=>{
+  const {socket,hook}=open(),result=hook.result,frames=[...STOPPED.frames,{id:3,name:"worker",line:8,source:"orders.py",in_document:true}];act(()=>result.current.start());act(()=>{socket.deliver({...STARTED,capabilities:{...STARTED.capabilities,frame_locals:true}});socket.deliver({...STOPPED,stop:40,thread:2,frames});});
+  act(()=>result.current.selectFrame(3));const request=socket.sent.at(-1) as {op:string;request_id:string;stop:number;thread:number;frame:number};expect(request).toMatchObject({op:"state",stop:40,thread:2,frame:3});expect(result.current.frameVariablesPending).toBe(true);expect(result.current.variables).toEqual([]);
+  const response={event:"frame_variables",session:"dbg-0",stop:40,thread:2,frame:3,request_id:request.request_id,variables:[{name:"worker_value",value:"worker",type:"str",variables_reference:0}]};act(()=>socket.deliver({...response,frame:2}));expect(result.current.variables).toEqual([]);act(()=>socket.deliver(response));expect(result.current.variables).toEqual(response.variables);expect(result.current.frameVariablesPending).toBe(false);
+  act(()=>result.current.selectFrame(2));const top=socket.sent.at(-1) as {request_id:string};act(()=>socket.deliver({event:"failed",session:"dbg-0",about:"state",request_id:top.request_id,message:"adapter scopes unavailable"}));expect(result.current.status).toBe("paused");expect(result.current.frames).toEqual(frames);expect(result.current.variables).toEqual(STOPPED.variables);expect(result.current.frameVariablesMessage).toContain("unavailable");
+  act(()=>result.current.step("over"));act(()=>socket.deliver(response));expect(result.current.status).toBe("running");expect(result.current.frameVariablesPending).toBe(false);
+ });
+
+ it("keeps captured frame lifetimes independent of locals arrival and rejects retired stack navigation",()=>{
+  const {socket,hook}=open(),result=hook.result;act(()=>result.current.start());act(()=>{socket.deliver(STARTED);socket.deliver({...STOPPED,stop:50,thread:1});});const captured=result.current.captureFrame?.(2)!;expect(captured.current()).toBe(true);
+  act(()=>socket.deliver({event:"run_output",session:"dbg-0",events:[{category:"stdout",text:"independent output"}]}));expect(captured.current()).toBe(true);
+  act(()=>socket.deliver({...STOPPED,stop:51,thread:1,frames:[],variables:[],stack_error:"stack provider unavailable"}));expect(captured.current()).toBe(false);expect(result.current.frames).toEqual([]);expect(result.current.historicalFrames).toEqual(STOPPED.frames);expect(result.current.stackMessage).toContain("unavailable");const sent=socket.sent.length;act(()=>result.current.selectFrame(2));expect(socket.sent).toHaveLength(sent);expect(result.current.captureFrame?.(2)).toBeNull();expect(result.current.status).toBe("paused");
+ });
+
+ it("does not regress the entire pause from held older stops and preserves selected caller on same-stop refresh",()=>{
+  const {socket,hook}=open(),result=hook.result,frames=[...STOPPED.frames,{id:3,name:"caller",line:7,source:"orders.py",in_document:true}];act(()=>result.current.start());act(()=>{socket.deliver(STARTED);socket.deliver({...STOPPED,stop:60,thread:1,frames});});act(()=>result.current.selectFrame(3));const captured=result.current.captureFrame?.(3)!;
+  act(()=>socket.deliver({...STOPPED,stop:60,thread:1,frames:frames.map(frame=>({...frame}))}));expect(result.current.selectedFrame).toBe(3);expect(result.current.pausedLine).toBe(7);expect(result.current.variables).toEqual([]);expect(captured.current()).toBe(true);
+  const accepted=result.current.frames;act(()=>socket.deliver({...STOPPED,stop:59,thread:2,frames:[],variables:[],line:null}));expect(result.current.frames).toBe(accepted);expect(result.current.selectedFrame).toBe(3);expect(result.current.selectedThread).toBe(1);
+  act(()=>result.current.step("over"));act(()=>socket.deliver({...STOPPED,stop:60,thread:1,frames}));expect(result.current.status).toBe("running");expect(captured.current()).toBe(false);
+ });
+ it("binds launch receipts before sending and cleans only known retired same-file launches",()=>{
+  const {socket,hook}=open(),result=hook.result;act(()=>result.current.start());const first=socket.sent.at(-1) as {request_id:string};expect(first.request_id).toBeTruthy();act(()=>result.current.stop());act(()=>result.current.start());const second=socket.sent.at(-1) as {request_id:string};expect(second.request_id).not.toBe(first.request_id);
+  const before=socket.sent.length;act(()=>socket.deliver({...STARTED,session:"foreign",request_id:"another caller"}));expect(socket.sent).toHaveLength(before);expect(result.current.status).toBe("starting");
+  act(()=>socket.deliver({...STARTED,session:"old",request_id:first.request_id}));expect(socket.sent.at(-1)).toEqual({op:"stop",session:"old"});expect(result.current.status).toBe("starting");
+  act(()=>socket.deliver({event:"build",doc:"hick:///orders.md",request_id:first.request_id,events:[{type:"stdout",text:"old build"}]}));expect(result.current.buildOutput).toEqual([]);
+  act(()=>socket.deliver({...STARTED,session:"new",request_id:second.request_id}));act(()=>socket.deliver({...STOPPED,session:"new",stop:1,thread:1}));const frames=result.current.frames;act(()=>socket.deliver({...STARTED,session:"new",request_id:second.request_id}));expect(result.current.status).toBe("paused");expect(result.current.frames).toBe(frames);
+  act(()=>socket.deliver({event:"failed",session:null,about:"start",request_id:first.request_id,message:"old failed start"}));expect(result.current.status).toBe("paused");expect(result.current.message).toBeNull();
+  const launches=new DebugLaunches(),old=launches.begin();for(let index=0;index<70;index++)launches.begin();expect(launches.started(old,"old")).toBe("foreign");
+ });
+
+ it("retains DAP zero and negative signed-int32 thread/frame identities without sentinel guessing",async()=>{
+  const model=new DebugThreads();expect(model.stopped("scope",1,0)).toBe(true);const read=model.read()!;expect(model.accept({event:"threads",session:"scope",stop:1,selected:0,request_id:read.request,threads:[{id:0,name:"main"},{id:-7,name:"worker"}]})).toBe(true);expect(model.select(-7)?.thread).toBe(-7);expect(model.stopped("scope",2,-7)).toBe(true);expect(model.scope?.thread).toBe(-7);expect(debugAdapterId(true)).toBe(false);expect(debugAdapterId(0.5)).toBe(false);expect(debugAdapterId(2147483648)).toBe(false);
+  const {socket,hook}=open(),result=hook.result,frames=[{...STOPPED.frames[0],id:0},{...STOPPED.frames[0],id:-3,name:"caller"}];act(()=>result.current.start());act(()=>{socket.deliver({...STARTED,capabilities:{...STARTED.capabilities,frame_locals:true}});socket.deliver({...STOPPED,stop:70,thread:0,frames});});expect(result.current.selectedFrame).toBe(0);expect(result.current.selectedThread).toBe(0);
+  let value!:Promise<string|null>;act(()=>{value=result.current.query("quantity");});const expression=socket.sent.at(-1) as {request_id:string};expect(socket.sent.at(-1)).toMatchObject({thread:0,frame:0,stop:70});await act(async()=>{socket.deliver({event:"value",session:"dbg-0",expression:"quantity",value:"zero frame",type:null,reference:0,stop:70,thread:0,frame:0,request_id:expression.request_id});expect(await value).toBe("zero frame");});
+  act(()=>result.current.selectFrame(-3));expect(socket.sent.at(-1)).toMatchObject({op:"state",frame:-3,thread:0});expect(result.current.captureFrame?.(-3)?.current()).toBe(true);
+ });
+
+ it("binds opaque observation scopes after Reading-first delivery and never downgrades to held old evidence",()=>{
+  const {socket,hook}=open(),result=hook.result;act(()=>result.current.start());act(()=>socket.deliver(STARTED));const reading=(stop:string)=>({schema_version:1,source:{id:"orders",uri:"hick:///orders.md",revision:"captured",bytes:[97]},scope:{session:"dbg-0",run:"run",stop,frame:2,invocation:null},locations:[],annotations:[],unsupported:[]});
+  act(()=>{socket.deliver({event:"reading",session:"dbg-0",reading:reading("opaque-stop-a")});socket.deliver({...STOPPED,stop:80,thread:0,observation_scope:reading("opaque-stop-a").scope});});expect(result.current.reading?.scope.stop).toBe("opaque-stop-a");
+  act(()=>socket.deliver({event:"reading",session:"dbg-0",reading:reading("opaque-stop-b")}));expect(result.current.reading?.scope.stop).toBe("opaque-stop-a");act(()=>socket.deliver({...STOPPED,stop:81,thread:0,observation_scope:reading("opaque-stop-b").scope}));expect(result.current.reading?.scope.stop).toBe("opaque-stop-b");
+  act(()=>{socket.deliver({event:"reading",session:"dbg-0",reading:reading("opaque-stop-a")});socket.deliver({...STOPPED,stop:80,thread:0,observation_scope:reading("opaque-stop-a").scope});});expect(result.current.reading?.scope.stop).toBe("opaque-stop-b");expect(result.current.observationScope?.stop).toBe("opaque-stop-b");
+ });
+
+});
+
+it("preflights direct startup and retires held negotiation before sending",async()=>{
+ vi.mocked(withDebugProtocol).mockRejectedValueOnce(new Error("This engine needs protocol 2"));const {socket,hook}=open();await act(async()=>hook.result.current.start());expect(socket.sent).toEqual([]);expect(hook.result.current.message).toContain("protocol 2");
+ let ready!:()=>void;vi.mocked(withDebugProtocol).mockImplementationOnce((_query,effect)=>new Promise<void>(resolve=>{ready=()=>{effect();resolve();};}));act(()=>hook.result.current.start());act(()=>hook.result.current.stop());await act(async()=>ready());expect(socket.sent.some(item=>(item as {op:string}).op==="start")).toBe(false);expect(hook.result.current.status).toBe("idle");
 });
 </storycode:copy>
 

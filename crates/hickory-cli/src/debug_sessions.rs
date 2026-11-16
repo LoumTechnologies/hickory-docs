@@ -37,7 +37,8 @@ pub const IDLE_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 /// A started session, plus what a caller needs to keep talking to it.
 pub struct Live {
     pub source_aliases: Vec<String>,
-    pub operation: Mutex<()>,
+    pub operation: Arc<Mutex<()>>,
+    pub breakpoint_operation: Mutex<()>,
     pub stop_generation: Mutex<u64>,
     pub stopped: Mutex<Option<hick_dap::Stopped>>,
     pub observations: Mutex<hick_observe::Run>,
@@ -356,7 +357,8 @@ impl Registry {
             .unwrap_or_default();
         let live = Arc::new(Live {
             source_aliases,
-            operation: Mutex::new(()),
+            operation: Arc::new(Mutex::new(())),
+            breakpoint_operation: Mutex::new(()),
             stop_generation: Mutex::new(1),
             stopped: Mutex::new(None),
             observations: Mutex::new(observations),

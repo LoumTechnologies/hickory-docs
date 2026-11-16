@@ -81,7 +81,7 @@ import { lspFeatures } from "../lsp/cmLspFeatures";
 import { completions } from "../lsp/completion";
 import {sourceCompletion} from "./SourceCompletion";
 import { positionToUtf16, utf16ToPosition } from "../lsp/positions";
-import { sameDocumentUri } from "../lsp/documentUri";
+import { sameDocumentUri,documentUri } from "../lsp/documentUri";
 import { diagnosticBoundSource } from "../lsp/diagnosticRevision";
 import { Buffer } from "./buffers";
 import { hickLangReady, loadHickLang } from "../editor/hickLang";
@@ -95,7 +95,7 @@ import { DebugStrip } from "../debug/DebugStrip";
 import { observationSourceChanged } from "../debug/observations";
 import { api } from "../api/client";
 import { launchWithProfiles } from "../debug/launchProfiles";
-import { claimRevealPosition, onRevealLine, openLocation } from "../lib/revealLine";
+import { claimRevealPosition, onRevealLine, openLocation,openCapturedLocation } from "../lib/revealLine";
 const CsvGrid = lazy(async () => {
   const [{ TablePanel }, css] = await Promise.all([import("../components/TablePanel"), import("../styles.css?inline")]);
   return { default: function CsvSurface(props: TablePanelProps) {
@@ -214,7 +214,7 @@ function localFold(state: EditorState, from: number, markdown: boolean) {
   if (!ranges) { ranges = new Map(simpleFoldRanges(state.doc.toString(), markdown).map(range => [range.from, range])); foldCache.set(state.doc, ranges); }
   return ranges.get(state.doc.lineAt(from).to) ?? null;
 }
-const editors = new WeakMap<Buffer, { view: EditorView; language: Compartment; prose: Compartment; completion:Compartment; address:Compartment; richAttached?: boolean; toggleBreakpoint?: (line: number) => void }>();
+const editors = new WeakMap<Buffer, { view: EditorView; language: Compartment; prose: Compartment; completion:Compartment; address:Compartment;interaction:number; richAttached?: boolean; toggleBreakpoint?: (line: number) => void }>();
 export const SIMPLE_EDITOR_ATTACHED = "hickory:simple-editor-attached";
 export function editorForBuffer(buffer: Buffer) { return editors.get(buffer); }
 export function openFind(buffer: Buffer) { const view = editors.get(buffer)?.view; if (view) openSearchPanel(view); }
@@ -262,6 +262,16 @@ export function Document({ buffer }: { buffer: Buffer }) {
   const debug = useFollowingDebugSession(buffer.file.path) ?? IDLE_SESSION;
   const debugRef = useRef(debug); debugRef.current = debug;
   const changed = buffer.dirty || observationSourceChanged(debug.reading, buffer.text);
+  const frame=debug.frames.find(item=>item.id===debug.selectedFrame),frameHash=frame?.in_document&&!(frame.source_reference&&frame.source_reference>0)?frame.source_hash:null;
+  const [debugBinding,setDebugBinding]=useState<{source:string;hash:string;frame:number;current:()=>boolean;interaction:number}|null>(null);
+  const sourceBound=!!debugBinding&&debugBinding.source===buffer.text&&debugBinding.hash===frameHash&&debugBinding.frame===debug.selectedFrame&&debugBinding.current();
+  useEffect(()=>{if(debug.status!=="paused"||!frame||!frame.in_document||!frameHash||!/^[0-9a-f]{64}$/.test(frameHash))return;const captured=debug.captureFrame?.(frame.id);if(!captured)return;
+    const source=buffer.text,interaction=editorForBuffer(buffer)?.interaction??0;let retired=false;
+    for(const character of source)if(character.length===1&&character.charCodeAt(0)>=0xD800&&character.charCodeAt(0)<=0xDFFF)return;
+    void crypto.subtle.digest("SHA-256",new TextEncoder().encode(source)).then(bytes=>{const hash=[...new Uint8Array(bytes)].map(byte=>byte.toString(16).padStart(2,"0")).join("");if(!retired&&buffer.text===source&&captured.current()&&hash===frameHash)setDebugBinding({source,hash,frame:frame.id,current:captured.current,interaction});}).catch(()=>{});return()=>{retired=true;};
+  },[buffer,buffer.text,debug.status,debug.threadStop,debug.selectedThread,debug.selectedFrame,frameHash,debug.captureFrame]);
+  const positionLine=frame?.in_document?frame.line:null;
+  const positionCurrent=!changed&&sourceBound&&typeof positionLine==="number"&&Number.isInteger(positionLine)&&positionLine>=0&&(!view||positionLine<view.state.doc.lines);
   const [debugNotice, setDebugNotice] = useState("");
   const session = useSimpleLanguage(buffer);
   const workspaceLanguages = useHasWorkspaceLanguages();
@@ -316,11 +326,12 @@ export function Document({ buffer }: { buffer: Buffer }) {
         EditorState.readOnly.of(buffer.readonly), EditorView.editable.of(!buffer.readonly),
         address.of(EditorView.contentAttributes.of({ "aria-label": buffer.file.path })),
         EditorView.updateListener.of(update => {
+          if(update.selectionSet){const held=editors.get(buffer);if(held)held.interaction++;}
           if (update.docChanged) buffer.edit(update.state.doc.toString());
         }),
         EditorView.theme({ "&": { height: "100%" }, ".cm-scroller": { overflow: "auto", fontFamily: "ui-monospace, monospace", fontSize: "13px" } }),
       ] }) });
-      cached = { view, language, prose, completion, address }; editors.set(buffer, cached); window.dispatchEvent(new Event(SIMPLE_EDITOR_ATTACHED));
+      cached = { view, language, prose, completion, address,interaction:0 }; editors.set(buffer, cached);view.scrollDOM.addEventListener("scroll",()=>{const held=editors.get(buffer);if(held)held.interaction++;}); window.dispatchEvent(new Event(SIMPLE_EDITOR_ATTACHED));
     }
     cached.view.dispatch({effects:cached.address.reconfigure(EditorView.contentAttributes.of({"aria-label":buffer.file.path}))});
     cached.toggleBreakpoint = line => { if (!buffer.transient) debugRef.current.toggleBreakpoint(line); };
@@ -392,16 +403,16 @@ export function Document({ buffer }: { buffer: Buffer }) {
   useEffect(() => {
     if (!view || !debuggable || literate && !parserReady) return;
     view.dispatch({ effects: setDebuggerOutput.of({ events: changed ? [] : debug.output ?? [], program: debug.program, literate, path: buffer.file.path }) });
-    view.dispatch({ effects: debugStateEffects(changed ? { ...debug, pausedLine: null, variables: [], frames: [], watches: [] } : debug) });
-    if (!changed && debug.pausedLine !== null) {
-      const line = view.state.doc.line(Math.max(1, Math.min(view.state.doc.lines, debug.pausedLine + 1)));
+    view.dispatch({ effects: debugStateEffects(!positionCurrent ? { ...debug, pausedLine: null, variables: [], frames: [], watches: [] } : {...debug,pausedLine:positionLine}) });
+    if (positionCurrent&&positionLine!==null&&positionLine!==undefined&&debugBinding?.interaction===editorForBuffer(buffer)?.interaction) {
+      const line = view.state.doc.line(positionLine+1);
       view.dispatch({ effects: EditorView.scrollIntoView(line.from, { y: "nearest" }) });
     }
-  }, [view, debuggable, debug, changed, literate, parserReady]);
+  }, [view, debuggable, debug, changed,positionCurrent,positionLine,debugBinding, literate, parserReady]);
   useEffect(() => {
     if (!view || editors.get(buffer)?.view !== view || !view.dom.isConnected) return;
     const reveal = () => {
-      const position = claimRevealPosition(buffer.file.path); if (!position) return;
+      const position = claimRevealPosition(buffer.file.path,view.state.doc.toString()); if (!position) return;
       if (position.character === undefined) { revealLine(view, position.line - 1); return; }
       if (position.line > view.state.doc.lines || position.character > view.state.doc.line(position.line).length) { setDebugNotice("Location no longer fits this source. Query again."); return; }
       const anchor = view.state.doc.line(position.line).from + position.character;
@@ -413,7 +424,7 @@ export function Document({ buffer }: { buffer: Buffer }) {
     if (buffer.dirty || buffer.saving) { setDebugNotice("Save this file before debugging so the debugger runs the text shown here."); return; }
     setDebugNotice("");
     const source = buffer.text, target = literate ? program : undefined;
-    await launchWithProfiles({ uri: `hick:///${buffer.file.path}`, program: target, ...(literate ? { expected_document: source } : { expected_source: source }) },
+    await launchWithProfiles({ uri: documentUri(buffer.file.path), program: target, ...(literate ? { expected_document: source } : { expected_source: source }) },
       profile => debugRef.current.start(target, {}, undefined, profile),
       { preferProgram: true, isCurrent: () => !!view?.dom.isConnected && buffer.text === source && !buffer.dirty && !buffer.saving });
   };
@@ -443,14 +454,13 @@ export function Document({ buffer }: { buffer: Buffer }) {
         onPointerMove={event => { if (event.currentTarget.hasPointerCapture(event.pointerId)) setRailWidth(width => Math.max(24, Math.min(220, width - event.movementX))); }} />
       <DebugLaunchRail actions={[...sourceTestActions,...coverageActions]} view={view} plainPath={debuggable && !literate ? buffer.file.path : undefined} enabled={["idle", "finished", "failed"].includes(debug.status)} onStart={debuggable && (!literate || parserReady) ? start : undefined} />
     </div>
-    {debuggable && view && (!literate || parserReady) && <DebugStrip editorView={view} pausedLine={changed ? null : debug.pausedLine}
+    {debuggable && view && (!literate || parserReady) && <DebugStrip editorView={view} pausedLine={positionCurrent?positionLine:null}
       status={debug.status} program={debug.program} message={debug.message} offerInstall={debug.offerInstall}
       onInstall={offer => api.installTool(offer.kind, offer.language).then(() => undefined)}
+      variables={debug.variables} threads={debug.threads} selectedThread={debug.selectedThread} threadStop={debug.threadStop} threadPending={debug.threadPending} threadSelecting={debug.threadSelecting} threadMessage={debug.threadMessage} frameVariablesPending={debug.frameVariablesPending} frameVariablesMessage={debug.frameVariablesMessage} stackMessage={debug.stackMessage} historicalFrames={debug.historicalFrames} observationScope={debug.observationScope} readThreads={debug.readThreads} selectThread={debug.selectThread}
       capabilities={debug.capabilities} frames={debug.frames} selectedFrame={debug.selectedFrame}
       watches={debug.watches} exitCode={debug.exitCode} buildOutput={debug.buildOutput}
-      onSelectFrame={id => { debug.selectFrame(id); const frame = debug.frames.find(item => item.id === id);
-        if (frame?.line != null) revealLine(view, frame.line);
-        else if (frame?.source && frame.source_line != null) openLocation(frame.source, frame.source_line + 1); }}
+      onSelectFrame={id => {debug.selectFrame(id);const captured=debug.captureFrame?.(id);if(!captured){setDebugNotice("Debugger frame changed; select it again from the current stack.");return;}const frame=captured.frame,path=frame.in_document?buffer.file.path:frame.source,line=frame.in_document?frame.line:frame.source_line;if(path)openCapturedLocation(path,line==null?null:line+1,frame.source_hash??null,captured.current,frame.source_reference);}}
       onStep={debug.step} onJumpHere={() => debug.jumpTo(view.state.doc.lineAt(view.state.selection.main.head).number - 1)}
       onStart={() => start(debug.program ?? undefined)} onStop={debug.stop} onAddWatch={() => { const expression = window.prompt("Expression to watch"); if (expression) debug.addWatch(expression); }}
       exceptionFilters={debug.exceptionFilters} onToggleExceptionFilter={debug.toggleExceptionFilter} onRemoveWatch={debug.removeWatch} />}

@@ -568,13 +568,27 @@ try {
           value = await map.evaluate(element => element.getBoundingClientRect().width);
           break;
         }
+        case "debug-threads":{
+          const summary=page.getByLabel("Debug options",{exact:true}).last();if(!await summary.evaluate(node=>node.parentElement.open))await summary.click();const panel=summary.locator("..");await panel.getByRole("button",{name:"Read threads",exact:true}).click();
+          await page.waitForFunction(()=>{const section=document.querySelector('[aria-label="Debugger threads"]');return !!section&&!section.textContent.includes('Reading adapter threads…');});if(!await summary.evaluate(node=>node.parentElement.open))await summary.click();
+          value=await panel.locator('[aria-label="Debugger threads"]').evaluate(node=>{const select=node.querySelector('select');return {message:node.textContent,selected:select?.value??null,threads:select?Array.from(select.options,option=>({id:option.value,name:option.textContent})):[]};});break;
+        }
+        case "debug-thread-select":{
+          const summary=page.getByLabel("Debug options",{exact:true}).last();if(!await summary.evaluate(node=>node.parentElement.open))await summary.click();await page.getByRole("combobox",{name:"Debugger thread",exact:true}).selectOption(String(request.id));
+          await page.waitForFunction(id=>{const select=document.querySelector('select[aria-label="Debugger thread"]');return select?.value===id&&!select.disabled;},String(request.id));value=await page.getByLabel("Call stack",{exact:true}).locator('option').allTextContents();break;
+        }
+        case "debug-frame-select":{const summary=page.getByLabel("Debug options",{exact:true}).last();if(!await summary.evaluate(node=>node.parentElement.open))await summary.click();const stack=page.getByLabel("Call stack",{exact:true});const option=await stack.locator('option').evaluateAll((options,name)=>options.find(item=>item.textContent.startsWith(name+' —'))?.value,request.name);if(!option)throw Error('Requested frame absent: '+request.name+'; '+await stack.textContent());const label=await stack.locator('option').evaluateAll((options,value)=>options.find(item=>item.value===value)?.textContent,option);await stack.selectOption(option);value={label,line:Number(/ — line (\d+)$/.exec(label??'')?.[1]??0)};break;}
+        case "debug-watch":{const summary=page.getByLabel("Debug options",{exact:true}).last();if(!await summary.evaluate(node=>node.parentElement.open))await summary.click();page.once('dialog',dialog=>dialog.accept(request.expression));await summary.locator('..').getByRole('button',{name:'+ watch',exact:true}).click();await page.waitForFunction(expression=>{const value=Array.from(document.querySelectorAll('output[aria-label]')).find(node=>node.getAttribute('aria-label')==='Value of watch '+expression);return !!value&&!value.textContent.startsWith('No value reported');},request.expression);if(!await summary.evaluate(node=>node.parentElement.open))await summary.click();value=await page.getByLabel('Value of watch '+request.expression,{exact:true}).textContent();break;}
         case "debug-start":
           await page.getByRole("button", { name: `Debug ${request.path}`, exact: true }).click(); break;
         case "debug-step":
           await page.getByRole("button", { name: "Step over", exact: true }).click(); break;
         case "debug-stop":
+          {const options=page.getByLabel("Debug options",{exact:true}).last();if(await options.count()&&await options.evaluate(node=>node.parentElement.open))await options.click();}
           await page.getByRole("button", { name: "Stop", exact: true }).click(); break;
         case "debug-state": value = await page.locator(".debug-strip__status").allTextContents(); break;
+        case "debug-locals":{const locals=page.getByRole("region",{name:"Selected-frame locals",exact:true});value=await locals.count()?await locals.textContent():"";break;}
+        case "debug-diagnostics": value={text:await page.locator("body").innerText(),errors:pageErrors};break;
         case "debug-values": value = await page.locator(".cm-debug-value").allTextContents(); break;
         case "debug-breakpoint":
           await page.getByLabel(`Set breakpoint on line ${request.line}`, { exact: true }).click(); break;

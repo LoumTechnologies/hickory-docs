@@ -34,9 +34,9 @@ until reconstruction, focused safety checks and the connected path pass.
 | Navigation and intelligence | Semantic queries, bounded workspace acquisition, search and retained navigation trails have focused evidence below. Complete provider indexing and native physical interaction are not established by those receipts. |
 | Safe changes, cleanup, generation and templates | Multi-source draft review/undo, cleanup and nested source snippets have focused evidence. Ordered resource publication and saved/draft undo now have connected browser/provider and native controller acceptance. Canonical-entry moves and ambiguous native wire path identities still refuse. Semantic cleanup, reusable generation/template catalog, full snippet transforms/variable contexts, multi-caret templates and mirrored native IME remain open. |
 | Diagnostics and contextual fixes | Source-bound Problems, exact provider action resolution and multi-source action review have focused evidence. Complete bulk-fix workflow and provider analysis completeness remain open. |
-| Tests and coverage | Source declarations, saved-run admission, discovery/results and source-bound imported coverage have focused evidence. Source-adjacent test debugging and supported automatic collector end-to-end acceptance remain open. |
+| Tests and coverage | Source declarations, saved-run admission, discovery/results and source-bound imported coverage have focused evidence. An actual Python collector now retains failed-run coverage and reruns only the failed case, marking the earlier source evidence historical after a source change. Source-adjacent test debugging, collector-to-host end-to-end acceptance and the remaining supported collectors remain open. |
 | Review and recovery | Diffs, staging, immutable history, attribution and choosing a conflict stage have focused evidence. Resource recovery publication/adoption and ordered text/resource undo now have actual-engine acceptance. Invalid historical construction drafts and partial-state restoration still refuse. Arbitrary conflict composition, delete/rename conflicts, ordinary-save local history and crash/session/layout restoration remain open. |
-| Debugger | Inline launch, profile selection, breakpoints, frames and evaluation have focused slices. Attach, explicit threads and verified supported-adapter end-to-end acceptance remain open. |
+| Debugger | Inline launch, profile selection, breakpoints, frames and evaluation have focused slices. Explicit threads, scoped caller locals, immediate running-session controls and pre-launch protocol admission now have actual-engine browser and native controller evidence. Attach, adapter-owned source content, complete stack paging, source-bound breakpoint retention after edits and supported-adapter acceptance breadth remain open. |
 | Connected behavior readings | Captured construction/contributor/output readings have focused evidence. Complete contract/explanation/implementation/test/execution-evidence relationships remain open; detected tests are not execution evidence. |
 | Change impact and relevant verification | Compiler saved/draft output consequences exist. Complete mechanism/check relationships and selection/execution of relevant verification with explicit unknown dependencies remain open. |
 | Agent proposal review | Retained agent conversation and existing guarded source-change mechanisms are foundations. Coherent agent proposals connecting explanation, implementation, generated consequences and checks through guarded application remain open. |
@@ -44,6 +44,50 @@ until reconstruction, focused safety checks and the connected path pass.
 Physical native input, assistive technology and device IME acceptance remain
 unverified unless an explicit executed receipt says otherwise. No row is a claim
 of complete JetBrains/ReSharper parity.
+
+## Debugger threads and scoped observations, 2026-11-15
+
+The shared engine now lists actual adapter threads and admits selection against
+an exact stopped generation. Frame-local, expression and child reads carry their
+request identity and selected scope. Stack and variable failures stay explicit;
+they do not become successful empty observations. Signed adapter identities,
+including zero, remain opaque. Missing line positions never become the first
+source line. Adapter-owned sources do not borrow authored-file navigation merely
+because a path is present. Captured mapping hashes identify launch/construction
+bytes, not a proof that a running process executed those bytes.
+
+Focused executed evidence: three mapping-snapshot checks; strict thread and frame
+decoder checks; and two actual debugpy engine witnesses. The live witnesses
+selected a Python worker and main thread, read caller locals and evaluated in the
+selected scope, refused stale stops and foreign frames without source writes,
+and stopped a running launch after changing its breakpoints. Delivery stays
+inside the session operation gate. An initial worker blocked inside a native
+wait produced an adapter evaluation refusal; that remains a readable optional
+failure rather than a claim of successful locals. The browser passed TypeScript checking and 114 focused cases, then an actual
+Python/debugpy flow through profile resolution, named worker/main selection,
+caller navigation, selected-frame locals with canonical `str` type information,
+and distinct computed watches. The source editor, its dimensions and disk bytes
+remained unchanged. Android passed eleven focused cases without skips, including
+two actual-engine debugpy flows. Apple passed its two actual-engine flows,
+including exact worker-local `41` and main-local `7` evaluation. Its focused
+controller checks and iOS simulator build passed separately. These native tests
+exercise controllers and actual transport, not touch, pointer or VoiceOver.
+Native physical-input and assistive-technology acceptance remain unverified;
+the macOS renderer witness skipped only after an independent stock SwiftUI
+Button also proved inaccessible in this XCTest host. Its product reachability
+assertions remain unexecuted. The final native suite had nineteen executed passes,
+including both live flows, and that one explicit harness-capability skip.
+
+Additional integration work remains explicit: resource-renaming an active debug
+source must hand off the retained session identity; stale raw movement requests
+need engine stop/thread admission; source references need adapter-backed reading; raw DAP stdout needs a normalized
+browser output projection; literal URI path handling needs shared normalization;
+and the current
+stack request is bounded to fifty frames. These are not completed by the thread
+model or by the live shared-engine witnesses. Older engines now refuse before
+Debug launch effects through catalog protocol admission; ordinary Run remains
+independent. The Python manual-collection stop/flush witness also passed,
+retaining uncovered branches without inventing a manual verdict.
 
 ## Semantic intelligence extension, 2026-11-14
 

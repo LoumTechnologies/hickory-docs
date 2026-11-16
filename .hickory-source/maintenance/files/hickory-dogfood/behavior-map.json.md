@@ -26523,7 +26523,9 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "f-9c2c3f79dace-Step",
         "f-9c2c3f79dace-DebugWire",
         "f-9c2c3f79dace-DebugClient",
-        "f-9c2c3f79dace-backwardsControl"
+        "f-9c2c3f79dace-backwardsControl",
+        "debug-thread-observations-browser",
+        "debug-launch-observations-browser"
       ],
       "anchor": "output-9c2c3f79dace",
       "narrative_owner": "mechanism:apps/web"
@@ -41633,6 +41635,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "f-3c41c22e0551-stopped_from",
         "f-3c41c22e0551-stack_frame",
         "f-3c41c22e0551-use_declaration",
+        "debug-thread-observations",
+        "debug-thread-observation-tests",
         "f-3c41c22e0551-Variable",
         "f-3c41c22e0551-Exit",
         "f-3c41c22e0551-Stopped",
@@ -41694,7 +41698,9 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "sha256": "6ed47753a40db1bb6d795e5314fce43b7e02241348acac0175589f57142d61ff",
       "construction": "fragments",
       "fragments": [
-        "f-d9758adb5ff8-Frame"
+        "f-d9758adb5ff8-Frame",
+        "debug-frame-decoding",
+        "debug-frame-decoding-tests"
       ],
       "anchor": "output-d9758adb5ff8",
       "narrative_owner": "mechanism:crates/hick-dap"
@@ -53161,7 +53167,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "f-83c29f05f862-a_response_frame_is_tagged_with_the_debug_channel",
         "f-83c29f05f862-a_failure_carries_words_rather_than_a_code",
         "f-83c29f05f862-a_failure_about_nothing_in_particular_carries_no_lines",
-        "f-83c29f05f862-the_channel_carries_no_way_to_edit_anything"
+        "f-83c29f05f862-the_channel_carries_no_way_to_edit_anything",
+        "debugger-thread-stop-witness"
       ],
       "anchor": "output-83c29f05f862",
       "narrative_owner": "debugging/source-anchored-observation-reading.md"
@@ -67348,7 +67355,11 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "native-language-after-action-resolution-apple",
         "native-completion-acceptance-apple",
         "native-completion-acceptance-apple-tail",
-        "simple-apple-debug-session"
+        "simple-apple-debug-session",
+        "native-debug-workspace-session-apple",
+        "native-debug-reply-admission-apple",
+        "native-debug-inspection-requests-apple",
+        "native-debug-session-commands-apple"
       ]
     },
     "apps/apple-simple/Sources/Workspace.swift": {
@@ -67541,6 +67552,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "sha256": "a33439a2be2ef5bef1ecad2d265f80c11dfb0fa4726a1131dfb2172410cbe4e4",
       "construction": "fragments",
       "fragments": [
+        "simple-android-thread-observations",
         "simple-38d4bd61a8-0",
         "simple-38d4bd61a8-1",
         "simple-android-debug-session",

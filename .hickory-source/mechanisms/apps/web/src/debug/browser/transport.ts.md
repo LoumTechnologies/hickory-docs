@@ -114,7 +114,7 @@ export function createBrowserDebugger(options: BrowserDebuggerOptions) {
             if (event.event === "started") started = true;
             // A constructor/compilation failure is a failed start, not a live session.
             if (event.event === "failed" && event.about === "start") session = null;
-            emit(event);
+            emit((event.event==="started"||event.event==="build"||event.event==="failed"&&event.about==="start")&&typeof request.request_id==="string"?{...event,request_id:request.request_id}:event);
             if (event.event === "finished" || event.event === "failed" && event.about === "start") { worker?.terminate(); worker = null; session = null; }
           }
         };
@@ -134,14 +134,14 @@ export function createBrowserDebugger(options: BrowserDebuggerOptions) {
             launch(dataRunner, false);
             return;
           }
-          emit({ event: "failed", session: null, doc: String(request.doc), message: error.message || "Browser runtime could not load (check the host worker-src policy)" });
+          emit({ event: "failed", session: null, doc: String(request.doc),request_id:typeof request.request_id==="string"?request.request_id:undefined,about:"start", message: error.message || "Browser runtime could not load (check the host worker-src policy)" });
           terminate(); session = null;
         };
         worker.postMessage(startRequest);
       }
       launch(url, true);
     }).catch((e: unknown) => {
-      if (current === generation && !disposed) emit({ event: "failed", session: null, doc: String(request.doc), about: "start", message: String(e) });
+      if (current === generation && !disposed) emit({ event: "failed", session: null, doc: String(request.doc), about: "start",request_id:typeof request.request_id==="string"?request.request_id:undefined, message: String(e) });
     });
   } });
   return { client,

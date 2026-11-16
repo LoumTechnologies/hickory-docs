@@ -90,6 +90,9 @@ export interface Frame {
    * named it.
    */
   source: string | null;
+  /** Hash of authored bytes captured by the launch mapping; not proof of the executed runtime revision. */
+  source_hash?:string|null;
+  source_reference?:number|null;
   /** 0-based line in `source`, as the adapter reported it — for opening a
    * frame that is in another file of the project. */
   source_line?: number | null;
@@ -104,6 +107,9 @@ export interface Frame {
 export interface Variable {
   name: string;
   value: string;
+  /** Shared engine DAP variable wire name. */
+  type_name?: string | null;
+  /** Retained browser interpreter/legacy variable spelling. */
   type?: string | null;
   variables_reference: number;
 }
@@ -159,10 +165,13 @@ export type BindState = "bound" | "pending" | "refused";
 
 <storycode:copy id="f-9c2c3f79dace-DebugEvent">
 export type DebugEvent =
+  | DebugThreadEvent
+  | {event:"frame_variables";session:string;stop:number;thread:number;frame:number;request_id?:string|null;variables:Variable[]}
   | { event: "run_output"; session: string; events: { category: string; text: string; source?: string | null; line?: number | null }[] }
   | { event: "reading"; session: string; reading: import("./observations").ObservationReading }
   | {
       event: "started";
+      request_id?:string|null;
       session: string;
       /** The file this session runs, exactly as `start` named it. Every
        * plain-file pane shares one socket, and this is how each tells its
@@ -173,6 +182,10 @@ export type DebugEvent =
     }
   | {
       event: "stopped";
+      stop?:number;
+      thread?:number;
+      stack_error?:string|null;
+      variables_error?:string|null;
       observation_scope?: import("./observations").ObservationScope | null;
       session: string;
       reason: string;
@@ -183,8 +196,8 @@ export type DebugEvent =
     }
   | { event: "breakpoints"; session: string; breakpoints: BreakpointStatus[] }
   | { event: "source_breakpoints"; session: string; source: string; breakpoints: BreakpointStatus[] }
-  | { event: "value"; session: string; expression: string; value: string; type: string | null; reference: number }
-  | { event: "children"; session: string; reference: number; variables: Variable[] }
+  | { event: "value"; session: string; expression: string; value: string; type_name?: string | null; type?: string | null; reference: number;stop?:number;thread?:number|null;frame?:number|null;request_id?:string|null }
+  | { event: "children"; session: string; reference: number; variables: Variable[];stop?:number;thread?:number|null;request_id?:string|null }
   | {
       /**
        * The program ran to its end. The server reaps the session with it —
@@ -202,7 +215,7 @@ export type DebugEvent =
   // them unchanged — a build tool's colour and its rewritten progress lines
   // are the reason that is a terminal and not a text card. It is not a
   // transcript: nothing here is recorded, woven, or compared.
-  | { event: "build"; doc?: string; events: TranscriptEvent[] }
+  | { event: "build"; doc?: string;request_id?:string|null; events: TranscriptEvent[] }
   | {
       event: "failed";
       session: string | null;
@@ -212,6 +225,7 @@ export type DebugEvent =
       message: string;
       /** Which request failed, so its message can be shown where it belongs. */
       about?: string;
+      request_id?:string|null;
       /** The document lines it was about, for a breakpoint failure. */
       lines?: number[];
       /**
@@ -291,11 +305,11 @@ export class DebugClient {
     this.wire.send(frame);
   }
 
-  start(doc: string, breakpoints: DebugBreakpoint[], program?: string, project?: string, sources?: Record<string, DebugBreakpoint[]>, profile?: import("./launchProfiles").LaunchSelection) {
+  start(doc: string, breakpoints: DebugBreakpoint[], program?: string, project?: string, sources?: Record<string, DebugBreakpoint[]>, profile?: import("./launchProfiles").LaunchSelection,request_id?:string) {
     // `program` names which generated file to run. A document with two
     // Python files has two answers, and picking the first is right only by
     // accident.
-    this.send({ op: "start", doc, breakpoints, program, ...(profile ? {profile:{id:profile.id,fingerprint:profile.fingerprint}} : {}), ...(project && project !== "new" ? {project} : {}), ...(sources && Object.keys(sources).length ? {sources} : {}) });
+    this.send({ op: "start", doc, breakpoints, program,...(request_id?{request_id}:{}), ...(profile ? {profile:{id:profile.id,fingerprint:profile.fingerprint}} : {}), ...(project && project !== "new" ? {project} : {}), ...(sources && Object.keys(sources).length ? {sources} : {}) });
   }
 
   located(session: string, location: string, scope: import("./observations").ObservationScope, how: "jump" | "run_to") {
@@ -310,8 +324,12 @@ export class DebugClient {
     this.send({ op: "source_breakpoints", session, source, breakpoints });
   }
 
-  state(session: string, frame?: number) {
-    this.send({ op: "state", session, ...(frame === undefined ? {} : { frame }) });
+  threads(session:string,request_id:string){this.send({op:"threads",session,request_id});}
+
+  selectThread(session:string,thread:number,stop:number,request_id:string){this.send({op:"select_thread",session,thread,stop,request_id});}
+
+  state(session: string, frame?: number,scope?:{stop:number;thread:number;request_id:string}) {
+    this.send({ op: "state", session, ...(frame === undefined ? {} : { frame }),...scope });
   }
 
   cancelStart(doc: string) { this.wire.cancelStart?.(doc); }
@@ -324,8 +342,8 @@ export class DebugClient {
    * person typed — which is the only one where a side effect is their
    * business.
    */
-  evaluate(session: string, expression: string, context: "hover" | "watch" | "repl" = "repl", frame?: number) {
-    this.send({ op: "eval", session, expression, context, frame });
+  evaluate(session: string, expression: string, context: "hover" | "watch" | "repl" = "repl", frame?: number, scope?:{stop:number;thread:number;request_id:string}) {
+    this.send({ op: "eval", session, expression, context, frame,...scope });
   }
 
   step(session: string, how: Step, frame?: number) {
@@ -341,8 +359,8 @@ export class DebugClient {
     this.send({ op: "run_to", session, line });
   }
 
-  children(session: string, reference: number) {
-    this.send({ op: "children", session, reference });
+  children(session: string, reference: number,scope?:{stop:number;thread:number;request_id:string}) {
+    this.send({ op: "children", session, reference,...scope });
   }
 
   /**
@@ -411,10 +429,69 @@ export function backwardsControl(
 }
 </storycode:copy>
 
+## Admit one launch identity before accepting its session
+
+A delayed launch can answer after Stop and a same-file relaunch. Give every caller launch an unpredictable identity before sending it. Accept startup/build/failure only for that current identity; remember a bounded set of retired own launches solely to stop their late sessions. An unknown caller identity never authorizes stopping a neighbour's session. A repeated accepted session receipt cannot reset an already paused inspector.
+
+<storycode:copy id="debug-launch-observations-browser">
+export class DebugLaunches {
+ current:string|null=null;private accepted:string|null=null;private retired=new Set<string>();
+ begin(){if(this.current)this.remember(this.current);this.current=crypto.randomUUID();this.accepted=null;return this.current;}
+ retire(){if(this.current)this.remember(this.current);this.current=null;this.accepted=null;}
+ private remember(id:string){this.retired.add(id);while(this.retired.size>64)this.retired.delete(this.retired.values().next().value!);}
+ matches(id:string|null|undefined){return !!id&&id===this.current;}
+ started(id:string|null|undefined,session:string):'current'|'duplicate'|'retired'|'foreign'{
+  if(this.matches(id)){if(this.accepted===session)return 'duplicate';if(this.accepted)return 'retired';this.accepted=session;return 'current';}
+  return id&&this.retired.has(id)?'retired':'foreign';
+ }
+}
+</storycode:copy>
+
+## Bind reported threads to a stopped observation
+
+An adapter thread is an observation, not a declaration that every thread is paused. Keep one workspace-session stop scope and only admit the latest explicitly requested list for that scope. Selection sends the captured stop token and retains the old stack until the engine confirms another stopped state. A failed optional read cannot terminate the session or erase frames. The backend may advance the stop after a successful selection; retain only that matching selection request for the immediately following list.
+
+<storycode:copy id="debug-thread-observations-browser">
+export function debugAdapterId(value:unknown):value is number{return typeof value==="number"&&Number.isInteger(value)&&value>=-2147483648&&value<=2147483647;}
+export interface DebugThread {id:number;name:string}
+export interface DebugThreadEvent {event:'threads';session:string;stop:number;selected:number;threads:DebugThread[];request_id?:string|null}
+interface DebugThreadScope {session:string;stop:number;thread:number}
+/** An adapter list is scoped to an observed stop and the latest request, never a global thread catalog. */
+export class DebugThreads {
+ scope:DebugThreadScope|null=null;reading:DebugThreadEvent|null=null;message:string|null=null;busy=false;
+ get selecting(){return this.busy&&this.pending?.target!==undefined;}
+ private latest:DebugThreadScope|null=null;
+ private sequence=0;private pending:{request:string;session:string;stop:number;target?:number}|null=null;
+ stopped(session:string,stop:unknown,thread:unknown):boolean{
+  if(!session||!Number.isSafeInteger(stop)||(stop as number)<0||!debugAdapterId(thread)){if(this.latest?.session===session)return false;this.clear();this.message='Thread inspection needs a current stop identity from the engine.';return true;}
+  const next={session,stop:stop as number,thread:thread as number};if(this.latest?.session===session&&(next.stop<this.latest.stop||next.stop===this.latest.stop&&(!this.scope||next.thread!==this.latest.thread)))return false;
+  this.latest=next;const same=this.scope?.session===session&&this.scope.stop===stop&&this.scope.thread===thread;
+  if(same)return true;
+  const selected=this.pending?.session===session&&this.pending.target===thread&&next.stop>this.pending.stop;
+  this.scope=next;this.reading=null;this.message=null;if(!selected){this.pending=null;this.busy=false;}return true;
+ }
+ reset(){this.latest=null;this.clear();}
+ clear(){this.scope=null;this.reading=null;this.pending=null;this.busy=false;this.message=null;}
+ read():{session:string;request:string}|null {if(this.selecting){this.message='Wait for the selected thread stack before another thread read.';return null;}if(!this.scope){this.message='Pause the debugger before reading threads.';return null;}const request='threads-'+(++this.sequence);this.pending={request,session:this.scope.session,stop:this.scope.stop};this.busy=true;this.message=null;return {session:this.scope.session,request};}
+ select(thread:number):{session:string;thread:number;stop:number;request:string}|null {
+  const scope=this.scope,reading=this.reading;if(!scope||!reading||this.busy||reading.session!==scope.session||reading.stop!==scope.stop||!reading.threads.some(item=>item.id===thread)){this.message='Read the current stopped thread list before selecting a thread.';return null;}
+  const request='threads-'+(++this.sequence);this.pending={request,session:scope.session,stop:scope.stop,target:thread};this.busy=true;this.message=null;return {session:scope.session,thread,stop:scope.stop,request};
+ }
+ accept(event:DebugThreadEvent):boolean {
+  const pending=this.pending,scope=this.scope;if(!pending||!scope||event.request_id!==pending.request||event.session!==pending.session||event.session!==scope.session||event.stop!==scope.stop)return false;
+  if(!Array.isArray(event.threads)||event.threads.length>4096||event.threads.some(item=>!item||typeof item!=="object"||!debugAdapterId(item.id)||typeof item.name!=='string'||item.name.length>4096)||new Set(event.threads.map(item=>item.id)).size!==event.threads.length||event.selected!==scope.thread||!event.threads.some(item=>item.id===event.selected)||(pending.target!==undefined&&event.selected!==pending.target)){
+   this.busy=false;this.message='The adapter thread list does not match the current stopped observation. Read threads again.';return false;
+  }
+  this.reading={...event,threads:event.threads.map(item=>({id:item.id,name:item.name}))};this.pending=null;this.busy=false;this.message=null;return true;
+ }
+ failed(message:string,request?:string|null):boolean{if(request&&this.pending?.request!==request)return false;this.busy=false;this.message=message;return true;}
+}
+</storycode:copy>
+
 ### Assemble `apps/web/src/debug/client.ts`
 
 The selections below preserve the original byte order. Narrative reading order does not change the output.
 
-<storycode:file path="apps/web/src/debug/client.ts"><storycode:paste select="#f-9c2c3f79dace-CHANNEL_DEBUG"/><storycode:paste select="#f-9c2c3f79dace-DebugBreakpoint"/><storycode:paste select="#f-9c2c3f79dace-BreakpointStatus"/><storycode:paste select="#f-9c2c3f79dace-Frame"/><storycode:paste select="#f-9c2c3f79dace-Variable"/><storycode:paste select="#f-9c2c3f79dace-DebugCapabilities"/><storycode:paste select="#f-9c2c3f79dace-BindState"/><storycode:paste select="#f-9c2c3f79dace-DebugEvent"/><storycode:paste select="#f-9c2c3f79dace-Step"/><storycode:paste select="#f-9c2c3f79dace-DebugWire"/><storycode:paste select="#f-9c2c3f79dace-DebugClient"/><storycode:paste select="#f-9c2c3f79dace-backwardsControl"/></storycode:file>
+<storycode:file path="apps/web/src/debug/client.ts"><storycode:paste select="#f-9c2c3f79dace-CHANNEL_DEBUG"/><storycode:paste select="#f-9c2c3f79dace-DebugBreakpoint"/><storycode:paste select="#f-9c2c3f79dace-BreakpointStatus"/><storycode:paste select="#f-9c2c3f79dace-Frame"/><storycode:paste select="#f-9c2c3f79dace-Variable"/><storycode:paste select="#f-9c2c3f79dace-DebugCapabilities"/><storycode:paste select="#f-9c2c3f79dace-BindState"/><storycode:paste select="#f-9c2c3f79dace-DebugEvent"/><storycode:paste select="#debug-launch-observations-browser"/><storycode:paste select="#debug-thread-observations-browser"/><storycode:paste select="#f-9c2c3f79dace-Step"/><storycode:paste select="#f-9c2c3f79dace-DebugWire"/><storycode:paste select="#f-9c2c3f79dace-DebugClient"/><storycode:paste select="#f-9c2c3f79dace-backwardsControl"/></storycode:file>
 
 </storycode:doc>

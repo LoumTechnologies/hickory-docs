@@ -22,7 +22,7 @@ import { bindingOf, formatBinding, isAction } from "../lib/keymap";
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import type { TranscriptEvent } from "../api/types";
 import { WatchingTerminal } from "../terminal/WatchingTerminal";
-import type { DebugCapabilities, Frame, Step } from "./client";
+import type { DebugCapabilities, Frame, Step, Variable } from "./client";
 import { backwardsControl } from "./client";
 import type { Watch } from "./useDebugger";
 
@@ -200,6 +200,20 @@ export interface DebugStripProps {
   onInstall?: (offer: { kind: string; language: string }) => Promise<void>;
   capabilities: DebugCapabilities | null;
   frames: Frame[];
+  variables?:Variable[];
+  threads?:import("./client").DebugThread[];
+  selectedThread?:number|null;
+  threadStop?:number|null;
+  threadPending?:boolean;
+  threadSelecting?:boolean;
+  threadMessage?:string|null;
+  frameVariablesPending?:boolean;
+  frameVariablesMessage?:string|null;
+  stackMessage?:string|null;
+  historicalFrames?:Frame[];
+  observationScope?:import("./observations").ObservationScope|null;
+  readThreads?():void;
+  selectThread?(id:number):void;
   selectedFrame: number | null;
   watches: Watch[];
   /** The program's exit code once it finished, when the adapter said. */
@@ -255,7 +269,7 @@ export function DebugStrip(props: DebugStripProps) {
   useEffect(() => {
     if (["idle", "paused", "running", "finished"].includes(props.status)) attemptedInstallations.current.clear();
   }, [props.status]);
-  const paused = props.status === "paused";
+  const paused = props.status === "paused",selectedSourceFrame=props.frames.find(frame=>frame.id===props.selectedFrame);
   // A terminal state: the session no longer exists, and the strip's job is
   // to say how it ended and offer the way back in.
   const over = props.status === "finished" || props.status === "failed";
@@ -269,7 +283,7 @@ export function DebugStrip(props: DebugStripProps) {
     const onKey = (event: KeyboardEvent) => {
       if (event.defaultPrevented || (props.editorView && !debugViewFocused(props.editorView))) return;
       if (isAction(event, "debug.stop")) { event.preventDefault(); props.onStop(); return; }
-      if (!debugKeysActive(status)) return;
+      if (!debugKeysActive(status)||props.threadSelecting) return;
       const how = isAction(event, "debug.continue") ? "continue"
         : isAction(event, "debug.over") ? "over" : isAction(event, "debug.in") ? "in" : isAction(event, "debug.out") ? "out" : null;
       if (!how) return;
@@ -278,7 +292,7 @@ export function DebugStrip(props: DebugStripProps) {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [status, onStep, props.editorView, props.onStop]);
+  }, [status, onStep, props.editorView, props.onStop,props.threadSelecting]);
 
   // Idle means no session and nothing to say: the script's gutter icon is the
   // way in, and chrome for a debugger nobody started is noise.
@@ -318,7 +332,7 @@ export function DebugStrip(props: DebugStripProps) {
           glyph="▶"
           label="Continue"
           hint={`Run until the next breakpoint (${formatBinding(bindingOf("debug.continue"))})`}
-          disabled={!paused}
+          disabled={!paused||props.threadSelecting}
           onClick={() => props.onStep("continue")}
         />
       )}
@@ -327,7 +341,7 @@ export function DebugStrip(props: DebugStripProps) {
           glyph="⤼"
           label="Step over"
           hint={`Run this line and stop on the next one (${formatBinding(bindingOf("debug.over"))})`}
-          disabled={!paused}
+          disabled={!paused||props.threadSelecting}
           onClick={() => props.onStep("over")}
         />
       )}
@@ -336,7 +350,7 @@ export function DebugStrip(props: DebugStripProps) {
           glyph="↓"
           label="Step into"
           hint={`Stop inside this call (${formatBinding(bindingOf("debug.in"))})`}
-          disabled={!paused}
+          disabled={!paused||props.threadSelecting}
           onClick={() => props.onStep("in")}
         />
       )}
@@ -345,7 +359,7 @@ export function DebugStrip(props: DebugStripProps) {
           glyph="↑"
           label="Step out"
           hint={`Stop where this function returns (${formatBinding(bindingOf("debug.out"))})`}
-          disabled={!paused}
+          disabled={!paused||props.threadSelecting}
           onClick={() => props.onStep("out")}
         />
       )}
@@ -357,7 +371,7 @@ export function DebugStrip(props: DebugStripProps) {
           glyph={back.kind === "step_back" ? "◀" : back.kind === "drop_frame" ? "↺" : "⤒"}
           label={back.label}
           hint={back.hint}
-          disabled={!paused}
+          disabled={!paused||props.threadSelecting}
           onClick={() => {
             // `jump` needs a target line and is not a step; the other two are
             // the server's own verbs.
@@ -386,9 +400,17 @@ export function DebugStrip(props: DebugStripProps) {
       <MoreActions glyph="⚙" label="Debug options">
       <span>{props.launchTarget ?? props.program ?? ""} · {statusWord(props.status, props.exitCode)}</span>
       {!over && <>
+      {paused&&props.frames.length>0&&<p>{(selectedSourceFrame?.source_reference??0)>0?"The adapter owns this frame source; workspace text is not its source bytes.":selectedSourceFrame?.source_hash?"Source identities come from captured mappings and are checked before navigation; they do not prove the executed runtime revision.":"Frame source identity is unbound; locations open readable text without a precise source position."}</p>}
+      {paused&&props.readThreads&&<section aria-label="Debugger threads"><button type="button" disabled={props.threadStop==null||props.threadSelecting} onClick={props.readThreads}>{props.threadPending?'Refresh thread request':'Read threads'}</button>
+        <p role="status">{props.threadMessage??(props.threadPending?'Reading adapter threads…':props.threadStop==null?'Current stop identity unavailable; thread selection is not supported by this connection.':props.threads?.length?'Adapter-reported threads at this pause. A reported thread may still be running.':'No thread list requested at this pause.')}</p>
+        {!!props.threads?.length&&<label>Thread <select aria-label="Debugger thread" value={props.selectedThread??''} disabled={props.threadPending||!props.selectThread} onChange={event=>props.selectThread?.(Number(event.target.value))}>{props.threads.map(thread=><option key={thread.id} value={thread.id}>{thread.name} · {thread.id}</option>)}</select></label>}
+      </section>}
+      {props.stackMessage&&<p role="status">Stack read unavailable: {props.stackMessage}</p>}{props.frameVariablesMessage&&<p role="status">Frame locals unavailable: {props.frameVariablesMessage}</p>}{props.frameVariablesPending&&<p role="status">Reading selected-frame locals…</p>}
+      {!!props.stackMessage&&!!props.historicalFrames?.length&&<details><summary>Previous reported stack · historical, not navigable</summary><pre>{props.historicalFrames.map(frameLabel).join("\n")}</pre></details>}
       {props.frames.length > 0 && (
         <select
           className="debug-strip__stack"
+          disabled={!paused||props.threadSelecting}
           aria-label="Call stack"
           value={props.selectedFrame ?? ""}
           onChange={(event) => props.onSelectFrame(Number(event.target.value))}
@@ -400,6 +422,8 @@ export function DebugStrip(props: DebugStripProps) {
           ))}
         </select>
       )}
+      {paused&&!props.threadSelecting&&!props.stackMessage&&!props.frameVariablesPending&&!props.frameVariablesMessage&&props.variables!==undefined&&(props.selectedFrame===props.frames[0]?.id||props.capabilities?.frame_locals)&&<section aria-label="Selected-frame locals"><strong>Selected-frame locals</strong>{props.variables.length?<pre>{props.variables.slice(0,512).map(variable=>{const type=variable.type_name??variable.type;return `${variable.name} = ${variable.value}${type?` · ${type}`:''}`;}).join('\n')}</pre>:<p>No variables reported for this frame.</p>}{props.variables.length>512&&<p>Showing the first 512 of {props.variables.length} reported variables.</p>}</section>}
+      {paused&&props.frames.length>0&&props.selectedFrame!==props.frames[0]?.id&&!props.capabilities?.frame_locals&&<p>Local variables are not reported for this frame; use an explicit watch or expression.</p>}
       {/* The adapter's OWN exception filters. Never a list written here:
           Python offers "raised" and "uncaught", a JVM offers caught and
           uncaught, and an adapter with none draws nothing. */}
@@ -431,7 +455,7 @@ export function DebugStrip(props: DebugStripProps) {
           the editor, faded at the end of the lines that mention them. */}
       {props.watches.map((watch) => (
         <span key={watch.expression} className="debug-strip__watch mono">
-          {watch.expression}
+          {watch.expression} <span> · last reported </span><output aria-label={`Value of watch ${watch.expression}`} style={{whiteSpace:"pre-wrap",overflowWrap:"anywhere"}}>{watch.value??"No value reported at this stop"}</output>
           <button
             type="button"
             aria-label={`Stop watching ${watch.expression}`}
@@ -470,7 +494,7 @@ export function DebugStrip(props: DebugStripProps) {
     </div>
   );
   return <>
-    {props.reading && <ObservationReading reading={props.reading} changed={props.readingChanged} historical={props.status !== "paused" || props.selectedFrame !== props.reading.scope.frame} />}
+    {props.reading && <ObservationReading reading={props.reading} changed={props.readingChanged} historical={props.status !== "paused" || props.selectedFrame !== props.reading.scope.frame || props.observationScope!==undefined&&(!props.observationScope||(["session","run","stop","frame","invocation"] as const).some(key=>props.observationScope![key]!==props.reading!.scope[key]))} />}
     {props.editorView ? <DebugGutterControls view={props.editorView} line={props.pausedLine} program={props.program}>{controls}</DebugGutterControls> : <PaneHeaderContent part="actions">{controls}</PaneHeaderContent>}
     {showBuild && (
       <div className="debug-build" data-testid="debug-build">

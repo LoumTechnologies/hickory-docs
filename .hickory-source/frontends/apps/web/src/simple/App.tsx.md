@@ -169,14 +169,15 @@ export function App() {
     const target = owner?.id ?? currentGroup.id;
     setLayout(current => activate(current, target, tab)); setFocused(target);
   }
-  async function open(file: FileNode) {
+  async function open(file: FileNode,isCurrent:()=>boolean=()=>true) {
+    if(!isCurrent())return;
     const target = groups(layout).find(group => group.id === focused && !group.tabs.includes("files"))?.id
       ?? groups(layout).find(group => !group.tabs.includes("files"))?.id ?? currentGroup.id;
     requested.current.set(target, file.path);
     setFocused(target);
     try {
       await buffers.open(file);
-      if (requested.current.get(target) !== file.path) return;
+      if (!isCurrent()||requested.current.get(target) !== file.path) return;
       setLayout(current => {
         const owner = groups(current).find(group => group.tabs.includes(file.path));
         const live = owner?.id ?? groups(current).find(group => group.id === target)?.id ?? groups(current)[0].id;
@@ -196,22 +197,35 @@ export function App() {
     if (path && location) openLocation(path, location.range.start.line + 1, location.range.start.character, false);
   }
   useEffect(() => onOpenLocation(location => {
-    const departed = currentLocation();
+    const departed = currentLocation(),workspace=workspaceIdentity.current,origin=buffer&&editorForBuffer(buffer),originInteraction=origin?.interaction??0;
+    const current=()=>workspaceIdentity.current===workspace&&(!location.capture||location.capture.current()&&(!origin||origin.interaction===originInteraction));
+    if(!current())return;
     const find = (nodes: FileNode[]): FileNode | undefined => {
       for (const node of nodes) { if (node.path === location.path) return node; const child = find(node.children ?? []); if (child) return child; }
     };
     const file = buffers.values.get(location.path)?.file ?? find(workspaceFiles);
-    if (file) { void open(file).then(() => {
-      const target = buffers.values.get(file.path); if (!target) return;
+    if (file) { void open(file,current).then(async() => {
+      const target = buffers.values.get(file.path); if (!target||!current()) return;
+      if(location.capture){
+        if(!location.capture.hash){setNotice(location.capture.sourceReference&&location.capture.sourceReference>0?"Adapter-owned source bytes have not been read; opened workspace text without a precise position.":location.capture.positionKnown===false?"Frame position is unavailable; opened readable source text only.":"Opened source text only; the debugger has no captured mapping identity for this frame.");return;}
+        const source=target.text,interaction=editorForBuffer(target)?.interaction??0;
+        for(const character of source)if(character.length===1&&character.charCodeAt(0)>=0xD800&&character.charCodeAt(0)<=0xDFFF){setNotice("Source text has an incomplete Unicode scalar; opened without a debugger position.");return;}
+        const digest=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(source)),hash=[...new Uint8Array(digest)].map(byte=>byte.toString(16).padStart(2,"0")).join("");
+        const exact=()=>current()&&[...requested.current.values()].includes(file.path)&&buffers.values.get(file.path)===target&&target.text===source&&(editorForBuffer(target)?.interaction??0)===interaction;
+        if(!exact()){setNotice("Debugger position or editor interaction changed while checking source. Select the frame again.");return;}
+        if(hash!==location.capture.hash){setNotice("Source differs from the captured debugger mapping; opened without a precise position.");return;}
+        if(!Number.isInteger(location.line)||location.line<1||location.line>source.split("\n").length){setNotice("Captured debugger line does not fit this source; opened text only.");return;}
+        revealLine(file.path,location.line,0,{source,current:exact});return;
+      }
       if (location.expectedSource !== undefined && target.text !== location.expectedSource) { setNotice("Source changed. Refresh the query before navigating."); return; }
       if (location.expectedSource === undefined && location.recordHistory !== false && location.character !== undefined && target.dirty && file.path !== buffer?.file.path) { setNotice(`Save ${file.path} and query again before using a cross-file source position.`); return; }
       if (location.recordHistory !== false) {
         const start = { line: location.line - 1, character: location.character ?? 0 };
         trail.record(departed, { uri: documentUri(file.path), range: { start, end: start } }); refreshTrail(value => value + 1);
       }
-      revealLine(file.path, location.line, location.character);
-    }); } else setNotice(`Location not found: ${location.path}. Refresh files and query again.`);
-  }), [workspaceFiles, layout, focused]);
+      revealLine(file.path, location.line, location.character,location.expectedSource===undefined?undefined:{source:location.expectedSource,current:()=>workspaceIdentity.current===workspace&&buffers.values.get(file.path)===target&&target.text===location.expectedSource});
+    }).catch(error=>{if(current())setNotice(String(error)+" Source text remains available; no precise location was applied.");}); } else setNotice(location.capture?.sourceReference&&location.capture.sourceReference>0?"This frame uses adapter-owned source; no matching workspace text is available.":`Location not found: ${location.path}. Refresh files and query again.`);
+  },true), [workspaceFiles, layout, focused]);
   useEffect(()=>{const inspect=(event:Event)=>{const path=(event as CustomEvent<{path:string}>).detail.path,file=buffers.values.get(path)?.file??findPath(path),identity=workspaceIdentity.current;if(!file)return;void open(file).then(()=>{if(workspaceIdentity.current===identity)setShowCoverage(true);});};window.addEventListener(SOURCE_COVERAGE_INSPECTION,inspect);return()=>window.removeEventListener(SOURCE_COVERAGE_INSPECTION,inspect);},[workspaceFiles,layout,focused]);
   useEffect(()=>{const inspect=(event:Event)=>{const request=(event as CustomEvent<SourceTestInspection>).detail;const file=buffers.values.get(request.path)?.file??findPath(request.path);if(!file)return;void open(file).then(()=>{setTestInspection(request);setShowTests(true);});};window.addEventListener(SOURCE_TEST_INSPECTION,inspect);return()=>window.removeEventListener(SOURCE_TEST_INSPECTION,inspect);},[workspaceFiles,layout,focused]);
   async function openFileVisit(file: FileNode) {
@@ -222,6 +236,7 @@ export function App() {
     trail.record(departed, { uri: documentUri(file.path), range: { start, end: start } }); refreshTrail(value => value + 1);
   }
   function close(tab: string) {
+    for(const [group,path] of requested.current)if(path===tab)requested.current.delete(group);
     const candidate = buffers.values.get(tab);
     if (candidate?.dirty || candidate?.saving) { setNotice("Unsaved edits retained. Save this document before closing its tab."); return; }
     setLayout(current => remove(current, tab));

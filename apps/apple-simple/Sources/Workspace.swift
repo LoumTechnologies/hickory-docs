@@ -155,7 +155,7 @@ import Observation
     @ObservationIgnored var applySourceEdits: (([NativeSourceEdit], String) -> Bool)?
     var foldedLines: Set<Int> = []
     @ObservationIgnored var toggleFold: ((Int) -> Void)?
-    @ObservationIgnored var revealDebugLine: ((Int) -> Void)?
+    @ObservationIgnored var revealDebugLine: ((Int) -> Bool)?
     @ObservationIgnored var rememberNavigation: ((SemanticLocation, SemanticLocation) -> Void)?
     @ObservationIgnored var openSemanticLocation: ((SemanticLocation) -> Void)?
     @ObservationIgnored var coverageSource:SimpleCoverageState?
@@ -346,7 +346,7 @@ import Observation
             languageConnection?.close();languageConnection=nil
             analysis.stop(); analysis=WorkspaceAnalysis(); showAnalysis=false; showEverywhere=false;showTests=false;showReview=false;showHistory=false;showAttribution=false;showConstruction=false;showRecovery=false;gitAttribution.close();gitAttribution=GitAttributionModel(path:"");gitHistory.close();gitHistory=GitHistoryModel();gitReview.close();gitReview=GitReviewModel();showCoverage=false;coverage.stop();coverage=SimpleCoverageState();testSources=TestSourcesModel();sourceTestIndex?.stop();sourceTestIndex=nil
             generation = UUID(); changes.reset(); search.invalidate(); showWorkspaceSearch = false; engine = next; debugger = NativeDebugger(engine: next)
-            debugger?.onLocation = { [weak self] path, line in Task { await self?.revealDebug(path, line: line) } }; files = tree.tree; rootFiles = tree.tree; navigationTrail = NavigationTrail(); retainedResourceEditors = [:]; buffers = [:]; loading.values.forEach { $0.cancel() }; loading = [:]
+            if let debug=debugger {debug.onLocation={ [weak self,weak debug] location in guard let self,let debug else{return};let scope=self.generation;Task {[weak self,weak debug] in guard let self,let debug,self.generation==scope else{return};await self.revealDebug(location,debug:debug)}}}; files = tree.tree; rootFiles = tree.tree; navigationTrail = NavigationTrail(); retainedResourceEditors = [:]; buffers = [:]; loading.values.forEach { $0.cancel() }; loading = [:]
             layout = PaneLayout(); focused = "document-group"; status = tree.root
             return true
         } catch { status = error.localizedDescription; return false }
@@ -454,18 +454,34 @@ import Observation
         }
         status = "Opened \(path); editor could not reveal the position. Query again once it is ready."
     }
-    func revealDebug(_ path: String, line: Int) async {
-        func find(_ nodes: [FileNode]) -> FileNode? {
-            for node in nodes { if node.path == path { return node }; if let child = find(node.children ?? []) { return child } }; return nil
-        }
-        guard let file = find(files) else { return }
-        await open(file)
-        if let buffer = buffers[path] { debugger?.rememberSource(buffer) }
-        // Mount the existing editor before applying a source-line reveal.
-        for _ in 0..<20 {
-            if let reveal = buffers[path]?.revealDebugLine { reveal(line); return }
-            try? await Task.sleep(for: .milliseconds(25))
-        }
+    private var debugReveal=UUID()
+    func revealDebug(_ location:NativeDebugLocation,debug:NativeDebugger)async {
+        guard debugger === debug,debug.locationCurrent(location) else{return}
+        let path=location.path,scope=generation,ticket=UUID(),originFocus=focused,originActive=active,originBuffer=currentBuffer,originSelection=currentBuffer?.selection,originText=currentBuffer?.text
+        let departed=currentSemanticLocation()
+        debugReveal=ticket
+        let current={self.generation==scope && self.debugReveal==ticket && self.debugger === debug && debug.locationCurrent(location)}
+        let originCurrent={self.focused==originFocus && exactUTF8(self.active,originActive) && self.currentBuffer === originBuffer && self.currentBuffer?.selection==originSelection && exactUTF8(self.currentBuffer?.text,originText)}
+        guard current() else{return}
+        func find(_ nodes:[FileNode])->FileNode? {for node in nodes {if exactUTF8(node.path,path){return node};if let child=find(node.children ?? []){return child}};return nil}
+        guard let file=buffers.values.first(where:{exactUTF8($0.file.path,path)})?.file ?? find(rootFiles),!file.dir else{status="Debugger source is not listed: \(path). Refresh files to read it.";return}
+        do {
+            let buffer=try await loadBuffer(file)
+            guard current(),originCurrent() else{return}
+            guard exactUTF8(buffer.file.path,path) else{status="Debugger source identity conflicts with a retained native address. Preserve drafts before reconciling its spelling.";return}
+            show(path);status=path
+            if let arrived=currentSemanticLocation(){navigationTrail.record(from:departed,to:arrived)}
+            guard let proof=location.sourceHash,proof.range(of:"^[0-9a-f]{64}$",options:.regularExpression) != nil else{status=location.sourceReference.map{$0>0 ? "Opened \(path) without a position; this frame uses adapter-provided source reference \($0), not saved file bytes.":"Opened \(path) without a position; this frame has no captured source revision."} ?? "Opened \(path) without a position; this frame has no captured source revision.";return}
+            guard debug.sourceMatches(buffer),nativeSourceHash(buffer.text)==proof else{status="Opened \(path) without a position; current text differs from the captured launch/construction source.";return}
+            let source=buffer.text,selection=buffer.selection,targetFocus=focused
+            guard location.line>=0,languageOffset(source,["line":location.line,"character":0]) != nil else{status="Opened \(path); stopped position does not fit its captured source.";return}
+            for _ in 0..<20 {
+                guard current(),focused==targetFocus,exactUTF8(active,path),buffers[path] === buffer,exactUTF8(buffer.text,source),buffer.selection==selection,debug.sourceMatches(buffer) else{return}
+                if buffer.revealDebugLine?(location.line)==true {status="Opened \(path); captured position accepted by the editor.";return}
+                try? await Task.sleep(for:.milliseconds(25))
+            }
+            if current(){status="Opened \(path); captured position is waiting for an editor. Readable text is retained."}
+        }catch{if current(){status=error.localizedDescription+" Debug source could not be opened; other buffers are retained."}}
     }
     func openTerminal() async {
         guard let engine else { status = "Connect to a workspace server before opening Terminal."; return }

@@ -46,7 +46,7 @@ Related contracts: [Find And Replace Is Exhaustive, And Refuses What It Would Un
 
 <storycode:copy id="f-3bdafe22f219-expression_statement">
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { claimReveal, onRevealLine, resetReveals, revealLine } from "./revealLine";
+import { claimReveal,claimRevealPosition,onOpenLocation,openCapturedLocation, onRevealLine, resetReveals, revealLine } from "./revealLine";
 
 afterEach(() => {
   resetReveals();
@@ -106,7 +106,19 @@ describe("asking for a file at a line", () => {
 
 The selections below preserve the original byte order. Narrative reading order does not change the output.
 
-<storycode:file path="apps/web/src/lib/revealLine.test.ts"><storycode:paste select="#f-3bdafe22f219-expression_statement"/><storycode:paste select="#f-3bdafe22f219-expression_statement-2"/></storycode:file>
+<storycode:file path="apps/web/src/lib/revealLine.test.ts"><storycode:paste select="#f-3bdafe22f219-expression_statement"/><storycode:paste select="#f-3bdafe22f219-expression_statement-2"/>
+
+it("retains captured source and interaction authority until the final position claim",()=>{
+ let current=true;revealLine("a.py",2,0,{source:"a\nb",current:()=>current});current=false;expect(claimRevealPosition("a.py","a\nb")).toBeNull();
+ current=true;revealLine("a.py",2,0,{source:"a\nb",current:()=>current});expect(claimRevealPosition("a.py","changed")).toBeNull();
+ revealLine("a.py",2,0,{source:"a\nb",current:()=>current});expect(claimReveal("a.py")).toBeNull();
+ revealLine("a.py",2,0,{source:"a\nb",current:()=>current});expect(claimRevealPosition("a.py","a\nb")).toEqual({line:2,character:0});expect(claimRevealPosition("a.py","a\nb")).toBeNull();
+});
+it("never turns an unknown captured mapping identity into a precise source position",()=>{
+ const heard=vi.fn(),off=onOpenLocation(heard,true),current=()=>true;openCapturedLocation("helpers.py",99,null,current);expect(heard).toHaveBeenCalledWith(expect.objectContaining({path:"helpers.py",line:99,capture:expect.objectContaining({hash:null,current,positionKnown:true})}));openCapturedLocation("helpers.py",null,"a".repeat(64),current);expect(heard).toHaveBeenLastCalledWith(expect.objectContaining({capture:expect.objectContaining({hash:null,positionKnown:false})}));off();
+ const legacy=vi.fn(),retire=onOpenLocation(legacy);openCapturedLocation("helpers.py",99,"a".repeat(64),current,1);expect(legacy).not.toHaveBeenCalled();retire();
+});
+</storycode:file>
 
 <a id="output-60a64147ca82"></a>
 ## `apps/web/src/shell/TreeFindReplace.test.tsx`

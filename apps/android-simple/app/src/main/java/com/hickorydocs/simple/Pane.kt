@@ -717,11 +717,12 @@ private class NativeTableController(val buffer: DocumentBuffer, val scope: kotli
     val replacements = editorReplacements(folds, tables, source, diagrams, if (buffer.inlineMarkup.source == source) buffer.inlineMarkup.equations else emptyList(), (buffer.recordedOutputPlacements() + debug?.outputPlacements(buffer).orEmpty()), fontScale = LocalDensity.current.fontScale)
     val display = editorDisplay(source, replacements)
     var textLayout by remember(buffer) { mutableStateOf<TextLayoutResult?>(null) }
-    val paused = if (debug?.sourceMatches(buffer) == true) debug.line(buffer.file.path) else null
+    val paused = if (debug?.positionSourceMatches(buffer) == true) debug.line(buffer.file.path) else null
     val pauseColor = MaterialTheme.colorScheme.primary.copy(alpha = .14f)
-    LaunchedEffect(buffer.debugReveal) { if (buffer.debugReveal != null) buffer.clearFolds() }
+    LaunchedEffect(buffer.debugReveal) { if (buffer.debugReveal != null&&buffer.debugRevealCurrent()&&buffer.debugRevealSource==buffer.text) buffer.clearFolds() }
     LaunchedEffect(buffer.debugReveal, textLayout) {
         val request = buffer.debugReveal ?: return@LaunchedEffect
+        if(!buffer.debugRevealCurrent()||buffer.debugRevealSource!=buffer.text){if(buffer.debugReveal==request)buffer.debugReveal=null;return@LaunchedEffect}
         val layout = textLayout ?: return@LaunchedEffect
         val offset = debugLineOffset(source, request.first) ?: return@LaunchedEffect
         if (layout.layoutInput.text.text == source && buffer.text == source) {
@@ -1129,7 +1130,7 @@ fun debugLineOffset(source: String, line: Int): Int? {
     val display = editorDisplay(source, replacements)
     val coverageLines=buffer.coverageRows().associateBy {it.line}
     val testLines=buffer.sourceTestRows().map {it.first}.toSet()
-    val paused = if (debug.sourceMatches(buffer)) debug.line(buffer.file.path) else null
+    val paused = if (debug.positionSourceMatches(buffer)) debug.line(buffer.file.path) else null
     Box(Modifier.width(4.dp).fillMaxHeight().background(MaterialTheme.colorScheme.outlineVariant).pointerInput(buffer) {
         detectDragGestures { change, amount -> change.consume(); railWidth = (railWidth - amount.x / density.density).coerceIn(24f, 220f) }
     }.semantics { contentDescription = "Resize right gutter" })
@@ -1150,7 +1151,10 @@ fun debugLineOffset(source: String, line: Int): Int? {
                 val actions = mutableListOf<Triple<String, String, () -> Unit>>()
                 coverageLines[line]?.let {row->actions.add(Triple(if(row.state=="covered")"●" else if(row.state=="uncovered")"○" else "◐","Coverage ${row.state} · ${row.count?.let {"count $it"} ?: "count unavailable"} · ${row.origins.size} measured location(s)",{buffer.inspectCoverage?.invoke(line)}))}
                 if(line in testLines)actions.add(Triple("▷","Inspect source tests",{buffer.inspectTests?.invoke(line)}))
-                if (buffer.inlineMarkup.source == source && buffer.inlineMarkup.debug.launch[line] != null) actions.add(Triple("▷", "Debug", { scope.launch { debug.prepare(buffer, line); opened = if (debug.active) null else line } }))
+                if (buffer.inlineMarkup.source == source && buffer.inlineMarkup.debug.launch[line] != null) actions.add(Triple(if(debug.hasInspection)"◎" else "▷",if(debug.hasInspection)"Inspect debugger" else "Debug", {
+                    if(debug.hasInspection)opened=line
+                    else scope.launch { debug.prepare(buffer, line); opened = if (debug.active) null else line }
+                }))
                 if (buffer.inlineMarkup.source == source && buffer.inlineMarkup.equations.any { it.line == line }) actions.add(Triple("ƒ", "Edit equation", { opened = line }))
                 if (buffer.receiptsOn(line).isNotEmpty()) actions.add(Triple("▤", "Recorded output", { opened = line }))
                 if (line == paused) {
@@ -1220,11 +1224,12 @@ fun debugLineOffset(source: String, line: Int): Int? {
                             if (buffer.receiptNotice.isNotEmpty()) Text(buffer.receiptNotice, fontSize = 12.sp)
                             if (buffer.file.docID != null) TextButton(onClick = { scope.launch { buffer.refreshReceipts() } }) { Text("↻ Refresh recorded output") }
                             if (inlineDebugPath(source, buffer.file.path, line, true) != null || inlineDebugPath(source, buffer.file.path, line) != null) {
+                            if(debug.owner.isNotEmpty())Text("Debugger · ${debug.owner} · ${debug.status}",fontSize=12.sp)
                             if (buffer.dirty) Text("Save edited text before launching. Values belong to the source that ran.", fontSize = 12.sp)
                             FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                                 TextButton(enabled = !debug.active && !buffer.dirty && !buffer.saving, onClick = { scope.launch { debug.prepare(buffer, line) } }) { Text("▷ Debug") }
                                 if (inlineDebugPath(source, buffer.file.path, line) != null) TextButton(onClick = { debug.toggle(buffer.file.path, line) }) { Text("● Breakpoint") }
-                                if (paused == line) {
+                                if (debug.status == "paused") {
                                     listOf("Continue" to "continue", "Step over" to "over", "Step in" to "in", "Step out" to "out").forEach { (label, how) -> TextButton(onClick = { debug.step(how) }) { Text(label) } }
                                     if (debug.capabilities.optBoolean("step_back")) TextButton(onClick = { debug.step("back") }) { Text("↶ Step back") }
                                 }
@@ -1238,11 +1243,28 @@ fun debugLineOffset(source: String, line: Int): Int? {
                                 OutlinedTextField(value = condition, onValueChange = { condition = it }, label = { Text("Breakpoint condition") })
                                 TextButton(onClick = { debug.toggle(buffer.file.path, line, condition) }) { Text("✓ Apply condition") }
                             }
-                            if (paused == line) {
+                            if (debug.status == "paused") {
+                                Text("Source positions use captured launch/mapping text when bound. Matching text does not establish execution coverage.",fontSize=12.sp)
+                                TextButton(enabled=!debug.threadBusy,onClick={debug.readThreads()}){Text("Read threads")}
+                                if(debug.threadNotice.isNotEmpty())Text(debug.threadNotice,fontSize=12.sp)
+                                debug.threadReading?.let{reading->
+                                    var threadPage by remember(reading){mutableStateOf(0)}
+                                    Text("${reading.threads.size} reported threads · pause ${reading.stop}",fontSize=12.sp)
+                                    Row{TextButton(enabled=threadPage>0,onClick={threadPage--}){Text("Previous threads")};Text("${threadPage+1} / ${(reading.threads.size+63)/64}",fontSize=12.sp);TextButton(enabled=(threadPage+1)*64<reading.threads.size,onClick={threadPage++}){Text("Next threads")}}
+                                    reading.threads.drop(threadPage*64).take(64).forEach{thread->TextButton(enabled=!debug.threadBusy&&thread.id!=reading.selected,modifier=Modifier.semantics{selected=thread.id==reading.selected},onClick={debug.selectThread(reading,thread.id)}){Text((if(thread.id==reading.selected)"✓ " else "")+thread.name+" (#${thread.id})")}}
+                                }
                                 OutlinedTextField(value = expression, onValueChange = { expression = it }, label = { Text("Expression") })
                                 Row { TextButton(onClick = { debug.evaluate(expression) }) { Text("= Evaluate") }; TextButton(onClick = { debug.evaluate(expression, true) }) { Text("◉ Watch") } }
-                                debug.frames.forEach { frame -> TextButton(onClick = { debug.select(frame) }) { Text(frame.optString("name", "Frame")) } }
-                                debug.variables.forEach { variable -> Text("${variable.optString("name")} = ${variable.optString("value")}", fontSize = 12.sp) }
+                                if(debug.frameNotice.isNotEmpty())Text(debug.frameNotice,fontSize=12.sp)
+                                if(debug.adapterSourceRequired)Text("Adapter source is unavailable in this reader. This frame's positive source reference prevents a disk-source position; frame/thread inspection remains available.",fontSize=12.sp)
+                                TextButton(enabled=debug.framesCurrent,onClick={debug.readFrameVariables()}){Text("Read frame locals")}
+                                var framePage by remember(debug.frames){mutableStateOf(0)}
+                                Text(if(debug.framesCurrent)"${debug.frames.size} reported frames" else "Previous stack · current stack unavailable",fontSize=12.sp)
+                                if(debug.frames.size>64)Row{TextButton(enabled=framePage>0,onClick={framePage--}){Text("Previous frames")};TextButton(enabled=(framePage+1)*64<debug.frames.size,onClick={framePage++}){Text("Next frames")}}
+                                debug.frames.drop(framePage*64).take(64).forEach { frame -> TextButton(enabled=debug.framesCurrent,onClick = { debug.select(frame) }) { Text(frame.optString("name", "Frame")) } }
+                                var localsPage by remember(debug.variables){mutableStateOf(0)}
+                                if(debug.variables.size>64)Row{TextButton(enabled=localsPage>0,onClick={localsPage--}){Text("Previous locals")};TextButton(enabled=(localsPage+1)*64<debug.variables.size,onClick={localsPage++}){Text("Next locals")}}
+                                debug.variables.drop(localsPage*64).take(64).forEach { variable -> Text("${variable.optString("name")} = ${variable.optString("value")}", fontSize = 12.sp) }
                                 debug.values.forEach { (key, value) -> Row { Text("$key = $value", modifier = Modifier.weight(1f)); if (key in debug.watches) TextButton(onClick = { debug.removeWatch(key) }) { Text("×") } } }
                             }
                             }

@@ -774,8 +774,8 @@ private struct EquationLayout: Equatable {
             return self.applySourceEdits([NativeSourceEdit(range: range, text: insert)], source: source)
         }
         buffer.revealDebugLine = { [weak self] line in
-            guard let self, let offset = languageOffset(self.buffer.text, ["line": line, "character": 0]) else { return }
-            self.unfoldAll(); self.text.scrollRangeToVisible(NSRange(location: offset, length: 0))
+            guard let self, let offset = languageOffset(self.buffer.text, ["line": line, "character": 0]) else { return false }
+            self.unfoldAll(); self.text.scrollRangeToVisible(NSRange(location: offset, length: 0));return true
         }
         scroll.contentView.postsBoundsChangedNotifications = true
         observer = NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification, object: scroll.contentView, queue: .main) { [weak self] _ in Task { @MainActor in self?.measureDebugLines() } }
@@ -1321,8 +1321,8 @@ import UIKit
             return self.applySourceEdits([NativeSourceEdit(range: range, text: insert)], source: source)
         }
         buffer.revealDebugLine = { [weak self] line in
-            guard let self, let offset = languageOffset(self.buffer.text, ["line": line, "character": 0]) else { return }
-            self.unfoldAll(); self.text.scrollRangeToVisible(NSRange(location: offset, length: 0))
+            guard let self, let offset = languageOffset(self.buffer.text, ["line": line, "character": 0]) else { return false }
+            self.unfoldAll(); self.text.scrollRangeToVisible(NSRange(location: offset, length: 0));return true
         }
         text.layoutManager.delegate = folding
         buffer.toggleFold = { [weak self] line in self?.toggleFold(line) }
@@ -2098,6 +2098,21 @@ struct NativeDebugRail: View {
     @State private var expression = ""
     @State private var condition = ""
     private var paused: Int? { debug.sourceMatches(buffer) ? debug.line(in: buffer.file.path) : nil }
+    @ViewBuilder private var threadControls:some View {
+        let snapshot=debug.threadSnapshot
+        VStack(alignment:.leading,spacing:4) {
+            HStack{Button(debug.threadBusy ? "Reading threads…":"Read threads"){debug.readThreads()}.disabled(!debug.canReadThreads);Button("Refresh paused state"){debug.refreshPausedState()}.disabled(debug.threadBusy || debug.refreshingPause)}
+            if !debug.threadNotice.isEmpty {Text(debug.threadNotice).font(.caption).textSelection(.enabled)}
+            if let selected=debug.selectedThread {Text("Reported thread \(selected)").font(.caption)}
+            ForEach(debug.visibleThreads){thread in
+                Button("\(thread.id==debug.selectedThread ? "●":"○") \(thread.name.isEmpty ? "Thread":thread.name) (\(thread.id))"){debug.selectThread(thread.id,snapshot:snapshot)}
+                    .disabled(!debug.canSelectThreads).accessibilityAddTraits(thread.id==debug.selectedThread ? .isSelected:[])
+                    .accessibilityHint("Requests this reported thread’s stopped stack without changing source.")
+            }
+            if debug.threadPages>1 {HStack{Button("Previous threads"){debug.threadPage=max(0,debug.threadPage-1)}.disabled(debug.threadPage==0 || debug.threadBusy);Text("Page \(debug.threadPage+1) of \(debug.threadPages)").font(.caption);Button("Next threads"){debug.threadPage=min(debug.threadPages-1,debug.threadPage+1)}.disabled(debug.threadPage>=debug.threadPages-1 || debug.threadBusy)}}
+        }
+    }
+
     private func embeddedAnchors(_ line: Int) -> [Int] {
         guard exactUTF8(buffer.inlineMarkup.source,buffer.text) else { return [] }
         return buffer.inlineMarkup.diagrams.filter { $0.line == line }.map(\.id)
@@ -2122,6 +2137,7 @@ struct NativeDebugRail: View {
     }
     private func actionLabel(_ action:String,line:Int)->String {
         if action.hasPrefix("coverage:"),let row=buffer.coverageRows().first(where:{$0.line==line}) {return "Coverage \(row.state) · \(row.count.map {"count \($0)"} ?? "count unavailable") · \(row.origins.count) measured location(s)"}
+        if action=="debug",debug.hasSessionReading {return "Inspect debugger"}
         return action == "tests" ? "Inspect source tests" : action.hasPrefix("source:") ? "Toggle source text" : action.capitalized
     }
     @ViewBuilder private func icon(_ action: String, line: Int) -> some View {
@@ -2131,14 +2147,16 @@ struct NativeDebugRail: View {
             if action.hasPrefix("source:"), let anchor = Int(action.dropFirst(7)) { buffer.sourceTable = buffer.sourceTable == anchor ? nil : anchor; return }
             switch action {
             case "tests":buffer.inspectTests?(line)
-            case "debug": Task { await debug.prepare(buffer, line: line); details = debug.active ? nil : line }
+            case "debug":
+                if debug.hasSessionReading {details=line}
+                else {Task {await debug.prepare(buffer,line:line);details=debug.active ? nil:line}}
             case "continue", "over", "in", "out": debug.step(action)
             case "stop": debug.stop()
             default: details = line
             }
         } label: { Image(systemName: symbol(action)).frame(width: 20, height: 18) }
         .foregroundStyle(action=="coverage:covered" ? Color.green:action=="coverage:uncovered" ? Color.red:action=="coverage:mixed" ? Color.orange:Color.primary)
-        .buttonStyle(SimpleChromeButtonStyle()).disabled(action == "debug" && (debug.active || buffer.dirty || buffer.saving)).help(actionLabel(action,line:line)).accessibilityLabel("\(actionLabel(action,line:line)) on line \(line + 1)")
+        .buttonStyle(SimpleChromeButtonStyle()).disabled(action == "debug" && !debug.hasSessionReading && (buffer.dirty || buffer.saving)).help(actionLabel(action,line:line)).accessibilityLabel("\(actionLabel(action,line:line)) on line \(line + 1)")
     }
     var body: some View {
         GeometryReader { geometry in
@@ -2175,7 +2193,8 @@ struct NativeDebugRail: View {
     }
     @ViewBuilder private func controls(_ line: Int) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Line \(line + 1) · \(debug.status)").font(.caption)
+            Text("Source line \(line + 1) · \(debug.status)").font(.caption)
+            if debug.status=="paused",paused != line {Text("The selected runtime frame has no current stop marker on this source line. Thread and frame controls still refer to the paused runtime.").font(.caption)}
             if exactUTF8(buffer.inlineMarkup.source,buffer.text) {
                 ForEach(Array(buffer.inlineMarkup.equations.filter { $0.line == line }.prefix(4))) { equation in
                     InlineEquationControl(equation: equation, source: buffer.text, buffer: buffer).id("math:\(equation.id):\(buffer.text)")
@@ -2197,10 +2216,10 @@ struct NativeDebugRail: View {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 86))], spacing: 5) {
                 Button("Debug", systemImage: "play") { Task { await debug.prepare(buffer, line: line) } }.disabled(debug.active || buffer.dirty || buffer.saving)
                 if inlineDebugPath(buffer.text, path: buffer.file.path, line: line) != nil { Button("Breakpoint", systemImage: "circle.fill") { debug.toggle(buffer.file.path, line: line) } }
-                if paused == line {
-                    Button("Continue", systemImage: "play.fill") { debug.step("continue") }; Button("Step over", systemImage: "arrow.turn.down.right") { debug.step("over") }
-                    Button("Step in", systemImage: "arrow.down") { debug.step("in") }; Button("Step out", systemImage: "arrow.up") { debug.step("out") }
-                    if debug.capabilities["step_back"] as? Bool == true { Button("Step back", systemImage: "arrow.uturn.backward") { debug.step("back") } }
+                if debug.status == "paused" {
+                    Button("Continue", systemImage: "play.fill") { debug.step("continue") }.disabled(!debug.canResume); Button("Step over", systemImage: "arrow.turn.down.right") { debug.step("over") }.disabled(!debug.canInspectFrame)
+                    Button("Step in", systemImage: "arrow.down") { debug.step("in") }.disabled(!debug.canInspectFrame); Button("Step out", systemImage: "arrow.up") { debug.step("out") }.disabled(!debug.canInspectFrame)
+                    if debug.capabilities["step_back"] as? Bool == true { Button("Step back", systemImage: "arrow.uturn.backward") { debug.step("back") }.disabled(!debug.canInspectFrame) }
                 }
                 if debug.active { Button("Stop", systemImage: "stop.fill") { debug.stop() } }
             }
@@ -2212,14 +2231,22 @@ struct NativeDebugRail: View {
                 TextField("Breakpoint condition", text: $condition)
                 Button("Apply condition", systemImage: "checkmark") { debug.toggle(buffer.file.path, line: line, condition: condition) }
             }
-            if paused == line {
+            if debug.status == "paused" {
+                threadControls
+                Text("Source positions compare captured launch/construction text; loaded runtime inputs are not frozen or proven by those captures.").font(.caption)
+                let frameSnapshot=debug.frameSnapshot
+                if !debug.stackNotice.isEmpty {Text(debug.stackNotice).font(.caption).textSelection(.enabled)}
+                if !debug.sourceReferenceNotice.isEmpty {Text(debug.sourceReferenceNotice).font(.caption).textSelection(.enabled)}
+                Button(debug.frameBusy ? "Reading frame variables…":"Read selected-frame variables"){debug.readFrameLocals()}.disabled(!debug.canReadFrameLocals)
+                if !debug.frameNotice.isEmpty {Text(debug.frameNotice).font(.caption).textSelection(.enabled)}
                 TextField("Expression", text: $expression)
-                HStack { Button("Evaluate", systemImage: "equal") { debug.evaluate(expression) }; Button("Watch", systemImage: "eye") { debug.evaluate(expression, watch: true) } }
+                HStack { Button("Evaluate", systemImage: "equal") { debug.evaluate(expression) }.disabled(!debug.canEvaluate || expression.isEmpty); Button("Watch", systemImage: "eye") { debug.evaluate(expression, watch: true) }.disabled(!debug.canEvaluate || expression.isEmpty) }
+                if !debug.evaluationNotice.isEmpty {Text(debug.evaluationNotice).font(.caption).textSelection(.enabled)}
                 ScrollView {
                     VStack(alignment: .leading, spacing: 4) {
-                        ForEach(Array(debug.frames.enumerated()), id: \.offset) { _, frame in Button(frame["name"] as? String ?? "Frame") { debug.select(frame) } }
+                        ForEach(Array(debug.frames.enumerated()), id: \.offset) { _, frame in Button(frame["name"] as? String ?? "Frame") { debug.select(frame,snapshot:frameSnapshot) }.disabled(!debug.canInspectFrame) }
                         ForEach(Array(debug.variables.enumerated()), id: \.offset) { _, variable in Text("\(variable["name"] as? String ?? "") = \(variable["value"] as? String ?? "")").textSelection(.enabled) }
-                        ForEach(debug.values.keys.sorted(), id: \.self) { key in HStack { Text("\(key) = \(debug.values[key] ?? "…")"); if debug.watches.contains(key) { Button("×") { debug.watches.removeAll { $0 == key }; debug.values.removeValue(forKey: key) }.accessibilityLabel("Remove watch \(key)") } } }
+                        ForEach(debug.values.readings) { reading in HStack { Text("\(reading.expression) = \(reading.value)"); if debug.isWatched(reading.expression) { Button("×") { debug.removeWatch(reading.expression) }.accessibilityLabel("Remove watch \(reading.expression)") } } }
                     }
                 }.frame(maxHeight: 180)
             }

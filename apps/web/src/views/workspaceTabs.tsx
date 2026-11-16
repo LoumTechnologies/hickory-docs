@@ -198,6 +198,7 @@ export function DocTabBody({
         offerInstall={debug.offerInstall}
         onInstall={offer => api.installTool(offer.kind, offer.language).then(() => undefined)}
         capabilities={debug.capabilities}
+        variables={debug.variables} threads={debug.threads} selectedThread={debug.selectedThread} threadStop={debug.threadStop} threadPending={debug.threadPending} threadSelecting={debug.threadSelecting} threadMessage={debug.threadMessage} frameVariablesPending={debug.frameVariablesPending} frameVariablesMessage={debug.frameVariablesMessage} stackMessage={debug.stackMessage} historicalFrames={debug.historicalFrames} observationScope={debug.observationScope} readThreads={debug.readThreads} selectThread={debug.selectThread}
         frames={debug.frames}
         selectedFrame={debug.selectedFrame}
         watches={debug.watches}

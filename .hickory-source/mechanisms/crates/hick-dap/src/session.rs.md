@@ -91,6 +91,10 @@ present and silently does nothing is worse than one that is absent.
 /// present and silently does nothing is worse than one that is absent.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Capabilities {
+    /// The engine can query DAP's base scopes/variables for a selected frame.
+    /// Individual adapter reads may still refuse and remain explicit failures.
+    #[serde(default)]
+    pub frame_locals: bool,
     pub conditional_breakpoints: bool,
     pub hit_conditional_breakpoints: bool,
     pub log_points: bool,
@@ -112,7 +116,6 @@ pub struct Capabilities {
     pub terminate_threads: bool,
     pub exception_filters: Vec<ExceptionFilter>,
 }
-
 </storycode:copy>
 <a id="f-3c41c22e0551-ExceptionFilter"></a>
 ### `ExceptionFilter`
@@ -133,6 +136,7 @@ impl Capabilities {
     fn from_initialize(body: &Value) -> Self {
         let flag = |name: &str| body.get(name).and_then(Value::as_bool).unwrap_or(false);
         Self {
+            frame_locals: true,
             conditional_breakpoints: flag("supportsConditionalBreakpoints"),
             hit_conditional_breakpoints: flag("supportsHitConditionalBreakpoints"),
             log_points: flag("supportsLogPoints"),
@@ -160,7 +164,6 @@ impl Capabilities {
         }
     }
 }
-
 </storycode:copy>
 <a id="f-3c41c22e0551-Breakpoint"></a>
 ### `Breakpoint`
@@ -308,7 +311,19 @@ fn stopped_from(body: &Value) -> Stopped {
             .and_then(Value::as_str)
             .unwrap_or("?")
             .into(),
-        thread_id: body.get("threadId").and_then(Value::as_i64).unwrap_or(1),
+        thread_id: body
+            .get("threadId")
+            .and_then(Value::as_i64)
+            .filter(|id| i32::try_from(*id).is_ok())
+            .unwrap_or(0),
+        thread_id_known: body
+            .get("threadId")
+            .and_then(Value::as_i64)
+            .is_some_and(|id| i32::try_from(id).is_ok()),
+        all_threads_stopped: body
+            .get("allThreadsStopped")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
         description: body
             .get("description")
             .and_then(Value::as_str)
@@ -316,7 +331,6 @@ fn stopped_from(body: &Value) -> Stopped {
         text: body.get("text").and_then(Value::as_str).map(str::to_string),
     }
 }
-
 </storycode:copy>
 <a id="f-3c41c22e0551-stack_frame"></a>
 ### `stack_frame`
@@ -332,8 +346,92 @@ mod stack_frame;
 pub use stack_frame::Frame;
 
 </storycode:copy>
+### Admit a bounded reported thread observation
+
+Thread identities are protocol integers, not array positions or truthy counters. Keep valid zero/negative handles and require each reported identity exactly once before the host can select a stack.
+
+<storycode:copy id="debug-thread-observations">
+/// One adapter-reported thread. Names and identities are observations, not
+/// evidence that every thread is paused or that a source revision is current.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Thread {
+    pub id: i64,
+    pub name: String,
+}
+
+fn decode_threads(body: &Value) -> Result<Vec<Thread>> {
+    let threads: Vec<Thread> = serde_json::from_value(
+        body.get("threads")
+            .cloned()
+            .context("Adapter returned no thread list")?,
+    )
+    .context("Adapter returned a malformed thread list")?;
+    let mut ids = std::collections::HashSet::new();
+    if threads.len() > 4096
+        || threads.iter().any(|thread| {
+            i32::try_from(thread.id).is_err() || thread.name.len() > 4096 || !ids.insert(thread.id)
+        })
+    {
+        bail!("Adapter thread list has invalid, duplicate or excessive identities");
+    }
+    Ok(threads)
+}
+
+</storycode:copy>
+
+### Check thread identity and refusal boundaries
+
+The cases retain report order and exact names, distinguish a valid empty report from unavailable data, and reject malformed, duplicate or excessive identities before any UI mutation.
+
+<storycode:copy id="debug-thread-observation-tests">
+#[cfg(test)]
+#[test]
+fn thread_lists_retain_adapter_identity_and_refuse_ambiguous_values() {
+    let threads =
+        decode_threads(&json!({"threads":[{"id":7,"name":"worker λ"},{"id":2,"name":"main"}]}))
+            .unwrap();
+    assert_eq!(
+        threads,
+        [
+            Thread {
+                id: 7,
+                name: "worker λ".into()
+            },
+            Thread {
+                id: 2,
+                name: "main".into()
+            }
+        ]
+    );
+    assert!(decode_threads(&json!({"threads":[]})).unwrap().is_empty());
+    assert_eq!(
+        decode_threads(&json!({"threads":[{"id":0,"name":"zero"},{"id":-1,"name":"negative"}]}))
+            .unwrap()
+            .iter()
+            .map(|entry| entry.id)
+            .collect::<Vec<_>>(),
+        [0, -1]
+    );
+    for body in [
+        json!({}),
+        json!({"threads":null}),
+        json!({"threads":[{"id":7,"name":"a"},{"id":7,"name":"b"}]}),
+        json!({"threads":[{"id":true,"name":"boolean"}]}),
+        json!({"threads":[{"id":1.5,"name":"fraction"}]}),
+        json!({"threads":[{"id":2147483648i64,"name":"outside protocol identity range"}]}),
+        json!({"threads":[{"id":1,"name":"x".repeat(4097)}]}),
+        json!({"threads":(1..=4097).map(|id| json!({"id":id,"name":"worker"})).collect::<Vec<_>>()}),
+    ] {
+        assert!(decode_threads(&body).is_err(), "accepted {body}");
+    }
+}
+
+</storycode:copy>
+
 <a id="f-3c41c22e0551-Variable"></a>
-### `Variable`
+### Retain a reported variable value
+
+A value retains its adapter reference for optional expansion; text alone never supplies a container reference.
 
 <storycode:copy id="f-3c41c22e0551-Variable">
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -346,7 +444,6 @@ pub struct Variable {
     #[serde(default)]
     pub variables_reference: i64,
 }
-
 </storycode:copy>
 <a id="f-3c41c22e0551-Exit"></a>
 ### `Exit`
@@ -378,11 +475,14 @@ pub struct Stopped {
     pub reason: String,
     pub thread_id: i64,
     #[serde(default)]
+    pub thread_id_known: bool,
+    #[serde(default)]
+    pub all_threads_stopped: bool,
+    #[serde(default)]
     pub description: Option<String>,
     #[serde(default)]
     pub text: Option<String>,
 }
-
 </storycode:copy>
 <a id="f-3c41c22e0551-Step"></a>
 ### `Step`
@@ -483,7 +583,7 @@ pub struct Session {
 ### `use_declaration`
 
 <storycode:copy id="f-3c41c22e0551-use_declaration-2">
-use crate::mapping::{Mapping, same_file};
+use crate::mapping::Mapping;
 
 </storycode:copy>
 <a id="f-3c41c22e0551-Launch"></a>
@@ -580,6 +680,12 @@ not depend on a UI subscriber arriving in time. Drain the queue at an ordinary
 debugger response boundary. Output locations use the same mapping as stack frames;
 a missing adapter source or line remains absent, rather than borrowing a stop.
 The queue belongs to this public interactive session, not private prediction capture.
+
+Read the adapter's thread list separately from stack and locals. Keep exact
+reported names and integer identities; reject missing, duplicate or excessive
+identities before a host can use a row to select another stack. A reported thread
+is not proof that it is stopped. The bridge must obtain a successful stack read
+and match its stopped observation before changing selection.
 
 <storycode:copy id="f-3c41c22e0551-impl-Session">
 impl Session {
@@ -907,17 +1013,44 @@ impl Session {
     /// stop that arrived before this call is still waiting here.
     pub async fn wait_for_stop(&self, timeout: Duration) -> Result<Option<Stopped>> {
         let mut stops = self.stops.lock().await;
-        match tokio::time::timeout(timeout, stops.recv()).await {
-            Ok(Some(Some(stopped))) => {
+        let received = match tokio::time::timeout(timeout, stops.recv()).await {
+            Ok(received) => received,
+            Err(_) => return Ok(None),
+        };
+        drop(stops);
+        self.accept_stop(received).await
+    }
+
+    /// Interactive runs end only on a real adapter termination/channel closure,
+    /// never because a bounded capture wait elapsed. The socket task is detached
+    /// from editing and explicit Stop can still shut down the adapter.
+    pub async fn wait_until_stop(&self) -> Result<Option<Stopped>> {
+        let received = self.stops.lock().await.recv().await;
+        self.accept_stop(received).await
+    }
+
+    async fn accept_stop(&self, received: Option<Option<Stopped>>) -> Result<Option<Stopped>> {
+        match received {
+            Some(Some(mut stopped)) => {
+                if !stopped.thread_id_known {
+                    if !stopped.all_threads_stopped {
+                        bail!("The adapter stopped without identifying a stopped thread");
+                    }
+                    stopped.thread_id = self
+                        .threads()
+                        .await?
+                        .first()
+                        .context("The stopped adapter reported no threads")?
+                        .id;
+                    stopped.thread_id_known = true;
+                }
                 *self.last_stopped.lock().await = Some(stopped.clone());
-                drop(stops);
                 self.clear_run_to().await;
                 Ok(Some(stopped))
             }
             // The program ended, or the adapter is gone: either way there
             // will be no more stops.
-            Ok(Some(None)) | Ok(None) => Ok(None),
-            Err(_) => Ok(None),
+            Some(None) | None => Ok(None),
         }
     }
 
@@ -938,60 +1071,20 @@ impl Session {
         }
     }
 
+    /// Request threads independently of stack/locals, so a failed optional read
+    /// does not hide the last readable stopped position.
+    pub async fn threads(&self) -> Result<Vec<Thread>> {
+        let body = self.adapter.request("threads", json!({})).await?;
+        decode_threads(&body)
+    }
+
     /// The call stack, in document coordinates where it can be.
     pub async fn stack(&self, thread_id: i64) -> Result<Vec<Frame>> {
         let body = self
             .adapter
             .request("stackTrace", json!({ "threadId": thread_id, "levels": 50 }))
             .await?;
-        let frames = body
-            .get("stackFrames")
-            .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default();
-        Ok(frames
-            .iter()
-            .map(|frame| {
-                let path = frame
-                    .pointer("/source/path")
-                    .and_then(Value::as_str)
-                    .map(PathBuf::from);
-                // DAP counts from 1 when the client says so, which we did.
-                let raw_line = frame
-                    .get("line")
-                    .and_then(Value::as_i64)
-                    .unwrap_or(1)
-                    .max(1) as u32
-                    - 1;
-                let source_location = path
-                    .as_deref()
-                    .and_then(|p| self.mapping.source_location(p, raw_line));
-                let document_line = source_location
-                    .as_ref()
-                    .filter(|(p, _)| same_file(p, self.mapping.document()))
-                    .map(|(_, line)| *line);
-                Frame {
-                    id: frame.get("id").and_then(Value::as_i64).unwrap_or(0),
-                    name: frame
-                        .get("name")
-                        .and_then(Value::as_str)
-                        .unwrap_or("?")
-                        .to_string(),
-                    line: document_line,
-                    source_line: source_location
-                        .as_ref()
-                        .map(|(_, line)| *line)
-                        .or_else(|| path.as_ref().map(|_| raw_line)),
-                    adapter_source: path.as_ref().map(|path| path.to_string_lossy().to_string()),
-                    adapter_line: path.as_ref().map(|_| raw_line),
-                    source: source_location
-                        .map(|(p, _)| p)
-                        .or(path)
-                        .map(|p| p.to_string_lossy().to_string()),
-                    in_document: document_line.is_some(),
-                }
-            })
-            .collect())
+        Frame::from_response(&self.mapping, &body)
     }
 
     /// The variables visible in a frame, flattened across its scopes.
@@ -1004,8 +1097,7 @@ impl Session {
         for scope in scopes
             .get("scopes")
             .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default()
+            .context("Adapter returned no valid scope list")?
         {
             // `expensive` scopes are things like "Globals" that an adapter
             // warns will cost real time to fetch. Skipped: an inline-value
@@ -1041,8 +1133,7 @@ impl Session {
         Ok(body
             .get("variables")
             .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default()
+            .context("Adapter returned no valid variable list")?
             .iter()
             .map(|v| Variable {
                 name: v
@@ -1326,7 +1417,6 @@ impl Session {
         }
     }
 }
-
 </storycode:copy>
 <a id="f-3c41c22e0551-wait_for_event"></a>
 ### `wait_for_event`
@@ -1382,6 +1472,6 @@ mod tests;
 
 The selections below preserve the original byte order. Narrative reading order does not change the output.
 
-<storycode:file path="crates/hick-dap/src/session.rs"><storycode:paste select="#f-3c41c22e0551-source_breakpoints"/><storycode:paste select="#f-3c41c22e0551-private_capture_session"/><storycode:paste select="#f-3c41c22e0551-Capabilities"/><storycode:paste select="#f-3c41c22e0551-ExceptionFilter"/><storycode:paste select="#f-3c41c22e0551-impl-Capabilities"/><storycode:paste select="#f-3c41c22e0551-Breakpoint"/><storycode:paste select="#f-3c41c22e0551-SourceBreakpoints"/><storycode:paste select="#f-3c41c22e0551-BreakpointStatus"/><storycode:paste select="#f-3c41c22e0551-BindState"/><storycode:paste select="#f-3c41c22e0551-impl-BindState"/><storycode:paste select="#f-3c41c22e0551-stopped_from"/><storycode:paste select="#f-3c41c22e0551-stack_frame"/><storycode:paste select="#f-3c41c22e0551-use_declaration"/><storycode:paste select="#f-3c41c22e0551-Variable"/><storycode:paste select="#f-3c41c22e0551-Exit"/><storycode:paste select="#f-3c41c22e0551-Stopped"/><storycode:paste select="#f-3c41c22e0551-Step"/><storycode:paste select="#f-3c41c22e0551-impl-Step"/><storycode:paste select="#f-3c41c22e0551-Session"/><storycode:paste select="#f-3c41c22e0551-use_declaration-2"/><storycode:paste select="#f-3c41c22e0551-Launch"/><storycode:paste select="#f-3c41c22e0551-wait_for_start_debugging"/><storycode:paste select="#f-3c41c22e0551-impl-Session"/><storycode:paste select="#f-3c41c22e0551-wait_for_event"/><storycode:paste select="#f-3c41c22e0551-merge"/><storycode:paste select="#f-3c41c22e0551-tests"/></storycode:file>
+<storycode:file path="crates/hick-dap/src/session.rs"><storycode:paste select="#f-3c41c22e0551-source_breakpoints"/><storycode:paste select="#f-3c41c22e0551-private_capture_session"/><storycode:paste select="#f-3c41c22e0551-Capabilities"/><storycode:paste select="#f-3c41c22e0551-ExceptionFilter"/><storycode:paste select="#f-3c41c22e0551-impl-Capabilities"/><storycode:paste select="#f-3c41c22e0551-Breakpoint"/><storycode:paste select="#f-3c41c22e0551-SourceBreakpoints"/><storycode:paste select="#f-3c41c22e0551-BreakpointStatus"/><storycode:paste select="#f-3c41c22e0551-BindState"/><storycode:paste select="#f-3c41c22e0551-impl-BindState"/><storycode:paste select="#f-3c41c22e0551-stopped_from"/><storycode:paste select="#f-3c41c22e0551-stack_frame"/><storycode:paste select="#f-3c41c22e0551-use_declaration"/><storycode:paste select="#debug-thread-observations"/><storycode:paste select="#debug-thread-observation-tests"/><storycode:paste select="#f-3c41c22e0551-Variable"/><storycode:paste select="#f-3c41c22e0551-Exit"/><storycode:paste select="#f-3c41c22e0551-Stopped"/><storycode:paste select="#f-3c41c22e0551-Step"/><storycode:paste select="#f-3c41c22e0551-impl-Step"/><storycode:paste select="#f-3c41c22e0551-Session"/><storycode:paste select="#f-3c41c22e0551-use_declaration-2"/><storycode:paste select="#f-3c41c22e0551-Launch"/><storycode:paste select="#f-3c41c22e0551-wait_for_start_debugging"/><storycode:paste select="#f-3c41c22e0551-impl-Session"/><storycode:paste select="#f-3c41c22e0551-wait_for_event"/><storycode:paste select="#f-3c41c22e0551-merge"/><storycode:paste select="#f-3c41c22e0551-tests"/></storycode:file>
 
 </storycode:doc>

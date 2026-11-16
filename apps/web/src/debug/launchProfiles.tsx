@@ -11,7 +11,15 @@ export interface LaunchProfile {
   id: string; name: string; origin: string; program: string | null; command: string[];
   args: string[]; env: Record<string,string>; cwd: string; build: string[]; default: boolean; can_debug: boolean;
 }
-interface Catalog { profiles: LaunchProfile[]; fingerprint: string; viewed: string; workspace: string; configuration: string }
+interface Catalog { debug_protocol?: number; profiles: LaunchProfile[]; fingerprint: string; viewed: string; workspace: string; configuration: string }
+export const debugProtocolNotice="This engine does not advertise debugger protocol 2. Restart or update the engine to debug safely. Run remains available.";
+export const supportsDebugProtocol=(catalog:{debug_protocol?:unknown})=>typeof catalog.debug_protocol==="number"&&Number.isInteger(catalog.debug_protocol)&&catalog.debug_protocol>=2;
+/** Recheck at every actual Start, including action-search callers that bypass the picker. */
+export async function withDebugProtocol(query:LaunchQuery,effect:()=>void):Promise<void>{
+  const catalog=await request<Catalog>("POST","/api/launch-profiles",query);
+  if(!supportsDebugProtocol(catalog))throw new Error(debugProtocolNotice);
+  effect();
+}
 type Choice = { profile: LaunchProfile; mode: "run" | "debug" };
 interface Picker { notice?: string; contextLabel?: string; catalog?: Catalog; error?: string; settle: (value: Choice | null) => void; anchor: DOMRect | null }
 let picker: Picker | null = null;
@@ -39,18 +47,18 @@ export async function launchWithProfiles(query: LaunchQuery, onDebug: (selection
   try {
     const catalog = await request<Catalog>("POST","/api/launch-profiles",query);
     const memory = `${catalog.workspace}:${query.uri.replace(/hick-project:\/\/\/[^/]+\//,"captured/")}:${catalog.viewed}`;
-    const candidates = catalog.profiles.filter(p=>p.can_debug);
+    const candidates = supportsDebugProtocol(catalog)?catalog.profiles.filter(p=>p.can_debug):[];
     const last=remembered.get(memory), known=catalog.profiles.find(p=>p.id===last);
     const unavailable=!!last && !known;
     const clicked = options.preferProgram ? candidates.find(p=>p.program === (query.program ?? catalog.viewed)) : undefined;
     const preferred = clicked ?? known ?? catalog.profiles.find(p=>p.default);
-    const automatic = preferred?.can_debug ? preferred : !preferred && candidates.length===1 ? candidates[0] : null;
+    const automatic = supportsDebugProtocol(catalog)&&preferred?.can_debug ? preferred : !preferred && candidates.length===1 ? candidates[0] : null;
     const choice = !options.choose && (!unavailable || clicked) && automatic ? {profile:automatic,mode:"debug" as const} : await choose(catalog,undefined,options.contextLabel,unavailable?"The previous profile is unavailable in this project version. Choose another target.":undefined);
     if(!choice)return;
     if(options.isCurrent && !options.isCurrent())throw new Error("The displayed code changed. Open Launch profiles again after saving or reloading it.");
     remembered.set(memory,choice.profile.id);
     const selection = {id:choice.profile.id,fingerprint:catalog.fingerprint};
-    if(choice.mode==="debug")onDebug({...selection,name:choice.profile.name});
+    if(choice.mode==="debug"){if(!supportsDebugProtocol(catalog))throw new Error(debugProtocolNotice);onDebug({...selection,name:choice.profile.name});}
     else {
       const session=await request<{id:string;title:string}>("POST","/api/launch-profiles/run",{...query,profile:selection});
       showTerminalRequest(session.id,session.title);
@@ -77,7 +85,7 @@ export function LaunchProfiles() {
       read: () => ({ revision: revision(), enabled: true }), execute: async () => { state.settle(null); return { status: "completed", value: { dismissal_requested: true, launched: false } }; } } },
     ...(state.catalog?.profiles.flatMap(profile => (["run", "debug"] as const).map(mode => ({ key: `launch-picker:${profile.id}:${mode}`, command: {
       label: `${mode === "run" ? "Run" : "Debug"} ${profile.name}`, parent: "launch-profiles", subject: "launch-profiles:selection", parameters: {}, prerequisites: ["Launch resolves against the captured project and profile fingerprint"],
-      read: () => ({ revision: revision(), enabled: mode === "run" || profile.can_debug, ...(!profile.can_debug && mode === "debug" ? { reason: "This command profile supports Run; choose an application profile to debug." } : {}) }),
+      read: () => ({ revision: revision(), enabled: mode === "run" || profile.can_debug&&supportsDebugProtocol(state.catalog!), ...(mode === "debug"&&!supportsDebugProtocol(state.catalog!)?{reason:debugProtocolNotice}:!profile.can_debug && mode === "debug" ? { reason: "This command profile supports Run; choose an application profile to debug." } : {}) }),
       execute: async () => { state.settle({ profile, mode }); return { status: "completed" as const, value: { selection_requested: true, mode, profile: profile.id, launch_completed: false } }; },
     } }))) ?? []),
   ] : []);
@@ -91,13 +99,14 @@ export function LaunchProfiles() {
       {state.notice && <p role="status">{state.notice}</p>}
       {state.error && <p role="alert">{state.error}</p>}
       {state.catalog && <>
+        {!supportsDebugProtocol(state.catalog)&&<p role="status">{debugProtocolNotice}</p>}
         <p className="muted">For {state.catalog.viewed} · {state.contextLabel ?? "Latest compatible project"}</p>
         {!state.catalog.profiles.length && <p>No launch targets found. Add a profile in {state.catalog.configuration}.</p>}
         {state.catalog.profiles.map(profile=><section key={profile.id} className="launch-profile-option">
           <strong>{profile.name}</strong><span className="muted">{profile.origin}{profile.default?" · default":""}</span>
           <code>{profile.program ?? profile.command.join(" ")}</code>
           <span><button type="button" onClick={()=>state.settle({profile,mode:"run"})}>Run {profile.name}</button>
-          <button type="button" disabled={!profile.can_debug} data-tip={!profile.can_debug?"This command profile supports Run; choose an application profile to debug.":undefined}
+          <button type="button" disabled={!profile.can_debug||!supportsDebugProtocol(state.catalog!)} data-tip={!profile.can_debug?"This command profile supports Run; choose an application profile to debug.":undefined}
             onClick={()=>state.settle({profile,mode:"debug"})}>Debug {profile.name}</button></span>
         </section>)}
         <p className="muted">Manual profiles: {state.catalog.configuration} in this project. A declared document must construct this file in its project.</p>

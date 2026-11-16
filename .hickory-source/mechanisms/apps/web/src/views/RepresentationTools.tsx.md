@@ -75,7 +75,8 @@ export function RepresentationTools({ file, source, view, onStart, onDiagnostics
   return <>
     <DebugStrip reading={debug.reading} editorView={view} pausedLine={pausedLine} status={debug.status} program={file.path} message={debug.message} capabilities={debug.capabilities}
       offerInstall={debug.offerInstall} onInstall={async offer => { await api.installTool(offer.kind, offer.language); }}
-      frames={debug.frames} selectedFrame={debug.selectedFrame} watches={debug.watches} exitCode={debug.exitCode} buildOutput={debug.buildOutput}
+      variables={debug.variables} threads={debug.threads} selectedThread={debug.selectedThread} threadStop={debug.threadStop} threadPending={debug.threadPending} threadSelecting={debug.threadSelecting} threadMessage={debug.threadMessage} frameVariablesPending={debug.frameVariablesPending} frameVariablesMessage={debug.frameVariablesMessage} stackMessage={debug.stackMessage} historicalFrames={debug.historicalFrames} observationScope={debug.observationScope} readThreads={debug.readThreads} selectThread={debug.selectThread}
+        frames={debug.frames} selectedFrame={debug.selectedFrame} watches={debug.watches} exitCode={debug.exitCode} buildOutput={debug.buildOutput}
       onSelectFrame={debug.selectFrame} onStep={debug.step} onStart={onStart} onStop={debug.stop}
       onJumpHere={() => { if (!view) return; const p = filePosition(source, file, view.state.selection.main.head); if (p) debug.jumpTo(p.line); }}
       onAddWatch={() => { void askText("Expression to watch:", "", { agent: true }).then(expression=> { if (expression) debug.addWatch(expression); }); }}

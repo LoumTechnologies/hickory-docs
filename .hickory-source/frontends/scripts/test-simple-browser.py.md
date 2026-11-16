@@ -7,6 +7,8 @@ The acceptance flow launches an isolated real engine on an ephemeral port, then 
 
 The focused `--inline-features-only` flow opens real diagram, fenced Python and patch documents through the engine. It checks computed graph layout and syntax colors, folds a Markdown heading, loads the editable before/after patch panes and verifies that these observations leave disk unchanged. It does not claim a live provider or adapter result.
 
+The `--debug-threads-only` witness uses an explicit launch profile and the prepared `target/thread-debug-env` virtualenv, so application discovery and global Python configuration do not choose the test target. Executed against the current engine with debugpy 1.8.22: named worker/main selection, caller-frame caret placement and computed watch expressions passed, preserving editor identity, viewport size and saved bytes. This headless flow does not establish physical pointer, keyboard or native accessibility acceptance. Adapter-owned sources remain an explicit unavailable reader rather than workspace-file authority.
+
 The focused `--debug-only` path launches a real Python adapter, places a line breakpoint, moves the paused tab, steps and checks inline values before stopping. It requires an installed Python debugger and a working Chromium host; a startup failure is not a passing debugger witness.
 
 The focused `--search-only` flow uses menu commands and visible search fields, checks editor dimensions, saves exact regex replacement bytes to the workspace, and undoes through the real editor. The browser driver owns platform selectors; this acceptance flow imports no frontend implementation.
@@ -322,6 +324,25 @@ def language_cache_acceptance(driver, folder):
     driver.act("undo", path=path)
     assert "counter" in driver.act("semantic-colors", path=path)
 
+
+def debug_thread_acceptance(driver, folder):
+    path="thread_debug.py";source=(folder/path).read_text();driver.act("open",path=path);driver.act("remember-editor",path=path);size=driver.act("editor-size",path=path)
+    driver.act("debug-breakpoint",line=14);driver.act("debug-start",path=path)
+    try: eventually(lambda:any("paused" in state for state in driver.act("debug-state")),True)
+    except AssertionError as error: raise AssertionError(driver.act("debug-diagnostics")) from error
+    reading=driver.act("debug-threads");workers=[item for item in reading["threads"] if "Hickory worker" in item["name"]];assert len(workers)==1,reading
+    original=reading["selected"];driver.act("debug-thread-select",id=workers[0]["id"]);position=driver.act("debug-frame-select",name="worker");assert position["line"]>0,position
+    expected=sum(len(line) for line in source.splitlines(keepends=True)[:position["line"]-1]);eventually(lambda:driver.act("construction-source",path=path,selection=True)["head"],expected)
+    eventually(lambda:"worker_value = 'worker' · str" in driver.act("debug-locals"),True)
+    assert "WORKER" in driver.act("debug-watch",expression="worker_value.upper()"),"Worker expression was not evaluated in its selected frame"
+    assert driver.act("editor-is-retained",path=path) and driver.act("editor-size",path=path)==size and (folder/path).read_text()==source
+    driver.act("debug-thread-select",id=original);position=driver.act("debug-frame-select",name="<module>");assert position["line"]>0,position
+    expected=sum(len(line) for line in source.splitlines(keepends=True)[:position["line"]-1]);eventually(lambda:driver.act("construction-source",path=path,selection=True)["head"],expected)
+    try: eventually(lambda:"main_value = 'main' · str" in driver.act("debug-locals"),True)
+    except AssertionError as error: raise AssertionError({"values":driver.act("debug-values"),"surface":driver.act("debug-diagnostics")}) from error
+    assert "MAIN" in driver.act("debug-watch",expression="main_value.upper()"),"Main expression was not evaluated after thread return"
+    driver.act("debug-stop");eventually(lambda:not any("paused" in state for state in driver.act("debug-state")),True)
+    assert driver.act("editor-is-retained",path=path) and driver.act("editor-size",path=path)==size and (folder/path).read_text()==source
 
 def debug_acceptance(driver):
     driver.act("open", path="debug.py")
@@ -719,6 +740,12 @@ if __name__ == "__main__":
             subprocess.run([str(ROOT / "target/debug/hick"), "lsp", "install", "python", "--root", str(folder)], check=True, timeout=180)
         (folder / "cache.py").write_text("counter = 1\nprint(counter)\n")
         (folder / "debug.py").write_text("value = 1\nvalue += 1\nprint(value)\n")
+        if "--debug-threads-only" in sys.argv:
+            virtualenv=Path(os.environ.get("HICKORY_THREAD_TEST_VENV",str(ROOT/"target/thread-debug-env"))).resolve()
+            if not (virtualenv/"bin/python").exists():raise RuntimeError("Prepare the explicit debugpy test virtualenv first: "+str(virtualenv))
+            (folder/".venv").symlink_to(virtualenv,target_is_directory=True)
+            (folder/".hick-launch.json").write_text(json.dumps({"version":1,"profiles":[{"id":"thread-test","name":"Thread test","program":"thread_debug.py","default":True}]}))
+            (folder/"thread_debug.py").write_text("import threading\nimport time\nready = threading.Event()\nfinish = threading.Event()\ndef worker():\n    worker_value = 'worker'\n    ready.set()\n    while not finish.is_set():\n        worker_value = 'worker'\nthread = threading.Thread(target=worker, name='Hickory worker')\nthread.start()\nready.wait()\nmain_value = 'main'\npause_marker = 1\nfinish.set()\nthread.join()\n")
         if "--agent-only" in sys.argv:
             (folder / "sessions").mkdir()
             (folder / "sessions/agent.md").write_text("""<hick:session xmlns:hick="http://www.hickorydocs.com/1.0" start="2026-11-13T10:00:00Z" doc=".hick-workspace-agent">
@@ -793,6 +820,9 @@ if __name__ == "__main__":
             elif "--fold-only" in sys.argv:
                 folding_acceptance(driver, folder)
                 print("Browser: folding, exact saved source, moved folds and undo passed")
+            elif "--debug-threads-only" in sys.argv:
+                debug_thread_acceptance(driver,folder)
+                print("Browser: actual debugpy thread read/selection, selected-frame watches, unchanged editor identity/geometry/source and explicit stop passed")
             elif "--debug-only" in sys.argv:
                 debug_acceptance(driver)
                 print("Browser: inline DAP pause, moved session, step values and stop passed")

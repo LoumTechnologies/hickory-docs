@@ -56,6 +56,7 @@ async fn real_adapter_relocation_and_stale_actions_share_the_reading() {
         &registry,
         dir.path(),
         Request::Start {
+            request_id: None,
             doc: "hick:///demo.md".into(),
             breakpoints: vec![hick_dap::Breakpoint {
                 line: 3,
@@ -175,6 +176,7 @@ async fn a_failed_build_reaches_the_client_before_the_failure() {
         &registry,
         dir.path(),
         Request::Start {
+            request_id: None,
             doc: "hick:///a.md".into(),
             breakpoints: vec![],
             program: None,
@@ -307,6 +309,7 @@ fn a_failure_carries_words_rather_than_a_code() {
     // The UI shows this text; a code would need a second table nobody
     // would keep in step.
     let frame = frame_of(&Response::Failed {
+        request_id: None,
         doc: None,
         session: Some("dbg-1".into()),
         message: "that line is prose, not code".into(),
@@ -328,6 +331,7 @@ fn a_failure_about_nothing_in_particular_carries_no_lines() {
     // `about`/`lines` are omitted rather than sent empty: a UI that keys
     // on their presence should not have to know two spellings of absent.
     let frame = frame_of(&Response::Failed {
+        request_id: None,
         doc: None,
         session: None,
         message: "no such session".into(),
@@ -353,4 +357,240 @@ fn the_channel_carries_no_way_to_edit_anything() {
             "the debug channel grew a way to write: {name}"
         );
     }
+}
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "requires debugpy in HICKORY_THREAD_TEST_VENV or target/thread-debug-env"]
+async fn real_threads_select_current_stack_and_refuse_stale_scope_without_source_writes() {
+    async fn ask(registry: &Arc<Registry>, root: &std::path::Path, value: Value) -> Vec<Value> {
+        handle(registry, root, serde_json::from_value(value).unwrap())
+            .await
+            .into_iter()
+            .map(|response| serde_json::to_value(response).unwrap())
+            .collect()
+    }
+    fn event<'a>(rows: &'a [Value], kind: &str) -> &'a Value {
+        rows.iter()
+            .find(|row| row["event"] == kind)
+            .unwrap_or_else(|| panic!("Missing {kind}: {rows:?}"))
+    }
+    let root = tempfile::tempdir().unwrap();
+    std::fs::create_dir(root.path().join(".git")).unwrap();
+    let venv = std::env::var_os("HICKORY_THREAD_TEST_VENV")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/thread-debug-env")
+        });
+    assert!(
+        venv.join("bin/python").exists(),
+        "Prepare the explicit debugpy test virtualenv first"
+    );
+    std::os::unix::fs::symlink(
+        std::fs::canonicalize(venv).unwrap(),
+        root.path().join(".venv"),
+    )
+    .unwrap();
+    let source = "import threading\nready = threading.Event()\nrelease = threading.Event()\ndef worker():\n    marker = 41\n    ready.set()\n    while not release.is_set():\n        marker += 0\n    marker += 1\nthread = threading.Thread(target=worker, name='hickory-worker')\nthread.start()\nready.wait()\nvalue = 7\nrelease.set()\nthread.join()\nprint(value)\n";
+    std::fs::write(root.path().join("main.py"), source).unwrap();
+    let registry = Arc::new(Registry::new());
+    let breakpoint = source
+        .lines()
+        .position(|line| line == "release.set()")
+        .unwrap();
+    let started = ask(
+        &registry,
+        root.path(),
+        json!({"op":"start","doc":"hick:///main.py","request_id":"launch-threads","breakpoints":[{"line":breakpoint}]}),
+    )
+    .await;
+    let session = event(&started, "started")["session"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let stopped = event(&started, "stopped");
+    let stop = stopped["stop"].as_u64().unwrap();
+    let main = stopped["thread"].as_i64().unwrap();
+    let main_frame = stopped["frames"][0]["id"].as_i64().unwrap();
+    let live = registry.get(&session).await.unwrap();
+    let mut delivered = false;
+    let listed = handle_with(
+        &registry,
+        root.path(),
+        serde_json::from_value(json!({"op":"threads","session":session,"request_id":"list-1"}))
+            .unwrap(),
+        |responses| {
+            assert!(
+                live.operation.try_lock().is_err(),
+                "Response queueing lost the session operation guard"
+            );
+            assert!(!responses.is_empty());
+            delivered = true;
+        },
+    )
+    .await
+    .into_iter()
+    .map(|response| serde_json::to_value(response).unwrap())
+    .collect::<Vec<_>>();
+    assert!(delivered);
+    let list = event(&listed, "threads");
+    assert_eq!(list["stop"], stop);
+    assert_eq!(list["selected"], main);
+    assert_eq!(list["request_id"], "list-1");
+    let worker = list["threads"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|thread| thread["name"] == "hickory-worker")
+        .unwrap()["id"]
+        .as_i64()
+        .unwrap();
+    assert_ne!(worker, main);
+    for (requested, generation) in [(worker, stop - 1), (i64::MAX, stop)] {
+        let refused = ask(&registry, root.path(), json!({"op":"select_thread","session":session,"thread":requested,"stop":generation,"request_id":"refused"})).await;
+        assert_eq!(event(&refused, "failed")["request_id"], "refused");
+        assert_eq!(
+            *registry.get(&session).await.unwrap().thread_id.lock().await,
+            Some(main)
+        );
+    }
+    let selected = ask(&registry, root.path(), json!({"op":"select_thread","session":session,"thread":worker,"stop":stop,"request_id":"select-worker"})).await;
+    let paused = event(&selected, "stopped");
+    assert_eq!(paused["thread"], worker);
+    let worker_stop = paused["stop"].as_u64().unwrap();
+    assert!(worker_stop > stop);
+    let worker_frame = paused["frames"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|frame| frame["name"] == "worker")
+        .unwrap()["id"]
+        .as_i64()
+        .unwrap();
+    assert_eq!(event(&selected, "threads")["request_id"], "select-worker");
+    let locals = ask(&registry, root.path(), json!({"op":"state","session":session,"frame":worker_frame,"stop":worker_stop,"thread":worker,"request_id":"worker-locals"})).await;
+    let locals = event(&locals, "frame_variables");
+    assert_eq!(locals["request_id"], "worker-locals");
+    assert_eq!(locals["frame"], worker_frame);
+    assert_eq!(locals["thread"], worker);
+    assert_eq!(locals["stop"], worker_stop);
+    assert!(
+        locals["variables"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value["name"] == "marker" && value["value"] == "41")
+    );
+    let foreign = ask(&registry, root.path(), json!({"op":"eval","session":session,"expression":"value","frame":main_frame,"context":"watch","stop":worker_stop,"thread":worker,"request_id":"foreign-frame"})).await;
+    assert_eq!(event(&foreign, "failed")["request_id"], "foreign-frame");
+    let value = ask(&registry, root.path(), json!({"op":"eval","session":session,"expression":"marker","frame":worker_frame,"context":"watch","stop":worker_stop,"thread":worker,"request_id":"worker-value"})).await;
+    let value = event(&value, "value");
+    assert_eq!(value["value"], "41");
+    assert_eq!(value["stop"], worker_stop);
+    assert_eq!(value["thread"], worker);
+    assert_eq!(value["frame"], worker_frame);
+    assert_eq!(value["request_id"], "worker-value");
+    let stale = ask(&registry, root.path(), json!({"op":"eval","session":session,"expression":"marker","frame":worker_frame,"context":"watch","stop":stop,"thread":worker,"request_id":"old-value"})).await;
+    assert_eq!(event(&stale, "failed")["request_id"], "old-value");
+    let selected = ask(&registry, root.path(), json!({"op":"select_thread","session":session,"thread":main,"stop":worker_stop,"request_id":"select-main"})).await;
+    assert_eq!(event(&selected, "stopped")["thread"], main);
+    let done = ask(
+        &registry,
+        root.path(),
+        json!({"op":"step","session":session,"how":"continue"}),
+    )
+    .await;
+    assert!(
+        done.iter().any(|row| row["event"] == "finished"),
+        "{done:?}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(root.path().join("main.py")).unwrap(),
+        source
+    );
+}
+
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "requires debugpy in HICKORY_THREAD_TEST_VENV or target/thread-debug-env"]
+async fn real_running_launch_exposes_session_for_stop_and_live_breakpoints() {
+    let root = tempfile::tempdir().unwrap();
+    std::fs::create_dir(root.path().join(".git")).unwrap();
+    let venv = std::env::var_os("HICKORY_THREAD_TEST_VENV")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/thread-debug-env")
+        });
+    std::os::unix::fs::symlink(
+        std::fs::canonicalize(venv).unwrap(),
+        root.path().join(".venv"),
+    )
+    .unwrap();
+    let source = "import time\nwhile True:\n    time.sleep(0.01)\n";
+    std::fs::write(root.path().join("running.py"), source).unwrap();
+    let registry = Arc::new(Registry::new());
+    let (tx, mut receiver) = mpsc::unbounded_channel();
+    let running = {
+        let registry = registry.clone();
+        let path = root.path().to_path_buf();
+        tokio::spawn(async move {
+            dispatch(
+                &registry,
+                &path,
+                serde_json::from_value(
+                    json!({"op":"start","doc":"hick:///running.py","request_id":"launch-running","breakpoints":[]}),
+                )
+                .unwrap(),
+                &tx,
+            )
+            .await;
+        })
+    };
+    let session = tokio::time::timeout(Duration::from_secs(15), async {
+        loop {
+            let frame = receiver
+                .recv()
+                .await
+                .expect("Debug launch closed before reporting its session");
+            let response: Value = serde_json::from_slice(&frame[1..]).unwrap();
+            assert_ne!(response["event"], "failed", "{response}");
+            if response["event"] == "started" {
+                assert_eq!(response["request_id"], "launch-running");
+                break response["session"].as_str().unwrap().to_owned();
+            }
+        }
+    })
+    .await
+    .expect("A running program hid its real session until its first stop");
+    let breakpoints = tokio::time::timeout(Duration::from_secs(10), handle(&registry, root.path(), serde_json::from_value(json!({"op":"breakpoints","session":session,"breakpoints":[{"line":2,"condition":"False"}]})).unwrap())).await.expect("Live breakpoints waited for the program to stop");
+    assert!(
+        breakpoints
+            .iter()
+            .any(|response| matches!(response, Response::Breakpoints { .. })),
+        "{breakpoints:?}"
+    );
+    let ended = tokio::time::timeout(
+        Duration::from_secs(10),
+        handle(
+            &registry,
+            root.path(),
+            serde_json::from_value(json!({"op":"stop","session":session})).unwrap(),
+        ),
+    )
+    .await
+    .expect("Stop could not interrupt the running launch");
+    assert!(
+        ended
+            .iter()
+            .any(|response| matches!(response, Response::Ended { .. })),
+        "{ended:?}"
+    );
+    tokio::time::timeout(Duration::from_secs(10), running)
+        .await
+        .expect("The initial stop waiter survived adapter shutdown")
+        .unwrap();
+    assert!(registry.get(&session).await.is_err());
+    assert_eq!(
+        std::fs::read_to_string(root.path().join("running.py")).unwrap(),
+        source
+    );
 }

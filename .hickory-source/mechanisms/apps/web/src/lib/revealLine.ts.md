@@ -46,12 +46,14 @@ export const REVEAL_LINE_EVENT = "hickory:reveal-line";
 Outstanding requests, by path. At most one per file: the newest wins,
 because it is the one somebody just clicked.
 
+Captured debugger positions retain their source bytes and stop/frame lifetime through asynchronous tab opening and final editor claim. A line-only consumer cannot claim this stronger request without source checks. Unknown mapping identity opens text without a precise reveal; loading disk after a stop never manufactures an expected identity. These guards authorize navigation, not writes or claims about executed code.
+
 A reveal may carry a zero-based UTF-16 column as well as its one-based line. Keep both in the same one-shot record so opening a tab before its editor mounts cannot lose the symbol column. Legacy line-only consumers still claim the line and consume the request; the simple editor claims the richer position. Neither replaying a stale request nor opening an editor grants write authority.
 
 <storycode:copy id="f-bca672428db0-pending">
 /** Outstanding requests, by path. At most one per file: the newest wins,
  * because it is the one somebody just clicked. */
-const pending = new Map<string, { line: number; character?: number }>();
+const pending = new Map<string, { line: number; character?: number;guard?:{source:string;current:()=>boolean} }>();
 
 </storycode:copy>
 <a id="f-bca672428db0-revealLine"></a>
@@ -61,8 +63,9 @@ Ask for `path` to be shown with the caret on `line` (1-based).
 
 <storycode:copy id="f-bca672428db0-revealLine">
 /** Ask for `path` to be shown with the caret on `line` (1-based). */
-export function revealLine(path: string, line: number, character?: number): void {
-  pending.set(path, { line: Math.max(1, Math.floor(line)), ...(character === undefined ? {} : { character: Math.max(0, Math.floor(character)) }) });
+export function revealLine(path: string, line: number, character?: number,guard?:{source:string;current:()=>boolean}): void {
+  if(guard&&(!guard.current()||!Number.isInteger(line)||line<1||character!==undefined&&(!Number.isInteger(character)||character<0)))return;
+  pending.set(path, { line: Math.max(1, Math.floor(line)), ...(character === undefined ? {} : { character: Math.max(0, Math.floor(character)) }),...(guard?{guard}:{}) });
   window.dispatchEvent(new CustomEvent(REVEAL_LINE_EVENT, { detail: path }));
 }
 
@@ -87,13 +90,14 @@ export function claimReveal(path: string): number | null {
   const line = pending.get(path);
   if (line === undefined) return null;
   pending.delete(path);
+  if(line.guard)return null;
   return line.line;
 }
 /** Consume the same one-shot request while retaining its optional UTF-16 column. */
-export function claimRevealPosition(path: string): { line: number; character?: number } | null {
+export function claimRevealPosition(path: string,source?:string): { line: number; character?: number } | null {
   const location = pending.get(path);
   if (!location) return null;
-  pending.delete(path); return location;
+  pending.delete(path);if(location.guard&&(source!==location.guard.source||!location.guard.current()))return null;return {line:location.line,...(location.character===undefined?{}:{character:location.character})};
 }
 
 </storycode:copy>
@@ -146,6 +150,7 @@ export interface OpenLocation {
   character?: number;
   recordHistory?: boolean;
   expectedSource?: string;
+  capture?:{hash:string|null;current:()=>boolean;sourceReference?:number|null;positionKnown?:boolean};
 }
 
 </storycode:copy>
@@ -182,11 +187,17 @@ export function openLocation(path: string, line: number, character?: number, rec
 The workspace's side. Returns the unsubscribe.
 
 <storycode:copy id="f-bca672428db0-onOpenLocation">
+/** Unknown captured source identities open text without asserting any line position. */
+export function openCapturedLocation(path:string,line:number|null,hash:string|null,current:()=>boolean,sourceReference?:number|null){
+ const positionKnown=line!==null&&Number.isInteger(line)&&line>=1;
+ window.dispatchEvent(new CustomEvent<OpenLocation>(OPEN_LOCATION_EVENT,{detail:{path,line:positionKnown?line!:1,character:0,recordHistory:false,capture:{hash:positionKnown&&!(sourceReference&&sourceReference>0)&&hash&&/^[0-9a-f]{64}$/.test(hash)?hash:null,current,positionKnown,...(sourceReference===undefined?{}:{sourceReference})}}}));
+}
+
 /** The workspace's side. Returns the unsubscribe. */
-export function onOpenLocation(handler: (location: OpenLocation) => void): () => void {
+export function onOpenLocation(handler: (location: OpenLocation) => void,supportsCaptured=false): () => void {
   const listener = (event: Event) => {
     const detail = (event as CustomEvent<OpenLocation>).detail;
-    if (detail && typeof detail.path === "string") handler(detail);
+    if (detail && typeof detail.path === "string"&&(!detail.capture||supportsCaptured)) handler(detail);
   };
   window.addEventListener(OPEN_LOCATION_EVENT, listener);
   return () => window.removeEventListener(OPEN_LOCATION_EVENT, listener);
