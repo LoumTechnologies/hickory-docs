@@ -72186,6 +72186,41 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "fragments": [
         "resource-acquisition-apple-tests"
       ]
+    },
+    "apps/apple-simple/Sources/GitConflictResolution.swift": {
+      "source": ".hickory-source/frontends/git-conflict-resolution-apple.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "3aaec236356286f74fc5573d9583325c001004af87dc623ef3bc73d0ba68ca00",
+      "construction": "fragments",
+      "fragments": [
+        "git-resolution-apple-types",
+        "git-resolution-apple-controller",
+        "git-resolution-apple-view"
+      ]
+    },
+    "apps/apple-simple/Tests/GitConflictResolutionTests.swift": {
+      "source": ".hickory-source/frontends/git-conflict-resolution-apple.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "22408a85f037877634f927d2488c7d38225053027b1f683882e81031905ada83",
+      "construction": "fragments",
+      "fragments": [
+        "git-resolution-apple-tests"
+      ]
+    },
+    "scripts/test-git-resolution-apple.py": {
+      "source": ".hickory-source/frontends/git-conflict-resolution-apple.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "ac539ae5245b4177127686a92abdbb304664572f25713d4834804a42cd54cb9c",
+      "construction": "fragments",
+      "fragments": [
+        "git-resolution-apple-runner"
+      ]
     }
   },
   "evidence_records": [

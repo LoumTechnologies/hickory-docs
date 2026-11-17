@@ -12,11 +12,13 @@ import SwiftUI
 import Observation
 struct ConflictStage:Decodable {var stage:Int;var mode:String;var oid:String;var text:String?;var unavailable:String?}
 struct ConflictReading:Decodable {var version:Int;var path:String;var fingerprint:String;var stages:[ConflictStage];var index_modified:Bool;var source_files_modified:Bool}
+private func conflictStageHex(_ value:String,_ lengths:[Int])->Bool{lengths.contains(value.utf8.count)&&value.utf8.allSatisfy{(48...57).contains($0)||(65...70).contains($0)||(97...102).contains($0)}}
+func validateConflictStages(_ stages:[ConflictStage])throws {
+ guard (1...3).contains(stages.count) else{throw EngineError(message:"Malformed conflict stage count.")};var seen=Set<Int>()
+ for stage in stages{guard (1...3).contains(stage.stage),seen.insert(stage.stage).inserted,conflictStageHex(stage.oid,[40,64]),stage.mode.utf8.count==6,stage.mode.utf8.allSatisfy({(48...55).contains($0)}),(stage.text != nil && stage.unavailable==nil && ["100644","100755"].contains(stage.mode))||(stage.text==nil && stage.unavailable != nil) else{throw EngineError(message:"Malformed conflict stage. Refresh repository changes.")}}
+}
 func validateConflict(_ value:ConflictReading,path:String)throws {
- func hex(_ value:String,_ lengths:[Int])->Bool{lengths.contains(value.utf8.count)&&value.utf8.allSatisfy{(48...57).contains($0)||(65...70).contains($0)||(97...102).contains($0)}}
- guard value.version==1,exactUTF8(value.path,path),!value.index_modified,!value.source_files_modified,hex(value.fingerprint,[64]),(1...3).contains(value.stages.count) else{throw EngineError(message:"Conflict identity changed or unsupported response. Refresh the conflict.")}
- var seen=Set<Int>()
- for stage in value.stages{guard (1...3).contains(stage.stage),seen.insert(stage.stage).inserted,hex(stage.oid,[40,64]),stage.mode.utf8.count==6,stage.mode.utf8.allSatisfy({(48...55).contains($0)}),(stage.text != nil && stage.unavailable==nil && ["100644","100755"].contains(stage.mode))||(stage.text==nil && stage.unavailable != nil) else{throw EngineError(message:"Malformed conflict stage. Refresh repository changes.")}}
+ guard value.version==1,exactUTF8(value.path,path),!value.index_modified,!value.source_files_modified,conflictStageHex(value.fingerprint,[64]) else{throw EngineError(message:"Conflict identity changed or unsupported response. Refresh the conflict.")};try validateConflictStages(value.stages)
 }
 @MainActor @Observable final class GitConflictModel {
  var value:ConflictReading?;var notice="";var loading=false;private var ticket=UUID()
@@ -48,6 +50,7 @@ struct GitConflictView:View {
  }
  var body:some View {
   VStack(alignment:.leading,spacing:6){
+   GitResolutionView(workspace:workspace,path:path)
    Button("Inspect conflict stages"){Task{guard let engine=workspace.engine else{model.notice="Connect to a workspace server first.";return};page=0;await model.read(path){path in try await engine.request("GET","/api/git/conflict",query:[URLQueryItem(name:"path",value:path)])}}}.disabled(model.loading)
    if !model.notice.isEmpty{Text(model.notice).font(.caption)}
    if let value=model.value{

@@ -292,4 +292,6 @@ Each client reads text before requesting optional capabilities. A save uses the 
 
 <ui:include file="resource-acquisition-apple.md" />
 
+<ui:include file="git-conflict-resolution-apple.md" />
+
 </ui:doc>

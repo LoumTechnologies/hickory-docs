@@ -166,6 +166,7 @@ import Observation
     var findRegex = false
     @ObservationIgnored var selectSourceRange: ((NSRange, String) -> Bool)?
     @ObservationIgnored var canReflectWorkspaceEdits: (([NativeSourceEdit], String) -> Bool)?
+    @ObservationIgnored var adoptSourceDraft: ((String,String)->Bool)?
     @ObservationIgnored var reflectWorkspaceEdits: (([NativeSourceEdit], String, String) -> Bool)?
     @ObservationIgnored var applySourceEdits: (([NativeSourceEdit], String) -> Bool)?
     var foldedLines: Set<Int> = []
@@ -237,6 +238,7 @@ import Observation
     var showTests=false {didSet{if !showTests{testSources.closeDebugPreparation(self)}}}
     var showReview=false
     var gitReview=GitReviewModel()
+    var gitResolution=GitResolutionModel()
     var showHistory=false
     var showRecovery=false
     var showConstruction=false
@@ -337,7 +339,10 @@ import Observation
         for (route,buffer,edits) in targets {
             guard let path=route.to,let entry=files[Data(path.utf8)] else{buffer.resourceDeleted=true;retainedResourceEditors[route.identity]=buffer;continue}
             let before=buffer.text
-            if !edits.isEmpty {buffer.text=route.after!;_ = buffer.reflectWorkspaceEdits?(edits,before,route.after!)}
+            if !edits.isEmpty {
+                if let adopt=buffer.adoptSourceDraft {guard adopt(before,route.after!) else{throw EngineError(message:"Native source adoption failed. Preserve drafts and inspect recovery.")}}
+                else{buffer.text=route.after!;_ = buffer.reflectWorkspaceEdits?(edits,before,route.after!)}
+            }
             buffer.file=entry.file;buffer.base=entry.saved.text!;buffer.hash=entry.hash;buffer.savedGuard=entry.save_guard;buffer.saveGuardReason=entry.save_guard==nil ? "Resource publication did not provide a physical save guard. Preserve the draft and read the exact saved source before another ordinary Save.":nil;buffer.saveHistoryAttempt=nil;buffer.resourceDeleted=false;buffer.unmaterializedHistoryDraft=false;buffer.error=""
             buffers[path]=buffer;retainedResourceEditors = retainedResourceEditors.filter{$0.value !== buffer}
             _ = retainBuffer(entry.file,text:FileText(path:path,content:route.after!,hash:entry.hash),engine:engine,existing:buffer)
@@ -375,7 +380,7 @@ import Observation
     var activeTab:String? {layout.nodes[focused]?.active}
     var active: String? {activeTab.map{NativeTabIdentity(address:$0).sourcePath ?? $0}}
     var currentBuffer: DocumentBuffer? {activeTab.flatMap{bufferForTab($0)}}
-    var hasUnsavedChanges: Bool { resourceRestoration.busy || resourceRestoration.hasPending || !agent.prompt.isEmpty || agent.running || (Array(buffers.values)+Array(retainedResourceEditors.values)).contains { $0.dirty || $0.saving } || debugger?.active == true }
+    var hasUnsavedChanges: Bool { gitResolution.hasPending || gitResolution.hasDraft || resourceRestoration.busy || resourceRestoration.hasPending || !agent.prompt.isEmpty || agent.running || (Array(buffers.values)+Array(retainedResourceEditors.values)).contains { $0.dirty || $0.saving } || debugger?.active == true }
     func connect() async -> Bool {
         guard !connecting else { return false }
         guard !hasUnsavedChanges else { status = "Save documents and send or clear draft messages before changing workspace servers."; return false }
@@ -388,7 +393,7 @@ import Observation
             debugger?.close()
             for buffer in buffers.values { buffer.language?.close() }
             languageConnection?.close();languageConnection=nil
-            sourceHistory.close();sourceRootAddress=nil;sourceWorkspaceID=nil;sourceTemplates.close();analysis.stop(); analysis=WorkspaceAnalysis(); showAnalysis=false; showEverywhere=false;showTests=false;showReview=false;showHistory=false;showAttribution=false;showConstruction=false;showRecovery=false;gitAttribution.close();gitAttribution=GitAttributionModel(path:"");gitHistory.close();gitHistory=GitHistoryModel();gitReview.close();gitReview=GitReviewModel();showCoverage=false;coverage.stop();coverage=SimpleCoverageState();testSources=TestSourcesModel();sourceTestIndex?.stop();sourceTestIndex=nil
+            sourceHistory.close();sourceRootAddress=nil;sourceWorkspaceID=nil;sourceTemplates.close();analysis.stop(); analysis=WorkspaceAnalysis(); showAnalysis=false; showEverywhere=false;showTests=false;showReview=false;showHistory=false;showAttribution=false;showConstruction=false;showRecovery=false;gitAttribution.close();gitAttribution=GitAttributionModel(path:"");gitHistory.close();gitHistory=GitHistoryModel();gitReview.close();gitReview=GitReviewModel();gitResolution.reset();showCoverage=false;coverage.stop();coverage=SimpleCoverageState();testSources=TestSourcesModel();sourceTestIndex?.stop();sourceTestIndex=nil
             generation = UUID(); changes.reset(); search.invalidate(); showWorkspaceSearch = false; engine = next; debugger = NativeDebugger(engine: next)
             if let debug=debugger {debug.sourceBuffers={ [weak self] in guard let self else{return []};return Array(self.buffers.values)+Array(self.retainedResourceEditors.values)};debug.onLocation={ [weak self,weak debug] location in guard let self,let debug else{return};let scope=self.generation;Task {[weak self,weak debug] in guard let self,let debug,self.generation==scope else{return};await self.revealDebug(location,debug:debug)}}}; sourceRootAddress=tree.root_path;sourceWorkspaceID=tree.workspace_id;files = tree.tree; rootFiles = tree.tree; navigationTrail = NavigationTrail(); retainedResourceEditors = [:]; buffers = [:]; loading.values.forEach { $0.cancel() }; loading = [:]
             layout = PaneLayout(); focused = "document-group"; status = tree.root

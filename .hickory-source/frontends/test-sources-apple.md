@@ -56,7 +56,7 @@ A test Debug choice is immutable saved-source admission, not a launch profile. R
 <ui:copy id="test-sources-apple-debug">
 // Foundation dictionaries merge canonical-equivalent keys before Decodable sees them.
 // Audit raw object keys and numeric version lexemes before Foundation can merge or coerce aliases.
-func validateSourceTestJSON(_ data:Data)throws {try validateNativeJSON(data,canonicalVersionKeys:["version","test_debug_protocol","template_protocol","history_protocol","behavior_protocol"])}
+func validateSourceTestJSON(_ data:Data)throws {try validateNativeJSON(data,canonicalVersionKeys:["version","test_debug_protocol","template_protocol","history_protocol","behavior_protocol","resolution_protocol"])}
 func unambiguousTestSourcePaths(_ paths:[String])->Bool {
     var seen:[String:Data]=[:]
     for path in paths{let bytes=Data(path.utf8);if let previous=seen[path],previous != bytes{return false};seen[path]=bytes}

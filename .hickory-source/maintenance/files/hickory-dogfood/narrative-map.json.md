@@ -155967,6 +155967,41 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/frontends/resource-acquisition-apple.md",
       "symbol": "resource acquisition apple tests",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "git-resolution-apple-types",
+      "output": "apps/apple-simple/Sources/GitConflictResolution.swift",
+      "page": ".hickory-source/frontends/git-conflict-resolution-apple.md",
+      "symbol": "git resolution apple types",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "git-resolution-apple-controller",
+      "output": "apps/apple-simple/Sources/GitConflictResolution.swift",
+      "page": ".hickory-source/frontends/git-conflict-resolution-apple.md",
+      "symbol": "git resolution apple controller",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "git-resolution-apple-view",
+      "output": "apps/apple-simple/Sources/GitConflictResolution.swift",
+      "page": ".hickory-source/frontends/git-conflict-resolution-apple.md",
+      "symbol": "git resolution apple view",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "git-resolution-apple-tests",
+      "output": "apps/apple-simple/Tests/GitConflictResolutionTests.swift",
+      "page": ".hickory-source/frontends/git-conflict-resolution-apple.md",
+      "symbol": "git resolution apple tests",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "git-resolution-apple-runner",
+      "output": "scripts/test-git-resolution-apple.py",
+      "page": ".hickory-source/frontends/git-conflict-resolution-apple.md",
+      "symbol": "git resolution apple runner",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

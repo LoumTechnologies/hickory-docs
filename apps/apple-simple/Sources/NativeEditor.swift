@@ -808,6 +808,14 @@ private struct EquationLayout: Equatable {
             guard let self else { return false }
             return self.canReflectWorkspaceEdits(edits, source: source)
         }
+        buffer.adoptSourceDraft = { [weak self] before,after in
+            guard let self,exactUTF8(self.buffer.text,before) else{return false}
+            let selected=self.text.selectedRange(),limit=after.utf16.count
+            let end=min(NSMaxRange(selected),limit),start=min(selected.location,limit)
+            let plan=ChangePlan(title:"Adopt saved source",patches:[SourcePatch(path:self.buffer.file.path,before:before,after:after,edits:[SourceReplacement(from:0,to:before.utf16.count,text:after)])])
+            return self.sourceDraftHistory.commit(plan,path:self.buffer.file.path,before:before,selectionBefore:selected,selectionAfter:NSRange(location:start,length:end-start),contextBefore:self.buffer.snippets.historyContext,contextAfter:nil as SourceSnippetHistoryContext?,manager:self.text.undoManager,
+                read:{[weak self] in self?.buffer.text ?? ""},apply:{[weak self] edits,source,selected in self?.applySourceEdits(edits,source:source,resultSelection:selected,manageUndo:false) ?? false},notice:{[weak self] text in self?.buffer.snippets.reportFailure(text)},restoreContext:{[weak self] value in self?.buffer.snippets.restoreHistory(value)},contextCost:snippetHistoryCost,discardContext:{[weak self] in _ = self?.buffer.snippets.finish()})
+        }
         buffer.reflectWorkspaceEdits = { [weak self] edits, source, after in self?.applySourceEdits(edits, source: source, expectedModelSource: after) ?? false }
         buffer.applyTableEdit = { [weak self] edit, source in self?.applyTableEdit(edit, source: source) ?? false }
         buffer.selectSourceRange = { [weak self] range, source in self?.selectSourceRange(range, source: source) ?? false }
@@ -1359,6 +1367,14 @@ import UIKit
         buffer.canReflectWorkspaceEdits = { [weak self] edits, source in
             guard let self else { return false }
             return self.canReflectWorkspaceEdits(edits, source: source)
+        }
+        buffer.adoptSourceDraft = { [weak self] before,after in
+            guard let self,exactUTF8(self.buffer.text,before) else{return false}
+            let selected=self.text.selectedRange,limit=after.utf16.count
+            let end=min(NSMaxRange(selected),limit),start=min(selected.location,limit)
+            let plan=ChangePlan(title:"Adopt saved source",patches:[SourcePatch(path:self.buffer.file.path,before:before,after:after,edits:[SourceReplacement(from:0,to:before.utf16.count,text:after)])])
+            return self.sourceDraftHistory.commit(plan,path:self.buffer.file.path,before:before,selectionBefore:selected,selectionAfter:NSRange(location:start,length:end-start),contextBefore:self.buffer.snippets.historyContext,contextAfter:nil as SourceSnippetHistoryContext?,manager:self.text.undoManager,
+                read:{[weak self] in self?.buffer.text ?? ""},apply:{[weak self] edits,source,selected in self?.applySourceEdits(edits,source:source,resultSelection:selected,manageUndo:false) ?? false},notice:{[weak self] text in self?.buffer.snippets.reportFailure(text)},restoreContext:{[weak self] value in self?.buffer.snippets.restoreHistory(value)},contextCost:snippetHistoryCost,discardContext:{[weak self] in _ = self?.buffer.snippets.finish()})
         }
         buffer.reflectWorkspaceEdits = { [weak self] edits, source, after in self?.applySourceEdits(edits, source: source, expectedModelSource: after) ?? false }
         buffer.applyTableEdit = { [weak self] edit, source in self?.applyTableEdit(edit, source: source) ?? false }
