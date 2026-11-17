@@ -162,6 +162,8 @@ struct NativeCompletion: Identifiable {
     var source: String
     var selection: NSRange
     var original:[String:Any]?=nil
+    var sourceIdentity:UUID?=nil
+    var selectionIdentity:UUID?=nil
 }
 func languageURI(_ path: String) -> String {
     var parts = URLComponents(); parts.scheme = "hick"; parts.host = ""; parts.path = "/" + path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
@@ -453,8 +455,8 @@ func validateNativeSourcePreparation(_ raw:Any,source:String,requireParsed:Bool=
     var proposalIdentity: UUID { epoch }
     func propose(_ kind: String, name: String) async throws -> Any {
         guard let buffer, !buffer.readOnly, !buffer.resourceDeleted, !buffer.saving, exactUTF8(languageURI(buffer.file.path),uri), subscription != nil else { throw EngineError(message: "Choose writable source with a connected language provider.") }
-        sync(); let source = buffer.text, selection = buffer.selection, identity = epoch,revision=buffer.sourceEditIdentity
-        func current()->Bool {self.buffer === buffer && epoch==identity && buffer.sourceEditIdentity==revision && exactUTF8(languageURI(buffer.file.path),uri) && exactUTF8(buffer.text,source) && buffer.selection==selection && !buffer.readOnly && !buffer.resourceDeleted && !buffer.saving}
+        sync(); let source = buffer.text, selection = buffer.selection, identity = epoch,revision=buffer.sourceEditIdentity,selectionRevision=buffer.selectionIdentity
+        func current()->Bool {self.buffer === buffer && epoch==identity && buffer.sourceEditIdentity==revision && buffer.selectionIdentity==selectionRevision && exactUTF8(languageURI(buffer.file.path),uri) && exactUTF8(buffer.text,source) && buffer.selection==selection && !buffer.readOnly && !buffer.resourceDeleted && !buffer.saving}
         var params: [String:Any] = ["textDocument":["uri":uri]]
         let method: String
         switch kind {
@@ -462,6 +464,7 @@ func validateNativeSourcePreparation(_ raw:Any,source:String,requireParsed:Bool=
         case "references": method = "textDocument/references"; params["position"] = languagePosition(source,selection.location); params["context"] = ["includeDeclaration":true]
         case "format": method = "hick/formatting"; params["options"] = ["tabSize":4,"insertSpaces":!source.components(separatedBy:"\n").contains(where:{$0.hasPrefix("\t")})]
         case "fixAll": method = "textDocument/codeAction"; params["range"] = ["start":languagePosition(source,0),"end":languagePosition(source,source.utf16.count)]; params["context"] = ["diagnostics":[],"only":["source.fixAll"]]
+        case "sourceActions": method = "textDocument/codeAction"; params["range"] = ["start":languagePosition(source,0),"end":languagePosition(source,source.utf16.count)]; params["context"] = ["diagnostics":[],"only":["source"]]
         default: method = "textDocument/codeAction"; params["range"] = ["start":languagePosition(source,selection.location),"end":languagePosition(source,NSMaxRange(selection))]; params["context"] = ["diagnostics":[]]
         }
         if kind=="rename" || kind=="format" {
@@ -488,16 +491,16 @@ func validateNativeSourcePreparation(_ raw:Any,source:String,requireParsed:Bool=
     func complete() async {
         showingSuggestions = true
         guard let buffer, !buffer.readOnly else { return }
-        sync(); let source = buffer.text, selection = buffer.selection, current = epoch, id = UUID()
+        sync(); let source = buffer.text, selection = buffer.selection, current = epoch, revision=buffer.sourceEditIdentity,selectionRevision=buffer.selectionIdentity, id = UUID()
         completionID = id
         status = "Updating completions; showing last received results…"
         do {
             // The bridge prepares virtual files asynchronously after full-text sync.
             // Keep the popup responsive while typing settles; never use an obsolete position.
             try await Task.sleep(for: .milliseconds(350))
-            guard exactUTF8(self.buffer?.text,source), self.buffer?.selection == selection, epoch == current, completionID == id else { return }
+            guard self.buffer === buffer,buffer.sourceEditIdentity==revision,buffer.selectionIdentity==selectionRevision,!buffer.resourceDeleted,exactUTF8(languageURI(buffer.file.path),uri),exactUTF8(self.buffer?.text,source), self.buffer?.selection == selection, epoch == current, completionID == id else { return }
             let result = try await request("textDocument/completion", ["textDocument": ["uri": uri], "position": languagePosition(source, selection.location)])
-            guard exactUTF8(self.buffer?.text,source), self.buffer?.selection == selection, epoch == current, completionID == id else { return }
+            guard self.buffer === buffer,buffer.sourceEditIdentity==revision,buffer.selectionIdentity==selectionRevision,!buffer.resourceDeleted,exactUTF8(languageURI(buffer.file.path),uri),exactUTF8(self.buffer?.text,source), self.buffer?.selection == selection, epoch == current, completionID == id else { return }
             guard !(result is NSNull) else { return }
             let items = result as? [[String: Any]] ?? (result as? [String: Any])?["items"] as? [[String: Any]] ?? []
             let ns = source as NSString
@@ -508,12 +511,12 @@ func validateNativeSourcePreparation(_ raw:Any,source:String,requireParsed:Bool=
             for (index, item) in items.enumerated() {
                 guard let label=item["label"] as? String,(item["filterText"] as? String ?? label).lowercased().hasPrefix(typed) else{continue}
                 let range=NSRange(location:prefix,length:NSMaxRange(selection)-prefix)
-                fresh.append(NativeCompletion(id:index,label:label,detail:item["detail"] as? String ?? "Language server",range:range,insert:item["insertText"] as? String ?? label,source:source,selection:selection,original:item))
+                fresh.append(NativeCompletion(id:index,label:label,detail:item["detail"] as? String ?? "Language server",range:range,insert:item["insertText"] as? String ?? label,source:source,selection:selection,original:item,sourceIdentity:revision,selectionIdentity:selectionRevision))
                 if fresh.count >= 100 { break }
             }
             suggestions = fresh
             status = suggestions.isEmpty ? "No supported completions at this position. Open Language tools for setup or retry." : "LSP · \(suggestions.count) completions"
-        } catch { if epoch == current,completionID==id,exactUTF8(buffer.text,source),buffer.selection==selection { status = "Completion unavailable: \(error.localizedDescription)" } }
+        } catch { if epoch == current,completionID==id,buffer.sourceEditIdentity==revision,buffer.selectionIdentity==selectionRevision,exactUTF8(buffer.text,source),buffer.selection==selection { status = "Completion unavailable: \(error.localizedDescription)" } }
     }
     var completionNotice=""
     private var acceptingCompletion=UUID()
@@ -526,14 +529,14 @@ func validateNativeSourcePreparation(_ raw:Any,source:String,requireParsed:Bool=
     func resolveCompletion(_ item:[String:Any]) async throws->[String:Any] {
         if item["data"]==nil || item["data"] is NSNull{return item}
         guard let buffer,!buffer.readOnly,subscription != nil else{throw EngineError(message:"Choose writable source with a connected language provider.")}
-        sync();let source=buffer.text,selection=buffer.selection,identity=epoch
+        sync();let source=buffer.text,selection=buffer.selection,identity=epoch,revision=buffer.sourceEditIdentity,selectionRevision=buffer.selectionIdentity
         var params=item;params["textDocument"]=["uri":uri]
         let result=try await request("completionItem/resolve",params)
-        guard epoch==identity,exactUTF8(buffer.text,source),buffer.selection==selection else{throw EngineError(message:"Source, cursor or provider changed. Request completions again.")}
+        guard self.buffer === buffer,epoch==identity,buffer.sourceEditIdentity==revision,buffer.selectionIdentity==selectionRevision,!buffer.resourceDeleted,exactUTF8(languageURI(buffer.file.path),uri),exactUTF8(buffer.text,source),buffer.selection==selection else{throw EngineError(message:"Source, cursor or provider changed. Request completions again.")}
         guard let value=result as? [String:Any],value["label"] is String else{throw EngineError(message:"Provider did not resolve this completion. Request again.")};return value
     }
     @discardableResult func accept(_ completion:NativeCompletion,resolution:(([String:Any]) async throws->[String:Any])?=nil) async->Bool {
-        guard let buffer,!buffer.readOnly,!buffer.saving,exactUTF8(buffer.text,completion.source),buffer.selection==completion.selection else{completionNotice="Suggestion is out of date. Request completions again.";return false}
+        guard let buffer,!buffer.readOnly,!buffer.saving,!buffer.resourceDeleted,completion.sourceIdentity.map({$0==buffer.sourceEditIdentity}) ?? true,completion.selectionIdentity.map({$0==buffer.selectionIdentity}) ?? true,exactUTF8(buffer.text,completion.source),buffer.selection==completion.selection else{completionNotice="Suggestion is out of date. Request completions again.";return false}
         if exactUTF8(buffer.multiSource,buffer.text),buffer.multiRanges.count>1{completionNotice="Choose one caret before accepting this source completion.";return false}
         guard let original=completion.original else {
             cancelCompletion()
@@ -541,12 +544,12 @@ func validateNativeSourcePreparation(_ raw:Any,source:String,requireParsed:Bool=
             guard accepted else{completionNotice="Editor refused the completion. Finish composition or request again.";return false}
             completionNotice="Completion selected";showingSuggestions=false;return true
         }
-        let request=UUID(),identity=epoch,snippetIntent=buffer.snippets.intent;acceptingCompletion=request;completionPending=true;completionNotice="Resolving completion…"
+        let request=UUID(),identity=epoch,revision=buffer.sourceEditIdentity,selectionRevision=buffer.selectionIdentity,snippetIntent=buffer.snippets.intent;acceptingCompletion=request;completionPending=true;completionNotice="Resolving completion…"
         defer{if acceptingCompletion==request{completionPending=false}}
         do {
             let resolved=try await (resolution ?? {try await self.resolveCompletion($0)})(original)
             guard acceptingCompletion==request else{return false}
-            guard epoch==identity,buffer.snippets.intent==snippetIntent,buffer.language===self,!buffer.readOnly,!buffer.saving,exactUTF8(buffer.text,completion.source),buffer.selection==completion.selection,!(exactUTF8(buffer.multiSource,buffer.text)&&buffer.multiRanges.count>1) else{throw EngineError(message:"Source, cursor or provider changed. Request completions again.")}
+            guard self.buffer === buffer,epoch==identity,buffer.sourceEditIdentity==revision,buffer.selectionIdentity==selectionRevision,!buffer.resourceDeleted,exactUTF8(languageURI(buffer.file.path),uri),buffer.snippets.intent==snippetIntent,buffer.language===self,!buffer.readOnly,!buffer.saving,exactUTF8(buffer.text,completion.source),buffer.selection==completion.selection,!(exactUTF8(buffer.multiSource,buffer.text)&&buffer.multiRanges.count>1) else{throw EngineError(message:"Source, cursor or provider changed. Request completions again.")}
             let initialDraft=try planCompletion(uri,item:resolved,snapshot:SourceSnapshot(text:completion.source,writable:!buffer.readOnly && !buffer.saving),from:completion.range.location,to:NSMaxRange(completion.range),expansion:try completionExpansion(resolved))
             let draft=try buffer.snippets.prepareCompletion(initialDraft)
             guard exactUTF8(draft.path,buffer.file.path),buffer.applyCompletionDraft?(draft,completion.selection)==true else{throw EngineError(message:"Editor refused the complete completion. Finish composition or request again.")}

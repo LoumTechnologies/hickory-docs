@@ -32,7 +32,7 @@ export function beginCompletionAcceptance(view:EditorView,notice:(message:string
 
 ## Prepare and commit one complete browser transaction
 
-An optional source-editor adapter retains the actual native choice and query selection, resolves through its producing client and rechecks attachment, source, selection, provider, permissions, saving and composition before planning. This bridge currently requires one caret; multiple-carets are retained and refused until independently captured proposals can be combined. The whole source/import plan passes the shared input guard and transaction preparation before one synchronous update with isolated undo. A following selection-only transaction in that same update records the final selection for CodeMirror redo; it adds no second document edit or separate undo step. Guarded no-op selection is supported; a late or replaced job cannot write source or overwrite a newer status.
+An optional source-editor adapter retains the actual native choice and query selection, resolves through its producing client and rechecks attachment, source, selection, provider, permissions, saving and composition before planning. This bridge currently requires one caret; multiple-carets are retained and refused until independently captured proposals can be combined. An offered query and its pending acceptance retain the original document object and the shared editor-input intent token. Source edits, undo and cursor round trips advance that token; harmless popup/capability effects preserve it. Equal bytes or a restored cursor cannot revive an old query. The whole source/import plan passes the shared input guard and transaction preparation before one synchronous update with isolated undo. A following selection-only transaction in that same update records the final selection for CodeMirror redo; it adds no second document edit or separate undo step. Guarded no-op selection is supported; a late or replaced job cannot write source or overwrite a newer status.
 
 <ui:copy id="completion-acceptance-browser">
 import {isolateHistory} from '@codemirror/commands';
@@ -45,22 +45,22 @@ import {beginCompletionAcceptance} from '../lsp/completionAcceptance';
 import {prepareEditorChanges} from '../editor/textInput';
 import {planCompletion} from './CompletionPlan';
 import {completionExpansion} from './SnippetExpansion';
-import {sourceSnippetEffect,continueSourceSnippetCompletion,readSourceSnippet} from './SourceSnippets';
+import {sourceSnippetEffect,continueSourceSnippetCompletion,readSourceSnippet,readSourceEditorIntent} from './SourceSnippets';
 export interface SourceCompletionAdapter {
  uri:string;resolve:(item:CompletionItem)=>Promise<CompletionItem>;current:()=>boolean;writable:()=>boolean;notice:(text:string)=>void;
 }
-const querySnapshots=new WeakMap<EditorState,{source:string;selection:EditorState['selection']}>();
+const querySnapshots=new WeakMap<EditorState,{source:string;selection:EditorState['selection'];document:EditorState['doc'];intent:symbol|undefined}>();
 export function sourceCompletion(item:CompletionItem,context:CompletionContext,adapter:SourceCompletionAdapter):Completion {
  let snapshot=querySnapshots.get(context.state);
- if(!snapshot){snapshot={source:context.state.doc.toString(),selection:context.state.selection};querySnapshots.set(context.state,snapshot);}
- const {source,selection}=snapshot,original=structuredClone(item);
+ if(!snapshot){snapshot={source:context.state.doc.toString(),selection:context.state.selection,document:context.state.doc,intent:readSourceEditorIntent(context.state)};querySnapshots.set(context.state,snapshot);}
+ const {source,selection,document,intent}=snapshot,original=structuredClone(item);
  const label=typeof item.filterText==='string'?item.filterText:item.label;
- return {...lspCompletion(item),label,...(label!==item.label?{displayLabel:item.label}:{}),apply:(view,completion,from,to)=>{closeCompletion(view);void acceptSourceCompletion(view,original,source,selection,from,to,adapter,completion);}};
+ return {...lspCompletion(item),label,...(label!==item.label?{displayLabel:item.label}:{}),apply:(view,completion,from,to)=>{closeCompletion(view);void acceptSourceCompletion(view,original,source,selection,from,to,{...adapter,current:()=>adapter.current()&&view.state.doc===document&&readSourceEditorIntent(view.state)===intent},completion);}};
 }
 export async function acceptSourceCompletion(view:EditorView,item:CompletionItem,source:string,selection:EditorState['selection'],from:number,to:number,adapter:SourceCompletionAdapter,completion?:Completion):Promise<void> {
- const request=beginCompletionAcceptance(view,adapter.notice),snippetContext=readSourceSnippet(view);
+ const request=beginCompletionAcceptance(view,adapter.notice),snippetContext=readSourceSnippet(view),document=view.state.doc,intent=readSourceEditorIntent(view.state);
  let expectedAfter:string|undefined;
- const valid=()=>!request.cancelled()&&request.current()&&readSourceSnippet(view)===snippetContext&&adapter.current()&&view.dom.isConnected&&view.state.doc.toString()===source&&view.state.selection.eq(selection)&&adapter.writable()&&!view.composing&&!view.state.readOnly&&view.state.facet(EditorView.editable);
+ const valid=()=>!request.cancelled()&&request.current()&&readSourceSnippet(view)===snippetContext&&view.state.doc===document&&readSourceEditorIntent(view.state)===intent&&adapter.current()&&view.dom.isConnected&&view.state.doc.toString()===source&&view.state.selection.eq(selection)&&adapter.writable()&&!view.composing&&!view.state.readOnly&&view.state.facet(EditorView.editable);
  const report=(text:string)=>{if(request.current())adapter.notice(text);};
  try {
   if(request.cancelled())return;
@@ -99,12 +99,14 @@ import {expect,it} from 'vitest';
 import {EditorState} from '@codemirror/state';
 import {EditorView} from '@codemirror/view';
 import {history,undo,redo} from '@codemirror/commands';
-import {acceptSourceCompletion,type SourceCompletionAdapter} from './SourceCompletion';
+import {acceptSourceCompletion,sourceCompletion,type SourceCompletionAdapter} from './SourceCompletion';
 import {readCompletionAcceptance,waitCompletionAcceptance,cancelCompletionAcceptance,withCompletionAcceptanceSignal} from '../lsp/completionAcceptance';
 import type {CompletionItem} from '../lsp/client';
+import {CompletionContext} from '@codemirror/autocomplete';
+import {sourceSnippets,dispatchSourceSnippetTransactions} from './SourceSnippets';
 import snippetVectors from '../../../simple-contract/snippet-expansion-cases.json';
 function held(){let resolve!:(value:CompletionItem)=>void;const promise=new Promise<CompletionItem>(done=>{resolve=done;});return {promise,resolve};}
-function fixture(){const parent=document.body.appendChild(document.createElement('div'));const view=new EditorView({state:EditorState.create({doc:'va\n',selection:{anchor:2},extensions:history()}),parent});return {view,close:()=>{view.destroy();parent.remove();}};}
+function fixture(){const parent=document.body.appendChild(document.createElement('div'));const view=new EditorView({dispatchTransactions:dispatchSourceSnippetTransactions,state:EditorState.create({doc:'va\n',selection:{anchor:2},extensions:[history(),sourceSnippets({writable:()=>true,notice:()=>{}})]}),parent});return {view,close:()=>{view.destroy();parent.remove();}};}
 const raw={label:'value',data:{hickory_completion:'held'}};
 function resolved(text='value'):CompletionItem {return {...raw,textEdit:{range:{start:{line:0,character:0},end:{line:0,character:2}},newText:text},additionalTextEdits:[{range:{start:{line:0,character:0},end:{line:0,character:0}},newText:'# import\n'}]};}
 it('waits for the whole resolved import edit, commits one undo and maps the caret',async()=>{
@@ -145,6 +147,13 @@ it('Escape cancellation and an agent abort settle observers before the late prov
   const work=withCompletionAcceptanceSignal(view,signal.signal,()=>acceptSourceCompletion(view,raw,'va\n',view.state.selection,0,2,{uri:'hick:///a.py',resolve:()=>pending.promise,current:()=>true,writable:()=>true,notice:()=>{}}));
   const finished=waitCompletionAcceptance(view,readCompletionAcceptance(view)!.job);if(agent)signal.abort();else expect(cancelCompletionAcceptance(view)).toBe(true);expect((await finished).phase).toBe('unavailable');pending.resolve(resolved());await work;expect(view.state.doc.toString()).toBe('va\n');
  }finally{close();}}
+});
+
+it('an offered query cannot revive after equal-byte undo or a cursor round trip',async()=>{
+ for(const sourceABA of[true,false]){const {view,close}=fixture();let calls=0;try{const item=sourceCompletion(raw,new CompletionContext(view.state,2,true),{uri:'hick:///a.py',resolve:async()=>{calls++;return resolved()},current:()=>true,writable:()=>true,notice:()=>{}});if(sourceABA){view.dispatch({changes:{from:0,to:2,insert:'xy'},selection:{anchor:2},userEvent:'input.type'});expect(undo(view)).toBe(true)}else{view.dispatch({selection:{anchor:0}});view.dispatch({selection:{anchor:2}})}expect(view.state.doc.toString()).toBe('va\n');expect(view.state.selection.main.head).toBe(2);expect(typeof item.apply).toBe('function');(item.apply as Exclude<typeof item.apply,string|undefined>)(view,item,0,2);await waitCompletionAcceptance(view,readCompletionAcceptance(view)!.job);expect(calls).toBe(0);expect(view.state.doc.toString()).toBe('va\n');expect(readCompletionAcceptance(view)?.phase).toBe('unavailable')}finally{close()}}
+});
+it('a pending provider cannot revive after equal-byte undo or a cursor round trip',async()=>{
+ for(const sourceABA of[true,false]){const {view,close}=fixture(),pending=held();try{const work=acceptSourceCompletion(view,raw,'va\n',view.state.selection,0,2,{uri:'hick:///a.py',resolve:()=>pending.promise,current:()=>true,writable:()=>true,notice:()=>{}});if(sourceABA){view.dispatch({changes:{from:0,to:2,insert:'xy'},selection:{anchor:2},userEvent:'input.type'});expect(undo(view)).toBe(true)}else{view.dispatch({selection:{anchor:0}});view.dispatch({selection:{anchor:2}})}pending.resolve(resolved());await work;expect(view.state.doc.toString()).toBe('va\n');expect(view.state.selection.main.head).toBe(2);expect(readCompletionAcceptance(view)?.phase).toBe('unavailable')}finally{close()}}
 });
 </ui:copy>
 

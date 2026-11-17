@@ -151420,7 +151420,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "simple-workspace-command-descriptors",
-      "output": "apps/simple-contract/commands.json",
+      "output": "apps/apple-simple/Sources/Resources/commands.json",
       "page": ".hickory-source/frontends/workspace-commands.md",
       "symbol": "simple-workspace-command-descriptors",
       "basis": "explained-behavior"
@@ -156575,6 +156575,20 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "output": "crates/hickory-cli/src/serve/editor_recovery.rs",
       "page": ".hickory-source/mechanisms/editor-recovery-management.md",
       "symbol": "editor recovery management tests",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "completion-intent-apple-tests",
+      "output": "apps/apple-simple/Tests/CompletionIntentTests.swift",
+      "page": ".hickory-source/mechanisms/completion-intent-acceptance.md",
+      "symbol": "completion intent apple tests",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "completion-intent-android-tests",
+      "output": "apps/android-simple/app/src/test/java/com/hickorydocs/simple/CompletionIntentTest.kt",
+      "page": ".hickory-source/mechanisms/completion-intent-acceptance.md",
+      "symbol": "completion intent android tests",
       "basis": "explained-behavior"
     }
   ],

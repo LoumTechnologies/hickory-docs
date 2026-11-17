@@ -23,6 +23,10 @@ A pending proposal keeps its original revision lease. A fresh synchronous Undo/R
 
 Production provider edits require engine coordinate proofs after the final fresh query. The origin is acknowledged before the initial request; readonly proof context is acquired and synchronized without treating it as an edited target. Every actual existing edited preimage must be writable and covered by a matching captured-byte proof. For ordered resource edits the engine resource-inputs response supplies those initial preimages, so a newly created or renamed destination never becomes an invented old source. The original editor lease, selection, revision and provider still gate review and application. Explicit injected proposal closures remain a trusted test seam; tests can enforce the production proof policy separately. Direct bound rename/format envelopes also require a typed false no-effect flag before their edit is considered.
 
+Complete-file source cleanup retains only the standard `source` family through
+query and resolution. Unavailable or changed actions refuse while preserving the
+ordinary editor; the existing source lease and history authority still apply.
+
 <ui:copy id="simple-android-workspace-changes">
 package com.hickorydocs.simple
 import androidx.compose.runtime.*
@@ -38,7 +42,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 import org.json.JSONArray
-fun fileWideFixActions(actions:List<JSONObject>)=actions.filter{val kind=it.opt("kind") as? String;kind=="source.fixAll"||kind?.startsWith("source.fixAll.")==true}
+fun scopedProviderActions(actions:List<JSONObject>,scope:String?):List<JSONObject>{val prefix=if(scope=="fixAll")"source.fixAll" else if(scope=="sourceActions")"source" else null;return if(prefix==null)actions else actions.filter{val kind=it.opt("kind") as? String;kind==prefix||kind?.startsWith(prefix+".")==true}}
+fun fileWideFixActions(actions:List<JSONObject>)=scopedProviderActions(actions,"fixAll")
 private data class WorkspaceDraftHistory(val plan:ChangePlan,val read:()->ChangePlan)
 private fun captureDraftHistory(plan:ChangePlan,workspace:Workspace):WorkspaceDraftHistory {
  val sealed=plan.copy(patches=plan.patches.map{it.copy(edits=it.edits.toList())});val server=workspace.engine;val targets=sealed.patches.map{it to workspace.buffers[it.path]}
@@ -126,8 +131,8 @@ class WorkspaceChanges {
             val target=workspace.buffers[path] ?: error("The acquired editor no longer owns its source.")
             check(lease.current(path)&&(wasRetained||target.sourceRevision==0L&&target.text==target.base)&&target.text==source.text&&!target.saving){"Original source owners or the acquired target changed. Prepare again."};lease.retain(path,target);source
         }
-        val actionKind=if(mode=="fixAll")"fixAll" else "actions"
-        this.acquisition=load;actionQuery={val actions=propose(actionKind,"") as? JSONArray ?: JSONArray();val listed=(0 until actions.length()).mapNotNull{actions.optJSONObject(it)};if(actionKind=="fixAll")fileWideFixActions(listed) else listed}
+        val actionKind=if(mode=="fixAll")"fixAll" else if(mode=="sourceActions")"sourceActions" else "actions"
+        this.acquisition=load;actionQuery={val actions=propose(actionKind,"") as? JSONArray ?: JSONArray();val listed=(0 until actions.length()).mapNotNull{actions.optJSONObject(it)};scopedProviderActions(listed,actionKind)}
         plan=null; choices=emptyList(); referencePaths=emptyList(); notice="Preparing complete source changes…"
         val kind=mode ?: "actions"; val nextName=name
         try {
@@ -140,10 +145,10 @@ class WorkspaceChanges {
             }
             val result=propose(kind,nextName)
             if (!valid()) { if (revision==request) notice="Source, selection or provider changed. Prepare again."; return }
-            if (kind == "actions" || kind == "fixAll") {
+            if (kind == "actions" || kind == "fixAll" || kind == "sourceActions") {
                 val actions=result as? JSONArray ?: JSONArray(); choices=(0 until actions.length()).mapNotNull { actions.optJSONObject(it)?.let { item -> JSONObject(item.toString()) } }
-                if(kind=="fixAll")choices=fileWideFixActions(choices)
-                notice=if(kind=="fixAll"&&choices.isEmpty()) "The current provider offers no file-wide diagnostic fixes. No edits were applied." else if (choices.isEmpty()) "No provider actions here. Support depends on the installed language server." else "Choose a provider action to preview."
+                choices=scopedProviderActions(choices,kind)
+                notice=if(kind=="fixAll"&&choices.isEmpty()) "The current provider offers no file-wide diagnostic fixes. No edits were applied." else if(kind=="sourceActions"&&choices.isEmpty()) "No source cleanup or generation actions are available here. No edits were applied." else if (choices.isEmpty()) "No provider actions here. Support depends on the installed language server." else "Choose a provider action to preview."
             } else if(proofRequired){
                 var first:Any?=result
                 val acquired=acquireProviderAction(workspace,sources,{
@@ -227,7 +232,7 @@ class WorkspaceChanges {
             check(valid()){"Source, selection or provider changed. Prepare actions again."}
             action.optJSONObject("disabled")?.let{error(it.optString("reason","Provider action disabled"))}
             plan=null;notice="Resolving complete provider action…";var first:JSONObject?=resolve(action)
-            if(mode=="fixAll")check(first?.let{fileWideFixActions(listOf(it)).isNotEmpty()}==true){"The provider changed the complete file-wide action kind. Prepare again."}
+            if(mode=="fixAll"||mode=="sourceActions")check(first?.let{scopedProviderActions(listOf(it),mode).isNotEmpty()}==true){"The provider changed the complete file-wide action kind. Prepare again."}
             val acquired=acquireProviderAction(workspace,initialSources,{
                 val resolved=first?.also{first=null} ?: run {
                     val candidates=queryActions().filter{it.optString("title")==action.optString("title")&&it.optString("kind")==action.optString("kind")}
@@ -235,7 +240,7 @@ class WorkspaceChanges {
                     resolve(candidates.single())
                 }
                 check(revision==request&&choiceRevision==choice&&valid()){"Source, selection or provider changed. Prepare actions again."}
-                if(mode=="fixAll")check(fileWideFixActions(listOf(resolved)).isNotEmpty()){"The provider changed the complete file-wide action kind. Prepare again."}
+                if(mode=="fixAll"||mode=="sourceActions")check(scopedProviderActions(listOf(resolved),mode).isNotEmpty()){"The provider changed the complete file-wide action kind. Prepare again."}
                 resolved.optJSONObject("disabled")?.let{error(it.optString("reason","Provider action disabled"))}
                 check(resolved.isNull("command")){"This action requires a provider command; its edit has not been applied."}
                 resolved
@@ -287,7 +292,7 @@ The existing Edit menu presents this bounded floating dialog. Every affected sou
         Text("Workspace change preview",fontSize=16.sp); Text("Source drafts · not saved or verified",fontSize=11.sp)
         TextButton(onClick={changes.close(workspace)}) { Text("Close") }
         if (changes.mode=="rename") OutlinedTextField(changes.name,{changes.updateName(it)},label={Text("New symbol name")},singleLine=true)
-        if (changes.mode!="undo" && changes.mode!="redo" && changes.mode!="proposal") TextButton(enabled=changes.mode!="rename" || changes.name.isNotBlank(),onClick={scope.launch {changes.prepare(workspace)}}) { Text(if(changes.mode=="fixAll") "Prepare file-wide diagnostic fixes" else if(changes.mode=="actions") "Prepare provider actions" else if(changes.mode=="format") "Prepare formatting" else if(changes.mode=="cleanup") "Prepare cleanup" else "Prepare rename") }
+        if (changes.mode!="undo" && changes.mode!="redo" && changes.mode!="proposal") TextButton(enabled=changes.mode!="rename" || changes.name.isNotBlank(),onClick={scope.launch {changes.prepare(workspace)}}) { Text(if(changes.mode=="fixAll") "Prepare file-wide diagnostic fixes" else if(changes.mode=="sourceActions") "Prepare source actions" else if(changes.mode=="actions") "Prepare provider actions" else if(changes.mode=="format") "Prepare formatting" else if(changes.mode=="cleanup") "Prepare cleanup" else "Prepare rename") }
         if (changes.notice.isNotEmpty()) Text(changes.notice,fontSize=12.sp)
         for(index in changes.choices.indices.drop(changes.actionPage*100).take(100)) {
             val action=changes.choices[index]
@@ -538,6 +543,14 @@ class ActionChoiceTest {
   }finally{w.buffers.values.forEach{it.language?.close()};scope.cancel()}
  }
 
+
+ @Test fun completeSourceActionScopeNeverBorrowsQuickFixes()=runBlocking {
+  val w=Workspace(this);val engine=Engine("http://127.0.0.1:1");val file=FileNode("a.py","a.py",false,emptyList(),null,null);val b=DocumentBuffer(file,FileText("old\n","base"));b.language=NativeLanguage(engine,b,this);w.buffers[file.path]=b;w.show(file.path)
+  try{val action=JSONObject().put("title","Source cleanup").put("kind","source.organizeImports").put("edit",JSONObject().put("changes",JSONObject().put(languageURI(file.path),JSONArray().put(JSONObject().put("range",JSONObject().put("start",JSONObject().put("line",0).put("character",0)).put("end",JSONObject().put("line",0).put("character",3))).put("newText","new")))))
+   w.changes.open("sourceActions",w);w.changes.prepare(w,{kind,_->assertEquals("sourceActions",kind);JSONArray().put(action).put(JSONObject().put("title","single").put("kind","quickfix")).put(JSONObject().put("title","wrong").put("kind","sourceWrong"))},{JSONObject(action.toString()).put("kind","quickfix")});assertEquals(1,w.changes.choices.size);w.changes.choose(0,w);assertNull(w.changes.plan);assertTrue(w.changes.notice,w.changes.notice.contains("kind"));assertEquals("old\n",b.text)
+   w.changes.open("sourceActions",w);w.changes.prepare(w,{_,_->JSONArray().put(JSONObject().put("title","single").put("kind","quickfix"))});assertTrue(w.changes.choices.isEmpty());assertTrue(w.changes.notice,w.changes.notice.contains("No source cleanup"));assertEquals("old\n",b.text)
+  }finally{b.language?.close()}
+ }
 }
 </ui:copy>
 

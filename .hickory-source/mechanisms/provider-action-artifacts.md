@@ -238,11 +238,11 @@ struct ProviderActionTarget {
     label: Option<String>,
     source_proofs: Arc<Vec<ProviderSourceProof>>,
 }
-fn document_wide_fix_request(context: &CodeActionContext) -> bool {
+fn document_wide_source_request(context: &CodeActionContext) -> bool {
     context.only.as_ref().is_some_and(|only| {
         !only.is_empty()
             && only.iter().all(|kind| {
-                kind.as_str() == "source.fixAll" || kind.as_str().starts_with("source.fixAll.")
+                kind.as_str() == "source" || kind.as_str().starts_with("source.")
             })
     })
 }
@@ -510,18 +510,20 @@ mod request_context_tests {
         assert!(merge_action_source_proofs(&[target("one"), target("two")]).is_err());
     }
     #[test]
-    fn complete_file_routing_requires_only_the_explicit_fix_all_family() {
+    fn complete_file_routing_requires_only_the_explicit_source_family() {
         for (only, expected) in [
             (json!(["source.fixAll"]), true),
             (json!(["source.fixAll.python"]), true),
             (json!([]), false),
-            (json!(["source.fixAllWrong"]), false),
-            (json!(["source"]), false),
+            (json!(["source.fixAllWrong"]), true),
+            (json!(["source"]), true),
+            (json!(["source.organizeImports"]), true),
+            (json!(["sourceWrong"]), false),
             (json!(["quickfix", "source.fixAll"]), false),
         ] {
             let context: CodeActionContext =
                 serde_json::from_value(json!({"diagnostics":[],"only":only})).unwrap();
-            assert_eq!(document_wide_fix_request(&context), expected);
+            assert_eq!(document_wide_source_request(&context), expected);
         }
         assert_eq!(
             provider_output_label(
@@ -734,7 +736,7 @@ Build provider context from the child’s own diagnostics. Read its actual capab
         params: CodeActionParams,
     ) -> Result<Option<CodeActionResponse>> {
         let revision = self.provider_source_revision().await;
-        if document_wide_fix_request(&params.context) {
+        if document_wide_source_request(&params.context) {
             let mut targets = {
                 let index = self.vfile_index.read().await;
                 let associated = index

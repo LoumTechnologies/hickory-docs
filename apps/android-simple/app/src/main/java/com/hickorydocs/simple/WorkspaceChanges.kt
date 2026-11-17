@@ -12,7 +12,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 import org.json.JSONArray
-fun fileWideFixActions(actions:List<JSONObject>)=actions.filter{val kind=it.opt("kind") as? String;kind=="source.fixAll"||kind?.startsWith("source.fixAll.")==true}
+fun scopedProviderActions(actions:List<JSONObject>,scope:String?):List<JSONObject>{val prefix=if(scope=="fixAll")"source.fixAll" else if(scope=="sourceActions")"source" else null;return if(prefix==null)actions else actions.filter{val kind=it.opt("kind") as? String;kind==prefix||kind?.startsWith(prefix+".")==true}}
+fun fileWideFixActions(actions:List<JSONObject>)=scopedProviderActions(actions,"fixAll")
 private data class WorkspaceDraftHistory(val plan:ChangePlan,val read:()->ChangePlan)
 private fun captureDraftHistory(plan:ChangePlan,workspace:Workspace):WorkspaceDraftHistory {
  val sealed=plan.copy(patches=plan.patches.map{it.copy(edits=it.edits.toList())});val server=workspace.engine;val targets=sealed.patches.map{it to workspace.buffers[it.path]}
@@ -100,8 +101,8 @@ class WorkspaceChanges {
             val target=workspace.buffers[path] ?: error("The acquired editor no longer owns its source.")
             check(lease.current(path)&&(wasRetained||target.sourceRevision==0L&&target.text==target.base)&&target.text==source.text&&!target.saving){"Original source owners or the acquired target changed. Prepare again."};lease.retain(path,target);source
         }
-        val actionKind=if(mode=="fixAll")"fixAll" else "actions"
-        this.acquisition=load;actionQuery={val actions=propose(actionKind,"") as? JSONArray ?: JSONArray();val listed=(0 until actions.length()).mapNotNull{actions.optJSONObject(it)};if(actionKind=="fixAll")fileWideFixActions(listed) else listed}
+        val actionKind=if(mode=="fixAll")"fixAll" else if(mode=="sourceActions")"sourceActions" else "actions"
+        this.acquisition=load;actionQuery={val actions=propose(actionKind,"") as? JSONArray ?: JSONArray();val listed=(0 until actions.length()).mapNotNull{actions.optJSONObject(it)};scopedProviderActions(listed,actionKind)}
         plan=null; choices=emptyList(); referencePaths=emptyList(); notice="Preparing complete source changes…"
         val kind=mode ?: "actions"; val nextName=name
         try {
@@ -114,10 +115,10 @@ class WorkspaceChanges {
             }
             val result=propose(kind,nextName)
             if (!valid()) { if (revision==request) notice="Source, selection or provider changed. Prepare again."; return }
-            if (kind == "actions" || kind == "fixAll") {
+            if (kind == "actions" || kind == "fixAll" || kind == "sourceActions") {
                 val actions=result as? JSONArray ?: JSONArray(); choices=(0 until actions.length()).mapNotNull { actions.optJSONObject(it)?.let { item -> JSONObject(item.toString()) } }
-                if(kind=="fixAll")choices=fileWideFixActions(choices)
-                notice=if(kind=="fixAll"&&choices.isEmpty()) "The current provider offers no file-wide diagnostic fixes. No edits were applied." else if (choices.isEmpty()) "No provider actions here. Support depends on the installed language server." else "Choose a provider action to preview."
+                choices=scopedProviderActions(choices,kind)
+                notice=if(kind=="fixAll"&&choices.isEmpty()) "The current provider offers no file-wide diagnostic fixes. No edits were applied." else if(kind=="sourceActions"&&choices.isEmpty()) "No source cleanup or generation actions are available here. No edits were applied." else if (choices.isEmpty()) "No provider actions here. Support depends on the installed language server." else "Choose a provider action to preview."
             } else if(proofRequired){
                 var first:Any?=result
                 val acquired=acquireProviderAction(workspace,sources,{
@@ -201,7 +202,7 @@ class WorkspaceChanges {
             check(valid()){"Source, selection or provider changed. Prepare actions again."}
             action.optJSONObject("disabled")?.let{error(it.optString("reason","Provider action disabled"))}
             plan=null;notice="Resolving complete provider action…";var first:JSONObject?=resolve(action)
-            if(mode=="fixAll")check(first?.let{fileWideFixActions(listOf(it)).isNotEmpty()}==true){"The provider changed the complete file-wide action kind. Prepare again."}
+            if(mode=="fixAll"||mode=="sourceActions")check(first?.let{scopedProviderActions(listOf(it),mode).isNotEmpty()}==true){"The provider changed the complete file-wide action kind. Prepare again."}
             val acquired=acquireProviderAction(workspace,initialSources,{
                 val resolved=first?.also{first=null} ?: run {
                     val candidates=queryActions().filter{it.optString("title")==action.optString("title")&&it.optString("kind")==action.optString("kind")}
@@ -209,7 +210,7 @@ class WorkspaceChanges {
                     resolve(candidates.single())
                 }
                 check(revision==request&&choiceRevision==choice&&valid()){"Source, selection or provider changed. Prepare actions again."}
-                if(mode=="fixAll")check(fileWideFixActions(listOf(resolved)).isNotEmpty()){"The provider changed the complete file-wide action kind. Prepare again."}
+                if(mode=="fixAll"||mode=="sourceActions")check(scopedProviderActions(listOf(resolved),mode).isNotEmpty()){"The provider changed the complete file-wide action kind. Prepare again."}
                 resolved.optJSONObject("disabled")?.let{error(it.optString("reason","Provider action disabled"))}
                 check(resolved.isNull("command")){"This action requires a provider command; its edit has not been applied."}
                 resolved
@@ -247,7 +248,7 @@ fun Workspace.applyWorkspacePlan(plan: ChangePlan) {
         Text("Workspace change preview",fontSize=16.sp); Text("Source drafts · not saved or verified",fontSize=11.sp)
         TextButton(onClick={changes.close(workspace)}) { Text("Close") }
         if (changes.mode=="rename") OutlinedTextField(changes.name,{changes.updateName(it)},label={Text("New symbol name")},singleLine=true)
-        if (changes.mode!="undo" && changes.mode!="redo" && changes.mode!="proposal") TextButton(enabled=changes.mode!="rename" || changes.name.isNotBlank(),onClick={scope.launch {changes.prepare(workspace)}}) { Text(if(changes.mode=="fixAll") "Prepare file-wide diagnostic fixes" else if(changes.mode=="actions") "Prepare provider actions" else if(changes.mode=="format") "Prepare formatting" else if(changes.mode=="cleanup") "Prepare cleanup" else "Prepare rename") }
+        if (changes.mode!="undo" && changes.mode!="redo" && changes.mode!="proposal") TextButton(enabled=changes.mode!="rename" || changes.name.isNotBlank(),onClick={scope.launch {changes.prepare(workspace)}}) { Text(if(changes.mode=="fixAll") "Prepare file-wide diagnostic fixes" else if(changes.mode=="sourceActions") "Prepare source actions" else if(changes.mode=="actions") "Prepare provider actions" else if(changes.mode=="format") "Prepare formatting" else if(changes.mode=="cleanup") "Prepare cleanup" else "Prepare rename") }
         if (changes.notice.isNotEmpty()) Text(changes.notice,fontSize=12.sp)
         for(index in changes.choices.indices.drop(changes.actionPage*100).take(100)) {
             val action=changes.choices[index]

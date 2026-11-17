@@ -115,4 +115,12 @@ class ActionChoiceTest {
   }finally{w.buffers.values.forEach{it.language?.close()};scope.cancel()}
  }
 
+
+ @Test fun completeSourceActionScopeNeverBorrowsQuickFixes()=runBlocking {
+  val w=Workspace(this);val engine=Engine("http://127.0.0.1:1");val file=FileNode("a.py","a.py",false,emptyList(),null,null);val b=DocumentBuffer(file,FileText("old\n","base"));b.language=NativeLanguage(engine,b,this);w.buffers[file.path]=b;w.show(file.path)
+  try{val action=JSONObject().put("title","Source cleanup").put("kind","source.organizeImports").put("edit",JSONObject().put("changes",JSONObject().put(languageURI(file.path),JSONArray().put(JSONObject().put("range",JSONObject().put("start",JSONObject().put("line",0).put("character",0)).put("end",JSONObject().put("line",0).put("character",3))).put("newText","new")))))
+   w.changes.open("sourceActions",w);w.changes.prepare(w,{kind,_->assertEquals("sourceActions",kind);JSONArray().put(action).put(JSONObject().put("title","single").put("kind","quickfix")).put(JSONObject().put("title","wrong").put("kind","sourceWrong"))},{JSONObject(action.toString()).put("kind","quickfix")});assertEquals(1,w.changes.choices.size);w.changes.choose(0,w);assertNull(w.changes.plan);assertTrue(w.changes.notice,w.changes.notice.contains("kind"));assertEquals("old\n",b.text)
+   w.changes.open("sourceActions",w);w.changes.prepare(w,{_,_->JSONArray().put(JSONObject().put("title","single").put("kind","quickfix"))});assertTrue(w.changes.choices.isEmpty());assertTrue(w.changes.notice,w.changes.notice.contains("No source cleanup"));assertEquals("old\n",b.text)
+  }finally{b.language?.close()}
+ }
 }

@@ -98,6 +98,12 @@ Menus and action search need one vocabulary and one availability decision. The s
     "requires": "writable"
   },
   {
+    "id": "symbol.sourceActions",
+    "label": "Preview source cleanup and generation",
+    "group": "Edit",
+    "requires": "writable"
+  },
+  {
     "id": "symbol.actions",
     "label": "Refactor and quick fixes",
     "group": "Edit",

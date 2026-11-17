@@ -1809,4 +1809,28 @@ source stays unchanged. Physical input,
 assistive technology, Android rendered acceptance and iOS runtime acceptance remain
 unverified; restoration and private Forget confer no source-save permission.
 
+## Complete source actions and original editor intentions
+
+The shared action menu now reaches source cleanup and generation through the
+provider's standard `source` action family on browser, Apple and Android. Requests
+cover the complete authored file. Family checks survive lazy resolution and fresh
+acquisition; missing provider support produces an explicit unavailable result.
+The narrower fix-all command retains its own family restriction. Proposals retain
+the existing source proofs, preview, guarded application and coordinated history.
+
+Completion and template offers also retain their original text and editor selection
+intention. Moving the cursor or replacing source invalidates an old offer even if
+later text happens to match. Native production offer construction supplies these
+stamps; optional stamps remain confined to explicit test seams.
+
+Executed evidence (2026-11-17): the focused browser groups pass47 cases, and the
+backend source-action group passes12. Focused Apple and Android model groups pass
+with live-fixture skips recorded separately. Genuine TypeScript extraction,
+getter/setter generation and unused-import cleanup each pass through browser,
+mounted macOS and Android controller/state previews, preserving an earlier draft
+and coordinated Undo/Redo. The resulting drafts separately pass the TypeScript
+compiler; the iOS simulator product builds. These receipts do not establish
+physical input, assistive-technology, Android rendering or iOS runtime acceptance.
+Full snippet context and production transform activation remain separate open work.
+
 </ui:doc>

@@ -48,10 +48,10 @@ func sourceTemplateDraft(_ plan:SourceTemplatePlan,source:String,label:String)th
     private(set) var catalog:SourceTemplateCatalog?;private(set) var preview:SourceTemplatePlan?;private(set) var selected:SourceTemplateEntry?
     private var ticket=UUID()
     private struct Context {
-        weak var workspace:Workspace?;weak var buffer:DocumentBuffer?;weak var model:SourceTemplatesModel?;var engine:Engine;var namespace:UUID;var bufferID:UUID;var editorID:UUID;var sourceID:UUID;var source:String;var path:String;var selection:NSRange;var snippetIntent:Int
+        weak var workspace:Workspace?;weak var buffer:DocumentBuffer?;weak var model:SourceTemplatesModel?;var engine:Engine;var namespace:UUID;var bufferID:UUID;var editorID:UUID;var sourceID:UUID;var source:String;var path:String;var selection:NSRange;var selectionID:UUID;var snippetIntent:Int
         var body:[String:Any]{["version":1,"path":path,"source":source,"selection":SourceTemplateRange(selection).body]}
         @MainActor func current()->Bool {
-            guard let workspace,let buffer,workspace.sourceTemplates === model,!workspace.connecting,workspace.currentBuffer === buffer,workspace.sourceNavigationEpoch==namespace,workspace.engine?.origin==engine.origin,workspace.engine?.session === engine.session,buffer.id==bufferID,buffer.sourceEditIdentity==sourceID,!buffer.readOnly,!buffer.saving,exactUTF8(buffer.file.path,path),exactUTF8(buffer.text,source),buffer.selection==selection,buffer.snippets.intent==snippetIntent,let editor=buffer.sourceEditorState?() else{return false}
+            guard let workspace,let buffer,workspace.sourceTemplates === model,!workspace.connecting,workspace.currentBuffer === buffer,workspace.sourceNavigationEpoch==namespace,workspace.engine?.origin==engine.origin,workspace.engine?.session === engine.session,buffer.id==bufferID,buffer.sourceEditIdentity==sourceID,buffer.selectionIdentity==selectionID,!buffer.resourceDeleted,!buffer.readOnly,!buffer.saving,exactUTF8(buffer.file.path,path),exactUTF8(buffer.text,source),buffer.selection==selection,buffer.snippets.intent==snippetIntent,let editor=buffer.sourceEditorState?() else{return false}
             return editor.identity==editorID && editor.attached && editor.editable && !editor.composing && editor.selections==1 && exactUTF8(editor.source,source) && editor.selection==selection && buffer.multiRanges.count<2
         }
     }
@@ -61,9 +61,9 @@ func sourceTemplateDraft(_ plan:SourceTemplatePlan,source:String,label:String)th
     func sourceClosed(_ buffer:DocumentBuffer){if context?.bufferID==buffer.id{close()}}
     func open(_ workspace:Workspace) async {
         close();showing=true;catalog=nil;notice=""
-        guard !workspace.connecting,let buffer=workspace.currentBuffer,let engine=workspace.engine,!buffer.readOnly,!buffer.saving,buffer.multiRanges.count<2,let editor=buffer.sourceEditorState?(),editor.attached,editor.editable,!editor.composing,editor.selections==1,exactUTF8(editor.source,buffer.text),editor.selection==buffer.selection else{notice="Open one writable source selection and finish composition before choosing a reusable template.";return}
+        guard !workspace.connecting,let buffer=workspace.currentBuffer,let engine=workspace.engine,!buffer.resourceDeleted,!buffer.readOnly,!buffer.saving,buffer.multiRanges.count<2,let editor=buffer.sourceEditorState?(),editor.attached,editor.editable,!editor.composing,editor.selections==1,exactUTF8(editor.source,buffer.text),editor.selection==buffer.selection else{notice="Open one writable source selection and finish composition before choosing a reusable template.";return}
         buffer.showSnippetTools=false;buffer.language?.cancelCompletion()
-        let held=Context(workspace:workspace,buffer:buffer,model:self,engine:engine,namespace:workspace.sourceNavigationEpoch,bufferID:buffer.id,editorID:editor.identity,sourceID:buffer.sourceEditIdentity,source:buffer.text,path:buffer.file.path,selection:editor.selection,snippetIntent:buffer.snippets.intent)
+        let held=Context(workspace:workspace,buffer:buffer,model:self,engine:engine,namespace:workspace.sourceNavigationEpoch,bufferID:buffer.id,editorID:editor.identity,sourceID:buffer.sourceEditIdentity,source:buffer.text,path:buffer.file.path,selection:editor.selection,selectionID:buffer.selectionIdentity,snippetIntent:buffer.snippets.intent)
         context=held;let id=UUID();ticket=id;reading=true;notice="Reading reusable templates…"
         defer{if ticket==id{reading=false}}
         do {

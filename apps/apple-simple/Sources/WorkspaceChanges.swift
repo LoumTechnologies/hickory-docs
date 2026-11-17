@@ -1,6 +1,7 @@
 import SwiftUI
 import CoreFoundation
-func fileWideFixActions(_ actions:[[String:Any]])->[[String:Any]] {actions.filter{guard let kind=$0["kind"] as? String else{return false};return kind=="source.fixAll" || kind.hasPrefix("source.fixAll.")}}
+func scopedProviderActions(_ actions:[[String:Any]],_ scope:String?)->[[String:Any]] {let prefix:String?=scope=="fixAll" ? "source.fixAll":scope=="sourceActions" ? "source":nil;guard let prefix else{return actions};return actions.filter{guard let kind=$0["kind"] as? String else{return false};return kind==prefix || kind.hasPrefix(prefix+".")}}
+func fileWideFixActions(_ actions:[[String:Any]])->[[String:Any]] {scopedProviderActions(actions,"fixAll")}
 import Observation
 struct ResourceHistoryIntent {var direction:String;var record:String;var token:UUID}
 private struct WorkspaceDraftHistory {let plan:ChangePlan;let read:()throws->ChangePlan}
@@ -111,8 +112,8 @@ private enum WorkspaceHistoryStep {case drafts(WorkspaceDraftHistory);case resou
             guard lease.current(allowing:path),let target=workspace.buffers[path],wasRetained || target.agentSourceRevision==0 && exactUTF8(target.text,target.base),exactUTF8(target.text,source.text),!target.saving else{throw EngineError(message:"Original source owners or the acquired target changed. Prepare again.")}
             lease.retain(path,target);return source
         }
-        let actionKind=mode=="fixAll" ? "fixAll":"actions"
-        self.acquisition=load;actionQuery={let actions=try await propose(actionKind,"") as? [[String:Any]] ?? [];return actionKind=="fixAll" ? fileWideFixActions(actions):actions}
+        let actionKind=mode=="fixAll" ? "fixAll":mode=="sourceActions" ? "sourceActions":"actions"
+        self.acquisition=load;actionQuery={let actions=try await propose(actionKind,"") as? [[String:Any]] ?? [];return scopedProviderActions(actions,actionKind)}
         plan = nil; choices = []; referencePaths = []; notice = "Preparing complete source changes…"
         let kind = mode ?? "actions", nextName = name
         do {
@@ -126,7 +127,7 @@ private enum WorkspaceHistoryStep {case drafts(WorkspaceDraftHistory);case resou
             }
             let result = try await propose(kind,nextName)
             guard valid() else { if revision == request { notice = "Source, selection or provider changed. Prepare again." }; return }
-            if kind == "actions" || kind == "fixAll" { let actions=result as? [[String:Any]] ?? [];choices=kind=="fixAll" ? fileWideFixActions(actions):actions;notice=choices.isEmpty ? (kind=="fixAll" ? "The current provider offers no file-wide diagnostic fixes. No edits were applied.":"No provider actions here. Support depends on the installed language server."):"Choose one complete provider action to preview. Nothing is saved or verified." }
+            if kind == "actions" || kind == "fixAll" || kind == "sourceActions" { let actions=result as? [[String:Any]] ?? [];choices=scopedProviderActions(actions,kind);notice=choices.isEmpty ? (kind=="fixAll" ? "The current provider offers no file-wide diagnostic fixes. No edits were applied.":kind=="sourceActions" ? "No source cleanup or generation actions are available here. No edits were applied.":"No provider actions here. Support depends on the installed language server."):"Choose one complete provider action to preview. Nothing is saved or verified." }
             else if proofRequired {
                 var first:Any?=result
                 let acquired=try await acquireProviderAction(workspace,sources:captured?.sources ?? sources,query:{
@@ -229,10 +230,10 @@ private enum WorkspaceHistoryStep {case drafts(WorkspaceDraftHistory);case resou
             if let disabled=action["disabled"] as? [String:Any]{throw EngineError(message:disabled["reason"] as? String ?? "Provider action disabled")}
             plan=nil;notice="Resolving complete provider action…"
             var first:[String:Any]?=try await resolver(action)
-            if mode=="fixAll",let first,fileWideFixActions([first]).isEmpty{throw EngineError(message:"The provider changed the complete file-wide action kind. Prepare again.")}
+            if ["fixAll","sourceActions"].contains(mode ?? ""),let first,scopedProviderActions([first],mode).isEmpty{throw EngineError(message:"The provider changed the complete file-wide action kind. Prepare again.")}
             if !requiresProviderProofs,let resolved=first,let edit=resolved["edit"],isResourceWorkspaceEdit(edit) {
                 guard self.revision==request,self.choiceRevision==choice,captured.current() else{throw EngineError(message:"Source, selection or provider changed. Prepare actions again.")}
-                if self.mode=="fixAll",fileWideFixActions([resolved]).isEmpty{throw EngineError(message:"The provider changed the complete file-wide action kind. Prepare again.")}
+                if ["fixAll","sourceActions"].contains(self.mode ?? ""),scopedProviderActions([resolved],self.mode).isEmpty{throw EngineError(message:"The provider changed the complete file-wide action kind. Prepare again.")}
                 if let disabled=resolved["disabled"] as? [String:Any]{throw EngineError(message:disabled["reason"] as? String ?? "Provider action disabled")}
                 guard resolved["command"]==nil else{throw EngineError(message:"This action requires a provider command; no edit portion was applied.")}
                 await workspace.resourceRestoration.prepareEdit(workspace,title:resolved["title"] as? String ?? "Provider resource action",edit:edit,current:{self.revision==request && self.choiceRevision==choice && captured.current()},requery:{
@@ -254,7 +255,7 @@ private enum WorkspaceHistoryStep {case drafts(WorkspaceDraftHistory);case resou
                     resolved=try await resolver(candidates[0])
                 }
                 guard self.revision==request,self.choiceRevision==choice,captured.current() else{throw EngineError(message:"Source, selection or provider changed. Prepare actions again.")}
-                if self.mode=="fixAll",fileWideFixActions([resolved]).isEmpty{throw EngineError(message:"The provider changed the complete file-wide action kind. Prepare again.")}
+                if ["fixAll","sourceActions"].contains(self.mode ?? ""),scopedProviderActions([resolved],self.mode).isEmpty{throw EngineError(message:"The provider changed the complete file-wide action kind. Prepare again.")}
                 if let disabled=resolved["disabled"] as? [String:Any]{throw EngineError(message:disabled["reason"] as? String ?? "Provider action disabled")}
                 if resolved["command"] != nil{throw EngineError(message:"This action requires a provider command; its edit has not been applied.")}
                 return resolved
@@ -303,7 +304,7 @@ struct WorkspaceChangesView: View {
             HStack { Text("Workspace change preview").font(.headline); Spacer(); Button("Close") { changes.close(workspace) } }
             Text(workspace.resourceRestoration.review==nil ? "Source drafts · not saved or verified":"Saved baselines and separate dirty drafts · review before publication").font(.caption)
             if changes.mode == "rename" { TextField("New symbol name",text:$changes.name).textFieldStyle(.roundedBorder) }
-            if changes.mode != "undo", changes.mode != "redo", changes.mode != "proposal" { Button(changes.mode == "fixAll" ? "Prepare file-wide diagnostic fixes" : changes.mode == "actions" ? "Prepare provider actions" : changes.mode == "format" ? "Prepare formatting" : changes.mode == "cleanup" ? "Prepare cleanup" : "Prepare rename") { Task { await changes.prepare(workspace) } }.disabled(changes.mode == "rename" && changes.name.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty) }
+            if changes.mode != "undo", changes.mode != "redo", changes.mode != "proposal" { Button(changes.mode == "fixAll" ? "Prepare file-wide diagnostic fixes" : changes.mode == "sourceActions" ? "Prepare source actions" : changes.mode == "actions" ? "Prepare provider actions" : changes.mode == "format" ? "Prepare formatting" : changes.mode == "cleanup" ? "Prepare cleanup" : "Prepare rename") { Task { await changes.prepare(workspace) } }.disabled(changes.mode == "rename" && changes.name.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty) }
             if !changes.notice.isEmpty { Text(changes.notice).font(.caption) }
             ResourceRestorationPreview(workspace:workspace,model:workspace.resourceRestoration)
             ScrollView { VStack(alignment:.leading,spacing:6) {

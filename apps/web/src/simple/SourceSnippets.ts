@@ -39,6 +39,8 @@ export function dispatchSourceSnippetTransactions(transactions:readonly Transact
  }
  view.update(updates);
 }
+const sourceEditorIntent=StateField.define<symbol>({create:()=>Symbol('source editor intent'),update:(value,tr)=>tr.docChanged||tr.selection?Symbol('source editor intent'):value});
+export function readSourceEditorIntent(state:EditorState):symbol|undefined{return state.field(sourceEditorIntent,false);}
 const snippetState=StateField.define<SnippetSession|null>({
  create:()=>null,
  update(session,tr){
@@ -82,7 +84,7 @@ export function sourceSnippets(adapter:{writable:()=>boolean;notice:(message:str
    closeCompletion(view);view.dispatch({changes,selection:{anchor:plan.selection.from,head:plan.selection.to},effects:setSourceSnippet.of(plan.session),annotations:[isolateHistory.of('full'),pickedCompletion.of(completion)],userEvent:'input.snippet.choice'});
   }},'template'))};
  };
- return [snippetState,
+ return [sourceEditorIntent,snippetState,
   invertedEffects.of(tr=>{
    if(!tr.docChanged)return [];
    const replay=tr.effects.find(effect=>effect.is(replaySourceSnippet))?.value as SnippetReplay|undefined;

@@ -6,7 +6,7 @@ For maintainers changing workspace services independently of the editor renderer
 Capabilities request a command or offer a source-bound proposal through one small event boundary. This module owns no editor, preview layout or history. Synchronous acceptance means that the existing controller prepared a reviewable preview; absent or refusing controllers return an explicit error. Source changes still require the preview’s guarded apply action.
 
 <ui:copy id="workspace-change-browser-events">
-export type ChangeCommand = "rename" | "fixAll" | "actions" | "format" | "cleanup" | "undo" | "redo";
+export type ChangeCommand = "rename" | "fixAll" | "sourceActions" | "actions" | "format" | "cleanup" | "undo" | "redo";
 export const workspaceChangeEventName = "hickory:simple:workspace-change";
 export function requestWorkspaceChange(command:ChangeCommand){window.dispatchEvent(new CustomEvent(workspaceChangeEventName,{detail:command}));}
 export function requestWorkspaceProposal(title:string,edit:unknown,expected:ReadonlyMap<string,string>):void {

@@ -56,13 +56,15 @@ import Darwin
         manager.redo();XCTAssertTrue(exactUTF8(buffer.text,"value = '\(value) + \(value)'\n"));XCTAssertEqual(buffer.snippets.active?.fields.map{[$0.from,$0.to]},[[9,13],[16,20],[20,20]])
     }
     func testSourceEditUndoSelectionAndCompositionRetirePreview()async throws {
-        for change in ["editUndo","selection","composition","editor","model","closed"] {
+        for change in ["editUndo","selection","selectionUndo","deleted","composition","editor","model","closed"] {
             let (space,buffer,editor,window)=native(),(catalog,plan)=reply();try install(catalog,plan)
             await space.sourceTemplates.open(space);await space.sourceTemplates.choose(try XCTUnwrap(space.sourceTemplates.catalog?.entries.first));XCTAssertNotNil(space.sourceTemplates.preview)
             let source=buffer.text,original=try XCTUnwrap(buffer.sourceEditorState),state=try XCTUnwrap(original()),reviewed=space.sourceTemplates
             switch change {
             case "editUndo":buffer.text="changed";buffer.text=source
             case "selection":editor.text.setSelectedRange(NSRange(location:0,length:0));buffer.selection=editor.text.selectedRange()
+            case "selectionUndo":let original=buffer.selection;editor.text.setSelectedRange(NSRange(location:0,length:0));buffer.selection=editor.text.selectedRange();editor.text.setSelectedRange(original);buffer.selection=editor.text.selectedRange()
+            case "deleted":buffer.resourceDeleted=true
             case "composition":buffer.sourceEditorState={var value=state;value.composing=true;return value}
             case "editor":buffer.sourceEditorState={var value=state;value.identity=UUID();return value}
             case "model":space.sourceTemplates=SourceTemplatesModel()

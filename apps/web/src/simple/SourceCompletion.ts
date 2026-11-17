@@ -8,22 +8,22 @@ import {beginCompletionAcceptance} from '../lsp/completionAcceptance';
 import {prepareEditorChanges} from '../editor/textInput';
 import {planCompletion} from './CompletionPlan';
 import {completionExpansion} from './SnippetExpansion';
-import {sourceSnippetEffect,continueSourceSnippetCompletion,readSourceSnippet} from './SourceSnippets';
+import {sourceSnippetEffect,continueSourceSnippetCompletion,readSourceSnippet,readSourceEditorIntent} from './SourceSnippets';
 export interface SourceCompletionAdapter {
  uri:string;resolve:(item:CompletionItem)=>Promise<CompletionItem>;current:()=>boolean;writable:()=>boolean;notice:(text:string)=>void;
 }
-const querySnapshots=new WeakMap<EditorState,{source:string;selection:EditorState['selection']}>();
+const querySnapshots=new WeakMap<EditorState,{source:string;selection:EditorState['selection'];document:EditorState['doc'];intent:symbol|undefined}>();
 export function sourceCompletion(item:CompletionItem,context:CompletionContext,adapter:SourceCompletionAdapter):Completion {
  let snapshot=querySnapshots.get(context.state);
- if(!snapshot){snapshot={source:context.state.doc.toString(),selection:context.state.selection};querySnapshots.set(context.state,snapshot);}
- const {source,selection}=snapshot,original=structuredClone(item);
+ if(!snapshot){snapshot={source:context.state.doc.toString(),selection:context.state.selection,document:context.state.doc,intent:readSourceEditorIntent(context.state)};querySnapshots.set(context.state,snapshot);}
+ const {source,selection,document,intent}=snapshot,original=structuredClone(item);
  const label=typeof item.filterText==='string'?item.filterText:item.label;
- return {...lspCompletion(item),label,...(label!==item.label?{displayLabel:item.label}:{}),apply:(view,completion,from,to)=>{closeCompletion(view);void acceptSourceCompletion(view,original,source,selection,from,to,adapter,completion);}};
+ return {...lspCompletion(item),label,...(label!==item.label?{displayLabel:item.label}:{}),apply:(view,completion,from,to)=>{closeCompletion(view);void acceptSourceCompletion(view,original,source,selection,from,to,{...adapter,current:()=>adapter.current()&&view.state.doc===document&&readSourceEditorIntent(view.state)===intent},completion);}};
 }
 export async function acceptSourceCompletion(view:EditorView,item:CompletionItem,source:string,selection:EditorState['selection'],from:number,to:number,adapter:SourceCompletionAdapter,completion?:Completion):Promise<void> {
- const request=beginCompletionAcceptance(view,adapter.notice),snippetContext=readSourceSnippet(view);
+ const request=beginCompletionAcceptance(view,adapter.notice),snippetContext=readSourceSnippet(view),document=view.state.doc,intent=readSourceEditorIntent(view.state);
  let expectedAfter:string|undefined;
- const valid=()=>!request.cancelled()&&request.current()&&readSourceSnippet(view)===snippetContext&&adapter.current()&&view.dom.isConnected&&view.state.doc.toString()===source&&view.state.selection.eq(selection)&&adapter.writable()&&!view.composing&&!view.state.readOnly&&view.state.facet(EditorView.editable);
+ const valid=()=>!request.cancelled()&&request.current()&&readSourceSnippet(view)===snippetContext&&view.state.doc===document&&readSourceEditorIntent(view.state)===intent&&adapter.current()&&view.dom.isConnected&&view.state.doc.toString()===source&&view.state.selection.eq(selection)&&adapter.writable()&&!view.composing&&!view.state.readOnly&&view.state.facet(EditorView.editable);
  const report=(text:string)=>{if(request.current())adapter.notice(text);};
  try {
   if(request.cancelled())return;

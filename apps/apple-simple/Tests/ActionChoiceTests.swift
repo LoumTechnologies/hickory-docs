@@ -177,4 +177,11 @@ import AppKit
     }
     #endif
 
+
+    func testCompleteSourceActionScopeNeverBorrowsQuickFixes()async throws {
+        let w=Workspace(),engine=try Engine(address:"http://127.0.0.1:1"),file=FileNode(name:"a.py",path:"a.py",dir:false),b=DocumentBuffer(file:FileNode(name:"a.py",path:"a.py",dir:false),text:FileText(path:"a.py",content:"old\n",hash:"base"));b.language=NativeLanguage(engine:engine,buffer:b);w.buffers[file.path]=b;w.show(file.path);defer{b.language?.close()}
+        let action:[String:Any]=["title":"Source cleanup","kind":"source.organizeImports","edit":["changes":[languageURI(file.path):[["range":["start":["line":0,"character":0],"end":["line":0,"character":3]],"newText":"new"]]]]]
+        w.changes.open("sourceActions",workspace:w);await w.changes.prepare(w,proposal:{kind,_ in XCTAssertEqual(kind,"sourceActions");return [action,["title":"single","kind":"quickfix"],["title":"wrong","kind":"sourceWrong"]]},resolution:{_ in var changed=action;changed["kind"]="quickfix";return changed});XCTAssertEqual(w.changes.choices.count,1);await w.changes.choose(0,workspace:w);XCTAssertNil(w.changes.plan);XCTAssertTrue(w.changes.notice.contains("kind"));XCTAssertEqual(b.text,"old\n")
+        w.changes.open("sourceActions",workspace:w);await w.changes.prepare(w,proposal:{_,_ in [["title":"single","kind":"quickfix"]]});XCTAssertTrue(w.changes.choices.isEmpty);XCTAssertTrue(w.changes.notice.contains("No source cleanup"));XCTAssertEqual(b.text,"old\n")
+    }
 }

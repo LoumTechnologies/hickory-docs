@@ -645,7 +645,7 @@ Rename and formatting first prepare the exact captured source through `hick/capt
 <ui:copy id="simple-android-language-service">
 data class NativeLanguageSpan(val from: Int, val to: Int, val kind: String)
 data class NativeLanguageDiagnostic(val message: String, val from: Int?, val to: Int?, val severity: Int = 1, val location: SemanticLocation? = null)
-data class NativeLanguageCompletion(val label: String, val detail: String, val edit: NativeSourceEdit, val source: String, val selection: androidx.compose.ui.text.TextRange,val original:JSONObject?=null)
+data class NativeLanguageCompletion(val label: String, val detail: String, val edit: NativeSourceEdit, val source: String, val selection: androidx.compose.ui.text.TextRange,val original:JSONObject?=null,val sourceRevision:Long?=null)
 fun languageURI(path: String): String = java.net.URI("hick", "", "/" + path.trimStart('/'), null).toASCIIString()
 fun languageOffset(source: String, position: JSONObject): Int? {
     val line = position.optInt("line", -1); val column = position.optInt("character", -1)
@@ -912,6 +912,7 @@ class NativeLanguage(engine: Engine, private val buffer: DocumentBuffer, private
             "references" -> { params.put("position",languagePosition(source,selection.min)).put("context",JSONObject().put("includeDeclaration",true)); "textDocument/references" }
             "format" -> { params.put("options",JSONObject().put("tabSize",4).put("insertSpaces",source.lines().none { it.startsWith("\t") })); "hick/formatting" }
             "fixAll" -> { params.put("range",JSONObject().put("start",languagePosition(source,0)).put("end",languagePosition(source,source.length))).put("context",JSONObject().put("diagnostics",JSONArray()).put("only",JSONArray().put("source.fixAll"))); "textDocument/codeAction" }
+            "sourceActions" -> { params.put("range",JSONObject().put("start",languagePosition(source,0)).put("end",languagePosition(source,source.length))).put("context",JSONObject().put("diagnostics",JSONArray()).put("only",JSONArray().put("source"))); "textDocument/codeAction" }
             else -> { params.put("range",JSONObject().put("start",languagePosition(source,selection.min)).put("end",languagePosition(source,selection.max))).put("context",JSONObject().put("diagnostics",JSONArray())); "textDocument/codeAction" }
         }
         if(kind=="rename"||kind=="format"){
@@ -947,12 +948,12 @@ Continue the independent completion service after the action-resolution boundary
 <ui:copy id="native-language-after-action-resolution-android">
     suspend fun complete() {
         if (!opened || buffer.readOnly) return
-        sync(); val source = buffer.text; val selection = buffer.state.selection; val current = epoch; val id = ++completion
+        sync(); val source = buffer.text; val selection = buffer.state.selection; val current = epoch;val revision=buffer.sourceRevision; val id = ++completion
         try {
             kotlinx.coroutines.delay(350)
-            if(epoch!=current||completion!=id||buffer.text!=source||buffer.state.selection!=selection)return
+            if(epoch!=current||completion!=id||buffer.sourceRevision!=revision||buffer.resourceDeleted||languageURI(buffer.file.path)!=uri||buffer.text!=source||buffer.state.selection!=selection)return
             val result = request("textDocument/completion", JSONObject().put("textDocument", doc()).put("position", languagePosition(source, selection.min)))
-            if (epoch != current || completion != id || buffer.text != source || buffer.state.selection != selection) return
+            if (epoch != current || completion != id || buffer.sourceRevision!=revision||buffer.resourceDeleted||languageURI(buffer.file.path)!=uri||buffer.text != source || buffer.state.selection != selection) return
             if (result == JSONObject.NULL) return
             val items = result as? JSONArray ?: (result as? JSONObject)?.optJSONArray("items") ?: JSONArray()
             var prefix = selection.min
@@ -961,10 +962,10 @@ Continue the independent completion service after the action-resolution boundary
             suggestions = items.objects().mapNotNull { item ->
                 val label=item.opt("label") as? String ?: return@mapNotNull null
                 if(!(item.opt("filterText") as? String ?: label).lowercase().startsWith(typed))return@mapNotNull null
-                NativeLanguageCompletion(label,item.optString("detail"),NativeSourceEdit(prefix,selection.max,item.optString("insertText",label)),source,selection,JSONObject(item.toString()))
+                NativeLanguageCompletion(label,item.optString("detail"),NativeSourceEdit(prefix,selection.max,item.optString("insertText",label)),source,selection,JSONObject(item.toString()),revision)
             }.take(100)
         } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
-        catch (error: Exception) { if (epoch == current&&completion==id&&buffer.text==source&&buffer.state.selection==selection) status = "Completion unavailable: ${error.message}. Retry language services." }
+        catch (error: Exception) { if (epoch == current&&completion==id&&buffer.sourceRevision==revision&&buffer.text==source&&buffer.state.selection==selection) status = "Completion unavailable: ${error.message}. Retry language services." }
     }
 </ui:copy>
 
@@ -980,21 +981,21 @@ Retain each offered provider item and its source/selection. Resolve before plann
     suspend fun resolveCompletion(item:JSONObject):JSONObject {
         if(item.isNull("data"))return item
         check(opened&&!buffer.readOnly){"Choose writable source with a connected language provider."}
-        sync();val source=buffer.text;val selection=buffer.state.selection;val identity=epoch
+        sync();val source=buffer.text;val selection=buffer.state.selection;val identity=epoch;val revision=buffer.sourceRevision
         val result=request("completionItem/resolve",JSONObject(item.toString()).put("textDocument",doc()))
-        check(epoch==identity&&buffer.text==source&&buffer.state.selection==selection){"Source, cursor or provider changed. Request completions again."}
+        check(epoch==identity&&buffer.sourceRevision==revision&&!buffer.resourceDeleted&&languageURI(buffer.file.path)==uri&&buffer.text==source&&buffer.state.selection==selection){"Source, cursor or provider changed. Request completions again."}
         check(result is JSONObject&&result.opt("label") is String){"Provider did not resolve this completion. Request again."};return result
     }
     suspend fun accept(item:NativeLanguageCompletion,resolution:(suspend (JSONObject)->JSONObject)?=null):Boolean {
-        if(buffer.readOnly||buffer.saving||buffer.text!=item.source||buffer.state.selection!=item.selection){completionNotice="Suggestion is out of date. Request completions again.";return false}
+        if(buffer.readOnly||buffer.saving||buffer.resourceDeleted||item.sourceRevision?.let{it!=buffer.sourceRevision}==true||buffer.text!=item.source||buffer.state.selection!=item.selection){completionNotice="Suggestion is out of date. Request completions again.";return false}
         if(buffer.multiSource==buffer.text&&buffer.multiRanges.size>1){completionNotice="Choose one caret before accepting this source completion.";return false}
         val original=item.original
         if(original==null){cancelCompletion();val applied=if(buffer.snippets.active!=null)buffer.snippets.applyInput(item.source,item.edit.from,item.edit.to,item.edit.text) else buffer.applySourceEdits(listOf(item.edit),item.source);completionNotice=if(applied)"Completion selected" else "Editor refused the completion. Finish composition or request again.";return applied}
-        val request=++acceptingCompletion;val identity=epoch;val snippetIntent=buffer.snippets.intent;completionPending=true;completionNotice="Resolving completion…"
+        val request=++acceptingCompletion;val identity=epoch;val revision=buffer.sourceRevision;val snippetIntent=buffer.snippets.intent;completionPending=true;completionNotice="Resolving completion…"
         try {
             val resolved=(resolution ?: {resolveCompletion(it)})(original)
             if(acceptingCompletion!=request)return false
-            check(epoch==identity&&buffer.snippets.intent==snippetIntent&&buffer.language===this&&!buffer.readOnly&&!buffer.saving&&buffer.text==item.source&&buffer.state.selection==item.selection&&!(buffer.multiSource==buffer.text&&buffer.multiRanges.size>1)){"Source, cursor or provider changed. Request completions again."}
+            check(epoch==identity&&buffer.sourceRevision==revision&&!buffer.resourceDeleted&&languageURI(buffer.file.path)==uri&&buffer.snippets.intent==snippetIntent&&buffer.language===this&&!buffer.readOnly&&!buffer.saving&&buffer.text==item.source&&buffer.state.selection==item.selection&&!(buffer.multiSource==buffer.text&&buffer.multiRanges.size>1)){"Source, cursor or provider changed. Request completions again."}
             val initialDraft=planCompletion(uri,resolved,SourceSnapshot(item.source,!buffer.readOnly&&!buffer.saving),item.edit.from,item.edit.to,completionExpansion(resolved))
             val draft=buffer.snippets.prepareCompletion(initialDraft)
             val edits=draft.plan.patches.firstOrNull()?.edits.orEmpty().map{NativeSourceEdit(it.from,it.to,it.text)}

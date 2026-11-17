@@ -72914,6 +72914,28 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "fragments": [
         "editor-recovery-management-android-actual"
       ]
+    },
+    "apps/apple-simple/Tests/CompletionIntentTests.swift": {
+      "source": ".hickory-source/mechanisms/completion-intent-acceptance.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "test",
+      "sha256": "11e320597524c315ef6f2287be73e251d554eef484d895cd16ae4459c3bdbce7",
+      "construction": "fragments",
+      "fragments": [
+        "completion-intent-apple-tests"
+      ]
+    },
+    "apps/android-simple/app/src/test/java/com/hickorydocs/simple/CompletionIntentTest.kt": {
+      "source": ".hickory-source/mechanisms/completion-intent-acceptance.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "test",
+      "sha256": "9c850fa5bb1bc480c000666cb0eed8dd8f8550b9b8e1139d516e50a48883d39f",
+      "construction": "fragments",
+      "fragments": [
+        "completion-intent-android-tests"
+      ]
     }
   },
   "evidence_records": [

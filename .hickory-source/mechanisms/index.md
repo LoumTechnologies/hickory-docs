@@ -377,4 +377,6 @@ is included with that control; opening a document is not generation authority.
 
 <storycode:include file="editor-recovery-management.md" />
 
+<storycode:include file="completion-intent-acceptance.md" />
+
 </storycode:doc>

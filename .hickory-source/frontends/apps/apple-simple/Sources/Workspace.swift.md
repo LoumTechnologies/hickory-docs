@@ -64,7 +64,9 @@ import Observation
     @ObservationIgnored var sourceEditorState:(()->NativeSourceEditorState?)?
     @ObservationIgnored var applyCompletionDraft: ((CompletionDraft,NSRange)->Bool)?
     @ObservationIgnored var applyLanguageCompletion: ((NSRange, String, String, NSRange) -> Bool)?
-    @ObservationIgnored var selection = NSRange(location: 0, length: 0)
+    // Cursor round trips cannot revive a retired provider or template context.
+    @ObservationIgnored var selectionIdentity=UUID()
+    @ObservationIgnored var selection = NSRange(location: 0, length: 0) {didSet{if selection != oldValue{selectionIdentity=UUID()}}}
     @ObservationIgnored var receiptEngine: Engine?
     var receiptSource = "" { didSet { renderMarkup?() } }
     var runOutputSource = ""

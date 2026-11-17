@@ -5,7 +5,7 @@ For maintainers changing template behavior independently of editor layout. Sourc
 
 ## Attach source-bound field interaction to the existing editor
 
-A compartment owns snippet state, source checks, linked input, numeric traversal, choices and history effects. Complete mirroring is prepared before a transaction; rejected intent leaves ordinary input authoritative. Compose the original input transaction with the remaining source changes so its input metadata survives. History effects retain both directions of source, field state and intended selection. The dispatch bridge composes the original transaction with a verified replay selection, preserving the framework history annotation and input metadata; it never creates replacement source changes. This avoids inferring a caret from the old selection when a compound edit had an explicit result. History estimates count 128 bytes per snapshot and cap retained tokens at 4096, including empty/no-session snapshots. They count normalized computed-program bytes and 32 bytes of overhead for every choice, even an empty alternative, before retaining a snapshot. Oversized context is not copied into the cache and does not evict unrelated valid snapshots. History effects retain bounded context tokens: old text undo remains owned by CodeMirror when the estimated 32 MiB context budget evicts a field snapshot. Field marks use paint only, and choices reuse the existing completion popup.
+A compartment owns snippet state, source checks, linked input, numeric traversal, choices and history effects. The same adapter retains an opaque editor-input token for asynchronous completion leases. Source/selection transactions advance it without making layout or capability updates into input; undo restores text and field context while retaining a fresh intention. Complete mirroring is prepared before a transaction; rejected intent leaves ordinary input authoritative. Compose the original input transaction with the remaining source changes so its input metadata survives. History effects retain both directions of source, field state and intended selection. The dispatch bridge composes the original transaction with a verified replay selection, preserving the framework history annotation and input metadata; it never creates replacement source changes. This avoids inferring a caret from the old selection when a compound edit had an explicit result. History estimates count 128 bytes per snapshot and cap retained tokens at 4096, including empty/no-session snapshots. They count normalized computed-program bytes and 32 bytes of overhead for every choice, even an empty alternative, before retaining a snapshot. Oversized context is not copied into the cache and does not evict unrelated valid snapshots. History effects retain bounded context tokens: old text undo remains owned by CodeMirror when the estimated 32 MiB context budget evicts a field snapshot. Field marks use paint only, and choices reuse the existing completion popup.
 
 <ui:copy id="source-snippets-browser">
 import {EditorSelection,EditorState,Prec,StateEffect,StateField,type Transaction,type Extension} from '@codemirror/state';
@@ -49,6 +49,8 @@ export function dispatchSourceSnippetTransactions(transactions:readonly Transact
  }
  view.update(updates);
 }
+const sourceEditorIntent=StateField.define<symbol>({create:()=>Symbol('source editor intent'),update:(value,tr)=>tr.docChanged||tr.selection?Symbol('source editor intent'):value});
+export function readSourceEditorIntent(state:EditorState):symbol|undefined{return state.field(sourceEditorIntent,false);}
 const snippetState=StateField.define<SnippetSession|null>({
  create:()=>null,
  update(session,tr){
@@ -92,7 +94,7 @@ export function sourceSnippets(adapter:{writable:()=>boolean;notice:(message:str
    closeCompletion(view);view.dispatch({changes,selection:{anchor:plan.selection.from,head:plan.selection.to},effects:setSourceSnippet.of(plan.session),annotations:[isolateHistory.of('full'),pickedCompletion.of(completion)],userEvent:'input.snippet.choice'});
   }},'template'))};
  };
- return [snippetState,
+ return [sourceEditorIntent,snippetState,
   invertedEffects.of(tr=>{
    if(!tr.docChanged)return [];
    const replay=tr.effects.find(effect=>effect.is(replaySourceSnippet))?.value as SnippetReplay|undefined;
