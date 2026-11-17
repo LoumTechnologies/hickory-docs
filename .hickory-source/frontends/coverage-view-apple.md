@@ -7,10 +7,18 @@ The existing menu opens a floating, replaceable tool surface. The editor remains
 
 Selected records are read back by identity through the engine. A latest-selection ticket rejects obsolete replies, projection preserves mixed consequences and missing quantities, and the independent digest service binds only matching available text. Source edits retire marks synchronously at lookup; background hashing cannot rewrite the buffer. Both gutter and menu borrow this retained state.
 
+A renderer and every selected report stay bound to their original engine session. Source navigation also retains the reader lifetime, exact editor object and edit intent across loading and hashing. Closing the reader, swapping the engine or returning edited text to equal bytes cannot authorize a delayed position. A positive navigation reply requires the existing editor to accept the reveal; unbound file opens make no coordinate claim.
+
 <ui:copy id="simple-coverage-apple">
 import SwiftUI
 import WebKit
 import Observation
+// Several engine values can share URLSession.shared. The original API origin
+// remains part of coverage reply and reader ownership as well as the session.
+func coverageEngineMatches(_ current:Engine?,_ original:Engine?)->Bool {
+    guard let current,let original else{return false}
+    return current.session === original.session && exactUTF8(current.origin.absoluteString,original.origin.absoluteString)
+}
 @MainActor @Observable final class SimpleCoverageState {
     let identity=UUID().uuidString
     var selected:String?;var notice=""
@@ -24,9 +32,9 @@ import Observation
         guard let id,let engine=workspace.engine else{return}
         Task {do {let value:CoverageProjectionRecord=try await engine.request("POST","/api/tests/coverage",body:["action":"get","id":id])
             let rows=await Task.detached {coverageProjection(value)}.value
-            guard workspace.coverage === self,ticket==read,value.id==id else{return};record=value;projected=rows
+            guard workspace.coverage === self,coverageEngineMatches(workspace.engine,engine),ticket==read,value.id==id else{return};record=value;projected=rows
             for buffer in workspace.buffers.values {observe(buffer)}
-        }catch{if workspace.coverage === self,ticket==read {notice=error.localizedDescription}}}
+        }catch{if workspace.coverage === self,coverageEngineMatches(workspace.engine,engine),ticket==read {notice=error.localizedDescription}}}
     }
     func observe(_ buffer:DocumentBuffer){guard projected[buffer.file.path] != nil else{return};digests.enqueue(buffer.file.path,source:buffer.text,current:{[weak buffer] in buffer?.text})}
     func rows(_ buffer:DocumentBuffer)->[CoverageProjectedLine]{
@@ -39,24 +47,32 @@ extension DocumentBuffer {
     func readCoverageSource(){coverageSource?.observe(self)}
 }
 @MainActor extension Workspace {
-    func navigateCoverage(_ value:[String:Any],state:SimpleCoverageState) async throws {
-        guard coverage === state,let path=value["path"] as? String else {throw EngineError(message:"Workspace changed. Reopen coverage.")}
-        func find(_ files:[FileNode])->FileNode? {for file in files {if file.path==path {return file};if let child=find(file.children ?? []) {return child}};return nil}
+    func navigateCoverage(_ value:[String:Any],state:SimpleCoverageState,isCurrent:@escaping ()->Bool={true}) async throws {
+        let server=engine,epoch=sourceNavigationEpoch
+        let alive={isCurrent() && self.coverage === state && coverageEngineMatches(self.engine,server) && self.sourceNavigationEpoch==epoch}
+        guard alive(),let path=value["path"] as? String else {throw EngineError(message:"Workspace or coverage reader changed. Reopen coverage.")}
+        func find(_ files:[FileNode])->FileNode? {for file in files {if exactUTF8(file.path,path) {return file};if let child=find(file.children ?? []) {return child}};return nil}
         guard let file=buffers[path]?.file ?? find(rootFiles),!file.dir else {throw EngineError(message:"Source no longer listed. Refresh the workspace.")}
-        let buffer=try await loadBuffer(file),source=buffer.text
-        guard coverage === state else {throw EngineError(message:"Workspace changed. Reopen coverage.")}
-        guard let line=value["line"] as? Int,let hash=value["sourceHash"] as? String else {await open(file);showCoverage=false;return}
+        let buffer=try await loadBuffer(file),source=buffer.text,identity=buffer.sourceEditIdentity,selection=buffer.selection
+        guard alive(),buffers[path] === buffer else {throw EngineError(message:"Workspace or source editor changed. Reopen coverage.")}
+        let sourceCurrent={alive() && self.buffers[path] === buffer && buffer.sourceEditIdentity==identity && exactUTF8(buffer.text,source) && buffer.selection==selection}
+        if value["line"]==nil || value["line"] is NSNull || value["sourceHash"]==nil || value["sourceHash"] is NSNull {
+            guard sourceCurrent() else{throw EngineError(message:"Source or coverage reader changed. Reopen coverage.")}
+            let departed=currentSemanticLocation();showSource(path);if let arrived=currentSemanticLocation(){navigationTrail.record(from:departed,to:arrived)};showCoverage=false;return
+        }
+        guard let line=sourceChangeInteger(value["line"]),let hash=value["sourceHash"] as? String else{throw EngineError(message:"Malformed coverage source position. Reopen the report.")}
         let actual=await Task.detached {nativeSourceHash(source)}.value
-        guard coverage === state,exactUTF8(source,buffer.text),actual==hash.lowercased(),line>0,line<=source.components(separatedBy:"\n").count else {throw EngineError(message:"Source changed or report position is unavailable. Refresh coverage before navigating.")}
-        await openSemanticLocation(SemanticLocation(uri:languageURI(path),line:line-1,character:0),allowDirty:true,expectedSource:source)
-        if coverage === state {showCoverage=false}
+        guard sourceCurrent(),actual==hash.lowercased(),line>0,line<=source.components(separatedBy:"\n").count else {throw EngineError(message:"Source changed or report position is unavailable. Refresh coverage before navigating.")}
+        var revealed=false
+        await openSemanticLocation(SemanticLocation(uri:languageURI(path),line:line-1,character:0),allowDirty:true,expectedSource:source,isCurrent:sourceCurrent,onRevealed:{revealed=true})
+        guard alive(),buffers[path] === buffer,revealed else{throw EngineError(message:"Coverage source navigation did not complete. The report remains readable.")};showCoverage=false
     }
 }
 @MainActor final class CoverageWebCoordinator:NSObject,WKScriptMessageHandler,WKNavigationDelegate {
     weak var view:WKWebView?;let workspace:Workspace;let state:SimpleCoverageState;let engine:Engine?
     var allowedURL:URL?;var mounted=true;var ready=false;var active:Set<Int>=[]
     init(_ workspace:Workspace){self.workspace=workspace;state=workspace.coverage;engine=workspace.engine}
-    var current:Bool {mounted && workspace.coverage === state}
+    var current:Bool {mounted && workspace.coverage === state && coverageEngineMatches(workspace.engine,engine)}
     func display(){guard ready,current else{return};let buffer=workspace.currentBuffer
         send("update",["workspace":state.identity,"path":buffer?.file.path as Any? ?? NSNull(),"language":buffer?.file.language ?? "unsupported","selectedId":state.selected as Any? ?? NSNull()])
     }
@@ -66,14 +82,14 @@ extension DocumentBuffer {
         guard current,message.frameInfo.isMainFrame,message.frameInfo.request.url==allowedURL,let event=message.body as? [String:Any],let kind=event["kind"] as? String else{return}
         if kind=="ready" {ready=true;display();return}
         guard event["workspace"] as? String==state.identity else{return}
-        if kind=="close" {workspace.showCoverage=false;workspace.currentBuffer?.focusSource?();return}
+        if kind=="close" {mounted=false;workspace.showCoverage=false;workspace.currentBuffer?.focusSource?();return}
         if kind=="select" {state.select(event["id"] as? String,workspace:workspace);return}
-        guard let id=event["id"] as? Int,id>0,!active.contains(id),active.count<64 else{return};active.insert(id)
+        guard let id=sourceChangeInteger(event["id"]),id>0,!active.contains(id),active.count<64 else{return};active.insert(id)
         Task {[weak self] in guard let self else{return};defer{active.remove(id)}
             do {guard current else{return}
                 if kind=="api",let body=event["body"] as? [String:Any],let action=body["action"] as? String,["list","get","locations","inspect","discover","run","rerun-failed","manual-start","browser-checkpoint","checkpoint","stop","import","compare","annotate"].contains(action),let engine {
                     let result:NativeTableJSON=try await engine.request("POST","/api/tests/coverage",body:body);reply(id,result.object,nil)
-                }else if kind=="navigate",let location=event["location"] as? [String:Any] {try await workspace.navigateCoverage(location,state:state);reply(id,NSNull(),nil)}
+                }else if kind=="navigate",let location=event["location"] as? [String:Any] {try await workspace.navigateCoverage(location,state:state,isCurrent:{[weak self] in self?.current==true});reply(id,NSNull(),nil)}
                 else {throw EngineError(message:"Unsupported coverage request. Reopen the tool.")}
             }catch {reply(id,NSNull(),error.localizedDescription)}
         }
@@ -118,13 +134,55 @@ This focused WebKit witness loads the packaged shared renderer, waits for its ac
 
 <ui:copy id="simple-coverage-webkit-witness">
 import XCTest
+import SwiftUI
 import WebKit
 #if os(macOS)
 import AppKit
 #endif
 @testable import HickorySimple
 @MainActor final class CoverageViewTests:XCTestCase {
+    func testCoverageNavigationRetiresClosedForeignAndEqualByteReplies()async throws {
+        for mode in ["closed","engine","owner","undo","selection","fraction","boolean","success","unbound"] {
+            let w=Workspace(),engine=try Engine(address:"http://127.0.0.1:1"),f=FileNode(name:"literal %?#.py",path:"literal %?#.py",dir:false),source="first\nsecond\n",b=DocumentBuffer(file:FileNode(name:"literal %?#.py",path:"literal %?#.py",dir:false),text:FileText(path:"literal %?#.py",content:"first\nsecond\n",hash:"base"))
+            w.engine=engine;w.buffers[f.path]=b;w.showSource(f.path);w.showCoverage=true;b.selection=NSRange(location:2,length:0);b.selectSourceRange={range,text in guard exactUTF8(text,b.text) else{return false};b.selection=range;return true}
+            let state=w.coverage;var calls=0;var location:[String:Any]=["path":f.path,"line":2,"sourceHash":nativeSourceHash(source)]
+            if mode=="fraction"{location["line"]=1.5};if mode=="boolean"{location["line"]=true};if mode=="unbound"{location["line"]=NSNull();location["sourceHash"]=NSNull()}
+            let current:()->Bool={calls+=1;if mode=="closed"&&calls>=2{return false};if mode=="engine"&&calls==2{w.engine=try! Engine(address:"http://127.0.0.1:2")};if calls==3{if mode=="undo"{b.text="later";b.text=source};if mode=="selection"{b.selection=NSRange(location:1,length:0)};if mode=="owner"{w.buffers[f.path]=DocumentBuffer(file:f,text:FileText(path:f.path,content:source,hash:"base"))}};return true}
+            do{try await w.navigateCoverage(location,state:state,isCurrent:current);XCTAssertTrue(mode=="success"||mode=="unbound",mode)}catch{XCTAssertFalse(mode=="success"||mode=="unbound","\(mode): \(error)")}
+            if mode=="success"{XCTAssertEqual(b.selection,NSRange(location:6,length:0));XCTAssertFalse(w.showCoverage)}else if mode=="unbound"{XCTAssertEqual(b.selection,NSRange(location:2,length:0));XCTAssertFalse(w.showCoverage)}else{XCTAssertTrue(w.showCoverage,mode)}
+            XCTAssertEqual(b.text,source);XCTAssertEqual(b.base,source)
+        }
+    }
+
     #if os(macOS)
+    func testLiveOwnedCollectorSurfaceResultsRerunAndSourceGuards()async throws {
+        guard let origin=ProcessInfo.processInfo.environment["HICKORY_COLLECTOR_ORIGIN"],let root=ProcessInfo.processInfo.environment["HICKORY_COLLECTOR_WORKSPACE"] else{throw XCTSkip("Use the maintained owned collector-host fixture.")}
+        let directory=URL(fileURLWithPath:root);guard try String(contentsOf:directory.appendingPathComponent(".hickory-collector-fixture"),encoding:.utf8)=="owned-collector-v1\n" else{throw EngineError(message:"An owned disposable collector workspace is required.")}
+        _ = NSApplication.shared;NSApp.setActivationPolicy(.regular);let engine=try Engine(address:origin),w=Workspace();w.engine=engine;let listing=try await engine.files();w.rootFiles=listing.tree;w.sourceRootAddress=listing.root_path;w.sourceWorkspaceID=listing.workspace_id
+        let file=try XCTUnwrap(w.rootFiles.first{exactUTF8($0.path,"app.py")}),buffer=try await w.loadBuffer(file),source=buffer.text;w.showSource(file.path)
+        let host=NSHostingView(rootView:WorkspaceView(workspace:w)),window=NSWindow(contentRect:NSRect(x:0,y:0,width:1000,height:740),styleMask:[.titled],backing:.buffered,defer:false);window.contentView=host;window.makeKeyAndOrderFront(nil);host.layoutSubtreeIfNeeded()
+        defer{w.showCoverage=false;for item in w.buffers.values{item.language?.close()};w.coverage.stop();w.sourceTestIndex?.stop();window.orderOut(nil);window.contentView=nil}
+        func settle(_ message:String,_ condition:()->Bool)async throws{for _ in 0..<1200{if condition(){return};try await Task.sleep(for:.milliseconds(50))};throw EngineError(message:message)}
+        func native(_ view:NSView)->NSTextView?{if let value=view as? NSTextView{return value};return view.subviews.lazy.compactMap{native($0)}.first}
+        try await settle("Native source did not mount"){buffer.sourceEditorState?()?.attached==true};let editor=try XCTUnwrap(native(host)),manager=try XCTUnwrap(editor.undoManager),identity=try XCTUnwrap(buffer.sourceEditorState?()).identity,scroll=try XCTUnwrap(editor.enclosingScrollView),geometry=scroll.convert(scroll.bounds,to:host)
+        editor.setSelectedRange(NSRange(location:editor.string.utf16.count,length:0));editor.insertText("# retained redo\n",replacementRange:editor.selectedRange());manager.undo();XCTAssertEqual(buffer.text,source);XCTAssertTrue(manager.canRedo)
+        func findWeb(_ view:NSView)->WKWebView?{if let web=view as? WKWebView,web.url?.lastPathComponent=="coverage.html"{return web};return view.subviews.lazy.compactMap{findWeb($0)}.first}
+        func web()async throws->WKWebView{var found:WKWebView?;try await settle("Local coverage renderer did not mount"){found=NSApp.windows.filter{$0.isVisible}.compactMap{$0.contentView}.lazy.compactMap{findWeb($0)}.first;return found != nil};return try XCTUnwrap(found)}
+        func text(_ web:WKWebView)async throws->String{(try await web.evaluateJavaScript("document.body.innerText")) as? String ?? ""}
+        func awaitText(_ web:WKWebView,_ expected:String)async throws{for _ in 0..<1200{if (try? await text(web))?.contains(expected)==true{return};try await Task.sleep(for:.milliseconds(50))};throw EngineError(message:"Coverage surface did not show \(expected)")}
+        func js(_ value:String)throws->String{String(data:try JSONSerialization.data(withJSONObject:value,options:.fragmentsAllowed),encoding:.utf8)!}
+        func click(_ web:WKWebView,_ label:String)async throws{let quoted=try js(label);_ = try await web.evaluateJavaScript("(()=>{const button=[...document.querySelectorAll('button')].find(node=>node.textContent.trim()==="+quoted+");if(!button||button.disabled)throw Error('Control unavailable: '+"+quoted+");button.click();return true})()")}
+        func runID(_ web:WKWebView)async throws->String{let value=try await web.evaluateJavaScript("document.querySelector('.coverage-columns main>p code')?.textContent");return try XCTUnwrap(value as? String)}
+        try XCTUnwrap(w.commands().first{$0.id=="workspace.coverage"}).run();let firstWeb=try await web();try await awaitText(firstWeb,"Discover runner cases");try await click(firstWeb,"Discover runner cases");try await awaitText(firstWeb,"discovered · test_app.py::test_positive");try await awaitText(firstWeb,"discovered · test_app.py::test_negative");XCTAssertFalse(FileManager.default.fileExists(atPath:directory.appendingPathComponent(".hick-cache/executions").path))
+        try await click(firstWeb,"Run saved project with coverage");try await awaitText(firstWeb,"automated · failed · current source");try await awaitText(firstWeb,"executable lines covered");let first=try await runID(firstWeb);XCTAssertEqual(first.count,32);try await awaitText(firstWeb,"passed · test_app.py::test_positive");try await awaitText(firstWeb,"failed · test_app.py::test_negative")
+        XCTAssertEqual(buffer.text,source);XCTAssertEqual(buffer.sourceEditorState?()?.identity,identity);XCTAssertEqual(scroll.convert(scroll.bounds,to:host),geometry);try await settle("Real coverage marks did not bind"){!buffer.coverageRows().isEmpty}
+        try await click(firstWeb,"Rerun failed tests from selected run");for _ in 0..<1200{if let id=try? await runID(firstWeb),id != first{break};try await Task.sleep(for:.milliseconds(50))};try await awaitText(firstWeb,"automated · failed · current source");let second=try await runID(firstWeb);XCTAssertNotEqual(first,second);try await awaitText(firstWeb,"failed · test_app.py::test_negative");let rerunText=try await text(firstWeb);XCTAssertFalse(rerunText.contains("passed · test_app.py::test_positive"))
+        let firstJSON=try js(first);_ = try await firstWeb.evaluateJavaScript("(()=>{const button=[...document.querySelectorAll('.coverage-run')].find(node=>node.textContent.includes("+firstJSON+"));if(!button)throw Error('Original run missing');button.click();return true})()");try await awaitText(firstWeb,"passed · test_app.py::test_positive");let historyText=try await text(firstWeb);XCTAssertTrue(historyText.contains(second))
+        try await click(firstWeb,"Close");try await settle("Coverage did not close"){!w.showCoverage};XCTAssertEqual(buffer.sourceEditorState?()?.identity,identity);manager.redo();XCTAssertTrue(buffer.text.contains("retained redo"));manager.undo();XCTAssertEqual(buffer.text,source)
+        editor.setSelectedRange(NSRange(location:editor.string.utf16.count,length:0));editor.insertText("# unsaved after measurement\n",replacementRange:editor.selectedRange());let draft=buffer.text,selection=buffer.selection;XCTAssertTrue(buffer.coverageRows().isEmpty)
+        try XCTUnwrap(w.commands().first{$0.id=="workspace.coverage"}).run();let staleWeb=try await web();try await awaitText(staleWeb,"executable lines covered");try await click(staleWeb,"app.py");try await awaitText(staleWeb,"Source changed");XCTAssertEqual(buffer.text,draft);XCTAssertEqual(buffer.selection,selection);XCTAssertEqual(buffer.sourceEditorState?()?.identity,identity);XCTAssertEqual(scroll.convert(scroll.bounds,to:host),geometry)
+        XCTAssertEqual(try String(contentsOf:directory.appendingPathComponent("app.py"),encoding:.utf8),source)
+    }
     func testBundledCoverageSurfaceUsesWorkspaceBoundNativeMessages()throws {
         let workspace=Workspace(),state=workspace.coverage
         let source="let value = 1\n",file=FileNode(name:"draft.swift",path:"draft.swift",dir:false)

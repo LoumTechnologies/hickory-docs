@@ -6,8 +6,8 @@ use axum::{Json, extract::State};
 use serde_json::{Value, json};
 
 pub async fn list(State(state): State<LocalState>) -> ApiResult<Json<Value>> {
-    crate::coverage::dispatch(
-        state.index.root(),
+    crate::coverage::dispatch_scoped(
+        state.index.root(),state.resource_root.clone(),
         serde_json::from_value(json!({"action":"list"})).unwrap(),
     )
     .await
@@ -18,7 +18,7 @@ pub async fn action(
     State(state): State<LocalState>,
     Json(request): Json<crate::coverage::Request>,
 ) -> ApiResult<Json<Value>> {
-    crate::coverage::dispatch(state.index.root(), request)
+    crate::coverage::dispatch_scoped(state.index.root(),state.resource_root.clone(),request)
         .await
         .map(Json)
         .map_err(|e| ApiError::unprocessable(format!("{e:#}")))

@@ -40,3 +40,14 @@ it("new discovery replaces old result rows and routes navigation through the hos
   expect(surface.navigate).toHaveBeenCalledWith(expect.objectContaining({path:"app.py",line:2,sourceHash:"a".repeat(64),runId:null}));
   expect(screen.getByRole("dialog",{name:"Tests and code coverage"})).toBeTruthy();
 });
+it("refreshes the selected collector body when its summary finishes without replacing a newer selection",async()=>{
+  const first=record("a"),second=record("b");first.status="running";let done=false;const held=deferred<CoverageRun>();
+  const surface=client(async body=>body.action==="list"?{runs:[{...first,status:done?"completed":"running"},second]}:body.id===second.id?second:done?held.promise:first);
+  render(<CoveragePanel close={()=>{}} client={surface}/>);fireEvent.click(await screen.findByRole("button",{name:new RegExp(first.id)}));await waitFor(()=>expect(surface.select).toHaveBeenCalledWith(first));
+  done=true;fireEvent.click(screen.getByRole("button",{name:"Refresh runs"}));await waitFor(()=>expect(surface.call).toHaveBeenCalledWith({action:"get",id:first.id}));
+  fireEvent.click(screen.getByRole("button",{name:new RegExp(second.id)}));await waitFor(()=>expect(surface.select).toHaveBeenCalledWith(second));const completed={...first,status:"completed",tests:[{id:"late_case",status:"passed",output:"",path:"app.py",line:1,labels:[]}]};await act(async()=>{held.resolve(completed);await held.promise;});expect(surface.select).not.toHaveBeenCalledWith(completed);expect(screen.queryByText(/late_case/)).toBeNull();
+});
+it("attaches real completed result rows after the selected run leaves running state",async()=>{
+ const first=record("a");first.status="running";let done=false;const completed={...first,status:"failed",tests:[{id:"real_failure",status:"failed",output:"assert 1 == 2",path:"app.py",line:2,labels:[]}]};
+ const surface=client(async body=>body.action==="list"?{runs:[done?completed:first]}:done?completed:first);render(<CoveragePanel close={()=>{}} client={surface}/>);fireEvent.click(await screen.findByRole("button",{name:new RegExp(first.id)}));await waitFor(()=>expect(surface.select).toHaveBeenCalledWith(first));done=true;fireEvent.click(screen.getByRole("button",{name:"Refresh runs"}));await screen.findByText(/failed · real_failure/);expect(surface.select).toHaveBeenLastCalledWith(completed);
+});

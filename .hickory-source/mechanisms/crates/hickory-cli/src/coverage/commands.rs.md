@@ -11,11 +11,24 @@ This page owns the output construction and the explained fragments below. Source
 <a id="f-024ef726fd84-Plan"></a>
 ### `Plan`
 
+Automated report paths live in a fresh private temporary directory outside the source tree. A renamed source root therefore cannot redirect report exports. The original source directory still supplies process working text; this does not claim frozen inputs or sandbox project-owned commands.
+
 <storycode:copy id="f-024ef726fd84-Plan">
 use super::*;
+/// Private output is independent of the workspace path. Cleanup refuses a
+/// replacement directory, so finishing a run never deletes foreign artifacts.
+#[derive(Debug)]
+pub(super) struct PrivateArtifacts { directory:Option<tempfile::TempDir>, identity:same_file::Handle }
+impl PrivateArtifacts {
+ pub(super) fn new()->Result<Self>{let directory=tempfile::Builder::new().prefix("hickory-collector-").tempdir()?;let identity=same_file::Handle::from_path(directory.path())?;Ok(Self{directory:Some(directory),identity})}
+ pub fn path(&self)->&Path{self.directory.as_ref().unwrap().path()}
+ pub fn check(&self)->Result<()>{ensure!(same_file::Handle::from_path(self.path())?==self.identity,"Private collector artifact directory changed; report authority is unavailable");Ok(())}
+}
+impl Drop for PrivateArtifacts {fn drop(&mut self){if same_file::Handle::from_path(self.path()).ok().as_ref()!=Some(&self.identity){if let Some(directory)=self.directory.take(){let _=directory.keep();}}}}
 #[derive(Debug)]
 pub(super) struct Plan {
     pub argv: Vec<String>,
+    pub artifacts: Option<PrivateArtifacts>,
     pub format: String,
     pub report: PathBuf,
     pub result: PathBuf,
@@ -156,6 +169,7 @@ pub(super) fn plan(
         record.argv = profile.argv.clone();
         Ok(Plan {
             argv: profile.argv.clone(),
+            artifacts: None,
             format: profile.format.clone(),
             report,
             result: PathBuf::new(),
@@ -189,8 +203,8 @@ pub(super) fn automated(
             .all(|s| !s.starts_with('-') && !s.is_empty()),
         "Selectors cannot be runner options"
     );
-    let artifacts = store::dir(root)?.join(&record.id);
-    std::fs::create_dir(&artifacts)?;
+    let private = PrivateArtifacts::new()?;
+    let artifacts = private.path().to_path_buf();
     let report = artifacts.join("coverage");
     let result = artifacts.join("results");
     let report_arg = report.to_string_lossy().into_owned();
@@ -203,6 +217,7 @@ pub(super) fn automated(
                 "pytest".into(),
                 "--cov=./".into(),
                 "--cov-branch".into(),
+                "-o".into(),format!("cache_dir={}",artifacts.join("pytest-cache").display()),
                 format!("--cov-report=json:{report_arg}"),
                 format!("--junitxml={result_arg}"),
             ],
@@ -319,6 +334,7 @@ pub(super) fn automated(
     };
     Ok(Plan {
         argv,
+        artifacts: Some(private),
         format: format.into(),
         report,
         result,

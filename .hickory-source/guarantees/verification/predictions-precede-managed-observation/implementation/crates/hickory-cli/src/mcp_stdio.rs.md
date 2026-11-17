@@ -67,6 +67,7 @@ reintroduce exactly the staleness the design exists to prevent.
 pub async fn serve(default_doc: Option<PathBuf>, params: Vec<(String, String)>) -> Result<()> {
     let executor = ExecutorChoice::from_env()?.build().await?;
     let mut server = Server {
+        coverage_scope: Arc::new(crate::serve::resource_inputs::RootIdentity::bind(&std::env::current_dir()?)),
         root: std::env::current_dir()?,
         changeset: None,
         sessions: HashMap::new(),
@@ -170,6 +171,7 @@ pub async fn serve(default_doc: Option<PathBuf>, params: Vec<(String, String)>) 
 <storycode:copy id="f-14b6d9cbf226-engine_server">
 pub(crate) async fn engine_server(options: crate::engine::mcp::Options) -> Result<Server> {
     Ok(Server {
+        coverage_scope: Arc::new(crate::serve::resource_inputs::RootIdentity::bind(&options.root)),
         root: options.root,
         changeset: None,
         sessions: HashMap::new(),

@@ -156155,6 +156155,27 @@
       "page": ".hickory-source/mechanisms/bound-source-edits.md",
       "symbol": "bound source protocol runner",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "collector-host-fixture",
+      "output": "scripts/test-collector-hosts.py",
+      "page": ".hickory-source/frontends/coverage-browser-witness.md",
+      "symbol": "collector host fixture",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "collector-browser-driver",
+      "output": "scripts/collector-browser-driver.mjs",
+      "page": ".hickory-source/frontends/coverage-browser-witness.md",
+      "symbol": "collector browser driver",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "collector-owned-root-witness",
+      "output": "crates/hickory-cli/src/coverage/real_tests.rs",
+      "page": ".hickory-source/mechanisms/crates/hickory-cli/src/coverage/real_tests.rs.md",
+      "symbol": "collector owned root witness",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

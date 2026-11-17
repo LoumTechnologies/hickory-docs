@@ -9,6 +9,7 @@ impl Server {
         session: PathBuf,
     ) -> Self {
         Self {
+            coverage_scope: Arc::new(crate::serve::resource_inputs::RootIdentity::bind(&root)),
             root,
             changeset: None,
             sessions: HashMap::new(),

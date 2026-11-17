@@ -58,6 +58,17 @@ export function CoveragePanel({ initialPath = ".", initialLanguage="python", ini
     catch(error){if(current(request))setError(String(error));}finally{if(current(request))setPending(false);}
   },[coverageCall,selectCoverage,current]);
   useEffect(()=>{if(initialSelectedId&&initialSelectedId!==selectedId.current)void choose(initialSelectedId);},[initialSelectedId,choose]);
+  // List rows omit report bodies. Refresh the selected body only when its observed
+  // status/source state transitions, and never borrow a newer user operation.
+  useEffect(()=>{
+    const id=selected?.id,summary=runs.find(run=>run.id===id);
+    if(!id||!summary||summary.status===selected?.status&&summary.source_state===selected?.source_state)return;
+    const request=ticket.current;let active=true;
+    void coverageCall<CoverageRun>({action:"get",id}).then(run=>{
+      if(active&&current(request)&&selectedId.current===id){setSelected(run);selectCoverage(run);}
+    }).catch(error=>{if(active&&current(request)&&selectedId.current===id)setError(String(error));});
+    return()=>{active=false;};
+  },[runs,selected?.id,selected?.status,selected?.source_state,coverageCall,current,selectCoverage]);
   const inspect=async()=>{
     const id=++ticket.current,basis=inputs.current;setPending(true);setError("");
     try {const value=await coverageCall<{metadata:CoverageRun["metadata"]}>({action:"inspect",path,language});if(current(id)&&inputs.current===basis)setConfig(value.metadata);}

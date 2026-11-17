@@ -329,3 +329,56 @@ async fn real_failed_test_keeps_coverage_and_reruns_only_the_failure() {
         "historical"
     );
 }
+#[cfg(unix)]
+#[tokio::test]
+async fn owned_collector_retains_outcome_without_writing_replacement_roots_or_stores(){
+ use std::{sync::Arc,time::Duration};
+ for replace_root in [true,false] {
+  let temporary=tempfile::tempdir().unwrap();let root=temporary.path().join("workspace");std::fs::create_dir(&root).unwrap();let root=root.canonicalize().unwrap();std::fs::write(root.join("app.py"),"answer=42\n").unwrap();
+  let scope=Arc::new(crate::serve::resource_inputs::RootIdentity::bind(&root));
+  let request=Request{action:"run".into(),path:".".into(),language:"python".into(),..Default::default()};
+  let mut record=store::new_record(&root,&root,&request).unwrap();let mut plan=commands::automated(&root,&root,&mut record,&[]).unwrap();
+  let ready=temporary.path().join("ready");let release=temporary.path().join("release");
+  let script="touch \"$1\"; while [ ! -f \"$2\" ]; do sleep 0.02; done; mkdir -p .hick-cache; printf original > .hick-cache/collector-write; printf '%s' '{\"files\":{\"app.py\":{\"executed_lines\":[1],\"missing_lines\":[]}}}' > \"$3\"; printf '%s' '<testsuite><testcase classname=\"app\" name=\"works\" file=\"app.py\" line=\"0\"/></testsuite>' > \"$4\"";
+  plan.argv=vec!["/bin/sh".into(),"-c".into(),script.into(),"owned-collector".into(),ready.display().to_string(),release.display().to_string(),plan.report.display().to_string(),plan.result.display().to_string()];plan.version.clear();
+  store::save(&root,&record).unwrap();runner::start(root.clone(),root.clone(),record.clone(),plan).unwrap();
+  for _ in 0..200 {if ready.exists(){break}tokio::time::sleep(Duration::from_millis(10)).await;}assert!(ready.exists());
+  let moved=temporary.path().join("original");
+  if replace_root {std::fs::rename(&root,&moved).unwrap();std::fs::create_dir(&root).unwrap();std::fs::write(root.join("app.py"),"answer=42\n").unwrap();}
+  else {std::fs::rename(root.join(".hick-cache/coverage"),&moved).unwrap();std::fs::create_dir(root.join(".hick-cache/coverage")).unwrap();}
+  std::fs::write(&release,"release").unwrap();
+  for _ in 0..200 {if !runner::active(&root,&record.id){break}tokio::time::sleep(Duration::from_millis(10)).await;}assert!(!runner::active(&root,&record.id));
+  let retained=runner::retained(&root,&record.id).unwrap();assert_eq!(retained.status,"completed");assert_eq!(retained.tests.len(),1);assert!(retained.evidence.is_some());
+  if replace_root {assert!(runner::owns_outcome(&root,&scope,&record.id));assert!(!runner::owns_outcome(&root,&crate::serve::resource_inputs::RootIdentity::bind(&root),&record.id));assert!(!root.join(".hick-cache").exists());assert_eq!(std::fs::read_to_string(moved.join(".hick-cache/collector-write")).unwrap(),"original");let value=dispatch_scoped(&root,scope.clone(),Request{action:"get".into(),id:Some(record.id.clone()),..Default::default()}).await.unwrap();assert_eq!(value["authority"],"historical-unverified");assert_eq!(value["status"],"completed");assert!(dispatch_scoped(&root,scope,request).await.is_err());}
+  else {assert_eq!(std::fs::read_dir(root.join(".hick-cache/coverage")).unwrap().count(),0);assert_eq!(store::view(&root,&record.id).unwrap()["status"],"completed");assert!(store::list(&root).unwrap()["runs"].as_array().unwrap().iter().any(|value|value["id"]==record.id&&value["status"]=="completed"));}
+ }
+}
+
+#[cfg(unix)]
+#[test]
+fn private_artifact_replacement_retires_report_authority_and_preserves_foreign_cleanup(){
+ let temporary=tempfile::tempdir().unwrap();let root=temporary.path().canonicalize().unwrap();std::fs::write(root.join("app.py"),"value=1\n").unwrap();let request=Request{action:"run".into(),path:".".into(),language:"python".into(),..Default::default()};let mut record=store::new_record(&root,&root,&request).unwrap();let plan=commands::automated(&root,&root,&mut record,&[]).unwrap();
+ let artifacts=plan.artifacts.as_ref().unwrap();let path=artifacts.path().to_path_buf();let moved=root.join("original-artifacts");std::fs::rename(&path,&moved).unwrap();std::fs::create_dir(&path).unwrap();std::fs::write(path.join("foreign"),"retain").unwrap();assert!(artifacts.check().is_err());drop(plan);assert_eq!(std::fs::read_to_string(path.join("foreign")).unwrap(),"retain");std::fs::remove_dir_all(path).unwrap();
+}
+
+#[test]
+fn missing_collector_history_reads_do_not_create_storage(){
+ let temporary=tempfile::tempdir().unwrap();let root=temporary.path().canonicalize().unwrap();assert!(store::load(&root,&"1".repeat(32)).is_err());assert!(!root.join(".hick-cache").exists());assert_eq!(store::list(&root).unwrap()["total"],0);assert!(!root.join(".hick-cache").exists());
+}
+
+#[cfg(unix)]
+#[tokio::test]
+#[ignore="requires installed pytest-cov; replaces a disposable root while real pytest is running"]
+async fn real_python_root_replacement_retains_outcome_without_foreign_collector_caches(){
+ use std::{sync::Arc,time::Duration};
+ let temporary=tempfile::tempdir().unwrap();let root=temporary.path().join("workspace");std::fs::create_dir(&root).unwrap();let root=root.canonicalize().unwrap();let ready=temporary.path().join("ready");let release=temporary.path().join("release");
+ let tests=format!("from pathlib import Path\nimport time\ndef test_held_directory():\n    Path({:?}).write_text('ready')\n    while not Path({:?}).exists(): time.sleep(0.02)\n    import late\n    Path('.hick-cache/collector-relative').write_text('original')\n    assert late.value() == 42\n",ready.to_str().unwrap(),release.to_str().unwrap());
+ let sources=[("late.py","def value():\n    return 42\n".to_string()),("test_app.py",tests),("pyproject.toml","[project]\nname='owned-authority'\nversion='0.0.0'\n[tool.pytest.ini_options]\njunit_family='xunit1'\n".to_string())];
+ let environment=std::env::var("HICK_COVERAGE_PYTHON_ENV").expect("HICK_COVERAGE_PYTHON_ENV must point to installed pytest-cov");
+ for (path,text) in &sources{std::fs::write(root.join(path),text).unwrap();}std::os::unix::fs::symlink(&environment,root.join(".venv")).unwrap();
+ let scope=Arc::new(crate::serve::resource_inputs::RootIdentity::bind(&root));let started=dispatch_scoped(&root,scope.clone(),req(json!({"action":"run","path":".","language":"python"}))).await.unwrap();let id=started["id"].as_str().unwrap();
+ for _ in 0..600{if ready.exists(){break}tokio::time::sleep(Duration::from_millis(20)).await;}assert!(ready.exists(),"Real pytest body never reached the admission marker");
+ let moved=temporary.path().join("original");std::fs::rename(&root,&moved).unwrap();std::fs::create_dir(&root).unwrap();for (path,text) in &sources{std::fs::write(root.join(path),text).unwrap();}std::os::unix::fs::symlink(&environment,root.join(".venv")).unwrap();std::fs::write(release,"release").unwrap();
+ let mut result=json!(null);for _ in 0..600{result=dispatch_scoped(&root,scope.clone(),req(json!({"action":"get","id":id}))).await.unwrap();if result["status"]!="running"{break}tokio::time::sleep(Duration::from_millis(20)).await;}
+ assert_eq!(result["status"],"completed","{result}");assert_eq!(result["tests"].as_array().unwrap().len(),1);assert!(!result["evidence"].is_null());assert_eq!(result["authority"],"historical-unverified");assert_eq!(result["source_state"],"historical");for cache in [".hick-cache",".pytest_cache","__pycache__"]{assert!(!root.join(cache).exists(),"Real collector wrote foreign cache {cache}");}assert_eq!(std::fs::read_to_string(moved.join(".hick-cache/collector-relative")).unwrap(),"original");assert!(dispatch_scoped(&root,scope,req(json!({"action":"run","path":".","language":"python"}))).await.is_err());
+}

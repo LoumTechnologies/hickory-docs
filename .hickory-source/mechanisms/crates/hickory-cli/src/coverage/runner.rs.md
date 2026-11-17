@@ -11,6 +11,8 @@ This page owns the output construction and the explained fragments below. Source
 <a id="f-6da46651825b-Sessions"></a>
 ### `Sessions`
 
+The runner opens the original working directory before admission and executes each collector stage from that held directory. Root replacement retires new stages and source mappings, but bounded in-process reservations retain the terminal process output and parsed results even when persistence refuses its original bucket.
+
 <storycode:copy id="f-6da46651825b-Sessions">
 use super::*;
 use futures::{SinkExt, StreamExt};
@@ -21,6 +23,23 @@ use std::{
 };
 use tokio::{io::AsyncReadExt, sync::oneshot};
 
+// Reserve retained-result capacity before a process starts. Completed outcomes are
+// never evicted merely because their original source directory disappeared.
+struct Retained { scope: std::sync::Arc<crate::serve::resource_inputs::RootIdentity>, record:Record }
+fn outcomes()->&'static Mutex<HashMap<String,Retained>> {static VALUES:OnceLock<Mutex<HashMap<String,Retained>>>=OnceLock::new();VALUES.get_or_init(||Mutex::new(HashMap::new()))}
+fn reserve(root:&Path,record:&Record,scope:std::sync::Arc<crate::serve::resource_inputs::RootIdentity>)->Result<()> {
+ let mut values=outcomes().lock().unwrap();ensure!(values.len()<128,"Retained collector capacity reached; restart after exporting retained results before starting another run");
+ values.insert(key(root,&record.id),Retained{scope,record:record.clone()});Ok(())
+}
+fn retain(root:&Path,record:&Record){if let Some(value)=outcomes().lock().unwrap().get_mut(&key(root,&record.id)){value.record=record.clone();}}
+pub(super) fn owns_outcome(root:&Path,scope:&crate::serve::resource_inputs::RootIdentity,id:&str)->bool{outcomes().lock().unwrap().get(&key(root,id)).is_some_and(|value|scope.same_physical_binding(&value.scope))}
+pub(super) fn retained_records(root:&Path)->Vec<Record>{let prefix=format!("{}:",root.display());outcomes().lock().unwrap().iter().filter(|(key,_)|key.starts_with(&prefix)).map(|(_,value)|value.record.clone()).collect()}
+pub(super) fn retained(root:&Path,id:&str)->Option<Record>{outcomes().lock().unwrap().get(&key(root,id)).map(|value|value.record.clone())}
+pub(super) fn original_outcomes(root:&Path,scope:&crate::serve::resource_inputs::RootIdentity,id:Option<&str>)->Value{
+ let values=outcomes().lock().unwrap();let mut records:Vec<_>=values.values().filter(|value|scope.same_physical_binding(&value.scope)&&id.is_none_or(|id|value.record.id==id)).map(|value|{let mut record=value.record.clone();record.source_changed_during_run=true;record.mappings.clear();let mut value=json!(record);value["source_state"]=json!("historical");value["storage_state"]=json!("retained-in-original-process");value["authority"]=json!("historical-unverified");value}).collect();
+ records.sort_by_key(|record|std::cmp::Reverse(record["started_ms"].as_u64().unwrap_or_default()));
+ if id.is_some(){records.into_iter().next().unwrap_or(json!({"error":"Original collector result is unavailable in this process"}))}else{json!({"total":records.len(),"runs":records,"limit":128,"source_state":"historical","authority":"historical-unverified","root":root})}
+}
 type Sessions = Mutex<HashMap<String, Option<oneshot::Sender<()>>>>;
 </storycode:copy>
 <a id="f-6da46651825b-sessions"></a>
@@ -105,6 +124,9 @@ pub(crate) async fn execute(
     cwd: &Path,
     stop: Option<oneshot::Receiver<()>>,
 ) -> Result<Output> {
+    execute_held(argv,cwd,stop,None,None).await
+}
+pub(super) async fn execute_held(argv:&[String],cwd:&Path,stop:Option<oneshot::Receiver<()>>,held:Option<&std::fs::File>,artifacts:Option<&Path>)->Result<Output>{
     ensure!(!argv.is_empty(), "Empty collector command");
     let mut cmd = tokio::process::Command::new(&argv[0]);
     cmd.args(&argv[1..])
@@ -113,8 +135,13 @@ pub(crate) async fn execute(
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .kill_on_drop(true);
-    #[cfg(unix)]
-    cmd.process_group(0);
+    if let Some(artifacts)=artifacts { cmd.env("COVERAGE_FILE",artifacts.join("coverage-data")).env("PYTHONDONTWRITEBYTECODE","1"); }
+    #[cfg(unix)] {
+        use std::os::fd::AsRawFd;
+        cmd.process_group(0);
+        if let Some(held)=held { let fd=held.as_raw_fd(); unsafe {cmd.pre_exec(move || {if libc::fchdir(fd)==0 {Ok(())}else{Err(std::io::Error::last_os_error())}});} }
+    }
+    #[cfg(not(unix))] ensure!(held.is_none(),"Held-directory collector execution is unavailable on this host");
     let mut child = cmd.spawn().with_context(|| {
         format!(
             "Cannot start {}. Install the project collector/toolchain",
@@ -169,24 +196,35 @@ pub(super) fn start(
     mut record: Record,
     plan: commands::Plan,
 ) -> Result<()> {
+    let scope=std::sync::Arc::new(crate::serve::resource_inputs::RootIdentity::bind(&root));
+    scope.check(&root).map_err(anyhow::Error::msg)?;
+    let held=std::fs::File::open(&project)?;
+    ensure!(same_file::Handle::from_file(held.try_clone()?)?==same_file::Handle::from_path(&project)?,"Collector directory changed");
+    scope.check(&root).map_err(anyhow::Error::msg)?;
+    ensure!(record.workspace_id==crate::serve::resource_inputs::RootIdentity::fingerprint(&root).ok(),"Collector workspace changed before process admission");
+    reserve(&root,&record,scope.clone())?;
     let (sender, stop) = oneshot::channel();
     sessions()
         .lock()
         .unwrap()
         .insert(key(&root, &record.id), Some(sender));
     tokio::spawn(async move {
-        let result = collect(&root, &project, &mut record, plan, stop).await;
+        let result = collect(&root, &project, &mut record, plan, stop, &scope, &held).await;
         if let Err(e) = result {
             record.error = Some(format!("{e:#}"));
             record.status = "unavailable".into();
         }
-        if let Ok(saved) = store::load(&root, &record.id) {
+        if scope.check(&root).is_ok() { if let Ok(saved) = store::load(&root, &record.id) {
             record.checkpoints = saved.checkpoints;
-        }
-        record.source_changed_during_run = snapshot(&root)
+        }}
+        record.source_changed_during_run = if scope.check(&root).is_err() {true} else {snapshot(&root)
             .map(|s| s != record.identity.source_hashes)
-            .unwrap_or(true);
-        if let Err(e) = store::save(&root, &record) {
+            .unwrap_or(true)};
+        retain(&root,&record);
+        if let Err(e) = scope.check(&root).map_err(anyhow::Error::msg).and_then(|_|store::save(&root, &record)) {
+            let notice=format!("Original collector outcome is retained in this process; durable storage unavailable: {e:#}");
+            record.error=Some(match record.error.take(){Some(error)=>format!("{error}\n{notice}"),None=>notice});
+            retain(&root,&record);
             log::error!("Saving coverage {}: {e}", record.id);
         }
         sessions().lock().unwrap().remove(&key(&root, &record.id));
@@ -204,25 +242,34 @@ async fn collect(
     record: &mut Record,
     plan: commands::Plan,
     stop: oneshot::Receiver<()>,
+    scope:&crate::serve::resource_inputs::RootIdentity,
+    held:&std::fs::File,
 ) -> Result<()> {
+    if let Some(artifacts)=&plan.artifacts{artifacts.check()?;}
+    let artifact_path=plan.artifacts.as_ref().map(|dir|dir.path());
     if !plan.version.is_empty() {
-        let version = execute(&plan.version, project, None).await?;
+        scope.check(root).map_err(anyhow::Error::msg)?;
+        let version = execute_held(&plan.version, project, None,Some(held),artifact_path).await?;
         ensure!(
             version.code == Some(0),
             "Collector version unavailable: {}",
             version.text
         );
         record.identity.version = version.text.trim().into();
+        scope.check(root).map_err(anyhow::Error::msg)?;
         store::save(root, record)?;
     }
-    let output = execute(&plan.argv, project, Some(stop)).await?;
+    scope.check(root).map_err(anyhow::Error::msg)?;
+    let output = execute_held(&plan.argv, project, Some(stop),Some(held),artifact_path).await?;
     record.output = output.text;
     record.exit_code = output.code;
     if !plan.finish.is_empty() {
-        let output = execute(&plan.finish, project, None).await?;
+        scope.check(root).map_err(anyhow::Error::msg)?;
+        let output = execute_held(&plan.finish, project, None,Some(held),artifact_path).await?;
         record.output.push_str(&output.text);
         ensure!(output.code == Some(0), "Collector export failed");
     }
+    if let Some(artifacts)=&plan.artifacts{artifacts.check()?;}
     if record.mode == "automated" {
         let result_path = if record.language == "csharp" {
             find_report(plan.report.parent().unwrap(), "results")?.unwrap_or(plan.result.clone())
@@ -277,22 +324,24 @@ async fn collect(
     } else {
         plan.report
     };
-    let report = safe_path(root, &store::relative(root, &report))
-        .context("Collector did not write coverage; install/configure its coverage plugin")?;
+    let report = if let Some(dir)=artifact_path {
+        let canonical=report.canonicalize().context("Collector did not write coverage; install/configure its coverage plugin")?;
+        ensure!(canonical.starts_with(dir.canonicalize()?),"Collector report escaped private artifacts");canonical
+    } else {scope.check(root).map_err(anyhow::Error::msg)?;safe_path(root,&store::relative(root,&report))?};
     ensure!(
         std::fs::metadata(&report)?.len() <= 16 * 1024 * 1024,
         "Coverage report exceeds 16 MiB"
     );
     let raw = std::fs::read_to_string(report)?;
-    record.evidence = Some(evidence(
+    record.evidence = Some(if scope.check(root).is_err() {Evidence{identity:record.identity.clone(),report:hick_coverage::parse(&plan.format,&raw)?,labels:record.labels.clone(),tests:record.tests.iter().map(|test|test.id.clone()).collect(),attribution:"group".into()}} else {evidence(
         root,
         record,
         &plan.format,
         &raw,
         "group",
         record.labels.clone(),
-    )?);
-    record.mappings = super::mapping::capture(root, record)?;
+    )?});
+    if scope.check(root).is_ok() {record.mappings = super::mapping::capture(root, record)?;} else {record.source_changed_during_run=true;record.mappings.clear();}
     record.status = if record.mode == "manual" || output.code == Some(0) {
         "completed"
     } else {

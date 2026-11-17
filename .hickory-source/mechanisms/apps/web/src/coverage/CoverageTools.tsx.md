@@ -1,6 +1,8 @@
 <storycode:doc xmlns:storycode="http://www.hickorydocs.com/1.0">
 # Maintain apps/web/src/coverage/CoverageTools.tsx
 
+A selected collector follows observed history transitions through a guarded body read. Summary rows never replace full report data; changed selection or reader lifetime retires an obsolete refresh.
+
 For: maintainers changing this mechanism and reviewing the contracts that depend on it.
 
 This page owns the output construction and the explained fragments below. Source-comment explanations retain their original evidentiary limits; the explanation review ledger lists gaps.
@@ -91,6 +93,17 @@ Each explicit operation receives a ticket. A newer selection or command retires 
     catch(error){if(current(request))setError(String(error));}finally{if(current(request))setPending(false);}
   },[coverageCall,selectCoverage,current]);
   useEffect(()=>{if(initialSelectedId&&initialSelectedId!==selectedId.current)void choose(initialSelectedId);},[initialSelectedId,choose]);
+  // List rows omit report bodies. Refresh the selected body only when its observed
+  // status/source state transitions, and never borrow a newer user operation.
+  useEffect(()=>{
+    const id=selected?.id,summary=runs.find(run=>run.id===id);
+    if(!id||!summary||summary.status===selected?.status&&summary.source_state===selected?.source_state)return;
+    const request=ticket.current;let active=true;
+    void coverageCall<CoverageRun>({action:"get",id}).then(run=>{
+      if(active&&current(request)&&selectedId.current===id){setSelected(run);selectCoverage(run);}
+    }).catch(error=>{if(active&&current(request)&&selectedId.current===id)setError(String(error));});
+    return()=>{active=false;};
+  },[runs,selected?.id,selected?.status,selected?.source_state,coverageCall,current,selectCoverage]);
   const inspect=async()=>{
     const id=++ticket.current,basis=inputs.current;setPending(true);setError("");
     try {const value=await coverageCall<{metadata:CoverageRun["metadata"]}>({action:"inspect",path,language});if(current(id)&&inputs.current===basis)setConfig(value.metadata);}

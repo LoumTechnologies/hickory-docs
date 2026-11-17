@@ -50301,7 +50301,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "f-19d841a0c554-real_collectors_retain_automated_results_and_coverage",
         "f-19d841a0c554-real_manual_browser_collects_only_paths_exercised_after_start",
         "f-19d841a0c554-real_manual_python_process_flushes_coverage_on_stop",
-        "f-19d841a0c554-real_failed_test_keeps_coverage_and_reruns_only_the_failure"
+        "f-19d841a0c554-real_failed_test_keeps_coverage_and_reruns_only_the_failure",
+        "collector-owned-root-witness"
       ],
       "anchor": "output-19d841a0c554",
       "narrative_owner": "mechanism:crates/hickory-cli"
@@ -72414,6 +72415,28 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "construction": "fragments",
       "fragments": [
         "bound-source-protocol-runner"
+      ]
+    },
+    "scripts/test-collector-hosts.py": {
+      "source": ".hickory-source/frontends/coverage-browser-witness.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "77222e47582c41a1690de6ce7d36b5c84a025c7a7e417419c29614fd5382dde1",
+      "construction": "fragments",
+      "fragments": [
+        "collector-host-fixture"
+      ]
+    },
+    "scripts/collector-browser-driver.mjs": {
+      "source": ".hickory-source/frontends/coverage-browser-witness.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "c13d172e836da5cf685f42dfad92441f9937e4dd3e3b5ae7b2ddc05ae2d15cf9",
+      "construction": "fragments",
+      "fragments": [
+        "collector-browser-driver"
       ]
     }
   },

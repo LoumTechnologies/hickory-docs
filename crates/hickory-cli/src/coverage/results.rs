@@ -48,8 +48,9 @@ pub(super) fn discover(language: &str, text: &str, metadata: &Config) -> Vec<Tes
             .nth(1)
             .unwrap_or("")
             .lines()
+            .skip_while(|row| row.trim().is_empty())
+            .take_while(|row| row.starts_with("    ") && !row.trim().is_empty())
             .map(str::trim)
-            .filter(|s| !s.is_empty())
             .map(|id| test(id.into(), "discovered", String::new(), None, None, metadata))
             .collect();
     }
@@ -98,6 +99,15 @@ pub(super) fn discover(language: &str, text: &str, metadata: &Config) -> Vec<Tes
             }
         })
         .collect()
+}
+
+#[cfg(test)] mod discovery_block_tests {
+ use super::*;
+ #[test]fn csharp_discovery_stops_before_merged_first_use_and_workload_diagnostics(){
+  let output="Determining projects to restore...\nThe following Tests are available:\n    App.Positive\n    App.Negative\n\nWelcome to .NET 10.0!\nSDK Version: 10.0.401\nAn issue was encountered verifying workloads.\n";
+  let tests=discover("csharp",output,&Config::default());assert_eq!(tests.iter().map(|test|test.id.as_str()).collect::<Vec<_>>(),vec!["App.Positive","App.Negative"]);assert!(tests.iter().all(|test|test.status=="discovered"&&test.path.is_none()));
+  let directly_following="The following Tests are available:\n    App.Positive\nwarning: workload verification failed\n    continuation of diagnostic\n";assert_eq!(discover("csharp",directly_following,&Config::default()).len(),1);
+ }
 }
 fn json_from_output(text: &str) -> Value {
     if let Ok(value) = serde_json::from_str(text) {

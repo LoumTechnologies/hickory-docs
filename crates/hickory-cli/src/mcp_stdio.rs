@@ -41,6 +41,7 @@ fn default_session_log() -> Option<PathBuf> {
 pub async fn serve(default_doc: Option<PathBuf>, params: Vec<(String, String)>) -> Result<()> {
     let executor = ExecutorChoice::from_env()?.build().await?;
     let mut server = Server {
+        coverage_scope: Arc::new(crate::serve::resource_inputs::RootIdentity::bind(&std::env::current_dir()?)),
         root: std::env::current_dir()?,
         changeset: None,
         sessions: HashMap::new(),
@@ -139,6 +140,7 @@ pub async fn serve(default_doc: Option<PathBuf>, params: Vec<(String, String)>) 
 
 pub(crate) async fn engine_server(options: crate::engine::mcp::Options) -> Result<Server> {
     Ok(Server {
+        coverage_scope: Arc::new(crate::serve::resource_inputs::RootIdentity::bind(&options.root)),
         root: options.root,
         changeset: None,
         sessions: HashMap::new(),

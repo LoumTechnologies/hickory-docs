@@ -281,6 +281,20 @@ fn id(request: &Request) -> Result<&str> {
 ### `dispatch`
 
 <storycode:copy id="f-670d7c0cde38-dispatch">
+/// An engine's original physical root remains authoritative across API requests.
+/// A newly created directory at the same spelling cannot authorize collector work.
+pub async fn dispatch_scoped(root: &Path, scope: std::sync::Arc<crate::serve::resource_inputs::RootIdentity>, request: Request) -> Result<Value> {
+    if let Err(error)=scope.check(root) {
+        return match request.action.as_str(){
+          "get" if runner::owns_outcome(root,&scope,id(&request)?)=>Ok(runner::original_outcomes(root,&scope,Some(id(&request)?))),
+          "list"=>Ok(runner::original_outcomes(root,&scope,None)),
+          "stop" if runner::owns_outcome(root,&scope,id(&request)?)&&runner::stop(root,id(&request)?)=>Ok(json!({"id":request.id,"status":"stopping","authority":"historical-unverified"})),
+          _=>Err(anyhow::Error::msg(error)),
+        };
+    }
+    dispatch(root, request).await
+}
+
 pub async fn dispatch(root: &Path, request: Request) -> Result<Value> {
     let root = root.canonicalize()?;
     match request.action.as_str() {

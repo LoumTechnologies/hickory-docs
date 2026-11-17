@@ -32,11 +32,9 @@ pub(super) fn dir(root: &Path) -> Result<PathBuf> {
     let mut dir = root.to_path_buf();
     for part in [".hick-cache", "coverage"] {
         dir.push(part);
-        if !dir.exists() {
-            std::fs::create_dir(&dir)?;
-        }
+        let metadata=std::fs::symlink_metadata(&dir)?;
         ensure!(
-            !std::fs::symlink_metadata(&dir)?.file_type().is_symlink(),
+            metadata.is_dir()&&!metadata.file_type().is_symlink(),
             "Coverage storage cannot be a symlink"
         );
     }
@@ -50,12 +48,41 @@ fn path(root: &Path, id: &str) -> Result<PathBuf> {
     Ok(dir(root)?.join(format!("{id}.json")))
 }
 pub(super) fn save(root: &Path, record: &Record) -> Result<()> {
-    let path = path(root, &record.id)?;
-    let mut temp = tempfile::NamedTempFile::new_in(path.parent().unwrap())?;
-    use std::io::Write;
-    temp.write_all(&serde_json::to_vec(record)?)?;
-    temp.persist(path).map_err(|e| e.error)?;
-    Ok(())
+    ensure!(record.workspace_identity_kind.as_deref()!=Some("physical-root-v1")||record.workspace_id==crate::serve::resource_inputs::RootIdentity::fingerprint(root).ok(),"Original collector workspace is unavailable; result remains retained in this process");
+    ensure!(record.id.len()==32&&record.id.bytes().all(|byte|byte.is_ascii_hexdigit()),"Invalid run id");
+    #[cfg(unix)] {
+      use std::{ffi::CString,os::fd::{AsRawFd,FromRawFd},io::Write};
+      // Every child component and rename is relative to an already-open parent.
+      // Replacing the public root or cache path cannot redirect this write.
+      fn directory(parent:&std::fs::File,name:&str)->Result<std::fs::File>{
+        let name=CString::new(name)?;
+        let created=unsafe{libc::mkdirat(parent.as_raw_fd(),name.as_ptr(),0o700)};
+        if created!=0 {let error=std::io::Error::last_os_error();ensure!(error.kind()==std::io::ErrorKind::AlreadyExists,"Cannot create collector storage: {error}");}
+        let fd=unsafe{libc::openat(parent.as_raw_fd(),name.as_ptr(),libc::O_RDONLY|libc::O_DIRECTORY|libc::O_NOFOLLOW|libc::O_CLOEXEC)};
+        ensure!(fd>=0,"Cannot open held collector storage: {}",std::io::Error::last_os_error());Ok(unsafe{std::fs::File::from_raw_fd(fd)})
+      }
+      let scope=crate::serve::resource_inputs::RootIdentity::bind(root);
+      let held=std::fs::File::open(root)?;
+      ensure!(same_file::Handle::from_file(held.try_clone()?)?==same_file::Handle::from_path(root)?,"Collector root changed");
+      scope.check(root).map_err(anyhow::Error::msg)?;
+      ensure!(record.workspace_identity_kind.as_deref()!=Some("physical-root-v1")||record.workspace_id==crate::serve::resource_inputs::RootIdentity::fingerprint(root).ok(),"Original collector root changed");
+      static STORES:std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<String,std::sync::Arc<std::fs::File>>>>=std::sync::OnceLock::new();
+      let stores=STORES.get_or_init(||std::sync::Mutex::new(std::collections::HashMap::new()));
+      let mut stores=stores.lock().unwrap();
+      let identity=crate::serve::resource_inputs::RootIdentity::fingerprint(root).map_err(anyhow::Error::msg)?;
+      let records=if let Some(records)=stores.get(&identity){records.clone()}else{let cache=directory(&held,".hick-cache")?;let records=std::sync::Arc::new(directory(&cache,"coverage")?);stores.insert(identity.clone(),records.clone());records};
+      drop(stores);
+      ensure!(same_file::Handle::from_file(records.try_clone()?)?==same_file::Handle::from_path(root.join(".hick-cache/coverage"))?,"Collector record storage changed; outcome remains retained in this process");
+      let temporary=CString::new(format!(".{}.{}.tmp",record.id,fresh_id()))?;
+      let destination=CString::new(format!("{}.json",record.id))?;
+      let fd=unsafe{libc::openat(records.as_raw_fd(),temporary.as_ptr(),libc::O_WRONLY|libc::O_CREAT|libc::O_EXCL|libc::O_NOFOLLOW|libc::O_CLOEXEC,0o600)};
+      ensure!(fd>=0,"Cannot reserve collector record: {}",std::io::Error::last_os_error());
+      let mut file=unsafe{std::fs::File::from_raw_fd(fd)};
+      let result=(||->Result<()>{file.write_all(&serde_json::to_vec(record)?)?;file.sync_all()?;ensure!(unsafe{libc::renameat(records.as_raw_fd(),temporary.as_ptr(),records.as_raw_fd(),destination.as_ptr())}==0,"Cannot publish collector record: {}",std::io::Error::last_os_error());Ok(())})();
+      if result.is_err(){unsafe{libc::unlinkat(records.as_raw_fd(),temporary.as_ptr(),0)};}
+      result
+    }
+    #[cfg(not(unix))] {bail!("Held-directory collector persistence is unavailable on this host")}
 }
 pub(super) fn load(root: &Path, id: &str) -> Result<Record> {
     let path = path(root, id)?;
@@ -201,6 +228,7 @@ pub(super) fn new_record(root: &Path, project: &Path, request: &Request) -> Resu
     })
 }
 fn summary(root: &Path, mut record: Record, include_raw: bool) -> Result<Value> {
+    let origin_current=record.workspace_identity_kind.as_deref()==Some("physical-root-v1")&&record.workspace_id==crate::serve::resource_inputs::RootIdentity::fingerprint(root).ok();
     let current = record.identity.source_hashes.iter().any(|(p, hash)| {
         safe_path(root, p)
             .ok()
@@ -209,7 +237,7 @@ fn summary(root: &Path, mut record: Record, include_raw: bool) -> Result<Value> 
             .as_ref()
             != Some(hash)
     });
-    let unknown = record.identity.source_hashes.is_empty()
+    let unknown = !origin_current || record.identity.source_hashes.is_empty()
         || record.evidence.as_ref().is_some_and(|e| {
             e.report
                 .files
@@ -244,17 +272,20 @@ fn summary(root: &Path, mut record: Record, include_raw: bool) -> Result<Value> 
     Ok(value)
 }
 pub(super) fn view(root: &Path, id: &str) -> Result<Value> {
-    summary(root, load(root, id)?, true)
+    summary(root, super::runner::retained(root,id).map(Ok).unwrap_or_else(||load(root,id))?, true)
 }
 pub(super) fn list(root: &Path) -> Result<Value> {
-    let mut records = Vec::new();
-    for e in std::fs::read_dir(dir(root)?)? {
+    let mut records = super::runner::retained_records(root);
+    let mut directory=root.to_path_buf();let mut exists=true;
+    for component in [".hick-cache","coverage"] {directory.push(component);match std::fs::symlink_metadata(&directory){Ok(metadata)=>ensure!(metadata.is_dir()&&!metadata.file_type().is_symlink(),"Coverage storage cannot be a symlink"),Err(error)if error.kind()==std::io::ErrorKind::NotFound=>{exists=false;break},Err(error)=>return Err(error.into())}}
+    let entries=if exists{Some(std::fs::read_dir(directory)?)}else{None};
+    for e in entries.into_iter().flatten() {
         let path = e?.path();
         if path.extension().and_then(|s| s.to_str()) != Some("json") {
             continue;
         }
         if let Some(id) = path.file_stem().and_then(|s| s.to_str()) {
-            records.push(load(root, id)?);
+            if !records.iter().any(|record|record.id==id){records.push(load(root, id)?);}
         }
     }
     records.sort_by_key(|r| std::cmp::Reverse(r.started_ms));

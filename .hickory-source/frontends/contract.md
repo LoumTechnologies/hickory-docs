@@ -320,6 +320,35 @@ literate bulk real protocols also pass against the new engine. Browser/native
 controller consumption and cross-platform user-flow acceptance are separate
 integration work in progress; backend receipts alone do not establish parity.
 
+## Connected collectors and original-root result authority, 2026-11-17
+
+Actual pytest discovery, failed runs, retained results, failed-only reruns and
+coverage now reach each simple host. Browser controls and the mounted Apple
+coverage renderer exercise the usable path; Android exercises its integrated
+bridge/controller. Run completion refreshes retained sessions without manual
+reload. Source, session, renderer, selection and exact API-origin guards reject
+closed, foreign and equal-byte stale coverage navigation.
+
+Collectors retain their original physical root and record bucket through process
+completion. Private report/cache artifacts and descriptor-relative publication
+prevent replaced roots or buckets from acquiring this run's evidence. Terminal
+original-process outcomes remain readable as historical; they cannot authorize
+new work. Missing-history reads create no cache. Tool execution remains ordinary
+project-code authority, not a sandbox for arbitrary configured commands.
+
+Focused results: shared coverage10 and type checking pass; backend20 pass with
+five explicitly opt-in cases ignored in that group. Separate genuine installed
+pytest failed-run/failed-rerun, manual-stop flush and replaced-root/cache cases
+each pass. Actual browser/Apple/Android collector flows pass, as do both native
+navigation guard matrices and the real HTTP root/bucket/noncreating-read flow.
+An installed .NET10.0.401/Coverlet6.0.4 fixture discovers two tests without running
+their bodies, retains one failure and real C# line coverage, reruns just that
+failure and retains both runs. Its first execution exposed startup diagnostics
+being misread as tests; a bounded contiguous-list parser and focused noisy-output
+case now pass. Canonical replay of that C# fixture is being retained separately.
+Other collector families and physical native coverage interaction remain
+unverified unless separately evidenced; these checks are not full test parity.
+
 ## Current integration ledger
 
 This ledger reconciles the required outcome with the implementation inspected on

@@ -45,6 +45,7 @@ use crate::mcp_catalogue::tool_catalogue;
 /// A running server: open sessions, one executor, an optional session log.
 pub(crate) struct Server {
     root: PathBuf,
+    coverage_scope: Arc<crate::serve::resource_inputs::RootIdentity>,
     changeset: Option<crate::changeset::Contract>,
     /// One [`EditSession`] per document, kept open for the process's life.
     /// This is the whole point of the MCP surface over the command surface.
@@ -72,6 +73,7 @@ impl Server {
         session: PathBuf,
     ) -> Self {
         Self {
+            coverage_scope: Arc::new(crate::serve::resource_inputs::RootIdentity::bind(&root)),
             root,
             changeset: None,
             sessions: HashMap::new(),
@@ -559,7 +561,7 @@ impl Server {
         if name == "code_coverage" {
             let result = async {
                 let request = serde_json::from_value(args.clone()).map_err(|e| e.to_string())?;
-                crate::coverage::dispatch(&self.root, request)
+                crate::coverage::dispatch_scoped(&self.root,self.coverage_scope.clone(),request)
                     .await
                     .map(|v| v.to_string())
                     .map_err(|e| format!("{e:#}"))

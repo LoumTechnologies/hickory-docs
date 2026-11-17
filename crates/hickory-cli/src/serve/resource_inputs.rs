@@ -21,6 +21,13 @@ pub struct RootIdentity {
     ready: tokio::sync::Notify,
 }
 impl RootIdentity {
+    /// Read-only association for positively owned process results. Equality of
+    /// retained handles is never authority to start a new operation: call check.
+    pub(crate) fn same_physical_binding(&self,other:&Self)->bool {
+        matches!((self.bound.get(),other.bound.get()),(Some(Ok((left,left_path,_))),Some(Ok((right,right_path,_)))) if left==right&&left_path==right_path)
+    }
+
+
     /// Read-only retained outcomes remain addressable after a root is replaced.
     /// This does not establish present mutation authority; writers always call check.
     pub(super) fn retained_epoch(&self)->Result<&str,String>{match self.bound.get(){Some(Ok((_,_,epoch)))=>Ok(epoch.as_str()),Some(Err(error))=>Err(error.clone()),None=>Err("Original workspace epoch is not available yet.".into())}}

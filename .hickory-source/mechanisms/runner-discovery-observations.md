@@ -47,26 +47,35 @@ fn source_paths(root: &Path, project: &Path, tests: &mut [TestResult]) {
 }
 </ui:copy>
 
-Plan through the existing provider, then observe the real runner between two saved snapshots. The fingerprint binds workspace, project, language, captured bytes and reported names/locations. The listing does not become execution authority or a test result.
+Plan through the existing provider, then observe the real runner between two saved snapshots. The fingerprint binds workspace, project, language, captured bytes and reported names/locations. The listing does not become execution authority or a test result. Capture the physical root before planning and hold the project directory through execution. If that root disappears or is replaced, retain the observed names and output as historical, clear location claims, and avoid reading replacement source to bless an equal-byte listing.
 
 <ui:copy id="runner-discovery-observation-1">
 pub(super) async fn inspect(root: &Path, project: &Path, language: &str) -> Result<Value> {
+    let scope=crate::serve::resource_inputs::RootIdentity::bind(root);
+    scope.check(root).map_err(anyhow::Error::msg)?;
+    let workspace=crate::serve::resource_inputs::RootIdentity::fingerprint(root).map_err(anyhow::Error::msg)?;
+    let held=std::fs::File::open(project)?;
+    ensure!(same_file::Handle::from_file(held.try_clone()?)?==same_file::Handle::from_path(project)?,"Discovery directory changed");
     let metadata = config(project)?;
-    let command = commands::discovery(project, language)?;
+    let mut command = commands::discovery(project, language)?;
+    let artifacts=commands::PrivateArtifacts::new()?;
+    if language=="python" {command.extend(["-o".into(),format!("cache_dir={}",artifacts.path().join("pytest-cache").display())]);}
     let before = snapshot(root)?;
-    let output = runner::execute(&command, project, None).await?;
+    scope.check(root).map_err(anyhow::Error::msg)?;
+    let output = runner::execute_held(&command, project, None,Some(&held),Some(artifacts.path())).await?;
     ensure!(output.code == Some(0), "Discovery failed: {}", output.text);
-    let after = snapshot(root)?;
+    artifacts.check()?;
+    let original=scope.check(root).is_ok();
+    let after = if original{snapshot(root)?}else{BTreeMap::new()};
     let mut tests = results::discover(language, &output.text, &metadata);
-    source_paths(root, project, &mut tests);
-    let state = source_state(&before, &after);
-    let workspace = hash(root.as_os_str().as_encoded_bytes());
+    if original{source_paths(root, project, &mut tests);}else{for test in &mut tests{test.path=None;test.line=None;}}
+    let state = if original{source_state(&before, &after)}else{"historical"};
     let project = store::relative(root, project);
     let fingerprint = hash(&serde_json::to_vec(
         &json!({"version":1,"workspace":workspace,"project":project,"language":language,"sources":before,"tests":tests.iter().map(|test|(&test.id,&test.path,&test.line)).collect::<Vec<_>>()}),
     )?);
     Ok(
-        json!({"version":1,"tests":tests,"output":output.text,"metadata":metadata,"project":project,"language":language,"discovery":"runner","source_hashes":before,"source_state":state,"source_changed_during_discovery":before!=after,"source_frozen":false,"workspace_id":workspace,"fingerprint":fingerprint}),
+        json!({"version":1,"tests":tests,"output":output.text,"metadata":metadata,"project":project,"language":language,"discovery":"runner","source_hashes":before,"source_state":state,"source_changed_during_discovery":!original||before!=after,"source_frozen":false,"workspace_id":workspace,"fingerprint":fingerprint}),
     )
 }
 </ui:copy>
