@@ -30,8 +30,15 @@ def main():
    driver.act('file-command',command='Save As',path=copy);driver.act('source-copy-ready',path=copy);assert (root/copy).read_text()==before and (root/path).read_text()==after
    driver.act('file-command',command='Open File',path=path);assert driver.act('editor-is-retained',path=path);assert driver.act('construction-source',path=path)==before
    driver.act('undo',path=path);assert driver.act('construction-source',path=path)==draft;assert (root/path).read_text()==after and (root/copy).read_text()==before
+   # Missing is an observed absence, never an empty-file save authority.
+   (root/path).unlink();driver.act('local-history-open');missing=driver.act('local-history-select',id=previous['id'],side='before');assert missing['enabled'],missing
+   driver.act('local-history-restore');driver.act('local-history-close');assert not (root/path).exists();assert driver.act('construction-source',path=path)==before
+   assert driver.act('editor-is-retained',path=path) and driver.act('editor-size',path=path)==size
+   driver.act('undo',path=path);assert driver.act('construction-source',path=path)==draft;assert not (root/path).exists()
+   driver.act('redo',path=path);assert driver.act('construction-source',path=path)==before;assert not (root/path).exists()
+   recovered='restored λ%2F?#.py';driver.act('file-command',command='Save As',path=recovered);driver.act('source-copy-ready',path=recovered);assert (root/recovered).read_text()==before;assert not (root/path).exists()
    assert not driver.act('debug-diagnostics')['errors']
-   print('PASS: strict literal source Save/Save As; direct confirmed copy; existing editor/undo retained; full before/after local history; draft-only restore; native/workspace Undo/Redo; stale selection refusal; code geometry and saved bytes preserved')
+   print('PASS: strict literal source Save/Save As; direct confirmed copy; existing editor/undo retained; full before/after local history; draft-only restore; native/workspace Undo/Redo; stale selection refusal; code geometry and saved bytes preserved; deleted source restores only to unmaterialized draft, Undo/Redo never creates it, separate guarded Save As publishes a new copy')
   finally:
    if driver:driver.close()
    for process in reversed(processes):

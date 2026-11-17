@@ -7,8 +7,8 @@ import Darwin
 @testable import HickorySimple
 @MainActor final class SourceHistoryTests:XCTestCase {
     func saved(_ text:String)->[String:Any]{["kind":"file","text":text,"sha256":nativeSourceHash(text),"readonly":false,"executable":false,"mode":420]}
-    func reading()->[String:Any]{["version":1,"history_protocol":1,"workspace":"workspace","namespace":"/fixture","path":"a.txt","current":saved("saved"),"current_identity":"physical-current","entries":[["id":String(repeating:"1",count:32),"at":1,"outcome":"published","fingerprint":String(repeating:"a",count:64),"before":saved("old"),"after":saved("saved"),"available":true]],"notices":[]]}
-    func draft(_ source:String)->[String:Any]{["version":1,"history_protocol":1,"workspace":"workspace","namespace":"/fixture","path":"a.txt","id":String(repeating:"1",count:32),"fingerprint":String(repeating:"a",count:64),"current_identity":"physical-current","current_hash":nativeSourceHash("saved"),"draft_hash":nativeSourceHash(source),"side":"before","source":"old","consequences":"unknown","notice":"Restored to draft; compiler consequences are unknown."]}
+    func reading()->[String:Any]{["version":1,"history_protocol":1,"workspace":"workspace","namespace":"/fixture","path":"a.txt","current":saved("saved"),"current_identity":"physical-current","restore_target":"current-source-draft","entries":[["id":String(repeating:"1",count:32),"at":1,"outcome":"published","fingerprint":String(repeating:"a",count:64),"before":saved("old"),"after":saved("saved"),"available":true]],"notices":[]]}
+    func draft(_ source:String)->[String:Any]{["version":1,"history_protocol":1,"workspace":"workspace","namespace":"/fixture","path":"a.txt","id":String(repeating:"1",count:32),"fingerprint":String(repeating:"a",count:64),"current_identity":"physical-current","current_hash":nativeSourceHash("saved"),"draft_hash":nativeSourceHash(source),"side":"before","source":"old","restore_target":"current-source-draft","source_effects":false,"consequences":"unknown","notice":"Restored to draft; compiler consequences are unknown."]}
     func testHistoryEvidenceMustMatchExactPathsAndSavedHashes()throws {
         let bytes=try JSONSerialization.data(withJSONObject:reading()),value=try JSONDecoder().decode(SourceHistoryReading.self,from:bytes)
         XCTAssertThrowsError(try validateSourceTestJSON(Data(#"{"history_protocol":1e0}"#.utf8)));XCTAssertTrue(validSourceHistory(value,path:"a.txt"));XCTAssertFalse(validSourceHistory(value,path:"A.txt"))
@@ -79,6 +79,17 @@ import Darwin
         manager.undo();XCTAssertEqual(buffer.text,before);XCTAssertEqual(editor.text.selectedRange(),selection);manager.redo();XCTAssertEqual(buffer.text,"old")
         XCTAssertEqual(try XCTUnwrap(buffer.sourceEditorState?()).identity,identity);XCTAssertEqual(editor.scroll.frame,geometry)
     }
+    func testMissingSourceRestoresOnlyAnUnmaterializedNativeDraft()async throws {
+        let(space,buffer,editor,window)=native();defer{window.contentView=nil;ResponseProtocol.responsesByPath=[:]}
+        var missing=reading();missing["current"]=["kind":"missing"];missing["restore_target"]="missing-source-draft"
+        var reply=draft(buffer.text);reply["current_hash"]="missing";reply["restore_target"]="missing-source-draft"
+        ResponseProtocol.status=200;ResponseProtocol.responsesByPath=["/api/source-history":try JSONSerialization.data(withJSONObject:missing),"/api/source-history/restore-draft":try JSONSerialization.data(withJSONObject:reply)]
+        let identity=try XCTUnwrap(buffer.sourceEditorState?()).identity,geometry=editor.scroll.frame
+        await space.sourceHistory.open(space);space.sourceHistory.choose(try XCTUnwrap(space.sourceHistory.reading?.entries.first),side:"before")
+        let restored=await space.sourceHistory.restore();XCTAssertTrue(restored,space.sourceHistory.notice);XCTAssertEqual(buffer.text,"old");XCTAssertTrue(buffer.resourceDeleted);XCTAssertNil(buffer.savedGuard);XCTAssertEqual(buffer.sourceEditorState?()?.identity,identity);XCTAssertEqual(editor.scroll.frame,geometry)
+        editor.text.undoManager?.undo();XCTAssertEqual(buffer.text,"draft");XCTAssertTrue(buffer.resourceDeleted)
+        await space.save();XCTAssertEqual(space.fileCommand,"Save As")
+    }
     func testClosedEditedAndReplacedEditorCannotRestoreHeldHistory()async throws {
         let(space,buffer,editor,window)=native();defer{window.contentView=nil;ResponseProtocol.beforeResponse=nil;ResponseProtocol.responsesByPath=[:]}
         try install(buffer.text);await space.sourceHistory.open(space);space.sourceHistory.choose(try XCTUnwrap(space.sourceHistory.reading?.entries.first),side:"before")
@@ -117,6 +128,12 @@ import Darwin
         manager.undo();XCTAssertEqual(buffer.text,draft);XCTAssertTrue(buffer.dirty);manager.redo();XCTAssertEqual(buffer.text,copied);XCTAssertFalse(buffer.dirty)
         let copiedDisk=try await engine.file(buffer.file),originalDisk=try await engine.file(file);XCTAssertEqual(copiedDisk.content,copied);XCTAssertEqual(originalDisk.content,"saved-after\n")
         await space.sourceHistory.open(space);let creation=try XCTUnwrap(space.sourceHistory.reading?.entries.first,space.sourceHistory.notice);XCTAssertEqual(creation.before.kind,"missing");XCTAssertEqual(creation.after.text,copied);XCTAssertTrue(creation.available)
+        let missingPath=buffer.file.path,missingURL=URL(fileURLWithPath:workspace).appendingPathComponent(missingPath)
+        native.setSelectedRange(NSRange(location:native.string.utf16.count,length:0));native.insertText("lost draft",replacementRange:native.selectedRange());let missingDraft=buffer.text
+        try FileManager.default.removeItem(at:missingURL);await space.sourceHistory.open(space);let missingEntry=try XCTUnwrap(space.sourceHistory.reading?.entries.first,space.sourceHistory.notice);XCTAssertEqual(space.sourceHistory.reading?.current.kind,"missing");space.sourceHistory.choose(missingEntry,side:"after")
+        let missingRestored=await space.sourceHistory.restore();XCTAssertTrue(missingRestored,space.sourceHistory.notice);XCTAssertEqual(buffer.text,copied);XCTAssertTrue(buffer.unmaterializedHistoryDraft);XCTAssertNil(buffer.savedGuard);XCTAssertFalse(FileManager.default.fileExists(atPath:missingURL.path))
+        manager.undo();XCTAssertEqual(buffer.text,missingDraft);manager.redo();XCTAssertEqual(buffer.text,copied);XCTAssertFalse(FileManager.default.fileExists(atPath:missingURL.path));XCTAssertEqual(buffer.sourceEditorState?()?.identity,identity);XCTAssertEqual(scroll.convert(scroll.bounds,to:host),geometry)
+        space.chooseFileCommand("Save As");space.filePath="recovered λ%2F?#.txt";await space.performFileCommand();XCTAssertEqual(buffer.file.path,"recovered λ%2F?#.txt",space.status);XCTAssertFalse(buffer.unmaterializedHistoryDraft);XCTAssertFalse(FileManager.default.fileExists(atPath:missingURL.path));XCTAssertEqual(try String(contentsOf:URL(fileURLWithPath:workspace).appendingPathComponent(buffer.file.path),encoding:.utf8),copied)
     }
     #endif
 }

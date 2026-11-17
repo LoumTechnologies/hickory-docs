@@ -136,7 +136,7 @@ export function App() {
     } catch (error) { setNotice(`${String(error)} Original edits and the exact copy request are retained. Inspect local history before changing the destination; retry only while the captured editors remain current.`); }
     finally { source.saving = false; source.publish(); refresh(value => value + 1); }
   }
-  async function saveCurrent() { if (buffer?.isUntitledDraft) await saveAs(); else await buffer?.save(); }
+  async function saveCurrent() { if (buffer?.isUntitledDraft||buffer?.resourceDeleted) await saveAs(); else await buffer?.save(); }
   async function saveAll() {
     for (const item of [...buffers.values.values()]) {
       if (item.isUntitledDraft) { if (item.dirty) await saveAs(item); }

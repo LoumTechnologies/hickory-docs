@@ -1,9 +1,9 @@
 """Run a native ordinary-save history witness against one owned plain source fixture."""
-import argparse, importlib.util, json, os, signal, subprocess, tempfile, threading, xml.etree.ElementTree as ET
+import argparse, importlib.util, json, os, re, signal, subprocess, tempfile, threading, xml.etree.ElementTree as ET
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 def main():
-    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('host',choices=['apple','android']);parser.add_argument('--engine',type=Path,default=ROOT/'target/source-edit-focus/debug/examples/engine_client');parser.add_argument('--serve-only',action='store_true');parser.add_argument('--create',action='store_true',help='Select Android strict Save As; Apple uses its same combined history/Save As case.');args=parser.parse_args()
+    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('host',choices=['apple','android']);parser.add_argument('--engine',type=Path,default=ROOT/'target/source-edit-focus/debug/examples/engine_client');parser.add_argument('--serve-only',action='store_true');parser.add_argument('--skip-build',action='store_true',help='Apple only: use the just-built native test product.');parser.add_argument('--create',action='store_true',help='Select Android strict Save As; Apple uses its same combined history/Save As case.');args=parser.parse_args()
     def interrupted(number,_frame):raise SystemExit(128+number)
     signal.signal(signal.SIGTERM,interrupted)
     spec=importlib.util.spec_from_file_location('simple_fixture',ROOT/'scripts/test-simple-browser.py');fixture=importlib.util.module_from_spec(spec);spec.loader.exec_module(fixture)
@@ -16,16 +16,19 @@ def main():
             if args.serve_only:threading.Event().wait();return
             env={**os.environ,'HICKORY_NATIVE_HISTORY_ORIGIN':origin,'HICKORY_NATIVE_HISTORY_WORKSPACE':str(root)}
             if args.host=='apple':
-                name='testLiveNativeOrdinarySaveHistoryRestoreAndUndo';report=temporary/'history.xml';command=['swift','test','--package-path','apps/apple-simple','--scratch-path','target/apple-simple-spm','--filter','SourceHistoryTests.'+name+'$','--xunit-output',str(report)]
+                name='testLiveNativeOrdinarySaveHistoryRestoreAndUndo';report=temporary/'history.xml';command=['swift','test','--package-path','apps/apple-simple','--scratch-path','target/apple-simple-spm','--filter','SourceHistoryTests.'+name+'$','--xunit-output',str(report)]+(['--skip-build'] if args.skip_build else [])
             else:
-                name='liveNativeStrictSaveAsMenuRetainsEditorAndGuardsOwnership' if args.create else 'liveNativeOrdinarySaveHistoryRestoreAndUndo';case='SourceCreationTest' if args.create else 'SourceHistoryTest';report=ROOT/('apps/android-simple/app/build/test-results/testDebugUnitTest/TEST-com.hickorydocs.simple.'+case+'.xml');command=[str(ROOT/'target/simple-android-gradle'),'-Pandroid.builder.sdkDownload=false',':app:testDebugUnitTest','--tests','com.hickorydocs.simple.'+case+'.'+name,'--rerun-tasks']
+                name='liveNativeStrictSaveAsMenuRetainsEditorAndGuardsOwnership' if args.create else 'liveNativeOrdinarySaveHistoryRestoreAndUndo';case='SourceCreationTest' if args.create else 'SourceHistoryTest';report=ROOT/('apps/android-simple/app/build/test-results/testDebugUnitTest/TEST-com.hickorydocs.simple.'+case+'.xml');command=[str(ROOT/'target/simple-android-gradle'),'-Pandroid.builder.sdkDownload=false',':app:testDebugUnitTest','--tests','com.hickorydocs.simple.'+case+'.'+name]
             report.unlink(missing_ok=True);log=ROOT/'target/native-history-smoke'/f'{args.host}-last.log';log.parent.mkdir(parents=True,exist_ok=True);process=fixture.start(command,cwd=ROOT,env=env)
             try:output,_=process.communicate(timeout=600)
             except BaseException:
                 fixture.stop(process);output,_=process.communicate(timeout=15);log.write_text(output or '');raise
             log.write_text(output or '')
             if process.returncode:raise RuntimeError(f'Native history failed; inspect {log}')
-            rows=list(ET.parse(report).getroot().iter('testcase'));assert len(rows)==1 and rows[0].get('name','').split('(')[0]==name and not any(rows[0].find(key) is not None for key in ('skipped','failure','error')),str(report)
-            print(f'PASS {args.host}: one actual {"guarded Save As" if args.create else "ordinary-save/history/draft restoration"} controller witness, no skips. Apple combines history and Save As in this same case. Physical input/accessibility remains unverified.')
+            if report.exists():
+                rows=list(ET.parse(report).getroot().iter('testcase'));assert len(rows)==1 and rows[0].get('name','').split('(')[0]==name and not any(rows[0].find(key) is not None for key in ('skipped','failure','error')),str(report)
+            else:
+                assert args.host=='apple' and re.search(re.escape(name)+r'.*passed',output or '') and re.search(r'Executed 1 test, with 0 failures',output or '') and 'Test skipped' not in (output or ''),str(log)
+            print(f'PASS {args.host}: one actual {"guarded Save As" if args.create else "ordinary-save/history/draft restoration"} controller witness including deleted-source draft restoration, Undo/Redo without materialization and separate guarded Save As, no skips. Apple combines history and Save As in this same case. Physical input/accessibility remains unverified.')
         finally:fixture.stop(engine)
 if __name__=='__main__':main()

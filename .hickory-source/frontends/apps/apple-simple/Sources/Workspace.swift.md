@@ -34,6 +34,7 @@ import Observation
     @ObservationIgnored lazy var snippets=SourceSnippetController(buffer:self)
     var file: FileNode
     var resourceDeleted = false
+    var unmaterializedHistoryDraft = false
     // Source equality alone must not revive a preview after edit/undo.
     var sourceEditIdentity=UUID()
     private(set) var agentSourceRevision:UInt64?=0
@@ -206,7 +207,7 @@ import Observation
     private(set) var dirty = false
     private(set) var isUntitledDraft:Bool
     func confirmSourceAddress(){isUntitledDraft=false}
-    var readOnly: Bool { resourceDeleted || file.generated_by != nil }
+    var readOnly: Bool { (resourceDeleted && !unmaterializedHistoryDraft) || file.generated_by != nil }
     init(file: FileNode, text: FileText,isUntitledDraft:Bool=false) {
         self.isUntitledDraft=isUntitledDraft
         self.file = file; self.sourceValue = ExactSourceText(text.content); base = text.content; hash = text.hash;savedGuard=text.save_guard;saveGuardReason=text.save_guard_reason; refreshInline()
@@ -370,7 +371,7 @@ normal capability setup. Deleted dirty buffers still guard workspace switching.
             guard let path=route.to,let entry=files[Data(path.utf8)] else{buffer.resourceDeleted=true;retainedResourceEditors[route.identity]=buffer;continue}
             let before=buffer.text
             if !edits.isEmpty {buffer.text=route.after!;_ = buffer.reflectWorkspaceEdits?(edits,before,route.after!)}
-            buffer.file=entry.file;buffer.base=entry.saved.text!;buffer.hash=entry.hash;buffer.savedGuard=entry.save_guard;buffer.saveGuardReason=entry.save_guard==nil ? "Resource publication did not provide a physical save guard. Preserve the draft and read the exact saved source before another ordinary Save.":nil;buffer.saveHistoryAttempt=nil;buffer.resourceDeleted=false;buffer.error=""
+            buffer.file=entry.file;buffer.base=entry.saved.text!;buffer.hash=entry.hash;buffer.savedGuard=entry.save_guard;buffer.saveGuardReason=entry.save_guard==nil ? "Resource publication did not provide a physical save guard. Preserve the draft and read the exact saved source before another ordinary Save.":nil;buffer.saveHistoryAttempt=nil;buffer.resourceDeleted=false;buffer.unmaterializedHistoryDraft=false;buffer.error=""
             buffers[path]=buffer;retainedResourceEditors = retainedResourceEditors.filter{$0.value !== buffer}
             _ = retainBuffer(entry.file,text:FileText(path:path,content:route.after!,hash:entry.hash),engine:engine,existing:buffer)
         }
@@ -386,7 +387,7 @@ normal capability setup. Deleted dirty buffers still guard workspace switching.
         source.language?.close();source.language=nil
         if buffers[old] === source{buffers.removeValue(forKey:old)}
         retainedResourceEditors=retainedResourceEditors.filter{$0.value !== source}
-        source.file=file;source.base=text.content;source.hash=text.hash;source.savedGuard=text.save_guard;source.saveGuardReason=nil;source.resourceDeleted=false;source.saveHistoryAttempt=nil;source.creationAttempt=nil;source.error=""
+        source.file=file;source.base=text.content;source.hash=text.hash;source.savedGuard=text.save_guard;source.saveGuardReason=nil;source.resourceDeleted=false;source.unmaterializedHistoryDraft=false;source.saveHistoryAttempt=nil;source.creationAttempt=nil;source.error=""
         _ = retainBuffer(file,text:text,engine:engine,existing:source);layout=adopted
         return source
     }
@@ -647,7 +648,7 @@ Foreground file opening and background intelligence share one acquisition path. 
         } else { savingAll = false }
     }
     func save() async {
-        if currentBuffer?.isUntitledDraft == true { chooseFileCommand("Save As"); return }
+        if currentBuffer?.isUntitledDraft == true || currentBuffer?.resourceDeleted == true { chooseFileCommand("Save As"); return }
         if let engine, let buffer = currentBuffer { await buffer.save(using: engine) }
     }
 }

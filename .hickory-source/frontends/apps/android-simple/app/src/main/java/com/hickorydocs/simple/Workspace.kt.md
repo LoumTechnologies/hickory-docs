@@ -71,6 +71,7 @@ class DocumentBuffer(file: FileNode, loaded: FileText, untitledDraft:Boolean=fal
     fun publishSourceRevision(){sourceRevisionPublished=sourceRevisionValue}
     var file by mutableStateOf(file)
     var resourceDeleted by mutableStateOf(false)
+    var unmaterializedHistoryDraft by mutableStateOf(false)
     val sourceScroll = androidx.compose.foundation.ScrollState(0)
     var receiptEngine: Engine? = null
     var receiptSource by mutableStateOf("")
@@ -222,7 +223,7 @@ class DocumentBuffer(file: FileNode, loaded: FileText, untitledDraft:Boolean=fal
     var error by mutableStateOf("")
     val text get() = state.text.toString()
     val dirty by derivedStateOf { text != base }
-    val readOnly get() = resourceDeleted || file.generatedBy != null
+    val readOnly get() = (resourceDeleted && !unmaterializedHistoryDraft) || file.generatedBy != null
     suspend fun save(engine: Engine) {
         if (resourceDeleted || !dirty || saving || readOnly) return
         val submitted = text; val previous = base; val previousHash = hash
@@ -420,7 +421,7 @@ normal capability setup. Deleted dirty buffers still guard workspace switching.
             if(path==null){buffer.resourceDeleted=true;retainedResourceEditors[route.identity]=buffer;route.from?.let{retainedResourceTabs[addresses.getValue(sourceTab(it))]=buffer};continue}
             val entry=files.getValue(path)
             if(buffer.text!=route.after){buffer.state.edit{replace(0,length,route.after!!)}}
-            buffer.file=entry.file;buffer.base=entry.saved.text!!;buffer.hash=entry.hash;buffer.saveGuard=entry.saveGuard;buffer.saveGuardReason=if(entry.saveGuard==null)"Resource receipt lacks physical save authority. Reopen or compare before ordinary Save." else null;buffer.resourceDeleted=false;buffer.error=""
+            buffer.file=entry.file;buffer.base=entry.saved.text!!;buffer.hash=entry.hash;buffer.saveGuard=entry.saveGuard;buffer.saveGuardReason=if(entry.saveGuard==null)"Resource receipt lacks physical save authority. Reopen or compare before ordinary Save." else null;buffer.resourceDeleted=false;buffer.unmaterializedHistoryDraft=false;buffer.error=""
             buffers[path]=buffer;retainedResourceEditors.entries.removeAll{it.value===buffer}
             retainedResourceTabs.entries.removeAll{it.value===buffer}
             retainBuffer(entry.file,FileText(route.after!!,entry.hash,entry.saveGuard),server,buffer)
@@ -510,7 +511,7 @@ Foreground file opening and background intelligence share one acquisition path. 
         source.language?.close();source.language=null
         buffers.entries.filter{it.value===source}.map{it.key}.forEach{buffers.remove(it)}
         retainedResourceTabs.entries.removeAll{it.value===source};retainedResourceEditors.entries.removeAll{it.value===source}
-        source.isUntitledDraft=false;source.file=file;source.base=text.content;source.hash=text.hash;source.saveGuard=text.saveGuard;source.saveGuardReason=null;source.resourceDeleted=false;source.creationAttempt=null;source.error="";source.advanceSourceRevision()
+        source.isUntitledDraft=false;source.file=file;source.base=text.content;source.hash=text.hash;source.saveGuard=text.saveGuard;source.saveGuardReason=null;source.resourceDeleted=false;source.unmaterializedHistoryDraft=false;source.creationAttempt=null;source.error="";source.advanceSourceRevision()
         retainBuffer(file,text,server,source);layout=adopted
         return source
     }
@@ -670,7 +671,7 @@ Foreground file opening and background intelligence share one acquisition path. 
         if (draft != null) { show(sourceTab(draft.file.path)); chooseFileCommand("Save As") } else savingAll = false
     }
     suspend fun save() {
-        if (currentBuffer?.isUntitledDraft == true) { chooseFileCommand("Save As"); return }
+        if (currentBuffer?.isUntitledDraft == true || currentBuffer?.resourceDeleted == true) { chooseFileCommand("Save As"); return }
         engine?.let { currentBuffer?.save(it) }
     }
 }
