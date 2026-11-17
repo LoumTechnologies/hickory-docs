@@ -7,7 +7,7 @@ A file-wide fix request is not a caret query. The owned engine fixture opens Mar
 
 ## Supply an opaque, source-bound child action
 
-The provider records complete child ranges and action context, and requires its exact original payload on lazy resolution. A held reply lets the real client change a copy-only contributor during the await. A deliberate oversized list tests whole-list refusal. It writes only its owned event log; it never executes commands or saves authored text.
+The provider records complete child ranges and action context, and requires its exact original payload on lazy resolution. A held reply lets the real client change a copy-only contributor during the await. A deliberate oversized list tests whole-list refusal. Two dirty contributors and a replacement root inventory prove the actual compiler graph changes coherently; a literal `%2F#` source name must retain its exact encoded identity. It writes only its owned event log; it never executes commands or saves authored text.
 
 <ui:copy id="bulk-literate-controlled-provider">
 #!/usr/bin/env python3
@@ -46,7 +46,7 @@ while True:
  elif method=='textDocument/documentSymbol':result=[]
  elif method=='textDocument/codeAction':
   uri=params['textDocument']['uri'];text=documents[uri];expected={'start':{'line':0,'character':0},'end':{'line':text.count('\n'),'character':len(text.rsplit('\n',1)[-1].encode('utf-16-le'))//2}}
-  context=params.get('context',{});event({'query':uri,'range':params['range'],'context':context,'whole':params['range']==expected})
+  context=params.get('context',{});event({'query':uri,'range':params['range'],'context':context,'whole':params['range']==expected,'source':text})
   if context.get('only')!=['source.fixAll'] or params['range']!=expected:result=[{'title':'Contextual only','kind':'quickfix'}]
   else:
    result=[]
@@ -75,20 +75,20 @@ The client verifies explicit multi-output choices, actual contributor membership
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
 import {readFile,writeFile,unlink} from 'node:fs/promises';
-const [origin,events,gate,fixturePath]=process.argv.slice(2),fixture=JSON.parse(await readFile(fixturePath,'utf8'));
+const [origin,events,gate,fixturePath]=process.argv.slice(2),fixture=JSON.parse(await readFile(fixturePath,'utf8')),currentSources={...fixture};
 const url=new URL('/api/ws?doc=workspace',origin);url.protocol=url.protocol==='https:'?'wss:':'ws:';
 const socket=new WebSocket(url);socket.binaryType='arraybuffer';let sequence=0;const pending=new Map();let readyResolve;const ready=new Promise(resolve=>{readyResolve=resolve;});
 function send(body){const raw=new TextEncoder().encode(JSON.stringify({jsonrpc:'2.0',...body}));const bytes=new Uint8Array(raw.length+1);bytes[0]=2;bytes.set(raw,1);socket.send(bytes);}
 function request(method,params){return new Promise((resolve,reject)=>{const id=++sequence,timer=setTimeout(()=>{pending.delete(id);reject(new Error('Owned LSP timeout: '+method));},20000);pending.set(id,{resolve,reject,timer});send({id,method,params});});}
 socket.addEventListener('message',event=>{if(!(event.data instanceof ArrayBuffer))return;const bytes=new Uint8Array(event.data);if(bytes[0]!==2)return;const body=JSON.parse(new TextDecoder().decode(bytes.subarray(1)));if(body.method==='hick/serverCapabilities'){readyResolve();return;}if(body.method&&body.id!==undefined){send({id:body.id,error:{code:-32601,message:'This controlled client never executes provider commands'}});return;}const call=pending.get(body.id);if(!call)return;pending.delete(body.id);clearTimeout(call.timer);if(body.error)call.reject(new Error(body.error.message));else call.resolve(body.result);});
 const opened=new Promise((resolve,reject)=>{socket.addEventListener('open',resolve,{once:true});socket.addEventListener('error',reject,{once:true});});
-const uri=path=>'hick:///'+path;
+const uri=path=>'hick:///'+path.split('/').map(encodeURIComponent).join('/');
 const prepare=async(path,text,version)=>{const result=await request('hick/captureDocument',{textDocument:{uri:uri(path),languageId:'markdown',version,text}});assert.equal(result.parsed,true,JSON.stringify(result));assert.equal(result.current,true);assert.equal(result.processed,true);assert.equal(result.source_hash,'sha256:'+createHash('sha256').update(text).digest('hex'));assert.match(result.source_revision,/^[a-f0-9]{64}$/);assert.equal(result.source_files_modified,false);};
-const open=async(path,text=fixture[path])=>{send({method:'textDocument/didOpen',params:{textDocument:{uri:uri(path),languageId:'markdown',version:1,text}}});await prepare(path,text,1);};
-const change=async(path,text,version)=>{send({method:'textDocument/didChange',params:{textDocument:{uri:uri(path),version},contentChanges:[{text}]}});await prepare(path,text,version);};
+const open=async(path,text=fixture[path])=>{currentSources[path]=text;send({method:'textDocument/didOpen',params:{textDocument:{uri:uri(path),languageId:'markdown',version:1,text}}});await prepare(path,text,1);};
+const change=async(path,text,version)=>{currentSources[path]=text;send({method:'textDocument/didChange',params:{textDocument:{uri:uri(path),version},contentChanges:[{text}]}});await prepare(path,text,version);};
 const query=async(path,triggerKind=1)=>await request('textDocument/codeAction',{textDocument:{uri:uri(path)},range:{start:{line:0,character:0},end:{line:fixture[path].split('\n').length-1,character:fixture[path].split('\n').at(-1).length}},context:{diagnostics:[],only:['source.fixAll'],triggerKind}})??[];
 const one=(actions,path)=>{const found=actions.filter(action=>action.title.endsWith(' · '+path));assert.equal(found.length,1,JSON.stringify(actions));return found[0];};
-const verifySources=action=>{const rows=action.data.hickory_sources;assert.ok(Array.isArray(rows)&&rows.length);assert.equal(new Set(rows.map(row=>row.uri)).size,rows.length);assert.deepEqual(rows.map(row=>row.uri),[...rows.map(row=>row.uri)].sort());for(const row of rows){assert.deepEqual(Object.keys(row).sort(),['source_hash','uri']);const path=decodeURIComponent(new URL(row.uri).pathname.slice(1));assert.ok(Object.hasOwn(fixture,path),row.uri);assert.equal(row.source_hash,'sha256:'+createHash('sha256').update(fixture[path]).digest('hex'));}};
+const verifySources=action=>{const rows=action.data.hickory_sources;assert.ok(Array.isArray(rows)&&rows.length);assert.equal(new Set(rows.map(row=>row.uri)).size,rows.length);assert.deepEqual(rows.map(row=>row.uri),[...rows.map(row=>row.uri)].sort());for(const row of rows){assert.deepEqual(Object.keys(row).sort(),['source_hash','uri']);const path=decodeURIComponent(new URL(row.uri).pathname.slice(1));assert.ok(Object.hasOwn(fixture,path),row.uri);assert.equal(row.source_hash,'sha256:'+createHash('sha256').update(currentSources[path]).digest('hex'));}};
 const resolved=async action=>{const value=await request('codeAction/resolve',action);verifySources(value);return value;};
 const textEdits=action=>action.edit.documentChanges.flatMap(change=>change.edits.map(edit=>({uri:change.textDocument.uri,...edit})));
 try{
@@ -101,11 +101,15 @@ try{
  await open('b.md');const b=await query('b.md');assert.equal(b.length,2,JSON.stringify(b));one(b,'out/b.py');one(b,'out/cross.py');assert.deepEqual(await query('unused.md'),[],'loaded-but-unemitted sources are not contributors');
  await open('a.md');const a=await query('a.md');assert.equal(a.length,3);const stale=one(a,'out/a.py');await change('a.md',fixture['a.md']+'\n# intervening draft\n',2);await change('a.md',fixture['a.md'],3);await assert.rejects(resolved(stale),/source changed|contributor changed|expired|ownership changed/i);
  const reopenedToken=one(await query('a.md'),'out/a.py');send({method:'textDocument/didClose',params:{textDocument:{uri:uri('a.md')}}});await request('textDocument/documentSymbol',{textDocument:{uri:uri('project.md')}});await open('a.md');await assert.rejects(resolved(reopenedToken),/source changed|contributor changed|expired|ownership changed/i,'closing and reopening an equal-byte contributor must not revive a token');
- await change('a.md',fixture['a.md'].replace('value','later_value'),4);await assert.rejects(query('project.md'),/captured provider source changed/i);await change('a.md',fixture['a.md'],5);
+ await change('a.md',fixture['a.md'].replace('value','later_value'),4);const dirtyRoot=await query('project.md');dirtyRoot.forEach(verifySources);const dirtyFix=await resolved(one(dirtyRoot,'out/a.py'));assert.equal(textEdits(dirtyFix)[0].uri,uri('a.md'));assert.equal(textEdits(dirtyFix)[0].newText,'fixed');assert.ok(textEdits(dirtyFix)[0].range.start.character>6,'Dirty contributor positions must reflect the exact current draft');await change('a.md',fixture['a.md'],5);
  const slow=one(await query('a.md',2),'out/a.py'),held=resolved(slow).then(value=>({value}),error=>({error}));let started=false;for(let n=0;n<300;n++){const rows=(await readFile(events,'utf8').catch(()=>'' )).split('\n').filter(Boolean).map(JSON.parse);if(rows.some(row=>row.resolved_started&&row.slow)){started=true;break;}await new Promise(resolve=>setTimeout(resolve,10));}assert.ok(started,'The owned provider resolve must be held before the contributor changes');await change('a.md',fixture['a.md']+'\n# during resolve\n',6);await writeFile(gate,'release');const answer=await held;assert.match(answer.error?.message??'',/source changed|contributor changed|expired|ownership changed/i);await change('a.md',fixture['a.md'],7);
  await writeFile(gate+'.overbudget','overbudget');await assert.rejects(query('project.md'),/review budget|too many|partial list/i);await unlink(gate+'.overbudget');
- const records=(await readFile(events,'utf8')).split('\n').filter(Boolean).map(JSON.parse);assert.ok(records.filter(row=>row.query).every(row=>row.whole&&JSON.stringify(row.context.only)==='["source.fixAll"]'));assert.ok(records.some(row=>row.context?.triggerKind===2));assert.ok(!records.some(row=>row.error));
- console.log('PASS: prose-start complete provider fan-out, stable explicit output choices, contributor/repeated-origin projection, standalone-duplicate/unrelated-output exclusion, opaque resolution, unmappable whole-action refusal, edit/Undo and close/reopen retirement, dirty contributor refusal, held resolve retirement and complete-list budget refusal. No source writes or commands.');
+ await open('c.md',fixture['c.md'].replace('30','31'));await open('literal%2F#.md',fixture['literal%2F#.md'].replace('41','42'));
+ const inventory=fixture['project.md'].replace('a.md b.md unused.md','b.md c.md literal%2F#.md unused.md').split('\n').filter(line=>!line.includes('path="out/a.py"')&&!line.includes('path="out/repeated.py"')&&!line.includes('path="out/cross.py"')).join('\n').replace('\x3c/hick:doc>','\x3chick:file path="out/new.py">\x3chick:paste select="#third"/>\x3c/hick:file>\n\x3chick:file path="out/literal.py">\x3chick:paste select="#literal"/>\x3c/hick:file>\n\x3c/hick:doc>');
+ await change('project.md',inventory,2);const changedInventory=await query('project.md');assert.equal(changedInventory.length,3,JSON.stringify(changedInventory));changedInventory.forEach(verifySources);one(changedInventory,'out/b.py');one(changedInventory,'out/new.py');const literal=await resolved(one(changedInventory,'out/literal.py'));assert.equal(textEdits(literal)[0].uri,uri('literal%2F#.md'));assert.equal(new URL(textEdits(literal)[0].uri).hash,'');assert.equal((await query('literal%2F#.md')).length,1);assert.deepEqual(await query('a.md'),[],'Removed source outputs must not survive the replacement inventory');
+ await change('project.md',fixture['project.md'],3);await change('c.md',fixture['c.md'],2);await change('literal%2F#.md',fixture['literal%2F#.md'],2);
+ const records=(await readFile(events,'utf8')).split('\n').filter(Boolean).map(JSON.parse);assert.ok(records.some(row=>row.query?.endsWith('/out/new.py')&&row.source?.includes('value = 31')));assert.ok(records.some(row=>row.query?.endsWith('/out/literal.py')&&row.source?.includes('value = 42')));assert.ok(records.filter(row=>row.query).every(row=>row.whole&&JSON.stringify(row.context.only)==='["source.fixAll"]'));assert.ok(records.some(row=>row.context?.triggerKind===2));assert.ok(!records.some(row=>row.error));
+ console.log('PASS: prose-start complete provider fan-out, stable explicit output choices, contributor/repeated-origin projection, standalone-duplicate/unrelated-output exclusion, opaque resolution, unmappable whole-action refusal, edit/Undo and close/reopen retirement, coherent dirty contributor fixes, dirty inventory replacement, literal percent/hash source projection, held resolve retirement and complete-list budget refusal. No source writes or commands.');
 }finally{for(const call of pending.values()){clearTimeout(call.timer);call.reject(new Error('Owned client closed'));}pending.clear();socket.close();}
 </ui:copy>
 
@@ -125,6 +129,8 @@ SOURCE={
  'a.md':"\x3chick:doc xmlns:hick=\"http://www.hickorydocs.com/1.0\">\n# Copy-only Unicode contributor\n\x3chick:copy id=\"first\">value = '😀'\n\x3c/hick:copy>\n\x3c/hick:doc>\n",
  'b.md':"\x3chick:doc xmlns:hick=\"http://www.hickorydocs.com/1.0\">\n# Another contributor with a standalone duplicate\n\x3chick:copy id=\"second\">value = 2\n\x3c/hick:copy>\n\x3chick:file path=\"out/b.py\">\x3chick:paste select=\"#second\"/>\x3c/hick:file>\n\x3c/hick:doc>\n",
  'unused.md':"\x3chick:doc xmlns:hick=\"http://www.hickorydocs.com/1.0\">\n# Loaded, but no output bytes originate here\n\x3c/hick:doc>\n",
+ 'c.md':"\x3chick:doc xmlns:hick=\"http://www.hickorydocs.com/1.0\">\n\x3chick:copy id=\"third\">value = 30\n\x3c/hick:copy>\n\x3c/hick:doc>\n",
+ 'literal%2F#.md':"\x3chick:doc xmlns:hick=\"http://www.hickorydocs.com/1.0\">\n\x3chick:copy id=\"literal\">value = 41\n\x3c/hick:copy>\n\x3c/hick:doc>\n",
 }
 def main():
  def interrupted(number,_frame):raise SystemExit(128+number)

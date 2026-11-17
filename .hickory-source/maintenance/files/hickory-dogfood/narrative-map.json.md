@@ -156184,6 +156184,34 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/mechanisms/crates/hickory-cli/src/coverage/real_tests.rs.md",
       "symbol": "collector owned root witness",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "project-overlay-source-reader",
+      "output": "crates/hick-lsp/src/project.rs",
+      "page": ".hickory-source/mechanisms/project-overlay-graph.md",
+      "symbol": "project overlay source reader",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "project-overlay-core-witness",
+      "output": "crates/hick-lsp/src/project.rs",
+      "page": ".hickory-source/mechanisms/project-overlay-graph.md",
+      "symbol": "project overlay core witness",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "project-overlay-root-refresh",
+      "output": "crates/hick-lsp/src/backend.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-lsp/src/backend.rs.md",
+      "symbol": "project overlay root refresh",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "project-overlay-backend-witness",
+      "output": "crates/hick-lsp/src/backend.rs",
+      "page": ".hickory-source/mechanisms/project-overlay-graph.md",
+      "symbol": "project overlay backend witness",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

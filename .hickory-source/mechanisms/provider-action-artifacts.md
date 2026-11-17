@@ -252,7 +252,7 @@ fn provider_target_contributes(mapping: &VFileMapping, requested: &Url) -> bool 
             .contributing_documents()
             .into_iter()
             .any(|document| {
-                mapping.hick_uri.join(document).ok().is_some_and(|mut uri| {
+                crate::project::source_document_uri(&mapping.hick_uri,document).ok().is_some_and(|mut uri| {
                     uri.set_query(mapping.hick_uri.query());
                     &uri == requested
                 })
@@ -288,12 +288,7 @@ fn action_source_proofs(mapping: &VFileMapping) -> Result<Arc<Vec<ProviderSource
         },
     )]);
     for document in mapping.position_map.contributing_documents() {
-        if document.contains(['#', '?', '%', '\\']) {
-            return Err(tower_lsp::jsonrpc::Error::invalid_params(format!(
-                "The provider cannot safely project this contributor filename yet: {document}. Preserve its draft and choose a source without URI-reserved filename characters before requesting complete fixes."
-            )));
-        }
-        let mut uri=mapping.hick_uri.join(document).map_err(|_|tower_lsp::jsonrpc::Error::invalid_params("A captured contributor has no safe source address. Refresh the project entry and request fixes again."))?;
+        let mut uri=crate::project::source_document_uri(&mapping.hick_uri,document).map_err(|message|tower_lsp::jsonrpc::Error::invalid_params(format!("A captured contributor has no safe source address: {message}")))?;
         uri.set_query(mapping.hick_uri.query());
         let source=mapping.position_map.project_source(document).ok_or_else(||tower_lsp::jsonrpc::Error::invalid_params("A captured contributor is unavailable. Refresh the complete project before requesting fixes."))?;
         proofs.insert(

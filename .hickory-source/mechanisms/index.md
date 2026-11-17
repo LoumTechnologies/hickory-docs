@@ -363,4 +363,6 @@ is included with that control; opening a document is not generation authority.
 
 <storycode:include file="bound-source-edits.md" />
 
+<storycode:include file="project-overlay-graph.md" />
+
 </storycode:doc>

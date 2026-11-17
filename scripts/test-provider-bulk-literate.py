@@ -9,6 +9,8 @@ SOURCE={
  'a.md':"\x3chick:doc xmlns:hick=\"http://www.hickorydocs.com/1.0\">\n# Copy-only Unicode contributor\n\x3chick:copy id=\"first\">value = '😀'\n\x3c/hick:copy>\n\x3c/hick:doc>\n",
  'b.md':"\x3chick:doc xmlns:hick=\"http://www.hickorydocs.com/1.0\">\n# Another contributor with a standalone duplicate\n\x3chick:copy id=\"second\">value = 2\n\x3c/hick:copy>\n\x3chick:file path=\"out/b.py\">\x3chick:paste select=\"#second\"/>\x3c/hick:file>\n\x3c/hick:doc>\n",
  'unused.md':"\x3chick:doc xmlns:hick=\"http://www.hickorydocs.com/1.0\">\n# Loaded, but no output bytes originate here\n\x3c/hick:doc>\n",
+ 'c.md':"\x3chick:doc xmlns:hick=\"http://www.hickorydocs.com/1.0\">\n\x3chick:copy id=\"third\">value = 30\n\x3c/hick:copy>\n\x3c/hick:doc>\n",
+ 'literal%2F#.md':"\x3chick:doc xmlns:hick=\"http://www.hickorydocs.com/1.0\">\n\x3chick:copy id=\"literal\">value = 41\n\x3c/hick:copy>\n\x3c/hick:doc>\n",
 }
 def main():
  def interrupted(number,_frame):raise SystemExit(128+number)

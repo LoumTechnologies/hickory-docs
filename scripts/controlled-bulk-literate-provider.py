@@ -34,7 +34,7 @@ while True:
  elif method=='textDocument/documentSymbol':result=[]
  elif method=='textDocument/codeAction':
   uri=params['textDocument']['uri'];text=documents[uri];expected={'start':{'line':0,'character':0},'end':{'line':text.count('\n'),'character':len(text.rsplit('\n',1)[-1].encode('utf-16-le'))//2}}
-  context=params.get('context',{});event({'query':uri,'range':params['range'],'context':context,'whole':params['range']==expected})
+  context=params.get('context',{});event({'query':uri,'range':params['range'],'context':context,'whole':params['range']==expected,'source':text})
   if context.get('only')!=['source.fixAll'] or params['range']!=expected:result=[{'title':'Contextual only','kind':'quickfix'}]
   else:
    result=[]

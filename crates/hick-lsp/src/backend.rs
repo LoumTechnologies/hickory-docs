@@ -83,6 +83,8 @@ struct DocEntry {
     /// Fresh server authority for this installed or in-progress document state.
     source_revision: crate::source_identity::SourceRevision,
     source_hash: Option<String>,
+    source_text: String,
+    project_dependencies: std::collections::HashSet<Url>,
     preparing: bool,
     preparation: Arc<Mutex<()>>,
     /// The parsed document state (None if parse failed).
@@ -98,6 +100,8 @@ impl DocEntry {
         Self {
             source_revision: crate::source_identity::SourceRevision::fresh(),
             source_hash: None,
+            source_text: String::new(),
+            project_dependencies: Default::default(),
             preparing: false,
             preparation: Arc::new(Mutex::new(())),
             state: None,
@@ -111,6 +115,10 @@ impl HickBackend {
         self.prepare_document(uri, source, true).await;
     }
     async fn prepare_document(&self, uri: &Url, source: &str, allow_open: bool) {
+        self.prepare_document_local(uri,source,allow_open,false).await;
+        self.refresh_project_roots(uri).await;
+    }
+    async fn prepare_document_local(&self, uri: &Url, source: &str, allow_open: bool, refresh:bool) {
         let initial = crate::source_identity::SourceRevision::fresh();
         let gate = {
             let mut documents = self.documents.write().await;
@@ -118,6 +126,9 @@ impl HickBackend {
                 return;
             }
             let entry = documents.entry(uri.clone()).or_insert_with(DocEntry::empty);
+            // Refresh cannot overwrite a newer root draft gathered after this request.
+            if refresh && entry.source_text.as_bytes()!=source.as_bytes(){return;}
+            entry.source_text=source.into();
             entry.source_revision = initial;
             entry.state=None;
             entry.source_hash = Some(diagnostic_source_digest(source));
@@ -140,6 +151,7 @@ impl HickBackend {
                     entry.preparation = gate.clone();
                     entry.preparing = true;
                     entry.source_hash = Some(diagnostic_source_digest(source));
+                    entry.source_text=source.into();
                     let revision = entry.source_revision;
                     documents.insert(uri.clone(), entry);
                     revision
@@ -156,6 +168,33 @@ impl HickBackend {
             }
         }
     }
+}
+impl HickBackend {
+    async fn refresh_project_roots(&self,changed:&Url){
+        let mut roots=self.documents.read().await.iter().filter(|(uri,entry)|*uri!=changed&&entry.project_dependencies.contains(changed)).map(|(uri,entry)|(uri.clone(),entry.source_text.clone())).collect::<Vec<_>>();
+        roots.sort_by(|a,b|a.0.as_str().cmp(b.0.as_str()));
+        for(uri,source)in roots{self.prepare_document_local(&uri,&source,false,true).await;}
+    }
+}
+#[cfg(test)]
+mod overlay_refresh_tests {
+ use super::*;
+ fn copy(id:&str,value:&str)->String{format!("\x3chick:doc xmlns:hick=\"http://www.hickorydocs.com/1.0\">\x3chick:copy id=\"{id}\">value = {value}\n\x3c/hick:copy>\x3c/hick:doc>")}
+ fn root(sources:&str,ids:&[&str])->String{format!("\x3chick:doc xmlns:hick=\"http://www.hickorydocs.com/1.0\">\x3chick:project sources=\"{sources}\"/>\x3chick:file path=\"out.txt\">{}\x3c/hick:file>\x3c/hick:doc>",ids.iter().map(|id|format!("\x3chick:paste select=\"#{id}\"/>")).collect::<String>())}
+ async fn output(backend:&HickBackend,uri:&Url)->String{backend.documents.read().await[uri].state.as_ref().unwrap().virtual_files[0].written_content()}
+ #[tokio::test]
+ async fn dirty_contributors_rebuild_complete_roots_and_inventory_without_replacing_root_text(){
+  let dir=tempfile::tempdir().unwrap();let project=Url::from_file_path(dir.path().join("project.md")).unwrap();let a=Url::from_file_path(dir.path().join("a.md")).unwrap();let b=Url::from_file_path(dir.path().join("b.md")).unwrap();let c=crate::project::source_document_uri(&project,"literal%2F#.md").unwrap();
+  let original=root("a.md b.md",&["a","b"]);std::fs::write(dir.path().join("project.md"),&original).unwrap();std::fs::write(dir.path().join("a.md"),copy("a","1")).unwrap();std::fs::write(dir.path().join("b.md"),copy("b","2")).unwrap();
+  let (service,_)=tower_lsp::LspService::new(HickBackend::new);let backend=service.inner();backend.process_document(&project,&original).await;backend.process_document(&a,&copy("a","11")).await;backend.process_document(&b,&copy("b","22")).await;
+  assert_eq!(output(backend,&project).await,"value = 11\nvalue = 22\n");assert_eq!(backend.documents.read().await[&project].source_text,original);
+  backend.process_document(&c,&copy("c","33")).await;let changed=root("b.md literal%2F#.md",&["b","c"]);backend.process_document(&project,&changed).await;assert_eq!(output(backend,&project).await,"value = 22\nvalue = 33\n");
+  let root_revision=backend.documents.read().await[&project].source_revision;backend.process_document(&a,&copy("a","111")).await;assert_eq!(backend.documents.read().await[&project].source_revision,root_revision,"removed inventory source must not refresh this root");
+  backend.did_close(DidCloseTextDocumentParams{text_document:TextDocumentIdentifier{uri:b}}).await;assert_eq!(output(backend,&project).await,"value = 2\nvalue = 33\n");
+  backend.did_close(DidCloseTextDocumentParams{text_document:TextDocumentIdentifier{uri:c.clone()}}).await;assert!(backend.documents.read().await[&project].state.is_none(),"missing required source must retire stale project capability");
+  backend.process_document(&c,&copy("c","44")).await;assert_eq!(output(backend,&project).await,"value = 2\nvalue = 44\n");assert_eq!(backend.documents.read().await[&project].source_text,changed);
+  assert_eq!(std::fs::read_to_string(dir.path().join("project.md")).unwrap(),original);assert_eq!(std::fs::read_to_string(dir.path().join("b.md")).unwrap(),copy("b","2"));assert!(!c.to_file_path().unwrap().exists());
+ }
 }
 /// Maps a virtual file URI back to the source .md document.
 #[derive(Clone)]
@@ -307,6 +346,7 @@ impl HickBackend {
         // A file that is not a document is not woven: it is its own virtual
         // file, and its language server is asked about it by its real name.
         if !is_hick_document(hick_uri, source) {
+            if let Some(entry)=self.documents.write().await.get_mut(hick_uri){entry.project_dependencies.clear();}
             let retained = self
                 .documents
                 .read()
@@ -324,7 +364,8 @@ impl HickBackend {
         }
 
         // 1. Try to parse the hick document.
-        let state = match crate::project::state_for_uri(hick_uri, source) {
+        let overlays=self.documents.read().await.iter().map(|(uri,doc)|(uri.clone(),doc.source_text.clone())).collect();
+        let state = match crate::project::state_for_uri_with_overlays(hick_uri, source, &overlays) {
             Ok(s) => {
                 tracing::debug!(
                     vfile_count = s.virtual_files.len(),
@@ -709,8 +750,13 @@ impl HickBackend {
         open_vfiles: Vec<Url>,
         vfile_version: i32,
     ) {
+        let dependencies=match state.project_sources.keys().map(|name|crate::project::source_document_uri(hick_uri,name)).collect::<std::result::Result<std::collections::HashSet<_>,_>>(){
+            Ok(dependencies)=>dependencies,
+            Err(message)=>{self.client.log_message(MessageType::ERROR,format!("Project source identities could not be captured: {message}")).await;self.close_vfiles_for(hick_uri,&[]).await;return;}
+        };
         let mut docs = self.documents.write().await;
         let entry = docs.entry(hick_uri.clone()).or_insert_with(DocEntry::empty);
+        entry.project_dependencies=dependencies;
         entry.state = Some(state);
         entry.open_vfiles = open_vfiles;
         entry.vfile_version = vfile_version;
@@ -1551,8 +1597,7 @@ pub(crate) fn translate_edit_uris(
                     .to_owned();
                 let (document, range) = map.source_edit_range(range).ok_or("An edit crosses source fragments or has no exact source origin; no edits were applied")?;
                 let mut uri = match document {
-                    Some(path) => primary
-                        .join(&path)
+                    Some(path) => crate::project::source_document_uri(primary,&path)
                         .map_err(|_| "Invalid source edit identity")?,
                     None => primary.clone(),
                 };
@@ -1868,7 +1913,7 @@ async fn handle_child_diagnostics(
         }
         let mut target = document
             .as_deref()
-            .and_then(|d| hick_uri.join(d).ok())
+            .and_then(|d| crate::project::source_document_uri(&hick_uri,d).ok())
             .unwrap_or_else(|| hick_uri.clone());
         target.set_query(hick_uri.query());
         let source_hash = if current_revision {
@@ -2143,6 +2188,8 @@ impl LanguageServer for HickBackend {
         {
             documents.remove(&uri);
         }
+        drop(documents);drop(_guard);
+        self.refresh_project_roots(&uri).await;
     }
 
     async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {

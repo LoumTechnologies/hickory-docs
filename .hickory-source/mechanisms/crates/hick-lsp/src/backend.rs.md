@@ -209,6 +209,8 @@ struct DocEntry {
     /// Fresh server authority for this installed or in-progress document state.
     source_revision: crate::source_identity::SourceRevision,
     source_hash: Option<String>,
+    source_text: String,
+    project_dependencies: std::collections::HashSet<Url>,
     preparing: bool,
     preparation: Arc<Mutex<()>>,
     /// The parsed document state (None if parse failed).
@@ -398,6 +400,7 @@ impl HickBackend {
         // A file that is not a document is not woven: it is its own virtual
         // file, and its language server is asked about it by its real name.
         if !is_hick_document(hick_uri, source) {
+            if let Some(entry)=self.documents.write().await.get_mut(hick_uri){entry.project_dependencies.clear();}
             let retained = self
                 .documents
                 .read()
@@ -415,7 +418,8 @@ impl HickBackend {
         }
 
         // 1. Try to parse the hick document.
-        let state = match crate::project::state_for_uri(hick_uri, source) {
+        let overlays=self.documents.read().await.iter().map(|(uri,doc)|(uri.clone(),doc.source_text.clone())).collect();
+        let state = match crate::project::state_for_uri_with_overlays(hick_uri, source, &overlays) {
             Ok(s) => {
                 tracing::debug!(
                     vfile_count = s.virtual_files.len(),
@@ -800,8 +804,13 @@ impl HickBackend {
         open_vfiles: Vec<Url>,
         vfile_version: i32,
     ) {
+        let dependencies=match state.project_sources.keys().map(|name|crate::project::source_document_uri(hick_uri,name)).collect::<std::result::Result<std::collections::HashSet<_>,_>>(){
+            Ok(dependencies)=>dependencies,
+            Err(message)=>{self.client.log_message(MessageType::ERROR,format!("Project source identities could not be captured: {message}")).await;self.close_vfiles_for(hick_uri,&[]).await;return;}
+        };
         let mut docs = self.documents.write().await;
         let entry = docs.entry(hick_uri.clone()).or_insert_with(DocEntry::empty);
+        entry.project_dependencies=dependencies;
         entry.state = Some(state);
         entry.open_vfiles = open_vfiles;
         entry.vfile_version = vfile_version;
@@ -1675,8 +1684,7 @@ pub(crate) fn translate_edit_uris(
                     .to_owned();
                 let (document, range) = map.source_edit_range(range).ok_or("An edit crosses source fragments or has no exact source origin; no edits were applied")?;
                 let mut uri = match document {
-                    Some(path) => primary
-                        .join(&path)
+                    Some(path) => crate::project::source_document_uri(primary,&path)
                         .map_err(|_| "Invalid source edit identity")?,
                     None => primary.clone(),
                 };
@@ -2037,7 +2045,7 @@ async fn handle_child_diagnostics(
         }
         let mut target = document
             .as_deref()
-            .and_then(|d| hick_uri.join(d).ok())
+            .and_then(|d| crate::project::source_document_uri(&hick_uri,d).ok())
             .unwrap_or_else(|| hick_uri.clone());
         target.set_query(hick_uri.query());
         let source_hash = if current_revision {
@@ -2317,6 +2325,8 @@ impl LanguageServer for HickBackend {
         {
             documents.remove(&uri);
         }
+        drop(documents);drop(_guard);
+        self.refresh_project_roots(&uri).await;
     }
 
     async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
@@ -3186,6 +3196,8 @@ impl DocEntry {
         Self {
             source_revision: crate::source_identity::SourceRevision::fresh(),
             source_hash: None,
+            source_text: String::new(),
+            project_dependencies: Default::default(),
             preparing: false,
             preparation: Arc::new(Mutex::new(())),
             state: None,
@@ -3199,6 +3211,10 @@ impl HickBackend {
         self.prepare_document(uri, source, true).await;
     }
     async fn prepare_document(&self, uri: &Url, source: &str, allow_open: bool) {
+        self.prepare_document_local(uri,source,allow_open,false).await;
+        self.refresh_project_roots(uri).await;
+    }
+    async fn prepare_document_local(&self, uri: &Url, source: &str, allow_open: bool, refresh:bool) {
         let initial = crate::source_identity::SourceRevision::fresh();
         let gate = {
             let mut documents = self.documents.write().await;
@@ -3206,6 +3222,9 @@ impl HickBackend {
                 return;
             }
             let entry = documents.entry(uri.clone()).or_insert_with(DocEntry::empty);
+            // Refresh cannot overwrite a newer root draft gathered after this request.
+            if refresh && entry.source_text.as_bytes()!=source.as_bytes(){return;}
+            entry.source_text=source.into();
             entry.source_revision = initial;
             entry.state=None;
             entry.source_hash = Some(diagnostic_source_digest(source));
@@ -3228,6 +3247,7 @@ impl HickBackend {
                     entry.preparation = gate.clone();
                     entry.preparing = true;
                     entry.source_hash = Some(diagnostic_source_digest(source));
+                    entry.source_text=source.into();
                     let revision = entry.source_revision;
                     documents.insert(uri.clone(), entry);
                     revision
@@ -3246,6 +3266,21 @@ impl HickBackend {
     }
 }
 </storycode:copy>
-<storycode:file path="crates/hick-lsp/src/backend.rs"><storycode:paste select="#f-c936496a03c1-diagnostic_context"/><storycode:paste select="#f-c936496a03c1-use_declaration"/><storycode:paste select="#f-c936496a03c1-captured"/><storycode:paste select="#f-c936496a03c1-use_declaration-2"/><storycode:paste select="#f-c936496a03c1-use_declaration-3"/><storycode:paste select="#f-c936496a03c1-use_declaration-4"/><storycode:paste select="#f-c936496a03c1-use_declaration-5"/><storycode:paste select="#f-c936496a03c1-use_declaration-6"/><storycode:paste select="#f-c936496a03c1-use_declaration-7"/><storycode:paste select="#f-c936496a03c1-use_declaration-8"/><storycode:paste select="#f-c936496a03c1-use_declaration-9"/><storycode:paste select="#f-c936496a03c1-use_declaration-10"/><storycode:paste select="#f-c936496a03c1-use_declaration-11"/><storycode:paste select="#f-c936496a03c1-use_declaration-12"/><storycode:paste select="#f-c936496a03c1-use_declaration-13"/><storycode:paste select="#f-c936496a03c1-use_declaration-14"/><storycode:paste select="#f-c936496a03c1-ChildDiagnosticsStore"/><storycode:paste select="#f-c936496a03c1-PreparedHierarchyItem"/><storycode:paste select="#f-c936496a03c1-uuid_ish"/><storycode:paste select="#f-c936496a03c1-HickBackend"/><storycode:paste select="#f-c936496a03c1-DocEntry"/><storycode:paste select="#provider-document-source-lifetime"/><storycode:paste select="#f-c936496a03c1-VFileMapping"/><storycode:paste select="#yaml-frontmatter-projection"/><storycode:paste select="#f-c936496a03c1-impl-HickBackend"/><storycode:paste select="#static-language-capture-readiness"/><storycode:paste select="#f-c936496a03c1-StructuralKind"/><storycode:paste select="#f-c936496a03c1-drive_lowercased"/><storycode:paste select="#f-c936496a03c1-uri_key"/><storycode:paste select="#f-c936496a03c1-translate_edit_uris"/><storycode:paste select="#f-c936496a03c1-translate_bare_ranges"/><storycode:paste select="#f-c936496a03c1-MANIFESTS"/><storycode:paste select="#f-c936496a03c1-copy_manifests"/><storycode:paste select="#f-c936496a03c1-child_request_error"/><storycode:paste select="#f-c936496a03c1-handle_child_diagnostics"/><storycode:paste select="#f-c936496a03c1-impl-LanguageServer-for-HickBackend"/><storycode:paste select="#f-c936496a03c1-translate_edits"/><storycode:paste select="#f-c936496a03c1-reindent"/><storycode:paste select="#f-c936496a03c1-is_hick_document"/><storycode:paste select="#f-c936496a03c1-plain_language"/><storycode:paste select="#f-c936496a03c1-parse_error_location"/><storycode:paste select="#f-c936496a03c1-tests"/><storycode:paste select="#diagnostic-source-revision-envelope"/><storycode:paste select="#provider-action-module"/></storycode:file>
+
+## Refresh only roots whose captured closure includes the changed source
+
+Each document keeps exact readable draft text independently of parsing. Retain the last known closure while preparation or parsing fails so a later contributor edit can recover that root. Release the contributor gate before awaiting root gates; each affected root is refreshed once through the same local preparation authority, without recursive refresh. A refresh compares the root text before replacing any provider state, so it cannot restore an obsolete root draft.
+
+<storycode:copy id="project-overlay-root-refresh">
+impl HickBackend {
+    async fn refresh_project_roots(&self,changed:&Url){
+        let mut roots=self.documents.read().await.iter().filter(|(uri,entry)|*uri!=changed&&entry.project_dependencies.contains(changed)).map(|(uri,entry)|(uri.clone(),entry.source_text.clone())).collect::<Vec<_>>();
+        roots.sort_by(|a,b|a.0.as_str().cmp(b.0.as_str()));
+        for(uri,source)in roots{self.prepare_document_local(&uri,&source,false,true).await;}
+    }
+}
+</storycode:copy>
+
+<storycode:file path="crates/hick-lsp/src/backend.rs"><storycode:paste select="#f-c936496a03c1-diagnostic_context"/><storycode:paste select="#f-c936496a03c1-use_declaration"/><storycode:paste select="#f-c936496a03c1-captured"/><storycode:paste select="#f-c936496a03c1-use_declaration-2"/><storycode:paste select="#f-c936496a03c1-use_declaration-3"/><storycode:paste select="#f-c936496a03c1-use_declaration-4"/><storycode:paste select="#f-c936496a03c1-use_declaration-5"/><storycode:paste select="#f-c936496a03c1-use_declaration-6"/><storycode:paste select="#f-c936496a03c1-use_declaration-7"/><storycode:paste select="#f-c936496a03c1-use_declaration-8"/><storycode:paste select="#f-c936496a03c1-use_declaration-9"/><storycode:paste select="#f-c936496a03c1-use_declaration-10"/><storycode:paste select="#f-c936496a03c1-use_declaration-11"/><storycode:paste select="#f-c936496a03c1-use_declaration-12"/><storycode:paste select="#f-c936496a03c1-use_declaration-13"/><storycode:paste select="#f-c936496a03c1-use_declaration-14"/><storycode:paste select="#f-c936496a03c1-ChildDiagnosticsStore"/><storycode:paste select="#f-c936496a03c1-PreparedHierarchyItem"/><storycode:paste select="#f-c936496a03c1-uuid_ish"/><storycode:paste select="#f-c936496a03c1-HickBackend"/><storycode:paste select="#f-c936496a03c1-DocEntry"/><storycode:paste select="#provider-document-source-lifetime"/><storycode:paste select="#project-overlay-root-refresh"/><storycode:paste select="#project-overlay-backend-witness"/><storycode:paste select="#f-c936496a03c1-VFileMapping"/><storycode:paste select="#yaml-frontmatter-projection"/><storycode:paste select="#f-c936496a03c1-impl-HickBackend"/><storycode:paste select="#static-language-capture-readiness"/><storycode:paste select="#f-c936496a03c1-StructuralKind"/><storycode:paste select="#f-c936496a03c1-drive_lowercased"/><storycode:paste select="#f-c936496a03c1-uri_key"/><storycode:paste select="#f-c936496a03c1-translate_edit_uris"/><storycode:paste select="#f-c936496a03c1-translate_bare_ranges"/><storycode:paste select="#f-c936496a03c1-MANIFESTS"/><storycode:paste select="#f-c936496a03c1-copy_manifests"/><storycode:paste select="#f-c936496a03c1-child_request_error"/><storycode:paste select="#f-c936496a03c1-handle_child_diagnostics"/><storycode:paste select="#f-c936496a03c1-impl-LanguageServer-for-HickBackend"/><storycode:paste select="#f-c936496a03c1-translate_edits"/><storycode:paste select="#f-c936496a03c1-reindent"/><storycode:paste select="#f-c936496a03c1-is_hick_document"/><storycode:paste select="#f-c936496a03c1-plain_language"/><storycode:paste select="#f-c936496a03c1-parse_error_location"/><storycode:paste select="#f-c936496a03c1-tests"/><storycode:paste select="#diagnostic-source-revision-envelope"/><storycode:paste select="#provider-action-module"/></storycode:file>
 
 </storycode:doc>

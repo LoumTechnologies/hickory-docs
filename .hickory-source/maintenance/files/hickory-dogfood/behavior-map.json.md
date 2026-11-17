@@ -45432,6 +45432,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "f-c936496a03c1-HickBackend",
         "f-c936496a03c1-DocEntry",
         "provider-document-source-lifetime",
+        "project-overlay-root-refresh",
+        "project-overlay-backend-witness",
         "f-c936496a03c1-VFileMapping",
         "yaml-frontmatter-projection",
         "f-c936496a03c1-impl-HickBackend",
@@ -45754,6 +45756,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "f-144d2ea0027d-to_source",
         "f-144d2ea0027d-utf16_position",
         "f-144d2ea0027d-virtual_files",
+        "project-overlay-source-reader",
+        "project-overlay-core-witness",
         "f-144d2ea0027d-state_for_uri"
       ],
       "anchor": "output-144d2ea0027d",

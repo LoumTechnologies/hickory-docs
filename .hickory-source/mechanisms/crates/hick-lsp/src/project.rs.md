@@ -414,59 +414,9 @@ Host reader for the open entry's live source closure. The entry buffer is
 authoritative; contributing sources are captured before evaluation.
 
 <storycode:copy id="f-144d2ea0027d-state_for_uri">
-/// Host reader for the open entry's live source closure. The entry buffer is
-/// authoritative; contributing sources are captured before evaluation.
-pub(crate) fn state_for_uri(
-    uri: &tower_lsp::lsp_types::Url,
-    source: &str,
-) -> Result<crate::document::HickDocumentState, hick_lang::ParseError> {
-    let doc = hick_lang::parse(source)?;
-    if doc.find_tags("project").is_empty() {
-        return crate::document::HickDocumentState::from_source(source);
-    }
-    let failure = |message| hick_lang::ParseError::Syntax { line: 1, message };
-    let path = uri
-        .to_file_path()
-        .map_err(|_| failure("project closure requires a file identity".into()))?;
-    let root = path
-        .parent()
-        .ok_or_else(|| failure("project has no directory".into()))?;
-    let entry = path
-        .file_name()
-        .and_then(|s| s.to_str())
-        .ok_or_else(|| failure("entry name is not UTF-8".into()))?;
-    let sources = hick_lang::load_project_sources(entry, &|name| {
-        if name == entry {
-            return Ok(source.into());
-        }
-        let source_path = root.join(name);
-        if !std::fs::symlink_metadata(&source_path)
-            .map_err(|e| e.to_string())?
-            .is_file()
-        {
-            return Err(format!("Markdown source is not a regular file: {name}"));
-        }
-        let path = source_path.canonicalize().map_err(|e| e.to_string())?;
-        if !path.starts_with(root.canonicalize().map_err(|e| e.to_string())?) {
-            return Err(format!(
-                "Markdown closure escapes project directory: {name}"
-            ));
-        }
-        std::fs::read_to_string(path).map_err(|e| e.to_string())
-    })
-    .map_err(failure)?;
-    let selection = uri
-        .query_pairs()
-        .find(|(name, _)| name == "hick-project")
-        .map(|(_, value)| value.into_owned())
-        .unwrap_or_else(|| "new".into());
-    let endpoint = ProjectEndpoint::parse(&selection).map_err(failure)?;
-    crate::document::HickDocumentState::from_project_at(
-        entry,
-        &sources,
-        &ProjectTree::default(),
-        &endpoint,
-    )
+/// Ordinary callers preserve disk fallback; editor language services pass a coherent overlay snapshot.
+pub(crate) fn state_for_uri(uri:&tower_lsp::lsp_types::Url,source:&str)->Result<crate::document::HickDocumentState,hick_lang::ParseError>{
+ state_for_uri_with_overlays(uri,source,&BTreeMap::new())
 }
 </storycode:copy>
 
@@ -474,6 +424,6 @@ pub(crate) fn state_for_uri(
 
 The selections below preserve the original byte order. Narrative reading order does not change the output.
 
-<storycode:file path="crates/hick-lsp/src/project.rs"><storycode:paste select="#f-144d2ea0027d-ProjectEndpoint"/><storycode:paste select="#f-144d2ea0027d-impl-ProjectEndpoint"/><storycode:paste select="#f-144d2ea0027d-endpoint"/><storycode:paste select="#f-144d2ea0027d-latest_file"/><storycode:paste select="#f-144d2ea0027d-debug_selection"/><storycode:paste select="#f-144d2ea0027d-MaterializedProject"/><storycode:paste select="#f-144d2ea0027d-impl-MaterializedProject"/><storycode:paste select="#f-144d2ea0027d-materialize"/><storycode:paste select="#f-144d2ea0027d-use_declaration"/><storycode:paste select="#f-144d2ea0027d-to_endpoint"/><storycode:paste select="#f-144d2ea0027d-to_source"/><storycode:paste select="#f-144d2ea0027d-utf16_position"/><storycode:paste select="#f-144d2ea0027d-virtual_files"/><storycode:paste select="#f-144d2ea0027d-state_for_uri"/></storycode:file>
+<storycode:file path="crates/hick-lsp/src/project.rs"><storycode:paste select="#f-144d2ea0027d-ProjectEndpoint"/><storycode:paste select="#f-144d2ea0027d-impl-ProjectEndpoint"/><storycode:paste select="#f-144d2ea0027d-endpoint"/><storycode:paste select="#f-144d2ea0027d-latest_file"/><storycode:paste select="#f-144d2ea0027d-debug_selection"/><storycode:paste select="#f-144d2ea0027d-MaterializedProject"/><storycode:paste select="#f-144d2ea0027d-impl-MaterializedProject"/><storycode:paste select="#f-144d2ea0027d-materialize"/><storycode:paste select="#f-144d2ea0027d-use_declaration"/><storycode:paste select="#f-144d2ea0027d-to_endpoint"/><storycode:paste select="#f-144d2ea0027d-to_source"/><storycode:paste select="#f-144d2ea0027d-utf16_position"/><storycode:paste select="#f-144d2ea0027d-virtual_files"/><storycode:paste select="#project-overlay-source-reader"/><storycode:paste select="#project-overlay-core-witness"/><storycode:paste select="#f-144d2ea0027d-state_for_uri"/></storycode:file>
 
 </storycode:doc>
