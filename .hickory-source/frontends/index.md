@@ -294,4 +294,7 @@ Each client reads text before requesting optional capabilities. A save uses the 
 
 <ui:include file="git-conflict-resolution-apple.md" />
 
+<ui:include file="debugger-retention-acceptance.md" />
+<ui:include file="source-preparation-ack-native.md" />
+
 </ui:doc>

@@ -156065,6 +156065,48 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/mechanisms/provider-action-artifacts.md",
       "symbol": "provider action graph revision",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "debugger-retention-apple-tests",
+      "output": "apps/apple-simple/Tests/DebuggerRetentionTests.swift",
+      "page": ".hickory-source/frontends/debugger-retention-acceptance.md",
+      "symbol": "debugger retention apple tests",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "debugger-retention-android-tests",
+      "output": "apps/android-simple/app/src/test/java/com/hickorydocs/simple/DebuggerRetentionTest.kt",
+      "page": ".hickory-source/frontends/debugger-retention-acceptance.md",
+      "symbol": "debugger retention android tests",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "debugger-retention-browser-tests",
+      "output": "apps/web/src/debug/BreakpointRetention.test.tsx",
+      "page": ".hickory-source/frontends/debugger-retention-acceptance.md",
+      "symbol": "debugger retention browser tests",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "debugger-retention-owned-runner",
+      "output": "scripts/test-debugger-retention.py",
+      "page": ".hickory-source/frontends/debugger-retention-acceptance.md",
+      "symbol": "debugger retention owned runner",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-preparation-ack-apple-tests",
+      "output": "apps/apple-simple/Tests/SourcePreparationAckTests.swift",
+      "page": ".hickory-source/frontends/source-preparation-ack-native.md",
+      "symbol": "source preparation ack apple tests",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-preparation-ack-android-tests",
+      "output": "apps/android-simple/app/src/test/java/com/hickorydocs/simple/SourcePreparationAckTest.kt",
+      "page": ".hickory-source/frontends/source-preparation-ack-native.md",
+      "symbol": "source preparation ack android tests",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

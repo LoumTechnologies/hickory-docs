@@ -289,7 +289,7 @@ export interface DebugStripProps {
   releaseSourceTest?:()=>void;
   launchNotices?:string[];
   breakpointNotice?:string|null;
-  breakpointIntentions?:{source:string;marks:import('./client').DebugBreakpoint[];namespace:string|null}[];
+  breakpointIntentions?:{source:string;marks:import('./client').DebugBreakpoint[];namespace:string|null;hash?:string|null;historical?:boolean}[];
   onRunTo?:(line:number)=>void;onJumpTo?:(line:number)=>void;
   threads?:import("./client").DebugThread[];
   selectedThread?:number|null;
@@ -381,12 +381,18 @@ function DebugValueRow({node,read,expand,collapse}:{node:import('./DebugValueTre
  return <div style={{marginLeft:node.depth?8:0}} data-debug-value-node={node.id}><code>{node.name} = {node.value.slice(0,4096)}{node.type?` · ${node.type}`:''}</code>{node.value.length>4096&&<small> Value abbreviated; debugger detail reading retains the reported value.</small>}{node.reference>0&&<button type="button" aria-label={`${node.expanded?'Collapse':'Expand'} value ${node.name}`} disabled={!!node.pending||!(node.expanded?collapse:expand)} onClick={()=>node.expanded?collapse?.(node.id):expand?.(node.id)}>{node.expanded?'−':'+'}</button>}{node.pending&&<p role="status">Reading children…</p>}{node.error&&<><p role="status">{node.error}</p><button type="button" onClick={()=>expand?.(node.id)}>Retry children of {node.name}</button></>}{node.expanded&&node.children?.length===0&&<p>No children reported.</p>}{node.expanded&&node.children?.map(id=>{const child=read?.(id);return child?<DebugValueRow key={id} node={child} read={read} expand={node.pending?undefined:expand} collapse={collapse}/>:null;})}</div>;
 }
 
+export function breakpointReadingPage(groups:NonNullable<DebugStripProps['breakpointIntentions']>,requested:number) {
+ const total=groups.reduce((count,group)=>count+group.marks.length,0),page=Math.max(0,Math.min(Number.isInteger(requested)?requested:0,Math.max(0,Math.ceil(total/64)-1)));let offset=0;const rows:string[]=[];
+ for(const group of groups){const first=Math.max(0,page*64-offset),last=Math.min(group.marks.length,(page+1)*64-offset);for(let index=first;index<last;index++){const mark=group.marks[index];rows.push(`${group.historical?'Earlier':'Retained'} source ${group.source} · ${group.hash?.slice(0,8)??'hash unconfirmed'} · ${group.namespace??'namespace unconfirmed'}\n  line ${mark.line+1}${mark.condition?` if ${mark.condition}`:''}${mark.hit_condition?` hit ${mark.hit_condition}`:''}${mark.log_message?` log ${mark.log_message}`:''}`);}offset+=group.marks.length;if(offset>=(page+1)*64)break;}
+ return {total,page,rows};
+}
 export function DebugStrip(props: DebugStripProps) {
   const attemptedInstallations = useRef(new Set<string>());
   useEffect(() => {
     if (["idle", "paused", "running", "finished"].includes(props.status)) attemptedInstallations.current.clear();
   }, [props.status]);
   const [targetLine,setTargetLine]=useState("1");
+  const [breakpointPage,setBreakpointPage]=useState(0),retained=breakpointReadingPage(props.breakpointIntentions??[],breakpointPage);
   const testChoice=props.sourceTestIntent?.choice??props.sourceTest?.choice;
   const paused = props.status === "paused",selectedSourceFrame=props.frames.find(frame=>frame.id===props.selectedFrame);
   // A terminal state: the session no longer exists, and the strip's job is
@@ -529,7 +535,7 @@ export function DebugStrip(props: DebugStripProps) {
       </section>}
       {props.status==='unconfirmed'&&<button type="button" onClick={props.refreshState} disabled={!props.refreshState}>Read current stop</button>}
       {props.breakpointNotice&&<p role="status">{props.breakpointNotice}</p>}
-      {!!props.breakpointIntentions?.some(intent=>intent.marks.length)&&<details><summary>Retained breakpoint intentions</summary><pre>{props.breakpointIntentions.map(intent=>`${intent.source} · ${intent.namespace??'namespace unconfirmed'}\n${intent.marks.map(mark=>`  line ${mark.line+1}${mark.condition?` if ${mark.condition}`:''}${mark.hit_condition?` hit ${mark.hit_condition}`:''}${mark.log_message?` log ${mark.log_message}`:''}`).join('\n')}`).join('\n')}</pre></details>}
+      {retained.total>0&&<details><summary>Retained breakpoint intentions</summary><p>Readonly source wishes; they never authorize coordinates in changed source. Earlier history retains the latest 32 snapshot groups in memory.</p>{retained.total>64&&<div><button type="button" disabled={retained.page===0} onClick={()=>setBreakpointPage(retained.page-1)}>Previous breakpoint intentions</button><span>{retained.page+1} / {Math.ceil(retained.total/64)}</span><button type="button" disabled={(retained.page+1)*64>=retained.total} onClick={()=>setBreakpointPage(retained.page+1)}>Next breakpoint intentions</button></div>}<pre aria-label="Retained breakpoint reading">{retained.rows.join('\n')}</pre></details>}
       {paused&&(props.capabilities?.run_to||props.capabilities?.goto_targets)&&<section aria-label="Positional debugger movement"><label>Target line <input aria-label="Debugger target line" type="number" min="1" value={targetLine} onChange={event=>setTargetLine(event.target.value)}/></label>{props.capabilities?.run_to&&<button type="button" disabled={!props.onRunTo||!props.capabilities?.run_to||props.threadSelecting||!props.positionSourceBound||!selectedSourceFrame?.in_document||!Number.isSafeInteger(Number(targetLine))||Number(targetLine)<1} onClick={()=>props.onRunTo?.(Number(targetLine)-1)}>Run to line</button>}{props.capabilities?.goto_targets&&<button type="button" disabled={!props.onJumpTo||!props.capabilities?.goto_targets||props.threadSelecting||!props.positionSourceBound||!selectedSourceFrame?.in_document||!Number.isSafeInteger(Number(targetLine))||Number(targetLine)<1} onClick={()=>props.onJumpTo?.(Number(targetLine)-1)}>Move instruction pointer to line</button>}</section>}
       {!!props.launchNotices?.length&&<section aria-label="Launch source notices"><strong>Source inventory notices</strong>{props.launchNotices.map((notice,index)=><p key={index} role="status">{notice}</p>)}</section>}
       {props.stackMessage&&<p role="status">Stack read unavailable: {props.stackMessage}</p>}{props.frameVariablesMessage&&<p role="status">Frame locals unavailable: {props.frameVariablesMessage}</p>}{props.frameVariablesPending&&<p role="status">Reading selected-frame locals…</p>}

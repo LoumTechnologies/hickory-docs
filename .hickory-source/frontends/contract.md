@@ -267,6 +267,25 @@ Host proof admission is separate work in progress. Coherent unsaved contributor
 overlays and reserved-URI project projection remain internal limitations; these
 receipts do not establish complete provider parity.
 
+## Source-bound debugger retention and deep frames, 2026-11-17
+
+Breakpoint intentions retain their source context across edits and Save. Archived
+intentions remain readable and cannot silently become setters for a different
+runtime; fresh local intentions remain available. Complete bounded stack paging
+reaches deep frames through existing floating debug controls, without changing
+editor space. Source receipts validate current status, coverage and line bounds,
+and late capability replies cannot replace a newer source context.
+
+Thirty-nine focused browser debugger cases and focused native receipt/retention
+cases pass. Owned real debugpy flows pass on browser, Apple and Android: at least
+131 frames, selecting frame100, its depth100 local, conditional breakpoints,
+edit/Save/relaunch, archived and current intentions, and preserved editor/source
+history and geometry. Apple uses a mounted native text editor; Android uses its
+controller and native text state. Exact source-preparation receipt tests also
+pass, including plain versus literate acknowledgement rules. Physical input,
+assistive technology and device IME remain unverified. Installed LLDB launch and
+attach acceptance remains a separate ongoing slice; discovery does not certify it.
+
 ## Current integration ledger
 
 This ledger reconciles the required outcome with the implementation inspected on

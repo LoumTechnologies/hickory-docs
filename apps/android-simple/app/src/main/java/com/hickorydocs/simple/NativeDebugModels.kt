@@ -23,19 +23,37 @@ data class NativeSourceSnapshot(val identity:String,val path:String,val text:Str
 data class NativeBreakpointIntent(val source:NativeSourceSnapshot,val revision:Long,val marks:List<JSONObject>,val hash:String?=null)
 data class NativeBreakpointRequest(val identity:String,val path:String,val text:String,val revision:Long,val hash:String,val session:String,val request:String)
 data class NativeBreakpointReceipt(val request:NativeBreakpointRequest,val marks:List<JSONObject>)
+data class NativeBreakpointReading(val identity:String,val path:String,val revision:Long,val hash:String?,val marks:List<JSONObject>,val historical:Boolean)
+data class NativeBreakpointReadingLine(val identity:String,val path:String,val revision:Long,val hash:String?,val historical:Boolean,val line:Int,val condition:String?)
+data class NativeBreakpointReadingPage(val total:Int,val page:Int,val rows:List<NativeBreakpointReadingLine>)
+
 class NativeBreakpointModel {
  var refusals by mutableStateOf<Map<String,String>>(emptyMap());private set
  var intents by mutableStateOf<Map<String,NativeBreakpointIntent>>(emptyMap());private set
  var receipts by mutableStateOf<Map<String,NativeBreakpointReceipt>>(emptyMap());private set
  private val pending=mutableMapOf<String,NativeBreakpointRequest>();private var revision=0L
+ private var history by mutableStateOf<List<NativeBreakpointReading>>(emptyList())
+ private fun archive(intent:NativeBreakpointIntent){if(intent.marks.isNotEmpty())history=(history+NativeBreakpointReading(intent.source.identity,intent.source.path,intent.revision,intent.hash,intent.marks.map{JSONObject(it.toString())},true)).takeLast(32)}
+ fun readings(source:NativeSourceSnapshot):List<NativeBreakpointReading> {
+  val archived=history.filter{it.identity==source.identity||it.path==source.path}
+  val current=intents.values.filter{it.source.identity==source.identity||it.source.path==source.path}.map{NativeBreakpointReading(it.source.identity,it.source.path,it.revision,it.hash,it.marks,!matches(it,source))}
+  return (archived+current).map{it.copy(marks=it.marks.map{mark->JSONObject(mark.toString())})}
+ }
+
+ fun readingPage(source:NativeSourceSnapshot,requested:Int):NativeBreakpointReadingPage {
+  val groups=history.filter{it.identity==source.identity||it.path==source.path}+intents.values.filter{it.source.identity==source.identity||it.source.path==source.path}.map{NativeBreakpointReading(it.source.identity,it.source.path,it.revision,it.hash,it.marks,!matches(it,source))}
+  val total=groups.sumOf{it.marks.size};val page=requested.coerceIn(0,maxOf(0,(total-1)/64));var offset=0;val rows=mutableListOf<NativeBreakpointReadingLine>()
+  for(group in groups){val first=maxOf(0,page*64-offset);val last=minOf(group.marks.size,(page+1)*64-offset);for(index in first until last){val mark=group.marks[index];rows.add(NativeBreakpointReadingLine(group.identity,group.path,group.revision,group.hash,group.historical,mark.optInt("line"),mark.opt("condition") as? String))};offset+=group.marks.size;if(offset>=(page+1)*64)break};return NativeBreakpointReadingPage(total,page,rows)
+ }
  fun matches(intent:NativeBreakpointIntent,source:NativeSourceSnapshot)=intent.source.identity==source.identity&&intent.source.path==source.path&&intent.source.text==source.text&&source.writable
  fun toggle(source:NativeSourceSnapshot,line:Int,condition:String?=null):NativeBreakpointIntent {
   require(source.writable&&line>=0&&line<source.text.split('\n').size){"Choose a writable source line before setting a breakpoint."}
-  val previous=intents[source.identity]
-  require(previous==null||matches(previous,source)){"Breakpoint intentions belong to older text or another address. Stop and discard those stale intentions before choosing new positions."}
+  val original=intents[source.identity];val previous=original?.takeIf{matches(it,source)}
+  if(original!=null&&previous==null)archive(original)
   val requested=receipts[source.identity]?.takeIf{it.request.revision==previous?.revision}?.marks?.firstOrNull{it.optInt("line",-1)==line}?.optInt("requested_line",line) ?: line
   val marks=previous?.marks.orEmpty().map{JSONObject(it.toString())}.toMutableList();val index=marks.indexOfFirst{it.optInt("line",-1)==requested}
   if(index>=0){if(condition==null)marks.removeAt(index) else marks[index]=JSONObject().put("line",requested).put("condition",condition)}else marks.add(JSONObject().put("line",line).apply{if(condition!=null)put("condition",condition)})
+  require(marks.size<=4096){"Too many breakpoint intentions for one source; earlier wishes are retained."}
   val next=NativeBreakpointIntent(source,++revision,marks,previous?.hash);refusals=refusals-source.identity;intents=intents+(source.identity to next);receipts=receipts-source.identity;pending.remove(source.identity);return next
  }
  fun stamp(identity:String,expectedRevision:Long,hash:String):NativeBreakpointIntent? {
@@ -52,11 +70,11 @@ class NativeBreakpointModel {
   val expected=pending[source.identity] ?: return false;val intent=intents[source.identity] ?: return false
   if(!matches(intent,source)||!source.saved||intent.revision!=expected.revision||expected.session!=session||expected.request!=request||expected.hash!=hash||expected.path!=source.path)return false
   val rows=event.optJSONArray("breakpoints") ?: return false
-  if(rows.length()>4096)return false
+  if(rows.length()>4096||rows.length()!=intent.marks.size)return false
   val marks=(0 until rows.length()).map{rows.optJSONObject(it) ?: return false}
   if(marks.any{debugInteger(it.opt("line"))?.let{line->line<0}!=false||it.has("moved_to")&&!it.isNull("moved_to")&&debugInteger(it.opt("moved_to"))?.let{line->line<0}!=false})return false
   val requested=intent.marks.map{it.getInt("line")}.toSet()
-  if(marks.map{it.getInt("line")}.toSet().size!=marks.size||marks.any{it.getInt("line") !in requested||it.optInt("moved_to",it.getInt("line"))>=source.text.split('\n').size})return false
+  if(requested.size!=intent.marks.size||marks.map{it.getInt("line")}.toSet()!=requested||marks.size!=requested.size||marks.any{it.opt("state") !in listOf("pending","bound","refused")||!it.isNull("message")&&it.opt("message") !is String||it.optInt("moved_to",it.getInt("line"))>=source.text.split('\n').size})return false
   val merged=marks.map{state->JSONObject(intent.marks.firstOrNull{it.optInt("line",-1)==state.optInt("line",-2)}?.toString() ?: "{}").also{mark->mark.put("requested_line",state.getInt("line"));state.keys().forEach{key->mark.put(key,state.get(key))};if(!state.isNull("moved_to"))mark.put("line",state.getInt("moved_to"))}}
   receipts=receipts+(source.identity to NativeBreakpointReceipt(expected,merged));pending.remove(source.identity);return true
  }
@@ -75,11 +93,11 @@ class NativeBreakpointModel {
  }
  fun notice(source:NativeSourceSnapshot,session:String?,runHash:String?):String {
   val intent=intents[source.identity] ?: return ""
-  if(!matches(intent,source)||!source.saved)return "${intent.marks.size} breakpoint intentions retained from a different source snapshot. Positional marks and provider effects are unavailable; save/review the source or stop and discard stale intentions."
+  if(!matches(intent,source)||!source.saved)return "${intent.marks.size} breakpoint intentions retained from a different source snapshot. Positional marks and provider effects are unavailable; place new intentions explicitly on current text; earlier wishes remain readable, and runtime binding still requires a matching saved launch."
   if(session!=null&&intent.hash!=runHash)return "Breakpoint intentions are readable, but this source is not bound to the running snapshot. Restart from saved source before applying positions."
   return refusals[source.identity]?.let{"Breakpoint update refused: $it Review the current source and explicitly apply the desired condition again."} ?: "${intent.marks.size} source-bound breakpoint intentions. Adapter binding requires a matching receipt."
  }
- fun discard(identity:String){refusals=refusals-identity;intents=intents-identity;receipts=receipts-identity;pending.remove(identity)}
+ fun discard(identity:String){intents[identity]?.let(::archive);refusals=refusals-identity;intents=intents-identity;receipts=receipts-identity;pending.remove(identity)}
  fun readdress(source:NativeSourceSnapshot){val old=intents[source.identity] ?: return;if(old.source.path!=source.path&&old.source.text==source.text&&source.writable){intents=intents+(source.identity to old.copy(source=source,revision=++revision));refusals=refusals-source.identity;receipts=receipts-source.identity;pending.remove(source.identity)}}
  fun adoptStart(id:String,session:String){pending.keys.toList().forEach{identity->val request=pending.getValue(identity);if(request.request==id&&request.session=="pending-start")pending[identity]=request.copy(session=session)}}
  fun retireSession(){refusals=emptyMap();receipts=emptyMap();pending.clear()}

@@ -145,6 +145,15 @@ class Peer(BaseHTTPRequestHandler):
             return
         with lock:
             result = {"uri": uri, "text": self.documents.get(uri), "method": method}
+        if method == "hick/captureDocument":
+            captured = params.get("textDocument", {}).get("text")
+            with lock:
+                current = isinstance(captured, str) and self.documents.get(uri) == captured
+                count = len(self.documents)
+            result = {"processed": current, "current": current, "parsed": False, "open_files": count,
+                      "source_hash": "sha256:" + hashlib.sha256(captured.encode()).hexdigest() if current else None,
+                      "source_revision": hashlib.sha256((uri + "\0" + str(identifier) + "\0" + captured).encode()).hexdigest() if current else None,
+                      "source_files_modified": False}
         if method == "textDocument/documentSymbol":
             result = [{"name": "background", "kind": 12, "range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 1}}, "selectionRange": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 1}}}]
         if method == "textDocument/prepareTypeHierarchy" or method in ("typeHierarchy/supertypes","typeHierarchy/subtypes"):

@@ -1232,7 +1232,13 @@ fun debugLineOffset(source: String, line: Int): Int? {
                             if (inlineDebugPath(source, buffer.file.path, line, true) != null || inlineDebugPath(source, buffer.file.path, line) != null) {
                             if(debug.owner.isNotEmpty())Text("Debugger · ${debug.owner} · ${debug.status}",fontSize=12.sp)
                             if(debug.breakpointNotice(buffer).isNotEmpty())Text(debug.breakpointNotice(buffer),fontSize=12.sp)
-                            debug.breakpointModel.intents[buffer.debugIdentity]?.let{intent->if(intent.source.text!=buffer.text||intent.source.path!=buffer.file.path){Text("Retained intentions: "+intent.marks.joinToString{"line ${it.optInt("line")+1}"},fontSize=12.sp);TextButton(enabled=!debug.active,onClick={debug.discardBreakpointIntentions(buffer)}){Text("Discard stale intentions")}}}
+                            var retainedPage by remember(buffer.debugIdentity){mutableStateOf(0)}
+                            val retained=debug.breakpointReadingPage(buffer,retainedPage)
+                            if(retained.total>0){Text("Retained breakpoint intentions · ${retained.total}",fontSize=12.sp);Text("Readonly source wishes; they do not authorize changed-source coordinates. Earlier history retains the latest 32 snapshot groups in memory.",fontSize=11.sp)
+                                if(retained.total>64)Row{TextButton(enabled=retained.page>0,onClick={retainedPage=retained.page-1}){Text("Previous intentions")};Text("${retained.page+1} / ${(retained.total+63)/64}",fontSize=11.sp);TextButton(enabled=(retained.page+1)*64<retained.total,onClick={retainedPage=retained.page+1}){Text("Next intentions")}}
+                                retained.rows.forEach{row->androidx.compose.foundation.text.selection.SelectionContainer{Text("${if(row.historical)"Earlier" else "Retained"} source ${row.path} · ${row.hash?.take(8) ?: "hash unconfirmed"} · line ${row.line+1}"+(row.condition?.let{" if $it"} ?: ""),fontSize=12.sp)}}
+                            }
+                            debug.breakpointModel.intents[buffer.debugIdentity]?.let{intent->if(intent.source.text!=buffer.text||intent.source.path!=buffer.file.path){TextButton(enabled=!debug.active,onClick={debug.discardBreakpointIntentions(buffer)}){Text("Archive earlier intentions")}}}
                             if (buffer.dirty) Text("Save edited text before launching. Values belong to the source that ran.", fontSize = 12.sp)
                             FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                                 TextButton(enabled = !debug.active && !buffer.dirty && !buffer.saving, onClick = { scope.launch { debug.prepare(buffer, line) } }) { Text("▷ Debug") }

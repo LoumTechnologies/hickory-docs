@@ -72273,6 +72273,72 @@
       "fragments": [
         "bulk-literate-protocol-runner"
       ]
+    },
+    "apps/apple-simple/Tests/DebuggerRetentionTests.swift": {
+      "source": ".hickory-source/frontends/debugger-retention-acceptance.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "f4c87e9f8193725ffb55686671f305bc5ef22871ab455d6e24d7f9d301b2f853",
+      "construction": "fragments",
+      "fragments": [
+        "debugger-retention-apple-tests"
+      ]
+    },
+    "apps/android-simple/app/src/test/java/com/hickorydocs/simple/DebuggerRetentionTest.kt": {
+      "source": ".hickory-source/frontends/debugger-retention-acceptance.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "43accb80e316f0446c6181831bff4b50684999ebf672264b2d0ea0f0400141c2",
+      "construction": "fragments",
+      "fragments": [
+        "debugger-retention-android-tests"
+      ]
+    },
+    "apps/web/src/debug/BreakpointRetention.test.tsx": {
+      "source": ".hickory-source/frontends/debugger-retention-acceptance.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "0ff763c8ba61adec62bb7d31ee089f6161ccb701451321b61b7f2baa57e8866c",
+      "construction": "fragments",
+      "fragments": [
+        "debugger-retention-browser-tests"
+      ]
+    },
+    "scripts/test-debugger-retention.py": {
+      "source": ".hickory-source/frontends/debugger-retention-acceptance.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "4079dc9709ba0bdae42f952a134a34f5fd838d419ba0372b147d57a93e9309ea",
+      "construction": "fragments",
+      "fragments": [
+        "debugger-retention-owned-runner"
+      ]
+    },
+    "apps/apple-simple/Tests/SourcePreparationAckTests.swift": {
+      "source": ".hickory-source/frontends/source-preparation-ack-native.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "704a7dee27a788248ff44918c0d2137c6193d036011c2a66b9132922732b4e67",
+      "construction": "fragments",
+      "fragments": [
+        "source-preparation-ack-apple-tests"
+      ]
+    },
+    "apps/android-simple/app/src/test/java/com/hickorydocs/simple/SourcePreparationAckTest.kt": {
+      "source": ".hickory-source/frontends/source-preparation-ack-native.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "83a842fd49ff5981ab73054ca817d7725d2255c835d8bf06b55d710a13e688be",
+      "construction": "fragments",
+      "fragments": [
+        "source-preparation-ack-android-tests"
+      ]
     }
   },
   "evidence_records": [

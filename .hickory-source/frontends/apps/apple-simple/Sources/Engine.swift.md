@@ -262,6 +262,12 @@ func rebaseNativeTokens(_ tokens: [NativeSemanticToken], from old: String, to ne
         return nil
     }
 }
+struct NativeSourcePreparationAck:Decodable {
+ let processed:Bool;let current:Bool;let parsed:Bool;let open_files:UInt64;let source_hash:String?;let source_revision:String?;let source_files_modified:Bool
+}
+func validateNativeSourcePreparation(_ raw:Any,source:String,requireParsed:Bool=false)throws {
+ guard JSONSerialization.isValidJSONObject(raw),let bytes=try? JSONSerialization.data(withJSONObject:raw),let value=try? JSONDecoder().decode(NativeSourcePreparationAck.self,from:bytes),value.processed,value.current,!value.source_files_modified,!requireParsed||value.parsed,value.source_hash=="sha256:"+nativeSourceHash(source),let revision=value.source_revision,revision.range(of:"^[a-f0-9]{64}$",options:.regularExpression) != nil else{throw EngineError(message:"Source preparation is unsupported, superseded or incomplete. Retry language services and prepare again.")}
+}
 @MainActor @Observable final class NativeLanguage {
     private var symbolQueryRevision=ExactSourceText("")
     var symbolQuery:String {get {symbolQueryRevision.text} set {symbolQueryRevision=ExactSourceText(newValue)}}
@@ -404,10 +410,13 @@ Typing rebases cached colors onto unchanged UTF-16 regions and schedules a quiet
     }
     // Background reads depend on source and connection, never the current caret or popup.
     func readOutline(source: String) async throws -> [SemanticLocation] {
-        guard let buffer, exactUTF8(buffer.text,source) else { throw EngineError(message:"Source changed before analysis. Run again.") }
+        guard let buffer, exactUTF8(languageURI(buffer.file.path),uri), exactUTF8(buffer.text,source) else { throw EngineError(message:"Source changed before analysis. Run again.") }
         sync(); let current = epoch
+        let ack=try await request("hick/captureDocument",["textDocument":["uri":uri,"languageId":"hick","version":version,"text":source]])
+        guard epoch==current,exactUTF8(languageURI(buffer.file.path),uri),exactUTF8(buffer.text,source) else{throw EngineError(message:"Source or provider changed during preparation. Run again.")}
+        try validateNativeSourcePreparation(ack,source:source,requireParsed:buffer.file.doc_id != nil)
         let result = try await request("textDocument/documentSymbol", ["textDocument":["uri":uri]])
-        guard epoch == current, exactUTF8(buffer.text,source) else { throw EngineError(message:"Source or provider changed during analysis. Run again.") }
+        guard epoch == current, exactUTF8(languageURI(buffer.file.path),uri), exactUTF8(buffer.text,source) else { throw EngineError(message:"Source or provider changed during analysis. Run again.") }
         return semanticLocations(result,defaultURI:uri).filter {$0.uri == uri}
     }
     func navigate(_ query: SemanticQuery) async {
@@ -774,7 +783,14 @@ Keep renderer handles out of the runtime model. It retains exact source relation
     private var breakpointBuffers:[Data:NativeDebugBufferRef]=[:]
     var breakpointNotice=""
     private var retainedBreakpointIntents:[Data:[[String:Any]]]=[:]
-    func retainedBreakpointReading(_ path:String)->[String] {let key=Data(path.utf8);var retained=retainedBreakpointIntents[key] ?? [];if let source=intentSources[key],let buffer=breakpointBuffers[key]?.buffer,!exactUTF8(source,buffer.text){retained += breakpointIntents(path).map{mark in var item=mark;item["source_hash"]=nativeSourceHash(source);return item}}else if intentSources[key]==nil{retained += breakpointIntents(path)};return retained.map{"Earlier source \(($0["source_hash"] as? String ?? "unknown").prefix(8)): line \(($0["line"] as? Int ?? 0)+1)"+(($0["condition"] as? String).map{" if \($0)"} ?? "")}}
+    func retainedBreakpointReading(_ path:String)->[String] {
+        let key=Data(path.utf8)
+        func render(_ mark:[String:Any],earlier:Bool)->String {let raw=mark["source_hash"] as? String ?? "";let hash=raw.range(of:"^[0-9a-f]{64}$",options:.regularExpression) != nil ? String(raw.prefix(8)):"hash unconfirmed";return "\(earlier ? "Earlier":"Retained") source \(hash): line \((mark["line"] as? Int ?? 0)+1)"+((mark["condition"] as? String).map{" if \($0)"} ?? "")}
+        let previous=(retainedBreakpointIntents[key] ?? []).map{render($0,earlier:true)}
+        let same=breakpointBuffers[key]?.buffer.map{buffer in intentOwners[key]==buffer.id&&intentSources[key].map{exactUTF8($0,buffer.text)}==true} ?? false
+        let current=breakpointIntents(path).map{mark->String in var row=mark;if let source=intentSources[key],boundSources[key].map({exactUTF8($0,source)})==true,let hash=sourceHashes[key]{row["source_hash"]=hash};return render(row,earlier:!same)}
+        return previous+current
+    }
     private var variableNodes:[UUID:NativeDebugVariableRow]=[:]
     private var variableRoots:[UUID]=[]
     private var evaluationRoots:[Data:UUID]=[:]
@@ -1257,28 +1273,37 @@ Breakpoint intentions retain their exact captured source independently of adapte
 
 Breakpoint changes, stepping, stopping and evaluation remain explicit model operations. Frame rows carry their rendered snapshot. Evaluate only at a known pause and retain per-expression request identities with exact UTF-8 keys; canonically equivalent Swift strings may be different runtime expressions. Removing a watch retires only that exact expression and its pending reply. Source navigation compares captured text and never claims that runtime inputs were frozen.
 
+A breakpoint setter receipt must cover every requested source line exactly once with a known status and an in-source moved coordinate. Matching only a hash or one row is not complete binding evidence. Retained intentions remain source readings after edits and replacement; current and earlier wishes are never projected onto changed source until a fresh saved launch and complete receipt agree.
+
 <ui:copy id="native-debug-session-commands-apple">
     private func breakpointIntents(_ path:String)->[[String:Any]] {(breakpoints[path] ?? []).map{mark in var clean:[String:Any]=["line":mark["line"] ?? 0];if let condition=mark["condition"] as? String{clean["condition"]=condition};return clean}}
     func sourceChanged(_ buffer:DocumentBuffer) {let key=Data(buffer.file.path.utf8);breakpointBuffers[key]=NativeDebugBufferRef(buffer);guard !(breakpoints[buffer.file.path] ?? []).isEmpty || breakpointRequests[key] != nil || boundSources[key] != nil else{return};if buffer.dirty || intentSources[key].map({!exactUTF8($0,buffer.text)})==true {breakpointRequests.removeValue(forKey:key);boundSources.removeValue(forKey:key);breakpointNotice="Breakpoint intentions belong to earlier text. Save and explicitly update them before binding new positions."}}
     func breakpointMarkers(_ buffer:DocumentBuffer)->[[String:Any]] {let key=Data(buffer.file.path.utf8);guard identityMatches(buffer,path:buffer.file.path,confirmed:true),intentOwners[key]==buffer.id,!buffer.dirty,let source=intentSources[key],exactUTF8(source,buffer.text) else{return []};let bound=sessionID != nil && active && boundSources[key].map{exactUTF8($0,buffer.text)}==true;return (breakpoints[buffer.file.path] ?? []).map{mark in var item=mark;if bound {item["line"]=item["display_line"] ?? item["line"]}else{item["state"]="pending"};return item}}
     private func receiveBreakpointReceipt(_ event:[String:Any],path:String) {let key=Data(path.utf8);guard let request=breakpointRequests[key],event["request_id"] as? String==request.id else{return};guard event["source_hash"] as? String==nativeSourceHash(request.source),intentSources[key].map({exactUTF8($0,request.source)})==true else{breakpointRequests.removeValue(forKey:key);boundSources.removeValue(forKey:key);breakpointNotice="Breakpoint receipt did not confirm the captured intention source. Positions remain unbound.";return};if let buffer=breakpointBuffers[key]?.buffer {guard identityMatches(buffer,path:path,confirmed:false),intentOwners[key]==buffer.id,!buffer.dirty,!buffer.saving,exactUTF8(buffer.file.path,path),exactUTF8(buffer.text,request.source) else{breakpointRequests.removeValue(forKey:key);boundSources.removeValue(forKey:key);breakpointNotice="Editor ownership/text changed before the breakpoint receipt. Positions remain unbound.";return}}
-        let statuses=event["breakpoints"] as? [[String:Any]] ?? [];guard statuses.allSatisfy({nativeDebugLine($0["line"]) != nil && ($0["moved_to"]==nil || $0["moved_to"] is NSNull || nativeDebugLine($0["moved_to"]) != nil)}) else{breakpointNotice="Malformed breakpoint receipt refused; intentions retained.";return};var held=breakpoints[path] ?? []
+        let requestedMarks=breakpoints[path] ?? [],lines=request.source.components(separatedBy:"\n").count
+        guard let statuses=event["breakpoints"] as? [[String:Any]],statuses.count==requestedMarks.count,statuses.count<=4096 else{breakpointNotice="Incomplete breakpoint receipt refused; intentions retained and positions unbound.";return}
+        let requested=Set(requestedMarks.compactMap{nativeDebugLine($0["line"])}),reported=statuses.compactMap{nativeDebugLine($0["line"])}
+        guard requested.count==requestedMarks.count,reported.count==statuses.count,Set(reported)==requested,Set(reported).count==reported.count,statuses.allSatisfy({status in
+            guard let state=status["state"] as? String,["pending","bound","refused"].contains(state) else{return false}
+            if let message=status["message"],!(message is NSNull),!(message is String){return false}
+            guard let moved=status["moved_to"],!(moved is NSNull) else{return true};return nativeDebugLine(moved).map{$0<lines}==true
+        }) else{breakpointNotice="Malformed breakpoint receipt refused; intentions retained and positions unbound.";return};var held=requestedMarks
         for index in held.indices {if let status=statuses.first(where:{$0["line"] as? Int==held[index]["line"] as? Int}) {held[index]["state"]=status["state"];held[index]["display_line"]=nativeDebugLine(status["moved_to"]) ?? nativeDebugLine(held[index]["line"]);held[index]["message"]=status["message"]}}
         breakpoints[path]=held;if let buffer=breakpointBuffers[key]?.buffer {confirmKnownSource(path,hash:nativeSourceHash(request.source));guard identityMatches(buffer,path:path,confirmed:true) else{return}};boundSources[key]=request.source;if !ambiguousSources.contains(key){sourceHashes[key]=nativeSourceHash(request.source)};breakpointRequests.removeValue(forKey:key);breakpointNotice="Breakpoint statuses confirmed for captured source."
     }
     func toggle(_ buffer:DocumentBuffer,line:Int,condition:String?=nil) {
         guard line>=0,line<buffer.text.components(separatedBy:"\n").count else{breakpointNotice="Breakpoint position is outside current source.";return}
         let key=Data(buffer.file.path.utf8)
-        if intentOwners[key] != buffer.id,!breakpointIntents(buffer.file.path).isEmpty {retainedBreakpointIntents[key,default:[]] += breakpointIntents(buffer.file.path).map{mark in var item=mark;item["source_hash"]=intentSources[key].map(nativeSourceHash) ?? "unknown";return item};breakpoints[buffer.file.path]=[];intentSources.removeValue(forKey:key)}
+        if intentOwners[key] != buffer.id,!breakpointIntents(buffer.file.path).isEmpty {retainedBreakpointIntents[key]=Array(((retainedBreakpointIntents[key] ?? [])+breakpointIntents(buffer.file.path).map{mark in var item=mark;item["source_hash"]=intentSources[key].map(nativeSourceHash) ?? "unknown";return item}).suffix(4096));breakpoints[buffer.file.path]=[];intentSources.removeValue(forKey:key)}
         intentOwners[key]=buffer.id;breakpointBuffers[key]=NativeDebugBufferRef(buffer)
         if sourceIdentities[key]==nil,sourceNamespace==launchNamespace,let proof=exactUTF8(buffer.file.path,owner) ? launchBoundHash:sourceHashes[key] {_ = admitSourceReading(buffer,path:buffer.file.path,proof:proof)}
         toggle(buffer.file.path,line:line,condition:condition,source:buffer.text,writable:!buffer.dirty && !buffer.saving && !buffer.resourceDeleted)
     }
     func toggle(_ path:String,line:Int,condition:String?=nil,source:String?=nil,writable:Bool=true) {guard line>=0,line<=Int(Int32.max) else{breakpointNotice="Invalid breakpoint coordinate refused; current intentions are retained.";return};let key=Data(path.utf8);let text=source
-        if text==nil {var unknown:[String:Any]=["line":line,"source_hash":"unknown"];if let condition{unknown["condition"]=condition};retainedBreakpointIntents[key,default:[]].append(unknown);breakpointNotice="Unbound path-only intention retained. Place it explicitly on current source; no coordinates were sent.";return}
+        if text==nil {var unknown:[String:Any]=["line":line,"source_hash":"unknown"];if let condition{unknown["condition"]=condition};retainedBreakpointIntents[key]=Array(((retainedBreakpointIntents[key] ?? [])+[unknown]).suffix(4096));breakpointNotice="Unbound path-only intention retained. Place it explicitly on current source; no coordinates were sent.";return}
         if let text,line>=text.components(separatedBy:"\n").count {breakpointNotice="Breakpoint position is outside the captured source. Current intentions are retained.";return}
         if let text,let buffer=breakpointBuffers[key]?.buffer,(!exactUTF8(buffer.file.path,path) || !exactUTF8(buffer.text,text)){breakpointNotice="Stale breakpoint source/ownership refused. Current intentions and editor text are retained.";return}
-        if let text,!breakpointIntents(path).isEmpty,intentSources[key].map({!exactUTF8($0,text)}) ?? true {let previous=intentSources[key];retainedBreakpointIntents[key]=(retainedBreakpointIntents[key] ?? [])+breakpointIntents(path).map{mark in var retained=mark;retained["source_hash"]=previous.map(nativeSourceHash) ?? "unknown";return retained};breakpoints[path]=[];breakpointNotice="Earlier source breakpoint intentions remain readable; place new intentions explicitly on current text."};if let text{intentSources[key]=text}
+        if let text,!breakpointIntents(path).isEmpty,intentSources[key].map({!exactUTF8($0,text)}) ?? true {let previous=intentSources[key];retainedBreakpointIntents[key]=Array(((retainedBreakpointIntents[key] ?? [])+breakpointIntents(path).map{mark in var retained=mark;retained["source_hash"]=previous.map(nativeSourceHash) ?? "unknown";return retained}).suffix(4096));breakpoints[path]=[];breakpointNotice="Earlier source breakpoint intentions remain readable; place new intentions explicitly on current text."};if let text{intentSources[key]=text}
         let bound=boundSources[key].flatMap{saved in text.map{exactUTF8(saved,$0)}} ?? false
         let index=(breakpoints[path] ?? []).firstIndex{$0["line"] as? Int==line} ?? (bound ? (breakpoints[path] ?? []).firstIndex{$0["display_line"] as? Int==line}:nil)
         var held=breakpointIntents(path);if let index {if let condition{held[index]["condition"]=condition}else{held.remove(at:index)}}else{var mark:[String:Any]=["line":line];if let condition{mark["condition"]=condition};held.append(mark)}

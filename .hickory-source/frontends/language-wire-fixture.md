@@ -3,7 +3,7 @@
 
 For maintainers changing workspace services independently of the editor renderer.
 
-This local test peer implements Hickory's own channel framing, not a third-party language server. Both native clients use the real WebSocket implementation against it. It counts connections, records request IDs, returns out-of-order source-tagged replies, emits URI-scoped notifications and drops a connection on request. Full-text document replay is observable through the HTTP state endpoint. The peer uses only Python's standard library, so native checks do not acquire a browser dependency. No workspace files are read or written. Real provider semantics remain covered by the separate browser/engine flows.
+This local test peer implements Hickory's own channel framing, not a third-party language server. Both native clients use the real WebSocket implementation against it. It counts connections, records request IDs, returns out-of-order source-tagged replies, emits URI-scoped notifications and drops a connection on request. Full-text document replay is observable through the HTTP state endpoint. The peer uses only Python's standard library, so native checks do not acquire a browser dependency. Its capture acknowledgement compares the requested text with the actual observed document stream and returns an effectless exact UTF-8 stamp before symbols; this is transport-fixture evidence, not a claim to compile or analyze a language. No workspace files are read or written. Real provider semantics remain covered by the separate browser/engine flows.
 
 <ui:copy id="simple-shared-language-wire-fixture">
 """Local Hickory channel peer for native transport tests; no language semantics."""
@@ -153,6 +153,15 @@ class Peer(BaseHTTPRequestHandler):
             return
         with lock:
             result = {"uri": uri, "text": self.documents.get(uri), "method": method}
+        if method == "hick/captureDocument":
+            captured = params.get("textDocument", {}).get("text")
+            with lock:
+                current = isinstance(captured, str) and self.documents.get(uri) == captured
+                count = len(self.documents)
+            result = {"processed": current, "current": current, "parsed": False, "open_files": count,
+                      "source_hash": "sha256:" + hashlib.sha256(captured.encode()).hexdigest() if current else None,
+                      "source_revision": hashlib.sha256((uri + "\0" + str(identifier) + "\0" + captured).encode()).hexdigest() if current else None,
+                      "source_files_modified": False}
         if method == "textDocument/documentSymbol":
             result = [{"name": "background", "kind": 12, "range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 1}}, "selectionRange": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 1}}}]
         if method == "textDocument/prepareTypeHierarchy" or method in ("typeHierarchy/supertypes","typeHierarchy/subtypes"):

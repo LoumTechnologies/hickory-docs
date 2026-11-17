@@ -2295,6 +2295,7 @@ struct NativeDebugRail: View {
     @State private var adapterInspection:UUID?
     @State private var expression = ""
     @State private var condition = ""
+    @State private var breakpointPage = 0
     private var paused: Int? { debug.sourceMatches(buffer) ? debug.line(in: buffer.file.path) : nil }
     @ViewBuilder private var threadControls:some View {
         let snapshot=debug.threadSnapshot
@@ -2436,7 +2437,11 @@ struct NativeDebugRail: View {
             ForEach(Array(debug.catalogNotices.enumerated()),id: \.offset){_,notice in Text("Launch catalog: "+notice).font(.caption).textSelection(.enabled)}
             if debug.pauseUnconfirmed {Text(debug.stackNotice).font(.caption).textSelection(.enabled);ScrollView{VStack(alignment:.leading){ForEach(Array(debug.frames.enumerated()),id: \.offset){_,frame in Text("Historical frame: \(frame["name"] as? String ?? "Frame")").font(.caption).textSelection(.enabled)}}}.frame(maxHeight:100)}
             if !debug.breakpointNotice.isEmpty {Text(debug.breakpointNotice).font(.caption).textSelection(.enabled)}
-            ForEach(Array(debug.retainedBreakpointReading(buffer.file.path).enumerated()),id: \.offset){_,reading in Text(reading).font(.caption).textSelection(.enabled)}
+            let retained=debug.retainedBreakpointReading(buffer.file.path),readingPage=max(0,min(breakpointPage,max(0,(retained.count-1)/64)))
+            if !retained.isEmpty {Text("Retained breakpoint intentions · \(retained.count)").font(.caption);Text("Readonly wishes for earlier source; no coordinates are applied. Latest 4096 historical wishes per path remain in memory.").font(.caption)
+                if retained.count>64 {HStack{Button("Previous intentions"){breakpointPage=readingPage-1}.disabled(readingPage==0);Text("\(readingPage+1) / \((retained.count+63)/64)").font(.caption);Button("Next intentions"){breakpointPage=readingPage+1}.disabled((readingPage+1)*64>=retained.count)}}
+                ForEach(Array(retained.dropFirst(readingPage*64).prefix(64).enumerated()),id: \.offset){_,reading in Text(reading).font(.caption).textSelection(.enabled)}
+            }
             if debug.capabilities["conditional_breakpoints"] as? Bool == true {
                 TextField("Breakpoint condition", text: $condition)
                 Button("Apply condition", systemImage: "checkmark") { debug.toggle(buffer, line: line, condition: condition) }

@@ -52,7 +52,7 @@ export interface DebugSession {
   capturedBreakpointIntents?():Record<string,CapturedDebugIntent>;
   launchNotices?:string[];
   breakpointNotice?:string|null;
-  breakpointIntentions?:{source:string;marks:import("./client").DebugBreakpoint[];namespace:string|null}[];
+  breakpointIntentions?:{source:string;marks:import("./client").DebugBreakpoint[];namespace:string|null;hash?:string|null;historical?:boolean}[];
   variableRoots?:DebugValueNode[];
   valueNode?:(id:string)=>DebugValueNode|null;
   valueHistory?:string[];
@@ -368,7 +368,7 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
   const [testEpoch,paintTest]=useState(0);
   function publishTest(session:string,phase:string,exitCode:number|null=null,message:string|null=null){const before=testHistory.current.get(session);if(before){testHistory.current.set(session,{...before,phase,exitCode,message});paintTest(value=>value+1);}}
   function rejectTest(error:Error){const held=pendingTest.current;if(held){pendingTest.current=null;held.reject(error);}}
-  const sourceReadings=useRef(new Map<string,DebugSourceReading>()),runProofs=useRef(new Map<string,DebugSourceProof>()),runHashes=useRef(new Map<string,string>()),sourceOperations=useRef(new Map<string,number>()),preparedStart=useRef<{request:string;proofs:Map<string,DebugSourceProof>}|null>(null);
+  const sourceReadings=useRef(new Map<string,DebugSourceReading>()),sourceReadRequests=useRef(new Map<string,number>()),runProofs=useRef(new Map<string,DebugSourceProof>()),runHashes=useRef(new Map<string,string>()),sourceOperations=useRef(new Map<string,number>()),preparedStart=useRef<{request:string;proofs:Map<string,DebugSourceProof>}|null>(null);
   const [valueTree]=useState(()=>new DebugValueTree()),[treeRevision,paintTree]=useState(0),refreshTree=()=>paintTree(value=>value+1);
   const movement=useRef<{request:string;session:string;scope:{session:string;stop:number;thread:number};frames:Frame[];variables:Variable[];selected:number|null;observation:import("./observations").ObservationScope|null;roots:DebugValueNode[]}|null>(null),refreshTicket=useRef<string|null>(null);
   const [launchNotices,setLaunchNotices]=useState<string[]>([]);
@@ -409,7 +409,7 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
   function retireEvaluations(){evaluationRequests.current.clear();latestEvaluation.current.clear();for(const resolve of pendingValues.current.values())resolve(null);pendingValues.current.clear();setLastValue(null);}
   const currentRows=(source=uri)=>breakpointModel.rows(source,sourceReadings.current.get(source)??null,sessionRef.current,runHashes.current.get(source)??null) as HeldBreakpoint[];
   function repaintBreakpoints(){setBreakpoints(currentRows());holdSources(Object.fromEntries(breakpointModel.sources().filter(source=>source!==uri).map(source=>[source,currentRows(source)])));paintPolicy(value=>value+1);}
-  function readSource(source:string):DebugSourceReading|Promise<DebugSourceReading>{const result=sourceAccess.current.read(source);const admit=(reading:DebugSourceReading)=>{if(reading.uri!==source||!reading.current())throw Error('The current source reading changed before Debug. Observe it again.');sourceReadings.current.set(source,reading);return reading;};return result instanceof Promise?result.then(admit):admit(result);}
+  function readSource(source:string):DebugSourceReading|Promise<DebugSourceReading>{const request=(sourceReadRequests.current.get(source)??0)+1,lifetime=ownerLifetime.current;sourceReadRequests.current.set(source,request);const result=sourceAccess.current.read(source);const admit=(reading:DebugSourceReading)=>{if(reading.uri!==source||!reading.current())throw Error('The current source reading changed before Debug. Observe it again.');if(ownerMounted.current&&ownerLifetime.current===lifetime&&sourceReadRequests.current.get(source)===request)sourceReadings.current.set(source,reading);return reading;};return result instanceof Promise?result.then(admit):admit(result);}
   function capturedIntents():Record<string,CapturedDebugIntent>{return Object.fromEntries(breakpointModel.sources().flatMap(source=>{const intent=breakpointModel.captured(source);return intent?[[source,intent]]:[];}));}
   function launchBound():boolean {const proof=runProofs.current.get(uri);return !!proof&&proof.hash===runHashes.current.get(uri);}
   function primaryBound():boolean {const proof=runProofs.current.get(uri);return !!proof&&proof.current()&&proof.hash===runHashes.current.get(uri)&&launchAdmission.current?.()!==false;}
@@ -426,7 +426,7 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
   }
   const valueScope=():DebugValueScope|null=>{const scope=threadModel.scope,frame=selectedFrameRef.current;return sessionRef.current&&statusRef.current==='paused'&&!threadModel.selecting&&scope&&debugAdapterId(frame)&&currentFrames.current.some(value=>value.id===frame)?{...scope,frame}:null;};
   function replaceTreeLocals(values:Variable[]){const scope=valueScope();if(!scope)return;valueTree.setScope(scope);valueTree.replace('locals',scope,values);refreshTree();}
-  useEffect(()=>sourceCapability.subscribe?.(()=>{repaintBreakpoints();}),[sourceCapability.subscribe]);
+  useEffect(()=>sourceCapability.subscribe?.(()=>{for(const source of breakpointModel.sources()){try{const result=readSource(source);if(result instanceof Promise)void result.then(()=>{if(ownerMounted.current)repaintBreakpoints();}).catch(()=>{});}catch{/* Passive capability failure cannot discard readable wishes or block source. */}}repaintBreakpoints();}),[sourceCapability.subscribe,uri]);
   function askValue(session:string,expression:string,context:"hover"|"watch"|"repl",frame?:number){
     if(!client||threadModel.selecting)return;if(frame!==undefined&&!debugAdapterId(frame)){setMessage("Selected frame identity cannot be represented exactly by this connection.");return;}const scope=threadModel.scope;
     if(!scope||statusRef.current!=="paused"||frame===undefined||!currentFrames.current.some(value=>value.id===frame))return;
@@ -895,7 +895,7 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
       isActive:()=>["starting","running","paused","unconfirmed","stopping"].includes(statusRef.current),
       launchNotices,breakpointRows:()=>currentRows(),capturedBreakpointIntents:capturedIntents,
       breakpointNotice:breakpointModel.notice(uri,sourceReadings.current.get(uri)??null,sessionRef.current,runHashes.current.get(uri)??null),
-      breakpointIntentions:breakpointModel.sources().map(source=>({source,marks:breakpointModel.desired(source),namespace:breakpointModel.captured(source)?.reading.namespace??null})),
+      breakpointIntentions:[...breakpointModel.archived.map(intent=>({...intent,historical:true})),...breakpointModel.sources().map(source=>({source,marks:breakpointModel.desired(source),namespace:breakpointModel.captured(source)?.reading.namespace??null,hash:breakpointModel.acceptedProof(source)?.hash??null,historical:false}))],
       variableRoots:valueTree.roots(),valueNode:(id:string)=>valueTree.node(id),valueHistory:[...valueTree.historical],valueNotice:valueTree.notice,expandValue,collapseValue,closeValues,refreshState,positionSourceBound:primaryBound(),
       reading,
       status,
