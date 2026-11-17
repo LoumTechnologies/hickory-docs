@@ -219,6 +219,37 @@ impl Default for PreparedActions {
         }
     }
 }
+fn provider_action_context(context: &CodeActionContext, diagnostics: Vec<Value>) -> Value {
+    let mut value = json!({"diagnostics":diagnostics});
+    if let Some(only) = &context.only {
+        value["only"] = json!(only);
+    }
+    if let Some(trigger) = context.trigger_kind {
+        value["triggerKind"] = json!(trigger);
+    }
+    value
+}
+#[cfg(test)]
+mod request_context_tests {
+    use super::*;
+    #[test]
+    fn bulk_action_kind_and_trigger_survive_without_trusting_client_diagnostics() {
+        let context: CodeActionContext = serde_json::from_value(
+            json!({"diagnostics":[],"only":["source.fixAll"],"triggerKind":1}),
+        )
+        .unwrap();
+        let diagnostic = json!({"message":"captured provider diagnostic"});
+        assert_eq!(
+            provider_action_context(&context, vec![diagnostic.clone()]),
+            json!({"diagnostics":[diagnostic],"only":["source.fixAll"],"triggerKind":1})
+        );
+        let context: CodeActionContext = serde_json::from_value(json!({"diagnostics":[]})).unwrap();
+        assert_eq!(
+            provider_action_context(&context, vec![]),
+            json!({"diagnostics":[]})
+        );
+    }
+}
 impl HickBackend {
     pub(super) async fn provider_source_revision(&self) -> String {
         let index = self.vfile_index.read().await;
@@ -289,7 +320,7 @@ Build provider context from the child’s own diagnostics. Read its actual capab
             (handle.clone(), resolve)
         };
         self.require_provider_revision(&revision).await?;
-        let result=handle.request("textDocument/codeAction",json!({"textDocument":{"uri":vf_uri},"range":{"start":start,"end":{"line":end.0,"character":end.1}},"context":{"diagnostics":diagnostics}})).await.map_err(child_request_error)?;
+        let result=handle.request("textDocument/codeAction",json!({"textDocument":{"uri":vf_uri},"range":{"start":start,"end":{"line":end.0,"character":end.1}},"context":provider_action_context(&params.context,diagnostics)})).await.map_err(child_request_error)?;
         self.require_provider_revision(&revision).await?;
         if result.is_null() {
             return Ok(None);

@@ -12,6 +12,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 import org.json.JSONArray
+fun fileWideFixActions(actions:List<JSONObject>)=actions.filter{val kind=it.opt("kind") as? String;kind=="source.fixAll"||kind?.startsWith("source.fixAll.")==true}
 class WorkspaceChanges {
     var mode by mutableStateOf<String?>(null)
     var name by mutableStateOf(""); private set
@@ -60,8 +61,8 @@ class WorkspaceChanges {
         if(mode=="cleanup"){prepareCleanup(workspace,proposal);return}
         val origin = workspace.currentBuffer; val language = origin?.language
         if (origin == null || language == null || origin.readOnly) { notice="Choose writable source with a connected language provider."; return }
-        val request=++revision; val source=origin.text; val selection=origin.state.selection; val identity=language.proposalIdentity
-        sources=workspace.sourceSnapshots(); current={revision==request && origin.text==source && origin.state.selection==selection && origin.language===language && language.proposalIdentity==identity}
+        val request=++revision; val source=origin.text; val selection=origin.state.selection; val identity=language.proposalIdentity;val sourceIdentity=origin.sourceRevision
+        sources=workspace.sourceSnapshots(); current={revision==request && workspace.buffers[origin.file.path]===origin && origin.sourceRevision==sourceIdentity && origin.text==source && origin.state.selection==selection && origin.language===language && language.proposalIdentity==identity}
         resolver=resolution ?: {language.resolveProposal(it)}
         val valid=current
         val propose:suspend (String,String)->Any=proposal ?: {kind,value->language.propose(kind,value)}
@@ -75,7 +76,8 @@ class WorkspaceChanges {
                     check(valid()&&target.text==text){"Source changed while reading $path. Prepare again."}
                     SourceSnapshot(text,!target.readOnly&&!target.saving)
                 }
-        this.acquisition=load;actionQuery={val actions=propose("actions","") as? JSONArray ?: JSONArray();(0 until actions.length()).mapNotNull{actions.optJSONObject(it)}}
+        val actionKind=if(mode=="fixAll")"fixAll" else "actions"
+        this.acquisition=load;actionQuery={val actions=propose(actionKind,"") as? JSONArray ?: JSONArray();val listed=(0 until actions.length()).mapNotNull{actions.optJSONObject(it)};if(actionKind=="fixAll")fileWideFixActions(listed) else listed}
         plan=null; choices=emptyList(); referencePaths=emptyList(); notice="Preparing complete source changes…"
         val kind=mode ?: "actions"; val nextName=name
         try {
@@ -87,9 +89,10 @@ class WorkspaceChanges {
             }
             val result=propose(kind,nextName)
             if (!valid()) { if (revision==request) notice="Source, selection or provider changed. Prepare again."; return }
-            if (kind == "actions") {
+            if (kind == "actions" || kind == "fixAll") {
                 val actions=result as? JSONArray ?: JSONArray(); choices=(0 until actions.length()).mapNotNull { actions.optJSONObject(it)?.let { item -> JSONObject(item.toString()) } }
-                notice=if (choices.isEmpty()) "No provider actions here. Support depends on the installed language server." else "Choose a provider action to preview."
+                if(kind=="fixAll")choices=fileWideFixActions(choices)
+                notice=if(kind=="fixAll"&&choices.isEmpty()) "The current provider offers no file-wide diagnostic fixes. No edits were applied." else if (choices.isEmpty()) "No provider actions here. Support depends on the installed language server." else "Choose a provider action to preview."
             } else install(if (kind == "rename") "Rename to $nextName" else "Format source",result,workspace)
         } catch (cancelled: CancellationException) { throw cancelled }
         catch (failure: Exception) { if (revision==request) notice=failure.message.orEmpty() }
@@ -140,6 +143,7 @@ class WorkspaceChanges {
             check(valid()){"Source, selection or provider changed. Prepare actions again."}
             action.optJSONObject("disabled")?.let{error(it.optString("reason","Provider action disabled"))}
             plan=null;notice="Resolving complete provider action…";var first:JSONObject?=resolve(action)
+            if(mode=="fixAll")check(first?.let{fileWideFixActions(listOf(it)).isNotEmpty()}==true){"The provider changed the complete file-wide action kind. Prepare again."}
             val acquired=acquireSourceProposal(initialSources,{
                 val resolved=first?.also{first=null} ?: run {
                     val candidates=queryActions().filter{it.optString("title")==action.optString("title")&&it.optString("kind")==action.optString("kind")}
@@ -147,6 +151,7 @@ class WorkspaceChanges {
                     resolve(candidates.single())
                 }
                 check(revision==request&&choiceRevision==choice&&valid()){"Source, selection or provider changed. Prepare actions again."}
+                if(mode=="fixAll")check(fileWideFixActions(listOf(resolved)).isNotEmpty()){"The provider changed the complete file-wide action kind. Prepare again."}
                 resolved.optJSONObject("disabled")?.let{error(it.optString("reason","Provider action disabled"))}
                 check(resolved.isNull("command")){"This action requires a provider command; its edit has not been applied."}
                 val edit=resolved.optJSONObject("edit")
@@ -186,7 +191,7 @@ fun Workspace.applyWorkspacePlan(plan: ChangePlan) {
         Text("Workspace change preview",fontSize=16.sp); Text("Source drafts · not saved or verified",fontSize=11.sp)
         TextButton(onClick={changes.close(workspace)}) { Text("Close") }
         if (changes.mode=="rename") OutlinedTextField(changes.name,{changes.updateName(it)},label={Text("New symbol name")},singleLine=true)
-        if (changes.mode!="undo" && changes.mode!="redo" && changes.mode!="proposal") TextButton(enabled=changes.mode!="rename" || changes.name.isNotBlank(),onClick={scope.launch {changes.prepare(workspace)}}) { Text(if(changes.mode=="actions") "Prepare provider actions" else if(changes.mode=="format") "Prepare formatting" else if(changes.mode=="cleanup") "Prepare cleanup" else "Prepare rename") }
+        if (changes.mode!="undo" && changes.mode!="redo" && changes.mode!="proposal") TextButton(enabled=changes.mode!="rename" || changes.name.isNotBlank(),onClick={scope.launch {changes.prepare(workspace)}}) { Text(if(changes.mode=="fixAll") "Prepare file-wide diagnostic fixes" else if(changes.mode=="actions") "Prepare provider actions" else if(changes.mode=="format") "Prepare formatting" else if(changes.mode=="cleanup") "Prepare cleanup" else "Prepare rename") }
         if (changes.notice.isNotEmpty()) Text(changes.notice,fontSize=12.sp)
         for(index in changes.choices.indices.drop(changes.actionPage*100).take(100)) {
             val action=changes.choices[index]

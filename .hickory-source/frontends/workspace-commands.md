@@ -92,6 +92,12 @@ Menus and action search need one vocabulary and one availability decision. The s
     "requires": "writable"
   },
   {
+    "id": "symbol.fixAll",
+    "label": "Preview file-wide diagnostic fixes",
+    "group": "Edit",
+    "requires": "writable"
+  },
+  {
     "id": "symbol.actions",
     "label": "Refactor and quick fixes",
     "group": "Edit",

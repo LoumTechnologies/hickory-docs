@@ -40,7 +40,7 @@ def debug_resource_acceptance(driver,root,phase,fixture,source):
 def main():
     spec=importlib.util.spec_from_file_location("simple_fixture",ROOT/"scripts/test-simple-browser.py")
     fixture=importlib.util.module_from_spec(spec);spec.loader.exec_module(fixture)
-    resources="--resources" in sys.argv;debug_resources="--debug-resources" in sys.argv
+    bulk="--bulk" in sys.argv;resources="--resources" in sys.argv;debug_resources="--debug-resources" in sys.argv
     with tempfile.TemporaryDirectory(prefix="hickory-action-chooser-") as temporary:
         folder=Path(temporary);root=folder/"workspace";root.mkdir();path="a.py";source="value = 1\n";(root/path).write_text(source);(root/"other.py").write_text(source);events=folder/"events.jsonl"
         if resources:(root/"delete.py").write_text("delete me\n")
@@ -60,9 +60,9 @@ def main():
             if debug_resources:debug_resource_acceptance(driver,root,phase,fixture,source);return
             original_draft=source+"# retained draft\n" if resources else source
             if resources:driver.act("construction-set-source",path=path,source=original_draft)
-            driver.act("change-open",command="Refactor and quick fixes");deadline=time.monotonic()+20
+            driver.act("change-open",command="Preview file-wide diagnostic fixes" if bulk else "Refactor and quick fixes");deadline=time.monotonic()+20
             while True:
-                result=driver.act("change-prepare",command="Prepare provider actions")
+                result=driver.act("change-prepare",command="Prepare file-wide diagnostic fixes" if bulk else "Prepare provider actions")
                 if "Controlled python fix" in result:break
                 assert time.monotonic()<deadline,result;time.sleep(.1)
             assert all("other.py" not in tab for tab in driver.act("tabs"))
@@ -90,7 +90,9 @@ def main():
             driver.act("change-apply");driver.act("change-close");assert driver.act("search-source",path=path)=="python_fixed = 1\n";assert (root/path).read_text()==source
             driver.act("change-open",command="Undo workspace change");driver.act("change-close");assert driver.act("search-source",path=path)==source
             assert driver.act("editor-is-retained",path=path);assert driver.act("editor-size",path=path)==size
-            records=[json.loads(line) for line in events.read_text().splitlines()];assert len(records)==2 and all(record["resolved"]=="python" for record in records),records
+            records=[json.loads(line) for line in events.read_text().splitlines()];assert len([record for record in records if record.get("resolved")=="python"])==2,records
+            if bulk:
+                queries=[record for record in records if record.get("bulk_query")=="python"];assert len(queries)==2 and all(record["context"].get("only")==["source.fixAll"] and record["range"]=={"start":{"line":0,"character":0},"end":{"line":1,"character":0}} for record in queries),records
             assert (root/"other.py").read_text()==source
             driver.act("open",path="other.py");assert driver.act("search-source",path="other.py")==source
             print("PASS: menu, actual lazy resolution, unopened-target acquisition and fresh resolution, complete preview, explicit draft application, coordinated undo, retained editor geometry and unchanged disk")

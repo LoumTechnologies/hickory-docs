@@ -505,6 +505,7 @@ Typing rebases cached colors onto unchanged UTF-16 regions and schedules a quiet
         case "rename": method = "textDocument/rename"; params["position"] = languagePosition(source,selection.location); params["newName"] = name
         case "references": method = "textDocument/references"; params["position"] = languagePosition(source,selection.location); params["context"] = ["includeDeclaration":true]
         case "format": method = "textDocument/formatting"; params["options"] = ["tabSize":4,"insertSpaces":!source.components(separatedBy:"\n").contains(where:{$0.hasPrefix("\t")})]
+        case "fixAll": method = "textDocument/codeAction"; params["range"] = ["start":languagePosition(source,0),"end":languagePosition(source,source.utf16.count)]; params["context"] = ["diagnostics":[],"only":["source.fixAll"]]
         default: method = "textDocument/codeAction"; params["range"] = ["start":languagePosition(source,selection.location),"end":languagePosition(source,NSMaxRange(selection))]; params["context"] = ["diagnostics":[]]
         }
         let result = try await request(method,params)

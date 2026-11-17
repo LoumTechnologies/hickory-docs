@@ -897,6 +897,7 @@ class NativeLanguage(engine: Engine, private val buffer: DocumentBuffer, private
             "rename" -> { params.put("position",languagePosition(source,selection.min)).put("newName",name); "textDocument/rename" }
             "references" -> { params.put("position",languagePosition(source,selection.min)).put("context",JSONObject().put("includeDeclaration",true)); "textDocument/references" }
             "format" -> { params.put("options",JSONObject().put("tabSize",4).put("insertSpaces",source.lines().none { it.startsWith("\t") })); "textDocument/formatting" }
+            "fixAll" -> { params.put("range",JSONObject().put("start",languagePosition(source,0)).put("end",languagePosition(source,source.length))).put("context",JSONObject().put("diagnostics",JSONArray()).put("only",JSONArray().put("source.fixAll"))); "textDocument/codeAction" }
             else -> { params.put("range",JSONObject().put("start",languagePosition(source,selection.min)).put("end",languagePosition(source,selection.max))).put("context",JSONObject().put("diagnostics",JSONArray())); "textDocument/codeAction" }
         }
         val result = request(method,params)

@@ -72221,6 +72221,28 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "fragments": [
         "git-resolution-apple-runner"
       ]
+    },
+    "apps/web/src/simple/WorkspaceChanges.test.tsx": {
+      "source": ".hickory-source/frontends/workspace-changes-browser.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "5eff38c1d505fd417c28f78934dfb26de2117c3b9ad5096a883fbf9dac7873f3",
+      "construction": "fragments",
+      "fragments": [
+        "bulk-fix-browser-tests"
+      ]
+    },
+    "scripts/test-native-bulk-fixes.py": {
+      "source": ".hickory-source/frontends/action-chooser-browser-witness.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "8e7638a63947a78b5f2ac6c2efc841bc1f1fcb3f546537540c8c17d093865bbb",
+      "construction": "fragments",
+      "fragments": [
+        "bulk-fix-native-runner"
+      ]
     }
   },
   "evidence_records": [

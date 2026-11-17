@@ -113,7 +113,11 @@ Require exact original actions and producing provider identity, return complete 
         if params["range"]["start"]["character"]==2:opaque["slow"]=True
         result=[{"title":f"Controlled {language} fix","kind":"quickfix","data":opaque}]
         if language!="python":result[0]["edit"]={"changes":{uri:[{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":5}},"newText":language+"_fixed"}]}}
-        issued[uri]=result[0]
+        if params.get("context",{}).get("only")==["source.fixAll"]:
+            event({"bulk_query":language,"context":params["context"],"range":params["range"]})
+            result[0]["kind"]="source.fixAll.controlled"
+            if uri.endswith("/unavailable.py"):result=[]
+        if result:issued[uri]=result[0]
     elif method=="codeAction/resolve":
         opaque=params.get("data",{});uri=opaque.get("uri");expected=issued.get(uri)
         if params!=expected or opaque.get("producer")!=language:

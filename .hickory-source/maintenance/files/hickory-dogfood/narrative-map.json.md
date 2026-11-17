@@ -156002,6 +156002,20 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/frontends/git-conflict-resolution-apple.md",
       "symbol": "git resolution apple runner",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "bulk-fix-browser-tests",
+      "output": "apps/web/src/simple/WorkspaceChanges.test.tsx",
+      "page": ".hickory-source/frontends/workspace-changes-browser.md",
+      "symbol": "bulk fix browser tests",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "bulk-fix-native-runner",
+      "output": "scripts/test-native-bulk-fixes.py",
+      "page": ".hickory-source/frontends/action-chooser-browser-witness.md",
+      "symbol": "bulk fix native runner",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

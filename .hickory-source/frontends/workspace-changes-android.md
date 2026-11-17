@@ -17,6 +17,8 @@ Explicit cleanup enters before language-provider acquisition. Its fixed source, 
 
 Reviewed capabilities can offer a complete source proposal without a language provider. Every target must have the exact supplied reviewed text, and the ordinary planner and writability checks must accept the whole proposal before it becomes a preview. Capture target buffer identities, text and selections for the approval boundary. Source or selection changes refuse; successful approval uses the same coordinated inverse history as provider changes. The proposal mode has no provider-preparation button and never saves implicitly.
 
+File-wide diagnostic fixing asks the provider for the complete `source.fixAll` family. Retain one explicit complete action for review, acquire its targets, then resolve it again under the original source revision. No action means unavailable; individual quick fixes are never guessed or merged.
+
 <ui:copy id="simple-android-workspace-changes">
 package com.hickorydocs.simple
 import androidx.compose.runtime.*
@@ -32,6 +34,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 import org.json.JSONArray
+fun fileWideFixActions(actions:List<JSONObject>)=actions.filter{val kind=it.opt("kind") as? String;kind=="source.fixAll"||kind?.startsWith("source.fixAll.")==true}
 class WorkspaceChanges {
     var mode by mutableStateOf<String?>(null)
     var name by mutableStateOf(""); private set
@@ -80,8 +83,8 @@ class WorkspaceChanges {
         if(mode=="cleanup"){prepareCleanup(workspace,proposal);return}
         val origin = workspace.currentBuffer; val language = origin?.language
         if (origin == null || language == null || origin.readOnly) { notice="Choose writable source with a connected language provider."; return }
-        val request=++revision; val source=origin.text; val selection=origin.state.selection; val identity=language.proposalIdentity
-        sources=workspace.sourceSnapshots(); current={revision==request && origin.text==source && origin.state.selection==selection && origin.language===language && language.proposalIdentity==identity}
+        val request=++revision; val source=origin.text; val selection=origin.state.selection; val identity=language.proposalIdentity;val sourceIdentity=origin.sourceRevision
+        sources=workspace.sourceSnapshots(); current={revision==request && workspace.buffers[origin.file.path]===origin && origin.sourceRevision==sourceIdentity && origin.text==source && origin.state.selection==selection && origin.language===language && language.proposalIdentity==identity}
         resolver=resolution ?: {language.resolveProposal(it)}
         val valid=current
         val propose:suspend (String,String)->Any=proposal ?: {kind,value->language.propose(kind,value)}
@@ -95,7 +98,8 @@ class WorkspaceChanges {
                     check(valid()&&target.text==text){"Source changed while reading $path. Prepare again."}
                     SourceSnapshot(text,!target.readOnly&&!target.saving)
                 }
-        this.acquisition=load;actionQuery={val actions=propose("actions","") as? JSONArray ?: JSONArray();(0 until actions.length()).mapNotNull{actions.optJSONObject(it)}}
+        val actionKind=if(mode=="fixAll")"fixAll" else "actions"
+        this.acquisition=load;actionQuery={val actions=propose(actionKind,"") as? JSONArray ?: JSONArray();val listed=(0 until actions.length()).mapNotNull{actions.optJSONObject(it)};if(actionKind=="fixAll")fileWideFixActions(listed) else listed}
         plan=null; choices=emptyList(); referencePaths=emptyList(); notice="Preparing complete source changes…"
         val kind=mode ?: "actions"; val nextName=name
         try {
@@ -107,9 +111,10 @@ class WorkspaceChanges {
             }
             val result=propose(kind,nextName)
             if (!valid()) { if (revision==request) notice="Source, selection or provider changed. Prepare again."; return }
-            if (kind == "actions") {
+            if (kind == "actions" || kind == "fixAll") {
                 val actions=result as? JSONArray ?: JSONArray(); choices=(0 until actions.length()).mapNotNull { actions.optJSONObject(it)?.let { item -> JSONObject(item.toString()) } }
-                notice=if (choices.isEmpty()) "No provider actions here. Support depends on the installed language server." else "Choose a provider action to preview."
+                if(kind=="fixAll")choices=fileWideFixActions(choices)
+                notice=if(kind=="fixAll"&&choices.isEmpty()) "The current provider offers no file-wide diagnostic fixes. No edits were applied." else if (choices.isEmpty()) "No provider actions here. Support depends on the installed language server." else "Choose a provider action to preview."
             } else install(if (kind == "rename") "Rename to $nextName" else "Format source",result,workspace)
         } catch (cancelled: CancellationException) { throw cancelled }
         catch (failure: Exception) { if (revision==request) notice=failure.message.orEmpty() }
@@ -160,6 +165,7 @@ class WorkspaceChanges {
             check(valid()){"Source, selection or provider changed. Prepare actions again."}
             action.optJSONObject("disabled")?.let{error(it.optString("reason","Provider action disabled"))}
             plan=null;notice="Resolving complete provider action…";var first:JSONObject?=resolve(action)
+            if(mode=="fixAll")check(first?.let{fileWideFixActions(listOf(it)).isNotEmpty()}==true){"The provider changed the complete file-wide action kind. Prepare again."}
             val acquired=acquireSourceProposal(initialSources,{
                 val resolved=first?.also{first=null} ?: run {
                     val candidates=queryActions().filter{it.optString("title")==action.optString("title")&&it.optString("kind")==action.optString("kind")}
@@ -167,6 +173,7 @@ class WorkspaceChanges {
                     resolve(candidates.single())
                 }
                 check(revision==request&&choiceRevision==choice&&valid()){"Source, selection or provider changed. Prepare actions again."}
+                if(mode=="fixAll")check(fileWideFixActions(listOf(resolved)).isNotEmpty()){"The provider changed the complete file-wide action kind. Prepare again."}
                 resolved.optJSONObject("disabled")?.let{error(it.optString("reason","Provider action disabled"))}
                 check(resolved.isNull("command")){"This action requires a provider command; its edit has not been applied."}
                 val edit=resolved.optJSONObject("edit")
@@ -220,7 +227,7 @@ The existing Edit menu presents this bounded floating dialog. Every affected sou
         Text("Workspace change preview",fontSize=16.sp); Text("Source drafts · not saved or verified",fontSize=11.sp)
         TextButton(onClick={changes.close(workspace)}) { Text("Close") }
         if (changes.mode=="rename") OutlinedTextField(changes.name,{changes.updateName(it)},label={Text("New symbol name")},singleLine=true)
-        if (changes.mode!="undo" && changes.mode!="redo" && changes.mode!="proposal") TextButton(enabled=changes.mode!="rename" || changes.name.isNotBlank(),onClick={scope.launch {changes.prepare(workspace)}}) { Text(if(changes.mode=="actions") "Prepare provider actions" else if(changes.mode=="format") "Prepare formatting" else if(changes.mode=="cleanup") "Prepare cleanup" else "Prepare rename") }
+        if (changes.mode!="undo" && changes.mode!="redo" && changes.mode!="proposal") TextButton(enabled=changes.mode!="rename" || changes.name.isNotBlank(),onClick={scope.launch {changes.prepare(workspace)}}) { Text(if(changes.mode=="fixAll") "Prepare file-wide diagnostic fixes" else if(changes.mode=="actions") "Prepare provider actions" else if(changes.mode=="format") "Prepare formatting" else if(changes.mode=="cleanup") "Prepare cleanup" else "Prepare rename") }
         if (changes.notice.isNotEmpty()) Text(changes.notice,fontSize=12.sp)
         for(index in changes.choices.indices.drop(changes.actionPage*100).take(100)) {
             val action=changes.choices[index]
@@ -344,6 +351,28 @@ import kotlinx.coroutines.*
 import org.json.JSONObject
 import org.json.JSONArray
 class ActionChoiceTest {
+ @Test fun liveOwnedBulkFixCommandReviewApplyAndUndo()=runBlocking {
+  val origin=System.getenv("HICKORY_BULK_ORIGIN");org.junit.Assume.assumeNotNull(origin);val root=java.io.File(System.getenv("HICKORY_BULK_WORKSPACE") ?: error("Owned workspace required"));check(java.io.File(root,".hickory-bulk-fixture").readText()=="owned-bulk-v1\n")
+  val ownedScope=CoroutineScope(SupervisorJob()+Dispatchers.Default);val w=Workspace(ownedScope);val e=Engine(origin!!);w.engine=e;val (_,tree)=e.files();w.rootFiles=tree
+  try{val f=tree.first{it.path=="a.py"};val b=w.loadBuffer(f);w.show(f.path);val state=b.state;val source=b.text;val scroll=b.sourceScroll;b.state.edit{selection=androidx.compose.ui.text.TextRange(2)};val selection=b.state.selection
+   val descriptors=commandDescriptors(javaClass.classLoader!!.getResourceAsStream("commands.json")!!.bufferedReader().use{it.readText()});val command=w.commands(descriptors).first{it.id=="symbol.fixAll"};assertNull(command.reason);command.run();assertEquals("fixAll",w.changes.mode)
+   withTimeout(20000){while(w.changes.choices.isEmpty()){w.changes.prepare(w);if(w.changes.choices.isEmpty())delay(100)}}
+   assertEquals(1,w.changes.choices.size);w.changes.choose(0,w);assertEquals(w.changes.notice,2,w.changes.plan?.patches?.size);assertEquals(source,b.text);assertEquals(selection,b.state.selection);assertSame(state,b.state);assertSame(scroll,b.sourceScroll);assertEquals(source,java.io.File(root,"a.py").readText());assertEquals(source,java.io.File(root,"other.py").readText())
+   w.changes.apply(w);assertEquals("python_fixed = 1\n",b.text);assertEquals("other_fixed = 1\n",w.buffers["other.py"]?.text);w.changes.open("undo",w);assertEquals(source,b.text);assertEquals(source,w.buffers["other.py"]?.text);w.changes.open("redo",w);assertEquals("python_fixed = 1\n",b.text);assertSame(state,b.state);assertSame(scroll,b.sourceScroll);assertEquals(source,java.io.File(root,"a.py").readText());assertEquals(source,java.io.File(root,"other.py").readText())
+  }finally{w.buffers.values.forEach{it.language?.close()};ownedScope.cancel()}
+ }
+
+ @Test fun completeFileFixChoiceFiltersPreviewsAndUsesCoordinatedUndo()=runBlocking {
+  val w=Workspace(this);val e=Engine("http://127.0.0.1:1");val f=FileNode("a.py","a.py",false,emptyList(),null,null);val b=DocumentBuffer(f,FileText("old\n","base"));b.language=NativeLanguage(e,b,this);w.buffers[f.path]=b;w.show(f.path)
+  val action=JSONObject().put("title","Fix all").put("kind","source.fixAll.provider").put("edit",JSONObject().put("changes",JSONObject().put(languageURI(f.path),JSONArray().put(JSONObject().put("range",JSONObject().put("start",JSONObject().put("line",0).put("character",0)).put("end",JSONObject().put("line",0).put("character",3))).put("newText","new")))))
+  val choices=JSONArray().put(action).put(JSONObject().put("title","single").put("kind","quickfix")).put(JSONObject().put("title","unclassified")).put(JSONObject().put("title","prefix").put("kind","source.fixAllWrong"))
+  w.changes.open("fixAll",w);w.changes.prepare(w,{kind,_->assertEquals("fixAll",kind);choices});assertEquals(1,w.changes.choices.size);w.changes.choose(0,w);assertEquals("new\n",w.changes.plan?.patches?.first()?.after);assertEquals("old\n",b.text)
+  w.changes.apply(w);assertEquals("new\n",b.text);w.changes.open("undo",w);assertEquals("old\n",b.text);w.changes.open("redo",w);assertEquals("new\n",b.text)
+  w.changes.open("fixAll",w);w.changes.prepare(w,{_,_->JSONArray().put(JSONObject().put("kind","quickfix"))});assertTrue(w.changes.choices.isEmpty());assertTrue(w.changes.notice.contains("no file-wide"))
+  w.changes.open("fixAll",w);w.changes.prepare(w,{_,_->b.state.edit{replace(0,length,"later")};b.advanceSourceRevision();b.state.edit{replace(0,length,"new\n")};b.advanceSourceRevision();JSONArray().put(action)});assertTrue(w.changes.choices.isEmpty());assertNull(w.changes.plan)
+  w.changes.open("fixAll",w);w.changes.prepare(w,{_,_->JSONArray().put(action)},{JSONObject(action.toString()).put("kind","quickfix")});w.changes.choose(0,w);assertNull(w.changes.plan);assertEquals("new\n",b.text)
+ }
+
  @Test fun unopenedActionTargetsAcquireThenRequeryAndRefuseAmbiguousChoices()=runBlocking {
   val workspace=Workspace(this);val engine=Engine("http://127.0.0.1:1");val file=FileNode("a.py","a.py",false,emptyList(),null,null)
   val buffer=DocumentBuffer(file,FileText("old\n","base"));buffer.language=NativeLanguage(engine,buffer,this);workspace.buffers[file.path]=buffer;workspace.show(file.path)

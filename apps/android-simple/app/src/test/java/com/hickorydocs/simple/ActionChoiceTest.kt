@@ -5,6 +5,28 @@ import kotlinx.coroutines.*
 import org.json.JSONObject
 import org.json.JSONArray
 class ActionChoiceTest {
+ @Test fun liveOwnedBulkFixCommandReviewApplyAndUndo()=runBlocking {
+  val origin=System.getenv("HICKORY_BULK_ORIGIN");org.junit.Assume.assumeNotNull(origin);val root=java.io.File(System.getenv("HICKORY_BULK_WORKSPACE") ?: error("Owned workspace required"));check(java.io.File(root,".hickory-bulk-fixture").readText()=="owned-bulk-v1\n")
+  val ownedScope=CoroutineScope(SupervisorJob()+Dispatchers.Default);val w=Workspace(ownedScope);val e=Engine(origin!!);w.engine=e;val (_,tree)=e.files();w.rootFiles=tree
+  try{val f=tree.first{it.path=="a.py"};val b=w.loadBuffer(f);w.show(f.path);val state=b.state;val source=b.text;val scroll=b.sourceScroll;b.state.edit{selection=androidx.compose.ui.text.TextRange(2)};val selection=b.state.selection
+   val descriptors=commandDescriptors(javaClass.classLoader!!.getResourceAsStream("commands.json")!!.bufferedReader().use{it.readText()});val command=w.commands(descriptors).first{it.id=="symbol.fixAll"};assertNull(command.reason);command.run();assertEquals("fixAll",w.changes.mode)
+   withTimeout(20000){while(w.changes.choices.isEmpty()){w.changes.prepare(w);if(w.changes.choices.isEmpty())delay(100)}}
+   assertEquals(1,w.changes.choices.size);w.changes.choose(0,w);assertEquals(w.changes.notice,2,w.changes.plan?.patches?.size);assertEquals(source,b.text);assertEquals(selection,b.state.selection);assertSame(state,b.state);assertSame(scroll,b.sourceScroll);assertEquals(source,java.io.File(root,"a.py").readText());assertEquals(source,java.io.File(root,"other.py").readText())
+   w.changes.apply(w);assertEquals("python_fixed = 1\n",b.text);assertEquals("other_fixed = 1\n",w.buffers["other.py"]?.text);w.changes.open("undo",w);assertEquals(source,b.text);assertEquals(source,w.buffers["other.py"]?.text);w.changes.open("redo",w);assertEquals("python_fixed = 1\n",b.text);assertSame(state,b.state);assertSame(scroll,b.sourceScroll);assertEquals(source,java.io.File(root,"a.py").readText());assertEquals(source,java.io.File(root,"other.py").readText())
+  }finally{w.buffers.values.forEach{it.language?.close()};ownedScope.cancel()}
+ }
+
+ @Test fun completeFileFixChoiceFiltersPreviewsAndUsesCoordinatedUndo()=runBlocking {
+  val w=Workspace(this);val e=Engine("http://127.0.0.1:1");val f=FileNode("a.py","a.py",false,emptyList(),null,null);val b=DocumentBuffer(f,FileText("old\n","base"));b.language=NativeLanguage(e,b,this);w.buffers[f.path]=b;w.show(f.path)
+  val action=JSONObject().put("title","Fix all").put("kind","source.fixAll.provider").put("edit",JSONObject().put("changes",JSONObject().put(languageURI(f.path),JSONArray().put(JSONObject().put("range",JSONObject().put("start",JSONObject().put("line",0).put("character",0)).put("end",JSONObject().put("line",0).put("character",3))).put("newText","new")))))
+  val choices=JSONArray().put(action).put(JSONObject().put("title","single").put("kind","quickfix")).put(JSONObject().put("title","unclassified")).put(JSONObject().put("title","prefix").put("kind","source.fixAllWrong"))
+  w.changes.open("fixAll",w);w.changes.prepare(w,{kind,_->assertEquals("fixAll",kind);choices});assertEquals(1,w.changes.choices.size);w.changes.choose(0,w);assertEquals("new\n",w.changes.plan?.patches?.first()?.after);assertEquals("old\n",b.text)
+  w.changes.apply(w);assertEquals("new\n",b.text);w.changes.open("undo",w);assertEquals("old\n",b.text);w.changes.open("redo",w);assertEquals("new\n",b.text)
+  w.changes.open("fixAll",w);w.changes.prepare(w,{_,_->JSONArray().put(JSONObject().put("kind","quickfix"))});assertTrue(w.changes.choices.isEmpty());assertTrue(w.changes.notice.contains("no file-wide"))
+  w.changes.open("fixAll",w);w.changes.prepare(w,{_,_->b.state.edit{replace(0,length,"later")};b.advanceSourceRevision();b.state.edit{replace(0,length,"new\n")};b.advanceSourceRevision();JSONArray().put(action)});assertTrue(w.changes.choices.isEmpty());assertNull(w.changes.plan)
+  w.changes.open("fixAll",w);w.changes.prepare(w,{_,_->JSONArray().put(action)},{JSONObject(action.toString()).put("kind","quickfix")});w.changes.choose(0,w);assertNull(w.changes.plan);assertEquals("new\n",b.text)
+ }
+
  @Test fun unopenedActionTargetsAcquireThenRequeryAndRefuseAmbiguousChoices()=runBlocking {
   val workspace=Workspace(this);val engine=Engine("http://127.0.0.1:1");val file=FileNode("a.py","a.py",false,emptyList(),null,null)
   val buffer=DocumentBuffer(file,FileText("old\n","base"));buffer.language=NativeLanguage(engine,buffer,this);workspace.buffers[file.path]=buffer;workspace.show(file.path)
