@@ -55,7 +55,7 @@ describe("when the popup opens at all", () => {
 
   it("completes from nothing when it was asked for explicitly", () => {
     // Ctrl-Space means "show me now", which is a different question.
-    expect(wordBefore(contextAt("x = ", 4, true))).toBeNull();
+    expect(wordBefore(contextAt("x = ", 4, true))).toEqual({from:4,text:""});
     expect(wordBefore(contextAt("x = tot", 7, true))?.text).toBe("tot");
   });
 
@@ -129,4 +129,12 @@ describe("the combined list", () => {
     const result = await source(contextAt("tot", 3));
     expect("total".match(result!.validFor as RegExp)).toBeTruthy();
   });
+});
+
+describe('source-bound Unicode and provider trigger contexts',()=>{
+ it('finds Unicode and combining identifiers with UTF16 source ranges',()=>{expect(wordBefore(contextAt('λ值',2,true))).toEqual({from:0,text:'λ值'});expect(wordBefore(contextAt('𐐨e\u0301',4,true))).toEqual({from:0,text:'𐐨e\u0301'});expect(wordBefore(contextAt('object.',7,true))).toEqual({from:7,text:''});expect(wordBefore(contextAt('',0,true))).toEqual({from:0,text:''});expect(wordBefore(contextAt('😀',1,true))).toBeNull();});
+ it('does not return the tail of a truncated long identifier as a replacement range',()=>{expect(wordBefore(contextAt('a'.repeat(500),500,true))).toBeNull();});
+ it('queries at an empty explicit cursor with standard invoked context',async()=>{const calls:unknown[][]=[];const client={completion:async(...args:unknown[])=>{calls.push(args);return[{label:'available'}]},serverCapabilities:null} as never;const result=await completionSource({lsp:{client,uri:'hick:///a.ts',positionAt:()=>({line:0,character:0})}})(contextAt('',0,true));expect(result?.from).toBe(0);expect(result?.options[0].label).toBe('available');expect(calls).toEqual([['hick:///a.ts',{line:0,character:0},{triggerKind:1}]]);});
+ it('uses only the producing provider advertised trigger characters',async()=>{const calls:unknown[][]=[];const client={completion:async(...args:unknown[])=>{calls.push(args);return[{label:'member'}]},serverCapabilities:{completionProvider:{triggerCharacters:['.']}}} as never;const source=completionSource({lsp:{client,uri:'hick:///a.ts',positionAt:(offset)=>({line:0,character:offset})}});expect((await source(contextAt('obj.',4)))?.from).toBe(4);expect(calls[0]).toEqual(['hick:///a.ts',{line:0,character:4},{triggerKind:2,triggerCharacter:'.'}]);expect(await source(contextAt('obj:',4))).toBeNull();expect(calls).toHaveLength(1);});
+ it('retains the captured trigger while capability data changes and drops retired contexts',async()=>{let release!:(items:{label:string}[])=>void;const calls:unknown[][]=[];const capabilities={completionProvider:{triggerCharacters:['.']}};const client={completion:(...args:unknown[])=>{calls.push(args);return new Promise<{label:string}[]>(resolve=>{release=resolve})},get serverCapabilities(){return capabilities}} as never;const context=contextAt('obj.',4),pending=completionSource({lsp:{client,uri:'hick:///a.ts',positionAt:()=>({line:0,character:4})}})(context);capabilities.completionProvider.triggerCharacters=[':'];Object.defineProperty(context,'aborted',{value:true});release([{label:'retired'}]);expect(await pending).toBeNull();expect(calls[0][2]).toEqual({triggerKind:2,triggerCharacter:'.'});});
 });

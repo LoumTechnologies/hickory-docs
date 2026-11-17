@@ -72982,6 +72982,39 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "fragments": [
         "exact-failed-js-native-driver"
       ]
+    },
+    "apps/web/src/simple/SourceText.ts": {
+      "source": ".hickory-source/mechanisms/browser-source-text.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "5e8e5ec35e3f504f837bfd58abe55a6329813b45cc0e836cd8e19e9c00982782",
+      "construction": "fragments",
+      "fragments": [
+        "browser-source-text-core"
+      ]
+    },
+    "apps/web/src/simple/SourceText.test.ts": {
+      "source": ".hickory-source/mechanisms/browser-source-text.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "test",
+      "sha256": "56eacc2532f184dc03df78c6fe1e30296096f0c40c289faf6eebd450e472a655",
+      "construction": "fragments",
+      "fragments": [
+        "browser-source-text-tests"
+      ]
+    },
+    "scripts/test-browser-source-text.py": {
+      "source": ".hickory-source/frontends/browser-source-text-witness.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "63b6f7f59cc7d18d821fe2e2754e6f824f5309cfb6700522a9b6dfde44acb133",
+      "construction": "fragments",
+      "fragments": [
+        "browser-source-text-witness"
+      ]
     }
   },
   "evidence_records": [

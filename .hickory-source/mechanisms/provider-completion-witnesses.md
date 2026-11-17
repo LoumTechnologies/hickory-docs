@@ -26,6 +26,15 @@ try{
  for(const [uri,languageId,text]of[[a,'python','value = 1\n'],[b,'typescript','value = 2;\n']])send({method:'textDocument/didOpen',params:{textDocument:{uri,languageId,version:1,text}}});
  await Promise.race([ready,new Promise((_,reject)=>setTimeout(()=>reject(new Error('No server capabilities')),20000).unref())]);
  for(const uri of[a,b])await request('textDocument/documentSymbol',{textDocument:{uri}});
+ const readEvents=async()=> (await readFile(process.argv[3],'utf8').catch(()=> '')).split('\n').filter(Boolean).map(line=>JSON.parse(line));
+ const beforeUnsupported=(await readEvents()).filter(event=>event.completion_query).length;
+ const unsupported=await request('textDocument/completion',{textDocument:{uri:a},position,context:{triggerKind:2,triggerCharacter:':'}});
+ assert.deepEqual(Array.isArray(unsupported)?unsupported:unsupported?.items??[],[]);
+ assert.equal((await readEvents()).filter(event=>event.completion_query).length,beforeUnsupported,'An unsupported implicit child trigger must not issue a child RPC');
+ await assert.rejects(request('textDocument/completion',{textDocument:{uri:a},position,context:{triggerKind:99}}),/trigger kind|invalid params/i);
+ assert.equal((await readEvents()).filter(event=>event.completion_query).length,beforeUnsupported,'Invalid trigger metadata must not issue a child RPC');
+ const explicit=await request('textDocument/completion',{textDocument:{uri:a},position,context:{triggerKind:1}});assert.ok((Array.isArray(explicit)?explicit:explicit.items).length>0);
+ assert.ok((await readEvents()).some(event=>event.completion_query==='python'&&event.context?.triggerKind===1&&!Object.hasOwn(event.context,'triggerCharacter')),'Explicit invocation remains explicit without a forged trigger character');
  const complete=uri=>request('textDocument/completion',{textDocument:{uri},position,context:{triggerKind:2,triggerCharacter:'.'}});
  const first=(await complete(a)).items[0],second=(await complete(b)).items[0];assert.deepEqual(Object.keys(first.data),['hickory_completion']);assert.equal(first.textEdit.newText,'python_initial');
  const changed={...first,label:'Caller substitution',insertText:'must-not-insert',command:{title:'Injected',command:'must-not-execute'}};
@@ -50,7 +59,7 @@ try{
 
 ## Use an isolated engine and controlled children
 
-Reuse the isolated provider fixture with its own source workspace and event/gate paths. The driver checks trigger context and exact resolver events; the runner also requires no action execution and unchanged source files. These checks establish protocol behavior, not a language server's semantic completeness.
+Reuse the isolated provider fixture with its own source workspace and event/gate paths. The driver checks captured child trigger context, absence of a child RPC for unsupported or invalid implicit triggers, explicit invocation, and exact resolver events; the runner also requires no action execution and unchanged source files. These checks establish protocol behavior, not a language server's semantic completeness.
 
 <ui:copy id="completion-protocol-runner">
 """Run the completion protocol against an isolated real engine."""

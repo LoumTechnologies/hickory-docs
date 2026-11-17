@@ -1,3 +1,4 @@
+import {authoredSource,authoredOffset,editorOffset} from './SourceText';
 import { SourceTestGutterProvider, SOURCE_TEST_INSPECTION, type SourceTestInspection } from "./SourceTestGutters";
 import {SourceCoverageProvider,SOURCE_COVERAGE_INSPECTION} from "./SourceCoverage";
 import {SimpleCoverageView} from "./SimpleCoverageView";
@@ -128,7 +129,7 @@ export function App() {
     if (!path) return;
     if (path === source.file.path) { if(source.resourceDeleted)setNotice("This source was deleted. Choose a new unused path to save its retained text.");else await source.save(); return; }
     const text = source.text,editor=editorForBuffer(source),interaction=editor?.interaction,placement=liveLayout.current;
-    const current=()=>liveLayout.current===placement&&!!editor&&editorForBuffer(source)===editor&&editor.view.dom.isConnected&&!editor.view.composing&&editor.interaction===interaction&&editor.view.state.doc.toString()===text;
+    const current=()=>liveLayout.current===placement&&!!editor&&editorForBuffer(source)===editor&&editor.view.dom.isConnected&&!editor.view.composing&&editor.interaction===interaction&&authoredSource(editor.view.state)===text;
     source.saving = true; source.publish();
     try {
       const copy=await createSourceCopy(buffers,source,path,request,current);
@@ -191,7 +192,7 @@ export function App() {
   }
   function currentLocation(): SemanticLocation | null {
     const view = buffer && editorForBuffer(buffer)?.view; if (!buffer || !view) return null;
-    const start = utf16ToPosition(buffer.text, view.state.selection.main.head);
+    const start = utf16ToPosition(buffer.text, authoredOffset(view.state,view.state.selection.main.head));
     return { uri: documentUri(buffer.file.path), range: { start, end: start } };
   }
   function navigateHistory(direction: -1 | 1) {
@@ -235,7 +236,7 @@ export function App() {
     const departed = currentLocation(); await open(file);
     const target = buffers.values.get(file.path); if (!target) return;
     const view = editorForBuffer(target)?.view;
-    const start = view ? utf16ToPosition(target.text, view.state.selection.main.head) : { line: 0, character: 0 };
+    const start = view ? utf16ToPosition(target.text, authoredOffset(view.state,view.state.selection.main.head)) : { line: 0, character: 0 };
     trail.record(departed, { uri: documentUri(file.path), range: { start, end: start } }); refreshTrail(value => value + 1);
   }
   function close(tab: string) {
@@ -376,7 +377,7 @@ export function App() {
       const offset=constructionPointOffset(source,point,hash),valid=()=>current()&&workspaceIdentity.current===identity&&target.text===source;
       if(!valid())return;if(offset===null)throw new Error("Source changed or position is unavailable. Refresh the construction reading.");
       const departed=currentLocation();await open(file);if(!valid())return;
-      for(let attempt=0;attempt<20;attempt++){if(!valid())return;const view=editorForBuffer(target)?.view;if(view?.dom.isConnected){if(view.state.doc.toString()!==source)throw new Error("Editor source changed. Refresh the construction reading.");view.dispatch({selection:{anchor:offset},scrollIntoView:true});view.focus();const start={line:point.line-1,character:point.character};trail.record(departed,{uri:documentUri(point.path),range:{start,end:start}});refreshTrail(value=>value+1);setShowConstruction(false);return;}await new Promise<void>(resolve=>requestAnimationFrame(()=>resolve()));}
+      for(let attempt=0;attempt<20;attempt++){if(!valid())return;const view=editorForBuffer(target)?.view;if(view?.dom.isConnected){if(authoredSource(view.state)!==source)throw new Error("Editor source changed. Refresh the construction reading.");view.dispatch({selection:{anchor:editorOffset(view.state,offset)},scrollIntoView:true});view.focus();const start={line:point.line-1,character:point.character};trail.record(departed,{uri:documentUri(point.path),range:{start,end:start}});refreshTrail(value=>value+1);setShowConstruction(false);return;}await new Promise<void>(resolve=>requestAnimationFrame(()=>resolve()));}
       throw new Error("Source opened but its editor is not ready. Try the source link again.");
     }} close={()=>{setShowConstruction(false);if(buffer)editorForBuffer(buffer)?.view.focus();}} />}
     {attributionPath!==null&&<GitAttributionView key={"attribution:"+workspaceRoot} workspace={workspaceRoot} path={attributionPath} close={()=>{setAttributionPath(null);if(buffer)editorForBuffer(buffer)?.view.focus();}} readCommit={(sha,title)=>{setAttributionPath(null);setShowReview(false);setHistoryRequest({kind:'commit',sha,title});setShowHistory(true);}} />}

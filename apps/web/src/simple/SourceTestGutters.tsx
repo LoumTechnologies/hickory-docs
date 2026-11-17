@@ -1,3 +1,4 @@
+import {authoredSource} from './SourceText';
 import {createContext,useContext,useEffect,useMemo,useSyncExternalStore,type ReactNode} from "react";
 import type {EditorView} from "@codemirror/view";
 import {api} from "../api/client";
@@ -21,7 +22,7 @@ export function useSourceTestLineActions(buffer:Buffer,view:EditorView|null) {
     read();return buffer.subscribe(read);
   },[index,buffer,buffer.resourceDeleted]);
   const record=index?.current(buffer.file.path,buffer.text);
-  if(buffer.resourceDeleted||!view||view.state.doc.toString()!==buffer.text.replace(/\r\n/g,"\n"))return [];
+  if(buffer.resourceDeleted||!view||authoredSource(view.state)!==buffer.text)return [];
   const grouped=new Map<number,string[]>();
   for(const row of indexedTestRows(record)){const names=grouped.get(row.line)??[];names.push(row.candidate.name);grouped.set(row.line,names);}
   return [...grouped].filter(([line])=>line<view.state.doc.lines).map(([line,names])=>({at:view.state.doc.line(line+1).from,label:`Inspect source tests: ${names.join(", ")}`,run:()=>{

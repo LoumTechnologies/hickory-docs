@@ -34,6 +34,8 @@ export function beginCompletionAcceptance(view:EditorView,notice:(message:string
 
 An optional source-editor adapter retains the actual native choice and query selection, resolves through its producing client and rechecks attachment, source, selection, provider, permissions, saving and composition before planning. This bridge currently requires one caret; multiple-carets are retained and refused until independently captured proposals can be combined. An offered query and its pending acceptance retain the original document object and the shared editor-input intent token. Source edits, undo and cursor round trips advance that token; harmless popup/capability effects preserve it. Equal bytes or a restored cursor cannot revive an old query. The whole source/import plan passes the shared input guard and transaction preparation before one synchronous update with isolated undo. A following selection-only transaction in that same update records the final selection for CodeMirror redo; it adds no second document edit or separate undo step. Guarded no-op selection is supported; a late or replaced job cannot write source or overwrite a newer status.
 
+Provider edits, snippet fields and retained source hashes use authored UTF-16 coordinates. The browser converts popup replacement offsets to authored positions once, prepares the entire raw edit with its line-ending proof, then maps only the final caret back into the display. Applied status and Undo/Redo checks compare exact authored bytes, including mixed line endings.
+
 <ui:copy id="completion-acceptance-browser">
 import {isolateHistory} from '@codemirror/commands';
 import {EditorState} from '@codemirror/state';
@@ -46,21 +48,22 @@ import {prepareEditorChanges} from '../editor/textInput';
 import {planCompletion} from './CompletionPlan';
 import {completionExpansion} from './SnippetExpansion';
 import {sourceSnippetEffect,continueSourceSnippetCompletion,readSourceSnippet,readSourceEditorIntent} from './SourceSnippets';
+import {authoredSource,authoredOffset,editorOffsetIn,authoredChanges} from './SourceText';
 export interface SourceCompletionAdapter {
  uri:string;resolve:(item:CompletionItem)=>Promise<CompletionItem>;current:()=>boolean;writable:()=>boolean;notice:(text:string)=>void;
 }
 const querySnapshots=new WeakMap<EditorState,{source:string;selection:EditorState['selection'];document:EditorState['doc'];intent:symbol|undefined}>();
 export function sourceCompletion(item:CompletionItem,context:CompletionContext,adapter:SourceCompletionAdapter):Completion {
  let snapshot=querySnapshots.get(context.state);
- if(!snapshot){snapshot={source:context.state.doc.toString(),selection:context.state.selection,document:context.state.doc,intent:readSourceEditorIntent(context.state)};querySnapshots.set(context.state,snapshot);}
+ if(!snapshot){snapshot={source:authoredSource(context.state),selection:context.state.selection,document:context.state.doc,intent:readSourceEditorIntent(context.state)};querySnapshots.set(context.state,snapshot);}
  const {source,selection,document,intent}=snapshot,original=structuredClone(item);
  const label=typeof item.filterText==='string'?item.filterText:item.label;
- return {...lspCompletion(item),label,...(label!==item.label?{displayLabel:item.label}:{}),apply:(view,completion,from,to)=>{closeCompletion(view);void acceptSourceCompletion(view,original,source,selection,from,to,{...adapter,current:()=>adapter.current()&&view.state.doc===document&&readSourceEditorIntent(view.state)===intent},completion);}};
+ return {...lspCompletion(item),label,...(label!==item.label?{displayLabel:item.label}:{}),apply:(view,completion,from,to)=>{closeCompletion(view);try{void acceptSourceCompletion(view,original,source,selection,authoredOffset(view.state,from),authoredOffset(view.state,to),{...adapter,current:()=>adapter.current()&&view.state.doc===document&&readSourceEditorIntent(view.state)===intent},completion);}catch(error){adapter.notice(error instanceof Error?error.message:String(error));}}};
 }
 export async function acceptSourceCompletion(view:EditorView,item:CompletionItem,source:string,selection:EditorState['selection'],from:number,to:number,adapter:SourceCompletionAdapter,completion?:Completion):Promise<void> {
  const request=beginCompletionAcceptance(view,adapter.notice),snippetContext=readSourceSnippet(view),document=view.state.doc,intent=readSourceEditorIntent(view.state);
  let expectedAfter:string|undefined;
- const valid=()=>!request.cancelled()&&request.current()&&readSourceSnippet(view)===snippetContext&&view.state.doc===document&&readSourceEditorIntent(view.state)===intent&&adapter.current()&&view.dom.isConnected&&view.state.doc.toString()===source&&view.state.selection.eq(selection)&&adapter.writable()&&!view.composing&&!view.state.readOnly&&view.state.facet(EditorView.editable);
+ const valid=()=>!request.cancelled()&&request.current()&&readSourceSnippet(view)===snippetContext&&view.state.doc===document&&readSourceEditorIntent(view.state)===intent&&adapter.current()&&view.dom.isConnected&&authoredSource(view.state)===source&&view.state.selection.eq(selection)&&adapter.writable()&&!view.composing&&!view.state.readOnly&&view.state.facet(EditorView.editable);
  const report=(text:string)=>{if(request.current())adapter.notice(text);};
  try {
   if(request.cancelled())return;
@@ -75,16 +78,17 @@ export async function acceptSourceCompletion(view:EditorView,item:CompletionItem
   const patch=draft.plan.patches[0],after=patch?.after??source,changes=(patch?.edits??[]).map(edit=>({from:edit.from,to:edit.to,insert:edit.text}));
   const input=prepareEditorChanges(source,changes);if('reason' in input)throw new Error(input.reason);
   if(!valid())throw new Error('Source, cursor or provider changed. Request completions again.');
-  const transaction=view.state.update({changes,selection:{anchor:draft.selection.from,head:draft.selection.to},effects:sourceSnippetEffect(draft,after),annotations:[isolateHistory.of('full'),...(completion?[pickedCompletion.of(completion)]:[])],userEvent:'input.complete',filter:false});
-  if(transaction.newDoc.toString()!==after)throw new Error('Editor could not prepare the complete completion. Request again.');
+  const raw=authoredChanges(view.state,changes),rawEffects=raw.effects?[raw.effects].flat():[];
+  const transaction=view.state.update({...raw,selection:{anchor:editorOffsetIn(after,draft.selection.from),head:editorOffsetIn(after,draft.selection.to)},effects:[...rawEffects,sourceSnippetEffect(draft,after)],annotations:[isolateHistory.of('full'),...(completion?[pickedCompletion.of(completion)]:[])],userEvent:'input.complete',filter:false});
+  if(authoredSource(transaction.state)!==after)throw new Error('Editor could not prepare the complete completion. Request again.');
   // CodeMirror records the redo selection from a following selection event;
   // otherwise it maps the old caret through the replacement and loses fields.
-  const retainedSelection=transaction.docChanged?transaction.state.update({selection:transaction.newSelection,userEvent:'select.complete',filter:false}):null;
+  const retainedSelection=after!==source?transaction.state.update({selection:transaction.newSelection,userEvent:'select.complete',filter:false}):null;
   expectedAfter=after;request.update({phase:'applying'});view.update(retainedSelection?[transaction,retainedSelection]:[transaction]);
-  const applied=view.state.doc.toString()===after;
-  request.update({phase:applied?'applied':'unavailable',applied,source_changed:applied&&transaction.docChanged,message:applied?'Completion applied to draft.':'Editor could not reflect the complete completion. Inspect the current draft.'});
-  report(applied?(transaction.docChanged?'Completion applied · draft':'Completion selected'):'Editor could not reflect the complete completion. Inspect the current draft.');
- }catch(error){if((request.current()||expectedAfter!==undefined)&&!request.cancelled()){const applied=expectedAfter!==undefined&&view.state.doc.toString()===expectedAfter,message=error instanceof Error?error.message:String(error);request.update({phase:'unavailable',message,applied,source_changed:applied&&source!==expectedAfter});report(message);}}
+  const applied=authoredSource(view.state)===after;
+  request.update({phase:applied?'applied':'unavailable',applied,source_changed:applied&&source!==after,message:applied?'Completion applied to draft.':'Editor could not reflect the complete completion. Inspect the current draft.'});
+  report(applied?(source!==after?'Completion applied · draft':'Completion selected'):'Editor could not reflect the complete completion. Inspect the current draft.');
+ }catch(error){if((request.current()||expectedAfter!==undefined)&&!request.cancelled()){const applied=expectedAfter!==undefined&&authoredSource(view.state)===expectedAfter,message=error instanceof Error?error.message:String(error);request.update({phase:'unavailable',message,applied,source_changed:applied&&source!==expectedAfter});report(message);}}
 }
 </ui:copy>
 
@@ -104,9 +108,10 @@ import {readCompletionAcceptance,waitCompletionAcceptance,cancelCompletionAccept
 import type {CompletionItem} from '../lsp/client';
 import {CompletionContext} from '@codemirror/autocomplete';
 import {sourceSnippets,dispatchSourceSnippetTransactions} from './SourceSnippets';
+import {sourceText,authoredSource,editorOffsetIn} from './SourceText';
 import snippetVectors from '../../../simple-contract/snippet-expansion-cases.json';
 function held(){let resolve!:(value:CompletionItem)=>void;const promise=new Promise<CompletionItem>(done=>{resolve=done;});return {promise,resolve};}
-function fixture(){const parent=document.body.appendChild(document.createElement('div'));const view=new EditorView({dispatchTransactions:dispatchSourceSnippetTransactions,state:EditorState.create({doc:'va\n',selection:{anchor:2},extensions:[history(),sourceSnippets({writable:()=>true,notice:()=>{}})]}),parent});return {view,close:()=>{view.destroy();parent.remove();}};}
+function fixture(source='va\n',caret=2){const parent=document.body.appendChild(document.createElement('div'));const view=new EditorView({dispatchTransactions:dispatchSourceSnippetTransactions,state:EditorState.create({doc:source,selection:{anchor:editorOffsetIn(source,caret)},extensions:[history(),sourceText(source),sourceSnippets({writable:()=>true,notice:()=>{}})]}),parent});return {view,close:()=>{view.destroy();parent.remove();}};}
 const raw={label:'value',data:{hickory_completion:'held'}};
 function resolved(text='value'):CompletionItem {return {...raw,textEdit:{range:{start:{line:0,character:0},end:{line:0,character:2}},newText:text},additionalTextEdits:[{range:{start:{line:0,character:0},end:{line:0,character:0}},newText:'# import\n'}]};}
 it('waits for the whole resolved import edit, commits one undo and maps the caret',async()=>{
@@ -154,6 +159,15 @@ it('an offered query cannot revive after equal-byte undo or a cursor round trip'
 });
 it('a pending provider cannot revive after equal-byte undo or a cursor round trip',async()=>{
  for(const sourceABA of[true,false]){const {view,close}=fixture(),pending=held();try{const work=acceptSourceCompletion(view,raw,'va\n',view.state.selection,0,2,{uri:'hick:///a.py',resolve:()=>pending.promise,current:()=>true,writable:()=>true,notice:()=>{}});if(sourceABA){view.dispatch({changes:{from:0,to:2,insert:'xy'},selection:{anchor:2},userEvent:'input.type'});expect(undo(view)).toBe(true)}else{view.dispatch({selection:{anchor:0}});view.dispatch({selection:{anchor:2}})}pending.resolve(resolved());await work;expect(view.state.doc.toString()).toBe('va\n');expect(view.state.selection.main.head).toBe(2);expect(readCompletionAcceptance(view)?.phase).toBe('unavailable')}finally{close()}}
+});
+
+it('applies complete raw CRLF edits through a normalized editor and restores exact bytes with Undo and Redo',async()=>{
+ const source='head\r\nva\r\nend\n',after='# imported\r\nhead\r\nλ😀\nnext\r\nend\n',{view,close}=fixture(source,8);
+ try{const item=sourceCompletion(raw,new CompletionContext(view.state,7,true),{uri:'hick:///a.py',resolve:async()=>({...raw,textEdit:{range:{start:{line:1,character:0},end:{line:1,character:2}},newText:'λ😀\nnext'},additionalTextEdits:[{range:{start:{line:0,character:0},end:{line:0,character:0}},newText:'# imported\r\n'}]}),current:()=>true,writable:()=>true,notice:()=>{}});
+  (item.apply as Exclude<typeof item.apply,string|undefined>)(view,item,5,7);await waitCompletionAcceptance(view,readCompletionAcceptance(view)!.job);
+  expect(readCompletionAcceptance(view)?.phase).toBe('applied');expect(authoredSource(view.state)).toBe(after);expect(view.state.doc.toString()).toBe(after.replace(/\r\n/g,'\n'));const caret=view.state.selection.main.head;
+  expect(undo(view)).toBe(true);expect(authoredSource(view.state)).toBe(source);expect(view.state.selection.main.head).toBe(7);expect(redo(view)).toBe(true);expect(authoredSource(view.state)).toBe(after);expect(view.state.selection.main.head).toBe(caret);
+ }finally{close()}
 });
 </ui:copy>
 

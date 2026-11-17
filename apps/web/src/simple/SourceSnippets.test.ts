@@ -2,9 +2,9 @@ import {expect,it,vi} from 'vitest';
 import {EditorState} from '@codemirror/state';
 import {EditorView} from '@codemirror/view';
 import {history,undo,redo} from '@codemirror/commands';
-import {acceptCompletion,completionStatus,setSelectedCompletion} from '@codemirror/autocomplete';
+import {acceptCompletion,completionStatus,setSelectedCompletion,CompletionContext} from '@codemirror/autocomplete';
 import {waitFor} from '@testing-library/react';
-import {completions} from '../lsp/completion';
+import {completions,exclusiveCompletionSources} from '../lsp/completion';
 import {beginSnippet} from './SnippetSession';
 import {sourceSnippets,setSourceSnippet,readSourceSnippet,moveSourceSnippet,openSourceSnippetChoices,dispatchSourceSnippetTransactions,createSourceSnippetHistory} from './SourceSnippets';
 import type {SnippetField} from './SnippetExpansion';
@@ -105,4 +105,11 @@ it('computed child selection retires linked intent and leaves ordinary parent in
 });
 it('computed program storage is charged before retaining or evicting editor history',()=>{
  const history=createSourceSnippetHistory(200),selection=EditorState.create().selection,token=history.hold({source:'',session:null,selection});const transform=readSnippetTransform(derived.programs.upper),session=beginSnippet('foo FOO',[field(0,1,0,3),{...field(1,1,4,7),transform},field(2,0,7,7)]);expect(session).not.toBeNull();const oversized=history.hold({source:'foo FOO',session,selection});expect(history.read(oversized)).toBeUndefined();expect(history.read(token)).toBeDefined();
+});
+
+it('old local choice objects cannot revive after undo or field-only scope restoration',async()=>{
+ for(const mode of['undo','scope'] as const){const fields=[field(0,1,0,1,['a','long']),field(1,1,4,5,['a','long']),field(2,0,5,5)],{view,notices,close}=fixture('a + a',fields);try{const original=readSourceSnippet(view),source=view.state.facet(exclusiveCompletionSources)[0],result=await source(new CompletionContext(view.state,1,true)),choice=result!.options.find(item=>item.label==='long')!;if(mode==='undo'){view.dispatch({changes:{from:0,to:1,insert:'x'},selection:{anchor:1},userEvent:'input.type'});expect(undo(view)).toBe(true)}else{view.dispatch({effects:setSourceSnippet.of(null)});view.dispatch({effects:setSourceSnippet.of(original)})}if(mode==='scope')expect(readSourceSnippet(view)).toBe(original);else expect(readSourceSnippet(view)).toEqual(original);expect(typeof choice.apply).toBe('function');(choice.apply as Exclude<typeof choice.apply,string|undefined>)(view,choice,0,1);expect(view.state.doc.toString()).toBe('a + a');expect(notices.at(-1)).toContain('changed');}finally{close()}}
+});
+it('cosmetic popup effects keep a current source-local choice usable',async()=>{
+ const fields=[field(0,1,0,1,['a','long']),field(1,1,4,5,['a','long']),field(2,0,5,5)],{view,close}=fixture('a + a',fields);try{const result=await view.state.facet(exclusiveCompletionSources)[0](new CompletionContext(view.state,1,true)),choice=result!.options.find(item=>item.label==='long')!;view.dispatch({effects:setSelectedCompletion(0)});(choice.apply as Exclude<typeof choice.apply,string|undefined>)(view,choice,0,1);expect(view.state.doc.toString()).toBe('long + long');expect(undo(view)).toBe(true);expect(view.state.doc.toString()).toBe('a + a');expect(redo(view)).toBe(true);expect(view.state.doc.toString()).toBe('long + long')}finally{close()}
 });

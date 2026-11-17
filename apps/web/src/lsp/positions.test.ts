@@ -1,3 +1,4 @@
+import {editorOffsetIn} from "../simple/SourceText";
 import { describe, expect, it } from "vitest";
 import {
   byteOffsetToPosition,
@@ -22,6 +23,20 @@ describe("LSP position <-> UTF-16 index", () => {
   it("clamps beyond line and document ends", () => {
     expect(positionToUtf16(text, { line: 0, character: 99 })).toBe(3);
     expect(positionToUtf16(text, { line: 99, character: 0 })).toBe(text.length);
+  });
+
+  it("clamps CRLF display positions before the complete separator", () => {
+    const source="abc\r\n😀 next\nlast";
+    expect(positionToUtf16(source,{line:0,character:99})).toBe(3);
+    expect(editorOffsetIn(source,positionToUtf16(source,{line:0,character:99}))).toBe(3);
+    expect(positionToUtf16(source,{line:1,character:2})).toBe(7);
+    expect(utf16ToPosition(source,7)).toEqual({line:1,character:2});
+  });
+
+  it("does not turn a split-surrogate display coordinate into authored edit authority", () => {
+    const source="a\r\n😀 tail",offset=positionToUtf16(source,{line:1,character:1});
+    expect(offset).toBe(4);
+    expect(()=>editorOffsetIn(source,offset)).toThrow(/Unicode scalar/);
   });
 
   it("maps indices to positions", () => {

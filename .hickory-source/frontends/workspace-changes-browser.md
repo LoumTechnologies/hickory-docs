@@ -26,7 +26,10 @@ acquisition and lazy resolution; a changed family or unavailable provider never
 falls back to an unrelated quick fix. Existing source proofs and coordinated
 history continue to authorize the result.
 
+The browser plan boundary uses exact authored source and UTF-16 edits, mapping only its prepared editor transactions and selection queries into display coordinates. A matching normalized display alone cannot satisfy a revision or provider proof.
+
 <ui:copy id="simple-browser-workspace-changes">
+import {authoredSource,authoredOffset,authoredChanges,authoredTransactionSource} from './SourceText';
 import { useEffect, useRef, useState } from "react";
 import {api,request} from "../api/client";
 import {ResourceConsequencesView} from "./SourceRecovery";
@@ -66,9 +69,9 @@ export function applyWorkspacePlan(buffers: Buffers, plan: ChangePlan): void {
   const prepared: { buffer: Buffer; after: string; view?: EditorView; transaction?: Transaction }[] = [];
   for (const patch of plan.patches) {
     const buffer = buffers.values.get(patch.path)!, view = editorForBuffer(buffer)?.view;
-    if (view && (view.composing || view.state.doc.toString() !== patch.before || view.state.readOnly || !view.state.facet(EditorView.editable))) throw new Error(`Finish composition or restore current source before applying: ${patch.path}`);
-    const transaction = view?.state.update({ changes: patch.edits.map(edit => ({ from: edit.from, to: edit.to, insert: edit.text })), annotations: isolateHistory.of("full"), userEvent: "input.workspace", filter: false });
-    if (transaction && transaction.newDoc.toString() !== patch.after) throw new Error(`Editor could not prepare the complete change: ${patch.path}`);
+    if (view && (view.composing || authoredSource(view.state) !== patch.before || view.state.readOnly || !view.state.facet(EditorView.editable))) throw new Error(`Finish composition or restore current source before applying: ${patch.path}`);
+    const transaction = view?.state.update({ ...authoredChanges(view.state,patch.edits.map(edit => ({ from: edit.from, to: edit.to, insert: edit.text }))), annotations: isolateHistory.of("full"), userEvent: "input.workspace", filter: false });
+    if (transaction && authoredTransactionSource(transaction) !== patch.after) throw new Error(`Editor could not prepare the complete change: ${patch.path}`);
     prepared.push({ buffer, after: patch.after, view, transaction });
   }
   // Preparation above is read-only. No await separates these trusted local commits.
@@ -162,7 +165,7 @@ export function WorkspaceChanges({ buffers, current, focus,files,adoptResources,
       const buffer=current(),view=buffer&&editorForBuffer(buffer)?.view;
       if(!buffer||!view||buffer.readonly||buffer.saving||buffer.transient){setNotice("Choose writable source before preparing cleanup.");return;}
       const source=buffer.text,selection=view.state.selection,id=++ticket.current,roster=captureResourceRoster(buffers);
-      const valid=()=>id===ticket.current&&roster.current()&&buffers.values.get(buffer.file.path)===buffer&&buffer.text===source&&view.state.doc.toString()===source&&view.state.selection.eq(selection);
+      const valid=()=>id===ticket.current&&roster.current()&&buffers.values.get(buffer.file.path)===buffer&&buffer.text===source&&authoredSource(view.state)===source&&view.state.selection.eq(selection);
       captured.current={sources:workspaceSnapshots(buffers),references:[],current:valid,request:id,choices:[],resolve:async()=>{throw new Error("Prepare provider actions first.");},acquire:async()=>{throw new Error("Cleanup has one captured source.");}};
       setPlan(null);setChoices([]);setNotice("Preparing trailing-whitespace cleanup…");
       try{
@@ -176,7 +179,7 @@ export function WorkspaceChanges({ buffers, current, focus,files,adoptResources,
     if (!buffer || !view || !session?.client || !session.ready || buffer.readonly) { setNotice("Choose writable source with a connected language provider, then prepare again."); return; }
     const sourceRevision=buffer.sourceRevision;const source = buffer.text, selection = view.state.selection, client = session.client, id = ++ticket.current, sources = workspaceSnapshots(buffers);
     const roster=captureResourceRoster(buffers);
-    const originCurrent = () => id === ticket.current && buffers.values.get(buffer.file.path)===buffer && buffer.sourceRevision===sourceRevision && buffer.text === source && view.state.doc.toString() === source && view.state.selection.eq(selection) && lookup(buffer).client === client && lookup(buffer).ready;
+    const originCurrent = () => id === ticket.current && buffers.values.get(buffer.file.path)===buffer && buffer.sourceRevision===sourceRevision && buffer.text === source && authoredSource(view.state) === source && view.state.selection.eq(selection) && lookup(buffer).client === client && lookup(buffer).ready;
     const valid=()=>originCurrent()&&roster.current();
         const listed=new Map<string,FileNode>();const collect=(nodes:FileNode[])=>{for(const file of nodes){if(!file.dir)listed.set(file.path,file);collect(file.children??[]);}};collect(files);
     const acquire=async (path:string,requireWritable=true)=>{
@@ -192,9 +195,9 @@ export function WorkspaceChanges({ buffers, current, focus,files,adoptResources,
         };
     captured.current = { sources, references: [], current: valid,request:id,choices:[],resolve:action=>resolveCodeAction(client,action,session.uri),acquire }; setPlan(null); setChoices([]); setNotice("Preparing complete source changes…");
     try {
-      const uri = session.uri, position = utf16ToPosition(source, selection.main.head);
+      const uri = session.uri, position = utf16ToPosition(source, authoredOffset(view.state,selection.main.head));
       const method = mode === "rename" ? "hick/rename" : mode === "format" ? "hick/formatting" : "textDocument/codeAction";
-      const params = { textDocument: { uri }, ...(mode === "rename" ? { position, newName: name } : mode === "format" ? { options: { tabSize: view.state.tabSize, insertSpaces: !/^\t/m.test(source) } } : { range: { start: utf16ToPosition(source, (mode==="fixAll"||mode==="sourceActions") ? 0:selection.main.from), end: utf16ToPosition(source, (mode==="fixAll"||mode==="sourceActions") ? source.length:selection.main.to) }, context: { diagnostics: [],...((mode==="fixAll"||mode==="sourceActions") ? {only:[mode==="fixAll"?"source.fixAll":"source"]}:{}) } }) };
+      const params = { textDocument: { uri }, ...(mode === "rename" ? { position, newName: name } : mode === "format" ? { options: { tabSize: view.state.tabSize, insertSpaces: !/^\t/m.test(source) } } : { range: { start: utf16ToPosition(source, (mode==="fixAll"||mode==="sourceActions") ? 0:authoredOffset(view.state,selection.main.from)), end: utf16ToPosition(source, (mode==="fixAll"||mode==="sourceActions") ? source.length:authoredOffset(view.state,selection.main.to)) }, context: { diagnostics: [],...((mode==="fixAll"||mode==="sourceActions") ? {only:[mode==="fixAll"?"source.fixAll":"source"]}:{}) } }) };
       captured.current!.query=async()=>{const value=await client.request("textDocument/codeAction",params);return Array.isArray(value)?scopedProviderActions(value,mode):[];};
       await prepareSource(buffer,source);if(!valid())throw new Error("Original source changed during provider preparation. Prepare again.");
       if (mode === "rename") {
@@ -312,12 +315,14 @@ export {requestWorkspaceChange,requestWorkspaceProposal} from "./WorkspaceChange
 These rendered checks start from the actual command event and retain the real CodeMirror editor. Preview never edits or saves; one complete action applies to drafts and enters coordinated Undo/Redo. Equal-byte edit/Undo retires a held list. Wrong action families and a changed resolved kind cannot acquire approval. The owned provider flow separately checks language-bridge routing and unopened target reacquisition.
 
 <ui:copy id="bulk-fix-browser-tests">
+import {sourceText,authoredSource} from './SourceText';
+import {history,undo,redo} from '@codemirror/commands';
 import {act,cleanup,fireEvent,render,screen} from '@testing-library/react';
 import {afterEach,expect,it,vi} from 'vitest';
 import {EditorState} from '@codemirror/state';
 import {EditorView} from '@codemirror/view';
 import {Buffer,Buffers} from './buffers';
-import {WorkspaceChanges} from './WorkspaceChanges';
+import {WorkspaceChanges,applyWorkspacePlan} from './WorkspaceChanges';
 import {WorkspaceChangeHistory} from './ChangePlan';
 import {requestWorkspaceChange,requestWorkspaceProposal} from './WorkspaceChangeEvents';
 const mocks=vi.hoisted(()=>({editor:vi.fn(),lookup:vi.fn(),outline:vi.fn(),preparation:vi.fn(),request:vi.fn()}));
@@ -336,6 +341,11 @@ function fixture(result:unknown){
  act(()=>requestWorkspaceChange('fixAll'));return {buffer,buffers,files,request};
 }
 async function prepare(){fireEvent.click(screen.getByRole('button',{name:'Prepare file-wide diagnostic fixes'}));}
+it('applies source-bound authored offsets and retains exact mixed bytes through native UndoRedo',()=>{
+ const before='// first\r\nold\n// last\r\n',after='// first\r\nnew\r\nextra\n// last\r\n',buffers=new Buffers(()=>{}),buffer=new Buffer({path:'mixed.py',name:'mixed.py',dir:false},before,'base',()=>{});buffers.values.set(buffer.file.path,buffer);
+ view=new EditorView({state:EditorState.create({doc:before,extensions:[sourceText(before),history(),EditorView.updateListener.of(update=>{if(update.docChanged)buffer.edit(authoredSource(update.state));})]}),parent:document.body});mocks.editor.mockImplementation(target=>target===buffer?{view}:undefined);const held=view,at=before.indexOf('old');
+ applyWorkspacePlan(buffers,{title:'Complete authored edit',patches:[{path:buffer.file.path,before,after,edits:[{from:at,to:at+3,text:'new\r\nextra'}]}]});expect(buffer.text).toBe(after);expect(authoredSource(view.state)).toBe(after);expect(undo(view)).toBe(true);expect(buffer.text).toBe(before);expect(redo(view)).toBe(true);expect(buffer.text).toBe(after);expect(view).toBe(held);
+});
 it('requests the entire source family, reviews one complete action and coordinates draft Undo/Redo',async()=>{
  const {buffer,request}=fixture([action(),{title:'Unrelated quick fix',kind:'quickfix'}, {title:'Wrong prefix',kind:'source.fixAllWrong'}]);await prepare();await screen.findByRole('button',{name:'Complete file fix'});expect(screen.queryByRole('button',{name:'Unrelated quick fix'})).toBeNull();expect(screen.queryByRole('button',{name:'Wrong prefix'})).toBeNull();expect(request).toHaveBeenCalledWith('textDocument/codeAction',expect.objectContaining({range:{start:{line:0,character:0},end:{line:1,character:0}},context:{diagnostics:[],only:['source.fixAll']}}));expect(buffer.text).toBe('old\n');expect(view!.state.selection.main.head).toBe(2);
  fireEvent.click(screen.getByRole('button',{name:'Complete file fix'}));await screen.findByRole('button',{name:'Apply to source drafts'});expect(buffer.text).toBe('old\n');fireEvent.click(screen.getByRole('button',{name:'Apply to source drafts'}));expect(buffer.text).toBe('new\n');act(()=>requestWorkspaceChange('undo'));expect(buffer.text).toBe('old\n');act(()=>requestWorkspaceChange('redo'));expect(buffer.text).toBe('new\n');expect(request.mock.calls.filter(([method])=>method==='textDocument/codeAction')).toHaveLength(2); // Discovery is discarded after retained-source synchronization.

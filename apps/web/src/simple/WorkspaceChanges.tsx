@@ -1,3 +1,4 @@
+import {authoredSource,authoredOffset,authoredChanges,authoredTransactionSource} from './SourceText';
 import { useEffect, useRef, useState } from "react";
 import {api,request} from "../api/client";
 import {ResourceConsequencesView} from "./SourceRecovery";
@@ -37,9 +38,9 @@ export function applyWorkspacePlan(buffers: Buffers, plan: ChangePlan): void {
   const prepared: { buffer: Buffer; after: string; view?: EditorView; transaction?: Transaction }[] = [];
   for (const patch of plan.patches) {
     const buffer = buffers.values.get(patch.path)!, view = editorForBuffer(buffer)?.view;
-    if (view && (view.composing || view.state.doc.toString() !== patch.before || view.state.readOnly || !view.state.facet(EditorView.editable))) throw new Error(`Finish composition or restore current source before applying: ${patch.path}`);
-    const transaction = view?.state.update({ changes: patch.edits.map(edit => ({ from: edit.from, to: edit.to, insert: edit.text })), annotations: isolateHistory.of("full"), userEvent: "input.workspace", filter: false });
-    if (transaction && transaction.newDoc.toString() !== patch.after) throw new Error(`Editor could not prepare the complete change: ${patch.path}`);
+    if (view && (view.composing || authoredSource(view.state) !== patch.before || view.state.readOnly || !view.state.facet(EditorView.editable))) throw new Error(`Finish composition or restore current source before applying: ${patch.path}`);
+    const transaction = view?.state.update({ ...authoredChanges(view.state,patch.edits.map(edit => ({ from: edit.from, to: edit.to, insert: edit.text }))), annotations: isolateHistory.of("full"), userEvent: "input.workspace", filter: false });
+    if (transaction && authoredTransactionSource(transaction) !== patch.after) throw new Error(`Editor could not prepare the complete change: ${patch.path}`);
     prepared.push({ buffer, after: patch.after, view, transaction });
   }
   // Preparation above is read-only. No await separates these trusted local commits.
@@ -126,7 +127,7 @@ export function WorkspaceChanges({ buffers, current, focus,files,adoptResources,
       const buffer=current(),view=buffer&&editorForBuffer(buffer)?.view;
       if(!buffer||!view||buffer.readonly||buffer.saving||buffer.transient){setNotice("Choose writable source before preparing cleanup.");return;}
       const source=buffer.text,selection=view.state.selection,id=++ticket.current,roster=captureResourceRoster(buffers);
-      const valid=()=>id===ticket.current&&roster.current()&&buffers.values.get(buffer.file.path)===buffer&&buffer.text===source&&view.state.doc.toString()===source&&view.state.selection.eq(selection);
+      const valid=()=>id===ticket.current&&roster.current()&&buffers.values.get(buffer.file.path)===buffer&&buffer.text===source&&authoredSource(view.state)===source&&view.state.selection.eq(selection);
       captured.current={sources:workspaceSnapshots(buffers),references:[],current:valid,request:id,choices:[],resolve:async()=>{throw new Error("Prepare provider actions first.");},acquire:async()=>{throw new Error("Cleanup has one captured source.");}};
       setPlan(null);setChoices([]);setNotice("Preparing trailing-whitespace cleanup…");
       try{
@@ -140,7 +141,7 @@ export function WorkspaceChanges({ buffers, current, focus,files,adoptResources,
     if (!buffer || !view || !session?.client || !session.ready || buffer.readonly) { setNotice("Choose writable source with a connected language provider, then prepare again."); return; }
     const sourceRevision=buffer.sourceRevision;const source = buffer.text, selection = view.state.selection, client = session.client, id = ++ticket.current, sources = workspaceSnapshots(buffers);
     const roster=captureResourceRoster(buffers);
-    const originCurrent = () => id === ticket.current && buffers.values.get(buffer.file.path)===buffer && buffer.sourceRevision===sourceRevision && buffer.text === source && view.state.doc.toString() === source && view.state.selection.eq(selection) && lookup(buffer).client === client && lookup(buffer).ready;
+    const originCurrent = () => id === ticket.current && buffers.values.get(buffer.file.path)===buffer && buffer.sourceRevision===sourceRevision && buffer.text === source && authoredSource(view.state) === source && view.state.selection.eq(selection) && lookup(buffer).client === client && lookup(buffer).ready;
     const valid=()=>originCurrent()&&roster.current();
         const listed=new Map<string,FileNode>();const collect=(nodes:FileNode[])=>{for(const file of nodes){if(!file.dir)listed.set(file.path,file);collect(file.children??[]);}};collect(files);
     const acquire=async (path:string,requireWritable=true)=>{
@@ -156,9 +157,9 @@ export function WorkspaceChanges({ buffers, current, focus,files,adoptResources,
         };
     captured.current = { sources, references: [], current: valid,request:id,choices:[],resolve:action=>resolveCodeAction(client,action,session.uri),acquire }; setPlan(null); setChoices([]); setNotice("Preparing complete source changes…");
     try {
-      const uri = session.uri, position = utf16ToPosition(source, selection.main.head);
+      const uri = session.uri, position = utf16ToPosition(source, authoredOffset(view.state,selection.main.head));
       const method = mode === "rename" ? "hick/rename" : mode === "format" ? "hick/formatting" : "textDocument/codeAction";
-      const params = { textDocument: { uri }, ...(mode === "rename" ? { position, newName: name } : mode === "format" ? { options: { tabSize: view.state.tabSize, insertSpaces: !/^\t/m.test(source) } } : { range: { start: utf16ToPosition(source, (mode==="fixAll"||mode==="sourceActions") ? 0:selection.main.from), end: utf16ToPosition(source, (mode==="fixAll"||mode==="sourceActions") ? source.length:selection.main.to) }, context: { diagnostics: [],...((mode==="fixAll"||mode==="sourceActions") ? {only:[mode==="fixAll"?"source.fixAll":"source"]}:{}) } }) };
+      const params = { textDocument: { uri }, ...(mode === "rename" ? { position, newName: name } : mode === "format" ? { options: { tabSize: view.state.tabSize, insertSpaces: !/^\t/m.test(source) } } : { range: { start: utf16ToPosition(source, (mode==="fixAll"||mode==="sourceActions") ? 0:authoredOffset(view.state,selection.main.from)), end: utf16ToPosition(source, (mode==="fixAll"||mode==="sourceActions") ? source.length:authoredOffset(view.state,selection.main.to)) }, context: { diagnostics: [],...((mode==="fixAll"||mode==="sourceActions") ? {only:[mode==="fixAll"?"source.fixAll":"source"]}:{}) } }) };
       captured.current!.query=async()=>{const value=await client.request("textDocument/codeAction",params);return Array.isArray(value)?scopedProviderActions(value,mode):[];};
       await prepareSource(buffer,source);if(!valid())throw new Error("Original source changed during provider preparation. Prepare again.");
       if (mode === "rename") {

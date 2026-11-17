@@ -31,7 +31,7 @@ an earlier open item only for the behavior it actually exercises.
 
 | Required outcome | Current usable evidence and remaining acceptance |
 | --- | --- |
-| Navigation and code intelligence | Existing source-bound navigation and provider receipts remain in force. Browser mixed-line-ending source/view coordination is being integrated; completion context and embedded-language breadth remain open. |
+| Navigation and code intelligence | Existing source-bound navigation and provider receipts remain in force. Browser mixed-line-ending source/view coordination now has rendered provider and history acceptance; full completion context and embedded-language breadth remain open. |
 | Refactoring, cleanup, generation, templates and history | Rename, formatting, genuine TypeScript extraction/accessor generation/cleanup and coordinated history have focused host receipts. Genuine move-to-new-file publication is being added. Bounded transform parsing/evaluation are foundations; full context, production transform activation and multi-caret templates remain open. |
 | Diagnostics and contextual fixes | Existing source-bound Problems/fix receipts remain scoped to their stated providers and paths. A command or backend implementation alone is not further acceptance. |
 | Testing and coverage | Retained sessions/results and supported collector receipts below remain scoped evidence. Exact JavaScript collection/rerun integration now has31 focused collector cases and11 fresh-engine Vitest flows; the retained-result race is corrected. Earlier native provider receipts retain their stated revisions. |
@@ -1901,5 +1901,33 @@ flows, the unchanged Python fix/rerun flow and two C# fixture flows; those prece
 the final shared retained-reader-only correction. Six coverage UI cases and web
 type checking pass. These receipts do not certify arbitrary projects, other
 runner versions, native physical input or device acceptance.
+
+## Keep authored bytes authoritative beside a normalized browser view
+
+The browser editor now keeps exact authored separators independently of normalized
+CodeMirror display text. Shared UTF-16 conversions map selection, language queries,
+diagnostics, snippets and provider edits across that boundary. Exact raw edits and
+inverse history effects preserve mixed CRLF/LF text through typing, paste and
+Undo/Redo, including changes that affect separators alone. Revision-local indexes
+bound repeated attached offset lookups; split-surrogate and CRLF-interior authored
+positions refuse rather than rounding an edit into another source location.
+
+Review, resource adoption, recovery, source history, coverage/test guards and agent
+application consume the same authored source. Rich inline parsing uses normalized
+display text without gaining source-write authority. Completion and choice intent
+also advances for raw-only or field-only transitions, so Undo cannot revive an old
+offer. Explicit completion can query blank, member and Unicode positions; implicit
+triggers must belong to the captured producing child. Unsupported implicit and
+invalid requests do not reach that child.
+
+Executed evidence (2026-11-17):115 focused browser cases and web type checking pass;
+focused positions and common-query groups also pass. The rendered mixed-line-ending
+flow passes original bytes, typing, local Enter, mixed paste, exact selection,
+genuine TypeScript extraction/proofs and coordinated history, preserving the editor
+and geometry while disk stays unchanged. Actual normal and nested completion-popup
+flows pass primary/import edits, mirrors, caret/history and held-reply cancellation.
+The fresh-engine provider protocol passes explicit/declaration-bound triggers and
+unsupported/invalid child-RPC absence. This is browser adapter acceptance, not
+physical-input, IME, assistive-technology or device acceptance.
 
 </ui:doc>

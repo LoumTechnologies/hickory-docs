@@ -323,6 +323,7 @@ Only the parts of the server's capabilities the notebook acts on.
 <storycode:copy id="f-6bc953112fd0-ServerCapabilities">
 /** Only the parts of the server's capabilities the notebook acts on. */
 export interface ServerCapabilities {
+  completionProvider?:{triggerCharacters?:string[];resolveProvider?:boolean};
   semanticTokensProvider?: {
     legend?: { tokenTypes?: string[]; tokenModifiers?: string[] };
   };
@@ -517,10 +518,11 @@ export class LspClient {
     return normalizeLocations(result);
   }
 
-  async completion(uri: string, position: LspPosition): Promise<CompletionItem[]> {
+  async completion(uri: string, position: LspPosition, context?:{triggerKind:1|2|3;triggerCharacter?:string}): Promise<CompletionItem[]> {
     const result = await this.request("textDocument/completion", {
       textDocument: { uri },
       position,
+      ...(context?{context}:{}),
     });
     if (result == null) return [];
     if (Array.isArray(result)) return result as CompletionItem[];

@@ -7,7 +7,10 @@ The editor supplies text immediately; a separate bounded source index reads test
 
 A retained deleted editor remains readable for its captured debugger, but its old spelling can already belong to another source. Reject deleted handles before producing or invoking path-based inspection hints; restoring the exact handle re-enables its ordinary current-source capabilities.
 
+Test gutter admission compares the editor’s exact authored field to the captured buffer. Normalized display lines remain useful for geometry but cannot replace byte identity.
+
 <ui:copy id="source-test-gutters-browser">
+import {authoredSource} from './SourceText';
 import {createContext,useContext,useEffect,useMemo,useSyncExternalStore,type ReactNode} from "react";
 import type {EditorView} from "@codemirror/view";
 import {api} from "../api/client";
@@ -31,7 +34,7 @@ export function useSourceTestLineActions(buffer:Buffer,view:EditorView|null) {
     read();return buffer.subscribe(read);
   },[index,buffer,buffer.resourceDeleted]);
   const record=index?.current(buffer.file.path,buffer.text);
-  if(buffer.resourceDeleted||!view||view.state.doc.toString()!==buffer.text.replace(/\r\n/g,"\n"))return [];
+  if(buffer.resourceDeleted||!view||authoredSource(view.state)!==buffer.text)return [];
   const grouped=new Map<number,string[]>();
   for(const row of indexedTestRows(record)){const names=grouped.get(row.line)??[];names.push(row.candidate.name);grouped.set(row.line,names);}
   return [...grouped].filter(([line])=>line<view.state.doc.lines).map(([line,names])=>({at:view.state.doc.line(line+1).from,label:`Inspect source tests: ${names.join(", ")}`,run:()=>{

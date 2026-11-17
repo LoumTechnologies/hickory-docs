@@ -7,9 +7,10 @@ import {readCompletionAcceptance,waitCompletionAcceptance,cancelCompletionAccept
 import type {CompletionItem} from '../lsp/client';
 import {CompletionContext} from '@codemirror/autocomplete';
 import {sourceSnippets,dispatchSourceSnippetTransactions} from './SourceSnippets';
+import {sourceText,authoredSource,editorOffsetIn} from './SourceText';
 import snippetVectors from '../../../simple-contract/snippet-expansion-cases.json';
 function held(){let resolve!:(value:CompletionItem)=>void;const promise=new Promise<CompletionItem>(done=>{resolve=done;});return {promise,resolve};}
-function fixture(){const parent=document.body.appendChild(document.createElement('div'));const view=new EditorView({dispatchTransactions:dispatchSourceSnippetTransactions,state:EditorState.create({doc:'va\n',selection:{anchor:2},extensions:[history(),sourceSnippets({writable:()=>true,notice:()=>{}})]}),parent});return {view,close:()=>{view.destroy();parent.remove();}};}
+function fixture(source='va\n',caret=2){const parent=document.body.appendChild(document.createElement('div'));const view=new EditorView({dispatchTransactions:dispatchSourceSnippetTransactions,state:EditorState.create({doc:source,selection:{anchor:editorOffsetIn(source,caret)},extensions:[history(),sourceText(source),sourceSnippets({writable:()=>true,notice:()=>{}})]}),parent});return {view,close:()=>{view.destroy();parent.remove();}};}
 const raw={label:'value',data:{hickory_completion:'held'}};
 function resolved(text='value'):CompletionItem {return {...raw,textEdit:{range:{start:{line:0,character:0},end:{line:0,character:2}},newText:text},additionalTextEdits:[{range:{start:{line:0,character:0},end:{line:0,character:0}},newText:'# import\n'}]};}
 it('waits for the whole resolved import edit, commits one undo and maps the caret',async()=>{
@@ -57,4 +58,13 @@ it('an offered query cannot revive after equal-byte undo or a cursor round trip'
 });
 it('a pending provider cannot revive after equal-byte undo or a cursor round trip',async()=>{
  for(const sourceABA of[true,false]){const {view,close}=fixture(),pending=held();try{const work=acceptSourceCompletion(view,raw,'va\n',view.state.selection,0,2,{uri:'hick:///a.py',resolve:()=>pending.promise,current:()=>true,writable:()=>true,notice:()=>{}});if(sourceABA){view.dispatch({changes:{from:0,to:2,insert:'xy'},selection:{anchor:2},userEvent:'input.type'});expect(undo(view)).toBe(true)}else{view.dispatch({selection:{anchor:0}});view.dispatch({selection:{anchor:2}})}pending.resolve(resolved());await work;expect(view.state.doc.toString()).toBe('va\n');expect(view.state.selection.main.head).toBe(2);expect(readCompletionAcceptance(view)?.phase).toBe('unavailable')}finally{close()}}
+});
+
+it('applies complete raw CRLF edits through a normalized editor and restores exact bytes with Undo and Redo',async()=>{
+ const source='head\r\nva\r\nend\n',after='# imported\r\nhead\r\nλ😀\nnext\r\nend\n',{view,close}=fixture(source,8);
+ try{const item=sourceCompletion(raw,new CompletionContext(view.state,7,true),{uri:'hick:///a.py',resolve:async()=>({...raw,textEdit:{range:{start:{line:1,character:0},end:{line:1,character:2}},newText:'λ😀\nnext'},additionalTextEdits:[{range:{start:{line:0,character:0},end:{line:0,character:0}},newText:'# imported\r\n'}]}),current:()=>true,writable:()=>true,notice:()=>{}});
+  (item.apply as Exclude<typeof item.apply,string|undefined>)(view,item,5,7);await waitCompletionAcceptance(view,readCompletionAcceptance(view)!.job);
+  expect(readCompletionAcceptance(view)?.phase).toBe('applied');expect(authoredSource(view.state)).toBe(after);expect(view.state.doc.toString()).toBe(after.replace(/\r\n/g,'\n'));const caret=view.state.selection.main.head;
+  expect(undo(view)).toBe(true);expect(authoredSource(view.state)).toBe(source);expect(view.state.selection.main.head).toBe(7);expect(redo(view)).toBe(true);expect(authoredSource(view.state)).toBe(after);expect(view.state.selection.main.head).toBe(caret);
+ }finally{close()}
 });

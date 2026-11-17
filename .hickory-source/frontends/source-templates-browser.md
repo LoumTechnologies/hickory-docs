@@ -16,6 +16,8 @@ eligibility. In the current app the shared command requires writable source,
 and the engine refuses generated input; the verified read-only path is a
 disabled command with a provider refusal.
 
+A template snapshot captures the exact authored source and converts the visible selection into authored UTF-16 offsets. Preview and Apply share that lease; normalized display lines never replace the bytes used for provider identity or retained history. The common completion authority performs the raw edit and maps its final linked selection back to the display.
+
 <ui:copy id="source-templates-browser-capture">
 import {EditorView} from '@codemirror/view';
 import type {Buffer,Buffers} from './buffers';
@@ -28,12 +30,13 @@ import {planCompletion,type CompletionDraft} from './CompletionPlan';
 import {completionExpansion} from './SnippetExpansion';
 import {acceptSourceCompletion} from './SourceCompletion';
 import {readSourceSnippet,continueSourceSnippetCompletion} from './SourceSnippets';
+import {authoredSource,authoredOffset} from './SourceText';
 export interface TemplateEditor {buffer:Buffer;buffers:Buffers;view:EditorView;mounted:()=>boolean;interaction:()=>number}
 export interface TemplateContext {version:1;path:string;source:string;selection:{from:number;to:number}}
 export interface TemplateSnapshot {editor:TemplateEditor;view:EditorView;context:Readonly<TemplateContext>;selection:EditorView['state']['selection'];current:(writable?:boolean)=>boolean}
 export function captureTemplateEditor(editor:TemplateEditor):TemplateSnapshot {
- const {buffer,buffers,view}=editor,file=buffer.file,path=file.path,namespace=buffers.workspace,revision=buffer.sourceRevision,doc=view.state.doc,selection=view.state.selection,interactionNow=editor.interaction,mounted=editor.mounted,interaction=interactionNow(),snippet=readSourceSnippet(view),source=doc.toString();
- const context=Object.freeze({version:1 as const,path,source,selection:Object.freeze({from:selection.main.from,to:selection.main.to})});
+ const {buffer,buffers,view}=editor,file=buffer.file,path=file.path,namespace=buffers.workspace,revision=buffer.sourceRevision,doc=view.state.doc,selection=view.state.selection,interactionNow=editor.interaction,mounted=editor.mounted,interaction=interactionNow(),snippet=readSourceSnippet(view),source=authoredSource(view.state);
+ const context=Object.freeze({version:1 as const,path,source,selection:Object.freeze({from:authoredOffset(view.state,selection.main.from),to:authoredOffset(view.state,selection.main.to)})});
  const current=(writable=false)=>!!namespace&&buffers.workspace===namespace&&buffer.namespace===namespace&&buffers.values.get(path)===buffer&&buffer.file===file&&file.path===path&&buffer.sourceRevision===revision&&buffer.text===source&&mounted()&&view.dom.isConnected&&view.state.doc===doc&&view.state.selection.eq(selection)&&interactionNow()===interaction&&readSourceSnippet(view)===snippet&&(!writable||!buffer.readonly&&!buffer.saving&&!buffer.resourceDeleted&&!view.composing&&!view.state.readOnly&&view.state.facet(EditorView.editable)&&selection.ranges.length===1);
  if(!current())throw Error('The original source editor is unavailable. Reopen templates from its current editor.');
  return Object.freeze({editor:Object.freeze({...editor}),view,context,selection,current});
@@ -90,7 +93,7 @@ export async function applyTemplate(preview:TemplatePreview,current:()=>boolean,
  const refreshed=await prepareTemplate(snapshot,preview.catalog,preview.entry.id,preview.provider);if(!current()||!snapshot.current(true))throw Error('Template preview is obsolete. Refresh before applying.');if(!sameTemplateData(refreshed.item,preview.item)||!sameTemplateData(refreshed.notices,preview.notices))throw Error('The template provider changed the reviewed expansion. Refresh and review it again.');
  const before=readCompletionAcceptance(view),after=preview.draft.plan.patches[0]?.after??snapshot.context.source;let message='Template was not applied.';
  await acceptSourceCompletion(view,structuredClone(preview.item),snapshot.context.source,snapshot.selection,snapshot.context.selection.from,snapshot.context.selection.to,{uri:documentUri(snapshot.context.path),resolve:async item=>item,current:()=>current()&&snapshot.current(true),writable:()=>snapshot.current(true),notice:value=>{message=value;notice(value.replace(/^Completion/,'Template'));}});
- const acceptance=readCompletionAcceptance(view),applied=acceptance?.job!==before?.job&&acceptance?.phase==='applied'&&acceptance.applied&&view.state.doc.toString()===after;
+ const acceptance=readCompletionAcceptance(view),applied=acceptance?.job!==before?.job&&acceptance?.phase==='applied'&&acceptance.applied&&authoredSource(view.state)===after;
  if(!applied)throw Error(message);if(current()&&snapshot.editor.mounted())view.focus();return true;
 }
 </ui:copy>
@@ -162,12 +165,13 @@ import {EditorView} from '@codemirror/view';
 import {history,undo,redo} from '@codemirror/commands';
 import {Buffer,Buffers} from './buffers';
 import {sourceSnippets,readSourceSnippet,setSourceSnippet,dispatchSourceSnippetTransactions} from './SourceSnippets';
+import {sourceText,authoredSource,editorOffsetIn} from './SourceText';
 import {beginSnippet} from './SnippetSession';
 import {captureTemplateEditor,readTemplateCatalog,prepareTemplate,applyTemplate,templateSourceHash,engineTemplateProvider,type TemplateProvider} from './SourceTemplates';
 beforeAll(async()=>{const name='node:'+'crypto';const {webcrypto}=await import(name);Object.defineProperty(globalThis,'crypto',{value:webcrypto,configurable:true});});
 const cleanups:(()=>void)[]=[];afterEach(()=>{for(const close of cleanups.splice(0))close();vi.unstubAllGlobals();});
 async function fixture(source='old',from=0,to=source.length){const buffers=new Buffers(()=>{});buffers.workspace='/root';const buffer=new Buffer({path:'a.py',name:'a.py',dir:false},source,'hash',()=>{},false,'/root');buffers.values.set('a.py',buffer);let mounted=true,interaction=0;
- const parent=document.body.appendChild(document.createElement('div')),view=new EditorView({parent,dispatchTransactions:dispatchSourceSnippetTransactions,state:EditorState.create({doc:buffer.text,selection:{anchor:from,head:to},extensions:[history(),sourceSnippets({writable:()=>!buffer.readonly&&!buffer.saving,notice:()=>{}}),EditorView.updateListener.of(update=>{if(update.docChanged)buffer.edit(update.state.doc.toString());})]})});
+ const parent=document.body.appendChild(document.createElement('div')),view=new EditorView({parent,dispatchTransactions:dispatchSourceSnippetTransactions,state:EditorState.create({doc:buffer.text,selection:{anchor:editorOffsetIn(source,from),head:editorOffsetIn(source,to)},extensions:[history(),sourceText(source),sourceSnippets({writable:()=>!buffer.readonly&&!buffer.saving,notice:()=>{}}),EditorView.updateListener.of(update=>{if(authoredSource(update.startState)!==authoredSource(update.state))buffer.edit(authoredSource(update.state));})]})});
  cleanups.push(()=>{view.destroy();parent.remove();});const snapshot=captureTemplateEditor({buffer,buffers,view,mounted:()=>mounted,interaction:()=>interaction}),hash=await templateSourceHash(source),identity={version:1,template_protocol:1,language:'python',workspace_id:'workspace',path:'a.py',source_hash:hash,selection:{from,to}},entry={id:'assign',label:'Assignment',description:'Linked variable',language:'python',origin:'builtin',available:true},catalog={...identity,available:true,notices:[],catalog_fingerprint:'catalog',entries:[entry]},plan={...identity,available:true,notices:[],catalog_fingerprint:'catalog',template_id:'assign',origin:'builtin',replacement:{from,to},snippet:{version:1,syntax:'${1:name} = $1;$0',text:'name = name;',fields:[{id:0,parent:null,index:1,from:0,to:4,choices:[]},{id:1,parent:null,index:1,from:7,to:11,choices:[]},{id:2,parent:null,index:0,from:12,to:12,choices:[]}]}};
  const provider:TemplateProvider={catalog:vi.fn(async()=>catalog),plan:vi.fn(async()=>plan)};return {buffers,buffer,view,snapshot,provider,catalog,plan,dispose:()=>{mounted=false;},interact:()=>{interaction++;}};
 }
@@ -188,6 +192,14 @@ it('keeps provider unavailability readable and rejects unsupported or mismatched
 });
 it('retires held plans after source, selection, scroll, owner, namespace and mount changes',async()=>{for(const mode of ['text','selection','scroll','owner','path','namespace','mount'] as const){const f=await fixture(),catalog=await readTemplateCatalog(f.snapshot,f.provider);let release!:(value:unknown)=>void;vi.mocked(f.provider.plan).mockImplementationOnce(()=>new Promise(resolve=>{release=resolve;}));const pending=prepareTemplate(f.snapshot,catalog,'assign',f.provider);if(mode==='text')f.view.dispatch({changes:{from:0,to:3,insert:'new'}});if(mode==='selection')f.view.dispatch({selection:{anchor:1}});if(mode==='scroll')f.interact();if(mode==='owner')f.buffers.values.set('a.py',new Buffer({...f.buffer.file},'old','hash',()=>{},false,'/root'));if(mode==='path'){f.buffer.file.path='moved.py';f.buffers.values.delete('a.py');f.buffers.values.set('moved.py',f.buffer);}if(mode==='namespace')f.buffers.workspace='/other';if(mode==='mount')f.dispose();release(f.plan);await expect(pending).rejects.toThrow('changed');expect(f.view.state.doc.toString()).toBe(mode==='text'?'new':'old');}});
 it('reads readonly catalogs but refuses generated, saving, deleted, composition and closed previews',async()=>{for(const mode of ['readonly','saving','deleted','composing','closed'] as const){const f=await fixture(),catalog=await readTemplateCatalog(f.snapshot,f.provider),preview=await prepareTemplate(f.snapshot,catalog,'assign',f.provider);if(mode==='readonly')f.buffer.file={...f.buffer.file,generated_by:'entry.md'};if(mode==='saving')f.buffer.saving=true;if(mode==='deleted')f.buffer.resourceDeleted=true;if(mode==='composing')Object.defineProperty(f.view,'composing',{value:true,configurable:true});await expect(applyTemplate(preview,()=>mode!=='closed',()=>{})).rejects.toThrow();expect(f.buffer.text).toBe('old');expect(f.buffer.dirty).toBe(false);}});
+
+it('captures authored CRLF ranges and applies linked template fields without normalizing untouched bytes',async()=>{
+ const original='head\r\nold\r\nend\n',f=await fixture(original,6,9),catalog=await readTemplateCatalog(f.snapshot,f.provider),preview=await prepareTemplate(f.snapshot,catalog,'assign',f.provider);
+ expect(f.snapshot.context.source).toBe(original);expect(f.snapshot.context.selection).toEqual({from:6,to:9});await expect(applyTemplate(preview,()=>true,()=>{})).resolves.toBe(true);
+ expect(authoredSource(f.view.state)).toBe('head\r\nname = name;\r\nend\n');expect(f.view.state.selection.main.from).toBe(5);expect(f.view.state.selection.main.to).toBe(9);
+ f.view.dispatch({changes:{from:5,to:9,insert:'λ😀'},selection:{anchor:8},userEvent:'input.type'});const changed='head\r\nλ😀 = λ😀;\r\nend\n';expect(authoredSource(f.view.state)).toBe(changed);
+ expect(undo(f.view)).toBe(true);expect(authoredSource(f.view.state)).toBe('head\r\nname = name;\r\nend\n');expect(undo(f.view)).toBe(true);expect(authoredSource(f.view.state)).toBe(original);expect(redo(f.view)).toBe(true);expect(redo(f.view)).toBe(true);expect(authoredSource(f.view.state)).toBe(changed);
+});
 </ui:copy>
 <ui:file path="apps/web/src/simple/SourceTemplates.test.ts"><ui:paste select="#source-templates-browser-witness"/></ui:file>
 

@@ -105,15 +105,16 @@ export class EditorRecoveryModel {
 The original editor roster is never a replacement target. Allocate all recovered buffers and validate the complete layout before mutating the workspace. Restored source text receives a fresh unnamed identity and no physical save guard, even when an old baseline still matches. Generated text remains read-only. Retain the old baseline only as comparison material. Saved source positions and proportions are projected into a new pane subtree; existing utility instances stay in their current panes rather than attaching one terminal twice.
 
 <ui:copy id="editor-recovery-browser-adapter">
+import {authoredSource,authoredSelection} from './SourceText';
 import {Buffer,Buffers} from './buffers';
 import {editorForBuffer} from './Document';
 import {groups,isGroup,sourceTab,tabIdentity,type Layout} from './layout';
 import {validateEditorRecoverySnapshot,type EditorRecoverySnapshot,type EditorRecoveryBuffer} from './EditorRecovery';
 export function captureEditorRecovery(buffers:Buffers,tree:Layout,focused:string,extra:Iterable<Buffer>=[],resolve?:(tab:string)=>Buffer|undefined):EditorRecoverySnapshot {
  const rows=[...new Set([...buffers.values.values(),...buffers.retainedResources.values(),...extra])];
- const captured:EditorRecoveryBuffer[]=rows.map(b=>{const view=editorForBuffer(b)?.view;if(view?.composing||view&&view.state.doc.toString()!==b.text)throw Error('Finish source attachment and composition before the next private editor checkpoint.');const named=buffers.values.get(b.file.path)===b&&!b.resourceDeleted&&!b.isUntitledDraft&&!b.transient;
+ const captured:EditorRecoveryBuffer[]=rows.map(b=>{const view=editorForBuffer(b)?.view;if(view?.composing||view&&authoredSource(view.state)!==b.text)throw Error('Finish source attachment and composition before the next private editor checkpoint.');const named=buffers.values.get(b.file.path)===b&&!b.resourceDeleted&&!b.isUntitledDraft&&!b.transient;
   const address:EditorRecoveryBuffer['address']=b.readonly?{kind:'generated',path:b.file.path,owner:b.file.generated_by!}:named?{kind:'source',path:b.file.path}:b.isUntitledDraft?{kind:'unnamed',name:b.file.name}:{kind:'detached',name:b.file.name,original_path:b.file.path};
-  const selection=view?.state.selection.main??b.recoveryView?.selection??{anchor:0,head:0};
+  const selection=(view?authoredSelection(view.state)[view.state.selection.mainIndex]:undefined)??b.recoveryView?.selection??{anchor:0,head:0};
   return {id:b.sourceId,address,text:b.text,baseline:(b.isUntitledDraft||b.transient||b.resourceDeleted)?b.recoveryBaseline??{text:b.base,save_guard:b.saveGuard??null}:{text:b.base,save_guard:b.saveGuard??null},view:{selection:{anchor:selection.anchor,head:selection.head},scroll_x:view?.scrollDOM.scrollLeft??b.recoveryView?.scroll_x??0,scroll_y:view?.scrollDOM.scrollTop??b.recoveryView?.scroll_y??0}};
  });
  const tabs:Record<string,string>={};for(const group of groups(tree))for(const tab of group.tabs){const id=tabIdentity(tab);if(id.kind==='source'){const b=resolve?.(tab)??buffers.values.get(id.key)??rows.find(b=>b.sourceId===id.key);if(b)tabs[tab]=b.sourceId;}}
@@ -140,6 +141,8 @@ export function restoreEditorRecovery(buffers:Buffers,snapshot:EditorRecoverySna
  for(const [path,b] of added)buffers.values.set(path,b);buffers.changed();return {tree:{id:prefix+'-session',axis:'horizontal',ratio:.5,first:existing,second:tree},focused};
 }
 </ui:copy>
+
+Captured selection offsets are authored UTF-16 positions. The recovery adapter reads the exact source field, so a CRLF editor can checkpoint without normalizing its snapshot or confusing display positions with saved source positions.
 
 ## Read and restore through a compact floating review
 

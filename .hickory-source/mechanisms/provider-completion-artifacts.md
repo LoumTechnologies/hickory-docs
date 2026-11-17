@@ -34,6 +34,8 @@ impl Default for PreparedCompletions {
 fn completion_error(message: impl Into<String>) -> tower_lsp::jsonrpc::Error {
     tower_lsp::jsonrpc::Error::invalid_params(message.into())
 }
+fn completion_triggers(capabilities:Option<&Value>)->std::collections::BTreeSet<String>{capabilities.and_then(|caps|caps.pointer("/completionProvider/triggerCharacters")).and_then(Value::as_array).filter(|values|values.len()<=128).into_iter().flatten().filter_map(Value::as_str).filter(|value|value.len()<=4&&value.chars().count()==1).map(str::to_owned).collect()}
+fn completion_query_context(context:Option<CompletionContext>,triggers:&std::collections::BTreeSet<String>)->Result<Option<Value>>{let Some(mut context)=context else{return Ok(None)};if ![CompletionTriggerKind::INVOKED,CompletionTriggerKind::TRIGGER_CHARACTER,CompletionTriggerKind::TRIGGER_FOR_INCOMPLETE_COMPLETIONS].contains(&context.trigger_kind){return Err(completion_error("Unsupported completion trigger kind"))}if context.trigger_kind==CompletionTriggerKind::TRIGGER_CHARACTER&&!context.trigger_character.as_ref().is_some_and(|value|triggers.contains(value)){return Err(completion_error("Completion provider does not advertise this trigger"))}if context.trigger_kind!=CompletionTriggerKind::TRIGGER_CHARACTER{context.trigger_character=None}Ok(Some(json!(context)))}
 </ui:copy>
 
 ## Expand declared list defaults before retaining items
@@ -239,7 +241,7 @@ fn map_completion_item(
 
 ## Bind each offered item to its own context
 
-Forward the actual completion context and capture that child's resolution capability. Normalize and project every item before publishing the response, bound each response to 2,048 items and retain up to 4,096 items for 120 seconds. Source/ownership changes across asynchronous work retire the answer.
+Forward the actual completion context and capture that child's resolution capability. The proxy’s broad entry points never imply that a particular child advertised every trigger: retain its own bounded trigger set and forward trigger-kind 2 only for a declared character. An unsupported implicit proxy trigger returns no provider items without querying the child; it never becomes an explicit invocation. Unsupported trigger kinds refuse before querying. Normalize and project every item before publishing the response, bound each response to 2,048 items and retain up to 4,096 items for 120 seconds. Source/ownership changes across asynchronous work retire the answer.
 
 <ui:copy id="completion-provider-query">
 impl HickBackend {
@@ -258,7 +260,7 @@ impl HickBackend {
         let Some(root) = self.root_of(&virtual_uri).await else {
             return Ok(None);
         };
-        let (handle, resolve) = {
+        let (handle, resolve, triggers) = {
             let dispatcher = self.dispatcher.lock().await;
             let Ok(handle) = dispatcher.get_child(&language, &root) else {
                 return Ok(None);
@@ -268,13 +270,12 @@ impl HickBackend {
                 .and_then(|caps| caps.pointer("/completionProvider/resolveProvider"))
                 .and_then(Value::as_bool)
                 == Some(true);
-            (handle.clone(), resolve)
+            (handle.clone(), resolve, completion_triggers(dispatcher.server_capabilities(&language,&root)))
         };
         self.require_provider_revision(&revision).await?;
+        if params.context.as_ref().is_some_and(|context|context.trigger_kind==CompletionTriggerKind::TRIGGER_CHARACTER&&!context.trigger_character.as_ref().is_some_and(|character|triggers.contains(character))){return Ok(Some(CompletionResponse::Array(vec![])))}
         let mut request = json!({"textDocument":{"uri":virtual_uri},"position":position});
-        if let Some(context) = params.context {
-            request["context"] = json!(context);
-        }
+        if let Some(context)=completion_query_context(params.context,&triggers)? {request["context"]=context;}
         let mut result = handle
             .request("textDocument/completion", request)
             .await
@@ -392,6 +393,11 @@ Focused cases exercise default data overrides and snippet/edit defaults, dedente
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn trigger_context_is_bound_to_the_actual_producing_child_capabilities(){
+      let declared=completion_triggers(Some(&json!({"completionProvider":{"triggerCharacters":[".","😀","invalid",false]}})));assert_eq!(declared,std::collections::BTreeSet::from([".".into(),"😀".into()]));let context=|kind:u32,character:&str|serde_json::from_value(json!({"triggerKind":kind,"triggerCharacter":character})).unwrap();assert_eq!(completion_query_context(Some(context(2,".")),&declared).unwrap(),Some(json!({"triggerKind":2,"triggerCharacter":"."})));assert!(completion_query_context(Some(context(2,":")),&declared).is_err());assert_eq!(completion_query_context(Some(context(3,".")),&declared).unwrap(),Some(json!({"triggerKind":3})));assert!(completion_query_context(Some(context(99,".")),&declared).is_err());assert!(completion_query_context(None,&declared).unwrap().is_none());
+    }
+
     #[test]
     fn completion_defaults_expand_before_retaining_the_provider_item() {
         let range = json!({"start":{"line":0,"character":0},"end":{"line":0,"character":3}});

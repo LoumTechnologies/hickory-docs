@@ -59,7 +59,7 @@ function utf8Len(codePoint: number): number {
 <a id="f-86e96c7d2d4f-positionToUtf16"></a>
 ### `positionToUtf16`
 
-UTF-16 index of an LSP position. Out-of-range positions clamp (per LSP).
+UTF-16 index of an LSP position. Out-of-range positions clamp (per LSP). A CRLF separator begins at its CR; an overlong character position must stop before that CR rather than entering the two-unit separator. This display conversion does not round a split Unicode scalar into edit authority: authored edit adapters still reject such offsets.
 
 <storycode:copy id="f-86e96c7d2d4f-positionToUtf16">
 /** UTF-16 index of an LSP position. Out-of-range positions clamp (per LSP). */
@@ -71,7 +71,7 @@ export function positionToUtf16(text: string, pos: LspPosition): number {
     lineStart = nl + 1;
   }
   const nl = text.indexOf("\n", lineStart);
-  const lineEnd = nl === -1 ? text.length : nl;
+  const lineEnd = nl === -1 ? text.length : nl > lineStart && text.charCodeAt(nl - 1) === 13 ? nl - 1 : nl;
   return Math.min(lineStart + pos.character, lineEnd);
 }
 
@@ -202,6 +202,7 @@ Present and edit the shared engine state. Browser-side revisions, pending reques
 ### `expression_statement`
 
 <storycode:copy id="f-b4ff4dd97222-expression_statement">
+import {editorOffsetIn} from "../simple/SourceText";
 import { describe, expect, it } from "vitest";
 import {
   byteOffsetToPosition,
@@ -226,6 +227,20 @@ describe("LSP position <-> UTF-16 index", () => {
   it("clamps beyond line and document ends", () => {
     expect(positionToUtf16(text, { line: 0, character: 99 })).toBe(3);
     expect(positionToUtf16(text, { line: 99, character: 0 })).toBe(text.length);
+  });
+
+  it("clamps CRLF display positions before the complete separator", () => {
+    const source="abc\r\n😀 next\nlast";
+    expect(positionToUtf16(source,{line:0,character:99})).toBe(3);
+    expect(editorOffsetIn(source,positionToUtf16(source,{line:0,character:99}))).toBe(3);
+    expect(positionToUtf16(source,{line:1,character:2})).toBe(7);
+    expect(utf16ToPosition(source,7)).toEqual({line:1,character:2});
+  });
+
+  it("does not turn a split-surrogate display coordinate into authored edit authority", () => {
+    const source="a\r\n😀 tail",offset=positionToUtf16(source,{line:1,character:1});
+    expect(offset).toBe(4);
+    expect(()=>editorOffsetIn(source,offset)).toThrow(/Unicode scalar/);
   });
 
   it("maps indices to positions", () => {

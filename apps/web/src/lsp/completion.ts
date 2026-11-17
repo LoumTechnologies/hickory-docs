@@ -1,4 +1,5 @@
 import { completionActions, completionReading } from "./completionActions";
+import unicode from "../../../simple-contract/snippet-case-map.json";
 // Two kinds of suggestion, in one list, saying which is which.
 //
 // The two sources answer genuinely different questions, and that is the whole
@@ -73,19 +74,26 @@ const LSP_KINDS: Record<number, string> = {
   22: "class", 23: "interface", 24: "operator", 25: "type",
 };
 
-/** The word being typed, if any. `null` when the caret is not in one. */
-export function wordBefore(
-  context: Pick<CompletionContext, "matchBefore" | "explicit">,
-): { from: number; text: string } | null {
-  const word = context.matchBefore(/[A-Za-z_][A-Za-z0-9_]*/);
-  if (!word) return null;
-  // An explicit request (Ctrl-Space) completes from nothing; an implicit one
-  // waits for a couple of characters, or every keystroke opens a list of the
-  // whole project.
-  if (word.from === word.to && !context.explicit) return null;
-  return { from: word.from, text: word.text };
+// Use explicit ranges from the shared Unicode snapshot rather than each
+// browser's Unicode property version. Dollar remains a common identifier prefix.
+const identifierClass=unicode.identifier.map(([from,to])=>`\\u{${from.toString(16)}}${from===to?'':`-\\u{${to.toString(16)}}`}`).join('');
+const identifierWord=new RegExp(`[${identifierClass}\\u{24}]+`,'u');
+const identifierScalar=new RegExp(`^[${identifierClass}\\u{24}]$`,'u');
+/** The current Unicode identifier prefix, or the empty explicit insertion point. */
+export function wordBefore(context:Pick<CompletionContext,'matchBefore'|'explicit'|'state'|'pos'>):{from:number;text:string}|null {
+ if(!Number.isSafeInteger(context.pos)||context.pos<0||context.pos>context.state.doc.length)return null;
+ const around=context.state.doc.sliceString(Math.max(0,context.pos-1),Math.min(context.state.doc.length,context.pos+1));
+ if(around.length===2&&around.charCodeAt(0)>=0xD800&&around.charCodeAt(0)<=0xDBFF&&around.charCodeAt(1)>=0xDC00&&around.charCodeAt(1)<=0xDFFF)return null;
+ const word=context.matchBefore(identifierWord);
+ if(word){const line=context.state.doc.lineAt(word.from);if(word.from>line.from){const before=Array.from(context.state.doc.sliceString(Math.max(line.from,word.from-2),word.from)).at(-1);if(before&&identifierScalar.test(before))return null;}return {from:word.from,text:word.text};}
+ return context.explicit?{from:context.pos,text:''}:null;
 }
-
+function completionTrigger(context:CompletionContext,client:LspClient|undefined):string|undefined {
+ if(context.explicit||!client)return undefined;const provider=client.serverCapabilities?.completionProvider;
+ if(!provider||typeof provider!=='object'||!Array.isArray(provider.triggerCharacters)||provider.triggerCharacters.length>128)return undefined;
+ const before=Array.from(context.state.doc.sliceString(Math.max(0,context.pos-2),context.pos)).at(-1);if(!before||/^[\uD800-\uDFFF]$/u.test(before))return undefined;
+ return provider.triggerCharacters.some(value=>typeof value==='string'&&Array.from(value).length===1&&value===before)?before:undefined;
+}
 /** Turn one project suggestion into a CodeMirror completion. */
 export function projectCompletion(suggestion: ProjectSuggestion): Completion {
   return completionReading({
@@ -141,8 +149,10 @@ export function completionSource(options: {
   lspItem?: (item:CompletionItem,context:CompletionContext,from:number)=>Completion;
 }): (context: CompletionContext) => Promise<CompletionResult | null> {
   return async (context: CompletionContext) => {
-    const word = wordBefore(context);
-    if (!word) return null;
+    const trigger=completionTrigger(context,options.lsp?.client);
+    const word=wordBefore(context)??(trigger?{from:context.pos,text:""}:null);
+    if(!word)return null;
+    const triggerContext=trigger?{triggerKind:2 as const,triggerCharacter:trigger}:{triggerKind:1 as const};
 
     const around = context.state.doc.sliceString(
       Math.max(0, word.from - 400),
@@ -153,7 +163,7 @@ export function completionSource(options: {
     const [lspItems, projectItems] = await Promise.all([
       options.lsp && position
         ? options.lsp.client
-            .completion(options.lsp.uri, position)
+            .completion(options.lsp.uri, position, triggerContext)
             .catch(() => [])
         : Promise.resolve([]),
       options.project
@@ -161,6 +171,7 @@ export function completionSource(options: {
         : Promise.resolve([]),
     ]);
 
+    if(context.aborted)return null;
     const seen = new Set<string>();
     const completions: Completion[] = [];
     for (const item of lspItems) {

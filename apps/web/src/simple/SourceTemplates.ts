@@ -9,12 +9,13 @@ import {planCompletion,type CompletionDraft} from './CompletionPlan';
 import {completionExpansion} from './SnippetExpansion';
 import {acceptSourceCompletion} from './SourceCompletion';
 import {readSourceSnippet,continueSourceSnippetCompletion} from './SourceSnippets';
+import {authoredSource,authoredOffset} from './SourceText';
 export interface TemplateEditor {buffer:Buffer;buffers:Buffers;view:EditorView;mounted:()=>boolean;interaction:()=>number}
 export interface TemplateContext {version:1;path:string;source:string;selection:{from:number;to:number}}
 export interface TemplateSnapshot {editor:TemplateEditor;view:EditorView;context:Readonly<TemplateContext>;selection:EditorView['state']['selection'];current:(writable?:boolean)=>boolean}
 export function captureTemplateEditor(editor:TemplateEditor):TemplateSnapshot {
- const {buffer,buffers,view}=editor,file=buffer.file,path=file.path,namespace=buffers.workspace,revision=buffer.sourceRevision,doc=view.state.doc,selection=view.state.selection,interactionNow=editor.interaction,mounted=editor.mounted,interaction=interactionNow(),snippet=readSourceSnippet(view),source=doc.toString();
- const context=Object.freeze({version:1 as const,path,source,selection:Object.freeze({from:selection.main.from,to:selection.main.to})});
+ const {buffer,buffers,view}=editor,file=buffer.file,path=file.path,namespace=buffers.workspace,revision=buffer.sourceRevision,doc=view.state.doc,selection=view.state.selection,interactionNow=editor.interaction,mounted=editor.mounted,interaction=interactionNow(),snippet=readSourceSnippet(view),source=authoredSource(view.state);
+ const context=Object.freeze({version:1 as const,path,source,selection:Object.freeze({from:authoredOffset(view.state,selection.main.from),to:authoredOffset(view.state,selection.main.to)})});
  const current=(writable=false)=>!!namespace&&buffers.workspace===namespace&&buffer.namespace===namespace&&buffers.values.get(path)===buffer&&buffer.file===file&&file.path===path&&buffer.sourceRevision===revision&&buffer.text===source&&mounted()&&view.dom.isConnected&&view.state.doc===doc&&view.state.selection.eq(selection)&&interactionNow()===interaction&&readSourceSnippet(view)===snippet&&(!writable||!buffer.readonly&&!buffer.saving&&!buffer.resourceDeleted&&!view.composing&&!view.state.readOnly&&view.state.facet(EditorView.editable)&&selection.ranges.length===1);
  if(!current())throw Error('The original source editor is unavailable. Reopen templates from its current editor.');
  return Object.freeze({editor:Object.freeze({...editor}),view,context,selection,current});
@@ -60,6 +61,6 @@ export async function applyTemplate(preview:TemplatePreview,current:()=>boolean,
  const refreshed=await prepareTemplate(snapshot,preview.catalog,preview.entry.id,preview.provider);if(!current()||!snapshot.current(true))throw Error('Template preview is obsolete. Refresh before applying.');if(!sameTemplateData(refreshed.item,preview.item)||!sameTemplateData(refreshed.notices,preview.notices))throw Error('The template provider changed the reviewed expansion. Refresh and review it again.');
  const before=readCompletionAcceptance(view),after=preview.draft.plan.patches[0]?.after??snapshot.context.source;let message='Template was not applied.';
  await acceptSourceCompletion(view,structuredClone(preview.item),snapshot.context.source,snapshot.selection,snapshot.context.selection.from,snapshot.context.selection.to,{uri:documentUri(snapshot.context.path),resolve:async item=>item,current:()=>current()&&snapshot.current(true),writable:()=>snapshot.current(true),notice:value=>{message=value;notice(value.replace(/^Completion/,'Template'));}});
- const acceptance=readCompletionAcceptance(view),applied=acceptance?.job!==before?.job&&acceptance?.phase==='applied'&&acceptance.applied&&view.state.doc.toString()===after;
+ const acceptance=readCompletionAcceptance(view),applied=acceptance?.job!==before?.job&&acceptance?.phase==='applied'&&acceptance.applied&&authoredSource(view.state)===after;
  if(!applied)throw Error(message);if(current()&&snapshot.editor.mounted())view.focus();return true;
 }

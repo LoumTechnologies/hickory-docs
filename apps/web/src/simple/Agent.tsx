@@ -1,3 +1,4 @@
+import {authoredSource,authoredChanges} from './SourceText';
 import { createElement, useEffect, useRef, useSyncExternalStore, type ReactNode } from "react";
 import { markdownLanguage } from "@codemirror/lang-markdown";
 import type { SyntaxNode } from "@lezer/common";
@@ -53,7 +54,7 @@ export class AgentSession {
   set prompt(value: string) {
     this.draft.edit(value);
     const view = editorForBuffer(this.draft)?.view;
-    if (view && view.state.doc.toString() !== value) view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: value } });
+    if (view && authoredSource(view.state) !== value) view.dispatch(authoredChanges(view.state,[{from:0,to:authoredSource(view.state).length,insert:value}]));
   }
   document(id: string, text: string, readonly = true) {
     const path = `conversation/${id}.md`;
@@ -64,7 +65,7 @@ export class AgentSession {
     } else if (buffer.text !== text) {
       buffer.text = buffer.base = text; buffer.publish();
       const view = editorForBuffer(buffer)?.view;
-      if (view) view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: text } });
+      if (view) view.dispatch(authoredChanges(view.state,[{from:0,to:authoredSource(view.state).length,insert:text}]));
     }
     return buffer;
   }

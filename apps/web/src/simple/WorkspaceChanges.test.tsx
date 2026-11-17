@@ -1,9 +1,11 @@
+import {sourceText,authoredSource} from './SourceText';
+import {history,undo,redo} from '@codemirror/commands';
 import {act,cleanup,fireEvent,render,screen} from '@testing-library/react';
 import {afterEach,expect,it,vi} from 'vitest';
 import {EditorState} from '@codemirror/state';
 import {EditorView} from '@codemirror/view';
 import {Buffer,Buffers} from './buffers';
-import {WorkspaceChanges} from './WorkspaceChanges';
+import {WorkspaceChanges,applyWorkspacePlan} from './WorkspaceChanges';
 import {WorkspaceChangeHistory} from './ChangePlan';
 import {requestWorkspaceChange,requestWorkspaceProposal} from './WorkspaceChangeEvents';
 const mocks=vi.hoisted(()=>({editor:vi.fn(),lookup:vi.fn(),outline:vi.fn(),preparation:vi.fn(),request:vi.fn()}));
@@ -22,6 +24,11 @@ function fixture(result:unknown){
  act(()=>requestWorkspaceChange('fixAll'));return {buffer,buffers,files,request};
 }
 async function prepare(){fireEvent.click(screen.getByRole('button',{name:'Prepare file-wide diagnostic fixes'}));}
+it('applies source-bound authored offsets and retains exact mixed bytes through native UndoRedo',()=>{
+ const before='// first\r\nold\n// last\r\n',after='// first\r\nnew\r\nextra\n// last\r\n',buffers=new Buffers(()=>{}),buffer=new Buffer({path:'mixed.py',name:'mixed.py',dir:false},before,'base',()=>{});buffers.values.set(buffer.file.path,buffer);
+ view=new EditorView({state:EditorState.create({doc:before,extensions:[sourceText(before),history(),EditorView.updateListener.of(update=>{if(update.docChanged)buffer.edit(authoredSource(update.state));})]}),parent:document.body});mocks.editor.mockImplementation(target=>target===buffer?{view}:undefined);const held=view,at=before.indexOf('old');
+ applyWorkspacePlan(buffers,{title:'Complete authored edit',patches:[{path:buffer.file.path,before,after,edits:[{from:at,to:at+3,text:'new\r\nextra'}]}]});expect(buffer.text).toBe(after);expect(authoredSource(view.state)).toBe(after);expect(undo(view)).toBe(true);expect(buffer.text).toBe(before);expect(redo(view)).toBe(true);expect(buffer.text).toBe(after);expect(view).toBe(held);
+});
 it('requests the entire source family, reviews one complete action and coordinates draft Undo/Redo',async()=>{
  const {buffer,request}=fixture([action(),{title:'Unrelated quick fix',kind:'quickfix'}, {title:'Wrong prefix',kind:'source.fixAllWrong'}]);await prepare();await screen.findByRole('button',{name:'Complete file fix'});expect(screen.queryByRole('button',{name:'Unrelated quick fix'})).toBeNull();expect(screen.queryByRole('button',{name:'Wrong prefix'})).toBeNull();expect(request).toHaveBeenCalledWith('textDocument/codeAction',expect.objectContaining({range:{start:{line:0,character:0},end:{line:1,character:0}},context:{diagnostics:[],only:['source.fixAll']}}));expect(buffer.text).toBe('old\n');expect(view!.state.selection.main.head).toBe(2);
  fireEvent.click(screen.getByRole('button',{name:'Complete file fix'}));await screen.findByRole('button',{name:'Apply to source drafts'});expect(buffer.text).toBe('old\n');fireEvent.click(screen.getByRole('button',{name:'Apply to source drafts'}));expect(buffer.text).toBe('new\n');act(()=>requestWorkspaceChange('undo'));expect(buffer.text).toBe('old\n');act(()=>requestWorkspaceChange('redo'));expect(buffer.text).toBe('new\n');expect(request.mock.calls.filter(([method])=>method==='textDocument/codeAction')).toHaveLength(2); // Discovery is discarded after retained-source synchronization.

@@ -15,6 +15,7 @@ Present and edit the shared engine state. Browser-side revisions, pending reques
 
 <storycode:copy id="f-4123a128ce4a-completionSources">
 import { completionActions, completionReading } from "./completionActions";
+import unicode from "../../../simple-contract/snippet-case-map.json";
 // Two kinds of suggestion, in one list, saying which is which.
 //
 // The two sources answer genuinely different questions, and that is the whole
@@ -137,22 +138,31 @@ const LSP_KINDS: Record<number, string> = {
 <a id="f-4123a128ce4a-wordBefore"></a>
 ### `wordBefore`
 
+An explicit request can ask the provider at a blank, punctuation or member-access insertion point. Implicit punctuation requests require a trigger character advertised by the captured provider; no language/vendor table invents support. Identifier ranges come from the same frozen Unicode data as source variables, and a truncated prefix or split surrogate never supplies a destructive fallback range. Popup-only effects leave source/selection acceptance guards to their existing adapter.
+
 The word being typed, if any. `null` when the caret is not in one.
 
 <storycode:copy id="f-4123a128ce4a-wordBefore">
-/** The word being typed, if any. `null` when the caret is not in one. */
-export function wordBefore(
-  context: Pick<CompletionContext, "matchBefore" | "explicit">,
-): { from: number; text: string } | null {
-  const word = context.matchBefore(/[A-Za-z_][A-Za-z0-9_]*/);
-  if (!word) return null;
-  // An explicit request (Ctrl-Space) completes from nothing; an implicit one
-  // waits for a couple of characters, or every keystroke opens a list of the
-  // whole project.
-  if (word.from === word.to && !context.explicit) return null;
-  return { from: word.from, text: word.text };
+// Use explicit ranges from the shared Unicode snapshot rather than each
+// browser's Unicode property version. Dollar remains a common identifier prefix.
+const identifierClass=unicode.identifier.map(([from,to])=>`\\u{${from.toString(16)}}${from===to?'':`-\\u{${to.toString(16)}}`}`).join('');
+const identifierWord=new RegExp(`[${identifierClass}\\u{24}]+`,'u');
+const identifierScalar=new RegExp(`^[${identifierClass}\\u{24}]$`,'u');
+/** The current Unicode identifier prefix, or the empty explicit insertion point. */
+export function wordBefore(context:Pick<CompletionContext,'matchBefore'|'explicit'|'state'|'pos'>):{from:number;text:string}|null {
+ if(!Number.isSafeInteger(context.pos)||context.pos<0||context.pos>context.state.doc.length)return null;
+ const around=context.state.doc.sliceString(Math.max(0,context.pos-1),Math.min(context.state.doc.length,context.pos+1));
+ if(around.length===2&&around.charCodeAt(0)>=0xD800&&around.charCodeAt(0)<=0xDBFF&&around.charCodeAt(1)>=0xDC00&&around.charCodeAt(1)<=0xDFFF)return null;
+ const word=context.matchBefore(identifierWord);
+ if(word){const line=context.state.doc.lineAt(word.from);if(word.from>line.from){const before=Array.from(context.state.doc.sliceString(Math.max(line.from,word.from-2),word.from)).at(-1);if(before&&identifierScalar.test(before))return null;}return {from:word.from,text:word.text};}
+ return context.explicit?{from:context.pos,text:''}:null;
 }
-
+function completionTrigger(context:CompletionContext,client:LspClient|undefined):string|undefined {
+ if(context.explicit||!client)return undefined;const provider=client.serverCapabilities?.completionProvider;
+ if(!provider||typeof provider!=='object'||!Array.isArray(provider.triggerCharacters)||provider.triggerCharacters.length>128)return undefined;
+ const before=Array.from(context.state.doc.sliceString(Math.max(0,context.pos-2),context.pos)).at(-1);if(!before||/^[\uD800-\uDFFF]$/u.test(before))return undefined;
+ return provider.triggerCharacters.some(value=>typeof value==='string'&&Array.from(value).length===1&&value===before)?before:undefined;
+}
 </storycode:copy>
 <a id="f-4123a128ce4a-projectCompletion"></a>
 ### `projectCompletion`
@@ -236,8 +246,10 @@ export function completionSource(options: {
   lspItem?: (item:CompletionItem,context:CompletionContext,from:number)=>Completion;
 }): (context: CompletionContext) => Promise<CompletionResult | null> {
   return async (context: CompletionContext) => {
-    const word = wordBefore(context);
-    if (!word) return null;
+    const trigger=completionTrigger(context,options.lsp?.client);
+    const word=wordBefore(context)??(trigger?{from:context.pos,text:""}:null);
+    if(!word)return null;
+    const triggerContext=trigger?{triggerKind:2 as const,triggerCharacter:trigger}:{triggerKind:1 as const};
 
     const around = context.state.doc.sliceString(
       Math.max(0, word.from - 400),
@@ -248,7 +260,7 @@ export function completionSource(options: {
     const [lspItems, projectItems] = await Promise.all([
       options.lsp && position
         ? options.lsp.client
-            .completion(options.lsp.uri, position)
+            .completion(options.lsp.uri, position, triggerContext)
             .catch(() => [])
         : Promise.resolve([]),
       options.project
@@ -256,6 +268,7 @@ export function completionSource(options: {
         : Promise.resolve([]),
     ]);
 
+    if(context.aborted)return null;
     const seen = new Set<string>();
     const completions: Completion[] = [];
     for (const item of lspItems) {
@@ -433,7 +446,7 @@ describe("when the popup opens at all", () => {
 
   it("completes from nothing when it was asked for explicitly", () => {
     // Ctrl-Space means "show me now", which is a different question.
-    expect(wordBefore(contextAt("x = ", 4, true))).toBeNull();
+    expect(wordBefore(contextAt("x = ", 4, true))).toEqual({from:4,text:""});
     expect(wordBefore(contextAt("x = tot", 7, true))?.text).toBe("tot");
   });
 
@@ -512,6 +525,14 @@ describe("the combined list", () => {
     const result = await source(contextAt("tot", 3));
     expect("total".match(result!.validFor as RegExp)).toBeTruthy();
   });
+});
+
+describe('source-bound Unicode and provider trigger contexts',()=>{
+ it('finds Unicode and combining identifiers with UTF16 source ranges',()=>{expect(wordBefore(contextAt('λ值',2,true))).toEqual({from:0,text:'λ值'});expect(wordBefore(contextAt('𐐨e\u0301',4,true))).toEqual({from:0,text:'𐐨e\u0301'});expect(wordBefore(contextAt('object.',7,true))).toEqual({from:7,text:''});expect(wordBefore(contextAt('',0,true))).toEqual({from:0,text:''});expect(wordBefore(contextAt('😀',1,true))).toBeNull();});
+ it('does not return the tail of a truncated long identifier as a replacement range',()=>{expect(wordBefore(contextAt('a'.repeat(500),500,true))).toBeNull();});
+ it('queries at an empty explicit cursor with standard invoked context',async()=>{const calls:unknown[][]=[];const client={completion:async(...args:unknown[])=>{calls.push(args);return[{label:'available'}]},serverCapabilities:null} as never;const result=await completionSource({lsp:{client,uri:'hick:///a.ts',positionAt:()=>({line:0,character:0})}})(contextAt('',0,true));expect(result?.from).toBe(0);expect(result?.options[0].label).toBe('available');expect(calls).toEqual([['hick:///a.ts',{line:0,character:0},{triggerKind:1}]]);});
+ it('uses only the producing provider advertised trigger characters',async()=>{const calls:unknown[][]=[];const client={completion:async(...args:unknown[])=>{calls.push(args);return[{label:'member'}]},serverCapabilities:{completionProvider:{triggerCharacters:['.']}}} as never;const source=completionSource({lsp:{client,uri:'hick:///a.ts',positionAt:(offset)=>({line:0,character:offset})}});expect((await source(contextAt('obj.',4)))?.from).toBe(4);expect(calls[0]).toEqual(['hick:///a.ts',{line:0,character:4},{triggerKind:2,triggerCharacter:'.'}]);expect(await source(contextAt('obj:',4))).toBeNull();expect(calls).toHaveLength(1);});
+ it('retains the captured trigger while capability data changes and drops retired contexts',async()=>{let release!:(items:{label:string}[])=>void;const calls:unknown[][]=[];const capabilities={completionProvider:{triggerCharacters:['.']}};const client={completion:(...args:unknown[])=>{calls.push(args);return new Promise<{label:string}[]>(resolve=>{release=resolve})},get serverCapabilities(){return capabilities}} as never;const context=contextAt('obj.',4),pending=completionSource({lsp:{client,uri:'hick:///a.ts',positionAt:()=>({line:0,character:4})}})(context);capabilities.completionProvider.triggerCharacters=[':'];Object.defineProperty(context,'aborted',{value:true});release([{label:'retired'}]);expect(await pending).toBeNull();expect(calls[0][2]).toEqual({triggerKind:2,triggerCharacter:'.'});});
 });
 </storycode:copy>
 

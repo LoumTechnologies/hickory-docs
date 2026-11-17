@@ -31,7 +31,7 @@ export function positionToUtf16(text: string, pos: LspPosition): number {
     lineStart = nl + 1;
   }
   const nl = text.indexOf("\n", lineStart);
-  const lineEnd = nl === -1 ? text.length : nl;
+  const lineEnd = nl === -1 ? text.length : nl > lineStart && text.charCodeAt(nl - 1) === 13 ? nl - 1 : nl;
   return Math.min(lineStart + pos.character, lineEnd);
 }
 

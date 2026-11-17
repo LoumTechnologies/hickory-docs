@@ -7,7 +7,10 @@ The workspace owns the session so moving or hiding its tab retains the literate 
 
 Render prompts and answers through the installed Markdown parser. Walk its syntax tree into a small allowlist of React elements so nested emphasis and headings follow Markdown boundaries, while code stays literal. Unknown constructs remain text; raw HTML never executes. Rendering only observes the retained messages.
 
+A composer’s source replacement uses the shared authored edit builder, preserving explicit CRLF and mixed separators along with the existing editor history. Read checks compare exact authored content rather than normalized display text.
+
 <ui:copy id="simple-981c695688-0">
+import {authoredSource,authoredChanges} from './SourceText';
 import { createElement, useEffect, useRef, useSyncExternalStore, type ReactNode } from "react";
 import { markdownLanguage } from "@codemirror/lang-markdown";
 import type { SyntaxNode } from "@lezer/common";
@@ -76,7 +79,7 @@ export class AgentSession {
   set prompt(value: string) {
     this.draft.edit(value);
     const view = editorForBuffer(this.draft)?.view;
-    if (view && view.state.doc.toString() !== value) view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: value } });
+    if (view && authoredSource(view.state) !== value) view.dispatch(authoredChanges(view.state,[{from:0,to:authoredSource(view.state).length,insert:value}]));
   }
   document(id: string, text: string, readonly = true) {
     const path = `conversation/${id}.md`;
@@ -87,7 +90,7 @@ export class AgentSession {
     } else if (buffer.text !== text) {
       buffer.text = buffer.base = text; buffer.publish();
       const view = editorForBuffer(buffer)?.view;
-      if (view) view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: text } });
+      if (view) view.dispatch(authoredChanges(view.state,[{from:0,to:authoredSource(view.state).length,insert:text}]));
     }
     return buffer;
   }

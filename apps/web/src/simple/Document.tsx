@@ -1,3 +1,4 @@
+import {sourceText,authoredSource,authoredOffset,editorOffset,editorOffsetIn,authoredChanges,authoredInsert} from './SourceText';
 import {sourceSnippets,moveSourceSnippet,finishSourceSnippet,openSourceSnippetChoices,readSourceSnippet,dispatchSourceSnippetTransactions} from './SourceSnippets';
 import {useCoverageLineActions} from "./SourceCoverage";
 import {useSourceTestLineActions} from "./SourceTestGutters";
@@ -230,14 +231,14 @@ export function Document({ buffer,current }: { buffer: Buffer;current?:()=>boole
   useEffect(() => {
     if (!view) return;
     const query = async (kind: SemanticQuery, text = "") => {
-      const id = ++semanticTicket.current, client = session.client, source = view.state.doc.toString();
+      const id = ++semanticTicket.current, client = session.client, source = authoredSource(view.state);
       const { anchor, head } = view.state.selection.main;
-      const current = () => id === semanticTicket.current && view.dom.isConnected && view.state.doc.toString() === source && view.state.selection.main.anchor === anchor && view.state.selection.main.head === head;
+      const current = () => id === semanticTicket.current && view.dom.isConnected && authoredSource(view.state) === source && view.state.selection.main.anchor === anchor && view.state.selection.main.head === head;
       const result = { source, anchor, head, ticket: id, message: "Searching…", locations: [] as SemanticLocation[] };
       setSemanticResult(result);
       if (!client || !session.ready) { setSemanticResult({ ...result, message: "Language services unavailable. Install a server for this workspace, then retry." }); return; }
       try {
-        const locations = await querySemanticLocations(client, session.uri, utf16ToPosition(source, head), kind, text);
+        const locations = await querySemanticLocations(client, session.uri, utf16ToPosition(source, authoredOffset(view.state,head)), kind, text);
         if (current()) setSemanticResult({ ...result, locations, message: locations.length ? `${locations.length} locations` : "No results. The provider may still be indexing or may not support this query. Retry or choose another symbol." });
       } catch (error) { if (current()) setSemanticResult({ ...result, message: `${String(error)}. Retry language services.` }); }
     };
@@ -258,8 +259,8 @@ export function Document({ buffer,current }: { buffer: Buffer;current?:()=>boole
     let cached = editors.get(buffer);
     if (!cached) {
       const language = new Compartment(), prose = new Compartment(), completion=new Compartment(), address=new Compartment();
-      const view = new EditorView({ dispatchTransactions:dispatchSourceSnippetTransactions,state: EditorState.create({ doc: buffer.text, ...(buffer.recoveryView?{selection:EditorSelection.single(buffer.recoveryView.selection.anchor,buffer.recoveryView.selection.head)}:{}), extensions: [
-        history(), sourceSnippets({writable:()=>!buffer.readonly&&!buffer.saving,notice:value=>buffer.setCompletionNotice(value)}), layoutEditorGutters.of(false), gutterIconLayout, indentUnit.of(simpleIndent(buffer.text)), EditorState.tabSize.of(4), drawSelection(), EditorState.allowMultipleSelections.of(true), rectangularSelection(), crosshairCursor(), lineNumbers({ domEventHandlers: { mousedown: (editor, block, event) => {
+      const view = new EditorView({ dispatchTransactions:dispatchSourceSnippetTransactions,state: EditorState.create({ doc: buffer.text, ...(buffer.recoveryView?{selection:EditorSelection.single(editorOffsetIn(buffer.text,buffer.recoveryView.selection.anchor),editorOffsetIn(buffer.text,buffer.recoveryView.selection.head))}:{}), extensions: [
+        sourceText(buffer.text), history(), EditorView.domEventHandlers({paste:(event,view)=>{const text=event.clipboardData?.getData('text/plain');if(!text||view.state.readOnly||view.composing)return false;event.preventDefault();view.dispatch(authoredInsert(view.state,text));return true;}}), sourceSnippets({writable:()=>!buffer.readonly&&!buffer.saving,notice:value=>buffer.setCompletionNotice(value)}), layoutEditorGutters.of(false), gutterIconLayout, indentUnit.of(simpleIndent(buffer.text)), EditorState.tabSize.of(4), drawSelection(), EditorState.allowMultipleSelections.of(true), rectangularSelection(), crosshairCursor(), lineNumbers({ domEventHandlers: { mousedown: (editor, block, event) => {
           const line = breakpointLine(editor.state, editor.state.doc.lineAt(block.from).number - 1);
           if (line === null) return false;
           event.preventDefault(); editors.get(buffer)?.toggleBreakpoint?.(line); return true;
@@ -274,7 +275,7 @@ export function Document({ buffer,current }: { buffer: Buffer;current?:()=>boole
         address.of(EditorView.contentAttributes.of({ "aria-label": buffer.file.path })),
         EditorView.updateListener.of(update => {
           if(update.selectionSet){const held=editors.get(buffer);if(held)held.interaction++;}
-          if (update.docChanged) buffer.edit(update.state.doc.toString());
+          if (update.docChanged||authoredSource(update.startState)!==authoredSource(update.state)) buffer.edit(authoredSource(update.state));
         }),
         EditorView.theme({ "&": { height: "100%" }, ".cm-scroller": { overflow: "auto", fontFamily: "ui-monospace, monospace", fontSize: "13px" } }),
       ] }) });
@@ -303,14 +304,14 @@ export function Document({ buffer,current }: { buffer: Buffer;current?:()=>boole
     if (!cached || !session.client || !session.ready) return;
     const { view, language,completion } = cached;
     let providerCurrent = true;
-    const positionAt = (offset: number, editor: EditorView) => utf16ToPosition(editor.state.doc.toString(), offset);
-    const offsetAt = (position: { line: number; character: number }, editor: EditorView) => positionToUtf16(editor.state.doc.toString(), position);
+    const positionAt = (offset: number, editor: EditorView) => utf16ToPosition(authoredSource(editor.state), authoredOffset(editor.state,offset));
+    const offsetAt = (position: { line: number; character: number }, editor: EditorView) => editorOffset(editor.state,positionToUtf16(authoredSource(editor.state), position));
     view.dispatch({ effects: [language.reconfigure([
       ...lspSupport({ client: session.client, uri: session.uri, positionAt,
         onReferences: locations => {
           if (!providerCurrent) return;
           const { anchor, head } = view.state.selection.main;
-          setSemanticResult({ source: view.state.doc.toString(), anchor, head, ticket: ++semanticTicket.current, message: `${locations.length} locations`, locations: semanticLocations(locations) });
+          setSemanticResult({ source: authoredSource(view.state), anchor, head, ticket: ++semanticTicket.current, message: `${locations.length} locations`, locations: semanticLocations(locations) });
         },
         onNavigate: target => { if (!providerCurrent) return; if (sameDocumentUri(target.uri, session.uri)) {
           const anchor = offsetAt(target.range.start, view);
@@ -318,11 +319,11 @@ export function Document({ buffer,current }: { buffer: Buffer;current?:()=>boole
         } else {
           const path = semanticPath(target.uri);
           if (path) openLocation(path, target.range.start.line + 1, target.range.start.character);
-          else { const { anchor, head } = view.state.selection.main; setSemanticResult({ source: view.state.doc.toString(), anchor, head, ticket: ++semanticTicket.current, message: "Provider target is outside authored workspace files.", locations: [target] }); }
+          else { const { anchor, head } = view.state.selection.main; setSemanticResult({ source: authoredSource(view.state), anchor, head, ticket: ++semanticTicket.current, message: "Provider target is outside authored workspace files.", locations: [target] }); }
         } } }),
       ...lspFeatures({ client: session.client, uri: session.uri, positionAt, offsetAt, inlayHints: true }),
     ]),completion.reconfigure(!buffer.readonly ? completions({ lsp: { client: session.client, uri: session.uri,
-        positionAt: (offset, state) => utf16ToPosition(state.doc.toString(), offset) },
+        positionAt: (offset, state) => utf16ToPosition(authoredSource(state), authoredOffset(state,offset)) },
         lspItem:(item,context)=>sourceCompletion(item,context,{uri:session.uri,current:()=>providerCurrent,writable:()=>!buffer.readonly&&!buffer.saving&&!buffer.transient,
           resolve:async original=>await session.client!.request("completionItem/resolve",{...original,textDocument:{uri:session.uri}}) as import("../lsp/client").CompletionItem,
           notice:text=>buffer.setCompletionNotice(text)}) }) : completions({}))] });
@@ -332,7 +333,7 @@ export function Document({ buffer,current }: { buffer: Buffer;current?:()=>boole
     const cached = editors.get(buffer);
     if (!cached || !session.client || !session.ready) return;
     cached.view.dispatch({ effects: setLspDiagnostics.of(diagnosticRanges(session.diagnostics.filter(diagnostic => (diagnosticBoundSource(diagnostic) ?? session.diagnosticSource) === buffer.text),
-      position => positionToUtf16(cached.view.state.doc.toString(), position))) });
+      position => editorOffset(cached.view.state,positionToUtf16(authoredSource(cached.view.state), position)))) });
   }, [buffer, session.client, session.ready, session.diagnostics, session.diagnosticSource, buffer.text, capabilities]);
   // Attach debugger state to the existing editor. Callbacks read the current
   // session so tab moves and incoming DAP events cannot retain obsolete verbs.
@@ -362,7 +363,7 @@ export function Document({ buffer,current }: { buffer: Buffer;current?:()=>boole
   useEffect(() => {
     if (!view || editors.get(buffer)?.view !== view || !view.dom.isConnected) return;
     const reveal = () => {
-      const position = claimRevealPosition(buffer.file.path,view.state.doc.toString()); if (!position) return;
+      const position = claimRevealPosition(buffer.file.path,authoredSource(view.state)); if (!position) return;
       if (position.character === undefined) { revealLine(view, position.line - 1); return; }
       if (position.line > view.state.doc.lines || position.character > view.state.doc.line(position.line).length) { setDebugNotice("Location no longer fits this source. Query again."); return; }
       const anchor = view.state.doc.line(position.line).from + position.character;
@@ -396,8 +397,8 @@ export function Document({ buffer,current }: { buffer: Buffer;current?:()=>boole
       }}>{location.name ? `${location.name} · ` : ""}{path ?? location.uri}:{location.range.start.line + 1}:{location.range.start.character + 1}{!path ? " (unsupported target)" : ""}</button>; })}
     </div>}
     {csv && <button type="button" className="simple-source-toggle" onClick={() => setCsvSource(value => !value)}>{csvSource ? "Edit table as grid" : "Edit source text"}</button>}
-    {csv && csvReady && !csvSource && view && <Suspense fallback={<span>Loading table…</span>}><CsvGrid source={buffer.text} chooseFormulaLanguage header delimiter="," sourceCurrent={() => !buffer.readonly && view.state.doc.toString() === tableSource && buffer.text === tableSource}
-      onChange={buffer.readonly ? undefined : text => { if (!buffer.readonly && buffer.text === tableSource && view.state.doc.toString() === tableSource) view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: text }, userEvent: "input.table" }); }} /></Suspense>}
+    {csv && csvReady && !csvSource && view && <Suspense fallback={<span>Loading table…</span>}><CsvGrid source={buffer.text} chooseFormulaLanguage header delimiter="," sourceCurrent={() => !buffer.readonly && authoredSource(view.state) === tableSource && buffer.text === tableSource}
+      onChange={buffer.readonly ? undefined : text => { if (!buffer.readonly && buffer.text === tableSource && authoredSource(view.state) === tableSource) view.dispatch({ ...authoredChanges(view.state,[{from:0,to:authoredSource(view.state).length,insert:text}]), userEvent: "input.table" }); }} /></Suspense>}
     <div className="editor-row" style={{ ...(csv && csvReady && !csvSource && view ? { display: "none" } : {}), "--simple-rail-width": `${railWidth}px` } as React.CSSProperties}><div ref={host} className="editor-host editor-cm-host" />{!buffer.transient && <Minimap buffer={buffer} />}
       <div className="simple-rail-resize" role="separator" aria-label="Resize right gutter" tabIndex={0}
         onKeyDown={event => { if (event.key === "ArrowLeft" || event.key === "ArrowRight") { event.preventDefault(); setRailWidth(width => Math.max(24, Math.min(220, width + (event.key === "ArrowLeft" ? 22 : -22)))); } }}

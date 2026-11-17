@@ -1,3 +1,4 @@
+import {authoredSource,authoredChanges,authoredTransactionSource} from './SourceText';
 import {Buffer,type Buffers} from './buffers';
 import type {FileNode} from '../api/types';
 import {editorForBuffer} from './Document';
@@ -62,10 +63,10 @@ export function adoptResourceReceipt(buffers:Buffers,patches:readonly ResourceEd
   const entry=route.to===null?undefined:files.get(route.to)!;
   const buffer=route.editor??new Buffer(entry!.file,route.after!,entry!.hash,()=>buffers.changed(),false,buffers.workspace);
   const view=editorForBuffer(buffer)?.view;
-  if(view&&(view.composing||view.state.doc.toString()!==buffer.text||view.state.readOnly||!view.state.facet(EditorView.editable)))throw new Error('Finish composition and inspect recovery before adopting source editors.');
+  if(view&&(view.composing||authoredSource(view.state)!==buffer.text||view.state.readOnly||!view.state.facet(EditorView.editable)))throw new Error('Finish composition and inspect recovery before adopting source editors.');
   if(route.to!==null&&!patches.some(p=>p.path===route.to&&p.before)&&buffers.values.has(route.to))throw new Error('A destination editor appeared after review. Preserve it and inspect recovery.');
-  const transaction=view&&route.after!==null&&buffer.text!==route.after?view.state.update({changes:{from:0,to:view.state.doc.length,insert:route.after},annotations:isolateHistory.of('full'),userEvent:'input.workspace',filter:false}):undefined;
-  if(transaction&&transaction.newDoc.toString()!==route.after)throw new Error('Editor refused the complete resource change. Inspect recovery.');
+  const transaction=view&&route.after!==null&&buffer.text!==route.after?view.state.update({...authoredChanges(view.state,[{from:0,to:buffer.text.length,insert:route.after}]),annotations:isolateHistory.of('full'),userEvent:'input.workspace',filter:false}):undefined;
+  if(transaction&&authoredTransactionSource(transaction)!==route.after)throw new Error('Editor refused the complete resource change. Inspect recovery.');
   prepared.push({route,buffer,view,transaction});
  }
  // Capture attached geometry before the host loses its old styled parent.
@@ -124,7 +125,7 @@ const resourceAttempts=new WeakMap<ResourceRestoreReview,string>();
 export async function publishResourceRestore(buffers:Buffers,review:ResourceRestoreReview,load:ResourceTransport):Promise<{routes:ResourceEditorRoute<Buffer>[];recovery:string}>{
  const earlier=resourceAttempts.get(review);if(earlier)throw new Error('This review already has publication request '+earlier+'. Inspect its retained recovery; it will not be retried.');
  if(!review.current())throw new Error('Source changed after review. Prepare restoration again.');
- for(const patch of review.patches)if(patch.before){const buffer=buffers.values.get(patch.path),view=buffer&&editorForBuffer(buffer)?.view;if(!buffer||view&&(view.composing||view.state.doc.toString()!==buffer.text||view.state.readOnly||!view.state.facet(EditorView.editable)))throw new Error('Finish composition and restore current source before publication.');}
+ for(const patch of review.patches)if(patch.before){const buffer=buffers.values.get(patch.path),view=buffer&&editorForBuffer(buffer)?.view;if(!buffer||view&&(view.composing||authoredSource(view.state)!==buffer.text||view.state.readOnly||!view.state.facet(EditorView.editable)))throw new Error('Finish composition and restore current source before publication.');}
  const request=crypto.randomUUID().replaceAll('-','');resourceAttempts.set(review,request);
  let receipt:ResourceReceipt;try{receipt=await load<ResourceReceipt>(review.operation==='save'?'/api/changes/resource-save':'/api/changes/restore-resources',{request_id:request,reviewed_fingerprint:review.consequence,...(review.operation==='restore'?{reviewed_recovery_fingerprint:review.fingerprint}:{}),proposal:review.proposal});}catch(error){throw new Error(String(error)+' Publication request '+request+' is not confirmed. Inspect Source recovery using this identity before another review.');}
  let routes:ResourceEditorRoute<Buffer>[];try{routes=adoptResourceReceipt(buffers,review.patches,receipt,{request,workspace:review.workspace,context:review.context,saved:new Map(Object.entries(review.saved))},review.current,review.restoring);}catch(error){throw new Error(String(error)+" Publication request "+request+"; retained recovery "+(receipt.outcome?.recovery??"unknown")+". Preserve local drafts while inspecting the result.");}

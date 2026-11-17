@@ -156632,6 +156632,27 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/mechanisms/exact-failed-js-collector.md",
       "symbol": "exact failed js native driver",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "browser-source-text-core",
+      "output": "apps/web/src/simple/SourceText.ts",
+      "page": ".hickory-source/mechanisms/browser-source-text.md",
+      "symbol": "browser source text core",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "browser-source-text-tests",
+      "output": "apps/web/src/simple/SourceText.test.ts",
+      "page": ".hickory-source/mechanisms/browser-source-text.md",
+      "symbol": "browser source text tests",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "browser-source-text-witness",
+      "output": "scripts/test-browser-source-text.py",
+      "page": ".hickory-source/frontends/browser-source-text-witness.md",
+      "symbol": "browser source text witness",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

@@ -309,4 +309,6 @@ Each client reads text before requesting optional capabilities. A save uses the 
 
 <ui:include file="editor-recovery-management-witness.md" />
 
+<ui:include file="browser-source-text-witness.md" />
+
 </ui:doc>

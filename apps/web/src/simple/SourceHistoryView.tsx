@@ -1,3 +1,4 @@
+import {authoredSource} from './SourceText';
 import {useEffect,useMemo,useReducer,useRef,useState,useSyncExternalStore} from 'react';
 import {createPortal} from 'react-dom';
 import {request} from '../api/client';
@@ -11,7 +12,7 @@ export function SourceHistoryView({buffer,buffers,history,alive,close}:{buffer:B
  useSyncExternalStore(buffer.subscribe,buffer.snapshot);
  const [,paint]=useReducer((value:number)=>value+1,0),model=useMemo(()=>new SourceHistoryModel((method,path,body)=>request(method,path,body),paint),[]),panel=useRef<HTMLElement>(null),[page,setPage]=useState(0);
  useEffect(()=>{const view=editorForBuffer(buffer)?.view,source=buffer.text,path=buffer.file.path,file=buffer.file,namespace=buffers.workspace,revision=buffer.sourceRevision,selection=view?.state.selection.toJSON(),stamp=history.stamp();let living=true;
- const readCurrent=()=>living&&alive()&&!!view&&view.dom.isConnected&&editorForBuffer(buffer)?.view===view&&view.state.doc.toString()===source&&buffer.text===source&&buffer.file===file&&buffer.file.path===path&&buffers.workspace===namespace&&buffer.namespace===namespace&&!!namespace&&buffers.values.get(path)===buffer&&buffer.sourceRevision===revision&&history.stamp()===stamp;
+ const readCurrent=()=>living&&alive()&&!!view&&view.dom.isConnected&&editorForBuffer(buffer)?.view===view&&authoredSource(view.state)===source&&buffer.text===source&&buffer.file===file&&buffer.file.path===path&&buffers.workspace===namespace&&buffer.namespace===namespace&&!!namespace&&buffers.values.get(path)===buffer&&buffer.sourceRevision===revision&&history.stamp()===stamp;
  const current=()=>readCurrent()&&!!view&&!view.composing&&!view.state.readOnly&&view.state.facet(EditorView.editable)&&view.state.selection.ranges.length===1&&JSON.stringify(view.state.selection.toJSON())===JSON.stringify(selection)&&!buffer.readonly&&!buffer.transient&&!buffer.saving&&!buffer.resourceDeleted;
  void model.open({namespace,path,source,readCurrent,current,apply:(after,missing)=>{if(!current())throw Error('Source editor changed before draft restoration.');const plan:ChangePlan={title:'Restore local history to draft',patches:[{path,before:source,after,edits:[{from:0,to:source.length,text:after}]}]};applyWorkspacePlan(buffers,plan);history.record(captureDraftHistory(buffers,invertChangePlan(plan)));if(missing){buffer.resourceDeleted=true;buffer.saveGuard=undefined;buffer.saveGuardReason='Restored missing-source draft: use guarded Save As to publish to an unused path.';buffer.publish();buffers.changed();}view!.focus();}});panel.current?.focus();return()=>{living=false;model.close();};},[buffer,buffers,history,model]);
  const selected=model.selected,text=model.preview;
