@@ -7,6 +7,9 @@ import AppKit
 @MainActor final class EditorRecoveryTests:XCTestCase {
  func buffer(_ path:String,_ text:String="draft 😀",unnamed:Bool=false,owner:String?=nil)->DocumentBuffer{DocumentBuffer(file:FileNode(name:path,path:path,dir:false,generated_by:owner),text:FileText(path:path,content:text,hash:"old",save_guard:"original"),isUntitledDraft:unnamed)}
  func wire(_ raw:[String:Any])throws->ResourceJSON{try JSONDecoder().decode(ResourceJSON.self,from:JSONSerialization.data(withJSONObject:raw))}
+ func testRawReviewRefusesDuplicateAliasedVersionsAndExcessiveNesting()throws {
+  for raw in [#"{"version":1,"version":1}"#,#"{"version":1,"recovery_protocol":1.0}"#,String(repeating:"[",count:65)+"0"+String(repeating:"]",count:65)]{XCTAssertThrowsError(try validateNativeReviewJSON(Data(raw.utf8),maxBytes:1024,versionKeys:["version","recovery_protocol"],label:"Recovery"))}
+ }
  func testCaptureKeepsLiteralReservedAndUntitledNamedSourcesDistinct()throws {
   let w=Workspace();for path in ["files","agent","terminal","Untitled-real.txt","é.txt","e\u{301}.txt"]{let b=buffer(path);w.buffers[path]=b;w.layout.activateSource(path,in:"document-group")};let note=buffer("anonymous","note",unnamed:true);w.buffers[note.file.path]=note;let generated=buffer("out.py","output",owner:"project.md");w.buffers[generated.file.path]=generated
   let snapshot=try captureEditorRecovery(w);XCTAssertEqual(snapshot.buffers.count,8);XCTAssertEqual(snapshot.buffers.filter{$0.address.kind=="source"}.count,6);XCTAssertEqual(snapshot.buffers.filter{$0.address.kind=="unnamed"}.count,1);XCTAssertEqual(snapshot.buffers.filter{$0.address.kind=="generated"}.count,1);XCTAssertTrue(snapshot.buffers.allSatisfy{$0.baseline?.save_guard=="original"});try validateEditorRecoverySnapshot(snapshot)

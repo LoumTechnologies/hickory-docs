@@ -19,10 +19,7 @@ private func agentHex(_ text:String,_ count:Int)->Bool{text.utf8.count==count&&t
 func agentProposalData<T:Encodable>(_ value:T)throws->Data{let encoder=JSONEncoder();encoder.outputFormatting=[.sortedKeys];return try encoder.encode(value)}
 func agentProposalBody<T:Encodable>(_ value:T)throws->[String:Any]{guard let body=try JSONSerialization.jsonObject(with:agentProposalData(value)) as? [String:Any] else{throw EngineError(message:"Proposal request must be an object.")};return body}
 func validateNativeAgentProposalResponse(_ data:Data)throws {
- guard data.count<=64*1024*1024 else{throw EngineError(message:"Proposal response exceeds64MiB; retained sources were not changed.")}
- var quoted=false,escaped=false,depth=0,containers=0
- for byte in data {if quoted{if escaped{escaped=false}else if byte==92{escaped=true}else if byte==34{quoted=false}}else if byte==34{quoted=true}else if byte==123||byte==91{depth+=1;containers+=1;guard depth<=64,containers<=65536 else{throw EngineError(message:"Proposal response structure exceeds the native read budget.")}}else if byte==125||byte==93{depth-=1;guard depth>=0 else{throw EngineError(message:"Malformed proposal response.")}}}
- guard !quoted,depth==0 else{throw EngineError(message:"Malformed proposal response.")};try validateNativeJSON(data,canonicalVersionKeys:["version","proposal_protocol"])
+ try validateNativeReviewJSON(data,maxBytes:64*1024*1024,versionKeys:["version","proposal_protocol"],label:"Proposal")
  struct Header:Decodable {let version:Int?;let proposal_protocol:Int?};_ = try JSONDecoder().decode(Header.self,from:data)
 }
 private func agentMaterialBudget(_ text:String)throws{guard text.utf8.count<=32*1024*1024 else{throw EngineError(message:"Complete proposal exceeds32MiB.")};var depth=0,containers=0,quoted=false,escaped=false;for byte in text.utf8{if quoted{if escaped{escaped=false}else if byte==92{escaped=true}else if byte==34{quoted=false}}else if byte==34{quoted=true}else if byte==123||byte==91{depth+=1;containers+=1;guard depth<=64,containers<=65536 else{throw EngineError(message:"Proposal structure exceeds the bounded native reading.")}}else if byte==125||byte==93{depth-=1;guard depth>=0 else{throw EngineError(message:"Malformed proposal structure.")}}};guard !quoted,depth==0 else{throw EngineError(message:"Malformed complete proposal material.")}}

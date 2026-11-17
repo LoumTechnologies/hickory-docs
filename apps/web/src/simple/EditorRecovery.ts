@@ -1,4 +1,5 @@
 import {historySourceHash} from './SourceHistory';
+import {parseProtocolJson} from '../api/client';
 export type RecoveryAddress={kind:'source';path:string}|{kind:'unnamed';name:string}|{kind:'generated';path:string;owner:string}|{kind:'detached';name:string;original_path:string|null};
 export interface EditorRecoveryBuffer {id:string;address:RecoveryAddress;text:string;baseline:{text:string;save_guard:string|null}|null;view:{selection:{anchor:number;head:number};scroll_x:number;scroll_y:number}}
 export interface EditorRecoverySnapshot {host:'browser'|'macos'|'ios'|'android';buffers:EditorRecoveryBuffer[];layout:unknown}
@@ -48,7 +49,7 @@ export class EditorRecoveryModel {
  async read(row:EditorRecoverySession,workspace:string,namespace:string,lease:()=>boolean){const ticket=++this.ticket;this.busy=true;this.reading=null;this.changed();try{
   admit(!row.current_workspace||row.namespace===namespace);const value=await this.send<EditorRecoveryEnvelope>('GET','/api/workspace/recovery/'+row.client_id+'?revision='+row.revision+'&window_slot='+encodeURIComponent(row.window_slot));
   admit(value.version===1&&value.recovery_protocol===1&&value.engine_workspace_id===workspace&&value.namespace===row.namespace&&value.workspace_id===row.workspace_id&&value.client_id===row.client_id&&value.window_slot===row.window_slot&&value.revision===row.revision&&value.request_id===row.request_id&&value.snapshot_hash===row.snapshot_hash&&value.source_effects===false&&value.source_saved===false&&typeof value.material==='string'&&value.material.length<=64*1024*1024);
-  admit(await historySourceHash(value.material)===value.snapshot_hash,'The complete recovery material fingerprint changed.');const snapshot:unknown=JSON.parse(value.material);validateEditorRecoverySnapshot(snapshot);admit(snapshot.host===row.host&&snapshot.buffers.length===row.buffers);
+  admit(await historySourceHash(value.material)===value.snapshot_hash,'The complete recovery material fingerprint changed.');const snapshot:unknown=parseProtocolJson(value.material,{bytes:64*1024*1024,depth:64,containers:65536});validateEditorRecoverySnapshot(snapshot);admit(snapshot.host===row.host&&snapshot.buffers.length===row.buffers);
   admit(Array.isArray(value.authority)&&value.authority.length===snapshot.buffers.length&&snapshot.buffers.every(b=>value.authority.filter(a=>a.buffer_id===b.id&&a.write_permission===false&&typeof a.baseline_current==='boolean').length===1));
   if(ticket!==this.ticket)return;admit(lease(),'Open editor state changed while reading recovery. Preview again.');this.reading={envelope:value,snapshot,current:lease};this.notice='Complete checkpoint verified. Baseline observations grant no write permission; recovered sources require guarded Save As.';
  }catch(e){if(ticket===this.ticket)this.notice=String(e);}finally{if(ticket===this.ticket){this.busy=false;this.changed();}}}

@@ -55,6 +55,7 @@ struct Engine {
             throw EngineError(message: "\(detail) (HTTP \(response.statusCode)). Check the server and retry after reviewing its current state.")
         }
         if path=="/api/launch-profiles"{try validateNativeJSON(data,canonicalVersionKeys:["debug_protocol"])}
+        if path.hasPrefix("/api/workspace/recovery"){try validateNativeReviewJSON(data,maxBytes:128*1024*1024,versionKeys:["version","recovery_protocol"],label:"Private recovery")}
         if path.hasPrefix("/api/agent-proposals"){try validateNativeAgentProposalResponse(data)}
         if path.hasPrefix("/api/tests/") || path.hasPrefix("/api/templates/") || path.hasPrefix("/api/source-history") || path.hasPrefix("/api/behavior/") || path.hasPrefix("/api/changes/") || path.hasPrefix("/api/git/conflict-resolution/"){try validateSourceTestJSON(data)}
         return try JSONDecoder().decode(T.self, from: data)

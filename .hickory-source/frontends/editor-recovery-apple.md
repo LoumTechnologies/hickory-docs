@@ -135,7 +135,7 @@ The visible reading holds its own editor lease. Automatic recording never renews
  func read(_ row:EditorRecoverySession,_ w:Workspace)async {guard !busy,let e=w.engine,let workspace=w.sourceWorkspaceID else{return};let id=UUID();ticket=id;busy=true;snapshot=nil;current={false};defer{if ticket==id{busy=false}}
   do{let lease=try editorRecoveryLease(w),value:EditorRecoveryEnvelope=try await call(e,"GET","/api/workspace/recovery/"+row.client_id+"?revision="+String(row.revision)+"&window_slot="+row.window_slot)
    guard value.version==1,value.recovery_protocol==1,exactUTF8(value.engine_workspace_id,workspace),value.client_id==row.client_id,value.window_slot==row.window_slot,value.workspace_id==row.workspace_id,exactUTF8(value.namespace,row.namespace),value.revision==row.revision,value.request_id==row.request_id,value.snapshot_hash==row.snapshot_hash,!value.source_effects,!value.source_saved,value.material.utf8.count<=64*1024*1024,nativeSourceHash(value.material)==value.snapshot_hash else{throw EngineError(message:"Complete private snapshot receipt changed.")}
-   let bytes=Data(value.material.utf8);let parsed=try await Task.detached(priority:.userInitiated){try validateNativeJSON(bytes);let parsed=try JSONDecoder().decode(EditorRecoverySnapshot.self,from:bytes);try validateEditorRecoverySnapshot(parsed);return parsed}.value
+   let bytes=Data(value.material.utf8);let parsed=try await Task.detached(priority:.userInitiated){try validateNativeReviewJSON(bytes,maxBytes:64*1024*1024,versionKeys:[],label:"Private snapshot");let parsed=try JSONDecoder().decode(EditorRecoverySnapshot.self,from:bytes);try validateEditorRecoverySnapshot(parsed);return parsed}.value
    guard ticket==id,w.engine?.session === e.session,lease(),parsed.host==row.host,parsed.buffers.count==row.buffers,value.authority.count==parsed.buffers.count,parsed.buffers.allSatisfy({b in value.authority.filter{$0.buffer_id==b.id && !$0.write_permission}.count==1}) else{throw EngineError(message:"Private reading or host editor lease changed. Preview again.")};snapshot=parsed;current=lease;notice="Complete checkpoint fingerprint verified. Recovery grants no source write permission."
   }catch{if ticket==id{notice=error.localizedDescription}}
  }
@@ -177,6 +177,9 @@ import AppKit
 @MainActor final class EditorRecoveryTests:XCTestCase {
  func buffer(_ path:String,_ text:String="draft 😀",unnamed:Bool=false,owner:String?=nil)->DocumentBuffer{DocumentBuffer(file:FileNode(name:path,path:path,dir:false,generated_by:owner),text:FileText(path:path,content:text,hash:"old",save_guard:"original"),isUntitledDraft:unnamed)}
  func wire(_ raw:[String:Any])throws->ResourceJSON{try JSONDecoder().decode(ResourceJSON.self,from:JSONSerialization.data(withJSONObject:raw))}
+ func testRawReviewRefusesDuplicateAliasedVersionsAndExcessiveNesting()throws {
+  for raw in [#"{"version":1,"version":1}"#,#"{"version":1,"recovery_protocol":1.0}"#,String(repeating:"[",count:65)+"0"+String(repeating:"]",count:65)]{XCTAssertThrowsError(try validateNativeReviewJSON(Data(raw.utf8),maxBytes:1024,versionKeys:["version","recovery_protocol"],label:"Recovery"))}
+ }
  func testCaptureKeepsLiteralReservedAndUntitledNamedSourcesDistinct()throws {
   let w=Workspace();for path in ["files","agent","terminal","Untitled-real.txt","é.txt","e\u{301}.txt"]{let b=buffer(path);w.buffers[path]=b;w.layout.activateSource(path,in:"document-group")};let note=buffer("anonymous","note",unnamed:true);w.buffers[note.file.path]=note;let generated=buffer("out.py","output",owner:"project.md");w.buffers[generated.file.path]=generated
   let snapshot=try captureEditorRecovery(w);XCTAssertEqual(snapshot.buffers.count,8);XCTAssertEqual(snapshot.buffers.filter{$0.address.kind=="source"}.count,6);XCTAssertEqual(snapshot.buffers.filter{$0.address.kind=="unnamed"}.count,1);XCTAssertEqual(snapshot.buffers.filter{$0.address.kind=="generated"}.count,1);XCTAssertTrue(snapshot.buffers.allSatisfy{$0.baseline?.save_guard=="original"});try validateEditorRecoverySnapshot(snapshot)
@@ -261,7 +264,7 @@ def main():
     if args.host=='apple':
      name='testLiveOwnedProcessRestartRecovery';command=['swift','test','--package-path','apps/apple-simple','--scratch-path','target/apple-simple-spm','--filter','EditorRecoveryTests.'+name+'$']+(['--skip-build'] if args.skip_build else [])
     else:
-     name='liveOwnedProcessRestartRecovery';command=[str(ROOT/'target/simple-android-gradle'),'-Pandroid.builder.sdkDownload=false',':app:testDebugUnitTest','--tests','com.hickorydocs.simple.EditorRecoveryTest.'+name,'--rerun-tasks']
+     name='liveOwnedProcessRestartRecovery';command=[str(ROOT/'target/simple-android-gradle'),'-Pandroid.builder.sdkDownload=false',':app:testDebugUnitTest','--tests','com.hickorydocs.simple.EditorRecoveryTest.'+name,'--rerun']
     log=ROOT/'target'/f'native-session-{args.host}-{phase}.log'
     with log.open('w') as output:result=subprocess.run(command,cwd=ROOT,env=env,stdout=output,stderr=subprocess.STDOUT)
     if result.returncode:raise RuntimeError(f'{args.host} {phase} failed; inspect {log}')

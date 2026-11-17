@@ -38,6 +38,7 @@ class MainActivity : ComponentActivity() {
 @Composable fun SimpleWorkspace(workspace: Workspace, initialAddress: String? = null) {
     var connection by remember { mutableStateOf(workspace.engine == null) }
     val scope = rememberCoroutineScope()
+    LaunchedEffect(workspace){workspace.editorRecovery.captureLoop(workspace)}
     val context = androidx.compose.ui.platform.LocalContext.current
     val descriptors=remember {runCatching {context.assets.open("commands.json").bufferedReader().use {commandDescriptors(it.readText())}}.getOrDefault(emptyList())}
     val commands=workspace.commands(descriptors,mapOf("file.connect" to {connection=true},"file.window" to {context.startActivity(android.content.Intent(context,MainActivity::class.java).putExtra("hickory_api_origin",workspace.address).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_DOCUMENT or android.content.Intent.FLAG_ACTIVITY_MULTIPLE_TASK));Unit}))
@@ -85,6 +86,7 @@ class MainActivity : ComponentActivity() {
             OutlinedTextField(workspace.filePath, { workspace.filePath = it }, label = { Text("Workspace path") }, singleLine = true) }
     }, confirmButton = { TextButton(onClick = { scope.launch { workspace.performFileCommand() } }) { Text("OK") } }, dismissButton = { TextButton(onClick = { workspace.fileCommand = null; workspace.savingAll = false }) { Text("Cancel") } })
     if(workspace.showCoverage) androidx.compose.ui.window.Dialog(onDismissRequest={workspace.showCoverage=false;workspace.currentBuffer?.focusSource?.invoke()}) {Surface {SimpleCoverageView(workspace)}}
+    if(workspace.editorRecovery.showing) androidx.compose.ui.window.Dialog(onDismissRequest={workspace.editorRecovery.close();workspace.currentBuffer?.focusSource?.invoke()}) {Surface {EditorRecoveryView(workspace)}}
     if(workspace.showRecovery) androidx.compose.ui.window.Dialog(onDismissRequest={workspace.showRecovery=false;workspace.currentBuffer?.focusSource?.invoke()}) {Surface {SourceRecoveryView(workspace)}}
     if(workspace.agentProposals.showing) androidx.compose.ui.window.Dialog(onDismissRequest={workspace.agentProposals.close();workspace.currentBuffer?.focusSource?.invoke()}) {Surface {AgentProposalView(workspace)}}
     if(workspace.showConstruction) androidx.compose.ui.window.Dialog(onDismissRequest={workspace.showConstruction=false;workspace.currentBuffer?.focusSource?.invoke()}) {Surface {ConstructionReadingView(workspace)}}

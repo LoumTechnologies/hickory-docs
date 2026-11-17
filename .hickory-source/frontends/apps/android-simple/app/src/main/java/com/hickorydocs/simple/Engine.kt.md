@@ -61,7 +61,7 @@ class Engine(address: String) {
                 val detail = runCatching { JSONObject(text).optString("error") }.getOrDefault("").ifEmpty { text.take(600) }
                 error("$detail (HTTP $status). Check the server and review its current state before retrying.")
             }
-            JSONObject(text)
+            if(path.startsWith("/api/workspace/recovery"))nativeReviewProtocolJSON(text,128*1024*1024,"Private recovery",setOf("version","recovery_protocol")) else JSONObject(text)
         } finally { connection.disconnect() }
     }
     suspend fun find(query: String, regex: Boolean, matchCase: Boolean, wholeWord: Boolean): WorkspaceSearchResult {

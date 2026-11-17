@@ -192,7 +192,7 @@ class RecoveryReader {
  suspend fun read(id:String,path:String?=null,snapshot:String="draft_before",expectedWorkspace:String?=null){if(engine==null)return;model.read(id,path,snapshot,expectedWorkspace ?: model.value?.takeIf{it.id==id}?.workspace){recoveryReading(engine.request("GET",it))}}
  LaunchedEffect(engine){list()};DisposableEffect(model){onDispose{model.close();resources.dismiss()}}
  Column(Modifier.widthIn(max=680.dp).heightIn(max=680.dp).padding(16.dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)){
-  Text("Source recovery",style=MaterialTheme.typography.titleMedium);Row{TextButton(enabled=!model.loading,onClick={scope.launch{list()}}){Text("Refresh records")};TextButton(onClick={workspace.showRecovery=false;workspace.currentBuffer?.focusSource?.invoke()}){Text("Close")}}
+  Text("Source recovery",style=MaterialTheme.typography.titleMedium);Row{TextButton(enabled=!workspace.resourceChanges.busy&&!workspace.resourceChanges.hasPending,onClick={workspace.showRecovery=false;workspace.editorRecovery.showing=true}){Text("Editor sessions…")};TextButton(enabled=!model.loading,onClick={scope.launch{list()}}){Text("Refresh records")};TextButton(onClick={workspace.showRecovery=false;workspace.currentBuffer?.focusSource?.invoke()}){Text("Close")}}
   Text(model.notice,fontSize=12.sp)
   if(resources.notice.isNotEmpty())Text(resources.notice,fontSize=12.sp)
   if(resources.hasPending)TextButton(enabled=!resources.busy,onClick={scope.launch{resources.status(workspace)}}){Text("Inspect original publication status")}

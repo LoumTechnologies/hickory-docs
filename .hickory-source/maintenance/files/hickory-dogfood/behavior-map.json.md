@@ -72127,6 +72127,42 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "fragments": [
         "editor-recovery-native-witness"
       ]
+    },
+    "apps/android-simple/app/src/main/java/com/hickorydocs/simple/EditorRecovery.kt": {
+      "source": ".hickory-source/frontends/editor-recovery-android.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "5d2b225d9f69287ee2ff2b49d8fe6cde0c7501a0455d0e1c5c0539aa6d11e074",
+      "construction": "fragments",
+      "fragments": [
+        "editor-recovery-android-codec",
+        "editor-recovery-android-adapter",
+        "editor-recovery-android-controller",
+        "editor-recovery-android-view"
+      ]
+    },
+    "apps/android-simple/app/src/main/java/com/hickorydocs/simple/NativeReviewJSON.kt": {
+      "source": ".hickory-source/frontends/native-review-json-android.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "59b50a9e1c6b3790b61f9a6403ddcbfdc67cd830e2ea038d87a8d70c4f3b910d",
+      "construction": "fragments",
+      "fragments": [
+        "native-review-json-android-budget"
+      ]
+    },
+    "apps/android-simple/app/src/test/java/com/hickorydocs/simple/EditorRecoveryTest.kt": {
+      "source": ".hickory-source/frontends/editor-recovery-android.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "53cb059ac8e9ef5c20e1f8a5d75e813ffe0c73330253250be75860e3ffbcef0f",
+      "construction": "fragments",
+      "fragments": [
+        "editor-recovery-android-tests"
+      ]
     }
   },
   "evidence_records": [

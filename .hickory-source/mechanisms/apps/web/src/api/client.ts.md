@@ -176,12 +176,13 @@ leaves ordinary editor reads on their existing decoder. Template endpoints must
 pass this check even when a caller supplies an additional decoder.
 
 <storycode:copy id="api-protocol-json-browser">
-export function parseProtocolJson(raw:string):unknown {
+export function parseProtocolJson(raw:string,limits?:{bytes:number;depth:number;containers:number}):unknown {
+ if(limits&&new TextEncoder().encode(raw).length>limits.bytes)throw Error('Protocol JSON exceeds its read budget.');let containers=0;
  const stack:(Set<string>|null)[]=[];let i=0;
- while(i<raw.length){const char=raw[i];if(char==='{'){stack.push(new Set());i++;continue;}if(char==='['){stack.push(null);i++;continue;}if(char==='}'||char===']'){stack.pop();i++;continue;}if(char!=='"'){i++;continue;}
+ while(i<raw.length){const char=raw[i];if(char==='{'||char==='['){if(limits&&(stack.length>=limits.depth||++containers>limits.containers))throw Error('Protocol JSON structure exceeds its read budget.');stack.push(char==='{'?new Set():null);i++;continue;}if(char==='}'||char===']'){stack.pop();i++;continue;}if(char!=='"'){i++;continue;}
   const start=i++;let escaped=false;for(;i<raw.length;i++){const next=raw[i];if(escaped){escaped=false;continue;}if(next==='\\'){escaped=true;continue;}if(next==='"')break;}const end=++i;let at=i;while(/\s/.test(raw[at]??'')&&at<raw.length)at++;
   if(raw[at]!==':')continue;const key=JSON.parse(raw.slice(start,end)) as string,keys=stack[stack.length-1];if(!keys)throw Error('Malformed Protocol object key.');if(keys.has(key))throw Error('Duplicate Protocol JSON key refused.');keys.add(key);
-  if(key==='version'||key==='test_debug_protocol'||key==='template_protocol'||key==='behavior_protocol'||key==='history_protocol'||key==='resolution_protocol'||key==='proposal_protocol'){at++;while(/\s/.test(raw[at]??'')&&at<raw.length)at++;if(raw[at]==='-'||/[0-9]/.test(raw[at]??'')){let last=at;while(last<raw.length&&!/[\s,}\]]/.test(raw[last]))last++;if(!/^(0|[1-9][0-9]*)$/.test(raw.slice(at,last)))throw Error('Protocol JSON requires canonical integer versions.');}}
+  if(key==='version'||key==='test_debug_protocol'||key==='template_protocol'||key==='behavior_protocol'||key==='history_protocol'||key==='resolution_protocol'||key==='proposal_protocol'||key==='recovery_protocol'){at++;while(/\s/.test(raw[at]??'')&&at<raw.length)at++;if(raw[at]==='-'||/[0-9]/.test(raw[at]??'')){let last=at;while(last<raw.length&&!/[\s,}\]]/.test(raw[last]))last++;if(!/^(0|[1-9][0-9]*)$/.test(raw.slice(at,last)))throw Error('Protocol JSON requires canonical integer versions.');}}
  }
  return JSON.parse(raw) as unknown;
 }
@@ -222,7 +223,7 @@ export async function request<T>(
       throw await apiError(res);
     }
     if (res.status === 204) return undefined as T;
-    if(path.startsWith('/api/templates/')||path.startsWith('/api/behavior/')||path.startsWith('/api/source-history')||path.startsWith('/api/git/conflict-resolution/')||path.startsWith('/api/agent-proposals')){const raw=await res.text(),value=parseProtocolJson(raw);return decodeRaw?decodeRaw(raw):value as T;}
+    if(path.startsWith('/api/templates/')||path.startsWith('/api/behavior/')||path.startsWith('/api/source-history')||path.startsWith('/api/git/conflict-resolution/')||path.startsWith('/api/agent-proposals')||path.startsWith('/api/workspace/recovery')){const raw=await res.text(),value=parseProtocolJson(raw,path.startsWith('/api/workspace/recovery')?{bytes:128*1024*1024,depth:64,containers:65536}:undefined);return decodeRaw?decodeRaw(raw):value as T;}
     return decodeRaw?decodeRaw(await res.text()):(await res.json()) as T;
   }
 }

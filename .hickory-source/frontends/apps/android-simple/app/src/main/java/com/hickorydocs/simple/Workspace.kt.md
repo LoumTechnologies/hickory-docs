@@ -57,7 +57,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.async
 import java.util.UUID
 
-class DocumentBuffer(file: FileNode, loaded: FileText, untitledDraft:Boolean=false) {
+class DocumentBuffer(file: FileNode, loaded: FileText, untitledDraft:Boolean=false,initialScroll:Int=0) {
     // A literal filename never determines whether a source has an address.
     var isUntitledDraft by mutableStateOf(untitledDraft)
         internal set
@@ -72,7 +72,8 @@ class DocumentBuffer(file: FileNode, loaded: FileText, untitledDraft:Boolean=fal
     var file by mutableStateOf(file)
     var resourceDeleted by mutableStateOf(false)
     var unmaterializedHistoryDraft by mutableStateOf(false)
-    val sourceScroll = androidx.compose.foundation.ScrollState(0)
+    val sourceScroll = androidx.compose.foundation.ScrollState(initialScroll)
+    var recoveryBaseline:EditorRecoveryBaseline?=null
     var receiptEngine: Engine? = null
     var receiptSource by mutableStateOf("")
     var receipts by mutableStateOf<List<org.json.JSONObject>>(emptyList())
@@ -349,6 +350,7 @@ normal capability setup. Deleted dirty buffers still guard workspace switching.
     val resourceChanges=ResourceChangeReview()
     val gitResolution=GitResolutionModel()
     val sourceHistory=SourceHistoryModel()
+    val editorRecovery=EditorRecoveryModel()
     val behaviorReading=BehaviorReadingModel()
     fun reviewResourceHistory(record:String,workspace:String,current:()->Boolean,published:(String,String)->Unit){
         showRecovery=true

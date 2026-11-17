@@ -30,12 +30,8 @@ private fun agentSection(title:String,text:String):AgentProposalSection {
  return AgentProposalSection(title,text,java.util.Collections.unmodifiableList(starts),scalars)
 }
 data class SealedAgentProposal(val token:String,val fingerprint:String,val workspace:String,val namespace:String,val material:String,val title:String,val origin:String,val explanation:String,val patches:List<ResourceEditorPatch>,val proposal:String,val facts:String,val saved:Map<String,ResourceSaved>,val sections:List<AgentProposalSection>,val reported:Boolean)
-private fun agentMaterialBudget(text:String){
- check(text.length<=32*1024*1024){"Complete proposal exceeds the native review budget."};var bytes=0L;var index=0;var depth=0;var containers=0;var quoted=false;var escaped=false
- while(index<text.length){val c=text[index];val charge=when{c.isHighSurrogate()->{check(index+1<text.length&&text[index+1].isLowSurrogate()){"Proposal contains invalid Unicode."};index+=2;4};c.isLowSurrogate()->error("Proposal contains invalid Unicode.");else->{index++;when{c.code<128->1;c.code<2048->2;else->3}}};bytes+=charge;check(bytes<=32L*1024*1024){"Complete proposal exceeds32MiB."}
-  if(quoted){if(escaped)escaped=false else if(c=='\\')escaped=true else if(c=='"')quoted=false}else when(c){'"'->quoted=true;'{','['->{depth++;containers++;check(depth<=64&&containers<=65536){"Proposal structure exceeds its review budget."}};'}',']'->{depth--;check(depth>=0){"Malformed proposal structure."}}}
- };check(!quoted&&depth==0){"Malformed proposal material."}
-}
+private fun agentMaterialBudget(text:String)=nativeReviewMaterialBudget(text,32*1024*1024,"Proposal")
+
 suspend fun sealedAgentProposal(raw:JSONObject,expected:AgentProposalEntry,workspace:String,namespace:String):SealedAgentProposal {
  val version=raw.get("version");val protocol=raw.get("proposal_protocol");val token=agentString(raw,"token");val fingerprint=agentString(raw,"fingerprint");val material=agentString(raw,"material");val root=agentString(raw,"workspace");val address=agentString(raw,"namespace");val effects=raw.get("source_effects");val checks=raw.get("checks_executed");val reported=!raw.isNull("host_application")
  return withContext(Dispatchers.Default){

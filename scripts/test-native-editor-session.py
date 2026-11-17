@@ -18,7 +18,7 @@ def main():
     if args.host=='apple':
      name='testLiveOwnedProcessRestartRecovery';command=['swift','test','--package-path','apps/apple-simple','--scratch-path','target/apple-simple-spm','--filter','EditorRecoveryTests.'+name+'$']+(['--skip-build'] if args.skip_build else [])
     else:
-     name='liveOwnedProcessRestartRecovery';command=[str(ROOT/'target/simple-android-gradle'),'-Pandroid.builder.sdkDownload=false',':app:testDebugUnitTest','--tests','com.hickorydocs.simple.EditorRecoveryTest.'+name,'--rerun-tasks']
+     name='liveOwnedProcessRestartRecovery';command=[str(ROOT/'target/simple-android-gradle'),'-Pandroid.builder.sdkDownload=false',':app:testDebugUnitTest','--tests','com.hickorydocs.simple.EditorRecoveryTest.'+name,'--rerun']
     log=ROOT/'target'/f'native-session-{args.host}-{phase}.log'
     with log.open('w') as output:result=subprocess.run(command,cwd=ROOT,env=env,stdout=output,stderr=subprocess.STDOUT)
     if result.returncode:raise RuntimeError(f'{args.host} {phase} failed; inspect {log}')

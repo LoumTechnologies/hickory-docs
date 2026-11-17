@@ -10,6 +10,11 @@ The same keys distinguish pending reads and native view/tab identities. Array me
 <ui:copy id="source-identity-apple-model">
 import Foundation
 
+func validateNativeReviewJSON(_ data:Data,maxBytes:Int,versionKeys:Set<String>,label:String)throws {
+ guard data.count<=maxBytes else{throw EngineError(message:label+" response exceeds its read budget.")};var quoted=false,escaped=false,depth=0,containers=0
+ for byte in data {if quoted{if escaped{escaped=false}else if byte==92{escaped=true}else if byte==34{quoted=false}}else if byte==34{quoted=true}else if byte==123||byte==91{depth+=1;containers+=1;guard depth<=64,containers<=65536 else{throw EngineError(message:label+" response structure exceeds its read budget.")}}else if byte==125||byte==93{depth-=1;guard depth>=0 else{throw EngineError(message:"Malformed "+label+" response.")}}}
+ guard !quoted,depth==0 else{throw EngineError(message:"Malformed "+label+" response.")};try validateNativeJSON(data,canonicalVersionKeys:versionKeys)
+}
 func validateNativeJSON(_ data:Data,canonicalVersionKeys:Set<String>=[])throws {
     let bytes=Array(data);var objects:[[String:Data]]=[];var index=0
     while index<bytes.count {

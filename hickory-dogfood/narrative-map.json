@@ -155896,6 +155896,48 @@
       "page": ".hickory-source/frontends/editor-recovery-apple.md",
       "symbol": "editor recovery native witness",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "editor-recovery-android-codec",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/EditorRecovery.kt",
+      "page": ".hickory-source/frontends/editor-recovery-android.md",
+      "symbol": "editor recovery android codec",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "editor-recovery-android-adapter",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/EditorRecovery.kt",
+      "page": ".hickory-source/frontends/editor-recovery-android.md",
+      "symbol": "editor recovery android adapter",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "editor-recovery-android-controller",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/EditorRecovery.kt",
+      "page": ".hickory-source/frontends/editor-recovery-android.md",
+      "symbol": "editor recovery android controller",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "editor-recovery-android-view",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/EditorRecovery.kt",
+      "page": ".hickory-source/frontends/editor-recovery-android.md",
+      "symbol": "editor recovery android view",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "native-review-json-android-budget",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/NativeReviewJSON.kt",
+      "page": ".hickory-source/frontends/native-review-json-android.md",
+      "symbol": "native review json android budget",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "editor-recovery-android-tests",
+      "output": "apps/android-simple/app/src/test/java/com/hickorydocs/simple/EditorRecoveryTest.kt",
+      "page": ".hickory-source/frontends/editor-recovery-android.md",
+      "symbol": "editor recovery android tests",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {
