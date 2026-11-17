@@ -69558,6 +69558,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "fragments": [
         "provider-action-source-context",
         "provider-action-source-proof-witness",
+        "bound-source-edit-queries",
+        "bound-source-edit-witness",
         "provider-action-graph-revision",
         "provider-action-query",
         "provider-action-resolve",
@@ -72379,6 +72381,39 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "construction": "fragments",
       "fragments": [
         "installed-lldb-android-tests"
+      ]
+    },
+    "scripts/controlled-bound-source-provider.py": {
+      "source": ".hickory-source/mechanisms/bound-source-edits.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "test",
+      "sha256": "545fbcc0805d432efbef86e6bc73dc3335d2122c8d6e320860d71f0ce01bed1f",
+      "construction": "fragments",
+      "fragments": [
+        "bound-source-controlled-provider"
+      ]
+    },
+    "scripts/bound-source-edits-driver.mjs": {
+      "source": ".hickory-source/mechanisms/bound-source-edits.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "test",
+      "sha256": "e054ff93e1f167d4c4dac0bf470a54ca1bf1278ebb4d7cc44b38ec2858ed746e",
+      "construction": "fragments",
+      "fragments": [
+        "bound-source-protocol-driver"
+      ]
+    },
+    "scripts/test-bound-source-edits.py": {
+      "source": ".hickory-source/mechanisms/bound-source-edits.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "test",
+      "sha256": "507f40b2d8eda86caeef9745a62c94dd3741e10b167740fd025209ef71131798",
+      "construction": "fragments",
+      "fragments": [
+        "bound-source-protocol-runner"
       ]
     }
   },

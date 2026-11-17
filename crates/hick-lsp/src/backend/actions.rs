@@ -8,6 +8,7 @@ struct PreparedAction {
     original: Value,
     handle: ChildLspHandle,
     resolve: bool,
+    already_mapped: bool,
     display_title: Option<String>,
     source_proofs: Arc<Vec<ProviderSourceProof>>,
 }
@@ -401,6 +402,153 @@ mod request_context_tests {
         );
     }
 }
+#[derive(Clone, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ExpectedSourceCapture {source_hash:String,source_revision:String}
+#[derive(serde::Deserialize)]
+pub struct BoundRenameParams {#[serde(flatten)]params:RenameParams,expected:ExpectedSourceCapture}
+#[derive(serde::Deserialize)]
+pub struct BoundFormattingParams {#[serde(flatten)]params:DocumentFormattingParams,expected:ExpectedSourceCapture}
+struct BoundSourceSnapshot {
+ maps:HashMap<Url,VFileMapping>,
+ documents:HashMap<Url,(crate::source_identity::SourceRevision,Option<String>,bool)>,
+}
+impl BoundSourceSnapshot {
+ fn index(&self)->HashMap<String,(Url,PositionMap)>{self.maps.iter().map(|(uri,map)|(uri_key(uri.as_str()),(map.hick_uri.clone(),map.position_map.clone()))).collect()}
+ fn expected(&self,uri:&Url,expected:&ExpectedSourceCapture)->Result<()> {
+  let valid=self.documents.get(uri).is_some_and(|(revision,hash,preparing)|{
+   !preparing&&hash.as_deref()==Some(expected.source_hash.as_str())&&crate::source_identity::source_graph_fingerprint(std::iter::once((uri.as_str(),*revision)))==expected.source_revision
+  });
+  if !valid{return Err(tower_lsp::jsonrpc::Error::invalid_params("Source capture changed or is still preparing. Synchronize the intended source and prepare again."));}Ok(())
+ }
+ fn sources(&self,maps:&[Url])->Result<Arc<Vec<ProviderSourceProof>>> {
+  let mut rows=std::collections::BTreeMap::<String,ProviderSourceProof>::new();
+  for uri in maps {
+   let mapping=self.maps.get(uri).ok_or_else(||tower_lsp::jsonrpc::Error::invalid_params("Provider mapping changed. Prepare again."))?;
+   for mut proof in action_source_proofs(mapping)?.iter().cloned(){
+    if let Some((revision,hash,preparing))=self.documents.get(&proof.uri){
+     if *preparing||hash.as_deref()!=Some(proof.hash.as_str()){return Err(tower_lsp::jsonrpc::Error::invalid_params("Captured provider source changed or is still preparing. Prepare again."));}
+     proof.open_revision=Some(*revision);
+    }
+    if rows.get(proof.uri.as_str()).is_some_and(|old|old!=&proof){return Err(tower_lsp::jsonrpc::Error::invalid_params("Provider mappings captured conflicting source bytes. Prepare again."));}
+    rows.insert(proof.uri.to_string(),proof);
+   }
+  }
+  Ok(Arc::new(rows.into_values().collect()))
+ }
+ fn affected_maps(&self,original:&Value,targets:&[Url])->Result<Vec<Url>> {
+  let mut selected=targets.to_vec();
+  for raw in action_input_uris(original).ok_or_else(||tower_lsp::jsonrpc::Error::invalid_params("Malformed source-bound provider edits."))? {
+   for (uri,map) in &self.maps {
+    if uri_key(uri.as_str())==uri_key(&raw)||map.hick_uri.as_str()==raw {selected.push(uri.clone());}
+   }
+  }
+  selected.sort_by(|a,b|a.as_str().cmp(b.as_str()));selected.dedup();Ok(selected)
+ }
+}
+impl HickBackend {
+ async fn bound_snapshot(&self)->BoundSourceSnapshot {
+  let maps=self.vfile_index.read().await.clone();
+  let documents=self.documents.read().await.iter().map(|(uri,doc)|(uri.clone(),(doc.source_revision,doc.source_hash.clone(),doc.preparing))).collect();
+  BoundSourceSnapshot{maps,documents}
+ }
+ async fn require_bound_capture(&self,uri:&Url,expected:&ExpectedSourceCapture)->Result<()> {
+  let documents=self.documents.read().await;
+  let valid=documents.get(uri).is_some_and(|doc|!doc.preparing&&doc.source_hash.as_deref()==Some(expected.source_hash.as_str())&&crate::source_identity::source_graph_fingerprint(std::iter::once((uri.as_str(),doc.source_revision)))==expected.source_revision);
+  if !valid{return Err(tower_lsp::jsonrpc::Error::invalid_params("Source capture changed or is still preparing. Synchronize the intended source and prepare again."));}Ok(())
+ }
+ async fn require_bound_maps(&self,snapshot:&BoundSourceSnapshot,targets:&[Url])->Result<()> {
+  let current=self.vfile_index.read().await;
+  if targets.iter().any(|uri|snapshot.maps.get(uri).map(|map|map.source_revision)!=current.get(uri).map(|map|map.source_revision)) {return Err(tower_lsp::jsonrpc::Error::invalid_params("Provider ownership changed. Prepare again."));}Ok(())
+ }
+ async fn bound_child(&self,mapping:&VFileMapping)->Result<ChildLspHandle>{
+  let dispatcher=self.dispatcher.lock().await;
+  dispatcher.get_child(&mapping.language_id,&mapping.root_uri).cloned().map_err(|_|tower_lsp::jsonrpc::Error::invalid_params("The required provider is unavailable. No partial source change was prepared."))
+ }
+ async fn finish_bound_edit(&self,title:&str,edit:Value,snapshot:&BoundSourceSnapshot,targets:&[Url],handle:ChildLspHandle,origin:&Url,expected:&ExpectedSourceCapture)->Result<Value>{
+  let original=json!({"title":title,"edit":edit});let targets=snapshot.affected_maps(&original,targets)?;
+  let proofs=snapshot.sources(&targets)?;self.require_action_sources(&proofs).await?;self.require_bound_maps(snapshot,&targets).await?;self.require_bound_capture(origin,expected).await?;
+  let index=snapshot.index();let root=self.workspace_root.read().await.clone();
+  let mut action=bound_project_edit(original,&index,root.as_ref())?;
+  self.require_action_sources(&proofs).await?;self.require_bound_maps(snapshot,&targets).await?;self.require_bound_capture(origin,expected).await?;
+  let revision=self.provider_source_revision().await;
+  let data=action_discovery_data(action.get("data"));
+  let token=self.prepared_actions.lock().await.values.insert(Instant::now(),revision,PreparedAction{original:action.clone(),handle,resolve:false,already_mapped:true,display_title:None,source_proofs:proofs.clone()});
+  action["data"]=data;action["data"]["hickory_action"]=json!(token);action["data"]["hickory_sources"]=action_source_data(&proofs);action["source_files_modified"]=json!(false);
+  self.require_action_sources(&proofs).await?;self.require_bound_maps(snapshot,&targets).await?;self.require_bound_capture(origin,expected).await?;Ok(action)
+ }
+ pub async fn source_bound_rename(&self,params:BoundRenameParams)->Result<Value>{
+  let origin=params.params.text_document_position.text_document.uri.clone();let snapshot=self.bound_snapshot().await;snapshot.expected(&origin,&params.expected)?;
+  let Some((target,_,position))=self.virtual_target(&origin,params.params.text_document_position.position).await else{return Err(tower_lsp::jsonrpc::Error::invalid_params("This source position has no unambiguous provider rename target."));};
+  let mapping=snapshot.maps.get(&target).ok_or_else(||tower_lsp::jsonrpc::Error::invalid_params("Provider mapping changed. Prepare again."))?;
+  let sources=snapshot.sources(std::slice::from_ref(&target))?;self.require_action_sources(&sources).await?;self.require_bound_maps(&snapshot,std::slice::from_ref(&target)).await?;self.require_bound_capture(&origin,&params.expected).await?;
+  let handle=self.bound_child(mapping).await?;
+  let edit=handle.request("textDocument/rename",json!({"textDocument":{"uri":target},"position":position,"newName":params.params.new_name})).await.map_err(child_request_error)?;
+  let edit=if edit.is_null(){json!({"documentChanges":[]})}else{edit};
+  self.finish_bound_edit("Rename",edit,&snapshot,&[target],handle,&origin,&params.expected).await
+ }
+ pub async fn source_bound_formatting(&self,params:BoundFormattingParams)->Result<Value>{
+  let origin=params.params.text_document.uri;let snapshot=self.bound_snapshot().await;snapshot.expected(&origin,&params.expected)?;
+  let associated=snapshot.maps.iter().filter(|(_,map)|provider_target_contributes(map,&origin)).collect::<Vec<_>>();let project=associated.iter().any(|(_,map)|map.position_map.is_project());
+  let mut targets=associated.into_iter().filter(|(_,map)|!project||map.position_map.is_project()).map(|(uri,_)|uri.clone()).collect::<Vec<_>>();targets.sort_by(|a,b|a.as_str().cmp(b.as_str()));
+  if targets.is_empty()||targets.len()>512{return Err(tower_lsp::jsonrpc::Error::invalid_params("Complete formatting requires between one and 512 unambiguous provider outputs."));}
+  let sources=snapshot.sources(&targets)?;self.require_action_sources(&sources).await?;self.require_bound_maps(&snapshot,&targets).await?;self.require_bound_capture(&origin,&params.expected).await?;
+  let mut changes=Vec::new();let mut first=None;
+  for target in &targets {
+   self.require_action_sources(&sources).await?;self.require_bound_maps(&snapshot,&targets).await?;self.require_bound_capture(&origin,&params.expected).await?;
+   let handle=self.bound_child(&snapshot.maps[target]).await?;if first.is_none(){first=Some(handle.clone());}
+   let edits=handle.request("textDocument/formatting",json!({"textDocument":{"uri":target},"options":params.params.options})).await.map_err(child_request_error)?;
+   if edits.is_null(){continue;}if !edits.is_array(){return Err(tower_lsp::jsonrpc::Error::invalid_params("A formatter returned malformed edits. No partial formatting was prepared."));}
+   changes.push(json!({"textDocument":{"uri":target,"version":null},"edits":edits}));
+  }
+  self.finish_bound_edit("Format document",json!({"documentChanges":changes}),&snapshot,&targets,first.expect("nonempty complete formatting"),&origin,&params.expected).await
+ }
+}
+fn bound_project_edit(original:Value,index:&HashMap<String,(Url,PositionMap)>,root:Option<&Url>)->Result<Value>{
+ if let Some(discovery)=discover_action_sources(&original,index,root){return Ok(discovery);}
+ let value=translate_provider_edits(json!([original]),index,root).map_err(tower_lsp::jsonrpc::Error::invalid_params)?;
+ let action=value.as_array().and_then(|rows|rows.first()).cloned().ok_or_else(||tower_lsp::jsonrpc::Error::invalid_params("Malformed complete source-bound edit."))?;
+ if action.get("disabled").is_some_and(|value|!value.is_null()){return Err(tower_lsp::jsonrpc::Error::invalid_params("A complete provider edit cannot be projected safely. No partial change was prepared."));}Ok(action)
+}
+#[cfg(test)]
+mod bound_edit_tests {
+ use super::*;
+ fn expected(uri:&Url,entry:&DocEntry)->ExpectedSourceCapture{ExpectedSourceCapture{source_hash:entry.source_hash.clone().unwrap(),source_revision:crate::source_identity::source_graph_fingerprint(std::iter::once((uri.as_str(),entry.source_revision)))}}
+ fn mapping(uri:&Url,text:&str)->VFileMapping{VFileMapping{source_revision:crate::source_identity::SourceRevision::fresh(),hick_uri:uri.clone(),language_id:"python".into(),root_uri:"file:///workspace/".into(),position_map:PositionMap::identity(10),provider_diagnostics:vec![],provider_source:text.into(),provider_version:Some(1),primary_source_hash:diagnostic_source_digest(text)}}
+ #[tokio::test]
+ async fn exact_origin_capture_rejects_equal_byte_aba_and_preparing_without_dispatch(){
+  let (service,_)=tower_lsp::LspService::new(HickBackend::new);let backend=service.inner();let uri=Url::parse("file:///workspace/a.py").unwrap();
+  let mut entry=DocEntry::empty();entry.source_hash=Some(diagnostic_source_digest("same"));let receipt=expected(&uri,&entry);backend.documents.write().await.insert(uri.clone(),entry);
+  backend.require_bound_capture(&uri,&receipt).await.unwrap();
+  backend.documents.write().await.get_mut(&uri).unwrap().source_revision=crate::source_identity::SourceRevision::fresh();
+  assert!(backend.require_bound_capture(&uri,&receipt).await.is_err());
+  let params=BoundRenameParams{params:serde_json::from_value(json!({"textDocument":{"uri":uri},"position":{"line":0,"character":0},"newName":"later"})).unwrap(),expected:receipt};
+  assert!(backend.source_bound_rename(params).await.unwrap_err().message.contains("capture changed"));
+ }
+ #[tokio::test]
+ async fn touched_source_and_map_lifetimes_never_rebind_while_unrelated_preparation_remains_usable(){
+  let (service,_)=tower_lsp::LspService::new(HickBackend::new);let backend=service.inner();let uri=Url::parse("file:///workspace/a.py").unwrap();let busy=Url::parse("file:///workspace/unrelated.md").unwrap();
+  let mut entry=DocEntry::empty();entry.source_hash=Some(diagnostic_source_digest("same"));let receipt=expected(&uri,&entry);
+  let mut preparing=DocEntry::empty();preparing.preparing=true;
+  backend.documents.write().await.extend([(uri.clone(),entry),(busy,preparing)]);backend.vfile_index.write().await.insert(uri.clone(),mapping(&uri,"same"));
+  let snapshot=backend.bound_snapshot().await;snapshot.expected(&uri,&receipt).unwrap();let proofs=snapshot.sources(std::slice::from_ref(&uri)).unwrap();backend.require_action_sources(&proofs).await.unwrap();backend.require_bound_maps(&snapshot,std::slice::from_ref(&uri)).await.unwrap();
+  backend.documents.write().await.get_mut(&uri).unwrap().source_revision=crate::source_identity::SourceRevision::fresh();assert!(backend.require_action_sources(&proofs).await.is_err());
+  backend.vfile_index.write().await.get_mut(&uri).unwrap().source_revision=crate::source_identity::SourceRevision::fresh();assert!(backend.require_bound_maps(&snapshot,std::slice::from_ref(&uri)).await.is_err());
+ }
+ #[tokio::test]
+ async fn affected_preimages_come_from_the_original_snapshot_not_a_later_equal_byte_owner(){
+  let (service,_)=tower_lsp::LspService::new(HickBackend::new);let backend=service.inner();let a=Url::parse("file:///workspace/a.py").unwrap();let b=Url::parse("file:///workspace/b.py").unwrap();
+  for uri in [&a,&b]{let mut doc=DocEntry::empty();doc.source_hash=Some(diagnostic_source_digest("same"));backend.documents.write().await.insert(uri.clone(),doc);backend.vfile_index.write().await.insert(uri.clone(),mapping(uri,"same"));}
+  let snapshot=backend.bound_snapshot().await;let key=b.as_str();let original=json!({"edit":{"changes":{key:[]}}});let targets=snapshot.affected_maps(&original,std::slice::from_ref(&a)).unwrap();assert_eq!(targets.len(),2);
+  backend.documents.write().await.get_mut(&b).unwrap().source_revision=crate::source_identity::SourceRevision::fresh();let proofs=snapshot.sources(&targets).unwrap();assert!(backend.require_action_sources(&proofs).await.is_err());
+ }
+ #[test]
+ fn complete_formatting_projection_refuses_a_valid_subset_when_any_output_is_unmappable(){
+  let uri=Url::parse("hick:///a.py").unwrap();let map=PositionMap::build(&[crate::virtual_file::VirtualSegment{text:"x".into(),source_span:Some(hick_lang::SourceSpan::new(0,1,1,0)),source_line:1,source_column:0}]);let index=HashMap::from([(uri_key(uri.as_str()),(uri.clone(),map))]);let key=uri.as_str();
+  let edit=json!({"title":"Format","edit":{"changes":{key:[{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":1}},"newText":"valid"},{"range":{"start":{"line":900,"character":0},"end":{"line":900,"character":1}},"newText":"invalid"}]}}});
+  assert!(bound_project_edit(edit,&index,None).is_err());
+ }
+}
 impl HickBackend {
     pub(super) async fn provider_source_revision(&self) -> String {
         let mut rows = {
@@ -720,6 +868,7 @@ impl HickBackend {
                     original: original.clone(),
                     handle: handle.clone(),
                     resolve,
+                    already_mapped: false,
                     display_title: display_title.clone(),
                     source_proofs: proofs.clone(),
                 },
@@ -769,6 +918,13 @@ impl HickBackend {
                 )
             })?;
         self.require_action_sources(&prepared.source_proofs).await?;
+        if prepared.already_mapped {
+            let mut action=prepared.original;
+            let mut data=action_discovery_data(action.get("data"));
+            data["hickory_action"]=json!(token);data["hickory_sources"]=action_source_data(&prepared.source_proofs);action["data"]=data;
+            self.require_provider_revision(&revision).await?;self.require_action_sources(&prepared.source_proofs).await?;
+            return serde_json::from_value(action).map_err(|_|tower_lsp::jsonrpc::Error::invalid_params("Malformed held source-bound action"));
+        }
         let source_proofs = prepared.source_proofs;
         let display_title = prepared.display_title;
         let mut original = prepared.original;

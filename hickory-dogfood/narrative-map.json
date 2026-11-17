@@ -156120,6 +156120,41 @@
       "page": ".hickory-source/frontends/installed-lldb-acceptance.md",
       "symbol": "installed lldb android tests",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "bound-source-edit-queries",
+      "output": "crates/hick-lsp/src/backend/actions.rs",
+      "page": ".hickory-source/mechanisms/bound-source-edits.md",
+      "symbol": "bound source edit queries",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "bound-source-edit-witness",
+      "output": "crates/hick-lsp/src/backend/actions.rs",
+      "page": ".hickory-source/mechanisms/bound-source-edits.md",
+      "symbol": "bound source edit witness",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "bound-source-controlled-provider",
+      "output": "scripts/controlled-bound-source-provider.py",
+      "page": ".hickory-source/mechanisms/bound-source-edits.md",
+      "symbol": "bound source controlled provider",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "bound-source-protocol-driver",
+      "output": "scripts/bound-source-edits-driver.mjs",
+      "page": ".hickory-source/mechanisms/bound-source-edits.md",
+      "symbol": "bound source protocol driver",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "bound-source-protocol-runner",
+      "output": "scripts/test-bound-source-edits.py",
+      "page": ".hickory-source/mechanisms/bound-source-edits.md",
+      "symbol": "bound source protocol runner",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

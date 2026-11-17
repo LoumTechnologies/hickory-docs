@@ -227,6 +227,7 @@ Maps a virtual file URI back to the source .md document.
 
 <storycode:copy id="f-c936496a03c1-VFileMapping">
 /// Maps a virtual file URI back to the source .md document.
+#[derive(Clone)]
 struct VFileMapping {
     /// Identity of this installed source/ownership construction.
     source_revision: crate::source_identity::SourceRevision,

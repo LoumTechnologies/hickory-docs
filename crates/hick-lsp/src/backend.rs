@@ -158,6 +158,7 @@ impl HickBackend {
     }
 }
 /// Maps a virtual file URI back to the source .md document.
+#[derive(Clone)]
 struct VFileMapping {
     /// Identity of this installed source/ownership construction.
     source_revision: crate::source_identity::SourceRevision,

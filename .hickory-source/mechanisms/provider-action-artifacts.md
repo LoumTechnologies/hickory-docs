@@ -208,6 +208,7 @@ struct PreparedAction {
     original: Value,
     handle: ChildLspHandle,
     resolve: bool,
+    already_mapped: bool,
     display_title: Option<String>,
     source_proofs: Arc<Vec<ProviderSourceProof>>,
 }
@@ -937,6 +938,7 @@ Build provider context from the child’s own diagnostics. Read its actual capab
                     original: original.clone(),
                     handle: handle.clone(),
                     resolve,
+                    already_mapped: false,
                     display_title: display_title.clone(),
                     source_proofs: proofs.clone(),
                 },
@@ -991,6 +993,13 @@ The lookup token selects held data; every other caller-supplied field is ignored
                 )
             })?;
         self.require_action_sources(&prepared.source_proofs).await?;
+        if prepared.already_mapped {
+            let mut action=prepared.original;
+            let mut data=action_discovery_data(action.get("data"));
+            data["hickory_action"]=json!(token);data["hickory_sources"]=action_source_data(&prepared.source_proofs);action["data"]=data;
+            self.require_provider_revision(&revision).await?;self.require_action_sources(&prepared.source_proofs).await?;
+            return serde_json::from_value(action).map_err(|_|tower_lsp::jsonrpc::Error::invalid_params("Malformed held source-bound action"));
+        }
         let source_proofs = prepared.source_proofs;
         let display_title = prepared.display_title;
         let mut original = prepared.original;
@@ -1203,6 +1212,6 @@ mod discovery_tests {
 }
 </ui:copy>
 
-<ui:file path="crates/hick-lsp/src/backend/actions.rs"><ui:paste select="#provider-action-source-context"/><ui:paste select="#provider-action-source-proof-witness"/><ui:paste select="#provider-action-graph-revision"/><ui:paste select="#provider-action-query"/><ui:paste select="#provider-action-resolve"/><ui:paste select="#provider-action-unmapped-source-discovery"/><ui:paste select="#provider-action-unmapped-source-discovery-witness"/></ui:file>
+<ui:file path="crates/hick-lsp/src/backend/actions.rs"><ui:paste select="#provider-action-source-context"/><ui:paste select="#provider-action-source-proof-witness"/><ui:paste select="#bound-source-edit-queries"/><ui:paste select="#bound-source-edit-witness"/><ui:paste select="#provider-action-graph-revision"/><ui:paste select="#provider-action-query"/><ui:paste select="#provider-action-resolve"/><ui:paste select="#provider-action-unmapped-source-discovery"/><ui:paste select="#provider-action-unmapped-source-discovery-witness"/></ui:file>
 
 </ui:doc>

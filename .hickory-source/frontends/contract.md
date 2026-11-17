@@ -302,6 +302,24 @@ attachment, relocated or aliased precompiled symbols, or every adapter family.
 Relocated symbols require the provider's source mapping configuration and remain
 unverified. Native pointer input, IME and assistive technology remain unexecuted.
 
+## Exact source-bound rename and formatting engine, 2026-11-17
+
+An exact preparation acknowledgement now authorizes custom rename/formatting
+queries only through its source hash and opaque revision. The engine checks
+origin before dispatch and after every reply, freezes mapping and affected
+preimages, and returns one complete stamped no-effect envelope. Edit/Undo and
+independent reopen cannot renew that intention. Formatting refuses a failed or
+unmappable member instead of returning an apparently successful subset.
+
+Four focused bound-query cases and seven existing bulk integration cases pass.
+The maintained real protocol passes exact-capture rename/format, immutable
+synthetic resolution, stale and held origin ABA, affected source replacement,
+unknown-source acquisition followed by a fresh query, later formatter failure
+and whole-format mapping refusal; disk bytes stay unchanged. Existing action and
+literate bulk real protocols also pass against the new engine. Browser/native
+controller consumption and cross-platform user-flow acceptance are separate
+integration work in progress; backend receipts alone do not establish parity.
+
 ## Current integration ledger
 
 This ledger reconciles the required outcome with the implementation inspected on
