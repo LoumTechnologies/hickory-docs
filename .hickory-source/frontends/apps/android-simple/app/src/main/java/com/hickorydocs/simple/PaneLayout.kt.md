@@ -3,6 +3,8 @@
 
 For maintainers iterating on the equivalent Apple, Android and browser editor frontends.
 
+Utility tabs and literal source paths have distinct identities. Escape only reserved names and the escape prefix, retaining ordinary path compatibility. The NUL prefix cannot occur in a physical workspace path; decoding removes exactly one layer. Moving or closing a source named `files` must leave the Files utility intact.
+
 A pane tree contains tab identities and proportions only. Returning a new layout makes structural changes observable without routing document keystrokes through the shell.
 
 Docking validates source, target, direction and fresh IDs before removing anything. It retains the destination under a new identity and inserts the moved tab on the requested side of an equal split. Empty groups disappear after insertion, and each surviving sibling fills the freed rectangle. One empty root remains only when all tabs are closed; explicit Split can create a temporary empty destination. The outer twenty percent selects an edge, with left/right owning corners and the center joining existing tabs.
@@ -11,6 +13,18 @@ Use an optional destination tab identity to mean insert-before, and no anchor to
 
 <ui:copy id="simple-5953f13779-0">
 package com.hickorydocs.simple
+
+sealed interface SourceTabIdentity {
+ data class Utility(val name:String):SourceTabIdentity
+ data class Source(val path:String):SourceTabIdentity
+}
+private const val SOURCE_TAB_PREFIX="\u0000source:"
+fun sourceTab(path:String):String=if(path in listOf("files","agent","terminal")||path.startsWith(SOURCE_TAB_PREFIX))SOURCE_TAB_PREFIX+path else path
+fun tabIdentity(address:String):SourceTabIdentity=when {
+ address.startsWith(SOURCE_TAB_PREFIX)->SourceTabIdentity.Source(address.removePrefix(SOURCE_TAB_PREFIX))
+ address in listOf("files","agent","terminal")->SourceTabIdentity.Utility(address)
+ else->SourceTabIdentity.Source(address)
+}
 
 fun dropEdge(x: Double, y: Double): String? {
     if (!x.isFinite() || !y.isFinite() || x !in 0.0..1.0 || y !in 0.0..1.0) return null

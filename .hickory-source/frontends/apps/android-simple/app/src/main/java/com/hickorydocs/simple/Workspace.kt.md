@@ -57,7 +57,10 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.async
 import java.util.UUID
 
-class DocumentBuffer(file: FileNode, loaded: FileText) {
+class DocumentBuffer(file: FileNode, loaded: FileText, untitledDraft:Boolean=false) {
+    // A literal filename never determines whether a source has an address.
+    var isUntitledDraft by mutableStateOf(untitledDraft)
+        internal set
     val debugIdentity=UUID.randomUUID().toString()
     // This intent token advances synchronously in owned edit/selection/undo
     // paths; source-equal undo cannot revive a reviewed template request.
@@ -350,7 +353,7 @@ normal capability setup. Deleted dirty buffers still guard workspace switching.
         showRecovery=true
         workspaceScope.launch{resourceChanges.openHistory(this@Workspace,record,workspace,current,published)}
     }
-    fun bufferForTab(tab:String?)=buffers[tab] ?: retainedResourceTabs[tab]
+    fun bufferForTab(tab:String?):DocumentBuffer? {if(tab==null)return null;val identity=tabIdentity(tab);return if(identity is SourceTabIdentity.Source)buffers[identity.path] ?: retainedResourceTabs[tab] else null}
     private fun scopedFiles(tree:List<FileNode>):List<FileNode>{
         if(directoryScope.isEmpty())return tree
         fun find(nodes:List<FileNode>):FileNode?=nodes.firstNotNullOfOrNull{if(it.path==directoryScope)it else find(it.children)}
@@ -373,10 +376,10 @@ normal capability setup. Deleted dirty buffers still guard workspace switching.
     }
     internal fun captureRetainedSourceNamespace():()->Boolean {
         val epoch=generation;val server=engine;val addresses=buffers.toMap();val retained=retainedResourceEditors.toMap();val tabs=retainedResourceTabs.toMap()
-        data class Captured(val buffer:DocumentBuffer,val revision:Long,val source:String,val base:String,val hash:String,val guard:String?,val file:FileNode,val deleted:Boolean,val selection:TextRange)
-        val snapshots=(addresses.values+retained.values+tabs.values).distinct().map{b->Captured(b,b.sourceRevision,b.text,b.base,b.hash,b.saveGuard,b.file,b.resourceDeleted,b.state.selection)}
+        data class Captured(val buffer:DocumentBuffer,val revision:Long,val source:String,val base:String,val hash:String,val guard:String?,val file:FileNode,val deleted:Boolean,val untitled:Boolean,val selection:TextRange)
+        val snapshots=(addresses.values+retained.values+tabs.values).distinct().map{b->Captured(b,b.sourceRevision,b.text,b.base,b.hash,b.saveGuard,b.file,b.resourceDeleted,b.isUntitledDraft,b.state.selection)}
         fun same(current:Map<String,DocumentBuffer>,before:Map<String,DocumentBuffer>)=current.size==before.size&&before.all{(path,b)->current[path]===b}
-        return {generation==epoch&&engine===server&&same(buffers,addresses)&&same(retainedResourceEditors,retained)&&same(retainedResourceTabs,tabs)&&snapshots.all{s->val b=s.buffer;b.sourceRevision==s.revision&&b.text==s.source&&b.base==s.base&&b.hash==s.hash&&b.saveGuard==s.guard&&b.file===s.file&&b.resourceDeleted==s.deleted&&b.state.selection==s.selection&&!b.saving&&b.state.composition==null}}
+        return {generation==epoch&&engine===server&&same(buffers,addresses)&&same(retainedResourceEditors,retained)&&same(retainedResourceTabs,tabs)&&snapshots.all{s->val b=s.buffer;b.sourceRevision==s.revision&&b.text==s.source&&b.base==s.base&&b.hash==s.hash&&b.saveGuard==s.guard&&b.file===s.file&&b.resourceDeleted==s.deleted&&b.isUntitledDraft==s.untitled&&b.state.selection==s.selection&&!b.saving&&b.state.composition==null}}
     }
     fun captureResourceEditors(patches:List<ResourceEditorPatch>,restoring:Map<String,DocumentBuffer> = emptyMap()):()->Boolean {
         val paths=patches.associate{it.path to buffers[it.path]}
@@ -400,8 +403,8 @@ normal capability setup. Deleted dirty buffers still guard workspace switching.
         }
         val addresses=linkedMapOf<String,String>()
         for((route,buffer) in targets){
-            val destination=route.to ?: ("deleted-resource:"+UUID.randomUUID())
-            route.from?.let{addresses[it]=destination}
+            val destination=route.to?.let(::sourceTab) ?: ("deleted-resource:"+UUID.randomUUID())
+            route.from?.let{addresses[sourceTab(it)]=destination}
             retainedResourceTabs.filterValues{it===buffer}.keys.forEach{addresses[it]=destination}
         }
         val nextLayout=layout.copy(nodes=layout.nodes.mapValues{(_,node)->node.copy(tabs=node.tabs.map{addresses[it] ?: it},active=node.active?.let{addresses[it] ?: it})})
@@ -414,7 +417,7 @@ normal capability setup. Deleted dirty buffers still guard workspace switching.
         for((route,_) in targets)route.from?.let{buffers.remove(it)}
         for((route,buffer) in targets){
             val path=route.to
-            if(path==null){buffer.resourceDeleted=true;retainedResourceEditors[route.identity]=buffer;route.from?.let{retainedResourceTabs[addresses.getValue(it)]=buffer};continue}
+            if(path==null){buffer.resourceDeleted=true;retainedResourceEditors[route.identity]=buffer;route.from?.let{retainedResourceTabs[addresses.getValue(sourceTab(it))]=buffer};continue}
             val entry=files.getValue(path)
             if(buffer.text!=route.after){buffer.state.edit{replace(0,length,route.after!!)}}
             buffer.file=entry.file;buffer.base=entry.saved.text!!;buffer.hash=entry.hash;buffer.saveGuard=entry.saveGuard;buffer.saveGuardReason=if(entry.saveGuard==null)"Resource receipt lacks physical save authority. Reopen or compare before ordinary Save." else null;buffer.resourceDeleted=false;buffer.error=""
@@ -498,16 +501,16 @@ Foreground file opening and background intelligence share one acquisition path. 
     internal fun adoptCreatedSource(source:DocumentBuffer,file:FileNode,text:FileText,server:Engine):DocumentBuffer {
         check(engine===server&&buffers[file.path]==null&&source.text==text.content){"Creation namespace or source changed before adoption."}
         val old=source.file.path
-        val addresses=(buffers.filterValues{it===source}.keys+retainedResourceTabs.filterValues{it===source}.keys).toSet()
+        val addresses=(buffers.filterValues{it===source}.keys.map(::sourceTab)+retainedResourceTabs.filterValues{it===source}.keys).toSet()
         check(addresses.isNotEmpty()){"The source editor no longer owns its captured address."}
-        val adopted=layout.copy(nodes=layout.nodes.mapValues{(_,node)->node.copy(tabs=node.tabs.map{if(it in addresses)file.path else it}.distinct(),active=node.active?.let{if(it in addresses)file.path else it})})
+        val adopted=layout.copy(nodes=layout.nodes.mapValues{(_,node)->node.copy(tabs=node.tabs.map{if(it in addresses)sourceTab(file.path) else it}.distinct(),active=node.active?.let{if(it in addresses)sourceTab(file.path) else it})})
         sourceTemplates.close();sourceHistory.close();behaviorReading.close()
         generation=UUID.randomUUID();loading.values.forEach{it.cancel()};loading.clear();newestOpen.clear()
         debugger?.resourceSourcesChanged(listOf(NativeSourceRoute(source.debugIdentity,if(source.resourceDeleted)null else old,file.path,text.content,true)))
         source.language?.close();source.language=null
         buffers.entries.filter{it.value===source}.map{it.key}.forEach{buffers.remove(it)}
         retainedResourceTabs.entries.removeAll{it.value===source};retainedResourceEditors.entries.removeAll{it.value===source}
-        source.file=file;source.base=text.content;source.hash=text.hash;source.saveGuard=text.saveGuard;source.saveGuardReason=null;source.resourceDeleted=false;source.creationAttempt=null;source.error="";source.advanceSourceRevision()
+        source.isUntitledDraft=false;source.file=file;source.base=text.content;source.hash=text.hash;source.saveGuard=text.saveGuard;source.saveGuardReason=null;source.resourceDeleted=false;source.creationAttempt=null;source.error="";source.advanceSourceRevision()
         retainBuffer(file,text,server,source);layout=adopted
         return source
     }
@@ -530,7 +533,7 @@ Foreground file opening and background intelligence share one acquisition path. 
     }
     suspend fun open(file: FileNode, recordNavigation: Boolean = true) {
         val departed = currentSemanticLocation()
-        if(buffers.containsKey(file.path)) {show(file.path);if(recordNavigation) currentSemanticLocation()?.let {navigationTrail=navigationTrail.record(departed,it)};return}
+        if(buffers.containsKey(file.path)) {show(sourceTab(file.path));if(recordNavigation) currentSemanticLocation()?.let {navigationTrail=navigationTrail.record(departed,it)};return}
         val current = generation
         val target = layout.groups().firstOrNull {it.id==focused && "files" !in it.tabs}?.id
             ?: layout.groups().firstOrNull {"files" !in it.tabs}?.id ?: focused
@@ -540,7 +543,7 @@ Foreground file opening and background intelligence share one acquisition path. 
             if(generation != current) return
             if(newestOpen[target]==file.path) {
                 val live=layout.groups().firstOrNull {it.id==target}?.id ?: layout.groups().first().id
-                layout=layout.activate(file.path,live);focused=live;status=file.path
+                layout=layout.activate(sourceTab(file.path),live);focused=live;status=file.path
                 if(recordNavigation) currentSemanticLocation()?.let {navigationTrail=navigationTrail.record(departed,it)}
             }
         } catch(cancelled:CancellationException) {throw cancelled}
@@ -577,7 +580,7 @@ Foreground file opening and background intelligence share one acquisition path. 
         val debug=debugger ?: return;val request=++debugRevealTicket;val current=generation;val group=focused;val departed=active;val locationCurrent=debug.locationGuard(path,line)
         fun find(nodes: List<FileNode>): FileNode? { nodes.forEach { if (it.path == path) return it; find(it.children)?.let { child -> return child } }; return null }
         val original=debug.sourceEditor(path)?.takeIf{editor->buffers.values.any{it===editor}||retainedResourceTabs.values.any{it===editor}}
-        val address=original?.let{editor->buffers.entries.firstOrNull{it.value===editor}?.key ?: retainedResourceTabs.entries.firstOrNull{it.value===editor}?.key} ?: path
+        val address=original?.let{editor->buffers.entries.firstOrNull{it.value===editor}?.key?.let(::sourceTab) ?: retainedResourceTabs.entries.firstOrNull{it.value===editor}?.key} ?: sourceTab(path)
         val file=(original?.file ?: buffers[path]?.file ?: find(rootFiles))?.takeUnless{it.dir} ?: run{status="Reported debugger source is not in this workspace. Refresh files to inspect it.";return}
         if(!locationCurrent())return
         val buffer=original ?: loadBuffer(file)
@@ -626,7 +629,7 @@ Foreground file opening and background intelligence share one acquisition path. 
     var filePath by mutableStateOf("")
     fun newTab() {
         val path = "Untitled-" + UUID.randomUUID()
-        buffers[path] = DocumentBuffer(FileNode("Untitled ${buffers.keys.count { it.startsWith("Untitled-") } + 1}", path, false, emptyList(), null, null), FileText("", "")); show(path)
+        buffers[path] = DocumentBuffer(FileNode("Untitled ${buffers.values.count { it.isUntitledDraft } + 1}", path, false, emptyList(), null, null), FileText("", ""),untitledDraft=true); show(sourceTab(path))
     }
     fun chooseFileCommand(command: String) { filePath = ""; fileCommand = command }
     suspend fun performFileCommand() {
@@ -645,7 +648,7 @@ Foreground file opening and background intelligence share one acquisition path. 
             source.saving = true
             try {
                 val copy=createSourceCopy(source,path)
-                show(copy.file.path);refresh()
+                show(sourceTab(copy.file.path));refresh()
                 status=copy.error.ifEmpty{"Created source confirmed. The original saved file was not overwritten."}
                 source.saving=false
                 if(savingAll)saveAll()
@@ -662,12 +665,12 @@ Foreground file opening and background intelligence share one acquisition path. 
     suspend fun saveAll() {
         val server = engine ?: return
         savingAll = true
-        for (buffer in buffers.values.toList().filter { !it.file.path.startsWith("Untitled-") }) buffer.save(server)
-        val draft = buffers.values.firstOrNull { it.file.path.startsWith("Untitled-") && it.dirty }
-        if (draft != null) { show(draft.file.path); chooseFileCommand("Save As") } else savingAll = false
+        for (buffer in buffers.values.toList().filter { !it.isUntitledDraft }) buffer.save(server)
+        val draft = buffers.values.firstOrNull { it.isUntitledDraft && it.dirty }
+        if (draft != null) { show(sourceTab(draft.file.path)); chooseFileCommand("Save As") } else savingAll = false
     }
     suspend fun save() {
-        if (currentBuffer?.file?.path?.startsWith("Untitled-") == true) { chooseFileCommand("Save As"); return }
+        if (currentBuffer?.isUntitledDraft == true) { chooseFileCommand("Save As"); return }
         engine?.let { currentBuffer?.save(it) }
     }
 }

@@ -10,6 +10,19 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeout
 
 class ParityTest {
+    @Test fun reservedSourceTabsRemainIndependentFromUtilities() {
+        val w=Workspace()
+        for(path in listOf("files","agent","terminal","Untitled-real.txt","\u0000source:literal")) {
+            val b=DocumentBuffer(FileNode(path,path,false,emptyList(),null,null),FileText("saved literal","hash","guard"))
+            w.buffers[path]=b;w.show(sourceTab(path));assertSame(b,w.currentBuffer)
+            assertEquals(SourceTabIdentity.Source(path),tabIdentity(w.active!!))
+            assertFalse(b.isUntitledDraft)
+            w.close(sourceTab(path));assertTrue(w.layout.groups().any{"files" in it.tabs})
+        }
+        w.show("files");assertNull(w.currentBuffer)
+        w.newTab();assertTrue(w.currentBuffer!!.isUntitledDraft)
+    }
+
     @Test(timeout=20000) fun sharedLanguageWireRoutesRepliesDetachesOneSourceAndReplaysAfterFailure() = kotlinx.coroutines.runBlocking {
         // Contract: .hickory-source/frontends/contract.md. Own protocol fixture, real OkHttp WebSocket.
         val root=generateSequence(java.io.File(System.getProperty("user.dir")).absoluteFile) {it.parentFile}.first {it.resolve("scripts/simple-language-wire-fixture.py").isFile}

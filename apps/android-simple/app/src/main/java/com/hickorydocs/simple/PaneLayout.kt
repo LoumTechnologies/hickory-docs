@@ -1,5 +1,17 @@
 package com.hickorydocs.simple
 
+sealed interface SourceTabIdentity {
+ data class Utility(val name:String):SourceTabIdentity
+ data class Source(val path:String):SourceTabIdentity
+}
+private const val SOURCE_TAB_PREFIX="\u0000source:"
+fun sourceTab(path:String):String=if(path in listOf("files","agent","terminal")||path.startsWith(SOURCE_TAB_PREFIX))SOURCE_TAB_PREFIX+path else path
+fun tabIdentity(address:String):SourceTabIdentity=when {
+ address.startsWith(SOURCE_TAB_PREFIX)->SourceTabIdentity.Source(address.removePrefix(SOURCE_TAB_PREFIX))
+ address in listOf("files","agent","terminal")->SourceTabIdentity.Utility(address)
+ else->SourceTabIdentity.Source(address)
+}
+
 fun dropEdge(x: Double, y: Double): String? {
     if (!x.isFinite() || !y.isFinite() || x !in 0.0..1.0 || y !in 0.0..1.0) return null
     return if (x < .2) "left" else if (x > .8) "right" else if (y < .2) "top" else if (y > .8) "bottom" else null

@@ -484,6 +484,8 @@ describe("simple line numbers", () => {
   });
 });
 
+// Inline runtime values require a captured frame whose source hash matches the
+// retained draft. An unbound attach receipt must never acquire line authority.
 describe("simple inline DAP debugging", () => {
   it("launches the generated target from a literate file block", async () => {
     const start = vi.fn();
@@ -504,7 +506,10 @@ describe("simple inline DAP debugging", () => {
     try {
       act(() => view.dispatch({ changes: { from: view.state.doc.length, insert: "\n" } }));
       act(() => { undo(view); });
+      const hash=await historySourceHash(buffer.text);
+      const frame={id:1,name:"main",source:"sample.py",line:1,in_document:true,source_hash:hash};
       vi.mocked(useFollowingDebugSession).mockReturnValue({ ...IDLE_SESSION, status: "paused", pausedLine: 1,
+        selectedFrame:1,frames:[frame],positionSourceBound:true,captureFrame:()=>({frame,current:()=>true}),
         variables: [{ name: "value", value: "1", type: "int", variables_reference: 0 }], toggleBreakpoint, step, stop });
       screen.rerender(createElement(Document, { buffer }));
       expect(EditorView.findFromDOM(screen.container.querySelector(".cm-editor")!)).toBe(view);
