@@ -71751,6 +71751,10 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "construction": "fragments",
       "fragments": [
         "agent-proposal-model",
+        "agent-proposal-archive",
+        "agent-proposal-archive-witness",
+        "agent-proposal-archive-api",
+        "agent-proposal-archive-routes",
         "agent-proposal-analysis",
         "agent-proposal-routes",
         "agent-proposal-tool-discovery",
@@ -72562,6 +72566,28 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "construction": "fragments",
       "fragments": [
         "native-bound-source-host-driver"
+      ]
+    },
+    "scripts/test-agent-proposal-persistence.py": {
+      "source": ".hickory-source/mechanisms/agent-proposal-persistence.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "test",
+      "sha256": "7fdd5dfc81117bb619891c66eb3586dd991f6d82a44c3ed3d114bd46f151ba54",
+      "construction": "fragments",
+      "fragments": [
+        "agent-proposal-persistence-protocol"
+      ]
+    },
+    "scripts/test-agent-proposal-history-host.py": {
+      "source": ".hickory-source/frontends/agent-proposal-history-witness.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "4d5a97751b052933d264e7e077b654f852018793a34e1461ef4682fbfc9cf2bd",
+      "construction": "fragments",
+      "fragments": [
+        "agent-proposal-history-host-driver"
       ]
     }
   },

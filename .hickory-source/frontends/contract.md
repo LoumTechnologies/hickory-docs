@@ -413,7 +413,7 @@ until reconstruction, focused safety checks and the connected path pass.
 | Debugger | Inline launch, profile selection, breakpoints, frames and evaluation have focused slices. Explicit threads, scoped caller locals, immediate running-session controls and pre-launch protocol admission now have actual-engine browser and native controller evidence. Adapter-owned literal source reading passes controlled-provider browser and Apple native flows; Android model/controller checks and its complete actual flow pass. Complete stack paging has owned protocol evidence. Explicit loopback debugpy attach has real-engine browser/macOS/Android acceptance; Source-bound breakpoint retention after edits and deep-stack host acceptance now pass on all three hosts. Installed LLDB canonical C launch/PID attach also pass on those hosts. Other attachment/provider families, toolchain breadth and device acceptance remain open. |
 | Connected behavior readings | Captured construction/contributor/output readings have focused evidence. Connected graph/source paging and declared contract/implementation/test/evidence distinctions now pass real-engine browser and Android flows. Apple and Android capture the complete seven-field retained context and pass actual graph/source-reading flows; physical-root and stale-baseline admission have focused browser/engine and native integration evidence. Physical-input acceptance remains unverified; detected tests are not execution evidence. |
 | Change impact and relevant verification | Compiler saved/draft output consequences exist. Bounded declared relationships, selected checks/profiles and retained process-only results have real-engine browser and Android acceptance. Apple integration and post-effect root-loss retention now have focused and actual-engine evidence. Retained process-only results never acquire independent verification authority. Physical-input acceptance remains unverified. Undeclared dependencies stay unknown. |
-| Agent proposal review | Retained agent conversation and existing guarded source-change mechanisms are foundations. A shared immutable review service and agent-tool preparation now have focused and real-engine no-effect admission checks. Sealed material and cross-platform coherent review/application now have focused and owned managed-provider acceptance, including coordinated draft Undo/Redo and separate resource Save/recovery. Review cache retention across an engine restart and provider breadth remain open. |
+| Agent proposal review | Retained agent conversation and existing guarded source-change mechanisms are foundations. A shared immutable review service and agent-tool preparation now have focused and real-engine no-effect admission checks. Sealed material and cross-platform coherent review/application now have focused and owned managed-provider acceptance, including coordinated draft Undo/Redo and separate resource Save/recovery. Sealed historical readings now survive an engine restart with actual browser/macOS/Android acceptance; they never revive application authority. Provider breadth remains open. |
 
 Physical native input, assistive technology and device IME acceptance remain
 unverified unless an explicit executed receipt says otherwise. No row is a claim
@@ -1699,5 +1699,27 @@ simulator build pass. Native live renderer adoption is not established by those
 model checks. Resource publication callers, tab-address adoption, existing-menu
 Save/restoration and coordinated saved/draft undo remain outstanding on all hosts;
 the new seams alone do not complete the requested IDE parity contract.
+
+## Retain sealed proposal readings across engine restarts
+
+Proposal retention now writes a bounded, authenticated private catalogue tied to
+the physical workspace and held storage identities. Reopening retains the exact
+original material, fingerprint, scope and explicitly unverified host report. A
+historical reading carries a separate current reading scope; it cannot populate
+live admission state, acquire editor authority, Apply or report a new application.
+Missing, substituted, oversized or damaged storage refuses with an explicit
+retention notice while a separately prepared live review remains usable. Private
+prediction requests never create this store.
+
+Focused evidence (2026-11-17): fourteen Rust proposal/storage cases pass, alongside
+the existing HTTP flow and genuine restart/tamper protocol. Browser proposal
+models pass23 focused cases with TypeScript checking. Native model groups pass
+with their explicitly environment-dependent live cases executed separately. The
+actual browser, macOS and Android restart flows each read the original sealed
+proposal beside a current dirty editor, disable Apply, retain editor identity and
+geometry or native state, preserve Undo and leave saved source unchanged. The
+macOS build passes. These receipts do not establish native physical input,
+assistive technology or device interaction acceptance. Other open parity rows
+remain required.
 
 </ui:doc>

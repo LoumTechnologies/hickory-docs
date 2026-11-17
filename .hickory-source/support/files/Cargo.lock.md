@@ -3626,6 +3626,7 @@ dependencies = [
  "hickory-lineage",
  "hickory-peer",
  "hickory-workspace",
+ "hmac 0.12.1",
  "ignore",
  "iroh",
  "libc",

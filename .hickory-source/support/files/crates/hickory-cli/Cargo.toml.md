@@ -66,6 +66,8 @@ notify = "7"
 # Images dropped into a note arrive base64 in a JSON body (serve/asset.rs).
 base64 = "0.22"
 sha2 = "0.10"
+# Private historical proposal readings use a standard keyed integrity seal.
+hmac = "=0.12.1"
 hex = "0.4"
 getrandom = "0.3"
 hick-exec.workspace = true

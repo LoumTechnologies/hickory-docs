@@ -156281,6 +156281,48 @@
       "page": ".hickory-source/frontends/native-bound-source-acceptance.md",
       "symbol": "native bound source host driver",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "agent-proposal-archive",
+      "output": "crates/hickory-cli/src/serve/agent_proposals.rs",
+      "page": ".hickory-source/mechanisms/agent-proposal-persistence.md",
+      "symbol": "agent proposal archive",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "agent-proposal-archive-witness",
+      "output": "crates/hickory-cli/src/serve/agent_proposals.rs",
+      "page": ".hickory-source/mechanisms/agent-proposal-persistence.md",
+      "symbol": "agent proposal archive witness",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "agent-proposal-archive-api",
+      "output": "crates/hickory-cli/src/serve/agent_proposals.rs",
+      "page": ".hickory-source/mechanisms/agent-proposal-persistence.md",
+      "symbol": "agent proposal archive api",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "agent-proposal-archive-routes",
+      "output": "crates/hickory-cli/src/serve/agent_proposals.rs",
+      "page": ".hickory-source/mechanisms/agent-proposal-persistence.md",
+      "symbol": "agent proposal archive routes",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "agent-proposal-persistence-protocol",
+      "output": "scripts/test-agent-proposal-persistence.py",
+      "page": ".hickory-source/mechanisms/agent-proposal-persistence.md",
+      "symbol": "agent proposal persistence protocol",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "agent-proposal-history-host-driver",
+      "output": "scripts/test-agent-proposal-history-host.py",
+      "page": ".hickory-source/frontends/agent-proposal-history-witness.md",
+      "symbol": "agent proposal history host driver",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

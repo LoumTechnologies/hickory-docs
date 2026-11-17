@@ -367,4 +367,6 @@ is included with that control; opening a document is not generation authority.
 
 <storycode:include file="provider-source-proofs.md" />
 
+<storycode:include file="agent-proposal-persistence.md" />
+
 </storycode:doc>

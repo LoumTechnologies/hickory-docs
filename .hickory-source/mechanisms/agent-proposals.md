@@ -7,7 +7,7 @@ claim, every implementation patch, saved/draft construction consequences and the
 engine's connected readings into one review. Preparing or validating a review
 does not apply, save, stage or run anything. Hosts must still hold their complete
 editor lease and use the existing coordinated change mechanism after validation.
-Browser managed-tool review/application and Android caller-provided and managed-tool controller flows have focused actual acceptance. Apple host acceptance is in progress. Scripted providers and unexecuted physical input do not establish broader provider or accessibility acceptance.
+Sealed historical readings survive an engine restart under the original physical root, while admission still requires a current in-process Review. Host-reported application remains an unverified host claim, never an engine-observed source effect. Browser managed-tool review/application and Android caller-provided and managed-tool controller flows have focused actual acceptance. Apple host acceptance is in progress. Scripted providers and unexecuted physical input do not establish broader provider or accessibility acceptance.
 
 ## Keep agent statements separate from engine observations
 
@@ -66,16 +66,16 @@ struct Review {
  intention:Intention,workspace:String,namespace:String,plan:resource_changes::ResourcePlan,
 }
 #[derive(Default)]
-struct Retained {order:VecDeque<String>,records:BTreeMap<String,(Arc<Review>,usize)>,applications:BTreeMap<String,Value>,bytes:usize}
+struct Retained {order:VecDeque<String>,records:BTreeMap<String,(Arc<Review>,usize)>,applications:BTreeMap<String,Value>,durability:BTreeMap<String,Value>,bytes:usize}
 static REVIEWS:LazyLock<Mutex<Retained>>=LazyLock::new(||Mutex::new(Retained::default()));
 fn nonce()->Result<String,String>{let mut bytes=[0u8;16];getrandom::fill(&mut bytes).map_err(|e|e.to_string())?;Ok(hex::encode(bytes))}
-fn envelope(review:&Review,application:Option<&Value>)->Value{json!({"version":1,"proposal_protocol":1,"token":review.token,"fingerprint":review.fingerprint,"workspace":review.workspace,"namespace":review.namespace,"material":review.material,"summary":{"title":review.intention.title,"origin":review.intention.origin,"origin_authority":review.origin_authority},"source_effects":false,"checks_executed":false,"host_application":application})}
+fn envelope(review:&Review,application:Option<&Value>,durability:Option<&Value>)->Value{json!({"version":1,"proposal_protocol":1,"token":review.token,"fingerprint":review.fingerprint,"workspace":review.workspace,"namespace":review.namespace,"material":review.material,"summary":{"title":review.intention.title,"origin":review.intention.origin,"origin_authority":review.origin_authority},"source_effects":false,"checks_executed":false,"host_application":application,"historical":false,"durability":durability})}
 #[derive(Serialize)]
 struct Material<'a>{version:u32,intention:&'a Intention,origin_authority:&'a str,workspace:&'a str,namespace:&'a str,inputs:&'a resource_inputs::Inputs,plan:&'a resource_changes::ResourcePlan,consequences:&'a Value,before:&'a Value,after:&'a Value,saved_guards:&'a BTreeMap<String,String>}
 fn retain(review:Review)->Result<Arc<Review>,String>{
  let size=review.material.len();if size>32*1024*1024{return Err("Complete proposal review exceeds its retained budget.".into())}let cost=size.saturating_mul(2).saturating_add(2*1024*1024);
  let mut held=REVIEWS.lock().map_err(|_|"Proposal retention unavailable")?;
- while held.records.len()>=32||held.bytes.saturating_add(cost)>128*1024*1024{let id=held.order.pop_front().ok_or("Proposal retention budget unavailable")?;if let Some((_,cost))=held.records.remove(&id){held.bytes-=cost}held.applications.remove(&id);}
+ while held.records.len()>=32||held.bytes.saturating_add(cost)>128*1024*1024{let id=held.order.pop_front().ok_or("Proposal retention budget unavailable")?;if let Some((_,cost))=held.records.remove(&id){held.bytes-=cost}held.applications.remove(&id);held.durability.remove(&id);}
  let review=Arc::new(review);held.bytes+=cost;held.order.push_back(review.token.clone());held.records.insert(review.token.clone(),(review.clone(),cost));Ok(review)
 }
 </ui:copy>
@@ -164,7 +164,10 @@ evicted review fails closed; refreshing a review never silently applies it.
 pub async fn prepare(State(state):State<LocalState>,Json(intention):Json<Intention>)->ApiResult<Json<Value>>{prepare_with_origin(state,intention,"caller-provided intention; not an agent attestation").await}
 async fn prepare_with_origin(state:LocalState,intention:Intention,origin_authority:&str)->ApiResult<Json<Value>>{
  let mut review=analyze(&state,&intention,origin_authority).await?;review.token=nonce().map_err(ApiError::internal)?;
- let held=retain(review).map_err(ApiError::conflict)?;Ok(Json(envelope(&held,None)))
+ let held=retain(review).map_err(ApiError::conflict)?;
+ let durability=archive_review(&state,held.clone(),None).await;
+ {let mut retention=REVIEWS.lock().map_err(|_|ApiError::conflict("Proposal retention unavailable"))?;if retention.records.contains_key(&held.token){retention.durability.insert(held.token.clone(),durability.clone());}}
+ Ok(Json(envelope(&held,None,Some(&durability))))
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -173,6 +176,9 @@ pub async fn validate(State(state):State<LocalState>,Json(body):Json<Admission>)
  ordinary(&state)?;
  if body.version!=1{return Err(ApiError::conflict("Unsupported proposal validation protocol."))}
  let held=REVIEWS.lock().map_err(|_|ApiError::conflict("Proposal retention unavailable"))?.records.get(&body.token).map(|(review,_)|review.clone()).ok_or_else(||ApiError::conflict("This retained proposal is unavailable. Prepare it again; nothing was applied."))?;
+ let workspace=state.resource_root.check(state.index.root()).map_err(ApiError::conflict)?;
+ let namespace=state.index.root().canonicalize().map_err(|e|ApiError::conflict(e.to_string()))?.to_string_lossy().into_owned();
+ if held.workspace!=workspace||held.namespace!=namespace{return Err(ApiError::conflict("Historical proposal readings cannot admit application. Prepare a new live intention in the current workspace."))}
  if held.fingerprint!=body.fingerprint{return Err(ApiError::conflict("The complete proposal intention changed. Review it again."))}
  let fresh=analyze(&state,&held.intention,&held.origin_authority).await?;if fresh.fingerprint!=held.fingerprint{return Err(ApiError::conflict("Proposal source, ownership, generated consequences or evidence changed. No partial Apply was admitted."))}
  Ok(Json(json!({"version":1,"proposal_protocol":1,"token":body.token,"fingerprint":body.fingerprint,"workspace":fresh.workspace,"namespace":fresh.namespace,"admitted":true,"source_effects":false,"checks_executed":false,"authority":"current engine observation; host editor lease still required"})))
@@ -248,18 +254,22 @@ pub async fn list(State(state):State<LocalState>)->ApiResult<Json<Value>>{
  ordinary(&state)?;
  let workspace=state.resource_root.check(state.index.root()).map_err(ApiError::conflict)?;
  let namespace=state.index.root().canonicalize().map_err(|e|ApiError::conflict(e.to_string()))?.to_string_lossy().into_owned();
+ let archived=archive_readings(&state,&workspace,&namespace).await;
  let held=REVIEWS.lock().map_err(|_|ApiError::conflict("Proposal retention unavailable"))?;
- let reviews:Vec<_>=held.order.iter().rev().filter_map(|token|held.records.get(token).map(|(review,_)|review)).filter(|review|review.workspace==workspace&&review.namespace==namespace).map(|review|json!({"token":review.token,"fingerprint":review.fingerprint,"title":review.intention.title,"origin":review.intention.origin,"origin_authority":review.origin_authority,"request_id":review.intention.request_id,"applied":false,"saved":false,"host_application":held.applications.get(&review.token)})).collect();
- Ok(Json(json!({"version":1,"proposal_protocol":1,"workspace":workspace,"namespace":namespace,"retention":"current engine process","reviews":reviews})))
+ let reviews:Vec<_>=held.order.iter().rev().filter_map(|token|held.records.get(token).map(|(review,_)|review)).filter(|review|review.workspace==workspace&&review.namespace==namespace).map(|review|json!({"token":review.token,"fingerprint":review.fingerprint,"title":review.intention.title,"origin":review.intention.origin,"origin_authority":review.origin_authority,"request_id":review.intention.request_id,"historical":false,"applied":false,"saved":false,"host_application":held.applications.get(&review.token),"durability":held.durability.get(&review.token)})).collect();
+ let(reviews,notice)=merge_proposal_catalogue(reviews,archived);
+ Ok(Json(json!({"version":1,"proposal_protocol":1,"workspace":workspace,"namespace":namespace,"retention":"current live reviews and sealed historical readings","retention_notice":notice,"reviews":reviews})))
 }
 pub async fn read(State(state):State<LocalState>,axum::extract::Path(token):axum::extract::Path<String>)->ApiResult<Json<Value>>{
  ordinary(&state)?;
  if !super::resource_saves::hex(&token,32){return Err(ApiError::conflict("Invalid retained proposal token"))}
  let workspace=state.resource_root.check(state.index.root()).map_err(ApiError::conflict)?;
  let namespace=state.index.root().canonicalize().map_err(|e|ApiError::conflict(e.to_string()))?.to_string_lossy().into_owned();
- let review=REVIEWS.lock().map_err(|_|ApiError::conflict("Proposal retention unavailable"))?.records.get(&token).map(|(review,_)|review.clone()).ok_or_else(||ApiError::conflict("Proposal is no longer retained. Prepare it again; nothing was applied."))?;
- if review.workspace!=workspace||review.namespace!=namespace{return Err(ApiError::conflict("Proposal belongs to another workspace. No same-named source was substituted."))}
- let application=REVIEWS.lock().map_err(|_|ApiError::conflict("Proposal retention unavailable"))?.applications.get(&token).cloned();Ok(Json(envelope(&review,application.as_ref())))
+ let live={let held=REVIEWS.lock().map_err(|_|ApiError::conflict("Proposal retention unavailable"))?;held.records.get(&token).filter(|(review,_)|review.workspace==workspace&&review.namespace==namespace).map(|(review,_)|(review.clone(),held.applications.get(&token).cloned(),held.durability.get(&token).cloned()))};
+ if let Some((review,application,durability))=live{return Ok(Json(envelope(&review,application.as_ref(),durability.as_ref())))}
+ let readings=archive_readings(&state,&workspace,&namespace).await.map_err(ApiError::conflict)?;
+ let row=readings.into_iter().find(|row|row["token"]==token).ok_or_else(||ApiError::conflict("Proposal reading is no longer retained. Preserve existing drafts; no archived review was promoted to live authority."))?;
+ state.resource_root.check(state.index.root()).map_err(ApiError::conflict)?;Ok(Json(row))
 }
 </ui:copy>
 
@@ -279,12 +289,17 @@ pub async fn report(State(state):State<LocalState>,Json(body):Json<HostReport>)-
  ordinary(&state)?;
  if body.version!=1||!super::resource_saves::hex(&body.request_id,32)||body.host.is_empty()||body.host.len()>128||body.after_hashes.len()>4096||serde_json::to_vec(&body).map_err(|e|ApiError::conflict(e.to_string()))?.len()>1024*1024{return Err(ApiError::conflict("Invalid bounded host draft report."))}
  let workspace=state.resource_root.check(state.index.root()).map_err(ApiError::conflict)?;let namespace=state.index.root().canonicalize().map_err(|e|ApiError::conflict(e.to_string()))?.to_string_lossy().into_owned();
+ let (review,receipt)={
  let mut held=REVIEWS.lock().map_err(|_|ApiError::conflict("Proposal retention unavailable"))?;let review=held.records.get(&body.token).map(|(review,_)|review.clone()).ok_or_else(||ApiError::conflict("Proposal is no longer retained. Keep the actual host drafts; do not reapply them to recover an acknowledgment."))?;
  if body.workspace!=workspace||body.namespace!=namespace||review.workspace!=workspace||review.namespace!=namespace||body.fingerprint!=review.fingerprint{return Err(ApiError::conflict("Host report belongs to another proposal or namespace."))}
  let expected:BTreeMap<_,_>=review.plan.patches.iter().map(|patch|(patch.path.clone(),match &patch.after{resource_changes::SourceState::File{text,..}=>super::workspace_fs::view::hash(text.as_bytes()),resource_changes::SourceState::Missing{..}=>"missing".into()})).collect();
  if expected!=body.after_hashes{return Err(ApiError::conflict("Host report does not describe the complete reviewed after namespace. Actual drafts were not changed by this acknowledgment."))}
  let intention=hash(&body).map_err(ApiError::internal)?;if let Some(previous)=held.applications.get(&body.token){if previous["report_fingerprint"]!=intention{return Err(ApiError::conflict("A different host application report is already retained. No source action was repeated."))}return Ok(Json(previous.clone()))}
- let receipt=json!({"version":1,"proposal_protocol":1,"token":body.token,"fingerprint":body.fingerprint,"workspace":workspace,"namespace":namespace,"request_id":body.request_id,"host":body.host,"after_hashes":body.after_hashes,"report_fingerprint":intention,"status":"host-reported draft application","evidence_authority":"host report; not independently observed by the engine","saved":false,"checks_executed":false});held.applications.insert(body.token,receipt.clone());Ok(Json(receipt))
+ let receipt=json!({"version":1,"proposal_protocol":1,"token":body.token,"fingerprint":body.fingerprint,"workspace":workspace,"namespace":namespace,"request_id":body.request_id,"host":body.host,"after_hashes":body.after_hashes,"report_fingerprint":intention,"status":"host-reported draft application","evidence_authority":"host report; not independently observed by the engine","saved":false,"checks_executed":false});held.applications.insert(body.token.clone(),receipt.clone());(review,receipt)
+ };
+ let durability=archive_review(&state,review,Some(receipt.clone())).await;
+ let mut receipt=receipt;if durability["retained"]!=true{receipt["durability"]=durability.clone();}
+ let mut held=REVIEWS.lock().map_err(|_|ApiError::conflict("Proposal retention unavailable"))?;if held.records.contains_key(&body.token){held.applications.insert(body.token.clone(),receipt.clone());held.durability.insert(body.token,durability);}Ok(Json(receipt))
 }
 </ui:copy>
 
@@ -348,7 +363,7 @@ def refused(action):
 def suite(origin,root):
  before={path.name:path.read_bytes() for path in root.iterdir() if path.is_file()}
  capture={'context':'owned-proposal','project_entry':'project.md','drafts':{},'ownership_sources':{},'unaddressed_sources':{},'saved_guards':{},'edit':{'changes':{'hick:///note.py':[{'range':{'start':{'line':0,'character':0},'end':{'line':1,'character':0}},'newText':'value = 41\n'}]}}}
- intention={'version':1,'request_id':uuid.uuid4().hex,'origin':'owned provider fixture','title':'Explain and change one source','explanation':'Change the implementation together with its expected behavior. This is a proposal, not an observed verdict.','claims':['Agent claims tests passed; this remains unverified agent text.'],'check_ids':[],'capture':capture,'reading':{'version':1,'entry':'project.md','sources':{},'missing_sources':[],'focus':'note.py'}}
+ intention={'version':1,'request_id':uuid.uuid4().hex,'origin':'owned provider fixture','title':'Explain and change one source','explanation':'Change the implementation together with its expected behavior. This is a proposal, not an observed verdict.','claims':['Agent claims tests passed; this remains unverified agent text.'],'check_ids':[],'capture':capture,'reading':{'version':1,'entry':'project.md','sources':{},'missing_sources':[],'unaddressed_sources':{},'saved_guards':{},'focus':'note.py'}}
  review=call(origin,'POST','/api/agent-proposals/prepare',intention);assert review['proposal_protocol']==1 and not review['source_effects'] and not review['checks_executed'];assert hashlib.sha256(review['material'].encode()).hexdigest()==review['fingerprint'];material=json.loads(review['material']);assert material['intention']==intention and material['namespace']==str(root) and material['workspace']==review['workspace'];assert material['origin_authority'].startswith('caller-provided')
  assert material['plan']['patches'][0]['before']['text']=='value = 1\n' and material['plan']['patches'][0]['after']['text']=='value = 41\n'
  assert material['consequences']['protected_targets']==[] and material['before']['version']==1 and material['after']['version']==1
@@ -397,5 +412,5 @@ regression claim.
 }
 </ui:copy>
 
-<ui:file path="crates/hickory-cli/src/serve/agent_proposals.rs"><ui:paste select="#agent-proposal-model"/><ui:paste select="#agent-proposal-analysis"/><ui:paste select="#agent-proposal-routes"/><ui:paste select="#agent-proposal-tool-discovery"/><ui:paste select="#agent-proposal-host-report"/><ui:paste select="#agent-proposal-tests"/><ui:paste select="#agent-proposal-private-witness"/></ui:file>
+<ui:file path="crates/hickory-cli/src/serve/agent_proposals.rs"><ui:paste select="#agent-proposal-model"/><ui:paste select="#agent-proposal-archive"/><ui:paste select="#agent-proposal-archive-witness"/><ui:paste select="#agent-proposal-archive-api"/><ui:paste select="#agent-proposal-archive-routes"/><ui:paste select="#agent-proposal-analysis"/><ui:paste select="#agent-proposal-routes"/><ui:paste select="#agent-proposal-tool-discovery"/><ui:paste select="#agent-proposal-host-report"/><ui:paste select="#agent-proposal-tests"/><ui:paste select="#agent-proposal-private-witness"/></ui:file>
 </ui:doc>

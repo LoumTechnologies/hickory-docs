@@ -303,4 +303,6 @@ Each client reads text before requesting optional capabilities. A save uses the 
 <ui:include file="bound-source-browser-witness.md" />
 <ui:include file="native-bound-source-acceptance.md" />
 
+<ui:include file="agent-proposal-history-witness.md" />
+
 </ui:doc>

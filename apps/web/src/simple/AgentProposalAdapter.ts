@@ -27,6 +27,7 @@ export function browserProposalPorts(buffers:Buffers,history:WorkspaceChangeHist
  const scope=()=>{if(!buffers.workspace||!buffers.workspaceId)throw Error('Workspace source authority is not available yet. Retain the review and wait for the workspace.');return {namespace:buffers.workspace,workspace:buffers.workspaceId};};
  return {scope,
   prepare:async(proposal:VerifiedProposal,valid)=>{
+   if(proposal.historical)throw Error('Historical proposal readings have no current editor authority. Request a fresh proposal.');
    const value=proposal.value,capture=value.intention.capture,patches=resourceWirePatches(value.plan),paths=new Set(patches.map(patch=>patch.path));if(paths.size!==patches.length)throw Error('Proposal repeats source targets. The complete namespace cannot be reviewed.');
    const root=scope(),currentRoot=()=>alive()&&valid()&&buffers.workspace===root.namespace&&buffers.workspaceId===root.workspace;
    await originalEditorBinding(buffers,proposal,currentRoot);if(!currentRoot())throw Error('Original proposal context changed.');
