@@ -22,7 +22,12 @@ The provider's file is a physical virtual-source address, rather than an authore
 Markdown address. Bind it to the queried virtual source before retaining the
 read. Reject edit-plus-command combinations because ignoring either half would
 present a partial action. A new file is represented as an ordered creation plus
-text edit; it is never materialized by this module. A malformed later member
+text edit; it is never materialized by this module. TypeScript's native new-file response uses one zero-line/zero-offset insertion,
+omitting `isNewFile` in `convertNewFileTextChangeToCodeEdit`. Recognize only that
+complete singleton sentinel, then let shared acquisition verify that the destination
+is actually missing. Mixed zero/positive positions, multiple sentinel edits and an
+explicit contradictory existing-file marker refuse the entire reading. This is
+protocol decoding, never permission to overwrite a destination. A malformed later member
 refuses the complete response. Optional provider rename locations remain a
 follow-up suggestion; this read never starts a second implicit rename or mutation.
 
@@ -116,7 +121,7 @@ pub(crate) fn edits(response: &Value) -> Result<Value, String> {
                 "Repeated refactor file would require unobserved intermediate source".into(),
             );
         }
-        let new = match file.get("isNewFile") {
+        let declared_new = match file.get("isNewFile") {
             None | Some(Value::Bool(false)) => false,
             Some(Value::Bool(true)) => true,
             _ => return Err("Malformed refactor file disposition".into()),
@@ -125,6 +130,13 @@ pub(crate) fn edits(response: &Value) -> Result<Value, String> {
             .get("textChanges")
             .and_then(Value::as_array)
             .ok_or("Malformed refactor text changes")?;
+        let zero = |value: &Value| value.get("line").and_then(Value::as_u64) == Some(0)
+            && value.get("offset").and_then(Value::as_u64) == Some(0);
+        let sentinel = entries.len() == 1 && zero(&entries[0]["start"]) && zero(&entries[0]["end"]);
+        if sentinel && file.get("isNewFile") == Some(&Value::Bool(false)) {
+            return Err("Contradictory new-file refactor sentinel".into());
+        }
+        let new = declared_new || sentinel;
         let mut mapped: Vec<Value> = Vec::new();
         for edit in entries {
             count += 1;
@@ -136,8 +148,8 @@ pub(crate) fn edits(response: &Value) -> Result<Value, String> {
             if count > 10000 || total > 32 * 1024 * 1024 {
                 return Err("The complete refactoring exceeds the review budget".into());
             }
-            let start = position(&edit["start"])?;
-            let end = position(&edit["end"])?;
+            let start = if sentinel { json!({"line":0,"character":0}) } else { position(&edit["start"])? };
+            let end = if sentinel { json!({"line":0,"character":0}) } else { position(&edit["end"])? };
             let pair = |p: &Value| {
                 (
                     p["line"].as_u64().unwrap(),
@@ -247,6 +259,32 @@ mod tests {
         );
         value["body"]["edits"][0]["textChanges"][1]["start"]["offset"] = json!(3);
         assert!(edits(&value).is_err());
+    }
+    #[test]
+    fn native_zero_position_new_file_is_an_ordered_creation_only() {
+        let mut reading=response();
+        let member=&mut reading["body"]["edits"][1];
+        member.as_object_mut().unwrap().remove("isNewFile");
+        member["textChanges"][0]["start"]=json!({"line":0,"offset":0});
+        member["textChanges"][0]["end"]=json!({"line":0,"offset":0});
+        let decoded=edits(&reading).unwrap();
+        assert_eq!(decoded["documentChanges"][1],json!({"kind":"create","uri":"file:///workspace/helper.ts"}));
+        assert_eq!(decoded["documentChanges"][2]["edits"][0]["range"],json!({"start":{"line":0,"character":0},"end":{"line":0,"character":0}}));
+        reading["body"]["edits"][1]["isNewFile"]=json!(false);
+        assert!(edits(&reading).is_err());
+    }
+    #[test]
+    fn incomplete_or_multiple_zero_position_members_refuse_whole_reading() {
+        for key in ["line","offset"] {
+            let mut reading=response();reading["body"]["edits"][1]["textChanges"][0]["start"][key]=json!(0);
+            assert!(edits(&reading).is_err());
+        }
+        let mut reading=response();let member=&mut reading["body"]["edits"][1];
+        member["textChanges"]=json!([
+          {"start":{"line":0,"offset":0},"end":{"line":0,"offset":0},"newText":"first"},
+          {"start":{"line":0,"offset":0},"end":{"line":0,"offset":0},"newText":"second"}
+        ]);
+        assert!(edits(&reading).is_err());
     }
     #[test]
     fn malformed_later_member_refuses_the_complete_reading() {
