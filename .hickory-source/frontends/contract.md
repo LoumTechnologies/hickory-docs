@@ -98,8 +98,15 @@ Private editor-session recovery now has seven focused engine cases and an owned
 HTTP flow covering two window slots, delayed snapshot rejection, exact retry,
 engine restart, same-byte source/root recreation and corrupt sibling records.
 Snapshots retain literal named/unnamed/generated text, selection/scroll and host
-layout without a source save. This remains a foundation: no host auto-capture,
-restore menu or crash/layout restoration acceptance is claimed yet.
+layout without a source save. Browser automatic capture and the existing Source
+recovery → Editor sessions floating review now have a real renderer-reload
+flow: exact sealed named/unnamed snapshots recover as new draft copies with
+layout and scroll beside an independently edited source. That source retains
+its editor, selection and Undo; disk is unchanged. Eight focused browser cases
+and TypeScript checking pass, including exact lost-reply retries, generated
+read-only copies, stale leases and atomic malformed-layout refusal. Utility
+instances remain in place. Native auto-capture and crash/layout restoration
+remain required work; this does not establish physical-input acceptance.
 
 Deleted-source history passes ten focused history cases and the real strict
 save/create/history HTTP flow. Missing remains distinct from empty File, only

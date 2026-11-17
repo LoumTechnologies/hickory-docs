@@ -258,7 +258,7 @@ export function Document({ buffer,current }: { buffer: Buffer;current?:()=>boole
     let cached = editors.get(buffer);
     if (!cached) {
       const language = new Compartment(), prose = new Compartment(), completion=new Compartment(), address=new Compartment();
-      const view = new EditorView({ dispatchTransactions:dispatchSourceSnippetTransactions,state: EditorState.create({ doc: buffer.text, extensions: [
+      const view = new EditorView({ dispatchTransactions:dispatchSourceSnippetTransactions,state: EditorState.create({ doc: buffer.text, ...(buffer.recoveryView?{selection:EditorSelection.single(buffer.recoveryView.selection.anchor,buffer.recoveryView.selection.head)}:{}), extensions: [
         history(), sourceSnippets({writable:()=>!buffer.readonly&&!buffer.saving,notice:value=>buffer.setCompletionNotice(value)}), layoutEditorGutters.of(false), gutterIconLayout, indentUnit.of(simpleIndent(buffer.text)), EditorState.tabSize.of(4), drawSelection(), EditorState.allowMultipleSelections.of(true), rectangularSelection(), crosshairCursor(), lineNumbers({ domEventHandlers: { mousedown: (editor, block, event) => {
           const line = breakpointLine(editor.state, editor.state.doc.lineAt(block.from).number - 1);
           if (line === null) return false;
@@ -285,6 +285,7 @@ export function Document({ buffer,current }: { buffer: Buffer;current?:()=>boole
     if(!host.current)return;
     const held=cached,release=mountRetainedEditor(buffer,held,host.current,()=>editors.get(buffer)===held);
     window.dispatchEvent(new Event(SIMPLE_EDITOR_ATTACHED));
+    if(buffer.recoveryView){const saved=buffer.recoveryView,interaction=held.interaction,revision=buffer.sourceRevision;buffer.recoveryView=undefined;requestAnimationFrame(()=>{if(editors.get(buffer)===held&&held.interaction===interaction&&buffer.sourceRevision===revision){held.view.scrollDOM.scrollLeft=saved.scroll_x;held.view.scrollDOM.scrollTop=saved.scroll_y;}});}
     setView(cached.view);
     return release;
   }, [buffer]);

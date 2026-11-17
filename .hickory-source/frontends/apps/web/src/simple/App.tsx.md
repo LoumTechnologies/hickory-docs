@@ -45,7 +45,10 @@ import { documentUri } from "../lsp/documentUri";
 import { utf16ToPosition } from "../lsp/positions";
 import { editorForBuffer } from "./Document";
 import { TooltipLayer } from "../components/TooltipLayer";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import {EditorRecoveryModel} from "./EditorRecovery";
+import {captureEditorRecovery,editorRecoveryLease,restoreEditorRecovery} from "./EditorRecoveryAdapter";
+import {EditorRecoveryView,editorRecoveryTransport} from "./EditorRecoveryView";
 import { api,request } from "../api/client";
 import { PlainDebugHosts,hasActivePlainDebugSession,retirePlainDebugIdentity } from "../debug/plainDebugHosts";
 import { onOpenLocation, openLocation, revealLine } from "../lib/revealLine";
@@ -93,6 +96,7 @@ export function App() {
   const [showTests,setShowTests]=useState(false);
   const [showTemplates,setShowTemplates]=useState(false);
   const [showRecovery,setShowRecovery]=useState(false);
+  const [showEditorRecovery,setShowEditorRecovery]=useState(false);
   const [showConstruction,setShowConstruction]=useState(false);
   const [showAgentProposals,setShowAgentProposals]=useState(false);
   const [showReview,setShowReview]=useState(false);
@@ -113,6 +117,10 @@ export function App() {
   const [buffers] = useState(() => new Buffers(() => refresh(value => value + 1)));
   const requested = useRef(new Map<string, string>());
   const [retainedTabs]=useState(()=>new RetainedResourceTabs());
+  const recoveryFocus=useRef(focused);recoveryFocus.current=focused;
+  const editorRecovery=useMemo(()=>new EditorRecoveryModel(editorRecoveryTransport),[buffers.workspaceId,buffers.workspace]);
+  useEffect(()=>{let living=true;const workspace=buffers.workspaceId,namespace=buffers.workspace;const current=()=>living&&buffers.workspaceId===workspace&&buffers.workspace===namespace;const timer=window.setInterval(()=>{if(!current()||!workspace||!namespace)return;try{const snapshot=captureEditorRecovery(buffers,liveLayout.current,recoveryFocus.current,retainedTabs.buffers.values(),tab=>{const id=tabIdentity(tab);return id.kind==='source'?(retainedTabs.buffers.get(id.key)??buffers.values.get(id.key)):undefined;});void editorRecovery.checkpoint(workspace,namespace,snapshot,current);}catch(e){editorRecovery.notice=String(e);}},1500);return()=>{living=false;window.clearInterval(timer);};},[buffers,editorRecovery,retainedTabs]);
+
   const bufferForTab=(tab:string)=>{const identity=tabIdentity(tab);return identity.kind==='source'?(retainedTabs.buffers.get(identity.key)??buffers.values.get(identity.key)):undefined;};
   const tabRoutes=(routes:ResourceEditorRoute<Buffer>[])=>retainedTabs.routes(routes,hasActivePlainDebugSession).map(route=>({...route,from:route.from===null?null:sourceTab(route.from),to:route.to===null?null:sourceTab(route.to)}));
   const resourcePlacements=useRef(new Map<Buffer,{group:string;index:number;active:boolean}>());
@@ -378,7 +386,8 @@ Menu and tab-strip commands expose the same operations as native menus. Empty le
     <WorkspaceSearch visible={showWorkspaceSearch} close={() => { setShowWorkspaceSearch(false); if (buffer) editorForBuffer(buffer)?.view.focus(); }} buffers={buffers} files={workspaceFiles} />
     <AgentProposalReview key={"agent-proposals:"+buffers.workspaceId} open={showAgentProposals} close={()=>{setShowAgentProposals(false);if(buffer)editorForBuffer(buffer)?.view.focus();}} buffers={buffers} history={changeHistory} acquire={async path=>{const namespace=buffers.workspace,workspace=buffers.workspaceId,response=await api.files();if(response.root_path!==namespace||response.workspace_id!==workspace||buffers.workspace!==namespace||buffers.workspaceId!==workspace)throw Error('Proposal workspace changed while acquiring a target.');const find=(nodes:FileNode[]):FileNode|undefined=>{for(const file of nodes){if(!file.dir&&file.path===path)return file;const nested=find(file.children??[]);if(nested)return nested;}};const file=find(response.tree);if(!file)throw Error('Reviewed source is not available in this workspace: '+path);const target=await buffers.open(file);if(buffers.workspace!==namespace||buffers.workspaceId!==workspace)throw Error('Proposal workspace changed.');return target;}} adopt={routes=>{requested.current.clear();const next=resourceLayout(liveLayout.current,tabRoutes(routes),resourcePlacements.current);liveLayout.current=next;setLayout(next);void loadFiles();}} />
     {showSourceHistory&&buffer&&<SourceHistoryView key={buffers.workspace+":"+buffer.file.path} buffer={buffer} buffers={buffers} history={changeHistory} alive={()=>workspaceIdentity.current===workspaceRoot} close={()=>{setShowSourceHistory(false);editorForBuffer(buffer)?.view.focus();}} />}
-    {showRecovery&&<SourceRecoveryView key={"recovery:"+workspaceRoot} buffers={buffers} epoch={()=>changeHistory.stamp()} alive={()=>workspaceIdentity.current===workspaceRoot} acquire={async path=>{
+    {showEditorRecovery&&<EditorRecoveryView model={editorRecovery} workspace={buffers.workspaceId} namespace={buffers.workspace} lease={()=>editorRecoveryLease(buffers,()=>liveLayout.current,()=>recoveryFocus.current,()=>retainedTabs.buffers.values())} restore={snapshot=>{const next=restoreEditorRecovery(buffers,snapshot,liveLayout.current);liveLayout.current=next.tree;setLayout(next.tree);setFocused(next.focused);}} close={()=>setShowEditorRecovery(false)}/>}
+    {showRecovery&&<SourceRecoveryView editorSessions={()=>{setShowRecovery(false);setShowEditorRecovery(true);}} key={"recovery:"+workspaceRoot} buffers={buffers} epoch={()=>changeHistory.stamp()} alive={()=>workspaceIdentity.current===workspaceRoot} acquire={async path=>{
       const identity=workspaceIdentity.current,response=await api.files();if(workspaceIdentity.current!==identity||response.root!==identity)throw new Error("Workspace changed. Read recovery again.");
       const find=(nodes:FileNode[]):FileNode|undefined=>{for(const file of nodes){if(file.path===path&&!file.dir)return file;const nested=find(file.children??[]);if(nested)return nested;}};
       const file=buffers.values.get(path)?.file??find(response.tree);if(!file)throw new Error("Recovery source is not available in the current workspace: "+path);return await buffers.open(file);

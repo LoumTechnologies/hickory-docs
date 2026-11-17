@@ -72028,6 +72028,61 @@
       "fragments": [
         "debug-attach-android-tests"
       ]
+    },
+    "apps/web/src/simple/EditorRecovery.ts": {
+      "source": ".hickory-source/frontends/editor-recovery-browser.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "95fe340c3eeb0ee465e87b7e8df6810475e3428b4059876625eb10cda8025aac",
+      "construction": "fragments",
+      "fragments": [
+        "editor-recovery-browser-model"
+      ]
+    },
+    "apps/web/src/simple/EditorRecoveryAdapter.ts": {
+      "source": ".hickory-source/frontends/editor-recovery-browser.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "665bacacf1eeb91f89c3ea3cefa69af685a5df6b1a4f2e41987e7b975ec73a53",
+      "construction": "fragments",
+      "fragments": [
+        "editor-recovery-browser-adapter"
+      ]
+    },
+    "apps/web/src/simple/EditorRecoveryView.tsx": {
+      "source": ".hickory-source/frontends/editor-recovery-browser.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "71ff9e4ac2c1ed61c341720dcd447623aa97d0b5b1850d033d6bc0a8a51e2ac0",
+      "construction": "fragments",
+      "fragments": [
+        "editor-recovery-browser-view"
+      ]
+    },
+    "apps/web/src/simple/EditorRecovery.test.ts": {
+      "source": ".hickory-source/frontends/editor-recovery-browser.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "6350dfeb9f9cadb25e0a07009682e380024168443af3cd2e12218d344c1935c6",
+      "construction": "fragments",
+      "fragments": [
+        "editor-recovery-browser-tests"
+      ]
+    },
+    "scripts/test-editor-session-browser.py": {
+      "source": ".hickory-source/frontends/editor-recovery-browser.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "f3fab05fe738973e6d56679416de3093adc45f443dde5d23463f1a752f030fd0",
+      "construction": "fragments",
+      "fragments": [
+        "editor-recovery-browser-witness"
+      ]
     }
   },
   "evidence_records": [

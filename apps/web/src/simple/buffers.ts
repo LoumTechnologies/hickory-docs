@@ -17,6 +17,9 @@ export class Buffer {
   private listeners = new Set<() => void>();
   resourceDeleted = false;
   isUntitledDraft = false;
+  // Recovery creates new drafts; these observations never grant a save guard.
+  recoveryView?:{selection:{anchor:number;head:number};scroll_x:number;scroll_y:number};
+  recoveryBaseline?:{text:string;save_guard:string|null}|null;
   private identity?:string;
   get sourceId(){return this.identity??=crypto.randomUUID().replaceAll('-','');}
   constructor(public file: FileNode, content: string, hash: string, private shellChanged: () => void, readonly transient = false,public namespace = "") {

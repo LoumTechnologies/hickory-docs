@@ -155827,6 +155827,41 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/frontends/debug-attach-android.md",
       "symbol": "debug attach android tests",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "editor-recovery-browser-model",
+      "output": "apps/web/src/simple/EditorRecovery.ts",
+      "page": ".hickory-source/frontends/editor-recovery-browser.md",
+      "symbol": "editor recovery browser model",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "editor-recovery-browser-adapter",
+      "output": "apps/web/src/simple/EditorRecoveryAdapter.ts",
+      "page": ".hickory-source/frontends/editor-recovery-browser.md",
+      "symbol": "editor recovery browser adapter",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "editor-recovery-browser-view",
+      "output": "apps/web/src/simple/EditorRecoveryView.tsx",
+      "page": ".hickory-source/frontends/editor-recovery-browser.md",
+      "symbol": "editor recovery browser view",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "editor-recovery-browser-tests",
+      "output": "apps/web/src/simple/EditorRecovery.test.ts",
+      "page": ".hickory-source/frontends/editor-recovery-browser.md",
+      "symbol": "editor recovery browser tests",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "editor-recovery-browser-witness",
+      "output": "scripts/test-editor-session-browser.py",
+      "page": ".hickory-source/frontends/editor-recovery-browser.md",
+      "symbol": "editor recovery browser witness",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {
