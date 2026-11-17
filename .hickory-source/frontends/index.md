@@ -305,4 +305,6 @@ Each client reads text before requesting optional capabilities. A save uses the 
 
 <ui:include file="agent-proposal-history-witness.md" />
 
+<ui:include file="provider-refactor-host-witness.md" />
+
 </ui:doc>

@@ -72834,6 +72834,51 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "fragments": [
         "snippet-case-generator"
       ]
+    },
+    "crates/hick-lsp/src/provider_refactors.rs": {
+      "source": ".hickory-source/mechanisms/provider-refactor-readings.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "e156a28f5f8070d74ec8a81fad53ac0b2038d8d82a376213148b730e21dc51f4",
+      "construction": "fragments",
+      "fragments": [
+        "provider-refactor-read-only-model",
+        "provider-refactor-read-only-witness"
+      ]
+    },
+    "scripts/test-provider-refactor-host.py": {
+      "source": ".hickory-source/frontends/provider-refactor-host-witness.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "0771ecaf4a4a2e55775f9556cecd36d7fffe968e7275e7a8473d35613c214b3a",
+      "construction": "fragments",
+      "fragments": [
+        "provider-refactor-host-driver"
+      ]
+    },
+    "apps/apple-simple/Tests/ProviderRefactorTests.swift": {
+      "source": ".hickory-source/frontends/provider-refactor-host-witness.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "1cb7721d174d93dc8ea5063079663fe446e962ea5966b555480b82c5a4fe9101",
+      "construction": "fragments",
+      "fragments": [
+        "provider-refactor-apple-actual"
+      ]
+    },
+    "apps/android-simple/app/src/test/java/com/hickorydocs/simple/ProviderRefactorTest.kt": {
+      "source": ".hickory-source/frontends/provider-refactor-host-witness.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "558f7184b4cde78177a00f31201a4e9104fc4d3182207f0a18adb9a56be80d5f",
+      "construction": "fragments",
+      "fragments": [
+        "provider-refactor-android-actual"
+      ]
     }
   },
   "evidence_records": [

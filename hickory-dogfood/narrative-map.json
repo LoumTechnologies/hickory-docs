@@ -156498,6 +156498,41 @@
       "page": ".hickory-source/mechanisms/snippet-case-policy.md",
       "symbol": "snippet case generator",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "provider-refactor-read-only-model",
+      "output": "crates/hick-lsp/src/provider_refactors.rs",
+      "page": ".hickory-source/mechanisms/provider-refactor-readings.md",
+      "symbol": "provider refactor read only model",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "provider-refactor-read-only-witness",
+      "output": "crates/hick-lsp/src/provider_refactors.rs",
+      "page": ".hickory-source/mechanisms/provider-refactor-readings.md",
+      "symbol": "provider refactor read only witness",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "provider-refactor-host-driver",
+      "output": "scripts/test-provider-refactor-host.py",
+      "page": ".hickory-source/frontends/provider-refactor-host-witness.md",
+      "symbol": "provider refactor host driver",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "provider-refactor-apple-actual",
+      "output": "apps/apple-simple/Tests/ProviderRefactorTests.swift",
+      "page": ".hickory-source/frontends/provider-refactor-host-witness.md",
+      "symbol": "provider refactor apple actual",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "provider-refactor-android-actual",
+      "output": "apps/android-simple/app/src/test/java/com/hickorydocs/simple/ProviderRefactorTest.kt",
+      "page": ".hickory-source/frontends/provider-refactor-host-witness.md",
+      "symbol": "provider refactor android actual",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

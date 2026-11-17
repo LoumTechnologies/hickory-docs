@@ -208,6 +208,7 @@ struct PreparedAction {
     original: Value,
     handle: ChildLspHandle,
     resolve: bool,
+    refactor_query: Option<Value>,
     already_mapped: bool,
     display_title: Option<String>,
     source_proofs: Arc<Vec<ProviderSourceProof>>,
@@ -871,7 +872,7 @@ Build provider context from the child’s own diagnostics. Read its actual capab
         let Some(root) = self.root_of(&vf_uri).await else {
             return Ok(None);
         };
-        let (handle, resolve) = {
+        let (handle, resolve, refactor_reads) = {
             let dispatcher = self.dispatcher.lock().await;
             let Ok(handle) = dispatcher.get_child(&language, &root) else {
                 return Ok(None);
@@ -881,7 +882,11 @@ Build provider context from the child’s own diagnostics. Read its actual capab
                 .and_then(|value| value.pointer("/codeActionProvider/resolveProvider"))
                 .and_then(Value::as_bool)
                 == Some(true);
-            (handle.clone(), resolve)
+            let refactor_reads = dispatcher.server_capabilities(&language, &root)
+                .and_then(|value| value.pointer("/executeCommandProvider/commands"))
+                .and_then(Value::as_array)
+                .is_some_and(|commands| commands.iter().any(|value| value.as_str() == Some("typescript.tsserverRequest")));
+            (handle.clone(), resolve, refactor_reads)
         };
         self.require_provider_revision(revision).await?;
         self.require_action_sources(&source_proofs).await?;
@@ -933,6 +938,7 @@ Build provider context from the child’s own diagnostics. Read its actual capab
                     original: original.clone(),
                     handle: handle.clone(),
                     resolve,
+                    refactor_query: crate::provider_refactors::query(original, &vf_uri, refactor_reads),
                     already_mapped: false,
                     display_title: display_title.clone(),
                     source_proofs: proofs.clone(),
@@ -962,6 +968,13 @@ Build provider context from the child’s own diagnostics. Read its actual capab
 </ui:copy>
 
 The lookup token selects held data; every other caller-supplied field is ignored. An advertised lazy resolver receives the original child value through its original handle. Check source identity again after the await, then project the complete edit through current compiler ownership. Disabled or unmappable actions remain explicit outcomes.
+
+A held TypeScript refactoring may select the advertised edits-only query adapter.
+It bypasses command execution and lazy command resolution, then rechecks the
+original graph and source proofs around the read. The resulting complete edit
+rejoins the same acquisition/projection path as ordinary resolved actions; a new
+file remains only an ordered resource proposal. Unknown commands keep their
+existing explicit refusal.
 
 <ui:copy id="provider-action-resolve">
     pub(super) async fn resolve_provider_action(&self, item: CodeAction) -> Result<CodeAction> {
@@ -998,7 +1011,17 @@ The lookup token selects held data; every other caller-supplied field is ignored
         let source_proofs = prepared.source_proofs;
         let display_title = prepared.display_title;
         let mut original = prepared.original;
-        if prepared.resolve {
+        if let Some(query) = prepared.refactor_query {
+            self.require_provider_revision(&revision).await?;
+            self.require_action_sources(&source_proofs).await?;
+            let reading = prepared.handle.request("workspace/executeCommand", query).await.map_err(child_request_error)?;
+            self.require_provider_revision(&revision).await?;
+            self.require_action_sources(&source_proofs).await?;
+            let edit = crate::provider_refactors::edits(&reading).map_err(tower_lsp::jsonrpc::Error::invalid_params)?;
+            let object = original.as_object_mut().expect("held literal refactor action");
+            object.remove("command");
+            object.insert("edit".into(), edit);
+        } else if prepared.resolve {
             self.require_provider_revision(&revision).await?;
             let result = prepared
                 .handle

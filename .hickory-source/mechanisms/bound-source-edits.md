@@ -81,7 +81,7 @@ impl HickBackend {
   self.require_action_sources(&proofs).await?;self.require_bound_maps(snapshot,&targets).await?;self.require_bound_capture(origin,expected).await?;
   let revision=self.provider_source_revision().await;
   let data=action_discovery_data(action.get("data"));
-  let token=self.prepared_actions.lock().await.values.insert(Instant::now(),revision,PreparedAction{original:action.clone(),handle,resolve:false,already_mapped:true,display_title:None,source_proofs:proofs.clone()});
+  let token=self.prepared_actions.lock().await.values.insert(Instant::now(),revision,PreparedAction{original:action.clone(),handle,resolve:false,refactor_query:None,already_mapped:true,display_title:None,source_proofs:proofs.clone()});
   action["data"]=data;action["data"]["hickory_action"]=json!(token);action["data"]["hickory_sources"]=action_source_data(&proofs);action["source_files_modified"]=json!(false);
   self.require_action_sources(&proofs).await?;self.require_bound_maps(snapshot,&targets).await?;self.require_bound_capture(origin,expected).await?;Ok(action)
  }

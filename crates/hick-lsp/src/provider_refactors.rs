@@ -1,0 +1,219 @@
+use serde_json::{Value, json};
+use std::collections::BTreeSet;
+use tower_lsp::lsp_types::Url;
+
+pub(crate) fn query(action: &Value, origin: &Url, advertised: bool) -> Option<Value> {
+    if !advertised
+        || action.get("edit").is_some_and(|v| !v.is_null())
+        || action.get("disabled").is_some_and(|v| !v.is_null())
+    {
+        return None;
+    }
+    let command = action.get("command")?.as_object()?;
+    if command.get("command")?.as_str()? != "_typescript.applyRefactoring" {
+        return None;
+    }
+    let arguments = command.get("arguments")?.as_array()?;
+    if arguments.len() != 1 {
+        return None;
+    }
+    let args = arguments[0].as_object()?;
+    let file = args.get("file")?.as_str()?;
+    let path = if file.starts_with("file:") {
+        Url::parse(file).ok()?.to_file_path().ok()?
+    } else {
+        std::path::PathBuf::from(file)
+    };
+    if path != origin.to_file_path().ok()? {
+        return None;
+    }
+    for key in ["refactor", "action"] {
+        let value = args.get(key)?.as_str()?;
+        if value.is_empty() || value.len() > 16384 {
+            return None;
+        }
+    }
+    Some(
+        json!({"command":"typescript.tsserverRequest","arguments":["getEditsForRefactor",arguments[0],{"expectsResult":true}]}),
+    )
+}
+
+fn position(value: &Value) -> Result<Value, String> {
+    let line = value
+        .get("line")
+        .and_then(Value::as_u64)
+        .filter(|v| *v > 0 && *v <= u32::MAX as u64)
+        .ok_or("Malformed provider refactor line")?;
+    let offset = value
+        .get("offset")
+        .and_then(Value::as_u64)
+        .filter(|v| *v > 0 && *v <= u32::MAX as u64)
+        .ok_or("Malformed provider refactor offset")?;
+    Ok(json!({"line":line-1,"character":offset-1}))
+}
+
+pub(crate) fn edits(response: &Value) -> Result<Value, String> {
+    if response.get("success") != Some(&Value::Bool(true))
+        || response.get("command").and_then(Value::as_str) != Some("getEditsForRefactor")
+    {
+        return Err("The provider did not return a successful refactoring reading".into());
+    }
+    let body = response
+        .get("body")
+        .and_then(Value::as_object)
+        .ok_or("Missing refactoring reading")?;
+    if let Some(reason) = body.get("notApplicableReason").and_then(Value::as_str) {
+        return Err(format!("Refactoring unavailable: {reason}"));
+    }
+    let files = body
+        .get("edits")
+        .and_then(Value::as_array)
+        .filter(|v| !v.is_empty() && v.len() <= 1000)
+        .ok_or("Choose a bounded nonempty refactoring")?;
+    let mut seen = BTreeSet::new();
+    let mut changes = Vec::new();
+    let mut total = 0usize;
+    let mut count = 0usize;
+    for file in files {
+        let path = file
+            .get("fileName")
+            .and_then(Value::as_str)
+            .filter(|s| s.len() <= 16384)
+            .ok_or("Malformed refactor filename")?;
+        let uri =
+            Url::from_file_path(path).map_err(|_| "Refactor filename is not an absolute file")?;
+        if !seen.insert(uri.to_string()) {
+            return Err(
+                "Repeated refactor file would require unobserved intermediate source".into(),
+            );
+        }
+        let new = match file.get("isNewFile") {
+            None | Some(Value::Bool(false)) => false,
+            Some(Value::Bool(true)) => true,
+            _ => return Err("Malformed refactor file disposition".into()),
+        };
+        let entries = file
+            .get("textChanges")
+            .and_then(Value::as_array)
+            .ok_or("Malformed refactor text changes")?;
+        let mut mapped: Vec<Value> = Vec::new();
+        for edit in entries {
+            count += 1;
+            let text = edit
+                .get("newText")
+                .and_then(Value::as_str)
+                .ok_or("Malformed refactor replacement")?;
+            total = total.saturating_add(text.len());
+            if count > 10000 || total > 32 * 1024 * 1024 {
+                return Err("The complete refactoring exceeds the review budget".into());
+            }
+            let start = position(&edit["start"])?;
+            let end = position(&edit["end"])?;
+            let pair = |p: &Value| {
+                (
+                    p["line"].as_u64().unwrap(),
+                    p["character"].as_u64().unwrap(),
+                )
+            };
+            if pair(&start) > pair(&end) || new && (pair(&start) != (0, 0) || pair(&end) != (0, 0))
+            {
+                return Err("Invalid refactor source range".into());
+            }
+            if let Some(previous) = mapped.last_mut() {
+                let before = pair(&previous["range"]["end"]);
+                if pair(&start) < before {
+                    return Err(
+                        "Overlapping or out-of-order TypeScript changes cannot be previewed".into(),
+                    );
+                }
+                if pair(&start) == before {
+                    let joined = format!("{}{}", previous["newText"].as_str().unwrap(), text);
+                    previous["range"]["end"] = end;
+                    previous["newText"] = json!(joined);
+                    continue;
+                }
+            }
+            mapped.push(json!({"range":{"start":start,"end":end},"newText":text}));
+        }
+        if new {
+            changes.push(json!({"kind":"create","uri":uri}));
+        }
+        changes.push(json!({"textDocument":{"uri":uri,"version":null},"edits":mapped}));
+    }
+    Ok(json!({"documentChanges":changes}))
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn action() -> Value {
+        json!({"title":"Extract","command":{"command":"_typescript.applyRefactoring","arguments":[{"file":"/workspace/a.ts","refactor":"Extract Symbol","action":"function_scope_0"}]}})
+    }
+    fn response() -> Value {
+        json!({"success":true,"command":"getEditsForRefactor","body":{"edits":[{"fileName":"/workspace/a.ts","textChanges":[{"start":{"line":1,"offset":2},"end":{"line":1,"offset":4},"newText":"helper()"}]},{"fileName":"/workspace/helper.ts","isNewFile":true,"textChanges":[{"start":{"line":1,"offset":1},"end":{"line":1,"offset":1},"newText":"export function helper() {}\n"}]}]}})
+    }
+    #[test]
+    fn held_bound_read_never_dispatches_application() {
+        let uri = Url::parse("file:///workspace/a.ts").unwrap();
+        let value = query(&action(), &uri, true).unwrap();
+        assert_eq!(value["command"], "typescript.tsserverRequest");
+        assert_eq!(value["arguments"][0], "getEditsForRefactor");
+        assert_eq!(value["arguments"][1], action()["command"]["arguments"][0]);
+        assert!(query(&action(), &uri, false).is_none());
+        assert!(
+            query(
+                &action(),
+                &Url::parse("file:///workspace/other.ts").unwrap(),
+                true
+            )
+            .is_none()
+        );
+        let mut mixed = action();
+        mixed["edit"] = json!({"changes":{}});
+        assert!(query(&mixed, &uri, true).is_none());
+    }
+    #[test]
+    fn complete_edits_preserve_creation_and_utf16_coordinates() {
+        let value = edits(&response()).unwrap();
+        assert_eq!(value["documentChanges"].as_array().unwrap().len(), 3);
+        assert_eq!(
+            value["documentChanges"][0]["edits"][0]["range"]["start"],
+            json!({"line":0,"character":1})
+        );
+        assert_eq!(value["documentChanges"][1]["kind"], "create");
+    }
+    #[test]
+    fn ordered_boundary_insertions_become_one_guarded_edit() {
+        let mut value = response();
+        value["body"]["edits"] = json!([{"fileName":"/workspace/a.ts","textChanges":[
+            {"start":{"line":1,"offset":2},"end":{"line":1,"offset":4},"newText":"field"},
+            {"start":{"line":1,"offset":4},"end":{"line":1,"offset":4},"newText":"getter"},
+            {"start":{"line":1,"offset":4},"end":{"line":1,"offset":4},"newText":"setter"}
+        ]}]);
+        let edit = edits(&value).unwrap();
+        assert_eq!(
+            edit["documentChanges"][0]["edits"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
+        assert_eq!(
+            edit["documentChanges"][0]["edits"][0]["newText"],
+            "fieldgettersetter"
+        );
+        value["body"]["edits"][0]["textChanges"][1]["start"]["offset"] = json!(3);
+        assert!(edits(&value).is_err());
+    }
+    #[test]
+    fn malformed_later_member_refuses_the_complete_reading() {
+        let mut value = response();
+        value["body"]["edits"][1]["textChanges"][0]["start"]["offset"] = json!(false);
+        assert!(edits(&value).is_err());
+        let mut value = response();
+        value["body"]["edits"][1]["fileName"] = json!("/workspace/a.ts");
+        assert!(edits(&value).is_err());
+        let mut value = response();
+        value["success"] = json!(false);
+        assert!(edits(&value).is_err());
+    }
+}

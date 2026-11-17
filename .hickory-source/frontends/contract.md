@@ -398,7 +398,7 @@ established by controlled-provider receipts.
 ## Current integration ledger
 
 This ledger reconciles the required outcome with the implementation inspected on
-2026-11-16. The dated paragraphs below retain focused evidence for their own
+2026-11-17. The dated paragraphs below retain focused evidence for their own
 revisions; they do not collectively certify complete parity. A foundation or a
 model witness is not a completed host interaction. Work in progress stays open
 until reconstruction, focused safety checks and the connected path pass.
@@ -406,7 +406,7 @@ until reconstruction, focused safety checks and the connected path pass.
 | Required outcome | Established slices and remaining acceptance |
 | --- | --- |
 | Navigation and intelligence | Semantic queries, bounded workspace acquisition, search and retained navigation trails have focused evidence below. Complete provider indexing and native physical interaction are not established by those receipts. |
-| Safe changes, cleanup, generation and templates | Multi-source draft review/undo, cleanup and nested source snippets have focused evidence. Ordered resource publication and saved/draft undo now have connected browser/provider and native controller acceptance. Canonical-entry moves and ambiguous native wire path identities still refuse. A reusable template catalog now has reviewed Apply and coordinated field/history acceptance across the hosts, with rendered browser/macOS and native Android controller evidence. Semantic cleanup/provider generation, full snippet transforms/variable contexts, multi-caret templates and mirrored native IME remain open. |
+| Safe changes, cleanup, generation and templates | Multi-source draft review/undo, cleanup and nested source snippets have focused evidence. Ordered resource publication and saved/draft undo now have connected browser/provider and native controller acceptance. Canonical-entry moves and ambiguous native wire path identities still refuse. A reusable template catalog now has reviewed Apply and coordinated field/history acceptance across the hosts, with rendered browser/macOS and native Android controller evidence. Genuine TypeScript extraction and accessor generation now pass the existing reviewed draft/undo path on all three hosts. Semantic cleanup, broader move/generation families, full snippet transforms/variable contexts, multi-caret templates and mirrored native IME remain open. |
 | Diagnostics and contextual fixes | Source-bound Problems, exact provider action resolution and multi-source action review have focused evidence. Standard complete-file provider bulk actions now have connected browser/macOS/Android acceptance and an iOS build. Preparation/acquisition/approval leases now retain original target-owner revisions; literate mapping breadth and provider analysis completeness remain open. |
 | Tests and coverage | Source declarations, saved-run admission, discovery/results and source-bound imported coverage have focused evidence. An actual Python collector now retains failed-run coverage and reruns only the failed case, marking the earlier source evidence historical after a source change. Python/pytest source-adjacent Debug now has actual writable physical/authored gutter acceptance on browser, macOS and Android, with the shared Apple path building for iOS. Other test-debug providers remain explicitly unavailable. Collector-to-host pytest acceptance now passes on all three host adapters, and a genuine installed C# collector fixture passes discovery/run/coverage/rerun. Remaining supported collectors and native physical interaction remain open. |
 | Review and recovery | Diffs, staging, immutable history, attribution and choosing a conflict stage have focused evidence. Resource recovery publication/adoption and ordered text/resource undo now have actual-engine acceptance. Invalid historical construction drafts and partial-state restoration still refuse. Shared conflict composition/delete/rename publication and complete-group staging pass real-engine checks; browser, Apple and Android now have connected usable paths, including Apple composition/deletion/rename and stale source/index refusal. Ordinary strict Save/Save As, retained local-history previews and draft-only restoration now have actual browser and native controller/editor evidence. Deleted-source history now has connected browser and native controller/editor acceptance, including absent-path preservation and separate guarded publication. Browser reload and native process-restart recovery now have connected draft/layout/view acceptance. User-facing private-session management at capacity and complete resource physical-admission/replay/inverse acceptance remain open. |
@@ -1747,5 +1747,34 @@ AppKit interaction test uses actual native edit/history. Android20 focused tests
 pass with no skips, including computed input and Compose controller history. The iOS simulator product
 build passes. Physical input, assistive technology and device IME acceptance remain
 unverified.
+
+## Read semantic refactoring edits before applying them
+
+A held TypeScript refactor action can now use the provider's advertised
+`typescript.tsserverRequest` interface for `getEditsForRefactor`. The engine never
+dispatches `_typescript.applyRefactoring`, which can create files before client
+review. Original provider arguments stay bound to the queried virtual source and
+held child. Graph/source proofs are checked before and after the read; resulting
+edits rejoin complete source acquisition, authored projection and guarded review.
+Unknown commands and edit-plus-command combinations retain explicit refusal.
+New files decode only as ordered proposals; this alone does not verify a move.
+
+TypeScript applies ordered changes in reverse. Genuine accessor generation
+exposed coincident getter/setter insertions that the shared overlap policy rightly
+refused. The adapter now combines only exactly adjacent ordered changes into one
+unambiguous edit. Unrelated overlaps and malformed later members still refuse the
+whole reading; the general projection overlap guard is unchanged.
+
+Executed evidence (2026-11-17): four focused Rust policy/decoding cases pass,
+including the reproduced boundary insertion and malformed later member. The
+existing real opaque-action protocol continues to pass original routing, caller
+substitution refusal and stale/foreign token refusal. Genuine TypeScript Language
+Server6.1.0 with TypeScript6.0.3 passes extraction and getter/setter generation
+through browser, mounted macOS and Android state/controller previews. Each host
+retains an earlier unsaved edit, original editor identity and geometry or native
+state, and coordinated Undo/Redo; saved source stays unchanged. The resulting
+drafts separately pass the installed TypeScript compiler. The iOS simulator product
+build passes. These receipts do not certify other command/provider families,
+native physical input, assistive technology or device interaction.
 
 </ui:doc>

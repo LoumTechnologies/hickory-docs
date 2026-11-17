@@ -373,4 +373,6 @@ is included with that control; opening a document is not generation authority.
 <storycode:include file="snippet-derived-acceptance.md" />
 <storycode:include file="snippet-case-policy.md" />
 
+<storycode:include file="provider-refactor-readings.md" />
+
 </storycode:doc>
