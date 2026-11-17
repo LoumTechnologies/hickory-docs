@@ -156590,6 +156590,27 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/mechanisms/completion-intent-acceptance.md",
       "symbol": "completion intent android tests",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "resource-volume-guard-http-driver",
+      "output": "scripts/test-resource-volume-guards.py",
+      "page": ".hickory-source/mechanisms/resource-volume-guards.md",
+      "symbol": "resource volume guard http driver",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "resource-declared-volume-claims",
+      "output": "crates/hickory-cli/src/serve/resource_inputs.rs",
+      "page": ".hickory-source/mechanisms/resource-volume-guards.md",
+      "symbol": "resource declared volume claims",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "resource-declared-volume-witnesses",
+      "output": "crates/hickory-cli/src/serve/resource_inputs.rs",
+      "page": ".hickory-source/mechanisms/resource-volume-guards.md",
+      "symbol": "resource declared volume witnesses",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

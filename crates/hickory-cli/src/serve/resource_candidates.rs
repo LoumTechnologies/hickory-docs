@@ -119,6 +119,8 @@ fn layer(
     after: &BTreeMap<String, SourceState>,
     overlays: &BTreeMap<String, String>,
     missing: &BTreeSet<String>,
+    targets: &[String],
+    claimed: &mut BTreeSet<String>,
 ) -> Result<Layer, String> {
     let mut roots = mapped_entries(inputs, after);
     for (path, text) in overlays {
@@ -160,6 +162,7 @@ fn layer(
         if snapshot.cost > 256 * 1024 * 1024 {
             return Err("Candidate construction analysis exceeds its cumulative source budget. Narrow the change.".into());
         }
+        claimed.extend(super::resource_inputs::declared_volume_targets(snapshot.root, &scan.source_texts, targets)?);
         for (path, text) in &scan.source_texts {
             if !overlays.contains_key(path) {
                 snapshot.remember(path, text)?;
@@ -302,8 +305,10 @@ pub(crate) fn analyze_with_saved(
         saved.remove(path);
         draft.remove(path);
     }
-    let saved = layer(&mut snapshot, inputs, &after, &saved, &missing)?;
-    let draft = layer(&mut snapshot, inputs, &after, &draft, &missing)?;
+    let targets: Vec<_> = plan.patches.iter().map(|patch| patch.path.clone()).collect();
+    let mut claimed = BTreeSet::new();
+    let saved = layer(&mut snapshot, inputs, &after, &saved, &missing, &targets, &mut claimed)?;
+    let draft = layer(&mut snapshot, inputs, &after, &draft, &missing, &targets, &mut claimed)?;
     for (path, text) in changed.iter().chain(saved_changed.iter()) {
         if markdown(path)
             && construction(text)?.1
@@ -322,7 +327,7 @@ pub(crate) fn analyze_with_saved(
         .patches
         .iter()
         .filter_map(|patch| {
-            (saved.output_paths.contains(&patch.path) || draft.output_paths.contains(&patch.path))
+            (saved.output_paths.contains(&patch.path) || draft.output_paths.contains(&patch.path) || claimed.contains(&patch.path))
                 .then_some(patch.path.clone())
         })
         .collect();

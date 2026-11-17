@@ -1833,4 +1833,21 @@ compiler; the iOS simulator product builds. These receipts do not establish
 physical input, assistive-technology, Android rendering or iOS runtime acceptance.
 Full snippet context and production transform activation remain separate open work.
 
+## Protect unproduced names inside declared output folders
+
+Resource review now treats literal declared volume folders as reserved output
+scopes, including filenames not yet produced. Saved, dirty and candidate source
+readings contribute these scopes while compiler output inventories continue to
+report only produced files. Exact folder membership preserves similarly prefixed
+ordinary siblings. Symlinked or aliased physical scopes and unresolved declarations
+refuse guarded publication without blocking readable source.
+
+Executed evidence (2026-11-17):23 focused resource-input cases pass, including five
+new saved/draft/candidate scope and physical-path checks. The actual HTTP witness
+refuses forged creation and generated-folder publication without source or recovery
+writes. The maintained resource service flow also passes explicit loaded-source
+guards, stale inverse refusal after an equal-byte external write, a freshly guarded
+positive inverse/redo pair and a genuine engine restart. These checks establish the
+resource-publication path; they do not assert an audit of every independent writer.
+
 </ui:doc>

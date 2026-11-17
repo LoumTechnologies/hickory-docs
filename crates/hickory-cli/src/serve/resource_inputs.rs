@@ -151,6 +151,7 @@ const MAX_INPUT: usize = 16 * 1024 * 1024;
 fn sha(bytes: &[u8]) -> String {
     super::workspace_fs::view::hash(bytes)
 }
+#[derive(Default)]
 struct Names {
     entries: BTreeMap<PathBuf, BTreeSet<std::ffi::OsString>>,
     count: usize,
@@ -257,6 +258,154 @@ fn read_saved(path: &Path) -> Result<SavedSource, String> {
         mode,
     })
 }
+pub(crate) fn declared_volume_targets(
+    root: &Path,
+    sources: &BTreeMap<String, String>,
+    targets: &[String],
+) -> Result<BTreeSet<String>, String> {
+    let mut folders = BTreeSet::new();
+    for (path, source) in sources {
+        let document = hick_lang::parse(source).map_err(|error| {
+            format!("Output-folder ownership cannot be parsed: {path}: {error}")
+        })?;
+        let tags = document.all_tags();
+        if tags.iter().any(|tag| tag.name == "ingested") {
+            continue;
+        }
+        for tag in tags.into_iter().filter(|tag| tag.name == "volume") {
+            let Some(output) = tag.get_attribute("output") else {
+                continue;
+            };
+            let output = output.trim();
+            if output.is_empty()
+                || output.contains("{{")
+                || output.contains("}}")
+                || output.contains('\\')
+                || output.contains('\0')
+                || Path::new(output).is_absolute()
+                || output.as_bytes().get(1) == Some(&b':')
+            {
+                return Err(format!(
+                    "Output-folder ownership is unresolved at {path}. Preserve the source and select a literal relative output scope before resource publication."
+                ));
+            }
+            let mut parts: Vec<&str> = path
+                .rsplit_once('/')
+                .map(|(parent, _)| parent.split('/').collect())
+                .unwrap_or_default();
+            for part in output.split('/') {
+                match part {
+                    "" | "." => {}
+                    ".." => {
+                        if parts.pop().is_none() {
+                            return Err(format!(
+                                "Output-folder ownership escapes this workspace at {path}. No source resource was changed."
+                            ));
+                        }
+                    }
+                    name => parts.push(name),
+                }
+            }
+            folders.insert(parts.join("/"));
+            if folders.len() > 10000 {
+                return Err("Output-folder ownership exceeds the interactive review budget. Narrow the construction scope.".into());
+            }
+        }
+    }
+    let mut names = Names::default();
+    for folder in &folders {
+        if !folder.is_empty() {
+            confined(root, folder, &mut names)?;
+        }
+    }
+    let mut protected = BTreeSet::new();
+    for target in targets {
+        let mut current = target.as_str();
+        loop {
+            if folders.contains(current) || folders.contains("") {
+                protected.insert(target.clone());
+                break;
+            }
+            match current.rsplit_once('/') {
+                Some((parent, _)) => current = parent,
+                None => break,
+            }
+        }
+    }
+    Ok(protected)
+}
+#[cfg(test)]
+mod declared_volume_tests {
+    use super::*;
+    fn sources(output: &str) -> BTreeMap<String, String> {
+        BTreeMap::from([(
+            "sub/owner.md".into(),
+            format!(
+                "<h:doc xmlns:h=\"http://www.hickorydocs.com/1.0\"><h:volume output=\"{output}\"/></h:doc>"
+            ),
+        )])
+    }
+    #[test]
+    fn exact_declared_folder_membership_is_separate_from_produced_files() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path();
+        let targets = vec![
+            "owned/a.ts".into(),
+            "owned/deep/b.ts".into(),
+            "owned-sibling/a.ts".into(),
+        ];
+        assert_eq!(
+            declared_volume_targets(root, &sources("../owned"), &targets).unwrap(),
+            BTreeSet::from([targets[0].clone(), targets[1].clone()])
+        );
+        assert_eq!(
+            declared_volume_targets(root, &sources(".."), &targets)
+                .unwrap()
+                .len(),
+            3
+        );
+        let mut ingested = sources("../owned");
+        let text = ingested.get_mut("sub/owner.md").unwrap();
+        *text = text.replace("</h:doc>", "<h:ingested/></h:doc>");
+        assert!(
+            declared_volume_targets(root, &ingested, &targets)
+                .unwrap()
+                .is_empty()
+        );
+    }
+    #[cfg(unix)]
+    #[test]
+    fn physical_folder_aliases_cannot_hide_output_ownership() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path();
+        std::fs::create_dir(root.join("owned")).unwrap();
+        std::os::unix::fs::symlink(root.join("owned"), root.join("alias")).unwrap();
+        let targets = vec!["owned/fresh.ts".into()];
+        assert!(declared_volume_targets(root, &sources("../alias"), &targets).is_err());
+        if root.join("OWNED").is_dir() {
+            assert!(declared_volume_targets(root, &sources("../OWNED"), &targets).is_err());
+        }
+    }
+    #[test]
+    fn unknown_or_external_folder_claims_never_become_write_authority() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path();
+        let targets = vec!["source.ts".into()];
+        for output in [
+            "{{destination}}",
+            "../../escape",
+            "/absolute",
+            "C:/absolute",
+            "",
+            "back\\slash",
+        ] {
+            assert!(
+                declared_volume_targets(root, &sources(output), &targets).is_err(),
+                "{output}"
+            );
+        }
+    }
+}
 /// Reobserve an exact ordinary source path without acquiring compiler context.
 /// Publication callers still own generated, live-room and editor authority.
 pub(super) fn saved_target(root: &Path, path: &str) -> Result<(PathBuf, SavedSource), String> {
@@ -354,7 +503,9 @@ fn ownership(
     )?;
     let base = Path::new(&entry).parent().unwrap_or(Path::new(""));
     let mut generated = BTreeSet::new();
+    let targets = resource_changes::targets(&request.edit)?;
     for scan in [&before, &after] {
+        generated.extend(declared_volume_targets(root, &scan.source_texts, &targets)?);
         let tree=scan.tree.as_ref().ok_or("Construction ownership is unavailable. Choose a valid project entry before resource changes.")?;
         for path in tree.entries().keys() {
             generated.insert(super::source_tests::relative(base, path)?);
@@ -395,7 +546,7 @@ fn ownership(
     }
     Ok((
         Ownership {
-            mode: "compiler outputs from saved and supplied draft construction inputs".into(),
+            mode: "compiler outputs and declared volume scopes from saved and supplied draft construction inputs".into(),
             entry: Some(entry),
             protected_entries,
             saved_sources,
@@ -892,6 +1043,21 @@ mod tests {
             b"source"
         );
     }
+    #[test]
+    fn dirty_volume_folders_protect_unproduced_resource_names() {
+        let temp=tempfile::tempdir().unwrap();let root=temp.path();
+        let entry="<h:doc xmlns:h=\"http://www.hickorydocs.com/1.0\"><h:project sources=\"part.md\"/></h:doc>";
+        let part="<h:doc xmlns:h=\"http://www.hickorydocs.com/1.0\"><h:volume output=\"old-out\"/><h:file path=\"existing.py\">x</h:file></h:doc>";
+        std::fs::write(root.join("project.md"),entry).unwrap();std::fs::write(root.join("part.md"),part).unwrap();
+        for folder in ["old-out","new-out","new-out-sibling"]{std::fs::create_dir(root.join(folder)).unwrap();}
+        let edit=json!({"documentChanges":[{"kind":"create","uri":"hick:///old-out/fresh.ts"},{"kind":"create","uri":"hick:///new-out/fresh.ts"},{"kind":"create","uri":"hick:///new-out-sibling/fresh.ts"}]});
+        let mut request=fixture(edit);request.ownership_sources.insert("part.md".into(),part.replace("old-out","new-out"));
+        request.saved_guards.insert("part.md".into(),super::super::source_history::read_observed(root,&root.join("part.md"),"part.md").unwrap().save_guard.unwrap());
+        let inputs=capture_at(root,request).unwrap();
+        for path in ["old-out/fresh.ts","new-out/fresh.ts"]{assert!(matches!(inputs.sources[path],SourceState::Missing{creatable:false}));assert!(!root.join(path).exists());}
+        assert!(matches!(inputs.sources["new-out-sibling/fresh.ts"],SourceState::Missing{creatable:true}));
+        assert_eq!(std::fs::read_to_string(root.join("part.md")).unwrap(),part);
+    }
 }
 pub(crate) fn validate_candidate(
     captured: &Inputs,
@@ -1195,6 +1361,16 @@ mod candidate_tests {
         );
         assert!(admission.is_err());
         assert_eq!(std::fs::read(&path).unwrap(), b"readable");
+    }
+    #[test]
+    fn candidate_volume_folder_claims_are_not_observed_compiler_outputs() {
+        let temp=tempfile::tempdir().unwrap();let root=temp.path();project(root);
+        let part="<h:doc xmlns:h=\"http://www.hickorydocs.com/1.0\"><h:volume output=\"old-out\"/><h:file path=\"before.py\">value = 1</h:file></h:doc>";
+        std::fs::write(root.join("part.md"),part).unwrap();std::fs::create_dir(root.join("new-out")).unwrap();
+        let request=request(json!({"documentChanges":[text("part.md",part,&part.replace("old-out","new-out")),{"kind":"create","uri":"hick:///new-out/fresh.ts"}]}));
+        let facts=analyze(root,&request).unwrap();assert_eq!(facts.protected_targets,["new-out/fresh.ts"]);
+        assert!(!facts.saved.output_paths.contains("new-out/fresh.ts"));assert!(!facts.draft.output_paths.contains("new-out/fresh.ts"));
+        assert!(!root.join("new-out/fresh.ts").exists());assert_eq!(std::fs::read_to_string(root.join("part.md")).unwrap(),part);
     }
 }
 #[cfg(test)]

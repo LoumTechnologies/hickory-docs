@@ -182,6 +182,7 @@ fn sha(bytes: &[u8]) -> String {
 Inspect each component, refuse symbolic links, and require exact directory-entry spelling instead of silently accepting a case or Unicode alias. Cache bounded directory listings so multiple targets share that work. Missing parents stay unavailable rather than being created during acquisition. This is a read snapshot, not a filesystem freeze; publication must recheck its inputs.
 
 <ui:copy id="resource-input-path-identity">
+#[derive(Default)]
 struct Names {
     entries: BTreeMap<PathBuf, BTreeSet<std::ffi::OsString>>,
     count: usize,
@@ -404,7 +405,9 @@ fn ownership(
     )?;
     let base = Path::new(&entry).parent().unwrap_or(Path::new(""));
     let mut generated = BTreeSet::new();
+    let targets = resource_changes::targets(&request.edit)?;
     for scan in [&before, &after] {
+        generated.extend(declared_volume_targets(root, &scan.source_texts, &targets)?);
         let tree=scan.tree.as_ref().ok_or("Construction ownership is unavailable. Choose a valid project entry before resource changes.")?;
         for path in tree.entries().keys() {
             generated.insert(super::source_tests::relative(base, path)?);
@@ -445,7 +448,7 @@ fn ownership(
     }
     Ok((
         Ownership {
-            mode: "compiler outputs from saved and supplied draft construction inputs".into(),
+            mode: "compiler outputs and declared volume scopes from saved and supplied draft construction inputs".into(),
             entry: Some(entry),
             protected_entries,
             saved_sources,
@@ -983,6 +986,21 @@ mod tests {
             b"source"
         );
     }
+    #[test]
+    fn dirty_volume_folders_protect_unproduced_resource_names() {
+        let temp=tempfile::tempdir().unwrap();let root=temp.path();
+        let entry="<h:doc xmlns:h=\"http://www.hickorydocs.com/1.0\"><h:project sources=\"part.md\"/></h:doc>";
+        let part="<h:doc xmlns:h=\"http://www.hickorydocs.com/1.0\"><h:volume output=\"old-out\"/><h:file path=\"existing.py\">x</h:file></h:doc>";
+        std::fs::write(root.join("project.md"),entry).unwrap();std::fs::write(root.join("part.md"),part).unwrap();
+        for folder in ["old-out","new-out","new-out-sibling"]{std::fs::create_dir(root.join(folder)).unwrap();}
+        let edit=json!({"documentChanges":[{"kind":"create","uri":"hick:///old-out/fresh.ts"},{"kind":"create","uri":"hick:///new-out/fresh.ts"},{"kind":"create","uri":"hick:///new-out-sibling/fresh.ts"}]});
+        let mut request=fixture(edit);request.ownership_sources.insert("part.md".into(),part.replace("old-out","new-out"));
+        request.saved_guards.insert("part.md".into(),super::super::source_history::read_observed(root,&root.join("part.md"),"part.md").unwrap().save_guard.unwrap());
+        let inputs=capture_at(root,request).unwrap();
+        for path in ["old-out/fresh.ts","new-out/fresh.ts"]{assert!(matches!(inputs.sources[path],SourceState::Missing{creatable:false}));assert!(!root.join(path).exists());}
+        assert!(matches!(inputs.sources["new-out-sibling/fresh.ts"],SourceState::Missing{creatable:true}));
+        assert_eq!(std::fs::read_to_string(root.join("part.md")).unwrap(),part);
+    }
 }
 </ui:copy>
 
@@ -1301,6 +1319,16 @@ mod candidate_tests {
         assert!(admission.is_err());
         assert_eq!(std::fs::read(&path).unwrap(), b"readable");
     }
+    #[test]
+    fn candidate_volume_folder_claims_are_not_observed_compiler_outputs() {
+        let temp=tempfile::tempdir().unwrap();let root=temp.path();project(root);
+        let part="<h:doc xmlns:h=\"http://www.hickorydocs.com/1.0\"><h:volume output=\"old-out\"/><h:file path=\"before.py\">value = 1</h:file></h:doc>";
+        std::fs::write(root.join("part.md"),part).unwrap();std::fs::create_dir(root.join("new-out")).unwrap();
+        let request=request(json!({"documentChanges":[text("part.md",part,&part.replace("old-out","new-out")),{"kind":"create","uri":"hick:///new-out/fresh.ts"}]}));
+        let facts=analyze(root,&request).unwrap();assert_eq!(facts.protected_targets,["new-out/fresh.ts"]);
+        assert!(!facts.saved.output_paths.contains("new-out/fresh.ts"));assert!(!facts.draft.output_paths.contains("new-out/fresh.ts"));
+        assert!(!root.join("new-out/fresh.ts").exists());assert_eq!(std::fs::read_to_string(root.join("part.md")).unwrap(),part);
+    }
 }
 </ui:copy>
 
@@ -1499,7 +1527,7 @@ the exact selected contributor. All cases leave saved source bytes unchanged.
 }
 </ui:copy>
 
-<ui:file path="crates/hickory-cli/src/serve/resource_inputs.rs"><ui:paste select="#resource-input-imports"/><ui:paste select="#resource-input-root-identity"/><ui:paste select="#resource-input-snapshots"/><ui:paste select="#resource-input-path-identity"/><ui:paste select="#resource-input-saved-bytes"/><ui:paste select="#resource-input-ownership-model"/><ui:paste select="#resource-input-retained-ownership"/><ui:paste select="#resource-input-capture"/><ui:paste select="#resource-input-independent-handler"/><ui:paste select="#resource-input-read-witnesses"/><ui:paste select="#resource-input-fresh-candidate"/><ui:paste select="#resource-candidate-ownership-tests"/><ui:paste select="#restored-saved-draft-candidate-test"/><ui:paste select="#resource-input-retained-ownership-tests"/></ui:file>
+<ui:file path="crates/hickory-cli/src/serve/resource_inputs.rs"><ui:paste select="#resource-input-imports"/><ui:paste select="#resource-input-root-identity"/><ui:paste select="#resource-input-snapshots"/><ui:paste select="#resource-input-path-identity"/><ui:paste select="#resource-input-saved-bytes"/><ui:paste select="#resource-declared-volume-claims"/><ui:paste select="#resource-declared-volume-witnesses"/><ui:paste select="#resource-input-ownership-model"/><ui:paste select="#resource-input-retained-ownership"/><ui:paste select="#resource-input-capture"/><ui:paste select="#resource-input-independent-handler"/><ui:paste select="#resource-input-read-witnesses"/><ui:paste select="#resource-input-fresh-candidate"/><ui:paste select="#resource-candidate-ownership-tests"/><ui:paste select="#restored-saved-draft-candidate-test"/><ui:paste select="#resource-input-retained-ownership-tests"/></ui:file>
 ## Exercise the actual acquisition and planning routes
 
 Start a temporary real engine with one saved source and supply a separate dirty draft. Discover both move endpoints, acquire their saved/draft states, and prepare the ordered move/text proposal. Check the unchanged saved file and absent destination, then require an HTTP refusal for a stale editor base. After those read-only assertions, explicitly save the reviewed move and check exact saved/draft recovery, duplicate request identity, read-only status, generated-destination and stale-source refusal, and authored-document retirement. The witness exercises source publication through the real engine; it does not establish frontend namespace application or saved/draft undo.
@@ -1512,6 +1540,7 @@ import json
 import os
 from pathlib import Path
 import tempfile
+import time
 import urllib.error
 import urllib.request
 import urllib.parse
@@ -1529,9 +1558,19 @@ def main():
    def call(route,body):
     request=urllib.request.Request(origin+"/api/"+route,data=json.dumps(body,ensure_ascii=False).encode(),headers={"Content-Type":"application/json"},method="POST")
     with urllib.request.urlopen(request,timeout=30) as reply:return json.load(reply)
+   def loaded_guard(path):
+    with urllib.request.urlopen(origin+"/api/files",timeout=30) as reply:tree=json.load(reply)["tree"]
+    def leaves(rows):
+     for row in rows:
+      yield row
+      yield from leaves(row.get("children",[]))
+    node=next(row for row in leaves(tree) if row["path"]==path)
+    route="/api/docs/"+node["doc_id"] if node.get("doc_id") else "/api/file?path="+urllib.parse.quote(path,safe="")
+    with urllib.request.urlopen(origin+route,timeout=30) as reply:guard=json.load(reply)["save_guard"]
+    assert guard;return guard
    edit={"documentChanges":[{"kind":"rename","oldUri":"hick:///a.py","newUri":"hick:///b.py"},{"textDocument":{"uri":"hick:///b.py","version":7},"edits":[{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":5}},"newText":"renamed"}]}]}
    targets=call("changes/resource-targets",{"edit":edit});assert targets["paths"]==["a.py","b.py"] and not targets["acquired"]
-   body={"context":"service-fixture","edit":edit,"drafts":{"a.py":{"text":draft,"base_sha256":hashlib.sha256(saved.encode()).hexdigest(),"version":7,"writable":True}}}
+   body={"context":"service-fixture","edit":edit,"drafts":{"a.py":{"text":draft,"base_sha256":hashlib.sha256(saved.encode()).hexdigest(),"version":7,"writable":True,"save_guard":loaded_guard("a.py")}}}
    inputs=call("changes/resource-inputs",body);assert inputs["context"]==body["context"] and inputs["workspace"] and not inputs["source_files_modified"];assert inputs["sources"]["a.py"]["text"]==draft;assert inputs["saved_sources"]["a.py"]["text"]==saved;assert inputs["saved_sources"]["b.py"]["kind"]=="missing"
    proposal=call("changes/plan-resources",{"context":body["context"],"title":"Move draft","edit":edit,"sources":inputs["sources"]});assert not proposal["applied"] and not proposal["saved"];patches={patch["path"]:patch for patch in proposal["plan"]["patches"]};assert patches["a.py"]["after"]["kind"]=="missing";assert patches["b.py"]["after"]["text"]=="renamed\n# unsaved draft\n";assert patches["b.py"]["after"]["identity"]==inputs["sources"]["a.py"]["identity"]
    consequences=call("changes/resource-consequences",{"inputs":inputs,"capture":body,"plan":proposal["plan"]});assert consequences["protected_targets"]==[] and not consequences["source_files_modified"] and len(consequences["fingerprint"])==64
@@ -1546,7 +1585,7 @@ def main():
    except urllib.error.HTTPError as error:assert error.code==422
    else:raise AssertionError("Stale saved base was accepted")
    protected=["main-generated.py","draft-generated.py","other-generated.py"]
-   inputs=call("changes/resource-inputs",{"context":"narrow-reading","project_entry":"other.md","ownership_sources":{"part.md":part.replace("main-generated.py","draft-generated.py")},"edit":{"documentChanges":[{"kind":"create","uri":"hick:///"+path} for path in protected]}})
+   inputs=call("changes/resource-inputs",{"context":"narrow-reading","project_entry":"other.md","ownership_sources":{"part.md":part.replace("main-generated.py","draft-generated.py")},"saved_guards":{"part.md":loaded_guard("part.md")},"edit":{"documentChanges":[{"kind":"create","uri":"hick:///"+path} for path in protected]}})
    assert inputs["ownership"]["protected_entries"]==["other.md","project.md"]
    for path in protected:assert inputs["sources"][path]=={"kind":"missing","creatable":False} and not (root/path).exists()
    try:call("construction/reading",{"entry":"project.md","sources":{},"missing_sources":["part.md"]})
@@ -1627,8 +1666,9 @@ def main():
     if path is not None:query+="&path="+urllib.parse.quote(path,safe="")
     if side is not None:query+="&draft="+side
     with urllib.request.urlopen(origin+"/api/changes/resource-recovery"+query,timeout=30) as reply:return json.load(reply)
+   source_a,source_b="a.py","b.py"
    def restoration_proposal(identifier,context,drafts=None):
-    capture={"context":context,"edit":{"changes":{"hick:///a.py":[],"hick:///b.py":[]}},"drafts":drafts or {}}
+    capture={"context":context,"edit":{"changes":{"hick:///"+source_a:[],"hick:///"+source_b:[]}},"drafts":drafts or {}}
     return {"recovery_id":identifier,"inputs":call("changes/resource-inputs",capture),"capture":capture}
    original_id=Path(outcome["recovery"]).parent.name
    inspection=read_recovery(original_id,"a.py","before")
@@ -1641,46 +1681,59 @@ def main():
    except urllib.error.HTTPError as error:assert error.code==409
    else:raise AssertionError("Recovery silently accepted an independent saved edit")
    assert (root/"b.py").read_text()=="independent edit\n" and set(records.iterdir())==before_recovery
-   # Resolve that test-owned external edit explicitly, then review the inverse.
+   # Equal bytes written externally do not renew the old source lineage.
    (root/"b.py").write_text("renamed\n# unsaved draft\n")
+   try:call("changes/prepare-restoration",restoration_proposal(original_id,"refuse-byte-restoration"))
+   except urllib.error.HTTPError as error:assert error.code==409
+   else:raise AssertionError("Equal-byte external writes renewed historical resource authority")
+   initial_inspection=inspection
+   # A separate, freshly guarded source pair supplies the positive inverse case.
+   source_a,source_b="restore-a.py","restore-b.py";(root/source_a).write_text(saved)
+   fresh_edit={"documentChanges":[{"kind":"rename","oldUri":"hick:///"+source_a,"newUri":"hick:///"+source_b},{"textDocument":{"uri":"hick:///"+source_b,"version":7},"edits":[{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":5}},"newText":"renamed"}]}]}
+   fresh_capture={"context":"fresh-recovery-pair","edit":fresh_edit,"drafts":{source_a:{"text":draft,"base_sha256":hashlib.sha256(saved.encode()).hexdigest(),"version":7,"writable":True,"save_guard":loaded_guard(source_a)}}};fresh_inputs=call("changes/resource-inputs",fresh_capture);fresh_plan=call("changes/plan-resources",{"context":fresh_capture["context"],"title":"Fresh dirty move","edit":fresh_edit,"sources":fresh_inputs["sources"]})["plan"];fresh_proposal={"inputs":fresh_inputs,"capture":fresh_capture,"plan":fresh_plan};fresh_facts=call("changes/resource-consequences",fresh_proposal);fresh_result=call("changes/resource-save",{"request_id":"a"*32,"reviewed_fingerprint":fresh_facts["fingerprint"],"proposal":fresh_proposal});assert fresh_result["outcome"]["complete"]
+   original_id=Path(fresh_result["outcome"]["recovery"]).parent.name;inspection=read_recovery(original_id,source_a,"before");before_recovery=set(records.iterdir())
    restore_proposal=restoration_proposal(original_id,"restore-service")
    restoration=call("changes/prepare-restoration",restore_proposal)
-   assert restoration["restoration"]["saved_after"]["a.py"]["text"]==saved
-   assert next(patch for patch in restoration["restoration"]["plan"]["patches"] if patch["path"]=="a.py")["after"]["text"]==draft
-   assert not (root/"a.py").exists() and (root/"b.py").read_text()=="renamed\n# unsaved draft\n"
+   assert restoration["restoration"]["saved_after"][source_a]["text"]==saved
+   assert next(patch for patch in restoration["restoration"]["plan"]["patches"] if patch["path"]==source_a)["after"]["text"]==draft
+   assert not (root/source_a).exists() and (root/source_b).read_text()=="renamed\n# unsaved draft\n"
    restore_request={"request_id":"6"*32,"reviewed_fingerprint":restoration["consequences"]["fingerprint"],"reviewed_recovery_fingerprint":restoration["restoration"]["recovery_fingerprint"],"proposal":restore_proposal}
    for identifier,field in [("8"*32,"reviewed_recovery_fingerprint"),("9"*32,"reviewed_fingerprint")]:
     wrong=json.loads(json.dumps(restore_request));wrong["request_id"]=identifier;wrong[field]="0"*64
     try:call("changes/restore-resources",wrong)
     except urllib.error.HTTPError as error:assert error.code==409
     else:raise AssertionError("Restoration accepted changed review evidence")
-   assert set(records.iterdir())==before_recovery and not (root/"a.py").exists()
+   assert set(records.iterdir())==before_recovery and not (root/source_a).exists()
    restored_result=call("changes/restore-resources",restore_request)
-   assert restored_result["outcome"]["complete"] and restored_result["saved_sources"]["a.py"]["text"]==saved
-   assert (root/"a.py").read_text()==saved and not (root/"b.py").exists()
-   restored_receipt=next(item for item in restored_result["source_files"] if item["file"]["path"]=="a.py")
-   with urllib.request.urlopen(origin+"/api/file?path=a.py",timeout=30) as reply:assert restored_receipt["hash"]==json.load(reply)["hash"]
+   assert restored_result["outcome"]["complete"] and restored_result["saved_sources"][source_a]["text"]==saved
+   assert (root/source_a).read_text()==saved and not (root/source_b).exists()
+   restored_receipt=next(item for item in restored_result["source_files"] if item["file"]["path"]==source_a)
+   with urllib.request.urlopen(origin+"/api/file?path="+urllib.parse.quote(source_a,safe=""),timeout=30) as reply:assert restored_receipt["hash"]==json.load(reply)["hash"]
    assert restored_receipt["saved"]["text"]==saved
    restored_id=Path(restored_result["outcome"]["recovery"]).parent.name
    restored_record=json.loads((root/restored_result["outcome"]["recovery"]).read_text())
    assert restored_record["version"]==3 and restored_record["restore_of"]["recovery_id"]==original_id
-   assert read_recovery(restored_id,"a.py","after")["draft_text"]==draft
+   assert read_recovery(restored_id,source_a,"after")["draft_text"]==draft
    assert call("changes/restore-resources",restore_request)==restored_result
    assert len(set(records.iterdir())-before_recovery)==1
    with urllib.request.urlopen(origin+"/api/changes/resource-save?request_id="+restore_request["request_id"],timeout=30) as reply:assert json.load(reply)==restored_result
    # The UI's restored draft is supplied separately from its older disk base.
-   redo_proposal=restoration_proposal(restored_id,"redo-service",{"a.py":{"text":draft,"base_sha256":hashlib.sha256(saved.encode()).hexdigest(),"version":8,"writable":True}})
+   redo_proposal=restoration_proposal(restored_id,"redo-service",{source_a:{"text":draft,"base_sha256":hashlib.sha256(saved.encode()).hexdigest(),"version":8,"writable":True,"save_guard":loaded_guard(source_a)}})
    redo=call("changes/prepare-restoration",redo_proposal)
    redone=call("changes/restore-resources",{"request_id":"7"*32,"reviewed_fingerprint":redo["consequences"]["fingerprint"],"reviewed_recovery_fingerprint":redo["restoration"]["recovery_fingerprint"],"proposal":redo_proposal})
-   assert redone["outcome"]["complete"] and not (root/"a.py").exists() and (root/"b.py").read_text()=="renamed\n# unsaved draft\n"
+   assert redone["outcome"]["complete"] and not (root/source_a).exists() and (root/source_b).read_text()=="renamed\n# unsaved draft\n"
    assert read_recovery(original_id)["fingerprint"]==inspection["fingerprint"]
    # A fresh process has no in-memory attempt table. Its original request address
    # still finds exact historical evidence; this does not replay publication.
    before_restart={path.name:path.read_bytes() for path in root.iterdir() if path.is_file()}
    fixture.stop(engine);engine=None
+   deadline=time.monotonic()+25
+   while (folder/"state"/"engine"/"endpoint.json").exists():
+    assert time.monotonic()<deadline,"The owned shared engine did not retire; restart evidence was not collected."
+    time.sleep(.05)
    engine=fixture.start([os.environ.get("HICKORY_SIMPLE_TEST_ENGINE",str(ROOT/"target/source-edit-focus/debug/examples/engine_client")),str(root),"window","http://127.0.0.1:1"],env={**os.environ,"HICKORY_STATE_DIR":str(folder/"state")});origin=fixture.origin(engine)
    with urllib.request.urlopen(origin+"/api/changes/resource-recovery?id="+reviewed_save["request_id"],timeout=30) as reply:
-    recovered=json.load(reply);assert recovered["request_id"]==reviewed_save["request_id"] and recovered["fingerprint"]==inspection["fingerprint"]
+    recovered=json.load(reply);assert recovered["request_id"]==reviewed_save["request_id"] and recovered["fingerprint"]==initial_inspection["fingerprint"]
    assert before_restart=={path.name:path.read_bytes() for path in root.iterdir() if path.is_file()}
    print("PASS: actual resource acquisition, planning and candidate ownership; explicit guarded save of a moved dirty draft, retained saved/draft recovery, duplicate/status identity, changed-request refusal, stale-source and generated-destination refusal, authored document retirement/move, canonical-entry ownership guard, read-only recovery inspection, separate saved/draft restore and redo, evidence refusal, exact request-addressed recovery across restart without replay")
   finally:

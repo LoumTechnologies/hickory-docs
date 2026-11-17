@@ -379,4 +379,6 @@ is included with that control; opening a document is not generation authority.
 
 <storycode:include file="completion-intent-acceptance.md" />
 
+<storycode:include file="resource-volume-guards.md" />
+
 </storycode:doc>

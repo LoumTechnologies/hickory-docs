@@ -70540,6 +70540,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "resource-input-snapshots",
         "resource-input-path-identity",
         "resource-input-saved-bytes",
+        "resource-declared-volume-claims",
+        "resource-declared-volume-witnesses",
         "resource-input-ownership-model",
         "resource-input-retained-ownership",
         "resource-input-capture",
@@ -72935,6 +72937,17 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "construction": "fragments",
       "fragments": [
         "completion-intent-android-tests"
+      ]
+    },
+    "scripts/test-resource-volume-guards.py": {
+      "source": ".hickory-source/mechanisms/resource-volume-guards.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "test",
+      "sha256": "36981c25f87ee958ff5d7fcf59b6e23c8317a53d136787eb711c51eeff63c51c",
+      "construction": "fragments",
+      "fragments": [
+        "resource-volume-guard-http-driver"
       ]
     }
   },
