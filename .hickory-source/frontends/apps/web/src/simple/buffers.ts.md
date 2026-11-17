@@ -123,6 +123,14 @@ function createCurrent(buffers:Buffers,a:CreateAttempt):boolean {
  const equal=(map:Map<string,Buffer>,entries:[string,Buffer][])=>map.size===entries.length&&entries.every(([key,value])=>map.get(key)===value);
  return a.hostCurrent()&&buffers.workspace===a.namespace&&buffers.workspaceId===a.workspace&&equal(buffers.values,a.values)&&equal(buffers.retainedResources,a.retained)&&a.owners.every(o=>o.buffer.file===o.file&&o.file.path===o.path&&o.buffer.text===o.text&&o.buffer.base===o.base&&o.buffer.hash===o.hash&&o.buffer.saveGuard===o.guard&&o.buffer.sourceRevision===o.revision&&o.buffer.resourceDeleted===o.deleted&&o.buffer.readonly===o.readonly&&o.buffer.namespace===o.namespace&&o.file.doc_id===o.docId&&o.buffer.saving===o.saving);
 }
+// A confirmed recovery copy changes the address of the original editor, preserving its history identity.
+export function adoptCreatedDraft(buffers:Buffers,source:Buffer,copy:Buffer,current:()=>boolean):void {
+ if(!current()||source===copy||source.readonly||source.transient||copy.readonly||copy.transient||(!!source.namespace&&source.namespace!==buffers.workspace)||!(source.resourceDeleted||source.isUntitledDraft)||source.text!==copy.text||copy.text!==copy.base||!copy.saveGuard||copy.namespace!==buffers.workspace||buffers.values.get(copy.file.path)!==copy||[...buffers.values].filter(([,owner])=>owner===source).length>1||![...buffers.values.values(),...buffers.retainedResources.values()].includes(source))throw Error('Confirmed copy cannot adopt this original draft editor. Both texts are retained.');
+ for(const [path,owner] of buffers.values)if(owner===source)buffers.values.delete(path);
+ for(const [id,owner] of buffers.retainedResources)if(owner===source)buffers.retainedResources.delete(id);
+ source.file=copy.file;source.base=copy.base;source.hash=copy.hash;source.saveGuard=copy.saveGuard;source.saveGuardReason=undefined;source.namespace=copy.namespace;source.resourceDeleted=false;source.isUntitledDraft=false;source.sourceRevision++;source.error='';
+ buffers.retirePendingReads();buffers.values.set(source.file.path,source);source.publish();buffers.changed();
+}
 export async function createSourceCopy(buffers:Buffers,source:Buffer,path:string,send:typeof request=request,hostCurrent:()=>boolean=()=>true):Promise<Buffer>{
  let attempt=createAttempts.get(source);
  if(attempt&&(attempt.path!==path||!createCurrent(buffers,attempt)))throw Error('A previous copy outcome is uncertain and its editor context changed. Preserve the draft and inspect local history before another publication.');

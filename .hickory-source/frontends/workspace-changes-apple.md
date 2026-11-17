@@ -17,12 +17,28 @@ Reviewed capabilities can offer a complete source proposal without a language pr
 
 File-wide fixes request the standard `source.fixAll` family for the whole captured source. Retain only explicitly classified complete actions; unrelated quick fixes are never merged or applied speculatively. The existing complete action preview, provider requery, target acquisition and coordinated draft history own application. An empty result is unavailable, not a successful fix.
 
+A pending proposal keeps its original revision lease. A fresh synchronous Undo/Redo instead binds the inverse to its original editor objects and resolves each unique current address immediately before complete preimage validation. This follows the same editor through Save As and guarded namespace moves, while refusing an independent handle that reused the old path. Ordinary Save and late capability metadata do not discard text history: history never writes saved files, and current writability and composition still preflight the whole batch. Reading the inverse and committing it contain no await.
+
 <ui:copy id="simple-apple-workspace-changes">
 import SwiftUI
 func fileWideFixActions(_ actions:[[String:Any]])->[[String:Any]] {actions.filter{guard let kind=$0["kind"] as? String else{return false};return kind=="source.fixAll" || kind.hasPrefix("source.fixAll.")}}
 import Observation
 struct ResourceHistoryIntent {var direction:String;var record:String;var token:UUID}
-private enum WorkspaceHistoryStep {case drafts(ChangePlan);case resource(String)}
+private struct WorkspaceDraftHistory {let plan:ChangePlan;let read:()throws->ChangePlan}
+private enum WorkspaceHistoryStep {case drafts(WorkspaceDraftHistory);case resource(String)}
+@MainActor private func captureDraftHistory(_ plan:ChangePlan,workspace:Workspace)->WorkspaceDraftHistory {
+ let server=workspace.engine,root=workspace.sourceRootAddress,runtime=workspace.sourceWorkspaceID,targets=plan.patches.map{($0,workspace.buffers[$0.path])}
+ return WorkspaceDraftHistory(plan:plan,read:{[weak workspace] in
+  func refuse()->EngineError{EngineError(message:"Workspace history no longer owns the original source editors. Drafts were retained.")}
+  guard let workspace,workspace.engine?.session === server?.session,exactUTF8(workspace.sourceRootAddress,root),exactUTF8(workspace.sourceWorkspaceID,runtime),!targets.isEmpty else{throw refuse()}
+  let patches=try targets.map{patch,buffer->SourcePatch in
+   guard let buffer,!buffer.readOnly,!buffer.saving else{throw refuse()};let addresses=workspace.buffers.filter{$0.value === buffer}
+   guard addresses.count==1,let address=addresses.first,exactUTF8(address.key,buffer.file.path) else{throw refuse()};var current=patch;current.path=address.key;return current
+  }
+  guard Set(patches.map{NativeSourceKey($0.path)}).count==patches.count else{throw refuse()};let current=ChangePlan(title:plan.title,patches:patches)
+  if let failure=validateChangePlan(current,sources:workspace.sourceSnapshots()){throw EngineError(message:failure)};return current
+ })
+}
 @MainActor @Observable final class WorkspaceChanges {
     var mode: String?
     var name = "" { didSet { if !exactUTF8(name,oldValue) { revision = UUID(); plan = nil; choices = []; notice = "" } } }
@@ -44,6 +60,10 @@ private enum WorkspaceHistoryStep {case drafts(ChangePlan);case resource(String)
     func resourceHistoryRecord(_ direction:String)->String? {
         if case .resource(let record)? = (direction=="undo" ? undo.last:redo.last) {return record};return nil
     }
+    func recordDraftApplication(_ plan:ChangePlan,workspace:Workspace) {
+        guard plan.patches.contains(where:{!exactUTF8($0.before,$0.after)}) else{return}
+        undo=Array(undo.suffix(31))+[.drafts(captureDraftHistory(invertChangePlan(plan),workspace:workspace))];redo=[];historySnapshot=UUID()
+    }
     func recordResourcePublication(_ record:String,intent:ResourceHistoryIntent?) {
         if let intent,intent.token==historySnapshot,resourceHistoryRecord(intent.direction)==intent.record {
             if intent.direction=="undo" {undo.removeLast();redo=Array(redo.suffix(31))+[.resource(record)]}
@@ -63,10 +83,11 @@ private enum WorkspaceHistoryStep {case drafts(ChangePlan);case resource(String)
             let intent=ResourceHistoryIntent(direction:kind,record:record,token:historySnapshot)
             Task {await workspace.resourceRestoration.prepareHistory(workspace,intent:intent)}
             notice="Prepare and review saved-source restoration before publishing this workspace \(kind)."
-        case .drafts(let target):
+        case .drafts(let step):
             do {
+                let target=try step.read()
                 let refresh=try workspace.applyWorkspacePlan(target)
-                if kind=="undo" {undo.removeLast();redo.append(.drafts(invertChangePlan(target)))}else{redo.removeLast();undo.append(.drafts(invertChangePlan(target)))}
+                if kind=="undo" {undo.removeLast();redo.append(.drafts(captureDraftHistory(invertChangePlan(target),workspace:workspace)))}else{redo.removeLast();undo.append(.drafts(captureDraftHistory(invertChangePlan(target),workspace:workspace)))}
                 historySnapshot=UUID()
                 notice="Workspace \(kind) applied to \(target.patches.count) drafts. Not saved or verified."+refresh
             }catch{notice=error.localizedDescription}
@@ -224,7 +245,7 @@ private enum WorkspaceHistoryStep {case drafts(ChangePlan);case resource(String)
         do {
             guard captured?.current() == true else { throw EngineError(message:"Source, selection or provider changed. Prepare again.") }
             let refresh = try workspace.applyWorkspacePlan(plan)
-            undo = Array(undo.suffix(31)) + [.drafts(invertChangePlan(plan))]; redo = []; historySnapshot=UUID(); self.plan = nil; captured = nil
+            undo = Array(undo.suffix(31)) + [.drafts(captureDraftHistory(invertChangePlan(plan),workspace:workspace))]; redo = []; historySnapshot=UUID(); self.plan = nil; captured = nil
             notice = "Applied \(plan.patches.count) source drafts. Not saved or verified. Use Save All after reviewing; Undo workspace change restores this batch." + refresh
         } catch { notice = error.localizedDescription }
     }
@@ -322,6 +343,18 @@ Hold two provider replies against the same unchanged source and selection. Compl
 import XCTest
 @testable import HickorySimple
 @MainActor final class ChangeRequestTests:XCTestCase {
+    func testWorkspaceHistoryFollowsOriginalEditorsAcrossSaveAndAddressChanges()throws {
+        let w=Workspace(),f=FileNode(name:"a.py",path:"a.py",dir:false),b=DocumentBuffer(file:FileNode(name:"a.py",path:"a.py",dir:false),text:FileText(path:"a.py",content:"old\n",hash:"base"));w.buffers[f.path]=b;w.show(f.path)
+        let edit:[String:Any]=["changes":[languageURI(f.path):[["range":["start":["line":0,"character":0],"end":["line":0,"character":3]],"newText":"new"]]]]
+        try w.changes.offer("Reviewed",edit:edit,expected:[f.path:b.text],workspace:w);w.changes.apply(w);XCTAssertEqual(b.text,"new\n")
+        b.base=b.text;b.hash="saved";b.savedGuard="confirmed-save";w.buffers.removeValue(forKey:f.path);b.file=FileNode(name:"files",path:"files",dir:false);w.buffers["files"]=b
+        let replacement=DocumentBuffer(file:f,text:FileText(path:f.path,content:"new\n",hash:"base"));w.buffers[f.path]=replacement
+        w.changes.open("undo",workspace:w);XCTAssertEqual(b.text,"old\n");XCTAssertEqual(replacement.text,"new\n");XCTAssertEqual(b.base,"new\n");w.changes.open("redo",workspace:w);XCTAssertEqual(b.text,"new\n")
+        w.buffers["alias.py"]=b;w.changes.open("undo",workspace:w);XCTAssertEqual(b.text,"new\n");XCTAssertTrue(w.changes.notice.contains("original source editors"));w.buffers.removeValue(forKey:"alias.py")
+        let foreign=DocumentBuffer(file:b.file,text:FileText(path:"files",content:b.text,hash:b.hash));w.buffers["files"]=foreign;w.changes.open("undo",workspace:w);XCTAssertEqual(foreign.text,"new\n");XCTAssertEqual(b.text,"new\n");XCTAssertTrue(w.changes.notice.contains("original source editors"))
+        w.buffers["files"]=b;w.changes.open("undo",workspace:w);XCTAssertEqual(b.text,"old\n");XCTAssertEqual(foreign.text,"new\n");XCTAssertEqual(replacement.text,"new\n")
+    }
+
     func testCleanupAndReviewedDraftRefuseEqualByteRevisionRenewal()async throws {
         let w=Workspace(),f=FileNode(name:"a.py",path:"a.py",dir:false),b=DocumentBuffer(file:FileNode(name:"a.py",path:"a.py",dir:false),text:FileText(path:"a.py",content:"old\n",hash:"base"));w.buffers[f.path]=b;w.show(f.path)
         let edit:[String:Any]=["changes":[languageURI(f.path):[["range":["start":["line":0,"character":0],"end":["line":0,"character":3]],"newText":"new"]]]]

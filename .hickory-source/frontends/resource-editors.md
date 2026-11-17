@@ -486,9 +486,9 @@ describe('resource editor identity routing',()=>{
   await expect(publishResourceRestore(buffers,review,load)).rejects.toThrow('not confirmed');await expect(publishResourceRestore(buffers,review,load)).rejects.toThrow('already has publication request');expect(writes).toBe(1);expect(buffers.values.get('old.txt')).toBe(buffer);expect(buffers.values.has('new.txt')).toBe(false);
  });
  it('coordinates draft and resource undo with a bounded history and retires interleaved review tokens',()=>{
-  const history=new WorkspaceChangeHistory(),draft={title:'Source',patches:[]};history.record({kind:'draft',plan:draft});history.record({kind:'resource',recovery:'record'});
-  const old=history.preview('undo')!;history.record({kind:'draft',plan:draft});expect(history.current(old)).toBe(false);expect(()=>history.commit(old,{kind:'resource',recovery:'wrong'})).toThrow('history changed');
-  const latest=history.preview('undo')!;history.commit(latest,{kind:'draft',plan:draft});expect(history.preview('redo')?.entry.kind).toBe('draft');const resource=history.preview('undo')!;expect(resource.entry).toEqual({kind:'resource',recovery:'record'});history.commit(resource,{kind:'resource',recovery:'inverse'});expect(history.preview('redo')?.entry).toEqual({kind:'resource',recovery:'inverse'});
+  const history=new WorkspaceChangeHistory(),draft={title:'Source',patches:[]};history.record({kind:'draft',plan:draft,read:()=>draft});history.record({kind:'resource',recovery:'record'});
+  const old=history.preview('undo')!;history.record({kind:'draft',plan:draft,read:()=>draft});expect(history.current(old)).toBe(false);expect(()=>history.commit(old,{kind:'resource',recovery:'wrong'})).toThrow('history changed');
+  const latest=history.preview('undo')!;history.commit(latest,{kind:'draft',plan:draft,read:()=>draft});expect(history.preview('redo')?.entry.kind).toBe('draft');const resource=history.preview('undo')!;expect(resource.entry).toEqual({kind:'resource',recovery:'record'});history.commit(resource,{kind:'resource',recovery:'inverse'});expect(history.preview('redo')?.entry).toEqual({kind:'resource',recovery:'inverse'});
   for(let i=0;i<40;i++)history.record({kind:'resource',recovery:String(i)});let count=0;for(let next=history.preview('undo');next;next=history.preview('undo')){history.commit(next,{kind:'resource',recovery:'redo'});count++;}expect(count).toBe(32);
  });
 

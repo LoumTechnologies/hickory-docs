@@ -2,7 +2,21 @@ import SwiftUI
 func fileWideFixActions(_ actions:[[String:Any]])->[[String:Any]] {actions.filter{guard let kind=$0["kind"] as? String else{return false};return kind=="source.fixAll" || kind.hasPrefix("source.fixAll.")}}
 import Observation
 struct ResourceHistoryIntent {var direction:String;var record:String;var token:UUID}
-private enum WorkspaceHistoryStep {case drafts(ChangePlan);case resource(String)}
+private struct WorkspaceDraftHistory {let plan:ChangePlan;let read:()throws->ChangePlan}
+private enum WorkspaceHistoryStep {case drafts(WorkspaceDraftHistory);case resource(String)}
+@MainActor private func captureDraftHistory(_ plan:ChangePlan,workspace:Workspace)->WorkspaceDraftHistory {
+ let server=workspace.engine,root=workspace.sourceRootAddress,runtime=workspace.sourceWorkspaceID,targets=plan.patches.map{($0,workspace.buffers[$0.path])}
+ return WorkspaceDraftHistory(plan:plan,read:{[weak workspace] in
+  func refuse()->EngineError{EngineError(message:"Workspace history no longer owns the original source editors. Drafts were retained.")}
+  guard let workspace,workspace.engine?.session === server?.session,exactUTF8(workspace.sourceRootAddress,root),exactUTF8(workspace.sourceWorkspaceID,runtime),!targets.isEmpty else{throw refuse()}
+  let patches=try targets.map{patch,buffer->SourcePatch in
+   guard let buffer,!buffer.readOnly,!buffer.saving else{throw refuse()};let addresses=workspace.buffers.filter{$0.value === buffer}
+   guard addresses.count==1,let address=addresses.first,exactUTF8(address.key,buffer.file.path) else{throw refuse()};var current=patch;current.path=address.key;return current
+  }
+  guard Set(patches.map{NativeSourceKey($0.path)}).count==patches.count else{throw refuse()};let current=ChangePlan(title:plan.title,patches:patches)
+  if let failure=validateChangePlan(current,sources:workspace.sourceSnapshots()){throw EngineError(message:failure)};return current
+ })
+}
 @MainActor @Observable final class WorkspaceChanges {
     var mode: String?
     var name = "" { didSet { if !exactUTF8(name,oldValue) { revision = UUID(); plan = nil; choices = []; notice = "" } } }
@@ -24,6 +38,10 @@ private enum WorkspaceHistoryStep {case drafts(ChangePlan);case resource(String)
     func resourceHistoryRecord(_ direction:String)->String? {
         if case .resource(let record)? = (direction=="undo" ? undo.last:redo.last) {return record};return nil
     }
+    func recordDraftApplication(_ plan:ChangePlan,workspace:Workspace) {
+        guard plan.patches.contains(where:{!exactUTF8($0.before,$0.after)}) else{return}
+        undo=Array(undo.suffix(31))+[.drafts(captureDraftHistory(invertChangePlan(plan),workspace:workspace))];redo=[];historySnapshot=UUID()
+    }
     func recordResourcePublication(_ record:String,intent:ResourceHistoryIntent?) {
         if let intent,intent.token==historySnapshot,resourceHistoryRecord(intent.direction)==intent.record {
             if intent.direction=="undo" {undo.removeLast();redo=Array(redo.suffix(31))+[.resource(record)]}
@@ -43,10 +61,11 @@ private enum WorkspaceHistoryStep {case drafts(ChangePlan);case resource(String)
             let intent=ResourceHistoryIntent(direction:kind,record:record,token:historySnapshot)
             Task {await workspace.resourceRestoration.prepareHistory(workspace,intent:intent)}
             notice="Prepare and review saved-source restoration before publishing this workspace \(kind)."
-        case .drafts(let target):
+        case .drafts(let step):
             do {
+                let target=try step.read()
                 let refresh=try workspace.applyWorkspacePlan(target)
-                if kind=="undo" {undo.removeLast();redo.append(.drafts(invertChangePlan(target)))}else{redo.removeLast();undo.append(.drafts(invertChangePlan(target)))}
+                if kind=="undo" {undo.removeLast();redo.append(.drafts(captureDraftHistory(invertChangePlan(target),workspace:workspace)))}else{redo.removeLast();undo.append(.drafts(captureDraftHistory(invertChangePlan(target),workspace:workspace)))}
                 historySnapshot=UUID()
                 notice="Workspace \(kind) applied to \(target.patches.count) drafts. Not saved or verified."+refresh
             }catch{notice=error.localizedDescription}
@@ -204,7 +223,7 @@ private enum WorkspaceHistoryStep {case drafts(ChangePlan);case resource(String)
         do {
             guard captured?.current() == true else { throw EngineError(message:"Source, selection or provider changed. Prepare again.") }
             let refresh = try workspace.applyWorkspacePlan(plan)
-            undo = Array(undo.suffix(31)) + [.drafts(invertChangePlan(plan))]; redo = []; historySnapshot=UUID(); self.plan = nil; captured = nil
+            undo = Array(undo.suffix(31)) + [.drafts(captureDraftHistory(invertChangePlan(plan),workspace:workspace))]; redo = []; historySnapshot=UUID(); self.plan = nil; captured = nil
             notice = "Applied \(plan.patches.count) source drafts. Not saved or verified. Use Save All after reviewing; Undo workspace change restores this batch." + refresh
         } catch { notice = error.localizedDescription }
     }

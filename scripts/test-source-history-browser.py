@@ -37,6 +37,9 @@ def main():
    driver.act('undo',path=path);assert driver.act('construction-source',path=path)==draft;assert not (root/path).exists()
    driver.act('redo',path=path);assert driver.act('construction-source',path=path)==before;assert not (root/path).exists()
    recovered='restored λ%2F?#.py';driver.act('file-command',command='Save As',path=recovered);driver.act('source-copy-ready',path=recovered);assert (root/recovered).read_text()==before;assert not (root/path).exists()
+   # The same editor's coordinated inverse follows its new Save As address.
+   driver.act('change-open',command='Undo workspace change');driver.act('change-close');assert driver.act('construction-source',path=recovered)==draft;assert (root/recovered).read_text()==before;assert not (root/path).exists()
+   driver.act('change-open',command='Redo workspace change');driver.act('change-close');assert driver.act('construction-source',path=recovered)==before;assert (root/recovered).read_text()==before;assert not (root/path).exists()
    assert not driver.act('debug-diagnostics')['errors']
    print('PASS: strict literal source Save/Save As; direct confirmed copy; existing editor/undo retained; full before/after local history; draft-only restore; native/workspace Undo/Redo; stale selection refusal; code geometry and saved bytes preserved; deleted source restores only to unmaterialized draft, Undo/Redo never creates it, separate guarded Save As publishes a new copy')
   finally:

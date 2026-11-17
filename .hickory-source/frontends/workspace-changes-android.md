@@ -19,6 +19,8 @@ Reviewed capabilities can offer a complete source proposal without a language pr
 
 File-wide diagnostic fixing asks the provider for the complete `source.fixAll` family. Retain one explicit complete action for review, acquire its targets, then resolve it again under the original source revision. No action means unavailable; individual quick fixes are never guessed or merged.
 
+A pending proposal keeps its original revision lease. A fresh synchronous Undo/Redo instead binds the inverse to its original editor objects and resolves each unique current address immediately before complete preimage validation. This follows the same editor through Save As and guarded namespace moves, while refusing an independent handle that reused the old path. Ordinary Save and late capability metadata do not discard text history: history never writes saved files, and current writability and composition still preflight the whole batch. Reading the inverse and committing it contain no await.
+
 <ui:copy id="simple-android-workspace-changes">
 package com.hickorydocs.simple
 import androidx.compose.runtime.*
@@ -35,6 +37,16 @@ import kotlinx.coroutines.launch
 import org.json.JSONObject
 import org.json.JSONArray
 fun fileWideFixActions(actions:List<JSONObject>)=actions.filter{val kind=it.opt("kind") as? String;kind=="source.fixAll"||kind?.startsWith("source.fixAll.")==true}
+private data class WorkspaceDraftHistory(val plan:ChangePlan,val read:()->ChangePlan)
+private fun captureDraftHistory(plan:ChangePlan,workspace:Workspace):WorkspaceDraftHistory {
+ val sealed=plan.copy(patches=plan.patches.map{it.copy(edits=it.edits.toList())});val server=workspace.engine;val targets=sealed.patches.map{it to workspace.buffers[it.path]}
+ return WorkspaceDraftHistory(sealed){
+  fun refuse():Nothing=error("Workspace history no longer owns the original source editors. Drafts were retained.")
+  if(workspace.engine!==server||targets.isEmpty())refuse()
+  val patches=targets.map{(patch,b)->if(b==null||b.readOnly||b.saving)refuse();val addresses=workspace.buffers.filterValues{it===b}.keys;if(addresses.size!=1||addresses.single()!=b.file.path)refuse();patch.copy(path=addresses.single())}
+  if(patches.map{it.path}.distinct().size!=patches.size)refuse();val current=sealed.copy(patches=patches);validateChangePlan(current,workspace.sourceSnapshots())?.let{error(it)};current
+ }
+}
 class WorkspaceChanges {
     var mode by mutableStateOf<String?>(null)
     var name by mutableStateOf(""); private set
@@ -52,10 +64,14 @@ class WorkspaceChanges {
     private var sources: Map<String,SourceSnapshot> = emptyMap()
     private var current: ()->Boolean = { false }
     private sealed interface History {
-        data class Draft(val plan:ChangePlan):History
+        data class Draft(val step:WorkspaceDraftHistory):History
         data class Resource(val record:String,val workspace:String):History
     }
     private val undo=mutableListOf<History>();private val redo=mutableListOf<History>();private var historyRevision=0L
+    fun recordDraftApplication(plan:ChangePlan,workspace:Workspace){
+        if(plan.patches.none{it.before!=it.after})return
+        undo.add(History.Draft(captureDraftHistory(invertChangePlan(plan),workspace)));while(undo.size>32)undo.removeAt(0);redo.clear();historyRevision++
+    }
     fun recordResource(record:String,workspace:String){undo.add(History.Resource(record,workspace));while(undo.size>32)undo.removeAt(0);redo.clear();historyRevision++}
     fun reset() { revision++;historyRevision++; mode=null; plan=null; choices=emptyList(); sources=emptyMap(); current={false}; undo.clear(); redo.clear(); notice="" }
     fun close(workspace: Workspace) { revision++; mode=null; workspace.currentBuffer?.focusSource?.invoke() }
@@ -74,9 +90,9 @@ class WorkspaceChanges {
             return
         }
         target as History.Draft
-        runCatching { workspace.applyWorkspacePlan(target.plan) }.onSuccess {
-            history.removeAt(history.lastIndex); (if (kind == "undo") redo else undo).add(History.Draft(invertChangePlan(target.plan)));historyRevision++
-            notice="Workspace $kind applied to ${target.plan.patches.size} drafts. Not saved or verified."
+        runCatching { val current=target.step.read();workspace.applyWorkspacePlan(current);current }.onSuccess { current->
+            history.removeAt(history.lastIndex); (if (kind == "undo") redo else undo).add(History.Draft(captureDraftHistory(invertChangePlan(current),workspace)));historyRevision++
+            notice="Workspace $kind applied to ${current.patches.size} drafts. Not saved or verified."
         }.onFailure { notice=it.message.orEmpty() }
     }
     suspend fun prepare(workspace: Workspace,proposal:(suspend (String,String)->Any)?=null,resolution:(suspend (JSONObject)->JSONObject)?=null,acquisition:(suspend (String)->SourceSnapshot)?=null) {
@@ -200,7 +216,7 @@ class WorkspaceChanges {
             check(current()) { "Source, selection or provider changed. Prepare again." }
             workspace.applyWorkspacePlan(next)
         }.onSuccess {
-            undo.add(History.Draft(invertChangePlan(next))); while(undo.size>32) undo.removeAt(0); redo.clear();historyRevision++; plan=null; current={false}
+            undo.add(History.Draft(captureDraftHistory(invertChangePlan(next),workspace))); while(undo.size>32) undo.removeAt(0); redo.clear();historyRevision++; plan=null; current={false}
             notice="Applied ${next.patches.size} source drafts. Not saved or verified. Use Save All after reviewing; Undo workspace change restores this batch."
         }.onFailure { notice=it.message.orEmpty() }
     }
@@ -275,6 +291,15 @@ import kotlinx.coroutines.*
 import org.json.JSONObject
 import org.json.JSONArray
 class ChangeRequestTest {
+ @Test fun workspaceHistoryFollowsOriginalEditorsAcrossSaveAndAddressChanges()=runBlocking {
+  val w=Workspace(this);val f=FileNode("a.py","a.py",false,emptyList(),null,null);val b=DocumentBuffer(f,FileText("old\n","base"));w.buffers[f.path]=b;w.show(f.path)
+  val edit=JSONObject().put("changes",JSONObject().put(languageURI(f.path),JSONArray().put(JSONObject().put("range",JSONObject().put("start",JSONObject().put("line",0).put("character",0)).put("end",JSONObject().put("line",0).put("character",3))).put("newText","new"))))
+  w.changes.offer("Reviewed",edit,mapOf(f.path to b.text),w);w.changes.apply(w);assertEquals("new\n",b.text);b.base=b.text;b.hash="saved";b.saveGuard="confirmed-save";w.buffers.remove(f.path);b.file=FileNode("files","files",false,emptyList(),null,null);w.buffers["files"]=b
+  val replacement=DocumentBuffer(f,FileText("new\n","base"));w.buffers[f.path]=replacement;w.changes.open("undo",w);assertEquals("old\n",b.text);assertEquals("new\n",replacement.text);assertEquals("new\n",b.base);w.changes.open("redo",w);assertEquals("new\n",b.text)
+  w.buffers["alias.py"]=b;w.changes.open("undo",w);assertEquals("new\n",b.text);assertTrue(w.changes.notice.contains("original source editors"));w.buffers.remove("alias.py")
+  val foreign=DocumentBuffer(b.file,FileText(b.text,b.hash));w.buffers["files"]=foreign;w.changes.open("undo",w);assertEquals("new\n",foreign.text);assertEquals("new\n",b.text);assertTrue(w.changes.notice.contains("original source editors"));w.buffers["files"]=b;w.changes.open("undo",w);assertEquals("old\n",b.text);assertEquals("new\n",foreign.text);assertEquals("new\n",replacement.text)
+ }
+
  @Test fun cleanupAndReviewedDraftRefuseEqualByteRevisionRenewal()=runBlocking {
   val w=Workspace(this);val f=FileNode("a.py","a.py",false,emptyList(),null,null);val b=DocumentBuffer(f,FileText("old\n","base"));w.buffers[f.path]=b;w.show(f.path)
   val edit=JSONObject().put("changes",JSONObject().put(languageURI(f.path),org.json.JSONArray().put(JSONObject().put("range",JSONObject().put("start",JSONObject().put("line",0).put("character",0)).put("end",JSONObject().put("line",0).put("character",3))).put("newText","new"))))

@@ -15,11 +15,21 @@ import { utf16ToPosition } from "../lsp/positions";
 import type { CodeAction } from "../lsp/client";
 import type { Buffer, Buffers } from "./buffers";
 import { semanticLocations, semanticPath } from "./Intelligence";
-import { WorkspaceChangeHistory,type WorkspaceHistoryToken,providerActionPaths,validateReferencedTargets, planWorkspaceEdit, invertChangePlan, validateChangePlan, type SourceSnapshot, type ChangePlan } from "./ChangePlan";
+import { WorkspaceChangeHistory,type WorkspaceHistoryToken,providerActionPaths,validateReferencedTargets, planWorkspaceEdit, invertChangePlan, validateChangePlan, type SourceSnapshot, type ChangePlan, type WorkspaceHistoryEntry } from "./ChangePlan";
 import {workspaceChangeEventName as eventName,type ChangeCommand} from "./WorkspaceChangeEvents";
 export type {ChangeCommand} from "./WorkspaceChangeEvents";
 export function fileWideFixActions(actions:CodeAction[]):CodeAction[]{return actions.filter(action=>typeof action.kind==="string"&&(action.kind==="source.fixAll"||action.kind.startsWith("source.fixAll.")));}
 export function workspaceSnapshots(buffers: Buffers): Map<string, SourceSnapshot> { return new Map([...buffers.values].map(([path, buffer]) => [path, { text: buffer.text, writable: !buffer.readonly && !buffer.saving && !buffer.transient }])); }
+export function captureDraftHistory(buffers:Buffers,plan:ChangePlan):WorkspaceHistoryEntry {
+ const sealed={...plan,patches:plan.patches.map(patch=>({...patch,edits:patch.edits.map(edit=>({...edit}))}))},namespace=buffers.workspace,workspace=buffers.workspaceId,targets=sealed.patches.map(patch=>({patch,buffer:buffers.values.get(patch.path)}));
+ return {kind:'draft',plan:sealed,read:()=>{
+  const refuse=()=>{throw new Error('Workspace history no longer owns the original source editors. Drafts were retained.');};
+  if(buffers.workspace!==namespace||buffers.workspaceId!==workspace||!targets.length)refuse();
+  const patches=targets.map(({patch,buffer})=>{if(!buffer||(!!buffer.namespace&&buffer.namespace!==namespace)||buffer.readonly||buffer.saving||buffer.transient)refuse();const addresses=[...buffers.values].filter(([,owner])=>owner===buffer);if(addresses.length!==1||addresses[0][0]!==buffer!.file.path)refuse();return {...patch,path:addresses[0][0]};});
+  if(new Set(patches.map(patch=>patch.path)).size!==patches.length)refuse();
+  const current={...sealed,patches},failure=validateChangePlan(current,workspaceSnapshots(buffers));if(failure)throw new Error(failure);return current;
+ }};
+}
 export function applyWorkspacePlan(buffers: Buffers, plan: ChangePlan): void {
   const refusal = validateChangePlan(plan, workspaceSnapshots(buffers)); if (refusal) throw new Error(refusal);
   const prepared: { buffer: Buffer; after: string; view?: EditorView; transaction?: Transaction }[] = [];
@@ -101,7 +111,7 @@ export function WorkspaceChanges({ buffers, current, focus,files,adoptResources,
         const token=history.preview(next);
         if (!token) { setNotice(`No workspace change to ${next}.`); return; }
         if(token.entry.kind==='resource'){void prepareHistory(token,ticket.current);return;}
-        try { const target=token.entry.plan;applyWorkspacePlan(buffers, target);history.commit(token,{kind:'draft',plan:invertChangePlan(target)});setNotice(`Workspace ${next} applied to ${target.patches.length} drafts. Not saved or verified.`); }
+        try { const target=history.readDraft(token);applyWorkspacePlan(buffers, target);history.commit(token,captureDraftHistory(buffers,invertChangePlan(target)));setNotice(`Workspace ${next} applied to ${target.patches.length} drafts. Not saved or verified.`); }
         catch (error) { setNotice(String(error)); }
       }
     };
@@ -201,7 +211,7 @@ export function WorkspaceChanges({ buffers, current, focus,files,adoptResources,
   }
   function apply() {
     if (!plan) return;
-    try { if (!captured.current?.current()) throw new Error("Source, selection or provider changed. Prepare the proposal again."); applyWorkspacePlan(buffers, plan); history.record({kind:'draft',plan:invertChangePlan(plan)}); setPlan(null); setNotice(`Applied ${plan.patches.length} source drafts. Not saved or verified. Use Save All after reviewing; Undo workspace change restores this batch.`); }
+    try { if (!captured.current?.current()) throw new Error("Source, selection or provider changed. Prepare the proposal again."); applyWorkspacePlan(buffers, plan); history.record(captureDraftHistory(buffers,invertChangePlan(plan))); setPlan(null); setNotice(`Applied ${plan.patches.length} source drafts. Not saved or verified. Use Save All after reviewing; Undo workspace change restores this batch.`); }
     catch (error) { setNotice(String(error)); }
   }
   if (!mode) return null;

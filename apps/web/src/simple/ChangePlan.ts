@@ -85,7 +85,7 @@ export function validateReferencedTargets(plan: ChangePlan, referencePaths: read
   const missing = [...new Set(referencePaths)].filter(path => !targets.has(path));
   if (missing.length) throw new Error(`Rename omitted reported reference source targets: ${missing.join(", ")}. Refresh project analysis and prepare again. No edits were applied.`);
 }
-export type WorkspaceHistoryEntry={kind:'draft';plan:ChangePlan}|{kind:'resource';recovery:string};
+export type WorkspaceHistoryEntry={kind:'draft';plan:ChangePlan;read:()=>ChangePlan}|{kind:'resource';recovery:string};
 export interface WorkspaceHistoryToken {readonly direction:'undo'|'redo';readonly revision:number;readonly entry:WorkspaceHistoryEntry}
 /** History records inverses only after whole-batch confirmation; preview tokens are not write authority. */
 export class WorkspaceChangeHistory {
@@ -94,5 +94,6 @@ export class WorkspaceChangeHistory {
  record(entry:WorkspaceHistoryEntry){this.undo=[...this.undo.slice(-31),entry];this.redo=[];this.revision++;}
  preview(direction:'undo'|'redo'):WorkspaceHistoryToken|null {const entry=this[direction].at(-1);return entry?Object.freeze({direction,entry,revision:this.revision}):null;}
  current(token:WorkspaceHistoryToken):boolean{return token.revision===this.revision&&this[token.direction].at(-1)===token.entry;}
+ readDraft(token:WorkspaceHistoryToken):ChangePlan{if(!this.current(token)||token.entry.kind!=='draft'||typeof token.entry.read!=='function')throw new Error('Workspace history no longer owns the reviewed draft batch. Drafts were retained.');return token.entry.read();}
  commit(token:WorkspaceHistoryToken,inverse:WorkspaceHistoryEntry){if(!this.current(token))throw new Error('Workspace history changed after review. Prepare undo or redo again.');this[token.direction].pop();const other=token.direction==='undo'?'redo':'undo';this[other]=[...this[other].slice(-31),inverse];this.revision++;}
 }

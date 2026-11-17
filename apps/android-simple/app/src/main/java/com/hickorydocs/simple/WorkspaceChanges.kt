@@ -13,6 +13,16 @@ import kotlinx.coroutines.launch
 import org.json.JSONObject
 import org.json.JSONArray
 fun fileWideFixActions(actions:List<JSONObject>)=actions.filter{val kind=it.opt("kind") as? String;kind=="source.fixAll"||kind?.startsWith("source.fixAll.")==true}
+private data class WorkspaceDraftHistory(val plan:ChangePlan,val read:()->ChangePlan)
+private fun captureDraftHistory(plan:ChangePlan,workspace:Workspace):WorkspaceDraftHistory {
+ val sealed=plan.copy(patches=plan.patches.map{it.copy(edits=it.edits.toList())});val server=workspace.engine;val targets=sealed.patches.map{it to workspace.buffers[it.path]}
+ return WorkspaceDraftHistory(sealed){
+  fun refuse():Nothing=error("Workspace history no longer owns the original source editors. Drafts were retained.")
+  if(workspace.engine!==server||targets.isEmpty())refuse()
+  val patches=targets.map{(patch,b)->if(b==null||b.readOnly||b.saving)refuse();val addresses=workspace.buffers.filterValues{it===b}.keys;if(addresses.size!=1||addresses.single()!=b.file.path)refuse();patch.copy(path=addresses.single())}
+  if(patches.map{it.path}.distinct().size!=patches.size)refuse();val current=sealed.copy(patches=patches);validateChangePlan(current,workspace.sourceSnapshots())?.let{error(it)};current
+ }
+}
 class WorkspaceChanges {
     var mode by mutableStateOf<String?>(null)
     var name by mutableStateOf(""); private set
@@ -30,10 +40,14 @@ class WorkspaceChanges {
     private var sources: Map<String,SourceSnapshot> = emptyMap()
     private var current: ()->Boolean = { false }
     private sealed interface History {
-        data class Draft(val plan:ChangePlan):History
+        data class Draft(val step:WorkspaceDraftHistory):History
         data class Resource(val record:String,val workspace:String):History
     }
     private val undo=mutableListOf<History>();private val redo=mutableListOf<History>();private var historyRevision=0L
+    fun recordDraftApplication(plan:ChangePlan,workspace:Workspace){
+        if(plan.patches.none{it.before!=it.after})return
+        undo.add(History.Draft(captureDraftHistory(invertChangePlan(plan),workspace)));while(undo.size>32)undo.removeAt(0);redo.clear();historyRevision++
+    }
     fun recordResource(record:String,workspace:String){undo.add(History.Resource(record,workspace));while(undo.size>32)undo.removeAt(0);redo.clear();historyRevision++}
     fun reset() { revision++;historyRevision++; mode=null; plan=null; choices=emptyList(); sources=emptyMap(); current={false}; undo.clear(); redo.clear(); notice="" }
     fun close(workspace: Workspace) { revision++; mode=null; workspace.currentBuffer?.focusSource?.invoke() }
@@ -52,9 +66,9 @@ class WorkspaceChanges {
             return
         }
         target as History.Draft
-        runCatching { workspace.applyWorkspacePlan(target.plan) }.onSuccess {
-            history.removeAt(history.lastIndex); (if (kind == "undo") redo else undo).add(History.Draft(invertChangePlan(target.plan)));historyRevision++
-            notice="Workspace $kind applied to ${target.plan.patches.size} drafts. Not saved or verified."
+        runCatching { val current=target.step.read();workspace.applyWorkspacePlan(current);current }.onSuccess { current->
+            history.removeAt(history.lastIndex); (if (kind == "undo") redo else undo).add(History.Draft(captureDraftHistory(invertChangePlan(current),workspace)));historyRevision++
+            notice="Workspace $kind applied to ${current.patches.size} drafts. Not saved or verified."
         }.onFailure { notice=it.message.orEmpty() }
     }
     suspend fun prepare(workspace: Workspace,proposal:(suspend (String,String)->Any)?=null,resolution:(suspend (JSONObject)->JSONObject)?=null,acquisition:(suspend (String)->SourceSnapshot)?=null) {
@@ -178,7 +192,7 @@ class WorkspaceChanges {
             check(current()) { "Source, selection or provider changed. Prepare again." }
             workspace.applyWorkspacePlan(next)
         }.onSuccess {
-            undo.add(History.Draft(invertChangePlan(next))); while(undo.size>32) undo.removeAt(0); redo.clear();historyRevision++; plan=null; current={false}
+            undo.add(History.Draft(captureDraftHistory(invertChangePlan(next),workspace))); while(undo.size>32) undo.removeAt(0); redo.clear();historyRevision++; plan=null; current={false}
             notice="Applied ${next.patches.size} source drafts. Not saved or verified. Use Save All after reviewing; Undo workspace change restores this batch."
         }.onFailure { notice=it.message.orEmpty() }
     }

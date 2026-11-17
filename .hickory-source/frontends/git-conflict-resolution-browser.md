@@ -76,7 +76,7 @@ saved metadata and recovery identity before routing retained source editors.
 import {request} from '../api/client';
 import type {Buffer,Buffers} from './buffers';
 import {WorkspaceChangeHistory,invertChangePlan,type ChangePlan} from './ChangePlan';
-import {applyWorkspacePlan} from './WorkspaceChanges';
+import {captureDraftHistory,applyWorkspacePlan} from './WorkspaceChanges';
 import {captureResourceInputs,captureResourceRoster,adoptResourceReceipt,type ResourceEditorRoute} from './ResourceEditors';
 import {historySourceHash} from './SourceHistory';
 import {ConflictResolutionModel,type ConflictPorts} from './GitConflictResolution';
@@ -91,7 +91,7 @@ export function browserConflictModel(buffers:Buffers,history:WorkspaceChangeHist
    for(const path of paths){const before=initial.inputs.sources[path],after=captured.inputs.sources[path];if(before?.kind!==after?.kind||before?.text!==after?.text||JSON.stringify(initial.inputs.saved_sources[path])!==JSON.stringify(captured.inputs.saved_sources[path])||initial.inputs.saved_guards[path]!==captured.inputs.saved_guards[path])throw Error('Conflict source or saved baseline changed during acquisition.');}
    if(JSON.stringify(initial.inputs.saved_guards)!==JSON.stringify(captured.inputs.saved_guards))throw Error('Physical conflict dependencies changed during acquisition.');
    return captured;
-  },draft:review=>{if(!review.current())throw Error('Conflict source draft changed.');const plan:ChangePlan={title:'Compose Git conflict group',patches:review.patches.map(patch=>({path:patch.path,before:patch.before!.text,after:patch.after!.text,edits:[{from:0,to:patch.before!.text.length,text:patch.after!.text}]}))};applyWorkspacePlan(buffers,plan);history.record({kind:'draft',plan:invertChangePlan(plan)});},
+  },draft:review=>{if(!review.current())throw Error('Conflict source draft changed.');const plan:ChangePlan={title:'Compose Git conflict group',patches:review.patches.map(patch=>({path:patch.path,before:patch.before!.text,after:patch.after!.text,edits:[{from:0,to:patch.before!.text.length,text:patch.after!.text}]}))};applyWorkspacePlan(buffers,plan);history.record(captureDraftHistory(buffers,invertChangePlan(plan)));},
   adopt:(review,receipt,id)=>{const recovery=receipt.outcome?.recovery?.match(/(?:^|\/)resource-changes\/([0-9a-f]{32})\/[^/]+$/)?.[1];if(!recovery)throw Error('Resource recovery identity is unavailable; source editors were retained.');const routes=adoptResourceReceipt(buffers,review.patches,receipt,{request:id,workspace:review.value.consequences.workspace,context:review.value.plan.context,saved:new Map(Object.entries(review.value.saved_sources))},review.current);history.record({kind:'resource',recovery});adopt(routes);}
  },changed);
 }

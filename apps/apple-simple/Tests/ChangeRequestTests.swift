@@ -1,6 +1,18 @@
 import XCTest
 @testable import HickorySimple
 @MainActor final class ChangeRequestTests:XCTestCase {
+    func testWorkspaceHistoryFollowsOriginalEditorsAcrossSaveAndAddressChanges()throws {
+        let w=Workspace(),f=FileNode(name:"a.py",path:"a.py",dir:false),b=DocumentBuffer(file:FileNode(name:"a.py",path:"a.py",dir:false),text:FileText(path:"a.py",content:"old\n",hash:"base"));w.buffers[f.path]=b;w.show(f.path)
+        let edit:[String:Any]=["changes":[languageURI(f.path):[["range":["start":["line":0,"character":0],"end":["line":0,"character":3]],"newText":"new"]]]]
+        try w.changes.offer("Reviewed",edit:edit,expected:[f.path:b.text],workspace:w);w.changes.apply(w);XCTAssertEqual(b.text,"new\n")
+        b.base=b.text;b.hash="saved";b.savedGuard="confirmed-save";w.buffers.removeValue(forKey:f.path);b.file=FileNode(name:"files",path:"files",dir:false);w.buffers["files"]=b
+        let replacement=DocumentBuffer(file:f,text:FileText(path:f.path,content:"new\n",hash:"base"));w.buffers[f.path]=replacement
+        w.changes.open("undo",workspace:w);XCTAssertEqual(b.text,"old\n");XCTAssertEqual(replacement.text,"new\n");XCTAssertEqual(b.base,"new\n");w.changes.open("redo",workspace:w);XCTAssertEqual(b.text,"new\n")
+        w.buffers["alias.py"]=b;w.changes.open("undo",workspace:w);XCTAssertEqual(b.text,"new\n");XCTAssertTrue(w.changes.notice.contains("original source editors"));w.buffers.removeValue(forKey:"alias.py")
+        let foreign=DocumentBuffer(file:b.file,text:FileText(path:"files",content:b.text,hash:b.hash));w.buffers["files"]=foreign;w.changes.open("undo",workspace:w);XCTAssertEqual(foreign.text,"new\n");XCTAssertEqual(b.text,"new\n");XCTAssertTrue(w.changes.notice.contains("original source editors"))
+        w.buffers["files"]=b;w.changes.open("undo",workspace:w);XCTAssertEqual(b.text,"old\n");XCTAssertEqual(foreign.text,"new\n");XCTAssertEqual(replacement.text,"new\n")
+    }
+
     func testCleanupAndReviewedDraftRefuseEqualByteRevisionRenewal()async throws {
         let w=Workspace(),f=FileNode(name:"a.py",path:"a.py",dir:false),b=DocumentBuffer(file:FileNode(name:"a.py",path:"a.py",dir:false),text:FileText(path:"a.py",content:"old\n",hash:"base"));w.buffers[f.path]=b;w.show(f.path)
         let edit:[String:Any]=["changes":[languageURI(f.path):[["range":["start":["line":0,"character":0],"end":["line":0,"character":3]],"newText":"new"]]]]

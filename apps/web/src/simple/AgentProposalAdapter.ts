@@ -3,7 +3,7 @@ import type {AgentEditorContext} from '../api/agentTypes';
 import {captureResourceRoster,resourceBufferId,resourceWirePatches,publishResourceRestore,type ResourceRestoreReview,type ResourceEditorRoute,type ResourceReceipt} from './ResourceEditors';
 import {editorForBuffer} from './Document';
 import type {Buffer,Buffers} from './buffers';
-import {applyWorkspacePlan,workspaceSnapshots} from './WorkspaceChanges';
+import {captureDraftHistory,applyWorkspacePlan,workspaceSnapshots} from './WorkspaceChanges';
 import {planWorkspaceEdit,invertChangePlan,type ChangePlan,WorkspaceChangeHistory} from './ChangePlan';
 import {AgentProposalModel,proposalHash,type ProposalPorts,type PreparedProposal,type VerifiedProposal} from './AgentProposals';
 interface BrowserProposal extends PreparedProposal {draft?:ChangePlan;resource?:ResourceRestoreReview}
@@ -49,7 +49,7 @@ export function browserProposalPorts(buffers:Buffers,history:WorkspaceChangeHist
    if(textOnly){const draft=planWorkspaceEdit(value.intention.title,capture.edit,workspaceSnapshots(buffers));if(draft.patches.length!==patches.length||patches.some(patch=>!draft.patches.some(item=>item.path===patch.path&&item.before===patch.before!.text&&item.after===patch.after!.text)))throw Error('The exact captured edit does not describe every sealed source transition. No partial draft Apply is available.');return {proposal,kind:'draft',draft,current,after_hashes} as BrowserProposal;}
    const resource:ResourceRestoreReview={operation:'save',record:'',fingerprint:'',consequence:value.consequences.fingerprint,workspace:proposal.workspace,context:value.plan.context,facts:value.consequences,plan:value.plan,patches,saved:value.consequences.saved_sources,savedBefore:value.inputs.saved_sources,proposal:{capture,inputs:value.inputs,plan:value.plan},current,restoring:new Map()};return {proposal,kind:'namespace',resource,current,after_hashes} as BrowserProposal;
   },
-  draft:prepared=>{const selected=prepared as BrowserProposal;if(!selected.current()||!selected.draft)throw Error('The complete editor review is no longer current.');applyWorkspacePlan(buffers,selected.draft);history.record({kind:'draft',plan:invertChangePlan(selected.draft)});},
+  draft:prepared=>{const selected=prepared as BrowserProposal;if(!selected.current()||!selected.draft)throw Error('The complete editor review is no longer current.');applyWorkspacePlan(buffers,selected.draft);history.record(captureDraftHistory(buffers,invertChangePlan(selected.draft)));},
   publish:async prepared=>{const selected=prepared as BrowserProposal;if(!selected.current()||!selected.resource)throw Error('The complete resource review is no longer current.');const outcome=await publishResourceRestore(buffers,selected.resource,async<T>(path:string,body:unknown)=>{const receipt=await request<T>('POST',path,body);selected.publication=receipt as ResourceReceipt;return receipt;});history.record({kind:'resource',recovery:outcome.recovery});adopt(outcome.routes);}
  };
 }

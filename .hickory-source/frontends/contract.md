@@ -226,6 +226,29 @@ Coordinated draft history still needs its separate target identity and revision
 audit: inverse text equality alone must not authorize a replacement editor. No
 full safe-change parity is claimed by this implementation checkpoint.
 
+## Identity-bound coordinated draft history, 2026-11-17
+
+Draft inverses now retain their original editor bindings. A fresh synchronous
+Undo/Redo resolves each editor’s unique current source address and validates the
+complete current preimage before changing drafts. This follows the same editor
+through Save As or a guarded namespace move without authorizing an independent
+editor that reused the former path. Lost or ambiguous bindings refuse without
+consuming the history step. Ordinary Save and late capability metadata preserve
+text history; unlike a held asynchronous proposal, this fresh command acquires
+current draft authority and never writes saved files. Provider, agent, conflict
+and local-history draft producers use the same model.
+
+Local browser/native cases cover Save metadata, a moved literal source named
+`files`, reused old paths, aliases, foreign handles and retry after restoring the
+original owner. Browser type checking and 57 focused browser tests pass. Real
+engine source-history flows pass on browser, Apple and Android, including deleted
+source restoration, native Undo/Redo, guarded Save As and coordinated inverses at
+the new address without materializing the old source or changing saved bytes.
+Apple exercises a mounted native editor; Android exercises its native controller.
+Physical input and accessibility remain unverified. The separate asynchronous
+collector authority fixes and provider contributor work have their own pending
+integration evidence and are not established by these history checks.
+
 ## Current integration ledger
 
 This ledger reconciles the required outcome with the implementation inspected on

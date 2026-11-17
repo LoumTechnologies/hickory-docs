@@ -134,6 +134,10 @@ import Darwin
         let missingRestored=await space.sourceHistory.restore();XCTAssertTrue(missingRestored,space.sourceHistory.notice);XCTAssertEqual(buffer.text,copied);XCTAssertTrue(buffer.unmaterializedHistoryDraft);XCTAssertNil(buffer.savedGuard);XCTAssertFalse(FileManager.default.fileExists(atPath:missingURL.path))
         manager.undo();XCTAssertEqual(buffer.text,missingDraft);manager.redo();XCTAssertEqual(buffer.text,copied);XCTAssertFalse(FileManager.default.fileExists(atPath:missingURL.path));XCTAssertEqual(buffer.sourceEditorState?()?.identity,identity);XCTAssertEqual(scroll.convert(scroll.bounds,to:host),geometry)
         space.chooseFileCommand("Save As");space.filePath="recovered λ%2F?#.txt";await space.performFileCommand();XCTAssertEqual(buffer.file.path,"recovered λ%2F?#.txt",space.status);XCTAssertFalse(buffer.unmaterializedHistoryDraft);XCTAssertFalse(FileManager.default.fileExists(atPath:missingURL.path));XCTAssertEqual(try String(contentsOf:URL(fileURLWithPath:workspace).appendingPathComponent(buffer.file.path),encoding:.utf8),copied)
+        let recoveredURL=URL(fileURLWithPath:workspace).appendingPathComponent(buffer.file.path)
+        space.changes.open("undo",workspace:space);XCTAssertEqual(buffer.text,missingDraft,space.changes.notice);XCTAssertEqual(try String(contentsOf:recoveredURL,encoding:.utf8),copied);XCTAssertFalse(FileManager.default.fileExists(atPath:missingURL.path))
+        space.changes.open("redo",workspace:space);XCTAssertEqual(buffer.text,copied,space.changes.notice);XCTAssertEqual(try String(contentsOf:recoveredURL,encoding:.utf8),copied);XCTAssertEqual(buffer.sourceEditorState?()?.identity,identity);XCTAssertEqual(scroll.convert(scroll.bounds,to:host),geometry)
+
     }
     #endif
 }

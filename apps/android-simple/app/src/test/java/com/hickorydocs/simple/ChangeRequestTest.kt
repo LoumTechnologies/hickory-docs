@@ -5,6 +5,15 @@ import kotlinx.coroutines.*
 import org.json.JSONObject
 import org.json.JSONArray
 class ChangeRequestTest {
+ @Test fun workspaceHistoryFollowsOriginalEditorsAcrossSaveAndAddressChanges()=runBlocking {
+  val w=Workspace(this);val f=FileNode("a.py","a.py",false,emptyList(),null,null);val b=DocumentBuffer(f,FileText("old\n","base"));w.buffers[f.path]=b;w.show(f.path)
+  val edit=JSONObject().put("changes",JSONObject().put(languageURI(f.path),JSONArray().put(JSONObject().put("range",JSONObject().put("start",JSONObject().put("line",0).put("character",0)).put("end",JSONObject().put("line",0).put("character",3))).put("newText","new"))))
+  w.changes.offer("Reviewed",edit,mapOf(f.path to b.text),w);w.changes.apply(w);assertEquals("new\n",b.text);b.base=b.text;b.hash="saved";b.saveGuard="confirmed-save";w.buffers.remove(f.path);b.file=FileNode("files","files",false,emptyList(),null,null);w.buffers["files"]=b
+  val replacement=DocumentBuffer(f,FileText("new\n","base"));w.buffers[f.path]=replacement;w.changes.open("undo",w);assertEquals("old\n",b.text);assertEquals("new\n",replacement.text);assertEquals("new\n",b.base);w.changes.open("redo",w);assertEquals("new\n",b.text)
+  w.buffers["alias.py"]=b;w.changes.open("undo",w);assertEquals("new\n",b.text);assertTrue(w.changes.notice.contains("original source editors"));w.buffers.remove("alias.py")
+  val foreign=DocumentBuffer(b.file,FileText(b.text,b.hash));w.buffers["files"]=foreign;w.changes.open("undo",w);assertEquals("new\n",foreign.text);assertEquals("new\n",b.text);assertTrue(w.changes.notice.contains("original source editors"));w.buffers["files"]=b;w.changes.open("undo",w);assertEquals("old\n",b.text);assertEquals("new\n",foreign.text);assertEquals("new\n",replacement.text)
+ }
+
  @Test fun cleanupAndReviewedDraftRefuseEqualByteRevisionRenewal()=runBlocking {
   val w=Workspace(this);val f=FileNode("a.py","a.py",false,emptyList(),null,null);val b=DocumentBuffer(f,FileText("old\n","base"));w.buffers[f.path]=b;w.show(f.path)
   val edit=JSONObject().put("changes",JSONObject().put(languageURI(f.path),org.json.JSONArray().put(JSONObject().put("range",JSONObject().put("start",JSONObject().put("line",0).put("character",0)).put("end",JSONObject().put("line",0).put("character",3))).put("newText","new"))))

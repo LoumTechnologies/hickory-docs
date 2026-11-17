@@ -53,7 +53,7 @@ import { api,request } from "../api/client";
 import { PlainDebugHosts,hasActivePlainDebugSession,retirePlainDebugIdentity } from "../debug/plainDebugHosts";
 import { onOpenLocation, openLocation, revealLine } from "../lib/revealLine";
 import type { FileNode } from "../api/types";
-import { Buffer, Buffers, createSourceCopy } from "./buffers";
+import { Buffer, Buffers, createSourceCopy,adoptCreatedDraft } from "./buffers";
 import { RichOwners } from "./RichInline";
 import { enterMode, type EnterMode } from "./SmartEnter";
 import { Document, semanticQueries, openSemanticQuery, openFind, wordNavigationMode, type WordNavigationMode } from "./Document";
@@ -150,12 +150,14 @@ export function App() {
     source.saving = true; source.publish();
     try {
       const copy=await createSourceCopy(buffers,source,path,request,current);
-      await open(copy.file);
-      // Existing sources keep their editor, selection and undo. A deleted or
-      // unnamed tombstone can retire only after its exact text was copied.
-      if(source.resourceDeleted||source.isUntitledDraft){
-        if(hasActivePlainDebugSession(source)){retainedTabs.noteCopy(source,text);setNotice("Copy saved. The original launch source remains readable until its debugger closes.");}
-        else {const tabs=groups(liveLayout.current).flatMap(group=>group.tabs).filter(tab=>bufferForTab(tab)===source);if(retireCopiedBuffer(buffers,source,text)){retirePlainDebugIdentity(source);retainedTabs.retire(source);setLayout(current=>tabs.reduce((next,tab)=>remove(next,tab),current));}}
+      if((source.resourceDeleted||source.isUntitledDraft)&&!hasActivePlainDebugSession(source)){
+        const tabs=groups(liveLayout.current).flatMap(group=>group.tabs).filter(tab=>bufferForTab(tab)===source);
+        adoptCreatedDraft(buffers,source,copy,current);retirePlainDebugIdentity(source);retainedTabs.retire(source);
+        const routes=tabs.map(from=>({identity:source.sourceId,from,to:sourceTab(source.file.path),before:text,after:text,editor:source}));
+        requested.current.clear();const next=resourceLayout(liveLayout.current,routes,resourcePlacements.current);liveLayout.current=next;setLayout(next);await open(source.file);
+      }else{
+        await open(copy.file);
+        if(source.resourceDeleted||source.isUntitledDraft){retainedTabs.noteCopy(source,text);setNotice("Copy saved. The original launch source remains readable until its debugger closes.");}
       }
       void loadFiles();
 

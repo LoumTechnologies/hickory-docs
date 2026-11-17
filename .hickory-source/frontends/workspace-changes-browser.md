@@ -17,6 +17,8 @@ Reviewed capabilities can offer a complete source proposal without a language pr
 
 File-wide diagnostic fixes use the explicit `source.fixAll` family and existing whole-action review. Request the complete source range, retain only classified complete actions, and requery that same family after source acquisition. No offered action reports unavailable, and individual quick fixes are never merged. Source revision changes retire the original review even when Undo restores equal bytes.
 
+A pending proposal keeps its original revision lease. A fresh synchronous Undo/Redo instead binds the inverse to its original editor objects and resolves each unique current address immediately before complete preimage validation. This follows the same editor through Save As and guarded namespace moves, while refusing an independent handle that reused the old path. Ordinary Save and late capability metadata do not discard text history: history never writes saved files, and current writability and composition still preflight the whole batch. Reading the inverse and committing it contain no await.
+
 <ui:copy id="simple-browser-workspace-changes">
 import { useEffect, useRef, useState } from "react";
 import {api,request} from "../api/client";
@@ -35,11 +37,21 @@ import { utf16ToPosition } from "../lsp/positions";
 import type { CodeAction } from "../lsp/client";
 import type { Buffer, Buffers } from "./buffers";
 import { semanticLocations, semanticPath } from "./Intelligence";
-import { WorkspaceChangeHistory,type WorkspaceHistoryToken,providerActionPaths,validateReferencedTargets, planWorkspaceEdit, invertChangePlan, validateChangePlan, type SourceSnapshot, type ChangePlan } from "./ChangePlan";
+import { WorkspaceChangeHistory,type WorkspaceHistoryToken,providerActionPaths,validateReferencedTargets, planWorkspaceEdit, invertChangePlan, validateChangePlan, type SourceSnapshot, type ChangePlan, type WorkspaceHistoryEntry } from "./ChangePlan";
 import {workspaceChangeEventName as eventName,type ChangeCommand} from "./WorkspaceChangeEvents";
 export type {ChangeCommand} from "./WorkspaceChangeEvents";
 export function fileWideFixActions(actions:CodeAction[]):CodeAction[]{return actions.filter(action=>typeof action.kind==="string"&&(action.kind==="source.fixAll"||action.kind.startsWith("source.fixAll.")));}
 export function workspaceSnapshots(buffers: Buffers): Map<string, SourceSnapshot> { return new Map([...buffers.values].map(([path, buffer]) => [path, { text: buffer.text, writable: !buffer.readonly && !buffer.saving && !buffer.transient }])); }
+export function captureDraftHistory(buffers:Buffers,plan:ChangePlan):WorkspaceHistoryEntry {
+ const sealed={...plan,patches:plan.patches.map(patch=>({...patch,edits:patch.edits.map(edit=>({...edit}))}))},namespace=buffers.workspace,workspace=buffers.workspaceId,targets=sealed.patches.map(patch=>({patch,buffer:buffers.values.get(patch.path)}));
+ return {kind:'draft',plan:sealed,read:()=>{
+  const refuse=()=>{throw new Error('Workspace history no longer owns the original source editors. Drafts were retained.');};
+  if(buffers.workspace!==namespace||buffers.workspaceId!==workspace||!targets.length)refuse();
+  const patches=targets.map(({patch,buffer})=>{if(!buffer||(!!buffer.namespace&&buffer.namespace!==namespace)||buffer.readonly||buffer.saving||buffer.transient)refuse();const addresses=[...buffers.values].filter(([,owner])=>owner===buffer);if(addresses.length!==1||addresses[0][0]!==buffer!.file.path)refuse();return {...patch,path:addresses[0][0]};});
+  if(new Set(patches.map(patch=>patch.path)).size!==patches.length)refuse();
+  const current={...sealed,patches},failure=validateChangePlan(current,workspaceSnapshots(buffers));if(failure)throw new Error(failure);return current;
+ }};
+}
 export function applyWorkspacePlan(buffers: Buffers, plan: ChangePlan): void {
   const refusal = validateChangePlan(plan, workspaceSnapshots(buffers)); if (refusal) throw new Error(refusal);
   const prepared: { buffer: Buffer; after: string; view?: EditorView; transaction?: Transaction }[] = [];
@@ -128,7 +140,7 @@ export function WorkspaceChanges({ buffers, current, focus,files,adoptResources,
         const token=history.preview(next);
         if (!token) { setNotice(`No workspace change to ${next}.`); return; }
         if(token.entry.kind==='resource'){void prepareHistory(token,ticket.current);return;}
-        try { const target=token.entry.plan;applyWorkspacePlan(buffers, target);history.commit(token,{kind:'draft',plan:invertChangePlan(target)});setNotice(`Workspace ${next} applied to ${target.patches.length} drafts. Not saved or verified.`); }
+        try { const target=history.readDraft(token);applyWorkspacePlan(buffers, target);history.commit(token,captureDraftHistory(buffers,invertChangePlan(target)));setNotice(`Workspace ${next} applied to ${target.patches.length} drafts. Not saved or verified.`); }
         catch (error) { setNotice(String(error)); }
       }
     };
@@ -228,7 +240,7 @@ export function WorkspaceChanges({ buffers, current, focus,files,adoptResources,
   }
   function apply() {
     if (!plan) return;
-    try { if (!captured.current?.current()) throw new Error("Source, selection or provider changed. Prepare the proposal again."); applyWorkspacePlan(buffers, plan); history.record({kind:'draft',plan:invertChangePlan(plan)}); setPlan(null); setNotice(`Applied ${plan.patches.length} source drafts. Not saved or verified. Use Save All after reviewing; Undo workspace change restores this batch.`); }
+    try { if (!captured.current?.current()) throw new Error("Source, selection or provider changed. Prepare the proposal again."); applyWorkspacePlan(buffers, plan); history.record(captureDraftHistory(buffers,invertChangePlan(plan))); setPlan(null); setNotice(`Applied ${plan.patches.length} source drafts. Not saved or verified. Use Save All after reviewing; Undo workspace change restores this batch.`); }
     catch (error) { setNotice(String(error)); }
   }
 </ui:copy>
@@ -317,6 +329,8 @@ it('refuses a newly loaded target edited and undone before acquisition returns',
 });
 it('keeps reviewed drafts bound to the original equal-byte revision through approval',async()=>{const {buffer}=fixture([]);act(()=>requestWorkspaceProposal('Reviewed',action().edit,new Map([['a.py',buffer.text]])));await screen.findByRole('button',{name:'Apply to source drafts'});buffer.edit('later');buffer.edit('old\n');fireEvent.click(screen.getByRole('button',{name:'Apply to source drafts'}));await screen.findByText(/Source, selection or provider changed/);expect(buffer.text).toBe('old\n');});
 it('does not renew cleanup authority after an edit and equal-byte Undo',async()=>{const {buffer}=fixture([]);mocks.request.mockImplementationOnce(async()=>{buffer.edit('later');buffer.edit('old\n');return action().edit;});act(()=>requestWorkspaceChange('cleanup'));fireEvent.click(screen.getByRole('button',{name:'Prepare cleanup'}));await screen.findByText(/Source or selection changed/);expect(screen.queryByRole('button',{name:'Apply to source drafts'})).toBeNull();expect(buffer.text).toBe('old\n');});
+it('follows the original editor through Save metadata and a literal utility-like source name',async()=>{const {buffer,buffers}=fixture([action()]);await prepare();fireEvent.click(await screen.findByRole('button',{name:'Complete file fix'}));fireEvent.click(await screen.findByRole('button',{name:'Apply to source drafts'}));expect(buffer.text).toBe('new\n');buffer.base=buffer.text;buffer.hash='saved';buffer.saveGuard='confirmed-save';buffer.sourceRevision++;buffers.values.delete('a.py');buffer.file={path:'files',name:'files',dir:false};buffers.values.set('files',buffer);const replacement=new Buffer({path:'a.py',name:'a.py',dir:false},'new\n','base',()=>{});buffers.values.set('a.py',replacement);act(()=>requestWorkspaceChange('undo'));expect(buffer.text).toBe('old\n');expect(buffer.base).toBe('new\n');expect(replacement.text).toBe('new\n');act(()=>requestWorkspaceChange('redo'));expect(buffer.text).toBe('new\n');
+ buffers.values.set('alias.py',buffer);act(()=>requestWorkspaceChange('undo'));await screen.findByText(/history no longer owns the original source editors/);expect(buffer.text).toBe('new\n');buffers.values.delete('alias.py');const foreign=new Buffer(buffer.file,buffer.text,buffer.hash,()=>{});buffers.values.set('files',foreign);act(()=>requestWorkspaceChange('undo'));expect(foreign.text).toBe('new\n');expect(buffer.text).toBe('new\n');buffers.values.set('files',buffer);act(()=>requestWorkspaceChange('undo'));expect(buffer.text).toBe('old\n');expect(foreign.text).toBe('new\n');expect(replacement.text).toBe('new\n');});
 </ui:copy>
 <ui:file path="apps/web/src/simple/WorkspaceChanges.test.tsx"><ui:paste select="#bulk-fix-browser-tests"/></ui:file>
 </ui:doc>
