@@ -3,9 +3,14 @@
 import argparse,importlib.util,json,os,re,socket,subprocess,tempfile,time,xml.etree.ElementTree as ET
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
+# The new-file refactoring is a namespace proposal. Its explicit Save and both
+# reviewed inverse publications exercise source/draft separation, rather than
+# treating a newly created file as an ordinary draft-only action.
 CASES=[
+ {'path': 'crlf-extract.ts', 'source': '// 😀 retained line endings\r\nfunction greetCR(name: string) { return "Hello " + name; }\r\nconsole.log(greetCR("Ada"));\r\n', 'selection': '"Hello " + name', 'title': "Extract to inner function in function 'greetCR'", 'expected': 'function newFunction'},
  {'path':'extract.ts','source':'function greet(name: string) { return "Hello " + name; }\nconsole.log(greet("Ada"));\n','selection':'"Hello " + name','title':"Extract to inner function in function 'greet'",'expected':'function newFunction'},
  {'path':'accessor.ts','source':'class Person { name = "Ada"; }\nconst person = new Person();\nconsole.log(person.name);\n','selection':'name','title':"Generate 'get' and 'set' accessors",'expected':'get name()'},
+ {'path': 'move.ts', 'source': 'function relocate(name: string) { return "Hello " + name; }\nconsole.log(relocate("Ada"));\n', 'selection': 'function relocate(name: string) { return "Hello " + name; }', 'title': 'Move to a new file', 'expected': 'import { relocate }', 'resources': 'yes', 'created': 'relocate.ts'},
  {'path':'cleanup.ts','source':'import { unused, useful } from "./library";\nconsole.log(useful);\n','selection':'unused','title':'Remove Unused Imports','expected':'import { useful }','command':'symbol.sourceActions','menu':'Preview source cleanup and generation','prepare':'Prepare source actions'},
 ]
 def main():
@@ -28,11 +33,19 @@ def main():
    if args.host=='browser':
     vite=fixture.start(['node','node_modules/vite/bin/vite.js','--config','vite.simple.config.ts','--host','127.0.0.1','--port',str(port),'--strictPort'],cwd=ROOT/'apps/web',env={**env,'HICKORY_API_ORIGIN':origin});processes.append(vite);driver=fixture.BrowserDriver(fixture.origin(vite)+'/simple.html')
     for case in CASES:
-     path=case['path'];draft=case['source']+'// retained dirty\n';start=draft.index(case['selection']);driver.act('open',path=path);driver.act('remember-editor',path=path);driver.act('construction-set-source',path=path,source=draft);position=driver.act('editor-position',path=path,anchor=start,head=start+len(case['selection']));size=driver.act('editor-size',path=path);driver.act('change-open',command=case.get('menu','Refactor and quick fixes'));deadline=time.monotonic()+30
+     path=case['path'];draft=case['source']+'// retained dirty\n';start=len(draft[:draft.index(case['selection'])].encode('utf-16-le'))//2;driver.act('open',path=path);driver.act('remember-editor',path=path);driver.act('construction-set-source',path=path,source=draft);position=driver.act('editor-position',path=path,anchor=start,head=start+len(case['selection'].encode('utf-16-le'))//2);size=driver.act('editor-size',path=path);driver.act('change-open',command=case.get('menu','Refactor and quick fixes'));deadline=time.monotonic()+30
      while case['title'] not in (reading:=driver.act('change-prepare',command=case.get('prepare','Prepare provider actions'))):
       assert time.monotonic()<deadline,reading;time.sleep(.05)
-     driver.act('action-choose',title=case['title']);assert driver.act('construction-source',path=path)==draft;assert driver.act('editor-position',path=path)==position;assert driver.act('editor-size',path=path)==size;driver.act('change-apply');driver.act('change-close');changed=driver.act('construction-source',path=path);assert case['expected'] in changed and '// retained dirty' in changed,changed;(artifacts/path).write_text(changed)
-     driver.act('change-open',command='Undo workspace change');driver.act('change-close');assert driver.act('construction-source',path=path)==draft;driver.act('change-open',command='Redo workspace change');driver.act('change-close');assert driver.act('construction-source',path=path)==changed;assert driver.act('editor-is-retained',path=path) and driver.act('editor-size',path=path)==size
+     driver.act('action-choose',title=case['title'],resources=bool(case.get('resources')));assert driver.act('construction-source',path=path)==draft;assert (root/path).read_bytes().decode('utf-8')==case['source'];assert not case.get('created') or not(root/case['created']).exists();assert driver.act('editor-position',path=path)==position;assert driver.act('editor-size',path=path)==size;driver.act('change-resource-save' if case.get('resources') else 'change-apply');driver.act('change-close');changed=driver.act('construction-source',path=path);assert case['expected'] in changed and '// retained dirty' in changed,changed;(artifacts/path).write_text(changed)
+     driver.act('change-open',command='Undo workspace change');
+     if case.get('resources'):driver.act('change-resource-ready');driver.act('change-resource-save')
+     driver.act('change-close');assert driver.act('construction-source',path=path)==draft;
+     if case.get('resources'):assert (root/path).read_bytes().decode('utf-8')==case['source'] and not(root/case['created']).exists()
+     driver.act('change-open',command='Redo workspace change');
+     if case.get('resources'):driver.act('change-resource-ready');driver.act('change-resource-save')
+     driver.act('change-close');assert driver.act('construction-source',path=path)==changed;assert driver.act('editor-is-retained',path=path) and driver.act('editor-size',path=path)==size
+     if case.get('created'):
+      driver.act('open',path=case['created']);(artifacts/case['created']).write_text(driver.act('construction-source',path=case['created']))
    else:
     env.update(HICKORY_REFACTOR_ORIGIN=origin,HICKORY_REFACTOR_WORKSPACE=str(root),HICKORY_REFACTOR_ARTIFACTS=str(artifacts));name='testGenuineExtractAndGenerationKeepDirtyEditorAndHistory' if args.host=='apple' else 'genuineExtractAndGenerationKeepDirtyEditorAndHistory';report=folder/'native.xml'
     if args.host=='apple':command=['swift','test','--jobs','2','--package-path','apps/apple-simple','--scratch-path','target/apple-simple-spm','--filter','ProviderRefactorTests.'+name+'$','--xunit-output',str(report)]+(['--skip-build'] if args.skip_build else [])
@@ -44,9 +57,10 @@ def main():
      rows=list(ET.parse(report).getroot().iter('testcase'));assert len(rows)==1 and rows[0].get('name','').split('(')[0]==name and not any(rows[0].find(key) is not None for key in ['failure','error','skipped']),str(report)
     else:assert args.host=='apple' and 'Executed 1 test, with 0 failures' in log.read_text() and re.search(re.escape(name)+r'.*passed',log.read_text()) and 'Test skipped' not in log.read_text()
    for case in CASES:
-    assert (root/case['path']).read_text()==case['source'];assert case['expected'] in (artifacts/case['path']).read_text()
-   result=subprocess.run(['node',str(compiler),'--noEmit','--strict','--target','ES2022','--module','ESNext','--moduleResolution','bundler','--ignoreConfig',*[str(artifacts/case['path']) for case in CASES]],capture_output=True,text=True,timeout=60);assert result.returncode==0,result.stdout+result.stderr
-   assert not (root/'.hick-cache').exists();print('PASS '+args.host+': genuine extract, accessor generation and semantic source cleanup, edits-only preview, retained dirty editor/history, unchanged saved sources and TypeScript-checked resulting drafts; physical input/accessibility remains unverified.')
+    assert case.get('resources') or (root/case['path']).read_bytes().decode('utf-8')==case['source'];assert case['expected'] in (artifacts/case['path']).read_text()
+    if case.get('created'):assert (root/case['created']).is_file() and (artifacts/case['created']).is_file()
+   result=subprocess.run(['node',str(compiler),'--noEmit','--strict','--target','ES2022','--module','ESNext','--moduleResolution','bundler','--ignoreConfig',*[str(artifacts/name) for case in CASES for name in [case['path']]+([case['created']] if case.get('created') else [])]],capture_output=True,text=True,timeout=60);assert result.returncode==0,result.stdout+result.stderr
+   cache=root/'.hick-cache';assert {child.name for child in cache.iterdir()}=={'resource-changes'};records=list((cache/'resource-changes').iterdir());assert len(records)==3*sum(bool(case.get('resources')) for case in CASES);assert all(record.is_dir() and not record.is_symlink() and (record/'manifest.json').is_file() for record in records);print('PASS '+args.host+': genuine extraction, generation, cleanup and move to a new file; guarded resource publication and inverse/redo; retained dirty editor/history and TypeScript-checked resulting drafts; physical input/accessibility remains unverified.')
   finally:
    if driver:driver.close()
    for process in reversed(processes):fixture.stop(process)

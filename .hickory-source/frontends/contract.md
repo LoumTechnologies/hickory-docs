@@ -32,7 +32,7 @@ an earlier open item only for the behavior it actually exercises.
 | Required outcome | Current usable evidence and remaining acceptance |
 | --- | --- |
 | Navigation and code intelligence | Existing source-bound navigation and provider receipts remain in force. Browser mixed-line-ending source/view coordination now has rendered provider and history acceptance; full completion context and embedded-language breadth remain open. |
-| Refactoring, cleanup, generation, templates and history | Rename, formatting, genuine TypeScript extraction/accessor generation/cleanup and coordinated history have focused host receipts. Genuine move-to-new-file publication is being added. Bounded transform parsing/evaluation are foundations; full context, production transform activation and multi-caret templates remain open. |
+| Refactoring, cleanup, generation, templates and history | Rename, formatting, genuine TypeScript extraction/accessor generation/cleanup and coordinated history have focused host receipts. Genuine TypeScript move-to-new-file review, publication and inverse/redo now have all-three-host receipts. Bounded transform parsing/evaluation are foundations; full context, production transform activation and multi-caret templates remain open. |
 | Diagnostics and contextual fixes | Existing source-bound Problems/fix receipts remain scoped to their stated providers and paths. A command or backend implementation alone is not further acceptance. |
 | Testing and coverage | Retained sessions/results and supported collector receipts below remain scoped evidence. Exact JavaScript collection/rerun integration now has31 focused collector cases and11 fresh-engine Vitest flows; the retained-result race is corrected. Earlier native provider receipts retain their stated revisions. |
 | Review, staging, attribution, conflicts and recovery | Existing Git/native conflict receipts remain in force. Complete32-session recovery management and three exact revisions now have service/browser/macOS/Android-controller receipts. Explicit canonical construction-entry transitions remain open. |
@@ -1948,5 +1948,27 @@ resource publication/inverse/redo, CRLF and supplementary Unicode, retained edit
 state and separate resulting-draft compilation. This is controller/transport
 acceptance; rendered Android, physical input and assistive technology remain
 unverified.
+
+## Publish and reverse a genuine provider move into a new file
+
+The TypeScript read-only adapter now recognizes the native singleton zero-position
+new-file sentinel without an `isNewFile` flag. It produces an ordered creation and
+text edit for shared acquisition; it never creates a file while resolving. Mixed
+or repeated sentinel edits and an explicit contradictory existing-file marker
+refuse the complete reading. Current missing-destination, ownership and permission
+guards still authorize publication separately.
+
+Executed evidence (2026-11-17): six focused decoder cases pass. Five genuine
+provider cases pass through browser, mounted macOS and Android controller/state:
+CRLF/supplementary-Unicode extraction, ordinary extraction, accessor generation,
+move to a new file and source cleanup. Preview leaves saved source unchanged.
+The move explicitly saves the reviewed namespace; reviewed Undo restores the
+original saved source and dirty draft while removing the destination, and reviewed
+Redo republishes it. All three flows preserve the original editor identity/state
+and coordinated history. Resulting drafts separately pass the TypeScript compiler;
+three retained namespace journals account for Save/inverse/redo. Android's shutdown
+race exposed by this flow is covered by the preceding transport receipt. Other
+provider move variants and physical/device/accessibility acceptance are not
+established by these cases.
 
 </ui:doc>
