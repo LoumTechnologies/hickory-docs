@@ -286,6 +286,22 @@ pass, including plain versus literate acknowledgement rules. Physical input,
 assistive technology and device IME remain unverified. Installed LLDB launch and
 attach acceptance remains a separate ongoing slice; discovery does not certify it.
 
+## Installed LLDB launch and explicit PID attach, 2026-11-17
+
+Installed adapter discovery now resolves the available Xcode command-line
+`lldb-dap` through its platform tool lookup when it is absent from PATH. Nine
+focused discovery cases and six owned actual flows pass: launch and explicit PID
+attach through browser controls and Apple/Android integrated controllers. Each
+native flow executes exactly one acceptance case without a skip. The canonical
+compiled C fixture stops at its source breakpoint, evaluates its local value and
+preserves saved source; detach permits the owned target's heartbeat to advance.
+
+These receipts certify that compiled canonical C artifact and PID provider path.
+They do not certify C++/Rust toolchains, arbitrary external processes, device
+attachment, relocated or aliased precompiled symbols, or every adapter family.
+Relocated symbols require the provider's source mapping configuration and remain
+unverified. Native pointer input, IME and assistive technology remain unexecuted.
+
 ## Current integration ledger
 
 This ledger reconciles the required outcome with the implementation inspected on

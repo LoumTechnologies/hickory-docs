@@ -72339,6 +72339,39 @@
       "fragments": [
         "source-preparation-ack-android-tests"
       ]
+    },
+    "scripts/test-installed-lldb-browser.py": {
+      "source": ".hickory-source/frontends/installed-lldb-acceptance.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "94db1426a1ca31d7a519e9fd98be0a656d8414bcfd00de1f9ffc2f0923356190",
+      "construction": "fragments",
+      "fragments": [
+        "installed-lldb-owned-browser-runner"
+      ]
+    },
+    "apps/apple-simple/Tests/InstalledLLDBTests.swift": {
+      "source": ".hickory-source/frontends/installed-lldb-acceptance.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "343d98aa59900f3b94522ac218ce83e4876b658793cf50dd912b33eea902dc68",
+      "construction": "fragments",
+      "fragments": [
+        "installed-lldb-apple-tests"
+      ]
+    },
+    "apps/android-simple/app/src/test/java/com/hickorydocs/simple/InstalledLLDBTest.kt": {
+      "source": ".hickory-source/frontends/installed-lldb-acceptance.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "5cb367ffba0f82eabff9ff3d9fc037cccacfd52565c60708ef3dd2631d7e1aee",
+      "construction": "fragments",
+      "fragments": [
+        "installed-lldb-android-tests"
+      ]
     }
   },
   "evidence_records": [

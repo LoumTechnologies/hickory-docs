@@ -156099,6 +156099,27 @@
       "page": ".hickory-source/frontends/source-preparation-ack-native.md",
       "symbol": "source preparation ack android tests",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "installed-lldb-owned-browser-runner",
+      "output": "scripts/test-installed-lldb-browser.py",
+      "page": ".hickory-source/frontends/installed-lldb-acceptance.md",
+      "symbol": "installed lldb owned browser runner",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "installed-lldb-apple-tests",
+      "output": "apps/apple-simple/Tests/InstalledLLDBTests.swift",
+      "page": ".hickory-source/frontends/installed-lldb-acceptance.md",
+      "symbol": "installed lldb apple tests",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "installed-lldb-android-tests",
+      "output": "apps/android-simple/app/src/test/java/com/hickorydocs/simple/InstalledLLDBTest.kt",
+      "page": ".hickory-source/frontends/installed-lldb-acceptance.md",
+      "symbol": "installed lldb android tests",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

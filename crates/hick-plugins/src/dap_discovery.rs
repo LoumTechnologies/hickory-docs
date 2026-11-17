@@ -175,7 +175,7 @@ fn resolve(candidate: &Candidate, root: &Path, project_only: bool) -> Option<Dis
             let path = if project_only {
                 search(&project_dirs(root), bin)?
             } else {
-                search(&machine_dirs(), bin)?
+                search(&machine_dirs(), bin).or_else(|| selected_developer_adapter(bin))?
             };
             Some(Discovered {
                 command: once(path)
@@ -385,6 +385,37 @@ fn machine_dirs() -> Vec<PathBuf> {
     dirs
 }
 
+/// Consult the selected Apple developer tools only after normal lookup failed.
+fn selected_developer_adapter(name: &str) -> Option<String> {
+    #[cfg(target_os = "macos")]
+    if name == "lldb-dap" {
+        let output = std::process::Command::new("/usr/bin/xcrun")
+            .args(["--find", "lldb-dap"])
+            .output()
+            .ok()?;
+        if output.status.success() {
+            return selected_developer_path(&output.stdout);
+        }
+    }
+    let _ = name;
+    None
+}
+
+#[cfg(target_os = "macos")]
+fn selected_developer_path(bytes: &[u8]) -> Option<String> {
+    use std::os::unix::fs::PermissionsExt as _;
+    let text = std::str::from_utf8(bytes)
+        .ok()?
+        .trim_end_matches(['\r', '\n']);
+    if text.contains(['\r', '\n']) {
+        return None;
+    }
+    let path = Path::new(text);
+    let metadata = path.metadata().ok()?;
+    (path.is_absolute() && metadata.is_file() && metadata.permissions().mode() & 0o111 != 0)
+        .then(|| text.to_owned())
+}
+
 fn ancestors_to_repo_root(root: &Path) -> Vec<PathBuf> {
     // A relative root has no ancestors worth walking — `.` climbs to `""` and
     // stops — so make it absolute first. Callers pass whatever the run was
@@ -440,6 +471,27 @@ mod tests {
     }
     use super::*;
     use std::fs;
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn selected_developer_lookup_accepts_only_one_absolute_executable() {
+        let root = tempfile::tempdir().unwrap();
+        executable(root.path(), "lldb-dap");
+        let path = root.path().join("lldb-dap");
+        let text = path.to_str().unwrap();
+        assert_eq!(
+            selected_developer_path(format!("{text}\n").as_bytes()).as_deref(),
+            Some(text)
+        );
+        assert!(selected_developer_path(b"relative/lldb-dap\n").is_none());
+        assert!(selected_developer_path(format!("{text}\n{text}\n").as_bytes()).is_none());
+        assert!(selected_developer_path(root.path().to_str().unwrap().as_bytes()).is_none());
+        use std::os::unix::fs::PermissionsExt as _;
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+        assert!(selected_developer_path(text.as_bytes()).is_none());
+        assert!(selected_developer_path(&[0xff]).is_none());
+        assert!(selected_developer_adapter("unregistered-adapter").is_none());
+    }
 
     fn executable(dir: &Path, name: &str) {
         executable_exiting(dir, name, 0);
