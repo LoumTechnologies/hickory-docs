@@ -198,7 +198,7 @@ struct ResourceWireProposal:Codable {var inputs:ResourceWireInputs;var capture:R
  guard unique.count<=4096 else{throw EngineError(message:"Retained source roster exceeds the bounded resource review. Preserve sources and choose a smaller workspace scope.")};var cost=0
  for buffer in unique where buffer.file.generated_by==nil {
   let bytes=buffer.text.utf8.count;guard bytes<=8*1024*1024,bytes<=16*1024*1024-cost else{throw EngineError(message:"Retained sources exceed the bounded resource review text capacity. Preserve them and choose a smaller scope.")};cost+=bytes
-  if buffer.resourceDeleted||buffer.file.path.hasPrefix("Untitled-")||buffer.file.path.hasPrefix("/"){unaddressed[buffer.id.uuidString]=buffer.text;continue}
+  if buffer.resourceDeleted||buffer.isUntitledDraft||buffer.file.path.hasPrefix("/"){unaddressed[buffer.id.uuidString]=buffer.text;continue}
   guard named[buffer.file.path]==nil else{throw EngineError(message:"Retained source names have ambiguous Unicode spellings; no source ownership was merged.")};named[buffer.file.path]=buffer.text;if let guardToken=buffer.savedGuard{guards[buffer.file.path]=guardToken}
  }
  return(named,unaddressed,guards)
@@ -213,6 +213,7 @@ struct ResourceWireRestoreRequest:Codable {var recovery_id:String;var inputs:Res
 struct ResourceWireRestoration:Decodable {var version:Int;var recovery_id:String;var recovery_fingerprint:String;var workspace:String;var context:String;var plan:ResourceWirePlan;var saved_before:[String:ResourceSaved];var saved_after:[String:ResourceSaved]}
 struct ResourceWirePrepared:Decodable {var version:Int;var restoration:ResourceWireRestoration;var consequences:ResourceWireFacts}
 struct ResourceRestorationReview {
+ let identity=UUID();var preflight:(()async throws->Void)?=nil;var published:((String)->Void)?=nil
  var request:ResourceWireRestoreRequest;var result:ResourceWirePrepared;var patches:[ResourceEditorPatch];var retained:[String:DocumentBuffer];var current:()->Bool;var save:ResourceWireProposal?=nil;var history:ResourceHistoryIntent?=nil
 }
 
@@ -230,6 +231,7 @@ Retain a unique pending request before sending a write. A lost or partial result
 @MainActor @Observable final class ResourceRestoration {
  private(set) var confirmedReceipt:ResourcePublication<FileNode>?
  var review:ResourceRestorationReview?;var notice="";var busy=false;var lastRecovery:String?;var selectedPath=0
+ private var admitting=false
  private var ticket=UUID();private var pending:(id:String,review:ResourceRestorationReview)?;private weak var publishingWorkspace:Workspace?
  var hasPending:Bool {pending != nil}
  var pendingRequest:String? {pending?.id}
@@ -339,9 +341,20 @@ Retain a unique pending request before sending a write. A lost or partial result
   let id=UUID(),epoch=workspace.sourceNavigationEpoch;ticket=id;busy=true
   do {let value:RecoveryReading=try await call(workspace,"GET","/api/changes/resource-recovery?id="+recoveryQuery(record));guard ticket==id,workspace.sourceNavigationEpoch==epoch,value.version==1,value.id==record,value.fingerprint.range(of:"^[0-9a-f]{64}$",options:.regularExpression) != nil else{throw EngineError(message:"Recovery identity or workspace changed.")};busy=false;await prepare(workspace,record:value)}catch{if ticket==id{busy=false;notice=error.localizedDescription}}
  }
+ func acceptSealed(_ workspace:Workspace,proposal:ResourceWireProposal,facts:ResourceWireFacts,current:@escaping()->Bool,preflight:@escaping()async throws->Void,published:@escaping(String)->Void)throws->UUID {
+  guard !busy,!hasPending,review==nil,current(),let saved=facts.saved_sources else{throw EngineError(message:"Finish the existing resource review before staging the complete intention.")}
+  let patches=try proposal.plan.editors();let local=workspace.captureResourceEditors(patches)
+  guard facts.context==proposal.plan.context,facts.workspace==proposal.inputs.workspace,Set(saved.keys.map(NativeSourceKey.init))==Set(patches.map{NativeSourceKey($0.path)}),patches.allSatisfy({p in p.before.map{exactUTF8(workspace.buffers[p.path]?.text,$0.text)} ?? (workspace.buffers[p.path]==nil)}) else{throw EngineError(message:"Complete sealed resource sources are not current.")}
+  let restoration=ResourceWireRestoration(version:1,recovery_id:"",recovery_fingerprint:"",workspace:proposal.inputs.workspace,context:proposal.plan.context,plan:proposal.plan,saved_before:proposal.inputs.saved_sources,saved_after:saved)
+  var next=ResourceRestorationReview(request:ResourceWireRestoreRequest(recovery_id:"",inputs:proposal.inputs,capture:proposal.capture),result:ResourceWirePrepared(version:1,restoration:restoration,consequences:facts),patches:patches,retained:[:],current:{current()&&local()},save:proposal)
+  next.preflight=preflight;next.published=published;review=next;return next.identity
+ }
  func publish(_ workspace:Workspace)async {
-  guard !busy,pending==nil,let value=review else{return}
+  guard !busy,!admitting,pending==nil,let value=review else{return}
   guard value.current() else{review=nil;notice="Source changed after review. Prepare restoration again.";return}
+  admitting=true;defer{admitting=false}
+  do{try await value.preflight?()}catch{notice=error.localizedDescription;return}
+  guard review?.identity==value.identity,value.current(),pending==nil,!busy else{notice="Complete review changed during final admission.";return}
   let id=UUID().uuidString.replacingOccurrences(of:"-",with:"").lowercased();pending=(id,value);confirmedReceipt=nil;publishingWorkspace=workspace;review=nil;busy=true
   defer{busy=false}
   do {
@@ -363,7 +376,7 @@ Retain a unique pending request before sending a write. A lost or partial result
   let recovery=try resourceRecoveryIdentity(receipt.outcome.recovery)
   _ = try workspace.adoptResourceReceipt(value.patches,receipt:receipt,request:id,workspace:value.result.restoration.workspace,context:value.request.capture.context,expected:value.result.restoration.saved_after,current:value.current,restoring:value.retained)
   workspace.changes.recordResourcePublication(recovery,intent:value.history)
-  pending=nil;lastRecovery=recovery;notice=value.save==nil ? "Restored confirmed saved baselines and retained dirty drafts. Prepare the inverse restoration to redo this operation.":"Saved the reviewed resource namespace. Use Undo workspace change to review its inverse. No tests were executed by this save."
+  pending=nil;lastRecovery=recovery;value.published?(recovery);notice=value.save==nil ? "Restored confirmed saved baselines and retained dirty drafts. Prepare the inverse restoration to redo this operation.":"Saved the reviewed resource namespace. Use Undo workspace change to review its inverse. No tests were executed by this save."
   Task {await workspace.refresh()}
  }
 }

@@ -155665,6 +155665,160 @@
       "page": ".hickory-source/guarantees/debugging/launch-profiles-choose-targets-within-the-viewed-project/contract.md",
       "symbol": "debug endpoint attach browser witness",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "agent-proposals-android-seal",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/AgentProposals.kt",
+      "page": ".hickory-source/frontends/agent-proposals-android.md",
+      "symbol": "agent proposals android seal",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "agent-proposals-android-controller",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/AgentProposals.kt",
+      "page": ".hickory-source/frontends/agent-proposals-android.md",
+      "symbol": "agent proposals android controller",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "agent-proposals-android-view",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/AgentProposals.kt",
+      "page": ".hickory-source/frontends/agent-proposals-android.md",
+      "symbol": "agent proposals android view",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "editor-recovery-model",
+      "output": "crates/hickory-cli/src/serve/editor_recovery.rs",
+      "page": ".hickory-source/mechanisms/editor-recovery.md",
+      "symbol": "editor recovery model",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "editor-recovery-storage",
+      "output": "crates/hickory-cli/src/serve/editor_recovery.rs",
+      "page": ".hickory-source/mechanisms/editor-recovery.md",
+      "symbol": "editor recovery storage",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "editor-recovery-routes",
+      "output": "crates/hickory-cli/src/serve/editor_recovery.rs",
+      "page": ".hickory-source/mechanisms/editor-recovery.md",
+      "symbol": "editor recovery routes",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "editor-recovery-tests",
+      "output": "crates/hickory-cli/src/serve/editor_recovery.rs",
+      "page": ".hickory-source/mechanisms/editor-recovery.md",
+      "symbol": "editor recovery tests",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "agent-proposals-browser-model",
+      "output": "apps/web/src/simple/AgentProposals.ts",
+      "page": ".hickory-source/frontends/agent-proposals-browser.md",
+      "symbol": "agent proposals browser model",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "agent-proposals-browser-adapter",
+      "output": "apps/web/src/simple/AgentProposalAdapter.ts",
+      "page": ".hickory-source/frontends/agent-proposals-browser.md",
+      "symbol": "agent proposals browser adapter",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "agent-proposals-browser-view",
+      "output": "apps/web/src/simple/AgentProposalView.tsx",
+      "page": ".hickory-source/frontends/agent-proposals-browser.md",
+      "symbol": "agent proposals browser view",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "agent-proposals-browser-tests",
+      "output": "apps/web/src/simple/AgentProposals.test.tsx",
+      "page": ".hickory-source/frontends/agent-proposals-browser.md",
+      "symbol": "agent proposals browser tests",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "agent-proposals-browser-real-engine",
+      "output": "scripts/test-agent-proposals-browser.py",
+      "page": ".hickory-source/frontends/agent-proposal-browser-witness.md",
+      "symbol": "agent proposals browser real engine",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "debug-attach-apple-tests",
+      "output": "apps/apple-simple/Tests/NativeDebugAttachTests.swift",
+      "page": ".hickory-source/frontends/debug-attach-apple.md",
+      "symbol": "debug attach apple tests",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "agent-proposals-browser-host-tests",
+      "output": "apps/web/src/simple/AgentProposals.test.tsx",
+      "page": ".hickory-source/frontends/agent-proposals-browser.md",
+      "symbol": "agent proposals browser host tests",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "agent-proposals-android-tests",
+      "output": "apps/android-simple/app/src/test/java/com/hickorydocs/simple/AgentProposalsTest.kt",
+      "page": ".hickory-source/frontends/agent-proposals-android.md",
+      "symbol": "agent proposals android tests",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "editor-recovery-service-witness",
+      "output": "scripts/test-editor-recovery-service.py",
+      "page": ".hickory-source/mechanisms/editor-recovery.md",
+      "symbol": "editor recovery service witness",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "agent-proposals-apple-seal",
+      "output": "apps/apple-simple/Sources/AgentProposals.swift",
+      "page": ".hickory-source/frontends/agent-proposals-apple.md",
+      "symbol": "agent proposals apple seal",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "agent-proposals-apple-controller",
+      "output": "apps/apple-simple/Sources/AgentProposals.swift",
+      "page": ".hickory-source/frontends/agent-proposals-apple.md",
+      "symbol": "agent proposals apple controller",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "agent-proposals-apple-view",
+      "output": "apps/apple-simple/Sources/AgentProposals.swift",
+      "page": ".hickory-source/frontends/agent-proposals-apple.md",
+      "symbol": "agent proposals apple view",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "agent-proposals-apple-tests",
+      "output": "apps/apple-simple/Tests/AgentProposalTests.swift",
+      "page": ".hickory-source/frontends/agent-proposals-apple.md",
+      "symbol": "agent proposals apple tests",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "debug-attach-android-policy",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/NativeDebugAttach.kt",
+      "page": ".hickory-source/frontends/debug-attach-android.md",
+      "symbol": "debug attach android policy",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "debug-attach-android-tests",
+      "output": "apps/android-simple/app/src/test/java/com/hickorydocs/simple/NativeDebugAttachTest.kt",
+      "page": ".hickory-source/frontends/debug-attach-android.md",
+      "symbol": "debug attach android tests",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

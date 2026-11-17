@@ -32,6 +32,9 @@ export class Buffer {
   sourceRevision=0;
   private listeners = new Set<() => void>();
   resourceDeleted = false;
+  isUntitledDraft = false;
+  private identity?:string;
+  get sourceId(){return this.identity??=crypto.randomUUID().replaceAll('-','');}
   constructor(public file: FileNode, content: string, hash: string, private shellChanged: () => void, readonly transient = false,public namespace = "") {
     this.text = this.base = content; this.hash = hash;
   }
@@ -124,7 +127,7 @@ export async function createSourceCopy(buffers:Buffers,source:Buffer,path:string
   if(!buffers.workspace||!/^[0-9a-f]{32}$/.test(buffers.workspaceId)||source.readonly||source.transient||!createRoster(buffers).includes(source))throw Error('The source or workspace has no current writable creation authority.');
   const owners=createRoster(buffers).map(buffer=>({buffer,file:buffer.file,path:buffer.file.path,text:buffer.text,base:buffer.base,hash:buffer.hash,guard:buffer.saveGuard,revision:buffer.sourceRevision,deleted:buffer.resourceDeleted,readonly:buffer.readonly,namespace:buffer.namespace,docId:buffer.file.doc_id,saving:buffer.saving}));
   const ownership_sources:Record<string,string>={},saved_guards:Record<string,string>={},unaddressed_sources:Record<string,string>={};
-  for(const o of owners){if(o.buffer!==source&&o.saving)throw Error('Wait for retained source saves before preparing Save As.');if(o.buffer.transient||o.readonly)continue;if(o.deleted||o.path.startsWith('Untitled-')){if(o.buffer!==source)unaddressed_sources[createDraftId(o.buffer)]=o.text;continue;}if(o.namespace!==buffers.workspace||!o.guard||Object.hasOwn(ownership_sources,o.path))throw Error('Every retained authored source needs an unambiguous guarded saved baseline before Save As.');ownership_sources[o.path]=o.text;saved_guards[o.path]=o.guard;}
+  for(const o of owners){if(o.buffer!==source&&o.saving)throw Error('Wait for retained source saves before preparing Save As.');if(o.buffer.transient||o.readonly)continue;if(o.deleted||o.buffer.isUntitledDraft){if(o.buffer!==source)unaddressed_sources[createDraftId(o.buffer)]=o.text;continue;}if(o.namespace!==buffers.workspace||!o.guard||Object.hasOwn(ownership_sources,o.path))throw Error('Every retained authored source needs an unambiguous guarded saved baseline before Save As.');ownership_sources[o.path]=o.text;saved_guards[o.path]=o.guard;}
   const id=crypto.randomUUID().replaceAll('-','');
   attempt={path,source,text:source.text,namespace:buffers.workspace,workspace:buffers.workspaceId,owners,values:[...buffers.values],retained:[...buffers.retainedResources],id,hostCurrent,body:{version:1,workspace:buffers.workspaceId,path,source:source.text,request_id:id,ownership:{context:id,edit:{changes:{}},drafts:{},project_entry:null,ownership_sources,saved_guards,unaddressed_sources},saved_guards,unaddressed_sources}};
   createAttempts.set(source,attempt);

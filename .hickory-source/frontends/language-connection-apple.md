@@ -5,15 +5,25 @@ For maintainers changing workspace services independently of the editor renderer
 
 Language knowledge belongs to source buffers, while wire lifetime belongs to the workspace. One shared connection owns request IDs, pending replies, document snapshots and reconnection replay. Notifications route by source URI; capability announcements fan out. Each URI has one source session in a workspace; views borrow it. Detaching a source cancels only its requests and closes its document. Duplicate sessions cannot overwrite the held source or borrow another owner's request authority. A failed connection invalidates every subscriber before replies resume, retaining readable source. The next read may reconnect and replay all held full-text documents. This ordinary transport object can be replaced without rewriting editor widgets.
 
+Audit raw object keys before Foundation decodes a provider frame. Canonically equivalent contributor keys cannot merge into a partial edit; invalid identities retire only the optional language connection and pending proposals. Unrelated provider version metadata is not a source-test protocol version. Retained document URIs and notification routing use exact bytes, independently of their display spelling. Raw-key checking and Foundation parsing run on a worker; a changed connection epoch rejects the result before any listener or pending proposal sees it.
+
 <ui:copy id="simple-apple-language-connection">
 import Foundation
+func nativeLanguageJSONObject(_ data:Data)throws->[String:Any]{
+    try validateNativeJSON(data)
+    guard let object=try JSONSerialization.jsonObject(with:data) as? [String:Any] else{throw EngineError(message:"Language provider sent a non-object message. Source text is retained.")}
+    if let id=object["id"],!(id is NSNull){guard id is String || sourceChangeInteger(id) != nil else{throw EngineError(message:"Malformed language request identity refused. Source text is retained.")}}
+    return object
+}
+// JSONSerialization produces immutable value containers here; only this private parser creates the cross-actor envelope.
+private struct NativeLanguageJSONFrame:@unchecked Sendable {let object:[String:Any]}
 @MainActor final class NativeLanguageConnection {
     private struct Subscriber { var uri: String; var receive: ([String:Any])->Void; var failed: (Error)->Void }
     private struct Document { var text: String; var version: Int }
     private struct Pending { var owner: UUID; var reply: CheckedContinuation<Any,Error> }
     private let engine: Engine
     private var subscribers: [UUID:Subscriber] = [:]
-    private var documents: [String:Document] = [:]
+    private var documents: NativeSourceMap<Document> = [:]
     private var pending: [Int:Pending] = [:]
     private var nextID = 1
     private var epoch = UUID()
@@ -37,7 +47,7 @@ import Foundation
     func detach(_ token: UUID) {
         guard let entry=subscribers.removeValue(forKey:token) else {return}
         let abandoned=pending.filter {$0.value.owner==token};for(id,request) in abandoned {pending.removeValue(forKey:id);request.reply.resume(throwing:CancellationError())}
-        if !subscribers.values.contains(where:{$0.uri==entry.uri}) {
+        if !subscribers.values.contains(where:{exactUTF8($0.uri,entry.uri)}) {
             documents.removeValue(forKey:entry.uri)
             if active {send(["jsonrpc":"2.0","method":"textDocument/didClose","params":["textDocument":["uri":entry.uri]]])}
         }
@@ -49,7 +59,7 @@ import Foundation
     }
     func request(_ method: String, params: [String:Any], owner: UUID) async throws -> Any {
         guard let subscriber=subscribers[owner] else {throw EngineError(message:"Language source is closed. Retry language services.")}
-        if let uri=(params["textDocument"] as? [String:Any])?["uri"] as? String,uri != subscriber.uri {throw EngineError(message:"Language request source identity changed.")}
+        if let uri=(params["textDocument"] as? [String:Any])?["uri"] as? String,!exactUTF8(uri,subscriber.uri) {throw EngineError(message:"Language request source identity changed.")}
         _ = try startIfNeeded()
         let id=nextID;nextID += 1
         return try await withCheckedThrowingContinuation { reply in
@@ -79,7 +89,12 @@ import Foundation
             do {while !Task.isCancelled {
                 let message=try await socket.receive()
                 guard let self,self.epoch==current else {return}
-                if case .data(let bytes)=message,bytes.first==2,let object=try JSONSerialization.jsonObject(with:bytes.dropFirst()) as? [String:Any] {self.receive(object)}
+                if case .data(let bytes)=message,bytes.first==2 {
+                    let data=Data(bytes.dropFirst())
+                    let frame=try await Task.detached(priority:.userInitiated){NativeLanguageJSONFrame(object:try nativeLanguageJSONObject(data))}.value
+                    guard self.epoch==current,!Task.isCancelled else{return}
+                    self.receive(frame.object)
+                }
             }} catch {if let self,self.epoch==current,!Task.isCancelled {self.fail(error)}}
         }
         for uri in documents.keys.sorted() {sendDocument(uri,change:false)}
@@ -100,7 +115,7 @@ import Foundation
         }
     }
     private func receive(_ object: [String:Any]) {
-        if let id=object["id"] as? Int,object["method"]==nil,let request=pending.removeValue(forKey:id) {
+        if let id=sourceChangeInteger(object["id"]),object["method"]==nil,let request=pending.removeValue(forKey:id) {
             if let error=object["error"] as? [String:Any] {request.reply.resume(throwing:EngineError(message:error["message"] as? String ?? "Language request refused"))}
             else {request.reply.resume(returning:object["result"] ?? NSNull())};return
         }
@@ -110,7 +125,7 @@ import Foundation
         }
         let target = object["method"] as? String == "textDocument/publishDiagnostics" ? (object["params"] as? [String:Any])?["uri"] as? String : nil
         let listeners=Array(subscribers.values)
-        for listener in listeners where target==nil || target==listener.uri {listener.receive(object)}
+        for listener in listeners where target==nil || exactUTF8(target,listener.uri) {listener.receive(object)}
     }
     private func fail(_ error: Error) {
         epoch=UUID();receiveTask?.cancel();sendTask?.cancel();socket?.cancel(with:.goingAway,reason:nil);socket=nil;retryAfter=Date().addingTimeInterval(1)

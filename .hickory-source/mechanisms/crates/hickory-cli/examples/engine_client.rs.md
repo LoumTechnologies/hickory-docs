@@ -30,12 +30,23 @@ fn main() -> anyhow::Result<()> {
 <a id="f-2ffdd2bc63e0-run"></a>
 ### `run`
 
+Scripted ordinary-agent witnesses can point the existing test settings override
+at a disposable agents directory. Require an explicit isolated engine-state
+location before using it; never fall back to editing the user's agent settings.
+This does not activate private-prediction policy or relax its existing gates.
+
 <storycode:copy id="f-2ffdd2bc63e0-run">
 async fn run(args: Vec<String>) -> anyhow::Result<()> {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     let root = std::path::PathBuf::from(&args[0]);
     let name = args.get(1).cloned().unwrap_or_else(|| "window".into());
     let mut opts = engine::Attach::new(root.clone(), ExecutorChoice::Local);
+    // Ordinary scripted ACP witnesses also need an explicitly isolated settings directory.
+    // Requiring isolated engine state keeps this fixture from reading user agent configuration.
+    if let Some(path)=std::env::var_os("HICKORY_AGENT_TEST_UI_SETTINGS") {
+        anyhow::ensure!(std::env::var_os("HICKORY_STATE_DIR").is_some(),"Fixture UI settings require isolated engine state");
+        opts.ui_settings_path=Some(path.into());
+    }
     if let Some(profile) = std::env::var_os("HICKORY_TEST_PRIVATE_PROFILE") {
         anyhow::ensure!(
             std::env::var_os("HICKORY_STATE_DIR").is_some(),
@@ -52,7 +63,6 @@ async fn run(args: Vec<String>) -> anyhow::Result<()> {
         if std::env::var_os("HICKORY_TEST_LIVE_PROVIDER").is_some() {
             opts.key_store_path = hickory_agent::KeyStore::desktop_path();
         }
-        opts.ui_settings_path = std::env::var_os("HICKORY_AGENT_TEST_UI_SETTINGS").map(Into::into);
         opts.python_runtime_path = std::env::var_os("HICKORY_AGENT_TEST_PYTHON").map(Into::into);
     }
     opts.callback = Some(format!("http://{}", listener.local_addr()?));

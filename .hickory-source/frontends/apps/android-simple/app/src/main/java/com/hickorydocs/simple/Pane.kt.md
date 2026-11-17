@@ -1386,6 +1386,7 @@ fun debugLineOffset(source: String, line: Int): Int? {
                             if (buffer.dirty) Text("Save edited text before launching. Values belong to the source that ran.", fontSize = 12.sp)
                             FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                                 TextButton(enabled = !debug.active && !buffer.dirty && !buffer.saving, onClick = { scope.launch { debug.prepare(buffer, line) } }) { Text("▷ Debug") }
+                                TextButton(enabled=!debug.active&&!buffer.dirty&&!buffer.saving,onClick={scope.launch{debug.prepare(buffer,line,chooseProfile=true)}}){Text("Choose debug profile…")}
                                 if (inlineDebugPath(source, buffer.file.path, line) != null) TextButton(onClick = { debug.toggle(buffer, line) }) { Text("● Breakpoint") }
                                 if (debug.status == "paused") {
                                     listOf("Continue" to "continue", "Step over" to "over", "Step in" to "in", "Step out" to "out").forEach { (label, how) -> TextButton(onClick = { debug.step(how) }) { Text(label) } }
@@ -1401,10 +1402,11 @@ fun debugLineOffset(source: String, line: Int): Int? {
                                 if (debug.active) TextButton(onClick = { debug.stop() }) { Text("■ Stop") }
                             }
                             if (debug.owner == buffer.file.path) debug.targets.forEach { target -> TextButton(onClick = { scope.launch { debug.prepare(buffer, program = target.path) } }) { Text("Debug file ${target.path}") } }
-                            debug.profiles.forEach { profile -> TextButton(onClick = { scope.launch{debug.launch(profile); opened = null} }) { Text("Debug ${profile.optString("name")}") } }
+                            debug.profiles.forEach { profile -> TextButton(onClick = { scope.launch{debug.launch(profile); opened = null} }) { Text(nativeDebugProfileLabel(profile)) } }
                             if (debug.offer != null) TextButton(onClick = { scope.launch { debug.install() } }) { Text("⇩ Install debugger") }
                             if (debug.message.isNotBlank()) Text(debug.message, fontSize = 12.sp)
                             debug.catalogNotices.forEach{Text(it,fontSize=12.sp)}
+                            debug.attachReading?.let{Text(it,fontSize=12.sp)}
                             if(debug.status!="paused"&&!debug.framesCurrent&&debug.frames.isNotEmpty()){
                                 Text("Previous stack · no current pause confirmed",fontSize=12.sp)
                                 var historyPage by remember(debug.frames){mutableStateOf(0)}

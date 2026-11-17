@@ -119,6 +119,7 @@ async fn queued_run_refuses_same_source_reseal_before_dispatch() {
     let (_root, _private, state, ledger, marker, identity) = fixture().await;
     crate::serve::acp::assert_private_startup_refused(&state).await;
     crate::serve::agent_proposals::assert_private_refused(&state).await;
+    crate::serve::editor_recovery::assert_private_refused(&state).await;
     let bound = state.private_prediction.clone().unwrap();
     let guard = bound.session.lock().await;
     let next = bound.clone();

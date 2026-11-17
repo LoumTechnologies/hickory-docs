@@ -7,7 +7,7 @@ claim, every implementation patch, saved/draft construction consequences and the
 engine's connected readings into one review. Preparing or validating a review
 does not apply, save, stage or run anything. Hosts must still hold their complete
 editor lease and use the existing coordinated change mechanism after validation.
-This page is an implementation in progress; host/tool acceptance is not established.
+Browser managed-tool review/application and Android caller-provided and managed-tool controller flows have focused actual acceptance. Apple host acceptance is in progress. Scripted providers and unexecuted physical input do not establish broader provider or accessibility acceptance.
 
 ## Keep agent statements separate from engine observations
 
@@ -16,6 +16,13 @@ engine-discovered relationship; arbitrary agent text cannot manufacture a passin
 result or executable command. The returned readings retain their own unknown and
 historical evidence labels.
 
+Managed proposals also seal the original editor identities and monotonic source
+revisions received from the client. Revision observations are canonical decimal
+strings; no renderer may round them or fill in a missing revision from a later
+capture. The tool overwrites any agent-supplied binding. Hosts can therefore
+refuse an edit/undo or independent handle replacement that happened before the
+review opened, even when file bytes and physical guards are unchanged.
+
 <ui:copy id="agent-proposal-model">
 //! One immutable agent intention; source effects remain with existing publishers.
 use super::{LocalState, api::{ApiError,ApiResult}, resource_inputs, resource_changes, resource_candidates, behavior_readings};
@@ -23,6 +30,12 @@ use axum::{Json,extract::State};
 use serde::{Deserialize,Serialize};
 use serde_json::{Value,json};
 use std::{collections::{BTreeMap,BTreeSet,VecDeque},sync::{Arc,Mutex,LazyLock}};
+#[derive(Clone,Serialize,Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BoundEditor {pub id:Option<String>,pub path:Option<String>,pub source_hash:String,pub save_guard:Option<String>,pub source_revision:Option<String>}
+#[derive(Clone,Serialize,Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EditorSnapshotBinding {pub live:bool,pub buffers:Vec<BoundEditor>}
 #[derive(Clone,Serialize,Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Intention {
@@ -35,12 +48,14 @@ pub struct Intention {
  #[serde(default)] pub check_ids:Vec<String>,
  pub capture:resource_inputs::Request,
  pub reading:behavior_readings::ReadingRequest,
+ #[serde(default,skip_serializing_if="Option::is_none")]pub editor_snapshot:Option<EditorSnapshotBinding>,
 }
 fn ordinary(state:&LocalState)->ApiResult<()>{if state.private_prediction.is_some()||crate::engine::private_policy::active().map_err(|error|ApiError::conflict(error.to_string()))?{return Err(ApiError::conflict("Private prediction requires its isolated proposal adapter; ordinary proposal readings, tools and application admission are unavailable."))}Ok(())}
 fn hash(value:&impl Serialize)->Result<String,String>{serde_json::to_vec(value).map(|bytes|super::workspace_fs::view::hash(&bytes)).map_err(|error|error.to_string())}
 fn bounded(value:&Intention)->Result<(),String>{
  if value.version!=1||!super::resource_saves::hex(&value.request_id,32)||value.request_id.bytes().any(|b|b.is_ascii_uppercase()){return Err("Proposal requires version1 and a lowercase intention identity.".into())}
  if value.title.trim().is_empty()||value.title.len()>512||value.origin.is_empty()||value.origin.len()>1024||value.explanation.trim().is_empty()||value.explanation.len()>65536||value.claims.len()>128||value.claims.iter().any(|claim|claim.len()>8192)||value.check_ids.len()>256{return Err("Proposal explanation or claim set is missing or exceeds its review budget.".into())}
+ if let Some(snapshot)=&value.editor_snapshot{let mut ids=BTreeSet::new();if snapshot.buffers.iter().filter_map(|row|row.id.as_ref()).any(|id|!ids.insert(id)){return Err("Original editor snapshot repeats a handle identity.".into())}if snapshot.buffers.len()>4096||snapshot.buffers.iter().any(|row|row.id.as_ref().is_some_and(|id|id.is_empty()||id.len()>1024)||row.path.as_ref().is_some_and(|path|path.len()>16384)||!super::resource_saves::hex(&row.source_hash,64)||row.save_guard.as_ref().is_some_and(|guard|guard.len()>16384)||row.source_revision.as_ref().is_some_and(|revision|!revision_text(revision))){return Err("Original editor snapshot binding is malformed or exceeds its budget.".into())}}
  if serde_json::to_vec(value).map_err(|e|e.to_string())?.len()>32*1024*1024{return Err("Proposal exceeds its bounded complete-intention budget.".into())}
  if value.check_ids.iter().collect::<BTreeSet<_>>().len()!=value.check_ids.len(){return Err("Proposal repeats a check identity.".into())}
  Ok(())
@@ -75,6 +90,11 @@ identities and invalidate an otherwise unchanged review. Recheck it
 after asynchronous readings and before admitting a later Apply. Missing targets
 remain missing states governed by the existing plan rather than invented files.
 
+Derived before/after readings carry the capture's original named save guards and
+anonymous drafts as well as text. A conflicting reading guard or anonymous body
+refuses the coherent intention; analysis must not silently replace it with newly
+read proof. These derived maps leave the sealed caller intention unchanged.
+
 <ui:copy id="agent-proposal-analysis">
 fn guards(state:&LocalState,inputs:&resource_inputs::Inputs)->Result<BTreeMap<String,String>,String>{
  let mut values=BTreeMap::new();for(path,saved)in &inputs.saved_sources{if let resource_inputs::SavedSource::File{text,..}=saved{
@@ -84,6 +104,19 @@ fn guards(state:&LocalState,inputs:&resource_inputs::Inputs)->Result<BTreeMap<St
  }}
  for path in inputs.ownership.saved_sources.keys(){if !values.contains_key(path){let(full,_)=resource_inputs::saved_target(state.index.root(),path)?;let read=super::source_history::read_for_api(state,&full,path)?;values.insert(path.clone(),read.save_guard.ok_or("Construction source has no exact physical review authority.")?);}}
  Ok(values)
+}
+// Carry original host observations into derived readings; never replace a
+// conflicting proof with a newer one acquired while analyzing the proposal.
+fn carry_context(reading:&mut behavior_readings::ReadingRequest,capture:&resource_inputs::Request)->ApiResult<()>{
+ for(path,guard)in capture.saved_guards.iter().chain(capture.drafts.iter().filter_map(|(path,draft)|draft.save_guard.as_ref().map(|guard|(path,guard)))){
+  if reading.saved_guards.get(path).is_some_and(|original|original!=guard){return Err(ApiError::conflict("Proposal source and connected-reading guards differ. Retain the current review and prepare one coherent intention."))}
+  reading.saved_guards.insert(path.clone(),guard.clone());
+ }
+ for(id,text)in &capture.unaddressed_sources{
+  if reading.unaddressed_sources.get(id).is_some_and(|original|original!=text){return Err(ApiError::conflict("Proposal anonymous source and connected reading differ. Prepare one coherent intention."))}
+  reading.unaddressed_sources.insert(id.clone(),text.clone());
+ }
+ Ok(())
 }
 static ANALYSES:tokio::sync::Semaphore=tokio::sync::Semaphore::const_new(1);
 async fn analyze(state:&LocalState,intention:&Intention,origin_authority:&str)->ApiResult<Review>{
@@ -98,7 +131,7 @@ async fn analyze(state:&LocalState,intention:&Intention,origin_authority:&str)->
  if plan.patches.is_empty(){return Err(ApiError::conflict("Proposal has no implementation changes to review."))}
  let facts=resource_candidates::inspect(State(state.clone()),Json(resource_candidates::Request{inputs:inputs.clone(),capture:intention.capture.clone(),plan:plan.clone()})).await?.0;
  if !facts.protected_targets.is_empty(){return Err(ApiError::conflict("Proposal targets generated output; revise its authored construction instead."))}
- let mut before_context=intention.reading.clone();for(path,text)in &intention.capture.ownership_sources{before_context.sources.insert(path.clone(),text.clone());}
+ let mut before_context=intention.reading.clone();carry_context(&mut before_context,&intention.capture)?;for(path,text)in &intention.capture.ownership_sources{before_context.sources.insert(path.clone(),text.clone());}
  for(path,source)in &inputs.sources{match source{resource_changes::SourceState::File{text,..}=>{before_context.sources.insert(path.clone(),text.clone());before_context.missing_sources.remove(path);},resource_changes::SourceState::Missing{..}=>{before_context.sources.remove(path);before_context.missing_sources.insert(path.clone());}}}
  let mut after_context=before_context.clone();for patch in &plan.patches{match &patch.after{resource_changes::SourceState::File{text,..}=>{after_context.sources.insert(patch.path.clone(),text.clone());after_context.missing_sources.remove(&patch.path);},resource_changes::SourceState::Missing{..}=>{after_context.sources.remove(&patch.path);after_context.missing_sources.insert(patch.path.clone());}}}
  let before=behavior_readings::reading(State(state.clone()),Json(before_context)).await?.0;
@@ -158,15 +191,43 @@ one bounded review in the existing floating agent surface. Retention is currentl
 process-local; an engine restart or eviction reports unavailable and requires a
 new review rather than reconstructing authority from an old token.
 
+A non-live send-time snapshot cannot answer a later UI capture request. Keep it
+explicitly non-live and retain its original guards; request refresh only from a
+client that advertises the live capture bridge. Both paths remain subject to the
+complete current host roster and source guard checks before application.
+
 <ui:copy id="agent-proposal-tool-discovery">
 pub fn summary(review:&Value)->Value{json!({"version":1,"proposal_protocol":1,"token":review["token"],"fingerprint":review["fingerprint"],"title":review["summary"]["title"],"workspace":review["workspace"],"namespace":review["namespace"],"origin_authority":review["summary"]["origin_authority"],"pending_review":review["host_application"].is_null(),"host_application":review["host_application"],"applied":false,"saved":false,"checks_executed":false,"notice":"Retained proposal only. Open agent proposal review and explicitly Apply through the current host; do not infer implementation or verification from this tool result."})}
 pub fn catalogue()->Vec<Value>{vec![json!({"name":"propose_workspace_changes","description":"Prepare one coherent agent proposal for explicit client review. Provide intention version1, request_id (32 lowercase hex), origin, title, explanation, claims, check_ids, capture (resource edit and construction context) and reading (connected reading context). This tool applies/saves/stages/runs nothing. Its pending review must be accepted by the host through guarded coordinated Apply; do not report implementation complete from this result.","inputSchema":{"type":"object","properties":{"intention":{"type":"object"}},"required":["intention"],"additionalProperties":false}})]}
+fn revision_text(value:&str)->bool{!value.is_empty()&&value.len()<=20&&value.bytes().all(|byte|byte.is_ascii_digit())&&(value=="0"||!value.starts_with('0'))&&value.parse::<u64>().is_ok()}
+fn bind_editors(buffers:&[super::agent_context::EditorBuffer],live:bool)->ApiResult<EditorSnapshotBinding>{
+ let mut bound=Vec::new();
+ for buffer in buffers{
+  let mut revision:Option<String>=None;
+  for observation in &buffer.observations{if observation["kind"]=="editor_revision"{
+   let value=observation["source_revision"].as_str().filter(|value|revision_text(value)).ok_or_else(||ApiError::conflict("Original editor revision observation is invalid; recapture the complete intention."))?;
+   if observation.get("version").and_then(Value::as_u64)!=Some(1)||revision.as_deref().is_some_and(|old|old!=value){return Err(ApiError::conflict("Original editor revision observations disagree or are unsupported."))}revision=Some(value.to_owned());
+  }}
+  let path=buffer.path.clone().filter(|path|!std::path::Path::new(path).is_absolute());
+  bound.push(BoundEditor{id:buffer.id.clone(),save_guard:if path.is_some(){buffer.save_guard.clone()}else{None},path,source_hash:super::workspace_fs::view::hash(buffer.content.as_bytes()),source_revision:revision});
+ }
+ Ok(EditorSnapshotBinding{live,buffers:bound})
+}
+async fn captured_agent_buffers(edits:&super::acp::edits::Edits)->ApiResult<(Vec<super::agent_context::EditorBuffer>,bool)>{
+ let live=edits.live_context.load(std::sync::atomic::Ordering::Acquire);
+ if live{edits.refresh().await.map_err(|e|ApiError::conflict(e.to_string()))?;if !edits.live_context.load(std::sync::atomic::Ordering::Acquire){return Err(ApiError::conflict("Live editor capture was withdrawn; retain the proposal and prepare again."))}}
+ let buffers=edits.buffers.lock().map_err(|_|ApiError::conflict("Retained agent editor snapshot is unavailable"))?.clone();
+ Ok((buffers,live))
+}
 pub async fn from_agent(state:LocalState,edits:&super::acp::edits::Edits,origin:String,args:&Value)->ApiResult<Json<Value>>{
  ordinary(&state)?;
  let mut intention: Intention=serde_json::from_value(args.get("intention").cloned().ok_or_else(||ApiError::conflict("Provide a complete proposal intention."))?).map_err(|e|ApiError::conflict(e.to_string()))?;
  intention.origin=origin;
- edits.refresh().await.map_err(|e|ApiError::conflict(e.to_string()))?;
- let buffers=edits.buffers.lock().map_err(|_|ApiError::conflict("Live agent editor capture unavailable"))?.clone();
+ let (buffers,live)=captured_agent_buffers(edits).await?;
+ let worker=state.clone();
+ let intention=tokio::task::spawn_blocking(move||->ApiResult<Intention>{
+ ordinary(&worker)?;
+ intention.editor_snapshot=Some(bind_editors(&buffers,live)?);
  let targets: BTreeSet<_>=resource_changes::targets(&intention.capture.edit).map_err(ApiError::conflict)?.into_iter().collect();
  for(index,buffer)in buffers.into_iter().enumerate(){
   let unaddressed=buffer.path.as_deref().is_none_or(|path|std::path::Path::new(path).is_absolute());
@@ -176,9 +237,12 @@ pub async fn from_agent(state:LocalState,edits:&super::acp::edits::Edits,origin:
   intention.capture.ownership_sources.insert(path.clone(),buffer.content.clone());
   if let Some(guard)=&buffer.save_guard{if intention.capture.saved_guards.get(&path).is_some_and(|existing|existing!=guard){return Err(ApiError::conflict("Agent intention and live editor disagree about the original physical baseline. Refresh the complete proposal."))}intention.capture.saved_guards.insert(path.clone(),guard.clone());}else{intention.capture.saved_guards.remove(&path);}
   if targets.contains(&path)&&buffer.save_guard.is_none(){return Err(ApiError::conflict("This proposed editor target has no originally loaded physical guard. Keep its text and wait for or refresh its source authority; no later disk read was adopted."))}
-  if targets.contains(&path){let saved=super::source_tests::saved_source(state.index.root(),&path).map_err(ApiError::conflict)?;intention.capture.drafts.insert(path,resource_inputs::Draft{text:buffer.content,base_sha256:super::workspace_fs::view::hash(saved.as_bytes()),version:None,writable:true,save_guard:buffer.save_guard.clone()});}
+  if targets.contains(&path){let saved=super::source_tests::saved_source(worker.index.root(),&path).map_err(ApiError::conflict)?;intention.capture.drafts.insert(path,resource_inputs::Draft{text:buffer.content,base_sha256:super::workspace_fs::view::hash(saved.as_bytes()),version:None,writable:true,save_guard:buffer.save_guard.clone()});}
  }
- prepare_with_origin(state,intention,"engine-managed agent tool; claims remain unverified").await
+ ordinary(&worker)?;
+ Ok(intention)
+ }).await.map_err(|error|ApiError::internal(error.to_string()))??;
+ prepare_with_origin(state,intention,if live{"engine-managed agent tool; live editor capture at preparation; claims remain unverified"}else{"engine-managed agent tool; non-live submitted editor snapshot; claims remain unverified"}).await
 }
 pub async fn list(State(state):State<LocalState>)->ApiResult<Json<Value>>{
  ordinary(&state)?;
@@ -235,6 +299,27 @@ and bounded claims; they do not establish a usable host Apply path.
 mod tests {
  use super::*;
  pub(super) fn intention()->Intention{serde_json::from_value(json!({"version":1,"request_id":"0123456789abcdef0123456789abcdef","origin":"owned provider fixture","title":"Change note","explanation":"Keep the change and its reasoning together.","claims":["Expected behavior; not an observed verdict"],"check_ids":[],"capture":{"context":"context","edit":{"changes":{}},"drafts":{},"ownership_sources":{},"project_entry":null},"reading":{"version":1,"entry":"project.md","sources":{},"missing_sources":[],"focus":null}})).unwrap()}
+ #[test] fn derived_readings_keep_original_named_and_anonymous_capture_authority(){
+  let mut value=intention();value.capture.saved_guards.insert("a.txt".into(),"original saved guard".into());value.capture.unaddressed_sources.insert("retained-note".into(),"ordinary retained note".into());
+  value.capture.drafts.insert("b.txt".into(),serde_json::from_value(json!({"text":"draft","base_sha256":"a".repeat(64),"version":null,"writable":true,"save_guard":"original target guard"})).unwrap());
+  let original=serde_json::to_value(&value).unwrap();let mut reading=value.reading.clone();carry_context(&mut reading,&value.capture).unwrap();
+  assert_eq!(reading.saved_guards["a.txt"],"original saved guard");assert_eq!(reading.saved_guards["b.txt"],"original target guard");assert_eq!(reading.unaddressed_sources["retained-note"],"ordinary retained note");assert_eq!(serde_json::to_value(&value).unwrap(),original);
+  reading.saved_guards.insert("a.txt".into(),"different proof".into());assert!(carry_context(&mut reading,&value.capture).is_err());
+  let mut reading=value.reading.clone();reading.unaddressed_sources.insert("retained-note".into(),"different draft".into());assert!(carry_context(&mut reading,&value.capture).is_err());
+ }
+ #[tokio::test]async fn static_agent_snapshot_never_waits_for_an_unimplemented_live_capture_bridge(){
+  let edits=super::super::acp::edits::Edits::default();edits.buffers.lock().unwrap().push(serde_json::from_value(json!({"id":"buffer","name":"note.py","path":"note.py","content":"retained static draft","save_guard":"original guard"})).unwrap());
+  let(buffers,live)=tokio::time::timeout(std::time::Duration::from_secs(1),captured_agent_buffers(&edits)).await.unwrap().unwrap();assert!(!live);assert_eq!(buffers[0].content,"retained static draft");assert_eq!(buffers[0].save_guard.as_deref(),Some("original guard"));assert!(edits.snapshot()["captureRequest"].is_null());
+ }
+ #[tokio::test]async fn live_agent_capture_requires_its_exact_requested_ui_reply(){
+  let edits=Arc::new(super::super::acp::edits::Edits::default());edits.live_context.store(true,std::sync::atomic::Ordering::Release);let worker=edits.clone();let task=tokio::spawn(async move{captured_agent_buffers(&worker).await});
+  let id=tokio::time::timeout(std::time::Duration::from_secs(2),async{loop{if let Some(id)=edits.snapshot()["captureRequest"].as_str(){break id.to_string()}tokio::task::yield_now().await;}}).await.unwrap();assert!(edits.refreshed("old-reply",vec![]).is_err());
+  edits.refreshed(&id,vec![serde_json::from_value(json!({"id":"buffer","name":"note.py","path":"note.py","content":"current live draft","save_guard":"original live guard"})).unwrap()]).unwrap();let(buffers,live)=task.await.unwrap().unwrap();assert!(live);assert_eq!(buffers[0].content,"current live draft");
+ }
+ #[test]fn managed_editor_binding_keeps_original_identity_revision_and_raw_source_hash(){
+  let mut buffer:super::super::agent_context::EditorBuffer=serde_json::from_value(json!({"id":"original-handle","name":"a.py","path":"a.py","content":"value=41\n","save_guard":"original-physical-proof","observations":[{"kind":"editor_revision","version":1,"source_revision":"7"}]})).unwrap();let bound=bind_editors(&[buffer.clone()],false).unwrap();assert!(!bound.live);assert_eq!(bound.buffers[0].id.as_deref(),Some("original-handle"));assert_eq!(bound.buffers[0].source_revision.as_deref(),Some("7"));assert_eq!(bound.buffers[0].source_hash,super::super::workspace_fs::view::hash(buffer.content.as_bytes()));
+  buffer.observations.push(json!({"kind":"editor_revision","version":1,"source_revision":"8"}));assert!(bind_editors(&[buffer.clone()],false).is_err());buffer.observations=vec![json!({"kind":"editor_revision","version":1,"source_revision":"07"})];assert!(bind_editors(&[buffer],false).is_err());
+ }
  #[test] fn complete_intention_identity_includes_reasoning_implementation_and_checks(){let original=intention();bounded(&original).unwrap();let base=hash(&original).unwrap();let mut changed=original.clone();changed.explanation.push_str(" Revised.");assert_ne!(hash(&changed).unwrap(),base);changed=original.clone();changed.capture.edit=json!({"changes":{"hick:///a.py":[]}});assert_ne!(hash(&changed).unwrap(),base);changed=original.clone();changed.check_ids.push("declared-check".into());assert_ne!(hash(&changed).unwrap(),base);changed=original.clone();changed.claims[0]="Agent says passed; still only a claim".into();assert_ne!(hash(&changed).unwrap(),base);}
  #[test] fn malformed_or_amplified_claims_refuse_before_any_source_effect(){let original=intention();let mut value=original.clone();value.request_id="ABCDEF0123456789abcdef0123456789".into();assert!(bounded(&value).is_err());value=original.clone();value.claims=vec!["x".repeat(8193)];assert!(bounded(&value).is_err());value=original.clone();value.check_ids=vec!["same".into(),"same".into()];assert!(bounded(&value).is_err());let mut wire=serde_json::to_value(original).unwrap();wire["passed"]=json!(true);assert!(serde_json::from_value::<Intention>(wire).is_err());}
 }

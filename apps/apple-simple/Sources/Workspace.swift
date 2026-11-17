@@ -10,13 +10,15 @@ import Observation
     var resourceDeleted = false
     // Source equality alone must not revive a preview after edit/undo.
     var sourceEditIdentity=UUID()
+    private(set) var agentSourceRevision:UInt64?=0
+    func retireAgentContext(){agentSourceRevision=agentSourceRevision.flatMap{$0 == UInt64.max ? nil:$0+1}}
     @ObservationIgnored var saveHistoryAttempt:SourceSaveAttempt?
     @ObservationIgnored var creationAttempt:SourceCreationAttempt?
     var savedGuard:String?
     var saveGuardReason:String?
     var savedHistoryNotice=""
     private var sourceValue:ExactSourceText {
-        didSet {let changed = !exactUTF8(text,base);if dirty != changed {dirty=changed};if sourceValue != oldValue {sourceEditIdentity=UUID();snippets.sourceChanged(text);language?.changed();refreshInline()}}
+        didSet {let changed = !exactUTF8(text,base);if dirty != changed {dirty=changed};if sourceValue != oldValue {sourceEditIdentity=UUID();retireAgentContext();snippets.sourceChanged(text);language?.changed();refreshInline()}}
     }
     var text:String {get {sourceValue.text} set {sourceValue=ExactSourceText(newValue)}}
     var sourceRevision:ExactSourceText {sourceValue}
@@ -176,8 +178,11 @@ import Observation
     var saving = false
     var error = ""
     private(set) var dirty = false
+    private(set) var isUntitledDraft:Bool
+    func confirmSourceAddress(){isUntitledDraft=false}
     var readOnly: Bool { resourceDeleted || file.generated_by != nil }
-    init(file: FileNode, text: FileText) {
+    init(file: FileNode, text: FileText,isUntitledDraft:Bool=false) {
+        self.isUntitledDraft=isUntitledDraft
         self.file = file; self.sourceValue = ExactSourceText(text.content); base = text.content; hash = text.hash;savedGuard=text.save_guard;saveGuardReason=text.save_guard_reason; refreshInline()
     }
     func save(using engine: Engine) async {
@@ -217,6 +222,7 @@ import Observation
     }
     var analysis = WorkspaceAnalysis()
     var sourceTestIndex:SourceTestIndex?
+    var agentProposals=AgentProposalModel()
     var sourceTemplates=SourceTemplatesModel()
     var sourceHistory=SourceHistoryModel()
     var sourceRootAddress:String?
@@ -278,9 +284,9 @@ import Observation
     var buffers: NativeSourceMap<DocumentBuffer> = [:]
     let resourceRestoration=ResourceRestoration()
     var retainedResourceEditors:[String:DocumentBuffer]=[:]
-    func retainedResourceTab(_ buffer:DocumentBuffer)->String {"\0resource:"+buffer.id.uuidString}
+    func retainedResourceTab(_ buffer:DocumentBuffer)->String {NativeTabIdentity.retained(buffer.id).address}
     func bufferForTab(_ tab:String)->DocumentBuffer? {
-        buffers[tab] ?? retainedResourceEditors.values.first { exactUTF8(retainedResourceTab($0),tab) }
+        switch NativeTabIdentity(address:tab){case .source(let key):return buffers[key.string];case .retained(let id):return retainedResourceEditors.values.first{$0.id==id};case .utility,.unavailable:return nil}
     }
     func captureResourceEditors(_ patches:[ResourceEditorPatch],restoring:[String:DocumentBuffer]=[:])->()->Bool {
         let session=generation
@@ -313,8 +319,8 @@ import Observation
         }
         var addresses:[Data:String]=[:]
         for (route,buffer,_) in targets {
-            let from=route.from ?? retainedResourceTab(buffer)
-            addresses[Data(from.utf8)]=route.to ?? retainedResourceTab(buffer)
+            let from=route.from.map(nativeSourceTab) ?? retainedResourceTab(buffer)
+            addresses[Data(from.utf8)]=route.to.map(nativeSourceTab) ?? retainedResourceTab(buffer)
         }
         let adoptedLayout=try layout.remappingTabs(addresses)
         debugger?.resourceNamespaceChanged(routes)
@@ -335,9 +341,9 @@ import Observation
         return routes
     }
     func adoptCreatedSource(_ source:DocumentBuffer,file:FileNode,text:FileText,engine:Engine)throws->DocumentBuffer {
-        guard buffers[file.path]==nil,exactUTF8(source.text,text.content) else{throw EngineError(message:"Creation editor changed before adoption. Preserve its source and inspect the confirmed destination.")}
-        let old=source.file.path,from=buffers[old] === source ? old:retainedResourceTab(source)
-        let adopted=try layout.remappingTabs([Data(from.utf8):file.path])
+        guard buffers[file.path]==nil || (buffers[file.path] === source && source.isUntitledDraft),exactUTF8(source.text,text.content) else{throw EngineError(message:"Creation editor changed before adoption. Preserve its source and inspect the confirmed destination.")}
+        let old=source.file.path,from=buffers[old] === source ? nativeSourceTab(old):retainedResourceTab(source)
+        let adopted=try layout.remappingTabs([Data(from.utf8):nativeSourceTab(file.path)])
         debugger?.resourceNamespaceChanged([ResourceEditorRoute(identity:source.id.uuidString,from:source.resourceDeleted ? nil:old,to:file.path,before:source.text,after:source.text,editor:source)])
         sourceHistory.close();generation=UUID();loading.values.forEach{$0.cancel()};loading=[:]
         source.language?.close();source.language=nil
@@ -357,11 +363,13 @@ import Observation
     private var languageConnection: NativeLanguageConnection?
     private var newestOpen: [String: NativeSourceKey] = [:]
     let agent = AgentSession()
+    func configureAgentContext(){agent.captureContext={ [weak self] in guard let self else{throw EngineError(message:"Original agent workspace closed.")};return try nativeAgentContext(self)}}
     let terminal = TerminalSession()
     private var generation = UUID()
     var sourceNavigationEpoch:UUID {generation}
-    var active: String? { layout.nodes[focused]?.active }
-    var currentBuffer: DocumentBuffer? { active.flatMap { bufferForTab($0) } }
+    var activeTab:String? {layout.nodes[focused]?.active}
+    var active: String? {activeTab.map{NativeTabIdentity(address:$0).sourcePath ?? $0}}
+    var currentBuffer: DocumentBuffer? {activeTab.flatMap{bufferForTab($0)}}
     var hasUnsavedChanges: Bool { resourceRestoration.busy || resourceRestoration.hasPending || !agent.prompt.isEmpty || agent.running || (Array(buffers.values)+Array(retainedResourceEditors.values)).contains { $0.dirty || $0.saving } || debugger?.active == true }
     func connect() async -> Bool {
         guard !connecting else { return false }
@@ -406,6 +414,7 @@ import Observation
     }
     func retainBuffer(_ file: FileNode, text: FileText, engine: Engine, existing:DocumentBuffer?=nil) -> DocumentBuffer {
         let buffer = existing ?? DocumentBuffer(file: file, text: text)
+        buffer.confirmSourceAddress()
         buffers[file.path] = buffer
         buffer.openDiagramFile = { [weak self, weak buffer] href in
             guard let self, let buffer, let path = diagramFilePath(href, relativeTo: buffer.file.path) else { return }
@@ -436,20 +445,20 @@ import Observation
     func open(_ file: FileNode, recordNavigation: Bool = true) async {
         let departed = currentSemanticLocation()
         if buffers[file.path] != nil {
-            show(file.path)
+            showSource(file.path)
             if recordNavigation, let arrived = currentSemanticLocation() { navigationTrail.record(from:departed,to:arrived) }
             return
         }
         let current = generation
-        let target = layout.groups().first(where: { $0.id == focused && !$0.tabs.containsSource("files") })?.id
-            ?? layout.groups().first(where: { !$0.tabs.containsSource("files") })?.id ?? focused
+        let target = layout.groups().first(where: { $0.id == focused && !$0.tabs.containsUtility(.files) })?.id
+            ?? layout.groups().first(where: { !$0.tabs.containsUtility(.files) })?.id ?? focused
         newestOpen[target] = file.path.nativeSourceKey; focused = target
         do {
             _ = try await loadBuffer(file)
             guard current == generation else { return }
             if newestOpen[target] == file.path.nativeSourceKey {
                 let live = layout.groups().first(where: { $0.id == target })?.id ?? layout.groups()[0].id
-                layout.activate(file.path,in:live); focused = live; status = file.path
+                layout.activateSource(file.path,in:live); focused = live; status = file.path
                 if recordNavigation, let arrived = currentSemanticLocation() { navigationTrail.record(from:departed,to:arrived) }
             }
         } catch is CancellationError { return }
@@ -501,7 +510,7 @@ import Observation
             let buffer=try await loadBuffer(file)
             guard current(),originCurrent() else{return}
             guard exactUTF8(buffer.file.path,path) else{status="Debugger source identity conflicts with a retained native address. Preserve drafts before reconciling its spelling.";return}
-            show(path);status=path
+            showSource(path);status=path
             if let arrived=currentSemanticLocation(){navigationTrail.record(from:departed,to:arrived)}
             guard let proof=location.sourceHash,proof.range(of:"^[0-9a-f]{64}$",options:.regularExpression) != nil else{status=location.sourceReference.map{$0>0 ? "Opened \(path) without a position; this frame uses adapter-provided source reference \($0), not saved file bytes.":"Opened \(path) without a position; this frame has no captured source revision."} ?? "Opened \(path) without a position; this frame has no captured source revision.";return}
             guard debug.admitSourceReading(buffer,path:path,proof:proof),debug.sourceMatches(buffer),nativeSourceHash(buffer.text)==proof else{status="Opened \(path) without a position; current source identity or bytes are not a confirmed original launch/construction source.";return}
@@ -517,17 +526,19 @@ import Observation
     }
     func openTerminal() async {
         guard let engine else { status = "Connect to a workspace server before opening Terminal."; return }
-        show("terminal"); await terminal.open(using: engine)
+        showUtility(.terminal); await terminal.open(using: engine)
     }
+    func showSource(_ path:String){show(nativeSourceTab(path))}
+    func showUtility(_ utility:NativeUtilityTab){show(utility.rawValue)}
     func show(_ tab: String) {
-        let target = layout.groups().first(where: { $0.tabs.containsSource(tab) })?.id ?? (tab != "files" ? layout.groups().first(where: { $0.id == focused && !$0.tabs.containsSource("files") })?.id ?? layout.groups().first(where: { !$0.tabs.containsSource("files") })?.id : nil) ?? focused
+        let target = layout.groups().first(where: { $0.tabs.containsTab(tab) })?.id ?? (tab != "files" ? layout.groups().first(where: { $0.id == focused && !$0.tabs.containsUtility(.files) })?.id ?? layout.groups().first(where: { !$0.tabs.containsUtility(.files) })?.id : nil) ?? focused
         layout.activate(tab, in: target); focused = target
     }
     func close(_ tab: String) {
         if let buffer = bufferForTab(tab), buffer.dirty || buffer.saving {
             status = "Unsaved edits retained. Save this document before closing its tab."; return
         }
-        if let buffer=bufferForTab(tab){sourceHistory.sourceClosed(buffer);sourceTemplates.sourceClosed(buffer);testSources.sourceClosed(buffer,workspace:self)}
+        if let buffer=bufferForTab(tab){buffer.retireAgentContext();sourceHistory.sourceClosed(buffer);sourceTemplates.sourceClosed(buffer);testSources.sourceClosed(buffer,workspace:self)}
         layout.remove(tab)
         if !layout.groups().contains(where: { $0.id == focused }) { focused = layout.groups()[0].id }
     }
@@ -536,14 +547,12 @@ import Observation
     }
     func moveToNext() {
         let groups = layout.groups()
-        guard let active, let index = groups.firstIndex(where: { $0.id == focused }) else { return }
+        guard let active=activeTab, let index = groups.firstIndex(where: { $0.id == focused }) else { return }
         let target = groups[(index + 1) % groups.count].id
         layout.move(active, to: target); focused = target
     }
     func label(_ tab: String) -> String {
-        if tab == "files" { return "Files" }
-        if tab == "agent" { return "Agent" }
-        if tab == "terminal" { return "Terminal" }
+        switch NativeTabIdentity(address:tab).utility{case .files:return "Files";case .agent:return "Agent";case .terminal:return "Terminal";case nil:break}
         return (bufferForTab(tab)?.file.name ?? (tab as NSString).lastPathComponent) + (bufferForTab(tab)?.resourceDeleted == true ? " (retained)" : "") + (bufferForTab(tab)?.dirty == true ? " •" : "")
     }
     var savingAll = false
@@ -552,8 +561,8 @@ import Observation
     var filePath:String {get{filePathKey.string}set{filePathKey=NativeSourceKey(newValue)}}
     func newTab() {
         let path = "Untitled-" + UUID().uuidString
-        buffers[path] = DocumentBuffer(file: FileNode(name: "Untitled \(buffers.keys.filter { $0.hasPrefix("Untitled-") }.count + 1)", path: path, dir: false), text: FileText(path: path, content: "", hash: ""))
-        show(path)
+        buffers[path] = DocumentBuffer(file: FileNode(name: "Untitled \(buffers.values.filter{$0.isUntitledDraft}.count + 1)", path: path, dir: false), text: FileText(path: path, content: "", hash: ""),isUntitledDraft:true)
+        showSource(path)
     }
     func chooseFileCommand(_ command: String) { filePath = ""; fileCommand = command }
     func performFileCommand() async {
@@ -564,30 +573,30 @@ import Observation
         }
         if command == "Save As" {
             guard let source, !source.saving, !path.isEmpty else { return }
-            if exactUTF8(path,source.file.path),!source.resourceDeleted { await source.save(using: engine); return }
+            if exactUTF8(path,source.file.path),!source.resourceDeleted,!source.isUntitledDraft { await source.save(using: engine); return }
             let submitted = source.text
             source.saving = true; defer { source.saving = false }
             do {
                 let created=try await createSourceCopy(source,path:path)
-                show(created.file.path);await refresh()
+                showSource(created.file.path);await refresh()
                 source.saving = false
                 if savingAll { await saveAll() }
             } catch { status = "\(error.localizedDescription) Original edits are retained. Choose an unused path and retry Save As." }
-        } else if command == "Open Directory" && path.isEmpty { await refresh(); show("files") }
+        } else if command == "Open Directory" && path.isEmpty { await refresh(); showUtility(.files) }
         else if let file = find(files), file.dir == (command == "Open Directory") {
-            if file.dir { files = file.children ?? []; show("files") } else { await open(file) }
+            if file.dir { files = file.children ?? []; showUtility(.files) } else { await open(file) }
         } else { status = "Path not found. Refresh and choose a path in this workspace." }
     }
     func saveAll() async {
         guard let engine else { return }
         savingAll = true
-        for buffer in Array(buffers.values) where !buffer.file.path.hasPrefix("Untitled-") { await buffer.save(using: engine) }
-        if let draft = buffers.values.first(where: { $0.file.path.hasPrefix("Untitled-") && $0.dirty }) {
-            show(draft.file.path); chooseFileCommand("Save As")
+        for buffer in Array(buffers.values) where !buffer.isUntitledDraft { await buffer.save(using: engine) }
+        if let draft = buffers.values.first(where: { $0.isUntitledDraft && $0.dirty }) {
+            showSource(draft.file.path); chooseFileCommand("Save As")
         } else { savingAll = false }
     }
     func save() async {
-        if currentBuffer?.file.path.hasPrefix("Untitled-") == true { chooseFileCommand("Save As"); return }
+        if currentBuffer?.isUntitledDraft == true { chooseFileCommand("Save As"); return }
         if let engine, let buffer = currentBuffer { await buffer.save(using: engine) }
     }
 }

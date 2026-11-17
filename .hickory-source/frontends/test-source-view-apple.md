@@ -80,7 +80,7 @@ Debug first reads a saved-test plan, then sends that same immutable request thro
     }
     func inspectDebug(_ run:DebugRun,workspace:Workspace) async {
         guard let debugger=workspace.debugger,debugger.retainedSessionID==run.id else{notice="This debugger reading was replaced. The retained link is historical.";return}
-        if let original=debugger.sourceInspectionBuffer(),workspace.buffers.values.contains(where:{$0 === original}) {workspace.show(original.file.path)}
+        if let original=debugger.sourceInspectionBuffer(),workspace.buffers.values.contains(where:{$0 === original}) {workspace.showSource(original.file.path)}
         else if let original=debugger.sourceInspectionBuffer(),workspace.retainedResourceEditors.values.contains(where:{$0 === original}) {workspace.show(workspace.retainedResourceTab(original))}
         guard workspace.debugger === debugger,debugger.retainedSessionID==run.id,let buffer=workspace.currentBuffer else{notice="Open a source editor to inspect this retained runtime. Stop remains available from debugger actions.";return}
         workspace.showTests=false;buffer.debugInspection=UUID()
@@ -156,7 +156,7 @@ struct TestSourcesView:View {
             Divider();Text("Retained test runs (\(model.runs.count))").font(.headline)
             ForEach(model.runs) {run in Button("\(run.name) · \(run.scope) · \(run.state)\(run.exit.map {" · exit \($0)"} ?? "")"){model.selected=run.id;Task {await model.refreshRun(run.id,workspace:workspace)}}}
             if let run=model.runs.first(where:{$0.id==model.selected}) {
-                HStack {Button("Refresh this run"){Task {await model.refreshRun(run.id,workspace:workspace)}};Button("Open terminal output"){workspace.terminal.id=run.id;workspace.terminal.error="";workspace.show("terminal");workspace.showTests=false}}
+                HStack {Button("Refresh this run"){Task {await model.refreshRun(run.id,workspace:workspace)}};Button("Open terminal output"){workspace.terminal.id=run.id;workspace.terminal.error="";workspace.showUtility(.terminal);workspace.showTests=false}}
                 DisclosureGroup("Saved revisions checked at admission") {Text("Files were not frozen during execution. These revisions identify this run, not current verification.").font(.caption);Text(run.fingerprint+"\nTarget: "+run.sourceHash+"\n"+run.contributors.keys.sorted().map {"\($0): \(run.contributors[$0]!)"}.joined(separator:"\n")).font(.system(.caption,design:.monospaced)).textSelection(.enabled)}
                 Text(run.output.isEmpty ? "Select or refresh this run to read its output.":run.output).font(.system(.caption,design:.monospaced)).textSelection(.enabled)
             }

@@ -5,9 +5,20 @@ For maintainers iterating on the equivalent Apple, Android and browser editor fr
 
 Edge drops classify normalized pane coordinates using the outer twenty percent; left/right own corners, and the middle is not a split target. Docking validates the source, target and fresh IDs before removing a tab, then creates one equal split in the requested orientation. Existing buffers stay outside the layout. After a successful close, move or dock, remove empty groups and promote their surviving sibling. Keep survivor identities and split ratios, and retain one empty leaf only if every tab is closed. Explicit Split creates a temporary empty destination until the next tab operation. Collapse after insertion, so moving within one group cannot delete its destination.
 
+Source tab addresses distinguish literal reserved filenames from utility panes. Existing ambiguous persisted utility addresses remain utilities; opening the actual source creates a separate encoded address. This boundary does not rename buffers or recreate editors.
+
 A layout contains only identities and proportions. Text, selection and undo do not belong to the tree. A leaf is a tab group; a branch divides its available rectangle.
 
 <ui:copy id="simple-f98ffc6999-0">
+// Utility names are legacy layout addresses, never file identities. NUL cannot
+// occur in a workspace path; encode only collisions to preserve ordinary routes.
+export type SourceTabIdentity = {kind:'utility';name:'files'|'agent'|'terminal'} | {kind:'source';key:string};
+const SOURCE_TAB_PREFIX='\0source:';
+export function sourceTab(key:string):string {return ['files','agent','terminal'].includes(key)||key.startsWith(SOURCE_TAB_PREFIX)?SOURCE_TAB_PREFIX+JSON.stringify(key):key;}
+export function tabIdentity(address:string):SourceTabIdentity {
+ if(address.startsWith(SOURCE_TAB_PREFIX)){try{const key:unknown=JSON.parse(address.slice(SOURCE_TAB_PREFIX.length));if(typeof key==='string'&&sourceTab(key)===address)return {kind:'source',key};}catch{} }
+ return address==='files'||address==='agent'||address==='terminal'?{kind:'utility',name:address}:{kind:'source',key:address};
+}
 export type Edge = "left" | "right" | "top" | "bottom";
 export function dropEdge(x: number, y: number): Edge | null {
   if (!Number.isFinite(x) || !Number.isFinite(y) || x < 0 || x > 1 || y < 0 || y > 1) return null;

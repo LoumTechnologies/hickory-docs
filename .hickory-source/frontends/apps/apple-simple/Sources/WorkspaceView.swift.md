@@ -69,6 +69,7 @@ struct WorkspaceView: View {
         .popover(isPresented:$workspace.showAttribution) {GitAttributionView(workspace:workspace,model:workspace.gitAttribution).onKeyPress(.escape){workspace.showAttribution=false;workspace.currentBuffer?.focusSource?();return .handled}}
         .popover(isPresented:$workspace.showHistory) {GitHistoryView(workspace:workspace,model:workspace.gitHistory).onKeyPress(.escape){workspace.showHistory=false;workspace.currentBuffer?.focusSource?();return .handled}}
         .popover(isPresented:$workspace.showReview) {GitReviewView(workspace:workspace).onKeyPress(.escape){workspace.showReview=false;workspace.currentBuffer?.focusSource?();return .handled}}
+        .popover(isPresented:Binding(get:{workspace.agentProposals.showing},set:{if !$0{workspace.agentProposals.close()}})){AgentProposalView(workspace:workspace).onKeyPress(.escape){workspace.agentProposals.close();workspace.currentBuffer?.focusSource?();return .handled}}
         .popover(isPresented:Binding(get:{workspace.sourceTemplates.showing},set:{if !$0{workspace.sourceTemplates.close()}})) {SourceTemplatesView(workspace:workspace).onKeyPress(.escape){workspace.sourceTemplates.close();workspace.currentBuffer?.focusSource?();return .handled}}
         .popover(isPresented:Binding(get:{workspace.sourceHistory.showing},set:{if !$0{workspace.sourceHistory.close()}})) {SourceHistoryView(workspace:workspace).onKeyPress(.escape){workspace.sourceHistory.close();workspace.currentBuffer?.focusSource?();return .handled}}
         .popover(isPresented:$workspace.showTests) {TestSourcesView(workspace:workspace).onKeyPress(.escape){workspace.showTests=false;workspace.currentBuffer?.focusSource?();return .handled}}
@@ -112,8 +113,8 @@ struct PaneMenu: View {
     var workspace: Workspace
     var body: some View {
         Menu("View") {
-            Button("Files") { workspace.show("files") }
-            Button("Agent") { workspace.show("agent") }
+            Button("Files") { workspace.showUtility(.files) }
+            Button("Agent") { workspace.showUtility(.agent) }
             Button("Terminal") { Task { await workspace.openTerminal() } }
             Button("Split right") { workspace.split("horizontal") }
             Button("Split below") { workspace.split("vertical") }
@@ -184,7 +185,7 @@ struct PaneView: View {
                                     .draggable(TabDrag(tab: tab))
                                     .dropDestination(for: TabDrag.self) { tabs, _ in
                                         dropBefore = nil
-                                        guard let dragged = tabs.first?.tab, workspace.layout.groups().contains(where: { $0.tabs.containsSource(dragged) }) else { return false }
+                                        guard let dragged = tabs.first?.tab, workspace.layout.groups().contains(where: { $0.tabs.containsTab(dragged) }) else { return false }
                                         workspace.layout.move(dragged, to: id, before: tab); workspace.focused = id; return true
                                     } isTargeted: { targeted in
                                         if targeted { dropBefore = tab.nativeSourceKey } else if dropBefore==tab.nativeSourceKey { dropBefore = nil }
@@ -208,7 +209,7 @@ struct PaneView: View {
                         }
                         #else
                         .dropDestination(for: TabDrag.self) { tabs, _ in
-                            guard let tab = tabs.first?.tab, workspace.layout.groups().contains(where: { $0.tabs.containsSource(tab) }) else { return false }
+                            guard let tab = tabs.first?.tab, workspace.layout.groups().contains(where: { $0.tabs.containsTab(tab) }) else { return false }
                             dropBefore = nil
                             workspace.layout.move(tab, to: id); workspace.focused = id; return true
                         }
@@ -223,7 +224,7 @@ struct PaneView: View {
                                         paneEdge = point.map { dropEdge($0.x / max(1, geometry.size.width), $0.y / max(1, geometry.size.height)) ?? "center" }
                                     }, drop: { tab, point in
                                         paneEdge = nil
-                                        guard workspace.layout.groups().contains(where: { $0.id == id }), workspace.layout.groups().contains(where: { $0.tabs.containsSource(tab) }) else { return false }
+                                        guard workspace.layout.groups().contains(where: { $0.id == id }), workspace.layout.groups().contains(where: { $0.tabs.containsTab(tab) }) else { return false }
                                         if let edge = dropEdge(point.x / max(1, geometry.size.width), point.y / max(1, geometry.size.height)) {
                                             guard let focused = workspace.layout.dock(tab, to: id, edge: edge, newID: UUID().uuidString) else { return false }
                                             workspace.focused = focused
@@ -264,14 +265,14 @@ struct PaneView: View {
             }
     }
     @ViewBuilder private func content(_ tab: String?) -> some View {
-        if tab == "files" {
+        if tab.flatMap({NativeTabIdentity(address:$0).utility}) == .files {
             ScrollView([.horizontal, .vertical]) {
                 VStack(alignment: .leading, spacing: 0) { FileRows(nodes: workspace.files, workspace: workspace) }.padding(5).frame(maxWidth: .infinity, alignment: .leading)
             }.accessibilityLabel("Files")
-        } else if tab == "terminal" {
+        } else if tab.flatMap({NativeTabIdentity(address:$0).utility}) == .terminal {
             TerminalPane(engine: workspace.engine, session: workspace.terminal)
-        } else if tab == "agent" {
-            AgentPane(engine: workspace.engine, session: workspace.agent)
+        } else if tab.flatMap({NativeTabIdentity(address:$0).utility}) == .agent {
+            AgentPane(engine: workspace.engine, session: workspace.agent).onAppear{workspace.configureAgentContext()}
         } else if let tab, let buffer = workspace.bufferForTab(tab) {
             VStack(spacing: 0) {
                 LanguageEditor(buffer: buffer, debugger: workspace.debugger).id(buffer.id)
@@ -309,7 +310,7 @@ A provider reply may arrive after the destination has changed. Decode its custom
             guard let data, let payload = try? JSONDecoder().decode(TabDrag.self, from: data) else { return }
             let tab = payload.tab
             Task { @MainActor in
-                guard workspace.layout.groups().contains(where: { $0.id == group }), workspace.layout.groups().contains(where: { $0.tabs.containsSource(tab) }) else { return }
+                guard workspace.layout.groups().contains(where: { $0.id == group }), workspace.layout.groups().contains(where: { $0.tabs.containsTab(tab) }) else { return }
                 if selected == "center" { workspace.layout.move(tab, to: group); workspace.focused = group }
                 else if let focused = workspace.layout.dock(tab, to: group, edge: selected, newID: UUID().uuidString) { workspace.focused = focused }
             }

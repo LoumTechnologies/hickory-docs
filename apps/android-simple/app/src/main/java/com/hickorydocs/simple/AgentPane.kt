@@ -84,7 +84,7 @@ class AgentSession {
                 session.sending = true; session.error = ""; session.mutation++
                 scope.launch {
                     try {
-                        val id = engine!!.send(submitted, session.turns.lastOrNull()?.id, session.provider, session.model, session.effort)
+                        val id = engine!!.send(submitted, session.turns.lastOrNull()?.id, session.provider, session.model, session.effort,simpleAgentContext(workspace))
                         session.turns = session.turns.filter { it.id != id } + AgentTurn(id, submitted, null, null, "running")
                         if (session.prompt == submitted) session.prompt = ""
                     } catch (cancelled: CancellationException) { throw cancelled }

@@ -1,3 +1,12 @@
+// Utility names are legacy layout addresses, never file identities. NUL cannot
+// occur in a workspace path; encode only collisions to preserve ordinary routes.
+export type SourceTabIdentity = {kind:'utility';name:'files'|'agent'|'terminal'} | {kind:'source';key:string};
+const SOURCE_TAB_PREFIX='\0source:';
+export function sourceTab(key:string):string {return ['files','agent','terminal'].includes(key)||key.startsWith(SOURCE_TAB_PREFIX)?SOURCE_TAB_PREFIX+JSON.stringify(key):key;}
+export function tabIdentity(address:string):SourceTabIdentity {
+ if(address.startsWith(SOURCE_TAB_PREFIX)){try{const key:unknown=JSON.parse(address.slice(SOURCE_TAB_PREFIX.length));if(typeof key==='string'&&sourceTab(key)===address)return {kind:'source',key};}catch{} }
+ return address==='files'||address==='agent'||address==='terminal'?{kind:'utility',name:address}:{kind:'source',key:address};
+}
 export type Edge = "left" | "right" | "top" | "bottom";
 export function dropEdge(x: number, y: number): Edge | null {
   if (!Number.isFinite(x) || !Number.isFinite(y) || x < 0 || x > 1 || y < 0 || y > 1) return null;

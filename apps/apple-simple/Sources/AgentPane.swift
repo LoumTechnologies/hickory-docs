@@ -16,6 +16,7 @@ import Observation
         documents[id] = buffer
         return buffer
     }
+    var captureContext:(()throws->[String:Any])?
     var sending = false
     var error = ""
     var mutation = 0
@@ -90,7 +91,7 @@ struct AgentPane: View {
         session.sending = true; session.error = ""; session.mutation += 1
         defer { session.sending = false; session.mutation += 1 }
         do {
-            let started = try await engine.send(submitted, parent: session.turns.last?.id, provider: session.provider, model: session.model, effort: session.effort)
+            let started = try await engine.send(submitted, parent: session.turns.last?.id, provider: session.provider, model: session.model, effort: session.effort,context:try session.captureContext?())
             session.turns.append(AgentTurn(id: started.session_id, prompt: submitted, status: "running"))
             if session.prompt == submitted { session.prompt = "" }
         } catch { session.error = "\(error.localizedDescription) The request was not retried. Refresh history before sending again." }

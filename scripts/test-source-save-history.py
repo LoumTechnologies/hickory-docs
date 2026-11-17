@@ -77,6 +77,17 @@ def creation_suite(origin,root):
     replacement=root/'replacement.tmp';replacement.write_text(body['source']);os.replace(replacement,file)
     refused(lambda:request(origin,'POST',route,body));assert file.read_text()==body['source']
     print('PASS strict source creation: direct guarded full-text confirmation, exact replay/no second inode, changed intent/workspace/ownership refusal, dirty generated ownership, missing construction guard, saved generated target, unaddressed construction refusal/plain-note acceptance and same-byte recreation refusal',flush=True)
+def missing_suite(origin,root):
+    path='source λ%?#.txt';file=root/path;source='confirmed saved text before deletion\n';saved=save_body(path,guard_file(origin,path),source);request(origin,'PUT','/api/source-history/file',saved);file.unlink()
+    def history(name):return request(origin,'GET','/api/source-history?path='+urllib.parse.quote(name,safe=''))
+    value=history(path);entry=next(row for row in value['entries'] if row['id']==saved['request_id']);assert value['current']['kind']=='missing' and value['current_identity'].startswith('missing:') and value['restore_target']=='missing-source-draft' and entry['available'] and not entry['retry_allowed']
+    body={'version':1,'namespace':value['namespace'],'workspace':value['workspace'],'path':path,'id':entry['id'],'fingerprint':entry['fingerprint'],'current_identity':value['current_identity'],'current_hash':'missing','draft_hash':digest('retained unsaved text'),'side':'after'}
+    draft=request(origin,'POST','/api/source-history/restore-draft',body);assert draft['source']==source and draft['restore_target']=='missing-source-draft' and draft['source_effects'] is False and not file.exists()
+    file.write_text('');refused(lambda:request(origin,'POST','/api/source-history/restore-draft',body));assert file.exists() and file.read_bytes()==b'';file.unlink();refused(lambda:request(origin,'POST','/api/source-history/restore-draft',body));assert not file.exists()
+    created='created λ%?#.txt';created_file=root/created;created_file.unlink();value=history(created);entry=next(row for row in value['entries'] if row['before']['kind']=='missing');assert entry['available'] and not entry['retry_allowed']
+    absent={'version':1,'namespace':value['namespace'],'workspace':value['workspace'],'path':created,'id':entry['id'],'fingerprint':entry['fingerprint'],'current_identity':value['current_identity'],'current_hash':'missing','draft_hash':digest('retained created draft'),'side':'before'}
+    refused(lambda:request(origin,'POST','/api/source-history/restore-draft',absent));assert not created_file.exists();restored=request(origin,'POST','/api/source-history/restore-draft',{**absent,'side':'after'});assert restored['source']==entry['after']['text'] and restored['source_effects'] is False and not created_file.exists()
+    print('PASS deleted-source history: Missing distinct from empty File, confirmed text becomes only unmaterialized draft, no retry/identity promotion or file creation, independent replacement and absence-ABA refusal, Missing-before side never coerced to empty text',flush=True)
 def main():
     spec=importlib.util.spec_from_file_location('fixture',ROOT/'scripts/test-simple-browser.py');fixture=importlib.util.module_from_spec(spec);spec.loader.exec_module(fixture)
     with tempfile.TemporaryDirectory(prefix='hickory-history-service-') as folder:
@@ -84,6 +95,6 @@ def main():
         for path,text in {'source λ%?#.txt':'before\n','source λ%2F?#.txt':'distinct sibling\n','note.md':'# Original\n','project.md':'<h:doc xmlns:h="http://www.hickorydocs.com/1.0"><h:project sources="construction.md"/></h:doc>\n','construction.md':'<h:doc xmlns:h="http://www.hickorydocs.com/1.0"><h:file path="generated.py">value = 1\n</h:file></h:doc>\n','generated.py':'value = 1\n'}.items():(root/path).write_text(text)
         process=fixture.start([os.environ.get('HICKORY_SIMPLE_TEST_ENGINE',str(ROOT/'target/source-edit-focus/debug/examples/engine_client')),str(root),'window','http://127.0.0.1:1'],env={**os.environ,'HICKORY_STATE_DIR':str(temporary/'state')})
         try:
-            origin=fixture.origin(process);suite(origin,root);creation_suite(origin,root)
+            origin=fixture.origin(process);suite(origin,root);creation_suite(origin,root);missing_suite(origin,root)
         finally:fixture.stop(process)
 if __name__=='__main__':main()

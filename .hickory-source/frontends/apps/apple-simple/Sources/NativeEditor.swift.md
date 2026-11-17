@@ -2384,7 +2384,10 @@ struct NativeDebugRail: View {
             if debug.hasSessionReading || inlineDebugPath(buffer.text, path: buffer.file.path, line: line, launch: true) != nil || inlineDebugPath(buffer.text, path: buffer.file.path, line: line) != nil {
             if buffer.dirty { Text("Save edited text before launching. Values belong to the source that ran.").font(.caption) }
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 86))], spacing: 5) {
-                if inlineDebugPath(buffer.text,path:buffer.file.path,line:line,launch:true) != nil {Button("Debug", systemImage: "play") { Task { await debug.prepare(buffer, line: line) } }.disabled(debug.active || buffer.dirty || buffer.saving)}
+                if inlineDebugPath(buffer.text,path:buffer.file.path,line:line,launch:true) != nil {
+                    Button("Debug",systemImage:"play"){Task{await debug.prepare(buffer,line:line)}}.disabled(debug.active || buffer.dirty || buffer.saving)
+                    Button("Choose Debug profile",systemImage:"list.bullet"){Task{await debug.prepare(buffer,line:line,chooseProfile:true)}}.disabled(debug.active || buffer.dirty || buffer.saving)
+                }
                 if inlineDebugPath(buffer.text, path: buffer.file.path, line: line) != nil { Button("Breakpoint", systemImage: "circle.fill") { debug.toggle(buffer, line: line) } }
                 if debug.status == "paused" {
                     Button("Continue", systemImage: "play.fill") { debug.step("continue") }.disabled(!debug.canResume); Button("Step over", systemImage: "arrow.turn.down.right") { debug.step("over") }.disabled(!debug.canInspectFrame)
@@ -2394,7 +2397,10 @@ struct NativeDebugRail: View {
                 if debug.active { Button("Stop", systemImage: "stop.fill") { debug.stop() } }
             }
             if exactUTF8(debug.owner,buffer.file.path) { ForEach(debug.targets) { target in Button("Debug file \(target.path)") { Task { await debug.prepare(buffer, program: target.path) } } } }
-            ForEach(debug.profiles,id: \.exactID) { profile in Button("Debug \(profile.name)") { debug.launch(profile); opened = nil } }
+            ForEach(debug.profiles,id: \.exactID) { profile in
+                Button {debug.launch(profile);opened=nil} label:{VStack(alignment:.leading){Text(profile.actionLabel);if let notice=profile.attachNotice{Text(notice).font(.caption).fixedSize(horizontal:false,vertical:true)}}}.accessibilityLabel(profile.actionLabel+" · "+(profile.attachNotice ?? ""))
+            }
+            if let notice=debug.attachReading{Text(notice).font(.caption).textSelection(.enabled)}
             if debug.offer != nil { Button("Install debugger", systemImage: "arrow.down.to.line") { Task { await debug.install() } } }
             if !debug.message.isEmpty { Text(debug.message).font(.caption).textSelection(.enabled) }
             ForEach(Array(debug.catalogNotices.enumerated()),id: \.offset){_,notice in Text("Launch catalog: "+notice).font(.caption).textSelection(.enabled)}

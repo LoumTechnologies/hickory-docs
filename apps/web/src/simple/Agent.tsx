@@ -2,6 +2,7 @@ import { createElement, useEffect, useRef, useSyncExternalStore, type ReactNode 
 import { markdownLanguage } from "@codemirror/lang-markdown";
 import type { SyntaxNode } from "@lezer/common";
 import { Buffer, Buffers } from "./buffers";
+import type {AgentEditorContext} from "../api/agentTypes";
 import { Document, editorForBuffer } from "./Document";
 import { RichOwners } from "./RichInline";
 import { api } from "../api/client";
@@ -40,6 +41,7 @@ export function MarkdownMessage({ text }: { text: string }) {
   return <div className="message markdown-message">{render(markdownLanguage.parser.parse(text).topNode)}</div>;
 }
 export class AgentSession {
+  captureContext?:()=>AgentEditorContext;
   constructor() { this.draft.subscribe(() => this.publish()); }
   turns: AgentTurn[] = [];
   provider = "codex-subscription";
@@ -88,14 +90,15 @@ export class AgentSession {
     if (!this.prompt.trim() || this.running) return;
     const text = this.prompt; this.busy = true; this.error = ""; this.mutation++; this.publish();
     try {
-      const started = await api.agent("workspace", text, this.turns.at(-1)?.id, this.provider, this.model, "python", undefined, undefined, this.effort || undefined);
+      const context=this.captureContext?.();
+      const started = await api.agent("workspace", text, this.turns.at(-1)?.id, this.provider, this.model, "python", context, undefined, this.effort || undefined);
       this.setTurns([...this.turns.filter(turn => turn.id !== started.session_id), { id: started.session_id, prompt: text, answer: null, status: "running", parent_id: null, error: null, created_at: "", provider: this.provider, model: this.model, usage: null }]);
       if (this.prompt === text) this.prompt = "";
     } catch (reason) { this.error = `${String(reason)} The request was not retried. Refresh history before sending again.`; }
     finally { this.busy = false; this.mutation++; this.publish(); }
   }
 }
-export function Agent({ session }: { session: AgentSession }) {
+export function Agent({ session,reviewProposals }: { session: AgentSession;reviewProposals?:()=>void }) {
   useSyncExternalStore(session.subscribe, session.snapshot);
   useEffect(() => {
     let cancelled = false;
@@ -121,7 +124,7 @@ export function Agent({ session }: { session: AgentSession }) {
   const running = session.running;
   return <div className="agent-body">
     <RichOwners buffers={session.documents} />
-    <header className="agent-heading"><strong>Workspace agent</strong><span>Hickory · Python execution only</span></header>
+    <header className="agent-heading"><strong>Workspace agent</strong><span>Hickory · Python execution only</span>{reviewProposals&&<button onClick={reviewProposals}>Review pending proposals</button>}</header>
     <div ref={conversation} className="conversation" role="log" aria-label="Conversation" onScroll={event => { const node = event.currentTarget; following.current = node.scrollHeight - node.clientHeight - node.scrollTop < 48; }}>
       {!turns.length && <div className="agent-empty"><h2>What shall we work on?</h2><p>Write a literate document below. Code, tables and explanations belong together.</p></div>}
       {turns.map(turn => <article key={turn.id}>

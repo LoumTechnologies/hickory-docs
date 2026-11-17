@@ -96,8 +96,8 @@ extension Workspace {
             let all=Array(buffers.values)+Array(retainedResourceEditors.values),unique=Dictionary(grouping:all,by:{ObjectIdentifier($0)}).values.compactMap{$0.first}
             let inputs=unique.map{SourceCreationAttempt.Input(buffer:$0,identity:ObjectIdentifier($0),path:$0.file.path,sourceID:$0.sourceEditIdentity,base:$0.base,guardToken:$0.savedGuard.map{Data($0.utf8)},readOnly:$0.readOnly,deleted:$0.resourceDeleted)}
             var ownership:[String:String]=[:],guards:[String:String]=[:],unaddressed:[String:String]=[:];var exact:Set<Data>=[]
-            for buffer in unique where buffer !== source && buffer.file.generated_by==nil && (buffer.resourceDeleted || buffer.file.path.hasPrefix("Untitled-") || buffer.file.path.hasPrefix("/")){unaddressed[buffer.id.uuidString]=buffer.text}
-            for buffer in unique where !buffer.resourceDeleted && !buffer.readOnly && !buffer.file.path.hasPrefix("Untitled-") && !buffer.file.path.hasPrefix("/") {
+            for buffer in unique where buffer !== source && buffer.file.generated_by==nil && (buffer.resourceDeleted || buffer.isUntitledDraft || buffer.file.path.hasPrefix("/")){unaddressed[buffer.id.uuidString]=buffer.text}
+            for buffer in unique where !buffer.resourceDeleted && !buffer.readOnly && !buffer.isUntitledDraft && !buffer.file.path.hasPrefix("/") {
                 guard exact.insert(Data(buffer.file.path.utf8)).inserted else{continue}
                 if let state=buffer.sourceEditorState?(),state.composing || !exactUTF8(state.source,buffer.text){throw EngineError(message:"Finish source composition before capturing creation ownership.")}
                 guard ownership[buffer.file.path]==nil else{throw EngineError(message:"Retained source names have ambiguous Unicode spellings. Their text is retained; creation ownership cannot be merged.")}
@@ -110,7 +110,7 @@ extension Workspace {
         }
         let value:SourceCreated=try await engine.request("POST","/api/source-history/create",body:attempt.body)
         guard attempt.current(self,source),value.version==1,value.history_protocol==1,exactUTF8(value.workspace,attempt.workspace),exactUTF8(value.namespace,attempt.namespace),exactUTF8(value.path,path),exactUTF8(value.request_id,attempt.id),exactUTF8(value.source_hash,nativeSourceHash(attempt.source)),exactUTF8(value.source,attempt.source),!value.save_guard.isEmpty,value.history.outcome=="published" else{throw EngineError(message:"Creation reply does not confirm this exact source and editor namespace. Original text is retained; inspect the destination and Local history.")}
-        guard buffers[path]==nil else{throw EngineError(message:"A different editor now owns the destination. The original source is retained.")}
+        guard buffers[path]==nil || (buffers[path] === source && source.isUntitledDraft) else{throw EngineError(message:"A different editor now owns the destination. The original source is retained.")}
         let file=FileNode(name:(path as NSString).lastPathComponent,path:path,dir:false,doc_id:value.doc_id)
         return try adoptCreatedSource(source,file:file,text:FileText(path:path,content:value.source,hash:value.hash,save_guard:value.save_guard),engine:engine)
     }

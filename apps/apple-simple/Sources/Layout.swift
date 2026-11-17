@@ -33,18 +33,21 @@ struct PaneLayout {
         var used = Set<Data>()
         for group in groups() {
             var node = group
-            node.tabs = group.tabs.map { addresses[Data($0.utf8)] ?? $0 }
+            node.tabs = group.tabs.map { NativeTabIdentity(address:addresses[Data($0.utf8)] ?? $0).address }
             guard node.tabs.allSatisfy({ used.insert(Data($0.utf8)).inserted }) else {
                 throw NSError(domain:"PaneLayout",code:1,userInfo:[NSLocalizedDescriptionKey:"A destination tab already exists. Preserve editors and inspect recovery."])
             }
-            node.active = group.active.map { addresses[Data($0.utf8)] ?? $0 }
+            node.active = group.active.map { NativeTabIdentity(address:addresses[Data($0.utf8)] ?? $0).address }
             next.nodes[group.id] = node
         }
         return next
     }
-    mutating func activate(_ tab: String, in group: String) {
+    mutating func activateSource(_ path:String,in group:String){activate(nativeSourceTab(path),in:group)}
+    mutating func activateUtility(_ utility:NativeUtilityTab,in group:String){activate(utility.rawValue,in:group)}
+    mutating func activate(_ address: String, in group: String) {
+        let tab=NativeTabIdentity(address:address).address
         guard var node = nodes[group], node.axis == nil else { return }
-        if !node.tabs.containsSource(tab) { node.tabs.append(tab) }
+        if !node.tabs.containsTab(tab) { node.tabs.append(tab) }
         node.active = tab; nodes[group] = node
     }
     // Preserve node identities when a sibling takes over the freed rectangle.
@@ -68,12 +71,12 @@ struct PaneLayout {
         retain(rootID); nodes = kept
     }
     mutating func remove(_ tab: String) {
-        guard groups().contains(where: { $0.tabs.containsSource(tab) }) else { return }
-        let keepDocument = tab != "files" && groups().contains { $0.tabs.containsSource("files") } && groups().filter { !$0.tabs.containsSource("files") }.allSatisfy { $0.tabs.allSatisfy { exactUTF8($0,tab) } }
+        guard groups().contains(where: { $0.tabs.containsTab(tab) }) else { return }
+        let keepDocument = tab != "files" && groups().contains { $0.tabs.containsTab("files") } && groups().filter { !$0.tabs.containsTab("files") }.allSatisfy { $0.tabs.allSatisfy { exactUTF8($0,tab) } }
         detach(tab); if !keepDocument { collapse() }
     }
     private mutating func detach(_ tab: String) {
-        for group in groups() where group.tabs.containsSource(tab) {
+        for group in groups() where group.tabs.containsTab(tab) {
             var changed = group
             changed.tabs.removeAll { exactUTF8($0,tab) }
             if exactUTF8(changed.active,tab) { changed.active = changed.tabs.last }
@@ -82,11 +85,11 @@ struct PaneLayout {
     }
     mutating func move(_ tab: String, to target: String, before: String? = nil) {
         guard let destination = groups().first(where: { $0.id == target }),
-              groups().contains(where: { $0.tabs.containsSource(tab) }),
-              before == nil || destination.tabs.containsSource(before!), !exactUTF8(before,tab) else { return }
+              groups().contains(where: { $0.tabs.containsTab(tab) }),
+              before == nil || destination.tabs.containsTab(before!), !exactUTF8(before,tab) else { return }
         detach(tab)
         guard var node = nodes[target] else { return }
-        let index = before.flatMap { node.tabs.firstSourceIndex($0) } ?? node.tabs.count
+        let index = before.flatMap { node.tabs.firstTabIndex($0) } ?? node.tabs.count
         node.tabs.insert(tab, at: index); node.active = tab; nodes[target] = node
         collapse()
     }
@@ -94,7 +97,7 @@ struct PaneLayout {
         let retained = "retained-" + newID
         guard ["left", "right", "top", "bottom"].contains(edge), !newID.isEmpty,
               nodes[newID] == nil, nodes[retained] == nil,
-              groups().contains(where: { $0.id == target }), groups().contains(where: { $0.tabs.containsSource(tab) }) else { return nil }
+              groups().contains(where: { $0.id == target }), groups().contains(where: { $0.tabs.containsTab(tab) }) else { return nil }
         detach(tab)
         var old = nodes[target]!; old.id = retained; nodes[retained] = old
         nodes[newID] = PaneNode(id: newID, tabs: [tab], active: tab)

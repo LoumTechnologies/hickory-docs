@@ -1,0 +1,82 @@
+import XCTest
+#if os(macOS)
+import AppKit
+import SwiftUI
+import Darwin
+#endif
+@testable import HickorySimple
+final class AgentProposalTests:XCTestCase {
+ #if os(macOS)
+ @MainActor func testLiveOwnedManagedProposalRetainsEditorDraftUndoAndNamespaceRecovery()async throws {
+  guard let origin=ProcessInfo.processInfo.environment["HICKORY_NATIVE_PROPOSAL_ORIGIN"],let root=ProcessInfo.processInfo.environment["HICKORY_NATIVE_PROPOSAL_WORKSPACE"] else{throw XCTSkip("Opt in with owned scripts/test-agent-proposals-browser.py --serve-only fixture.")}
+  let directory=URL(fileURLWithPath:root),marker=try String(contentsOf:directory.appendingPathComponent(".hickory-native-agent-proposal-fixture"),encoding:.utf8);guard marker=="owned-native-agent-proposal-v1\n" else{throw EngineError(message:"An isolated owned proposal fixture is required.")}
+  let engine=try Engine(address:origin),w=Workspace();w.engine=engine;let tree=try await engine.files();guard let resolved=root.withCString({realpath($0,nil)}) else{throw EngineError(message:"Owned proposal fixture root is unavailable.")};defer{free(resolved)};guard exactUTF8(tree.root_path,String(cString:resolved)) else{throw EngineError(message:"Server does not own this isolated proposal fixture namespace.")};w.sourceRootAddress=tree.root_path;w.sourceWorkspaceID=tree.workspace_id;w.files=tree.tree;w.rootFiles=tree.tree
+  let b=try await w.loadBuffer(FileNode(name:"note.py",path:"note.py",dir:false));w.layout.activateSource("note.py",in:"document-group");let source=b.text,generated=try Data(contentsOf:directory.appendingPathComponent("generated.py"));XCTAssertEqual(source,"value=1\n")
+  _ = NSApplication.shared;NSApp.setActivationPolicy(.regular);let host=NSHostingView(rootView:WorkspaceView(workspace:w)),window=NSWindow(contentRect:NSRect(x:0,y:0,width:840,height:560),styleMask:[.titled],backing:.buffered,defer:false);window.contentView=host;window.makeKeyAndOrderFront(nil)
+  defer{for buffer in w.buffers.values{buffer.language?.close()};window.orderOut(nil)}
+  func settle(_ message:String,_ ready:()->Bool)async throws {for _ in 0..<400{if ready(){return};try await Task.sleep(for:.milliseconds(10))};throw EngineError(message:message)}
+  func find(_ view:NSView)->NSTextView?{if let text=view as? NSTextView,exactUTF8(text.string,b.text){return text};return view.subviews.lazy.compactMap{find($0)}.first}
+  try await settle("Native source editor did not mount"){host.layoutSubtreeIfNeeded();return find(host) != nil};let editor=try XCTUnwrap(find(host));editor.setSelectedRange(NSRange(location:2,length:0));b.selection=NSRange(location:2,length:0);let geometry=editor.frame,selection=editor.selectedRange()
+  func prepare(_ edit:[String:Any])async throws->AgentProposalEntry {
+   let intention:[String:Any]=["version":1,"request_id":UUID().uuidString.replacingOccurrences(of:"-",with:"").lowercased(),"origin":"owned controlled ACP fixture","title":"Explain and change implementation together","explanation":"The complete implementation and connected consequences are reviewed together.","claims":["Agent claim only; not an executed verdict"],"check_ids":[],"capture":["context":UUID().uuidString.replacingOccurrences(of:"-",with:"").lowercased(),"project_entry":"project.md","drafts":[:],"ownership_sources":[:],"unaddressed_sources":[:],"saved_guards":[:],"edit":edit],"reading":["version":1,"entry":"project.md","sources":[:],"missing_sources":[],"focus":b.file.path,"unaddressed_sources":[:],"saved_guards":[:]]]
+   let parent=directory.deletingLastPathComponent(),calls=parent.appendingPathComponent("calls.json"),result=parent.appendingPathComponent("tool-result.json");try JSONSerialization.data(withJSONObject:["intention":intention]).write(to:calls,options:.atomic);if FileManager.default.fileExists(atPath:result.path){try FileManager.default.removeItem(at:result)}
+   let _:ResourceJSON=try await engine.request("POST","/api/docs/workspace/agent/acp",body:["backend":"owned-proposal"])
+   let _:ResourceJSON=try await engine.request("POST","/api/docs/workspace/agent",body:["backend":"owned-proposal","prompt":"Prepare the owned intention only; do not apply, save or run it.","context":try nativeAgentContext(w)])
+   try await settle("Controlled ACP tool did not retain a complete proposal"){FileManager.default.fileExists(atPath:result.path)}
+   let reply=try JSONSerialization.jsonObject(with:Data(contentsOf:result)) as? [String:Any],answer=reply?["result"] as? [String:Any],content=answer?["content"] as? [[String:Any]],text=try XCTUnwrap(content?.first?["text"] as? String),summary=try JSONSerialization.jsonObject(with:Data(text.utf8)) as? [String:Any];XCTAssertEqual(answer?["isError"] as? Bool,false);return AgentProposalEntry(token:try XCTUnwrap(summary?["token"] as? String),fingerprint:try XCTUnwrap(summary?["fingerprint"] as? String))
+  }
+  let edit:[String:Any]=["changes":[languageURI("note.py"):[["range":["start":["line":0,"character":6],"end":["line":0,"character":7]],"newText":"41"]]]]
+  let entry=try await prepare(edit),m=w.agentProposals;try XCTUnwrap(w.commands().first{$0.id=="agent.proposals"}).run();try await settle("Proposal menu did not open"){!m.busy&&m.entries.contains(entry)};await m.read(w,entry);XCTAssertTrue(m.canApply,m.notice);XCTAssertTrue(m.value!.material.origin_authority.hasPrefix("engine-managed"));XCTAssertEqual(b.text,source);await m.applyDraft(w);XCTAssertEqual(b.text,"value=41\n",m.notice);XCTAssertEqual(try String(contentsOf:directory.appendingPathComponent("note.py"),encoding:.utf8),source);XCTAssertTrue(find(host) === editor);XCTAssertEqual(editor.selectedRange(),selection);XCTAssertEqual(editor.frame,geometry);XCTAssertFalse(m.canApply);XCTAssertFalse(m.hasReport,m.notice)
+  w.changes.open("undo",workspace:w);XCTAssertEqual(b.text,source);w.changes.open("redo",workspace:w);XCTAssertEqual(b.text,"value=41\n");w.changes.open("undo",workspace:w);XCTAssertEqual(b.text,source)
+  m.close();let moved="moved λ%2F?#.py",move:[String:Any]=["documentChanges":[["kind":"rename","oldUri":languageURI("note.py"),"newUri":languageURI(moved)]]],resource=try await prepare(move);await m.open(w);await m.read(w,resource);XCTAssertTrue(m.canApply,m.notice);await m.prepareSave(w);XCTAssertTrue(m.canSave,m.notice);await m.save(w);XCTAssertEqual(w.resourceRestoration.confirmedReceipt?.adoption_current,true,w.resourceRestoration.notice);XCTAssertTrue(w.buffers[moved] === b);XCTAssertTrue(find(host) === editor);XCTAssertFalse(FileManager.default.fileExists(atPath:directory.appendingPathComponent("note.py").path));XCTAssertEqual(try String(contentsOf:directory.appendingPathComponent(moved),encoding:.utf8),source);XCTAssertEqual(try Data(contentsOf:directory.appendingPathComponent("generated.py")),generated)
+  await w.resourceRestoration.prepareInverse(w);XCTAssertNotNil(w.resourceRestoration.review,w.resourceRestoration.notice);await w.resourceRestoration.publish(w);XCTAssertTrue(w.buffers["note.py"] === b);XCTAssertTrue(find(host) === editor);XCTAssertEqual(b.text,source)
+ }
+ #endif
+
+ @MainActor private func fixture(_ b:DocumentBuffer?=nil,managed:Bool=false)throws->(AgentProposalEntry,ResourceJSON) {
+  let workspace=String(repeating:"b",count:32),before="value=1\n",after="value=41\n",guardToken="original-loaded",context="captured"
+  func source(_ text:String)->[String:Any]{["kind":"file","identity":"source-note","text":text,"writable":true,"removable":true,"version":NSNull()]}
+  func saved(_ text:String)->[String:Any]{["kind":"file","text":text,"sha256":nativeSourceHash(text),"readonly":false,"executable":false,"mode":420]}
+  let layer:[String:Any]=["entries":[],"removed_entries":[],"source_hashes":[:],"output_paths":[]],guards=["note.py":guardToken]
+  let edit:[String:Any]=["changes":[languageURI("note.py"):[["range":["start":["line":0,"character":0],"end":["line":1,"character":0]],"newText":after]]]]
+  let capture:[String:Any]=["context":context,"edit":edit,"project_entry":NSNull(),"drafts":["note.py":["text":before,"base_sha256":nativeSourceHash(before),"save_guard":guardToken,"writable":true]],"ownership_sources":["note.py":before],"unaddressed_sources":[:],"saved_guards":guards]
+  let plan:[String:Any]=["version":1,"context":context,"title":"Complete change","annotations":[],"patches":[["path":"note.py","before":source(before),"after":source(after)]]]
+  let inputs:[String:Any]=["version":1,"context":context,"workspace":workspace,"sources":["note.py":source(before)],"saved_sources":["note.py":saved(before)],"saved_guards":guards,"source_files_modified":false,"refusals":[:],"ownership":["mode":"none","saved_sources":[:],"draft_sources":[:],"protected_entries":[]]]
+  let facts:[String:Any]=["version":1,"context":context,"workspace":workspace,"fingerprint":String(repeating:"f",count:64),"saved":layer,"draft":layer,"protected_targets":[],"source_files_modified":false,"saved_sources":["note.py":saved(after)]]
+  let reading:[String:Any]=["version":1,"behavior_protocol":1,"namespace":"/fixture","engine_workspace_id":workspace]
+  var intention:[String:Any]=["version":1,"request_id":String(repeating:"c",count:32),"title":"Complete change","explanation":"Implementation and explanation remain one intention.","claims":["Unverified agent claim"],"check_ids":[],"capture":capture]
+  if let b{intention["editor_snapshot"]=["live":false,"buffers":[["id":b.id.uuidString,"path":"note.py","source_hash":nativeSourceHash(b.text),"save_guard":guardToken,"source_revision":b.agentSourceRevision.map(String.init) as Any? ?? NSNull()]]]}
+  let material:[String:Any]=["version":1,"workspace":workspace,"namespace":"/fixture","origin_authority":managed ? "engine-managed agent tool; non-live submitted editor snapshot; claims remain unverified":"caller-provided intention; not an agent attestation","intention":intention,"inputs":inputs,"plan":plan,"consequences":facts,"before":reading,"after":reading,"saved_guards":guards]
+  let text=String(decoding:try JSONSerialization.data(withJSONObject:material,options:[.sortedKeys]),as:UTF8.self),entry=AgentProposalEntry(token:String(repeating:"a",count:32),fingerprint:nativeSourceHash(text))
+  let raw:[String:Any]=["version":1,"proposal_protocol":1,"token":entry.token,"fingerprint":entry.fingerprint,"workspace":workspace,"namespace":"/fixture","material":text,"source_effects":false,"checks_executed":false,"host_application":NSNull()]
+  return(entry,try JSONDecoder().decode(ResourceJSON.self,from:JSONSerialization.data(withJSONObject:raw)))
+ }
+ @MainActor private func host()throws->(Workspace,DocumentBuffer){let w=Workspace();w.engine=try Engine(address:"http://fixture.invalid");w.sourceWorkspaceID=String(repeating:"b",count:32);w.sourceRootAddress="/fixture";let b=DocumentBuffer(file:FileNode(name:"note.py",path:"note.py",dir:false),text:FileText(path:"note.py",content:"value=1\n",hash:"baseline",save_guard:"original-loaded"));w.buffers["note.py"]=b;return(w,b)}
+ @MainActor func testCompleteManagedReadRetiresAfterEqualTextUndoAndExtraEditor()async throws {
+  let(w,b)=try host(),(entry,envelope)=try fixture(b,managed:true),m=w.agentProposals
+  m.transport={method,path,body in if path=="/api/agent-proposals" {return .object(["version":.integer(1),"proposal_protocol":.integer(1),"workspace":.string(String(repeating:"b",count:32)),"namespace":.string("/fixture"),"reviews":.array([.object(["token":.string(entry.token),"fingerprint":.string(entry.fingerprint)])])])};return envelope}
+  await m.open(w);await m.read(w,entry);XCTAssertTrue(m.canApply,m.notice);b.text="other";b.text="value=1\n";XCTAssertFalse(m.canApply);await m.read(w,entry);XCTAssertFalse(m.canApply);XCTAssertTrue(m.notice.contains("revision"),m.notice)
+ }
+ @MainActor func testSealedLeaseRetiresNewUnaddressedConstructionWithoutChangingCode()async throws {
+  let(w,b)=try host(),(entry,envelope)=try fixture(),m=w.agentProposals
+  m.transport={_,path,_ in path=="/api/agent-proposals" ? .object(["version":.integer(1),"proposal_protocol":.integer(1),"workspace":.string(String(repeating:"b",count:32)),"namespace":.string("/fixture"),"reviews":.array([.object(["token":.string(entry.token),"fingerprint":.string(entry.fingerprint)])])]):envelope}
+  await m.open(w);await m.read(w,entry);XCTAssertTrue(m.canApply,m.notice)
+  let added=DocumentBuffer(file:FileNode(name:"Untitled",path:"draft",dir:false),text:FileText(path:"draft",content:"<h:include path='other.md'/>",hash:""),isUntitledDraft:true);w.buffers["draft"]=added;XCTAssertFalse(m.canApply);await m.applyDraft(w);XCTAssertEqual(b.text,"value=1\n");XCTAssertEqual(added.text,"<h:include path='other.md'/>")
+ }
+
+ func testDigestFailurePrecedesInnerJSONAndExplanationAdmission()throws {
+  let material="{not admitted explanation";let row=AgentProposalEntry(token:String(repeating:"a",count:32),fingerprint:String(repeating:"b",count:64))
+  let envelope=AgentProposalEnvelope(version:1,proposal_protocol:1,token:row.token,fingerprint:row.fingerprint,workspace:"workspace",namespace:"namespace",material:material,source_effects:false,checks_executed:false,host_application:nil)
+  XCTAssertThrowsError(try SealedAgentProposal(envelope,expected:row,workspace:"workspace",namespace:"namespace")){XCTAssertTrue($0.localizedDescription.contains("SHA256"))}
+ }
+ func testForeignNamespaceCannotAdmitEvenCorrectDigest()throws {
+  let material="{}",row=AgentProposalEntry(token:String(repeating:"a",count:32),fingerprint:nativeSourceHash(material))
+  let envelope=AgentProposalEnvelope(version:1,proposal_protocol:1,token:row.token,fingerprint:row.fingerprint,workspace:"workspace",namespace:"é",material:material,source_effects:false,checks_executed:false,host_application:nil)
+  XCTAssertThrowsError(try SealedAgentProposal(envelope,expected:row,workspace:"workspace",namespace:"e\u{301}"))
+ }
+ func testOuterWireRefusesDeepUnknownStructureAndProtocolAliases()throws {let nested=String(repeating:"[",count:65)+"0"+String(repeating:"]",count:65);XCTAssertThrowsError(try validateNativeAgentProposalResponse(Data(nested.utf8)));for token in ["1.0","true","1e0"]{XCTAssertThrowsError(try validateNativeAgentProposalResponse(Data(("{\"version\":"+token+"}").utf8)))};XCTAssertNoThrow(try validateNativeAgentProposalResponse(Data("{\"version\":1,\"proposal_protocol\":1,\"material\":\"literal { [\"}".utf8)))}
+ func testPagesNeverSplitUnicodeScalar()throws {let text=String(repeating:"🙂",count:4001),section=try AgentProposalSection("Literal",text);XCTAssertEqual(section.pages.count,2);XCTAssertEqual(section.page(0).unicodeScalars.count,4000);XCTAssertEqual(section.page(1),"🙂")}
+ @MainActor func testSenderRevisionRetiresEqualTextUndoAndCloseContext()throws {
+  let b=DocumentBuffer(file:FileNode(name:"main.py",path:"main.py",dir:false),text:FileText(path:"main.py",content:"value=1\n",hash:""));let original=b.agentSourceRevision;b.text="value=2\n";b.text="value=1\n";XCTAssertNotEqual(b.agentSourceRevision,original);let equal=b.agentSourceRevision;b.retireAgentContext();XCTAssertNotEqual(equal,b.agentSourceRevision)
+ }
+}

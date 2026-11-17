@@ -88,8 +88,8 @@ class Engine(address: String) {
     suspend fun turns(): List<AgentTurn> = request("GET", "/api/docs/workspace/agent/turns").getJSONArray("turns").objects().map {
         AgentTurn(it.getString("id"), it.getString("prompt"), it.optional("answer"), it.optional("error"), it.getString("status"))
     }
-    suspend fun send(prompt: String, parent: String?, provider: String, model: String, effort: String): String = request("POST", "/api/docs/workspace/agent",
-        JSONObject().put("prompt", prompt).put("parent_id", parent ?: JSONObject.NULL).put("backend", "python").put("provider", provider).put("model", model).put("effort", effort.ifEmpty { null })).getString("session_id")
+    suspend fun send(prompt: String, parent: String?, provider: String, model: String, effort: String, context:JSONObject?=null): String = request("POST", "/api/docs/workspace/agent",
+        JSONObject().put("prompt", prompt).put("context",context ?: JSONObject()).put("parent_id", parent ?: JSONObject.NULL).put("backend", "python").put("provider", provider).put("model", model).put("effort", effort.ifEmpty { null })).getString("session_id")
     suspend fun stop() { request("POST", "/api/docs/workspace/agent/stop", JSONObject()) }
     suspend fun openTerminal(): String = request("POST", "/api/terminals", JSONObject().put("title", "Terminal")).getString("id")
     suspend fun terminalInput(id: String, data: String) { request("POST", "/api/terminals/$id/input", JSONObject().put("data", data)) }
@@ -150,6 +150,8 @@ class NativeDebugger(private val engine: Engine, private val scope: CoroutineSco
     private val retiredLaunches=linkedMapOf<String,String>()
     var capabilities by mutableStateOf(JSONObject()); private set
     var catalogNotices by mutableStateOf<List<String>>(emptyList());private set
+    var attachReading by mutableStateOf<String?>(null);private set
+    private var attaching=false
     val breakpointModel=NativeBreakpointModel()
     val variableTree=NativeVariableTree()
     val adapterSources=NativeAdapterSourceModel()
@@ -197,7 +199,7 @@ class NativeDebugger(private val engine: Engine, private val scope: CoroutineSco
     }
     fun discardBreakpointIntentions(buffer:DocumentBuffer){if(active){message="Stop the current session before discarding stale breakpoint intentions.";return};breakpointModel.discard(buffer.debugIdentity)}
     fun line(path: String): Int? {
-        if (status != "paused"||!framesCurrent) return null
+        if (attaching||status != "paused"||!framesCurrent) return null
         val frame = frames.firstOrNull { it.optLong("id") == selectedFrame } ?: frames.firstOrNull()
         if((frame?.opt("source_reference") as? Number)?.toDouble()?.let{it>0}==true)return null
         if (path == owner && frame?.optBoolean("in_document") == true) return if (frame.isNull("line")) null else frame.getInt("line")
@@ -232,11 +234,11 @@ class NativeDebugger(private val engine: Engine, private val scope: CoroutineSco
         return result
     }
     fun sourceEditor(runtime:String):DocumentBuffer?=sourceLineage.sources[runtime]?.identity?.let{breakpointBuffers[it]?.get()}
-    fun sourceMatches(buffer: DocumentBuffer) = !buffer.resourceDeleted&&sourceLineage.matches(sourceSnapshot(buffer))
+    fun sourceMatches(buffer: DocumentBuffer) = !attaching&&!buffer.resourceDeleted&&sourceLineage.matches(sourceSnapshot(buffer))
     val adapterSourceRequired get()=frames.firstOrNull{debugInteger(it.opt("id"))==selectedFrame}?.let{(it.opt("source_reference") as? Number)?.toString()?.toLongOrNull()?.let{reference->reference>0}}==true
     fun positionSourceMatches(buffer:DocumentBuffer)=!adapterSourceRequired&&sourceMatches(buffer)
     suspend fun rememberSource(buffer: DocumentBuffer) {
-        if(buffer.file.path==owner||status!="paused"||!framesCurrent||buffer.dirty)return
+        if(attaching||buffer.file.path==owner||status!="paused"||!framesCurrent||buffer.dirty)return
         val frame=frames.firstOrNull{debugInteger(it.opt("id"))==selectedFrame} ?: return
         if((frame.opt("source_reference") as? Number)?.toString()?.toLongOrNull()?.let{it>0}==true)return
         if(frame.optional("source")!=buffer.file.path)return
@@ -249,7 +251,7 @@ class NativeDebugger(private val engine: Engine, private val scope: CoroutineSco
         val session=sessionID;val stop=stoppedGeneration;val thread=stoppedThread;val frame=selectedFrame;val connection=epoch;val namespace=sourceLineage.epoch
         return {sourceLineage.epoch==namespace&&epoch==connection&&sessionID==session&&status=="paused"&&framesCurrent&&stoppedGeneration==stop&&stoppedThread==thread&&selectedFrame==frame&&this.line(path)==line}
     }
-    suspend fun prepare(buffer: DocumentBuffer, line: Int = 0, program: String? = null) {
+    suspend fun prepare(buffer: DocumentBuffer, line: Int = 0, program: String? = null,chooseProfile:Boolean=false) {
         if (active) { message = "Stop the current debugger before launching another program."; return }
         if (buffer.dirty || buffer.saving) { message = "Save this file before debugging so the adapter runs the displayed text."; return }
         close(); val current = epoch;val namespace=sourceLineage.epoch
@@ -268,7 +270,7 @@ class NativeDebugger(private val engine: Engine, private val scope: CoroutineSco
                     else NativeDebugTarget(block.getString("path"), bytes.take(span.getInt(0)).count { it == 10.toByte() }, bytes.take(span.getInt(1)).count { it == 10.toByte() })
                 }
                 target = targets.firstOrNull { line in it.line..it.end }?.path
-                if (target == null) { message = if (targets.isEmpty()) "No file blocks to debug. Add a supported file block and save this document." else "Choose the file block to debug."; return }
+                if (target == null&&!chooseProfile) { message = if (targets.isEmpty()) "No file blocks to debug. Add a supported file block and save this document." else "Choose the file block to debug."; return }
             }
             launchProgram = target
             val query = JSONObject().put("uri", debugURI(owner)).put(if (literate) "expected_document" else "expected_source", launchSource)
@@ -278,9 +280,9 @@ class NativeDebugger(private val engine: Engine, private val scope: CoroutineSco
             catalogNotices=nativeCatalogNotices(result)
             val protocol=(result.opt("debug_protocol") as? Number)?.toString()?.toIntOrNull()
             if(protocol==null||protocol<3){catalog=null;profiles=emptyList();offer=null;message="Debug unavailable: this engine does not support source-bound debugger protocol 3. Reconnect with the updated engine before launching; the source editor remains unchanged.";return}
-            catalog = result; profiles = result.getJSONArray("profiles").objects().filter { it.optBoolean("can_debug") }
-            val automatic = profiles.firstOrNull { it.optString("program") == (target ?: result.optString("viewed", owner)) } ?: profiles.singleOrNull()
-            if (automatic != null) { launch(automatic); return }
+            catalog = result; profiles = result.getJSONArray("profiles").objects().filter { it.opt("can_debug")==true }.onEach{nativeAttachProfile(it)}
+            val automatic = profiles.firstOrNull { it.optString("program") == (target ?: result.optString("viewed", owner)) } ?: profiles.firstOrNull{it.opt("default")==true&&nativeAttachProfile(it)!=null} ?: profiles.singleOrNull()
+            if (!chooseProfile&&automatic != null) { launch(automatic); return }
             message = if (profiles.isEmpty()) "No debug launch targets. Configure a debug profile in this project and try again." else "Choose a debug target."
         } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
         catch (failure: Exception) { if (epoch == current) message = "${failure.message} Save or refresh this file and try debugging again." }
@@ -301,14 +303,15 @@ class NativeDebugger(private val engine: Engine, private val scope: CoroutineSco
             message = "The source or launch target changed. Save and choose Debug again."; return
         }
         if(test!=null&&!test.current()){sourceTestLaunch=null;test.rejected("Test Debug context changed before launch. No Start was sent.");return}
+        val attach=try{nativeAttachProfile(profile)}catch(e:Exception){message=e.message.orEmpty();return};attaching=attach!=null;attachReading=attach?.notice
         val preparation=epoch;val ticket=++launchTicket;val namespace=sourceLineage.epoch;val primarySource=sourceSnapshot(buffer)
-        val candidates=breakpointModel.intents.values.filter{intent->val current=currentBreakpointSource(intent.source.identity);current!=null&&current.saved&&breakpointPaths[current.path]==current.identity&&breakpointModel.matches(intent,current)}
+        val candidates=if(attaching)emptyList() else breakpointModel.intents.values.filter{intent->val current=currentBreakpointSource(intent.source.identity);current!=null&&current.saved&&breakpointPaths[current.path]==current.identity&&breakpointModel.matches(intent,current)}
         val hashes=kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default){candidates.associate{it.source.identity to debugHash(it.source.text)} to debugHash(primarySource.text)}
         if((test!=null&&!test.current())||sourceLineage.epoch!=namespace||sourceSnapshot(buffer)!=primarySource||epoch!=preparation||ticket!=launchTicket||active||buffer.text!=launchSource||buffer.dirty||buffer.saving||candidates.any{intent->val current=currentBreakpointSource(intent.source.identity);current==null||!current.saved||!breakpointModel.matches(intent,current)||breakpointModel.intents[intent.source.identity]?.revision!=intent.revision}){message="Source or breakpoint intentions changed while preparing launch. Review and choose Debug again.";sourceTestLaunch=null;test?.rejected?.invoke(message);return}
         for(intent in candidates)breakpointModel.stamp(intent.source.identity,intent.revision,hashes.first.getValue(intent.source.identity))
         launchHash=hashes.second
         launchSourceBindings=candidates.associate{it.source.identity to (it.source to hashes.first.getValue(it.source.identity))}+(buffer.debugIdentity to (sourceSnapshot(buffer) to hashes.second))
-        sourceLineage.begin(launchSourceBindings.values.toList())
+        if(attaching){launchSourceBindings=emptyMap();sourceLineage.clear()}else sourceLineage.begin(launchSourceBindings.values.toList())
         status = "starting"; message = ""; profiles = emptyList(); values = emptyMap(); variables = emptyList(); frames = emptyList(); pausedLine = null; offer = null
         launchRequest=UUID.randomUUID().toString();launchDocument=debugURI(owner)
         val current = epoch
@@ -329,7 +332,7 @@ class NativeDebugger(private val engine: Engine, private val scope: CoroutineSco
         })
         val request = JSONObject().put("op", "start").put("request_id",launchRequest).put("source_hash",launchHash).put("doc", debugURI(owner))
             .put("profile", JSONObject().put("id", profile.getString("id")).put("fingerprint", catalog.getString("fingerprint")))
-        launchProgram?.let { request.put("program", it) }
+        if(!attaching)launchProgram?.let { request.put("program", it) }
         val sources=JSONObject();val sourceHashes=JSONObject();var primary=JSONArray()
         for(intent in candidates){val source=currentBreakpointSource(intent.source.identity) ?: continue;breakpointModel.request(source,"pending-start",launchRequest!!);if(source.path==owner)primary=JSONArray(intent.marks) else {sources.put(debugURI(source.path),JSONArray(intent.marks));sourceHashes.put(debugURI(source.path),hashes.first.getValue(source.identity))}}
         request.put("breakpoints",primary).put("sources",sources).put("source_hashes",sourceHashes)
@@ -354,7 +357,7 @@ class NativeDebugger(private val engine: Engine, private val scope: CoroutineSco
         return true
     }
     private fun fail(detail: String) { sourceTestDeadline?.cancel();sourceTestDeadline=null;val pending=sourceTestLaunch;sourceTestLaunch=null;pending?.rejected?.invoke(detail);sessionID?.let{sourceTestOutcome?.invoke(it,"failed",null)};sourceTestOutcome=null;sourceLineage.clear();movement=null;retireLaunch();retireThreads(true);breakpointModel.retireSession();runSourceHashes=emptyMap();status = "failed"; message = detail; sessionID = null; pausedLine = null; variables = emptyList(); frames = emptyList(); values = emptyMap() }
-    fun close() { sourceTestDeadline?.cancel();sourceTestDeadline=null;sourceTestLaunch?.rejected?.invoke("Test Debug preparation closed. No replacement was requested.");sourceTestLaunch=null;sessionID?.let{sourceTestOutcome?.invoke(it,"closed",null)};sourceTestOutcome=null;sourceLineage.clear();catalogNotices=emptyList();movement=null;launchTicket++;retireLaunch();retireThreads(true);breakpointModel.retireSession();runSourceHashes=emptyMap();stopPending = false; epoch = UUID.randomUUID(); socket?.cancel(); socket = null; sessionID = null; status = "idle"; pausedLine = null; frames = emptyList(); variables = emptyList(); values = emptyMap(); profiles = emptyList() }
+    fun close() { attaching=false;attachReading=null;sourceTestDeadline?.cancel();sourceTestDeadline=null;sourceTestLaunch?.rejected?.invoke("Test Debug preparation closed. No replacement was requested.");sourceTestLaunch=null;sessionID?.let{sourceTestOutcome?.invoke(it,"closed",null)};sourceTestOutcome=null;sourceLineage.clear();catalogNotices=emptyList();movement=null;launchTicket++;retireLaunch();retireThreads(true);breakpointModel.retireSession();runSourceHashes=emptyMap();stopPending = false; epoch = UUID.randomUUID(); socket?.cancel(); socket = null; sessionID = null; status = "idle"; pausedLine = null; frames = emptyList(); variables = emptyList(); values = emptyMap(); profiles = emptyList() }
     fun receive(event: JSONObject) {
         val kind = event.optString("event")
         if(kind=="started"){
@@ -372,7 +375,7 @@ class NativeDebugger(private val engine: Engine, private val scope: CoroutineSco
             "started" -> {
                 val test=sourceTestLaunch
                 if(test!=null&&(!test.current()||!test.plan.admits(event.optJSONObject("source_test"),test.facts))){fail("Test Debug receipt or source context changed. The owned session was not adopted.");cleanupRetiredLaunch(event);return}
-                if(event.optString("source_hash")!=launchHash){fail("Debugger source receipt does not match this launch. Its owned session was not adopted; review source and launch again.");cleanupRetiredLaunch(event);return}
+                if((!attaching&&event.optString("source_hash")!=launchHash)||(attaching&&!event.isNull("source_hash")&&event.optString("source_hash")!=launchHash)){fail("Debugger source receipt does not match this launch. Its owned session was not adopted; review source and launch again.");cleanupRetiredLaunch(event);return}
                 retireThreads(true);message="";output = emptyList(); sessionID = event.getString("session");capabilities = event.optJSONObject("capabilities") ?: JSONObject();status = "running"
                 runSourceHashes=launchSourceBindings.values.associate{it.first.path to it.second};sourceSnapshots=launchSourceBindings.values.associate{it.first.path to it.first.text};breakpointModel.adoptStart(launchRequest!!,sessionID!!);bind(event,owner)
                 if(test!=null){sourceTestDeadline?.cancel();sourceTestDeadline=null;sourceTestLaunch=null;sourceTestOutcome=test.outcome;test.admitted(sessionID!!)}
@@ -443,6 +446,7 @@ class NativeDebugger(private val engine: Engine, private val scope: CoroutineSco
         }
     }
     private fun bind(event:JSONObject,path:String){
+        if(attaching)return
         val identity=breakpointPaths[path] ?: return;val source=currentBreakpointSource(identity) ?: return
         val session=sessionID ?: return;val request=event.optional("request_id") ?: return;val hash=event.optional("source_hash") ?: return
         if(runSourceHashes[path]!=hash)return

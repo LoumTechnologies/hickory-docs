@@ -271,4 +271,16 @@ Each client reads text before requesting optional capabilities. A save uses the 
 
 <ui:include file="source-identity-apple.md" />
 
+<ui:include file="agent-proposals-android.md" />
+
+<ui:include file="agent-proposals-browser.md" />
+
+<ui:include file="agent-proposal-browser-witness.md" />
+
+<ui:include file="debug-attach-apple.md" />
+
+<ui:include file="agent-proposals-apple.md" />
+
+<ui:include file="debug-attach-android.md" />
+
 </ui:doc>

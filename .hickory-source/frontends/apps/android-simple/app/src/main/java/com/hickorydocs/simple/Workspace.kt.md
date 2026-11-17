@@ -442,6 +442,7 @@ The remaining workspace operations reuse the adopted buffers and current namespa
     private val loading = mutableMapOf<String,kotlinx.coroutines.Deferred<DocumentBuffer>>()
     private val newestOpen = mutableMapOf<String, String>()
     val agent = AgentSession()
+    val agentProposals = AgentProposalModel()
     val terminal = TerminalSession()
     val active get() = layout.nodes[focused]?.active
     val currentBuffer get() = bufferForTab(active)

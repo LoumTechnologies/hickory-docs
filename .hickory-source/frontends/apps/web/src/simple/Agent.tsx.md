@@ -12,6 +12,7 @@ import { createElement, useEffect, useRef, useSyncExternalStore, type ReactNode 
 import { markdownLanguage } from "@codemirror/lang-markdown";
 import type { SyntaxNode } from "@lezer/common";
 import { Buffer, Buffers } from "./buffers";
+import type {AgentEditorContext} from "../api/agentTypes";
 import { Document, editorForBuffer } from "./Document";
 import { RichOwners } from "./RichInline";
 import { api } from "../api/client";
@@ -63,6 +64,7 @@ draft; typing during a request belongs to the next message.
 
 <ui:copy id="simple-agent-document-session">
 export class AgentSession {
+  captureContext?:()=>AgentEditorContext;
   constructor() { this.draft.subscribe(() => this.publish()); }
   turns: AgentTurn[] = [];
   provider = "codex-subscription";
@@ -111,7 +113,8 @@ export class AgentSession {
     if (!this.prompt.trim() || this.running) return;
     const text = this.prompt; this.busy = true; this.error = ""; this.mutation++; this.publish();
     try {
-      const started = await api.agent("workspace", text, this.turns.at(-1)?.id, this.provider, this.model, "python", undefined, undefined, this.effort || undefined);
+      const context=this.captureContext?.();
+      const started = await api.agent("workspace", text, this.turns.at(-1)?.id, this.provider, this.model, "python", context, undefined, this.effort || undefined);
       this.setTurns([...this.turns.filter(turn => turn.id !== started.session_id), { id: started.session_id, prompt: text, answer: null, status: "running", parent_id: null, error: null, created_at: "", provider: this.provider, model: this.model, usage: null }]);
       if (this.prompt === text) this.prompt = "";
     } catch (reason) { this.error = `${String(reason)} The request was not retried. Refresh history before sending again.`; }
@@ -122,12 +125,14 @@ export class AgentSession {
 
 ## Refresh history independently of the composer
 
+A send captures the complete retained authored editor roster with original loaded guards. The snapshot is labelled non-live; later editor changes must retire proposal application rather than silently refresh the agent’s source authority. Conversation content and agent claims never stand in for implementation or test evidence.
+
 History polling never recreates the draft editor. Reject replies from before a
 send mutation, and stop polling when the pane detaches. Provider failures remain
 visible beside the retained draft; no request is automatically retried.
 
 <ui:copy id="simple-agent-history-refresh">
-export function Agent({ session }: { session: AgentSession }) {
+export function Agent({ session,reviewProposals }: { session: AgentSession;reviewProposals?:()=>void }) {
   useSyncExternalStore(session.subscribe, session.snapshot);
   useEffect(() => {
     let cancelled = false;
@@ -158,7 +163,7 @@ Conversation controls belong inside the agent pane. Stop requests are explicit; 
 <ui:copy id="simple-981c695688-1">
   return <div className="agent-body">
     <RichOwners buffers={session.documents} />
-    <header className="agent-heading"><strong>Workspace agent</strong><span>Hickory · Python execution only</span></header>
+    <header className="agent-heading"><strong>Workspace agent</strong><span>Hickory · Python execution only</span>{reviewProposals&&<button onClick={reviewProposals}>Review pending proposals</button>}</header>
     <div ref={conversation} className="conversation" role="log" aria-label="Conversation" onScroll={event => { const node = event.currentTarget; following.current = node.scrollHeight - node.clientHeight - node.scrollTop < 48; }}>
       {!turns.length && <div className="agent-empty"><h2>What shall we work on?</h2><p>Write a literate document below. Code, tables and explanations belong together.</p></div>}
       {turns.map(turn => <article key={turn.id}>

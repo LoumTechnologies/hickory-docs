@@ -71864,6 +71864,170 @@
         "debug-endpoint-attach-browser-witness"
       ],
       "narrative_owner": "debugging/launch-profiles-choose-targets-within-the-viewed-project.md"
+    },
+    "apps/android-simple/app/src/main/java/com/hickorydocs/simple/AgentProposals.kt": {
+      "source": ".hickory-source/frontends/agent-proposals-android.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "4671b04a0a0256bb7288b584ebcd796ca41e6ca88362ecffbbc623a1307d861b",
+      "construction": "fragments",
+      "fragments": [
+        "agent-proposals-android-seal",
+        "agent-proposals-android-controller",
+        "agent-proposals-android-view"
+      ]
+    },
+    "crates/hickory-cli/src/serve/editor_recovery.rs": {
+      "source": ".hickory-source/mechanisms/editor-recovery.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "6f4f3457e75a3417e62a6cd8591f23debbc38cd9e5a6bfef8d3cae9dfab19ea0",
+      "construction": "fragments",
+      "fragments": [
+        "editor-recovery-model",
+        "editor-recovery-storage",
+        "editor-recovery-routes",
+        "editor-recovery-tests"
+      ],
+      "narrative_owner": "mechanism:editor-recovery"
+    },
+    "apps/web/src/simple/AgentProposals.ts": {
+      "source": ".hickory-source/frontends/agent-proposals-browser.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "603dd83e9ad4a38f5a9bd84b1ed5d97a9c7181553e354b9d60b40f0a0b92225c",
+      "construction": "fragments",
+      "fragments": [
+        "agent-proposals-browser-model"
+      ]
+    },
+    "apps/web/src/simple/AgentProposalAdapter.ts": {
+      "source": ".hickory-source/frontends/agent-proposals-browser.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "aa697fa99d329883fae9bd6f31f81c6113e2a91bb62761e3e5f1a6973e313ce6",
+      "construction": "fragments",
+      "fragments": [
+        "agent-proposals-browser-adapter"
+      ]
+    },
+    "apps/web/src/simple/AgentProposalView.tsx": {
+      "source": ".hickory-source/frontends/agent-proposals-browser.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "63d62afb2b8142fb0b78bfd74ba7cd194704f564adc1c12bd6501ce5ca4ade45",
+      "construction": "fragments",
+      "fragments": [
+        "agent-proposals-browser-view"
+      ]
+    },
+    "apps/web/src/simple/AgentProposals.test.tsx": {
+      "source": ".hickory-source/frontends/agent-proposals-browser.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "8007b21ec5829302168ab59e1ba81c07f512adc72778cd6559607228d5627eeb",
+      "construction": "fragments",
+      "fragments": [
+        "agent-proposals-browser-tests",
+        "agent-proposals-browser-host-tests"
+      ]
+    },
+    "scripts/test-agent-proposals-browser.py": {
+      "source": ".hickory-source/frontends/agent-proposal-browser-witness.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "4580228af7a17e6cac7aa87145ed543743cd36a332ef3d01c445eb51e939f635",
+      "construction": "fragments",
+      "fragments": [
+        "agent-proposals-browser-real-engine"
+      ]
+    },
+    "apps/apple-simple/Tests/NativeDebugAttachTests.swift": {
+      "source": ".hickory-source/frontends/debug-attach-apple.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "6e335409674d3c5659ad9941c426b47468d8a148d901bd94a598fc0c010ac828",
+      "construction": "fragments",
+      "fragments": [
+        "debug-attach-apple-tests"
+      ]
+    },
+    "apps/android-simple/app/src/test/java/com/hickorydocs/simple/AgentProposalsTest.kt": {
+      "source": ".hickory-source/frontends/agent-proposals-android.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "f6a3f6f5e432f89de94f3ff8bb7b6e555f3e81659d2db966337d57ec45cb679c",
+      "construction": "fragments",
+      "fragments": [
+        "agent-proposals-android-tests"
+      ]
+    },
+    "scripts/test-editor-recovery-service.py": {
+      "source": ".hickory-source/mechanisms/editor-recovery.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "test",
+      "sha256": "df324b9c7ade1c6e0be68125fc41510ad5f865f5b5ed4d068e7d857824f96dc2",
+      "construction": "fragments",
+      "fragments": [
+        "editor-recovery-service-witness"
+      ],
+      "narrative_owner": "mechanism:editor-recovery"
+    },
+    "apps/apple-simple/Sources/AgentProposals.swift": {
+      "source": ".hickory-source/frontends/agent-proposals-apple.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "6931802d22944844b7a8aee207ee2665a3cebfa40555a0a941872b0f866d06db",
+      "construction": "fragments",
+      "fragments": [
+        "agent-proposals-apple-seal",
+        "agent-proposals-apple-controller",
+        "agent-proposals-apple-view"
+      ]
+    },
+    "apps/apple-simple/Tests/AgentProposalTests.swift": {
+      "source": ".hickory-source/frontends/agent-proposals-apple.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "72733eb0e58201d4d644854a791ae4225e264611ebae616ab674a344a36a49f8",
+      "construction": "fragments",
+      "fragments": [
+        "agent-proposals-apple-tests"
+      ]
+    },
+    "apps/android-simple/app/src/main/java/com/hickorydocs/simple/NativeDebugAttach.kt": {
+      "source": ".hickory-source/frontends/debug-attach-android.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "49e53438f40b535c9dccd5447e5602a6f9c2b38567c5f0372a1a3828ed74d67f",
+      "construction": "fragments",
+      "fragments": [
+        "debug-attach-android-policy"
+      ]
+    },
+    "apps/android-simple/app/src/test/java/com/hickorydocs/simple/NativeDebugAttachTest.kt": {
+      "source": ".hickory-source/frontends/debug-attach-android.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "6f2de9b9d3be234563570e2146bc6aad3fbb3e921d07d8604b5658a0bc30ec08",
+      "construction": "fragments",
+      "fragments": [
+        "debug-attach-android-tests"
+      ]
     }
   },
   "evidence_records": [

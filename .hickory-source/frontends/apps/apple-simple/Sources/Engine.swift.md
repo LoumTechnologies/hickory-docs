@@ -66,6 +66,8 @@ struct Engine {
             let detail = object?["error"] as? String ?? String(data: data.prefix(600), encoding: .utf8) ?? "Request refused"
             throw EngineError(message: "\(detail) (HTTP \(response.statusCode)). Check the server and retry after reviewing its current state.")
         }
+        if path=="/api/launch-profiles"{try validateNativeJSON(data,canonicalVersionKeys:["debug_protocol"])}
+        if path.hasPrefix("/api/agent-proposals"){try validateNativeAgentProposalResponse(data)}
         if path.hasPrefix("/api/tests/") || path.hasPrefix("/api/templates/") || path.hasPrefix("/api/source-history") || path.hasPrefix("/api/behavior/") || path.hasPrefix("/api/changes/") || path.hasPrefix("/api/git/conflict-resolution/"){try validateSourceTestJSON(data)}
         return try JSONDecoder().decode(T.self, from: data)
     }
@@ -99,8 +101,8 @@ Save requests carry the exact baseline from the original read. Agent sends selec
         return result.hash
     }
     func turns() async throws -> AgentHistory { try await request("GET", "/api/docs/workspace/agent/turns") }
-    func send(_ prompt: String, parent: String?, provider: String, model: String, effort: String) async throws -> StartedTurn {
-        try await request("POST", "/api/docs/workspace/agent", body: ["prompt": prompt, "parent_id": parent as Any? ?? NSNull(), "backend": "python", "provider": provider, "model": model, "effort": effort.isEmpty ? NSNull() : effort as Any])
+    func send(_ prompt: String, parent: String?, provider: String, model: String, effort: String, context:[String:Any]?=nil) async throws -> StartedTurn {
+        try await request("POST", "/api/docs/workspace/agent", body: ["prompt": prompt, "parent_id": parent as Any? ?? NSNull(), "backend": "python", "provider": provider, "model": model, "effort": effort.isEmpty ? NSNull() : effort as Any,"context":context as Any? ?? ["live":false,"buffers":[]]])
     }
     func stop() async throws {
         struct Stopped: Decodable { var stopping: String }
@@ -626,12 +628,27 @@ Evaluation carries the exact stop, selected thread/frame and a fresh per-express
 
 Selecting a frame requests its locals through the same engine scope checks, with a separate latest request identity. Replies must match the stopped generation, thread and selected frame; switching frames retires the previous read without waiting for it. A provider refusal is separate from an observed empty variable list. A failed same-stop stack refresh keeps earlier frames readable as historical context, disables their navigation/evaluation and leaves thread selection and runtime Stop available. Only a successful fresh stack re-enables those positional actions.
 
+An optional endpoint profile is a declared loopback attachment, separate from launching a new program. Decode its nonzero UInt16 port and object metadata, keep ordinary older profile catalogs readable, and prefer the explicitly viewed program and offer the same profile chooser for other targets. A declared default endpoint is automatic only when no viewed application matches. The host sends only the selected profile identity and catalog fingerprint; server admission owns the endpoint and arguments. Persist the external-source caveat through Started and subsequent stop readings.
+
 <ui:copy id="simple-apple-debug-session">
 func nativeDebugURI(_ path:String)->String {path.hasPrefix("hick://") ? path:languageURI(path)}
 struct DebugLine: Equatable { var line: Int; var y: Double; var height: Double }
+struct NativeDebugAttach:Decodable {
+    var port:UInt16;var arguments:ResourceJSON
+    private enum CodingKeys:String,CodingKey{case port,arguments}
+    init(from decoder:Decoder)throws{
+        let values=try decoder.container(keyedBy:CodingKeys.self);port=try values.decode(UInt16.self,forKey:.port);arguments=try values.decode(ResourceJSON.self,forKey:.arguments)
+        guard port>0,case .object=arguments else{throw DecodingError.dataCorruptedError(forKey:.port,in:values,debugDescription:"Attach requires a nonzero loopback port and object arguments.")}
+    }
+}
 struct NativeDebugProfile: Decodable, Identifiable {
     var id: String; var name: String; var program: String?; var can_debug: Bool
+    var attach:NativeDebugAttach?=nil;var default_profile:Bool?=nil
+    private enum CodingKeys:String,CodingKey{case id,name,program,can_debug,attach;case default_profile="default"}
     var exactID:Data {Data(id.utf8)}
+    var actionLabel:String {attach == nil ? "Debug \(name)":"Attach \(name)"}
+    var attachNotice:String? {attach.map{"Attach · loopback port \($0.port) · external source revision unverified"}}
+    var runUnavailableReason:String? {attach == nil ? nil:"Attach profiles connect an existing loopback process; Run is unavailable."}
 }
 struct NativeDebugTarget: Identifiable { var path: String; var line: Int; var end: Int; var id: NativeSourceKey {NativeSourceKey("\(path):\(line)")} }
 struct NativeDebugRender: Decodable {
@@ -732,6 +749,7 @@ Keep renderer handles out of the runtime model. It retains exact source relation
     var canReadThreads:Bool {status=="paused" && pauseIdentityKnown && latestThreadStop != nil && !threadBusy && !refreshingPause}
     var canSelectThreads:Bool {status=="paused" && pauseIdentityKnown && !threadBusy && !refreshingPause && threadStop != nil && threadStop==latestThreadStop}
     var canResume:Bool {status=="paused" && pauseIdentityKnown && !refreshingPause && threadRequest?.thread==nil}
+    var stoppedObservation:UInt64? {status=="paused" && pauseIdentityKnown ? latestThreadStop:nil}
     var canInspectFrame:Bool {canResume && stackNotice.isEmpty}
     var canReadFrameLocals:Bool {canInspectFrame && latestThreadStop != nil && selectedThread != nil && selectedFrame != nil && !frameBusy}
     var canEvaluate:Bool {canInspectFrame && latestThreadStop != nil && selectedThread != nil}
@@ -771,6 +789,7 @@ Keep renderer handles out of the runtime model. It retains exact source relation
     private var launchProgram:String? {get{launchProgramKey?.string}set{launchProgramKey=newValue.map(NativeSourceKey.init)}}
     var catalog: NativeDebugCatalog?
     var catalogNotices:[String]=[]
+    private(set) var attachReading:String?
     @ObservationIgnored var sourceBuffers:(()->[DocumentBuffer])?
     private var sourceIdentities:[Data:NativeDebugSourceIdentity]=[:]
     private var intentOwners:[Data:UUID]=[:]
@@ -787,6 +806,7 @@ Keep renderer handles out of the runtime model. It retains exact source relation
     var offer: [String: String]?
     @ObservationIgnored var onLocation: ((NativeDebugLocation) -> Void)?
     @ObservationIgnored var observeRequestForTest: (([String:Any])->Void)?
+    @ObservationIgnored var observeEventForTest: (([String:Any])->Void)?
     @ObservationIgnored var emitForTest: (([String: Any]) -> Void)?
     private let engine: Engine
     private weak var launchBuffer: DocumentBuffer?
@@ -917,7 +937,7 @@ Keep renderer handles out of the runtime model. It retains exact source relation
         guard (catalog.debug_protocol ?? 0)>=3 else{self.catalog=nil;profiles=[];status="unavailable";message="Scoped debugging is unavailable from this engine. Update/reconnect an engine with debug protocol 3 before Debug. No Start command was sent.";return false}
         return true
     }
-    func prepare(_ buffer: DocumentBuffer, line: Int = 0, program: String? = nil) async {
+    func prepare(_ buffer: DocumentBuffer, line: Int = 0, program: String? = nil,chooseProfile:Bool=false) async {
         guard !active else { message = "Stop the current debugger before launching another program."; return }
         guard !buffer.resourceDeleted else{message="Deleted source is retained history. Restore its proven identity or save a copy before a new launch.";return}
         guard !buffer.dirty, !buffer.saving else { message = "Save this file before debugging so the adapter runs the displayed text."; return }
@@ -938,7 +958,7 @@ Keep renderer handles out of the runtime model. It retains exact source relation
                         end: launchSource.utf8.prefix(span[1]).filter { $0 == 10 }.count)
                 }
                 target = targets.first(where: { $0.line <= line && line <= $0.end })?.path
-                guard target != nil else { message = targets.isEmpty ? "No file blocks to debug. Add a supported file block and save this document." : "Choose the file block to debug."; return }
+                guard target != nil || chooseProfile else { message = targets.isEmpty ? "No file blocks to debug. Add a supported file block and save this document." : "Choose the file block to debug."; return }
             }
             launchProgram = target
             var query: [String: Any] = ["uri": nativeDebugURI(owner), literate ? "expected_document" : "expected_source": launchSource]
@@ -948,7 +968,7 @@ Keep renderer handles out of the runtime model. It retains exact source relation
                 guard preparationNamespace==sourceNamespace,!buffer.resourceDeleted,exactUTF8(buffer.file.path,owner),exactUTF8(buffer.text,launchSource),!buffer.dirty,!buffer.saving else{message="Source identity or text changed during launch preparation. Choose Debug on the current saved source.";return}
             guard compatibleDebugger(result) else{return}
             catalogNotices=result.notices ?? [];catalog = result; profiles = result.profiles.filter(\.can_debug)
-            if let automatic = profiles.first(where: { exactUTF8($0.program,target ?? result.viewed ?? owner) }) ?? (profiles.count == 1 ? profiles.first : nil) { launch(automatic); return }
+            if !chooseProfile,let automatic = profiles.first(where: { exactUTF8($0.program,target ?? result.viewed ?? owner) }) ?? profiles.first(where:{$0.default_profile==true && $0.attach != nil}) ?? (profiles.count == 1 ? profiles.first : nil) { launch(automatic); return }
             message = profiles.isEmpty ? "No debug launch targets. Configure a debug profile in this project and try again." : "Choose a debug target."
         } catch { if epoch == current { message = "\(error.localizedDescription) Save or refresh this file and try debugging again." } }
     }
@@ -959,11 +979,12 @@ Keep renderer handles out of the runtime model. It retains exact source relation
               preparationNamespace==sourceNamespace,!buffer.resourceDeleted,exactUTF8(buffer.file.path,owner),exactUTF8(buffer.text,launchSource), !buffer.dirty, !buffer.saving, !active else {
             message = "The source or launch target changed. Save and choose Debug again."; return
         }
+        attachReading=profiles.first(where:{exactUTF8($0.id,profile.id)})?.attachNotice
         let launch=beginLaunchRequest();message = ""; profiles = []; values = [:]; variables = []; frames = []; pausedLine = nil; offer = nil
         openTransport()
         var request: [String: Any] = ["op": "start", "request_id":launch,"doc": nativeDebugURI(owner), "breakpoints": breakpoints[owner] ?? [],
             "profile": ["id": profile.id, "fingerprint": catalog.fingerprint]]
-        if let launchProgram { request["program"] = launchProgram }
+        if let launchProgram,attachReading==nil { request["program"] = launchProgram }
         appendLaunchBreakpoints(launch,to:&request)
         send(request)
     }
@@ -1034,6 +1055,7 @@ Keep renderer handles out of the runtime model. It retains exact source relation
     func close() {
         retireTestReadings("debugger reading closed / process outcome unknown")
         pendingSourceTest=nil
+        attachReading=nil
         retireLaunches()
         epoch = UUID(); receiver?.cancel(); sender?.cancel(); socket?.cancel(with: .normalClosure, reason: nil); socket = nil
         resetThreads();stopPending = false; sessionID = nil; status = "idle"; pausedLine = nil; frames = []; variables = []; values = [:]; profiles = []
@@ -1047,6 +1069,7 @@ Session, launch, stopped generation, thread, selected frame and latest request i
 <ui:copy id="native-debug-reply-admission-apple">
     // Session-bearing events from an old run cannot paint a new launch.
     func receive(_ event: [String: Any]) {
+        observeEventForTest?(event)
         guard let kind = event["event"] as? String else { return }
         if kind=="started" {
             if stopRetiredLaunch(event){return}
@@ -1067,7 +1090,7 @@ Session, launch, stopped generation, thread, selected frame and latest request i
                 }
             }
             launchBoundHash=(event["source_hash"] as? String)==nativeSourceHash(launchSource) ? event["source_hash"] as? String:nil
-            if launchBoundHash==nil {message="The engine did not confirm the captured primary source hash. Runtime controls remain available; primary source positions and movement are unbound."}
+            if launchBoundHash==nil {message="The engine did not confirm the captured primary source hash. Runtime controls remain available; primary source positions, Jump and Run to caret are unbound."}
             pauseUnconfirmed=false;movementRequest=nil;activeLaunch=pendingLaunch;pendingLaunch=nil
             resetThreads();output = []
             sessionID = event["session"] as? String; capabilities = event["capabilities"] as? [String: Any] ?? [:]; status = "running"

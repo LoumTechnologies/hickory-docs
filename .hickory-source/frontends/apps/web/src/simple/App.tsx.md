@@ -56,7 +56,9 @@ import { enterMode, type EnterMode } from "./SmartEnter";
 import { Document, semanticQueries, openSemanticQuery, openFind, wordNavigationMode, type WordNavigationMode } from "./Document";
 import { Terminal, TerminalSession } from "./Terminal";
 import { Agent, AgentSession } from "./Agent";
-import { activate, groups, initialLayout, isGroup, move, remove, split, update, dock, dropEdge, type Edge, type Axis, type Layout } from "./layout";
+import {AgentProposalReview} from "./AgentProposalView";
+import {proposalEditorContext} from "./AgentProposalAdapter";
+import { sourceTab, tabIdentity, activate, groups, initialLayout, isGroup, move, remove, split, update, dock, dropEdge, type Edge, type Axis, type Layout } from "./layout";
 function EditorSettings() {
   const [error, setError] = useState("");
   const [enter, setEnter] = useState(enterMode);
@@ -92,6 +94,7 @@ export function App() {
   const [showTemplates,setShowTemplates]=useState(false);
   const [showRecovery,setShowRecovery]=useState(false);
   const [showConstruction,setShowConstruction]=useState(false);
+  const [showAgentProposals,setShowAgentProposals]=useState(false);
   const [showReview,setShowReview]=useState(false);
   const [attributionPath,setAttributionPath]=useState<string|null>(null);
   const [showSourceHistory,setShowSourceHistory]=useState(false);
@@ -110,12 +113,13 @@ export function App() {
   const [buffers] = useState(() => new Buffers(() => refresh(value => value + 1)));
   const requested = useRef(new Map<string, string>());
   const [retainedTabs]=useState(()=>new RetainedResourceTabs());
-  const bufferForTab=(tab:string)=>retainedTabs.buffers.get(tab)??buffers.values.get(tab);
+  const bufferForTab=(tab:string)=>{const identity=tabIdentity(tab);return identity.kind==='source'?(retainedTabs.buffers.get(identity.key)??buffers.values.get(identity.key)):undefined;};
+  const tabRoutes=(routes:ResourceEditorRoute<Buffer>[])=>retainedTabs.routes(routes,hasActivePlainDebugSession).map(route=>({...route,from:route.from===null?null:sourceTab(route.from),to:route.to===null?null:sourceTab(route.to)}));
   const resourcePlacements=useRef(new Map<Buffer,{group:string;index:number;active:boolean}>());
   function newTab() {
     const path = `Untitled-${crypto.randomUUID()}`;
-    buffers.values.set(path, new Buffer({ name: `Untitled ${[...buffers.values.keys()].filter(key => key.startsWith("Untitled-")).length + 1}`, path, dir: false }, "", "", () => refresh(value => value + 1)));
-    openTab(path);
+    const draft=new Buffer({ name: `Untitled ${[...buffers.values.values()].filter(value=>value.isUntitledDraft).length + 1}`, path, dir: false }, "", "", () => refresh(value => value + 1));draft.isUntitledDraft=true;buffers.values.set(path,draft);
+    openTab(sourceTab(path));
   }
   function findPath(path: string, nodes = workspaceFiles): FileNode | undefined {
     for (const node of nodes) { if (node.path === path) return node; const found = findPath(path, node.children ?? []); if (found) return found; }
@@ -130,7 +134,7 @@ export function App() {
   }
   async function saveAs(source = buffer) {
     if (!source || source.saving) return;
-    const path = window.prompt("Save As — new path in this workspace", source.file.path.startsWith("Untitled-") ? "" : source.file.path);
+    const path = window.prompt("Save As — new path in this workspace", source.isUntitledDraft ? "" : source.file.path);
     if (!path) return;
     if (path === source.file.path) { if(source.resourceDeleted)setNotice("This source was deleted. Choose a new unused path to save its retained text.");else await source.save(); return; }
     const text = source.text,editor=editorForBuffer(source),interaction=editor?.interaction,placement=liveLayout.current;
@@ -141,7 +145,7 @@ export function App() {
       await open(copy.file);
       // Existing sources keep their editor, selection and undo. A deleted or
       // unnamed tombstone can retire only after its exact text was copied.
-      if(source.resourceDeleted||source.file.path.startsWith("Untitled-")){
+      if(source.resourceDeleted||source.isUntitledDraft){
         if(hasActivePlainDebugSession(source)){retainedTabs.noteCopy(source,text);setNotice("Copy saved. The original launch source remains readable until its debugger closes.");}
         else {const tabs=groups(liveLayout.current).flatMap(group=>group.tabs).filter(tab=>bufferForTab(tab)===source);if(retireCopiedBuffer(buffers,source,text)){retirePlainDebugIdentity(source);retainedTabs.retire(source);setLayout(current=>tabs.reduce((next,tab)=>remove(next,tab),current));}}
       }
@@ -150,10 +154,10 @@ export function App() {
     } catch (error) { setNotice(`${String(error)} Original edits and the exact copy request are retained. Inspect local history before changing the destination; retry only while the captured editors remain current.`); }
     finally { source.saving = false; source.publish(); refresh(value => value + 1); }
   }
-  async function saveCurrent() { if (buffer?.file.path.startsWith("Untitled-")) await saveAs(); else await buffer?.save(); }
+  async function saveCurrent() { if (buffer?.isUntitledDraft) await saveAs(); else await buffer?.save(); }
   async function saveAll() {
     for (const item of [...buffers.values.values()]) {
-      if (item.file.path.startsWith("Untitled-")) { if (item.dirty) await saveAs(item); }
+      if (item.isUntitledDraft) { if (item.dirty) await saveAs(item); }
       else await item.save();
     }
   }
@@ -169,6 +173,7 @@ export function App() {
   const currentGroup = groups(layout).find(group => group.id === focused) ?? groups(layout)[0];
   const active = currentGroup.active;
   const buffer = active ? bufferForTab(active) : undefined;
+  agent.captureContext=()=>proposalEditorContext(buffers,buffer);
   async function openTerminal() { openTab("terminal"); await terminal.open(); }
   function openTab(tab: string) {
     const owner = groups(layout).find(group => group.tabs.includes(tab));
@@ -185,9 +190,9 @@ export function App() {
       await buffers.open(file);
       if (!isCurrent()||requested.current.get(target) !== file.path) return;
       setLayout(current => {
-        const owner = groups(current).find(group => group.tabs.includes(file.path));
+        const owner = groups(current).find(group => group.tabs.includes(sourceTab(file.path)));
         const live = owner?.id ?? groups(current).find(group => group.id === target)?.id ?? groups(current)[0].id;
-        return activate(current, live, file.path);
+        return activate(current, live, sourceTab(file.path));
       });
       setStatus(file.generated_by ? "Generated file · read-only" : file.path);
     } catch (error) { setNotice(`${String(error)} Refresh files and try opening ${file.path} again.`); }
@@ -242,7 +247,7 @@ export function App() {
     trail.record(departed, { uri: documentUri(file.path), range: { start, end: start } }); refreshTrail(value => value + 1);
   }
   function close(tab: string) {
-    for(const [group,path] of requested.current)if(path===tab)requested.current.delete(group);
+    for(const [group,path] of requested.current)if(sourceTab(path)===tab)requested.current.delete(group);
     const candidate = bufferForTab(tab);
     if(candidate?.resourceDeleted&&hasActivePlainDebugSession(candidate)){setNotice("Stop the debugger before closing its retained deleted source. Its existing controls remain available here.");return;}
     if (candidate?.saving || candidate?.dirty&&!retainedTabs.copied(candidate)) { setNotice("Unsaved edits retained. Save this document before closing its tab."); return; }
@@ -277,7 +282,7 @@ Menu and tab-strip commands expose the same operations as native menus. Empty le
   function content(tab: string) {
     if (tab === "files") return <div className="file-tree" aria-label="Files"><Tree nodes={tree} open={openFileVisit} /></div>;
     if (tab === "terminal") return <Terminal session={terminal} />;
-    if (tab === "agent") return <Agent session={agent} />;
+    if (tab === "agent") return <Agent session={agent} reviewProposals={()=>setShowAgentProposals(true)} />;
     const document = bufferForTab(tab);
     return document ? <Document key={document.file.path} buffer={document} current={()=>!document.resourceDeleted&&document.namespace===buffers.workspace&&buffers.values.get(document.file.path)===document} /> : null;
   }
@@ -322,7 +327,7 @@ Menu and tab-strip commands expose the same operations as native menus. Empty le
     "file.save":()=>{void saveCurrent();},"file.saveAs":()=>{void saveAs();},"file.saveAll":()=>{void saveAll();},"file.refresh":()=>{void loadFiles();},"file.close":()=>{if(active)close(active);},
     "shell.search":()=>setShowEverywhere(true),"edit.find":()=>{if(buffer)openFind(buffer);},"workspace.find":()=>setShowWorkspaceSearch(true),
     "symbol.rename":()=>requestWorkspaceChange("rename"),"symbol.actions":()=>requestWorkspaceChange("actions"),"document.format":()=>requestWorkspaceChange("format"),"document.cleanup":()=>requestWorkspaceChange("cleanup"),"workspace.undo":()=>requestWorkspaceChange("undo"),"workspace.redo":()=>requestWorkspaceChange("redo"),
-    "document.attribution":()=>{if(buffer){setShowReview(false);setShowHistory(false);setAttributionPath(buffer.file.path);}},"workspace.review":()=>{setAttributionPath(null);setShowHistory(false);setShowReview(true);},"workspace.history":()=>{setAttributionPath(null);setHistoryRequest({kind:'log',path:null});setShowReview(false);setShowHistory(true);},"document.history":()=>{setAttributionPath(null);setHistoryRequest({kind:'log',path:buffer?.file.path??null});setShowReview(false);setShowHistory(true);},"workspace.coverage":()=>setShowCoverage(true),"workspace.recovery":()=>setShowRecovery(true),"workspace.construction":()=>setShowConstruction(true),"workspace.tests":()=>setShowTests(true),"source.templates":()=>setShowTemplates(true),"source.history":()=>setShowSourceHistory(true),"workspace.problems":()=>setShowProblems(true),"workspace.analysis":requestWorkspaceAnalysis,"problem.next":()=>requestProblemNavigation(1),"problem.previous":()=>requestProblemNavigation(-1),"navigation.back":()=>navigateHistory(-1),"navigation.forward":()=>navigateHistory(1),
+    "document.attribution":()=>{if(buffer){setShowReview(false);setShowHistory(false);setAttributionPath(buffer.file.path);}},"workspace.review":()=>{setAttributionPath(null);setShowHistory(false);setShowReview(true);},"workspace.history":()=>{setAttributionPath(null);setHistoryRequest({kind:'log',path:null});setShowReview(false);setShowHistory(true);},"document.history":()=>{setAttributionPath(null);setHistoryRequest({kind:'log',path:buffer?.file.path??null});setShowReview(false);setShowHistory(true);},"workspace.coverage":()=>setShowCoverage(true),"workspace.recovery":()=>setShowRecovery(true),"workspace.construction":()=>setShowConstruction(true),"agent.proposals":()=>setShowAgentProposals(true),"workspace.tests":()=>setShowTests(true),"source.templates":()=>setShowTemplates(true),"source.history":()=>setShowSourceHistory(true),"workspace.problems":()=>setShowProblems(true),"workspace.analysis":requestWorkspaceAnalysis,"problem.next":()=>requestProblemNavigation(1),"problem.previous":()=>requestProblemNavigation(-1),"navigation.back":()=>navigateHistory(-1),"navigation.forward":()=>navigateHistory(1),
     "view.files":()=>openTab("files"),"view.agent":()=>openTab("agent"),"view.terminal":()=>{void openTerminal();},"view.splitRight":()=>divide("horizontal"),"view.splitBelow":()=>divide("vertical"),"view.move":nextGroup,
   };
   for(const query of semanticQueries)handlers[`semantic.${query.kind}`]=()=>{if(buffer){const text=query.kind==="symbols"?window.prompt("Search workspace symbols",""):"";if(text!==null)openSemanticQuery(buffer,query.kind,text);}};
@@ -361,7 +366,7 @@ Menu and tab-strip commands expose the same operations as native menus. Empty le
       openLocation(location.path,location.line,0,true,source);setShowCoverage(false);
     }}/>
     <SourceTemplatesView visible={showTemplates} close={()=>{setShowTemplates(false);if(buffer)editorForBuffer(buffer)?.view.focus();}} editor={()=>{const owner=buffer,held=owner?editorForBuffer(owner):undefined;if(!owner||!held)return null;const mount=held.mount;return {buffer:owner,buffers,view:held.view,mounted:()=>editorForBuffer(owner)===held&&held.mount===mount,interaction:()=>held.interaction};}} />
-    <TestSourcesView inspectDebugger={owner=>{if(owner.namespace!==buffers.workspace)throw Error('The original debugger belongs to a different workspace namespace. Its record remains readable.');const tab=[...buffers.values,...retainedTabs.buffers].find(([,held])=>held===owner)?.[0];if(!tab)throw Error('The original debugger editor is no longer retained. No replacement path was opened.');openTab(tab);setShowTests(false);}} inspection={testInspection} buffers={buffers} visible={showTests} close={()=>{setShowTests(false);if(buffer)editorForBuffer(buffer)?.view.focus();}} current={entry=>buffer?{workspace:workspaceRoot,owner:buffer,namespace:buffers.workspace,revision:buffer.sourceRevision,executionCurrent:!buffer.dirty&&!buffer.saving&&!buffer.resourceDeleted&&buffer.namespace===buffers.workspace&&buffers.values.get(buffer.file.path)===buffer,request:{path:buffer.file.path,source:buffer.text,...(entry?{project_entry:entry}:{}),sources:Object.fromEntries([...buffers.values].filter(([,item])=>!item.readonly).map(([path,item])=>[path,item.text]))}}:null} navigate={async(point:TestSourcePoint)=>{
+    <TestSourcesView inspectDebugger={owner=>{if(owner.namespace!==buffers.workspace)throw Error('The original debugger belongs to a different workspace namespace. Its record remains readable.');const tab=[...buffers.values,...retainedTabs.buffers].find(([,held])=>held===owner)?.[0];if(!tab)throw Error('The original debugger editor is no longer retained. No replacement path was opened.');openTab(sourceTab(tab));setShowTests(false);}} inspection={testInspection} buffers={buffers} visible={showTests} close={()=>{setShowTests(false);if(buffer)editorForBuffer(buffer)?.view.focus();}} current={entry=>buffer?{workspace:workspaceRoot,owner:buffer,namespace:buffers.workspace,revision:buffer.sourceRevision,executionCurrent:!buffer.dirty&&!buffer.saving&&!buffer.resourceDeleted&&buffer.namespace===buffers.workspace&&buffers.values.get(buffer.file.path)===buffer,request:{path:buffer.file.path,source:buffer.text,...(entry?{project_entry:entry}:{}),sources:Object.fromEntries([...buffers.values].filter(([,item])=>!item.readonly).map(([path,item])=>[path,item.text]))}}:null} navigate={async(point:TestSourcePoint)=>{
       const file=buffers.values.get(point.path)?.file??findPath(point.path);if(!file)throw new Error("Source no longer listed. Refresh files and candidates.");
       const target=await buffers.open(file),source=target.text;
       const bytes=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(source));const hash=[...new Uint8Array(bytes)].map(byte=>byte.toString(16).padStart(2,"0")).join("");
@@ -369,15 +374,16 @@ Menu and tab-strip commands expose the same operations as native menus. Empty le
       openLocation(point.path,point.line,point.character,true,source);setShowTests(false);
     }} terminal={id=>{terminal.id=id;terminal.error="";terminal.publish();openTab("terminal");setShowTests(false);}} />
     <SearchEverywhereView visible={showEverywhere} setVisible={setShowEverywhere} buffers={buffers} files={workspaceFiles} analysis={analysis} commands={commands} openFile={path=>{const file=buffers.values.get(path)?.file??findPath(path);if(file)void openFileVisit(file);else setNotice("File no longer listed. Refresh the workspace.");}} focusCurrent={()=>{if(buffer)editorForBuffer(buffer)?.view.focus();}} />
-    <WorkspaceChanges history={changeHistory} adoptResources={routes=>{requested.current.clear();const next=resourceLayout(liveLayout.current,retainedTabs.routes(routes,hasActivePlainDebugSession),resourcePlacements.current);liveLayout.current=next;setLayout(next);void loadFiles();}} files={workspaceFiles} buffers={buffers} current={() => buffer} focus={() => { if (buffer) editorForBuffer(buffer)?.view.focus(); }} />
+    <WorkspaceChanges history={changeHistory} adoptResources={routes=>{requested.current.clear();const next=resourceLayout(liveLayout.current,tabRoutes(routes),resourcePlacements.current);liveLayout.current=next;setLayout(next);void loadFiles();}} files={workspaceFiles} buffers={buffers} current={() => buffer} focus={() => { if (buffer) editorForBuffer(buffer)?.view.focus(); }} />
     <WorkspaceSearch visible={showWorkspaceSearch} close={() => { setShowWorkspaceSearch(false); if (buffer) editorForBuffer(buffer)?.view.focus(); }} buffers={buffers} files={workspaceFiles} />
+    <AgentProposalReview key={"agent-proposals:"+buffers.workspaceId} open={showAgentProposals} close={()=>{setShowAgentProposals(false);if(buffer)editorForBuffer(buffer)?.view.focus();}} buffers={buffers} history={changeHistory} acquire={async path=>{const namespace=buffers.workspace,workspace=buffers.workspaceId,response=await api.files();if(response.root_path!==namespace||response.workspace_id!==workspace||buffers.workspace!==namespace||buffers.workspaceId!==workspace)throw Error('Proposal workspace changed while acquiring a target.');const find=(nodes:FileNode[]):FileNode|undefined=>{for(const file of nodes){if(!file.dir&&file.path===path)return file;const nested=find(file.children??[]);if(nested)return nested;}};const file=find(response.tree);if(!file)throw Error('Reviewed source is not available in this workspace: '+path);const target=await buffers.open(file);if(buffers.workspace!==namespace||buffers.workspaceId!==workspace)throw Error('Proposal workspace changed.');return target;}} adopt={routes=>{requested.current.clear();const next=resourceLayout(liveLayout.current,tabRoutes(routes),resourcePlacements.current);liveLayout.current=next;setLayout(next);void loadFiles();}} />
     {showSourceHistory&&buffer&&<SourceHistoryView key={buffers.workspace+":"+buffer.file.path} buffer={buffer} buffers={buffers} history={changeHistory} alive={()=>workspaceIdentity.current===workspaceRoot} close={()=>{setShowSourceHistory(false);editorForBuffer(buffer)?.view.focus();}} />}
     {showRecovery&&<SourceRecoveryView key={"recovery:"+workspaceRoot} buffers={buffers} epoch={()=>changeHistory.stamp()} alive={()=>workspaceIdentity.current===workspaceRoot} acquire={async path=>{
       const identity=workspaceIdentity.current,response=await api.files();if(workspaceIdentity.current!==identity||response.root!==identity)throw new Error("Workspace changed. Read recovery again.");
       const find=(nodes:FileNode[]):FileNode|undefined=>{for(const file of nodes){if(file.path===path&&!file.dir)return file;const nested=find(file.children??[]);if(nested)return nested;}};
       const file=buffers.values.get(path)?.file??find(response.tree);if(!file)throw new Error("Recovery source is not available in the current workspace: "+path);return await buffers.open(file);
-    }} adopt={(routes:ResourceEditorRoute<Buffer>[],recovery:string)=>{changeHistory.record({kind:"resource",recovery});requested.current.clear();const next=resourceLayout(liveLayout.current,retainedTabs.routes(routes,hasActivePlainDebugSession),resourcePlacements.current);liveLayout.current=next;setLayout(next);void loadFiles();setNotice("Source restoration confirmed; saved baselines and drafts are retained separately.");}} close={()=>{setShowRecovery(false);if(buffer)editorForBuffer(buffer)?.view.focus();}}/>}
-    {showConstruction&&<ConstructionReadingView key={"construction:"+workspaceRoot} workspace={buffers.workspace} engineWorkspace={buffers.workspaceId} capture={()=>{const namespace=buffers.workspace,engine=buffers.workspaceId;try{const roster=captureResourceRoster(buffers);return ()=>!!namespace&&buffers.workspace===namespace&&buffers.workspaceId===engine&&workspaceIdentity.current===workspaceRoot&&roster.current();}catch{return ()=>false;}}} terminal={id=>{terminal.id=id;terminal.error="";terminal.publish();openTab("terminal");setShowConstruction(false);}} retainedSources={()=>{const roster=captureResourceRoster(buffers);return {sources:roster.ownership_sources,unaddressed_sources:roster.unaddressed_sources,saved_guards:Object.fromEntries(roster.captures.filter(row=>Object.hasOwn(roster.ownership_sources,row.path)&&!!row.guard).map(row=>[row.path,row.guard!])),missing_sources:roster.captures.filter(row=>row.deleted&&!row.readonly&&!row.transient&&!row.path.startsWith('/')&&!row.path.startsWith('Untitled-')).map(row=>row.path)};}} sources={()=>captureResourceRoster(buffers).ownership_sources} navigate={async(point,current)=>{
+    }} adopt={(routes:ResourceEditorRoute<Buffer>[],recovery:string)=>{changeHistory.record({kind:"resource",recovery});requested.current.clear();const next=resourceLayout(liveLayout.current,tabRoutes(routes),resourcePlacements.current);liveLayout.current=next;setLayout(next);void loadFiles();setNotice("Source restoration confirmed; saved baselines and drafts are retained separately.");}} close={()=>{setShowRecovery(false);if(buffer)editorForBuffer(buffer)?.view.focus();}}/>}
+    {showConstruction&&<ConstructionReadingView key={"construction:"+workspaceRoot} workspace={buffers.workspace} engineWorkspace={buffers.workspaceId} capture={()=>{const namespace=buffers.workspace,engine=buffers.workspaceId;try{const roster=captureResourceRoster(buffers);return ()=>!!namespace&&buffers.workspace===namespace&&buffers.workspaceId===engine&&workspaceIdentity.current===workspaceRoot&&roster.current();}catch{return ()=>false;}}} terminal={id=>{terminal.id=id;terminal.error="";terminal.publish();openTab("terminal");setShowConstruction(false);}} retainedSources={()=>{const roster=captureResourceRoster(buffers);return {sources:roster.ownership_sources,unaddressed_sources:roster.unaddressed_sources,saved_guards:Object.fromEntries(roster.captures.filter(row=>Object.hasOwn(roster.ownership_sources,row.path)&&!!row.guard).map(row=>[row.path,row.guard!])),missing_sources:roster.captures.filter(row=>row.deleted&&!row.readonly&&!row.transient&&!row.path.startsWith('/')&&!row.buffer.isUntitledDraft).map(row=>row.path)};}} sources={()=>captureResourceRoster(buffers).ownership_sources} navigate={async(point,current)=>{
       const identity=workspaceIdentity.current,file=buffers.values.get(point.path)?.file??findPath(point.path);if(!file)throw new Error("Source no longer listed. Refresh the construction reading.");
       const target=await buffers.open(file),source=target.text;
       const hash=[...new Uint8Array(await crypto.subtle.digest("SHA-256",new TextEncoder().encode(source)))].map(byte=>byte.toString(16).padStart(2,"0")).join("");
@@ -389,7 +395,7 @@ Menu and tab-strip commands expose the same operations as native menus. Empty le
     }} close={()=>{setShowConstruction(false);if(buffer)editorForBuffer(buffer)?.view.focus();}} />}
     {attributionPath!==null&&<GitAttributionView key={"attribution:"+workspaceRoot} workspace={workspaceRoot} path={attributionPath} close={()=>{setAttributionPath(null);if(buffer)editorForBuffer(buffer)?.view.focus();}} readCommit={(sha,title)=>{setAttributionPath(null);setShowReview(false);setHistoryRequest({kind:'commit',sha,title});setShowHistory(true);}} />}
     <GitHistoryView key={"history:"+workspaceRoot} workspace={workspaceRoot} visible={showHistory} request={historyRequest} close={()=>{setShowHistory(false);if(buffer)editorForBuffer(buffer)?.view.focus();}} />
-    <GitReviewView key={workspaceRoot} workspace={workspaceRoot} buffers={buffers} history={changeHistory} alive={()=>workspaceIdentity.current===workspaceRoot} adopt={routes=>{requested.current.clear();const next=resourceLayout(liveLayout.current,retainedTabs.routes(routes,hasActivePlainDebugSession),resourcePlacements.current);liveLayout.current=next;setLayout(next);void loadFiles();}} acquire={async path=>{const scope=workspaceRoot;if(workspaceIdentity.current!==scope)throw new Error("Workspace changed. Prepare the conflict again.");const file=buffers.values.get(path)?.file??findPath(path);if(!file||file.dir)throw new Error("Conflict source is no longer listed. Refresh files and try again.");const target=await buffers.open(file);if(workspaceIdentity.current!==scope)throw new Error("Workspace changed. Prepare the conflict again.");return target;}} visible={showReview} close={()=>{setShowReview(false);if(buffer)editorForBuffer(buffer)?.view.focus();}} />
+    <GitReviewView key={workspaceRoot} workspace={workspaceRoot} buffers={buffers} history={changeHistory} alive={()=>workspaceIdentity.current===workspaceRoot} adopt={routes=>{requested.current.clear();const next=resourceLayout(liveLayout.current,tabRoutes(routes),resourcePlacements.current);liveLayout.current=next;setLayout(next);void loadFiles();}} acquire={async path=>{const scope=workspaceRoot;if(workspaceIdentity.current!==scope)throw new Error("Workspace changed. Prepare the conflict again.");const file=buffers.values.get(path)?.file??findPath(path);if(!file||file.dir)throw new Error("Conflict source is no longer listed. Refresh files and try again.");const target=await buffers.open(file);if(workspaceIdentity.current!==scope)throw new Error("Workspace changed. Prepare the conflict again.");return target;}} visible={showReview} close={()=>{setShowReview(false);if(buffer)editorForBuffer(buffer)?.view.focus();}} />
     <footer role="status" title={[notice,buffer?.completionNotice].filter(Boolean).join(" · ")}><WorkspaceAnalysisView buffers={buffers} files={workspaceFiles} model={analysis} focusCurrent={() => { if (buffer) editorForBuffer(buffer)?.view.focus(); }} /><WorkspaceProblems buffers={buffers} visible={showProblems} setVisible={setShowProblems} current={currentLocation} focusCurrent={() => { if (buffer) editorForBuffer(buffer)?.view.focus(); }} />{notice ? `${notice} · ` : ""}{buffer?.completionNotice?`${buffer.completionNotice} · `:""}{buffer ? `${buffer.file.name} · ${buffer.resourceDeleted?"Deleted source · retained snapshot":buffer.readonly ? "Read-only" : buffer.saving ? "Saving…" : buffer.dirty ? "Modified" : "Saved"}` : status}</footer>
   </main></SourceCoverageProvider></SourceTestGutterProvider></SimpleLanguages>;
 }

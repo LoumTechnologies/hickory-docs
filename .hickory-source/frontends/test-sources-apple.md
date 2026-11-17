@@ -56,32 +56,7 @@ A test Debug choice is immutable saved-source admission, not a launch profile. R
 <ui:copy id="test-sources-apple-debug">
 // Foundation dictionaries merge canonical-equivalent keys before Decodable sees them.
 // Audit raw object keys and numeric version lexemes before Foundation can merge or coerce aliases.
-func validateSourceTestJSON(_ data:Data)throws {
-    let bytes=Array(data);var objects:[[String:Data]]=[];var index=0
-    while index<bytes.count {
-        let byte=bytes[index]
-        if byte==123{objects.append([:]);index+=1;continue}
-        if byte==125{if !objects.isEmpty{objects.removeLast()};index+=1;continue}
-        guard byte==34 else{index+=1;continue}
-        let start=index;index+=1
-        while index<bytes.count {if bytes[index]==92{index+=2;continue};if bytes[index]==34{break};index+=1}
-        guard index<bytes.count else{throw EngineError(message:"Malformed source-test JSON string.")}
-        index+=1;var next=index;while next<bytes.count,[UInt8(9),10,13,32].contains(bytes[next]){next+=1}
-        if next<bytes.count,bytes[next]==58,!objects.isEmpty {
-            let key=try JSONDecoder().decode(String.self,from:Data(bytes[start..<index])),position=objects.count-1
-            guard objects[position][key]==nil else{throw EngineError(message:"Duplicate or canonically equivalent JSON keys are unsupported by this native host. Source-test admission was refused without merging contributors.")}
-            objects[position][key]=Data(key.utf8)
-            if key=="version" || key=="test_debug_protocol" || key=="template_protocol" || key=="history_protocol" || key=="behavior_protocol" {
-                var value=next+1;while value<bytes.count,[UInt8(9),10,13,32].contains(bytes[value]){value+=1}
-                if value<bytes.count,(bytes[value]==45 || (48...57).contains(bytes[value])) {
-                    var end=value;while end<bytes.count,![UInt8(9),10,13,32,44,125,93].contains(bytes[end]){end+=1}
-                    let token=bytes[value..<end]
-                    guard !token.isEmpty,token.allSatisfy({(48...57).contains($0)}),token.count==1 || token.first != 48 else{throw EngineError(message:"Test Debug protocol requires a canonical integer version; numeric aliases were refused.")}
-                }
-            }
-        }
-    }
-}
+func validateSourceTestJSON(_ data:Data)throws {try validateNativeJSON(data,canonicalVersionKeys:["version","test_debug_protocol","template_protocol","history_protocol","behavior_protocol"])}
 func unambiguousTestSourcePaths(_ paths:[String])->Bool {
     var seen:[String:Data]=[:]
     for path in paths{let bytes=Data(path.utf8);if let previous=seen[path],previous != bytes{return false};seen[path]=bytes}

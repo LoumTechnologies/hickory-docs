@@ -3,10 +3,39 @@
 
 For maintainers routing readable files, retained editors and simultaneous resource moves. Swift String equality normalizes canonically equivalent Unicode, while a physical source name is an exact UTF-8 address. Source keys store those bytes and reconstruct only their original spelling. The map keeps String-facing lookup convenient without borrowing String's equality. It owns no write authority: loaded save tokens, source revisions, ownership and workspace lifetimes still govern effects.
 
+Source tabs, utility tabs and retained deleted editors have explicit kinds. A source named files, agent or terminal receives its own stable address; it cannot consume the utility with that display name. The address adapter preserves existing ordinary source addresses and escapes reserved names. Unnamed draft status belongs to the buffer, never a path prefix: a real loaded Untitled-* file keeps its ordinary source capabilities.
+
 The same keys distinguish pending reads and native view/tab identities. Array membership and selection use exact bytes; simultaneous tab readdressing validates the whole old namespace before mutation. Opening a second spelling retains a separate buffer and editor without replacing the first source's text, selection or undo history.
 
 <ui:copy id="source-identity-apple-model">
 import Foundation
+
+func validateNativeJSON(_ data:Data,canonicalVersionKeys:Set<String>=[])throws {
+    let bytes=Array(data);var objects:[[String:Data]]=[];var index=0
+    while index<bytes.count {
+        let byte=bytes[index]
+        if byte==123{objects.append([:]);index+=1;continue}
+        if byte==125{if !objects.isEmpty{objects.removeLast()};index+=1;continue}
+        guard byte==34 else{index+=1;continue}
+        let start=index;index+=1
+        while index<bytes.count {if bytes[index]==92{index+=2;continue};if bytes[index]==34{break};index+=1}
+        guard index<bytes.count else{throw EngineError(message:"Malformed provider JSON string.")}
+        index+=1;var next=index;while next<bytes.count,[UInt8(9),10,13,32].contains(bytes[next]){next+=1}
+        if next<bytes.count,bytes[next]==58,!objects.isEmpty {
+            let key=try JSONDecoder().decode(String.self,from:Data(bytes[start..<index])),position=objects.count-1
+            guard objects[position][key]==nil else{throw EngineError(message:"Duplicate or canonically equivalent JSON keys are unsupported by this native host. Provider admission was refused without merging contributors.")}
+            objects[position][key]=Data(key.utf8)
+            if canonicalVersionKeys.contains(key) {
+                var value=next+1;while value<bytes.count,[UInt8(9),10,13,32].contains(bytes[value]){value+=1}
+                if value<bytes.count,(bytes[value]==45 || (48...57).contains(bytes[value])) {
+                    var end=value;while end<bytes.count,![UInt8(9),10,13,32,44,125,93].contains(bytes[end]){end+=1}
+                    let token=bytes[value..<end]
+                    guard !token.isEmpty,token.allSatisfy({(48...57).contains($0)}),token.count==1 || token.first != 48 else{throw EngineError(message:"Protocol admission requires a canonical integer version; numeric aliases were refused.")}
+                }
+            }
+        }
+    }
+}
 
 struct NativeSourceKey:Hashable,Sendable {
     let bytes:Data
@@ -38,11 +67,42 @@ struct NativeSourceMap<Value>:ExpressibleByDictionaryLiteral,Sequence {
         var result=NativeSourceMap<T>();for(key,value)in storage{result.storage[key]=try transform(value)};return result
     }
 }
+/** Utility routes and source addresses are separate identities even when their displayed spelling matches. */
+enum NativeUtilityTab:String,Hashable,Sendable {case files,agent,terminal}
+enum NativeTabIdentity:Hashable,Sendable {
+    case source(NativeSourceKey)
+    case utility(NativeUtilityTab)
+    case retained(UUID)
+    case unavailable(NativeSourceKey)
+    init(address:String){
+        if let utility=NativeUtilityTab(rawValue:address){self = .utility(utility)}
+        else if address.hasPrefix("\0source:") {
+            let raw=String(address.dropFirst("\0source:".count))
+            if let bytes=Data(base64Encoded:raw),let path=String(data:bytes,encoding:.utf8){self = .source(NativeSourceKey(path))}else{self = .unavailable(NativeSourceKey(address))}
+        }else if address.hasPrefix("\0resource:"),let id=UUID(uuidString:String(address.dropFirst("\0resource:".count))){self = .retained(id)}
+        else if address.hasPrefix("\0"){self = .unavailable(NativeSourceKey(address))}
+        else{self = .source(NativeSourceKey(address))}
+    }
+    var address:String {switch self {
+        case .source(let key):let path=key.string;return NativeUtilityTab(rawValue:path) != nil || path.hasPrefix("\0") ? "\0source:"+key.bytes.base64EncodedString():path
+        case .utility(let utility):return utility.rawValue
+        case .retained(let id):return "\0resource:"+id.uuidString
+        case .unavailable(let key):return key.string
+    }}
+    var sourcePath:String? {if case .source(let key)=self{return key.string};return nil}
+    var utility:NativeUtilityTab? {if case .utility(let utility)=self{return utility};return nil}
+}
+func nativeSourceTab(_ path:String)->String {NativeTabIdentity.source(NativeSourceKey(path)).address}
+extension Array where Element==String {
+    func containsTab(_ address:String)->Bool {contains{NativeTabIdentity(address:$0)==NativeTabIdentity(address:address)}}
+    func containsUtility(_ utility:NativeUtilityTab)->Bool {contains{NativeTabIdentity(address:$0) == .utility(utility)}}
+    func firstTabIndex(_ address:String)->Int? {firstIndex{NativeTabIdentity(address:$0)==NativeTabIdentity(address:address)}}
+}
 </ui:copy>
 
 ## Exercise canonical-equivalent addresses without a filesystem assumption
 
-The pure witnesses distinguish two byte spellings even on a filesystem that aliases those names. Layout tests then open, activate, move and remove each spelling independently and preserve simultaneous swaps. The AppKit witness drives exact file-query bytes through the real HTTP client, two retained buffers and mounted native editors, including independent native undo and unchanged geometry. Its owned URLProtocol provider supplies both spellings without relying on the host filesystem. Physical two-file acceptance still requires a normalization-preserving filesystem; pointer/keyboard/VoiceOver/device input remain unverified. Foundation dictionary DTOs continue to reject ambiguous raw keys before decoding; those provider operations are unavailable rather than silently merged.
+The pure witnesses distinguish two byte spellings even on a filesystem that aliases those names. Layout tests then open, activate, move and remove each spelling independently and preserve simultaneous swaps. The AppKit witness drives exact file-query bytes through the real HTTP client, two retained buffers and mounted native editors, including independent native undo and unchanged geometry. Its owned URLProtocol provider supplies both spellings without relying on the host filesystem. Physical two-file acceptance still requires a normalization-preserving filesystem; pointer/keyboard/VoiceOver/device input remain unverified. A shared native raw-key audit runs before HTTP and optional language-frame Foundation decoding. Callers explicitly select which protocol version keys require canonical integer lexemes; arbitrary language metadata is left to its provider contract. Foundation dictionary DTOs continue to reject ambiguous raw keys before decoding; those provider operations are unavailable rather than silently merged.
 
 <ui:copy id="source-identity-apple-tests">
 import XCTest
@@ -60,6 +120,23 @@ final class NativeSourceIdentityTests:XCTestCase {
         let captured=sources.mapValues{String($0)};XCTAssertEqual(captured[first],"1");XCTAssertEqual(captured[second],"2")
         sources.removeValue(forKey:first);XCTAssertNil(sources[first]);XCTAssertEqual(sources[second],2)
     }
+    func testTypedSourceAndUtilityAddressesRemainSeparateThroughAtomicRouting()throws{
+        var layout=PaneLayout();layout.activateSource("files",in:"document-group");layout.activateUtility(.agent,in:"document-group");layout.activateSource("agent",in:"document-group")
+        XCTAssertNotEqual(NativeTabIdentity.source(NativeSourceKey("files")),.utility(.files));XCTAssertEqual(layout.nodes["document-group"]?.tabs.count,3);XCTAssertTrue(layout.nodes["files-group"]!.tabs.containsUtility(.files))
+        let moved=try layout.remappingTabs([Data(nativeSourceTab("files").utf8):nativeSourceTab("terminal"),Data(nativeSourceTab("agent").utf8):nativeSourceTab("files")])
+        XCTAssertTrue(moved.nodes["files-group"]!.tabs.containsUtility(.files));XCTAssertTrue(moved.nodes["document-group"]!.tabs.containsUtility(.agent));XCTAssertTrue(moved.nodes["document-group"]!.tabs.containsTab(nativeSourceTab("files")));XCTAssertTrue(moved.nodes["document-group"]!.tabs.containsTab(nativeSourceTab("terminal")));XCTAssertEqual(moved.nodes["document-group"]?.tabs.count,3)
+        XCTAssertThrowsError(try layout.remappingTabs([Data(nativeSourceTab("files").utf8):nativeSourceTab("agent")]))
+    }
+    @MainActor func testUnnamedStateBelongsToBufferRatherThanFilenamePrefix()throws{
+        let named=DocumentBuffer(file:FileNode(name:"Untitled-real.txt",path:"Untitled-real.txt",dir:false),text:FileText(path:"Untitled-real.txt",content:"saved named source",hash:"loaded",save_guard:"loaded-guard")),unnamed=DocumentBuffer(file:FileNode(name:"Untitled",path:"arbitrary-draft-address",dir:false),text:FileText(path:"arbitrary-draft-address",content:"unnamed source",hash:""),isUntitledDraft:true)
+        let space=Workspace();space.buffers[named.file.path]=named;space.buffers[unnamed.file.path]=unnamed;let capture=try resourceOwnershipSnapshot(space)
+        XCTAssertFalse(named.isUntitledDraft);XCTAssertTrue(unnamed.isUntitledDraft);XCTAssertEqual(capture.named[named.file.path],named.text);XCTAssertEqual(capture.guards[named.file.path],"loaded-guard");XCTAssertNil(capture.named[unnamed.file.path]);XCTAssertEqual(capture.unaddressed[unnamed.id.uuidString],unnamed.text)
+    }
+    func testLanguageFramesRefuseMergedContributorsAndBooleanRequestIdentity()throws{
+        let aliases=Data(#"{"jsonrpc":"2.0","id":1,"result":{"changes":{"hick:///é.py":[],"hick:///e\u0301.py":[]}}}"#.utf8)
+        XCTAssertThrowsError(try nativeLanguageJSONObject(aliases));XCTAssertThrowsError(try nativeLanguageJSONObject(Data(#"{"id":true,"result":[]}"#.utf8)))
+        XCTAssertNoThrow(try nativeLanguageJSONObject(Data(#"{"jsonrpc":"2.0","id":1,"result":{"version":1.5}}"#.utf8)))
+    }
     func testWorkspacePlansKeepCanonicalDistinctTargets()throws {
         let sources:NativeSourceMap<SourceSnapshot>=[first:SourceSnapshot(text:"one",writable:true),second:SourceSnapshot(text:"two",writable:true)]
         let edit:[String:Any]=["changes":[languageURI(first):[["range":["start":["line":0,"character":0],"end":["line":0,"character":3]],"newText":"first"]],languageURI(second):[["range":["start":["line":0,"character":0],"end":["line":0,"character":3]],"newText":"second"]]]]
@@ -73,6 +150,22 @@ final class NativeSourceIdentityTests:XCTestCase {
         XCTAssertEqual(round,2);XCTAssertEqual(Set(opened).count,2);XCTAssertEqual(value.sources.count,2);XCTAssertEqual(value.references.count,2)
     }
     #if os(macOS)
+    @MainActor func testReservedPhysicalNamesMountCodeAndKeepUtilityTabsReachable()async throws {
+        _ = NSApplication.shared;NSApp.setActivationPolicy(.regular);let configuration=URLSessionConfiguration.ephemeral;configuration.protocolClasses=[ResponseProtocol.self]
+        let space=Workspace(),engine=try Engine(address:"http://identity.invalid",session:URLSession(configuration:configuration));space.engine=engine
+        ResponseProtocol.status=200;ResponseProtocol.responsesByPath=[:];ResponseProtocol.resetRequests();ResponseProtocol.beforeResponse={request in let path=URLComponents(url:request.url!,resolvingAgainstBaseURL:false)?.queryItems?.first{$0.name=="path"}?.value ?? "";let text="readable code for "+path+"\n";ResponseProtocol.response=(try? JSONSerialization.data(withJSONObject:["path":path,"content":text,"hash":nativeSourceHash(text),"save_guard":"guard-"+path])) ?? Data()}
+        let host=NSHostingView(rootView:WorkspaceView(workspace:space)),window=NSWindow(contentRect:NSRect(x:0,y:0,width:840,height:560),styleMask:[.titled],backing:.buffered,defer:false);window.contentView=host;window.makeKeyAndOrderFront(nil)
+        defer{ResponseProtocol.beforeResponse=nil;ResponseProtocol.responsesByPath=[:];space.sourceTestIndex?.stop();for b in space.buffers.values{b.language?.close()};window.orderOut(nil)}
+        func find(_ view:NSView,_ source:String)->NSTextView?{if let text=view as? NSTextView,exactUTF8(text.string,source){return text};return view.subviews.lazy.compactMap{find($0,source)}.first}
+        for path in ["files","agent","terminal","Untitled-real.txt"]{
+            await space.open(FileNode(name:path,path:path,dir:false));let buffer=try XCTUnwrap(space.buffers[path]);XCTAssertTrue(space.currentBuffer === buffer);XCTAssertFalse(buffer.isUntitledDraft)
+            for _ in 0..<200{host.layoutSubtreeIfNeeded();if find(host,buffer.text) != nil{break};try await Task.sleep(for:.milliseconds(10))};let editor=try XCTUnwrap(find(host,buffer.text)),identity=try XCTUnwrap(buffer.sourceEditorState?()).identity;editor.setSelectedRange(NSRange(location:1,length:0));editor.insertText("!",replacementRange:editor.selectedRange());let draft=buffer.text,selection=editor.selectedRange()
+            space.showUtility(.files);XCTAssertNil(space.currentBuffer);XCTAssertTrue(space.layout.nodes["files-group"]!.tabs.containsUtility(.files));space.showSource(path)
+            for _ in 0..<200{host.layoutSubtreeIfNeeded();if find(host,draft) != nil{break};try await Task.sleep(for:.milliseconds(10))};XCTAssertTrue(find(host,draft) === editor);XCTAssertEqual(buffer.sourceEditorState?()?.identity,identity);XCTAssertEqual(editor.selectedRange(),selection);editor.undoManager?.undo();XCTAssertEqual(buffer.text,"readable code for "+path+"\n");editor.undoManager?.redo();XCTAssertTrue(exactUTF8(buffer.text,draft))
+        }
+        let capture=try resourceOwnershipSnapshot(space);XCTAssertEqual(capture.named["Untitled-real.txt"],space.buffers["Untitled-real.txt"]?.text);XCTAssertNotNil(capture.guards["Untitled-real.txt"])
+        for utility in [NativeUtilityTab.files,.agent,.terminal]{space.showUtility(utility);XCTAssertNil(space.currentBuffer);XCTAssertTrue(space.layout.groups().contains{$0.tabs.containsUtility(utility)})};XCTAssertEqual(space.buffers.count,4)
+    }
     @MainActor func testExactFileWireOpeningKeepsBothNativeEditorsAndUndo()async throws {
         _ = NSApplication.shared;NSApp.setActivationPolicy(.regular)
         let configuration=URLSessionConfiguration.ephemeral;configuration.protocolClasses=[ResponseProtocol.self]

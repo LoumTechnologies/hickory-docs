@@ -68,6 +68,45 @@ unsaved text retained. Native attach acceptance, PID-driven provider attachment
 and other supported adapters remain open; these receipts establish only the
 explicit loopback debugpy endpoint workflow.
 
+## Sealed proposal and recovery implementation checkpoint
+
+Browser proposal review passes 48 focused proposal/resource/API cases,
+TypeScript checking and the controlled ACP tool-to-review flow. Its original
+send-time editor identities, revisions, guards and full retained roster remain
+sealed; before-open edit/Undo, independent handles and unknown owners refuse.
+The real flow retains an unrelated unsaved cached editor, supports coordinated
+draft Undo/Redo, retries only the exact lost report, and separately publishes and
+reverses a guarded namespace change. Android passes nine focused cases and two
+separate actual flows: caller-provided review and managed-tool original-context
+review. Cancellation/status retention is a focused local HTTP witness, not a
+claim of real-engine response-loss injection. Apple proposal review passes eight cases without skips, including the owned
+managed-tool flow through draft Apply, coordinated Undo/Redo and literal
+namespace Save/recovery. Applying original sealed ranges preserves the same
+native editor, caret, geometry and unsaved state; whole-file replacement was
+rejected by this acceptance and corrected. The macOS product build passes.
+Scripted provider acceptance does not establish a semantic verdict or native
+physical-input/accessibility acceptance.
+
+Native Apple endpoint attachment passes four focused cases and the real debugpy
+flow: selected profile only, pause/watch/step, unbound source positions and detach
+leaving the external target alive. Its iOS product builds; iOS physical input is
+unverified. Android endpoint attachment passes the real owned debugpy flow and Kotlin
+compilation, preserving editor state and leaving the external target alive
+after detach. Other adapter/provider breadth stays open.
+
+Private editor-session recovery now has seven focused engine cases and an owned
+HTTP flow covering two window slots, delayed snapshot rejection, exact retry,
+engine restart, same-byte source/root recreation and corrupt sibling records.
+Snapshots retain literal named/unnamed/generated text, selection/scroll and host
+layout without a source save. This remains a foundation: no host auto-capture,
+restore menu or crash/layout restoration acceptance is claimed yet.
+
+Deleted-source history passes ten focused history cases and the real strict
+save/create/history HTTP flow. Missing remains distinct from empty File, only
+confirmed File text can become an unmaterialized draft response, absence ABA and
+independent replacement refuse, and no history response materializes a file or
+releases a save retry. The host Missing-history adapters remain required work.
+
 ## Current integration ledger
 
 This ledger reconciles the required outcome with the implementation inspected on

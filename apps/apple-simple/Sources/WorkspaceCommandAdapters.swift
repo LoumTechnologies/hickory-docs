@@ -3,8 +3,9 @@ extension Workspace {
     func commands(ui:[String:()->Void]=[:])->[WorkspaceCommand] {
         var handlers:[String:()->Void]=[
             "file.open":{self.chooseFileCommand("Open File")},"file.directory":{self.chooseFileCommand("Open Directory")},"file.new":{self.newTab()},
-            "file.save":{Task {await self.save()}},"file.saveAs":{self.chooseFileCommand("Save As")},"file.saveAll":{Task {await self.saveAll()}},"file.refresh":{Task {await self.refresh()}},"file.close":{if let tab=self.active {self.close(tab)}},
+            "file.save":{Task {await self.save()}},"file.saveAs":{self.chooseFileCommand("Save As")},"file.saveAll":{Task {await self.saveAll()}},"file.refresh":{Task {await self.refresh()}},"file.close":{if let tab=self.activeTab {self.close(tab)}},
             "shell.search":{self.showEverywhere=true},"edit.find":{self.currentBuffer?.showFind=true},"workspace.find":{self.showWorkspaceSearch=true},
+            "agent.proposals":{Task{await self.agentProposals.open(self)}},
             "source.templates":{Task{await self.sourceTemplates.open(self)}},
             "source.history":{Task{await self.sourceHistory.open(self)}},
             "symbol.rename":{self.changes.open("rename",workspace:self)},"symbol.actions":{self.changes.open("actions",workspace:self)},"document.format":{self.changes.open("format",workspace:self)},"document.cleanup":{self.changes.open("cleanup",workspace:self)},
@@ -15,7 +16,7 @@ extension Workspace {
             "editor.undo":{_ = self.currentBuffer?.undoSource?()},"editor.redo":{_ = self.currentBuffer?.redoSource?()},
             "editor.snippetNext":{_ = self.currentBuffer?.snippets.move(1)},"editor.snippetPrevious":{_ = self.currentBuffer?.snippets.move(-1)},"editor.snippetFinish":{_ = self.currentBuffer?.snippets.finish()},"editor.snippetChoices":{self.currentBuffer?.showSnippetTools=true},
             "editor.rectangle":{self.currentBuffer?.selectRectangle()},"editor.cursorBelow":{self.currentBuffer?.addCursor(1)},"editor.cursorAbove":{self.currentBuffer?.addCursor(-1)},
-            "view.files":{self.show("files")},"view.agent":{self.show("agent")},"view.terminal":{Task {await self.openTerminal()}},"view.splitRight":{self.split("horizontal")},"view.splitBelow":{self.split("vertical")},"view.move":{self.moveToNext()}
+            "view.files":{self.showUtility(.files)},"view.agent":{self.showUtility(.agent)},"view.terminal":{Task {await self.openTerminal()}},"view.splitRight":{self.split("horizontal")},"view.splitBelow":{self.split("vertical")},"view.move":{self.moveToNext()}
         ]
         for query in SemanticQuery.allCases {handlers["semantic."+query.rawValue]={Task {await self.currentBuffer?.language?.navigate(query)}}}
         handlers.merge(ui){_,new in new}

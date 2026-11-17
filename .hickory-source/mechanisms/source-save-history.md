@@ -395,6 +395,15 @@ fn resource_history_edges(root:&Path,workspace_id:&str)->Result<(Vec<HistoryEdge
 
 A complete record must agree with the immutable resource manifest, receipt, saved-content hashes and captured workspace. Corruption stays an explicit unreadable record rather than becoming an empty successful history. The connected physical chain decides restoration availability; bytes alone never attach an old save to a new occupant of the same name. Listing and restoration do not parse or publish historical construction outputs.
 
+A deleted saved file still has retained text. Observe its absence separately from
+File contents and bind that preview to the existing parent directory epoch. A
+published same-workspace record may supply an unmaterialized source draft; it
+cannot reconnect a retired physical source, release a save retry or create a file.
+The literal `missing` hash marker is deliberately distinct from SHA-256 of empty
+File text. Missing history sides never become empty-file edits. Older clients
+that accept only a current File refuse this new state until their adapters support
+it; host deleted-source recovery acceptance is still pending.
+
 <ui:copy id="source-save-history-reading">
 struct Retained {id:String,namespace_current:bool,capture:Capture,before:SavedSource,after:SavedSource,evidence:Option<Evidence>,prepared:bool,fingerprint:String}
 fn read_entry(root:&Path,id:&str)->Result<Retained,String>{
@@ -417,7 +426,7 @@ pub struct Entry {id:String,at:u64,outcome:String,fingerprint:String,before:Save
 #[serde(deny_unknown_fields)]
 pub struct ReadRequest {pub path:String}
 #[derive(Serialize)]
-pub struct Reading {version:u32,history_protocol:u32,workspace:String,namespace:String,path:String,current:SavedSource,current_identity:String,entries:Vec<Entry>,notices:Vec<String>}
+pub struct Reading {version:u32,history_protocol:u32,workspace:String,namespace:String,path:String,current:SavedSource,current_identity:String,restore_target:String,entries:Vec<Entry>,notices:Vec<String>}
 fn retained(root:&Path,_path:&str,workspace:&str)->Result<(Vec<Retained>,Vec<String>),String>{
  let mut cursor=None;let mut entries=Vec::new();let mut notices=Vec::new();let mut bytes=0;
  for _ in 0..20 {
@@ -452,16 +461,37 @@ fn source_diff(before:&str,after:&str)->String{
   output.push(mark);output.push_str(line);if !line.ends_with('\n'){output.push_str("\n\\ No newline at end of file\n")}
  }}output
 }
+// Absence is an observed state, not an empty file or a live source identity.
+fn history_current(root:&Path,full:&Path,address:&str)->Result<(SavedSource,String),String>{
+ let current=observe(root,address)?;
+ if !matches!(current,SavedSource::Missing){return Ok((current,stamp(full)?))}
+ let mut parent=full.parent().ok_or("Missing source has no parent")?;
+ loop{match std::fs::symlink_metadata(parent){Ok(metadata)=>{if !metadata.is_dir()||metadata.file_type().is_symlink(){return Err("Missing-source history requires an ordinary observed parent.".into())}break},Err(error)if error.kind()==std::io::ErrorKind::NotFound=>parent=parent.parent().ok_or("Missing source has no existing parent")?,Err(error)=>return Err(error.to_string())}}
+ let held=same_file::Handle::from_path(parent).map_err(|error|error.to_string())?;let metadata=held.as_file().metadata().map_err(|error|error.to_string())?;
+ #[cfg(unix)]let epoch={use std::os::unix::fs::MetadataExt;format!("{}:{}:{}:{}:{}",metadata.dev(),metadata.ino(),metadata.ctime(),metadata.ctime_nsec(),metadata.len())};
+ #[cfg(not(unix))]let epoch={let _=metadata;return Err("Missing-source physical observation is unavailable; retained text has no absence authority.".into());};
+ let identity=format!("missing:{}",super::workspace_fs::view::hash(&serde_json::to_vec(&(workspace(root)?,address,parent.as_os_str().as_encoded_bytes(),epoch)).map_err(|error|error.to_string())?));
+ if same_file::Handle::from_path(parent).map_err(|error|error.to_string())?!=held||!matches!(observe(root,address)?,SavedSource::Missing){return Err("The missing-source address changed while history was observed.".into())}
+ Ok((current,identity))
+}
+fn current_history_hash(source:&SavedSource)->Result<String,String>{match source{SavedSource::Missing=>Ok("missing".into()),SavedSource::File{sha256,..}=>Ok(sha256.clone())}}
+fn recoverable_missing_entry(entry:&Retained)->bool{entry.namespace_current&&entry.evidence.as_ref().is_some_and(|evidence|evidence.outcome=="published"&&evidence.identity_proven)&&matches!(entry.after,SavedSource::File{..})}
 fn reading(state:&LocalState,path:&str)->Result<Reading,String>{
- let root=state.index.root();state.resource_root.check(root)?;let workspace=workspace(root)?;let full=authorized_address(state,path)?;let current=observe(root,path)?;let identity=stamp(&full)?;
- let address=source_address(root,&full)?;let (entries,mut notices)=retained(root,&address,&workspace)?;let(edges,mut connection_notices)=resource_history_edges(root,&workspace)?;notices.append(&mut connection_notices);let available=lineage(&entries,&current,&identity,&edges);
- state.resource_root.check(root)?;
- if stamp(&full)?!=identity||observe(root,path)?!=current{return Err("Source changed while reading local history. Read it again.".into())}
- let unavailable=writable_source(state,&full,path).err();
- let listed=entries.into_iter().filter(|entry|entry.capture.path==address||available.contains(&entry.id)).rev().map(|entry|{let admitted=available.contains(&entry.id)&&unavailable.is_none();let retry_allowed=entry.namespace_current&&unavailable.is_none()&&entry.before==current&&entry.capture.before_identity==identity&&entry.evidence.as_ref().is_some_and(|value|value.outcome=="failed");let diff=source_diff(match &entry.before{SavedSource::File{text,..}=>text,_=>""},text(&entry.after).unwrap_or(""));
-  Entry{id:entry.id,at:entry.capture.at,outcome:entry.evidence.map(|e|e.outcome).unwrap_or_else(||(if entry.prepared{"prepared"}else{"unknown"}).into()),fingerprint:entry.fingerprint,before:entry.before,after:entry.after,diff,available:admitted,retry_allowed,reason:(!entry.namespace_current).then(||"Historical workspace identity is unconfirmed; text remains readable, but cannot replace this source or release its save attempt.".into()).or_else(||unavailable.clone()).or_else(||(!admitted).then(||"This record has no confirmed connection to the current physical source. Its text remains readable; prepared intentions do not confirm publication.".into()))}
+ let root=state.index.root();state.resource_root.check(root)?;let workspace=workspace(root)?;let full=authorized_address(state,path)?;let address=source_address(root,&full)?;
+ // Read journal directories before absence: test stores and future store setup
+ // must not invalidate our own parent-directory observation.
+ let(entries,mut notices)=retained(root,&address,&workspace)?;let(edges,mut connection_notices)=resource_history_edges(root,&workspace)?;notices.append(&mut connection_notices);
+ let(current,identity)=history_current(root,&full,path)?;let missing=matches!(current,SavedSource::Missing);let available=lineage(&entries,&current,&identity,&edges);
+ let unavailable=if missing{let claims=super::api::generated_outputs(root,&state.index);claims.keys().any(|name|name==path||root.join(name)==full).then(||"A current generated output owns this address. Retained text is readable; recover its authored construction instead.".to_owned())}else{writable_source(state,&full,path).err()};
+ let listed=entries.into_iter().filter(|entry|entry.capture.path==address||available.contains(&entry.id)).rev().map(|entry|{
+  let admitted=(available.contains(&entry.id)||missing&&entry.capture.path==address&&recoverable_missing_entry(&entry))&&unavailable.is_none();
+  let retry_allowed=!missing&&entry.namespace_current&&unavailable.is_none()&&entry.before==current&&entry.capture.before_identity==identity&&entry.evidence.as_ref().is_some_and(|value|value.outcome=="failed");let diff=source_diff(match &entry.before{SavedSource::File{text,..}=>text,_=>""},text(&entry.after).unwrap_or(""));
+  let reason=(!entry.namespace_current).then(||"Historical workspace identity is unconfirmed; text remains readable, but cannot replace this source or release its save attempt.".into()).or_else(||unavailable.clone()).or_else(||(missing&&admitted).then(||"The saved name is absent. Restoring creates only an unmaterialized source draft; it does not reconnect an old file identity or create a file.".into())).or_else(||(!admitted).then(||"This record has no confirmed connection to the current physical source. Its text remains readable; prepared intentions do not confirm publication.".into()));
+  Entry{id:entry.id,at:entry.capture.at,outcome:entry.evidence.map(|e|e.outcome).unwrap_or_else(||(if entry.prepared{"prepared"}else{"unknown"}).into()),fingerprint:entry.fingerprint,before:entry.before,after:entry.after,diff,available:admitted,retry_allowed,reason}
  }).collect();
- Ok(Reading{version:1,history_protocol:1,namespace:root.canonicalize().map_err(|e|e.to_string())?.to_str().ok_or("Workspace address is not UTF-8.")?.into(),workspace,path:path.into(),current,current_identity:identity,entries:listed,notices})
+ state.resource_root.check(root)?;if history_current(root,&full,path)?!=(current.clone(),identity.clone()){return Err("Source changed while reading local history. Read it again.".into())}
+ if missing{notices.push("Saved source is missing. Historical File contents may become a draft after exact review; Missing is never converted to empty text, and materialization requires a separate guarded creation.".into())}
+ Ok(Reading{version:1,history_protocol:1,namespace:root.canonicalize().map_err(|e|e.to_string())?.to_str().ok_or("Workspace address is not UTF-8.")?.into(),workspace,path:path.into(),current,current_identity:identity,restore_target:if missing{"missing-source-draft"}else{"current-source-draft"}.into(),entries:listed,notices})
 }
 pub async fn list(State(state):State<LocalState>,Query(request):Query<ReadRequest>)->ApiResult<Json<Reading>>{
  tokio::task::spawn_blocking(move||reading(&state,&request.path)).await.map_err(|e|ApiError::internal(e.to_string()))?.map(Json).map_err(ApiError::conflict)
@@ -473,14 +503,14 @@ pub async fn restore_draft(State(state):State<LocalState>,Json(request):Json<Res
  tokio::task::spawn_blocking(move||->Result<Value,String>{
   if request.version!=1||!matches!(request.side.as_str(),"before"|"after")||request.draft_hash.len()!=64{return Err("Choose one exact historical source side and captured draft.".into())}
   let current=reading(&state,&request.path)?;
-  if current.namespace!=request.namespace||current.workspace!=request.workspace||current.current_identity!=request.current_identity||super::workspace_fs::view::hash(text(&current.current)?.as_bytes())!=request.current_hash{return Err("Saved source identity or revision changed after history review.".into())}
+  if current.namespace!=request.namespace||current.workspace!=request.workspace||current.current_identity!=request.current_identity||current_history_hash(&current.current)?!=request.current_hash{return Err("Saved source identity or revision changed after history review.".into())}
   if let SavedSource::File{readonly:true,..}=current.current{return Err("The current source is read-only; its history remains readable.".into())}
   let claims=super::api::generated_outputs(state.index.root(),&state.index);
   let full=authorized_address(&state,&request.path)?;
   if super::api::generated_by(&claims,&request.path).is_some()||claims.keys().any(|path|same_file::is_same_file(&full,state.index.root().join(path)).unwrap_or(false)){return Err("Generated source history is readable but cannot replace an authored draft.".into())}
   let entry=current.entries.into_iter().find(|entry|entry.id==request.id&&entry.fingerprint==request.fingerprint&&entry.available).ok_or("History evidence changed or this source identity is retired.")?;
   let source=text(if request.side=="before"{&entry.before}else{&entry.after})?.to_string();
-  Ok(json!({"version":1,"history_protocol":1,"workspace":request.workspace,"namespace":request.namespace,"path":request.path,"id":request.id,"fingerprint":request.fingerprint,"current_identity":request.current_identity,"current_hash":request.current_hash,"draft_hash":request.draft_hash,"side":request.side,"source":source,"consequences":"unknown","notice":"Restored text is a source draft. Compiler and generated-output consequences are unknown until separately checked; nothing was published."}))
+  Ok(json!({"version":1,"history_protocol":1,"workspace":request.workspace,"namespace":request.namespace,"path":request.path,"id":request.id,"fingerprint":request.fingerprint,"current_identity":request.current_identity,"current_hash":request.current_hash,"draft_hash":request.draft_hash,"side":request.side,"source":source,"restore_target":current.restore_target,"source_effects":false,"consequences":"unknown","notice":"Restored text is a source draft. Compiler and generated-output consequences are unknown until separately checked; nothing was published."}))
  }).await.map_err(|e|ApiError::internal(e.to_string()))?.map(Json).map_err(ApiError::conflict)
 }
 </ui:copy>
@@ -494,6 +524,13 @@ The focused filesystem witnesses count writer invocations, keep failed and uncer
 mod tests {
  use super::*;
  fn save(root:&Path,id:&str,source:&str)->Result<(),String>{let path=root.join("a.txt");write_observed(root,&path,source,Some(id),Some(&super::super::workspace_fs::view::hash(source.as_bytes())),||super::super::store::write_atomic_observed(&path,source.as_bytes()).map_err(|e|e.to_string()))}
+ #[test]fn deleted_source_absence_is_not_an_empty_file_and_parent_epoch_retires_old_preview(){
+  let root=tempfile::tempdir().unwrap();let path=root.path().join("a.txt");std::fs::write(&path,"saved source").unwrap();std::fs::remove_file(&path).unwrap();let(current,identity)=history_current(root.path(),&path,"a.txt").unwrap();assert!(matches!(current,SavedSource::Missing));assert_eq!(current_history_hash(&current).unwrap(),"missing");assert!(text(&current).is_err());
+  std::fs::write(&path,"").unwrap();let(empty,file_identity)=history_current(root.path(),&path,"a.txt").unwrap();assert_ne!(file_identity,identity);assert!(matches!(empty,SavedSource::File{..}));assert_ne!(current_history_hash(&empty).unwrap(),"missing");std::fs::remove_file(&path).unwrap();assert_ne!(history_current(root.path(),&path,"a.txt").unwrap().1,identity);
+ }
+ #[test]fn missing_source_copy_requires_published_same_workspace_history_and_never_releases_retry(){
+  let root=tempfile::tempdir().unwrap();std::fs::write(root.path().join("a.txt"),"before").unwrap();let id="7".repeat(32);save(root.path(),&id,"confirmed after").unwrap();let mut entry=read_entry(root.path(),&id).unwrap();entry.namespace_current=true;assert!(recoverable_missing_entry(&entry));entry.namespace_current=false;assert!(!recoverable_missing_entry(&entry));entry.namespace_current=true;entry.evidence.as_mut().unwrap().outcome="unknown".into();assert!(!recoverable_missing_entry(&entry));
+ }
  #[test]fn resource_move_connects_exact_logical_source_and_rejects_recreated_names(){
   let root=tempfile::tempdir().unwrap();let a=root.path().join("a.txt");let b=root.path().join("b.txt");std::fs::write(&a,"old").unwrap();let save_id="11111111111111111111111111111111";save(root.path(),save_id,"new").unwrap();
   let saved=observe(root.path(),"a.txt").unwrap();let source=SourceState::File{identity:"original-buffer".into(),text:"new".into(),writable:true,removable:true,version:None};let missing=SourceState::Missing{creatable:true};
