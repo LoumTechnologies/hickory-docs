@@ -73015,6 +73015,17 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "fragments": [
         "browser-source-text-witness"
       ]
+    },
+    "apps/android-simple/app/src/test/java/com/hickorydocs/simple/LanguageConnectionConcurrencyTest.kt": {
+      "source": ".hickory-source/frontends/language-connection-android.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "1274b3387508744d7127c21e991d550eeb0661ccc3e25ba6760135bb45330a5a",
+      "construction": "fragments",
+      "fragments": [
+        "android-language-connection-concurrency-tests"
+      ]
     }
   },
   "evidence_records": [

@@ -1930,4 +1930,23 @@ The fresh-engine provider protocol passes explicit/declaration-bound triggers an
 unsupported/invalid child-RPC absence. This is browser adapter acceptance, not
 physical-input, IME, assistive-technology or device acceptance.
 
+## Serialize Android language transport retirement
+
+Language replies, cancellation cleanup, source attachment and connection shutdown
+now share short state admission. Pending reply completions, subscriber callbacks
+and socket retirement run after the monitor is released; no coroutine waits under
+it. Failure callbacks invalidate every subscriber before pending callers resume.
+A retired opening epoch cannot publish its returned socket, and one throwing
+subscriber does not prevent remaining invalidation or reconnect-gate release.
+
+Executed evidence (2026-11-17): six focused concurrency cases and the existing real
+WebSocket replay/detach flow pass without skips. The new cases include24 rounds of
+64 pending requests racing close, replies and cancellation,128 concurrent source
+owners, reentrant opening retirement, old-epoch isolation and invalidation order.
+The genuine five-case TypeScript Android host flow then passes, including shutdown,
+resource publication/inverse/redo, CRLF and supplementary Unicode, retained editor
+state and separate resulting-draft compilation. This is controller/transport
+acceptance; rendered Android, physical input and assistive technology remain
+unverified.
+
 </ui:doc>

@@ -156653,6 +156653,13 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/frontends/browser-source-text-witness.md",
       "symbol": "browser source text witness",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "android-language-connection-concurrency-tests",
+      "output": "apps/android-simple/app/src/test/java/com/hickorydocs/simple/LanguageConnectionConcurrencyTest.kt",
+      "page": ".hickory-source/frontends/language-connection-android.md",
+      "symbol": "android language connection concurrency tests",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {
