@@ -21,7 +21,7 @@ import XCTest
  private func json(_ value:Any)throws->ResourceJSON {try JSONDecoder().decode(ResourceJSON.self,from:JSONSerialization.data(withJSONObject:value))}
  private func publicationFixture(failWrite:Bool=false)throws->(Workspace,ResourceRestoration,RecoveryReading,()->Int) {
   let space=Workspace();space.engine=try Engine(address:"http://127.0.0.1:1")
-  let buffer=DocumentBuffer(file:FileNode(name:"b.py",path:"b.py",dir:false),text:FileText(path:"b.py",content:"dirty",hash:"old"));buffer.selection=NSRange(location:2,length:0);space.buffers["b.py"]=buffer;space.layout.activate("b.py",in:"document-group")
+  let buffer=DocumentBuffer(file:FileNode(name:"b.py",path:"b.py",dir:false),text:FileText(path:"b.py",content:"dirty",hash:"old",save_guard:"original-b"));buffer.selection=NSRange(location:2,length:0);space.buffers["b.py"]=buffer;space.layout.activate("b.py",in:"document-group")
   let model=space.resourceRestoration,missing:[String:Any]=["kind":"missing"],source:[String:Any]=["kind":"file","identity":"source","text":"dirty","writable":true,"removable":true,"version":NSNull()],after:[String:Any]=["kind":"file","identity":"source","text":"prior dirty","writable":true,"removable":true,"version":NSNull()],absent:[String:Any]=["kind":"missing","creatable":true]
   func saved(_ text:String)->[String:Any] {["kind":"file","text":text,"sha256":nativeSourceHash(text),"readonly":false,"executable":false,"mode":NSNull()]}
   let summary=RecoverySummary(kind:"file",bytes:5),recordValue=RecoveryReading(version:1,workspace:workspace,id:record,fingerprint:String(repeating:"c",count:64),title:"Move",title_truncated:false,paths:[RecoveryPath(path:"a.py",saved_before:summary,saved_after:RecoverySummary(kind:"missing"),draft_before:summary,draft_after:RecoverySummary(kind:"missing")),RecoveryPath(path:"b.py",saved_before:RecoverySummary(kind:"missing"),saved_after:summary,draft_before:RecoverySummary(kind:"missing"),draft_after:summary)],all_paths_recorded_applied:true,unrecognized_files:[])
@@ -30,7 +30,7 @@ import XCTest
    if route=="/api/changes/resource-inputs" {
     context=body!["context"] as! String
     let drafts=body!["drafts"] as! [String:[String:Any]];XCTAssertEqual(drafts["b.py"]?["base_sha256"] as? String,nativeSourceHash("dirty"))
-    return try self.json(["version":1,"context":context,"workspace":self.workspace,"ownership":["mode":"ordinary","entry":NSNull(),"protected_entries":[],"saved_sources":[:],"draft_sources":[:]],"sources":["a.py":absent,"b.py":source],"saved_sources":["a.py":missing,"b.py":saved("dirty")],"refusals":[:],"source_files_modified":false])
+    return try self.json(["version":1,"context":context,"workspace":self.workspace,"ownership":["mode":"ordinary","entry":NSNull(),"protected_entries":[],"saved_sources":[:],"draft_sources":[:]],"sources":["a.py":absent,"b.py":source],"saved_sources":["a.py":missing,"b.py":saved("dirty")],"refusals":[:],"source_files_modified":false,"saved_guards":["a.py":"original-absence","b.py":"original-b"]])
    }
    if route=="/api/changes/prepare-restoration" {
     let plan:[String:Any]=["version":1,"context":context,"title":"Restore Move","patches":[["path":"a.py","before":absent,"after":after],["path":"b.py","before":source,"after":absent]],"annotations":[]]
@@ -42,6 +42,11 @@ import XCTest
    return try self.json(["version":2,"adoption_current":true,"request_id":request,"workspace":self.workspace,"context":context,"outcome":["complete":true,"recovery":".hick-cache/resource-changes/"+String(repeating:"e",count:32)+"/manifest.json","applied":["a.py","b.py"]],"saved_sources":["a.py":saved("saved"),"b.py":missing],"source_files":[["file":["name":"a.py","path":"a.py","dir":false],"saved":saved("saved"),"hash":"new"]]])
   }
   return (space,model,recordValue,{writes})
+ }
+ func testLegacyInputsWithoutPhysicalGuardsCannotAuthorizePublication()async throws {
+  let (space,model,value,writes)=try publicationFixture(),original=model.transport!
+  model.transport={method,route,body in let result=try await original(method,route,body);if route=="/api/changes/resource-inputs",case .object(var raw)=result{raw["saved_guards"]=nil;return .object(raw)};return result}
+  await model.prepare(space,record:value);XCTAssertNil(model.review);await model.publish(space);XCTAssertEqual(writes(),0);XCTAssertEqual(space.currentBuffer?.text,"dirty");XCTAssertTrue(model.notice.contains("changed"))
  }
  func testRestorationPublishesSeparateSavedAndDirtyDraftThroughLiveNamespace()async throws {
   let (space,model,value,writes)=try publicationFixture();let buffer=space.currentBuffer!

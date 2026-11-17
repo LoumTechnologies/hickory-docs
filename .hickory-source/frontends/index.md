@@ -290,4 +290,6 @@ Each client reads text before requesting optional capabilities. A save uses the 
 <ui:include file="native-review-json-android.md" />
 <ui:include file="editor-recovery-android.md" />
 
+<ui:include file="resource-acquisition-apple.md" />
+
 </ui:doc>

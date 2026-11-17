@@ -135,6 +135,19 @@ separately with their owned fixtures and passed without skips. The iOS simulator
 to include the newly added proposal source. Physical-input/accessibility
 acceptance remains unverified.
 
+## Native resource acquisition safety checkpoint
+
+Apple resource preparation now retains original named and retained owners across
+closed-target acquisition. Newly loaded targets must match the first observed
+saved bytes and physical guard and have no intervening source intent. Original
+edit/Undo, handle replacement, guard changes and unrelated owners refuse before
+a preview can renew authority. Provider requery retains this same lease rather
+than recapturing later drafts. Twenty-one focused acquisition, editor-routing
+and recovery cases pass without skips, including the real-engine resource
+save/restoration/redo case; the iOS simulator product builds. Older mock
+responses were updated to the already-required guard fields, with an explicit
+missing-guard refusal case. Complete Apple conflict composition is separate work.
+
 ## Current integration ledger
 
 This ledger reconciles the required outcome with the implementation inspected on

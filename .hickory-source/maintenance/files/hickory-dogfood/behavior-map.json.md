@@ -72163,6 +72163,29 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "fragments": [
         "editor-recovery-android-tests"
       ]
+    },
+    "apps/apple-simple/Sources/ResourceAcquisition.swift": {
+      "source": ".hickory-source/frontends/resource-acquisition-apple.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "18eb0444c7f4a18d17b63aa6e273ac9bff72a1801bff13cc03b6ed7841795985",
+      "construction": "fragments",
+      "fragments": [
+        "resource-acquisition-apple-lease",
+        "resource-acquisition-apple-inputs"
+      ]
+    },
+    "apps/apple-simple/Tests/ResourceAcquisitionTests.swift": {
+      "source": ".hickory-source/frontends/resource-acquisition-apple.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "386a98f522b4da0092c3f971d01ef816b7e5305eecfbc3dca4fd53b29026e6de",
+      "construction": "fragments",
+      "fragments": [
+        "resource-acquisition-apple-tests"
+      ]
     }
   },
   "evidence_records": [

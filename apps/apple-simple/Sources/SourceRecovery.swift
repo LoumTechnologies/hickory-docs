@@ -152,30 +152,14 @@ struct ResourceRestorationReview {
    var raw=try JSONDecoder().decode(ResourceJSON.self,from:JSONSerialization.data(withJSONObject:edit))
    let discovered:ResourceWireTargets=try await call(workspace,"POST","/api/changes/resource-targets",["edit":edit])
    guard ticket==id,current(),discovered.version==1,!discovered.paths.isEmpty,discovered.paths.count<=1000,Set(discovered.paths).count==discovered.paths.count else{throw EngineError(message:"Resource targets or provider changed. Prepare the complete proposal again.")}
-   let context=UUID().uuidString.replacingOccurrences(of:"-",with:"").lowercased()
-   func capture()throws->ResourceWireCapture {
-    var drafts:[String:ResourceWireDraft]=[:]
-    for path in discovered.paths {if let buffer=workspace.buffers[path]{drafts[path]=ResourceWireDraft(text:buffer.text,base_sha256:nativeSourceHash(buffer.base),version:nil,writable:!buffer.readOnly && !buffer.saving,save_guard:buffer.savedGuard)}}
-    let ownership=try resourceOwnershipSnapshot(workspace)
-    return ResourceWireCapture(context:context,edit:raw,drafts:drafts,project_entry:nil,ownership_sources:ownership.named,unaddressed_sources:ownership.unaddressed,saved_guards:ownership.guards)
-   }
-   var sourceCapture=try capture(),captured=currentWorkspace(workspace)
-   var inputs:ResourceWireInputs=try await call(workspace,"POST","/api/changes/resource-inputs",resourceBody(sourceCapture))
-   guard ticket==id,current(),captured(),inputs.version==1,inputs.saved_guards != nil,inputs.context==context,inputs.refusals.isEmpty else{throw EngineError(message:"Resource acquisition changed or refused a source. Preserve drafts and prepare again.")}
-   var loaded=false
-   for (path,state) in inputs.sources where state.kind=="file" && workspace.buffers[path]==nil {
-    _ = try await workspace.loadBuffer(FileNode(name:(path as NSString).lastPathComponent,path:path,dir:false));loaded=true
-    guard ticket==id,current() else{throw EngineError(message:"Provider changed while acquiring resource source editors.")}
-   }
-   if loaded {
-    if let requery {
-     for path in discovered.paths {if let buffer=workspace.buffers[path],let service=buffer.language {let source=buffer.text;_ = try await service.readOutline(source:source);guard exactUTF8(buffer.text,source),ticket==id,current() else{throw EngineError(message:"Source changed while synchronizing the resource proposal.")}}}
-     selectedEdit=try await requery()
-     let rediscovered:ResourceWireTargets=try await call(workspace,"POST","/api/changes/resource-targets",["edit":selectedEdit])
-     guard rediscovered.version==1,Set(rediscovered.paths)==Set(discovered.paths),ticket==id,current() else{throw EngineError(message:"Provider resource targets changed after acquisition. Prepare the complete action again.")}
-     raw=try JSONDecoder().decode(ResourceJSON.self,from:JSONSerialization.data(withJSONObject:selectedEdit))
-    }
-    sourceCapture=try capture();captured=currentWorkspace(workspace)
+   let acquisition=try await acquireResourceInputs(workspace,paths:discovered.paths,edit:raw,current:{self.ticket==id&&current()},readInputs:{capture in try await self.call(workspace,"POST","/api/changes/resource-inputs",resourceBody(capture))})
+   var sourceCapture=acquisition.capture,inputs=acquisition.inputs;let captured=acquisition.current,context=sourceCapture.context
+   if acquisition.acquired,let requery {
+    for path in discovered.paths {if let buffer=workspace.buffers[path],let service=buffer.language {let source=buffer.text;_ = try await service.readOutline(source:source);guard exactUTF8(buffer.text,source),ticket==id,current(),captured() else{throw EngineError(message:"Original source changed while synchronizing the resource proposal.")}}}
+    selectedEdit=try await requery()
+    let rediscovered:ResourceWireTargets=try await call(workspace,"POST","/api/changes/resource-targets",["edit":selectedEdit])
+    guard rediscovered.version==1,Set(rediscovered.paths.map{Data($0.utf8)})==Set(discovered.paths.map{Data($0.utf8)}),ticket==id,current(),captured() else{throw EngineError(message:"Provider resource targets or original source owners changed after acquisition. Prepare again.")}
+    raw=try JSONDecoder().decode(ResourceJSON.self,from:JSONSerialization.data(withJSONObject:selectedEdit));sourceCapture.edit=raw
     inputs=try await call(workspace,"POST","/api/changes/resource-inputs",resourceBody(sourceCapture))
    }
    guard ticket==id,current(),captured(),inputs.version==1,inputs.saved_guards != nil,inputs.context==context,inputs.refusals.isEmpty,Set(inputs.sources.keys)==Set(discovered.paths) else{throw EngineError(message:"Complete resource sources changed. Prepare again.")}

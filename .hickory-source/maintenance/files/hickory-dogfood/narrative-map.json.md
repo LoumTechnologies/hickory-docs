@@ -155946,6 +155946,27 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/frontends/editor-recovery-android.md",
       "symbol": "editor recovery android tests",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "resource-acquisition-apple-lease",
+      "output": "apps/apple-simple/Sources/ResourceAcquisition.swift",
+      "page": ".hickory-source/frontends/resource-acquisition-apple.md",
+      "symbol": "resource acquisition apple lease",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "resource-acquisition-apple-inputs",
+      "output": "apps/apple-simple/Sources/ResourceAcquisition.swift",
+      "page": ".hickory-source/frontends/resource-acquisition-apple.md",
+      "symbol": "resource acquisition apple inputs",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "resource-acquisition-apple-tests",
+      "output": "apps/apple-simple/Tests/ResourceAcquisitionTests.swift",
+      "page": ".hickory-source/frontends/resource-acquisition-apple.md",
+      "symbol": "resource acquisition apple tests",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {
