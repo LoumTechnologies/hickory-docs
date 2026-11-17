@@ -5,6 +5,14 @@ import kotlinx.coroutines.*
 import org.json.JSONObject
 import org.json.JSONArray
 class ChangeRequestTest {
+ @Test fun cleanupAndReviewedDraftRefuseEqualByteRevisionRenewal()=runBlocking {
+  val w=Workspace(this);val f=FileNode("a.py","a.py",false,emptyList(),null,null);val b=DocumentBuffer(f,FileText("old\n","base"));w.buffers[f.path]=b;w.show(f.path)
+  val edit=JSONObject().put("changes",JSONObject().put(languageURI(f.path),org.json.JSONArray().put(JSONObject().put("range",JSONObject().put("start",JSONObject().put("line",0).put("character",0)).put("end",JSONObject().put("line",0).put("character",3))).put("newText","new"))))
+  fun editUndo(){check(b.applySourceEdits(listOf(NativeSourceEdit(0,b.text.length,"later")),b.text));check(b.applySourceEdits(listOf(NativeSourceEdit(0,b.text.length,"old\n")),b.text))}
+  w.changes.offer("Reviewed",edit,mapOf(f.path to b.text),w);editUndo();w.changes.apply(w);assertEquals("old\n",b.text);assertTrue(w.changes.notice.contains("Source, selection or provider changed"))
+  w.changes.open("cleanup",w);w.changes.prepare(w,{_,_->editUndo();edit});assertNull(w.changes.plan);assertEquals("old\n",b.text);assertTrue(w.changes.notice.contains("Source or selection changed"))
+ }
+
  @Test fun olderRenameReplyCannotBorrowNewerRequestAuthority()=runBlocking {
   val workspace=Workspace(this);val engine=Engine("http://127.0.0.1:1");val file=FileNode("a.py","a.py",false,emptyList(),null,null)
   val buffer=DocumentBuffer(file,FileText("value\n","base"));buffer.language=NativeLanguage(engine,buffer,this);workspace.buffers[file.path]=buffer;workspace.show(file.path);assertSame(buffer,workspace.currentBuffer)

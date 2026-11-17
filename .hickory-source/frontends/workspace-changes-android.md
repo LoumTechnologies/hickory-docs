@@ -86,18 +86,26 @@ class WorkspaceChanges {
         val request=++revision; val source=origin.text; val selection=origin.state.selection; val identity=language.proposalIdentity;val sourceIdentity=origin.sourceRevision
         sources=workspace.sourceSnapshots(); current={revision==request && workspace.buffers[origin.file.path]===origin && origin.sourceRevision==sourceIdentity && origin.text==source && origin.state.selection==selection && origin.language===language && language.proposalIdentity==identity}
         resolver=resolution ?: {language.resolveProposal(it)}
+        val originCurrent=current;val lease=workspace.sourceAcquisitionLease(external=originCurrent);current={lease.current()}
         val valid=current
         val propose:suspend (String,String)->Any=proposal ?: {kind,value->language.propose(kind,value)}
                 val listed=mutableMapOf<String,FileNode>();fun collect(nodes:List<FileNode>){for(file in nodes){if(!file.dir)listed[file.path]=file;collect(file.children)}};collect(workspace.rootFiles)
-        val load:suspend (String)->SourceSnapshot=acquisition ?: {path->
+        val acquireTarget:suspend (String)->SourceSnapshot=acquisition ?: {path->
                     check(valid()){"Source, selection or provider changed. Prepare again."}
                     val file=(workspace.buffers[path]?.file ?: listed[path])?.takeUnless{it.dir} ?: error("Referenced source is no longer listed: $path. Refresh files and prepare again.")
-                    val target=workspace.loadBuffer(file);val text=target.text
+                    val wasRetained=workspace.buffers.containsKey(path);val target=workspace.loadBuffer(file);val text=target.text
+                    check(wasRetained||target.sourceRevision==0L&&target.text==target.base){"The newly acquired source was edited before original ownership could be sealed."}
+                    check(lease.current(path)){"Original source owners changed during acquisition. Prepare again."};lease.retain(path,target)
                     check(!target.readOnly&&!target.saving){"Referenced source cannot synchronize: $path. Retry language services."}
                     val service=target.language ?: error("Referenced source cannot synchronize: $path. Retry language services.");service.readOutline(text)
                     check(valid()&&target.text==text){"Source changed while reading $path. Prepare again."}
                     SourceSnapshot(text,!target.readOnly&&!target.saving)
                 }
+        val load:suspend (String)->SourceSnapshot={path->
+            check(valid()){"Original source owners changed before acquisition. Prepare again."};val wasRetained=workspace.buffers.containsKey(path);val source=acquireTarget(path)
+            val target=workspace.buffers[path] ?: error("The acquired editor no longer owns its source.")
+            check(lease.current(path)&&(wasRetained||target.sourceRevision==0L&&target.text==target.base)&&target.text==source.text&&!target.readOnly&&!target.saving){"Original source owners or the acquired target changed. Prepare again."};lease.retain(path,target);source
+        }
         val actionKind=if(mode=="fixAll")"fixAll" else "actions"
         this.acquisition=load;actionQuery={val actions=propose(actionKind,"") as? JSONArray ?: JSONArray();val listed=(0 until actions.length()).mapNotNull{actions.optJSONObject(it)};if(actionKind=="fixAll")fileWideFixActions(listed) else listed}
         plan=null; choices=emptyList(); referencePaths=emptyList(); notice="Preparing complete source changes…"
@@ -124,6 +132,7 @@ class WorkspaceChanges {
         if(origin==null||origin.readOnly||origin.saving){notice="Choose writable source before preparing cleanup.";return}
         val request=++revision;val source=origin.text;val selection=origin.state.selection;val path=origin.file.path
         sources=workspace.sourceSnapshots();current={revision==request&&workspace.buffers[path]===origin&&origin.text==source&&origin.state.selection==selection}
+        val originCurrent=current;val lease=workspace.sourceAcquisitionLease(external=originCurrent);current={lease.current()}
         val valid=current
         plan=null;choices=emptyList();referencePaths=emptyList();notice="Preparing trailing-whitespace cleanup…"
         try{
@@ -140,7 +149,7 @@ class WorkspaceChanges {
         val snapshots=workspace.sourceSnapshots();val next=planWorkspaceEdit(title,edit,snapshots)
         validateChangePlan(next,snapshots)?.let{error(it)}
         val targets=next.patches.map{patch->val before=expected[patch.path] ?: error("Reviewed source target was not captured. Prepare again.");val buffer=workspace.buffers[patch.path] ?: error("Reviewed source is unavailable. Prepare again.");check(before==patch.before&&buffer.text==before){"Reviewed source changed. Prepare the whole proposal again."};Triple(buffer,before,buffer.state.selection)}
-        val request=++revision;sources=snapshots;current={revision==request&&targets.all{(buffer,text,selection)->workspace.buffers[buffer.file.path]===buffer&&buffer.text==text&&buffer.state.selection==selection}}
+        val request=++revision;val lease=workspace.sourceAcquisitionLease();sources=snapshots;current={revision==request&&lease.current()&&targets.all{(buffer,text,selection)->workspace.buffers[buffer.file.path]===buffer&&buffer.text==text&&buffer.state.selection==selection}}
         mode="proposal";plan=next;choices=emptyList();referencePaths=emptyList();notice="";file=0;page=0;actionPage=0
     }
     private suspend fun install(title: String, edit: Any?, workspace: Workspace) {
@@ -266,6 +275,14 @@ import kotlinx.coroutines.*
 import org.json.JSONObject
 import org.json.JSONArray
 class ChangeRequestTest {
+ @Test fun cleanupAndReviewedDraftRefuseEqualByteRevisionRenewal()=runBlocking {
+  val w=Workspace(this);val f=FileNode("a.py","a.py",false,emptyList(),null,null);val b=DocumentBuffer(f,FileText("old\n","base"));w.buffers[f.path]=b;w.show(f.path)
+  val edit=JSONObject().put("changes",JSONObject().put(languageURI(f.path),org.json.JSONArray().put(JSONObject().put("range",JSONObject().put("start",JSONObject().put("line",0).put("character",0)).put("end",JSONObject().put("line",0).put("character",3))).put("newText","new"))))
+  fun editUndo(){check(b.applySourceEdits(listOf(NativeSourceEdit(0,b.text.length,"later")),b.text));check(b.applySourceEdits(listOf(NativeSourceEdit(0,b.text.length,"old\n")),b.text))}
+  w.changes.offer("Reviewed",edit,mapOf(f.path to b.text),w);editUndo();w.changes.apply(w);assertEquals("old\n",b.text);assertTrue(w.changes.notice.contains("Source, selection or provider changed"))
+  w.changes.open("cleanup",w);w.changes.prepare(w,{_,_->editUndo();edit});assertNull(w.changes.plan);assertEquals("old\n",b.text);assertTrue(w.changes.notice.contains("Source or selection changed"))
+ }
+
  @Test fun olderRenameReplyCannotBorrowNewerRequestAuthority()=runBlocking {
   val workspace=Workspace(this);val engine=Engine("http://127.0.0.1:1");val file=FileNode("a.py","a.py",false,emptyList(),null,null)
   val buffer=DocumentBuffer(file,FileText("value\n","base"));buffer.language=NativeLanguage(engine,buffer,this);workspace.buffers[file.path]=buffer;workspace.show(file.path);assertSame(buffer,workspace.currentBuffer)
@@ -351,6 +368,18 @@ import kotlinx.coroutines.*
 import org.json.JSONObject
 import org.json.JSONArray
 class ActionChoiceTest {
+ @Test fun originalTargetOwnersNeverRenewDuringQueries()=runBlocking {
+  for(change in listOf("undo","guard","baseline","handle","unknown")){
+   val w=Workspace(this);val e=Engine("http://127.0.0.1:1");val f=FileNode("a.py","a.py",false,emptyList(),null,null);val other=FileNode("other.py","other.py",false,emptyList(),null,null);val b=DocumentBuffer(f,FileText("old\n","base"));val target=DocumentBuffer(other,FileText("old\n","base"));b.language=NativeLanguage(e,b,this);w.buffers[f.path]=b;w.buffers[other.path]=target;w.show(f.path)
+   val action=JSONObject().put("title","Fix all").put("kind","source.fixAll.provider");w.changes.open("fixAll",w);w.changes.prepare(w,{_,_->when(change){"undo"->{target.state.edit{replace(0,length,"later")};target.advanceSourceRevision();target.state.edit{replace(0,length,"old\n")};target.advanceSourceRevision()};"guard"->target.saveGuard="foreign";"baseline"->target.base="foreign";"handle"->w.buffers[other.path]=DocumentBuffer(other,FileText(target.text,target.hash));else->w.buffers["unknown.md"]=DocumentBuffer(FileNode("unknown.md","unknown.md",false,emptyList(),null,null),FileText("unmodeled construction","new"))};JSONArray().put(action)});assertTrue(change,w.changes.choices.isEmpty());assertNull(w.changes.plan);assertEquals("old\n",b.text)
+  }
+ }
+ @Test fun acquiredEditUndoCannotBecomeANewProviderBaseline()=runBlocking {
+  val w=Workspace(this);val e=Engine("http://127.0.0.1:1");val f=FileNode("a.py","a.py",false,emptyList(),null,null);val b=DocumentBuffer(f,FileText("old\n","base"));b.language=NativeLanguage(e,b,this);w.buffers[f.path]=b;w.show(f.path)
+  val action=JSONObject().put("title","Fix all").put("kind","source.fixAll.provider").put("data",JSONObject().put("hickory_acquire",JSONArray().put(JSONObject().put("uri",languageURI("other.py")))))
+  w.changes.open("fixAll",w);w.changes.prepare(w,{_,_->JSONArray().put(action)},{it},{path->val target=DocumentBuffer(FileNode(path,path,false,emptyList(),null,null),FileText("old\n","base"));w.buffers[path]=target;target.state.edit{replace(0,length,"later")};target.advanceSourceRevision();target.state.edit{replace(0,length,"old\n")};target.advanceSourceRevision();SourceSnapshot(target.text,true)});w.changes.choose(0,w);assertNull(w.changes.plan);assertEquals("old\n",b.text);assertTrue(w.changes.notice,w.changes.notice.contains("acquired target")||w.changes.notice.contains("sealed"))
+ }
+
  @Test fun liveOwnedBulkFixCommandReviewApplyAndUndo()=runBlocking {
   val origin=System.getenv("HICKORY_BULK_ORIGIN");org.junit.Assume.assumeNotNull(origin);val root=java.io.File(System.getenv("HICKORY_BULK_WORKSPACE") ?: error("Owned workspace required"));check(java.io.File(root,".hickory-bulk-fixture").readText()=="owned-bulk-v1\n")
   val ownedScope=CoroutineScope(SupervisorJob()+Dispatchers.Default);val w=Workspace(ownedScope);val e=Engine(origin!!);w.engine=e;val (_,tree)=e.files();w.rootFiles=tree
@@ -386,7 +415,7 @@ class ActionChoiceTest {
   val load:suspend (String)->SourceSnapshot={path->loads.add(path);val target=DocumentBuffer(FileNode(path,path,false,emptyList(),null,null),FileText("old\n","base"));workspace.buffers[path]=target;SourceSnapshot(target.text,true)}
   changes.open("actions",workspace);changes.prepare(workspace,propose,resolve,load);changes.choose(0,workspace)
   assertEquals(2,queries);assertEquals(2,resolutions);assertEquals(listOf("other.py"),loads);assertEquals(2,changes.plan?.patches?.size);assertEquals("a.py",workspace.currentBuffer?.file?.path);assertEquals("old\n",buffer.text)
-  workspace.buffers.getValue("other.py").state.edit{replace(0,length,"later\n")};changes.apply(workspace);assertTrue(changes.notice.contains("Source changed"));assertEquals("old\n",buffer.text)
+  workspace.buffers.getValue("other.py").state.edit{replace(0,length,"later\n")};changes.apply(workspace);assertTrue(changes.notice.contains("Source, selection or provider changed"));assertEquals("old\n",buffer.text)
   workspace.buffers.remove("other.py");queries=0;ambiguous=true
   changes.open("actions",workspace);changes.prepare(workspace,propose,resolve,load);changes.choose(0,workspace);assertNull(changes.plan);assertTrue(changes.notice.contains("ambiguous"));assertEquals("old\n",buffer.text)
  }

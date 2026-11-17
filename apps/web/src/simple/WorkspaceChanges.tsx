@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import {api,request} from "../api/client";
 import {ResourceConsequencesView} from "./SourceRecovery";
-import {isResourceEdit,prepareResourceSave,prepareResourceRestore,publishResourceRestore,type ResourceRestoreReview,type ResourceEditorRoute} from "./ResourceEditors";
+import {captureResourceRoster,isResourceEdit,prepareResourceSave,prepareResourceRestore,publishResourceRestore,type ResourceRestoreReview,type ResourceEditorRoute} from "./ResourceEditors";
 import { createPortal } from "react-dom";
 import { isolateHistory } from "@codemirror/commands";
 import { type Transaction } from "@codemirror/state";
@@ -75,7 +75,7 @@ export function WorkspaceChanges({ buffers, current, focus,files,adoptResources,
       if(detail?.kind==='proposal'){
         if(isResourceEdit(detail.edit)){
           try{const targets=[...detail.expected].map(([path,text]:[string,string])=>{const buffer=buffers.values.get(path),view=buffer&&editorForBuffer(buffer)?.view;if(!buffer||buffer.text!==text||buffer.readonly||buffer.saving||buffer.transient)throw new Error('Reviewed resource source changed or is unavailable.');return {path,buffer,text,view,selection:view?.state.selection};});
-            const id=++ticket.current,valid=()=>id===ticket.current&&targets.every(target=>buffers.values.get(target.path)===target.buffer&&target.buffer.text===target.text&&(!target.view||!!target.selection&&target.view.state.selection.eq(target.selection)));
+            const roster=captureResourceRoster(buffers),id=++ticket.current,valid=()=>id===ticket.current&&roster.current()&&targets.every(target=>buffers.values.get(target.path)===target.buffer&&target.buffer.text===target.text&&(!target.view||!!target.selection&&target.view.state.selection.eq(target.selection)));
             captured.current={sources:workspaceSnapshots(buffers),references:[],current:valid,request:id,choices:[],resolve:async()=>{throw new Error('This is a reviewed source proposal.');},acquire:async path=>{const target=targets.find(item=>item.path===path);if(!target||!valid())throw new Error('Every existing resource target must be captured in the proposal.');return {text:target.text,writable:true};}};
             setMode('proposal');setPlan(null);setChoices([]);detail.accepted=true;void install(detail.title,detail.edit).catch(error=>{if(id===ticket.current)setNotice(String(error));});
           }catch(error){detail.error=String(error);}return;
@@ -88,7 +88,7 @@ export function WorkspaceChanges({ buffers, current, focus,files,adoptResources,
             return {buffer,text:patch.before,view,selection:view?.state.selection};
           });
           const refusal=validateChangePlan(next,sources);if(refusal)throw new Error(refusal);
-          const id=++ticket.current,valid=()=>id===ticket.current&&targets.every(target=>buffers.values.get(target.buffer.file.path)===target.buffer&&target.buffer.text===target.text&&(!target.view||!!target.selection&&target.view.state.selection.eq(target.selection)));
+          const roster=captureResourceRoster(buffers),id=++ticket.current,valid=()=>id===ticket.current&&roster.current()&&targets.every(target=>buffers.values.get(target.buffer.file.path)===target.buffer&&target.buffer.text===target.text&&(!target.view||!!target.selection&&target.view.state.selection.eq(target.selection)));
           captured.current={sources,references:[],current:valid,request:id,choices:[],resolve:async()=>{throw new Error('Prepare provider actions first.');},acquire:async()=>{throw new Error('Reviewed source was already captured.');}};
           setMode('proposal');setPlan(next);setChoices([]);setNotice('');setFile(0);setPage(0);setActionPage(0);detail.accepted=true;
         }catch(error){detail.error=String(error);}
@@ -113,8 +113,8 @@ export function WorkspaceChanges({ buffers, current, focus,files,adoptResources,
     if (mode === "cleanup") {
       const buffer=current(),view=buffer&&editorForBuffer(buffer)?.view;
       if(!buffer||!view||buffer.readonly||buffer.saving||buffer.transient){setNotice("Choose writable source before preparing cleanup.");return;}
-      const source=buffer.text,selection=view.state.selection,id=++ticket.current;
-      const valid=()=>id===ticket.current&&buffers.values.get(buffer.file.path)===buffer&&buffer.text===source&&view.state.doc.toString()===source&&view.state.selection.eq(selection);
+      const source=buffer.text,selection=view.state.selection,id=++ticket.current,roster=captureResourceRoster(buffers);
+      const valid=()=>id===ticket.current&&roster.current()&&buffers.values.get(buffer.file.path)===buffer&&buffer.text===source&&view.state.doc.toString()===source&&view.state.selection.eq(selection);
       captured.current={sources:workspaceSnapshots(buffers),references:[],current:valid,request:id,choices:[],resolve:async()=>{throw new Error("Prepare provider actions first.");},acquire:async()=>{throw new Error("Cleanup has one captured source.");}};
       setPlan(null);setChoices([]);setNotice("Preparing trailing-whitespace cleanup…");
       try{
@@ -127,12 +127,16 @@ export function WorkspaceChanges({ buffers, current, focus,files,adoptResources,
     const buffer = current(), view = buffer && editorForBuffer(buffer)?.view, session = buffer && lookup(buffer);
     if (!buffer || !view || !session?.client || !session.ready || buffer.readonly) { setNotice("Choose writable source with a connected language provider, then prepare again."); return; }
     const sourceRevision=buffer.sourceRevision;const source = buffer.text, selection = view.state.selection, client = session.client, id = ++ticket.current, sources = workspaceSnapshots(buffers);
-    const valid = () => id === ticket.current && buffers.values.get(buffer.file.path)===buffer && buffer.sourceRevision===sourceRevision && buffer.text === source && view.state.doc.toString() === source && view.state.selection.eq(selection) && lookup(buffer).client === client && lookup(buffer).ready;
+    const roster=captureResourceRoster(buffers);
+    const originCurrent = () => id === ticket.current && buffers.values.get(buffer.file.path)===buffer && buffer.sourceRevision===sourceRevision && buffer.text === source && view.state.doc.toString() === source && view.state.selection.eq(selection) && lookup(buffer).client === client && lookup(buffer).ready;
+    const valid=()=>originCurrent()&&roster.current();
         const listed=new Map<string,FileNode>();const collect=(nodes:FileNode[])=>{for(const file of nodes){if(!file.dir)listed.set(file.path,file);collect(file.children??[]);}};collect(files);
     const acquire=async (path:string)=>{
           if(!valid())throw new Error("Source, selection or provider changed. Prepare again.");
           const file=buffers.values.get(path)?.file??listed.get(path);if(!file||file.dir)throw new Error(`Referenced source is no longer listed: ${path}. Refresh files and prepare again.`);
-          const target=await buffers.open(file),text=target.text;
+          const wasRetained=buffers.values.has(path),target=await buffers.open(file),text=target.text;
+          if(!wasRetained&&(target.sourceRevision!==0||target.text!==target.base))throw new Error("The newly acquired source was edited before original ownership could be sealed.");
+          if(!originCurrent())throw new Error("Original source changed during acquisition. Prepare again.");roster.retain(path,target);
           if(target.readonly||target.saving||target.transient)throw new Error(`Source is generated, read-only or saving: ${path}`);
           await readOutline(target,text);
           if(!valid()||target.text!==text)throw new Error(`Source changed while reading ${path}. Prepare again.`);

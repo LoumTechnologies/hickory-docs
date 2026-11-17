@@ -196,8 +196,35 @@ owned flows are retained under `target/bulk-*` and `target/native-bulk-*`.
 This closes the connected standard provider bulk-action path for the exercised
 plain source case, not semantic completeness across installed providers or
 all literate position mappings. Physical input/accessibility remains unverified.
-Complete original target-owner revision coverage during acquisition still
-requires the separate safety review recorded below; no full parity is claimed.
+Original target-owner revision coverage during acquisition and approval is
+established by the lease checks below; coordinated history retains its separate
+safety follow-up. No full parity is claimed.
+
+## Source-change acquisition and approval leases, 2026-11-17
+
+Provider preparations now extend their original retained-owner lease only for the
+explicitly acquired pristine target. Existing editors keep their original
+identity, source revision, baseline, save guard, metadata and namespace. Seal the
+new target before awaiting language synchronization; an edit followed by equal
+text Undo cannot become a fresh baseline. Unexpected new owners and independent
+handles at the same path refuse. Cleanup and externally offered source reviews
+reuse the same authority instead of comparing text alone. The Apple adapter
+reuses resource acquisition leases; browser and Android resource ownership
+capture now expose the same bounded extension without renewing old observations.
+
+Twenty-eight browser cases and TypeScript checking pass. Thirty-two Apple
+cases pass, including actual resource Save/restoration/redo, plus ten executed
+Android action/change/resource cases; the generic Android run skips the owned
+provider case, which then passes separately without skips. Browser, macOS and
+Android owned-provider bulk flows all pass under the new leases, retaining the
+editor and unchanged disk through normal target acquisition and draft Undo/Redo.
+The iOS simulator product builds. The source-mutation witness now refuses at
+authority preflight rather than the later text-only plan comparison. Focused logs
+are retained under `target/proposal-lease-*`.
+
+Coordinated draft history still needs its separate target identity and revision
+audit: inverse text equality alone must not authorize a replacement editor. No
+full safe-change parity is claimed by this implementation checkpoint.
 
 ## Current integration ledger
 
@@ -211,7 +238,7 @@ until reconstruction, focused safety checks and the connected path pass.
 | --- | --- |
 | Navigation and intelligence | Semantic queries, bounded workspace acquisition, search and retained navigation trails have focused evidence below. Complete provider indexing and native physical interaction are not established by those receipts. |
 | Safe changes, cleanup, generation and templates | Multi-source draft review/undo, cleanup and nested source snippets have focused evidence. Ordered resource publication and saved/draft undo now have connected browser/provider and native controller acceptance. Canonical-entry moves and ambiguous native wire path identities still refuse. A reusable template catalog now has reviewed Apply and coordinated field/history acceptance across the hosts, with rendered browser/macOS and native Android controller evidence. Semantic cleanup/provider generation, full snippet transforms/variable contexts, multi-caret templates and mirrored native IME remain open. |
-| Diagnostics and contextual fixes | Source-bound Problems, exact provider action resolution and multi-source action review have focused evidence. Standard complete-file provider bulk actions now have connected browser/macOS/Android acceptance and an iOS build. Original target-owner revision coverage, literate mapping breadth and provider analysis completeness remain open. |
+| Diagnostics and contextual fixes | Source-bound Problems, exact provider action resolution and multi-source action review have focused evidence. Standard complete-file provider bulk actions now have connected browser/macOS/Android acceptance and an iOS build. Preparation/acquisition/approval leases now retain original target-owner revisions; literate mapping breadth and provider analysis completeness remain open. |
 | Tests and coverage | Source declarations, saved-run admission, discovery/results and source-bound imported coverage have focused evidence. An actual Python collector now retains failed-run coverage and reruns only the failed case, marking the earlier source evidence historical after a source change. Python/pytest source-adjacent Debug now has actual writable physical/authored gutter acceptance on browser, macOS and Android, with the shared Apple path building for iOS. Other test-debug providers remain explicitly unavailable. Collector-to-host end-to-end acceptance and the remaining supported collectors remain open. |
 | Review and recovery | Diffs, staging, immutable history, attribution and choosing a conflict stage have focused evidence. Resource recovery publication/adoption and ordered text/resource undo now have actual-engine acceptance. Invalid historical construction drafts and partial-state restoration still refuse. Shared conflict composition/delete/rename publication and complete-group staging pass real-engine checks; browser, Apple and Android now have connected usable paths, including Apple composition/deletion/rename and stale source/index refusal. Ordinary strict Save/Save As, retained local-history previews and draft-only restoration now have actual browser and native controller/editor evidence. Deleted-source history now has connected browser and native controller/editor acceptance, including absent-path preservation and separate guarded publication. Browser reload and native process-restart recovery now have connected draft/layout/view acceptance. User-facing private-session management at capacity and complete resource physical-admission/replay/inverse acceptance remain open. |
 | Debugger | Inline launch, profile selection, breakpoints, frames and evaluation have focused slices. Explicit threads, scoped caller locals, immediate running-session controls and pre-launch protocol admission now have actual-engine browser and native controller evidence. Adapter-owned literal source reading passes controlled-provider browser and Apple native flows; Android model/controller checks and its complete actual flow pass. Complete stack paging has owned protocol evidence. Explicit loopback debugpy attach has real-engine browser/macOS/Android acceptance; other attachment providers, source-bound breakpoint retention after edits, deep-stack host acceptance and supported-adapter breadth remain open. |

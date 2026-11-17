@@ -7,6 +7,8 @@ For maintainers preparing provider resource changes or a complete Git conflict g
 
 Loading a closed target must not turn a later editor state into the original intention. Capture all existing buffer bindings, retained owners, source revisions and physical baseline guards before asking the engine for inputs. Permit only the one target currently being acquired to appear. A new unrelated owner, an independent handle, edit/Undo or changed guard retires preparation without moving or replacing any editor.
 
+Provider draft preparation reuses this lease instead of recapturing the namespace after loading. Seal a pristine new target before awaiting language synchronization, so edits and equal-byte Undo during that await invalidate the original review. Retaining one explicit target extends the lease; it never replaces the original owner observations.
+
 <ui:copy id="resource-acquisition-apple-lease">
 import Foundation
 struct ResourceAcquisition {var capture:ResourceWireCapture;var inputs:ResourceWireInputs;var acquired:Bool;var current:()->Bool}
@@ -15,7 +17,7 @@ struct ResourceAcquisition {var capture:ResourceWireCapture;var inputs:ResourceW
  init(_ b:DocumentBuffer){buffer=b;identity=b.sourceEditIdentity;source=b.sourceRevision;base=ExactSourceText(b.base);guardToken=b.savedGuard.map{Data($0.utf8)};path=Data(b.file.path.utf8);doc=b.file.doc_id.map{Data($0.utf8)};generated=b.file.generated_by.map{Data($0.utf8)};readOnly=b.readOnly;deleted=b.resourceDeleted;unnamed=b.isUntitledDraft}
  func current()->Bool{let b=buffer;return b.sourceEditIdentity==identity&&b.sourceRevision==source&&ExactSourceText(b.base)==base&&b.savedGuard.map{Data($0.utf8)}==guardToken&&Data(b.file.path.utf8)==path&&b.file.doc_id.map{Data($0.utf8)}==doc&&b.file.generated_by.map{Data($0.utf8)}==generated&&b.readOnly==readOnly&&b.resourceDeleted==deleted&&b.isUntitledDraft==unnamed && !b.saving}
 }
-@MainActor private final class ResourceAcquisitionLease {
+@MainActor final class ResourceAcquisitionLease {
  private weak var workspace:Workspace?;private let engine:Engine?;private let epoch:UUID;private let runtime:String?;private let root:String?;private var addresses:NativeSourceMap<DocumentBuffer>;private let retained:[String:DocumentBuffer];private var owners:[ResourceAcquisitionOwner];private let external:()->Bool
  init(_ w:Workspace,current:@escaping()->Bool){workspace=w;engine=w.engine;epoch=w.sourceNavigationEpoch;runtime=w.sourceWorkspaceID;root=w.sourceRootAddress;addresses=w.buffers;retained=w.retainedResourceEditors;owners=(Array(w.buffers.values)+Array(w.retainedResourceEditors.values)).map(ResourceAcquisitionOwner.init);external=current}
  func current(allowing path:String?=nil)->Bool {

@@ -5,8 +5,9 @@ import {EditorView} from '@codemirror/view';
 import {Buffer,Buffers} from './buffers';
 import {WorkspaceChanges} from './WorkspaceChanges';
 import {WorkspaceChangeHistory} from './ChangePlan';
-import {requestWorkspaceChange} from './WorkspaceChangeEvents';
-const mocks=vi.hoisted(()=>({editor:vi.fn(),lookup:vi.fn(),outline:vi.fn()}));
+import {requestWorkspaceChange,requestWorkspaceProposal} from './WorkspaceChangeEvents';
+const mocks=vi.hoisted(()=>({editor:vi.fn(),lookup:vi.fn(),outline:vi.fn(),request:vi.fn()}));
+vi.mock('../api/client',()=>({api:{},request:(...args:unknown[])=>mocks.request(...args)}));
 vi.mock('./Document',()=>({editorForBuffer:mocks.editor}));
 vi.mock('./WorkspaceLanguages',()=>({useWorkspaceLanguageLookup:()=>mocks.lookup,useWorkspaceOutlineReader:()=>mocks.outline}));
 let view:EditorView|undefined;
@@ -14,11 +15,11 @@ afterEach(()=>{cleanup();view?.destroy();view=undefined;vi.clearAllMocks();});
 const replacement={range:{start:{line:0,character:0},end:{line:0,character:3}},newText:'new'};
 function action(kind='source.fixAll.provider'){return {title:'Complete file fix',kind,edit:{changes:{'hick:///a.py':[replacement]}}};}
 function fixture(result:unknown){
- const buffers=new Buffers(()=>{}),file={path:'a.py',name:'a.py',dir:false};const buffer=new Buffer(file,'old\n','base',()=>{});buffers.values.set(file.path,buffer);
+ mocks.request.mockReset();const buffers=new Buffers(()=>{}),file={path:'a.py',name:'a.py',dir:false};const buffer=new Buffer(file,'old\n','base',()=>{});buffers.values.set(file.path,buffer);
  view=new EditorView({state:EditorState.create({doc:buffer.text,selection:{anchor:2},extensions:[EditorView.updateListener.of(update=>{if(update.docChanged)buffer.edit(update.state.doc.toString());})]}),parent:document.body});mocks.editor.mockImplementation(target=>target===buffer?{view}:undefined);
  const request=vi.fn(async(_method:string,_params?:unknown)=>result),client={request};mocks.lookup.mockReturnValue({uri:'hick:///a.py',client,ready:true});
- render(<WorkspaceChanges buffers={buffers} files={[file]} current={()=>buffer} focus={()=>{}} adoptResources={()=>{throw new Error('No resource publication expected');}} history={new WorkspaceChangeHistory()}/>);
- act(()=>requestWorkspaceChange('fixAll'));return {buffer,request};
+ const files=[file];render(<WorkspaceChanges buffers={buffers} files={files} current={()=>buffer} focus={()=>{}} adoptResources={()=>{throw new Error('No resource publication expected');}} history={new WorkspaceChangeHistory()}/>);
+ act(()=>requestWorkspaceChange('fixAll'));return {buffer,buffers,files,request};
 }
 async function prepare(){fireEvent.click(screen.getByRole('button',{name:'Prepare file-wide diagnostic fixes'}));}
 it('requests the entire source family, reviews one complete action and coordinates draft Undo/Redo',async()=>{
@@ -28,3 +29,14 @@ it('requests the entire source family, reviews one complete action and coordinat
 it('reports unavailable when the provider returns no complete-file family',async()=>{fixture([action('quickfix')]);await prepare();await screen.findByText(/offers no file-wide diagnostic fixes/);expect(screen.queryByRole('button',{name:'Complete file fix'})).toBeNull();expect(screen.queryByRole('button',{name:'Apply to source drafts'})).toBeNull();});
 it('retires an equal-byte edit/Undo before a held bulk list arrives',async()=>{const {buffer,request}=fixture([]);let release!:(value:unknown)=>void;request.mockImplementationOnce(()=>new Promise(resolve=>{release=resolve;}));await prepare();act(()=>{buffer.edit('later');buffer.edit('old\n');});await act(async()=>release([action()]));await screen.findByText(/Source, selection or provider changed/);expect(screen.queryByRole('button',{name:'Complete file fix'})).toBeNull();expect(buffer.text).toBe('old\n');});
 it('refuses a resolved action that changes from complete-file fixing to a quick fix',async()=>{const original={...action(),edit:undefined,data:{hickory_action:'held'}};const {buffer,request}=fixture([original]);request.mockImplementation(async(method:string)=>method==='codeAction/resolve'?action('quickfix'):[original]);await prepare();fireEvent.click(await screen.findByRole('button',{name:'Complete file fix'}));await screen.findByText(/changed the complete file-wide action kind/);expect(screen.queryByRole('button',{name:'Apply to source drafts'})).toBeNull();expect(buffer.text).toBe('old\n');});
+it.each(['undo','guard','baseline','handle','unknown'])('retains original owner authority through a held query: %s',async change=>{
+ const {buffer,buffers,request}=fixture([]);const file={path:'other.py',name:'other.py',dir:false},target=new Buffer(file,'old\n','base',()=>{});buffers.values.set(file.path,target);
+ // Reopen the command before preparing so this target belongs to the original roster.
+ act(()=>requestWorkspaceChange('fixAll'));request.mockImplementationOnce(async()=>{if(change==='undo'){target.edit('later');target.edit('old\n');}else if(change==='guard')target.saveGuard='foreign';else if(change==='baseline')target.base='foreign';else if(change==='handle')buffers.values.set(file.path,new Buffer(file,target.text,target.hash,()=>{}));else buffers.values.set('unknown.md',new Buffer({path:'unknown.md',name:'unknown.md',dir:false},'unmodeled construction','new',()=>{}));return [action()];});await prepare();await screen.findByText(/Source, selection or provider changed/);expect(screen.queryByRole('button',{name:'Complete file fix'})).toBeNull();expect(buffer.text).toBe('old\n');
+});
+it('refuses a newly loaded target edited and undone before acquisition returns',async()=>{
+ const {buffer,buffers,files,request}=fixture([]),file={path:'other.py',name:'other.py',dir:false};files.push(file);const original={...action(),edit:undefined,data:{hickory_action:'held'}},discovery={title:original.title,kind:original.kind,data:{hickory_acquire:[{uri:'hick:///other.py'}]}};
+ request.mockImplementation(async(method:string)=>method==='codeAction/resolve'?discovery:[original]);vi.spyOn(buffers,'open').mockImplementation(async()=>{const target=new Buffer(file,'old\n','base',()=>{});buffers.values.set(file.path,target);target.edit('later');target.edit('old\n');return target;});await prepare();fireEvent.click(await screen.findByRole('button',{name:'Complete file fix'}));await screen.findByText(/newly acquired source was edited/);expect(screen.queryByRole('button',{name:'Apply to source drafts'})).toBeNull();expect(buffer.text).toBe('old\n');
+});
+it('keeps reviewed drafts bound to the original equal-byte revision through approval',async()=>{const {buffer}=fixture([]);act(()=>requestWorkspaceProposal('Reviewed',action().edit,new Map([['a.py',buffer.text]])));await screen.findByRole('button',{name:'Apply to source drafts'});buffer.edit('later');buffer.edit('old\n');fireEvent.click(screen.getByRole('button',{name:'Apply to source drafts'}));await screen.findByText(/Source, selection or provider changed/);expect(buffer.text).toBe('old\n');});
+it('does not renew cleanup authority after an edit and equal-byte Undo',async()=>{const {buffer}=fixture([]);mocks.request.mockImplementationOnce(async()=>{buffer.edit('later');buffer.edit('old\n');return action().edit;});act(()=>requestWorkspaceChange('cleanup'));fireEvent.click(screen.getByRole('button',{name:'Prepare cleanup'}));await screen.findByText(/Source or selection changed/);expect(screen.queryByRole('button',{name:'Apply to source drafts'})).toBeNull();expect(buffer.text).toBe('old\n');});

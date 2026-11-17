@@ -5,6 +5,22 @@ import AppKit
 #endif
 @testable import HickorySimple
 @MainActor final class ActionChoiceTests:XCTestCase {
+    func testOriginalTargetOwnersNeverRenewDuringQueriesOrApproval()async throws {
+        for change in ["undo","guard","baseline","handle","unknown"] {
+            let w=Workspace(),e=try Engine(address:"http://127.0.0.1:1"),f=FileNode(name:"a.py",path:"a.py",dir:false),other=FileNode(name:"other.py",path:"other.py",dir:false)
+            let b=DocumentBuffer(file:f,text:FileText(path:f.path,content:"old\n",hash:"base")),target=DocumentBuffer(file:other,text:FileText(path:other.path,content:"old\n",hash:"base"));b.language=NativeLanguage(engine:e,buffer:b);w.buffers[f.path]=b;w.buffers[other.path]=target;w.show(f.path)
+            let action:[String:Any]=["title":"Fix all","kind":"source.fixAll.provider"]
+            w.changes.open("fixAll",workspace:w);await w.changes.prepare(w,proposal:{_,_ in
+                switch change{case "undo":target.text="later";target.text="old\n";case "guard":target.savedGuard="foreign";case "baseline":target.base="foreign";case "handle":w.buffers[other.path]=DocumentBuffer(file:other,text:FileText(path:other.path,content:target.text,hash:target.hash));default:w.buffers["unknown.md"]=DocumentBuffer(file:FileNode(name:"unknown.md",path:"unknown.md",dir:false),text:FileText(path:"unknown.md",content:"unmodeled construction",hash:"new"))};return [action]
+            });XCTAssertTrue(w.changes.choices.isEmpty,change);XCTAssertNil(w.changes.plan,change);XCTAssertEqual(b.text,"old\n")
+        }
+    }
+    func testAcquiredEditUndoCannotBecomeANewProviderBaseline()async throws {
+        let w=Workspace(),e=try Engine(address:"http://127.0.0.1:1"),f=FileNode(name:"a.py",path:"a.py",dir:false),b=DocumentBuffer(file:FileNode(name:"a.py",path:"a.py",dir:false),text:FileText(path:"a.py",content:"old\n",hash:"base"));b.language=NativeLanguage(engine:e,buffer:b);w.buffers[f.path]=b;w.show(f.path)
+        let action:[String:Any]=["title":"Fix all","kind":"source.fixAll.provider","data":["hickory_acquire":[["uri":languageURI("other.py")]]]]
+        w.changes.open("fixAll",workspace:w);await w.changes.prepare(w,proposal:{_,_ in [action]},resolution:{$0},acquisition:{path in let target=DocumentBuffer(file:FileNode(name:path,path:path,dir:false),text:FileText(path:path,content:"old\n",hash:"base"));w.buffers[path]=target;target.text="later";target.text="old\n";return SourceSnapshot(text:target.text,writable:true)});await w.changes.choose(0,workspace:w);XCTAssertNil(w.changes.plan);XCTAssertEqual(b.text,"old\n");XCTAssertTrue(w.changes.notice.contains("acquired target") || w.changes.notice.contains("sealed"),w.changes.notice)
+    }
+
     #if os(macOS)
     func testLiveOwnedBulkFixCommandReviewApplyAndUndo()async throws {
         guard let origin=ProcessInfo.processInfo.environment["HICKORY_BULK_ORIGIN"],let root=ProcessInfo.processInfo.environment["HICKORY_BULK_WORKSPACE"] else{throw XCTSkip("Use the maintained owned bulk-fix fixture.")}
@@ -56,7 +72,7 @@ import AppKit
         }
         changes.open("actions",workspace:workspace);await changes.prepare(workspace,proposal:propose,resolution:resolve,acquisition:load);await changes.choose(0,workspace:workspace)
         XCTAssertEqual(queries,2);XCTAssertEqual(resolutions,2);XCTAssertEqual(loads,["other.py"]);XCTAssertEqual(changes.plan?.patches.count,2);XCTAssertEqual(workspace.currentBuffer?.file.path,"a.py");XCTAssertEqual(buffer.text,"old\n")
-        workspace.buffers["other.py"]?.text="later\n";changes.apply(workspace);XCTAssertTrue(changes.notice.contains("Source changed"));XCTAssertEqual(buffer.text,"old\n")
+        workspace.buffers["other.py"]?.text="later\n";changes.apply(workspace);XCTAssertTrue(changes.notice.contains("Source, selection or provider changed"));XCTAssertEqual(buffer.text,"old\n")
         workspace.buffers.removeValue(forKey:"other.py");queries=0;ambiguous=true
         changes.open("actions",workspace:workspace);await changes.prepare(workspace,proposal:propose,resolution:resolve,acquisition:load);await changes.choose(0,workspace:workspace)
         XCTAssertNil(changes.plan);XCTAssertTrue(changes.notice.contains("ambiguous"));XCTAssertEqual(buffer.text,"old\n")

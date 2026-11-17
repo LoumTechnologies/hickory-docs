@@ -64,18 +64,26 @@ class WorkspaceChanges {
         val request=++revision; val source=origin.text; val selection=origin.state.selection; val identity=language.proposalIdentity;val sourceIdentity=origin.sourceRevision
         sources=workspace.sourceSnapshots(); current={revision==request && workspace.buffers[origin.file.path]===origin && origin.sourceRevision==sourceIdentity && origin.text==source && origin.state.selection==selection && origin.language===language && language.proposalIdentity==identity}
         resolver=resolution ?: {language.resolveProposal(it)}
+        val originCurrent=current;val lease=workspace.sourceAcquisitionLease(external=originCurrent);current={lease.current()}
         val valid=current
         val propose:suspend (String,String)->Any=proposal ?: {kind,value->language.propose(kind,value)}
                 val listed=mutableMapOf<String,FileNode>();fun collect(nodes:List<FileNode>){for(file in nodes){if(!file.dir)listed[file.path]=file;collect(file.children)}};collect(workspace.rootFiles)
-        val load:suspend (String)->SourceSnapshot=acquisition ?: {path->
+        val acquireTarget:suspend (String)->SourceSnapshot=acquisition ?: {path->
                     check(valid()){"Source, selection or provider changed. Prepare again."}
                     val file=(workspace.buffers[path]?.file ?: listed[path])?.takeUnless{it.dir} ?: error("Referenced source is no longer listed: $path. Refresh files and prepare again.")
-                    val target=workspace.loadBuffer(file);val text=target.text
+                    val wasRetained=workspace.buffers.containsKey(path);val target=workspace.loadBuffer(file);val text=target.text
+                    check(wasRetained||target.sourceRevision==0L&&target.text==target.base){"The newly acquired source was edited before original ownership could be sealed."}
+                    check(lease.current(path)){"Original source owners changed during acquisition. Prepare again."};lease.retain(path,target)
                     check(!target.readOnly&&!target.saving){"Referenced source cannot synchronize: $path. Retry language services."}
                     val service=target.language ?: error("Referenced source cannot synchronize: $path. Retry language services.");service.readOutline(text)
                     check(valid()&&target.text==text){"Source changed while reading $path. Prepare again."}
                     SourceSnapshot(text,!target.readOnly&&!target.saving)
                 }
+        val load:suspend (String)->SourceSnapshot={path->
+            check(valid()){"Original source owners changed before acquisition. Prepare again."};val wasRetained=workspace.buffers.containsKey(path);val source=acquireTarget(path)
+            val target=workspace.buffers[path] ?: error("The acquired editor no longer owns its source.")
+            check(lease.current(path)&&(wasRetained||target.sourceRevision==0L&&target.text==target.base)&&target.text==source.text&&!target.readOnly&&!target.saving){"Original source owners or the acquired target changed. Prepare again."};lease.retain(path,target);source
+        }
         val actionKind=if(mode=="fixAll")"fixAll" else "actions"
         this.acquisition=load;actionQuery={val actions=propose(actionKind,"") as? JSONArray ?: JSONArray();val listed=(0 until actions.length()).mapNotNull{actions.optJSONObject(it)};if(actionKind=="fixAll")fileWideFixActions(listed) else listed}
         plan=null; choices=emptyList(); referencePaths=emptyList(); notice="Preparing complete source changes…"
@@ -102,6 +110,7 @@ class WorkspaceChanges {
         if(origin==null||origin.readOnly||origin.saving){notice="Choose writable source before preparing cleanup.";return}
         val request=++revision;val source=origin.text;val selection=origin.state.selection;val path=origin.file.path
         sources=workspace.sourceSnapshots();current={revision==request&&workspace.buffers[path]===origin&&origin.text==source&&origin.state.selection==selection}
+        val originCurrent=current;val lease=workspace.sourceAcquisitionLease(external=originCurrent);current={lease.current()}
         val valid=current
         plan=null;choices=emptyList();referencePaths=emptyList();notice="Preparing trailing-whitespace cleanup…"
         try{
@@ -118,7 +127,7 @@ class WorkspaceChanges {
         val snapshots=workspace.sourceSnapshots();val next=planWorkspaceEdit(title,edit,snapshots)
         validateChangePlan(next,snapshots)?.let{error(it)}
         val targets=next.patches.map{patch->val before=expected[patch.path] ?: error("Reviewed source target was not captured. Prepare again.");val buffer=workspace.buffers[patch.path] ?: error("Reviewed source is unavailable. Prepare again.");check(before==patch.before&&buffer.text==before){"Reviewed source changed. Prepare the whole proposal again."};Triple(buffer,before,buffer.state.selection)}
-        val request=++revision;sources=snapshots;current={revision==request&&targets.all{(buffer,text,selection)->workspace.buffers[buffer.file.path]===buffer&&buffer.text==text&&buffer.state.selection==selection}}
+        val request=++revision;val lease=workspace.sourceAcquisitionLease();sources=snapshots;current={revision==request&&lease.current()&&targets.all{(buffer,text,selection)->workspace.buffers[buffer.file.path]===buffer&&buffer.text==text&&buffer.state.selection==selection}}
         mode="proposal";plan=next;choices=emptyList();referencePaths=emptyList();notice="";file=0;page=0;actionPage=0
     }
     private suspend fun install(title: String, edit: Any?, workspace: Workspace) {

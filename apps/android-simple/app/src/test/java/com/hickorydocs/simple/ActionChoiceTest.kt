@@ -5,6 +5,18 @@ import kotlinx.coroutines.*
 import org.json.JSONObject
 import org.json.JSONArray
 class ActionChoiceTest {
+ @Test fun originalTargetOwnersNeverRenewDuringQueries()=runBlocking {
+  for(change in listOf("undo","guard","baseline","handle","unknown")){
+   val w=Workspace(this);val e=Engine("http://127.0.0.1:1");val f=FileNode("a.py","a.py",false,emptyList(),null,null);val other=FileNode("other.py","other.py",false,emptyList(),null,null);val b=DocumentBuffer(f,FileText("old\n","base"));val target=DocumentBuffer(other,FileText("old\n","base"));b.language=NativeLanguage(e,b,this);w.buffers[f.path]=b;w.buffers[other.path]=target;w.show(f.path)
+   val action=JSONObject().put("title","Fix all").put("kind","source.fixAll.provider");w.changes.open("fixAll",w);w.changes.prepare(w,{_,_->when(change){"undo"->{target.state.edit{replace(0,length,"later")};target.advanceSourceRevision();target.state.edit{replace(0,length,"old\n")};target.advanceSourceRevision()};"guard"->target.saveGuard="foreign";"baseline"->target.base="foreign";"handle"->w.buffers[other.path]=DocumentBuffer(other,FileText(target.text,target.hash));else->w.buffers["unknown.md"]=DocumentBuffer(FileNode("unknown.md","unknown.md",false,emptyList(),null,null),FileText("unmodeled construction","new"))};JSONArray().put(action)});assertTrue(change,w.changes.choices.isEmpty());assertNull(w.changes.plan);assertEquals("old\n",b.text)
+  }
+ }
+ @Test fun acquiredEditUndoCannotBecomeANewProviderBaseline()=runBlocking {
+  val w=Workspace(this);val e=Engine("http://127.0.0.1:1");val f=FileNode("a.py","a.py",false,emptyList(),null,null);val b=DocumentBuffer(f,FileText("old\n","base"));b.language=NativeLanguage(e,b,this);w.buffers[f.path]=b;w.show(f.path)
+  val action=JSONObject().put("title","Fix all").put("kind","source.fixAll.provider").put("data",JSONObject().put("hickory_acquire",JSONArray().put(JSONObject().put("uri",languageURI("other.py")))))
+  w.changes.open("fixAll",w);w.changes.prepare(w,{_,_->JSONArray().put(action)},{it},{path->val target=DocumentBuffer(FileNode(path,path,false,emptyList(),null,null),FileText("old\n","base"));w.buffers[path]=target;target.state.edit{replace(0,length,"later")};target.advanceSourceRevision();target.state.edit{replace(0,length,"old\n")};target.advanceSourceRevision();SourceSnapshot(target.text,true)});w.changes.choose(0,w);assertNull(w.changes.plan);assertEquals("old\n",b.text);assertTrue(w.changes.notice,w.changes.notice.contains("acquired target")||w.changes.notice.contains("sealed"))
+ }
+
  @Test fun liveOwnedBulkFixCommandReviewApplyAndUndo()=runBlocking {
   val origin=System.getenv("HICKORY_BULK_ORIGIN");org.junit.Assume.assumeNotNull(origin);val root=java.io.File(System.getenv("HICKORY_BULK_WORKSPACE") ?: error("Owned workspace required"));check(java.io.File(root,".hickory-bulk-fixture").readText()=="owned-bulk-v1\n")
   val ownedScope=CoroutineScope(SupervisorJob()+Dispatchers.Default);val w=Workspace(ownedScope);val e=Engine(origin!!);w.engine=e;val (_,tree)=e.files();w.rootFiles=tree
@@ -40,7 +52,7 @@ class ActionChoiceTest {
   val load:suspend (String)->SourceSnapshot={path->loads.add(path);val target=DocumentBuffer(FileNode(path,path,false,emptyList(),null,null),FileText("old\n","base"));workspace.buffers[path]=target;SourceSnapshot(target.text,true)}
   changes.open("actions",workspace);changes.prepare(workspace,propose,resolve,load);changes.choose(0,workspace)
   assertEquals(2,queries);assertEquals(2,resolutions);assertEquals(listOf("other.py"),loads);assertEquals(2,changes.plan?.patches?.size);assertEquals("a.py",workspace.currentBuffer?.file?.path);assertEquals("old\n",buffer.text)
-  workspace.buffers.getValue("other.py").state.edit{replace(0,length,"later\n")};changes.apply(workspace);assertTrue(changes.notice.contains("Source changed"));assertEquals("old\n",buffer.text)
+  workspace.buffers.getValue("other.py").state.edit{replace(0,length,"later\n")};changes.apply(workspace);assertTrue(changes.notice.contains("Source, selection or provider changed"));assertEquals("old\n",buffer.text)
   workspace.buffers.remove("other.py");queries=0;ambiguous=true
   changes.open("actions",workspace);changes.prepare(workspace,propose,resolve,load);changes.choose(0,workspace);assertNull(changes.plan);assertTrue(changes.notice.contains("ambiguous"));assertEquals("old\n",buffer.text)
  }

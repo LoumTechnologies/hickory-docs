@@ -83,20 +83,31 @@ private enum WorkspaceHistoryStep {case drafts(ChangePlan);case resource(String)
             return self.revision == request && workspace.buffers[origin.file.path] === origin && origin.sourceEditIdentity==sourceIdentity && exactUTF8(origin.text,source) && origin.selection == selection && origin.language === language && language.proposalIdentity == identity
         })
         resolver=resolution ?? {[weak language] action in guard let language else{throw EngineError(message:"Provider changed. Prepare actions again.")};return try await language.resolveProposal(action)}
+        let lease=ResourceAcquisitionLease(workspace,current:captured!.current)
+        captured?.current={lease.current()}
         let valid=captured!.current
         let propose: (String,String) async throws->Any = proposal ?? {kind,name in try await language.propose(kind,name:name)}
                 var listed:NativeSourceMap<FileNode>=[:]
                 func collect(_ nodes:[FileNode]){for file in nodes{if !file.dir{listed[file.path]=file};collect(file.children ?? [])}};collect(workspace.rootFiles)
-        let load:(String) async throws->SourceSnapshot=acquisition ?? {[weak workspace] path in
+        let acquireTarget:(String) async throws->SourceSnapshot=acquisition ?? {[weak workspace] path in
                     guard let workspace else{throw EngineError(message:"Workspace closed. Prepare again.")}
                     guard valid() else{throw EngineError(message:"Source, selection or provider changed. Prepare again.")}
                     guard let file=workspace.buffers[path]?.file ?? listed[path],!file.dir else{throw EngineError(message:"Referenced source is no longer listed: \(path). Refresh files and prepare again.")}
+                    let wasRetained=workspace.buffers[path] != nil
                     let target=try await workspace.loadBuffer(file),text=target.text
+                    guard wasRetained || target.agentSourceRevision==0 && exactUTF8(target.text,target.base) else{throw EngineError(message:"The newly acquired source was edited before original ownership could be sealed.")}
+                    guard lease.current(allowing:path) else{throw EngineError(message:"Original source owners changed during acquisition. Prepare again.")};lease.retain(path,target)
                     guard !target.readOnly,!target.saving,let service=target.language else{throw EngineError(message:"Referenced source cannot synchronize: \(path). Retry language services.")}
                     _ = try await service.readOutline(source:text)
                     guard valid(),exactUTF8(target.text,text) else{throw EngineError(message:"Source changed while reading \(path). Prepare again.")}
                     return SourceSnapshot(text:text,writable:!target.readOnly && !target.saving)
                 }
+        let load:(String) async throws->SourceSnapshot={path in
+            guard valid() else{throw EngineError(message:"Original source owners changed before acquisition. Prepare again.")}
+            let wasRetained=workspace.buffers[path] != nil,source=try await acquireTarget(path)
+            guard lease.current(allowing:path),let target=workspace.buffers[path],wasRetained || target.agentSourceRevision==0 && exactUTF8(target.text,target.base),exactUTF8(target.text,source.text),!target.readOnly,!target.saving else{throw EngineError(message:"Original source owners or the acquired target changed. Prepare again.")}
+            lease.retain(path,target);return source
+        }
         let actionKind=mode=="fixAll" ? "fixAll":"actions"
         self.acquisition=load;actionQuery={let actions=try await propose(actionKind,"") as? [[String:Any]] ?? [];return actionKind=="fixAll" ? fileWideFixActions(actions):actions}
         plan = nil; choices = []; referencePaths = []; notice = "Preparing complete source changes…"
@@ -126,6 +137,7 @@ private enum WorkspaceHistoryStep {case drafts(ChangePlan);case resource(String)
             guard let self,let workspace,let origin else{return false}
             return self.revision==request && workspace.buffers[path] === origin && exactUTF8(origin.text,source) && origin.selection==selection
         })
+        let lease=ResourceAcquisitionLease(workspace,current:captured!.current);captured?.current={lease.current()}
         let valid=captured!.current
         plan=nil;choices=[];referencePaths=[];notice="Preparing trailing-whitespace cleanup…"
         do {
@@ -148,9 +160,9 @@ private enum WorkspaceHistoryStep {case drafts(ChangePlan);case resource(String)
             guard let before=expected.first(where:{exactUTF8($0.key,patch.path)})?.value,exactUTF8(before,patch.before),let buffer=workspace.buffers.values.first(where:{exactUTF8($0.file.path,patch.path)}),exactUTF8(buffer.text,before) else{throw EngineError(message:"Reviewed source changed or a target was not captured. Prepare the whole proposal again.")}
             return (buffer,before,buffer.selection)
         }
-        revision=UUID();let request=revision
+        revision=UUID();let request=revision,lease=ResourceAcquisitionLease(workspace,current:{true})
         captured=(sources,{[weak self,weak workspace] in
-            guard let self,let workspace,self.revision==request else{return false}
+            guard let self,let workspace,self.revision==request,lease.current() else{return false}
             return targets.allSatisfy{buffer,text,selection in workspace.buffers.values.contains(where:{$0 === buffer})&&exactUTF8(buffer.text,text)&&buffer.selection==selection}
         })
         mode="proposal";plan=next;choices=[];referencePaths=[];notice="";file=0;page=0;actionPage=0
@@ -310,6 +322,13 @@ Hold two provider replies against the same unchanged source and selection. Compl
 import XCTest
 @testable import HickorySimple
 @MainActor final class ChangeRequestTests:XCTestCase {
+    func testCleanupAndReviewedDraftRefuseEqualByteRevisionRenewal()async throws {
+        let w=Workspace(),f=FileNode(name:"a.py",path:"a.py",dir:false),b=DocumentBuffer(file:FileNode(name:"a.py",path:"a.py",dir:false),text:FileText(path:"a.py",content:"old\n",hash:"base"));w.buffers[f.path]=b;w.show(f.path)
+        let edit:[String:Any]=["changes":[languageURI(f.path):[["range":["start":["line":0,"character":0],"end":["line":0,"character":3]],"newText":"new"]]]]
+        try w.changes.offer("Reviewed",edit:edit,expected:[f.path:b.text],workspace:w);b.text="later";b.text="old\n";w.changes.apply(w);XCTAssertEqual(b.text,"old\n");XCTAssertTrue(w.changes.notice.contains("Source, selection or provider changed"))
+        w.changes.open("cleanup",workspace:w);await w.changes.prepare(w,proposal:{_,_ in b.text="later";b.text="old\n";return edit});XCTAssertNil(w.changes.plan);XCTAssertEqual(b.text,"old\n");XCTAssertTrue(w.changes.notice.contains("Source or selection changed"))
+    }
+
     func testOlderRenameReplyCannotBorrowNewerRequestAuthority()async throws {
         let workspace=Workspace(),engine=try Engine(address:"http://127.0.0.1:1"),file=FileNode(name:"a.py",path:"a.py",dir:false)
         let buffer=DocumentBuffer(file:file,text:FileText(path:file.path,content:"value\n",hash:"base"));buffer.language=NativeLanguage(engine:engine,buffer:buffer);workspace.buffers[file.path]=buffer;workspace.show(file.path)
@@ -414,6 +433,22 @@ import AppKit
 #endif
 @testable import HickorySimple
 @MainActor final class ActionChoiceTests:XCTestCase {
+    func testOriginalTargetOwnersNeverRenewDuringQueriesOrApproval()async throws {
+        for change in ["undo","guard","baseline","handle","unknown"] {
+            let w=Workspace(),e=try Engine(address:"http://127.0.0.1:1"),f=FileNode(name:"a.py",path:"a.py",dir:false),other=FileNode(name:"other.py",path:"other.py",dir:false)
+            let b=DocumentBuffer(file:f,text:FileText(path:f.path,content:"old\n",hash:"base")),target=DocumentBuffer(file:other,text:FileText(path:other.path,content:"old\n",hash:"base"));b.language=NativeLanguage(engine:e,buffer:b);w.buffers[f.path]=b;w.buffers[other.path]=target;w.show(f.path)
+            let action:[String:Any]=["title":"Fix all","kind":"source.fixAll.provider"]
+            w.changes.open("fixAll",workspace:w);await w.changes.prepare(w,proposal:{_,_ in
+                switch change{case "undo":target.text="later";target.text="old\n";case "guard":target.savedGuard="foreign";case "baseline":target.base="foreign";case "handle":w.buffers[other.path]=DocumentBuffer(file:other,text:FileText(path:other.path,content:target.text,hash:target.hash));default:w.buffers["unknown.md"]=DocumentBuffer(file:FileNode(name:"unknown.md",path:"unknown.md",dir:false),text:FileText(path:"unknown.md",content:"unmodeled construction",hash:"new"))};return [action]
+            });XCTAssertTrue(w.changes.choices.isEmpty,change);XCTAssertNil(w.changes.plan,change);XCTAssertEqual(b.text,"old\n")
+        }
+    }
+    func testAcquiredEditUndoCannotBecomeANewProviderBaseline()async throws {
+        let w=Workspace(),e=try Engine(address:"http://127.0.0.1:1"),f=FileNode(name:"a.py",path:"a.py",dir:false),b=DocumentBuffer(file:FileNode(name:"a.py",path:"a.py",dir:false),text:FileText(path:"a.py",content:"old\n",hash:"base"));b.language=NativeLanguage(engine:e,buffer:b);w.buffers[f.path]=b;w.show(f.path)
+        let action:[String:Any]=["title":"Fix all","kind":"source.fixAll.provider","data":["hickory_acquire":[["uri":languageURI("other.py")]]]]
+        w.changes.open("fixAll",workspace:w);await w.changes.prepare(w,proposal:{_,_ in [action]},resolution:{$0},acquisition:{path in let target=DocumentBuffer(file:FileNode(name:path,path:path,dir:false),text:FileText(path:path,content:"old\n",hash:"base"));w.buffers[path]=target;target.text="later";target.text="old\n";return SourceSnapshot(text:target.text,writable:true)});await w.changes.choose(0,workspace:w);XCTAssertNil(w.changes.plan);XCTAssertEqual(b.text,"old\n");XCTAssertTrue(w.changes.notice.contains("acquired target") || w.changes.notice.contains("sealed"),w.changes.notice)
+    }
+
     #if os(macOS)
     func testLiveOwnedBulkFixCommandReviewApplyAndUndo()async throws {
         guard let origin=ProcessInfo.processInfo.environment["HICKORY_BULK_ORIGIN"],let root=ProcessInfo.processInfo.environment["HICKORY_BULK_WORKSPACE"] else{throw XCTSkip("Use the maintained owned bulk-fix fixture.")}
@@ -465,7 +500,7 @@ import AppKit
         }
         changes.open("actions",workspace:workspace);await changes.prepare(workspace,proposal:propose,resolution:resolve,acquisition:load);await changes.choose(0,workspace:workspace)
         XCTAssertEqual(queries,2);XCTAssertEqual(resolutions,2);XCTAssertEqual(loads,["other.py"]);XCTAssertEqual(changes.plan?.patches.count,2);XCTAssertEqual(workspace.currentBuffer?.file.path,"a.py");XCTAssertEqual(buffer.text,"old\n")
-        workspace.buffers["other.py"]?.text="later\n";changes.apply(workspace);XCTAssertTrue(changes.notice.contains("Source changed"));XCTAssertEqual(buffer.text,"old\n")
+        workspace.buffers["other.py"]?.text="later\n";changes.apply(workspace);XCTAssertTrue(changes.notice.contains("Source, selection or provider changed"));XCTAssertEqual(buffer.text,"old\n")
         workspace.buffers.removeValue(forKey:"other.py");queries=0;ambiguous=true
         changes.open("actions",workspace:workspace);await changes.prepare(workspace,proposal:propose,resolution:resolve,acquisition:load);await changes.choose(0,workspace:workspace)
         XCTAssertNil(changes.plan);XCTAssertTrue(changes.notice.contains("ambiguous"));XCTAssertEqual(buffer.text,"old\n")

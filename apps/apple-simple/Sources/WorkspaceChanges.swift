@@ -63,20 +63,31 @@ private enum WorkspaceHistoryStep {case drafts(ChangePlan);case resource(String)
             return self.revision == request && workspace.buffers[origin.file.path] === origin && origin.sourceEditIdentity==sourceIdentity && exactUTF8(origin.text,source) && origin.selection == selection && origin.language === language && language.proposalIdentity == identity
         })
         resolver=resolution ?? {[weak language] action in guard let language else{throw EngineError(message:"Provider changed. Prepare actions again.")};return try await language.resolveProposal(action)}
+        let lease=ResourceAcquisitionLease(workspace,current:captured!.current)
+        captured?.current={lease.current()}
         let valid=captured!.current
         let propose: (String,String) async throws->Any = proposal ?? {kind,name in try await language.propose(kind,name:name)}
                 var listed:NativeSourceMap<FileNode>=[:]
                 func collect(_ nodes:[FileNode]){for file in nodes{if !file.dir{listed[file.path]=file};collect(file.children ?? [])}};collect(workspace.rootFiles)
-        let load:(String) async throws->SourceSnapshot=acquisition ?? {[weak workspace] path in
+        let acquireTarget:(String) async throws->SourceSnapshot=acquisition ?? {[weak workspace] path in
                     guard let workspace else{throw EngineError(message:"Workspace closed. Prepare again.")}
                     guard valid() else{throw EngineError(message:"Source, selection or provider changed. Prepare again.")}
                     guard let file=workspace.buffers[path]?.file ?? listed[path],!file.dir else{throw EngineError(message:"Referenced source is no longer listed: \(path). Refresh files and prepare again.")}
+                    let wasRetained=workspace.buffers[path] != nil
                     let target=try await workspace.loadBuffer(file),text=target.text
+                    guard wasRetained || target.agentSourceRevision==0 && exactUTF8(target.text,target.base) else{throw EngineError(message:"The newly acquired source was edited before original ownership could be sealed.")}
+                    guard lease.current(allowing:path) else{throw EngineError(message:"Original source owners changed during acquisition. Prepare again.")};lease.retain(path,target)
                     guard !target.readOnly,!target.saving,let service=target.language else{throw EngineError(message:"Referenced source cannot synchronize: \(path). Retry language services.")}
                     _ = try await service.readOutline(source:text)
                     guard valid(),exactUTF8(target.text,text) else{throw EngineError(message:"Source changed while reading \(path). Prepare again.")}
                     return SourceSnapshot(text:text,writable:!target.readOnly && !target.saving)
                 }
+        let load:(String) async throws->SourceSnapshot={path in
+            guard valid() else{throw EngineError(message:"Original source owners changed before acquisition. Prepare again.")}
+            let wasRetained=workspace.buffers[path] != nil,source=try await acquireTarget(path)
+            guard lease.current(allowing:path),let target=workspace.buffers[path],wasRetained || target.agentSourceRevision==0 && exactUTF8(target.text,target.base),exactUTF8(target.text,source.text),!target.readOnly,!target.saving else{throw EngineError(message:"Original source owners or the acquired target changed. Prepare again.")}
+            lease.retain(path,target);return source
+        }
         let actionKind=mode=="fixAll" ? "fixAll":"actions"
         self.acquisition=load;actionQuery={let actions=try await propose(actionKind,"") as? [[String:Any]] ?? [];return actionKind=="fixAll" ? fileWideFixActions(actions):actions}
         plan = nil; choices = []; referencePaths = []; notice = "Preparing complete source changes…"
@@ -106,6 +117,7 @@ private enum WorkspaceHistoryStep {case drafts(ChangePlan);case resource(String)
             guard let self,let workspace,let origin else{return false}
             return self.revision==request && workspace.buffers[path] === origin && exactUTF8(origin.text,source) && origin.selection==selection
         })
+        let lease=ResourceAcquisitionLease(workspace,current:captured!.current);captured?.current={lease.current()}
         let valid=captured!.current
         plan=nil;choices=[];referencePaths=[];notice="Preparing trailing-whitespace cleanup…"
         do {
@@ -128,9 +140,9 @@ private enum WorkspaceHistoryStep {case drafts(ChangePlan);case resource(String)
             guard let before=expected.first(where:{exactUTF8($0.key,patch.path)})?.value,exactUTF8(before,patch.before),let buffer=workspace.buffers.values.first(where:{exactUTF8($0.file.path,patch.path)}),exactUTF8(buffer.text,before) else{throw EngineError(message:"Reviewed source changed or a target was not captured. Prepare the whole proposal again.")}
             return (buffer,before,buffer.selection)
         }
-        revision=UUID();let request=revision
+        revision=UUID();let request=revision,lease=ResourceAcquisitionLease(workspace,current:{true})
         captured=(sources,{[weak self,weak workspace] in
-            guard let self,let workspace,self.revision==request else{return false}
+            guard let self,let workspace,self.revision==request,lease.current() else{return false}
             return targets.allSatisfy{buffer,text,selection in workspace.buffers.values.contains(where:{$0 === buffer})&&exactUTF8(buffer.text,text)&&buffer.selection==selection}
         })
         mode="proposal";plan=next;choices=[];referencePaths=[];notice="";file=0;page=0;actionPage=0

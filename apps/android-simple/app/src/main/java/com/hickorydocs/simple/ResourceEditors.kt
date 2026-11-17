@@ -1,6 +1,10 @@
 package com.hickorydocs.simple
 import java.util.Collections
 import java.util.IdentityHashMap
+class SourceAcquisitionLease(private val probe:(String?)->Boolean,private val adopt:(String,DocumentBuffer)->Unit) {
+ fun current(allowing:String?=null)=probe(allowing)
+ fun retain(path:String,buffer:DocumentBuffer)=adopt(path,buffer)
+}
 data class ResourceSource(val identity:String,val text:String)
 data class ResourceEditorPatch(val path:String,val before:ResourceSource?,val after:ResourceSource?)
 data class ResourceEditorCapture<T:Any>(val editor:T,val source:String)

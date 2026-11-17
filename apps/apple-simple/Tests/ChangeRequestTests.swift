@@ -1,6 +1,13 @@
 import XCTest
 @testable import HickorySimple
 @MainActor final class ChangeRequestTests:XCTestCase {
+    func testCleanupAndReviewedDraftRefuseEqualByteRevisionRenewal()async throws {
+        let w=Workspace(),f=FileNode(name:"a.py",path:"a.py",dir:false),b=DocumentBuffer(file:FileNode(name:"a.py",path:"a.py",dir:false),text:FileText(path:"a.py",content:"old\n",hash:"base"));w.buffers[f.path]=b;w.show(f.path)
+        let edit:[String:Any]=["changes":[languageURI(f.path):[["range":["start":["line":0,"character":0],"end":["line":0,"character":3]],"newText":"new"]]]]
+        try w.changes.offer("Reviewed",edit:edit,expected:[f.path:b.text],workspace:w);b.text="later";b.text="old\n";w.changes.apply(w);XCTAssertEqual(b.text,"old\n");XCTAssertTrue(w.changes.notice.contains("Source, selection or provider changed"))
+        w.changes.open("cleanup",workspace:w);await w.changes.prepare(w,proposal:{_,_ in b.text="later";b.text="old\n";return edit});XCTAssertNil(w.changes.plan);XCTAssertEqual(b.text,"old\n");XCTAssertTrue(w.changes.notice.contains("Source or selection changed"))
+    }
+
     func testOlderRenameReplyCannotBorrowNewerRequestAuthority()async throws {
         let workspace=Workspace(),engine=try Engine(address:"http://127.0.0.1:1"),file=FileNode(name:"a.py",path:"a.py",dir:false)
         let buffer=DocumentBuffer(file:file,text:FileText(path:file.path,content:"value\n",hash:"base"));buffer.language=NativeLanguage(engine:engine,buffer:buffer);workspace.buffers[file.path]=buffer;workspace.show(file.path)

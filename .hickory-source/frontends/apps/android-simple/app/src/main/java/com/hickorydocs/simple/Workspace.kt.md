@@ -342,6 +342,8 @@ The existing native view cache and text state remain attached to buffer identity
 Close old path-bound language sessions, then rewire surviving buffers through the
 normal capability setup. Deleted dirty buffers still guard workspace switching.
 
+Provider acquisition and resource publication share the same retained owner lease. Only the explicitly requested new path may appear during acquisition; seal its pristine handle before language synchronization and keep every original revision, baseline and guard fixed. The publication wrapper retains its stronger selection guard, while draft preparation already binds the originating selection and permits unrelated target selections without authorizing text changes.
+
 <ui:copy id="simple-resource-adoption-android">
     val retainedResourceEditors=mutableMapOf<String,DocumentBuffer>()
     // Deleted tabs use opaque addresses: reusing a filesystem path must not
@@ -377,12 +379,17 @@ normal capability setup. Deleted dirty buffers still guard workspace switching.
         for(entry in published)tree=insert(tree,entry.file,entry.file.path.split('/'),0)
         return tree
     }
-    internal fun captureRetainedSourceNamespace():()->Boolean {
-        val epoch=generation;val server=engine;val addresses=buffers.toMap();val retained=retainedResourceEditors.toMap();val tabs=retainedResourceTabs.toMap()
-        data class Captured(val buffer:DocumentBuffer,val revision:Long,val source:String,val base:String,val hash:String,val guard:String?,val file:FileNode,val deleted:Boolean,val untitled:Boolean,val selection:TextRange)
-        val snapshots=(addresses.values+retained.values+tabs.values).distinct().map{b->Captured(b,b.sourceRevision,b.text,b.base,b.hash,b.saveGuard,b.file,b.resourceDeleted,b.isUntitledDraft,b.state.selection)}
+    internal fun sourceAcquisitionLease(protectSelection:Boolean=false,external:()->Boolean={true}):SourceAcquisitionLease {
+        val epoch=generation;val server=engine;val addresses=buffers.toMutableMap();val retained=retainedResourceEditors.toMap();val tabs=retainedResourceTabs.toMap()
+        data class Captured(val buffer:DocumentBuffer,val revision:Long,val source:String,val base:String,val hash:String,val guard:String?,val file:FileNode,val deleted:Boolean,val untitled:Boolean,val selection:TextRange,val readOnly:Boolean)
+        fun capture(b:DocumentBuffer)=Captured(b,b.sourceRevision,b.text,b.base,b.hash,b.saveGuard,b.file,b.resourceDeleted,b.isUntitledDraft,b.state.selection,b.readOnly)
+        val snapshots=(addresses.values+retained.values+tabs.values).distinct().map(::capture).toMutableList()
         fun same(current:Map<String,DocumentBuffer>,before:Map<String,DocumentBuffer>)=current.size==before.size&&before.all{(path,b)->current[path]===b}
-        return {generation==epoch&&engine===server&&same(buffers,addresses)&&same(retainedResourceEditors,retained)&&same(retainedResourceTabs,tabs)&&snapshots.all{s->val b=s.buffer;b.sourceRevision==s.revision&&b.text==s.source&&b.base==s.base&&b.hash==s.hash&&b.saveGuard==s.guard&&b.file===s.file&&b.resourceDeleted==s.deleted&&b.isUntitledDraft==s.untitled&&b.state.selection==s.selection&&!b.saving&&b.state.composition==null}}
+        fun current(allowing:String?)=external()&&generation==epoch&&engine===server&&addresses.all{(path,b)->buffers[path]===b}&&buffers.all{(path,b)->addresses[path]===b||path==allowing}&&same(retainedResourceEditors,retained)&&same(retainedResourceTabs,tabs)&&snapshots.all{s->val b=s.buffer;b.sourceRevision==s.revision&&b.text==s.source&&b.base==s.base&&b.hash==s.hash&&b.saveGuard==s.guard&&b.file===s.file&&b.resourceDeleted==s.deleted&&b.isUntitledDraft==s.untitled&&b.readOnly==s.readOnly&&(!protectSelection||b.state.selection==s.selection)&&!b.saving&&b.state.composition==null}
+        return SourceAcquisitionLease(::current){path,b->check(current(path)&&buffers[path]===b){"Original source owners changed during acquisition."};if(addresses[path]!==b){addresses[path]=b;snapshots.add(capture(b))}}
+    }
+    internal fun captureRetainedSourceNamespace():()->Boolean {
+        val lease=sourceAcquisitionLease(protectSelection=true);return {lease.current()}
     }
     fun captureResourceEditors(patches:List<ResourceEditorPatch>,restoring:Map<String,DocumentBuffer> = emptyMap()):()->Boolean {
         val paths=patches.associate{it.path to buffers[it.path]}

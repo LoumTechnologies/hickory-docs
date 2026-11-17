@@ -5,7 +5,7 @@ struct ResourceAcquisition {var capture:ResourceWireCapture;var inputs:ResourceW
  init(_ b:DocumentBuffer){buffer=b;identity=b.sourceEditIdentity;source=b.sourceRevision;base=ExactSourceText(b.base);guardToken=b.savedGuard.map{Data($0.utf8)};path=Data(b.file.path.utf8);doc=b.file.doc_id.map{Data($0.utf8)};generated=b.file.generated_by.map{Data($0.utf8)};readOnly=b.readOnly;deleted=b.resourceDeleted;unnamed=b.isUntitledDraft}
  func current()->Bool{let b=buffer;return b.sourceEditIdentity==identity&&b.sourceRevision==source&&ExactSourceText(b.base)==base&&b.savedGuard.map{Data($0.utf8)}==guardToken&&Data(b.file.path.utf8)==path&&b.file.doc_id.map{Data($0.utf8)}==doc&&b.file.generated_by.map{Data($0.utf8)}==generated&&b.readOnly==readOnly&&b.resourceDeleted==deleted&&b.isUntitledDraft==unnamed && !b.saving}
 }
-@MainActor private final class ResourceAcquisitionLease {
+@MainActor final class ResourceAcquisitionLease {
  private weak var workspace:Workspace?;private let engine:Engine?;private let epoch:UUID;private let runtime:String?;private let root:String?;private var addresses:NativeSourceMap<DocumentBuffer>;private let retained:[String:DocumentBuffer];private var owners:[ResourceAcquisitionOwner];private let external:()->Bool
  init(_ w:Workspace,current:@escaping()->Bool){workspace=w;engine=w.engine;epoch=w.sourceNavigationEpoch;runtime=w.sourceWorkspaceID;root=w.sourceRootAddress;addresses=w.buffers;retained=w.retainedResourceEditors;owners=(Array(w.buffers.values)+Array(w.retainedResourceEditors.values)).map(ResourceAcquisitionOwner.init);external=current}
  func current(allowing path:String?=nil)->Bool {

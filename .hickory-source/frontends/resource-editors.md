@@ -118,6 +118,8 @@ file metadata and workspace, including changes to retained deleted editors. A
 caller that explicitly opens an already reviewed target may name that one new
 handle when rechecking acquisition; every original owner and every other map
 entry must still match. This exception never admits unrelated new drafts.
+A successful explicit acquisition can extend the existing lease with exactly that pristine handle. Subsequent source revisions, guards and metadata belong to the same original observations; no second whole-roster capture can bless intervening edits. Provider draft preparation uses this extension, while resource-input captures retain their existing complete ownership payloads.
+
 Opaque buffer IDs are shared with agent snapshots, so an unnamed editor keeps
 its identity without acquiring a guessed filesystem address.
 
@@ -267,13 +269,15 @@ export function resourceBufferId(buffer:Buffer){return buffer.sourceId;}
 /** Explicit buffer kind, never a filename prefix, determines anonymous ownership.
  * Retained deleted editors and reused spellings remain distinct authored owners. */
 export function captureResourceRoster(buffers:Buffers){
+ const capture=(buffer:Buffer)=>({buffer,path:buffer.file.path,text:buffer.text,base:buffer.base,hash:buffer.hash,guard:buffer.saveGuard,version:buffer.version,revision:buffer.sourceRevision,file:buffer.file,metadata:JSON.stringify(buffer.file),readonly:buffer.readonly,transient:buffer.transient,deleted:buffer.resourceDeleted,untitled:buffer.isUntitledDraft,namespace:buffer.namespace});
  const namespace=buffers.workspace,workspace=buffers.workspaceId,values=[...buffers.values],retained=[...buffers.retainedResources];
- const captures=[...new Set([...values,...retained].map(([,buffer])=>buffer))].map(buffer=>({buffer,path:buffer.file.path,text:buffer.text,base:buffer.base,hash:buffer.hash,guard:buffer.saveGuard,version:buffer.version,revision:buffer.sourceRevision,file:buffer.file,metadata:JSON.stringify(buffer.file),readonly:buffer.readonly,transient:buffer.transient,deleted:buffer.resourceDeleted,untitled:buffer.isUntitledDraft,namespace:buffer.namespace}));
+ const captures=[...new Set([...values,...retained].map(([,buffer])=>buffer))].map(capture);
  const same=(map:Map<string,Buffer>,rows:[string,Buffer][],additions:ReadonlyMap<string,Buffer>=new Map())=>map.size===rows.length+additions.size&&rows.every(([key,buffer])=>map.get(key)===buffer)&&[...additions].every(([key,buffer])=>!rows.some(([original])=>original===key)&&map.get(key)===buffer);
  const current=(acquired:ReadonlyMap<string,Buffer>=new Map())=>buffers.workspace===namespace&&buffers.workspaceId===workspace&&same(buffers.values,values,acquired)&&same(buffers.retainedResources,retained)&&captures.every(row=>row.buffer.file===row.file&&row.buffer.file.path===row.path&&row.buffer.text===row.text&&row.buffer.base===row.base&&row.buffer.hash===row.hash&&row.buffer.saveGuard===row.guard&&row.buffer.sourceRevision===row.revision&&JSON.stringify(row.buffer.file)===row.metadata&&row.buffer.readonly===row.readonly&&row.buffer.transient===row.transient&&row.buffer.resourceDeleted===row.deleted&&row.buffer.isUntitledDraft===row.untitled&&row.buffer.namespace===row.namespace&&!row.buffer.saving);
  const ownership_sources:Record<string,string>=Object.create(null),unaddressed_sources:Record<string,string>=Object.create(null);
  for(const row of captures){if(row.readonly||row.transient)continue;if(row.namespace&&row.namespace!==namespace)throw Error('A retained authored source belongs to another workspace. Preserve it before preparing resource changes.');const relative=!!row.path&&!row.path.startsWith('/')&&!/^[A-Za-z]:[\\/]/.test(row.path)&&!row.path.split('/').some(part=>part==='..'||part==='.'||part==='');const named=!row.deleted&&relative&&!row.untitled&&buffers.values.get(row.path)===row.buffer;if(named){if(Object.hasOwn(ownership_sources,row.path))throw Error('Authored resource identities are ambiguous.');ownership_sources[row.path]=row.text;}else unaddressed_sources[resourceBufferId(row.buffer)]=row.text;}
- return {captures,ownership_sources,unaddressed_sources,current};
+ const retain=(path:string,buffer:Buffer)=>{const existing=values.find(([key])=>key===path);if(existing){if(existing[1]!==buffer||!current())throw Error("Original source owners changed during acquisition.");return;}if(!current(new Map([[path,buffer]])))throw Error("Original source owners changed during acquisition.");values.push([path,buffer]);captures.push(capture(buffer));};
+ return {captures,ownership_sources,unaddressed_sources,current,retain};
 }
 export async function captureResourceInputs(buffers:Buffers,targetPaths:string[],context:string,edit:unknown,load:ResourceTransport,alive:()=>boolean,hash:(text:string)=>Promise<string>){
  const paths=new Set(targetPaths),roster=captureResourceRoster(buffers),current=()=>alive()&&roster.current();
@@ -360,6 +364,10 @@ Compute the whole transition without mutating Compose state or TextFieldState. R
 package com.hickorydocs.simple
 import java.util.Collections
 import java.util.IdentityHashMap
+class SourceAcquisitionLease(private val probe:(String?)->Boolean,private val adopt:(String,DocumentBuffer)->Unit) {
+ fun current(allowing:String?=null)=probe(allowing)
+ fun retain(path:String,buffer:DocumentBuffer)=adopt(path,buffer)
+}
 data class ResourceSource(val identity:String,val text:String)
 data class ResourceEditorPatch(val path:String,val before:ResourceSource?,val after:ResourceSource?)
 data class ResourceEditorCapture<T:Any>(val editor:T,val source:String)
