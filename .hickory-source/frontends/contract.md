@@ -23,6 +23,29 @@ The complete outcome includes:
 
 These are required outcomes. Existing verification paragraphs establish only the explicitly tested slices; unsupported providers, missing relationships and unexecuted native acceptance must remain visible. JetBrains-specific language engines are supplied through existing language/provider interfaces; the UI must never claim an unavailable refactoring or an unmeasured test result.
 
+## Current integration ledger, 2026-11-17
+
+This ledger distinguishes exercised paths from mechanisms awaiting integration.
+Dated receipts below retain their original test scope; a later receipt supersedes
+an earlier open item only for the behavior it actually exercises.
+
+| Required outcome | Current usable evidence and remaining acceptance |
+| --- | --- |
+| Navigation and code intelligence | Existing source-bound navigation and provider receipts remain in force. Browser mixed-line-ending source/view coordination is being integrated; completion context and embedded-language breadth remain open. |
+| Refactoring, cleanup, generation, templates and history | Rename, formatting, genuine TypeScript extraction/accessor generation/cleanup and coordinated history have focused host receipts. Genuine move-to-new-file publication is being added. Bounded transform parsing/evaluation are foundations; full context, production transform activation and multi-caret templates remain open. |
+| Diagnostics and contextual fixes | Existing source-bound Problems/fix receipts remain scoped to their stated providers and paths. A command or backend implementation alone is not further acceptance. |
+| Testing and coverage | Retained sessions/results and supported collector receipts below remain scoped evidence. Exact JavaScript collection/rerun integration now has31 focused collector cases and11 fresh-engine Vitest flows; the retained-result race is corrected. Earlier native provider receipts retain their stated revisions. |
+| Review, staging, attribution, conflicts and recovery | Existing Git/native conflict receipts remain in force. Complete32-session recovery management and three exact revisions now have service/browser/macOS/Android-controller receipts. Explicit canonical construction-entry transitions remain open. |
+| Debugging | Existing debugpy and installed LLDB launch/attach, thread/frame and breakpoint receipts remain scoped evidence. Unsupported adapters remain explicit; physical/device acceptance is not inferred from transport tests. |
+| Connected behavior readings | Guarded contract/explanation/source/generated/test/evidence readings and dirty construction graphs have host receipts. Declared, observed, stale and unknown relationships remain distinct. |
+| Change impact and relevant verification | Existing compiler/relationship-based impact and selected verification receipts remain scoped evidence. Unknown relationships and missing execution evidence do not become verified through graph reachability. |
+| Agent proposal review and guarded application | Sealed complete review, original-context application and restart-retained historical reading have host receipts. Historical evidence never revives application authority. |
+
+Across all rows, physical input and assistive-technology acceptance remain
+unexecuted where stated. Android controller/state acceptance and iOS builds are
+reported separately from rendered/device runtime acceptance. No full parity
+claim is made while the integration work in this ledger remains open.
+
 ## Checkpoint requested during implementation
 
 The requested checkpoint was committed as `4a612978`. Its focused receipts include
@@ -1849,5 +1872,34 @@ writes. The maintained resource service flow also passes explicit loaded-source
 guards, stale inverse refusal after an equal-byte external write, a freshly guarded
 positive inverse/redo pair and a genuine engine restart. These checks establish the
 resource-publication path; they do not assert an audit of every independent writer.
+
+## Preserve exact native test selection and visible terminal results
+
+JavaScript discovery and execution share one producer-native driver. Exact source
+file/name pairs prevent crossed failures from widening into unrelated bodies.
+Native hierarchy names, literal separators, whitespace, metacharacters and empty
+names remain distinct. Source-adjacent Run shares the exact file selector and saved
+source preflight, while an empty name cannot silently mean a containing-file run.
+
+Failed-only reruns reacquire no-body native discovery under the original physical
+root. A real code fix can start a new run without changing the historical result;
+missing or ambiguous identities refuse before bodies. C# filtered discovery must
+match the exact requested set despite native case-insensitive matching. Coverlet
+report correlation follows the producer's TRX deployment relationship, never an
+equal-byte guess. Partial results remain attributable to their original root.
+
+GET and subsequent rerun now select the same retained-first result. A live Vitest
+whitespace case exposed terminal results becoming visible before the durable
+running record was replaced; the shared reader closes that race.
+
+Executed evidence (2026-11-17):31 focused collector cases pass, with seven explicitly
+opt-in live cases ignored in that model run. Eleven separate fresh-engine Vitest
+flows then pass, including fixed-code three-session histories, literal hierarchy,
+empty/whitespace cases, missing/ambiguous identities, source preflight and root
+retirement. Earlier executed receipts include ten Jest flows, two installed Rust
+flows, the unchanged Python fix/rerun flow and two C# fixture flows; those preceded
+the final shared retained-reader-only correction. Six coverage UI cases and web
+type checking pass. These receipts do not certify arbitrary projects, other
+runner versions, native physical input or device acceptance.
 
 </ui:doc>

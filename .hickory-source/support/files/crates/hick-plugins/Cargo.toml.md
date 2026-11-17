@@ -3,6 +3,8 @@
 
 For: maintainers changing this file and reviewers tracing the related behavioral requirements.
 
+The typed JavaScript Run planner hashes the exact selected saved bytes with the existing SHA-256 dependency family before dispatching its native selector. This adds a package dependency edge, not a second hashing convention.
+
 Edit this entry to change the generated file. It has one constructor. References below are navigation candidates; they do not establish semantic test coverage.
 
 
@@ -25,6 +27,7 @@ tree-sitter-typescript = "0.23"
 anyhow = "1"
 tokio = { version = "1", features = ["process", "io-util", "rt", "macros", "time", "sync"] }
 serde_json = "1"
+sha2 = "0.10"
 serde = { version = "1", features = ["derive"] }
 graphql-parser = "0.4"
 hick-project-env = { path = "../hick-project-env" }

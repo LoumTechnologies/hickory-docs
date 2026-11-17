@@ -30,7 +30,7 @@ export interface CoverageRun {
   id: string; mode: string; status: string; started_ms: number; project: string; language: string;
   labels: string[]; group: string | null; source_state: "current" | "historical" | "unknown";
   identity: CoverageIdentity; argv: string[]; output: string; error: string | null; exit_code: number | null;
-  tests: { id: string; status: string; output: string; path: string | null; line: number | null; labels: string[] }[];
+  tests: { id: string; runner_name?: string | null; status: string; output: string; path: string | null; line: number | null; labels: string[] }[];
   evidence: { identity: CoverageIdentity; report: { format: string; files: Record<string, CoverageFile>; raw: string }; attribution: string; labels: string[]; tests: string[] } | null;
   metadata: { groups: Record<string, { selectors: string[]; labels: string[] }>; manual: Record<string, unknown>; tests: Record<string, string[]> };
   source_changed_during_run: boolean; manual_verdict: string | null; notes: string; checkpoints: string[];

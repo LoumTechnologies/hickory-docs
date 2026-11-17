@@ -337,8 +337,11 @@ fn summary(root: &Path, mut record: Record, include_raw: bool) -> Result<Value> 
 ### `view`
 
 <storycode:copy id="f-bbbe6f7b752d-view">
+/// Reading and follow-up selection share the same retained terminal authority.
+/// A completed result can be visible before its guarded durable save finishes.
+pub(super) fn selected(root:&Path,id:&str)->Result<Record>{let _=path(root,id)?;super::runner::retained(root,id).map(Ok).unwrap_or_else(||load(root,id))}
 pub(super) fn view(root: &Path, id: &str) -> Result<Value> {
-    summary(root, super::runner::retained(root,id).map(Ok).unwrap_or_else(||load(root,id))?, true)
+    summary(root, selected(root,id)?, true)
 }
 </storycode:copy>
 <a id="f-bbbe6f7b752d-list"></a>

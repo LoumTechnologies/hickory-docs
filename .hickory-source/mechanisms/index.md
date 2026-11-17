@@ -381,4 +381,7 @@ is included with that control; opening a document is not generation authority.
 
 <storycode:include file="resource-volume-guards.md" />
 
+<storycode:include file="test-collector-provider-replays.md" />
+<storycode:include file="exact-failed-js-collector.md" />
+
 </storycode:doc>

@@ -11,6 +11,8 @@ This page owns the output construction and the explained fragments below. Source
 <a id="f-024ef726fd84-Plan"></a>
 ### `Plan`
 
+Failing test bodies still produce native reports: Vitest explicitly reports on failure, and cargo-llvm-cov finishes its report despite failed bodies. Its successful export exit code does not turn failed structured test results into a successful test run.
+
 Automated report paths live in a fresh private temporary directory outside the source tree. A renamed source root therefore cannot redirect report exports. The original source directory still supplies process working text; this does not claim frozen inputs or sandbox project-owned commands.
 
 <storycode:copy id="f-024ef726fd84-Plan">
@@ -18,16 +20,24 @@ use super::*;
 /// Private output is independent of the workspace path. Cleanup refuses a
 /// replacement directory, so finishing a run never deletes foreign artifacts.
 #[derive(Debug)]
-pub(super) struct PrivateArtifacts { directory:Option<tempfile::TempDir>, identity:same_file::Handle }
+pub(super) struct PrivateArtifacts { directory:Option<tempfile::TempDir>, identity:same_file::Handle, children:Vec<(PathBuf,same_file::Handle)> }
 impl PrivateArtifacts {
- pub(super) fn new()->Result<Self>{let directory=tempfile::Builder::new().prefix("hickory-collector-").tempdir()?;let identity=same_file::Handle::from_path(directory.path())?;Ok(Self{directory:Some(directory),identity})}
+ pub(super) fn new()->Result<Self>{let directory=tempfile::Builder::new().prefix("hickory-collector-").tempdir()?;let identity=same_file::Handle::from_path(directory.path())?;Ok(Self{directory:Some(directory),identity,children:vec![]})}
  pub fn path(&self)->&Path{self.directory.as_ref().unwrap().path()}
- pub fn check(&self)->Result<()>{ensure!(same_file::Handle::from_path(self.path())?==self.identity,"Private collector artifact directory changed; report authority is unavailable");Ok(())}
+ pub fn child(&mut self,name:&str)->Result<PathBuf>{ensure!(Path::new(name).components().count()==1&&matches!(Path::new(name).components().next(),Some(std::path::Component::Normal(_))),"Invalid private collector directory");let path=self.path().join(name);std::fs::create_dir(&path)?;self.children.push((path.clone(),same_file::Handle::from_path(&path)?));Ok(path)}
+ pub fn check(&self)->Result<()>{for(path,expected)in std::iter::once((self.path(),&self.identity)).chain(self.children.iter().map(|(path,identity)|(path.as_path(),identity))){let metadata=std::fs::symlink_metadata(path)?;ensure!(metadata.is_dir()&&!metadata.file_type().is_symlink()&&same_file::Handle::from_path(path)?==*expected,"Private collector artifact directory changed; report authority is unavailable");}Ok(())}
+ pub fn read(&self,path:&Path,limit:u64)->Result<String>{
+  use std::io::Read;self.check()?;let canonical=self.path().canonicalize()?;let relative=path.strip_prefix(self.path()).or_else(|_|path.strip_prefix(&canonical))?;let parts=relative.components().map(|part|match part{std::path::Component::Normal(value)=>Ok(value),_=>bail!("Unsafe private collector report path")}).collect::<Result<Vec<_>>>()?;ensure!(!parts.is_empty(),"Collector report file required");
+  #[cfg(unix)] let file={use std::{ffi::CString,os::{fd::{AsRawFd,FromRawFd},unix::ffi::OsStrExt}};let mut parent=self.identity.as_file().try_clone()?;let mut walked=PathBuf::new();for(index,part)in parts.iter().enumerate(){let name=CString::new(part.as_bytes())?;let leaf=index+1==parts.len();let flags=libc::O_RDONLY|libc::O_NOFOLLOW|libc::O_CLOEXEC|if leaf{0}else{libc::O_DIRECTORY};let descriptor=unsafe{libc::openat(parent.as_raw_fd(),name.as_ptr(),flags)};ensure!(descriptor>=0,"Cannot read original private collector artifact: {}",std::io::Error::last_os_error());let opened=unsafe{std::fs::File::from_raw_fd(descriptor)};walked.push(part);if !leaf{if let Some((_,expected))=self.children.iter().find(|(path,_)|path==&self.path().join(&walked)){ensure!(same_file::Handle::from_file(opened.try_clone()?)?==*expected,"Private collector report parent was substituted");}}parent=opened;}parent};
+  #[cfg(not(unix))] let file={bail!("Held-directory collector report import is unavailable on this host");std::fs::File::open(path)?};
+  ensure!(file.metadata()?.is_file()&&file.metadata()?.len()<=limit,"Collector artifact exceeds its bounded regular-file limit");let mut bytes=Vec::new();file.take(limit+1).read_to_end(&mut bytes)?;ensure!(bytes.len()as u64<=limit,"Collector artifact grew beyond its read limit");self.check()?;Ok(String::from_utf8(bytes)?)
+ }
 }
-impl Drop for PrivateArtifacts {fn drop(&mut self){if same_file::Handle::from_path(self.path()).ok().as_ref()!=Some(&self.identity){if let Some(directory)=self.directory.take(){let _=directory.keep();}}}}
+impl Drop for PrivateArtifacts {fn drop(&mut self){if self.check().is_err(){if let Some(directory)=self.directory.take(){let _=directory.keep();}}}}
 #[derive(Debug)]
 pub(super) struct Plan {
     pub argv: Vec<String>,
+    pub exact_results: bool,
     pub artifacts: Option<PrivateArtifacts>,
     pub format: String,
     pub report: PathBuf,
@@ -43,19 +53,23 @@ pub(super) struct Plan {
 fn strings(parts: &[&str]) -> Vec<String> {
     parts.iter().map(|s| s.to_string()).collect()
 }
+pub(super) fn csharp_filter(selectors:&[String])->String{selectors.iter().map(|name|format!("FullyQualifiedName={name}")).collect::<Vec<_>>().join("|")}
+pub(super) fn native_vitest_discovery(project:&Path)->Result<Vec<String>>{
+ let project=project.canonicalize()?;
+ #[cfg(unix)]let(dev,ino)={use std::os::unix::fs::MetadataExt;let metadata=std::fs::metadata(&project)?;(metadata.dev().to_string(),metadata.ino().to_string())};
+ #[cfg(not(unix))]let(dev,ino):(String,String)={bail!("Native discovery physical project binding is unavailable on this host")};
+ let spec=json!({"mode":"discover","provider":"vitest","project":project,"project_dev":dev,"project_ino":ino});Ok(vec!["node".into(),"--input-type=module".into(),"--eval".into(),hick_plugins::testing::JAVASCRIPT_TEST_DRIVER.into(),spec.to_string()])
+}
 </storycode:copy>
 <a id="f-024ef726fd84-js_runner"></a>
 ### `js_runner`
 
 <storycode:copy id="f-024ef726fd84-js_runner">
-fn js_runner(project: &Path) -> Result<&'static str> {
+pub(super) fn js_runner(project: &Path) -> Result<&'static str> {
     let v: Value = serde_json::from_slice(&std::fs::read(project.join("package.json"))?)?;
-    for name in ["vitest", "jest"] {
-        if v["dependencies"].get(name).is_some() || v["devDependencies"].get(name).is_some() {
-            return Ok(name);
-        }
-    }
-    bail!("Install and configure Vitest or Jest in this project")
+    let providers=["vitest","jest"].into_iter().filter(|name|v["dependencies"].get(*name).is_some()||v["devDependencies"].get(*name).is_some()).collect::<Vec<_>>();
+    ensure!(providers.len()==1,"Declare one unambiguous Vitest or Jest package runner; no collector was started");
+    Ok(providers[0])
 }
 </storycode:copy>
 <a id="f-024ef726fd84-python"></a>
@@ -94,7 +108,7 @@ pub(super) fn discovery(project: &Path, language: &str) -> Result<Vec<String>> {
         "typescript" | "javascript" | "tsx" | "jsx" | "typescriptreact" | "javascriptreact" => {
             let runner = js_runner(project)?;
             if runner == "vitest" {
-                strings(&["npx", "--no-install", "vitest", "list", "--json"])
+                native_vitest_discovery(project)?
             } else {
                 strings(&[
                     "npx",
@@ -168,6 +182,7 @@ pub(super) fn plan(
         record.identity.configuration = serde_json::to_string(original)?;
         record.argv = profile.argv.clone();
         Ok(Plan {
+            exact_results:false,
             argv: profile.argv.clone(),
             artifacts: None,
             format: profile.format.clone(),
@@ -203,8 +218,10 @@ pub(super) fn automated(
             .all(|s| !s.starts_with('-') && !s.is_empty()),
         "Selectors cannot be runner options"
     );
-    let private = PrivateArtifacts::new()?;
+    let mut private = PrivateArtifacts::new()?;
     let artifacts = private.path().to_path_buf();
+    // Providers may clean their report directory; the held private parent is never theirs to replace.
+    let reports=private.child("reports")?;
     let report = artifacts.join("coverage");
     let result = artifacts.join("results");
     let report_arg = report.to_string_lossy().into_owned();
@@ -231,7 +248,7 @@ pub(super) fn automated(
             ],
         ),
         "rust" => (
-            strings(&["cargo", "llvm-cov", "--lcov", "--output-path", &report_arg]),
+            strings(&["cargo", "llvm-cov", "--ignore-run-fail", "--lcov", "--output-path", &report_arg]),
             "lcov",
             "cargo-llvm-cov",
             strings(&["cargo", "llvm-cov", "--version"]),
@@ -258,9 +275,11 @@ pub(super) fn automated(
             }
             argv.extend(strings(&[
                 "--coverage",
+                "--coverage.clean=false",
+                "--coverage.reportOnFailure=true",
                 "--coverage.reporter=lcov",
                 "--coverage.reportsDirectory",
-                &artifacts.to_string_lossy(),
+                &reports.to_string_lossy(),
                 "--reporter=json",
                 "--outputFile",
                 &result_arg,
@@ -273,7 +292,7 @@ pub(super) fn automated(
                     "--coverage",
                     "--coverageReporters=lcov",
                     "--coverageDirectory",
-                    &artifacts.to_string_lossy(),
+                    &reports.to_string_lossy(),
                     "--json",
                     "--outputFile",
                     &result_arg,
@@ -303,11 +322,7 @@ pub(super) fn automated(
             if !selectors.is_empty() {
                 argv.extend([
                     "--filter".into(),
-                    selectors
-                        .iter()
-                        .map(|s| format!("FullyQualifiedName={s}"))
-                        .collect::<Vec<_>>()
-                        .join("|"),
+                    csharp_filter(selectors),
                 ]);
             }
         }
@@ -329,10 +344,11 @@ pub(super) fn automated(
     // Exclude selectors and output paths: these change the contributing group, not instrumentation.
     record.identity.configuration = format!("{collector}:default-project-config:branch-requested");
     let report = match collector {
-        "vitest" | "jest" => artifacts.join("lcov.info"),
+        "vitest" | "jest" => reports.join("lcov.info"),
         _ => report,
     };
     Ok(Plan {
+        exact_results:false,
         argv,
         artifacts: Some(private),
         format: format.into(),

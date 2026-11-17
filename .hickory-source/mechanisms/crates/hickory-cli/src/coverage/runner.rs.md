@@ -129,13 +129,14 @@ pub(crate) async fn execute(
 pub(super) async fn execute_held(argv:&[String],cwd:&Path,stop:Option<oneshot::Receiver<()>>,held:Option<&std::fs::File>,artifacts:Option<&Path>)->Result<Output>{
     ensure!(!argv.is_empty(), "Empty collector command");
     let mut cmd = tokio::process::Command::new(&argv[0]);
+    if artifacts.is_some()&&Path::new(&argv[0]).file_name().is_some_and(|name|name=="dotnet"){cmd.env("DOTNET_CLI_UI_LANGUAGE","en-US");}
     cmd.args(&argv[1..])
         .current_dir(cwd)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .kill_on_drop(true);
-    if let Some(artifacts)=artifacts { cmd.env("COVERAGE_FILE",artifacts.join("coverage-data")).env("PYTHONDONTWRITEBYTECODE","1"); }
+    if let Some(artifacts)=artifacts { cmd.env("HICKORY_COLLECTOR_ARTIFACTS",artifacts).env("COVERAGE_FILE",artifacts.join("coverage-data")).env("PYTHONDONTWRITEBYTECODE","1"); }
     #[cfg(unix)] {
         use std::os::fd::AsRawFd;
         cmd.process_group(0);
@@ -231,6 +232,11 @@ pub(super) fn start(
     });
     Ok(())
 }
+
+#[cfg(test)]mod retained_selection_tests{
+ use super::*;
+ #[test]fn visible_terminal_outcome_remains_selectable_before_durable_save_finishes(){let temp=tempfile::tempdir().unwrap();let root=temp.path().canonicalize().unwrap();std::fs::write(root.join("app.py"),"assert False\n").unwrap();let running=store::new_record(&root,&root,&Request{language:"python".into(),action:"run".into(),..Default::default()}).unwrap();store::save(&root,&running).unwrap();let scope=std::sync::Arc::new(crate::serve::resource_inputs::RootIdentity::bind(&root));reserve(&root,&running,scope).unwrap();let mut terminal=running.clone();terminal.status="failed".into();terminal.tests=serde_json::from_value(json!([{"id":"app.py::failed","status":"failed","output":"assertion failed","path":"app.py","line":1,"labels":[]}])).unwrap();retain(&root,&terminal);assert_eq!(store::load(&root,&running.id).unwrap().status,"running");assert_eq!(store::view(&root,&running.id).unwrap()["status"],"failed");let selected=store::selected(&root,&running.id).unwrap();assert_eq!(selected.status,"failed");assert_eq!(selected.tests.len(),1);assert_eq!(selected.tests[0].id,"app.py::failed");assert_eq!(selected.workspace_id,running.workspace_id);}
+}
 </storycode:copy>
 <a id="f-6da46651825b-collect"></a>
 ### `collect`
@@ -260,6 +266,7 @@ async fn collect(
         store::save(root, record)?;
     }
     scope.check(root).map_err(anyhow::Error::msg)?;
+    if record.mode=="automated"{ensure!(snapshot(root)?==record.identity.source_hashes,"Saved source changed before collector execution; refresh and retry");}
     let output = execute_held(&plan.argv, project, Some(stop),Some(held),artifact_path).await?;
     record.output = output.text;
     record.exit_code = output.code;
@@ -270,13 +277,14 @@ async fn collect(
         ensure!(output.code == Some(0), "Collector export failed");
     }
     if let Some(artifacts)=&plan.artifacts{artifacts.check()?;}
+    let mut csharp_result=None;
     if record.mode == "automated" {
         let result_path = if record.language == "csharp" {
             find_report(plan.report.parent().unwrap(), "results")?.unwrap_or(plan.result.clone())
         } else {
             plan.result.clone()
         };
-        let raw = std::fs::read_to_string(&result_path).unwrap_or_default();
+        let raw = if let Some(artifacts)=&plan.artifacts{artifacts.read(&result_path,16*1024*1024).unwrap_or_default()}else{std::fs::read_to_string(&result_path).unwrap_or_default()};
         match results::parse(
             &record.language,
             &raw,
@@ -299,22 +307,18 @@ async fn collect(
                             .map(|p| store::relative(root, &p));
                     }
                 }
+                exact::qualify(&record.identity.collector,&mut tests);
                 record.tests = tests;
             }
             Err(e) => record.error = Some(format!("Test result import incomplete: {e:#}")),
         }
+        if plan.exact_results {ensure!(serde_json::from_str::<Value>(&raw).ok().is_some_and(|value|value["hickory_exact_complete"]==true),"Exact failed-only collector did not complete every requested source/name group; partial observed results are retained");}
+        if record.language=="csharp"{csharp_result=Some(raw); }
     }
     let report = if record.language == "csharp" && record.mode == "automated" {
         let all = find_reports(plan.report.parent().unwrap(), "coverage.cobertura.xml")?;
-        let mut unique = std::collections::BTreeMap::new();
-        for path in all {
-            ensure!(
-                std::fs::metadata(&path)?.len() <= 16 * 1024 * 1024,
-                "Coverage report exceeds 16 MiB"
-            );
-            unique.entry(std::fs::read(&path)?).or_insert(path);
-        }
-        let paths: Vec<_> = unique.into_values().collect();
+        let copies=csharp_logger_copies(plan.report.parent().unwrap(),csharp_result.as_deref().context("Native TRX attachment metadata required")?)?;
+        let paths=all.into_iter().filter(|path|!copies.contains(path)).collect::<Vec<_>>();
         ensure!(
             paths.len() == 1,
             "Expected one target's Coverlet report, found {}. Select one project/framework or import reports separately",
@@ -326,13 +330,13 @@ async fn collect(
     };
     let report = if let Some(dir)=artifact_path {
         let canonical=report.canonicalize().context("Collector did not write coverage; install/configure its coverage plugin")?;
-        ensure!(canonical.starts_with(dir.canonicalize()?),"Collector report escaped private artifacts");canonical
+        ensure!(canonical.starts_with(dir.canonicalize()?),"Collector report escaped private artifacts");report
     } else {scope.check(root).map_err(anyhow::Error::msg)?;safe_path(root,&store::relative(root,&report))?};
     ensure!(
         std::fs::metadata(&report)?.len() <= 16 * 1024 * 1024,
         "Coverage report exceeds 16 MiB"
     );
-    let raw = std::fs::read_to_string(report)?;
+    let raw = if let Some(artifacts)=&plan.artifacts{artifacts.read(&report,16*1024*1024)?}else{std::fs::read_to_string(report)?};
     record.evidence = Some(if scope.check(root).is_err() {Evidence{identity:record.identity.clone(),report:hick_coverage::parse(&plan.format,&raw)?,labels:record.labels.clone(),tests:record.tests.iter().map(|test|test.id.clone()).collect(),attribution:"group".into()}} else {evidence(
         root,
         record,
@@ -342,7 +346,7 @@ async fn collect(
         record.labels.clone(),
     )?});
     if scope.check(root).is_ok() {record.mappings = super::mapping::capture(root, record)?;} else {record.source_changed_during_run=true;record.mappings.clear();}
-    record.status = if record.mode == "manual" || output.code == Some(0) {
+    record.status = if record.mode == "manual" || (output.code == Some(0) && !record.tests.iter().any(|test| test.status == "failed")) {
         "completed"
     } else {
         "failed"
@@ -353,6 +357,8 @@ async fn collect(
 </storycode:copy>
 <a id="f-6da46651825b-find_reports"></a>
 ### `find_reports`
+
+A native single-target Coverlet run can leave both its original GUID attachment and a separate TRX logger deployment copy. Classify only the copy path explicitly declared by that same held TRX result. Original attachments from different targets remain distinct even when their bytes match; no content-hash deduplication supplies target authority.
 
 <storycode:copy id="f-6da46651825b-find_reports">
 fn find_reports(dir: &Path, name: &str) -> Result<Vec<PathBuf>> {
@@ -366,6 +372,20 @@ fn find_reports(dir: &Path, name: &str) -> Result<Vec<PathBuf>> {
         }
     }
     Ok(paths)
+}
+
+/// VSTest's TRX logger copies declared collector attachments under its deployment
+/// directory. That is one producer-declared copy, not another target report.
+fn csharp_logger_copies(root:&Path,trx:&str)->Result<std::collections::BTreeSet<PathBuf>>{
+ let document=roxmltree::Document::parse(trx)?;let mut copies=std::collections::BTreeSet::new();let deployments=document.descendants().filter(|node|node.has_tag_name("Deployment")).filter_map(|node|node.attribute("runDeploymentRoot")).collect::<Vec<_>>();ensure!(deployments.len()<=1,"Unknown native TRX deployment scope");let Some(deployment)=deployments.first() else{return Ok(copies)};
+ let relative=|value:&str|->Result<PathBuf>{let path=Path::new(value);ensure!(!value.is_empty()&&!path.is_absolute()&&path.components().all(|part|matches!(part,std::path::Component::Normal(_))),"Unsafe native TRX attachment path");Ok(path.to_path_buf())};let base=root.join(relative(deployment)?).join("In");
+ for collector in document.descendants().filter(|node|node.has_tag_name("Collector")&&node.attribute("uri").is_some_and(|uri|uri.to_ascii_lowercase().contains("coverletcodecoverage"))){for attachment in collector.descendants().filter(|node|node.has_tag_name("A")){if let Some(href)=attachment.attribute("href"){let path=relative(href)?;if path.file_name().is_some_and(|name|name=="coverage.cobertura.xml"){copies.insert(base.join(path));}}}}
+ Ok(copies)
+}
+#[cfg(test)]mod csharp_copy_tests{
+ use super::*;
+ #[test]fn native_logger_copies_do_not_merge_distinct_target_reports(){let root=Path::new("/private-artifacts");let trx=r#"<TestRun><TestSettings><Deployment runDeploymentRoot="run"/></TestSettings><Collector uri="datacollector://microsoft/CoverletCodeCoverage/1.0"><UriAttachment><A href="machine/coverage.cobertura.xml"/></UriAttachment></Collector></TestRun>"#;let copies=csharp_logger_copies(root,trx).unwrap();let original=root.join("guid/coverage.cobertura.xml");let copy=root.join("run/In/machine/coverage.cobertura.xml");assert_eq!(copies,std::collections::BTreeSet::from([copy.clone()]));let all=vec![original.clone(),copy,root.join("another-target/coverage.cobertura.xml")];assert_eq!(all.into_iter().filter(|path|!copies.contains(path)).collect::<Vec<_>>(),vec![original,root.join("another-target/coverage.cobertura.xml")],"Equal bytes never collapse distinct original attachments");}
+ #[test]fn native_attachment_metadata_cannot_escape_private_parent(){for path in ["../foreign/coverage.cobertura.xml","/foreign/coverage.cobertura.xml"]{let trx=format!(r#"<TestRun><Deployment runDeploymentRoot="run"/><Collector uri="CoverletCodeCoverage"><A href="{path}"/></Collector></TestRun>"#);assert!(csharp_logger_copies(Path::new("/private-artifacts"),&trx).is_err());}}
 }
 </storycode:copy>
 <a id="f-6da46651825b-find_report"></a>

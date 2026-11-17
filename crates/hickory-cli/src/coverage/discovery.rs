@@ -39,12 +39,18 @@ fn source_paths(root: &Path, project: &Path, tests: &mut [TestResult]) {
 }
 pub(super) async fn inspect(root: &Path, project: &Path, language: &str) -> Result<Value> {
     let scope=crate::serve::resource_inputs::RootIdentity::bind(root);
+    inspect_scoped(root,project,language,&scope).await
+}
+pub(super) async fn inspect_scoped(root:&Path,project:&Path,language:&str,scope:&crate::serve::resource_inputs::RootIdentity)->Result<Value>{observe(root,project,language,scope,None).await}
+pub(super) async fn inspect_filtered_csharp(root:&Path,project:&Path,selectors:&[String],scope:&crate::serve::resource_inputs::RootIdentity)->Result<Value>{observe(root,project,"csharp",scope,Some(selectors)).await}
+async fn observe(root:&Path,project:&Path,language:&str,scope:&crate::serve::resource_inputs::RootIdentity,selectors:Option<&[String]>)->Result<Value>{
     scope.check(root).map_err(anyhow::Error::msg)?;
     let workspace=crate::serve::resource_inputs::RootIdentity::fingerprint(root).map_err(anyhow::Error::msg)?;
     let held=std::fs::File::open(project)?;
     ensure!(same_file::Handle::from_file(held.try_clone()?)?==same_file::Handle::from_path(project)?,"Discovery directory changed");
     let metadata = config(project)?;
     let mut command = commands::discovery(project, language)?;
+    if let Some(selectors)=selectors{command.extend(["--filter".into(),commands::csharp_filter(selectors)]);}
     let artifacts=commands::PrivateArtifacts::new()?;
     if language=="python" {command.extend(["-o".into(),format!("cache_dir={}",artifacts.path().join("pytest-cache").display())]);}
     let before = snapshot(root)?;
@@ -56,6 +62,7 @@ pub(super) async fn inspect(root: &Path, project: &Path, language: &str) -> Resu
     let after = if original{snapshot(root)?}else{BTreeMap::new()};
     let mut tests = results::discover(language, &output.text, &metadata);
     if original{source_paths(root, project, &mut tests);}else{for test in &mut tests{test.path=None;test.line=None;}}
+    if let Ok(provider)=commands::js_runner(project){exact::qualify(provider,&mut tests);}
     let state = if original{source_state(&before, &after)}else{"historical"};
     let project = store::relative(root, project);
     let fingerprint = hash(&serde_json::to_vec(
@@ -86,6 +93,7 @@ mod tests {
         std::fs::write(project.join("test.py"), "def test_a(): pass").unwrap();
         let row = |path: &str, line| TestResult {
             id: "case".into(),
+            runner_name: None,
             status: "discovered".into(),
             output: "".into(),
             path: Some(path.into()),

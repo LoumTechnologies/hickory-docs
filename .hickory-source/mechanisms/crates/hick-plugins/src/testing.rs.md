@@ -13,6 +13,8 @@ This page owns the output construction and the explained fragments below. Source
 
 <storycode:copy id="f-9a1aec043cf8-Planner">
 use std::path::{Path, PathBuf};
+/// Shared native file-selection adapter for source Run and retained failed-only coverage.
+pub const JAVASCRIPT_TEST_DRIVER:&str=include_str!("testing/javascript.mjs");
 pub type Planner = fn(&Path, &Path, &str) -> Result<TestCommand, String>;
 </storycode:copy>
 <a id="f-9a1aec043cf8-TestCommand"></a>

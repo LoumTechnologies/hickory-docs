@@ -55,6 +55,7 @@ pub async fn run(
     State(state): State<LocalState>,
     Json(body): Json<RunBody>,
 ) -> ApiResult<Json<Value>> {
+    let root_lease=state.resource_root.check(state.index.root()).map_err(ApiError::conflict)?;
     let root = state
         .index
         .root()
@@ -116,6 +117,10 @@ pub async fn run(
         if cwd.is_empty() { ".".into() } else { cwd },
         "test gutter",
     );
+    if state.resource_root.check(state.index.root()).map_err(ApiError::conflict)?!=root_lease{return Err(ApiError::conflict("Original workspace changed before source-test admission; no process was started."));}
+    let current=std::fs::read(&real_file).map_err(|_|ApiError::conflict("Selected test source disappeared before admission."))?;
+    if format!("{:x}",Sha256::digest(&current))!=source_hash{return Err(ApiError::conflict("Selected test source changed while preparing its native runner; refresh before running."));}
+    if super::source_tests::check_saved_sources(&root,&body.expected_sources)?!=checked_sources{return Err(ApiError::conflict("Source-test contributors changed before admission; refresh before running."));}
     let summary = super::launch_profiles::open_run(
         &state,
         &profile,
@@ -165,10 +170,7 @@ mod tests {
         for language in ["jsx", "tsx"] {
             let command =
                 test_command(&root, &root.join("web/src/a.test.ts"), "focused", language).unwrap();
-            assert_eq!(
-                command.argv,
-                vec!["npx", "vitest", "run", "src/a.test.ts", "-t", "focused"]
-            );
+            let spec:Value=serde_json::from_str(command.argv.last().unwrap()).unwrap();assert_eq!(command.argv[0],"node");assert_eq!(spec["provider"],"vitest");assert_eq!(spec["file"],json!(root.join("web/src/a.test.ts").canonicalize().unwrap()));assert_eq!(spec["pattern"],"focused");
         }
     }
 
@@ -192,10 +194,10 @@ mod tests {
         )
         .unwrap();
         assert_eq!(cmd.cwd, root.join("web"));
-        assert_eq!(
-            cmd.argv,
-            vec!["npx", "vitest", "run", "src/a.test.ts", "-t", "renders"]
-        );
+        let spec:Value=serde_json::from_str(cmd.argv.last().unwrap()).unwrap();assert_eq!(spec["mode"],"source");assert_eq!(spec["provider"],"vitest");assert_eq!(spec["file"],json!(root.join("web/src/a.test.ts").canonicalize().unwrap()));assert_eq!(spec["pattern"],"renders");assert_eq!(spec["source_hash"],format!("{:x}",Sha256::digest(b"")));
+        let spaces=test_command(&root,&root.join("web/src/a.test.ts"),"   ","typescript").unwrap();let spaces:Value=serde_json::from_str(spaces.argv.last().unwrap()).unwrap();assert_eq!(spaces["pattern"],"   ","A whitespace name filter must not silently become containing scope");
+        let all=test_command(&root,&root.join("web/src/a.test.ts"),"","typescript").unwrap();let all:Value=serde_json::from_str(all.argv.last().unwrap()).unwrap();assert!(all["pattern"].is_null());
+        std::fs::write(root.join("web/package.json"),r#"{"devDependencies":{"vitest":"3.2.7","jest":"29.7.0"}}"#).unwrap();assert!(test_command(&root,&root.join("web/src/a.test.ts"),"renders","typescript").unwrap_err().contains("unambiguous"));
     }
 
     #[test]

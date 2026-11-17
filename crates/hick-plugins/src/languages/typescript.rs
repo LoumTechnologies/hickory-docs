@@ -74,53 +74,17 @@ pub static PLUGIN: Plugin = Plugin {
         },
     ],
 };
-pub(super) fn test_command(
-    root: &std::path::Path,
-    file: &std::path::Path,
-    name: &str,
-) -> Result<crate::testing::TestCommand, String> {
-    use crate::testing::{TestCommand, nearest};
-    let rel = file
-        .strip_prefix(root)
-        .unwrap_or(file)
-        .to_string_lossy()
-        .replace('\\', "/");
-    let name = name.trim();
-    let title = if name.is_empty() {
-        format!("test: {rel}")
-    } else {
-        format!("test: {name}")
-    };
-    let s = |text: &str| text.to_string();
-
-    let dir = nearest(root, file, "package.json")
-        .ok_or_else(|| format!("{rel} is not inside a package: no package.json above it"))?;
-    let rel_to_dir = file
-        .strip_prefix(&dir)
-        .unwrap_or(file)
-        .to_string_lossy()
-        .replace('\\', "/");
-    // vitest and jest share the `-t <name>` spelling; which one is
-    // the package's business, read from its own manifest.
-    let manifest = std::fs::read_to_string(dir.join("package.json")).unwrap_or_default();
-    let runner = if manifest.contains("\"vitest\"") {
-        vec![s("npx"), s("vitest"), s("run"), rel_to_dir]
-    } else if manifest.contains("\"jest\"") {
-        vec![s("npx"), s("jest"), rel_to_dir]
-    } else {
-        return Err(format!(
-            "{} names neither vitest nor jest, so hick does not know how to run {rel}",
-            dir.join("package.json").display()
-        ));
-    };
-    let mut argv = runner;
-    if !name.is_empty() {
-        argv.push(s("-t"));
-        argv.push(name.to_string());
-    }
-    Ok(TestCommand {
-        title,
-        cwd: dir,
-        argv,
-    })
+pub(super) fn test_command(root:&std::path::Path,file:&std::path::Path,name:&str)->Result<crate::testing::TestCommand,String>{
+ use crate::testing::{TestCommand,nearest};use sha2::{Digest,Sha256};
+ let root=root.canonicalize().map_err(|error|error.to_string())?;let file=file.canonicalize().map_err(|error|error.to_string())?;
+ if !file.starts_with(&root){return Err("Test file is outside the original workspace".into())}
+ let rel=file.strip_prefix(&root).unwrap().to_string_lossy().replace('\\',"/");
+ let dir=nearest(&root,&file,"package.json").ok_or_else(||format!("{rel} is not inside a package: no package.json above it"))?;
+ let manifest:serde_json::Value=serde_json::from_slice(&std::fs::read(dir.join("package.json")).map_err(|error|error.to_string())?).map_err(|error|error.to_string())?;
+ let providers=["vitest","jest"].into_iter().filter(|name|manifest["dependencies"].get(*name).is_some()||manifest["devDependencies"].get(*name).is_some()).collect::<Vec<_>>();if providers.len()!=1{return Err(format!("{} must declare one unambiguous Vitest or Jest package runner; no process was started",dir.join("package.json").display()))}let provider=providers[0];
+ let bytes=std::fs::read(&file).map_err(|error|error.to_string())?;let hash=format!("{:x}",Sha256::digest(&bytes));
+ #[cfg(unix)]let(dev,ino)={use std::os::unix::fs::MetadataExt;let metadata=std::fs::metadata(&dir).map_err(|error|error.to_string())?;(metadata.dev().to_string(),metadata.ino().to_string())};
+ #[cfg(not(unix))]let(dev,ino):(String,String)={return Err("Native JavaScript source Run physical project binding is unavailable on this host".into())};
+ let spec=serde_json::json!({"mode":"source","provider":provider,"project":dir,"project_dev":dev,"project_ino":ino,"file":file,"source_hash":hash,"pattern":if name.is_empty(){None}else{Some(name)}});
+ Ok(TestCommand{title:if name.is_empty(){format!("test: {rel}")}else{format!("test name filter: {name} · {rel}")},cwd:dir,argv:vec!["node".into(),"--input-type=module".into(),"--eval".into(),crate::testing::JAVASCRIPT_TEST_DRIVER.into(),spec.to_string()]})
 }

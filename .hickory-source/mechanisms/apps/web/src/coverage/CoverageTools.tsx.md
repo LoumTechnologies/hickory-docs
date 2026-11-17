@@ -205,7 +205,7 @@ Retain run/checkpoint history, measurement denominators, branch-data limits, raw
       </>}
       <details open><summary>Test discovery and results ({results.length})</summary>
         {!selected&&discovered.length>0&&<p>{discovery?`Runner listing from ${discovery.project||"."} · ${discovery.source_state} saved source. Files were not frozen.`:"Unversioned runner listing. Exact source positions unavailable."}</p>}
-        {results.length===0&&<p>No individual test results available.</p>}{results.map((test,index)=>{const location=test.path?coverageSourceNavigation(selected,test.path,test.line,discovery):null;return <details key={`${test.id}:${index}`}><summary>{test.status} · {test.id} · {test.labels.join(", ")}</summary>{test.path&&<button className="coverage-link" onClick={()=>{void navigate(test.path!,test.line);}}>{location?.line?`Open source line ${location.line}`:"Open file (position unavailable)"}</button>}<pre>{test.output||"No failure output"}</pre></details>;})}</details>
+        {results.length===0&&<p>No individual test results available.</p>}{results.map((test,index)=>{const location=test.path?coverageSourceNavigation(selected,test.path,test.line,discovery):null;return <details key={`${test.id}:${index}`}><summary>{test.status} · {test.runner_name==null?test.id:test.runner_name.trim()?test.runner_name:JSON.stringify(test.runner_name)}{test.runner_name!=null&&test.path?` · ${test.path}`:""} · {test.labels.join(", ")}</summary>{test.path&&<button className="coverage-link" onClick={()=>{void navigate(test.path!,test.line);}}>{location?.line?`Open source line ${location.line}`:"Open file (position unavailable)"}</button>}<pre>{test.output||"No failure output"}</pre></details>;})}</details>
     </main></div>
   </section></div>;
 }

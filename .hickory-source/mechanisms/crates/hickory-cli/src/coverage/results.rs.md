@@ -25,6 +25,7 @@ fn test(
     let labels = metadata.tests.get(&id).cloned().unwrap_or_default();
     TestResult {
         id,
+        runner_name: None,
         status: status.into(),
         output,
         path,
@@ -36,7 +37,7 @@ fn test(
 <a id="f-60cbf3a3d12c-discover"></a>
 ### `discover`
 
-The .NET CLI indents the actual list beneath its marker. Only that contiguous block supplies test identities: the process runner retains stdout and stderr together, so first-use welcome or workload diagnostics can follow a valid list. Those messages remain visible output and must never become runnable test names.
+The .NET CLI indents the actual list beneath its marker. Only each contiguous block supplies test identities; retain every native framework block so duplicate unqualified identities can refuse an exact rerun: the process runner retains stdout and stderr together, so first-use welcome or workload diagnostics can follow a valid list. Those messages remain visible output and must never become runnable test names.
 
 <storycode:copy id="f-60cbf3a3d12c-discover">
 pub(super) fn discover(language: &str, text: &str, metadata: &Config) -> Vec<TestResult> {
@@ -66,11 +67,8 @@ pub(super) fn discover(language: &str, text: &str, metadata: &Config) -> Vec<Tes
     if language == "csharp" {
         return text
             .split("The following Tests are available:")
-            .nth(1)
-            .unwrap_or("")
-            .lines()
-            .skip_while(|row| row.trim().is_empty())
-            .take_while(|row| row.starts_with("    ") && !row.trim().is_empty())
+            .skip(1)
+            .flat_map(|block|block.lines().skip_while(|row|row.trim().is_empty()).take_while(|row|row.starts_with("    ")&&!row.trim().is_empty()))
             .map(str::trim)
             .map(|id| test(id.into(), "discovered", String::new(), None, None, metadata))
             .collect();
@@ -128,7 +126,10 @@ pub(super) fn discover(language: &str, text: &str, metadata: &Config) -> Vec<Tes
   let output="Determining projects to restore...\nThe following Tests are available:\n    App.Positive\n    App.Negative\n\nWelcome to .NET 10.0!\nSDK Version: 10.0.401\nAn issue was encountered verifying workloads.\n";
   let tests=discover("csharp",output,&Config::default());assert_eq!(tests.iter().map(|test|test.id.as_str()).collect::<Vec<_>>(),vec!["App.Positive","App.Negative"]);assert!(tests.iter().all(|test|test.status=="discovered"&&test.path.is_none()));
   let directly_following="The following Tests are available:\n    App.Positive\nwarning: workload verification failed\n    continuation of diagnostic\n";assert_eq!(discover("csharp",directly_following,&Config::default()).len(),1);
+  let frameworks="The following Tests are available:\n    App.Negative\n\nFramework net11.0\nThe following Tests are available:\n    App.Negative\n";assert_eq!(discover("csharp",frameworks,&Config::default()).iter().map(|test|test.id.as_str()).collect::<Vec<_>>(),vec!["App.Negative","App.Negative"],"Unqualified target duplicates must remain visible to exact-selection refusal");
  }
+ #[test]fn native_collection_frame_preserves_literal_hierarchy_names(){let native=json!({"testResults":[{"name":"a.test.ts","assertionResults":[{"fullName":"cohort > suite negative > literal","title":"negative > literal","status":"pending","failureMessages":[]}]}]});let output=format!("setup {{noise}}\nHICKORY_NATIVE_DISCOVERY_V1 {native}\nstderr {{not-json}}\n");let rows=discover("typescript",&output,&Config::default());assert_eq!(rows.len(),1);assert_eq!(rows[0].id,"cohort > suite negative > literal");assert_eq!(rows[0].status,"discovered");assert_eq!(rows[0].path.as_deref(),Some("a.test.ts"));}
+
 }
 </storycode:copy>
 <a id="f-60cbf3a3d12c-json_from_output"></a>
@@ -136,6 +137,7 @@ pub(super) fn discover(language: &str, text: &str, metadata: &Config) -> Vec<Tes
 
 <storycode:copy id="f-60cbf3a3d12c-json_from_output">
 fn json_from_output(text: &str) -> Value {
+    if let Some(value)=text.lines().filter_map(|line|line.strip_prefix("HICKORY_NATIVE_DISCOVERY_V1 ")).find_map(|raw|serde_json::from_str(raw).ok()){return value;}
     if let Ok(value) = serde_json::from_str(text) {
         return value;
     }

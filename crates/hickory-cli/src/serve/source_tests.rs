@@ -541,7 +541,7 @@ pub(crate) fn select_saved_candidate<'a>(
                 "This source candidate changed. Refresh candidates or use runner discovery.",
             )
         })?;
-    let name=match request.selection {Selection::ContainingScope {}=>String::new(),Selection::NameFilter {}=>candidate.name_filter.clone().ok_or_else(||ApiError::unprocessable("This candidate needs runner discovery. Discover concrete cases or explicitly run the containing scope."))?};
+    let name=match request.selection {Selection::ContainingScope {}=>String::new(),Selection::NameFilter {}=>candidate.name_filter.clone().filter(|name|!name.is_empty()).ok_or_else(||ApiError::unprocessable("This candidate needs runner discovery. Discover concrete cases or explicitly run the containing scope."))?};
     Ok((candidate, name))
 }
 /// Recompute the source model before selecting a saved target. Older engines
@@ -738,6 +738,8 @@ mod tests {
 #[test]
 fn saved_scan_identity_retires_identical_bytes_at_a_reincarnated_root(){let temporary=tempfile::tempdir().unwrap();let root=temporary.path().join("workspace");std::fs::create_dir(&root).unwrap();let source="def test_selected():\n    assert 41 == 41\n";std::fs::write(root.join("test_choice.py"),source).unwrap();let request=Request{path:"test_choice.py".into(),source:source.into(),project_entry:None,sources:BTreeMap::new(),capture:false};let before=scan(&root,&request).unwrap();let intent=RunRequest{version:1,input:RunInput::Saved{},analysis:request.clone(),fingerprint:before.fingerprint.clone(),candidate_id:before.candidates[0].id.clone(),selection:Selection::NameFilter{}};std::fs::rename(&root,temporary.path().join("retained")).unwrap();std::fs::create_dir(&root).unwrap();std::fs::write(root.join("test_choice.py"),source).unwrap();let after=scan(&root,&request).unwrap();if before.workspace_id.is_empty(){assert!(select_saved_candidate(&before,&intent).is_err());return;}assert_eq!(before.input_hash,after.input_hash);assert_ne!(before.workspace_id,after.workspace_id);assert_ne!(before.fingerprint,after.fingerprint);assert!(select_saved_candidate(&after,&intent).is_err());}
 
+#[test]
+fn empty_source_name_filter_cannot_become_containing_scope(){let temp=tempfile::tempdir().unwrap();let request=Request{path:"case.test.js".into(),source:"test('',()=>{});".into(),project_entry:None,sources:BTreeMap::new(),capture:false};std::fs::write(temp.path().join(&request.path),&request.source).unwrap();let mut facts=scan(temp.path(),&request).unwrap();assert_eq!(facts.candidates.len(),1);let mut intent=RunRequest{version:1,input:RunInput::Saved{},analysis:request,fingerprint:facts.fingerprint.clone(),candidate_id:facts.candidates[0].id.clone(),selection:Selection::NameFilter{}};assert!(select_saved_candidate(&facts,&intent).is_err());facts.candidates[0].name_filter=Some(String::new());assert!(select_saved_candidate(&facts,&intent).is_err());intent.selection=Selection::ContainingScope{};assert!(select_saved_candidate(&facts,&intent).is_ok());}
 }
 #[cfg(test)]
 #[test]

@@ -72941,6 +72941,39 @@
       "fragments": [
         "resource-volume-guard-http-driver"
       ]
+    },
+    "scripts/test-collector-providers.py": {
+      "source": ".hickory-source/mechanisms/test-collector-provider-replays.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "test",
+      "sha256": "3adf0fdbe7d1351d7c33a07d32cd5365d9cfdba403a94a637a1345fa12b626e9",
+      "construction": "fragments",
+      "fragments": [
+        "collector-provider-live-replay"
+      ]
+    },
+    "crates/hickory-cli/src/coverage/exact.rs": {
+      "source": ".hickory-source/mechanisms/exact-failed-js-collector.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "f4445e4024c5d151e900eed01ed7b8617caac896d260282a202320ffcf371cd4",
+      "construction": "fragments",
+      "fragments": [
+        "exact-failed-runner-plan"
+      ]
+    },
+    "crates/hick-plugins/src/testing/javascript.mjs": {
+      "source": ".hickory-source/mechanisms/exact-failed-js-collector.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "d9bba23c8e87da3163a5728ebeba01396a154ca687e2d78322e975ed9737f3c3",
+      "construction": "fragments",
+      "fragments": [
+        "exact-failed-js-native-driver"
+      ]
     }
   },
   "evidence_records": [

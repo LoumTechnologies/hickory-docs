@@ -15,6 +15,7 @@ Project testing and instrumented manual sessions. UI and MCP use this service.
 
 <storycode:copy id="f-670d7c0cde38-commands">
 //! Project testing and instrumented manual sessions. UI and MCP use this service.
+mod exact;
 mod commands;
 mod discovery;
 </storycode:copy>
@@ -156,6 +157,8 @@ pub struct Config {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TestResult {
     pub id: String,
+    #[serde(default, skip_serializing_if="Option::is_none")]
+    pub runner_name: Option<String>,
     pub status: String,
     pub output: String,
     pub path: Option<String>,
@@ -476,18 +479,11 @@ pub async fn dispatch(root: &Path, request: Request) -> Result<Value> {
             store::view(&root, &record.id)
         }
         "rerun-failed" => {
-            let previous = store::load(&root, id(&request)?)?;
+            let previous = store::selected(&root, id(&request)?)?;
             ensure!(
                 previous.mode == "automated",
                 "Manual sessions have no failed test identities"
             );
-            let failed: Vec<_> = previous
-                .tests
-                .iter()
-                .filter(|t| t.status == "failed")
-                .map(|t| t.id.clone())
-                .collect();
-            ensure!(!failed.is_empty(), "No failed tests with runner identities");
             let project = safe_path(
                 &root,
                 if previous.project.is_empty() {
@@ -500,12 +496,12 @@ pub async fn dispatch(root: &Path, request: Request) -> Result<Value> {
                 &root,
                 &project,
                 &Request {
-                    language: previous.language,
+                    language: previous.language.clone(),
                     action: "run".into(),
                     ..Default::default()
                 },
             )?;
-            let plan = commands::automated(&root, &project, &mut record, &failed)?;
+            let plan = exact::prepare(&root, &project, &mut record, &previous).await?;
             store::save(&root, &record)?;
             runner::start(root.clone(), project, record.clone(), plan)?;
             Ok(json!(record))

@@ -1,4 +1,6 @@
 use std::path::{Path, PathBuf};
+/// Shared native file-selection adapter for source Run and retained failed-only coverage.
+pub const JAVASCRIPT_TEST_DRIVER:&str=include_str!("testing/javascript.mjs");
 pub type Planner = fn(&Path, &Path, &str) -> Result<TestCommand, String>;
 /// What will run, and where.
 #[derive(Debug, PartialEq, Eq)]

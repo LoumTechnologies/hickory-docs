@@ -259,8 +259,8 @@ pub fn javascript(language: &str, source: &str) -> Result<CandidateScan, String>
         let dynamic = !literal || raw.contains('\\') || raw.contains("${") || parameterized;
         Some(Found {
             byte: node.start_byte(),
-            name: display.clone(),
-            filter: (!dynamic).then(|| literal_pattern(&display)),
+            name: if display.is_empty(){"(empty test name)".into()}else{display.clone()},
+            filter: (!dynamic && !display.is_empty()).then(|| literal_pattern(&display)),
             confidence: if dynamic {
                 Confidence::Dynamic
             } else {
@@ -472,6 +472,8 @@ mod tests {
         assert_eq!(unicode.candidates[0].byte, 8);
         assert_eq!(unicode.candidates[0].character, 6);
     }
+    #[test]
+    fn empty_script_names_need_runner_discovery_but_whitespace_filters_stay_literal(){let scan=javascript("javascript","test('',()=>{});test('   ',()=>{});").unwrap();assert_eq!(scan.candidates.len(),2);assert!(scan.candidates[0].name_filter.is_none());assert_eq!(scan.candidates[1].name_filter.as_deref(),Some("   "));}
     #[test]
     fn fallback_candidates_remain_heuristic_and_admission_is_bounded() {
         let cs = detect("csharp", "[Fact] public void Works() {}\n").unwrap();

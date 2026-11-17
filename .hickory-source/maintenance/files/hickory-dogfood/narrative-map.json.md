@@ -156611,6 +156611,27 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/mechanisms/resource-volume-guards.md",
       "symbol": "resource declared volume witnesses",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "collector-provider-live-replay",
+      "output": "scripts/test-collector-providers.py",
+      "page": ".hickory-source/mechanisms/test-collector-provider-replays.md",
+      "symbol": "collector provider live replay",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "exact-failed-runner-plan",
+      "output": "crates/hickory-cli/src/coverage/exact.rs",
+      "page": ".hickory-source/mechanisms/exact-failed-js-collector.md",
+      "symbol": "exact failed runner plan",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "exact-failed-js-native-driver",
+      "output": "crates/hick-plugins/src/testing/javascript.mjs",
+      "page": ".hickory-source/mechanisms/exact-failed-js-collector.md",
+      "symbol": "exact failed js native driver",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

@@ -3400,6 +3400,7 @@ dependencies = [
  "hick-project-env",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "tempfile",
  "tokio",
  "tree-sitter",
