@@ -4,6 +4,12 @@ import org.junit.Assert.*
 import androidx.compose.ui.text.TextRange
 import kotlinx.coroutines.async
 class SourceSnippetInteractionTest {
+ @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+ @Test fun computedInputAndNativeHistoryAreOneAction(){
+  val root=generateSequence(java.io.File(System.getProperty("user.dir")).absoluteFile){it.parentFile}.first{it.resolve("apps/simple-contract/snippet-derived-cases.json").isFile};val transform=readSnippetTransform(org.json.JSONObject(root.resolve("apps/simple-contract/snippet-derived-cases.json").readText()).getJSONObject("programs").getJSONObject("upper"));val source="foo FOO";val values=listOf(SnippetField(1,0,3,emptyList(),0),SnippetField(1,4,7,emptyList(),1,transform=transform),SnippetField(0,7,7,emptyList(),2));val buffer=DocumentBuffer(FileNode("a.py","a.py",false,emptyList(),null,null),FileText(source,"base"));buffer.state.edit{selection=TextRange(0,3)};buffer.snippets.restore(beginSnippet(source,values));assertEquals(3*64L+transform.bytes,snippetHistoryCost(buffer.snippets.active));assertTrue(buffer.snippets.applyInput(source,0,3,"λ😀"));assertEquals("λ😀 Λ😀",buffer.text);assertEquals(TextRange(3),buffer.state.selection);assertNotNull(buffer.snippets.active);assertTrue(buffer.snippets.undoSource());assertEquals(source,buffer.text);assertNotNull(buffer.snippets.active);assertTrue(buffer.snippets.redoSource());assertEquals("λ😀 Λ😀",buffer.text);assertEquals(TextRange(3),buffer.state.selection)
+  var staged:SnippetSession?=buffer.snippets.active;buffer.state.edit{val before=buffer.snippets.captureBefore(originalText,originalSelection);replace(4,7,"bar");selection=TextRange(7);assertFalse(applySourceSnippetInput(buffer,publish={staged=it}));buffer.snippets.finishTextChange(before,asCharSequence(),selection)};buffer.snippets.publish(staged);assertEquals("λ😀 bar",buffer.text);assertNull(buffer.snippets.active)
+ }
+
  private fun fields()=listOf(SnippetField(1,0,1,listOf("a","long"),0),SnippetField(1,4,5,listOf("a","long"),1),SnippetField(0,5,5,emptyList(),2))
  private fun buffer()=DocumentBuffer(FileNode("a.py","a.py",false,emptyList(),null,null),FileText("a + a","base")).also{it.state.edit{selection=TextRange(0,1)};it.snippets.restore(beginSnippet(it.text,fields()))}
  @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)

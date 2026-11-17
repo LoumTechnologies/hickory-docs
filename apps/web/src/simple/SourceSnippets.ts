@@ -7,6 +7,8 @@ import {cancelCompletionAcceptance,readCompletionAcceptance} from '../lsp/comple
 import {prepareEditorChanges} from '../editor/textInput';
 import {beginSnippet,advanceSnippet,editSnippet,completeSnippet,nestSnippet,type SnippetSession} from './SnippetSession';
 import type {CompletionDraft} from './CompletionPlan';
+import {snippetTransformBytes} from './SnippetTransform';
+function computedSnippetInput(session:SnippetSession,from:number,to:number):boolean{return session.fields.some(field=>!!field.transform&&field.from<field.to&&field.from<=from&&to<=field.to&&(from<to||from>field.from&&from<field.to));}
 export const setSourceSnippet=StateEffect.define<SnippetSession|null>();
 interface SnippetSnapshot {source:string;session:SnippetSession|null;selection:EditorSelection}
 interface SnippetReplay {target:symbol;inverse:symbol}
@@ -17,7 +19,7 @@ export function createSourceSnippetHistory(limit=32*1024*1024,maxEntries=4096){
   // Count the retained UTF-16 strings and every alternative, including empty
   // choices, before constructing or retaining a snapshot. Oversized context
   // never evicts unrelated valid history; CodeMirror still owns text undo.
-  const token=Symbol('snippet history'),cost=128+value.source.length*2+(value.session?.fields.reduce((sum,field)=>sum+64+field.choices.reduce((total,choice)=>total+32+choice.length*2,0),0)??0);
+  const token=Symbol('snippet history'),cost=128+value.source.length*2+(value.session?.fields.reduce((sum,field)=>sum+64+(field.transform?snippetTransformBytes(field.transform):0)+field.choices.reduce((total,choice)=>total+32+choice.length*2,0),0)??0);
   if(cost>limit)return token;
   const normalized={...value,session:value.session?{...value.session,source:value.source}:null};snapshots.set(token,{value:normalized,cost});bytes+=cost;
   while((bytes>limit||snapshots.size>maxEntries)&&snapshots.size){const oldest=snapshots.keys().next().value!;bytes-=snapshots.get(oldest)!.cost;snapshots.delete(oldest);}return token;
@@ -46,13 +48,13 @@ const snippetState=StateField.define<SnippetSession|null>({
   if(tr.docChanged&&tr.newDoc.toString()!==session.source||tr.newSelection.ranges.length!==1)return null;
   if(tr.docChanged&&!explicit)return null;
   if(tr.selection){
-   const current=session,selected=tr.newSelection.main,candidates=current.fields.filter(field=>field.index>0&&field.from<=selected.from&&field.to>=selected.to);
+   const current=session,selected=tr.newSelection.main;if(computedSnippetInput(current,selected.from,selected.to))return null;const candidates=current.fields.filter(field=>!field.transform&&field.index>0&&field.from<=selected.from&&field.to>=selected.to);
    const same=candidates.find(field=>field.id===current.current),next=same??candidates.sort((a,b)=>(a.to-a.from)-(b.to-b.from))[0];
    if(!next)return null;if(next.index!==current.active||next.id!==current.current)session={...current,active:next.index,current:next.id!};
   }
   return session;
  },
- provide:field=>EditorView.decorations.from(field,session=>Decoration.set((session?.fields??[]).filter(field=>field.index>0&&field.from<field.to).map(field=>Decoration.mark({class:field.index===session!.active?'simple-snippet-field active':'simple-snippet-field'}).range(field.from,field.to)),true)),
+ provide:field=>EditorView.decorations.from(field,session=>Decoration.set((session?.fields??[]).filter(field=>field.index>0&&field.from<field.to).map(field=>Decoration.mark({class:!field.transform&&field.index===session!.active?'simple-snippet-field active':'simple-snippet-field'}).range(field.from,field.to)),true)),
 });
 export function sourceSnippetEffect(draft:CompletionDraft,after:string){return setSourceSnippet.of(draft.continuing??beginSnippet(after,draft.fields));}
 export function continueSourceSnippetCompletion(view:EditorView,draft:CompletionDraft):CompletionDraft {
@@ -66,7 +68,7 @@ export function finishSourceSnippet(view:EditorView):boolean {if(!readSourceSnip
 export function moveSourceSnippet(view:EditorView,direction:1|-1):boolean {
  const session=readSourceSnippet(view);if(!session||view.composing)return false;
  const selected=view.state.selection.main,result=advanceSnippet(session,view.state.doc.toString(),selected.from,selected.to,direction);
- if(!result){if(direction===-1&&session.active===(session.scopes?.at(-1)?.order[0]??Math.min(...session.fields.filter(field=>field.index>0).map(field=>field.index))))return true;finishSourceSnippet(view);return false;}
+ if(!result){if(direction===-1&&session.active===(session.scopes?.at(-1)?.order[0]??Math.min(...session.fields.filter(field=>!field.transform&&field.index>0).map(field=>field.index))))return true;finishSourceSnippet(view);return false;}
  closeCompletion(view);view.dispatch({selection:{anchor:result.selection.from,head:result.selection.to},effects:setSourceSnippet.of(result.session),scrollIntoView:true,userEvent:'select.snippet'});return true;
 }
 export function sourceSnippets(adapter:{writable:()=>boolean;notice:(message:string)=>void}):Extension {
@@ -93,7 +95,7 @@ export function sourceSnippets(adapter:{writable:()=>boolean;notice:(message:str
   EditorState.transactionFilter.of(tr=>{
    const session=tr.startState.field(snippetState);if(!session||!tr.docChanged||tr.effects.some(effect=>effect.is(setSourceSnippet))||!['input.type','input.paste','input.drop','input.complete','delete'].some(event=>tr.isUserEvent(event))||tr.startState.selection.ranges.length!==1||!adapter.writable()||tr.startState.readOnly||!tr.startState.facet(EditorView.editable))return tr;
    const changes:{from:number;to:number;text:string}[]=[];tr.changes.iterChanges((from,to,_a,_b,text)=>changes.push({from,to,text:text.toString()}));if(changes.length!==1)return tr;
-   const changed=changes[0],plan=editSnippet(session,tr.startState.doc.toString(),changed.from,changed.to,changed.text);if(!plan)return tr;
+   const changed=changes[0];if(computedSnippetInput(session,changed.from,changed.to))return tr;const plan=editSnippet(session,tr.startState.doc.toString(),changed.from,changed.to,changed.text);if(!plan)return tr;
    const edits=plan.edits.map(edit=>({from:edit.from,to:edit.to,insert:edit.text})),prepared=prepareEditorChanges(session.source,edits);if('reason' in prepared||prepared.expected!==plan.session.source)return tr;
    const complete=tr.startState.changes(edits);if(complete.apply(tr.startState.doc).toString()!==plan.session.source)return tr;
    const additional=tr.changes.invert(tr.startState.doc).compose(complete),selected=tr.newSelection.main,end=changed.from+changed.text.length;
@@ -109,4 +111,4 @@ export function sourceSnippets(adapter:{writable:()=>boolean;notice:(message:str
   EditorView.baseTheme({'.simple-snippet-field':{outline:'1px dotted color-mix(in srgb,currentColor 30%,transparent)',outlineOffset:'1px'},'.simple-snippet-field.active':{backgroundColor:'color-mix(in srgb,currentColor 8%,transparent)'}}),
  ];
 }
-export function openSourceSnippetChoices(view:EditorView):boolean {const session=readSourceSnippet(view);if(!session?.fields.some(field=>field.index===session.active&&field.choices.length))return false;return startCompletion(view);}
+export function openSourceSnippetChoices(view:EditorView):boolean {const session=readSourceSnippet(view);if(!session?.fields.some(field=>!field.transform&&field.index===session.active&&field.choices.length))return false;return startCompletion(view);}

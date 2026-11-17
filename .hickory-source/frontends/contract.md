@@ -1718,8 +1718,34 @@ with their explicitly environment-dependent live cases executed separately. The
 actual browser, macOS and Android restart flows each read the original sealed
 proposal beside a current dirty editor, disable Apply, retain editor identity and
 geometry or native state, preserve Undo and leave saved source unchanged. The
-macOS build passes. These receipts do not establish native physical input,
+macOS and iOS simulator product builds pass. These receipts do not establish native physical input,
 assistive technology or device interaction acceptance. Other open parity rows
 remain required.
+
+## Prepare common snippet transformation and computed-field models
+
+The shared engine and three host models now have bounded transformation programs,
+Unicode16 case/word/fold data and version2 computed-field descriptors. Field edits
+recompute dependent text as one proposal; computed text is excluded from field
+traversal, and direct edits inside it retire linked intent while ordinary host
+input remains available. Native and browser undo retain the linked session with
+its exact text history. Version1 clients refuse computed descriptors, including
+ones whose initial text happens to equal a normal field. Cycles, malformed
+programs and shared work budgets refuse without partial edits.
+
+This is infrastructure and editor integration evidence, not completion of general
+snippet syntax. The production parser still refuses transforms; source-bound
+variable contexts, resolver/template integration, multi-caret templates and
+mirrored native IME remain required. Frozen Unicode data avoids host locale and
+OS version differences without making a claim of language-provider completeness.
+
+Executed focused checks: browser83 case/transform/derived/compatibility checks and
+16 interaction checks; Rust5 transformation cases covering32 shared vectors and
+one case-table test covering13 vectors; macOS21 tests across the new models and
+existing expansion/session/completion/editor interaction paths. The computed-field
+AppKit interaction test uses actual native edit/history. Android20 focused tests
+pass with no skips, including computed input and Compose controller history. The iOS simulator product
+build passes. Physical input, assistive technology and device IME acceptance remain
+unverified.
 
 </ui:doc>

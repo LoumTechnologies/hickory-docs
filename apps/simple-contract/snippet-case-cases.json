@@ -1,0 +1,76 @@
+{
+  "version": 1,
+  "case_map": "hickory-ucd-16.0.0-v1",
+  "cases": [
+    {
+      "value": "ΟΣ",
+      "mode": "lower",
+      "expected": "ος"
+    },
+    {
+      "value": "ΟΣΑ",
+      "mode": "lower",
+      "expected": "οσα"
+    },
+    {
+      "value": "ΌΣ",
+      "mode": "lower",
+      "expected": "ός"
+    },
+    {
+      "value": "ΟΣ́",
+      "mode": "lower",
+      "expected": "ος́"
+    },
+    {
+      "value": "Σ",
+      "mode": "lower",
+      "expected": "σ"
+    },
+    {
+      "value": "AΣ'A",
+      "mode": "lower",
+      "expected": "aσ'a"
+    },
+    {
+      "value": "AΣ!",
+      "mode": "lower",
+      "expected": "aς!"
+    },
+    {
+      "value": "İ",
+      "mode": "lower",
+      "expected": "i̇"
+    },
+    {
+      "value": "ßﬃ",
+      "mode": "upper",
+      "expected": "SSFFI"
+    },
+    {
+      "value": "ıſK",
+      "mode": "upper",
+      "expected": "ISK"
+    },
+    {
+      "value": "Ꭰꭰ",
+      "mode": "lower",
+      "expected": "ꭰꭰ"
+    },
+    {
+      "value": "𐐨",
+      "mode": "upper",
+      "expected": "𐐀"
+    }
+  ],
+  "words": [
+    {
+      "value": "é𐐀_123-名",
+      "expected": [
+        "é𐐀",
+        "123",
+        "名"
+      ]
+    }
+  ]
+}

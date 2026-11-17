@@ -198,10 +198,12 @@ pub use service::service;
 
 ## Share snippet plans with host-facing engine services
 
-The parser returns text and editable positions without borrowing an editor or choosing a provider. Export this mechanism so completion and template services can use one implementation while hosts retain source and undo authority.
+The parser returns text and editable positions without borrowing an editor or choosing a provider. Export this mechanism so completion and template services can use one implementation while hosts retain source and undo authority. The separate bounded transform module compiles data-only programs and exposes its focused safety witnesses; exporting it alone does not enable transform syntax in completion or template editing.
 
 <storycode:copy id="snippet-plan-public-module">
 pub mod snippet;
+pub mod snippet_transform;
+pub mod snippet_case;
 </storycode:copy>
 
 <storycode:file path="crates/hick-lsp/src/lib.rs"><storycode:paste select="#f-e8bff405197e-backend"/><storycode:paste select="#f-e8bff405197e-child_lsp"/><storycode:paste select="#f-e8bff405197e-discovery"/><storycode:paste select="#f-e8bff405197e-dispatcher"/><storycode:paste select="#f-e8bff405197e-document"/><storycode:paste select="#f-e8bff405197e-element_lint"/><storycode:paste select="#f-e8bff405197e-lang_detect"/><storycode:paste select="#f-e8bff405197e-location_map"/><storycode:paste select="#f-e8bff405197e-project_contexts"/><storycode:paste select="#f-e8bff405197e-use_declaration"/><storycode:paste select="#f-e8bff405197e-position_map"/><storycode:paste select="#f-e8bff405197e-project"/><storycode:paste select="#f-e8bff405197e-project_environment"/><storycode:paste select="#f-e8bff405197e-project_positions"/><storycode:paste select="#f-e8bff405197e-semantic"/><storycode:paste select="#f-e8bff405197e-server_config"/><storycode:paste select="#f-e8bff405197e-session_lint"/><storycode:paste select="#f-e8bff405197e-staging"/><storycode:paste select="#f-e8bff405197e-structural"/><storycode:paste select="#f-e8bff405197e-virtual_file"/><storycode:paste select="#f-e8bff405197e-use_declaration-2"/><storycode:paste select="#f-e8bff405197e-use_declaration-3"/><storycode:paste select="#f-e8bff405197e-use_declaration-4"/><storycode:paste select="#provider-artifact-mechanism-modules"/><storycode:paste select="#type-hierarchy-service-module"/><storycode:paste select="#snippet-plan-public-module"/></storycode:file>

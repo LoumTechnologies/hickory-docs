@@ -11,6 +11,7 @@ func snippetMetadataCost(_ fields:[SnippetField])->Int? {
         guard field.choices.count<=4096 else{return nil}
         let floor=64+32*field.choices.count
         guard floor<=1048576-bytes else{return nil};bytes+=floor
+        if let transform=field.transform{guard transform.bytes>=0,transform.bytes<=1048576-bytes else{return nil};bytes+=transform.bytes}
         for choice in field.choices{let size=choice.utf8.count;guard size<=1048576-bytes else{return nil};bytes+=size}
     }
     return bytes
@@ -29,13 +30,14 @@ func beginSnippet(_ source:String,fields:[SnippetField])->SnippetSession? {
     for field in fields{var chain:Set<Int>=[],next:SnippetField?=field
         while let value=next,!visited.contains(value.id!){guard chain.insert(value.id!).inserted else{return nil};guard let identity=value.parent else{break};guard let parent=ids[identity],parent.from<=value.from,parent.to>=value.to else{return nil};next=parent};visited.formUnion(chain)
     }
-    guard let active=fields.map({$0.index}).filter({$0>0}).min(),let first=fields.first(where:{$0.index==active}) else{return nil}
+    if fields.contains(where:{$0.transform != nil}){guard (try? validateSnippetMirrors(source,fields)) != nil else{return nil}}
+    guard let active=fields.filter({$0.transform==nil}).map({$0.index}).filter({$0>0}).min(),let first=fields.first(where:{$0.transform==nil&&$0.index==active}) else{return nil}
     return SnippetSession(source:source,fields:fields,active:active,current:first.id!)
 }
 func advanceSnippet(_ session:SnippetSession,source:String,from:Int,to:Int,direction:Int)->SnippetAdvance? {
-    guard snippetMetadataCost(session.fields) != nil,exactUTF8(source,session.source),from<=to,(direction==1||direction == -1),session.fields.contains(where:{$0.index==session.active&&$0.from<=from&&$0.to>=to}) else{return nil}
-    let scope=session.scopes.last,order=scope.map{$0.order+[$0.exitIndex]} ?? (Array(Set(session.fields.map{$0.index}.filter{$0>0})).sorted()+[0])
-    guard let at=order.firstIndex(of:session.active),order.indices.contains(at+direction),let field=session.fields.first(where:{$0.index==order[at+direction]}) else{return nil}
+    guard snippetMetadataCost(session.fields) != nil,exactUTF8(source,session.source),from<=to,(direction==1||direction == -1),session.fields.contains(where:{$0.transform==nil&&$0.index==session.active&&$0.from<=from&&$0.to>=to}) else{return nil}
+    let scope=session.scopes.last,order=scope.map{$0.order+[$0.exitIndex]} ?? (Array(Set(session.fields.filter{$0.transform==nil}.map{$0.index}.filter{$0>0})).sorted()+[0])
+    guard let at=order.firstIndex(of:session.active),order.indices.contains(at+direction),let field=session.fields.first(where:{$0.transform==nil&&$0.index==order[at+direction]}) else{return nil}
     if let scope,field.index==scope.exitIndex{guard let exit=session.fields.first(where:{$0.id==scope.exitId}) else{return nil};var resumed=session;resumed.fields.removeAll{scope.order.contains($0.index)||$0.index==scope.exitIndex};resumed.active=scope.outerActive;resumed.current=scope.outerCurrent;resumed.scopes.removeLast();return SnippetAdvance(session:resumed,selection:CompletionSelection(from:exit.from,to:exit.to))}
     var next=session;next.active=field.index;next.current=field.id!
     return SnippetAdvance(session:field.index==0 ? nil:next,selection:CompletionSelection(from:field.from,to:field.to))
@@ -43,6 +45,7 @@ func advanceSnippet(_ session:SnippetSession,source:String,from:Int,to:Int,direc
 
 private struct SnippetReplacement {var from:Int;var to:Int;var text:String;var owners:[Int]}
 func editSnippet(_ session:SnippetSession,source:String,from:Int,to:Int,text:String)->SnippetInput? {
+    if session.fields.contains(where:{$0.transform != nil}){return editDerivedSnippet(session,source:source,from:from,to:to,text:text)}
     let original=source as NSString
     guard snippetMetadataCost(session.fields) != nil,exactUTF8(source,session.source),from<=to,snippetScalar(original,from),snippetScalar(original,to),session.active != 0 else{return nil}
     func terminal(_ field:SnippetField)->Bool{field.index==0 || session.scopes.contains(where:{$0.exitIndex==field.index})}
@@ -109,8 +112,8 @@ func nestSnippet(_ session:SnippetSession,source:String,primary:SourceReplacemen
     guard session.scopes.count<32,!inner.isEmpty,let innerCost=snippetMetadataCost(inner),let exit=inner.first(where:{$0.index==0}) else{return nil}
     let parsed=beginSnippet(primary.text,fields:inner);guard parsed != nil || (inner.count==1 && exit.id != nil && exit.parent==nil && exit.from==exit.to && snippetScalar(primary.text as NSString,exit.from)) else{return nil}
     guard let origin=session.fields.first(where:{$0.id==session.current&&$0.from<=primary.from&&$0.to>=primary.to}),let input=completeSnippet(session,source:source,primary:primary,additional:additional) else{return nil}
-    let parents=input.session.fields.filter{$0.index==session.active};guard let current=parents.first(where:{$0.id==input.session.current}) else{return nil}
-    let relative=primary.from-origin.from,order=Array(Set(inner.filter{$0.index>0}.map{$0.index})).sorted()
+    let parents=input.session.fields.filter{$0.transform==nil&&$0.index==session.active};guard let current=parents.first(where:{$0.id==input.session.current}) else{return nil}
+    let relative=primary.from-origin.from,order=Array(Set(inner.filter{$0.transform==nil&&$0.index>0}.map{$0.index})).sorted()
     if order.isEmpty{var result=input;let caret=current.from+relative+exit.from;result.selection=CompletionSelection(from:caret,to:caret);return result}
     // Reserve the complete mirror fanout before appending any nested fields.
     guard input.session.fields.count+parents.count*inner.count<=4096,let retainedCost=snippetMetadataCost(input.session.fields),parents.count<=(1048576-retainedCost)/innerCost else{return nil}
@@ -126,4 +129,53 @@ func nestSnippet(_ session:SnippetSession,source:String,primary:SourceReplacemen
     guard beginSnippet(input.session.source,fields:fields) != nil,let selected=fields.first(where:{$0.id==currentId}) else{return nil}
     let scope=SnippetScope(order:order.map{indices[$0]!},exitIndex:indices[0]!,exitId:exitId,outerActive:session.active,outerCurrent:input.session.current)
     var result=input;result.session.fields=fields;result.session.active=scope.order[0];result.session.current=currentId;result.session.scopes.append(scope);result.selection=CompletionSelection(from:selected.from,to:selected.to);return result
+}
+private struct DerivedSnippetPart {var from:Int;var to:Int;var text:String;var owner:Int}
+private struct DerivedSnippetSpan {var owner:Int;var from:Int;var to:Int}
+private struct DerivedSnippetReplacement {var from:Int;var to:Int;var text:String;var spans:[DerivedSnippetSpan]}
+private func editDerivedSnippet(_ session:SnippetSession,source:String,from:Int,to:Int,text:String)->SnippetInput? {
+ let original=source as NSString
+ guard exactUTF8(source,session.source),from<=to,snippetScalar(original,from),snippetScalar(original,to),session.active>0,snippetMetadataCost(session.fields) != nil else{return nil}
+ do {
+  var budget=SnippetTransformBudget();_ = try validateSnippetMirrors(source,session.fields,budget:&budget)
+  let fields=session.fields;var ids:[Int:SnippetField]=[:],ordinals:[Int:Int]=[:];for(index,field)in fields.enumerated(){guard let id=field.id else{return nil};ids[id]=field;ordinals[id]=index}
+  func ancestors(_ parent:Int,_ child:Int)->Bool{var next=ids[child],steps=0;while let value=next,steps<=fields.count{if value.id==parent{return true};next=value.parent.flatMap{ids[$0]};steps+=1};return false}
+  func terminal(_ field:SnippetField)->Bool{field.index==0 || session.scopes.contains{$0.exitIndex==field.index}}
+  let occurrences=fields.filter{$0.transform==nil && $0.index==session.active},matches=occurrences.filter{$0.from<=from && $0.to>=to}
+  guard let origin=matches.first(where:{$0.id==session.current}) ?? matches.first,text.utf8.count<=1048576/Swift.max(occurrences.count,1) else{return nil}
+  let before=original.substring(with:NSRange(location:origin.from,length:origin.to-origin.from)),relativeFrom=from-origin.from,relativeTo=to-origin.from
+  guard occurrences.allSatisfy({exactUTF8(original.substring(with:NSRange(location:$0.from,length:$0.to-$0.from)),before)}) else{return nil}
+  let beforeText=before as NSString
+  if exactUTF8(beforeText.substring(to:relativeFrom)+text+beforeText.substring(from:relativeTo),before){var next=session;next.current=origin.id!;return SnippetInput(session:next,edits:[],selection:CompletionSelection(from:from+text.utf16.count,to:from+text.utf16.count))}
+  var retained=fields.filter{field in terminal(field) || field.index==session.active ||  !occurrences.contains{ancestors($0.id!,field.id!)}}
+  let ordinary=Set(retained.filter{$0.transform==nil}.map(\.index));retained=retained.filter{$0.transform==nil || ordinary.contains($0.index)};let retainedIDs=Set(retained.map{$0.id!})
+  retained=retained.map{field in var value=field,parent=field.parent;while let id=parent,!retainedIDs.contains(id){parent=ids[id]?.parent};value.parent=parent;return value}
+  var parts=occurrences.map{DerivedSnippetPart(from:$0.from+relativeFrom,to:$0.from+relativeTo,text:text,owner:$0.id!)};var payload=parts.reduce(0){$0+$1.text.utf8.count}
+  guard parts.allSatisfy({snippetScalar(original,$0.from) && snippetScalar(original,$0.to)}) else{return nil}
+  func compare(_ a:DerivedSnippetPart,_ b:DerivedSnippetPart)->Bool{if a.from != b.from{return a.from<b.from};if a.to != b.to{return a.to<b.to};return ordinals[a.owner]!<ordinals[b.owner]!}
+  func projected(_ field:SnippetField)throws->String{let edits=parts.filter{ancestors(field.id!,$0.owner)}.sorted(by:compare);guard edits.allSatisfy({$0.from>=field.from && $0.to<=field.to}) else{throw EngineError(message:"Computed source edit escapes its parent")};var value=original.substring(with:NSRange(location:field.from,length:field.to-field.from));for edit in edits.reversed(){let source=value as NSString;value=source.substring(to:edit.from-field.from)+edit.text+source.substring(from:edit.to-field.from)};return value}
+  var expected:[Int:String]=[:]
+  let dependencyOrder=try snippetTransformOrder(retained)
+  for index in dependencyOrder {
+   let mirrors:[SnippetField]=retained.filter{$0.transform==nil  &&  $0.index==index}
+   let computed:[SnippetField]=retained.filter{$0.transform != nil  &&  $0.index==index}
+   if computed.isEmpty{continue}
+   let value=try projected(mirrors[0])
+   for field in mirrors {let mirrored=try projected(field);guard exactUTF8(mirrored,value) else{return nil}}
+   for field in computed {
+    let result=try applySnippetTransform(field.transform!,value,budget:&budget);expected[field.id!]=result
+    let oldValue=original.substring(with:NSRange(location:field.from,length:field.to-field.from))
+    if !exactUTF8(result,oldValue){payload+=result.utf8.count;guard payload<=1048576 else{return nil};parts.append(DerivedSnippetPart(from:field.from,to:field.to,text:result,owner:field.id!))}
+   }
+  }
+  var replacements:[DerivedSnippetReplacement]=[],at=0;let sorted=parts.sorted(by:compare)
+  while at<sorted.count{let start=sorted[at].from;var group:[DerivedSnippetPart]=[];while at<sorted.count,sorted[at].from==start{group.append(sorted[at]);at+=1};guard group.filter({$0.to>$0.from}).count<=1 else{return nil};group.sort{ordinals[$0.owner]!<ordinals[$1.owner]!};var edit=DerivedSnippetReplacement(from:start,to:group.map(\.to).max()!,text:"",spans:[]);for part in group{let offset=edit.text.utf16.count;edit.text+=part.text;edit.spans.append(DerivedSnippetSpan(owner:part.owner,from:offset,to:edit.text.utf16.count))};guard replacements.last.map({$0.to<=start}) ?? true else{return nil};replacements.append(edit)}
+  let changed=NSMutableString(string:source);for edit in replacements.reversed(){changed.replaceCharacters(in:NSRange(location:edit.from,length:edit.to-edit.from),with:edit.text)};let after=changed as String
+  func map(_ field:SnippetField,_ position:Int,_ end:Bool)->Int{var delta=0;for edit in replacements{if position<edit.from{break};if position>edit.to || position==edit.to && edit.from<edit.to{delta+=edit.text.utf16.count-(edit.to-edit.from);continue};let related=edit.spans.filter{ancestors(field.id!,$0.owner)};if let first=related.first,let last=related.last{return edit.from+delta+(end ? last.to:first.from)};let enclosing=edit.spans.filter{terminal(field) && ancestors($0.owner,field.id!)};if let last=enclosing.last{return edit.from+delta+last.to};return edit.from+delta+edit.spans.filter{ordinals[$0.owner]!<ordinals[field.id!]!}.reduce(0){$0+$1.to-$1.from}};return position+delta}
+  let updated=retained.map{field in var value=field;value.from=map(field,field.from,false);value.to=map(field,field.to,true);return value},afterText=after as NSString
+  guard updated.allSatisfy({$0.from<=$0.to && snippetScalar(afterText,$0.from) && snippetScalar(afterText,$0.to)}) else{return nil}
+  var groups:[Int:String]=[:];for field in updated{let value=afterText.substring(with:NSRange(location:field.from,length:field.to-field.from));if field.transform != nil{guard let wanted=expected[field.id!],exactUTF8(value,wanted) else{return nil}}else{if let previous=groups[field.index],!exactUTF8(previous,value){return nil};groups[field.index]=value}}
+  let caret=map(origin,from,false)+text.utf16.count
+  return SnippetInput(session:SnippetSession(source:after,fields:updated,active:session.active,current:origin.id!,scopes:session.scopes),edits:replacements.map{NativeSourceEdit(range:NSRange(location:$0.from,length:$0.to-$0.from),text:$0.text)},selection:CompletionSelection(from:caret,to:caret))
+ }catch{return nil}
 }

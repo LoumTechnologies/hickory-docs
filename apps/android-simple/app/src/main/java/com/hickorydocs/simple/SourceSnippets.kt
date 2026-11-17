@@ -4,13 +4,14 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.text.TextRange
+private fun computedSnippetInput(session:SnippetSession,from:Int,to:Int)=session.fields.any{field->field.transform!=null&&field.from<field.to&&field.from<=from&&to<=field.to&&(from<to||from>field.from&&from<field.to)}
 // Charge actual retained vector slots, including empty alternatives. Stop at
 // budget+1 before retaining a context; the journal owns source text separately.
 internal fun snippetHistoryCost(context:SnippetSession?,budget:Long=32L*1024*1024):Long {
  if(context==null)return 0
  val cap=budget+1;var bytes=0L
  fun add(value:Long):Boolean {if(value<0||value>budget-bytes){bytes=cap;return false};bytes+=value;return true}
- for(field in context.fields){if(!add(64L)||field.choices.size>4096||!add(32L*field.choices.size))return cap;for(choice in field.choices)if(!add(2L*choice.length))return cap}
+ for(field in context.fields){if(!add(64L)||!add(field.transform?.bytes?.toLong()?:0L)||field.choices.size>4096||!add(32L*field.choices.size))return cap;for(choice in field.choices)if(!add(2L*choice.length))return cap}
  for(scope in context.scopes)if(!add(64L)||!add(8L*scope.order.size))return cap
  return bytes
 }
@@ -63,12 +64,12 @@ class SourceSnippetController(private val buffer:DocumentBuffer) {
  fun sourceChanged(source:String){if(value?.source?.let{it!=source}==true)finish()}
  fun move(direction:Int):Boolean {
   val current=active ?: return false;if(buffer.state.composition!=null)return false;val selection=buffer.state.selection
-  val next=advanceSnippet(current,buffer.text,selection.min,selection.max,direction) ?: return if(direction == -1&&current.active==(current.scopes.lastOrNull()?.order?.firstOrNull() ?: current.fields.map{it.index}.filter{it>0}.minOrNull()))true else finish().let{false}
+  val next=advanceSnippet(current,buffer.text,selection.min,selection.max,direction) ?: return if(direction == -1&&current.active==(current.scopes.lastOrNull()?.order?.firstOrNull() ?: current.fields.filter{it.transform==null}.map{it.index}.filter{it>0}.minOrNull()))true else finish().let{false}
   val previous=value;stage(next.session)
   if(!buffer.selectSourceRange(next.selection.from,next.selection.to,current.source)){stage(previous);return false};publish(next.session);return true
  }
  fun proposal(source:String,from:Int,to:Int,text:String,caret:Int?=null):SnippetInput? {
-  val current=active ?: return null;if(buffer.readOnly||buffer.saving||source!=buffer.text||buffer.multiRanges.size>1)return null
+  val current=active ?: return null;if(buffer.readOnly||buffer.saving||source!=buffer.text||buffer.multiRanges.size>1||computedSnippetInput(current,from,to))return null
   val input=editSnippet(current,source,from,to,text) ?: return null
   if(caret==null)return input;if(caret !in from..(from+text.length))return null;val selected=input.selection.from+caret-(from+text.length);return input.copy(selection=CompletionSelection(selected,selected))
  }

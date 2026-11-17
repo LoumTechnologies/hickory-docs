@@ -8,6 +8,8 @@ import {completions} from '../lsp/completion';
 import {beginSnippet} from './SnippetSession';
 import {sourceSnippets,setSourceSnippet,readSourceSnippet,moveSourceSnippet,openSourceSnippetChoices,dispatchSourceSnippetTransactions,createSourceSnippetHistory} from './SourceSnippets';
 import type {SnippetField} from './SnippetExpansion';
+import derived from '../../../simple-contract/snippet-derived-cases.json';
+import {readSnippetTransform} from './SnippetTransform';
 import {acceptSourceCompletion} from './SourceCompletion';
 import {readCompletionAcceptance} from '../lsp/completionAcceptance';
 import type {CompletionItem} from '../lsp/client';
@@ -92,3 +94,15 @@ it('coincident empty mirrors preserve every occurrence in actual editor input',(
 });
 it('charges empty alternative overhead before retaining bounded snippet history',()=>{const cache=createSourceSnippetHistory(400),fields=[field(0,1,0,1,['','','','']),field(1,0,1,1)],session=beginSnippet('a',fields)!,snapshot={source:'a',session,selection:EditorState.create({doc:'a'}).selection};const first=cache.hold(snapshot),second=cache.hold(snapshot);expect(cache.read(first)).toBeUndefined();expect(cache.read(second)?.session?.fields[0].choices).toHaveLength(4);const oversized={...snapshot,session:beginSnippet('a',[field(0,1,0,1,Array<string>(16).fill('')),field(1,0,1,1)])!},rejected=cache.hold(oversized);expect(cache.read(rejected)).toBeUndefined();expect(cache.read(second)).toBeDefined();});
 it('bounds empty no-session history by both fixed token cost and entry capacity',()=>{const snapshot={source:'',session:null,selection:EditorState.create().selection},count=createSourceSnippetHistory(400,2),a=count.hold(snapshot),b=count.hold(snapshot),c=count.hold(snapshot);expect(count.read(a)).toBeUndefined();expect(count.read(b)).toBeDefined();expect(count.read(c)).toBeDefined();const bytes=createSourceSnippetHistory(250),first=bytes.hold(snapshot),last=bytes.hold(snapshot);expect(bytes.read(first)).toBeUndefined();expect(bytes.read(last)).toBeDefined();});
+
+it('computed input is one editor history action with exact source and selection replay',()=>{
+ const transform=readSnippetTransform(derived.programs.upper),fields=[field(0,1,0,3),{...field(1,1,4,7),transform},field(2,0,7,7)],{view,close}=fixture('foo FOO',fields);
+ try{view.dispatch({changes:{from:0,to:3,insert:'λ😀'},selection:{anchor:3},userEvent:'input.type'});expect(view.state.doc.toString()).toBe('λ😀 Λ😀');expect(view.state.selection.main.head).toBe(3);expect(readSourceSnippet(view)?.fields.find(field=>field.transform)?.to).toBe(7);expect(undo(view)).toBe(true);expect(view.state.doc.toString()).toBe('foo FOO');expect(readSourceSnippet(view)).not.toBeNull();expect(redo(view)).toBe(true);expect(view.state.doc.toString()).toBe('λ😀 Λ😀');expect(view.state.selection.main.head).toBe(3);}finally{close()}
+});
+it('computed child selection retires linked intent and leaves ordinary parent input authoritative',()=>{
+ const transform=readSnippetTransform(derived.programs.upper),fields=[field(0,1,0,7),{...field(1,2,0,3),parent:0},{...field(2,2,4,7),parent:0,transform},field(3,1,10,17),{...field(4,2,10,13),parent:3},{...field(5,2,14,17),parent:3,transform},field(6,0,17,17)],{view,close}=fixture('foo FOO | foo FOO',fields);
+ try{expect(readSourceSnippet(view)).not.toBeNull();view.dispatch({selection:{anchor:4,head:7}});expect(readSourceSnippet(view)).toBeNull();view.dispatch({changes:{from:4,to:7,insert:'bar'},selection:{anchor:7},userEvent:'input.type'});expect(view.state.doc.toString()).toBe('foo bar | foo FOO');expect(undo(view)).toBe(true);expect(view.state.doc.toString()).toBe('foo FOO | foo FOO');expect(readSourceSnippet(view)).toBeNull();}finally{close()}
+});
+it('computed program storage is charged before retaining or evicting editor history',()=>{
+ const history=createSourceSnippetHistory(200),selection=EditorState.create().selection,token=history.hold({source:'',session:null,selection});const transform=readSnippetTransform(derived.programs.upper),session=beginSnippet('foo FOO',[field(0,1,0,3),{...field(1,1,4,7),transform},field(2,0,7,7)]);expect(session).not.toBeNull();const oversized=history.hold({source:'foo FOO',session,selection});expect(history.read(oversized)).toBeUndefined();expect(history.read(token)).toBeDefined();
+});

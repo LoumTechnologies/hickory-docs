@@ -369,4 +369,8 @@ is included with that control; opening a document is not generation authority.
 
 <storycode:include file="agent-proposal-persistence.md" />
 
+<storycode:include file="snippet-transforms.md" />
+<storycode:include file="snippet-derived-acceptance.md" />
+<storycode:include file="snippet-case-policy.md" />
+
 </storycode:doc>

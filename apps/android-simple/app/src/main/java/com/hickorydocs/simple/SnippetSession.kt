@@ -9,6 +9,7 @@ private fun snippetScalar(text:String,at:Int):Boolean=at in 0..text.length&&!(at
 internal fun snippetMetadataCost(fields:List<SnippetField>,budget:Long=1048576L):Long? {
  if(fields.size>4096)return null;var bytes=0L
  for(field in fields){if(field.choices.size>4096)return null;val floor=64L+32L*field.choices.size;if(floor>budget-bytes)return null;bytes+=floor
+  val transform=field.transform;if(transform!=null){if(transform.bytes<0||transform.bytes.toLong()>budget-bytes)return null;bytes+=transform.bytes}
   for(choice in field.choices){if(choice.length.toLong()>budget-bytes)return null;val payload=choice.toByteArray(Charsets.UTF_8).size.toLong();if(payload>budget-bytes)return null;bytes+=payload}
  }
  return bytes
@@ -19,17 +20,19 @@ fun beginSnippet(source:String,fields:List<SnippetField>):SnippetSession? {
  for(field in fields){val chain=mutableSetOf<Int>();var next:SnippetField?=field
   while(next!=null&&!visited.contains(next.id!!)){val value=next;if(!chain.add(value.id!!))return null;val identity=value.parent ?: break;val parent=ids[identity] ?: return null;if(parent.from>value.from||parent.to<value.to)return null;next=parent};visited.addAll(chain)
  }
- val active=fields.map{it.index}.filter{it>0}.minOrNull() ?: return null;return SnippetSession(source,fields.map{it.copy(choices=it.choices.toList())},active,fields.first{it.index==active}.id!!)
+ if(fields.any{it.transform!=null}&&runCatching{validateSnippetMirrors(source,fields)}.isFailure)return null
+ val active=fields.filter{it.transform==null}.map{it.index}.filter{it>0}.minOrNull() ?: return null;return SnippetSession(source,fields.map{it.copy(choices=it.choices.toList())},active,fields.first{it.transform==null&&it.index==active}.id!!)
 }
 fun advanceSnippet(session:SnippetSession,source:String,from:Int,to:Int,direction:Int):SnippetAdvance? {
- if(source!=session.source||from>to||direction!=1&&direction != -1||session.fields.none{it.index==session.active&&it.from<=from&&it.to>=to})return null
- val scope=session.scopes.lastOrNull();val order=scope?.let{it.order+it.exitIndex} ?: (session.fields.map{it.index}.filter{it>0}.distinct().sorted()+0);val at=order.indexOf(session.active);val next=at+direction;if(at<0||next !in order.indices)return null
+ if(source!=session.source||from>to||direction!=1&&direction != -1||session.fields.none{it.transform==null&&it.index==session.active&&it.from<=from&&it.to>=to})return null
+ val scope=session.scopes.lastOrNull();val order=scope?.let{it.order+it.exitIndex} ?: (session.fields.filter{it.transform==null}.map{it.index}.filter{it>0}.distinct().sorted()+0);val at=order.indexOf(session.active);val next=at+direction;if(at<0||next !in order.indices)return null
  if(scope!=null&&order[next]==scope.exitIndex){val field=session.fields.firstOrNull{it.id==scope.exitId} ?: return null;return SnippetAdvance(session.copy(fields=session.fields.filter{it.index !in scope.order&&it.index!=scope.exitIndex},active=scope.outerActive,current=scope.outerCurrent,scopes=session.scopes.dropLast(1)),CompletionSelection(field.from,field.to))}
- val field=session.fields.first{it.index==order[next]};return SnippetAdvance(if(field.index==0)null else session.copy(active=field.index,current=field.id!!),CompletionSelection(field.from,field.to))
+ val field=session.fields.first{it.transform==null&&it.index==order[next]};return SnippetAdvance(if(field.index==0)null else session.copy(active=field.index,current=field.id!!),CompletionSelection(field.from,field.to))
 }
 
 private data class SnippetReplacement(val from:Int,val to:Int,var text:String,val owners:MutableList<Int>)
 fun editSnippet(session:SnippetSession,source:String,from:Int,to:Int,text:String):SnippetInput? {
+ if(session.fields.any{it.transform!=null})return editDerivedSnippet(session,source,from,to,text)
  if(source!=session.source||from>to||!snippetScalar(source,from)||!snippetScalar(source,to)||session.active==0)return null
  fun terminal(field:SnippetField)=field.index==0||session.scopes.any{it.exitIndex==field.index}
  val fields=session.fields;val ids=fields.associateBy{it.id!!}
@@ -84,8 +87,8 @@ fun nestSnippet(session:SnippetSession,source:String,primary:SourceReplacement,a
  val innerBytes=snippetMetadataCost(inner) ?: return null
  val exit=inner.firstOrNull{it.index==0} ?: return null
  val origin=session.fields.firstOrNull{it.id==session.current&&it.from<=primary.from&&it.to>=primary.to} ?: return null
- val input=completeSnippet(session,source,primary,additional) ?: return null;val parents=input.session.fields.filter{it.index==session.active};val current=parents.firstOrNull{it.id==input.session.current} ?: return null
- val relative=primary.from-origin.from;val order=inner.filter{it.index>0}.map{it.index}.distinct().sorted()
+ val input=completeSnippet(session,source,primary,additional) ?: return null;val parents=input.session.fields.filter{it.transform==null&&it.index==session.active};val current=parents.firstOrNull{it.id==input.session.current} ?: return null
+ val relative=primary.from-origin.from;val order=inner.filter{it.transform==null&&it.index>0}.map{it.index}.distinct().sorted()
  if(order.isNotEmpty()){
   val retainedBytes=snippetMetadataCost(input.session.fields) ?: return null
   if(parents.isEmpty()||innerBytes>(1048576L-retainedBytes)/parents.size||input.session.fields.size.toLong()+parents.size.toLong()*inner.size>4096)return null
@@ -102,4 +105,34 @@ fun nestSnippet(session:SnippetSession,source:String,primary:SourceReplacement,a
  if(snippetMetadataCost(fields)==null||beginSnippet(input.session.source,fields)==null)return null
  val selected=fields.firstOrNull{it.id==currentId} ?: return null;val scope=SnippetScope(order.map{indices.getValue(it)},indices.getValue(0),exitId,session.active,input.session.current)
  return input.copy(session=input.session.copy(fields=fields,active=scope.order[0],current=currentId,scopes=input.session.scopes+scope),selection=CompletionSelection(selected.from,selected.to))
+}
+private data class DerivedSnippetPart(val from:Int,val to:Int,val text:String,val owner:Int)
+private data class DerivedSnippetSpan(val owner:Int,val from:Int,val to:Int)
+private data class DerivedSnippetReplacement(val from:Int,val to:Int,val text:String,val spans:List<DerivedSnippetSpan>)
+private fun editDerivedSnippet(session:SnippetSession,source:String,from:Int,to:Int,text:String):SnippetInput? {
+ if(source!=session.source||from>to||!snippetScalar(source,from)||!snippetScalar(source,to)||session.active==0||snippetMetadataCost(session.fields)==null)return null
+ return runCatching {
+  val budget=SnippetTransformBudget();validateSnippetMirrors(source,session.fields,budget)
+  val fields=session.fields;val ids=fields.associateBy{it.id!!};val ordinals=fields.mapIndexed{index,field->field.id!! to index}.toMap()
+  fun ancestors(parent:Int,child:Int):Boolean {var next=ids[child];var steps=0;while(next!=null&&steps<=fields.size){val value=next;if(value.id==parent)return true;next=value.parent?.let{ids[it]};steps++};return false}
+  fun terminal(field:SnippetField)=field.index==0||session.scopes.any{it.exitIndex==field.index}
+  val occurrences=fields.filter{it.transform==null&&it.index==session.active};val matches=occurrences.filter{it.from<=from&&it.to>=to};val origin=matches.firstOrNull{it.id==session.current}?:matches.firstOrNull()?:return null
+  if(text.toByteArray(Charsets.UTF_8).size>1048576/maxOf(occurrences.size,1))return null
+  val before=source.substring(origin.from,origin.to);val relativeFrom=from-origin.from;val relativeTo=to-origin.from;if(occurrences.any{source.substring(it.from,it.to)!=before})return null
+  if(before.substring(0,relativeFrom)+text+before.substring(relativeTo)==before)return SnippetInput(session.copy(current=origin.id!!),emptyList(),CompletionSelection(from+text.length,from+text.length))
+  var retained=fields.filter{field->terminal(field)||field.index==session.active||occurrences.none{ancestors(it.id!!,field.id!!)}};val ordinary=retained.filter{it.transform==null}.map{it.index}.toSet();retained=retained.filter{it.transform==null||it.index in ordinary};val retainedIDs=retained.map{it.id!!}.toSet()
+  retained=retained.map{field->var parent=field.parent;while(parent!=null&&parent !in retainedIDs)parent=ids[parent]?.parent;field.copy(parent=parent)}
+  val parts=occurrences.map{DerivedSnippetPart(it.from+relativeFrom,it.from+relativeTo,text,it.id!!)}.toMutableList();var payload=parts.sumOf{it.text.toByteArray(Charsets.UTF_8).size.toLong()};if(parts.any{!snippetScalar(source,it.from)||!snippetScalar(source,it.to)})return null
+  val compare=compareBy<DerivedSnippetPart>{it.from}.thenBy{it.to}.thenBy{ordinals.getValue(it.owner)}
+  fun projected(field:SnippetField):String {val edits=parts.filter{ancestors(field.id!!,it.owner)}.sortedWith(compare);check(edits.all{it.from>=field.from&&it.to<=field.to}){"Computed source edit escapes its parent"};var value=source.substring(field.from,field.to);for(edit in edits.reversed())value=value.substring(0,edit.from-field.from)+edit.text+value.substring(edit.to-field.from);return value}
+  val expected=mutableMapOf<Int,String>()
+  for(index in snippetTransformOrder(retained)){val mirrors=retained.filter{it.transform==null&&it.index==index};val computed=retained.filter{it.transform!=null&&it.index==index};if(computed.isEmpty())continue;val value=projected(mirrors.first());if(mirrors.any{projected(it)!=value})return null;for(field in computed){val result=applySnippetTransform(field.transform!!,value,budget);expected[field.id!!]=result;if(result!=source.substring(field.from,field.to)){payload+=result.toByteArray(Charsets.UTF_8).size;check(payload<=1048576){"Computed mirror fanout limit exceeded"};parts+=DerivedSnippetPart(field.from,field.to,result,field.id)}}}
+  val replacements=mutableListOf<DerivedSnippetReplacement>();val sorted=parts.sortedWith(compare);var at=0
+  while(at<sorted.size){val start=sorted[at].from;val group=mutableListOf<DerivedSnippetPart>();while(at<sorted.size&&sorted[at].from==start)group+=sorted[at++];if(group.count{it.to>it.from}>1)return null;group.sortBy{ordinals.getValue(it.owner)};var content="";val spans=mutableListOf<DerivedSnippetSpan>();for(part in group){val offset=content.length;content+=part.text;spans+=DerivedSnippetSpan(part.owner,offset,content.length)};if(replacements.lastOrNull()?.let{it.to>start}==true)return null;replacements+=DerivedSnippetReplacement(start,group.maxOf{it.to},content,spans.toList())}
+  var after=source;for(edit in replacements.reversed())after=after.substring(0,edit.from)+edit.text+after.substring(edit.to)
+  fun map(field:SnippetField,position:Int,end:Boolean):Int {var delta=0;for(edit in replacements){if(position<edit.from)break;if(position>edit.to||position==edit.to&&edit.from<edit.to){delta+=edit.text.length-(edit.to-edit.from);continue};val related=edit.spans.filter{ancestors(field.id!!,it.owner)};if(related.isNotEmpty())return edit.from+delta+if(end)related.last().to else related.first().from;val enclosing=edit.spans.filter{terminal(field)&&ancestors(it.owner,field.id!!)};if(enclosing.isNotEmpty())return edit.from+delta+enclosing.last().to;return edit.from+delta+edit.spans.filter{ordinals.getValue(it.owner)<ordinals.getValue(field.id!!)}.sumOf{it.to-it.from}};return position+delta}
+  val updated=retained.map{field->field.copy(from=map(field,field.from,false),to=map(field,field.to,true))};if(updated.any{it.from>it.to||!snippetScalar(after,it.from)||!snippetScalar(after,it.to)})return null
+  val groups=mutableMapOf<Int,String>();for(field in updated){val value=after.substring(field.from,field.to);if(field.transform!=null){if(value!=expected[field.id!!])return null}else{val previous=groups[field.index];if(previous!=null&&previous!=value)return null;groups[field.index]=value}}
+  val caret=map(origin,from,false)+text.length;SnippetInput(SnippetSession(after,updated,session.active,origin.id!!,session.scopes),replacements.map{NativeSourceEdit(it.from,it.to,it.text)},CompletionSelection(caret,caret))
+ }.getOrNull()
 }

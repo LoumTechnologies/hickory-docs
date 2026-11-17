@@ -5,7 +5,7 @@ For maintainers changing template behavior independently of editor layout. Sourc
 
 ## Attach source-bound field interaction to the existing editor
 
-A compartment owns snippet state, source checks, linked input, numeric traversal, choices and history effects. Complete mirroring is prepared before a transaction; rejected intent leaves ordinary input authoritative. Compose the original input transaction with the remaining source changes so its input metadata survives. History effects retain both directions of source, field state and intended selection. The dispatch bridge composes the original transaction with a verified replay selection, preserving the framework history annotation and input metadata; it never creates replacement source changes. This avoids inferring a caret from the old selection when a compound edit had an explicit result. History estimates count 128 bytes per snapshot and cap retained tokens at 4096, including empty/no-session snapshots. They count 32 bytes of overhead for every choice, even an empty alternative, before retaining a snapshot. Oversized context is not copied into the cache and does not evict unrelated valid snapshots. History effects retain bounded context tokens: old text undo remains owned by CodeMirror when the estimated 32 MiB context budget evicts a field snapshot. Field marks use paint only, and choices reuse the existing completion popup.
+A compartment owns snippet state, source checks, linked input, numeric traversal, choices and history effects. Complete mirroring is prepared before a transaction; rejected intent leaves ordinary input authoritative. Compose the original input transaction with the remaining source changes so its input metadata survives. History effects retain both directions of source, field state and intended selection. The dispatch bridge composes the original transaction with a verified replay selection, preserving the framework history annotation and input metadata; it never creates replacement source changes. This avoids inferring a caret from the old selection when a compound edit had an explicit result. History estimates count 128 bytes per snapshot and cap retained tokens at 4096, including empty/no-session snapshots. They count normalized computed-program bytes and 32 bytes of overhead for every choice, even an empty alternative, before retaining a snapshot. Oversized context is not copied into the cache and does not evict unrelated valid snapshots. History effects retain bounded context tokens: old text undo remains owned by CodeMirror when the estimated 32 MiB context budget evicts a field snapshot. Field marks use paint only, and choices reuse the existing completion popup.
 
 <ui:copy id="source-snippets-browser">
 import {EditorSelection,EditorState,Prec,StateEffect,StateField,type Transaction,type Extension} from '@codemirror/state';
@@ -17,6 +17,8 @@ import {cancelCompletionAcceptance,readCompletionAcceptance} from '../lsp/comple
 import {prepareEditorChanges} from '../editor/textInput';
 import {beginSnippet,advanceSnippet,editSnippet,completeSnippet,nestSnippet,type SnippetSession} from './SnippetSession';
 import type {CompletionDraft} from './CompletionPlan';
+import {snippetTransformBytes} from './SnippetTransform';
+function computedSnippetInput(session:SnippetSession,from:number,to:number):boolean{return session.fields.some(field=>!!field.transform&&field.from<field.to&&field.from<=from&&to<=field.to&&(from<to||from>field.from&&from<field.to));}
 export const setSourceSnippet=StateEffect.define<SnippetSession|null>();
 interface SnippetSnapshot {source:string;session:SnippetSession|null;selection:EditorSelection}
 interface SnippetReplay {target:symbol;inverse:symbol}
@@ -27,7 +29,7 @@ export function createSourceSnippetHistory(limit=32*1024*1024,maxEntries=4096){
   // Count the retained UTF-16 strings and every alternative, including empty
   // choices, before constructing or retaining a snapshot. Oversized context
   // never evicts unrelated valid history; CodeMirror still owns text undo.
-  const token=Symbol('snippet history'),cost=128+value.source.length*2+(value.session?.fields.reduce((sum,field)=>sum+64+field.choices.reduce((total,choice)=>total+32+choice.length*2,0),0)??0);
+  const token=Symbol('snippet history'),cost=128+value.source.length*2+(value.session?.fields.reduce((sum,field)=>sum+64+(field.transform?snippetTransformBytes(field.transform):0)+field.choices.reduce((total,choice)=>total+32+choice.length*2,0),0)??0);
   if(cost>limit)return token;
   const normalized={...value,session:value.session?{...value.session,source:value.source}:null};snapshots.set(token,{value:normalized,cost});bytes+=cost;
   while((bytes>limit||snapshots.size>maxEntries)&&snapshots.size){const oldest=snapshots.keys().next().value!;bytes-=snapshots.get(oldest)!.cost;snapshots.delete(oldest);}return token;
@@ -56,13 +58,13 @@ const snippetState=StateField.define<SnippetSession|null>({
   if(tr.docChanged&&tr.newDoc.toString()!==session.source||tr.newSelection.ranges.length!==1)return null;
   if(tr.docChanged&&!explicit)return null;
   if(tr.selection){
-   const current=session,selected=tr.newSelection.main,candidates=current.fields.filter(field=>field.index>0&&field.from<=selected.from&&field.to>=selected.to);
+   const current=session,selected=tr.newSelection.main;if(computedSnippetInput(current,selected.from,selected.to))return null;const candidates=current.fields.filter(field=>!field.transform&&field.index>0&&field.from<=selected.from&&field.to>=selected.to);
    const same=candidates.find(field=>field.id===current.current),next=same??candidates.sort((a,b)=>(a.to-a.from)-(b.to-b.from))[0];
    if(!next)return null;if(next.index!==current.active||next.id!==current.current)session={...current,active:next.index,current:next.id!};
   }
   return session;
  },
- provide:field=>EditorView.decorations.from(field,session=>Decoration.set((session?.fields??[]).filter(field=>field.index>0&&field.from<field.to).map(field=>Decoration.mark({class:field.index===session!.active?'simple-snippet-field active':'simple-snippet-field'}).range(field.from,field.to)),true)),
+ provide:field=>EditorView.decorations.from(field,session=>Decoration.set((session?.fields??[]).filter(field=>field.index>0&&field.from<field.to).map(field=>Decoration.mark({class:!field.transform&&field.index===session!.active?'simple-snippet-field active':'simple-snippet-field'}).range(field.from,field.to)),true)),
 });
 export function sourceSnippetEffect(draft:CompletionDraft,after:string){return setSourceSnippet.of(draft.continuing??beginSnippet(after,draft.fields));}
 export function continueSourceSnippetCompletion(view:EditorView,draft:CompletionDraft):CompletionDraft {
@@ -76,7 +78,7 @@ export function finishSourceSnippet(view:EditorView):boolean {if(!readSourceSnip
 export function moveSourceSnippet(view:EditorView,direction:1|-1):boolean {
  const session=readSourceSnippet(view);if(!session||view.composing)return false;
  const selected=view.state.selection.main,result=advanceSnippet(session,view.state.doc.toString(),selected.from,selected.to,direction);
- if(!result){if(direction===-1&&session.active===(session.scopes?.at(-1)?.order[0]??Math.min(...session.fields.filter(field=>field.index>0).map(field=>field.index))))return true;finishSourceSnippet(view);return false;}
+ if(!result){if(direction===-1&&session.active===(session.scopes?.at(-1)?.order[0]??Math.min(...session.fields.filter(field=>!field.transform&&field.index>0).map(field=>field.index))))return true;finishSourceSnippet(view);return false;}
  closeCompletion(view);view.dispatch({selection:{anchor:result.selection.from,head:result.selection.to},effects:setSourceSnippet.of(result.session),scrollIntoView:true,userEvent:'select.snippet'});return true;
 }
 export function sourceSnippets(adapter:{writable:()=>boolean;notice:(message:string)=>void}):Extension {
@@ -103,7 +105,7 @@ export function sourceSnippets(adapter:{writable:()=>boolean;notice:(message:str
   EditorState.transactionFilter.of(tr=>{
    const session=tr.startState.field(snippetState);if(!session||!tr.docChanged||tr.effects.some(effect=>effect.is(setSourceSnippet))||!['input.type','input.paste','input.drop','input.complete','delete'].some(event=>tr.isUserEvent(event))||tr.startState.selection.ranges.length!==1||!adapter.writable()||tr.startState.readOnly||!tr.startState.facet(EditorView.editable))return tr;
    const changes:{from:number;to:number;text:string}[]=[];tr.changes.iterChanges((from,to,_a,_b,text)=>changes.push({from,to,text:text.toString()}));if(changes.length!==1)return tr;
-   const changed=changes[0],plan=editSnippet(session,tr.startState.doc.toString(),changed.from,changed.to,changed.text);if(!plan)return tr;
+   const changed=changes[0];if(computedSnippetInput(session,changed.from,changed.to))return tr;const plan=editSnippet(session,tr.startState.doc.toString(),changed.from,changed.to,changed.text);if(!plan)return tr;
    const edits=plan.edits.map(edit=>({from:edit.from,to:edit.to,insert:edit.text})),prepared=prepareEditorChanges(session.source,edits);if('reason' in prepared||prepared.expected!==plan.session.source)return tr;
    const complete=tr.startState.changes(edits);if(complete.apply(tr.startState.doc).toString()!==plan.session.source)return tr;
    const additional=tr.changes.invert(tr.startState.doc).compose(complete),selected=tr.newSelection.main,end=changed.from+changed.text.length;
@@ -119,7 +121,7 @@ export function sourceSnippets(adapter:{writable:()=>boolean;notice:(message:str
   EditorView.baseTheme({'.simple-snippet-field':{outline:'1px dotted color-mix(in srgb,currentColor 30%,transparent)',outlineOffset:'1px'},'.simple-snippet-field.active':{backgroundColor:'color-mix(in srgb,currentColor 8%,transparent)'}}),
  ];
 }
-export function openSourceSnippetChoices(view:EditorView):boolean {const session=readSourceSnippet(view);if(!session?.fields.some(field=>field.index===session.active&&field.choices.length))return false;return startCompletion(view);}
+export function openSourceSnippetChoices(view:EditorView):boolean {const session=readSourceSnippet(view);if(!session?.fields.some(field=>!field.transform&&field.index===session.active&&field.choices.length))return false;return startCompletion(view);}
 </ui:copy>
 
 <ui:file path="apps/web/src/simple/SourceSnippets.ts"><ui:paste select="#source-snippets-browser"/></ui:file>
@@ -128,16 +130,18 @@ export function openSourceSnippetChoices(view:EditorView):boolean {const session
 
 A source-bound controller exposes navigation and choices through existing selection and edit callbacks. The native editor still owns composition, permissions and actual batch/undo application. Stale intent and failed reflection retire the capability rather than blocking ordinary text input. A prepared change plan verifies its entire predicted source before entering history.
 
-The existing native history pool retains optional field contexts under a 32 MiB logical quota and 4096-token limit. Compute field and choice overhead before retaining its copy-on-write value; empty alternatives must not make a large context appear free. Oversized or evicted field context never disables ordinary source undo.
+The existing native history pool retains optional field contexts under a 32 MiB logical quota and 4096-token limit. Compute field and choice overhead before retaining its copy-on-write value; empty alternatives must not make a large context appear free. Oversized or evicted field context never disables ordinary source undo. Computed occurrences are never traversal or choice targets. Explicit selections within computed text and typing strictly inside it retire linked intent, including when an editable parent surrounds the computed child. The ordinary primary edit remains owned by the editor; adjacent source/empty boundaries retain their existing intent.
 
 <ui:copy id="source-snippets-apple">
 import Foundation
 import Observation
+private func computedSnippetInput(_ session:SnippetSession,_ from:Int,_ to:Int)->Bool {session.fields.contains{field in field.transform != nil && field.from<field.to && field.from<=from && to<=field.to && (from<to || from>field.from && from<field.to)}}
 struct SourceSnippetHistoryContext {var fields:[SnippetField];var active:Int;var current:Int;var scopes:[SnippetScope]=[]}
 func snippetHistoryCost(_ value:SourceSnippetHistoryContext?)->Int {
     guard let value else{return 0};let limit=32*1024*1024;var bytes=0
     for field in value.fields {
         guard bytes<=limit-64 else{return limit+1};bytes+=64
+        if let transform=field.transform {guard transform.bytes<=limit,bytes<=limit-transform.bytes else{return limit+1};bytes+=transform.bytes}
         for choice in field.choices {
             let count=choice.utf8.count
             guard count<=limit-32,bytes<=limit-32-count else{return limit+1};bytes+=32+count
@@ -166,14 +170,14 @@ func snippetHistoryCost(_ value:SourceSnippetHistoryContext?)->Int {
     @discardableResult func finish()->Bool {guard session != nil else{return false};session=nil;intent+=1;report();return true}
     @discardableResult func move(_ direction:Int)->Bool {
         guard let buffer,let current=active else{_ = finish();return false}
-        guard let next=advanceSnippet(current,source:buffer.text,from:buffer.selection.location,to:NSMaxRange(buffer.selection),direction:direction) else{if direction == -1,current.active==(current.scopes.last?.order.first ?? current.fields.map({$0.index}).filter({$0>0}).min()){return true};_ = finish();return false}
+        guard let next=advanceSnippet(current,source:buffer.text,from:buffer.selection.location,to:NSMaxRange(buffer.selection),direction:direction) else{if direction == -1,current.active==(current.scopes.last?.order.first ?? current.fields.filter({$0.transform==nil}).map({$0.index}).filter({$0>0}).min()){return true};_ = finish();return false}
         let old=session;session=next.session
         guard buffer.selectSourceRange?(NSRange(location:next.selection.from,length:next.selection.to-next.selection.from),current.source)==true else{session=old;return false}
         intent+=1;buffer.focusSource?();report();return true
     }
     // nil leaves ordinary native input in charge; true means one linked batch committed.
     func input(source:String,range:NSRange,text:String,caret:Int?=nil)->Bool? {
-        guard let buffer,let current=active,!buffer.readOnly,!buffer.saving,exactUTF8(source,buffer.text),buffer.multiRanges.count<2,var input=editSnippet(current,source:source,from:range.location,to:NSMaxRange(range),text:text),let commit else{_ = finish();return nil}
+        guard let buffer,let current=active,!buffer.readOnly,!buffer.saving,exactUTF8(source,buffer.text),buffer.multiRanges.count<2,!computedSnippetInput(current,range.location,NSMaxRange(range)),var input=editSnippet(current,source:source,from:range.location,to:NSMaxRange(range),text:text),let commit else{_ = finish();return nil}
         if let caret {
             guard caret>=range.location,caret<=range.location+text.utf16.count else{_ = finish();return nil}
             let selected=input.selection.from+caret-(range.location+text.utf16.count);input.selection=CompletionSelection(from:selected,to:selected)
@@ -215,13 +219,14 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.text.TextRange
+private fun computedSnippetInput(session:SnippetSession,from:Int,to:Int)=session.fields.any{field->field.transform!=null&&field.from<field.to&&field.from<=from&&to<=field.to&&(from<to||from>field.from&&from<field.to)}
 // Charge actual retained vector slots, including empty alternatives. Stop at
 // budget+1 before retaining a context; the journal owns source text separately.
 internal fun snippetHistoryCost(context:SnippetSession?,budget:Long=32L*1024*1024):Long {
  if(context==null)return 0
  val cap=budget+1;var bytes=0L
  fun add(value:Long):Boolean {if(value<0||value>budget-bytes){bytes=cap;return false};bytes+=value;return true}
- for(field in context.fields){if(!add(64L)||field.choices.size>4096||!add(32L*field.choices.size))return cap;for(choice in field.choices)if(!add(2L*choice.length))return cap}
+ for(field in context.fields){if(!add(64L)||!add(field.transform?.bytes?.toLong()?:0L)||field.choices.size>4096||!add(32L*field.choices.size))return cap;for(choice in field.choices)if(!add(2L*choice.length))return cap}
  for(scope in context.scopes)if(!add(64L)||!add(8L*scope.order.size))return cap
  return bytes
 }
@@ -274,12 +279,12 @@ class SourceSnippetController(private val buffer:DocumentBuffer) {
  fun sourceChanged(source:String){if(value?.source?.let{it!=source}==true)finish()}
  fun move(direction:Int):Boolean {
   val current=active ?: return false;if(buffer.state.composition!=null)return false;val selection=buffer.state.selection
-  val next=advanceSnippet(current,buffer.text,selection.min,selection.max,direction) ?: return if(direction == -1&&current.active==(current.scopes.lastOrNull()?.order?.firstOrNull() ?: current.fields.map{it.index}.filter{it>0}.minOrNull()))true else finish().let{false}
+  val next=advanceSnippet(current,buffer.text,selection.min,selection.max,direction) ?: return if(direction == -1&&current.active==(current.scopes.lastOrNull()?.order?.firstOrNull() ?: current.fields.filter{it.transform==null}.map{it.index}.filter{it>0}.minOrNull()))true else finish().let{false}
   val previous=value;stage(next.session)
   if(!buffer.selectSourceRange(next.selection.from,next.selection.to,current.source)){stage(previous);return false};publish(next.session);return true
  }
  fun proposal(source:String,from:Int,to:Int,text:String,caret:Int?=null):SnippetInput? {
-  val current=active ?: return null;if(buffer.readOnly||buffer.saving||source!=buffer.text||buffer.multiRanges.size>1)return null
+  val current=active ?: return null;if(buffer.readOnly||buffer.saving||source!=buffer.text||buffer.multiRanges.size>1||computedSnippetInput(current,from,to))return null
   val input=editSnippet(current,source,from,to,text) ?: return null
   if(caret==null)return input;if(caret !in from..(from+text.length))return null;val selected=input.selection.from+caret-(from+text.length);return input.copy(selection=CompletionSelection(selected,selected))
  }
@@ -339,6 +344,8 @@ import {completions} from '../lsp/completion';
 import {beginSnippet} from './SnippetSession';
 import {sourceSnippets,setSourceSnippet,readSourceSnippet,moveSourceSnippet,openSourceSnippetChoices,dispatchSourceSnippetTransactions,createSourceSnippetHistory} from './SourceSnippets';
 import type {SnippetField} from './SnippetExpansion';
+import derived from '../../../simple-contract/snippet-derived-cases.json';
+import {readSnippetTransform} from './SnippetTransform';
 import {acceptSourceCompletion} from './SourceCompletion';
 import {readCompletionAcceptance} from '../lsp/completionAcceptance';
 import type {CompletionItem} from '../lsp/client';
@@ -423,6 +430,18 @@ it('coincident empty mirrors preserve every occurrence in actual editor input',(
 });
 it('charges empty alternative overhead before retaining bounded snippet history',()=>{const cache=createSourceSnippetHistory(400),fields=[field(0,1,0,1,['','','','']),field(1,0,1,1)],session=beginSnippet('a',fields)!,snapshot={source:'a',session,selection:EditorState.create({doc:'a'}).selection};const first=cache.hold(snapshot),second=cache.hold(snapshot);expect(cache.read(first)).toBeUndefined();expect(cache.read(second)?.session?.fields[0].choices).toHaveLength(4);const oversized={...snapshot,session:beginSnippet('a',[field(0,1,0,1,Array<string>(16).fill('')),field(1,0,1,1)])!},rejected=cache.hold(oversized);expect(cache.read(rejected)).toBeUndefined();expect(cache.read(second)).toBeDefined();});
 it('bounds empty no-session history by both fixed token cost and entry capacity',()=>{const snapshot={source:'',session:null,selection:EditorState.create().selection},count=createSourceSnippetHistory(400,2),a=count.hold(snapshot),b=count.hold(snapshot),c=count.hold(snapshot);expect(count.read(a)).toBeUndefined();expect(count.read(b)).toBeDefined();expect(count.read(c)).toBeDefined();const bytes=createSourceSnippetHistory(250),first=bytes.hold(snapshot),last=bytes.hold(snapshot);expect(bytes.read(first)).toBeUndefined();expect(bytes.read(last)).toBeDefined();});
+
+it('computed input is one editor history action with exact source and selection replay',()=>{
+ const transform=readSnippetTransform(derived.programs.upper),fields=[field(0,1,0,3),{...field(1,1,4,7),transform},field(2,0,7,7)],{view,close}=fixture('foo FOO',fields);
+ try{view.dispatch({changes:{from:0,to:3,insert:'λ😀'},selection:{anchor:3},userEvent:'input.type'});expect(view.state.doc.toString()).toBe('λ😀 Λ😀');expect(view.state.selection.main.head).toBe(3);expect(readSourceSnippet(view)?.fields.find(field=>field.transform)?.to).toBe(7);expect(undo(view)).toBe(true);expect(view.state.doc.toString()).toBe('foo FOO');expect(readSourceSnippet(view)).not.toBeNull();expect(redo(view)).toBe(true);expect(view.state.doc.toString()).toBe('λ😀 Λ😀');expect(view.state.selection.main.head).toBe(3);}finally{close()}
+});
+it('computed child selection retires linked intent and leaves ordinary parent input authoritative',()=>{
+ const transform=readSnippetTransform(derived.programs.upper),fields=[field(0,1,0,7),{...field(1,2,0,3),parent:0},{...field(2,2,4,7),parent:0,transform},field(3,1,10,17),{...field(4,2,10,13),parent:3},{...field(5,2,14,17),parent:3,transform},field(6,0,17,17)],{view,close}=fixture('foo FOO | foo FOO',fields);
+ try{expect(readSourceSnippet(view)).not.toBeNull();view.dispatch({selection:{anchor:4,head:7}});expect(readSourceSnippet(view)).toBeNull();view.dispatch({changes:{from:4,to:7,insert:'bar'},selection:{anchor:7},userEvent:'input.type'});expect(view.state.doc.toString()).toBe('foo bar | foo FOO');expect(undo(view)).toBe(true);expect(view.state.doc.toString()).toBe('foo FOO | foo FOO');expect(readSourceSnippet(view)).toBeNull();}finally{close()}
+});
+it('computed program storage is charged before retaining or evicting editor history',()=>{
+ const history=createSourceSnippetHistory(200),selection=EditorState.create().selection,token=history.hold({source:'',session:null,selection});const transform=readSnippetTransform(derived.programs.upper),session=beginSnippet('foo FOO',[field(0,1,0,3),{...field(1,1,4,7),transform},field(2,0,7,7)]);expect(session).not.toBeNull();const oversized=history.hold({source:'foo FOO',session,selection});expect(history.read(oversized)).toBeUndefined();expect(history.read(token)).toBeDefined();
+});
 </ui:copy>
 
 <ui:file path="apps/web/src/simple/SourceSnippets.test.ts"><ui:paste select="#source-snippets-browser-tests"/></ui:file>
@@ -438,6 +457,17 @@ import AppKit
 #endif
 @testable import HickorySimple
 @MainActor final class SourceSnippetInteractionTests:XCTestCase {
+    func testComputedInputAndNativeHistoryAreOneAction()throws {
+        #if os(macOS)
+        let url=URL(fileURLWithPath:#filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("simple-contract/snippet-derived-cases.json"),vectors=try JSONSerialization.jsonObject(with:Data(contentsOf:url)) as! [String:Any],programs=vectors["programs"] as! [String:Any],transform=try readSnippetTransform(programs["upper"]!)
+        let source="foo FOO",values=[SnippetField(index:1,from:0,to:3,choices:[],id:0),SnippetField(index:1,from:4,to:7,choices:[],id:1,transform:transform),SnippetField(index:0,from:7,to:7,choices:[],id:2)]
+        XCTAssertEqual(snippetHistoryCost(SourceSnippetHistoryContext(fields:values,active:1,current:0)),3*64+transform.bytes)
+        let buffer=DocumentBuffer(file:FileNode(name:"a.py",path:"a.py",dir:false),text:FileText(path:"a.py",content:source,hash:"base")),editor=MacEditor(buffer),window=NSWindow(contentRect:NSRect(x:0,y:0,width:500,height:300),styleMask:[.titled],backing:.buffered,defer:false);window.contentView=editor.scroll;defer{window.contentView=nil}
+        editor.text.setSelectedRange(NSRange(location:0,length:3));buffer.selection=editor.text.selectedRange();buffer.snippets.restore(beginSnippet(source,fields:values));editor.text.insertText("λ😀",replacementRange:editor.text.selectedRange());XCTAssertEqual(Array(buffer.text.utf8),Array("λ😀 Λ😀".utf8));XCTAssertEqual(editor.text.selectedRange(),NSRange(location:3,length:0));XCTAssertNotNil(buffer.snippets.active)
+        editor.text.undoManager?.undo();XCTAssertEqual(buffer.text,source);XCTAssertNotNil(buffer.snippets.active);editor.text.undoManager?.redo();XCTAssertEqual(Array(buffer.text.utf8),Array("λ😀 Λ😀".utf8));XCTAssertEqual(editor.text.selectedRange(),NSRange(location:3,length:0));XCTAssertNotNil(buffer.snippets.active)
+        editor.text.setSelectedRange(NSRange(location:4,length:3));buffer.selection=editor.text.selectedRange();editor.text.insertText("bar",replacementRange:editor.text.selectedRange());XCTAssertEqual(Array(buffer.text.utf8),Array("λ😀 bar".utf8));XCTAssertNil(buffer.snippets.active)
+        #endif
+    }
     func fields()->[SnippetField]{[SnippetField(index:1,from:0,to:1,choices:["a","long"],id:0),SnippetField(index:1,from:4,to:5,choices:["a","long"],id:1),SnippetField(index:0,from:5,to:5,choices:[],id:2)]}
     func testHistoryCostChargesEveryEmptyChoice() {
         let field=SnippetField(index:1,from:0,to:0,choices:Array(repeating:"",count:4096),id:0)
@@ -557,6 +587,12 @@ import org.junit.Assert.*
 import androidx.compose.ui.text.TextRange
 import kotlinx.coroutines.async
 class SourceSnippetInteractionTest {
+ @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+ @Test fun computedInputAndNativeHistoryAreOneAction(){
+  val root=generateSequence(java.io.File(System.getProperty("user.dir")).absoluteFile){it.parentFile}.first{it.resolve("apps/simple-contract/snippet-derived-cases.json").isFile};val transform=readSnippetTransform(org.json.JSONObject(root.resolve("apps/simple-contract/snippet-derived-cases.json").readText()).getJSONObject("programs").getJSONObject("upper"));val source="foo FOO";val values=listOf(SnippetField(1,0,3,emptyList(),0),SnippetField(1,4,7,emptyList(),1,transform=transform),SnippetField(0,7,7,emptyList(),2));val buffer=DocumentBuffer(FileNode("a.py","a.py",false,emptyList(),null,null),FileText(source,"base"));buffer.state.edit{selection=TextRange(0,3)};buffer.snippets.restore(beginSnippet(source,values));assertEquals(3*64L+transform.bytes,snippetHistoryCost(buffer.snippets.active));assertTrue(buffer.snippets.applyInput(source,0,3,"λ😀"));assertEquals("λ😀 Λ😀",buffer.text);assertEquals(TextRange(3),buffer.state.selection);assertNotNull(buffer.snippets.active);assertTrue(buffer.snippets.undoSource());assertEquals(source,buffer.text);assertNotNull(buffer.snippets.active);assertTrue(buffer.snippets.redoSource());assertEquals("λ😀 Λ😀",buffer.text);assertEquals(TextRange(3),buffer.state.selection)
+  var staged:SnippetSession?=buffer.snippets.active;buffer.state.edit{val before=buffer.snippets.captureBefore(originalText,originalSelection);replace(4,7,"bar");selection=TextRange(7);assertFalse(applySourceSnippetInput(buffer,publish={staged=it}));buffer.snippets.finishTextChange(before,asCharSequence(),selection)};buffer.snippets.publish(staged);assertEquals("λ😀 bar",buffer.text);assertNull(buffer.snippets.active)
+ }
+
  private fun fields()=listOf(SnippetField(1,0,1,listOf("a","long"),0),SnippetField(1,4,5,listOf("a","long"),1),SnippetField(0,5,5,emptyList(),2))
  private fun buffer()=DocumentBuffer(FileNode("a.py","a.py",false,emptyList(),null,null),FileText("a + a","base")).also{it.state.edit{selection=TextRange(0,1)};it.snippets.restore(beginSnippet(it.text,fields()))}
  @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)

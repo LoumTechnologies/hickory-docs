@@ -15,7 +15,8 @@ A source-bound session owns ordered occurrences and active intent. Only an edit 
 The pure capacity check counts field overhead and every alternative, including empty strings, before cloning choices. Nested proposals reserve the retained forest plus the complete inner metadata multiplied by the number of outer mirrors; an excessive proposal returns no edits or new session.
 
 <ui:copy id="snippet-session-browser">
-import type {SnippetField} from './SnippetExpansion';
+import {validateSnippetMirrors,snippetTransformOrder,type SnippetField} from './SnippetExpansion';
+import {applySnippetTransform,readSnippetTransform,snippetTransformBytes} from './SnippetTransform';
 export interface SnippetScope {order:number[];exitIndex:number;exitId:number;outerActive:number;outerCurrent:number}
 export interface SnippetSession {source:string;fields:SnippetField[];active:number;current:number;scopes?:SnippetScope[]}
 export interface SnippetEdit {from:number;to:number;text:string}
@@ -23,23 +24,24 @@ export interface SnippetInput {session:SnippetSession;edits:SnippetEdit[];select
 const scalar=(text:string,at:number)=>Number.isSafeInteger(at)&&at>=0&&at<=text.length&&!(at>0&&at<text.length&&((text.charCodeAt(at-1)>=0xd800&&text.charCodeAt(at-1)<=0xdbff&&text.charCodeAt(at)>=0xdc00&&text.charCodeAt(at)<=0xdfff)||(text[at-1]==='\r'&&text[at]==='\n')));
 function snippetMetadataCost(fields:readonly SnippetField[]):number|null {
  if(fields.length>4096)return null;let bytes=0;
- for(const field of fields){if(!field||!Array.isArray(field.choices)||field.choices.length>4096)return null;bytes+=64+field.choices.length*32;if(bytes>1048576)return null;for(const choice of field.choices){if(typeof choice!=='string'||choice.length>1048576-bytes)return null;bytes+=choice.length?new TextEncoder().encode(choice).length:0;if(bytes>1048576)return null;}}
+ for(const field of fields){if(!field||!Array.isArray(field.choices)||field.choices.length>4096)return null;bytes+=64+field.choices.length*32;try{if(field.transform)bytes+=snippetTransformBytes(field.transform);}catch{return null;}if(bytes>1048576)return null;for(const choice of field.choices){if(typeof choice!=='string'||choice.length>1048576-bytes)return null;bytes+=choice.length?new TextEncoder().encode(choice).length:0;if(bytes>1048576)return null;}}
  return bytes;
 }
 export function beginSnippet(source:string,fields:readonly SnippetField[]):SnippetSession|null {
  if(!fields.length||fields.length>4096||snippetMetadataCost(fields)===null||fields.some(field=>field.id===undefined||!Number.isSafeInteger(field.id)||field.id!<0||field.id!>=4096||!scalar(source,field.from)||!scalar(source,field.to)||field.from>field.to||!Number.isSafeInteger(field.index)||field.index<0||field.index>1004096||field.parent!=null&&!Number.isSafeInteger(field.parent)))return null;
  const ids=new Map(fields.map(field=>[field.id!,field]));if(ids.size!==fields.length||fields.filter(field=>field.index===0).length!==1||fields.some(field=>field.index===0&&field.from!==field.to))return null;
  for(const field of fields){const seen=new Set<number>();let next:SnippetField|undefined=field;while(next){if(seen.has(next.id!))return null;seen.add(next.id!);if(next.parent==null)break;const parent=ids.get(next.parent!);if(!parent||parent.from>next.from||parent.to<next.to)return null;next=parent;}}
- const active=Math.min(...fields.map(field=>field.index).filter(index=>index>0));
- const first=fields.find(field=>field.index===active);return first?{source,fields:fields.map(field=>({...field,choices:[...field.choices],parent:field.parent??null})),active,current:first.id!}:null;
+ if(fields.some(field=>field.transform)){try{validateSnippetMirrors(source,fields);}catch{return null;}}
+ const active=Math.min(...fields.filter(field=>!field.transform).map(field=>field.index).filter(index=>index>0));
+ const first=fields.find(field=>!field.transform&&field.index===active);return first?{source,fields:fields.map(field=>({...field,choices:[...field.choices],parent:field.parent??null,...(field.transform?{transform:readSnippetTransform(field.transform)}:{})})),active,current:first.id!}:null;
 }
 export function advanceSnippet(session:SnippetSession,source:string,from:number,to:number,direction:1|-1):{session:SnippetSession|null;selection:{from:number;to:number}}|null {
- if(source!==session.source||from>to||!session.fields.some(field=>field.index===session.active&&field.from<=from&&field.to>=to))return null;
- const scope=session.scopes?.at(-1),order=scope?[...scope.order,scope.exitIndex]:[...new Set(session.fields.map(field=>field.index).filter(index=>index>0))].sort((a,b)=>a-b).concat(0);
+ if(source!==session.source||from>to||!session.fields.some(field=>!field.transform&&field.index===session.active&&field.from<=from&&field.to>=to))return null;
+ const scope=session.scopes?.at(-1),order=scope?[...scope.order,scope.exitIndex]:[...new Set(session.fields.filter(field=>!field.transform).map(field=>field.index).filter(index=>index>0))].sort((a,b)=>a-b).concat(0);
  const at=order.indexOf(session.active),next=at+direction;if(at<0||next<0||next>=order.length)return null;
  const active=order[next];
  if(scope&&active===scope.exitIndex){const field=session.fields.find(field=>field.id===scope.exitId);if(!field)return null;return {session:{...session,fields:session.fields.filter(field=>!scope.order.includes(field.index)&&field.index!==scope.exitIndex),active:scope.outerActive,current:scope.outerCurrent,scopes:session.scopes!.slice(0,-1)},selection:{from:field.from,to:field.to}};}
- const field=session.fields.find(field=>field.index===active)!;
+ const field=session.fields.find(field=>!field.transform&&field.index===active)!;
  return {session:active===0?null:{...session,active,current:field.id!},selection:{from:field.from,to:field.to}};
 }
 
@@ -51,6 +53,7 @@ Capture and numeric traversal above retain a source-bound intent, without editor
 
 <ui:copy id="snippet-session-browser-input">
 export function editSnippet(session:SnippetSession,source:string,from:number,to:number,text:string):SnippetInput|null {
+ if(session.fields.some(field=>field.transform))return editDerivedSnippet(session,source,from,to,text);
  if(source!==session.source||from>to||!scalar(source,from)||!scalar(source,to)||session.active===0)return null;
  const terminal=(field:SnippetField)=>field.index===0||!!session.scopes?.some(scope=>scope.exitIndex===field.index);
  const fields=session.fields,ids=new Map(fields.map(field=>[field.id!,field]));
@@ -118,8 +121,8 @@ export function nestSnippet(session:SnippetSession,source:string,primary:Snippet
  const innerBytes=snippetMetadataCost(inner),exit=inner.find(field=>field.index===0);if(innerBytes===null||!exit)return null;
  const origin=session.fields.find(field=>field.id===session.current&&field.from<=primary.from&&field.to>=primary.to);if(!origin)return null;
  const input=completeSnippet(session,source,primary,additional);if(!input)return null;
- const parents=input.session.fields.filter(field=>field.index===session.active),current=parents.find(field=>field.id===input.session.current);if(!current)return null;
- const relative=primary.from-origin.from,order=[...new Set(inner.filter(field=>field.index>0).map(field=>field.index))].sort((a,b)=>a-b);
+ const parents=input.session.fields.filter(field=>!field.transform&&field.index===session.active),current=parents.find(field=>field.id===input.session.current);if(!current)return null;
+ const relative=primary.from-origin.from,order=[...new Set(inner.filter(field=>!field.transform&&field.index>0).map(field=>field.index))].sort((a,b)=>a-b);
  if(order.length){const retainedBytes=snippetMetadataCost(input.session.fields);if(retainedBytes===null||retainedBytes+parents.length*innerBytes>1048576||input.session.fields.length+parents.length*inner.length>4096)return null;}
  // Reserve the complete mirrored forest before beginSnippet can clone inner choices.
  const parsed=beginSnippet(primary.text,inner);if(!parsed&&(inner.length!==1||exit.id===undefined||exit.parent!=null||exit.from!==exit.to||!scalar(primary.text,exit.from)))return null;
@@ -135,7 +138,43 @@ export function nestSnippet(session:SnippetSession,source:string,primary:Snippet
 }
 </ui:copy>
 
-<ui:file path="apps/web/src/simple/SnippetSession.ts"><ui:paste select="#snippet-session-browser"/><ui:paste select="#snippet-session-browser-input"/><ui:paste select="#snippet-session-browser-completion"/></ui:file>
+### Compute dependent mirrors as one browser source action
+
+A derived occurrence has its own text length and never supplies editable source. Recompute its group after any inner computed dependencies, using original source coordinates and one shared evaluator budget. Retire orphaned child groups after parent replacement. Merge coincident empty input with an adjacent computed replacement in lexical occurrence order; per-owner spans map every field and the originating caret. Validate the final complete forest before returning edits, with no partial source mutation.
+
+<ui:copy id="snippet-session-browser-derived">
+// Computed occurrences are never editable sources. Build every base and derived
+// replacement in original source coordinates before returning one action.
+function editDerivedSnippet(session:SnippetSession,source:string,from:number,to:number,text:string):SnippetInput|null {
+ if(source!==session.source||from>to||!scalar(source,from)||!scalar(source,to)||session.active===0||snippetMetadataCost(session.fields)===null)return null;
+ try{
+  const budget={work:0};validateSnippetMirrors(source,session.fields,budget);
+  const fields=session.fields,ids=new Map(fields.map(field=>[field.id!,field])),ordinals=new Map(fields.map((field,index)=>[field.id!,index]));
+  const ancestors=(parent:number,child:number)=>{let value=ids.get(child);for(let count=0;value&&count<=fields.length;count++){if(value.id===parent)return true;value=value.parent==null?undefined:ids.get(value.parent);}return false;};
+  const terminal=(field:SnippetField)=>field.index===0||!!session.scopes?.some(scope=>scope.exitIndex===field.index),occurrences=fields.filter(field=>!field.transform&&field.index===session.active),matches=occurrences.filter(field=>field.from<=from&&field.to>=to),origin=matches.find(field=>field.id===session.current)??matches[0];
+  if(!origin||new TextEncoder().encode(text).length>1048576/Math.max(occurrences.length,1))return null;
+  const before=source.slice(origin.from,origin.to),relativeFrom=from-origin.from,relativeTo=to-origin.from;if(occurrences.some(field=>source.slice(field.from,field.to)!==before))return null;
+  if(before.slice(0,relativeFrom)+text+before.slice(relativeTo)===before)return {session:{...session,current:origin.id!},edits:[],selection:{from:from+text.length,to:from+text.length}};
+  let retained=fields.filter(field=>terminal(field)||field.index===session.active||!occurrences.some(parent=>ancestors(parent.id!,field.id!)));const ordinary=new Set(retained.filter(field=>!field.transform).map(field=>field.index));retained=retained.filter(field=>!field.transform||ordinary.has(field.index));const retainedIds=new Set(retained.map(field=>field.id!));
+  retained=retained.map(field=>{let parent=field.parent;while(parent!=null&&!retainedIds.has(parent))parent=ids.get(parent)?.parent;return {...field,parent:parent??null};});
+  interface Part {from:number;to:number;text:string;owner:number}
+  const parts:Part[]=occurrences.map(field=>({from:field.from+relativeFrom,to:field.from+relativeTo,text,owner:field.id!}));let payload=parts.reduce((sum,part)=>sum+new TextEncoder().encode(part.text).length,0);
+  if(parts.some(part=>!scalar(source,part.from)||!scalar(source,part.to)))return null;
+  const compare=(a:Part,b:Part)=>a.from-b.from||a.to-b.to||ordinals.get(a.owner)!-ordinals.get(b.owner)!;
+  const projected=(field:SnippetField)=>{const edits=parts.filter(part=>ancestors(field.id!,part.owner)).sort(compare);if(edits.some(part=>part.from<field.from||part.to>field.to))throw Error('Computed source edit escapes its parent');let value=source.slice(field.from,field.to);for(const part of edits.reverse())value=value.slice(0,part.from-field.from)+part.text+value.slice(part.to-field.from);return value;};
+  const expected=new Map<number,string>();for(const index of snippetTransformOrder(retained)){const mirrors=retained.filter(field=>!field.transform&&field.index===index),computed=retained.filter(field=>field.transform&&field.index===index);if(!computed.length)continue;const value=projected(mirrors[0]);if(mirrors.some(field=>projected(field)!==value))return null;for(const field of computed){const result=applySnippetTransform(field.transform!,value,budget);expected.set(field.id!,result);if(result!==source.slice(field.from,field.to)){payload+=new TextEncoder().encode(result).length;if(payload>1048576)return null;parts.push({from:field.from,to:field.to,text:result,owner:field.id!});}}}
+  interface Replacement {from:number;to:number;text:string;spans:{owner:number;from:number;to:number}[]}
+  const replacements:Replacement[]=[];const sorted=parts.sort(compare);for(let at=0;at<sorted.length;){const start=sorted[at].from,group:Part[]=[];while(at<sorted.length&&sorted[at].from===start)group.push(sorted[at++]);if(group.filter(part=>part.to>part.from).length>1)return null;group.sort((a,b)=>ordinals.get(a.owner)!-ordinals.get(b.owner)!);const edit:Replacement={from:start,to:Math.max(...group.map(part=>part.to)),text:'',spans:[]};for(const part of group){const offset=edit.text.length;edit.text+=part.text;edit.spans.push({owner:part.owner,from:offset,to:edit.text.length});}if(replacements.length&&replacements.at(-1)!.to>start)return null;replacements.push(edit);}
+  let after=source;for(const edit of [...replacements].reverse())after=after.slice(0,edit.from)+edit.text+after.slice(edit.to);
+  const map=(field:SnippetField,position:number,end:boolean)=>{let delta=0;for(const edit of replacements){if(position<edit.from)break;if(position>edit.to||position===edit.to&&edit.from<edit.to){delta+=edit.text.length-(edit.to-edit.from);continue;}const related=edit.spans.filter(span=>ancestors(field.id!,span.owner));if(related.length)return edit.from+delta+(end?related.at(-1)!.to:related[0].from);const enclosing=edit.spans.filter(span=>terminal(field)&&ancestors(span.owner,field.id!));if(enclosing.length)return edit.from+delta+enclosing.at(-1)!.to;return edit.from+delta+edit.spans.filter(span=>ordinals.get(span.owner)!<ordinals.get(field.id!)!).reduce((sum,span)=>sum+span.to-span.from,0);}return position+delta;};
+  const updated=retained.map(field=>({...field,from:map(field,field.from,false),to:map(field,field.to,true)}));if(updated.some(field=>field.from>field.to||!scalar(after,field.from)||!scalar(after,field.to)))return null;
+  const groups=new Map<number,string>();for(const field of updated){const value=after.slice(field.from,field.to);if(field.transform){if(value!==expected.get(field.id!))return null;}else{const previous=groups.get(field.index);if(previous!==undefined&&previous!==value)return null;groups.set(field.index,value);}}
+  const caret=map(origin,from,false)+text.length;return {session:{source:after,fields:updated,active:session.active,current:origin.id!,scopes:session.scopes},edits:replacements.map(({from,to,text})=>({from,to,text})),selection:{from:caret,to:caret}};
+ }catch{return null;}
+}
+</ui:copy>
+
+<ui:file path="apps/web/src/simple/SnippetSession.ts"><ui:paste select="#snippet-session-browser"/><ui:paste select="#snippet-session-browser-input"/><ui:paste select="#snippet-session-browser-completion"/><ui:paste select="#snippet-session-browser-derived"/></ui:file>
 
 ## Keep Apple field editing independent of the view
 
@@ -155,6 +194,7 @@ func snippetMetadataCost(_ fields:[SnippetField])->Int? {
         guard field.choices.count<=4096 else{return nil}
         let floor=64+32*field.choices.count
         guard floor<=1048576-bytes else{return nil};bytes+=floor
+        if let transform=field.transform{guard transform.bytes>=0,transform.bytes<=1048576-bytes else{return nil};bytes+=transform.bytes}
         for choice in field.choices{let size=choice.utf8.count;guard size<=1048576-bytes else{return nil};bytes+=size}
     }
     return bytes
@@ -173,13 +213,14 @@ func beginSnippet(_ source:String,fields:[SnippetField])->SnippetSession? {
     for field in fields{var chain:Set<Int>=[],next:SnippetField?=field
         while let value=next,!visited.contains(value.id!){guard chain.insert(value.id!).inserted else{return nil};guard let identity=value.parent else{break};guard let parent=ids[identity],parent.from<=value.from,parent.to>=value.to else{return nil};next=parent};visited.formUnion(chain)
     }
-    guard let active=fields.map({$0.index}).filter({$0>0}).min(),let first=fields.first(where:{$0.index==active}) else{return nil}
+    if fields.contains(where:{$0.transform != nil}){guard (try? validateSnippetMirrors(source,fields)) != nil else{return nil}}
+    guard let active=fields.filter({$0.transform==nil}).map({$0.index}).filter({$0>0}).min(),let first=fields.first(where:{$0.transform==nil&&$0.index==active}) else{return nil}
     return SnippetSession(source:source,fields:fields,active:active,current:first.id!)
 }
 func advanceSnippet(_ session:SnippetSession,source:String,from:Int,to:Int,direction:Int)->SnippetAdvance? {
-    guard snippetMetadataCost(session.fields) != nil,exactUTF8(source,session.source),from<=to,(direction==1||direction == -1),session.fields.contains(where:{$0.index==session.active&&$0.from<=from&&$0.to>=to}) else{return nil}
-    let scope=session.scopes.last,order=scope.map{$0.order+[$0.exitIndex]} ?? (Array(Set(session.fields.map{$0.index}.filter{$0>0})).sorted()+[0])
-    guard let at=order.firstIndex(of:session.active),order.indices.contains(at+direction),let field=session.fields.first(where:{$0.index==order[at+direction]}) else{return nil}
+    guard snippetMetadataCost(session.fields) != nil,exactUTF8(source,session.source),from<=to,(direction==1||direction == -1),session.fields.contains(where:{$0.transform==nil&&$0.index==session.active&&$0.from<=from&&$0.to>=to}) else{return nil}
+    let scope=session.scopes.last,order=scope.map{$0.order+[$0.exitIndex]} ?? (Array(Set(session.fields.filter{$0.transform==nil}.map{$0.index}.filter{$0>0})).sorted()+[0])
+    guard let at=order.firstIndex(of:session.active),order.indices.contains(at+direction),let field=session.fields.first(where:{$0.transform==nil&&$0.index==order[at+direction]}) else{return nil}
     if let scope,field.index==scope.exitIndex{guard let exit=session.fields.first(where:{$0.id==scope.exitId}) else{return nil};var resumed=session;resumed.fields.removeAll{scope.order.contains($0.index)||$0.index==scope.exitIndex};resumed.active=scope.outerActive;resumed.current=scope.outerCurrent;resumed.scopes.removeLast();return SnippetAdvance(session:resumed,selection:CompletionSelection(from:exit.from,to:exit.to))}
     var next=session;next.active=field.index;next.current=field.id!
     return SnippetAdvance(session:field.index==0 ? nil:next,selection:CompletionSelection(from:field.from,to:field.to))
@@ -194,6 +235,7 @@ Capture and numeric traversal above retain a source-bound intent, without editor
 <ui:copy id="snippet-session-apple-input">
 private struct SnippetReplacement {var from:Int;var to:Int;var text:String;var owners:[Int]}
 func editSnippet(_ session:SnippetSession,source:String,from:Int,to:Int,text:String)->SnippetInput? {
+    if session.fields.contains(where:{$0.transform != nil}){return editDerivedSnippet(session,source:source,from:from,to:to,text:text)}
     let original=source as NSString
     guard snippetMetadataCost(session.fields) != nil,exactUTF8(source,session.source),from<=to,snippetScalar(original,from),snippetScalar(original,to),session.active != 0 else{return nil}
     func terminal(_ field:SnippetField)->Bool{field.index==0 || session.scopes.contains(where:{$0.exitIndex==field.index})}
@@ -267,8 +309,8 @@ func nestSnippet(_ session:SnippetSession,source:String,primary:SourceReplacemen
     guard session.scopes.count<32,!inner.isEmpty,let innerCost=snippetMetadataCost(inner),let exit=inner.first(where:{$0.index==0}) else{return nil}
     let parsed=beginSnippet(primary.text,fields:inner);guard parsed != nil || (inner.count==1 && exit.id != nil && exit.parent==nil && exit.from==exit.to && snippetScalar(primary.text as NSString,exit.from)) else{return nil}
     guard let origin=session.fields.first(where:{$0.id==session.current&&$0.from<=primary.from&&$0.to>=primary.to}),let input=completeSnippet(session,source:source,primary:primary,additional:additional) else{return nil}
-    let parents=input.session.fields.filter{$0.index==session.active};guard let current=parents.first(where:{$0.id==input.session.current}) else{return nil}
-    let relative=primary.from-origin.from,order=Array(Set(inner.filter{$0.index>0}.map{$0.index})).sorted()
+    let parents=input.session.fields.filter{$0.transform==nil&&$0.index==session.active};guard let current=parents.first(where:{$0.id==input.session.current}) else{return nil}
+    let relative=primary.from-origin.from,order=Array(Set(inner.filter{$0.transform==nil&&$0.index>0}.map{$0.index})).sorted()
     if order.isEmpty{var result=input;let caret=current.from+relative+exit.from;result.selection=CompletionSelection(from:caret,to:caret);return result}
     // Reserve the complete mirror fanout before appending any nested fields.
     guard input.session.fields.count+parents.count*inner.count<=4096,let retainedCost=snippetMetadataCost(input.session.fields),parents.count<=(1048576-retainedCost)/innerCost else{return nil}
@@ -287,7 +329,63 @@ func nestSnippet(_ session:SnippetSession,source:String,primary:SourceReplacemen
 }
 </ui:copy>
 
-<ui:file path="apps/apple-simple/Sources/SnippetSession.swift"><ui:paste select="#snippet-session-apple"/><ui:paste select="#snippet-session-apple-input"/><ui:paste select="#snippet-session-apple-completion"/></ui:file>
+### Compute dependent mirrors as one Apple source action
+
+Use the same original-coordinate replacement policy and dependency order as the browser. A normalized transform program changes computed occurrences together with ordinary mirrors. Per-owner spans retain empty-field ordering, nested terminal positions and the original caret even when Unicode casing changes length. No edits leave this function until the complete resulting forest and byte budget pass.
+
+<ui:copy id="snippet-session-apple-derived">
+private struct DerivedSnippetPart {var from:Int;var to:Int;var text:String;var owner:Int}
+private struct DerivedSnippetSpan {var owner:Int;var from:Int;var to:Int}
+private struct DerivedSnippetReplacement {var from:Int;var to:Int;var text:String;var spans:[DerivedSnippetSpan]}
+private func editDerivedSnippet(_ session:SnippetSession,source:String,from:Int,to:Int,text:String)->SnippetInput? {
+ let original=source as NSString
+ guard exactUTF8(source,session.source),from<=to,snippetScalar(original,from),snippetScalar(original,to),session.active>0,snippetMetadataCost(session.fields) != nil else{return nil}
+ do {
+  var budget=SnippetTransformBudget();_ = try validateSnippetMirrors(source,session.fields,budget:&budget)
+  let fields=session.fields;var ids:[Int:SnippetField]=[:],ordinals:[Int:Int]=[:];for(index,field)in fields.enumerated(){guard let id=field.id else{return nil};ids[id]=field;ordinals[id]=index}
+  func ancestors(_ parent:Int,_ child:Int)->Bool{var next=ids[child],steps=0;while let value=next,steps<=fields.count{if value.id==parent{return true};next=value.parent.flatMap{ids[$0]};steps+=1};return false}
+  func terminal(_ field:SnippetField)->Bool{field.index==0 || session.scopes.contains{$0.exitIndex==field.index}}
+  let occurrences=fields.filter{$0.transform==nil && $0.index==session.active},matches=occurrences.filter{$0.from<=from && $0.to>=to}
+  guard let origin=matches.first(where:{$0.id==session.current}) ?? matches.first,text.utf8.count<=1048576/Swift.max(occurrences.count,1) else{return nil}
+  let before=original.substring(with:NSRange(location:origin.from,length:origin.to-origin.from)),relativeFrom=from-origin.from,relativeTo=to-origin.from
+  guard occurrences.allSatisfy({exactUTF8(original.substring(with:NSRange(location:$0.from,length:$0.to-$0.from)),before)}) else{return nil}
+  let beforeText=before as NSString
+  if exactUTF8(beforeText.substring(to:relativeFrom)+text+beforeText.substring(from:relativeTo),before){var next=session;next.current=origin.id!;return SnippetInput(session:next,edits:[],selection:CompletionSelection(from:from+text.utf16.count,to:from+text.utf16.count))}
+  var retained=fields.filter{field in terminal(field) || field.index==session.active ||  !occurrences.contains{ancestors($0.id!,field.id!)}}
+  let ordinary=Set(retained.filter{$0.transform==nil}.map(\.index));retained=retained.filter{$0.transform==nil || ordinary.contains($0.index)};let retainedIDs=Set(retained.map{$0.id!})
+  retained=retained.map{field in var value=field,parent=field.parent;while let id=parent,!retainedIDs.contains(id){parent=ids[id]?.parent};value.parent=parent;return value}
+  var parts=occurrences.map{DerivedSnippetPart(from:$0.from+relativeFrom,to:$0.from+relativeTo,text:text,owner:$0.id!)};var payload=parts.reduce(0){$0+$1.text.utf8.count}
+  guard parts.allSatisfy({snippetScalar(original,$0.from) && snippetScalar(original,$0.to)}) else{return nil}
+  func compare(_ a:DerivedSnippetPart,_ b:DerivedSnippetPart)->Bool{if a.from != b.from{return a.from<b.from};if a.to != b.to{return a.to<b.to};return ordinals[a.owner]!<ordinals[b.owner]!}
+  func projected(_ field:SnippetField)throws->String{let edits=parts.filter{ancestors(field.id!,$0.owner)}.sorted(by:compare);guard edits.allSatisfy({$0.from>=field.from && $0.to<=field.to}) else{throw EngineError(message:"Computed source edit escapes its parent")};var value=original.substring(with:NSRange(location:field.from,length:field.to-field.from));for edit in edits.reversed(){let source=value as NSString;value=source.substring(to:edit.from-field.from)+edit.text+source.substring(from:edit.to-field.from)};return value}
+  var expected:[Int:String]=[:]
+  let dependencyOrder=try snippetTransformOrder(retained)
+  for index in dependencyOrder {
+   let mirrors:[SnippetField]=retained.filter{$0.transform==nil  &&  $0.index==index}
+   let computed:[SnippetField]=retained.filter{$0.transform != nil  &&  $0.index==index}
+   if computed.isEmpty{continue}
+   let value=try projected(mirrors[0])
+   for field in mirrors {let mirrored=try projected(field);guard exactUTF8(mirrored,value) else{return nil}}
+   for field in computed {
+    let result=try applySnippetTransform(field.transform!,value,budget:&budget);expected[field.id!]=result
+    let oldValue=original.substring(with:NSRange(location:field.from,length:field.to-field.from))
+    if !exactUTF8(result,oldValue){payload+=result.utf8.count;guard payload<=1048576 else{return nil};parts.append(DerivedSnippetPart(from:field.from,to:field.to,text:result,owner:field.id!))}
+   }
+  }
+  var replacements:[DerivedSnippetReplacement]=[],at=0;let sorted=parts.sorted(by:compare)
+  while at<sorted.count{let start=sorted[at].from;var group:[DerivedSnippetPart]=[];while at<sorted.count,sorted[at].from==start{group.append(sorted[at]);at+=1};guard group.filter({$0.to>$0.from}).count<=1 else{return nil};group.sort{ordinals[$0.owner]!<ordinals[$1.owner]!};var edit=DerivedSnippetReplacement(from:start,to:group.map(\.to).max()!,text:"",spans:[]);for part in group{let offset=edit.text.utf16.count;edit.text+=part.text;edit.spans.append(DerivedSnippetSpan(owner:part.owner,from:offset,to:edit.text.utf16.count))};guard replacements.last.map({$0.to<=start}) ?? true else{return nil};replacements.append(edit)}
+  let changed=NSMutableString(string:source);for edit in replacements.reversed(){changed.replaceCharacters(in:NSRange(location:edit.from,length:edit.to-edit.from),with:edit.text)};let after=changed as String
+  func map(_ field:SnippetField,_ position:Int,_ end:Bool)->Int{var delta=0;for edit in replacements{if position<edit.from{break};if position>edit.to || position==edit.to && edit.from<edit.to{delta+=edit.text.utf16.count-(edit.to-edit.from);continue};let related=edit.spans.filter{ancestors(field.id!,$0.owner)};if let first=related.first,let last=related.last{return edit.from+delta+(end ? last.to:first.from)};let enclosing=edit.spans.filter{terminal(field) && ancestors($0.owner,field.id!)};if let last=enclosing.last{return edit.from+delta+last.to};return edit.from+delta+edit.spans.filter{ordinals[$0.owner]!<ordinals[field.id!]!}.reduce(0){$0+$1.to-$1.from}};return position+delta}
+  let updated=retained.map{field in var value=field;value.from=map(field,field.from,false);value.to=map(field,field.to,true);return value},afterText=after as NSString
+  guard updated.allSatisfy({$0.from<=$0.to && snippetScalar(afterText,$0.from) && snippetScalar(afterText,$0.to)}) else{return nil}
+  var groups:[Int:String]=[:];for field in updated{let value=afterText.substring(with:NSRange(location:field.from,length:field.to-field.from));if field.transform != nil{guard let wanted=expected[field.id!],exactUTF8(value,wanted) else{return nil}}else{if let previous=groups[field.index],!exactUTF8(previous,value){return nil};groups[field.index]=value}}
+  let caret=map(origin,from,false)+text.utf16.count
+  return SnippetInput(session:SnippetSession(source:after,fields:updated,active:session.active,current:origin.id!,scopes:session.scopes),edits:replacements.map{NativeSourceEdit(range:NSRange(location:$0.from,length:$0.to-$0.from),text:$0.text)},selection:CompletionSelection(from:caret,to:caret))
+ }catch{return nil}
+}
+</ui:copy>
+
+<ui:file path="apps/apple-simple/Sources/SnippetSession.swift"><ui:paste select="#snippet-session-apple"/><ui:paste select="#snippet-session-apple-input"/><ui:paste select="#snippet-session-apple-completion"/><ui:paste select="#snippet-session-apple-derived"/></ui:file>
 
 ## Keep Android field editing independent of the view
 
@@ -305,6 +403,7 @@ private fun snippetScalar(text:String,at:Int):Boolean=at in 0..text.length&&!(at
 internal fun snippetMetadataCost(fields:List<SnippetField>,budget:Long=1048576L):Long? {
  if(fields.size>4096)return null;var bytes=0L
  for(field in fields){if(field.choices.size>4096)return null;val floor=64L+32L*field.choices.size;if(floor>budget-bytes)return null;bytes+=floor
+  val transform=field.transform;if(transform!=null){if(transform.bytes<0||transform.bytes.toLong()>budget-bytes)return null;bytes+=transform.bytes}
   for(choice in field.choices){if(choice.length.toLong()>budget-bytes)return null;val payload=choice.toByteArray(Charsets.UTF_8).size.toLong();if(payload>budget-bytes)return null;bytes+=payload}
  }
  return bytes
@@ -315,13 +414,14 @@ fun beginSnippet(source:String,fields:List<SnippetField>):SnippetSession? {
  for(field in fields){val chain=mutableSetOf<Int>();var next:SnippetField?=field
   while(next!=null&&!visited.contains(next.id!!)){val value=next;if(!chain.add(value.id!!))return null;val identity=value.parent ?: break;val parent=ids[identity] ?: return null;if(parent.from>value.from||parent.to<value.to)return null;next=parent};visited.addAll(chain)
  }
- val active=fields.map{it.index}.filter{it>0}.minOrNull() ?: return null;return SnippetSession(source,fields.map{it.copy(choices=it.choices.toList())},active,fields.first{it.index==active}.id!!)
+ if(fields.any{it.transform!=null}&&runCatching{validateSnippetMirrors(source,fields)}.isFailure)return null
+ val active=fields.filter{it.transform==null}.map{it.index}.filter{it>0}.minOrNull() ?: return null;return SnippetSession(source,fields.map{it.copy(choices=it.choices.toList())},active,fields.first{it.transform==null&&it.index==active}.id!!)
 }
 fun advanceSnippet(session:SnippetSession,source:String,from:Int,to:Int,direction:Int):SnippetAdvance? {
- if(source!=session.source||from>to||direction!=1&&direction != -1||session.fields.none{it.index==session.active&&it.from<=from&&it.to>=to})return null
- val scope=session.scopes.lastOrNull();val order=scope?.let{it.order+it.exitIndex} ?: (session.fields.map{it.index}.filter{it>0}.distinct().sorted()+0);val at=order.indexOf(session.active);val next=at+direction;if(at<0||next !in order.indices)return null
+ if(source!=session.source||from>to||direction!=1&&direction != -1||session.fields.none{it.transform==null&&it.index==session.active&&it.from<=from&&it.to>=to})return null
+ val scope=session.scopes.lastOrNull();val order=scope?.let{it.order+it.exitIndex} ?: (session.fields.filter{it.transform==null}.map{it.index}.filter{it>0}.distinct().sorted()+0);val at=order.indexOf(session.active);val next=at+direction;if(at<0||next !in order.indices)return null
  if(scope!=null&&order[next]==scope.exitIndex){val field=session.fields.firstOrNull{it.id==scope.exitId} ?: return null;return SnippetAdvance(session.copy(fields=session.fields.filter{it.index !in scope.order&&it.index!=scope.exitIndex},active=scope.outerActive,current=scope.outerCurrent,scopes=session.scopes.dropLast(1)),CompletionSelection(field.from,field.to))}
- val field=session.fields.first{it.index==order[next]};return SnippetAdvance(if(field.index==0)null else session.copy(active=field.index,current=field.id!!),CompletionSelection(field.from,field.to))
+ val field=session.fields.first{it.transform==null&&it.index==order[next]};return SnippetAdvance(if(field.index==0)null else session.copy(active=field.index,current=field.id!!),CompletionSelection(field.from,field.to))
 }
 
 </ui:copy>
@@ -333,6 +433,7 @@ Capture and numeric traversal above retain a source-bound intent, without editor
 <ui:copy id="snippet-session-android-input">
 private data class SnippetReplacement(val from:Int,val to:Int,var text:String,val owners:MutableList<Int>)
 fun editSnippet(session:SnippetSession,source:String,from:Int,to:Int,text:String):SnippetInput? {
+ if(session.fields.any{it.transform!=null})return editDerivedSnippet(session,source,from,to,text)
  if(source!=session.source||from>to||!snippetScalar(source,from)||!snippetScalar(source,to)||session.active==0)return null
  fun terminal(field:SnippetField)=field.index==0||session.scopes.any{it.exitIndex==field.index}
  val fields=session.fields;val ids=fields.associateBy{it.id!!}
@@ -394,8 +495,8 @@ fun nestSnippet(session:SnippetSession,source:String,primary:SourceReplacement,a
  val innerBytes=snippetMetadataCost(inner) ?: return null
  val exit=inner.firstOrNull{it.index==0} ?: return null
  val origin=session.fields.firstOrNull{it.id==session.current&&it.from<=primary.from&&it.to>=primary.to} ?: return null
- val input=completeSnippet(session,source,primary,additional) ?: return null;val parents=input.session.fields.filter{it.index==session.active};val current=parents.firstOrNull{it.id==input.session.current} ?: return null
- val relative=primary.from-origin.from;val order=inner.filter{it.index>0}.map{it.index}.distinct().sorted()
+ val input=completeSnippet(session,source,primary,additional) ?: return null;val parents=input.session.fields.filter{it.transform==null&&it.index==session.active};val current=parents.firstOrNull{it.id==input.session.current} ?: return null
+ val relative=primary.from-origin.from;val order=inner.filter{it.transform==null&&it.index>0}.map{it.index}.distinct().sorted()
  if(order.isNotEmpty()){
   val retainedBytes=snippetMetadataCost(input.session.fields) ?: return null
   if(parents.isEmpty()||innerBytes>(1048576L-retainedBytes)/parents.size||input.session.fields.size.toLong()+parents.size.toLong()*inner.size>4096)return null
@@ -415,7 +516,44 @@ fun nestSnippet(session:SnippetSession,source:String,primary:SourceReplacement,a
 }
 </ui:copy>
 
-<ui:file path="apps/android-simple/app/src/main/java/com/hickorydocs/simple/SnippetSession.kt"><ui:paste select="#snippet-session-android"/><ui:paste select="#snippet-session-android-input"/><ui:paste select="#snippet-session-android-completion"/></ui:file>
+### Compute dependent mirrors as one Android source action
+
+The Android model uses the same original-coordinate dependency calculation and per-owner spans. It builds immutable replacement rows, the complete retained field forest and caret before the host receives an action. Parent replacement retires orphaned computed groups; malformed dependencies or a shared work/output limit refuse the entire proposal.
+
+<ui:copy id="snippet-session-android-derived">
+private data class DerivedSnippetPart(val from:Int,val to:Int,val text:String,val owner:Int)
+private data class DerivedSnippetSpan(val owner:Int,val from:Int,val to:Int)
+private data class DerivedSnippetReplacement(val from:Int,val to:Int,val text:String,val spans:List<DerivedSnippetSpan>)
+private fun editDerivedSnippet(session:SnippetSession,source:String,from:Int,to:Int,text:String):SnippetInput? {
+ if(source!=session.source||from>to||!snippetScalar(source,from)||!snippetScalar(source,to)||session.active==0||snippetMetadataCost(session.fields)==null)return null
+ return runCatching {
+  val budget=SnippetTransformBudget();validateSnippetMirrors(source,session.fields,budget)
+  val fields=session.fields;val ids=fields.associateBy{it.id!!};val ordinals=fields.mapIndexed{index,field->field.id!! to index}.toMap()
+  fun ancestors(parent:Int,child:Int):Boolean {var next=ids[child];var steps=0;while(next!=null&&steps<=fields.size){val value=next;if(value.id==parent)return true;next=value.parent?.let{ids[it]};steps++};return false}
+  fun terminal(field:SnippetField)=field.index==0||session.scopes.any{it.exitIndex==field.index}
+  val occurrences=fields.filter{it.transform==null&&it.index==session.active};val matches=occurrences.filter{it.from<=from&&it.to>=to};val origin=matches.firstOrNull{it.id==session.current}?:matches.firstOrNull()?:return null
+  if(text.toByteArray(Charsets.UTF_8).size>1048576/maxOf(occurrences.size,1))return null
+  val before=source.substring(origin.from,origin.to);val relativeFrom=from-origin.from;val relativeTo=to-origin.from;if(occurrences.any{source.substring(it.from,it.to)!=before})return null
+  if(before.substring(0,relativeFrom)+text+before.substring(relativeTo)==before)return SnippetInput(session.copy(current=origin.id!!),emptyList(),CompletionSelection(from+text.length,from+text.length))
+  var retained=fields.filter{field->terminal(field)||field.index==session.active||occurrences.none{ancestors(it.id!!,field.id!!)}};val ordinary=retained.filter{it.transform==null}.map{it.index}.toSet();retained=retained.filter{it.transform==null||it.index in ordinary};val retainedIDs=retained.map{it.id!!}.toSet()
+  retained=retained.map{field->var parent=field.parent;while(parent!=null&&parent !in retainedIDs)parent=ids[parent]?.parent;field.copy(parent=parent)}
+  val parts=occurrences.map{DerivedSnippetPart(it.from+relativeFrom,it.from+relativeTo,text,it.id!!)}.toMutableList();var payload=parts.sumOf{it.text.toByteArray(Charsets.UTF_8).size.toLong()};if(parts.any{!snippetScalar(source,it.from)||!snippetScalar(source,it.to)})return null
+  val compare=compareBy<DerivedSnippetPart>{it.from}.thenBy{it.to}.thenBy{ordinals.getValue(it.owner)}
+  fun projected(field:SnippetField):String {val edits=parts.filter{ancestors(field.id!!,it.owner)}.sortedWith(compare);check(edits.all{it.from>=field.from&&it.to<=field.to}){"Computed source edit escapes its parent"};var value=source.substring(field.from,field.to);for(edit in edits.reversed())value=value.substring(0,edit.from-field.from)+edit.text+value.substring(edit.to-field.from);return value}
+  val expected=mutableMapOf<Int,String>()
+  for(index in snippetTransformOrder(retained)){val mirrors=retained.filter{it.transform==null&&it.index==index};val computed=retained.filter{it.transform!=null&&it.index==index};if(computed.isEmpty())continue;val value=projected(mirrors.first());if(mirrors.any{projected(it)!=value})return null;for(field in computed){val result=applySnippetTransform(field.transform!!,value,budget);expected[field.id!!]=result;if(result!=source.substring(field.from,field.to)){payload+=result.toByteArray(Charsets.UTF_8).size;check(payload<=1048576){"Computed mirror fanout limit exceeded"};parts+=DerivedSnippetPart(field.from,field.to,result,field.id)}}}
+  val replacements=mutableListOf<DerivedSnippetReplacement>();val sorted=parts.sortedWith(compare);var at=0
+  while(at<sorted.size){val start=sorted[at].from;val group=mutableListOf<DerivedSnippetPart>();while(at<sorted.size&&sorted[at].from==start)group+=sorted[at++];if(group.count{it.to>it.from}>1)return null;group.sortBy{ordinals.getValue(it.owner)};var content="";val spans=mutableListOf<DerivedSnippetSpan>();for(part in group){val offset=content.length;content+=part.text;spans+=DerivedSnippetSpan(part.owner,offset,content.length)};if(replacements.lastOrNull()?.let{it.to>start}==true)return null;replacements+=DerivedSnippetReplacement(start,group.maxOf{it.to},content,spans.toList())}
+  var after=source;for(edit in replacements.reversed())after=after.substring(0,edit.from)+edit.text+after.substring(edit.to)
+  fun map(field:SnippetField,position:Int,end:Boolean):Int {var delta=0;for(edit in replacements){if(position<edit.from)break;if(position>edit.to||position==edit.to&&edit.from<edit.to){delta+=edit.text.length-(edit.to-edit.from);continue};val related=edit.spans.filter{ancestors(field.id!!,it.owner)};if(related.isNotEmpty())return edit.from+delta+if(end)related.last().to else related.first().from;val enclosing=edit.spans.filter{terminal(field)&&ancestors(it.owner,field.id!!)};if(enclosing.isNotEmpty())return edit.from+delta+enclosing.last().to;return edit.from+delta+edit.spans.filter{ordinals.getValue(it.owner)<ordinals.getValue(field.id!!)}.sumOf{it.to-it.from}};return position+delta}
+  val updated=retained.map{field->field.copy(from=map(field,field.from,false),to=map(field,field.to,true))};if(updated.any{it.from>it.to||!snippetScalar(after,it.from)||!snippetScalar(after,it.to)})return null
+  val groups=mutableMapOf<Int,String>();for(field in updated){val value=after.substring(field.from,field.to);if(field.transform!=null){if(value!=expected[field.id!!])return null}else{val previous=groups[field.index];if(previous!=null&&previous!=value)return null;groups[field.index]=value}}
+  val caret=map(origin,from,false)+text.length;SnippetInput(SnippetSession(after,updated,session.active,origin.id!!,session.scopes),replacements.map{NativeSourceEdit(it.from,it.to,it.text)},CompletionSelection(caret,caret))
+ }.getOrNull()
+}
+</ui:copy>
+
+<ui:file path="apps/android-simple/app/src/main/java/com/hickorydocs/simple/SnippetSession.kt"><ui:paste select="#snippet-session-android"/><ui:paste select="#snippet-session-android-input"/><ui:paste select="#snippet-session-android-completion"/><ui:paste select="#snippet-session-android-derived"/></ui:file>
 
 ## Specify linked input and source selection outcomes
 

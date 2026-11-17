@@ -42,3 +42,5 @@ mod service;
 mod source_identity;
 pub use service::service;
 pub mod snippet;
+pub mod snippet_transform;
+pub mod snippet_case;

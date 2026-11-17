@@ -156331,6 +156331,181 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/frontends/agent-proposal-history-witness.md",
       "symbol": "agent proposal history host driver",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-transform-engine",
+      "output": "crates/hick-lsp/src/snippet_transform.rs",
+      "page": ".hickory-source/mechanisms/snippet-transforms.md",
+      "symbol": "snippet transform engine",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-transform-browser",
+      "output": "apps/web/src/simple/SnippetTransform.ts",
+      "page": ".hickory-source/mechanisms/snippet-transforms.md",
+      "symbol": "snippet transform browser",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-transform-apple",
+      "output": "apps/apple-simple/Sources/SnippetTransform.swift",
+      "page": ".hickory-source/mechanisms/snippet-transforms.md",
+      "symbol": "snippet transform apple",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-transform-android",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/SnippetTransform.kt",
+      "page": ".hickory-source/mechanisms/snippet-transforms.md",
+      "symbol": "snippet transform android",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-transform-vectors",
+      "output": "apps/simple-contract/snippet-transform-cases.json",
+      "page": ".hickory-source/mechanisms/snippet-transforms.md",
+      "symbol": "snippet transform vectors",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-transform-browser-tests",
+      "output": "apps/web/src/simple/SnippetTransform.test.ts",
+      "page": ".hickory-source/mechanisms/snippet-transforms.md",
+      "symbol": "snippet transform browser tests",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-transform-apple-tests",
+      "output": "apps/apple-simple/Tests/SnippetTransformTests.swift",
+      "page": ".hickory-source/mechanisms/snippet-transforms.md",
+      "symbol": "snippet transform apple tests",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-transform-android-tests",
+      "output": "apps/android-simple/app/src/test/java/com/hickorydocs/simple/SnippetTransformTest.kt",
+      "page": ".hickory-source/mechanisms/snippet-transforms.md",
+      "symbol": "snippet transform android tests",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-session-browser-derived",
+      "output": "apps/web/src/simple/SnippetSession.ts",
+      "page": ".hickory-source/mechanisms/snippet-sessions.md",
+      "symbol": "snippet session browser derived",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-session-apple-derived",
+      "output": "apps/apple-simple/Sources/SnippetSession.swift",
+      "page": ".hickory-source/mechanisms/snippet-sessions.md",
+      "symbol": "snippet session apple derived",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-session-android-derived",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/SnippetSession.kt",
+      "page": ".hickory-source/mechanisms/snippet-sessions.md",
+      "symbol": "snippet session android derived",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-derived-vectors",
+      "output": "apps/simple-contract/snippet-derived-cases.json",
+      "page": ".hickory-source/mechanisms/snippet-derived-acceptance.md",
+      "symbol": "snippet derived vectors",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-derived-browser-tests",
+      "output": "apps/web/src/simple/SnippetDerived.test.ts",
+      "page": ".hickory-source/mechanisms/snippet-derived-acceptance.md",
+      "symbol": "snippet derived browser tests",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-derived-apple-tests",
+      "output": "apps/apple-simple/Tests/SnippetDerivedTests.swift",
+      "page": ".hickory-source/mechanisms/snippet-derived-acceptance.md",
+      "symbol": "snippet derived apple tests",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-derived-android-tests",
+      "output": "apps/android-simple/app/src/test/java/com/hickorydocs/simple/SnippetDerivedTest.kt",
+      "page": ".hickory-source/mechanisms/snippet-derived-acceptance.md",
+      "symbol": "snippet derived android tests",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-case-map-data",
+      "output": "apps/simple-contract/snippet-case-map.json",
+      "page": ".hickory-source/mechanisms/snippet-case-policy.md",
+      "symbol": "snippet case map data",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-case-browser",
+      "output": "apps/web/src/simple/SnippetCase.ts",
+      "page": ".hickory-source/mechanisms/snippet-case-policy.md",
+      "symbol": "snippet case browser",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-case-apple",
+      "output": "apps/apple-simple/Sources/SnippetCase.swift",
+      "page": ".hickory-source/mechanisms/snippet-case-policy.md",
+      "symbol": "snippet case apple",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-case-android",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/SnippetCase.kt",
+      "page": ".hickory-source/mechanisms/snippet-case-policy.md",
+      "symbol": "snippet case android",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-case-engine",
+      "output": "crates/hick-lsp/src/snippet_case.rs",
+      "page": ".hickory-source/mechanisms/snippet-case-policy.md",
+      "symbol": "snippet case engine",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-case-vectors",
+      "output": "apps/simple-contract/snippet-case-cases.json",
+      "page": ".hickory-source/mechanisms/snippet-case-policy.md",
+      "symbol": "snippet case vectors",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-case-browser-tests",
+      "output": "apps/web/src/simple/SnippetCase.test.ts",
+      "page": ".hickory-source/mechanisms/snippet-case-policy.md",
+      "symbol": "snippet case browser tests",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-case-apple-tests",
+      "output": "apps/apple-simple/Tests/SnippetCaseTests.swift",
+      "page": ".hickory-source/mechanisms/snippet-case-policy.md",
+      "symbol": "snippet case apple tests",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-case-android-tests",
+      "output": "apps/android-simple/app/src/test/java/com/hickorydocs/simple/SnippetCaseTest.kt",
+      "page": ".hickory-source/mechanisms/snippet-case-policy.md",
+      "symbol": "snippet case android tests",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-case-generator",
+      "output": "scripts/compile-snippet-case-data.py",
+      "page": ".hickory-source/mechanisms/snippet-case-policy.md",
+      "symbol": "snippet case generator",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

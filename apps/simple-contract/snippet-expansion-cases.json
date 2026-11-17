@@ -998,7 +998,7 @@
         ],
         "data": {
           "hickory_snippet": {
-            "version": 2,
+            "version": 3,
             "syntax": "${1:😀} + $1$0",
             "text": "😀 + 😀",
             "fields": [

@@ -1,0 +1,1783 @@
+[
+  {
+    "name": "capture",
+    "pattern": "([a-z]+)[_-]([a-z]+)",
+    "format": "${1:/capitalize}${2:/upcase}",
+    "flags": "g",
+    "input": "foo_bar and zip-zap",
+    "expected": "FooBAR and ZipZAP",
+    "program": {
+      "version": 2,
+      "case_map": "hickory-ucd-16.0.0-v1",
+      "regex": [
+        "seq",
+        [
+          [
+            "capture",
+            1,
+            [
+              "seq",
+              [
+                [
+                  "repeat",
+                  [
+                    "class",
+                    [
+                      [
+                        97,
+                        122
+                      ]
+                    ],
+                    false
+                  ],
+                  1,
+                  null,
+                  false
+                ]
+              ]
+            ]
+          ],
+          [
+            "class",
+            [
+              [
+                95,
+                95
+              ],
+              [
+                45,
+                45
+              ]
+            ],
+            false
+          ],
+          [
+            "capture",
+            2,
+            [
+              "seq",
+              [
+                [
+                  "repeat",
+                  [
+                    "class",
+                    [
+                      [
+                        97,
+                        122
+                      ]
+                    ],
+                    false
+                  ],
+                  1,
+                  null,
+                  false
+                ]
+              ]
+            ]
+          ]
+        ]
+      ],
+      "format": [
+        [
+          "capture",
+          1,
+          "capitalize"
+        ],
+        [
+          "capture",
+          2,
+          "upcase"
+        ]
+      ],
+      "flags": "g",
+      "groups": 2
+    }
+  },
+  {
+    "name": "lazy",
+    "pattern": "(a+?)(a)",
+    "format": "<$1:$2>",
+    "flags": "",
+    "input": "aaaa",
+    "expected": "<a:a>aa",
+    "program": {
+      "version": 2,
+      "case_map": "hickory-ucd-16.0.0-v1",
+      "regex": [
+        "seq",
+        [
+          [
+            "capture",
+            1,
+            [
+              "seq",
+              [
+                [
+                  "repeat",
+                  [
+                    "class",
+                    [
+                      [
+                        97,
+                        97
+                      ]
+                    ],
+                    false
+                  ],
+                  1,
+                  null,
+                  true
+                ]
+              ]
+            ]
+          ],
+          [
+            "capture",
+            2,
+            [
+              "seq",
+              [
+                [
+                  "class",
+                  [
+                    [
+                      97,
+                      97
+                    ]
+                  ],
+                  false
+                ]
+              ]
+            ]
+          ]
+        ]
+      ],
+      "format": [
+        "<",
+        [
+          "capture",
+          1,
+          ""
+        ],
+        ":",
+        [
+          "capture",
+          2,
+          ""
+        ],
+        ">"
+      ],
+      "flags": "",
+      "groups": 2
+    }
+  },
+  {
+    "name": "conditions",
+    "pattern": "(foo)?bar",
+    "format": "${1:+yes}${1:?Y:N}${1:-none}",
+    "flags": "g",
+    "input": "foobar bar",
+    "expected": "yesYfoo Nnone",
+    "program": {
+      "version": 2,
+      "case_map": "hickory-ucd-16.0.0-v1",
+      "regex": [
+        "seq",
+        [
+          [
+            "repeat",
+            [
+              "capture",
+              1,
+              [
+                "seq",
+                [
+                  [
+                    "class",
+                    [
+                      [
+                        102,
+                        102
+                      ]
+                    ],
+                    false
+                  ],
+                  [
+                    "class",
+                    [
+                      [
+                        111,
+                        111
+                      ]
+                    ],
+                    false
+                  ],
+                  [
+                    "class",
+                    [
+                      [
+                        111,
+                        111
+                      ]
+                    ],
+                    false
+                  ]
+                ]
+              ]
+            ],
+            0,
+            1,
+            false
+          ],
+          [
+            "class",
+            [
+              [
+                98,
+                98
+              ]
+            ],
+            false
+          ],
+          [
+            "class",
+            [
+              [
+                97,
+                97
+              ]
+            ],
+            false
+          ],
+          [
+            "class",
+            [
+              [
+                114,
+                114
+              ]
+            ],
+            false
+          ]
+        ]
+      ],
+      "format": [
+        [
+          "if",
+          1,
+          [
+            "yes"
+          ],
+          []
+        ],
+        [
+          "if",
+          1,
+          [
+            "Y"
+          ],
+          [
+            "N"
+          ]
+        ],
+        [
+          "if",
+          1,
+          [
+            [
+              "capture",
+              1,
+              ""
+            ]
+          ],
+          [
+            "none"
+          ]
+        ]
+      ],
+      "flags": "g",
+      "groups": 1
+    }
+  },
+  {
+    "name": "zero",
+    "pattern": "^|$",
+    "format": "|",
+    "flags": "g",
+    "input": "😀λ",
+    "expected": "|😀λ|",
+    "program": {
+      "version": 2,
+      "case_map": "hickory-ucd-16.0.0-v1",
+      "regex": [
+        "alt",
+        [
+          [
+            "seq",
+            [
+              [
+                "assert",
+                "start"
+              ]
+            ]
+          ],
+          [
+            "seq",
+            [
+              [
+                "assert",
+                "end"
+              ]
+            ]
+          ]
+        ]
+      ],
+      "format": [
+        "|"
+      ],
+      "flags": "g",
+      "groups": 0
+    }
+  },
+  {
+    "name": "ignorecase",
+    "pattern": "([a-z]+)",
+    "format": "${1:/upcase}",
+    "flags": "gi",
+    "input": "aBc",
+    "expected": "ABC",
+    "program": {
+      "version": 2,
+      "case_map": "hickory-ucd-16.0.0-v1",
+      "regex": [
+        "seq",
+        [
+          [
+            "capture",
+            1,
+            [
+              "seq",
+              [
+                [
+                  "repeat",
+                  [
+                    "class",
+                    [
+                      [
+                        65,
+                        90
+                      ],
+                      [
+                        97,
+                        122
+                      ]
+                    ],
+                    false
+                  ],
+                  1,
+                  null,
+                  false
+                ]
+              ]
+            ]
+          ]
+        ]
+      ],
+      "format": [
+        [
+          "capture",
+          1,
+          "upcase"
+        ]
+      ],
+      "flags": "gi",
+      "groups": 1
+    }
+  },
+  {
+    "name": "empty-else",
+    "pattern": "(.+)",
+    "format": "${1:?yes:no}",
+    "flags": "",
+    "input": "",
+    "expected": "no",
+    "program": {
+      "version": 2,
+      "case_map": "hickory-ucd-16.0.0-v1",
+      "regex": [
+        "seq",
+        [
+          [
+            "capture",
+            1,
+            [
+              "seq",
+              [
+                [
+                  "repeat",
+                  [
+                    "dot"
+                  ],
+                  1,
+                  null,
+                  false
+                ]
+              ]
+            ]
+          ]
+        ]
+      ],
+      "format": [
+        [
+          "if",
+          1,
+          [
+            "yes"
+          ],
+          [
+            "no"
+          ]
+        ]
+      ],
+      "flags": "",
+      "groups": 1
+    }
+  },
+  {
+    "name": "nested-format",
+    "pattern": "(a)",
+    "format": "${1:+x${1}}",
+    "flags": "",
+    "input": "a",
+    "expected": "xa",
+    "program": {
+      "version": 2,
+      "case_map": "hickory-ucd-16.0.0-v1",
+      "regex": [
+        "seq",
+        [
+          [
+            "capture",
+            1,
+            [
+              "seq",
+              [
+                [
+                  "class",
+                  [
+                    [
+                      97,
+                      97
+                    ]
+                  ],
+                  false
+                ]
+              ]
+            ]
+          ]
+        ]
+      ],
+      "format": [
+        [
+          "if",
+          1,
+          [
+            "x",
+            [
+              "capture",
+              1,
+              ""
+            ]
+          ],
+          []
+        ]
+      ],
+      "flags": "",
+      "groups": 1
+    }
+  },
+  {
+    "name": "camel",
+    "pattern": "(.*)",
+    "format": "${1:/camelcase}",
+    "flags": "",
+    "input": "HELLO world",
+    "expected": "hELLOWorld",
+    "program": {
+      "version": 2,
+      "case_map": "hickory-ucd-16.0.0-v1",
+      "regex": [
+        "seq",
+        [
+          [
+            "capture",
+            1,
+            [
+              "seq",
+              [
+                [
+                  "repeat",
+                  [
+                    "dot"
+                  ],
+                  0,
+                  null,
+                  false
+                ]
+              ]
+            ]
+          ]
+        ]
+      ],
+      "format": [
+        [
+          "capture",
+          1,
+          "camelcase"
+        ]
+      ],
+      "flags": "",
+      "groups": 1
+    }
+  },
+  {
+    "name": "pascal",
+    "pattern": "(.*)",
+    "format": "${1:/pascalcase}",
+    "flags": "",
+    "input": "hello_λworld",
+    "expected": "HelloΛworld",
+    "program": {
+      "version": 2,
+      "case_map": "hickory-ucd-16.0.0-v1",
+      "regex": [
+        "seq",
+        [
+          [
+            "capture",
+            1,
+            [
+              "seq",
+              [
+                [
+                  "repeat",
+                  [
+                    "dot"
+                  ],
+                  0,
+                  null,
+                  false
+                ]
+              ]
+            ]
+          ]
+        ]
+      ],
+      "format": [
+        [
+          "capture",
+          1,
+          "pascalcase"
+        ]
+      ],
+      "flags": "",
+      "groups": 1
+    }
+  },
+  {
+    "name": "emoji-case",
+    "pattern": "(.*)",
+    "format": "${1:/camelcase}",
+    "flags": "",
+    "input": "😀",
+    "expected": "😀",
+    "program": {
+      "version": 2,
+      "case_map": "hickory-ucd-16.0.0-v1",
+      "regex": [
+        "seq",
+        [
+          [
+            "capture",
+            1,
+            [
+              "seq",
+              [
+                [
+                  "repeat",
+                  [
+                    "dot"
+                  ],
+                  0,
+                  null,
+                  false
+                ]
+              ]
+            ]
+          ]
+        ]
+      ],
+      "format": [
+        [
+          "capture",
+          1,
+          "camelcase"
+        ]
+      ],
+      "flags": "",
+      "groups": 1
+    }
+  },
+  {
+    "name": "unicode-capture",
+    "pattern": "(.)",
+    "format": "<$1>",
+    "flags": "g",
+    "input": "😀λ",
+    "expected": "<😀><λ>",
+    "program": {
+      "version": 2,
+      "case_map": "hickory-ucd-16.0.0-v1",
+      "regex": [
+        "seq",
+        [
+          [
+            "capture",
+            1,
+            [
+              "seq",
+              [
+                [
+                  "dot"
+                ]
+              ]
+            ]
+          ]
+        ]
+      ],
+      "format": [
+        "<",
+        [
+          "capture",
+          1,
+          ""
+        ],
+        ">"
+      ],
+      "flags": "g",
+      "groups": 1
+    }
+  },
+  {
+    "name": "optional",
+    "pattern": "(x)?(y)",
+    "format": "$1:$2",
+    "flags": "",
+    "input": "y",
+    "expected": ":y",
+    "program": {
+      "version": 2,
+      "case_map": "hickory-ucd-16.0.0-v1",
+      "regex": [
+        "seq",
+        [
+          [
+            "repeat",
+            [
+              "capture",
+              1,
+              [
+                "seq",
+                [
+                  [
+                    "class",
+                    [
+                      [
+                        120,
+                        120
+                      ]
+                    ],
+                    false
+                  ]
+                ]
+              ]
+            ],
+            0,
+            1,
+            false
+          ],
+          [
+            "capture",
+            2,
+            [
+              "seq",
+              [
+                [
+                  "class",
+                  [
+                    [
+                      121,
+                      121
+                    ]
+                  ],
+                  false
+                ]
+              ]
+            ]
+          ]
+        ]
+      ],
+      "format": [
+        [
+          "capture",
+          1,
+          ""
+        ],
+        ":",
+        [
+          "capture",
+          2,
+          ""
+        ]
+      ],
+      "flags": "",
+      "groups": 2
+    }
+  },
+  {
+    "name": "range",
+    "pattern": "[^a-c]+",
+    "format": "X",
+    "flags": "g",
+    "input": "ab😀λcZ",
+    "expected": "abXcX",
+    "program": {
+      "version": 2,
+      "case_map": "hickory-ucd-16.0.0-v1",
+      "regex": [
+        "seq",
+        [
+          [
+            "repeat",
+            [
+              "class",
+              [
+                [
+                  97,
+                  99
+                ]
+              ],
+              true
+            ],
+            1,
+            null,
+            false
+          ]
+        ]
+      ],
+      "format": [
+        "X"
+      ],
+      "flags": "g",
+      "groups": 0
+    }
+  },
+  {
+    "name": "digits",
+    "pattern": "(\\d+)",
+    "format": "<$1>",
+    "flags": "g",
+    "input": "a12b3",
+    "expected": "a<12>b<3>",
+    "program": {
+      "version": 2,
+      "case_map": "hickory-ucd-16.0.0-v1",
+      "regex": [
+        "seq",
+        [
+          [
+            "capture",
+            1,
+            [
+              "seq",
+              [
+                [
+                  "repeat",
+                  [
+                    "class",
+                    [
+                      [
+                        48,
+                        57
+                      ]
+                    ],
+                    false
+                  ],
+                  1,
+                  null,
+                  false
+                ]
+              ]
+            ]
+          ]
+        ]
+      ],
+      "format": [
+        "<",
+        [
+          "capture",
+          1,
+          ""
+        ],
+        ">"
+      ],
+      "flags": "g",
+      "groups": 1
+    }
+  },
+  {
+    "name": "word",
+    "pattern": "\\b([a-z]+)\\b",
+    "format": "${1:/upcase}",
+    "flags": "g",
+    "input": "a-b_2 😀x",
+    "expected": "A-b_2 😀X",
+    "program": {
+      "version": 2,
+      "case_map": "hickory-ucd-16.0.0-v1",
+      "regex": [
+        "seq",
+        [
+          [
+            "assert",
+            "word"
+          ],
+          [
+            "capture",
+            1,
+            [
+              "seq",
+              [
+                [
+                  "repeat",
+                  [
+                    "class",
+                    [
+                      [
+                        97,
+                        122
+                      ]
+                    ],
+                    false
+                  ],
+                  1,
+                  null,
+                  false
+                ]
+              ]
+            ]
+          ],
+          [
+            "assert",
+            "word"
+          ]
+        ]
+      ],
+      "format": [
+        [
+          "capture",
+          1,
+          "upcase"
+        ]
+      ],
+      "flags": "g",
+      "groups": 1
+    }
+  },
+  {
+    "name": "multiline",
+    "pattern": "^([a-z]+)$",
+    "format": "<$1>",
+    "flags": "gm",
+    "input": "a\nλ\nb",
+    "expected": "<a>\nλ\n<b>",
+    "program": {
+      "version": 2,
+      "case_map": "hickory-ucd-16.0.0-v1",
+      "regex": [
+        "seq",
+        [
+          [
+            "assert",
+            "start"
+          ],
+          [
+            "capture",
+            1,
+            [
+              "seq",
+              [
+                [
+                  "repeat",
+                  [
+                    "class",
+                    [
+                      [
+                        97,
+                        122
+                      ]
+                    ],
+                    false
+                  ],
+                  1,
+                  null,
+                  false
+                ]
+              ]
+            ]
+          ],
+          [
+            "assert",
+            "end"
+          ]
+        ]
+      ],
+      "format": [
+        "<",
+        [
+          "capture",
+          1,
+          ""
+        ],
+        ">"
+      ],
+      "flags": "gm",
+      "groups": 1
+    }
+  },
+  {
+    "name": "dotall",
+    "pattern": "a(.*)b",
+    "format": "$1",
+    "flags": "s",
+    "input": "a\n😀b",
+    "expected": "\n😀",
+    "program": {
+      "version": 2,
+      "case_map": "hickory-ucd-16.0.0-v1",
+      "regex": [
+        "seq",
+        [
+          [
+            "class",
+            [
+              [
+                97,
+                97
+              ]
+            ],
+            false
+          ],
+          [
+            "capture",
+            1,
+            [
+              "seq",
+              [
+                [
+                  "repeat",
+                  [
+                    "dot"
+                  ],
+                  0,
+                  null,
+                  false
+                ]
+              ]
+            ]
+          ],
+          [
+            "class",
+            [
+              [
+                98,
+                98
+              ]
+            ],
+            false
+          ]
+        ]
+      ],
+      "format": [
+        [
+          "capture",
+          1,
+          ""
+        ]
+      ],
+      "flags": "s",
+      "groups": 1
+    }
+  },
+  {
+    "name": "repetition",
+    "pattern": "(a{2,3})",
+    "format": "<$1>",
+    "flags": "g",
+    "input": "aaaaa",
+    "expected": "<aaa><aa>",
+    "program": {
+      "version": 2,
+      "case_map": "hickory-ucd-16.0.0-v1",
+      "regex": [
+        "seq",
+        [
+          [
+            "capture",
+            1,
+            [
+              "seq",
+              [
+                [
+                  "repeat",
+                  [
+                    "class",
+                    [
+                      [
+                        97,
+                        97
+                      ]
+                    ],
+                    false
+                  ],
+                  2,
+                  3,
+                  false
+                ]
+              ]
+            ]
+          ]
+        ]
+      ],
+      "format": [
+        "<",
+        [
+          "capture",
+          1,
+          ""
+        ],
+        ">"
+      ],
+      "flags": "g",
+      "groups": 1
+    }
+  },
+  {
+    "name": "escaped",
+    "pattern": "([a-z]+)",
+    "format": "\\$1-$1-\\/",
+    "flags": "g",
+    "input": "a",
+    "expected": "$1-a-/",
+    "program": {
+      "version": 2,
+      "case_map": "hickory-ucd-16.0.0-v1",
+      "regex": [
+        "seq",
+        [
+          [
+            "capture",
+            1,
+            [
+              "seq",
+              [
+                [
+                  "repeat",
+                  [
+                    "class",
+                    [
+                      [
+                        97,
+                        122
+                      ]
+                    ],
+                    false
+                  ],
+                  1,
+                  null,
+                  false
+                ]
+              ]
+            ]
+          ]
+        ]
+      ],
+      "format": [
+        "$1-",
+        [
+          "capture",
+          1,
+          ""
+        ],
+        "-/"
+      ],
+      "flags": "g",
+      "groups": 1
+    }
+  },
+  {
+    "name": "no-match",
+    "pattern": "z",
+    "format": "replace",
+    "flags": "",
+    "input": "abc",
+    "expected": "abc",
+    "program": {
+      "version": 2,
+      "case_map": "hickory-ucd-16.0.0-v1",
+      "regex": [
+        "seq",
+        [
+          [
+            "class",
+            [
+              [
+                122,
+                122
+              ]
+            ],
+            false
+          ]
+        ]
+      ],
+      "format": [
+        "replace"
+      ],
+      "flags": "",
+      "groups": 0
+    }
+  },
+  {
+    "name": "fallback-unmatched",
+    "pattern": "(z)",
+    "format": "${1:-fallback}",
+    "flags": "",
+    "input": "abc",
+    "expected": "fallback",
+    "program": {
+      "version": 2,
+      "case_map": "hickory-ucd-16.0.0-v1",
+      "regex": [
+        "seq",
+        [
+          [
+            "capture",
+            1,
+            [
+              "seq",
+              [
+                [
+                  "class",
+                  [
+                    [
+                      122,
+                      122
+                    ]
+                  ],
+                  false
+                ]
+              ]
+            ]
+          ]
+        ]
+      ],
+      "format": [
+        [
+          "if",
+          1,
+          [
+            [
+              "capture",
+              1,
+              ""
+            ]
+          ],
+          [
+            "fallback"
+          ]
+        ]
+      ],
+      "flags": "",
+      "groups": 1
+    }
+  },
+  {
+    "name": "unicode-hex",
+    "pattern": "\\u03bb",
+    "format": "L",
+    "flags": "",
+    "input": "λ",
+    "expected": "L",
+    "program": {
+      "version": 2,
+      "case_map": "hickory-ucd-16.0.0-v1",
+      "regex": [
+        "seq",
+        [
+          [
+            "class",
+            [
+              [
+                955,
+                955
+              ]
+            ],
+            false
+          ]
+        ]
+      ],
+      "format": [
+        "L"
+      ],
+      "flags": "",
+      "groups": 0
+    }
+  },
+  {
+    "name": "empty-match",
+    "pattern": "a*",
+    "format": "X",
+    "flags": "g",
+    "input": "b",
+    "expected": "XbX",
+    "program": {
+      "version": 2,
+      "case_map": "hickory-ucd-16.0.0-v1",
+      "regex": [
+        "seq",
+        [
+          [
+            "repeat",
+            [
+              "class",
+              [
+                [
+                  97,
+                  97
+                ]
+              ],
+              false
+            ],
+            0,
+            null,
+            false
+          ]
+        ]
+      ],
+      "format": [
+        "X"
+      ],
+      "flags": "g",
+      "groups": 0
+    }
+  },
+  {
+    "name": "work-limit",
+    "pattern": "(a|aa)*z",
+    "format": "x",
+    "flags": "",
+    "input": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "reject": true,
+    "program": {
+      "version": 2,
+      "case_map": "hickory-ucd-16.0.0-v1",
+      "regex": [
+        "seq",
+        [
+          [
+            "repeat",
+            [
+              "capture",
+              1,
+              [
+                "alt",
+                [
+                  [
+                    "seq",
+                    [
+                      [
+                        "class",
+                        [
+                          [
+                            97,
+                            97
+                          ]
+                        ],
+                        false
+                      ]
+                    ]
+                  ],
+                  [
+                    "seq",
+                    [
+                      [
+                        "class",
+                        [
+                          [
+                            97,
+                            97
+                          ]
+                        ],
+                        false
+                      ],
+                      [
+                        "class",
+                        [
+                          [
+                            97,
+                            97
+                          ]
+                        ],
+                        false
+                      ]
+                    ]
+                  ]
+                ]
+              ]
+            ],
+            0,
+            null,
+            false
+          ],
+          [
+            "class",
+            [
+              [
+                122,
+                122
+              ]
+            ],
+            false
+          ]
+        ]
+      ],
+      "format": [
+        "x"
+      ],
+      "flags": "",
+      "groups": 1
+    }
+  },
+  {
+    "name": "unicode fold includes Kelvin and long s",
+    "pattern": "([ks]+)",
+    "format": "${1:/upcase}",
+    "flags": "giu",
+    "input": "Kſ",
+    "expected": "KS",
+    "program": {
+      "version": 2,
+      "case_map": "hickory-ucd-16.0.0-v1",
+      "regex": [
+        "seq",
+        [
+          [
+            "capture",
+            1,
+            [
+              "seq",
+              [
+                [
+                  "repeat",
+                  [
+                    "class",
+                    [
+                      [
+                        75,
+                        75
+                      ],
+                      [
+                        83,
+                        83
+                      ],
+                      [
+                        107,
+                        107
+                      ],
+                      [
+                        115,
+                        115
+                      ],
+                      [
+                        383,
+                        383
+                      ],
+                      [
+                        8490,
+                        8490
+                      ]
+                    ],
+                    false
+                  ],
+                  1,
+                  null,
+                  false
+                ]
+              ]
+            ]
+          ]
+        ]
+      ],
+      "format": [
+        [
+          "capture",
+          1,
+          "upcase"
+        ]
+      ],
+      "flags": "giu",
+      "groups": 1
+    }
+  },
+  {
+    "name": "legacy fold excludes Kelvin and long s",
+    "pattern": "[ks]",
+    "format": "x",
+    "flags": "gi",
+    "input": "Kſ",
+    "expected": "Kſ",
+    "program": {
+      "version": 2,
+      "case_map": "hickory-ucd-16.0.0-v1",
+      "regex": [
+        "seq",
+        [
+          [
+            "class",
+            [
+              [
+                75,
+                75
+              ],
+              [
+                83,
+                83
+              ],
+              [
+                107,
+                107
+              ],
+              [
+                115,
+                115
+              ]
+            ],
+            false
+          ]
+        ]
+      ],
+      "format": [
+        "x"
+      ],
+      "flags": "gi",
+      "groups": 0
+    }
+  },
+  {
+    "name": "insensitive sharp s never truncates to S",
+    "pattern": "[s]",
+    "format": "x",
+    "flags": "giu",
+    "input": "ßS",
+    "expected": "ßx",
+    "program": {
+      "version": 2,
+      "case_map": "hickory-ucd-16.0.0-v1",
+      "regex": [
+        "seq",
+        [
+          [
+            "class",
+            [
+              [
+                83,
+                83
+              ],
+              [
+                115,
+                115
+              ],
+              [
+                383,
+                383
+              ]
+            ],
+            false
+          ]
+        ]
+      ],
+      "format": [
+        "x"
+      ],
+      "flags": "giu",
+      "groups": 0
+    }
+  },
+  {
+    "name": "unicode word assertion sees simple fold",
+    "pattern": "\\b[ks]+\\b",
+    "format": "x",
+    "flags": "giu",
+    "input": "Kſ",
+    "expected": "x",
+    "program": {
+      "version": 2,
+      "case_map": "hickory-ucd-16.0.0-v1",
+      "regex": [
+        "seq",
+        [
+          [
+            "assert",
+            "word"
+          ],
+          [
+            "repeat",
+            [
+              "class",
+              [
+                [
+                  75,
+                  75
+                ],
+                [
+                  83,
+                  83
+                ],
+                [
+                  107,
+                  107
+                ],
+                [
+                  115,
+                  115
+                ],
+                [
+                  383,
+                  383
+                ],
+                [
+                  8490,
+                  8490
+                ]
+              ],
+              false
+            ],
+            1,
+            null,
+            false
+          ],
+          [
+            "assert",
+            "word"
+          ]
+        ]
+      ],
+      "format": [
+        "x"
+      ],
+      "flags": "giu",
+      "groups": 0
+    }
+  },
+  {
+    "name": "legacy word assertion excludes simple fold",
+    "pattern": "\\b[ks]+\\b",
+    "format": "x",
+    "flags": "gi",
+    "input": "Kſ",
+    "expected": "Kſ",
+    "program": {
+      "version": 2,
+      "case_map": "hickory-ucd-16.0.0-v1",
+      "regex": [
+        "seq",
+        [
+          [
+            "assert",
+            "word"
+          ],
+          [
+            "repeat",
+            [
+              "class",
+              [
+                [
+                  75,
+                  75
+                ],
+                [
+                  83,
+                  83
+                ],
+                [
+                  107,
+                  107
+                ],
+                [
+                  115,
+                  115
+                ]
+              ],
+              false
+            ],
+            1,
+            null,
+            false
+          ],
+          [
+            "assert",
+            "word"
+          ]
+        ]
+      ],
+      "format": [
+        "x"
+      ],
+      "flags": "gi",
+      "groups": 0
+    }
+  },
+  {
+    "name": "default lower final sigma uses original context",
+    "pattern": "(.+)",
+    "format": "${1:/downcase}",
+    "flags": "",
+    "input": "ΟΣ́",
+    "expected": "ος́",
+    "program": {
+      "version": 2,
+      "case_map": "hickory-ucd-16.0.0-v1",
+      "regex": [
+        "seq",
+        [
+          [
+            "capture",
+            1,
+            [
+              "seq",
+              [
+                [
+                  "repeat",
+                  [
+                    "dot"
+                  ],
+                  1,
+                  null,
+                  false
+                ]
+              ]
+            ]
+          ]
+        ]
+      ],
+      "format": [
+        [
+          "capture",
+          1,
+          "downcase"
+        ]
+      ],
+      "flags": "",
+      "groups": 1
+    }
+  },
+  {
+    "name": "default lower dotted I expands",
+    "pattern": "(.+)",
+    "format": "${1:/downcase}",
+    "flags": "",
+    "input": "İ",
+    "expected": "i̇",
+    "program": {
+      "version": 2,
+      "case_map": "hickory-ucd-16.0.0-v1",
+      "regex": [
+        "seq",
+        [
+          [
+            "capture",
+            1,
+            [
+              "seq",
+              [
+                [
+                  "repeat",
+                  [
+                    "dot"
+                  ],
+                  1,
+                  null,
+                  false
+                ]
+              ]
+            ]
+          ]
+        ]
+      ],
+      "format": [
+        [
+          "capture",
+          1,
+          "downcase"
+        ]
+      ],
+      "flags": "",
+      "groups": 1
+    }
+  },
+  {
+    "name": "frozen casing expands ligatures",
+    "pattern": "(.+)",
+    "format": "${1:/upcase}",
+    "flags": "",
+    "input": "ßﬃ",
+    "expected": "SSFFI",
+    "program": {
+      "version": 2,
+      "case_map": "hickory-ucd-16.0.0-v1",
+      "regex": [
+        "seq",
+        [
+          [
+            "capture",
+            1,
+            [
+              "seq",
+              [
+                [
+                  "repeat",
+                  [
+                    "dot"
+                  ],
+                  1,
+                  null,
+                  false
+                ]
+              ]
+            ]
+          ]
+        ]
+      ],
+      "format": [
+        [
+          "capture",
+          1,
+          "upcase"
+        ]
+      ],
+      "flags": "",
+      "groups": 1
+    }
+  }
+]
