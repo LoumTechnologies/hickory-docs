@@ -640,6 +640,8 @@ Use the same four source-position queries as the Apple and browser clients. Norm
 
 
 
+Rename and formatting first prepare the exact captured source through `hick/captureDocument`. Their custom queries carry its hash and opaque preparation revision, then return the complete action envelope to workspace review. The language adapter does not turn a provider response into edit authority: the review model validates all source proofs. Local monotonic edit identity, source address, selection, provider epoch and writable state remain fixed across both waits, so an edit followed by Undo cannot renew an earlier query. Other read/action queries retain their existing result shapes.
+
 <ui:copy id="simple-android-language-service">
 data class NativeLanguageSpan(val from: Int, val to: Int, val kind: String)
 data class NativeLanguageDiagnostic(val message: String, val from: Int?, val to: Int?, val severity: Int = 1, val location: SemanticLocation? = null)
@@ -901,19 +903,26 @@ class NativeLanguage(engine: Engine, private val buffer: DocumentBuffer, private
     }
     val proposalIdentity: Int get() = epoch
     suspend fun propose(kind: String, name: String): Any {
-        check(opened && !buffer.readOnly) { "Choose writable source with a connected language provider." }
-        sync(); val source = buffer.text; val selection = buffer.state.selection; val identity = epoch
+        check(opened && !buffer.readOnly && !buffer.resourceDeleted && !buffer.saving && languageURI(buffer.file.path)==uri) { "Choose writable source with a connected language provider." }
+        sync(); val source = buffer.text; val selection = buffer.state.selection; val identity = epoch;val revision=buffer.sourceRevision;val owner=buffer.file
+        fun current()=epoch==identity&&buffer.sourceRevision==revision&&buffer.file===owner&&languageURI(buffer.file.path)==uri&&buffer.text==source&&buffer.state.selection==selection&&!buffer.readOnly&&!buffer.resourceDeleted&&!buffer.saving&&buffer.state.composition==null
         val params = JSONObject().put("textDocument",doc())
         val method = when(kind) {
-            "rename" -> { params.put("position",languagePosition(source,selection.min)).put("newName",name); "textDocument/rename" }
+            "rename" -> { params.put("position",languagePosition(source,selection.min)).put("newName",name); "hick/rename" }
             "references" -> { params.put("position",languagePosition(source,selection.min)).put("context",JSONObject().put("includeDeclaration",true)); "textDocument/references" }
-            "format" -> { params.put("options",JSONObject().put("tabSize",4).put("insertSpaces",source.lines().none { it.startsWith("\t") })); "textDocument/formatting" }
+            "format" -> { params.put("options",JSONObject().put("tabSize",4).put("insertSpaces",source.lines().none { it.startsWith("\t") })); "hick/formatting" }
             "fixAll" -> { params.put("range",JSONObject().put("start",languagePosition(source,0)).put("end",languagePosition(source,source.length))).put("context",JSONObject().put("diagnostics",JSONArray()).put("only",JSONArray().put("source.fixAll"))); "textDocument/codeAction" }
             else -> { params.put("range",JSONObject().put("start",languagePosition(source,selection.min)).put("end",languagePosition(source,selection.max))).put("context",JSONObject().put("diagnostics",JSONArray())); "textDocument/codeAction" }
         }
+        if(kind=="rename"||kind=="format"){
+            val ack=request("hick/captureDocument",JSONObject().put("textDocument",JSONObject().put("uri",uri).put("languageId","hick").put("version",version).put("text",source))) as? JSONObject ?: error("Source preparation proof is unavailable. Prepare again.")
+            check(current()){"Source, selection or provider changed during preparation. Prepare again."}
+            validateNativeSourcePreparation(ack,source,requireParsed=buffer.file.docID!=null)
+            params.put("expected",JSONObject().put("source_hash",ack.getString("source_hash")).put("source_revision",ack.getString("source_revision")))
+        }
         val result = request(method,params)
-        check(epoch == identity && buffer.text == source && buffer.state.selection == selection) { "Source, selection or provider changed. Prepare again." }
-        return if (kind == "format") JSONObject().put("changes",JSONObject().put(uri,result)) else result
+        check(current()) { "Source, selection or provider changed. Prepare again." }
+        return result
     }
 </ui:copy>
 

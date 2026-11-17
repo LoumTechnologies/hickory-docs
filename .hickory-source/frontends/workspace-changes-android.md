@@ -21,6 +21,8 @@ File-wide diagnostic fixing asks the provider for the complete `source.fixAll` f
 
 A pending proposal keeps its original revision lease. A fresh synchronous Undo/Redo instead binds the inverse to its original editor objects and resolves each unique current address immediately before complete preimage validation. This follows the same editor through Save As and guarded namespace moves, while refusing an independent handle that reused the old path. Ordinary Save and late capability metadata do not discard text history: history never writes saved files, and current writability and composition still preflight the whole batch. Reading the inverse and committing it contain no await.
 
+Production provider edits require engine coordinate proofs after the final fresh query. The origin is acknowledged before the initial request; readonly proof context is acquired and synchronized without treating it as an edited target. Every actual existing edited preimage must be writable and covered by a matching captured-byte proof. For ordered resource edits the engine resource-inputs response supplies those initial preimages, so a newly created or renamed destination never becomes an invented old source. The original editor lease, selection, revision and provider still gate review and application. Explicit injected proposal closures remain a trusted test seam; tests can enforce the production proof policy separately. Direct bound rename/format envelopes also require a typed false no-effect flag before their edit is considered.
+
 <ui:copy id="simple-android-workspace-changes">
 package com.hickorydocs.simple
 import androidx.compose.runtime.*
@@ -61,6 +63,7 @@ class WorkspaceChanges {
     private var resolver:suspend (JSONObject)->JSONObject={error("Prepare provider actions first.")}
     private var acquisition:suspend (String)->SourceSnapshot={error("Prepare provider actions first.")}
     private var actionQuery:suspend ()->List<JSONObject> = {error("Prepare provider actions first.")}
+    private var requiresProviderProofs=true
     private var sources: Map<String,SourceSnapshot> = emptyMap()
     private var current: ()->Boolean = { false }
     private sealed interface History {
@@ -95,12 +98,13 @@ class WorkspaceChanges {
             notice="Workspace $kind applied to ${current.patches.size} drafts. Not saved or verified."
         }.onFailure { notice=it.message.orEmpty() }
     }
-    suspend fun prepare(workspace: Workspace,proposal:(suspend (String,String)->Any)?=null,resolution:(suspend (JSONObject)->JSONObject)?=null,acquisition:(suspend (String)->SourceSnapshot)?=null) {
+    suspend fun prepare(workspace: Workspace,proposal:(suspend (String,String)->Any)?=null,resolution:(suspend (JSONObject)->JSONObject)?=null,acquisition:(suspend (String)->SourceSnapshot)?=null,enforceProviderProofs:Boolean=false) {
         if(mode=="cleanup"){prepareCleanup(workspace,proposal);return}
         val origin = workspace.currentBuffer; val language = origin?.language
         if (origin == null || language == null || origin.readOnly) { notice="Choose writable source with a connected language provider."; return }
+        requiresProviderProofs=proposal==null||enforceProviderProofs;val proofRequired=requiresProviderProofs;val server=workspace.engine
         val request=++revision; val source=origin.text; val selection=origin.state.selection; val identity=language.proposalIdentity;val sourceIdentity=origin.sourceRevision
-        sources=workspace.sourceSnapshots(); current={revision==request && workspace.buffers[origin.file.path]===origin && origin.sourceRevision==sourceIdentity && origin.text==source && origin.state.selection==selection && origin.language===language && language.proposalIdentity==identity}
+        sources=workspace.sourceSnapshots(); current={revision==request && workspace.engine===server && workspace.buffers[origin.file.path]===origin && origin.sourceRevision==sourceIdentity && origin.text==source && origin.state.selection==selection && origin.language===language && language.proposalIdentity==identity}
         resolver=resolution ?: {language.resolveProposal(it)}
         val originCurrent=current;val lease=workspace.sourceAcquisitionLease(external=originCurrent);current={lease.current()}
         val valid=current
@@ -112,7 +116,7 @@ class WorkspaceChanges {
                     val wasRetained=workspace.buffers.containsKey(path);val target=workspace.loadBuffer(file);val text=target.text
                     check(wasRetained||target.sourceRevision==0L&&target.text==target.base){"The newly acquired source was edited before original ownership could be sealed."}
                     check(lease.current(path)){"Original source owners changed during acquisition. Prepare again."};lease.retain(path,target)
-                    check(!target.readOnly&&!target.saving){"Referenced source cannot synchronize: $path. Retry language services."}
+                    check(!target.saving){"Referenced source cannot synchronize: $path. Retry language services."}
                     val service=target.language ?: error("Referenced source cannot synchronize: $path. Retry language services.");service.readOutline(text)
                     check(valid()&&target.text==text){"Source changed while reading $path. Prepare again."}
                     SourceSnapshot(text,!target.readOnly&&!target.saving)
@@ -120,13 +124,14 @@ class WorkspaceChanges {
         val load:suspend (String)->SourceSnapshot={path->
             check(valid()){"Original source owners changed before acquisition. Prepare again."};val wasRetained=workspace.buffers.containsKey(path);val source=acquireTarget(path)
             val target=workspace.buffers[path] ?: error("The acquired editor no longer owns its source.")
-            check(lease.current(path)&&(wasRetained||target.sourceRevision==0L&&target.text==target.base)&&target.text==source.text&&!target.readOnly&&!target.saving){"Original source owners or the acquired target changed. Prepare again."};lease.retain(path,target);source
+            check(lease.current(path)&&(wasRetained||target.sourceRevision==0L&&target.text==target.base)&&target.text==source.text&&!target.saving){"Original source owners or the acquired target changed. Prepare again."};lease.retain(path,target);source
         }
         val actionKind=if(mode=="fixAll")"fixAll" else "actions"
         this.acquisition=load;actionQuery={val actions=propose(actionKind,"") as? JSONArray ?: JSONArray();val listed=(0 until actions.length()).mapNotNull{actions.optJSONObject(it)};if(actionKind=="fixAll")fileWideFixActions(listed) else listed}
         plan=null; choices=emptyList(); referencePaths=emptyList(); notice="Preparing complete source changes…"
         val kind=mode ?: "actions"; val nextName=name
         try {
+            if(proposal==null){language.readOutline(source);check(valid()){"Original source preparation changed. Prepare again."}}
             if (kind == "rename") {
                 val acquired=acquireReferenceSources(sources,{
                     semanticLocations(propose("references","")).map{it.path ?: error("Reference target has no writable workspace source identity. No edits were applied.")}
@@ -139,6 +144,13 @@ class WorkspaceChanges {
                 val actions=result as? JSONArray ?: JSONArray(); choices=(0 until actions.length()).mapNotNull { actions.optJSONObject(it)?.let { item -> JSONObject(item.toString()) } }
                 if(kind=="fixAll")choices=fileWideFixActions(choices)
                 notice=if(kind=="fixAll"&&choices.isEmpty()) "The current provider offers no file-wide diagnostic fixes. No edits were applied." else if (choices.isEmpty()) "No provider actions here. Support depends on the installed language server." else "Choose a provider action to preview."
+            } else if(proofRequired){
+                var first:Any?=result
+                val acquired=acquireProviderAction(workspace,sources,{
+                    val value=first?.also{first=null} ?: propose(kind,nextName);val action=value as? JSONObject ?: error("Provider did not return a source-proved action envelope.")
+                    check(action.opt("source_files_modified") is Boolean&&action.getBoolean("source_files_modified")==false){"Provider did not confirm one complete no-effect source proposal."};action
+                },load,valid,true)
+                sources=acquired.sources;val action=acquired.value;install(action.optString("title","Provider source change"),action.get("edit"),workspace)
             } else install(if (kind == "rename") "Rename to $nextName" else "Format source",result,workspace)
         } catch (cancelled: CancellationException) { throw cancelled }
         catch (failure: Exception) { if (revision==request) notice=failure.message.orEmpty() }
@@ -168,6 +180,31 @@ class WorkspaceChanges {
         val request=++revision;val lease=workspace.sourceAcquisitionLease();sources=snapshots;current={revision==request&&lease.current()&&targets.all{(buffer,text,selection)->workspace.buffers[buffer.file.path]===buffer&&buffer.text==text&&buffer.state.selection==selection}}
         mode="proposal";plan=next;choices=emptyList();referencePaths=emptyList();notice="";file=0;page=0;actionPage=0
     }
+    private fun resourceEdit(edit:JSONObject)=edit.optJSONArray("documentChanges")?.let{rows->(0 until rows.length()).any{rows.optJSONObject(it)?.has("kind")==true}}==true
+    private suspend fun providerResourcePreimages(workspace:Workspace,edit:JSONObject,valid:()->Boolean):Set<String>{
+        check(valid()){"Original source workspace changed. Prepare again."};val engine=workspace.engine ?: error("Connect to the original workspace first.")
+        val observed=engine.request("POST","/api/changes/resource-targets",JSONObject().put("edit",edit));val values=observed.getJSONArray("paths");val paths=(0 until values.length()).map{values.getString(it)}
+        check(valid()&&observed.get("version")==1&&paths.isNotEmpty()&&paths.size<=1000&&paths.distinct().size==paths.size){"Complete resource source identities changed. Prepare again."}
+        val (_,inputs,current)=workspace.resourceChanges.acquire(workspace,paths,edit,valid)
+        check(valid()&&current()){"Original resource preimages changed. Prepare again."}
+        val sources=inputs.getJSONObject("sources");return sources.keys().asSequence().filter{sources.getJSONObject(it).getString("kind")=="file"}.toSet()
+    }
+    private suspend fun acquireProviderAction(workspace:Workspace,initial:Map<String,SourceSnapshot>,query:suspend ()->JSONObject,load:suspend (String)->SourceSnapshot,valid:()->Boolean,proofs:Boolean):SourceProposalAcquisition<JSONObject>{
+        var writable=emptySet<String>()
+        val acquired=acquireSourceProposal(initial,{
+            val action=query();check(valid()){"Source, selection or provider changed. Prepare again."}
+            action.optJSONObject("disabled")?.let{error(it.optString("reason","Provider action disabled"))}
+            check(action.isNull("command")){"This action requires a provider command; no edit portion was applied."}
+            val proofPaths=if(proofs)providerSourceProofPaths(action) else emptyList()
+            val pending=if(action.optJSONObject("data")?.has("hickory_acquire")==true)providerActionPaths(action) else emptyList()
+            val edit=action.optJSONObject("edit");val edited=if(edit!=null&&!resourceEdit(edit))workspaceEditTargets(edit).map{it.path} else emptyList();writable=edited.toSet()
+            val paths=proofPaths+pending+edited
+            SourceProposal(if(proofs)paths else paths.filter{it !in initial},action)
+        },load,valid,{it in writable})
+        check(valid()){"Source, selection or provider changed. Prepare again."};val edit=acquired.value.optJSONObject("edit") ?: error("Provider source acquisition did not produce a complete edit. Prepare again.")
+        if(proofs){val required=if(resourceEdit(edit))providerResourcePreimages(workspace,edit,valid) else workspaceEditTargets(edit).map{it.path}.toSet();validateProviderSourceProofs(acquired.value,acquired.sources,required);for(path in required)check(acquired.sources[path]?.writable==true){"Source is generated, read-only or saving: $path"}}
+        return acquired
+    }
     private suspend fun install(title: String, edit: Any?, workspace: Workspace) {
         check(current()) { "Source, selection or provider changed. Prepare again." }
         val resourceEdit=edit as? JSONObject
@@ -191,7 +228,7 @@ class WorkspaceChanges {
             action.optJSONObject("disabled")?.let{error(it.optString("reason","Provider action disabled"))}
             plan=null;notice="Resolving complete provider action…";var first:JSONObject?=resolve(action)
             if(mode=="fixAll")check(first?.let{fileWideFixActions(listOf(it)).isNotEmpty()}==true){"The provider changed the complete file-wide action kind. Prepare again."}
-            val acquired=acquireSourceProposal(initialSources,{
+            val acquired=acquireProviderAction(workspace,initialSources,{
                 val resolved=first?.also{first=null} ?: run {
                     val candidates=queryActions().filter{it.optString("title")==action.optString("title")&&it.optString("kind")==action.optString("kind")}
                     check(candidates.size==1){"The selected provider action changed or is ambiguous. Prepare actions again."}
@@ -201,10 +238,8 @@ class WorkspaceChanges {
                 if(mode=="fixAll")check(fileWideFixActions(listOf(resolved)).isNotEmpty()){"The provider changed the complete file-wide action kind. Prepare again."}
                 resolved.optJSONObject("disabled")?.let{error(it.optString("reason","Provider action disabled"))}
                 check(resolved.isNull("command")){"This action requires a provider command; its edit has not been applied."}
-                val edit=resolved.optJSONObject("edit")
-                val resources=edit?.optJSONArray("documentChanges")?.let{rows->(0 until rows.length()).any{rows.optJSONObject(it)?.has("kind")==true}}==true
-                SourceProposal(if(resources)emptyList() else providerActionPaths(resolved),resolved)
-            },load,{revision==request&&choiceRevision==choice&&valid()})
+                resolved
+            },load,{revision==request&&choiceRevision==choice&&valid()},requiresProviderProofs)
             if(revision!=request||choiceRevision!=choice)return
             sources=acquired.sources;val resolved=acquired.value
             install(resolved.optString("title","Provider action"),resolved.get("edit"),workspace)
@@ -461,6 +496,48 @@ class ActionChoiceTest {
   changes.open("actions",workspace);changes.prepare(workspace,{_,_->actions},{resolved("partial").put("command",JSONObject().put("title","Effect").put("command","provider.effect"))})
   changes.choose(0,workspace,changes.actionSnapshot);assertNull(changes.plan);assertTrue(changes.notice.contains("provider command"));assertEquals("old\n",buffer.text)
  }
+ @Test fun providerProofsSynchronizeReadonlyContextAndRefuseUnprovedOrChangedEdits()=runBlocking {
+  for(mode in listOf("success","hash","missing","unproved","readonly")){
+   val w=Workspace(this);val e=Engine("http://127.0.0.1:1");val f=FileNode("a.py","a.py",false,emptyList(),null,null);val b=DocumentBuffer(f,FileText("old\n","base"));b.language=NativeLanguage(e,b,this);w.buffers[f.path]=b;w.show(f.path);var queries=0;val loaded=mutableListOf<String>()
+   fun action():JSONObject{val target=if(mode=="readonly"&&queries>1)"context.py" else "a.py";val replacement=JSONObject().put("range",JSONObject().put("start",JSONObject().put("line",0).put("character",0)).put("end",JSONObject().put("line",0).put("character",3))).put("newText","new");val rows=JSONArray();if(mode!="unproved")rows.put(JSONObject().put("uri",languageURI("a.py")).put("source_hash","sha256:"+if(mode=="hash")"0".repeat(64) else debugHash("old\n")));rows.put(JSONObject().put("uri",languageURI("context.py")).put("source_hash","sha256:"+debugHash("old\n")));return JSONObject().put("title","Proof fix").put("kind","quickfix").put("edit",JSONObject().put("changes",JSONObject().put(languageURI(target),JSONArray().put(replacement)))).also{if(mode!="missing")it.put("data",JSONObject().put("hickory_action","owned").put("hickory_sources",rows))}}
+   w.changes.open("actions",w);w.changes.prepare(w,{_,_->queries++;JSONArray().put(action())},{it},{path->loaded.add(path);val current=w.buffers[path];if(current!=null)SourceSnapshot(current.text,!current.readOnly) else {val target=DocumentBuffer(FileNode(path,path,false,emptyList(),null,"construction.md"),FileText("old\n","base"));w.buffers[path]=target;SourceSnapshot(target.text,false)}},enforceProviderProofs=true);w.changes.choose(0,w);assertEquals(mode,"old\n",b.text);assertEquals("a.py",w.currentBuffer?.file?.path)
+   if(mode=="success"){assertEquals(w.changes.notice,"new\n",w.changes.plan?.patches?.first()?.after);assertTrue(loaded.contains("context.py"));assertTrue(w.buffers["context.py"]?.readOnly==true);w.changes.apply(w);assertEquals("new\n",b.text);w.changes.open("undo",w);assertEquals("old\n",b.text)}else{assertNull(mode+": "+w.changes.notice,w.changes.plan);assertTrue(mode,w.changes.notice.isNotEmpty())}
+  }
+ }
+ @Test fun boundFormattingRequiresTypedNoEffectAndSourceProofs()=runBlocking {
+  for(effect in listOf<Any>(false,true,0,"false",JSONObject.NULL)){
+   val w=Workspace(this);val e=Engine("http://127.0.0.1:1");val f=FileNode("a.py","a.py",false,emptyList(),null,null);val b=DocumentBuffer(f,FileText("old\n","base"));b.language=NativeLanguage(e,b,this);w.buffers[f.path]=b;w.show(f.path)
+   val edit=JSONObject().put("changes",JSONObject().put(languageURI(f.path),JSONArray().put(JSONObject().put("range",JSONObject().put("start",JSONObject().put("line",0).put("character",0)).put("end",JSONObject().put("line",0).put("character",3))).put("newText","new"))))
+   val action=JSONObject().put("title","Bound format").put("edit",edit).put("data",JSONObject().put("hickory_action","owned").put("hickory_sources",JSONArray().put(JSONObject().put("uri",languageURI(f.path)).put("source_hash","sha256:"+debugHash(b.text))))).put("source_files_modified",effect)
+   w.changes.open("format",w);w.changes.prepare(w,{_,_->action},acquisition={SourceSnapshot(b.text,true)},enforceProviderProofs=true);if(effect is Boolean&&!effect)assertEquals(w.changes.notice,"new\n",w.changes.plan?.patches?.first()?.after)else{assertNull(w.changes.plan);assertTrue(w.changes.notice,w.changes.notice.contains("no-effect"))};assertEquals("old\n",b.text)
+  }
+ }
+
+ @Test fun liveOwnedBoundRenameFormatPreviewUndoAndStaleRefusal()=runBlocking {
+  val address=System.getenv("HICKORY_NATIVE_BOUND_ORIGIN");org.junit.Assume.assumeNotNull(address);val root=java.io.File(System.getenv("HICKORY_NATIVE_BOUND_WORKSPACE") ?: error("Owned workspace required"));val events=java.io.File(System.getenv("HICKORY_NATIVE_BOUND_EVENTS") ?: error("Owned events required"));val gate=java.io.File(System.getenv("HICKORY_NATIVE_BOUND_GATE") ?: error("Owned gate required"));check(java.io.File(root,".hickory-native-bound-fixture").readText()=="owned-native-bound-v1\n"&&events.parentFile.canonicalFile==root.parentFile.canonicalFile&&gate.parentFile.canonicalFile==root.parentFile.canonicalFile)
+  val ownedScope=CoroutineScope(SupervisorJob()+Dispatchers.Default);val w=Workspace(ownedScope);val e=Engine(address!!);w.engine=e;val (_,tree)=e.files();w.rootFiles=tree
+  try{val f=tree.first{it.path=="a.py"};val b=w.loadBuffer(f);w.show(f.path);val source=b.text;val state=b.state;val scroll=b.sourceScroll;b.state.edit{selection=androidx.compose.ui.text.TextRange(2)};val selection=b.state.selection
+   val descriptors=commandDescriptors(javaClass.classLoader!!.getResourceAsStream("commands.json")!!.bufferedReader().use{it.readText()})
+   fun command(id:String){val item=w.commands(descriptors).first{it.id==id};check(item.reason==null){item.reason.orEmpty()};item.run()}
+   suspend fun prepare(id:String,name:String){command(id);w.changes.updateName(name);withTimeout(20000){while(w.changes.plan==null){w.changes.prepare(w);if(w.changes.plan==null)delay(30)}}}
+   prepare("symbol.rename","native_renamed");assertEquals(source,w.changes.plan?.patches?.first()?.before);assertEquals(source,b.text);assertEquals(selection,b.state.selection);w.changes.apply(w);assertEquals(w.changes.notice,"native_renamed = 1\n",b.text);w.changes.open("undo",w);assertEquals(source,b.text);w.changes.open("redo",w);assertEquals("native_renamed = 1\n",b.text);w.changes.open("undo",w);assertEquals(source,b.text)
+   prepare("document.format","");assertEquals(source,b.text);w.changes.apply(w);assertEquals(w.changes.notice,"formatted = 1\n",b.text);w.changes.open("undo",w);assertEquals(source,b.text);w.changes.open("redo",w);assertEquals("formatted = 1\n",b.text);w.changes.open("undo",w);assertEquals(source,b.text);assertSame(state,b.state);assertSame(scroll,b.sourceScroll)
+   command("symbol.rename");w.changes.updateName("held_native");val held=async{w.changes.prepare(w)};withTimeout(20000){while(!events.exists()||!events.readText().contains("\"held\": \"held_native\""))delay(10)}
+   b.state.edit{replace(length,length,"!")};b.advanceSourceRevision();b.state.edit{replace(0,length,source)};b.advanceSourceRevision();gate.writeText("release");held.await();assertNull(w.changes.plan);assertTrue(w.changes.notice.isNotEmpty());assertEquals(source,b.text);assertSame(state,b.state);assertSame(scroll,b.sourceScroll);assertEquals(source,java.io.File(root,"a.py").readText())
+  }finally{w.buffers.values.forEach{it.language?.close()};ownedScope.cancel()}
+ }
+
+ @Test fun liveOwnedLiterateBulkFixAcquiresContributorAndKeepsProseEditor()=runBlocking {
+  val address=System.getenv("HICKORY_NATIVE_BOUND_ORIGIN");org.junit.Assume.assumeNotNull(address);val root=java.io.File(System.getenv("HICKORY_NATIVE_BOUND_WORKSPACE") ?: error("Owned fixture required"));check(java.io.File(root,".hickory-native-bound-fixture").readText()=="owned-native-bound-v1\n");val scope=CoroutineScope(SupervisorJob()+Dispatchers.Default);val w=Workspace(scope);val e=Engine(address!!);w.engine=e;val (_,tree)=e.files();w.rootFiles=tree
+  try{val f=tree.first{it.path=="project.md"};val b=w.loadBuffer(f);w.show(f.path);val source=b.text;val contributor=java.io.File(root,"a.md").readText();val state=b.state;val scroll=b.sourceScroll;b.state.edit{selection=androidx.compose.ui.text.TextRange(source.indexOf("# Readable")+3)};val selection=b.state.selection;assertNull(w.buffers["a.md"])
+   val descriptors=commandDescriptors(javaClass.classLoader!!.getResourceAsStream("commands.json")!!.bufferedReader().use{it.readText()});val command=w.commands(descriptors).first{it.id=="symbol.fixAll"};assertNull(command.reason);command.run()
+   withTimeout(20000){while(w.changes.choices.none{it.optString("title").endsWith(" · out/a.py")}){w.changes.prepare(w);if(w.changes.choices.none{it.optString("title").endsWith(" · out/a.py")})delay(30)}}
+   val index=w.changes.choices.indexOfFirst{it.optString("title").endsWith(" · out/a.py")};w.changes.choose(index,w);assertEquals(w.changes.notice,listOf("a.md"),w.changes.plan?.patches?.map{it.path});assertEquals(contributor,w.buffers["a.md"]?.text);assertEquals(source,b.text);assertEquals(selection,b.state.selection);assertEquals("project.md",w.currentBuffer?.file?.path)
+   w.changes.apply(w);assertEquals(w.changes.notice,contributor.replace("value","fixed"),w.buffers["a.md"]?.text);w.changes.open("undo",w);assertEquals(contributor,w.buffers["a.md"]?.text);w.changes.open("redo",w);assertEquals(contributor.replace("value","fixed"),w.buffers["a.md"]?.text);w.changes.open("undo",w)
+   assertEquals(source,b.text);assertEquals(selection,b.state.selection);assertSame(state,b.state);assertSame(scroll,b.sourceScroll);assertEquals(source,java.io.File(root,"project.md").readText());assertEquals(contributor,java.io.File(root,"a.md").readText());assertFalse(java.io.File(root,"out").exists())
+  }finally{w.buffers.values.forEach{it.language?.close()};scope.cancel()}
+ }
+
 }
 </ui:copy>
 

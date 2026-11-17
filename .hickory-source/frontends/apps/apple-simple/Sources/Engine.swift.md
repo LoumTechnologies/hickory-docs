@@ -366,6 +366,8 @@ An empty semantic-token or completion response establishes only that the bridge 
 
 Typing rebases cached colors onto unchanged UTF-16 regions and schedules a quiet-period refresh. A single-line edit contained within one token keeps that tentative classification with a resized range; edits crossing token boundaries discard affected spans. Unchanged prefix and suffix colors stay visible. A null/error response retains that cache; an explicit empty token array can replace it after the bounded startup retries. Language-tool text and suggestions remain visible as cached results, while exact source/selection guards still control navigation and completion acceptance. Inspection replies replace each capability independently; the panel labels their contents as last received information rather than claiming that cached text describes the current cursor. Providers can start late, so semantic reads retry a bounded number of times without delaying text opening. Completion requests are debounced after synchronization, filter unsupported edit shapes and retain their exact source/selection snapshot. The native edit callback makes the final permission and revision check. No language result saves a file.
 
+Rename and formatting first prepare the exact captured source through `hick/captureDocument`. Their custom queries carry its hash and opaque preparation revision, then return the complete action envelope to workspace review. The language adapter does not turn a provider response into edit authority: the review model validates all source proofs. Local monotonic edit identity, source address, selection, provider epoch and writable state remain fixed across both waits, so an edit followed by Undo cannot renew an earlier query. Other read/action queries retain their existing result shapes.
+
 <ui:copy id="simple-apple-language-snapshots">
     private func sync() {
         guard let text = buffer?.text, !exactUTF8(text,sent) else { return }
@@ -506,20 +508,28 @@ Typing rebases cached colors onto unchanged UTF-16 regions and schedules a quiet
     }
     var proposalIdentity: UUID { epoch }
     func propose(_ kind: String, name: String) async throws -> Any {
-        guard let buffer, !buffer.readOnly, subscription != nil else { throw EngineError(message: "Choose writable source with a connected language provider.") }
-        sync(); let source = buffer.text, selection = buffer.selection, identity = epoch
+        guard let buffer, !buffer.readOnly, !buffer.resourceDeleted, !buffer.saving, exactUTF8(languageURI(buffer.file.path),uri), subscription != nil else { throw EngineError(message: "Choose writable source with a connected language provider.") }
+        sync(); let source = buffer.text, selection = buffer.selection, identity = epoch,revision=buffer.sourceEditIdentity
+        func current()->Bool {self.buffer === buffer && epoch==identity && buffer.sourceEditIdentity==revision && exactUTF8(languageURI(buffer.file.path),uri) && exactUTF8(buffer.text,source) && buffer.selection==selection && !buffer.readOnly && !buffer.resourceDeleted && !buffer.saving}
         var params: [String:Any] = ["textDocument":["uri":uri]]
         let method: String
         switch kind {
-        case "rename": method = "textDocument/rename"; params["position"] = languagePosition(source,selection.location); params["newName"] = name
+        case "rename": method = "hick/rename"; params["position"] = languagePosition(source,selection.location); params["newName"] = name
         case "references": method = "textDocument/references"; params["position"] = languagePosition(source,selection.location); params["context"] = ["includeDeclaration":true]
-        case "format": method = "textDocument/formatting"; params["options"] = ["tabSize":4,"insertSpaces":!source.components(separatedBy:"\n").contains(where:{$0.hasPrefix("\t")})]
+        case "format": method = "hick/formatting"; params["options"] = ["tabSize":4,"insertSpaces":!source.components(separatedBy:"\n").contains(where:{$0.hasPrefix("\t")})]
         case "fixAll": method = "textDocument/codeAction"; params["range"] = ["start":languagePosition(source,0),"end":languagePosition(source,source.utf16.count)]; params["context"] = ["diagnostics":[],"only":["source.fixAll"]]
         default: method = "textDocument/codeAction"; params["range"] = ["start":languagePosition(source,selection.location),"end":languagePosition(source,NSMaxRange(selection))]; params["context"] = ["diagnostics":[]]
         }
+        if kind=="rename" || kind=="format" {
+            let ack=try await request("hick/captureDocument",["textDocument":["uri":uri,"languageId":"hick","version":version,"text":source]])
+            guard current() else{throw EngineError(message:"Source, selection or provider changed during preparation. Prepare again.")}
+            try validateNativeSourcePreparation(ack,source:source,requireParsed:buffer.file.doc_id != nil)
+            guard let captured=ack as? [String:Any],let hash=captured["source_hash"] as? String,let prepared=captured["source_revision"] as? String else{throw EngineError(message:"Source preparation proof is unavailable. Prepare again.")}
+            params["expected"]=["source_hash":hash,"source_revision":prepared]
+        }
         let result = try await request(method,params)
-        guard epoch == identity, exactUTF8(buffer.text,source), buffer.selection == selection else { throw EngineError(message: "Source, selection or provider changed. Prepare again.") }
-        return kind == "format" ? ["changes":[uri:result]] : result
+        guard current() else { throw EngineError(message: "Source, selection or provider changed. Prepare again.") }
+        return result
     }
 </ui:copy>
 

@@ -72442,6 +72442,127 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "fragments": [
         "collector-browser-driver"
       ]
+    },
+    "apps/web/src/simple/ProviderSourceProofs.ts": {
+      "source": ".hickory-source/mechanisms/provider-source-proofs.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "caa7ca753d2bd6297e4f3a60aad4ae07bc7ac6039d7dc36edaea710b9642a4a4",
+      "construction": "fragments",
+      "fragments": [
+        "provider-source-proofs-browser"
+      ]
+    },
+    "apps/web/src/simple/ProviderSourceProofs.test.ts": {
+      "source": ".hickory-source/mechanisms/provider-source-proofs.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "test",
+      "sha256": "717c402fa04de025d524645f85c11ca44a0fe84f914e7e85da606fd17b5fb6f4",
+      "construction": "fragments",
+      "fragments": [
+        "provider-source-proofs-browser-witness"
+      ]
+    },
+    "apps/apple-simple/Sources/ProviderSourceProofs.swift": {
+      "source": ".hickory-source/mechanisms/provider-source-proofs.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "75f5ba58652ed21fd50c814ecc2cea1b890d221ca1e207e52a75e8fc14aeb9bf",
+      "construction": "fragments",
+      "fragments": [
+        "provider-source-proofs-apple"
+      ]
+    },
+    "apps/apple-simple/Tests/ProviderSourceProofsTests.swift": {
+      "source": ".hickory-source/mechanisms/provider-source-proofs.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "test",
+      "sha256": "78f0533a429f867946bb7466ef3cfad2f7bcd4b5276493220997c2c5a72d376c",
+      "construction": "fragments",
+      "fragments": [
+        "provider-source-proofs-apple-witness"
+      ]
+    },
+    "apps/android-simple/app/src/main/java/com/hickorydocs/simple/ProviderSourceProofs.kt": {
+      "source": ".hickory-source/mechanisms/provider-source-proofs.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "d3ac0f78d0da2cd3d6e5f66b92ccef1ad280ee7c15454fdc78cb069bba72c6cc",
+      "construction": "fragments",
+      "fragments": [
+        "provider-source-proofs-android"
+      ]
+    },
+    "apps/android-simple/app/src/test/java/com/hickorydocs/simple/ProviderSourceProofsTest.kt": {
+      "source": ".hickory-source/mechanisms/provider-source-proofs.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "test",
+      "sha256": "70ab6b5a5f015a8dab631f4aabbb82077ba74d54f670b989cb62db95848fd9af",
+      "construction": "fragments",
+      "fragments": [
+        "provider-source-proofs-android-witness"
+      ]
+    },
+    "apps/web/src/simple/SourcePreparation.test.ts": {
+      "source": ".hickory-source/frontends/workspace-languages.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "a97de8b4022b11010162dbaea7d447c2fedf0534dea6c7fb9f50d3ba1d520220",
+      "construction": "fragments",
+      "fragments": [
+        "source-preparation-browser-witness"
+      ]
+    },
+    "apps/apple-simple/Tests/BoundProposalWireTests.swift": {
+      "source": ".hickory-source/frontends/native-bound-proposal-wire.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "2c05feaf36b5a5e976eb67791a420ea4d4d668316057cedfa54ee3ea7d107302",
+      "construction": "fragments",
+      "fragments": [
+        "native-bound-proposal-wire-apple-tests"
+      ]
+    },
+    "apps/android-simple/app/src/test/java/com/hickorydocs/simple/BoundProposalWireTest.kt": {
+      "source": ".hickory-source/frontends/native-bound-proposal-wire.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "da16aba19be09b33378d34d297a35c2568af7a9605674d39a066bc187f298b2f",
+      "construction": "fragments",
+      "fragments": [
+        "native-bound-proposal-wire-android-tests"
+      ]
+    },
+    "scripts/test-bound-source-browser.py": {
+      "source": ".hickory-source/frontends/bound-source-browser-witness.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "9a1233671dff6f9eefcb52317b11640de0b0df2ef2b49dff930e31f790e99962",
+      "construction": "fragments",
+      "fragments": [
+        "bound-source-browser-runner"
+      ]
+    },
+    "scripts/test-native-bound-source.py": {
+      "source": ".hickory-source/frontends/native-bound-source-acceptance.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "0a79419f52d5f3a2bb09e55b9745a322a93ee8702850f601c699da64766fe755",
+      "construction": "fragments",
+      "fragments": [
+        "native-bound-source-host-driver"
+      ]
     }
   },
   "evidence_records": [

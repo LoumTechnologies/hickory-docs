@@ -9,8 +9,9 @@ import { EditorView } from "@codemirror/view";
 import { editorForBuffer } from "./Document";
 import {resolveCodeAction} from "../lsp/codeActionResolution";
 import {acquireReferenceSources,acquireSourceProposal} from "./ReferenceSources";
+import {providerSourceProofPaths,validateProviderSourceProofs} from "./ProviderSourceProofs";
 import type {FileNode} from "../api/types";
-import { useWorkspaceLanguageLookup,useWorkspaceOutlineReader } from "./WorkspaceLanguages";
+import { useWorkspaceLanguageLookup,useWorkspaceOutlineReader,useWorkspaceSourcePreparation } from "./WorkspaceLanguages";
 import { utf16ToPosition } from "../lsp/positions";
 import type { CodeAction } from "../lsp/client";
 import type { Buffer, Buffers } from "./buffers";
@@ -47,13 +48,13 @@ export function applyWorkspacePlan(buffers: Buffers, plan: ChangePlan): void {
   }
 }
 export function WorkspaceChanges({ buffers, current, focus,files,adoptResources,history }: { files:FileNode[];buffers: Buffers; current: () => Buffer | undefined; focus: () => void;adoptResources:(routes:ResourceEditorRoute<Buffer>[])=>void;history:WorkspaceChangeHistory }) {
-  const lookup = useWorkspaceLanguageLookup(),readOutline=useWorkspaceOutlineReader();
+  const lookup = useWorkspaceLanguageLookup(),readOutline=useWorkspaceOutlineReader(),prepareSource=useWorkspaceSourcePreparation();
   const [mode, setMode] = useState<ChangeCommand | "proposal" | null>(null), [name, setName] = useState(""), [notice, setNotice] = useState("");
   const [resource,setResource]=useState<ResourceRestoreReview|null>(null),[publishing,setPublishing]=useState(false);
   const [plan, setPlan] = useState<ChangePlan | null>(null), [choices, setChoices] = useState<CodeAction[]>([]);
   const [file, setFile] = useState(0), [page, setPage] = useState(0), [actionPage, setActionPage] = useState(0);
   const resourceHistory=useRef<WorkspaceHistoryToken|null>(null),busy=useRef(false),ticket = useRef(0),choiceTicket=useRef(0);
-  const captured = useRef<{ sources: Map<string, SourceSnapshot>; references: string[]; current: () => boolean;request:number;choices:CodeAction[];resolve:(action:CodeAction)=>Promise<CodeAction>;acquire:(path:string)=>Promise<SourceSnapshot>;query?:()=>Promise<CodeAction[]> } | null>(null);
+  const captured = useRef<{ sources: Map<string, SourceSnapshot>; references: string[]; current: () => boolean;request:number;choices:CodeAction[];resolve:(action:CodeAction)=>Promise<CodeAction>;acquire:(path:string,requireWritable?:boolean)=>Promise<SourceSnapshot>;query?:()=>Promise<CodeAction[]> } | null>(null);
   const input = useRef<HTMLInputElement>(null), panel = useRef<HTMLDivElement>(null);
   const close = () => { if(publishing)return;ticket.current++; setResource(null);setMode(null); focus(); };
   async function acquireResource(path:string){const existing=buffers.values.get(path);if(existing)return existing;const response=await api.files();const find=(nodes:FileNode[]):FileNode|undefined=>{for(const file of nodes){if(!file.dir&&file.path===path)return file;const nested=find(file.children??[]);if(nested)return nested;}};const file=find(response.tree);if(!file)throw new Error("Current resource source is unavailable: "+path);return await buffers.open(file);}
@@ -141,13 +142,13 @@ export function WorkspaceChanges({ buffers, current, focus,files,adoptResources,
     const originCurrent = () => id === ticket.current && buffers.values.get(buffer.file.path)===buffer && buffer.sourceRevision===sourceRevision && buffer.text === source && view.state.doc.toString() === source && view.state.selection.eq(selection) && lookup(buffer).client === client && lookup(buffer).ready;
     const valid=()=>originCurrent()&&roster.current();
         const listed=new Map<string,FileNode>();const collect=(nodes:FileNode[])=>{for(const file of nodes){if(!file.dir)listed.set(file.path,file);collect(file.children??[]);}};collect(files);
-    const acquire=async (path:string)=>{
+    const acquire=async (path:string,requireWritable=true)=>{
           if(!valid())throw new Error("Source, selection or provider changed. Prepare again.");
           const file=buffers.values.get(path)?.file??listed.get(path);if(!file||file.dir)throw new Error(`Referenced source is no longer listed: ${path}. Refresh files and prepare again.`);
           const wasRetained=buffers.values.has(path),target=await buffers.open(file),text=target.text;
           if(!wasRetained&&(target.sourceRevision!==0||target.text!==target.base))throw new Error("The newly acquired source was edited before original ownership could be sealed.");
           if(!originCurrent())throw new Error("Original source changed during acquisition. Prepare again.");roster.retain(path,target);
-          if(target.readonly||target.saving||target.transient)throw new Error(`Source is generated, read-only or saving: ${path}`);
+          if(target.saving||requireWritable&&(target.readonly||target.transient))throw new Error(`Source is generated, read-only or saving: ${path}`);
           await readOutline(target,text);
           if(!valid()||target.text!==text)throw new Error(`Source changed while reading ${path}. Prepare again.`);
           return {text,writable:!target.readonly&&!target.saving&&!target.transient};
@@ -155,9 +156,10 @@ export function WorkspaceChanges({ buffers, current, focus,files,adoptResources,
     captured.current = { sources, references: [], current: valid,request:id,choices:[],resolve:action=>resolveCodeAction(client,action,session.uri),acquire }; setPlan(null); setChoices([]); setNotice("Preparing complete source changes…");
     try {
       const uri = session.uri, position = utf16ToPosition(source, selection.main.head);
-      const method = mode === "rename" ? "textDocument/rename" : mode === "format" ? "textDocument/formatting" : "textDocument/codeAction";
+      const method = mode === "rename" ? "hick/rename" : mode === "format" ? "hick/formatting" : "textDocument/codeAction";
       const params = { textDocument: { uri }, ...(mode === "rename" ? { position, newName: name } : mode === "format" ? { options: { tabSize: view.state.tabSize, insertSpaces: !/^\t/m.test(source) } } : { range: { start: utf16ToPosition(source, mode==="fixAll" ? 0:selection.main.from), end: utf16ToPosition(source, mode==="fixAll" ? source.length:selection.main.to) }, context: { diagnostics: [],...(mode==="fixAll" ? {only:["source.fixAll"]}:{}) } }) };
       captured.current!.query=async()=>{const value=await client.request("textDocument/codeAction",params);return Array.isArray(value)?(mode==="fixAll"?fileWideFixActions(value):value):[];};
+      await prepareSource(buffer,source);if(!valid())throw new Error("Original source changed during provider preparation. Prepare again.");
       if (mode === "rename") {
         const acquired=await acquireReferenceSources(sources,async()=>{
           const references=semanticLocations(await client.request("textDocument/references",{textDocument:{uri},position,context:{includeDeclaration:true}}));
@@ -166,10 +168,23 @@ export function WorkspaceChanges({ buffers, current, focus,files,adoptResources,
         if(!valid())return;
         captured.current!.sources=acquired.sources;captured.current!.references=acquired.references;
       }
+      if(mode==="rename"||mode==="format"){
+        let editTargets=new Set<string>();const queryBound=async()=>{
+          const receipt=await prepareSource(buffer,source);if(!valid()||receipt.client!==client||receipt.uri!==uri)throw new Error("Original source changed before the bound provider query. Prepare again.");
+          const value=await client.request(method,{...params,expected:receipt.expected}) as CodeAction & {source_files_modified?:unknown};
+          if(!valid()||!value||value.source_files_modified!==false||value.command||value.disabled)throw new Error(value?.disabled?.reason??"Provider did not confirm one complete no-effect source proposal.");
+          let paths:string[];
+          if(isResourceEdit(value.edit)){const observed=await request<{sources:Record<string,{kind:string}>;refusals:Record<string,string>}>("POST","/api/changes/resource-inputs",{context:crypto.randomUUID().replaceAll('-',''),edit:value.edit});if(Object.keys(observed.refusals).length)throw new Error("Resource preimages are unavailable. Prepare again.");paths=Object.entries(observed.sources).filter(([,source])=>source.kind==='file').map(([path])=>path);}
+          else paths=providerActionPaths(value);
+          editTargets=new Set(paths);return {paths:[...new Set([...paths,...providerSourceProofPaths(value)])],value};
+        };
+        const capture=captured.current!,acquired=await acquireSourceProposal(capture.sources,queryBound,path=>capture.acquire(path,editTargets.has(path)),valid,path=>editTargets.has(path));
+        await validateProviderSourceProofs(acquired.value,acquired.sources,editTargets);if(!valid())throw new Error("Original sources changed during proof validation. Prepare again.");capture.sources=acquired.sources;await install(acquired.value.title,acquired.value.edit);return;
+      }
       const result = await client.request(method, params);
       if (!valid()) { if (id === ticket.current) setNotice("Source, selection or provider changed. Prepare the proposal again."); return; }
       if (mode === "actions" || mode === "fixAll") { const actions:CodeAction[]=Array.isArray(result)?structuredClone(result):[];const choices=mode==="fixAll"?fileWideFixActions(actions):actions;captured.current!.choices=choices;setChoices(choices); setNotice(choices.length ? "Choose one complete provider action to preview. Nothing is saved or verified." : mode==="fixAll" ? "The current provider offers no file-wide diagnostic fixes. No edits were applied.":"No provider actions here. Support depends on the installed language server."); }
-      else await install(mode === "rename" ? `Rename to ${name}` : "Format source", mode === "format" ? { changes: { [uri]: result } } : result);
+      else throw new Error("Prepare a supported source action.");
     } catch (error) { if (id===ticket.current) setNotice(String(error)); }
   }
   const choose = async (action: CodeAction) => {
@@ -182,6 +197,7 @@ export function WorkspaceChanges({ buffers, current, focus,files,adoptResources,
       setPlan(null);setNotice("Resolving complete provider action…");
       let first:CodeAction|undefined=await capture.resolve(action);
       if(mode==="fixAll"&&!fileWideFixActions([first]).length)throw new Error("The provider changed the complete file-wide action kind. Prepare again.");
+      let editTargets=new Set<string>();
       const acquired=await acquireSourceProposal(capture.sources,async()=>{
         let resolved=first;first=undefined;
         if(!resolved){
@@ -198,10 +214,11 @@ export function WorkspaceChanges({ buffers, current, focus,files,adoptResources,
           const observed=await request<{sources:Record<string,{kind:string}>;refusals:Record<string,string>}>("POST","/api/changes/resource-inputs",{context:crypto.randomUUID().replaceAll('-',''),edit:resolved.edit});
           if(Object.keys(observed.refusals).length)throw new Error("Resource sources cannot be acquired. Refresh the workspace and prepare again.");paths=Object.entries(observed.sources).filter(([,source])=>source.kind==='file').map(([path])=>path);
         }else paths=providerActionPaths(resolved);
-        return {paths,value:resolved};
-      },capture.acquire,()=>owned()&&capture.current());
+        editTargets=new Set(paths);return {paths:[...new Set([...paths,...providerSourceProofPaths(resolved)])],value:resolved};
+      },path=>capture.acquire(path,editTargets.has(path)),()=>owned()&&capture.current(),path=>editTargets.has(path));
       if(!owned())return;
       capture.sources=acquired.sources;const resolved=acquired.value;
+      await validateProviderSourceProofs(resolved,acquired.sources,editTargets);if(!owned()||!capture.current())throw new Error("Original sources changed during proof validation. Prepare again.");
       await install(resolved.title,resolved.edit);
     }catch(error){if(owned())setNotice(String(error));}
   };

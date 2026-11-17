@@ -9,7 +9,7 @@ Rename discovery acquires previously unopened reference targets through the exis
 
 Provider choices resolve through their captured provider before entering the same complete change-plan preview. A latest-choice ticket and the fixed preparation snapshot reject late answers or a replaced choice list. Disabled actions and complete edit-plus-command results refuse explicitly; resolving never applies an edit portion or saves source. The native view passes the rendered preparation identity so an old row index cannot select a newer list item.
 
-Provider edit discovery uses the same bounded acquisition boundary. Newly loaded targets synchronize before the host re-queries actions at the captured selection and resolves a uniquely matching title and kind. Changed or ambiguous choices refuse instead of selecting an arbitrary replacement. Tokens from the discovering response never authorize the final plan. Original draft snapshots remain fixed; only missing sources are added, and acquisition does not activate tabs.
+Provider edit discovery uses the same bounded acquisition boundary. Newly loaded targets synchronize before the host re-queries actions at the captured selection and resolves a uniquely matching title and kind. Changed or ambiguous choices refuse instead of selecting an arbitrary replacement. Tokens from the discovering response never authorize the final plan. Engine-issued source hashes bind every edited preimage and the readonly contributor context to the original frozen snapshots; the acquisition policy grants write authority only to actual edit targets. Missing, stale or incomplete proofs refuse the complete action. Original draft snapshots remain fixed; only missing sources are added, and acquisition does not activate tabs.
 
 Explicit cleanup enters before language-provider acquisition. Its fixed source, selection, buffer identity and request ticket authorize only that preparation. Returning ordinary source replacements lets the existing preview, writability checks, coordinated apply and inverse history handle it; no second editor or save path is introduced. A no-op reports the observation without creating an undo entry. The cleanup profile is literal and explicit: significant trailing spaces can change, so review the before/after text.
 
@@ -31,8 +31,9 @@ import { EditorView } from "@codemirror/view";
 import { editorForBuffer } from "./Document";
 import {resolveCodeAction} from "../lsp/codeActionResolution";
 import {acquireReferenceSources,acquireSourceProposal} from "./ReferenceSources";
+import {providerSourceProofPaths,validateProviderSourceProofs} from "./ProviderSourceProofs";
 import type {FileNode} from "../api/types";
-import { useWorkspaceLanguageLookup,useWorkspaceOutlineReader } from "./WorkspaceLanguages";
+import { useWorkspaceLanguageLookup,useWorkspaceOutlineReader,useWorkspaceSourcePreparation } from "./WorkspaceLanguages";
 import { utf16ToPosition } from "../lsp/positions";
 import type { CodeAction } from "../lsp/client";
 import type { Buffer, Buffers } from "./buffers";
@@ -76,13 +77,13 @@ A menu command starts a fresh request identity. Retain the exact provider respon
 
 <ui:copy id="simple-browser-workspace-changes-controller">
 export function WorkspaceChanges({ buffers, current, focus,files,adoptResources,history }: { files:FileNode[];buffers: Buffers; current: () => Buffer | undefined; focus: () => void;adoptResources:(routes:ResourceEditorRoute<Buffer>[])=>void;history:WorkspaceChangeHistory }) {
-  const lookup = useWorkspaceLanguageLookup(),readOutline=useWorkspaceOutlineReader();
+  const lookup = useWorkspaceLanguageLookup(),readOutline=useWorkspaceOutlineReader(),prepareSource=useWorkspaceSourcePreparation();
   const [mode, setMode] = useState<ChangeCommand | "proposal" | null>(null), [name, setName] = useState(""), [notice, setNotice] = useState("");
   const [resource,setResource]=useState<ResourceRestoreReview|null>(null),[publishing,setPublishing]=useState(false);
   const [plan, setPlan] = useState<ChangePlan | null>(null), [choices, setChoices] = useState<CodeAction[]>([]);
   const [file, setFile] = useState(0), [page, setPage] = useState(0), [actionPage, setActionPage] = useState(0);
   const resourceHistory=useRef<WorkspaceHistoryToken|null>(null),busy=useRef(false),ticket = useRef(0),choiceTicket=useRef(0);
-  const captured = useRef<{ sources: Map<string, SourceSnapshot>; references: string[]; current: () => boolean;request:number;choices:CodeAction[];resolve:(action:CodeAction)=>Promise<CodeAction>;acquire:(path:string)=>Promise<SourceSnapshot>;query?:()=>Promise<CodeAction[]> } | null>(null);
+  const captured = useRef<{ sources: Map<string, SourceSnapshot>; references: string[]; current: () => boolean;request:number;choices:CodeAction[];resolve:(action:CodeAction)=>Promise<CodeAction>;acquire:(path:string,requireWritable?:boolean)=>Promise<SourceSnapshot>;query?:()=>Promise<CodeAction[]> } | null>(null);
   const input = useRef<HTMLInputElement>(null), panel = useRef<HTMLDivElement>(null);
   const close = () => { if(publishing)return;ticket.current++; setResource(null);setMode(null); focus(); };
   async function acquireResource(path:string){const existing=buffers.values.get(path);if(existing)return existing;const response=await api.files();const find=(nodes:FileNode[]):FileNode|undefined=>{for(const file of nodes){if(!file.dir&&file.path===path)return file;const nested=find(file.children??[]);if(nested)return nested;}};const file=find(response.tree);if(!file)throw new Error("Current resource source is unavailable: "+path);return await buffers.open(file);}
@@ -170,13 +171,13 @@ export function WorkspaceChanges({ buffers, current, focus,files,adoptResources,
     const originCurrent = () => id === ticket.current && buffers.values.get(buffer.file.path)===buffer && buffer.sourceRevision===sourceRevision && buffer.text === source && view.state.doc.toString() === source && view.state.selection.eq(selection) && lookup(buffer).client === client && lookup(buffer).ready;
     const valid=()=>originCurrent()&&roster.current();
         const listed=new Map<string,FileNode>();const collect=(nodes:FileNode[])=>{for(const file of nodes){if(!file.dir)listed.set(file.path,file);collect(file.children??[]);}};collect(files);
-    const acquire=async (path:string)=>{
+    const acquire=async (path:string,requireWritable=true)=>{
           if(!valid())throw new Error("Source, selection or provider changed. Prepare again.");
           const file=buffers.values.get(path)?.file??listed.get(path);if(!file||file.dir)throw new Error(`Referenced source is no longer listed: ${path}. Refresh files and prepare again.`);
           const wasRetained=buffers.values.has(path),target=await buffers.open(file),text=target.text;
           if(!wasRetained&&(target.sourceRevision!==0||target.text!==target.base))throw new Error("The newly acquired source was edited before original ownership could be sealed.");
           if(!originCurrent())throw new Error("Original source changed during acquisition. Prepare again.");roster.retain(path,target);
-          if(target.readonly||target.saving||target.transient)throw new Error(`Source is generated, read-only or saving: ${path}`);
+          if(target.saving||requireWritable&&(target.readonly||target.transient))throw new Error(`Source is generated, read-only or saving: ${path}`);
           await readOutline(target,text);
           if(!valid()||target.text!==text)throw new Error(`Source changed while reading ${path}. Prepare again.`);
           return {text,writable:!target.readonly&&!target.saving&&!target.transient};
@@ -184,9 +185,10 @@ export function WorkspaceChanges({ buffers, current, focus,files,adoptResources,
     captured.current = { sources, references: [], current: valid,request:id,choices:[],resolve:action=>resolveCodeAction(client,action,session.uri),acquire }; setPlan(null); setChoices([]); setNotice("Preparing complete source changes…");
     try {
       const uri = session.uri, position = utf16ToPosition(source, selection.main.head);
-      const method = mode === "rename" ? "textDocument/rename" : mode === "format" ? "textDocument/formatting" : "textDocument/codeAction";
+      const method = mode === "rename" ? "hick/rename" : mode === "format" ? "hick/formatting" : "textDocument/codeAction";
       const params = { textDocument: { uri }, ...(mode === "rename" ? { position, newName: name } : mode === "format" ? { options: { tabSize: view.state.tabSize, insertSpaces: !/^\t/m.test(source) } } : { range: { start: utf16ToPosition(source, mode==="fixAll" ? 0:selection.main.from), end: utf16ToPosition(source, mode==="fixAll" ? source.length:selection.main.to) }, context: { diagnostics: [],...(mode==="fixAll" ? {only:["source.fixAll"]}:{}) } }) };
       captured.current!.query=async()=>{const value=await client.request("textDocument/codeAction",params);return Array.isArray(value)?(mode==="fixAll"?fileWideFixActions(value):value):[];};
+      await prepareSource(buffer,source);if(!valid())throw new Error("Original source changed during provider preparation. Prepare again.");
       if (mode === "rename") {
         const acquired=await acquireReferenceSources(sources,async()=>{
           const references=semanticLocations(await client.request("textDocument/references",{textDocument:{uri},position,context:{includeDeclaration:true}}));
@@ -195,10 +197,23 @@ export function WorkspaceChanges({ buffers, current, focus,files,adoptResources,
         if(!valid())return;
         captured.current!.sources=acquired.sources;captured.current!.references=acquired.references;
       }
+      if(mode==="rename"||mode==="format"){
+        let editTargets=new Set<string>();const queryBound=async()=>{
+          const receipt=await prepareSource(buffer,source);if(!valid()||receipt.client!==client||receipt.uri!==uri)throw new Error("Original source changed before the bound provider query. Prepare again.");
+          const value=await client.request(method,{...params,expected:receipt.expected}) as CodeAction & {source_files_modified?:unknown};
+          if(!valid()||!value||value.source_files_modified!==false||value.command||value.disabled)throw new Error(value?.disabled?.reason??"Provider did not confirm one complete no-effect source proposal.");
+          let paths:string[];
+          if(isResourceEdit(value.edit)){const observed=await request<{sources:Record<string,{kind:string}>;refusals:Record<string,string>}>("POST","/api/changes/resource-inputs",{context:crypto.randomUUID().replaceAll('-',''),edit:value.edit});if(Object.keys(observed.refusals).length)throw new Error("Resource preimages are unavailable. Prepare again.");paths=Object.entries(observed.sources).filter(([,source])=>source.kind==='file').map(([path])=>path);}
+          else paths=providerActionPaths(value);
+          editTargets=new Set(paths);return {paths:[...new Set([...paths,...providerSourceProofPaths(value)])],value};
+        };
+        const capture=captured.current!,acquired=await acquireSourceProposal(capture.sources,queryBound,path=>capture.acquire(path,editTargets.has(path)),valid,path=>editTargets.has(path));
+        await validateProviderSourceProofs(acquired.value,acquired.sources,editTargets);if(!valid())throw new Error("Original sources changed during proof validation. Prepare again.");capture.sources=acquired.sources;await install(acquired.value.title,acquired.value.edit);return;
+      }
       const result = await client.request(method, params);
       if (!valid()) { if (id === ticket.current) setNotice("Source, selection or provider changed. Prepare the proposal again."); return; }
       if (mode === "actions" || mode === "fixAll") { const actions:CodeAction[]=Array.isArray(result)?structuredClone(result):[];const choices=mode==="fixAll"?fileWideFixActions(actions):actions;captured.current!.choices=choices;setChoices(choices); setNotice(choices.length ? "Choose one complete provider action to preview. Nothing is saved or verified." : mode==="fixAll" ? "The current provider offers no file-wide diagnostic fixes. No edits were applied.":"No provider actions here. Support depends on the installed language server."); }
-      else await install(mode === "rename" ? `Rename to ${name}` : "Format source", mode === "format" ? { changes: { [uri]: result } } : result);
+      else throw new Error("Prepare a supported source action.");
     } catch (error) { if (id===ticket.current) setNotice(String(error)); }
   }
   const choose = async (action: CodeAction) => {
@@ -211,6 +226,7 @@ export function WorkspaceChanges({ buffers, current, focus,files,adoptResources,
       setPlan(null);setNotice("Resolving complete provider action…");
       let first:CodeAction|undefined=await capture.resolve(action);
       if(mode==="fixAll"&&!fileWideFixActions([first]).length)throw new Error("The provider changed the complete file-wide action kind. Prepare again.");
+      let editTargets=new Set<string>();
       const acquired=await acquireSourceProposal(capture.sources,async()=>{
         let resolved=first;first=undefined;
         if(!resolved){
@@ -227,10 +243,11 @@ export function WorkspaceChanges({ buffers, current, focus,files,adoptResources,
           const observed=await request<{sources:Record<string,{kind:string}>;refusals:Record<string,string>}>("POST","/api/changes/resource-inputs",{context:crypto.randomUUID().replaceAll('-',''),edit:resolved.edit});
           if(Object.keys(observed.refusals).length)throw new Error("Resource sources cannot be acquired. Refresh the workspace and prepare again.");paths=Object.entries(observed.sources).filter(([,source])=>source.kind==='file').map(([path])=>path);
         }else paths=providerActionPaths(resolved);
-        return {paths,value:resolved};
-      },capture.acquire,()=>owned()&&capture.current());
+        editTargets=new Set(paths);return {paths:[...new Set([...paths,...providerSourceProofPaths(resolved)])],value:resolved};
+      },path=>capture.acquire(path,editTargets.has(path)),()=>owned()&&capture.current(),path=>editTargets.has(path));
       if(!owned())return;
       capture.sources=acquired.sources;const resolved=acquired.value;
+      await validateProviderSourceProofs(resolved,acquired.sources,editTargets);if(!owned()||!capture.current())throw new Error("Original sources changed during proof validation. Prepare again.");
       await install(resolved.title,resolved.edit);
     }catch(error){if(owned())setNotice(String(error));}
   };
@@ -295,25 +312,39 @@ import {Buffer,Buffers} from './buffers';
 import {WorkspaceChanges} from './WorkspaceChanges';
 import {WorkspaceChangeHistory} from './ChangePlan';
 import {requestWorkspaceChange,requestWorkspaceProposal} from './WorkspaceChangeEvents';
-const mocks=vi.hoisted(()=>({editor:vi.fn(),lookup:vi.fn(),outline:vi.fn(),request:vi.fn()}));
+const mocks=vi.hoisted(()=>({editor:vi.fn(),lookup:vi.fn(),outline:vi.fn(),preparation:vi.fn(),request:vi.fn()}));
 vi.mock('../api/client',()=>({api:{},request:(...args:unknown[])=>mocks.request(...args)}));
 vi.mock('./Document',()=>({editorForBuffer:mocks.editor}));
-vi.mock('./WorkspaceLanguages',()=>({useWorkspaceLanguageLookup:()=>mocks.lookup,useWorkspaceOutlineReader:()=>mocks.outline}));
+vi.mock('./WorkspaceLanguages',()=>({useWorkspaceLanguageLookup:()=>mocks.lookup,useWorkspaceOutlineReader:()=>mocks.outline,useWorkspaceSourcePreparation:()=>mocks.preparation}));
 let view:EditorView|undefined;
 afterEach(()=>{cleanup();view?.destroy();view=undefined;vi.clearAllMocks();});
 const replacement={range:{start:{line:0,character:0},end:{line:0,character:3}},newText:'new'};
-function action(kind='source.fixAll.provider'){return {title:'Complete file fix',kind,edit:{changes:{'hick:///a.py':[replacement]}}};}
+function action(kind='source.fixAll.provider'){return {title:'Complete file fix',kind,data:{hickory_action:'fixture-held',hickory_sources:[{uri:'hick:///a.py',source_hash:'sha256:01d09d19c2139a46aebfb577780d123d7396e97201bc7ead210a2ebff8239dee'}]},edit:{changes:{'hick:///a.py':[replacement]}}};}
 function fixture(result:unknown){
  mocks.request.mockReset();const buffers=new Buffers(()=>{}),file={path:'a.py',name:'a.py',dir:false};const buffer=new Buffer(file,'old\n','base',()=>{});buffers.values.set(file.path,buffer);
  view=new EditorView({state:EditorState.create({doc:buffer.text,selection:{anchor:2},extensions:[EditorView.updateListener.of(update=>{if(update.docChanged)buffer.edit(update.state.doc.toString());})]}),parent:document.body});mocks.editor.mockImplementation(target=>target===buffer?{view}:undefined);
- const request=vi.fn(async(_method:string,_params?:unknown)=>result),client={request};mocks.lookup.mockReturnValue({uri:'hick:///a.py',client,ready:true});
+ const request=vi.fn(async(method:string,params?:unknown)=>method==='codeAction/resolve'?params:result),client={request};mocks.lookup.mockReturnValue({uri:'hick:///a.py',client,ready:true});mocks.preparation.mockResolvedValue({client,uri:'hick:///a.py',expected:{source_hash:action().data.hickory_sources[0].source_hash,source_revision:'f'.repeat(64)}});
  const files=[file];render(<WorkspaceChanges buffers={buffers} files={files} current={()=>buffer} focus={()=>{}} adoptResources={()=>{throw new Error('No resource publication expected');}} history={new WorkspaceChangeHistory()}/>);
  act(()=>requestWorkspaceChange('fixAll'));return {buffer,buffers,files,request};
 }
 async function prepare(){fireEvent.click(screen.getByRole('button',{name:'Prepare file-wide diagnostic fixes'}));}
 it('requests the entire source family, reviews one complete action and coordinates draft Undo/Redo',async()=>{
  const {buffer,request}=fixture([action(),{title:'Unrelated quick fix',kind:'quickfix'}, {title:'Wrong prefix',kind:'source.fixAllWrong'}]);await prepare();await screen.findByRole('button',{name:'Complete file fix'});expect(screen.queryByRole('button',{name:'Unrelated quick fix'})).toBeNull();expect(screen.queryByRole('button',{name:'Wrong prefix'})).toBeNull();expect(request).toHaveBeenCalledWith('textDocument/codeAction',expect.objectContaining({range:{start:{line:0,character:0},end:{line:1,character:0}},context:{diagnostics:[],only:['source.fixAll']}}));expect(buffer.text).toBe('old\n');expect(view!.state.selection.main.head).toBe(2);
- fireEvent.click(screen.getByRole('button',{name:'Complete file fix'}));await screen.findByRole('button',{name:'Apply to source drafts'});expect(buffer.text).toBe('old\n');fireEvent.click(screen.getByRole('button',{name:'Apply to source drafts'}));expect(buffer.text).toBe('new\n');act(()=>requestWorkspaceChange('undo'));expect(buffer.text).toBe('old\n');act(()=>requestWorkspaceChange('redo'));expect(buffer.text).toBe('new\n');expect(request).toHaveBeenCalledTimes(1);
+ fireEvent.click(screen.getByRole('button',{name:'Complete file fix'}));await screen.findByRole('button',{name:'Apply to source drafts'});expect(buffer.text).toBe('old\n');fireEvent.click(screen.getByRole('button',{name:'Apply to source drafts'}));expect(buffer.text).toBe('new\n');act(()=>requestWorkspaceChange('undo'));expect(buffer.text).toBe('old\n');act(()=>requestWorkspaceChange('redo'));expect(buffer.text).toBe('new\n');expect(request.mock.calls.filter(([method])=>method==='textDocument/codeAction')).toHaveLength(2); // Discovery is discarded after retained-source synchronization.
+});
+it.each(['missing','hash','uncovered'])('refuses provider source proof %s before applying any draft',async kind=>{
+ const offered=action();if(kind==='missing')offered.data={} as typeof offered.data;if(kind==='hash')offered.data.hickory_sources[0].source_hash='sha256:'+'0'.repeat(64);
+ if(kind==='uncovered')offered.edit={changes:{'hick:///other.py':[replacement]}} as unknown as typeof offered.edit;
+ const {buffer,buffers,files}=fixture([offered]);if(kind==='uncovered'){const file={path:'other.py',name:'other.py',dir:false};files.push(file);buffers.values.set(file.path,new Buffer(file,'old\n','base',()=>{}));}
+ await prepare();fireEvent.click(await screen.findByRole('button',{name:'Complete file fix'}));await screen.findByText(kind==='missing'?/Missing or malformed engine source proof/:kind==='hash'?/Provider source proof changed/:/Edited source lacks engine coordinate proof/);expect(screen.queryByRole('button',{name:'Apply to source drafts'})).toBeNull();expect(buffer.text).toBe('old\n');
+});
+it('synchronizes readonly contributor context without granting it edit permission',async()=>{
+ const offered=action();offered.data.hickory_sources.push({...offered.data.hickory_sources[0],uri:'hick:///z.md'});const {buffers,files}=fixture([offered]),file={path:'z.md',name:'z.md',dir:false,generated_by:'construction.md'};files.push(file);buffers.values.set(file.path,new Buffer(file,'old\n','base',()=>{}));
+ await prepare();fireEvent.click(await screen.findByRole('button',{name:'Complete file fix'}));await screen.findByRole('button',{name:'Apply to source drafts'});expect(buffers.values.get('z.md')?.readonly).toBe(true);expect(buffers.values.get('z.md')?.text).toBe('old\n');
+});
+it.each(['rename','format'] as const)('reviews the complete bound %s envelope and exact preparation stamp',async mode=>{
+ const envelope={...action(),source_files_modified:false},value=fixture([]);value.request.mockImplementation(async(method:string)=>method==='textDocument/references'?[]:method==='hick/'+(mode==='rename'?'rename':'formatting')?envelope:[]);act(()=>requestWorkspaceChange(mode));if(mode==='rename')fireEvent.change(screen.getByRole('textbox',{name:'New symbol name'}),{target:{value:'new'}});fireEvent.click(screen.getByRole('button',{name:mode==='rename'?'Prepare rename':'Prepare formatting'}));await screen.findByRole('button',{name:'Apply to source drafts'});
+ const bound=value.request.mock.calls.filter(([method])=>method.startsWith('hick/'));expect(bound).toHaveLength(2);for(const [,params]of bound)expect(params).toMatchObject({textDocument:{uri:'hick:///a.py'},expected:{source_hash:action().data.hickory_sources[0].source_hash,source_revision:'f'.repeat(64)}});expect(value.buffer.text).toBe('old\n');fireEvent.click(screen.getByRole('button',{name:'Apply to source drafts'}));expect(value.buffer.text).toBe('new\n');
 });
 it('reports unavailable when the provider returns no complete-file family',async()=>{fixture([action('quickfix')]);await prepare();await screen.findByText(/offers no file-wide diagnostic fixes/);expect(screen.queryByRole('button',{name:'Complete file fix'})).toBeNull();expect(screen.queryByRole('button',{name:'Apply to source drafts'})).toBeNull();});
 it('retires an equal-byte edit/Undo before a held bulk list arrives',async()=>{const {buffer,request}=fixture([]);let release!:(value:unknown)=>void;request.mockImplementationOnce(()=>new Promise(resolve=>{release=resolve;}));await prepare();act(()=>{buffer.edit('later');buffer.edit('old\n');});await act(async()=>release([action()]));await screen.findByText(/Source, selection or provider changed/);expect(screen.queryByRole('button',{name:'Complete file fix'})).toBeNull();expect(buffer.text).toBe('old\n');});
@@ -324,7 +355,7 @@ it.each(['undo','guard','baseline','handle','unknown'])('retains original owner 
  act(()=>requestWorkspaceChange('fixAll'));request.mockImplementationOnce(async()=>{if(change==='undo'){target.edit('later');target.edit('old\n');}else if(change==='guard')target.saveGuard='foreign';else if(change==='baseline')target.base='foreign';else if(change==='handle')buffers.values.set(file.path,new Buffer(file,target.text,target.hash,()=>{}));else buffers.values.set('unknown.md',new Buffer({path:'unknown.md',name:'unknown.md',dir:false},'unmodeled construction','new',()=>{}));return [action()];});await prepare();await screen.findByText(/Source, selection or provider changed/);expect(screen.queryByRole('button',{name:'Complete file fix'})).toBeNull();expect(buffer.text).toBe('old\n');
 });
 it('refuses a newly loaded target edited and undone before acquisition returns',async()=>{
- const {buffer,buffers,files,request}=fixture([]),file={path:'other.py',name:'other.py',dir:false};files.push(file);const original={...action(),edit:undefined,data:{hickory_action:'held'}},discovery={title:original.title,kind:original.kind,data:{hickory_acquire:[{uri:'hick:///other.py'}]}};
+ const {buffer,buffers,files,request}=fixture([]),file={path:'other.py',name:'other.py',dir:false};files.push(file);const original={...action(),edit:undefined,data:{hickory_action:'held'}},discovery={title:original.title,kind:original.kind,data:{...action().data,hickory_acquire:[{uri:'hick:///other.py'}]}};
  request.mockImplementation(async(method:string)=>method==='codeAction/resolve'?discovery:[original]);vi.spyOn(buffers,'open').mockImplementation(async()=>{const target=new Buffer(file,'old\n','base',()=>{});buffers.values.set(file.path,target);target.edit('later');target.edit('old\n');return target;});await prepare();fireEvent.click(await screen.findByRole('button',{name:'Complete file fix'}));await screen.findByText(/newly acquired source was edited/);expect(screen.queryByRole('button',{name:'Apply to source drafts'})).toBeNull();expect(buffer.text).toBe('old\n');
 });
 it('keeps reviewed drafts bound to the original equal-byte revision through approval',async()=>{const {buffer}=fixture([]);act(()=>requestWorkspaceProposal('Reviewed',action().edit,new Map([['a.py',buffer.text]])));await screen.findByRole('button',{name:'Apply to source drafts'});buffer.edit('later');buffer.edit('old\n');fireEvent.click(screen.getByRole('button',{name:'Apply to source drafts'}));await screen.findByText(/Source, selection or provider changed/);expect(buffer.text).toBe('old\n');});

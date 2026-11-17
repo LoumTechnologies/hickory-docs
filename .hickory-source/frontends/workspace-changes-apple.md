@@ -19,8 +19,11 @@ File-wide fixes request the standard `source.fixAll` family for the whole captur
 
 A pending proposal keeps its original revision lease. A fresh synchronous Undo/Redo instead binds the inverse to its original editor objects and resolves each unique current address immediately before complete preimage validation. This follows the same editor through Save As and guarded namespace moves, while refusing an independent handle that reused the old path. Ordinary Save and late capability metadata do not discard text history: history never writes saved files, and current writability and composition still preflight the whole batch. Reading the inverse and committing it contain no await.
 
+Production provider edits require engine coordinate proofs after the final fresh query. The origin is acknowledged before the initial request; readonly proof context is acquired and synchronized without treating it as an edited target. Every actual existing edited preimage must be writable and covered by a matching captured-byte proof. For ordered resource edits the engine resource-inputs response supplies those initial preimages, so a newly created or renamed destination never becomes an invented old source. The original editor lease, selection, revision and provider still gate review and application. Explicit injected proposal closures remain a trusted test seam; tests can enforce the production proof policy separately. Direct bound rename/format envelopes also require a typed false no-effect flag before their edit is considered.
+
 <ui:copy id="simple-apple-workspace-changes">
 import SwiftUI
+import CoreFoundation
 func fileWideFixActions(_ actions:[[String:Any]])->[[String:Any]] {actions.filter{guard let kind=$0["kind"] as? String else{return false};return kind=="source.fixAll" || kind.hasPrefix("source.fixAll.")}}
 import Observation
 struct ResourceHistoryIntent {var direction:String;var record:String;var token:UUID}
@@ -53,6 +56,7 @@ private enum WorkspaceHistoryStep {case drafts(WorkspaceDraftHistory);case resou
     private var resolver:(([String:Any]) async throws->[String:Any])?
     private var acquisition:((String) async throws->SourceSnapshot)?
     private var actionQuery:(() async throws->[[String:Any]])?
+    private var requiresProviderProofs=true
     private var captured: (sources:NativeSourceMap<SourceSnapshot>, current:()->Bool)?
     private var undo: [WorkspaceHistoryStep] = []
     private var redo: [WorkspaceHistoryStep] = []
@@ -93,15 +97,17 @@ private enum WorkspaceHistoryStep {case drafts(WorkspaceDraftHistory);case resou
             }catch{notice=error.localizedDescription}
         }
     }
-    func prepare(_ workspace: Workspace,proposal:((String,String) async throws->Any)?=nil,resolution:(([String:Any]) async throws->[String:Any])?=nil,acquisition:((String) async throws->SourceSnapshot)?=nil) async {
+    func prepare(_ workspace: Workspace,proposal:((String,String) async throws->Any)?=nil,resolution:(([String:Any]) async throws->[String:Any])?=nil,acquisition:((String) async throws->SourceSnapshot)?=nil,enforceProviderProofs:Bool=false) async {
         if mode == "cleanup" { await prepareCleanup(workspace,proposal:proposal); return }
         guard let origin = workspace.currentBuffer, let language = origin.language, !origin.readOnly else { notice = "Choose writable source with a connected language provider."; return }
+        requiresProviderProofs=proposal==nil || enforceProviderProofs
+        let proofRequired=requiresProviderProofs,server=workspace.engine
         revision = UUID(); let request = revision, source = origin.text, selection = origin.selection, identity = language.proposalIdentity
         let sourceIdentity=origin.sourceEditIdentity
         let sources = workspace.sourceSnapshots()
         captured = (sources,{ [weak self, weak origin, weak language,weak workspace] in
             guard let self, let origin, let language,let workspace else { return false }
-            return self.revision == request && workspace.buffers[origin.file.path] === origin && origin.sourceEditIdentity==sourceIdentity && exactUTF8(origin.text,source) && origin.selection == selection && origin.language === language && language.proposalIdentity == identity
+            return self.revision == request && workspace.engine?.session === server?.session && exactUTF8(workspace.engine?.origin.absoluteString,server?.origin.absoluteString) && workspace.buffers[origin.file.path] === origin && origin.sourceEditIdentity==sourceIdentity && exactUTF8(origin.text,source) && origin.selection == selection && origin.language === language && language.proposalIdentity == identity
         })
         resolver=resolution ?? {[weak language] action in guard let language else{throw EngineError(message:"Provider changed. Prepare actions again.")};return try await language.resolveProposal(action)}
         let lease=ResourceAcquisitionLease(workspace,current:captured!.current)
@@ -118,7 +124,7 @@ private enum WorkspaceHistoryStep {case drafts(WorkspaceDraftHistory);case resou
                     let target=try await workspace.loadBuffer(file),text=target.text
                     guard wasRetained || target.agentSourceRevision==0 && exactUTF8(target.text,target.base) else{throw EngineError(message:"The newly acquired source was edited before original ownership could be sealed.")}
                     guard lease.current(allowing:path) else{throw EngineError(message:"Original source owners changed during acquisition. Prepare again.")};lease.retain(path,target)
-                    guard !target.readOnly,!target.saving,let service=target.language else{throw EngineError(message:"Referenced source cannot synchronize: \(path). Retry language services.")}
+                    guard !target.saving,let service=target.language else{throw EngineError(message:"Referenced source cannot synchronize: \(path). Retry language services.")}
                     _ = try await service.readOutline(source:text)
                     guard valid(),exactUTF8(target.text,text) else{throw EngineError(message:"Source changed while reading \(path). Prepare again.")}
                     return SourceSnapshot(text:text,writable:!target.readOnly && !target.saving)
@@ -126,7 +132,7 @@ private enum WorkspaceHistoryStep {case drafts(WorkspaceDraftHistory);case resou
         let load:(String) async throws->SourceSnapshot={path in
             guard valid() else{throw EngineError(message:"Original source owners changed before acquisition. Prepare again.")}
             let wasRetained=workspace.buffers[path] != nil,source=try await acquireTarget(path)
-            guard lease.current(allowing:path),let target=workspace.buffers[path],wasRetained || target.agentSourceRevision==0 && exactUTF8(target.text,target.base),exactUTF8(target.text,source.text),!target.readOnly,!target.saving else{throw EngineError(message:"Original source owners or the acquired target changed. Prepare again.")}
+            guard lease.current(allowing:path),let target=workspace.buffers[path],wasRetained || target.agentSourceRevision==0 && exactUTF8(target.text,target.base),exactUTF8(target.text,source.text),!target.saving else{throw EngineError(message:"Original source owners or the acquired target changed. Prepare again.")}
             lease.retain(path,target);return source
         }
         let actionKind=mode=="fixAll" ? "fixAll":"actions"
@@ -134,6 +140,7 @@ private enum WorkspaceHistoryStep {case drafts(WorkspaceDraftHistory);case resou
         plan = nil; choices = []; referencePaths = []; notice = "Preparing complete source changes…"
         let kind = mode ?? "actions", nextName = name
         do {
+            if proposal==nil {_ = try await language.readOutline(source:source);guard valid() else{throw EngineError(message:"Original source preparation changed. Prepare again.")}}
             if kind == "rename" {
                 let acquired=try await acquireReferenceSources(sources,query:{
                     let locations=semanticLocations(try await propose("references",""))
@@ -144,6 +151,16 @@ private enum WorkspaceHistoryStep {case drafts(WorkspaceDraftHistory);case resou
             let result = try await propose(kind,nextName)
             guard valid() else { if revision == request { notice = "Source, selection or provider changed. Prepare again." }; return }
             if kind == "actions" || kind == "fixAll" { let actions=result as? [[String:Any]] ?? [];choices=kind=="fixAll" ? fileWideFixActions(actions):actions;notice=choices.isEmpty ? (kind=="fixAll" ? "The current provider offers no file-wide diagnostic fixes. No edits were applied.":"No provider actions here. Support depends on the installed language server."):"Choose one complete provider action to preview. Nothing is saved or verified." }
+            else if proofRequired {
+                var first:Any?=result
+                let acquired=try await acquireProviderAction(workspace,sources:captured?.sources ?? sources,query:{
+                    let value:Any;if let initial=first{value=initial;first=nil}else{value=try await propose(kind,nextName)}
+                    guard let action=value as? [String:Any],let modified=action["source_files_modified"] as? NSNumber,CFGetTypeID(modified)==CFBooleanGetTypeID(),!modified.boolValue else{throw EngineError(message:"Provider did not confirm one complete no-effect source proposal.")};return action
+                },load:load,current:valid,proofs:true)
+                captured?.sources=acquired.sources;let action=acquired.value;let edit=action["edit"]!
+                if isResourceWorkspaceEdit(edit){await workspace.resourceRestoration.prepareEdit(workspace,title:action["title"] as? String ?? "Provider resource change",edit:edit,current:valid)}
+                else{try install(action["title"] as? String ?? "Provider source change",edit:edit,workspace:workspace)}
+            }
             else if isResourceWorkspaceEdit(result) {
                 await workspace.resourceRestoration.prepareEdit(workspace,title:kind == "rename" ? "Rename to \(nextName)":"Provider resource change",edit:result,current:valid,requery:{try await propose(kind,nextName)})
                 if valid(){plan=nil;choices=[];notice=workspace.resourceRestoration.notice}
@@ -188,6 +205,38 @@ private enum WorkspaceHistoryStep {case drafts(WorkspaceDraftHistory);case resou
         })
         mode="proposal";plan=next;choices=[];referencePaths=[];notice="";file=0;page=0;actionPage=0
     }
+    private func providerResourcePreimages(_ edit:Any,workspace:Workspace,current:@escaping()->Bool)async throws->[String] {
+        guard current(),let engine=workspace.engine else{throw EngineError(message:"Original source workspace changed. Prepare again.")}
+        let targets:ResourceWireTargets=try await engine.request("POST","/api/changes/resource-targets",body:["edit":edit])
+        guard current(),targets.version==1,!targets.paths.isEmpty,targets.paths.count<=1000,Set(targets.paths).count==targets.paths.count else{throw EngineError(message:"Complete resource source identities changed. Prepare again.")}
+        let raw=try JSONDecoder().decode(ResourceJSON.self,from:JSONSerialization.data(withJSONObject:edit))
+        let observation=try await acquireResourceInputs(workspace,paths:targets.paths,edit:raw,current:current,readInputs:{capture in try await engine.request("POST","/api/changes/resource-inputs",body:resourceBody(capture))})
+        guard current(),observation.current() else{throw EngineError(message:"Original resource preimages changed. Prepare again.")}
+        return observation.inputs.sources.compactMap{path,source in source.kind=="file" ? path:nil}
+    }
+    private func acquireProviderAction(_ workspace:Workspace,sources:NativeSourceMap<SourceSnapshot>,query:@escaping()async throws->[String:Any],load:@escaping(String)async throws->SourceSnapshot,current:@escaping()->Bool,proofs:Bool)async throws->SourceProposalAcquisition<[String:Any]> {
+        var writable=Set<NativeSourceKey>()
+        let acquired=try await acquireSourceProposal(sources,query:{
+            let action=try await query()
+            guard current() else{throw EngineError(message:"Source, selection or provider changed. Prepare again.")}
+            if let disabled=action["disabled"] as? [String:Any]{throw EngineError(message:disabled["reason"] as? String ?? "Provider action disabled")}
+            guard action["command"]==nil else{throw EngineError(message:"This action requires a provider command; no edit portion was applied.")}
+            let proofPaths=proofs ? try providerSourceProofPaths(action):[]
+            let pending=(action["data"] as? [String:Any])?["hickory_acquire"] != nil ? try providerActionPaths(action):[]
+            let editPaths: [String]
+            if let edit=action["edit"],!isResourceWorkspaceEdit(edit){editPaths=try workspaceEditTargets(edit).map(\.path)}else{editPaths=[]}
+            writable=Set(editPaths.map(NativeSourceKey.init))
+            let paths=proofPaths+pending+editPaths
+            return (paths:proofs ? paths:paths.filter{sources[$0]==nil},value:action)
+        },acquire:load,current:current,requireWritable:{writable.contains(NativeSourceKey($0))})
+        guard current(),let edit=acquired.value["edit"] else{throw EngineError(message:"Provider source acquisition did not produce a complete edit. Prepare again.")}
+        if proofs {
+            let required = isResourceWorkspaceEdit(edit) ? try await providerResourcePreimages(edit,workspace:workspace,current:current):try workspaceEditTargets(edit).map(\.path)
+            try validateProviderSourceProofs(acquired.value,sources:acquired.sources,requiredExisting:required)
+            for path in required {guard acquired.sources[path]?.writable==true else{throw EngineError(message:"Source is generated, read-only or saving: \(path)")}}
+        }
+        return acquired
+    }
     private func install(_ title: String, edit: Any, workspace: Workspace) throws {
         guard let captured, captured.current() else { throw EngineError(message:"Source, selection or provider changed. Prepare again.") }
         let next = try planWorkspaceEdit(title,raw:edit,sources:captured.sources,allowNoop:mode == "cleanup")
@@ -205,7 +254,7 @@ private enum WorkspaceHistoryStep {case drafts(WorkspaceDraftHistory);case resou
             plan=nil;notice="Resolving complete provider action…"
             var first:[String:Any]?=try await resolver(action)
             if mode=="fixAll",let first,fileWideFixActions([first]).isEmpty{throw EngineError(message:"The provider changed the complete file-wide action kind. Prepare again.")}
-            if let resolved=first,let edit=resolved["edit"],isResourceWorkspaceEdit(edit) {
+            if !requiresProviderProofs,let resolved=first,let edit=resolved["edit"],isResourceWorkspaceEdit(edit) {
                 guard self.revision==request,self.choiceRevision==choice,captured.current() else{throw EngineError(message:"Source, selection or provider changed. Prepare actions again.")}
                 if self.mode=="fixAll",fileWideFixActions([resolved]).isEmpty{throw EngineError(message:"The provider changed the complete file-wide action kind. Prepare again.")}
                 if let disabled=resolved["disabled"] as? [String:Any]{throw EngineError(message:disabled["reason"] as? String ?? "Provider action disabled")}
@@ -220,7 +269,7 @@ private enum WorkspaceHistoryStep {case drafts(WorkspaceDraftHistory);case resou
                 if revision==request,choiceRevision==choice {plan=nil;choices=[];notice=workspace.resourceRestoration.notice}
                 return
             }
-            let acquired=try await acquireSourceProposal(captured.sources,query:{
+            let acquired=try await acquireProviderAction(workspace,sources:captured.sources,query:{
                 let resolved:[String:Any]
                 if let initial=first{resolved=initial;first=nil}
                 else{
@@ -232,12 +281,13 @@ private enum WorkspaceHistoryStep {case drafts(WorkspaceDraftHistory);case resou
                 if self.mode=="fixAll",fileWideFixActions([resolved]).isEmpty{throw EngineError(message:"The provider changed the complete file-wide action kind. Prepare again.")}
                 if let disabled=resolved["disabled"] as? [String:Any]{throw EngineError(message:disabled["reason"] as? String ?? "Provider action disabled")}
                 if resolved["command"] != nil{throw EngineError(message:"This action requires a provider command; its edit has not been applied.")}
-                return (paths:try providerActionPaths(resolved),value:resolved)
-            },acquire:acquisition,current:{self.revision==request && self.choiceRevision==choice && captured.current()})
+                return resolved
+            },load:acquisition,current:{self.revision==request && self.choiceRevision==choice && captured.current()},proofs:requiresProviderProofs)
             guard revision==request,choiceRevision==choice else{return}
             self.captured?.sources=acquired.sources;let resolved=acquired.value
             guard let edit=resolved["edit"] else{throw EngineError(message:"Provider source acquisition did not produce an edit. Prepare again.")}
-            try install(resolved["title"] as? String ?? "Provider action",edit:edit,workspace:workspace)
+            if isResourceWorkspaceEdit(edit){await workspace.resourceRestoration.prepareEdit(workspace,title:resolved["title"] as? String ?? "Provider resource action",edit:edit,current:{self.revision==request && self.choiceRevision==choice && captured.current()})}
+            else{try install(resolved["title"] as? String ?? "Provider action",edit:edit,workspace:workspace)}
         }catch{if revision==request,choiceRevision==choice{notice=error.localizedDescription}}
     }
     func apply(_ workspace: Workspace) {
@@ -460,6 +510,7 @@ Complete a newer choice before an older resolver reply, then reject a row from a
 
 <ui:copy id="native-action-choice-apple-witness">
 import XCTest
+import CoreFoundation
 import SwiftUI
 #if os(macOS)
 import AppKit
@@ -561,6 +612,82 @@ import AppKit
         await changes.prepare(workspace,proposal:{_,_ in actions},resolution:{_ in var value=resolved("partial");value["command"]=["title":"Effect","command":"provider.effect"];return value})
         await changes.choose(0,workspace:workspace,expectedSnapshot:changes.actionSnapshot);XCTAssertNil(changes.plan);XCTAssertTrue(changes.notice.contains("provider command"));XCTAssertEqual(buffer.text,"old\n")
     }
+    func testProviderProofsSynchronizeReadonlyContextAndRefuseUnprovedOrChangedEdits()async throws {
+        for mode in ["success","hash","missing","unproved","readonly"] {
+            let w=Workspace(),engine=try Engine(address:"http://127.0.0.1:1"),f=FileNode(name:"a.py",path:"a.py",dir:false),b=DocumentBuffer(file:FileNode(name:"a.py",path:"a.py",dir:false),text:FileText(path:"a.py",content:"old\n",hash:"base"));b.language=NativeLanguage(engine:engine,buffer:b);w.buffers[f.path]=b;w.show(f.path)
+            var queries=0;var loaded:[String]=[]
+            func action()->[String:Any]{
+                let target=mode=="readonly" && queries>1 ? "context.py":"a.py",replacement:[String:Any]=["range":["start":["line":0,"character":0],"end":["line":0,"character":3]],"newText":"new"]
+                var rows:[[String:Any]]=[["uri":languageURI("a.py"),"source_hash":"sha256:"+(mode=="hash" ? String(repeating:"0",count:64):nativeSourceHash("old\n"))],["uri":languageURI("context.py"),"source_hash":"sha256:"+nativeSourceHash("old\n")]]
+                if mode=="unproved"{rows.removeFirst()}
+                var result:[String:Any]=["title":"Proof fix","kind":"quickfix","edit":["changes":[languageURI(target):[replacement]]],"data":["hickory_action":"owned","hickory_sources":rows]]
+                if mode=="missing"{result.removeValue(forKey:"data")};return result
+            }
+            w.changes.open("actions",workspace:w)
+            await w.changes.prepare(w,proposal:{_,_ in queries+=1;return [action()]},resolution:{$0},acquisition:{path in
+                loaded.append(path);if let current=w.buffers[path]{return SourceSnapshot(text:current.text,writable:!current.readOnly)}
+                let file=FileNode(name:path,path:path,dir:false,generated_by:"construction.md"),target=DocumentBuffer(file:FileNode(name:path,path:path,dir:false,generated_by:"construction.md"),text:FileText(path:path,content:"old\n",hash:"base"));w.buffers[file.path]=target;return SourceSnapshot(text:target.text,writable:false)
+            },enforceProviderProofs:true)
+            await w.changes.choose(0,workspace:w)
+            XCTAssertEqual(b.text,"old\n",mode);XCTAssertEqual(w.currentBuffer?.file.path,"a.py",mode)
+            if mode=="success"{XCTAssertEqual(w.changes.plan?.patches.first?.after,"new\n",w.changes.notice);XCTAssertTrue(loaded.contains("context.py"));XCTAssertTrue(w.buffers["context.py"]?.readOnly==true);w.changes.apply(w);XCTAssertEqual(b.text,"new\n");w.changes.open("undo",workspace:w);XCTAssertEqual(b.text,"old\n")}
+            else{XCTAssertNil(w.changes.plan,mode+": "+w.changes.notice);XCTAssertFalse(w.changes.notice.isEmpty,mode)}
+        }
+    }
+    func testBoundRenameFormattingRequireTypedNoEffectAndSourceProofs()async throws {
+        for effect:Any in [false,true,0,"false",NSNull()] {
+            let w=Workspace(),e=try Engine(address:"http://127.0.0.1:1"),f=FileNode(name:"a.py",path:"a.py",dir:false),b=DocumentBuffer(file:FileNode(name:"a.py",path:"a.py",dir:false),text:FileText(path:"a.py",content:"old\n",hash:"base"));b.language=NativeLanguage(engine:e,buffer:b);w.buffers[f.path]=b;w.show(f.path)
+            let action:[String:Any]=["title":"Bound format","edit":["changes":[languageURI(f.path):[["range":["start":["line":0,"character":0],"end":["line":0,"character":3]],"newText":"new"]]]],"data":["hickory_action":"owned","hickory_sources":[["uri":languageURI(f.path),"source_hash":"sha256:"+nativeSourceHash(b.text)]]],"source_files_modified":effect]
+            w.changes.open("format",workspace:w);await w.changes.prepare(w,proposal:{_,_ in action},acquisition:{_ in SourceSnapshot(text:b.text,writable:true)},enforceProviderProofs:true)
+            if let number=effect as? NSNumber,CFGetTypeID(number)==CFBooleanGetTypeID(),!number.boolValue{XCTAssertEqual(w.changes.plan?.patches.first?.after,"new\n",w.changes.notice)}else{XCTAssertNil(w.changes.plan);XCTAssertTrue(w.changes.notice.contains("no-effect"),w.changes.notice)};XCTAssertEqual(b.text,"old\n")
+        }
+    }
+
+    #if os(macOS)
+    func testLiveOwnedBoundRenameFormatPreviewUndoAndStaleRefusal()async throws {
+        let environment=ProcessInfo.processInfo.environment
+        guard let address=environment["HICKORY_NATIVE_BOUND_ORIGIN"],let root=environment["HICKORY_NATIVE_BOUND_WORKSPACE"],let events=environment["HICKORY_NATIVE_BOUND_EVENTS"],let gate=environment["HICKORY_NATIVE_BOUND_GATE"] else{throw XCTSkip("Use the maintained owned native-bound fixture.")}
+        let directory=URL(fileURLWithPath:root),parent=URL(fileURLWithPath:root).deletingLastPathComponent().standardizedFileURL
+        guard try String(contentsOf:directory.appendingPathComponent(".hickory-native-bound-fixture"),encoding:.utf8)=="owned-native-bound-v1\n",URL(fileURLWithPath:events).deletingLastPathComponent().standardizedFileURL==parent,URL(fileURLWithPath:gate).deletingLastPathComponent().standardizedFileURL==parent else{throw EngineError(message:"An isolated owned bound-source workspace is required.")}
+        _=NSApplication.shared;NSApp.setActivationPolicy(.regular);let e=try Engine(address:address),w=Workspace();w.engine=e;let listing=try await e.files();w.rootFiles=listing.tree;w.sourceRootAddress=listing.root_path;w.sourceWorkspaceID=listing.workspace_id
+        let f=try XCTUnwrap(w.rootFiles.first{$0.path=="a.py"}),b=try await w.loadBuffer(f),source=b.text;w.showSource(f.path)
+        let host=NSHostingView(rootView:WorkspaceView(workspace:w)),window=NSWindow(contentRect:NSRect(x:0,y:0,width:980,height:700),styleMask:[.titled],backing:.buffered,defer:false);window.contentView=host;window.makeKeyAndOrderFront(nil);host.layoutSubtreeIfNeeded()
+        defer{for item in w.buffers.values{item.language?.close()};w.sourceTestIndex?.stop();window.orderOut(nil);window.contentView=nil}
+        func settle(_ message:String,_ condition:()->Bool)async throws{for _ in 0..<600{if condition(){return};try await Task.sleep(for:.milliseconds(20))};throw EngineError(message:message)}
+        func native(_ view:NSView)->NSTextView?{if let value=view as? NSTextView{return value};return view.subviews.lazy.compactMap{native($0)}.first}
+        try await settle("Original code editor did not mount"){b.sourceEditorState?()?.attached==true};let editor=try XCTUnwrap(native(host)),identity=try XCTUnwrap(b.sourceEditorState?()).identity,scroll=try XCTUnwrap(editor.enclosingScrollView),geometry=scroll.convert(scroll.bounds,to:host)
+        func prepare(_ command:String,_ name:String)async throws {try XCTUnwrap(w.commands().first{$0.id==command}).run();w.changes.name=name;for _ in 0..<100{await w.changes.prepare(w);if w.changes.plan != nil{return};try await Task.sleep(for:.milliseconds(30))};throw EngineError(message:"Bound proposal unavailable: "+w.changes.notice)}
+        editor.setSelectedRange(NSRange(location:2,length:0));let selection=b.selection
+        try await prepare("symbol.rename","native_renamed");XCTAssertEqual(w.changes.plan?.patches.first?.before,source);XCTAssertEqual(b.text,source);XCTAssertEqual(b.selection,selection);w.changes.apply(w);XCTAssertEqual(b.text,"native_renamed = 1\n",w.changes.notice);w.changes.open("undo",workspace:w);XCTAssertEqual(b.text,source);w.changes.open("redo",workspace:w);XCTAssertEqual(b.text,"native_renamed = 1\n");w.changes.open("undo",workspace:w);XCTAssertEqual(b.text,source)
+        try await prepare("document.format","");XCTAssertEqual(b.text,source);w.changes.apply(w);XCTAssertEqual(b.text,"formatted = 1\n",w.changes.notice);w.changes.open("undo",workspace:w);XCTAssertEqual(b.text,source);w.changes.open("redo",workspace:w);XCTAssertEqual(b.text,"formatted = 1\n");w.changes.open("undo",workspace:w);XCTAssertEqual(b.text,source)
+        XCTAssertEqual(b.sourceEditorState?()?.identity,identity);XCTAssertEqual(scroll.convert(scroll.bounds,to:host),geometry)
+        try XCTUnwrap(w.commands().first{$0.id=="symbol.rename"}).run();w.changes.name="held_native";let held=Task{await w.changes.prepare(w)}
+        try await settle("Controlled rename did not reach its gate"){(try? String(contentsOfFile:events,encoding:.utf8))?.contains("\"held\": \"held_native\"")==true}
+        editor.setSelectedRange(NSRange(location:editor.string.utf16.count,length:0));editor.insertText("!",replacementRange:editor.selectedRange());XCTAssertNotEqual(b.text,source);editor.undoManager?.undo();XCTAssertEqual(b.text,source);try Data("release".utf8).write(to:URL(fileURLWithPath:gate));await held.value
+        XCTAssertNil(w.changes.plan);XCTAssertFalse(w.changes.notice.isEmpty);XCTAssertEqual(b.text,source);XCTAssertEqual(b.sourceEditorState?()?.identity,identity);XCTAssertEqual(scroll.convert(scroll.bounds,to:host),geometry);XCTAssertEqual(try String(contentsOf:directory.appendingPathComponent("a.py"),encoding:.utf8),source)
+    }
+    #endif
+
+    #if os(macOS)
+    func testLiveOwnedLiterateBulkFixAcquiresContributorAndKeepsProseEditor()async throws {
+        let environment=ProcessInfo.processInfo.environment
+        guard let address=environment["HICKORY_NATIVE_BOUND_ORIGIN"],let root=environment["HICKORY_NATIVE_BOUND_WORKSPACE"],let events=environment["HICKORY_NATIVE_BOUND_EVENTS"] else{throw XCTSkip("Use the maintained native-bound --literate fixture.")}
+        let directory=URL(fileURLWithPath:root);guard try String(contentsOf:directory.appendingPathComponent(".hickory-native-bound-fixture"),encoding:.utf8)=="owned-native-bound-v1\n" else{throw EngineError(message:"An owned source fixture is required.")}
+        _=NSApplication.shared;NSApp.setActivationPolicy(.regular);let e=try Engine(address:address),w=Workspace();w.engine=e;let listing=try await e.files();w.rootFiles=listing.tree;w.sourceRootAddress=listing.root_path;w.sourceWorkspaceID=listing.workspace_id
+        let file=try XCTUnwrap(w.rootFiles.first{$0.path=="project.md"}),b=try await w.loadBuffer(file),source=b.text;w.showSource(file.path);let contributor=try String(contentsOf:directory.appendingPathComponent("a.md"),encoding:.utf8)
+        let host=NSHostingView(rootView:WorkspaceView(workspace:w)),window=NSWindow(contentRect:NSRect(x:0,y:0,width:980,height:700),styleMask:[.titled],backing:.buffered,defer:false);window.contentView=host;window.makeKeyAndOrderFront(nil);host.layoutSubtreeIfNeeded();defer{for item in w.buffers.values{item.language?.close()};w.sourceTestIndex?.stop();window.orderOut(nil);window.contentView=nil}
+        func native(_ view:NSView)->NSTextView?{if let value=view as? NSTextView{return value};return view.subviews.lazy.compactMap{native($0)}.first}
+        for _ in 0..<300{if b.sourceEditorState?()?.attached==true{break};try await Task.sleep(for:.milliseconds(20))};let editor=try XCTUnwrap(native(host)),identity=try XCTUnwrap(b.sourceEditorState?()).identity,scroll=try XCTUnwrap(editor.enclosingScrollView),geometry=scroll.convert(scroll.bounds,to:host)
+        editor.setSelectedRange(NSRange(location:(source as NSString).range(of:"# Readable").location+3,length:0));let selection=b.selection;XCTAssertNil(w.buffers["a.md"])
+        try XCTUnwrap(w.commands().first{$0.id=="symbol.fixAll"}).run()
+        for _ in 0..<100{await w.changes.prepare(w);if w.changes.choices.contains(where:{($0["title"] as? String)?.hasSuffix(" · out/a.py")==true}){break};try await Task.sleep(for:.milliseconds(30))}
+        let index=try XCTUnwrap(w.changes.choices.firstIndex{($0["title"] as? String)?.hasSuffix(" · out/a.py")==true});await w.changes.choose(index,workspace:w)
+        XCTAssertEqual(w.changes.plan?.patches.map(\.path),["a.md"],w.changes.notice);XCTAssertEqual(w.buffers["a.md"]?.text,contributor);XCTAssertEqual(b.text,source);XCTAssertEqual(b.selection,selection);XCTAssertEqual(w.currentBuffer?.file.path,"project.md")
+        w.changes.apply(w);XCTAssertEqual(w.buffers["a.md"]?.text,contributor.replacingOccurrences(of:"value",with:"fixed"),w.changes.notice);w.changes.open("undo",workspace:w);XCTAssertEqual(w.buffers["a.md"]?.text,contributor);w.changes.open("redo",workspace:w);XCTAssertEqual(w.buffers["a.md"]?.text,contributor.replacingOccurrences(of:"value",with:"fixed"));w.changes.open("undo",workspace:w)
+        XCTAssertEqual(b.text,source);XCTAssertEqual(b.selection,selection);XCTAssertEqual(b.sourceEditorState?()?.identity,identity);XCTAssertEqual(scroll.convert(scroll.bounds,to:host),geometry);XCTAssertEqual(try String(contentsOf:directory.appendingPathComponent("project.md"),encoding:.utf8),source);XCTAssertEqual(try String(contentsOf:directory.appendingPathComponent("a.md"),encoding:.utf8),contributor);XCTAssertFalse(FileManager.default.fileExists(atPath:directory.appendingPathComponent("out").path));XCTAssertTrue((try String(contentsOfFile:events,encoding:.utf8)).contains("\"whole\": true"))
+    }
+    #endif
+
 }
 </ui:copy>
 

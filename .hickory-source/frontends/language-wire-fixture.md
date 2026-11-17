@@ -19,6 +19,7 @@ lock = threading.RLock()
 connections = 0
 latest = {}
 request_ids = []
+proposal_requests = []
 
 class Peer(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
@@ -33,7 +34,7 @@ class Peer(BaseHTTPRequestHandler):
                 self.send_error(404)
                 return
             with lock:
-                body = json.dumps({"connections": connections, "ids": request_ids, "documents": latest}).encode()
+                body = json.dumps({"connections": connections, "ids": request_ids, "documents": latest, "proposals": proposal_requests}).encode()
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(body)))
@@ -48,6 +49,7 @@ class Peer(BaseHTTPRequestHandler):
         self.send_header("Sec-WebSocket-Accept", accept)
         self.end_headers()
         self.documents = {}
+        self.prepared = {}
         self.apply_replies = {}
         self.send_lock = threading.Lock()
         self.closed = threading.Event()
@@ -162,13 +164,22 @@ class Peer(BaseHTTPRequestHandler):
                       "source_hash": "sha256:" + hashlib.sha256(captured.encode()).hexdigest() if current else None,
                       "source_revision": hashlib.sha256((uri + "\0" + str(identifier) + "\0" + captured).encode()).hexdigest() if current else None,
                       "source_files_modified": False}
+        if method == "hick/captureDocument" and result["current"]:
+            self.prepared[uri] = {"source_hash": result["source_hash"], "source_revision": result["source_revision"]}
+        if method in ("hick/rename", "hick/formatting"):
+            with lock:
+                proposal_requests.append({"method": method, "expected": params.get("expected"), "uri": uri})
+                valid = params.get("expected") == self.prepared.get(uri)
+            result = {"title": "Bound " + method, "edit": {"documentChanges": []}, "data": {"hickory_action": "fixture-only", "hickory_sources": [], "fixture_method": method, "fixture_expected": params.get("expected")}, "source_files_modified": False}
+            if not valid:
+                result["disabled"] = {"reason": "Missing exact captured preparation"}
         if method == "textDocument/documentSymbol":
             result = [{"name": "background", "kind": 12, "range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 1}}, "selectionRange": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 1}}}]
         if method == "textDocument/prepareTypeHierarchy" or method in ("typeHierarchy/supertypes","typeHierarchy/subtypes"):
             target=uri if method == "textDocument/prepareTypeHierarchy" else params["item"]["uri"]
             name="seed" if method == "textDocument/prepareTypeHierarchy" else "supertype" if method.endswith("supertypes") else "subtype"
             result=[{"name":name,"kind":5,"uri":target,"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":1}},"selectionRange":{"start":{"line":0,"character":0},"end":{"line":0,"character":1}},"data":{"fixture":"opaque type"}}]
-        timer = threading.Timer(.5 if method == "fixture/block" else .07 if method in ("fixture/slow", "textDocument/documentSymbol", "typeHierarchy/supertypes", "typeHierarchy/subtypes") else .001, lambda: self.send({"jsonrpc": "2.0", "id": identifier, "result": result}))
+        timer = threading.Timer(.2 if method in ("hick/rename", "hick/formatting") else .5 if method == "fixture/block" else .07 if method in ("fixture/slow", "textDocument/documentSymbol", "typeHierarchy/supertypes", "typeHierarchy/subtypes") else .001, lambda: self.send({"jsonrpc": "2.0", "id": identifier, "result": result}))
         timer.daemon = True
         timer.start()
 

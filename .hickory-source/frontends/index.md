@@ -299,4 +299,8 @@ Each client reads text before requesting optional capabilities. A save uses the 
 
 <ui:include file="installed-lldb-acceptance.md" />
 
+<ui:include file="native-bound-proposal-wire.md" />
+<ui:include file="bound-source-browser-witness.md" />
+<ui:include file="native-bound-source-acceptance.md" />
+
 </ui:doc>

@@ -452,20 +452,28 @@ func validateNativeSourcePreparation(_ raw:Any,source:String,requireParsed:Bool=
     }
     var proposalIdentity: UUID { epoch }
     func propose(_ kind: String, name: String) async throws -> Any {
-        guard let buffer, !buffer.readOnly, subscription != nil else { throw EngineError(message: "Choose writable source with a connected language provider.") }
-        sync(); let source = buffer.text, selection = buffer.selection, identity = epoch
+        guard let buffer, !buffer.readOnly, !buffer.resourceDeleted, !buffer.saving, exactUTF8(languageURI(buffer.file.path),uri), subscription != nil else { throw EngineError(message: "Choose writable source with a connected language provider.") }
+        sync(); let source = buffer.text, selection = buffer.selection, identity = epoch,revision=buffer.sourceEditIdentity
+        func current()->Bool {self.buffer === buffer && epoch==identity && buffer.sourceEditIdentity==revision && exactUTF8(languageURI(buffer.file.path),uri) && exactUTF8(buffer.text,source) && buffer.selection==selection && !buffer.readOnly && !buffer.resourceDeleted && !buffer.saving}
         var params: [String:Any] = ["textDocument":["uri":uri]]
         let method: String
         switch kind {
-        case "rename": method = "textDocument/rename"; params["position"] = languagePosition(source,selection.location); params["newName"] = name
+        case "rename": method = "hick/rename"; params["position"] = languagePosition(source,selection.location); params["newName"] = name
         case "references": method = "textDocument/references"; params["position"] = languagePosition(source,selection.location); params["context"] = ["includeDeclaration":true]
-        case "format": method = "textDocument/formatting"; params["options"] = ["tabSize":4,"insertSpaces":!source.components(separatedBy:"\n").contains(where:{$0.hasPrefix("\t")})]
+        case "format": method = "hick/formatting"; params["options"] = ["tabSize":4,"insertSpaces":!source.components(separatedBy:"\n").contains(where:{$0.hasPrefix("\t")})]
         case "fixAll": method = "textDocument/codeAction"; params["range"] = ["start":languagePosition(source,0),"end":languagePosition(source,source.utf16.count)]; params["context"] = ["diagnostics":[],"only":["source.fixAll"]]
         default: method = "textDocument/codeAction"; params["range"] = ["start":languagePosition(source,selection.location),"end":languagePosition(source,NSMaxRange(selection))]; params["context"] = ["diagnostics":[]]
         }
+        if kind=="rename" || kind=="format" {
+            let ack=try await request("hick/captureDocument",["textDocument":["uri":uri,"languageId":"hick","version":version,"text":source]])
+            guard current() else{throw EngineError(message:"Source, selection or provider changed during preparation. Prepare again.")}
+            try validateNativeSourcePreparation(ack,source:source,requireParsed:buffer.file.doc_id != nil)
+            guard let captured=ack as? [String:Any],let hash=captured["source_hash"] as? String,let prepared=captured["source_revision"] as? String else{throw EngineError(message:"Source preparation proof is unavailable. Prepare again.")}
+            params["expected"]=["source_hash":hash,"source_revision":prepared]
+        }
         let result = try await request(method,params)
-        guard epoch == identity, exactUTF8(buffer.text,source), buffer.selection == selection else { throw EngineError(message: "Source, selection or provider changed. Prepare again.") }
-        return kind == "format" ? ["changes":[uri:result]] : result
+        guard current() else { throw EngineError(message: "Source, selection or provider changed. Prepare again.") }
+        return result
     }
     func resolveProposal(_ action:[String:Any]) async throws->[String:Any] {
         let data=action["data"] as? [String:Any]

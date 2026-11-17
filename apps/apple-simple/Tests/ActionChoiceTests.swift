@@ -1,4 +1,5 @@
 import XCTest
+import CoreFoundation
 import SwiftUI
 #if os(macOS)
 import AppKit
@@ -100,4 +101,80 @@ import AppKit
         await changes.prepare(workspace,proposal:{_,_ in actions},resolution:{_ in var value=resolved("partial");value["command"]=["title":"Effect","command":"provider.effect"];return value})
         await changes.choose(0,workspace:workspace,expectedSnapshot:changes.actionSnapshot);XCTAssertNil(changes.plan);XCTAssertTrue(changes.notice.contains("provider command"));XCTAssertEqual(buffer.text,"old\n")
     }
+    func testProviderProofsSynchronizeReadonlyContextAndRefuseUnprovedOrChangedEdits()async throws {
+        for mode in ["success","hash","missing","unproved","readonly"] {
+            let w=Workspace(),engine=try Engine(address:"http://127.0.0.1:1"),f=FileNode(name:"a.py",path:"a.py",dir:false),b=DocumentBuffer(file:FileNode(name:"a.py",path:"a.py",dir:false),text:FileText(path:"a.py",content:"old\n",hash:"base"));b.language=NativeLanguage(engine:engine,buffer:b);w.buffers[f.path]=b;w.show(f.path)
+            var queries=0;var loaded:[String]=[]
+            func action()->[String:Any]{
+                let target=mode=="readonly" && queries>1 ? "context.py":"a.py",replacement:[String:Any]=["range":["start":["line":0,"character":0],"end":["line":0,"character":3]],"newText":"new"]
+                var rows:[[String:Any]]=[["uri":languageURI("a.py"),"source_hash":"sha256:"+(mode=="hash" ? String(repeating:"0",count:64):nativeSourceHash("old\n"))],["uri":languageURI("context.py"),"source_hash":"sha256:"+nativeSourceHash("old\n")]]
+                if mode=="unproved"{rows.removeFirst()}
+                var result:[String:Any]=["title":"Proof fix","kind":"quickfix","edit":["changes":[languageURI(target):[replacement]]],"data":["hickory_action":"owned","hickory_sources":rows]]
+                if mode=="missing"{result.removeValue(forKey:"data")};return result
+            }
+            w.changes.open("actions",workspace:w)
+            await w.changes.prepare(w,proposal:{_,_ in queries+=1;return [action()]},resolution:{$0},acquisition:{path in
+                loaded.append(path);if let current=w.buffers[path]{return SourceSnapshot(text:current.text,writable:!current.readOnly)}
+                let file=FileNode(name:path,path:path,dir:false,generated_by:"construction.md"),target=DocumentBuffer(file:FileNode(name:path,path:path,dir:false,generated_by:"construction.md"),text:FileText(path:path,content:"old\n",hash:"base"));w.buffers[file.path]=target;return SourceSnapshot(text:target.text,writable:false)
+            },enforceProviderProofs:true)
+            await w.changes.choose(0,workspace:w)
+            XCTAssertEqual(b.text,"old\n",mode);XCTAssertEqual(w.currentBuffer?.file.path,"a.py",mode)
+            if mode=="success"{XCTAssertEqual(w.changes.plan?.patches.first?.after,"new\n",w.changes.notice);XCTAssertTrue(loaded.contains("context.py"));XCTAssertTrue(w.buffers["context.py"]?.readOnly==true);w.changes.apply(w);XCTAssertEqual(b.text,"new\n");w.changes.open("undo",workspace:w);XCTAssertEqual(b.text,"old\n")}
+            else{XCTAssertNil(w.changes.plan,mode+": "+w.changes.notice);XCTAssertFalse(w.changes.notice.isEmpty,mode)}
+        }
+    }
+    func testBoundRenameFormattingRequireTypedNoEffectAndSourceProofs()async throws {
+        for effect:Any in [false,true,0,"false",NSNull()] {
+            let w=Workspace(),e=try Engine(address:"http://127.0.0.1:1"),f=FileNode(name:"a.py",path:"a.py",dir:false),b=DocumentBuffer(file:FileNode(name:"a.py",path:"a.py",dir:false),text:FileText(path:"a.py",content:"old\n",hash:"base"));b.language=NativeLanguage(engine:e,buffer:b);w.buffers[f.path]=b;w.show(f.path)
+            let action:[String:Any]=["title":"Bound format","edit":["changes":[languageURI(f.path):[["range":["start":["line":0,"character":0],"end":["line":0,"character":3]],"newText":"new"]]]],"data":["hickory_action":"owned","hickory_sources":[["uri":languageURI(f.path),"source_hash":"sha256:"+nativeSourceHash(b.text)]]],"source_files_modified":effect]
+            w.changes.open("format",workspace:w);await w.changes.prepare(w,proposal:{_,_ in action},acquisition:{_ in SourceSnapshot(text:b.text,writable:true)},enforceProviderProofs:true)
+            if let number=effect as? NSNumber,CFGetTypeID(number)==CFBooleanGetTypeID(),!number.boolValue{XCTAssertEqual(w.changes.plan?.patches.first?.after,"new\n",w.changes.notice)}else{XCTAssertNil(w.changes.plan);XCTAssertTrue(w.changes.notice.contains("no-effect"),w.changes.notice)};XCTAssertEqual(b.text,"old\n")
+        }
+    }
+
+    #if os(macOS)
+    func testLiveOwnedBoundRenameFormatPreviewUndoAndStaleRefusal()async throws {
+        let environment=ProcessInfo.processInfo.environment
+        guard let address=environment["HICKORY_NATIVE_BOUND_ORIGIN"],let root=environment["HICKORY_NATIVE_BOUND_WORKSPACE"],let events=environment["HICKORY_NATIVE_BOUND_EVENTS"],let gate=environment["HICKORY_NATIVE_BOUND_GATE"] else{throw XCTSkip("Use the maintained owned native-bound fixture.")}
+        let directory=URL(fileURLWithPath:root),parent=URL(fileURLWithPath:root).deletingLastPathComponent().standardizedFileURL
+        guard try String(contentsOf:directory.appendingPathComponent(".hickory-native-bound-fixture"),encoding:.utf8)=="owned-native-bound-v1\n",URL(fileURLWithPath:events).deletingLastPathComponent().standardizedFileURL==parent,URL(fileURLWithPath:gate).deletingLastPathComponent().standardizedFileURL==parent else{throw EngineError(message:"An isolated owned bound-source workspace is required.")}
+        _=NSApplication.shared;NSApp.setActivationPolicy(.regular);let e=try Engine(address:address),w=Workspace();w.engine=e;let listing=try await e.files();w.rootFiles=listing.tree;w.sourceRootAddress=listing.root_path;w.sourceWorkspaceID=listing.workspace_id
+        let f=try XCTUnwrap(w.rootFiles.first{$0.path=="a.py"}),b=try await w.loadBuffer(f),source=b.text;w.showSource(f.path)
+        let host=NSHostingView(rootView:WorkspaceView(workspace:w)),window=NSWindow(contentRect:NSRect(x:0,y:0,width:980,height:700),styleMask:[.titled],backing:.buffered,defer:false);window.contentView=host;window.makeKeyAndOrderFront(nil);host.layoutSubtreeIfNeeded()
+        defer{for item in w.buffers.values{item.language?.close()};w.sourceTestIndex?.stop();window.orderOut(nil);window.contentView=nil}
+        func settle(_ message:String,_ condition:()->Bool)async throws{for _ in 0..<600{if condition(){return};try await Task.sleep(for:.milliseconds(20))};throw EngineError(message:message)}
+        func native(_ view:NSView)->NSTextView?{if let value=view as? NSTextView{return value};return view.subviews.lazy.compactMap{native($0)}.first}
+        try await settle("Original code editor did not mount"){b.sourceEditorState?()?.attached==true};let editor=try XCTUnwrap(native(host)),identity=try XCTUnwrap(b.sourceEditorState?()).identity,scroll=try XCTUnwrap(editor.enclosingScrollView),geometry=scroll.convert(scroll.bounds,to:host)
+        func prepare(_ command:String,_ name:String)async throws {try XCTUnwrap(w.commands().first{$0.id==command}).run();w.changes.name=name;for _ in 0..<100{await w.changes.prepare(w);if w.changes.plan != nil{return};try await Task.sleep(for:.milliseconds(30))};throw EngineError(message:"Bound proposal unavailable: "+w.changes.notice)}
+        editor.setSelectedRange(NSRange(location:2,length:0));let selection=b.selection
+        try await prepare("symbol.rename","native_renamed");XCTAssertEqual(w.changes.plan?.patches.first?.before,source);XCTAssertEqual(b.text,source);XCTAssertEqual(b.selection,selection);w.changes.apply(w);XCTAssertEqual(b.text,"native_renamed = 1\n",w.changes.notice);w.changes.open("undo",workspace:w);XCTAssertEqual(b.text,source);w.changes.open("redo",workspace:w);XCTAssertEqual(b.text,"native_renamed = 1\n");w.changes.open("undo",workspace:w);XCTAssertEqual(b.text,source)
+        try await prepare("document.format","");XCTAssertEqual(b.text,source);w.changes.apply(w);XCTAssertEqual(b.text,"formatted = 1\n",w.changes.notice);w.changes.open("undo",workspace:w);XCTAssertEqual(b.text,source);w.changes.open("redo",workspace:w);XCTAssertEqual(b.text,"formatted = 1\n");w.changes.open("undo",workspace:w);XCTAssertEqual(b.text,source)
+        XCTAssertEqual(b.sourceEditorState?()?.identity,identity);XCTAssertEqual(scroll.convert(scroll.bounds,to:host),geometry)
+        try XCTUnwrap(w.commands().first{$0.id=="symbol.rename"}).run();w.changes.name="held_native";let held=Task{await w.changes.prepare(w)}
+        try await settle("Controlled rename did not reach its gate"){(try? String(contentsOfFile:events,encoding:.utf8))?.contains("\"held\": \"held_native\"")==true}
+        editor.setSelectedRange(NSRange(location:editor.string.utf16.count,length:0));editor.insertText("!",replacementRange:editor.selectedRange());XCTAssertNotEqual(b.text,source);editor.undoManager?.undo();XCTAssertEqual(b.text,source);try Data("release".utf8).write(to:URL(fileURLWithPath:gate));await held.value
+        XCTAssertNil(w.changes.plan);XCTAssertFalse(w.changes.notice.isEmpty);XCTAssertEqual(b.text,source);XCTAssertEqual(b.sourceEditorState?()?.identity,identity);XCTAssertEqual(scroll.convert(scroll.bounds,to:host),geometry);XCTAssertEqual(try String(contentsOf:directory.appendingPathComponent("a.py"),encoding:.utf8),source)
+    }
+    #endif
+
+    #if os(macOS)
+    func testLiveOwnedLiterateBulkFixAcquiresContributorAndKeepsProseEditor()async throws {
+        let environment=ProcessInfo.processInfo.environment
+        guard let address=environment["HICKORY_NATIVE_BOUND_ORIGIN"],let root=environment["HICKORY_NATIVE_BOUND_WORKSPACE"],let events=environment["HICKORY_NATIVE_BOUND_EVENTS"] else{throw XCTSkip("Use the maintained native-bound --literate fixture.")}
+        let directory=URL(fileURLWithPath:root);guard try String(contentsOf:directory.appendingPathComponent(".hickory-native-bound-fixture"),encoding:.utf8)=="owned-native-bound-v1\n" else{throw EngineError(message:"An owned source fixture is required.")}
+        _=NSApplication.shared;NSApp.setActivationPolicy(.regular);let e=try Engine(address:address),w=Workspace();w.engine=e;let listing=try await e.files();w.rootFiles=listing.tree;w.sourceRootAddress=listing.root_path;w.sourceWorkspaceID=listing.workspace_id
+        let file=try XCTUnwrap(w.rootFiles.first{$0.path=="project.md"}),b=try await w.loadBuffer(file),source=b.text;w.showSource(file.path);let contributor=try String(contentsOf:directory.appendingPathComponent("a.md"),encoding:.utf8)
+        let host=NSHostingView(rootView:WorkspaceView(workspace:w)),window=NSWindow(contentRect:NSRect(x:0,y:0,width:980,height:700),styleMask:[.titled],backing:.buffered,defer:false);window.contentView=host;window.makeKeyAndOrderFront(nil);host.layoutSubtreeIfNeeded();defer{for item in w.buffers.values{item.language?.close()};w.sourceTestIndex?.stop();window.orderOut(nil);window.contentView=nil}
+        func native(_ view:NSView)->NSTextView?{if let value=view as? NSTextView{return value};return view.subviews.lazy.compactMap{native($0)}.first}
+        for _ in 0..<300{if b.sourceEditorState?()?.attached==true{break};try await Task.sleep(for:.milliseconds(20))};let editor=try XCTUnwrap(native(host)),identity=try XCTUnwrap(b.sourceEditorState?()).identity,scroll=try XCTUnwrap(editor.enclosingScrollView),geometry=scroll.convert(scroll.bounds,to:host)
+        editor.setSelectedRange(NSRange(location:(source as NSString).range(of:"# Readable").location+3,length:0));let selection=b.selection;XCTAssertNil(w.buffers["a.md"])
+        try XCTUnwrap(w.commands().first{$0.id=="symbol.fixAll"}).run()
+        for _ in 0..<100{await w.changes.prepare(w);if w.changes.choices.contains(where:{($0["title"] as? String)?.hasSuffix(" · out/a.py")==true}){break};try await Task.sleep(for:.milliseconds(30))}
+        let index=try XCTUnwrap(w.changes.choices.firstIndex{($0["title"] as? String)?.hasSuffix(" · out/a.py")==true});await w.changes.choose(index,workspace:w)
+        XCTAssertEqual(w.changes.plan?.patches.map(\.path),["a.md"],w.changes.notice);XCTAssertEqual(w.buffers["a.md"]?.text,contributor);XCTAssertEqual(b.text,source);XCTAssertEqual(b.selection,selection);XCTAssertEqual(w.currentBuffer?.file.path,"project.md")
+        w.changes.apply(w);XCTAssertEqual(w.buffers["a.md"]?.text,contributor.replacingOccurrences(of:"value",with:"fixed"),w.changes.notice);w.changes.open("undo",workspace:w);XCTAssertEqual(w.buffers["a.md"]?.text,contributor);w.changes.open("redo",workspace:w);XCTAssertEqual(w.buffers["a.md"]?.text,contributor.replacingOccurrences(of:"value",with:"fixed"));w.changes.open("undo",workspace:w)
+        XCTAssertEqual(b.text,source);XCTAssertEqual(b.selection,selection);XCTAssertEqual(b.sourceEditorState?()?.identity,identity);XCTAssertEqual(scroll.convert(scroll.bounds,to:host),geometry);XCTAssertEqual(try String(contentsOf:directory.appendingPathComponent("project.md"),encoding:.utf8),source);XCTAssertEqual(try String(contentsOf:directory.appendingPathComponent("a.md"),encoding:.utf8),contributor);XCTAssertFalse(FileManager.default.fileExists(atPath:directory.appendingPathComponent("out").path));XCTAssertTrue((try String(contentsOfFile:events,encoding:.utf8)).contains("\"whole\": true"))
+    }
+    #endif
+
 }

@@ -156204,6 +156204,83 @@
       "page": ".hickory-source/mechanisms/project-overlay-graph.md",
       "symbol": "project overlay backend witness",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "provider-source-proofs-browser",
+      "output": "apps/web/src/simple/ProviderSourceProofs.ts",
+      "page": ".hickory-source/mechanisms/provider-source-proofs.md",
+      "symbol": "provider source proofs browser",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "provider-source-proofs-browser-witness",
+      "output": "apps/web/src/simple/ProviderSourceProofs.test.ts",
+      "page": ".hickory-source/mechanisms/provider-source-proofs.md",
+      "symbol": "provider source proofs browser witness",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "provider-source-proofs-apple",
+      "output": "apps/apple-simple/Sources/ProviderSourceProofs.swift",
+      "page": ".hickory-source/mechanisms/provider-source-proofs.md",
+      "symbol": "provider source proofs apple",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "provider-source-proofs-apple-witness",
+      "output": "apps/apple-simple/Tests/ProviderSourceProofsTests.swift",
+      "page": ".hickory-source/mechanisms/provider-source-proofs.md",
+      "symbol": "provider source proofs apple witness",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "provider-source-proofs-android",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/ProviderSourceProofs.kt",
+      "page": ".hickory-source/mechanisms/provider-source-proofs.md",
+      "symbol": "provider source proofs android",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "provider-source-proofs-android-witness",
+      "output": "apps/android-simple/app/src/test/java/com/hickorydocs/simple/ProviderSourceProofsTest.kt",
+      "page": ".hickory-source/mechanisms/provider-source-proofs.md",
+      "symbol": "provider source proofs android witness",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-preparation-browser-witness",
+      "output": "apps/web/src/simple/SourcePreparation.test.ts",
+      "page": ".hickory-source/frontends/workspace-languages.md",
+      "symbol": "source preparation browser witness",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "native-bound-proposal-wire-apple-tests",
+      "output": "apps/apple-simple/Tests/BoundProposalWireTests.swift",
+      "page": ".hickory-source/frontends/native-bound-proposal-wire.md",
+      "symbol": "native bound proposal wire apple tests",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "native-bound-proposal-wire-android-tests",
+      "output": "apps/android-simple/app/src/test/java/com/hickorydocs/simple/BoundProposalWireTest.kt",
+      "page": ".hickory-source/frontends/native-bound-proposal-wire.md",
+      "symbol": "native bound proposal wire android tests",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "bound-source-browser-runner",
+      "output": "scripts/test-bound-source-browser.py",
+      "page": ".hickory-source/frontends/bound-source-browser-witness.md",
+      "symbol": "bound source browser runner",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "native-bound-source-host-driver",
+      "output": "scripts/test-native-bound-source.py",
+      "page": ".hickory-source/frontends/native-bound-source-acceptance.md",
+      "symbol": "native bound source host driver",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

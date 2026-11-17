@@ -369,6 +369,32 @@ Project paths that the canonical compiler rejects (`?`, backslash, non-ASCII)
 remain explicit compiler restrictions; these checks do not broaden that language
 contract or certify complete external-provider semantic analysis.
 
+## Connected source-proof review across the simple editors, 2026-11-17
+
+Browser, Apple and Android now consume guarded rename/formatting envelopes and
+engine-issued action source proofs through their existing preview paths. Every
+discovered source, including retained dirty targets, synchronizes before a fresh
+query. Frozen snapshots and original editor leases remain fixed; a query cannot
+rebind them. Readonly contributor context can be analyzed without acquiring edit
+permission. Every actual edited preimage must have a matching engine hash;
+ordered resource preimages come from the engine's complete input analysis.
+Missing, stale, incomplete or malformed proofs refuse the complete action.
+
+Browser type checking and31 focused preparation/acquisition/proof/controller
+cases pass. Both native policy/controller groups and real transport wire cases
+pass, including typed no-effect envelopes and equal-byte edit/Undo refusal.
+Real plain-source rename/formatting preview, draft Apply and coordinated Undo/Redo
+pass on all three hosts; the browser also exercises installed basedpyright's
+two-source rename. Real whole-file fixes from a prose caret pass on all hosts,
+acquire the copy contributor, query again and preserve the original prose editor
+and selection. The browser additionally exercises a retained dirty contributor.
+Saved Markdown remains unchanged and generated output directories stay absent.
+Apple uses a mounted editor and Android its native state/controller; browser
+bulk and ordered resource Save/inverse flows also pass under production proofs.
+The regenerated iOS simulator app builds. Native physical input, IME and assistive
+technology remain unverified; full external-provider semantic breadth is not
+established by controlled-provider receipts.
+
 ## Current integration ledger
 
 This ledger reconciles the required outcome with the implementation inspected on

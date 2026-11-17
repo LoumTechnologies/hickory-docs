@@ -7,11 +7,14 @@ The workspace retains language sessions when panes hide. A small per-buffer subs
 
 Cache each buffer's problem projection by its available text and diagnostic snapshot. A report arriving for one source must not re-split all other open sources. Digest completion publishes a fresh diagnostic array, so newly verified per-report evidence invalidates exactly that projection.
 
+Before reading an outline, the engine must acknowledge the exact UTF-8 snapshot. Session readiness alone can precede its debounced source synchronization. The acknowledgement rejects stale revisions and source effects; a plain source need not parse as a literate document. This preparation is independent of editor selection.
+
 <ui:copy id="simple-workspace-language-owners">
 import { createContext, useContext, useEffect, useState, useSyncExternalStore } from "react";
 import { useWorkspaceLsp, type LspSession } from "../lsp/useLsp";
 import { documentUri } from "../lsp/documentUri";
 import type { Buffer, Buffers } from "./buffers";
+import {sourceDigest} from "../lsp/diagnosticRevision";
 import { diagnosticBoundSource } from "../lsp/diagnosticRevision";
 import { reportedProblems, semanticLocations } from "./Intelligence";
 // Buffer lifetime owns language knowledge; a pane only borrows its session.
@@ -81,14 +84,32 @@ export function useWorkspaceLanguageLookup() {
   useSyncExternalStore(registry.subscribe, registry.snapshot);
   return (buffer: Buffer) => registry.entry(buffer).read();
 }
-export function useWorkspaceOutlineReader() {
+export function validateSourcePreparation(ack:unknown,digest:string,requireParsed:boolean):void {
+  const value=ack as Record<string,unknown>|null;
+  if(!value||value.processed!==true||value.current!==true||value.source_files_modified!==false||value.source_hash!==digest||typeof value.source_revision!=="string"||!(/^[a-f0-9]{64}$/).test(value.source_revision)||(requireParsed&&value.parsed!==true))throw new Error("Provider did not confirm this exact source snapshot. Retry analysis.");
+}
+export function useWorkspaceSourcePreparation() {
   const registry=useContext(languageContext) ?? emptyWorkspace;
   return async (buffer: Buffer,source: string) => {
     const session=await registry.entry(buffer).readyFor(source);
-    if(buffer.text!==source) throw new Error("Source changed before analysis. Run again.");
-    const result=await session.client!.request("textDocument/documentSymbol",{textDocument:{uri:session.uri}});
-    if(buffer.text!==source || registry.entry(buffer).read().client!==session.client) throw new Error("Source or provider changed during analysis. Run again.");
-    return semanticLocations(result,session.uri).filter(location=>location.uri===session.uri);
+    const path=buffer.file.path,namespace=buffer.namespace;
+    if(buffer.text!==source||session.uri!==documentUri(path)) throw new Error("Source address changed before analysis. Run again.");
+    const revision=buffer.sourceRevision,client=session.client!,uri=session.uri;
+    const current=()=>buffer.text===source&&buffer.file.path===path&&buffer.namespace===namespace&&buffer.sourceRevision===revision&&registry.entry(buffer).read().client===client&&registry.entry(buffer).read().uri===uri;
+    const digest=await sourceDigest(source);if(!current())throw new Error("Source or provider changed during preparation. Run again.");
+    const ack=await client.request("hick/captureDocument",{textDocument:{uri,languageId:"hick",version:1,text:source}}) as Record<string,unknown>;
+    if(!current())throw new Error("Source or provider changed during preparation. Run again.");
+    validateSourcePreparation(ack,digest,!!buffer.file.doc_id);
+    return {client,uri,current,expected:{source_hash:digest,source_revision:ack.source_revision as string}};
+  };
+}
+export function useWorkspaceOutlineReader() {
+  const prepare=useWorkspaceSourcePreparation();
+  return async(buffer:Buffer,source:string)=>{
+    const {client,uri,current}=await prepare(buffer,source);
+    const result=await client.request("textDocument/documentSymbol",{textDocument:{uri}});
+    if(!current()) throw new Error("Source or provider changed during analysis. Run again.");
+    return semanticLocations(result,uri).filter(location=>location.uri===uri);
   };
 }
 export function useWorkspaceAnalysisRunner(model: import("./WorkspaceAnalysis").WorkspaceAnalysis,buffers: Buffers,files: import("../api/types").FileNode[]) {
@@ -105,4 +126,21 @@ export function useWorkspaceProblems(buffers: Buffers) {
 </ui:copy>
 
 <ui:file path="apps/web/src/simple/WorkspaceLanguages.tsx"><ui:paste select="#simple-workspace-language-owners"/></ui:file>
+## Refuse an acknowledgement that does not bind this source
+
+The wire receipt must contain typed booleans and an opaque revision, not merely
+truthy fields. Plain text may report no parsed document; literate source requires
+its parsed graph. These assertions establish receipt admission, while the live
+source-history and provider flows establish independent editor integration.
+
+<ui:copy id="source-preparation-browser-witness">
+import {expect,it} from 'vitest';
+import {validateSourcePreparation} from './WorkspaceLanguages';
+const hash='sha256:'+'a'.repeat(64);
+const ack={processed:true,current:true,source_files_modified:false,source_hash:hash,source_revision:'b'.repeat(64),parsed:false};
+it('admits confirmed plain text and requires a parsed literate graph',()=>{expect(()=>validateSourcePreparation(ack,hash,false)).not.toThrow();expect(()=>validateSourcePreparation(ack,hash,true)).toThrow('exact source');expect(()=>validateSourcePreparation({...ack,parsed:true},hash,true)).not.toThrow();});
+it('refuses absent, forged, stale and effectful preparation receipts',()=>{for(const value of [null,{},...['processed','current'].flatMap(key=>[false,1,'true'].map(value=>({...ack,[key]:value}))),...['source_files_modified'].flatMap(key=>[true,0,'false'].map(value=>({...ack,[key]:value}))),{...ack,source_hash:'sha256:'+'c'.repeat(64)},{...ack,source_revision:''},{...ack,source_revision:'B'.repeat(64)}])expect(()=>validateSourcePreparation(value,hash,false)).toThrow('exact source');});
+</ui:copy>
+<ui:file path="apps/web/src/simple/SourcePreparation.test.ts"><ui:paste select="#source-preparation-browser-witness"/></ui:file>
+
 </ui:doc>
