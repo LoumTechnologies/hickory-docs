@@ -897,6 +897,7 @@ pub(crate) fn router(state: LocalState) -> Router {
         .route("/git/conflict-resolution/stage", post(git_resolutions::stage).layer(axum::extract::DefaultBodyLimit::max(40 * 1024 * 1024)))
         .route("/git/conflict-resolution/status", get(git_resolutions::status).layer(axum::extract::DefaultBodyLimit::max(40 * 1024 * 1024)))
         .route("/workspace/recovery", get(editor_recovery::list))
+        .route("/workspace/recovery/forget", post(editor_recovery::forget))
         .route("/workspace/recovery/{client}", get(editor_recovery::read))
         .route("/workspace/recovery/checkpoint", post(editor_recovery::checkpoint).layer(axum::extract::DefaultBodyLimit::max(72 * 1024 * 1024)))
         .route("/agent-proposals", get(agent_proposals::list))

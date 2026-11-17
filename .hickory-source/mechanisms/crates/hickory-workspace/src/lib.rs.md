@@ -190,8 +190,20 @@ pub struct WorkspaceStore {
 <a id="f-a9e0f815de73-impl-WorkspaceStore"></a>
 ### `impl-WorkspaceStore`
 
+Recovery needs a noncreating project address before it can admit each private
+directory through held no-follow handles. Keep that lookup separate from the
+convenience constructor that creates a normal workspace store; merely discovering
+a path does not authorize reading, creating or removing a checkpoint there.
+
 <storycode:copy id="f-a9e0f815de73-impl-WorkspaceStore">
 impl WorkspaceStore {
+    /// Resolve the private project address without creating or following owned store folders.
+    /// Callers requiring held-directory admission perform their own no-follow walk.
+    pub fn project_directory(root:&Path)->Result<PathBuf>{
+        let canonical=root.canonicalize().with_context(||format!("cannot resolve project root {}",root.display()))?;
+        Ok(data_root()?.join("workspaces").join(project_key(&canonical)))
+    }
+
     /// The store for one project root.
     ///
     /// The key is a readable slug plus a hash of the canonical path: the slug

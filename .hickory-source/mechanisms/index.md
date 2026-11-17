@@ -375,4 +375,6 @@ is included with that control; opening a document is not generation authority.
 
 <storycode:include file="provider-refactor-readings.md" />
 
+<storycode:include file="editor-recovery-management.md" />
+
 </storycode:doc>

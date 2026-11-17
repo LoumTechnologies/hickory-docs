@@ -1094,6 +1094,11 @@ No `/me`, `/billing/plans`, or `/analytics/capture` either. Those existed
 because the React client was shared with a hosted product and asked for
 them on load. It is not shared any more.
 
+Private recovery removal is a separate explicit command. Its policy checks the
+current runtime, physical storage and exact selected record; loopback access alone
+never authorizes removing a changed checkpoint. Source publication remains a
+separate authority.
+
 <storycode:copy id="f-09ea558208cd-router">
 // ---------------------------------------------------------------------------
 // Router
@@ -1475,6 +1480,7 @@ pub(crate) fn router(state: LocalState) -> Router {
         .route("/git/conflict-resolution/stage", post(git_resolutions::stage).layer(axum::extract::DefaultBodyLimit::max(40 * 1024 * 1024)))
         .route("/git/conflict-resolution/status", get(git_resolutions::status).layer(axum::extract::DefaultBodyLimit::max(40 * 1024 * 1024)))
         .route("/workspace/recovery", get(editor_recovery::list))
+        .route("/workspace/recovery/forget", post(editor_recovery::forget))
         .route("/workspace/recovery/{client}", get(editor_recovery::read))
         .route("/workspace/recovery/checkpoint", post(editor_recovery::checkpoint).layer(axum::extract::DefaultBodyLimit::max(72 * 1024 * 1024)))
         .route("/agent-proposals", get(agent_proposals::list))

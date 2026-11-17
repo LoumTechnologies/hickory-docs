@@ -156541,6 +156541,41 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/frontends/provider-refactor-host-witness.md",
       "symbol": "provider refactor android actual",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "editor-recovery-management-core",
+      "output": "crates/hickory-cli/src/serve/editor_recovery.rs",
+      "page": ".hickory-source/mechanisms/editor-recovery-management.md",
+      "symbol": "select and manage private retained recovery sessions",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "editor-recovery-management-protocol",
+      "output": "scripts/test-editor-recovery-management.py",
+      "page": ".hickory-source/frontends/editor-recovery-management-witness.md",
+      "symbol": "editor recovery management protocol",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "editor-recovery-management-apple-actual",
+      "output": "apps/apple-simple/Tests/EditorRecoveryManagementAcceptanceTests.swift",
+      "page": ".hickory-source/frontends/editor-recovery-management-witness.md",
+      "symbol": "editor recovery management apple actual",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "editor-recovery-management-android-actual",
+      "output": "apps/android-simple/app/src/test/java/com/hickorydocs/simple/EditorRecoveryManagementAcceptanceTest.kt",
+      "page": ".hickory-source/frontends/editor-recovery-management-witness.md",
+      "symbol": "editor recovery management android actual",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "editor-recovery-management-tests",
+      "output": "crates/hickory-cli/src/serve/editor_recovery.rs",
+      "page": ".hickory-source/mechanisms/editor-recovery-management.md",
+      "symbol": "editor recovery management tests",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

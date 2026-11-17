@@ -3,7 +3,7 @@
 
 For maintainers connecting private crash recovery to the simple editor hosts.
 
-Use the existing per-project private workspace store, preserving legacy draft and layout APIs. The new checkpoint binds an entire retained buffer roster and host layout to one revision. This is an implementation in progress: no host currently captures or restores these records, so the endpoint is a foundation rather than completed crash recovery.
+Use the existing per-project private workspace store, preserving legacy draft and layout APIs. The new checkpoint binds an entire retained buffer roster and host layout to one revision. All simple hosts capture checkpoints and restore verified snapshots as new drafts. The dedicated management mechanism exposes every retained revision and guarded explicit private-session removal; these operations never save source or replace current editors.
 
 ## Retain sources as independent buffer identities
 
@@ -79,36 +79,21 @@ Legacy records without that slot binding remain readable but cannot be reused as
 a writer identity. Use the existing private WorkspaceStore and atomic writer. A directory lock coordinates processes, an exact request digest makes a lost reply retry harmless, and a base revision prevents an older asynchronous capture from overwriting a newer draft. Retain up to three snapshots and thirty-two retry receipts per client. A corrupt record refuses overwrite; it does not justify discarding captured text.
 
 <storycode:copy id="editor-recovery-storage">
-fn directory(root:&Path,slot:Option<&str>)->Result<PathBuf,String>{
- let store=hickory_workspace::WorkspaceStore::for_project(root).and_then(|store|match slot{Some(slot)=>store.window(slot),None=>Ok(store)}).map_err(|e|e.to_string())?;
- let dir=store.dir().join("editor-recovery-v1");super::resource_journal::regular_directory(&dir)?;Ok(dir)
-}
-fn read_record(path:&Path)->Result<Record,String>{
- let metadata=std::fs::symlink_metadata(path).map_err(|e|e.to_string())?;
- if !metadata.is_file()||metadata.file_type().is_symlink()||metadata.len()>RECORD_LIMIT as u64{return Err("Recovery record is not a bounded ordinary file.".into())}
- let mut options=std::fs::OpenOptions::new();options.read(true);
- #[cfg(unix)]{use std::os::unix::fs::OpenOptionsExt;options.custom_flags(libc::O_NOFOLLOW|libc::O_NONBLOCK);}
- let file=options.open(path).map_err(|e|e.to_string())?;let held=same_file::Handle::from_file(file.try_clone().map_err(|e|e.to_string())?).map_err(|e|e.to_string())?;
- let mut bytes=Vec::new();file.take(RECORD_LIMIT as u64+1).read_to_end(&mut bytes).map_err(|e|e.to_string())?;
- if bytes.len()>RECORD_LIMIT||same_file::Handle::from_path(path).map_err(|e|e.to_string())?!=held{return Err("Recovery record changed while being read.".into())}
- let record:Record=serde_json::from_slice(&bytes).map_err(|e|format!("Recovery record is damaged: {e}"))?;
+fn read_record(path:&Path)->Result<Record,String>{decode_record(&observe_record(path)?.bytes)}
+fn decode_record(bytes:&[u8])->Result<Record,String>{
+ let record:Record=serde_json::from_slice(bytes).map_err(|e|format!("Recovery record is damaged: {e}"))?;
  if record.version!=1||!token(&record.client_id)||record.history.is_empty()||record.history.len()>3||record.receipts.len()>32{return Err("Recovery record shape is invalid.".into())}
  let mut previous=0;for saved in &record.history{validate(&saved.snapshot)?;if saved.revision<=previous||saved.hash!=hash(&serde_json::to_vec(&saved.snapshot).map_err(|e|e.to_string())?){return Err("Recovery checkpoint identity or content is damaged.".into())}previous=saved.revision}
  Ok(record)
 }
 fn receipt(record:&Record,saved:&Receipt,replayed:bool)->Value{json!({"version":1,"recovery_protocol":1,"client_id":record.client_id,"window_slot":record.window_slot,"workspace_id":record.workspace,"namespace":record.namespace,"request_id":saved.request_id,"revision":saved.revision,"snapshot_hash":saved.hash,"replayed":replayed,"source_effects":false,"source_saved":false,"notice":"Recorded a private editor checkpoint. Source files were not saved."})}
+#[cfg(unix)]
 fn capture_at(directory:&Path,workspace:&str,namespace:&str,request:&Checkpoint,current:impl Fn()->Result<(),String>)->Result<Value,String>{
  if request.version!=1||!token(&request.client_id)||!token(&request.request_id)||!token(&request.workspace)||!slot(&request.window_slot){return Err("Recovery requires protocol 1 and opaque client/request identities.".into())}validate(&request.snapshot)?;current()?;
  super::resource_journal::regular_directory(directory)?;
- let lock_path=directory.join("checkpoint.lock");
- let mut options=std::fs::OpenOptions::new();options.create(true).read(true).write(true);
- #[cfg(unix)]{use std::os::unix::fs::OpenOptionsExt;options.mode(0o600).custom_flags(libc::O_NOFOLLOW|libc::O_NONBLOCK);}
- let lock=options.open(&lock_path).map_err(|e|e.to_string())?;
- if !lock.metadata().map_err(|e|e.to_string())?.is_file(){return Err("Recovery checkpoint lock is not an ordinary file.".into())}
- fs2::FileExt::try_lock_exclusive(&lock).map_err(|_|"Another checkpoint is being recorded. Retain the draft and retry this exact request.".to_string())?;
- let held=same_file::Handle::from_file(lock.try_clone().map_err(|e|e.to_string())?).map_err(|e|e.to_string())?;
+ let locked_directory=RecoveryDirectory::open(directory)?;let lock=locked_directory.lock()?;
  let path=directory.join(format!("{}.json",request.client_id));
- if !path.exists(){let count=std::fs::read_dir(directory).map_err(|e|e.to_string())?.take(4097).filter_map(Result::ok).filter(|entry|entry.path().extension().is_some_and(|value|value=="json")).take(32).count();if count>=32{return Err("Recovery client capacity reached. Retain buffers and inspect the existing private sessions before creating another.".into())}}
+ if !path.exists(){let count=std::fs::read_dir(directory).map_err(|e|e.to_string())?.take(4097).filter_map(Result::ok).filter(|entry|entry.file_name().to_str().and_then(|name|name.strip_suffix(".json")).is_some_and(token)).take(32).count();if count>=32{return Err("Recovery client capacity reached. Retain buffers and inspect the existing private sessions before creating another.".into())}}
  let mut record=match std::fs::symlink_metadata(&path){Ok(_)=>read_record(&path)?,Err(e)if e.kind()==std::io::ErrorKind::NotFound=>Record{version:1,client_id:request.client_id.clone(),window_slot:Some(request.window_slot.clone()),workspace:workspace.into(),namespace:namespace.into(),history:vec![],receipts:vec![]},Err(e)=>return Err(e.to_string())};
  if record.client_id!=request.client_id||record.window_slot.as_deref()!=Some(request.window_slot.as_str())||record.workspace!=workspace||record.namespace!=namespace{return Err("The retained client belongs to an earlier workspace or window identity. Read it as historical and start a new recovery client.".into())}
  let intent=hash(&serde_json::to_vec(request).map_err(|e|e.to_string())?);
@@ -121,8 +106,8 @@ fn capture_at(directory:&Path,workspace:&str,namespace:&str,request:&Checkpoint,
  if record.history.len()>3{record.history.remove(0);}
  let saved=Receipt{request_id:request.request_id.clone(),intent,revision,hash:snapshot_hash};record.receipts.push(saved.clone());if record.receipts.len()>32{record.receipts.remove(0);}
  let bytes=loop{let bytes=serde_json::to_vec(&record).map_err(|e|e.to_string())?;if bytes.len()<=RECORD_LIMIT{break bytes}if record.history.len()<=1{return Err("Recovery record exceeds its 64 MiB storage budget. Source text remains in the editor.".into())}record.history.remove(0);};
- current()?;if same_file::Handle::from_path(&lock_path).map_err(|e|e.to_string())?!=held{return Err("Recovery lock changed. No checkpoint was published.".into())}
- super::store::write_atomic(&path,&bytes).map_err(|e|e.to_string())?;
+ current()?;locked_directory.validate_lock(&lock)?;
+ locked_directory.publish(&format!("{}.json",request.client_id),&bytes)?;
  Ok(receipt(&record,&saved,false))
 }
 </storycode:copy>
@@ -145,8 +130,11 @@ pub async fn checkpoint(State(state):State<LocalState>,Json(request):Json<Checkp
  if request.workspace!=runtime{return Err(ApiError::conflict("Recovery workspace changed. Preserve the buffers and capture a new checkpoint for this engine."))}
  tokio::task::spawn_blocking(move||->Result<Json<Value>,String>{
   if scope(&state)!=Ok((runtime.clone(),physical.clone(),namespace.clone())){return Err("Recovery scope changed before storage admission.".into())}
-  let dir=directory(state.index.root(),state.window_slot.as_deref())?;
+  #[cfg(unix)]let held_directory=recovery_directory(state.index.root(),state.window_slot.as_deref())?;
+  #[cfg(unix)]let dir=held_directory.path.clone();
+  #[cfg(not(unix))]let dir=directory(state.index.root(),state.window_slot.as_deref())?;
   capture_at(&dir,&physical,&namespace,&request,||{
+   #[cfg(unix)]held_directory.check()?;
    let current=scope(&state)?;if current!=(runtime.clone(),physical.clone(),namespace.clone()){return Err("Workspace changed before private checkpoint publication.".into())}Ok(())
   }).map(Json)
  }).await.map_err(|e|ApiError::internal(e.to_string()))?.map_err(ApiError::conflict)
@@ -158,23 +146,27 @@ pub async fn list(State(state):State<LocalState>,Query(query):Query<ListQuery>)-
  let selected_slot=query.window_slot.clone().unwrap_or_else(||state.window_slot.clone().unwrap_or_else(||"0".into()));if !slot(&selected_slot){return Err(ApiError::bad_request("Recovery window slot is invalid"))}
  tokio::task::spawn_blocking(move||->Result<Json<Value>,String>{
   if scope(&state)!=Ok((runtime.clone(),physical.clone(),namespace.clone())){return Err("Recovery scope changed before private storage reading.".into())}
-  let dir=directory(state.index.root(),Some(&selected_slot))?;
+  #[cfg(unix)]let held_directory=recovery_directory(state.index.root(),Some(&selected_slot))?;
+  #[cfg(unix)]let dir=held_directory.path.clone();
+  #[cfg(not(unix))]let dir=directory(state.index.root(),Some(&selected_slot))?;
   let mut names=Vec::new();
   for entry in std::fs::read_dir(&dir).map_err(|e|e.to_string())?.take(4097){let entry=entry.map_err(|e|e.to_string())?;let name=entry.file_name();let Some(name)=name.to_str()else{continue};if let Some(id)=name.strip_suffix(".json"){if token(id)&&query.after.as_deref().is_none_or(|after|id>after){names.push(id.to_owned());}}}
-  names.sort();let mut rows=Vec::new();let mut notices=Vec::new();let mut next=None;let mut bytes=0u64;
+  names.sort();let mut rows=Vec::new();let mut unreadable=Vec::new();let mut notices=Vec::new();let mut next=None;let mut bytes=0u64;
   for (index,id) in names.iter().enumerate(){
    let path=dir.join(format!("{id}.json"));let cost=std::fs::symlink_metadata(&path).map(|meta|meta.len()).unwrap_or(0);
-   if index>=8||(!rows.is_empty()&&bytes.saturating_add(cost)>RECORD_LIMIT as u64){break}
+   if recovery_page_full(index,bytes,cost){break}
    next=Some(id.clone());bytes=bytes.saturating_add(cost);
-   match read_record(&path){Ok(record)if record.client_id==*id=>{let saved=record.history.last().unwrap();rows.push(json!({"client_id":id,"window_slot":selected_slot,"origin_window_slot":record.window_slot,"workspace_id":record.workspace,"namespace":record.namespace,"current_workspace":record.workspace==physical&&record.namespace==namespace,"revision":saved.revision,"request_id":saved.request_id,"snapshot_hash":saved.hash,"host":saved.snapshot.host,"buffers":saved.snapshot.buffers.len(),"source_effects":false}));},Ok(_)=>notices.push(format!("Recovery record {id} does not match its address; it was not adopted.")),Err(error)=>notices.push(format!("Recovery record {id} is unreadable: {error}"))}
+   match read_observed_record(&path){Ok((record,observation))if record.client_id==*id=>{let saved=record.history.last().unwrap();let guard=record_guard(&dir,id,&observation,&(runtime.clone(),physical.clone(),namespace.clone()),&selected_slot)?;rows.push(json!({"client_id":id,"window_slot":selected_slot,"origin_window_slot":record.window_slot,"workspace_id":record.workspace,"namespace":record.namespace,"current_workspace":record.workspace==physical&&record.namespace==namespace,"revision":saved.revision,"request_id":saved.request_id,"snapshot_hash":saved.hash,"host":saved.snapshot.host,"buffers":saved.snapshot.buffers.len(),"revisions":revision_rows(&record),"record_guard":guard,"source_effects":false}));},Ok(_)=>notices.push(format!("Recovery record {id} does not match its address; it was not adopted.")),Err(error)=>{notices.push(format!("Recovery record {id} is unreadable: {error}"));if let Ok(observation)=observe_record(&path){unreadable.push(json!({"client_id":id,"window_slot":selected_slot,"record_guard":record_guard(&dir,id,&observation,&(runtime.clone(),physical.clone(),namespace.clone()),&selected_slot)?,"bytes":observation.bytes.len(),"reason":error}));}}}
+
   }
   let more=next.as_ref().is_some_and(|last|names.last().is_some_and(|id|id>last));
+  #[cfg(unix)]held_directory.check()?;
   if scope(&state)!=Ok((runtime.clone(),physical.clone(),namespace.clone())){return Err("Workspace changed while listing private editor recovery.".into())}
-  let base=hickory_workspace::WorkspaceStore::for_project(state.index.root()).map_err(|error|error.to_string())?;let mut slots=BTreeSet::from(["0".to_string(),selected_slot.clone()]);let windows=base.dir().join("windows");let mut window_notice=None;
+  let base=hickory_workspace::WorkspaceStore::project_directory(state.index.root()).map_err(|error|error.to_string())?;let mut slots=BTreeSet::from(["0".to_string(),selected_slot.clone()]);let windows=base.join("windows");let mut window_notice=None;
   if std::fs::symlink_metadata(&windows).is_ok_and(|meta|meta.is_dir()&&!meta.file_type().is_symlink()){for (index,entry)in std::fs::read_dir(&windows).map_err(|error|error.to_string())?.enumerate(){if index>=256{window_notice=Some("Recovery window listing is bounded; additional private windows remain retained.");break}let entry=entry.map_err(|error|error.to_string())?;let name=entry.file_name();if let Some(value)=name.to_str(){if slot(value)&&entry.file_type().map_err(|error|error.to_string())?.is_dir(){slots.insert(value.to_owned());}}}}
   if let Some(notice)=window_notice{notices.push(notice.into())}
   if scope(&state)!=Ok((runtime.clone(),physical.clone(),namespace.clone())){return Err("Recovery scope changed while enumerating retained windows.".into())}
-  Ok(Json(json!({"version":1,"recovery_protocol":1,"engine_workspace_id":runtime,"workspace_id":physical,"namespace":namespace,"window_slot":selected_slot,"current_window_slot":state.window_slot.as_deref().unwrap_or("0"),"window_slots":slots,"sessions":rows,"notices":notices,"next":if more{next}else{None},"source_effects":false,"notice":"Private snapshots are recoverable drafts, not source saves or test evidence."})))
+  Ok(Json(json!({"version":1,"recovery_protocol":1,"engine_workspace_id":runtime,"workspace_id":physical,"namespace":namespace,"window_slot":selected_slot,"current_window_slot":state.window_slot.as_deref().unwrap_or("0"),"window_slots":slots,"sessions":rows,"unreadable_sessions":unreadable,"notices":notices,"next":if more{next}else{None},"source_effects":false,"notice":"Private snapshots are recoverable drafts, not source saves or test evidence."})))
  }).await.map_err(|e|ApiError::internal(e.to_string()))?.map_err(ApiError::conflict)
 }
 #[derive(Deserialize)]pub struct ReadQuery{pub revision:Option<u32>,pub window_slot:Option<String>}
@@ -184,7 +176,10 @@ pub async fn read(State(state):State<LocalState>,RoutePath(id):RoutePath<String>
  let selected_slot=query.window_slot.clone().unwrap_or_else(||state.window_slot.clone().unwrap_or_else(||"0".into()));if !slot(&selected_slot){return Err(ApiError::bad_request("Recovery window slot is invalid"))}
  tokio::task::spawn_blocking(move||->Result<Json<Value>,String>{
   if scope(&state)!=Ok((runtime.clone(),physical.clone(),namespace.clone())){return Err("Recovery scope changed before private storage reading.".into())}
-  let dir=directory(state.index.root(),Some(&selected_slot))?;let record=read_record(&dir.join(format!("{id}.json")))?;
+  #[cfg(unix)]let held_directory=recovery_directory(state.index.root(),Some(&selected_slot))?;
+  #[cfg(unix)]let dir=held_directory.path.clone();
+  #[cfg(not(unix))]let dir=directory(state.index.root(),Some(&selected_slot))?;
+  let record=read_record(&dir.join(format!("{id}.json")))?;
   if record.client_id!=id{return Err("Recovery record does not match its requested client identity.".into())}
   let saved=match query.revision{Some(revision)=>record.history.iter().find(|saved|saved.revision==revision).ok_or("Requested recovery revision is no longer retained")?,None=>record.history.last().unwrap()};
   let current=record.workspace==physical&&record.namespace==namespace;
@@ -205,6 +200,7 @@ pub async fn read(State(state):State<LocalState>,RoutePath(id):RoutePath<String>
    authority.push(json!({"buffer_id":buffer.id,"baseline_current":observation.is_ok(),"reason":observation.err(),"write_permission":false}));
   }
   if scope(&state)!=(Ok((runtime.clone(),physical.clone(),namespace.clone()))){return Err("Workspace changed while the recovery preview was being read.".into())}
+  #[cfg(unix)]held_directory.check()?;
   Ok(Json(json!({"version":1,"recovery_protocol":1,"engine_workspace_id":runtime,"client_id":record.client_id,"window_slot":selected_slot,"origin_window_slot":record.window_slot,"workspace_id":record.workspace,"namespace":record.namespace,"current_workspace":current,"revision":saved.revision,"request_id":saved.request_id,"snapshot_hash":saved.hash,"material":serde_json::to_string(&saved.snapshot).map_err(|e|e.to_string())?,"retained_revisions":record.history.iter().map(|saved|saved.revision).collect::<Vec<_>>(),"authority":authority,"source_effects":false,"source_saved":false,"notice":"Preview only. Restoring text must use the current host editor lease; saving remains separately guarded."})))
  }).await.map_err(|e|ApiError::internal(e.to_string()))?.map_err(ApiError::conflict)
 }
@@ -262,7 +258,7 @@ The witnesses retain Unicode and unnamed text across a fresh read, reject stale 
 }
 </storycode:copy>
 
-<storycode:file path="crates/hickory-cli/src/serve/editor_recovery.rs"><storycode:paste select="#editor-recovery-model"/><storycode:paste select="#editor-recovery-storage"/><storycode:paste select="#editor-recovery-routes"/><storycode:paste select="#editor-recovery-tests"/></storycode:file>
+<storycode:file path="crates/hickory-cli/src/serve/editor_recovery.rs"><storycode:paste select="#editor-recovery-model"/><storycode:paste select="#editor-recovery-management-core"/><storycode:paste select="#editor-recovery-storage"/><storycode:paste select="#editor-recovery-routes"/><storycode:paste select="#editor-recovery-tests"/><storycode:paste select="#editor-recovery-management-tests"/></storycode:file>
 
 ## Exercise the private service through real engine restarts
 

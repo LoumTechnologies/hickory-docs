@@ -71914,9 +71914,11 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "construction": "fragments",
       "fragments": [
         "editor-recovery-model",
+        "editor-recovery-management-core",
         "editor-recovery-storage",
         "editor-recovery-routes",
-        "editor-recovery-tests"
+        "editor-recovery-tests",
+        "editor-recovery-management-tests"
       ],
       "narrative_owner": "mechanism:editor-recovery"
     },
@@ -72878,6 +72880,39 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "construction": "fragments",
       "fragments": [
         "provider-refactor-android-actual"
+      ]
+    },
+    "scripts/test-editor-recovery-management.py": {
+      "source": ".hickory-source/frontends/editor-recovery-management-witness.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "2d8a5589591b5b5fc0940b81bf12ed28409f1d28e361298d016ed769524e9736",
+      "construction": "fragments",
+      "fragments": [
+        "editor-recovery-management-protocol"
+      ]
+    },
+    "apps/apple-simple/Tests/EditorRecoveryManagementAcceptanceTests.swift": {
+      "source": ".hickory-source/frontends/editor-recovery-management-witness.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "7de24d1a90a2df3c6d6c03bbff55303682bb879af1813eb1cbaa61cc856ffa64",
+      "construction": "fragments",
+      "fragments": [
+        "editor-recovery-management-apple-actual"
+      ]
+    },
+    "apps/android-simple/app/src/test/java/com/hickorydocs/simple/EditorRecoveryManagementAcceptanceTest.kt": {
+      "source": ".hickory-source/frontends/editor-recovery-management-witness.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "e9f63a83d2f43934153c7251e659979e5574d05d4a65b132d429d6f80a9b8f21",
+      "construction": "fragments",
+      "fragments": [
+        "editor-recovery-management-android-actual"
       ]
     }
   },

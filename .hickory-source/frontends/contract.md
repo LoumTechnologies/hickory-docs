@@ -1777,4 +1777,36 @@ drafts separately pass the installed TypeScript compiler. The iOS simulator prod
 build passes. These receipts do not certify other command/provider families,
 native physical input, assistive technology or device interaction.
 
+## Reach and manage every retained private editor checkpoint
+
+Browser, Apple and Android now page through the bounded32-session store and
+select each session's three retained revision identities. Reads remain exact to
+revision, request and snapshot hash. Explicit two-step Forget removes only the
+selected whole private session, freeing capacity without saving or changing source.
+Its current-runtime/root/window/directory/stat/hash guard refuses changed or
+replaced records. A compare-after-rename check preserves an injected replacement;
+exact lost-response replay returns the old receipt without deleting a new record.
+Bounded corrupt ordinary records may be explicitly forgotten without importing
+untrusted snapshots. Symlinked or oversized records remain explicit refusals.
+
+The private directory resolver creates nothing by itself. Held no-follow directory
+operations protect checkpoint/removal paths, and publication keeps its separate
+source authority. Pending removal pauses checkpointing and retains its exact retry
+intention. A verified own-session removal retires the old writer. Paging failures
+preserve the previously loaded catalogue; optional recovery failure leaves current
+code and drafts available.
+
+Executed evidence (2026-11-17): thirteen backend safety cases and fourteen browser
+model cases pass; web type checking passes. Focused native groups pass with the
+live-fixture skips recorded separately. The actual service and rendered browser
+flows pass32-session capacity, corrupt-slot removal, resumed automatic checkpoint,
+all three exact readings and guarded recovery. The mounted macOS flow executes
+without skips through a real WorkspaceView/popover and NSTextView; viewport is
+checked across readings, while restore/Forget retain the original editor, draft,
+selection and native Undo. Android's integrated Engine/Workspace/TextFieldState
+flow also executes without skips. The iOS simulator product build passes. Saved
+source stays unchanged. Physical input,
+assistive technology, Android rendered acceptance and iOS runtime acceptance remain
+unverified; restoration and private Forget confer no source-save permission.
+
 </ui:doc>

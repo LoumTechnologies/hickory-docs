@@ -307,4 +307,6 @@ Each client reads text before requesting optional capabilities. A save uses the 
 
 <ui:include file="provider-refactor-host-witness.md" />
 
+<ui:include file="editor-recovery-management-witness.md" />
+
 </ui:doc>
