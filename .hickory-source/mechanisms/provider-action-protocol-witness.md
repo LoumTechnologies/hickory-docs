@@ -169,6 +169,7 @@ Use the existing binary LSP WebSocket channel against the real engine. Match req
 
 <ui:copy id="provider-action-protocol-driver">
 import assert from 'node:assert/strict';
+import {createHash} from 'node:crypto';
 import {readFile,writeFile} from 'node:fs/promises';
 const url=new URL('/api/ws?doc=workspace',process.argv[2]);url.protocol=url.protocol==='https:'?'wss:':'ws:';
 const socket=new WebSocket(url);socket.binaryType='arraybuffer';let sequence=0,capabilities;
@@ -181,16 +182,17 @@ socket.addEventListener('message',event=>{if(!(event.data instanceof ArrayBuffer
  const held=pending.get(body.id);if(!held)return;pending.delete(body.id);clearTimeout(held.timer);if(body.error)held.reject(new Error(body.error.message));else held.resolve(body.result);
 });
 const open=new Promise((resolve,reject)=>{socket.addEventListener('open',resolve,{once:true});socket.addEventListener('error',reject,{once:true});});
+function coordinateSources(action,expected){assert.deepEqual(Object.keys(action.data).sort(),['hickory_action','hickory_sources']);const rows=action.data.hickory_sources;assert.ok(Array.isArray(rows));assert.equal(rows.length,Object.keys(expected).length);for(const row of rows){assert.deepEqual(Object.keys(row).sort(),['source_hash','uri']);assert.ok(Object.hasOwn(expected,row.uri));assert.equal(row.source_hash,'sha256:'+createHash('sha256').update(expected[row.uri]).digest('hex'));}}
 const position={line:0,character:1};const a='hick:///a.py',b='hick:///b.ts';
 try{
  await open;
  for(const [uri,languageId,text]of[[a,'python','value = 1\n'],[b,'typescript','value = 2;\n']])send({method:'textDocument/didOpen',params:{textDocument:{uri,languageId,version:1,text}}});
  await Promise.race([ready,new Promise((_,reject)=>setTimeout(()=>reject(new Error('No server capabilities')),20000).unref())]);assert.equal(capabilities.codeActionProvider.resolveProvider,true);
- for(const uri of[a,b])await request('textDocument/documentSymbol',{textDocument:{uri}});
+ for(const [uri,languageId,text]of[[a,'python','value = 1\n'],[b,'typescript','value = 2;\n']]){const ready=await request('hick/captureDocument',{textDocument:{uri,languageId,version:1,text}});assert.equal(ready.current,true);assert.equal(ready.source_hash,'sha256:'+createHash('sha256').update(text).digest('hex'));await request('textDocument/documentSymbol',{textDocument:{uri}});}
  const actions=uri=>request('textDocument/codeAction',{textDocument:{uri},range:{start:position,end:position},context:{diagnostics:[]}});
- const first=(await actions(a))[0],second=(await actions(b))[0];assert.equal(first.edit,undefined);assert.ok(second.edit);assert.deepEqual(Object.keys(first.data),['hickory_action']);
+ const first=(await actions(a))[0],second=(await actions(b))[0];assert.equal(first.edit,undefined);assert.ok(second.edit);coordinateSources(first,{[a]:'value = 1\n'});coordinateSources(second,{[b]:'value = 2;\n'});
  const changed={...first,title:'Client substitution',command:{title:'Injected',command:'must-never-execute',arguments:[b]}};
- const resolved=await request('codeAction/resolve',changed);assert.equal(resolved.title,'Controlled python fix');assert.equal(resolved.command,undefined);assert.deepEqual(Object.keys(resolved.data),['hickory_action']);assert.equal(resolved.edit.documentChanges[0].textDocument.uri,a);assert.equal(resolved.edit.documentChanges[0].edits[0].newText,'python_fixed');
+ const resolved=await request('codeAction/resolve',changed);assert.equal(resolved.title,'Controlled python fix');assert.equal(resolved.command,undefined);coordinateSources(resolved,{[a]:'value = 1\n'});assert.equal(resolved.edit.documentChanges[0].textDocument.uri,a);assert.equal(resolved.edit.documentChanges[0].edits[0].newText,'python_fixed');
  const other=await request('codeAction/resolve',{...second,title:'Client eager substitution',edit:{changes:{[a]:[]}}});assert.equal(other.title,'Controlled typescript fix');assert.equal(other.edit.documentChanges[0].textDocument.uri,b);assert.equal(other.edit.documentChanges[0].edits[0].newText,'typescript_fixed');
  send({method:'textDocument/didChange',params:{textDocument:{uri:a,version:2},contentChanges:[{text:'other = 1\n'}]}});await request('textDocument/documentSymbol',{textDocument:{uri:a}});
  await assert.rejects(request('codeAction/resolve',first),/source changed|ownership changed|expired/i);

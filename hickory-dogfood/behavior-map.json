@@ -45423,8 +45423,11 @@
         "f-c936496a03c1-uuid_ish",
         "f-c936496a03c1-HickBackend",
         "f-c936496a03c1-DocEntry",
+        "provider-document-source-lifetime",
         "f-c936496a03c1-VFileMapping",
+        "yaml-frontmatter-projection",
         "f-c936496a03c1-impl-HickBackend",
+        "static-language-capture-readiness",
         "f-c936496a03c1-StructuralKind",
         "f-c936496a03c1-drive_lowercased",
         "f-c936496a03c1-uri_key",
@@ -45441,7 +45444,6 @@
         "f-c936496a03c1-plain_language",
         "f-c936496a03c1-parse_error_location",
         "f-c936496a03c1-tests",
-        "static-language-capture-readiness",
         "diagnostic-source-revision-envelope",
         "provider-action-module"
       ],
@@ -45714,7 +45716,8 @@
         "f-c77393891cd2-impl-PositionMap",
         "f-c77393891cd2-tests",
         "source-edit-contiguous-position-range",
-        "diagnostic-authored-source-bytes"
+        "diagnostic-authored-source-bytes",
+        "provider-contributing-documents"
       ],
       "anchor": "output-c77393891cd2",
       "narrative_owner": "mechanism:crates/hick-lsp"
@@ -69546,6 +69549,8 @@
       "construction": "fragments",
       "fragments": [
         "provider-action-source-context",
+        "provider-action-source-proof-witness",
+        "provider-action-graph-revision",
         "provider-action-query",
         "provider-action-resolve",
         "provider-action-unmapped-source-discovery",
@@ -72234,6 +72239,39 @@
       "construction": "fragments",
       "fragments": [
         "bulk-fix-native-runner"
+      ]
+    },
+    "scripts/controlled-bulk-literate-provider.py": {
+      "source": ".hickory-source/mechanisms/provider-bulk-literate-witness.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "test",
+      "sha256": "cc473ae2fd8ce04631d2328ab4ec47fe41b1de719122869f7c3a7f0fcfa084b5",
+      "construction": "fragments",
+      "fragments": [
+        "bulk-literate-controlled-provider"
+      ]
+    },
+    "scripts/provider-bulk-literate-driver.mjs": {
+      "source": ".hickory-source/mechanisms/provider-bulk-literate-witness.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "test",
+      "sha256": "69717e6001a545412f2e3dce5a5328ddcd8660349873e9f59139ce64649b9af3",
+      "construction": "fragments",
+      "fragments": [
+        "bulk-literate-protocol-driver"
+      ]
+    },
+    "scripts/test-provider-bulk-literate.py": {
+      "source": ".hickory-source/mechanisms/provider-bulk-literate-witness.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "test",
+      "sha256": "9534c3f7e5346354842ce29b8ae28b73f579bf73f49caa5b6bc713cd1bd002e1",
+      "construction": "fragments",
+      "fragments": [
+        "bulk-literate-protocol-runner"
       ]
     }
   },

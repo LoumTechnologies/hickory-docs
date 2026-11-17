@@ -475,6 +475,70 @@ impl PositionMap {
 }
 </storycode:copy>
 
-<storycode:file path="crates/hick-lsp/src/position_map.rs"><storycode:paste select="#f-c77393891cd2-LineMapping"/><storycode:paste select="#f-c77393891cd2-PositionMap"/><storycode:paste select="#f-c77393891cd2-impl-PositionMap"/><storycode:paste select="#f-c77393891cd2-tests"/><storycode:paste select="#source-edit-contiguous-position-range"/><storycode:paste select="#diagnostic-authored-source-bytes"/></storycode:file>
+
+## Discover complete provider outputs from byte origins
+
+A document-wide fix cannot use a caret in prose, and a repeated fragment has no unique generated line. Read the construction's actual byte-origin document set instead. The loaded project source map can contain unrelated documents, so its keys are not contributor evidence. Empty output origins do not emit code. The focused witness keeps duplicated contributor origins while excluding an unrelated loaded source; existing explanation-review gaps above remain unchanged.
+
+<storycode:copy id="provider-contributing-documents">
+impl PositionMap {
+    /// Actual byte-origin contributors, not every source loaded for the project.
+    pub fn contributing_documents(&self) -> Vec<&str> {
+        self.project
+            .as_ref()
+            .map(|project| {
+                project
+                    .origins
+                    .iter()
+                    .filter(|origin| origin.output.0 < origin.output.1)
+                    .map(|origin| origin.document.as_str())
+                    .collect::<std::collections::BTreeSet<_>>()
+                    .into_iter()
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+}
+#[cfg(test)]
+mod contributing_document_tests {
+    use super::*;
+    #[test]
+    fn repeated_origins_keep_contributors_but_exclude_unrelated_loaded_sources() {
+        let mut entry =
+            hick_lang::ProjectEntry::file(std::sync::Arc::<[u8]>::from(&b"one\none\ntwo\n"[..]));
+        entry.origins = vec![
+            hick_lang::ByteOrigin {
+                output: (0, 4),
+                document: "a.md".into(),
+                source: (0, 4),
+            },
+            hick_lang::ByteOrigin {
+                output: (4, 8),
+                document: "a.md".into(),
+                source: (0, 4),
+            },
+            hick_lang::ByteOrigin {
+                output: (8, 12),
+                document: "b.md".into(),
+                source: (0, 4),
+            },
+        ];
+        let sources = std::sync::Arc::new(std::collections::BTreeMap::from([
+            ("a.md".into(), "one\n".into()),
+            ("b.md".into(), "two\n".into()),
+            ("unrelated.md".into(), "not emitted\n".into()),
+        ]));
+        let map = PositionMap::for_project(&entry, sources, "a.md").unwrap();
+        assert_eq!(
+            map.generated_line_in("a.md", 0),
+            None,
+            "repeated copies have no single generated line"
+        );
+        assert_eq!(map.contributing_documents(), vec!["a.md", "b.md"]);
+        assert!(PositionMap::identity(3).contributing_documents().is_empty());
+    }
+}
+</storycode:copy>
+<storycode:file path="crates/hick-lsp/src/position_map.rs"><storycode:paste select="#f-c77393891cd2-LineMapping"/><storycode:paste select="#f-c77393891cd2-PositionMap"/><storycode:paste select="#f-c77393891cd2-impl-PositionMap"/><storycode:paste select="#f-c77393891cd2-tests"/><storycode:paste select="#source-edit-contiguous-position-range"/><storycode:paste select="#diagnostic-authored-source-bytes"/><storycode:paste select="#provider-contributing-documents"/></storycode:file>
 
 </storycode:doc>

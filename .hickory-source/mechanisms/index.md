@@ -359,4 +359,6 @@ is included with that control; opening a document is not generation authority.
 
 <storycode:include file="editor-recovery.md" />
 
+<storycode:include file="provider-bulk-literate-witness.md" />
+
 </storycode:doc>

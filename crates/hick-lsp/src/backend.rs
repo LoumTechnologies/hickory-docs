@@ -80,6 +80,11 @@ pub struct HickBackend {
 }
 
 struct DocEntry {
+    /// Fresh server authority for this installed or in-progress document state.
+    source_revision: crate::source_identity::SourceRevision,
+    source_hash: Option<String>,
+    preparing: bool,
+    preparation: Arc<Mutex<()>>,
     /// The parsed document state (None if parse failed).
     state: Option<HickDocumentState>,
     /// Virtual file URIs that are currently "open" in child LSPs.
@@ -88,6 +93,70 @@ struct DocEntry {
     vfile_version: i32,
 }
 
+impl DocEntry {
+    fn empty() -> Self {
+        Self {
+            source_revision: crate::source_identity::SourceRevision::fresh(),
+            source_hash: None,
+            preparing: false,
+            preparation: Arc::new(Mutex::new(())),
+            state: None,
+            open_vfiles: Vec::new(),
+            vfile_version: 0,
+        }
+    }
+}
+impl HickBackend {
+    async fn process_document(&self, uri: &Url, source: &str) {
+        self.prepare_document(uri, source, true).await;
+    }
+    async fn prepare_document(&self, uri: &Url, source: &str, allow_open: bool) {
+        let initial = crate::source_identity::SourceRevision::fresh();
+        let gate = {
+            let mut documents = self.documents.write().await;
+            if !allow_open && !documents.contains_key(uri) {
+                return;
+            }
+            let entry = documents.entry(uri.clone()).or_insert_with(DocEntry::empty);
+            entry.source_revision = initial;
+            entry.state=None;
+            entry.source_hash = Some(diagnostic_source_digest(source));
+            entry.preparing = true;
+            entry.preparation.clone()
+        };
+        let _guard = gate.lock().await;
+        let installed = {
+            let mut documents = self.documents.write().await;
+            match documents.get_mut(uri) {
+                Some(entry)
+                    if Arc::ptr_eq(&entry.preparation, &gate)
+                        && entry.source_revision == initial =>
+                {
+                    initial
+                }
+                Some(_) => return,
+                None if allow_open => {
+                    let mut entry = DocEntry::empty();
+                    entry.preparation = gate.clone();
+                    entry.preparing = true;
+                    entry.source_hash = Some(diagnostic_source_digest(source));
+                    let revision = entry.source_revision;
+                    documents.insert(uri.clone(), entry);
+                    revision
+                }
+                None => return,
+            }
+        };
+        self.process_document_source(uri, source).await;
+        let mut documents = self.documents.write().await;
+        if let Some(entry) = documents.get_mut(uri) {
+            if Arc::ptr_eq(&entry.preparation, &gate) && entry.source_revision == installed {
+                entry.source_revision = crate::source_identity::SourceRevision::fresh();
+                entry.preparing = false;
+            }
+        }
+    }
+}
 /// Maps a virtual file URI back to the source .md document.
 struct VFileMapping {
     /// Identity of this installed source/ownership construction.
@@ -227,7 +296,7 @@ impl HickBackend {
 
     /// Process a document change: parse, generate virtual files, forward to
     /// child LSPs.
-    async fn process_document(&self, hick_uri: &Url, source: &str) {
+    async fn process_document_source(&self, hick_uri: &Url, source: &str) {
         tracing::debug!(%hick_uri, source_len = source.len(), "process_document called");
 
         if hick_uri.scheme() == "hick-project" {
@@ -607,11 +676,7 @@ impl HickBackend {
         drop(dispatcher);
 
         let mut docs = self.documents.write().await;
-        let entry = docs.entry(uri.clone()).or_insert_with(|| DocEntry {
-            state: None,
-            open_vfiles: Vec::new(),
-            vfile_version: 0,
-        });
+        let entry = docs.entry(uri.clone()).or_insert_with(DocEntry::empty);
         entry.state = None;
         entry.open_vfiles = vec![child_uri.clone()];
         entry.vfile_version = version;
@@ -644,11 +709,7 @@ impl HickBackend {
         vfile_version: i32,
     ) {
         let mut docs = self.documents.write().await;
-        let entry = docs.entry(hick_uri.clone()).or_insert_with(|| DocEntry {
-            state: None,
-            open_vfiles: Vec::new(),
-            vfile_version: 0,
-        });
+        let entry = docs.entry(hick_uri.clone()).or_insert_with(DocEntry::empty);
         entry.state = Some(state);
         entry.open_vfiles = open_vfiles;
         entry.vfile_version = vfile_version;
@@ -1149,15 +1210,27 @@ impl HickBackend {
         params: DidOpenTextDocumentParams,
     ) -> Result<serde_json::Value> {
         let uri = params.text_document.uri.clone();
+        let expected = diagnostic_source_digest(&params.text_document.text);
         self.did_open(params).await;
         let documents = self.documents.read().await;
-        let parsed = documents
-            .get(&uri)
-            .is_some_and(|entry| entry.state.is_some());
-        let open_files = documents
-            .get(&uri)
-            .map_or(0, |entry| entry.open_vfiles.len());
-        Ok(serde_json::json!({"processed": true, "parsed": parsed, "open_files": open_files}))
+        let entry = documents.get(&uri);
+        let current = entry
+            .is_some_and(|entry| !entry.preparing && entry.source_hash.as_ref() == Some(&expected));
+        let parsed = current && entry.is_some_and(|entry| entry.state.is_some());
+        let open_files = if current {
+            entry.map_or(0, |entry| entry.open_vfiles.len())
+        } else {
+            0
+        };
+        let source_revision = entry.map(|entry| {
+            crate::source_identity::source_graph_fingerprint(std::iter::once((
+                uri.as_str(),
+                entry.source_revision,
+            )))
+        });
+        Ok(
+            serde_json::json!({"processed": current,"current":current, "parsed": parsed, "open_files": open_files,"source_hash":entry.and_then(|entry|entry.source_hash.as_ref()),"source_revision":source_revision,"source_files_modified":false}),
+        )
     }
 }
 
@@ -2028,15 +2101,6 @@ impl LanguageServer for HickBackend {
             crate::server_config::load_from_document(&path);
         }
 
-        {
-            let mut docs = self.documents.write().await;
-            docs.entry(uri.clone()).or_insert_with(|| DocEntry {
-                state: None,
-                open_vfiles: Vec::new(),
-                vfile_version: 0,
-            });
-        }
-
         self.process_document(&uri, &source).await;
     }
 
@@ -2044,22 +2108,40 @@ impl LanguageServer for HickBackend {
         let uri = params.text_document.uri;
 
         if let Some(change) = params.content_changes.into_iter().next() {
-            self.process_document(&uri, &change.text).await;
+            self.prepare_document(&uri, &change.text,false).await;
         }
     }
 
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
         let uri = params.text_document.uri;
-
+        let gate = {
+            let mut documents = self.documents.write().await;
+            let Some(entry) = documents.get_mut(&uri) else {
+                return;
+            };
+            entry.source_revision = crate::source_identity::SourceRevision::fresh();
+            entry.preparing = true;
+            entry.preparation.clone()
+        };
+        let _guard = gate.lock().await;
+        if !self
+            .documents
+            .read()
+            .await
+            .get(&uri)
+            .is_some_and(|entry| Arc::ptr_eq(&entry.preparation, &gate))
+        {
+            return;
+        }
         self.close_vfiles_for(&uri, &[]).await;
-        // The code staged for this document goes with it. The whole staging
-        // directory is removed when this server stops either way; this is so a
-        // long session that opens a hundred documents is not still holding a
-        // copy of the code from all hundred.
         self.staging.forget(&uri);
-
-        let mut docs = self.documents.write().await;
-        docs.remove(&uri);
+        let mut documents = self.documents.write().await;
+        if documents
+            .get(&uri)
+            .is_some_and(|entry| Arc::ptr_eq(&entry.preparation, &gate))
+        {
+            documents.remove(&uri);
+        }
     }
 
     async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {

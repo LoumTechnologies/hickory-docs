@@ -249,6 +249,24 @@ Physical input and accessibility remain unverified. The separate asynchronous
 collector authority fixes and provider contributor work have their own pending
 integration evidence and are not established by these history checks.
 
+## Complete contributor provider bulk routing, 2026-11-17
+
+Project source actions now fan out over the actual contributor/output graph,
+deduplicate repeated origins and retain explicit qualified provider choices.
+Engine-issued source proofs bind origin, contributor context and known edited
+preimages; per-document revisions reject edit/Undo and close/reopen ABA without
+blocking an unrelated preparing source. Exact capture acknowledgements report
+processed source, hash, revision and absence of source effects.
+
+Nine focused Rust cases, the existing provider protocol and the new maintained
+real-engine bulk protocol pass. The latter exercises prose-start discovery,
+four contributor/output actions, repeated origins, cross-fragment refusal,
+standalone exclusion, forged metadata, stale and held tokens, dirty contributors
+and the complete-action size bound while preserving original source bytes.
+Host proof admission is separate work in progress. Coherent unsaved contributor
+overlays and reserved-URI project projection remain internal limitations; these
+receipts do not establish complete provider parity.
+
 ## Current integration ledger
 
 This ledger reconciles the required outcome with the implementation inspected on

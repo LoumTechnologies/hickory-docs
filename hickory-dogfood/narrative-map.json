@@ -156008,6 +156008,55 @@
       "page": ".hickory-source/frontends/action-chooser-browser-witness.md",
       "symbol": "bulk fix native runner",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "provider-contributing-documents",
+      "output": "crates/hick-lsp/src/position_map.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-lsp/src/position_map.rs.md",
+      "symbol": "provider contributing documents",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "bulk-literate-controlled-provider",
+      "output": "scripts/controlled-bulk-literate-provider.py",
+      "page": ".hickory-source/mechanisms/provider-bulk-literate-witness.md",
+      "symbol": "bulk literate controlled provider",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "bulk-literate-protocol-driver",
+      "output": "scripts/provider-bulk-literate-driver.mjs",
+      "page": ".hickory-source/mechanisms/provider-bulk-literate-witness.md",
+      "symbol": "bulk literate protocol driver",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "bulk-literate-protocol-runner",
+      "output": "scripts/test-provider-bulk-literate.py",
+      "page": ".hickory-source/mechanisms/provider-bulk-literate-witness.md",
+      "symbol": "bulk literate protocol runner",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "provider-document-source-lifetime",
+      "output": "crates/hick-lsp/src/backend.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-lsp/src/backend.rs.md",
+      "symbol": "provider document source lifetime",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "provider-action-source-proof-witness",
+      "output": "crates/hick-lsp/src/backend/actions.rs",
+      "page": ".hickory-source/mechanisms/provider-action-artifacts.md",
+      "symbol": "provider action source proof witness",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "provider-action-graph-revision",
+      "output": "crates/hick-lsp/src/backend/actions.rs",
+      "page": ".hickory-source/mechanisms/provider-action-artifacts.md",
+      "symbol": "provider action graph revision",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {
