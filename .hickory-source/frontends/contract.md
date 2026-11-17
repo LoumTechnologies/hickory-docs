@@ -105,8 +105,14 @@ layout and scroll beside an independently edited source. That source retains
 its editor, selection and Undo; disk is unchanged. Eight focused browser cases
 and TypeScript checking pass, including exact lost-reply retries, generated
 read-only copies, stale leases and atomic malformed-layout refusal. Utility
-instances remain in place. Native auto-capture and crash/layout restoration
-remain required work; this does not establish physical-input acceptance.
+instances remain in place. Apple automatic capture and draft/layout/view
+restoration now pass two separate native processes against one owned engine: the
+capture process exits before restoration starts. Source, unnamed note, selection
+and viewport survive; stale selection refuses, existing native editor/Undo
+survive and disk is unchanged. Five focused Apple cases pass (the owned case
+was skipped in that run), then both actual phases pass without skips. The iOS
+simulator product builds. Android session recovery remains required work;
+physical-input/accessibility acceptance remains unverified.
 
 Deleted-source history passes ten focused history cases and the real strict
 save/create/history HTTP flow. Missing remains distinct from empty File, only

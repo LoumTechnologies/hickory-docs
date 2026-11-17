@@ -155862,6 +155862,48 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/frontends/editor-recovery-browser.md",
       "symbol": "editor recovery browser witness",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "editor-recovery-apple-types",
+      "output": "apps/apple-simple/Sources/EditorRecovery.swift",
+      "page": ".hickory-source/frontends/editor-recovery-apple.md",
+      "symbol": "editor recovery apple types",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "editor-recovery-apple-adapter",
+      "output": "apps/apple-simple/Sources/EditorRecovery.swift",
+      "page": ".hickory-source/frontends/editor-recovery-apple.md",
+      "symbol": "editor recovery apple adapter",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "editor-recovery-apple-controller",
+      "output": "apps/apple-simple/Sources/EditorRecovery.swift",
+      "page": ".hickory-source/frontends/editor-recovery-apple.md",
+      "symbol": "editor recovery apple controller",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "editor-recovery-apple-view",
+      "output": "apps/apple-simple/Sources/EditorRecovery.swift",
+      "page": ".hickory-source/frontends/editor-recovery-apple.md",
+      "symbol": "editor recovery apple view",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "editor-recovery-apple-tests",
+      "output": "apps/apple-simple/Tests/EditorRecoveryTests.swift",
+      "page": ".hickory-source/frontends/editor-recovery-apple.md",
+      "symbol": "editor recovery apple tests",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "editor-recovery-native-witness",
+      "output": "scripts/test-native-editor-session.py",
+      "page": ".hickory-source/frontends/editor-recovery-apple.md",
+      "symbol": "editor recovery native witness",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

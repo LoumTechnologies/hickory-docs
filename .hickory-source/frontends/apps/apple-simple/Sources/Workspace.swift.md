@@ -35,6 +35,9 @@ import Observation
     var file: FileNode
     var resourceDeleted = false
     var unmaterializedHistoryDraft = false
+    var recoveryViewport:EditorRecoveryViewport?
+    var recoveryBaseline:EditorRecoveryBaseline?
+    @ObservationIgnored var captureRecoveryViewport:(()->CGPoint)?
     // Source equality alone must not revive a preview after edit/undo.
     var sourceEditIdentity=UUID()
     private(set) var agentSourceRevision:UInt64?=0
@@ -252,6 +255,7 @@ import Observation
     var agentProposals=AgentProposalModel()
     var sourceTemplates=SourceTemplatesModel()
     var sourceHistory=SourceHistoryModel()
+    var editorRecovery=EditorRecoveryModel()
     var sourceRootAddress:String?
     var sourceWorkspaceID:String?
     var testSources=TestSourcesModel()

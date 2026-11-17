@@ -285,4 +285,6 @@ Each client reads text before requesting optional capabilities. A save uses the 
 
 <ui:include file="editor-recovery-browser.md" />
 
+<ui:include file="editor-recovery-apple.md" />
+
 </ui:doc>

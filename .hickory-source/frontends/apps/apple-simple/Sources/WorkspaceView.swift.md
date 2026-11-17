@@ -63,6 +63,8 @@ struct WorkspaceView: View {
                 Button("⋯") { connection = true }.help("Workspace connection")
             }.font(.system(size: 11)).padding(.horizontal, 8).frame(height: 24)
         }
+        .task{await workspace.editorRecovery.captureLoop(workspace)}
+        .popover(isPresented:Binding(get:{workspace.editorRecovery.showing},set:{if !$0{workspace.editorRecovery.close()}})){EditorRecoveryView(workspace:workspace).onKeyPress(.escape){workspace.editorRecovery.close();return .handled}}
         .popover(isPresented:$workspace.showCoverage) {SimpleCoverageView(workspace:workspace).onKeyPress(.escape){workspace.showCoverage=false;workspace.currentBuffer?.focusSource?();return .handled}}
         .popover(isPresented:$workspace.showRecovery) {SourceRecoveryView(workspace:workspace).onKeyPress(.escape){workspace.showRecovery=false;workspace.currentBuffer?.focusSource?();return .handled}}
         .popover(isPresented:$workspace.showConstruction) {ConstructionReadingView(workspace:workspace).onKeyPress(.escape){workspace.showConstruction=false;workspace.currentBuffer?.focusSource?();return .handled}}

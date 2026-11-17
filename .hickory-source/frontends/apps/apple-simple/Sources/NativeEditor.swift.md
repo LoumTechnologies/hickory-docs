@@ -17,6 +17,8 @@ Fold state belongs to the cached native editor. Discover indentation regions wit
 
 A fixed-width left gutter offers − to fold and + to unfold each visible header. It uses the same measured rows as line numbers so scrolling, wrapping and hidden rows keep controls anchored. Debugger actions stay on the right. Nested ranges remain independent, and folding is allowed on read-only files because it writes no source. Markdown additionally folds ATX and Setext headings through the next peer or ancestor. Fence markers and literal Hickory payloads suppress heading discovery, so Python comments cannot become sections. These are local structural folds; language-server ownership is independent.
 
+A private session restore initializes selection and scroll only on a newly recovered buffer. Its pending viewport is consumed after native attachment, provided source and selection have not changed. Ordinary capability attachment never reapplies that saved viewport or replaces an existing editor.
+
 ## Keep background presentation from moving the viewport
 
 Capture the visible character and its vertical position before changing attributes.
@@ -980,6 +982,7 @@ private struct EquationLayout: Equatable {
         text.layoutManager?.delegate = folding
         buffer.toggleFold = { [weak self] line in self?.toggleFold(line) }
         buffer.focusSource = { [weak self] in guard let self else { return }; self.text.window?.makeFirstResponder(self.text) }
+        buffer.captureRecoveryViewport={ [weak self] in self?.scroll.contentView.bounds.origin ?? .zero }
         buffer.sourceEditorState={ [weak self] in guard let self else{return nil};return NativeSourceEditorState(identity:self.sourceEditorIdentity,source:self.text.string,selection:self.text.selectedRange(),composing:self.text.hasMarkedText(),editable:self.text.isEditable && !self.buffer.readOnly && !self.buffer.saving,attached:self.text.window != nil,selections:max(self.text.selectedRanges.count,self.buffer.multiRanges.count))}
         buffer.applyCompletionDraft = { [weak self] draft,initial in
             guard let self,self.text.selectedRange()==initial,self.text.selectedRanges.count==1,exactUTF8(draft.path,self.buffer.file.path) else{return false}
@@ -1460,6 +1463,10 @@ struct NativeEditor: NSViewRepresentable {
             editor.text.undoManager?.removeAllActions()
         }
         (view as? MacEditorHost)?.attach(); view.needsLayout = true
+        if let pending=buffer.recoveryViewport,let editor=EditorCache.views[buffer.id]{let revision=buffer.sourceEditIdentity,selection=editor.text.selectedRange();Task { @MainActor in
+            guard buffer.recoveryViewport != nil,buffer.sourceEditIdentity==revision,editor.text.selectedRange()==selection,editor.text.window != nil else{return}
+            buffer.recoveryViewport=nil;let range=NSRange(location:min(pending.selection.anchor,pending.selection.head),length:abs(pending.selection.head-pending.selection.anchor));editor.text.setSelectedRange(range);buffer.selection=range;editor.scroll.layoutSubtreeIfNeeded();editor.scroll.contentView.scroll(to:CGPoint(x:pending.scroll_x,y:pending.scroll_y));editor.scroll.reflectScrolledClipView(editor.scroll.contentView)
+        }}
         Task { @MainActor in EditorCache.views[buffer.id]?.measureDebugLines() }
     }
 }
@@ -1527,6 +1534,7 @@ import UIKit
         text.layoutManager.delegate = folding
         buffer.toggleFold = { [weak self] line in self?.toggleFold(line) }
         buffer.focusSource = { [weak self] in self?.text.becomeFirstResponder() }
+        buffer.captureRecoveryViewport={ [weak self] in self?.text.contentOffset ?? .zero }
         buffer.sourceEditorState={ [weak self] in guard let self else{return nil};return NativeSourceEditorState(identity:self.sourceEditorIdentity,source:self.text.text ?? "",selection:self.text.selectedRange,composing:self.text.markedTextRange != nil,editable:self.text.isEditable && !self.buffer.readOnly && !self.buffer.saving,attached:self.text.window != nil,selections:max(1,self.buffer.multiRanges.count))}
         buffer.applyCompletionDraft = { [weak self] draft,initial in
             guard let self,self.text.selectedRange==initial,exactUTF8(draft.path,self.buffer.file.path) else{return false}
@@ -1992,6 +2000,10 @@ struct NativeEditor: UIViewRepresentable {
             editor.text.undoManager?.removeAllActions()
         }
         (view as? MobileEditorHost)?.attach(); view.setNeedsLayout()
+        if let pending=buffer.recoveryViewport,let editor=EditorCache.views[buffer.id]{let revision=buffer.sourceEditIdentity,selection=editor.text.selectedRange;Task { @MainActor in
+            guard buffer.recoveryViewport != nil,buffer.sourceEditIdentity==revision,editor.text.selectedRange==selection,editor.text.window != nil else{return}
+            buffer.recoveryViewport=nil;let range=NSRange(location:min(pending.selection.anchor,pending.selection.head),length:abs(pending.selection.head-pending.selection.anchor));editor.text.selectedRange=range;buffer.selection=range;editor.text.layoutIfNeeded();editor.text.setContentOffset(CGPoint(x:pending.scroll_x,y:pending.scroll_y),animated:false)
+        }}
         Task { @MainActor in EditorCache.views[buffer.id]?.measureDebugLines() }
     }
 }

@@ -72091,6 +72091,42 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "fragments": [
         "editor-recovery-browser-witness"
       ]
+    },
+    "apps/apple-simple/Sources/EditorRecovery.swift": {
+      "source": ".hickory-source/frontends/editor-recovery-apple.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "5815cfe03db28327b60c78dfbc9974c7e6011d6972f96db50caa2da98d00e8c2",
+      "construction": "fragments",
+      "fragments": [
+        "editor-recovery-apple-types",
+        "editor-recovery-apple-adapter",
+        "editor-recovery-apple-controller",
+        "editor-recovery-apple-view"
+      ]
+    },
+    "apps/apple-simple/Tests/EditorRecoveryTests.swift": {
+      "source": ".hickory-source/frontends/editor-recovery-apple.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "f10aa1160b31ecbb21b633ddd10cd271f5545d93dc6a6cf71054960970d16b0c",
+      "construction": "fragments",
+      "fragments": [
+        "editor-recovery-apple-tests"
+      ]
+    },
+    "scripts/test-native-editor-session.py": {
+      "source": ".hickory-source/frontends/editor-recovery-apple.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "6be166cfbc638f69b4d931bf8b96c8090bc498db6366d06a0beb341e7f05f5f8",
+      "construction": "fragments",
+      "fragments": [
+        "editor-recovery-native-witness"
+      ]
     }
   },
   "evidence_records": [

@@ -4,7 +4,7 @@ func dropEdge(_ x: Double, _ y: Double) -> String? {
     guard x.isFinite, y.isFinite, (0...1).contains(x), (0...1).contains(y) else { return nil }
     return x < 0.2 ? "left" : x > 0.8 ? "right" : y < 0.2 ? "top" : y > 0.8 ? "bottom" : nil
 }
-struct PaneNode: Identifiable, Equatable {
+struct PaneNode: Identifiable, Equatable, Codable {
     var id: String
     var tabs: [String] = []
     var active: String? = nil
@@ -14,7 +14,7 @@ struct PaneNode: Identifiable, Equatable {
     var ratio: Double = 0.5
     static func ==(a:Self,b:Self)->Bool {a.id==b.id&&a.tabs.map(NativeSourceKey.init)==b.tabs.map(NativeSourceKey.init)&&a.active.map(NativeSourceKey.init)==b.active.map(NativeSourceKey.init)&&a.axis==b.axis&&a.first==b.first&&a.second==b.second&&a.ratio==b.ratio}
 }
-struct PaneLayout {
+struct PaneLayout: Codable {
     var rootID = "root"
     var nodes: [String: PaneNode] = [
         "root": PaneNode(id: "root", axis: "horizontal", first: "files-group", second: "document-group", ratio: 0.22),
