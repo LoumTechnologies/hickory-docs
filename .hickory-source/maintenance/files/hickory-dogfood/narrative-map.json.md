@@ -151420,7 +151420,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     {
       "id": "simple-workspace-command-descriptors",
-      "output": "apps/apple-simple/Sources/Resources/commands.json",
+      "output": "apps/simple-contract/commands.json",
       "page": ".hickory-source/frontends/workspace-commands.md",
       "symbol": "simple-workspace-command-descriptors",
       "basis": "explained-behavior"
