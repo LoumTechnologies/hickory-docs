@@ -511,7 +511,7 @@ class Workspace(private val backgroundScope: kotlinx.coroutines.CoroutineScope? 
         val file = (buffers[path]?.file ?: find(rootFiles))?.takeUnless { it.dir } ?: run { status = "Location not found: $path. Refresh files and query again."; return }
         val current = generation
         open(file, recordNavigation = false)
-        if (!isCurrent() || generation != current || active != path) return
+        if (!isCurrent() || generation != current || active != sourceTab(path)) return
         val buffer = buffers[path] ?: return
         if (buffer.dirty && !allowDirty && departed?.path != path) { status = "Save $path and query again before using a cross-file source position."; return }
         val source = buffer.text

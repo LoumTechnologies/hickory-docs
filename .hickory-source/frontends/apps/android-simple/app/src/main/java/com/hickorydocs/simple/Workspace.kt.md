@@ -1,7 +1,7 @@
 <ui:doc xmlns:ui="http://www.hickorydocs.com/1.0">
 # Retain Compose text state outside layout composition
 
-The read-only navigation epoch lets a fact reader reject work after a workspace switch. Semantic navigation also accepts a requester-lifetime guard; check it before opening, after acquisition and before a delayed source reveal. Existing callers retain their default behavior. A coordinate is still checked against the exact expected source. Report a completed reveal only after the editor accepts the source selection, so a fact reader does not close on a failed reveal.
+The read-only navigation epoch lets a fact reader reject work after a workspace switch. Semantic navigation also accepts a requester-lifetime guard; check it before opening, after acquisition and before a delayed source reveal. Match the selected tab through the source address mapping, so a file named `agent` reaches its own editor beside the Agent utility. A coordinate is still checked against the exact expected source. Report a completed reveal only after the editor accepts the source selection, so a fact reader does not close on a failed reveal.
 
 For maintainers iterating on the equivalent Apple, Android and browser editor frontends.
 
@@ -585,7 +585,7 @@ Foreground file opening and background intelligence share one acquisition path. 
         val file = (buffers[path]?.file ?: find(rootFiles))?.takeUnless { it.dir } ?: run { status = "Location not found: $path. Refresh files and query again."; return }
         val current = generation
         open(file, recordNavigation = false)
-        if (!isCurrent() || generation != current || active != path) return
+        if (!isCurrent() || generation != current || active != sourceTab(path)) return
         val buffer = buffers[path] ?: return
         if (buffer.dirty && !allowDirty && departed?.path != path) { status = "Save $path and query again before using a cross-file source position."; return }
         val source = buffer.text

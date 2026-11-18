@@ -225,6 +225,24 @@ class ParityTest {
         language.close(); assertTrue(!language.open(local)); assertEquals(1, opened)
     }
 
+    @org.junit.Test fun semanticNavigationRevealsReservedSourceTabAndRetainsTheUtility() = kotlinx.coroutines.runBlocking {
+        val source = FileNode("agent", "agent", false, emptyList(), null, null)
+        val buffer = DocumentBuffer(source, FileText("prefix target\n", "base"))
+        val workspace = Workspace(this)
+        workspace.buffers[source.path] = buffer
+        workspace.show("agent")
+        var revealed = 0
+        workspace.openSemanticLocation(SemanticLocation("hick:///agent", 0, 7), expectedSource = buffer.text) { revealed++ }
+        assertSame(buffer, workspace.currentBuffer)
+        assertEquals(sourceTab(source.path), workspace.active)
+        assertEquals(androidx.compose.ui.text.TextRange(7), buffer.state.selection)
+        assertEquals(1, revealed)
+        assertTrue(workspace.layout.groups().any { "agent" in it.tabs })
+        assertFalse(buffer.dirty)
+        workspace.show("agent")
+        assertNull(workspace.currentBuffer)
+    }
+
     @org.junit.Test fun semanticSymbolsAndCallTreesRetainNamesAndPositions() {
         // Contract: .hickory-source/frontends/contract.md
         val range = JSONObject().put("start", JSONObject().put("line", 2).put("character", 4)).put("end", JSONObject().put("line", 2).put("character", 8))
