@@ -10,6 +10,8 @@ Captured SHA-256: `d58ec0b75648e7a871878f450368b8590f0eb3af37778eaf8227fc0198658
 
 Diagnostics compute a canonical `sha256:` source digest with the small cryptographic dependency directly; source revision checking does not pull protocol schema validation into the language server.
 
+The snippet context reads the editor-captured clock with the existing pinned Chrono parser and formatter. Enable only standard-library support: this mechanism must not discover engine-local time or timezone values when the host omitted them.
+
 <book:entry path="crates/hick-lsp/Cargo.toml">
 [package]
 name = "hick-lsp"
@@ -28,6 +30,7 @@ hick-lang = { path = "../hick-lang" }
 hick-blocks = { path = "../hick-blocks" }
 hick-project-env = { path = "../hick-project-env" }
 sha2 = "0.10"
+chrono = { version = "=0.4.45", default-features = false, features = ["std"] }
 tower-lsp = "0.20"
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }

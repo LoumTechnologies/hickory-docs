@@ -386,4 +386,6 @@ is included with that control; opening a document is not generation authority.
 
 <storycode:include file="browser-source-text.md" />
 
+<storycode:include file="snippet-variable-context.md" />
+
 </storycode:doc>

@@ -1971,4 +1971,26 @@ race exposed by this flow is covered by the preceding transport receipt. Other
 provider move variants and physical/device/accessibility acceptance are not
 established by these cases.
 
+## Share explicit variable snapshots and bounded demand mechanisms
+
+The common snippet mechanisms now bind variables to exact authored source,
+selection, path and workspace. A host captures its clock/offset and random seed
+once per intention; the engine never substitutes its own local clock. Presence
+analysis follows reachable defaults and rendered field dependencies before value
+materialization, so an unused oversized value or clipboard default cannot force a
+read or reject an unrelated expansion. Unsupported syntax and value/work limits
+refuse the complete expansion.
+
+Browser, Apple and Android share the same source-proof and two-step clipboard
+handshake policy. Clipboard is read only after an exact supported demand, at most
+once, while the original lease remains current. Foreign proof, repeated demand,
+source/selection retirement and denied reads retain explicit outcomes.
+
+Executed evidence (2026-11-17): eleven parser and five context cases pass through
+the generated Rust modules. Browser handshake cases and both native handshake
+classes pass; web type checking and the iOS simulator product build pass. These
+are shared mechanisms and protocol models. Production completion/template
+integration and usable provider flows remain a separate acceptance step; these
+receipts alone do not establish complete template parity.
+
 </ui:doc>

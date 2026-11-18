@@ -3345,6 +3345,7 @@ dependencies = [
 name = "hick-lsp"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "hick-blocks",
  "hick-lang",
  "hick-plugins",

@@ -73026,6 +73026,83 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "fragments": [
         "android-language-connection-concurrency-tests"
       ]
+    },
+    "crates/hick-lsp/src/snippet_context.rs": {
+      "source": ".hickory-source/mechanisms/snippet-variable-context.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "4e11a73c2e37ca2156d5f6c2d88e9fbaa7e022466b76a1ec57969c9dddfcae41",
+      "construction": "fragments",
+      "fragments": [
+        "snippet-variable-context-engine"
+      ]
+    },
+    "apps/web/src/simple/SnippetContext.ts": {
+      "source": ".hickory-source/mechanisms/snippet-variable-context.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "5d6065a3f76da8f7053e483673fe7bb53207f688ced15a585826aec209066652",
+      "construction": "fragments",
+      "fragments": [
+        "snippet-variable-context-browser"
+      ]
+    },
+    "apps/apple-simple/Sources/SnippetContext.swift": {
+      "source": ".hickory-source/mechanisms/snippet-variable-context.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "b8a0e2685d738bd3fb9dc9d77404bc68568a2659a4e8eb2997451a6cd2b7b899",
+      "construction": "fragments",
+      "fragments": [
+        "snippet-variable-context-apple"
+      ]
+    },
+    "apps/android-simple/app/src/main/java/com/hickorydocs/simple/SnippetContext.kt": {
+      "source": ".hickory-source/mechanisms/snippet-variable-context.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "c547c2c6bff95144eb986fdd9b3c0877b4504e7508c15ddade37885eba868973",
+      "construction": "fragments",
+      "fragments": [
+        "snippet-variable-context-android"
+      ]
+    },
+    "apps/web/src/simple/SnippetContext.test.ts": {
+      "source": ".hickory-source/mechanisms/snippet-variable-context.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "test",
+      "sha256": "fb7356de034ae636d39f177ee06bf5c7a3862eada46fd88b004f14bf280e2fe6",
+      "construction": "fragments",
+      "fragments": [
+        "snippet-variable-context-browser-witness"
+      ]
+    },
+    "apps/apple-simple/Tests/SnippetContextHandshakeTests.swift": {
+      "source": ".hickory-source/mechanisms/snippet-variable-context.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "test",
+      "sha256": "f0b1cadd0db86fdbe1e97435be49bf2c93b2ce6cffd71e92798e715f49c601e9",
+      "construction": "fragments",
+      "fragments": [
+        "snippet-variable-context-apple-witness"
+      ]
+    },
+    "apps/android-simple/app/src/test/java/com/hickorydocs/simple/SnippetContextHandshakeTest.kt": {
+      "source": ".hickory-source/mechanisms/snippet-variable-context.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "test",
+      "sha256": "be12188bf26da0a375653f747f3d8f4dd831db655c154f1d3d2fb22fd9eeae42",
+      "construction": "fragments",
+      "fragments": [
+        "snippet-variable-context-android-witness"
+      ]
     }
   },
   "evidence_records": [

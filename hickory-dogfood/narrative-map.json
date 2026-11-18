@@ -156652,6 +156652,55 @@
       "page": ".hickory-source/frontends/language-connection-android.md",
       "symbol": "android language connection concurrency tests",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-variable-context-engine",
+      "output": "crates/hick-lsp/src/snippet_context.rs",
+      "page": ".hickory-source/mechanisms/snippet-variable-context.md",
+      "symbol": "snippet variable context engine",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-variable-context-browser",
+      "output": "apps/web/src/simple/SnippetContext.ts",
+      "page": ".hickory-source/mechanisms/snippet-variable-context.md",
+      "symbol": "snippet variable context browser",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-variable-context-apple",
+      "output": "apps/apple-simple/Sources/SnippetContext.swift",
+      "page": ".hickory-source/mechanisms/snippet-variable-context.md",
+      "symbol": "snippet variable context apple",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-variable-context-android",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/SnippetContext.kt",
+      "page": ".hickory-source/mechanisms/snippet-variable-context.md",
+      "symbol": "snippet variable context android",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-variable-context-browser-witness",
+      "output": "apps/web/src/simple/SnippetContext.test.ts",
+      "page": ".hickory-source/mechanisms/snippet-variable-context.md",
+      "symbol": "snippet variable context browser witness",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-variable-context-apple-witness",
+      "output": "apps/apple-simple/Tests/SnippetContextHandshakeTests.swift",
+      "page": ".hickory-source/mechanisms/snippet-variable-context.md",
+      "symbol": "snippet variable context apple witness",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-variable-context-android-witness",
+      "output": "apps/android-simple/app/src/test/java/com/hickorydocs/simple/SnippetContextHandshakeTest.kt",
+      "page": ".hickory-source/mechanisms/snippet-variable-context.md",
+      "symbol": "snippet variable context android witness",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

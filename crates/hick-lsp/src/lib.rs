@@ -44,4 +44,5 @@ pub use service::service;
 pub mod snippet;
 pub mod snippet_transform;
 pub mod snippet_case;
+pub mod snippet_context;
 mod provider_refactors;

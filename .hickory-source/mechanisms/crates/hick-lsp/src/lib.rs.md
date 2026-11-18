@@ -198,12 +198,13 @@ pub use service::service;
 
 ## Share snippet plans with host-facing engine services
 
-The parser returns text and editable positions without borrowing an editor or choosing a provider. Export this mechanism so completion and template services can use one implementation while hosts retain source and undo authority. The separate bounded transform module compiles data-only programs and exposes its focused safety witnesses; exporting it alone does not enable transform syntax in completion or template editing.
+The parser returns text and editable positions without borrowing an editor or choosing a provider. Export this mechanism so completion and template services can use one implementation while hosts retain source and undo authority. The context module shares source-bound variable demand and explicit clock/seed interpretation between both services; the host retains clipboard permission and its original editor lease. The separate bounded transform module compiles data-only programs and exposes its focused safety witnesses; exporting it alone does not enable transform syntax in completion or template editing.
 
 <storycode:copy id="snippet-plan-public-module">
 pub mod snippet;
 pub mod snippet_transform;
 pub mod snippet_case;
+pub mod snippet_context;
 mod provider_refactors;
 </storycode:copy>
 
