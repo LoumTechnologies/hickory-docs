@@ -64,7 +64,18 @@ pub(crate) struct Admission {
 
 A previous plan grants no execution. Reuse saved-run selection and saved-source checks, then ask the language provider for a read-only launch plan. Missing providers remain unavailable instead of falling back to ordinary file Debug.
 
+Constructed Rust manifests come from the captured compiler tree, never an unrelated file at the future output path. Admission records the nearest ordinary manifest and its exact digest without materializing files. The runtime must reproduce that descriptor before compiling and after preparation; a replaced workspace or a changed manifest refuses the launch. Physical projects retain their nearest source-side manifest.
+
 <ui:copy id="test-debug-service-admission">
+fn constructed_rust_test_manifest(root:&Path,target:&str,state:&hick_lsp::document::HickDocumentState,entry:&Path)->Result<(String,String),String>{
+ let host=root.join(target);let runtime=host.strip_prefix(entry.parent().unwrap_or(root)).map_err(|_|"Constructed Rust target escaped its compiler root")?;let mut dir=runtime.parent().ok_or("Rust test target has no parent")?;
+ loop{let name=dir.join("Cargo.toml");let key=name.to_str().ok_or("Rust manifest path is not UTF-8")?;
+  let bytes=if let Some(tree)=&state.selected_project{if let Some(file)=tree.get(key){if file.kind!=hick_lang::EntryKind::File{return Err("Constructed Rust manifest is not an ordinary file".into())}Some(file.bytes.to_vec())}else{None}}else{let files=state.virtual_files.iter().filter(|file|file.path==key).collect::<Vec<_>>();if files.len()>1{return Err("Constructed Rust manifest is ambiguous".into())}files.first().map(|file|file.written_content().into_bytes())};
+  if let Some(bytes)=bytes{if bytes.len()>1048576{return Err("Rust manifest exceeds the debug preparation budget".into())}return Ok((key.to_owned(),source_tests::digest(&bytes)))}
+  match dir.parent(){Some(parent)=>dir=parent,None=>return Err("The constructed Rust test has no admitted Cargo.toml".into())}
+ }
+}
+
 /// Read compiler facts and saved authors again; a previous plan grants no execution.
 pub(crate) fn admit(root: &Path, request: &RunRequest) -> ApiResult<Admission> {
     if request.version != 1 {
@@ -82,12 +93,10 @@ pub(crate) fn admit(root: &Path, request: &RunRequest) -> ApiResult<Admission> {
     let checked_sources = source_tests::check_saved_sources(&root, &scan.source_hashes)?;
     let source_uri = crate::launch_profiles::inventory::workspace_source_uri(&scan.input_path)
         .map_err(ApiError::bad_request)?;
-    let provider = hick_plugins::testing::test_debug_command(
-        &root,
-        &root.join(&candidate.target.path),
-        &filter,
-        &candidate.language,
-    );
+    let constructed_manifest=if candidate.language=="rust"{scan.debug_state.as_ref().map(|(state,entry)|constructed_rust_test_manifest(&root,&candidate.target.path,state,entry))}else{None};
+    let preview_manifest=constructed_manifest.as_ref().and_then(|value|value.as_ref().ok()).map(|(path,_)|root.join(path));
+    let provider=if let Some(Err(reason))=&constructed_manifest{Err(reason.clone())}else{hick_plugins::testing::test_debug_command_with_manifest(&root,&root.join(&candidate.target.path),&filter,&candidate.language,preview_manifest.as_deref())};
+    let rust_manifest=if candidate.language=="rust" {if let Ok(plan)=&provider{if let Some(Ok(descriptor))=&constructed_manifest{Some(descriptor.clone())}else{let path=plan.cwd.join("Cargo.toml");let relative=path.strip_prefix(&root).map_err(|_|ApiError::unprocessable("Rust manifest escaped workspace"))?.to_str().ok_or_else(||ApiError::unprocessable("Rust manifest is not UTF-8"))?.to_owned();let metadata=std::fs::symlink_metadata(&path).map_err(|error|ApiError::unprocessable(error.to_string()))?;if !metadata.is_file()||metadata.file_type().is_symlink()||metadata.len()>1048576{return Err(ApiError::unprocessable("Rust manifest must be a bounded ordinary saved file"))}let bytes=std::fs::read(&path).map_err(|error|ApiError::unprocessable(format!("Rust manifest unavailable: {error}")))?;if request.analysis.sources.get(&relative).is_some_and(|draft|draft.as_bytes()!=bytes){return Err(ApiError::unprocessable("Save the selected Cargo.toml draft before Debug test"))}if bytes.len()>1048576{return Err(ApiError::unprocessable("Rust manifest debug budget exceeded"))}Some((relative,source_tests::digest(&bytes)))}}else{None}}else{None};
     let (available, framework, name, reason) = match provider {
         Ok(value) => (true, value.framework.to_owned(), value.title, None),
         Err(message) => (
@@ -132,6 +141,8 @@ pub(crate) fn admit(root: &Path, request: &RunRequest) -> ApiResult<Admission> {
         notices,
     };
     let launch = crate::debug_sessions::TestLaunch {
+        workspace_id:scan.workspace_id.clone(),
+        rust_manifest,
         workspace: root.clone(),
         input: root.join(&scan.input_path),
         input_source: request.analysis.source.clone(),
@@ -262,8 +273,8 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let request = request(
             directory.path(),
-            "test.rs",
-            "#[test]\nfn test_selected() {}\n",
+            "test.js",
+            "test('test_selected',()=>{});\n",
             Selection::ContainingScope {},
         );
         let admitted = admit(directory.path(), &request).unwrap();
@@ -394,5 +405,5 @@ These are process and mapping observations, not collected test-case verdicts.
 }
 </ui:copy>
 
-<ui:file path="crates/hickory-cli/src/serve/test_debug.rs"><ui:paste select="#test-debug-service-types"/><ui:paste select="#test-debug-service-admission"/><ui:paste select="#test-debug-service-http"/><ui:paste select="#test-debug-service-witness"/><ui:paste select="#test-debug-service-live-witness"/></ui:file>
+<ui:file path="crates/hickory-cli/src/serve/test_debug.rs"><ui:paste select="#test-debug-service-types"/><ui:paste select="#test-debug-service-admission"/><ui:paste select="#test-debug-service-http"/><ui:paste select="#test-debug-service-witness"/><ui:paste select="#test-debug-service-live-witness"/><ui:paste select="#rust-selected-test-debug-service-witnesses"/></ui:file>
 </ui:doc>

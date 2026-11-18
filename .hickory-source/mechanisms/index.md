@@ -415,4 +415,6 @@ is included with that control; opening a document is not generation authority.
 <storycode:include file="snippet-regex-v3.md" />
 <storycode:include file="snippet-regex-acceptance.md" />
 
+<storycode:include file="rust-selected-test-debug.md" />
+
 </storycode:doc>

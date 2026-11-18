@@ -3658,6 +3658,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "tokio-tungstenite 0.24.0",
+ "toml",
  "tower 0.5.3",
  "tower-http",
  "tower-lsp",

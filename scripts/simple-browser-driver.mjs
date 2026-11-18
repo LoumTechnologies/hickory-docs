@@ -698,6 +698,11 @@ try {
         case "source-tab":await page.getByRole("tab",{name:request.label,exact:true}).click();break;
         case "debug-diagnostics": value={text:await page.locator("body").innerText(),errors:pageErrors};break;
         case "debug-values": value = await page.locator(".cm-debug-value").allTextContents(); break;
+        case "debug-breakpoint-remove": {
+          const marks=editor(request.path).locator("..").locator(".cm-bp");
+          if(await marks.count()!==1)throw Error("Expected exactly one held breakpoint in the owned editor");
+          await marks.first().click();await marks.first().waitFor({state:"detached"});break;
+        }
         case "debug-breakpoint":
           await page.getByLabel(`Set breakpoint on line ${request.line}`, { exact: true }).click(); break;
         case "indent-tabs":

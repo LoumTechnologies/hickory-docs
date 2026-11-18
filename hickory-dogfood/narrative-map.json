@@ -157373,6 +157373,48 @@
       "page": ".hickory-source/frontends/batch-template-host-acceptance.md",
       "symbol": "batch template android witness",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "rust-test-debug-provider",
+      "output": "crates/hick-plugins/src/languages/rust.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-plugins/src/languages/rust.rs.md",
+      "symbol": "rust test debug provider",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "rust-test-debug-artifact-preparation",
+      "output": "crates/hickory-cli/src/test_debug_sessions.rs",
+      "page": ".hickory-source/mechanisms/test-debug-session.md",
+      "symbol": "rust test debug artifact preparation",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "rust-selected-test-debug-service-witnesses",
+      "output": "crates/hickory-cli/src/serve/test_debug.rs",
+      "page": ".hickory-source/mechanisms/rust-selected-test-debug.md",
+      "symbol": "Rust selected test debug service witnesses",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "rust-selected-test-debug-runner",
+      "output": "scripts/test-rust-test-debug.py",
+      "page": ".hickory-source/mechanisms/rust-selected-test-debug.md",
+      "symbol": "rust selected test debug runner",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "rust-selected-test-debug-apple",
+      "output": "apps/apple-simple/Tests/RustSelectedTestDebugTests.swift",
+      "page": ".hickory-source/mechanisms/rust-selected-test-debug.md",
+      "symbol": "rust selected test debug apple",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "rust-selected-test-debug-android",
+      "output": "apps/android-simple/app/src/test/java/com/hickorydocs/simple/RustSelectedTestDebugTest.kt",
+      "page": ".hickory-source/mechanisms/rust-selected-test-debug.md",
+      "symbol": "rust selected test debug android",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

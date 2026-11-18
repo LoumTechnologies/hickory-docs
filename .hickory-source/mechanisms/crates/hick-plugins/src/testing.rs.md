@@ -144,8 +144,11 @@ providers. The engine passes only a revalidated target and selection; no rendere
 chooses argv, module or adapter launch keys.
 
 <storycode:copy id="test-debug-provider-plan">
-pub type DebugPlanner = fn(&Path, &Path, &str) -> Result<TestDebugCommand, String>;
+pub type DebugPlanner = fn(&Path, &Path, &str,Option<&Path>) -> Result<TestDebugCommand, String>;
 /// A language-owned launch configuration, never a client-supplied command.
+#[derive(Debug)]
+pub enum TestDebugPreparation { RustCargo { filter:String } }
+/// Read-only typed preparation; only the debugger registry executes it.
 #[derive(Debug)]
 pub struct TestDebugCommand {
     pub title: String,
@@ -153,6 +156,7 @@ pub struct TestDebugCommand {
     pub program: PathBuf,
     pub launch: serde_json::Value,
     pub framework: &'static str,
+    pub preparation:Option<TestDebugPreparation>,
 }
 pub fn test_debug_command(
     root: &Path,
@@ -160,6 +164,9 @@ pub fn test_debug_command(
     name: &str,
     language: &str,
 ) -> Result<TestDebugCommand, String> {
+    test_debug_command_with_manifest(root,file,name,language,None)
+}
+pub fn test_debug_command_with_manifest(root:&Path,file:&Path,name:&str,language:&str,manifest:Option<&Path>)->Result<TestDebugCommand,String>{
     let language = crate::routing::language_id(language).unwrap_or(language);
     if !file.starts_with(root) {
         return Err("Test source is outside the runtime workspace".into());
@@ -167,7 +174,7 @@ pub fn test_debug_command(
     match crate::registry().interface(language, crate::InterfaceKind::TestRunner) {
         Some(crate::Interface::TestRunner {
             debug: Some(plan), ..
-        }) => plan(root, file, name),
+        }) => plan(root, file, name,manifest),
         _ => Err(format!(
             "The {language} test provider does not supply a debugger launch. Run is available separately; no ordinary-file Debug fallback was performed."
         )),
@@ -215,9 +222,9 @@ mod debug_plan_tests {
         let directory = tempfile::tempdir().unwrap();
         let error = test_debug_command(
             directory.path(),
-            &directory.path().join("test.rs"),
+            &directory.path().join("test.js"),
             "test_selected",
-            "rust",
+            "javascript",
         )
         .unwrap_err();
         assert!(error.contains("does not supply a debugger launch"));

@@ -47206,7 +47206,8 @@
       "construction": "fragments",
       "fragments": [
         "f-e752d4988cd1-PLUGIN",
-        "f-e752d4988cd1-test_command"
+        "f-e752d4988cd1-test_command",
+        "rust-test-debug-provider"
       ],
       "anchor": "output-e752d4988cd1",
       "narrative_owner": "mechanism:crates/hick-plugins"
@@ -71074,7 +71075,8 @@
         "test-debug-service-admission",
         "test-debug-service-http",
         "test-debug-service-witness",
-        "test-debug-service-live-witness"
+        "test-debug-service-live-witness",
+        "rust-selected-test-debug-service-witnesses"
       ],
       "narrative_owner": "mechanism:test-debug-service"
     },
@@ -71087,7 +71089,8 @@
       "construction": "fragments",
       "fragments": [
         "test-debug-session-inputs",
-        "test-debug-session-launch"
+        "test-debug-session-launch",
+        "rust-test-debug-artifact-preparation"
       ],
       "narrative_owner": "mechanism:test-debug-session"
     },
@@ -73716,6 +73719,39 @@
       "construction": "fragments",
       "fragments": [
         "batch-template-android-witness"
+      ]
+    },
+    "scripts/test-rust-test-debug.py": {
+      "source": ".hickory-source/mechanisms/rust-selected-test-debug.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "test",
+      "sha256": "0319849bcab49150a0c96be8e639492b48b5b7a5f83223c3da31a54a862d89a7",
+      "construction": "fragments",
+      "fragments": [
+        "rust-selected-test-debug-runner"
+      ]
+    },
+    "apps/apple-simple/Tests/RustSelectedTestDebugTests.swift": {
+      "source": ".hickory-source/mechanisms/rust-selected-test-debug.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "test",
+      "sha256": "7bca51bb5b8b2e1f127136db65b7738f23fee8512508ec3b068787b61d32c064",
+      "construction": "fragments",
+      "fragments": [
+        "rust-selected-test-debug-apple"
+      ]
+    },
+    "apps/android-simple/app/src/test/java/com/hickorydocs/simple/RustSelectedTestDebugTest.kt": {
+      "source": ".hickory-source/mechanisms/rust-selected-test-debug.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "test",
+      "sha256": "82880d551c4e4c5f620d8e1a6f380fdd27321da9e657f042a62e178263e215f8",
+      "construction": "fragments",
+      "fragments": [
+        "rust-selected-test-debug-android"
       ]
     }
   },

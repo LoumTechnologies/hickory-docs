@@ -23,6 +23,7 @@ name = "hickory_cli"
 path = "src/lib.rs"
 
 [dependencies]
+toml = "0.5"
 hick-coverage = { path = "../hick-coverage" }
 hick-profile = { path = "../hick-profile" }
 sourcemap = "9"
