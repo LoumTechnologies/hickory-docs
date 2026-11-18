@@ -1,12 +1,13 @@
 import {expect,it,vi} from 'vitest';
-import {EditorState} from '@codemirror/state';
+import {EditorSelection,EditorState} from '@codemirror/state';
+import {authoredSource,sourceText} from './SourceText';
 import {EditorView} from '@codemirror/view';
 import {history,undo,redo} from '@codemirror/commands';
 import {acceptCompletion,completionStatus,setSelectedCompletion,CompletionContext} from '@codemirror/autocomplete';
 import {waitFor} from '@testing-library/react';
 import {completions,exclusiveCompletionSources} from '../lsp/completion';
 import {beginSnippet} from './SnippetSession';
-import {sourceSnippets,setSourceSnippet,readSourceSnippet,moveSourceSnippet,openSourceSnippetChoices,dispatchSourceSnippetTransactions,createSourceSnippetHistory} from './SourceSnippets';
+import {sourceSnippets,setSourceSnippet,readSourceSnippet,moveSourceSnippet,openSourceSnippetChoices,dispatchSourceSnippetTransactions,createSourceSnippetHistory,applyParallelSourceSnippet,sourceSnippetMenuState,readSourceEditorIntent} from './SourceSnippets';
 import type {SnippetField} from './SnippetExpansion';
 import derived from '../../../simple-contract/snippet-derived-cases.json';
 import {readSnippetTransform} from './SnippetTransform';
@@ -112,4 +113,70 @@ it('old local choice objects cannot revive after undo or field-only scope restor
 });
 it('cosmetic popup effects keep a current source-local choice usable',async()=>{
  const fields=[field(0,1,0,1,['a','long']),field(1,1,4,5,['a','long']),field(2,0,5,5)],{view,close}=fixture('a + a',fields);try{const result=await view.state.facet(exclusiveCompletionSources)[0](new CompletionContext(view.state,1,true)),choice=result!.options.find(item=>item.label==='long')!;view.dispatch({effects:setSelectedCompletion(0)});(choice.apply as Exclude<typeof choice.apply,string|undefined>)(view,choice,0,1);expect(view.state.doc.toString()).toBe('long + long');expect(undo(view)).toBe(true);expect(view.state.doc.toString()).toBe('a + a');expect(redo(view)).toBe(true);expect(view.state.doc.toString()).toBe('long + long')}finally{close()}
+});
+
+function parallelFixture(source:string,ranges:{from:number;to:number}[],primary:number){
+ const parent=document.body.appendChild(document.createElement('div'));
+ const view=new EditorView({parent,dispatchTransactions:dispatchSourceSnippetTransactions,state:EditorState.create({
+  doc:source,extensions:[sourceText(source),history(),EditorState.allowMultipleSelections.of(true),sourceSnippets({writable:()=>true,notice:()=>{}})]
+ })});
+ view.dispatch({selection:EditorSelection.create(ranges.map(r=>EditorSelection.range(r.from,r.to)),primary)});
+ return {view,close:()=>{view.destroy();parent.remove();}};
+}
+it('replays a multi-caret template and its linked input with the primary selection intact',()=>{
+ const source='aa / bb',ranges=[{from:0,to:2},{from:5,to:7}],{view,close}=parallelFixture(source,ranges,1);
+ try {
+  const expansions=ranges.map((range,index)=>{
+   const value=index?'beta':'a';
+   return {...range,text:value+':'+value,fields:[
+    field(0,1,0,value.length),field(1,1,value.length+1,2*value.length+1),
+    field(2,0,2*value.length+1,2*value.length+1),
+   ]};
+  });
+  const expired=readSourceEditorIntent(view.state)!;
+  view.dispatch({selection:view.state.selection});
+  const intent=readSourceEditorIntent(view.state)!;
+  expect(applyParallelSourceSnippet(view,source,expansions,1,expired,()=>true)).toBe(false);
+  expect(applyParallelSourceSnippet(view,source,expansions,1,intent,()=>false)).toBe(false);
+  expect(applyParallelSourceSnippet(view,source,expansions,0,intent,()=>true)).toBe(false);
+  expect(authoredSource(view.state)).toBe(source);
+  expect(applyParallelSourceSnippet(view,source,expansions,1,intent,()=>true)).toBe(true);
+  const beforeTyping=view.state.selection;
+  expect(authoredSource(view.state)).toBe('a:a / beta:beta');
+  expect(beforeTyping.mainIndex).toBe(1);
+  view.dispatch({...view.state.replaceSelection('λ😀'),userEvent:'input.type'});
+  expect(authoredSource(view.state)).toBe('λ😀:λ😀 / λ😀:λ😀');
+  const afterTyping=view.state.selection;
+  expect(afterTyping.mainIndex).toBe(1);
+  expect(undo(view)).toBe(true);
+  expect(authoredSource(view.state)).toBe('a:a / beta:beta');
+  expect(view.state.selection.eq(beforeTyping)).toBe(true);
+  expect(undo(view)).toBe(true);
+  expect(authoredSource(view.state)).toBe(source);
+  expect(sourceSnippetMenuState(view).active).toBe(false);
+  expect(redo(view)).toBe(true);
+  expect(sourceSnippetMenuState(view).active).toBe(true);
+  expect(redo(view)).toBe(true);
+  expect(view.state.selection.eq(afterTyping)).toBe(true);
+  expect(moveSourceSnippet(view,1)).toBe(true);
+  expect(view.state.selection.ranges.map(range=>range.head)).toEqual([7,17]);
+  expect(moveSourceSnippet(view,-1)).toBe(true);
+  expect(view.state.selection.ranges.map(range=>view.state.sliceDoc(range.from,range.to))).toEqual(['λ😀','λ😀']);
+ } finally {close();}
+});
+
+it('keeps two logical empty peers and applies an insertion to both when the view shows one caret',()=>{
+ const source='ab',ranges=[{from:0,to:1},{from:1,to:2}],{view,close}=parallelFixture(source,ranges,0);
+ try {
+  expect(applyParallelSourceSnippet(view,source,ranges.map(range=>({
+   ...range,text:'',fields:[field(0,1,0,0),field(1,0,0,0)],
+  })),0,readSourceEditorIntent(view.state)!,()=>true)).toBe(true);
+  expect(view.state.selection.ranges).toHaveLength(1);
+  view.dispatch({...view.state.replaceSelection('x'),userEvent:'input.type'});
+  expect(authoredSource(view.state)).toBe('xx');
+  expect(view.state.selection.ranges.map(range=>range.head)).toEqual([1,2]);
+  expect(undo(view)).toBe(true);
+  expect(view.state.doc.length).toBe(0);
+  expect(sourceSnippetMenuState(view).active).toBe(true);
+ } finally {close();}
 });

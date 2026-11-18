@@ -1,5 +1,5 @@
 import {sourceText,authoredSource,authoredOffset,editorOffset,editorOffsetIn,authoredChanges,authoredInsert} from './SourceText';
-import {sourceSnippets,moveSourceSnippet,finishSourceSnippet,openSourceSnippetChoices,readSourceSnippet,readSourceEditorIntent,dispatchSourceSnippetTransactions} from './SourceSnippets';
+import {sourceSnippets,moveSourceSnippet,finishSourceSnippet,openSourceSnippetChoices,sourceSnippetMenuState,readSourceEditorIntent,dispatchSourceSnippetTransactions} from './SourceSnippets';
 import {useCoverageLineActions} from "./SourceCoverage";
 import {useSourceTestLineActions} from "./SourceTestGutters";
 import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
@@ -166,7 +166,7 @@ const editors = new WeakMap<Buffer, RetainedEditorMount&{ language: Compartment;
 export const SIMPLE_EDITOR_ATTACHED = "hickory:simple-editor-attached";
 export function editorForBuffer(buffer: Buffer) { return editors.get(buffer); }
 export function openFind(buffer: Buffer) { const view = editors.get(buffer)?.view; if (view) openSearchPanel(view); }
-export function sourceSnippetContext(buffer:Buffer|undefined){const view=buffer?editors.get(buffer)?.view:undefined,session=view?readSourceSnippet(view):null;return {sourceUndo:!!view&&!view.composing&&undoDepth(view.state)>0,sourceRedo:!!view&&!view.composing&&redoDepth(view.state)>0,snippet:!!session,snippetChoices:!!session?.fields.some(field=>field.index===session.active&&field.choices.length)}}
+export function sourceSnippetContext(buffer:Buffer|undefined){const view=buffer?editors.get(buffer)?.view:undefined,menu=view?sourceSnippetMenuState(view):null;return {sourceUndo:!!view&&!view.composing&&undoDepth(view.state)>0,sourceRedo:!!view&&!view.composing&&redoDepth(view.state)>0,snippet:!!menu?.active,snippetChoices:!!menu?.choices}}
 export function runEditorCommand(buffer: Buffer,command: "tools"|"rectangle"|"cursorBelow"|"cursorAbove"|"snippetNext"|"snippetPrevious"|"snippetChoices"|"snippetFinish"|"undo"|"redo") {
   const view=editors.get(buffer)?.view;if(!view)return false;view.focus();
   if(command==="undo")return !buffer.readonly&&undo(view);
