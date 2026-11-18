@@ -16,6 +16,50 @@ import AppKit
         #endif
     }
     func fields()->[SnippetField]{[SnippetField(index:1,from:0,to:1,choices:["a","long"],id:0),SnippetField(index:1,from:4,to:5,choices:["a","long"],id:1),SnippetField(index:0,from:5,to:5,choices:[],id:2)]}
+    func testActualMacParallelInputAndUndoRetainNativeSelections() throws {
+        #if os(macOS)
+        let source="aa / bb"
+        let buffer=DocumentBuffer(file:FileNode(name:"a.py",path:"a.py",dir:false),text:FileText(path:"a.py",content:source,hash:"base"))
+        let editor=MacEditor(buffer)
+        let window=NSWindow(contentRect:NSRect(x:0,y:0,width:500,height:300),styleMask:[.titled],backing:.buffered,defer:false)
+        window.contentView=editor.scroll
+        defer {window.contentView=nil}
+        let ranges=[NSRange(location:0,length:2),NSRange(location:5,length:2)]
+        XCTAssertTrue(buffer.selectMultiple(ranges,source:source))
+        func expansion(_ name:String,_ range:NSRange)->ParallelSnippetExpansion {
+            let n=name.utf16.count
+            return ParallelSnippetExpansion(edit:NativeSourceEdit(range:range,text:name+":"+name),fields:[
+                SnippetField(index:1,from:0,to:n,choices:[],id:0),
+                SnippetField(index:1,from:n+1,to:n+n+1,choices:[],id:1),
+                SnippetField(index:0,from:n+n+1,to:n+n+1,choices:[],id:2),
+            ])
+        }
+        let expansions=[expansion("a",ranges[0]),expansion("beta",ranges[1])]
+        let intent=buffer.snippets.intent
+        XCTAssertFalse(buffer.snippets.applyParallel(source:source,expansions:expansions,primary:0,expectedIntent:intent,admitted:{false}))
+        XCTAssertTrue(buffer.snippets.applyParallel(source:source,expansions:expansions,primary:0,expectedIntent:intent,admitted:{true}))
+        let beforeInput=buffer.multiRanges
+        XCTAssertEqual(buffer.text,"a:a / beta:beta")
+        editor.text.insertText("λ😀",replacementRange:editor.text.selectedRange())
+        let afterInput=buffer.multiRanges
+        XCTAssertEqual(buffer.text,"λ😀:λ😀 / λ😀:λ😀")
+        XCTAssertEqual(editor.text.selectedRange(),afterInput.first)
+        editor.text.undoManager?.undo()
+        XCTAssertEqual(buffer.text,"a:a / beta:beta")
+        XCTAssertEqual(buffer.multiRanges,beforeInput)
+        editor.text.undoManager?.undo()
+        XCTAssertEqual(buffer.text,source)
+        XCTAssertEqual(buffer.multiRanges,ranges)
+        XCTAssertNil(buffer.snippets.parallel)
+        editor.text.undoManager?.redo()
+        XCTAssertNotNil(buffer.snippets.parallel)
+        editor.text.undoManager?.redo()
+        XCTAssertEqual(buffer.multiRanges,afterInput)
+        XCTAssertTrue(buffer.snippets.move(1))
+        XCTAssertEqual(buffer.multiRanges.map(\.location),[7,17])
+        XCTAssertEqual(buffer.base,source)
+        #endif
+    }
     func testHistoryCostChargesEveryEmptyChoice() {
         let field=SnippetField(index:1,from:0,to:0,choices:Array(repeating:"",count:4096),id:0)
         XCTAssertEqual(snippetHistoryCost(SourceSnippetHistoryContext(fields:[field],active:1,current:0)),64+4096*32)

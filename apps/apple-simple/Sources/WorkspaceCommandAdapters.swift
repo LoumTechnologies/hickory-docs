@@ -20,7 +20,7 @@ extension Workspace {
         ]
         for query in SemanticQuery.allCases {handlers["semantic."+query.rawValue]={Task {await self.currentBuffer?.language?.navigate(query)}}}
         handlers.merge(ui){_,new in new}
-        return workspaceCommands({CommandContext(editor:self.currentBuffer != nil,writable:self.currentBuffer?.readOnly==false,dirty:self.currentBuffer?.dirty ?? false,saving:self.currentBuffer?.saving ?? false,back:self.navigationTrail.canBack,forward:self.navigationTrail.canForward,tab:self.active != nil,groups:self.layout.groups().count,snippet:self.currentBuffer?.snippets.active != nil,snippetChoices:self.currentBuffer?.snippets.choices.isEmpty==false,sourceUndo:self.currentBuffer?.canUndoSource?()==true,sourceRedo:self.currentBuffer?.canRedoSource?()==true)},handlers:handlers)
+        return workspaceCommands({CommandContext(editor:self.currentBuffer != nil,writable:self.currentBuffer?.readOnly==false,dirty:self.currentBuffer?.dirty ?? false,saving:self.currentBuffer?.saving ?? false,back:self.navigationTrail.canBack,forward:self.navigationTrail.canForward,tab:self.active != nil,groups:self.layout.groups().count,snippet:self.currentBuffer?.snippets.isActive==true,snippetChoices:self.currentBuffer?.snippets.choices.isEmpty==false,sourceUndo:self.currentBuffer?.canUndoSource?()==true,sourceRedo:self.currentBuffer?.canRedoSource?()==true)},handlers:handlers)
     }
     func openEverywhere(_ target:SearchTarget,commands:[WorkspaceCommand]) async {
         if let id=target.commandID {

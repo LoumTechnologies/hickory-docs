@@ -25,7 +25,7 @@ fun Workspace.commands(descriptors:List<CommandDescriptor>,ui:Map<String,()->Uni
     )
     for(query in SemanticQuery.entries)handlers["semantic."+query.name.replaceFirstChar {it.lowercase()}]={runCommand {currentBuffer?.language?.navigate(query)}}
     handlers.putAll(ui)
-    return workspaceCommands({CommandContext(currentBuffer!=null,currentBuffer?.readOnly==false,currentBuffer?.dirty ?: false,currentBuffer?.saving ?: false,navigationTrail.canBack,navigationTrail.canForward,active!=null,layout.groups().size,currentBuffer?.snippets?.active!=null,currentBuffer?.snippets?.choices?.isNotEmpty()==true,currentBuffer?.snippets?.canUndo==true,currentBuffer?.snippets?.canRedo==true)},handlers,descriptors)
+    return workspaceCommands({CommandContext(currentBuffer!=null,currentBuffer?.readOnly==false,currentBuffer?.dirty ?: false,currentBuffer?.saving ?: false,navigationTrail.canBack,navigationTrail.canForward,active!=null,layout.groups().size,currentBuffer?.snippets?.isActive==true,currentBuffer?.snippets?.choices?.isNotEmpty()==true,currentBuffer?.snippets?.canUndo==true,currentBuffer?.snippets?.canRedo==true)},handlers,descriptors)
 }
 suspend fun Workspace.openEverywhere(target:SearchTarget,commands:List<WorkspaceCommand>) {
     target.commandID?.let {id->val command=commands.firstOrNull {it.id==id};if(command==null||command.reason!=null){status=target.reason ?: "Command unavailable. Refresh Search Everywhere.";return};showEverywhere=false;command.run();return}

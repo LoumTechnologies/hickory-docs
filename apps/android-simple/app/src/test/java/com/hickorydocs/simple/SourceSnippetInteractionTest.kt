@@ -5,6 +5,43 @@ import androidx.compose.ui.text.TextRange
 import kotlinx.coroutines.async
 class SourceSnippetInteractionTest {
  @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+ @Test fun parallelTemplateRetainsBothSelectionsThroughNativeTextStateHistory() {
+  val source="aa / bb"
+  val buffer=DocumentBuffer(FileNode("a.py","a.py",false,emptyList(),null,null),FileText(source,"base"))
+  val ranges=listOf(NativeSourceEdit(0,2,""),NativeSourceEdit(5,7,""))
+  assertTrue(buffer.selectMultiple(ranges,source))
+  fun expansion(range:NativeSourceEdit,value:String):ParallelSnippetExpansion {
+   val n=value.length
+   return ParallelSnippetExpansion(range.copy(text="$value:$value"),listOf(
+    SnippetField(1,0,n,emptyList(),0),SnippetField(1,n+1,2*n+1,emptyList(),1),
+    SnippetField(0,2*n+1,2*n+1,emptyList(),2),
+   ))
+  }
+  val expansions=listOf(expansion(ranges[0],"a"),expansion(ranges[1],"beta"))
+  val intent=buffer.snippets.intent
+  assertFalse(buffer.snippets.applyParallel(source,expansions,0,intent){false})
+  assertTrue(buffer.snippets.applyParallel(source,expansions,0,intent){true})
+  val before=buffer.multiRanges
+  assertEquals("a:a / beta:beta",buffer.text)
+  assertTrue(buffer.snippets.inputParallel("λ😀"))
+  val after=buffer.multiRanges
+  assertEquals("λ😀:λ😀 / λ😀:λ😀",buffer.text)
+  assertEquals(TextRange(3),buffer.state.selection)
+  assertTrue(buffer.snippets.undoSource())
+  assertEquals(before,buffer.multiRanges)
+  assertTrue(buffer.snippets.undoSource())
+  assertEquals(source,buffer.text)
+  assertEquals(ranges,buffer.multiRanges)
+  assertNull(buffer.snippets.parallel)
+  assertTrue(buffer.snippets.redoSource())
+  assertNotNull(buffer.snippets.parallel)
+  assertTrue(buffer.snippets.redoSource())
+  assertEquals(after,buffer.multiRanges)
+  assertTrue(buffer.snippets.move(1))
+  assertEquals(listOf(7,17),buffer.multiRanges.map{it.from})
+  assertEquals(source,buffer.base)
+ }
+ @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
  @Test fun computedInputAndNativeHistoryAreOneAction(){
   val root=generateSequence(java.io.File(System.getProperty("user.dir")).absoluteFile){it.parentFile}.first{it.resolve("apps/simple-contract/snippet-derived-cases.json").isFile};val transform=readSnippetTransform(org.json.JSONObject(root.resolve("apps/simple-contract/snippet-derived-cases.json").readText()).getJSONObject("programs").getJSONObject("upper"));val source="foo FOO";val values=listOf(SnippetField(1,0,3,emptyList(),0),SnippetField(1,4,7,emptyList(),1,transform=transform),SnippetField(0,7,7,emptyList(),2));val buffer=DocumentBuffer(FileNode("a.py","a.py",false,emptyList(),null,null),FileText(source,"base"));buffer.state.edit{selection=TextRange(0,3)};buffer.snippets.restore(beginSnippet(source,values));assertEquals(3*64L+transform.bytes,snippetHistoryCost(buffer.snippets.active));assertTrue(buffer.snippets.applyInput(source,0,3,"λ😀"));assertEquals("λ😀 Λ😀",buffer.text);assertEquals(TextRange(3),buffer.state.selection);assertNotNull(buffer.snippets.active);assertTrue(buffer.snippets.undoSource());assertEquals(source,buffer.text);assertNotNull(buffer.snippets.active);assertTrue(buffer.snippets.redoSource());assertEquals("λ😀 Λ😀",buffer.text);assertEquals(TextRange(3),buffer.state.selection)
   var staged:SnippetSession?=buffer.snippets.active;buffer.state.edit{val before=buffer.snippets.captureBefore(originalText,originalSelection);replace(4,7,"bar");selection=TextRange(7);assertFalse(applySourceSnippetInput(buffer,publish={staged=it}));buffer.snippets.finishTextChange(before,asCharSequence(),selection)};buffer.snippets.publish(staged);assertEquals("λ😀 bar",buffer.text);assertNull(buffer.snippets.active)

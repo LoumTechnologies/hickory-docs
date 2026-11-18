@@ -1000,6 +1000,23 @@ private struct EquationLayout: Equatable {
             return self.sourceDraftHistory.commit(plan,path:self.buffer.file.path,before:before.source,selectionBefore:self.text.selectedRange(),selectionAfter:NSRange(location:input.selection.from,length:input.selection.to-input.selection.from),contextBefore:SourceSnippetHistoryContext(fields:before.fields,active:before.active,current:before.current,scopes:before.scopes),contextAfter:SourceSnippetHistoryContext(fields:input.session.fields,active:input.session.active,current:input.session.current,scopes:input.session.scopes),manager:self.text.undoManager,
                 read:{[weak self] in self?.buffer.text ?? ""},apply:{[weak self] edits,source,selected in self?.applySourceEdits(edits,source:source,resultSelection:selected,manageUndo:false) ?? false},notice:{[weak self] text in self?.buffer.snippets.reportFailure(text)},restoreContext:{[weak self] value in self?.buffer.snippets.restoreHistory(value)},contextCost:snippetHistoryCost,discardContext:{[weak self] in _ = self?.buffer.snippets.finish()})
         }
+        buffer.snippets.commitParallel = { [weak self] change,before in
+            guard let self,!(self.text.hasMarkedText()),self.canReflectWorkspaceEdits(change.edits,source:before) else{return false}
+            let next=change.state
+            let step=ChangePlan(title:"Edit template fields",patches:[SourcePatch(path:self.buffer.file.path,before:before,after:next.source,edits:change.edits.map{
+                SourceReplacement(from:$0.range.location,to:NSMaxRange($0.range),text:$0.text)
+            })])
+            return self.sourceDraftHistory.commit(
+                step,path:self.buffer.file.path,before:before,selectionBefore:self.text.selectedRange(),
+                selectionAfter:next.selections[next.primaryIndex],contextBefore:self.buffer.snippets.historyContext,
+                contextAfter:SourceSnippetHistoryContext(fields:[],active:0,current:0,parallel:next),
+                manager:self.text.undoManager,read:{[weak self] in self?.buffer.text ?? ""},
+                apply:{[weak self] edits,source,selected in self?.applySourceEdits(edits,source:source,resultSelection:selected,manageUndo:false) ?? false},
+                notice:{[weak self] value in self?.buffer.snippets.reportFailure(value)},
+                restoreContext:{[weak self] context in self?.buffer.snippets.restoreHistory(context)},
+                contextCost:snippetHistoryCost,discardContext:{[weak self] in _ = self?.buffer.snippets.finish()}
+            )
+        }
         buffer.applySourceEdits = { [weak self] edits, source in self?.applySourceEdits(edits, source: source) ?? false }
         buffer.canReflectWorkspaceEdits = { [weak self] edits, source in
             guard let self else { return false }
@@ -1081,7 +1098,11 @@ private struct EquationLayout: Equatable {
         if buffer.applyingMulti { return true }
         if text.undoManager?.isUndoing == true || text.undoManager?.isRedoing == true { buffer.clearMulti(); unfoldAll(); return true }
         if exactUTF8(buffer.multiSource,buffer.text), buffer.multiRanges.count > 1, let replacementString, !text.hasMarkedText() {
-            _ = buffer.replaceMultiple(replacementString, affected: affectedCharRange); return false
+            if buffer.snippets.parallel != nil {
+                if buffer.snippets.inputParallel(source:text.string,primaryRange:affectedCharRange,text:replacementString){return false}
+                _ = buffer.snippets.finish()
+            }
+            return !buffer.replaceMultiple(replacementString, affected: affectedCharRange)
         }
         if let equation = folding.equations.first(where: { NSIntersectionRange($0.range, affectedCharRange).length > 0 || affectedCharRange.length == 0 && affectedCharRange.location > $0.range.location && NSLocationInRange(affectedCharRange.location, $0.range) }) {
             buffer.sourceTable = buffer.inlineMarkup.equations.first { $0.renderedRange == equation.range }?.id
@@ -1099,12 +1120,13 @@ private struct EquationLayout: Equatable {
             measureDebugLines()
         }
         if folding.ranges.contains(where: { text.selectedRange().location > $0.location && NSLocationInRange(text.selectedRange().location, $0) }) { unfoldAll() }
+        buffer.snippets.selectionChanged(text.selectedRange())
         if !buffer.applyingMulti, let primary = buffer.multiRanges.first, text.selectedRange() != primary { buffer.clearMulti() }
         buffer.selection = text.selectedRange()
     }
     func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
         let snippetCommand=NSStringFromSelector(commandSelector)
-        if !text.hasMarkedText(),buffer.snippets.active != nil {
+        if !text.hasMarkedText(),buffer.snippets.isActive {
             if snippetCommand=="insertTab:",buffer.snippets.move(1){return true}
             if snippetCommand=="insertBacktab:",buffer.snippets.move(-1){return true}
             if snippetCommand=="cancelOperation:",buffer.snippets.finish(){return true}
@@ -1521,7 +1543,7 @@ import UIKit
         text.text = buffer.text; text.isEditable = !buffer.readOnly; text.alwaysBounceVertical = true
         text.accessibilityLabel = buffer.file.path; text.delegate = self
         text.willCompose = { [weak self] in self?.buffer.clearMulti(); _ = self?.buffer.snippets.finish(); self?.unfoldAll() }
-        text.snippetActive={ [weak self] in self?.buffer.snippets.active != nil }
+        text.snippetActive={ [weak self] in self?.buffer.snippets.isActive == true }
         text.snippetCommand={ [weak self] direction in guard let self else{return false};return direction==0 ? self.buffer.snippets.finish():self.buffer.snippets.move(direction) }
 
         buffer.navigate = { [weak self] fraction in
@@ -1559,6 +1581,23 @@ import UIKit
             guard let self,let plan=snippetChangePlan(path:self.buffer.file.path,before:before.source,input:input) else{return false}
             return self.sourceDraftHistory.commit(plan,path:self.buffer.file.path,before:before.source,selectionBefore:self.text.selectedRange,selectionAfter:NSRange(location:input.selection.from,length:input.selection.to-input.selection.from),contextBefore:SourceSnippetHistoryContext(fields:before.fields,active:before.active,current:before.current,scopes:before.scopes),contextAfter:SourceSnippetHistoryContext(fields:input.session.fields,active:input.session.active,current:input.session.current,scopes:input.session.scopes),manager:self.text.undoManager,
                 read:{[weak self] in self?.buffer.text ?? ""},apply:{[weak self] edits,source,selected in self?.applySourceEdits(edits,source:source,resultSelection:selected,manageUndo:false) ?? false},notice:{[weak self] text in self?.buffer.snippets.reportFailure(text)},restoreContext:{[weak self] value in self?.buffer.snippets.restoreHistory(value)},contextCost:snippetHistoryCost,discardContext:{[weak self] in _ = self?.buffer.snippets.finish()})
+        }
+        buffer.snippets.commitParallel = { [weak self] change,before in
+            guard let self,!(self.text.markedTextRange != nil),self.canReflectWorkspaceEdits(change.edits,source:before) else{return false}
+            let next=change.state
+            let step=ChangePlan(title:"Edit template fields",patches:[SourcePatch(path:self.buffer.file.path,before:before,after:next.source,edits:change.edits.map{
+                SourceReplacement(from:$0.range.location,to:NSMaxRange($0.range),text:$0.text)
+            })])
+            return self.sourceDraftHistory.commit(
+                step,path:self.buffer.file.path,before:before,selectionBefore:self.text.selectedRange,
+                selectionAfter:next.selections[next.primaryIndex],contextBefore:self.buffer.snippets.historyContext,
+                contextAfter:SourceSnippetHistoryContext(fields:[],active:0,current:0,parallel:next),
+                manager:self.text.undoManager,read:{[weak self] in self?.buffer.text ?? ""},
+                apply:{[weak self] edits,source,selected in self?.applySourceEdits(edits,source:source,resultSelection:selected,manageUndo:false) ?? false},
+                notice:{[weak self] value in self?.buffer.snippets.reportFailure(value)},
+                restoreContext:{[weak self] context in self?.buffer.snippets.restoreHistory(context)},
+                contextCost:snippetHistoryCost,discardContext:{[weak self] in _ = self?.buffer.snippets.finish()}
+            )
         }
         buffer.applySourceEdits = { [weak self] edits, source in self?.applySourceEdits(edits, source: source) ?? false }
         buffer.canReflectWorkspaceEdits = { [weak self] edits, source in
@@ -1651,6 +1690,10 @@ import UIKit
             if folding.ranges.contains(where: { NSIntersectionRange($0, range).length > 0 || NSLocationInRange(range.location, $0) }) { unfoldAll(); return false }
         }
         if text=="\t",textView.markedTextRange==nil,buffer.snippets.move(1){return false}
+        if textView.markedTextRange==nil,buffer.snippets.parallel != nil,buffer.multiRanges.count>1 {
+            if buffer.snippets.inputParallel(source:textView.text,primaryRange:range,text:text){return false}
+            _ = buffer.snippets.finish()
+        }
         if text != "\n",text != "\t",textView.markedTextRange==nil,buffer.snippets.active != nil,!tableSourceEditHitsGrid(range,selection:textView.selectedRange,tables:self.text.tableRanges),!folding.ranges.contains(where:{NSIntersectionRange($0,range).length>0||NSLocationInRange(range.location,$0)}),buffer.snippets.input(source:textView.text,range:range,text:text)==true{return false}
         if text == "\n", textView.markedTextRange == nil, !buffer.readOnly, buffer.multiRanges.count < 2 {
             let plan = smartEnter(textView.text, range: range, path: buffer.file.path, unit: simpleIndent(textView.text), mode: UserDefaults.standard.string(forKey: "editor.enterIndent") ?? "smart")
@@ -1687,6 +1730,7 @@ import UIKit
             measureDebugLines()
         }
         if folding.ranges.contains(where: { textView.selectedRange.location > $0.location && NSLocationInRange(textView.selectedRange.location, $0) }) { unfoldAll() }
+        buffer.snippets.selectionChanged(textView.selectedRange)
         if !buffer.applyingMulti, let primary = buffer.multiRanges.first, textView.selectedRange != primary { buffer.clearMulti() }
         buffer.selection = textView.selectedRange
     }
@@ -2188,13 +2232,13 @@ struct LanguageEditor: View {
                 .popover(isPresented: Binding(get: { buffer.showSnippetTools || (buffer.language?.showingSuggestions ?? false) }, set: { buffer.showSnippetTools=$0;buffer.language?.showingSuggestions = $0;if !$0{buffer.language?.cancelCompletion()} })) {
                     ScrollView { VStack(alignment: .leading, spacing: 8) {
                         Text("Language tools").font(.headline)
-                        if buffer.snippets.active != nil {
+                        if buffer.snippets.isActive {
                             Button("Next template field"){_ = buffer.snippets.move(1)}
                             Button("Previous template field"){_ = buffer.snippets.move(-1)}
                             ForEach(Array(buffer.snippets.choices.enumerated()),id:\.offset){_,choice in Button(choice.isEmpty ? "Empty value":choice){_ = buffer.snippets.choose(choice)}}
                             Button("Finish template editing"){_ = buffer.snippets.finish()}
                         }
-                        Text(buffer.snippets.active != nil ? buffer.snippets.notice : buffer.language?.completionNotice.isEmpty==false ? buffer.language!.completionNotice : buffer.language?.status ?? "Language services not connected").font(.caption).textSelection(.enabled)
+                        Text(buffer.snippets.isActive ? buffer.snippets.notice : buffer.language?.completionNotice.isEmpty==false ? buffer.language!.completionNotice : buffer.language?.status ?? "Language services not connected").font(.caption).textSelection(.enabled)
                         if let language = buffer.language {
                             TextField("Symbol search", text: Binding(get: { language.symbolQuery }, set: { language.symbolQuery = $0 })).textFieldStyle(.roundedBorder)
                             ForEach(SemanticQuery.allCases) { query in

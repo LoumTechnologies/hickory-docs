@@ -841,7 +841,24 @@ private class NativeTableController(val buffer: DocumentBuffer, val scope: kotli
                         val changed = changes.getOriginalRange(index)
                         hiddenRanges.any { range -> changed.min < range.to && changed.max > range.from || changed.collapsed && changed.min in range.from until range.to }
                     }
+                    var parallelInput: Int? = null
                     if (hiddenEdit) { revertAllChanges(); scope.launch { buffer.tableSourceVisible = true } }
+                    else if (changes.changeCount == 1 && buffer.state.composition == null && buffer.snippets.parallel != null) {
+                        val old = changes.getOriginalRange(0)
+                        val change = changes.getRange(0)
+                        val inserted = asCharSequence().subSequence(change.min, change.max).toString()
+                        val next = buffer.snippets.planParallelInput(originalText.toString(), old.min, old.max, inserted)
+                        if (next != null && next.edits.none { edit ->
+                                hiddenRanges.any { edit.from < it.to && edit.to > it.from || edit.from == edit.to && edit.from in it.from until it.to }
+                            }) {
+                            revertAllChanges()
+                            next.edits.asReversed().forEach { replace(it.from, it.to, it.text) }
+                            val selected = next.state.selections[next.state.primaryIndex]
+                            this.selection = TextRange(selected.from, selected.to)
+                            buffer.snippets.stage(null, next.state)
+                            parallelInput = buffer.snippets.intent
+                        } else buffer.snippets.stage(null)
+                    }
                     else if (changes.changeCount == 1 && buffer.state.composition == null && !buffer.readOnly && buffer.multiRanges.size < 2) {
                         val linked=applySourceSnippetInput(buffer,prepare={text,from,to,inserted->
                             if(inserted=="\n"&&TextRange(from,to)==originalSelection){val plan=smartEnter(text,from,to,buffer.file.path,simpleIndent(text),enterIndent,enterRules);SnippetPrimaryEdit(NativeSourceEdit(plan.from,plan.to,plan.text),plan.caret)}
@@ -868,7 +885,13 @@ private class NativeTableController(val buffer: DocumentBuffer, val scope: kotli
                     if(changes.changeCount>0||selection!=originalSelection){buffer.advanceSourceRevision(false);scope.launch{buffer.publishSourceRevision()}}
                     buffer.snippets.finishTextChange(snippetBefore,asCharSequence(),selection)
                     // Retire display state after the input transaction, outside its receiver.
-                    scope.launch { kotlinx.coroutines.yield();buffer.snippets.sourceChanged(buffer.text);buffer.clearFolds(); if (!buffer.applyingMulti) buffer.clearMulti() }
+                    scope.launch {
+                        kotlinx.coroutines.yield()
+                        buffer.snippets.sourceChanged(buffer.text)
+                        buffer.clearFolds()
+                        if (parallelInput != null) buffer.snippets.publishParallelInput(parallelInput!!)
+                        else if (!buffer.applyingMulti && buffer.snippets.parallel == null) buffer.clearMulti()
+                    }
                 },
                 onTextLayout = { getResult -> textLayout = getResult() },
                 outputTransformation = OutputTransformation {
@@ -924,15 +947,16 @@ private class NativeTableController(val buffer: DocumentBuffer, val scope: kotli
                         buffer.tableSourceVisible = true; buffer.clearFolds(); true
                     } else if(event.type==KeyEventType.KeyDown&&(event.isCtrlPressed||event.isMetaPressed)&&!event.isAltPressed&&buffer.state.composition==null&&(event.key==Key.Z||event.key==Key.Y)){
                         if(event.key==Key.Y||event.isShiftPressed)buffer.snippets.redoSource() else buffer.snippets.undoSource();true
-                    } else if(event.type==KeyEventType.KeyDown&&event.key==Key.Escape&&buffer.state.composition==null&&buffer.snippets.active!=null){buffer.snippets.finish();true
-                    } else if(event.type==KeyEventType.KeyDown&&event.key==Key.Tab&&!event.isCtrlPressed&&!event.isMetaPressed&&!event.isAltPressed&&buffer.state.composition==null&&buffer.snippets.active!=null&&buffer.snippets.move(if(event.isShiftPressed)-1 else 1)){true
+                    } else if(event.type==KeyEventType.KeyDown&&event.key==Key.Escape&&buffer.state.composition==null&&buffer.snippets.isActive){buffer.snippets.finish();true
+                    } else if(event.type==KeyEventType.KeyDown&&event.key==Key.Tab&&!event.isCtrlPressed&&!event.isMetaPressed&&!event.isAltPressed&&buffer.state.composition==null&&buffer.snippets.isActive&&buffer.snippets.move(if(event.isShiftPressed)-1 else 1)){true
                     } else if (event.type == KeyEventType.KeyDown && event.key == Key.Tab && !event.isCtrlPressed && !event.isMetaPressed && !event.isAltPressed && !buffer.readOnly && buffer.state.composition == null) {
                         val selection = buffer.state.selection
                         buffer.applySourceEdits(simpleTabEdits(source, selection.min, selection.max, event.isShiftPressed), source); true
                     } else if (event.type == KeyEventType.KeyDown && event.key == Key.Spacebar && event.isCtrlPressed) {
                         menu = true; scope.launch { service?.inspect() }; scope.launch { service?.complete() }; true
                     } else if (buffer.multiSource == source && buffer.multiRanges.size > 1 && event.type == KeyEventType.KeyDown && !event.isCtrlPressed && !event.isMetaPressed && !event.isAltPressed && key.device?.isVirtual == false && key.unicodeChar > 0 && buffer.state.composition == null) {
-                        buffer.replaceMultiple(String(Character.toChars(key.unicodeChar))); true
+                        val typed=String(Character.toChars(key.unicodeChar))
+                        buffer.snippets.inputParallel(typed) || buffer.replaceMultiple(typed)
                     } else false
                 }.drawWithContent {
                     drawContent()
@@ -1038,7 +1062,7 @@ private class NativeTableController(val buffer: DocumentBuffer, val scope: kotli
                 HorizontalDivider()
                 Column(Modifier.width(320.dp).heightIn(max = 460.dp).verticalScroll(rememberScrollState()).padding(8.dp)) {
                     Text("Language tools", fontSize = 14.sp)
-                    if(buffer.snippets.active!=null){
+                    if(buffer.snippets.isActive){
                         TextButton(onClick={buffer.snippets.move(1)}){Text("Next template field")}
                         TextButton(onClick={buffer.snippets.move(-1)}){Text("Previous template field")}
                         buffer.snippets.choices.forEach{choice->TextButton(onClick={buffer.snippets.choose(choice)}){Text(choice.ifEmpty{"Empty value"})}}
@@ -1075,7 +1099,7 @@ private class NativeTableController(val buffer: DocumentBuffer, val scope: kotli
         }
         if (buffer.showMulti) AlertDialog(onDismissRequest = { buffer.showMulti = false }, title = { Text("Edit selections") }, text = {
             OutlinedTextField(buffer.multiText, { buffer.multiText = it }, label = { Text("Insert at selections") })
-        }, confirmButton = { TextButton(enabled = !buffer.readOnly, onClick = { buffer.replaceMultiple(buffer.multiText); buffer.showMulti = false; buffer.focusSource?.invoke() }) { Text("Apply to selections") } }, dismissButton = { TextButton(onClick = { buffer.showMulti = false }) { Text("Cancel") } })
+        }, confirmButton = { TextButton(enabled = !buffer.readOnly, onClick = { if(!buffer.snippets.inputParallel(buffer.multiText))buffer.replaceMultiple(buffer.multiText); buffer.showMulti = false; buffer.focusSource?.invoke() }) { Text("Apply to selections") } }, dismissButton = { TextButton(onClick = { buffer.showMulti = false }) { Text("Cancel") } })
         if (buffer.showFind) NativeFindPanel(buffer, Modifier.simpleReveal().align(Alignment.TopEnd).padding(4.dp).widthIn(max = 360.dp).fillMaxWidth())
     }
 }

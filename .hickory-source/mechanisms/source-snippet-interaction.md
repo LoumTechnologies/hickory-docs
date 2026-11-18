@@ -377,16 +377,26 @@ The browser session keeps authored UTF-16 field positions throughout. Only paint
 
 A source-bound controller exposes navigation and choices through existing selection and edit callbacks. The native editor still owns composition, permissions and actual batch/undo application. Stale intent and failed reflection retire the capability rather than blocking ordinary text input. A prepared change plan verifies its entire predicted source before entering history.
 
+Native template batches keep the primary selection first in the existing
+multi-selection overlay. Each linked change lands through the per-view undo
+manager once. The prior selections, and any live peer state, travel with source
+history so Undo can return to the exact selections from which the template was
+opened.
+
 The existing native history pool retains optional field contexts under a 32 MiB logical quota and 4096-token limit. Compute field and choice overhead before retaining its copy-on-write value; empty alternatives must not make a large context appear free. Oversized or evicted field context never disables ordinary source undo. Computed occurrences are never traversal or choice targets. Explicit selections within computed text and typing strictly inside it retire linked intent, including when an editable parent surrounds the computed child. The ordinary primary edit remains owned by the editor; adjacent source/empty boundaries retain their existing intent.
 
 <ui:copy id="source-snippets-apple">
 import Foundation
 import Observation
 private func computedSnippetInput(_ session:SnippetSession,_ from:Int,_ to:Int)->Bool {session.fields.contains{field in field.transform != nil && field.from<field.to && field.from<=from && to<=field.to && (from<to || from>field.from && from<field.to)}}
-struct SourceSnippetHistoryContext {var fields:[SnippetField];var active:Int;var current:Int;var scopes:[SnippetScope]=[]}
+struct SourceSnippetHistoryContext {var fields:[SnippetField];var active:Int;var current:Int;var scopes:[SnippetScope]=[];var parallel:ParallelSnippet?=nil;var ranges:[NSRange]=[]}
 func snippetHistoryCost(_ value:SourceSnippetHistoryContext?)->Int {
-    guard let value else{return 0};let limit=32*1024*1024;var bytes=0
-    for field in value.fields {
+    guard let value else{return 0}
+    let limit=32*1024*1024
+    let peers=value.parallel?.peers ?? []
+    var bytes=value.ranges.count*32 + (value.parallel?.source.utf8.count ?? 0)
+    for peer in peers {bytes+=128+peer.text.utf8.count}
+    for field in value.fields+peers.flatMap({$0.session?.fields ?? []}) {
         guard bytes<=limit-64 else{return limit+1};bytes+=64
         if let transform=field.transform {guard transform.bytes<=limit,bytes<=limit-transform.bytes else{return limit+1};bytes+=transform.bytes}
         for choice in field.choices {
@@ -400,22 +410,129 @@ func snippetHistoryCost(_ value:SourceSnippetHistoryContext?)->Int {
     private weak var buffer:DocumentBuffer?
     private(set) var intent=0
     private(set) var session:SnippetSession?
+    private var group:ParallelSnippet?
     private(set) var notice=""
     @ObservationIgnored var commit:((SnippetInput,SnippetSession)->Bool)?
+    @ObservationIgnored var commitParallel:((ParallelSnippetChange,String)->Bool)?
     init(buffer:DocumentBuffer){self.buffer=buffer}
+    var parallel: ParallelSnippet? {
+        guard let buffer, let group, exactUTF8(buffer.text, group.source) else { return nil }
+        return group
+    }
+
+    var isActive: Bool { active != nil || parallel != nil }
+
+    private func orderedRanges(_ session: ParallelSnippet) -> [NSRange] {
+        let ranges = session.selections
+        let primary = session.primaryIndex
+        return [ranges[primary]] + ranges.enumerated().compactMap { $0.offset == primary ? nil : $0.element }
+    }
+
+    private func reflectSelections(_ ranges: [NSRange], source: String) -> Bool {
+        guard let buffer, let first = ranges.first, let select = buffer.selectSourceRange else { return false }
+        let previous = buffer.applyingMulti
+        buffer.applyingMulti = true
+        defer { buffer.applyingMulti = previous }
+        guard select(first, source) else { return false }
+        if ranges.count > 1 {
+            buffer.multiSource = source
+            buffer.multiRanges = ranges
+        } else {
+            buffer.clearMulti()
+        }
+        return true
+    }
+
+    // A provider preview captures a document intent before requesting any
+    // plans. Only the original selections and source may enter source history.
+    func applyParallel(
+        source: String, expansions: [ParallelSnippetExpansion], primary: Int,
+        expectedIntent: Int, admitted: () -> Bool
+    ) -> Bool {
+        guard let buffer, expectedIntent == intent, admitted(), !buffer.readOnly, !buffer.saving,
+              exactUTF8(buffer.text, source), exactUTF8(buffer.multiSource, source),
+              buffer.multiRanges.count == expansions.count,
+              expansions.indices.contains(primary),
+              expansions[primary].edit.range == buffer.selection,
+              Set(expansions.map { $0.edit.range }) == Set(buffer.multiRanges),
+              let prepared = ParallelSnippet.begin(source, expansions: expansions, primary: primary),
+              expectedIntent == intent, admitted() else { return false }
+        return commitParallel?(prepared, source) == true
+    }
+
+    // Native typing produces one edit for the primary selection. Linked
+    // replacements use each peer's local field, including distinct grapheme
+    // widths when deleting at an empty caret.
+    func inputParallel(source: String, primaryRange: NSRange, text: String) -> Bool {
+        guard let buffer, let parallel, !buffer.readOnly, !buffer.saving,
+              exactUTF8(source, parallel.source), buffer.multiRanges == orderedRanges(parallel),
+              let primary = buffer.multiRanges.first, buffer.selection == primary else { return false }
+        let original = source as NSString
+        let ranges = parallel.selections
+        let edited: [NSRange]
+        if primaryRange == primary {
+            edited = ranges
+        } else if text.isEmpty, primary.length == 0, NSMaxRange(primaryRange) == primary.location {
+            edited = ranges.map { $0.length == 0 && $0.location > 0 ?
+                original.rangeOfComposedCharacterSequence(at: $0.location - 1) : $0 }
+        } else if text.isEmpty, primary.length == 0, primaryRange.location == primary.location {
+            edited = ranges.map { $0.length == 0 && $0.location < original.length ?
+                original.rangeOfComposedCharacterSequence(at: $0.location) : $0 }
+        } else {
+            return false
+        }
+        guard edited[parallel.primaryIndex] == primaryRange,
+              let result = parallel.editing(source, input: edited.map { NativeSourceEdit(range: $0, text: text) }) else { return false }
+        return commitParallel?(result, source) == true
+    }
     var active:SnippetSession? {guard let buffer,let session,exactUTF8(buffer.text,session.source) else{return nil};return session}
-    var choices:[String] {guard let active else{return []};return active.fields.first(where:{$0.id==active.current})?.choices ?? []}
-    var historyContext:SourceSnippetHistoryContext? {active.map{SourceSnippetHistoryContext(fields:$0.fields,active:$0.active,current:$0.current,scopes:$0.scopes)}}
+    var choices:[String] {
+        if let parallel {
+            let fields=parallel.peers.compactMap{peer in peer.session.flatMap{live in live.fields.first{$0.id==live.current&&$0.index>0}}}
+            guard fields.count==parallel.peers.count,let first=fields.first else{return []}
+            return first.choices.filter{value in fields.allSatisfy{field in field.choices.contains{exactUTF8($0,value)}}}
+        }
+        return active.flatMap{live in live.fields.first{$0.id==live.current}}?.choices ?? []
+    }
+    var historyContext:SourceSnippetHistoryContext? {
+        let ranges=buffer.flatMap{exactUTF8($0.text,$0.multiSource)&&$0.multiRanges.count>1 ? $0.multiRanges:nil} ?? []
+        if let parallel{return SourceSnippetHistoryContext(fields:[],active:0,current:0,parallel:parallel,ranges:ranges)}
+        return active.map{SourceSnippetHistoryContext(fields:$0.fields,active:$0.active,current:$0.current,scopes:$0.scopes)}
+            ?? (ranges.isEmpty ? nil:SourceSnippetHistoryContext(fields:[],active:0,current:0,ranges:ranges))
+    }
     func restoreHistory(_ context:SourceSnippetHistoryContext?){
-        guard let context,let buffer,beginSnippet(buffer.text,fields:context.fields) != nil else{restore(nil);return}
+        guard let context,let buffer else{restore(nil);return}
+        if let parallel=context.parallel,exactUTF8(parallel.source,buffer.text),
+           reflectSelections(orderedRanges(parallel),source:buffer.text) {
+            session=nil;group=parallel;intent+=1;report();return
+        }
+        if !context.ranges.isEmpty {_ = reflectSelections(context.ranges,source:buffer.text)}
+        guard beginSnippet(buffer.text,fields:context.fields) != nil else{restore(nil);return}
         restore(SnippetSession(source:buffer.text,fields:context.fields,active:context.active,current:context.current,scopes:context.scopes))
     }
-    func restore(_ value:SnippetSession?) {session=value;intent+=1;report()}
-    func sourceChanged(_ source:String) {if let session,!exactUTF8(source,session.source){finish()}}
+    func restore(_ value:SnippetSession?) {session=value;group=nil;intent+=1;report()}
+    func sourceChanged(_ source:String) {
+        if let expected=group?.source ?? session?.source,!exactUTF8(source,expected){finish()}
+    }
+    func selectionChanged(_ selected:NSRange) {
+        if let buffer,!buffer.applyingMulti,let parallel,orderedRanges(parallel).first != selected {_ = finish()}
+    }
     func reportFailure(_ message:String){notice=message;buffer?.language?.completionNotice=message}
-    private func report(){notice=session.map{"Template field \($0.active) · Tab next · Shift-Tab previous · Esc finish"} ?? "Template editing finished · draft";buffer?.language?.completionNotice=notice}
-    @discardableResult func finish()->Bool {guard session != nil else{return false};session=nil;intent+=1;report();return true}
+    private func report(){
+        notice=group.map{"\($0.peers.count) template carets · Tab next · Shift-Tab previous · Esc finish"}
+            ?? session.map{"Template field \($0.active) · Tab next · Shift-Tab previous · Esc finish"}
+            ?? "Template editing finished · draft"
+        buffer?.language?.completionNotice=notice
+    }
+    @discardableResult func finish()->Bool {guard session != nil || group != nil else{return false};restore(nil);return true}
     @discardableResult func move(_ direction:Int)->Bool {
+        if let parallel,let buffer {
+            guard !buffer.readOnly,!buffer.saving,buffer.multiRanges==orderedRanges(parallel),
+                  let next=parallel.moving(buffer.text,direction:direction) else{_ = finish();return false}
+            if direction==1 && parallel.peers.allSatisfy({($0.session?.active ?? 0)==0}){_ = finish();return false}
+            guard reflectSelections(orderedRanges(next),source:next.source) else{return false}
+            group=next;intent+=1;buffer.focusSource?();report();return true
+        }
         guard let buffer,let current=active else{_ = finish();return false}
         guard let next=advanceSnippet(current,source:buffer.text,from:buffer.selection.location,to:NSMaxRange(buffer.selection),direction:direction) else{if direction == -1,current.active==(current.scopes.last?.order.first ?? current.fields.filter({$0.transform==nil}).map({$0.index}).filter({$0>0}).min()){return true};_ = finish();return false}
         let old=session;session=next.session
@@ -432,6 +549,7 @@ func snippetHistoryCost(_ value:SourceSnippetHistoryContext?)->Int {
         guard commit(input,current) else{_ = finish();return nil};return true
     }
     func prepareCompletion(_ draft:CompletionDraft)throws->CompletionDraft {
+        if parallel != nil {throw EngineError(message:"Finish editing the multiple template fields before accepting a completion.")}
         guard let current=active else{return draft}
         var result=draft
         guard let edit=draft.primary else{throw EngineError(message:"Completion primary edit is unavailable.")}
@@ -440,6 +558,16 @@ func snippetHistoryCost(_ value:SourceSnippetHistoryContext?)->Int {
         result.plan=ChangePlan(title:draft.plan.title,patches:exactUTF8(input.session.source,draft.before) ? []:[SourcePatch(path:draft.path,before:draft.before,after:input.session.source,edits:input.edits.map{SourceReplacement(from:$0.range.location,to:NSMaxRange($0.range),text:$0.text)})]);result.selection=input.selection;result.insertionFrom=input.selection.from-edit.text.utf16.count;result.continuing=input.session;return result
     }
     @discardableResult func choose(_ value:String)->Bool {
+        if let parallel,let buffer {
+            guard !buffer.readOnly,!buffer.saving,buffer.multiRanges==orderedRanges(parallel),
+                  choices.contains(where:{exactUTF8($0,value)}) else{return false}
+            let edits=parallel.peers.compactMap {peer -> NativeSourceEdit? in
+                guard let live=peer.session,let field=live.fields.first(where:{$0.id==live.current}) else{return nil}
+                return NativeSourceEdit(range:NSRange(location:peer.range.location+field.from,length:field.to-field.from),text:value)
+            }
+            guard let next=parallel.editing(buffer.text,input:edits) else{return false}
+            return commitParallel?(next,buffer.text)==true
+        }
         guard let buffer,let current=active,!buffer.readOnly,!buffer.saving,let field=current.fields.first(where:{$0.id==current.current}),field.choices.contains(where:{exactUTF8($0,value)}) else{return false}
         return input(source:buffer.text,range:NSRange(location:field.from,length:field.to-field.from),text:value)==true
     }
@@ -477,28 +605,64 @@ internal fun snippetHistoryCost(context:SnippetSession?,budget:Long=32L*1024*102
  for(scope in context.scopes)if(!add(64L)||!add(8L*scope.order.size))return cap
  return bytes
 }
+internal data class AndroidSnippetHistory(
+    val session: SnippetSession?,
+    val group: ParallelSnippet?,
+    val ranges: List<NativeSourceEdit>,
+)
+
+private fun androidSnippetHistoryCost(context: AndroidSnippetHistory?): Long {
+    if (context == null) return 0
+    val limit = 32L * 1024 * 1024
+    var total = context.ranges.size * 32L + (context.group?.source?.length ?: 0) * 2L
+    total += snippetHistoryCost(context.session)
+    for (peer in context.group?.peers.orEmpty()) {
+        total += 128 + 2L * peer.text.length + snippetHistoryCost(peer.session, (limit - total).coerceAtLeast(0))
+        if (total > limit) return limit + 1
+    }
+    return total
+}
+
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 class SourceSnippetController(private val buffer:DocumentBuffer) {
  // Core input state advances synchronously; publish outside a TextFieldBuffer transformation.
  private var value:SnippetSession?=null
+ private var group:ParallelSnippet?=null
  var intent=0;private set
  private var revision by mutableIntStateOf(0)
  var notice by mutableStateOf("");private set
- private val contexts=SourceUndoContexts<SnippetSession?>({context->snippetHistoryCost(context)})
+ private val contexts=SourceUndoContexts<AndroidSnippetHistory?>(::androidSnippetHistoryCost)
  val recordSerial get()=contexts.serial
  val canUndo get()=buffer.state.undoState.canUndo
  val canRedo get()=buffer.state.undoState.canRedo
- fun captureBefore(source:CharSequence,selection:TextRange,force:Boolean=false):SourceUndoSnapshot<SnippetSession?>? {
-  val current=active;if(current==null&&!contexts.retained&&!force)return null
-  return SourceUndoSnapshot(current?.source ?: source.toString(),selection.start,selection.end,current)
+ internal fun captureBefore(source:CharSequence,selection:TextRange,force:Boolean=false):SourceUndoSnapshot<AndroidSnippetHistory?>? {
+  val text=value?.source ?: group?.source ?: source.toString()
+  val context=historyContext(text)
+  if(context==null&&!contexts.retained&&!force)return null
+  return SourceUndoSnapshot(text,selection.start,selection.end,context)
  }
- fun finishTextChange(before:SourceUndoSnapshot<SnippetSession?>?,source:CharSequence,selected:TextRange){
+ private fun historyContext(source:String):AndroidSnippetHistory? {
+  val single=value?.takeIf{it.source==source}
+  val multiple=group?.takeIf{it.source==source}
+  val ranges=multiple?.let(::parallelRanges) ?: buffer.multiRanges.takeIf{buffer.multiSource==source}.orEmpty()
+  return if(single==null&&multiple==null&&ranges.isEmpty())null else AndroidSnippetHistory(single,multiple,ranges)
+ }
+ private fun restoreHistory(context:AndroidSnippetHistory?) {
+  if(context==null){restore(null);return}
+  if(context.ranges.isNotEmpty())reflectRanges(buffer.text,context.ranges,true)
+  stage(context.session,context.group?.takeIf{it.source==buffer.text})
+  publish()
+ }
+ internal fun finishTextChange(before:SourceUndoSnapshot<AndroidSnippetHistory?>?,source:CharSequence,selected:TextRange){
   if(before==null)return
-  val current=value?.takeIf{source.toString()==it.source};val after=SourceUndoSnapshot(current?.source ?: source.toString(),selected.start,selected.end,current)
-  contexts.record(before,after);stage(current)
+  val text=source.toString()
+  val retained=historyContext(text)
+  contexts.record(before,SourceUndoSnapshot(text,selected.start,selected.end,retained))
+  stage(retained?.session,retained?.group)
  }
- fun attachCompletionContext(before:SourceUndoSnapshot<SnippetSession?>,after:SnippetSession?,since:Long){
-  val selected=buffer.state.selection;val snapshot=SourceUndoSnapshot(after?.source ?: buffer.text,selected.start,selected.end,after)
+ internal fun attachCompletionContext(before:SourceUndoSnapshot<AndroidSnippetHistory?>,after:SnippetSession?,since:Long){
+  val selected=buffer.state.selection
+  val snapshot=SourceUndoSnapshot(after?.source ?: buffer.text,selected.start,selected.end,after?.let{AndroidSnippetHistory(it,null,emptyList())})
   if(!contexts.replaceLastAfter(before.source,snapshot,since))contexts.record(before,snapshot)
   restore(after)
  }
@@ -506,25 +670,132 @@ class SourceSnippetController(private val buffer:DocumentBuffer) {
   if(buffer.readOnly||buffer.state.composition!=null||!canUndo)return false
   val before=buffer.text;val oldSelection=buffer.state.selection;buffer.state.undoState.undo();val selected=buffer.state.selection
   if(before!=buffer.text||selected!=oldSelection)buffer.advanceSourceRevision()
-  val target=contexts.undo(before,buffer.text,selected.start,selected.end);restore(target?.context)
+  val target=contexts.undo(before,buffer.text,selected.start,selected.end);restoreHistory(target?.context)
   if(target?.context==null){notice="Text edit undone · draft";buffer.language?.completionNotice=notice};return true
  }
  fun redoSource():Boolean {
   if(buffer.readOnly||buffer.state.composition!=null||!canRedo)return false
   val before=buffer.text;val oldSelection=buffer.state.selection;buffer.state.undoState.redo();val selected=buffer.state.selection
   if(before!=buffer.text||selected!=oldSelection)buffer.advanceSourceRevision()
-  val target=contexts.redo(before,buffer.text,selected.start,selected.end);restore(target?.context)
+  val target=contexts.redo(before,buffer.text,selected.start,selected.end);restoreHistory(target?.context)
   if(target?.context==null){notice="Text edit redone · draft";buffer.language?.completionNotice=notice};return true
  }
  val session:SnippetSession? get(){revision;return value}
  val active:SnippetSession? get()=session?.takeIf{it.source==buffer.text}
- val choices:List<String> get()=active?.let{current->current.fields.firstOrNull{it.id==current.current}?.choices}.orEmpty()
- fun stage(session:SnippetSession?){if(value!==session){value=session;intent++}}
- fun publish(expected:SnippetSession?=value){if(value!==expected)return;revision++;notice=value?.let{"Template field ${it.active} · Tab next · Shift-Tab previous · Esc finish"} ?: "Template editing finished · draft";buffer.language?.completionNotice=notice}
+ val choices:List<String> get(){
+  val multiple=parallel
+  if(multiple!=null){
+   val fields=multiple.peers.mapNotNull{peer->peer.session?.let{live->live.fields.firstOrNull{it.id==live.current&&it.index>0}}}
+   if(fields.size!=multiple.peers.size)return emptyList()
+   return fields.first().choices.filter{choice->fields.all{choice in it.choices}}
+  }
+  return active?.let{current->current.fields.firstOrNull{it.id==current.current}?.choices}.orEmpty()
+ }
+ internal val parallel: ParallelSnippet? get() { revision; return group?.takeIf { it.source == buffer.text } }
+ val isActive get() = active != null || parallel != null
+
+ private fun parallelRanges(next: ParallelSnippet): List<NativeSourceEdit> {
+  val ordered = next.selections.map { NativeSourceEdit(it.from, it.to, "") }
+  val primary = next.primaryIndex
+  return listOf(ordered[primary]) + ordered.filterIndexed { index, _ -> index != primary }
+ }
+
+ private fun reflectRanges(source: String, ranges: List<NativeSourceEdit>, select: Boolean): Boolean {
+  val first = ranges.firstOrNull() ?: return false
+  val previous = buffer.applyingMulti
+  buffer.applyingMulti = true
+  try {
+   if (select && !buffer.selectSourceRange(first.from, first.to, source)) return false
+   if (buffer.text != source || buffer.state.selection.min != first.from || buffer.state.selection.max != first.to) return false
+   if (ranges.size > 1) {
+    buffer.multiSource = source
+    buffer.multiRanges = ranges
+   } else buffer.clearMulti()
+   return true
+  } finally { buffer.applyingMulti = previous }
+ }
+
+ internal fun applyParallel(
+  source: String, expansions: List<ParallelSnippetExpansion>, primary: Int,
+  expectedIntent: Int, admitted: () -> Boolean,
+ ): Boolean {
+  if (intent != expectedIntent || !admitted() || source != buffer.text || source != buffer.multiSource ||
+      primary !in expansions.indices || expansions.size != buffer.multiRanges.size ||
+      buffer.state.composition != null || buffer.readOnly || buffer.saving) return false
+  val ranges = expansions.map { it.edit.copy(text = "") }
+  if (ranges.toSet() != buffer.multiRanges.toSet() || ranges[primary] != buffer.multiRanges.firstOrNull()) return false
+  val next = ParallelSnippet.begin(source, expansions, primary) ?: return false
+  return intent == expectedIntent && admitted() && commitParallel(next, source)
+ }
+
+ private fun commitParallel(next: ParallelSnippetChange, source: String): Boolean {
+  val before = captureBefore(source, buffer.state.selection, true) ?: return false
+  val serial = recordSerial
+  val ranges = parallelRanges(next.state)
+  val primary = ranges.first()
+  if (!buffer.applySourceEdits(next.edits, source, TextRange(primary.from, primary.to)) ||
+      !reflectRanges(next.state.source, ranges, false)) return false
+  val selected = buffer.state.selection
+  val after = SourceUndoSnapshot<AndroidSnippetHistory?>(buffer.text, selected.start, selected.end, AndroidSnippetHistory(null, next.state, ranges))
+  if (!contexts.replaceLastAfter(before.source, after, serial)) contexts.record(before, after)
+  stage(null, next.state)
+  publish()
+  return true
+ }
+
+ internal fun inputParallel(text: String): Boolean {
+  val current = parallel ?: return false
+  if (buffer.multiRanges != parallelRanges(current) || buffer.state.composition != null) return false
+  val next = current.editing(buffer.text, current.selections.map { NativeSourceEdit(it.from, it.to, text) }) ?: return false
+  return commitParallel(next, buffer.text)
+ }
+
+ internal fun planParallelInput(source: String, from: Int, to: Int, text: String): ParallelSnippetChange? {
+  val current = parallel ?: return null
+  if (buffer.multiRanges != parallelRanges(current) || buffer.readOnly || buffer.saving ||
+      source != buffer.text || buffer.state.composition != null) return null
+  val selections = current.selections
+  val primary = selections[current.primaryIndex]
+  val edited = when {
+   from == primary.from && to == primary.to -> selections
+   text.isEmpty() && primary.from == primary.to && to == primary.from -> selections.map { range ->
+    val start = if (range.from == range.to) simpleBackspaceStart(source, range.from) else null
+    if (start == null) range else CompletionSelection(start, range.to)
+   }
+   text.isEmpty() && primary.from == primary.to && from == primary.from -> selections.map { range ->
+    if (range.from != range.to || range.to >= source.length) range else {
+     val boundaries = java.text.BreakIterator.getCharacterInstance(java.util.Locale.ROOT)
+     boundaries.setText(source)
+     CompletionSelection(range.from, boundaries.following(range.to).takeUnless { it == java.text.BreakIterator.DONE } ?: range.to)
+    }
+   }
+   else -> return null
+  }
+  if (edited[current.primaryIndex] != CompletionSelection(from, to)) return null
+  return current.editing(source, edited.map { NativeSourceEdit(it.from, it.to, text) })
+ }
+
+ internal fun publishParallelInput(epoch: Int) {
+  if (intent != epoch) return
+  val current = parallel ?: return
+  if (!reflectRanges(current.source, parallelRanges(current), false)) { finish(); return }
+  publish()
+ }
+ fun stage(session:SnippetSession?)=stage(session,null)
+ internal fun stage(session:SnippetSession?,parallel:ParallelSnippet?){if(value!==session||group!==parallel){value=session;group=parallel;intent++}}
+ fun publish(expected:SnippetSession?=value){if(value!==expected)return;revision++;notice=group?.let{"${it.peers.size} template carets · Tab next · Shift-Tab previous · Esc finish"} ?: value?.let{"Template field ${it.active} · Tab next · Shift-Tab previous · Esc finish"} ?: "Template editing finished · draft";buffer.language?.completionNotice=notice}
  fun restore(session:SnippetSession?){stage(session);publish(session)}
- fun finish():Boolean {if(value==null)return false;restore(null);return true}
- fun sourceChanged(source:String){if(value?.source?.let{it!=source}==true)finish()}
+ fun finish():Boolean {if(value==null&&group==null)return false;restore(null);return true}
+ fun sourceChanged(source:String){if((group?.source ?: value?.source)?.let{it!=source}==true)finish()}
  fun move(direction:Int):Boolean {
+  val multiple=parallel
+  if(multiple!=null){
+   if(buffer.readOnly||buffer.saving||buffer.state.composition!=null||buffer.multiRanges!=parallelRanges(multiple))return false
+   val next=multiple.moving(buffer.text,direction) ?: return false
+   if(direction==1&&multiple.peers.all{(it.session?.active ?: 0)==0}){finish();return false}
+   if(!reflectRanges(next.source,parallelRanges(next),true))return false
+   stage(null,next);publish();return true
+  }
   val current=active ?: return false;if(buffer.state.composition!=null)return false;val selection=buffer.state.selection
   val next=advanceSnippet(current,buffer.text,selection.min,selection.max,direction) ?: return if(direction == -1&&current.active==(current.scopes.lastOrNull()?.order?.firstOrNull() ?: current.fields.filter{it.transform==null}.map{it.index}.filter{it>0}.minOrNull()))true else finish().let{false}
   val previous=value;stage(next.session)
@@ -536,6 +807,7 @@ class SourceSnippetController(private val buffer:DocumentBuffer) {
   if(caret==null)return input;if(caret !in from..(from+text.length))return null;val selected=input.selection.from+caret-(from+text.length);return input.copy(selection=CompletionSelection(selected,selected))
  }
  fun prepareCompletion(draft:CompletionDraft):CompletionDraft {
+  check(parallel==null){"Finish editing the multiple template fields before accepting a completion."}
   val current=active ?: return draft
   val edit=draft.primary ?: error("Completion primary edit is unavailable. No edits were applied.")
   val inner=draft.fields.map{it.copy(from=it.from-draft.insertionFrom,to=it.to-draft.insertionFrom)}
@@ -547,6 +819,17 @@ class SourceSnippetController(private val buffer:DocumentBuffer) {
   if(!buffer.applySourceEdits(input.edits,source,TextRange(input.selection.from,input.selection.to)))return false;attachCompletionContext(before,input.session,serial);return true
  }
  fun choose(choice:String):Boolean {
+  val multiple=parallel
+  if(multiple!=null){
+   if(buffer.multiRanges!=parallelRanges(multiple)||buffer.state.composition!=null||choice !in choices)return false
+   val inputs=multiple.peers.map{peer->
+    val session=peer.session ?: return false
+    val field=session.fields.firstOrNull{it.id==session.current} ?: return false
+    NativeSourceEdit(peer.from+field.from,peer.from+field.to,choice)
+   }
+   val next=multiple.editing(buffer.text,inputs) ?: return false
+   return commitParallel(next,buffer.text)
+  }
   val current=active ?: return false;val field=current.fields.firstOrNull{it.id==current.current} ?: return false;if(choice !in field.choices)return false
   val input=proposal(buffer.text,field.from,field.to,choice) ?: return false
   val before=captureBefore(buffer.text,buffer.state.selection,true)!!;val serial=recordSerial
@@ -790,6 +1073,50 @@ import AppKit
         #endif
     }
     func fields()->[SnippetField]{[SnippetField(index:1,from:0,to:1,choices:["a","long"],id:0),SnippetField(index:1,from:4,to:5,choices:["a","long"],id:1),SnippetField(index:0,from:5,to:5,choices:[],id:2)]}
+    func testActualMacParallelInputAndUndoRetainNativeSelections() throws {
+        #if os(macOS)
+        let source="aa / bb"
+        let buffer=DocumentBuffer(file:FileNode(name:"a.py",path:"a.py",dir:false),text:FileText(path:"a.py",content:source,hash:"base"))
+        let editor=MacEditor(buffer)
+        let window=NSWindow(contentRect:NSRect(x:0,y:0,width:500,height:300),styleMask:[.titled],backing:.buffered,defer:false)
+        window.contentView=editor.scroll
+        defer {window.contentView=nil}
+        let ranges=[NSRange(location:0,length:2),NSRange(location:5,length:2)]
+        XCTAssertTrue(buffer.selectMultiple(ranges,source:source))
+        func expansion(_ name:String,_ range:NSRange)->ParallelSnippetExpansion {
+            let n=name.utf16.count
+            return ParallelSnippetExpansion(edit:NativeSourceEdit(range:range,text:name+":"+name),fields:[
+                SnippetField(index:1,from:0,to:n,choices:[],id:0),
+                SnippetField(index:1,from:n+1,to:n+n+1,choices:[],id:1),
+                SnippetField(index:0,from:n+n+1,to:n+n+1,choices:[],id:2),
+            ])
+        }
+        let expansions=[expansion("a",ranges[0]),expansion("beta",ranges[1])]
+        let intent=buffer.snippets.intent
+        XCTAssertFalse(buffer.snippets.applyParallel(source:source,expansions:expansions,primary:0,expectedIntent:intent,admitted:{false}))
+        XCTAssertTrue(buffer.snippets.applyParallel(source:source,expansions:expansions,primary:0,expectedIntent:intent,admitted:{true}))
+        let beforeInput=buffer.multiRanges
+        XCTAssertEqual(buffer.text,"a:a / beta:beta")
+        editor.text.insertText("λ😀",replacementRange:editor.text.selectedRange())
+        let afterInput=buffer.multiRanges
+        XCTAssertEqual(buffer.text,"λ😀:λ😀 / λ😀:λ😀")
+        XCTAssertEqual(editor.text.selectedRange(),afterInput.first)
+        editor.text.undoManager?.undo()
+        XCTAssertEqual(buffer.text,"a:a / beta:beta")
+        XCTAssertEqual(buffer.multiRanges,beforeInput)
+        editor.text.undoManager?.undo()
+        XCTAssertEqual(buffer.text,source)
+        XCTAssertEqual(buffer.multiRanges,ranges)
+        XCTAssertNil(buffer.snippets.parallel)
+        editor.text.undoManager?.redo()
+        XCTAssertNotNil(buffer.snippets.parallel)
+        editor.text.undoManager?.redo()
+        XCTAssertEqual(buffer.multiRanges,afterInput)
+        XCTAssertTrue(buffer.snippets.move(1))
+        XCTAssertEqual(buffer.multiRanges.map(\.location),[7,17])
+        XCTAssertEqual(buffer.base,source)
+        #endif
+    }
     func testHistoryCostChargesEveryEmptyChoice() {
         let field=SnippetField(index:1,from:0,to:0,choices:Array(repeating:"",count:4096),id:0)
         XCTAssertEqual(snippetHistoryCost(SourceSnippetHistoryContext(fields:[field],active:1,current:0)),64+4096*32)
@@ -908,6 +1235,43 @@ import org.junit.Assert.*
 import androidx.compose.ui.text.TextRange
 import kotlinx.coroutines.async
 class SourceSnippetInteractionTest {
+ @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+ @Test fun parallelTemplateRetainsBothSelectionsThroughNativeTextStateHistory() {
+  val source="aa / bb"
+  val buffer=DocumentBuffer(FileNode("a.py","a.py",false,emptyList(),null,null),FileText(source,"base"))
+  val ranges=listOf(NativeSourceEdit(0,2,""),NativeSourceEdit(5,7,""))
+  assertTrue(buffer.selectMultiple(ranges,source))
+  fun expansion(range:NativeSourceEdit,value:String):ParallelSnippetExpansion {
+   val n=value.length
+   return ParallelSnippetExpansion(range.copy(text="$value:$value"),listOf(
+    SnippetField(1,0,n,emptyList(),0),SnippetField(1,n+1,2*n+1,emptyList(),1),
+    SnippetField(0,2*n+1,2*n+1,emptyList(),2),
+   ))
+  }
+  val expansions=listOf(expansion(ranges[0],"a"),expansion(ranges[1],"beta"))
+  val intent=buffer.snippets.intent
+  assertFalse(buffer.snippets.applyParallel(source,expansions,0,intent){false})
+  assertTrue(buffer.snippets.applyParallel(source,expansions,0,intent){true})
+  val before=buffer.multiRanges
+  assertEquals("a:a / beta:beta",buffer.text)
+  assertTrue(buffer.snippets.inputParallel("λ😀"))
+  val after=buffer.multiRanges
+  assertEquals("λ😀:λ😀 / λ😀:λ😀",buffer.text)
+  assertEquals(TextRange(3),buffer.state.selection)
+  assertTrue(buffer.snippets.undoSource())
+  assertEquals(before,buffer.multiRanges)
+  assertTrue(buffer.snippets.undoSource())
+  assertEquals(source,buffer.text)
+  assertEquals(ranges,buffer.multiRanges)
+  assertNull(buffer.snippets.parallel)
+  assertTrue(buffer.snippets.redoSource())
+  assertNotNull(buffer.snippets.parallel)
+  assertTrue(buffer.snippets.redoSource())
+  assertEquals(after,buffer.multiRanges)
+  assertTrue(buffer.snippets.move(1))
+  assertEquals(listOf(7,17),buffer.multiRanges.map{it.from})
+  assertEquals(source,buffer.base)
+ }
  @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
  @Test fun computedInputAndNativeHistoryAreOneAction(){
   val root=generateSequence(java.io.File(System.getProperty("user.dir")).absoluteFile){it.parentFile}.first{it.resolve("apps/simple-contract/snippet-derived-cases.json").isFile};val transform=readSnippetTransform(org.json.JSONObject(root.resolve("apps/simple-contract/snippet-derived-cases.json").readText()).getJSONObject("programs").getJSONObject("upper"));val source="foo FOO";val values=listOf(SnippetField(1,0,3,emptyList(),0),SnippetField(1,4,7,emptyList(),1,transform=transform),SnippetField(0,7,7,emptyList(),2));val buffer=DocumentBuffer(FileNode("a.py","a.py",false,emptyList(),null,null),FileText(source,"base"));buffer.state.edit{selection=TextRange(0,3)};buffer.snippets.restore(beginSnippet(source,values));assertEquals(3*64L+transform.bytes,snippetHistoryCost(buffer.snippets.active));assertTrue(buffer.snippets.applyInput(source,0,3,"λ😀"));assertEquals("λ😀 Λ😀",buffer.text);assertEquals(TextRange(3),buffer.state.selection);assertNotNull(buffer.snippets.active);assertTrue(buffer.snippets.undoSource());assertEquals(source,buffer.text);assertNotNull(buffer.snippets.active);assertTrue(buffer.snippets.redoSource());assertEquals("λ😀 Λ😀",buffer.text);assertEquals(TextRange(3),buffer.state.selection)

@@ -32,7 +32,7 @@ an earlier open item only for the behavior it actually exercises.
 | Required outcome | Current usable evidence and remaining acceptance |
 | --- | --- |
 | Navigation and code intelligence | Existing source-bound navigation and provider receipts remain in force. Browser mixed-line-ending source/view coordination now has rendered provider and history acceptance; source-bound completion variables now have live host receipts. Embedded-language breadth remains open. |
-| Refactoring, cleanup, generation, templates and history | Rename, formatting, genuine TypeScript extraction/accessor generation/cleanup and coordinated history have focused host receipts. Genuine TypeScript move-to-new-file review, publication and inverse/redo now have all-three-host receipts. Source-bound variable contexts and bounded production transforms now have completion/template receipts on all three hosts. Full regex syntax, embedded-language templates, multi-caret templates and mirrored native IME remain open. |
+| Refactoring, cleanup, generation, templates and history | Rename, formatting, genuine TypeScript extraction/accessor generation/cleanup and coordinated history have focused host receipts. Genuine TypeScript move-to-new-file review, publication and inverse/redo now have all-three-host receipts. Source-bound variable contexts and bounded production transforms now have completion/template receipts on all three hosts. Multi-caret editing and undo have browser, macOS editor and Android text-state evidence. Catalog preparation across carets, full regex syntax, embedded-language template acceptance and mirrored native IME remain open. |
 | Diagnostics and contextual fixes | Existing source-bound Problems/fix receipts remain scoped to their stated providers and paths. A command or backend implementation alone is not further acceptance. |
 | Testing and coverage | Retained sessions/results and supported collector receipts below remain scoped evidence. Exact JavaScript collection/rerun integration now has31 focused collector cases and11 fresh-engine Vitest flows; the retained-result race is corrected. Earlier native provider receipts retain their stated revisions. |
 | Review, staging, attribution, conflicts and recovery | Existing Git/native conflict receipts remain in force. Complete32-session recovery management and three exact revisions now have service/browser/macOS/Android-controller receipts. The canonical entry has a retained read identity and guarded source proof. Move publication and its inverse remain open. |
@@ -45,6 +45,18 @@ Across all rows, physical input and assistive-technology acceptance remain
 unexecuted where stated. Android controller/state acceptance and iOS builds are
 reported separately from rendered/device runtime acceptance. No full parity
 claim is made while the integration work in this ledger remains open.
+
+## Multi-caret template editing evidence
+
+The browser editor passed grouped typing, coincident empty logical carets,
+primary selection retention and exact insertion/input undo and redo. It
+refused changed editor intentions even when the visible selection was equal.
+The macOS AppKit editor and Android text-state witnesses retained both native
+selections through insertion, linked typing, field traversal, undo and redo.
+The focused groups passed 22 browser, 11 Apple and 10 Android checks. The
+catalog still needs to prepare and review all caret expansions from one
+captured source. Physical input, assistive technology and device rendering
+were not exercised by these witnesses.
 
 ## Canonical entry reading evidence
 
