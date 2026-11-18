@@ -85,8 +85,8 @@ Apple and twelve Android cases. Each native live fixture then executed its one
 opt-in case with zero skips. A second native run moved only the secondary caret
 away and back while the primary and source stayed fixed. Both hosts rejected the
 old preview and retained the draft and history. The iOS simulator product built
-with the selection-identity change. Its application startup was exercised
-separately in an owned simulator.
+with the selection-identity change. A preceding iOS build was installed and
+launched separately in an owned simulator.
 
 ## Embedded source template evidence
 
@@ -274,9 +274,8 @@ entry and lease checks covered pending-role races and alias refusals. Twelve
 source history and nine agent checks passed, along with three focused browser
 checks and TypeScript checking. The earlier Find preview carries a content hash.
 The physical guard begins when the server plans the replacement.
-External filesystem and Git writers and the legacy history revert command have
-separate publication paths. Entry Move and its inverse still require guarded
-publication and host acceptance.
+External filesystem and Git writers have separate publication paths. Entry Move
+and its inverse still require guarded publication and host acceptance.
 
 ### Guard publication through the raw Files verbs
 
@@ -290,6 +289,19 @@ same request after release. It refused direct removal of the main, retirement
 through a hardlink, and a symlink out of the workspace. A refused nested copy
 left no partial destination, and an ordinary copy then succeeded. The focused
 macOS kernel check confirmed that an occupied destination preserves both files.
+
+### Revert a retained history act through the same source guard
+
+The CLI considers the exact affected paths and the separate subset it would
+retire. It may restore the current main's text through the shared lease. Raw
+removal still needs a reviewed entry transition. An eligible legacy main is
+protected before the first default reading without creating a role record.
+Declared generated claims and exact confined source paths are checked again.
+
+The real CLI refused to revert a Find act while a separate reader held the
+publication descriptor. It changed neither saved text nor history. The same
+command restored the original bytes after release. Reverting its recorded
+inverse reapplied the replacement and left both acts readable.
 
 ## Checkpoint requested during implementation
 

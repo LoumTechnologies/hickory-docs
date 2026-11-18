@@ -27,10 +27,15 @@ reports that file as skipped under the same shared descriptor without recording
 an Undo act. After release, the exact original request replaces the text,
 reports its before and after digests, and records one grouped act.
 
+The optional legacy executable reverts that actual Find act through the CLI.
+The held descriptor must refuse the first attempt without adding history. The
+same act then restores the original text, and its recorded inverse reapplies
+the replacement.
+
 <ui:copy id="source-history-service-witness">
 #!/usr/bin/env python3
 """Owned-engine strict source-save and draft-history authority checks."""
-import argparse, hashlib, importlib.util, json, os, tempfile, time, urllib.error, urllib.parse, urllib.request, uuid
+import argparse, hashlib, importlib.util, json, os, subprocess, tempfile, time, urllib.error, urllib.parse, urllib.request, uuid
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 def digest(value):return hashlib.sha256(value.encode()).hexdigest()
@@ -169,7 +174,7 @@ def namespace_alias_suite(origin, root):
     print('PASS raw Files preserves the canonical role, confines aliases, and stages a whole copy before publication')
 
 
-def coordination_suite(origin, root, state, check_find=False, check_files=False):
+def coordination_suite(origin, root, state, check_find=False, check_files=False, legacy_binary=None):
     import fcntl
 
     # The deleted-source witness intentionally removed the other literal path.
@@ -183,12 +188,12 @@ def coordination_suite(origin, root, state, check_find=False, check_files=False)
         'q': find_source.strip(), 'replacement': find_result.strip(),
         'paths': [find_path], 'expected_sources': {find_path: digest(find_source)},
     }
-    def recorded_find():
+    def recorded_find(kind='replace'):
         result = []
         for journal in (state / 'workspaces').glob('*/history/acts.jsonl'):
             for line in journal.read_text().splitlines():
                 act = json.loads(line)
-                if act['kind'] == 'replace' and any(item['path'] == find_path for item in act['files']):
+                if act['kind'] == kind and any(item['path'] == find_path for item in act['files']):
                     result.append(act)
         return result
 
@@ -240,26 +245,49 @@ def coordination_suite(origin, root, state, check_find=False, check_files=False)
         assert (root / find_path).read_text() == find_result
         assert len(recorded_find()) == 1
         print('PASS guarded Find replacement leaves no effects or history under a held reader and publishes one act after release')
+        if legacy_binary is not None:
+            recorded, = recorded_find()
+            def revert(request):
+                return subprocess.run([legacy_binary, 'history', 'revert', request], cwd=root,
+                    env={**os.environ, 'HICKORY_STATE_DIR': str(state)}, capture_output=True, text=True, timeout=20)
+            with locks[0].open('rb') as held:
+                fcntl.flock(held.fileno(), fcntl.LOCK_SH | fcntl.LOCK_NB)
+                blocked = revert(recorded['id'])
+                assert blocked.returncode != 0 and 'publication' in blocked.stderr.lower(), blocked
+                assert (root / find_path).read_text() == find_result
+                assert recorded_find('revert') == []
+            restored = revert(recorded['id'])
+            assert restored.returncode == 0 and 'put back' in restored.stdout, restored
+            assert (root / find_path).read_text() == find_source
+            inverse, = recorded_find('revert')
+            replayed = revert(inverse['id'])
+            assert replayed.returncode == 0 and 'put back' in replayed.stdout, replayed
+            assert (root / find_path).read_text() == find_result
+            assert len(recorded_find('revert')) == 2
+            print('PASS legacy CLI revert refuses a held reader, then restores and reapplies the exact source with inverse history')
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--coordination', action='store_true', help='Also exercise the Unix source publication interlock')
     parser.add_argument('--find-coordination', action='store_true', help='Also exercise guarded Find against the same Unix interlock')
     parser.add_argument('--files-coordination', action='store_true', help='Also exercise raw Files namespace publication and alias refusals')
+    parser.add_argument('--legacy-revert-bin', type=Path, help='Revert a real Find act through this current hick executable')
     args = parser.parse_args()
-    if (args.coordination or args.find_coordination or args.files_coordination) and os.name != 'posix':
+    check_find = args.find_coordination or args.legacy_revert_bin is not None
+    if (args.coordination or check_find or args.files_coordination) and os.name != 'posix':
         parser.error('The source publication coordination witness requires Unix')
     spec=importlib.util.spec_from_file_location('fixture',ROOT/'scripts/test-simple-browser.py');fixture=importlib.util.module_from_spec(spec);spec.loader.exec_module(fixture)
     with tempfile.TemporaryDirectory(prefix='hickory-history-service-') as folder:
         temporary=Path(folder);root=temporary/'workspace';root.mkdir();root=root.resolve()
         for path,text in {'source λ%?#.txt':'before\n','source λ%2F?#.txt':'distinct sibling\n','note.md':'# Original\n','project.md':'<h:doc xmlns:h="http://www.hickorydocs.com/1.0"><h:project sources="construction.md"/></h:doc>\n','construction.md':'<h:doc xmlns:h="http://www.hickorydocs.com/1.0"><h:file path="generated.py">value = 1\n</h:file></h:doc>\n','generated.py':'value = 1\n'}.items():(root/path).write_text(text)
-        if args.find_coordination:
+        if check_find:
             (root / 'replace witness.txt').write_text('before replacement\n')
         process=fixture.start([os.environ.get('HICKORY_SIMPLE_TEST_ENGINE',str(ROOT/'target/source-edit-focus/debug/examples/engine_client')),str(root),'window','http://127.0.0.1:1'],env={**os.environ,'HICKORY_STATE_DIR':str(temporary/'state')})
         try:
             origin=fixture.origin(process);suite(origin,root);creation_suite(origin,root);missing_suite(origin,root)
-            if args.coordination or args.find_coordination or args.files_coordination:
-                coordination_suite(origin, root, temporary/'state', check_find=args.find_coordination, check_files=args.files_coordination)
+            if args.coordination or check_find or args.files_coordination:
+                coordination_suite(origin, root, temporary/'state', check_find=check_find, check_files=args.files_coordination,
+                    legacy_binary=args.legacy_revert_bin.resolve(strict=True) if args.legacy_revert_bin is not None else None)
         finally:fixture.stop(process)
 if __name__=='__main__':main()
 </ui:copy>

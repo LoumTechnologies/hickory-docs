@@ -377,7 +377,14 @@ impl History {
                 continue;
             }
             let full = root.join(&change.path);
-            let current = fs::read(&full).ok();
+            let current = match fs::read(&full) {
+                Ok(bytes) => Some(bytes),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+                Err(error) => {
+                    out.refused.push((change.path.clone(), format!("Current source could not be read: {error}")));
+                    continue;
+                }
+            };
             let current_hash = current
                 .as_deref()
                 .map(|b| format!("{:x}", Sha256::digest(b)));
@@ -398,7 +405,7 @@ impl History {
                 }
                 // The act created this file, so going back means it is gone.
                 None => {
-                    let _ = fs::remove_file(&full);
+                    fs::remove_file(&full).with_context(|| format!("could not remove {} while reverting history", full.display()))?;
                 }
             }
             out.restored.push(change.path.clone());

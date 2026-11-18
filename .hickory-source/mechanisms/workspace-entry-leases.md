@@ -136,6 +136,13 @@ pub(crate) fn acquire_source_batch_coordination(root:&Path,paths:&[std::path::Pa
 
 The mounted workspace's raw rename/remove commands are distinct from reviewed resource publication. They take the same exclusive provider and refuse the bound main address, logical case-spelling variants, physical aliases or any parent, regardless of extension or display-index readiness. Missing configured source does not remove the logical address guard. Physical-identity errors other than genuine absence refuse instead of treating an unreadable or cyclic alias as unrelated. A source document content replacement still uses its existing checked Save path; only an explicit reviewed entry transition may retire the logical main source. Absence of a role is not initialized or converted into entry-move permission here.
 
+Legacy history may replace the main document's text as part of an inverse. It
+carries the entire affected roster through one lease and identifies the subset
+that removes an address. Only that subset is eligible for the retirement check.
+Before the first default reading, discovery can still protect the existing
+legacy entry candidate. This check creates no role record and retains a known
+absent role once initial discovery has ended.
+
 <ui:copy id="workspace-entry-direct-namespace-coordination">
 fn protects_main_namespace(root:&Path,main:&str,path:&str)->Result<bool,String>{
  // Case variants are conservatively protected even when the configured source
@@ -147,21 +154,64 @@ fn protects_main_namespace(root:&Path,main:&str,path:&str)->Result<bool,String>{
  while let Some(original)=related{match same_file::is_same_file(&candidate,original){Ok(true)=>return Ok(true),Ok(false)=>{},Err(error)if error.kind()==std::io::ErrorKind::NotFound=>{},Err(error)=>return Err(format!("Main construction alias identity is unavailable: {error}. No raw namespace authority was granted."))}if original==root{break}related=original.parent();if related.is_some_and(|parent|!parent.starts_with(root)){break}}
  Ok(false)
 }
-fn namespace_coordination_under(base:&Path,root:&Path,paths:&[&str],ordinary:Option<crate::engine::private_policy::Ordinary>)->Result<SourceCoordinationLease,String>{
+fn namespace_coordination_for_under(base:&Path,root:&Path,paths:&[&str],retired:&[&str],ordinary:Option<crate::engine::private_policy::Ordinary>)->Result<SourceCoordinationLease,String>{
  if paths.is_empty()||paths.len()>10000{return Err("Namespace coordination requires a bounded explicit affected-path set.".into())}
+ let affected:std::collections::HashSet<_>=paths.iter().copied().collect();
+ if retired.len()>paths.len()||retired.iter().any(|path|!affected.contains(path)){return Err("A retired source is outside the affected namespace.".into())}
  for path in paths{super::super::resource_changes::validate_path(path)?;}
  let coordination=coordination_under(base,root,true)?;
  let bound=super::storage::Bound::optional_under(base,root)?;
- if let Some(main)=bound.as_ref().and_then(|bound|bound.payload.current.path.as_deref()){
-  for path in paths{if protects_main_namespace(root,main,path)?{return Err("The retained main construction or its parent requires an explicit reviewed workspace-entry transition. Its role was not inferred from filename, extension or missing source.".into())}}
+ let main=if retired.is_empty(){None}else{match bound.as_ref(){
+  Some(bound) if !bound.payload.bootstrap_default=>bound.payload.current.path.clone(),
+  _=>super::legacy_main(root)?,
+ }};
+ if let Some(main)=main{
+  for path in retired{if protects_main_namespace(root,&main,path)?{return Err("The main construction or its parent requires an explicit reviewed workspace-entry transition. Inspect the current entry before changing these paths.".into())}}
  }
  let lease=SourceCoordinationLease{coordination:Some(coordination),bound,_ordinary:ordinary};lease.check()?;Ok(lease)
 }
-pub(crate) fn acquire_namespace_coordination(root:&Path,paths:&[&str])->Result<SourceCoordinationLease,String>{
+#[cfg(test)]
+fn namespace_coordination_under(base:&Path,root:&Path,paths:&[&str],ordinary:Option<crate::engine::private_policy::Ordinary>)->Result<SourceCoordinationLease,String>{
+ namespace_coordination_for_under(base,root,paths,paths,ordinary)
+}
+pub(crate) fn acquire_namespace_coordination_for(root:&Path,paths:&[&str],retired:&[&str])->Result<SourceCoordinationLease,String>{
  let ordinary=crate::engine::private_policy::ordinary();ordinary_root(root)?;
  #[cfg(not(test))]let base=hickory_workspace::data_root().map_err(|error|error.to_string())?;
  #[cfg(test)]let base=root.join(".entry-coordination-state");
- namespace_coordination_under(&base,root,paths,Some(ordinary))
+ namespace_coordination_for_under(&base,root,paths,retired,Some(ordinary))
+}
+pub(crate) fn acquire_namespace_coordination(root:&Path,paths:&[&str])->Result<SourceCoordinationLease,String>{
+ acquire_namespace_coordination_for(root,paths,paths)
+}
+
+#[cfg(test)]
+mod namespace_retirement_tests {
+ use super::*;
+ #[test]
+ fn content_revert_and_ordinary_removal_share_one_lease_without_retiring_main(){
+  let temporary=tempfile::tempdir().unwrap();
+  let root=temporary.path().join("workspace");let base=temporary.path().join("state");
+  std::fs::create_dir(&root).unwrap();
+  std::fs::write(root.join("project.md"),"<h:doc xmlns:h=\"http://www.hickorydocs.com/1.0\"><h:project sources=\"part.md\"/></h:doc>").unwrap();
+  drop(super::super::storage::Bound::resolve_under(&base,&root).unwrap());
+  let paths=["project.md","ordinary.txt"];
+  let lease=namespace_coordination_for_under(&base,&root,&paths,&["ordinary.txt"],None).unwrap();
+  lease.check().unwrap();assert!(read_under(&base,&root,None,None).is_err());drop(lease);
+  assert!(namespace_coordination_for_under(&base,&root,&paths,&["project.md"],None).is_err());
+  assert!(namespace_coordination_for_under(&base,&root,&paths,&["foreign.txt"],None).is_err());
+ }
+ #[test]
+ fn legacy_entry_candidate_is_protected_before_the_first_read_without_creating_a_role(){
+  let temporary=tempfile::tempdir().unwrap();
+  let root=temporary.path().join("workspace");let base=temporary.path().join("state");
+  std::fs::create_dir(&root).unwrap();
+  std::fs::write(root.join("project.md"),"<h:doc xmlns:h=\"http://www.hickorydocs.com/1.0\"><h:project sources=\"part.md\"/></h:doc>").unwrap();
+  assert!(namespace_coordination_for_under(&base,&root,&["project.md"],&["project.md"],None).is_err());
+  assert!(!base.join("workspace-entry-v1").exists());
+  std::fs::write(root.join("project.md"),"# ordinary note\n").unwrap();
+  namespace_coordination_for_under(&base,&root,&["project.md"],&["project.md"],None).unwrap();
+  assert!(!base.join("workspace-entry-v1").exists());
+ }
 }
 </ui:copy>
 
@@ -200,11 +250,12 @@ The focused witnesses distinguish two simultaneous shared reads from an exclusiv
  }
 }
 #[cfg(unix)]
-pub(crate) use leases::{EntryReadLease,SourceCoordinationLease,SourceBatchCoordinationLease,acquire_source_batch_coordination,acquire_source_coordination,acquire_namespace_coordination,acquire_entry_read_lease,default_entry_binding};
+pub(crate) use leases::{EntryReadLease,SourceCoordinationLease,SourceBatchCoordinationLease,acquire_source_batch_coordination,acquire_source_coordination,acquire_namespace_coordination,acquire_namespace_coordination_for,acquire_entry_read_lease,default_entry_binding};
 #[cfg(not(unix))]pub(crate) struct SourceCoordinationLease;
 #[cfg(not(unix))]impl SourceCoordinationLease{pub(crate) fn check(&self)->Result<(),String>{Ok(())}}
 #[cfg(not(unix))]pub(crate) fn acquire_source_coordination(_root:&std::path::Path,_path:&std::path::Path,_source:&str)->Result<SourceCoordinationLease,String>{Ok(SourceCoordinationLease)}
 #[cfg(not(unix))]pub(crate) fn acquire_namespace_coordination(_root:&std::path::Path,_paths:&[&str])->Result<SourceCoordinationLease,String>{Ok(SourceCoordinationLease)}
+#[cfg(not(unix))]pub(crate) fn acquire_namespace_coordination_for(_root:&std::path::Path,_paths:&[&str],_retired:&[&str])->Result<SourceCoordinationLease,String>{Ok(SourceCoordinationLease)}
 #[cfg(not(unix))]pub(crate) struct SourceBatchCoordinationLease;
 #[cfg(not(unix))]impl SourceBatchCoordinationLease{pub(crate) fn check(&self)->Result<(),String>{Ok(())}}
 #[cfg(not(unix))]pub(crate) fn acquire_source_batch_coordination(_root:&std::path::Path,_paths:&[std::path::PathBuf])->Result<SourceBatchCoordinationLease,String>{Ok(SourceBatchCoordinationLease)}
