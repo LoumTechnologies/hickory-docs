@@ -73695,6 +73695,28 @@
       "fragments": [
         "snippet-regex-live-android"
       ]
+    },
+    "apps/apple-simple/Tests/BatchTemplateTests.swift": {
+      "source": ".hickory-source/frontends/batch-template-host-acceptance.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "d337aa0a4156f486ba09c8c6ba5ee857c44df1339f5bb29441eea1f4b53e5ff2",
+      "construction": "fragments",
+      "fragments": [
+        "batch-template-apple-witness"
+      ]
+    },
+    "apps/android-simple/app/src/test/java/com/hickorydocs/simple/BatchTemplateTest.kt": {
+      "source": ".hickory-source/frontends/batch-template-host-acceptance.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "d0f978a77ec0a423762482e078994a6f04f140768336c40f9a8c97cf959887cb",
+      "construction": "fragments",
+      "fragments": [
+        "batch-template-android-witness"
+      ]
     }
   },
   "evidence_records": [

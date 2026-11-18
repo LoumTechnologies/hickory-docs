@@ -22,6 +22,58 @@ import Darwin
         ResponseProtocol.responsesByPath=["/api/templates/catalog":try JSONSerialization.data(withJSONObject:catalog),"/api/templates/plan":try JSONSerialization.data(withJSONObject:plan)]
     }
     func decode<T:Decodable>(_ value:[String:Any],as type:T.Type)throws->T {try JSONDecoder().decode(type,from:JSONSerialization.data(withJSONObject:value))}
+    func batchReply()->([String:Any],[String:Any]) {
+        let source="old two";var (catalog,plan)=reply(source)
+        let ranges:[[String:Int]]=[["from":0,"to":3],["from":4,"to":7]]
+        let carets:[String:Any]=["version":1,"selections":ranges,"primary":0,"continuing":false]
+        for isPlan in [false,true] {
+            var value=isPlan ? plan:catalog;value["template_protocol"]=2;value["variable_context"]=Self.variables.body;value["source_files_modified"]=false;value["selection"]=ranges[0];value["template_batch_protocol"]=1;value["carets"]=carets
+            var binding=value["source_context"] as! [String:Any];binding["scope"]="caret-batch";value["source_context"]=binding;binding.removeValue(forKey:"source_hashes")
+            value["readings"]=ranges.map{["selection":$0,"context":binding] as [String:Any]}
+            if isPlan {
+                value.removeValue(forKey:"snippet");value.removeValue(forKey:"replacement")
+                value["expansions"]=ranges.enumerated().map{index,range -> [String:Any] in
+                    let selected=index==0 ? "old":"two",text=selected+":"+selected
+                    return ["selection":range,"replacement":range,"snippet":["version":1,"syntax":"${1:"+selected+"}:$1$0","text":text,"fields":[["id":0,"parent":NSNull(),"index":1,"from":0,"to":3,"choices":[]],["id":1,"parent":NSNull(),"index":1,"from":4,"to":7,"choices":[]],["id":2,"parent":NSNull(),"index":0,"from":7,"to":7,"choices":[]]]]]
+                };plan=value
+            }else{catalog=value}
+        }
+        return(catalog,plan)
+    }
+    func testCompleteBatchRetainsDistinctOriginalSelectionsAndRejectsPartialReply()throws {
+        let (raw,body)=batchReply(),catalog=try decode(raw,as:SourceTemplateCatalog.self),plan=try decode(body,as:SourceTemplateBatchReply.self)
+        XCTAssertTrue(plan.matches(catalog,entry:catalog.entries[0]));let prepared=try plan.prepared(source:"old two",continuing:nil)
+        XCTAssertEqual(prepared.plan.state.source,"old:old two:two");XCTAssertEqual(prepared.expansions.count,2)
+        for mode in ["missing","range","primary","provisional","language","transform"]{
+            var changed=body
+            switch mode {
+            case "primary":var carets=body["carets"] as! [String:Any];carets["primary"]=1;changed["carets"]=carets
+            case "provisional":changed["snippet"]=["version":1]
+            case "language":var rows=body["readings"] as! [[String:Any]];var facts=rows[1]["context"] as! [String:Any];facts["language"]="javascript";rows[1]["context"]=facts;changed["readings"]=rows
+            default:
+                var rows=body["expansions"] as! [[String:Any]]
+                if mode=="missing"{rows.removeLast()}
+                else if mode=="range"{rows[1]["replacement"]=["from":0,"to":3]}
+                else{var snippet=rows[1]["snippet"] as! [String:Any];var fields=snippet["fields"] as! [[String:Any]];fields[0]["transform"]=["version":3];snippet["fields"]=fields;rows[1]["snippet"]=snippet}
+                changed["expansions"]=rows
+            }
+            do {let candidate=try decode(changed,as:SourceTemplateBatchReply.self);if candidate.matches(catalog,entry:catalog.entries[0]){XCTAssertThrowsError(try candidate.prepared(source:"old two",continuing:nil),mode)}}catch{}
+        }
+    }
+    func testCompleteBatchPreflightRejectsAggregateOutputAndChoiceMetadata()throws {
+        let (_,body)=batchReply()
+        for kind in ["output","choices"] {
+            var changed=body;var rows=body["expansions"] as! [[String:Any]]
+            for index in rows.indices {
+                var snippet=rows[index]["snippet"] as! [String:Any]
+                if kind=="output"{snippet["text"]=String(repeating:"x",count:600000)}
+                else{var fields=snippet["fields"] as! [[String:Any]];fields[0]["choices"]=[String(repeating:"x",count:600000)];snippet["fields"]=fields}
+                rows[index]["snippet"]=snippet
+            }
+            changed["expansions"]=rows;let plan=try decode(changed,as:SourceTemplateBatchReply.self);XCTAssertThrowsError(try plan.prepared(source:"old two",continuing:nil))
+        }
+    }
+
     func testEmbeddedBindingRetainsLanguageAndRejectsMalformedContext()throws {
         let (raw,body)=reply(),catalog=try decode(raw,as:SourceTemplateCatalog.self),plan=try decode(body,as:SourceTemplatePlan.self)
         let binding=try XCTUnwrap(catalog.source_context);XCTAssertTrue(binding.valid(path:"main.py",source:"value = 'old'\n",project:nil,language:"python"));XCTAssertFalse(binding.valid(path:"main.py",source:"changed",project:nil,language:"python"));XCTAssertFalse(binding.valid(path:"main.py",source:"value = 'old'\n",project:nil,language:"javascript"))

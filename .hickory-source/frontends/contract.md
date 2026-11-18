@@ -32,7 +32,7 @@ an earlier open item only for the behavior it actually exercises.
 | Required outcome | Current usable evidence and remaining acceptance |
 | --- | --- |
 | Navigation and code intelligence | Existing source-bound navigation and provider receipts remain in force. Browser mixed-line-ending source/view coordination now has rendered provider and history acceptance; source-bound completion variables now have live host receipts. Embedded-language breadth remains open. |
-| Refactoring, cleanup, generation, templates and history | Rename, formatting, genuine TypeScript extraction/accessor generation/cleanup and coordinated history have focused host receipts. Genuine TypeScript move-to-new-file review, publication and inverse/redo have browser, macOS and Android receipts. Source-bound variables and bounded transforms work in completion and template paths. Expanded regex transforms have live completion receipts on those three hosts. Multi-caret editing and marked input retain their editor and text-state receipts. Embedded source templates have live browser, macOS and Android controller evidence. Batch catalog preparation has service evidence. Host batch acceptance and expanded transforms in reusable templates have separate receipts and requirements. |
+| Refactoring, cleanup, generation, templates and history | Rename, formatting, genuine TypeScript extraction/accessor generation/cleanup and coordinated history have focused host receipts. Genuine TypeScript move-to-new-file review, publication and inverse/redo have browser, macOS and Android receipts. Source-bound variables and bounded transforms work in completion and template paths. Expanded regex transforms have live completion receipts on those three hosts. Multi-caret editing and marked input retain their editor and text-state receipts. Embedded and multi-caret reusable templates have live browser, macOS and Android controller evidence. Secondary-caret round-trip invalidation and expanded transforms in reusable templates remain open. |
 | Diagnostics and contextual fixes | Existing source-bound Problems/fix receipts remain scoped to their stated providers and paths. A command or backend implementation alone is not further acceptance. |
 | Testing and coverage | Retained sessions/results and supported collector receipts below remain scoped evidence. Exact JavaScript collection/rerun integration now has31 focused collector cases and11 fresh-engine Vitest flows; the retained-result race is corrected. Earlier native provider receipts retain their stated revisions. |
 | Review, staging, attribution, conflicts and recovery | Existing Git/native conflict receipts remain in force. Complete 32-session recovery management and three exact revisions have service, browser, macOS and Android-controller receipts. The canonical entry has a retained read identity and guarded source proof. Grouped text replacement and selected-worktree writes share that exclusion. Move publication and its inverse remain open. |
@@ -66,6 +66,24 @@ linked Unicode input, budget refusal and Undo/Redo. Those runs retained editor
 identity, source and saved bytes. The iOS simulator product built. Reusable
 template negotiation, iOS runtime, physical input and assistive technology have
 separate acceptance requirements.
+
+## Review and apply a complete template group
+
+Catalog and Preview retain every logical selection, the same graph and one
+variable capture. Each selection receives its own cursor values and replacement.
+Nested template review preflights every linked field with one bounded plan.
+Apply commits the group in one history step. A moved secondary caret invalidates
+the pending plan. The clipboard is read once when the complete expansion needs
+it, and denial leaves source untouched.
+
+The real browser, mounted macOS editor and Android controller each exercised
+embedded code and a dirty reused fragment through Preview, Apply, linked
+Unicode edits, complete Undo and Redo, and refusal after a secondary selection
+moved. They retained the original editor and saved bytes. Thirty-four focused
+browser checks passed with type checking. The native focused runs passed eleven
+Apple and twelve Android cases. Each native live fixture then executed its one
+opt-in case with zero skips. The iOS simulator product built. A secondary caret
+that moves away and returns to the same offsets has separate acceptance.
 
 ## Embedded source template evidence
 

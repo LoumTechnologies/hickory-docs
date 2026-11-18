@@ -53,6 +53,10 @@ def prepare(root, provider_context=False, embedded=False):
         {"id": "workspace.unsupported", "label": "Unsupported transform", "description": "An explicit unavailable transform", "language": "python", "syntax": "${1:old}${1/(?<=o)ld/x/}$0"},
     ]
     if embedded: entries.append({"id":"workspace.embedded","label":"Embedded context","description":"Compiler-bound language and linked transforms","language":"python","syntax":"${LINE_COMMENT}${TM_FILENAME}|${1:${TM_SELECTED_TEXT}}|$1|${1/(.*)/${1:/upcase}/}$0"})
+    if embedded: entries.extend([
+        {"id":"workspace.batch-context","label":"Batch context","description":"One complete graph/clock snapshot with distinct cursor variables","language":"python","syntax":"${LINE_COMMENT}${CURSOR_INDEX}:${CURSOR_NUMBER}:${CURRENT_YEAR}:${RANDOM_HEX}:${1:${TM_SELECTED_TEXT}}|$1|${1/(.*)/${1:/upcase}/}$0"},
+        {"id":"workspace.batch-nested","label":"Batch nested","description":"Continue every original outer mirror group","language":"python","syntax":"${1:kid}-$1$0"},
+    ])
     (root / ".hickory/templates.json").write_text(json.dumps({"version": 1, "templates": entries}))
 
 def request(origin, path, body=None):
@@ -96,16 +100,16 @@ def confirm(origin):
         raise RuntimeError("Template fixture must expose an independent writable primary and a distinct generated, read-only source.")
 def run_host(host, origin, workspace, temporary, fixture, provider_context=False, embedded=False, acceptance=None):
     environment = {**os.environ, "HICKORY_NATIVE_TEMPLATE_ORIGIN": origin, "HICKORY_NATIVE_TEMPLATE_WORKSPACE": str(workspace), "HICKORY_NATIVE_TEMPLATE_INPUT": "main.py"}
-    if host == "apple":
-        name = name if acceptance is not None else ("testLiveEmbeddedTemplateCatalogAndHistory" if embedded else "testLiveProviderContextCompletionAndHistory" if provider_context else "testLiveNativeSourceTemplateCatalogAndHistory")
-        test_class = test_class if acceptance is not None else ("EmbeddedTemplateTests" if embedded else "SnippetContextProviderTests" if provider_context else "SourceTemplateTests")
-        report = temporary / "native-template.xml"
     if acceptance is not None:
         if not isinstance(acceptance, tuple) or len(acceptance) != 3:
             raise ValueError("Choose exactly one explicit native acceptance class, method and receipt label.")
         test_class, name, label = acceptance
         if not all(isinstance(value, str) and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", value) for value in (test_class, name)) or not isinstance(label, str) or not re.fullmatch(r"[a-z][a-z0-9-]{0,63}", label):
             raise ValueError("Native acceptance identifiers or receipt label are invalid.")
+    if host == "apple":
+        name = name if acceptance is not None else ("testLiveEmbeddedTemplateCatalogAndHistory" if embedded else "testLiveProviderContextCompletionAndHistory" if provider_context else "testLiveNativeSourceTemplateCatalogAndHistory")
+        test_class = test_class if acceptance is not None else ("EmbeddedTemplateTests" if embedded else "SnippetContextProviderTests" if provider_context else "SourceTemplateTests")
+        report = temporary / "native-template.xml"
         command = ["swift", "test", "--package-path", "apps/apple-simple", "--scratch-path", "target/apple-simple-spm", "--filter", test_class + "." + name + "$", "--xunit-output", str(report)]
     else:
         name = name if acceptance is not None else ("liveEmbeddedTemplateCatalogAndHistory" if embedded else "liveProviderContextCompletionAndHistory" if provider_context else "liveNativeSourceTemplateCatalogAndHistory")
@@ -159,7 +163,9 @@ def main():
     parser.add_argument("--serve-only", action="store_true", help="Keep the owned fixture alive; this does not execute acceptance.")
     parser.add_argument("--provider-context", action="store_true", help="Execute the exact native provider-completion context/transform/clipboard witness.")
     parser.add_argument("--embedded", action="store_true", help="Execute exact native code-fence/reused-fragment template acceptance.")
+    parser.add_argument("--batch", action="store_true", help="Execute the exact complete multi-selection template group witness.")
     args = parser.parse_args()
+    if args.batch and args.provider_context: parser.error("Choose one exact template or provider acceptance mode.")
     def interrupted(number, _frame):
         raise SystemExit(128 + number)
     signal.signal(signal.SIGTERM, interrupted)
@@ -170,7 +176,7 @@ def main():
     with tempfile.TemporaryDirectory(prefix=f"hickory-native-{args.host}-templates-") as folder:
         temporary = Path(folder)
         workspace = temporary / "workspace"
-        prepare(workspace, args.provider_context, args.embedded)
+        prepare(workspace, args.provider_context, args.embedded or args.batch)
         process = fixture.start([str(engine), str(workspace), "window", "http://127.0.0.1:1"], env={**os.environ, "HICKORY_STATE_DIR": str(temporary / "state")})
         try:
             origin = fixture.origin(process)
@@ -179,7 +185,7 @@ def main():
             if args.serve_only:
                 threading.Event().wait()
             else:
-                run_host(args.host, origin, workspace, temporary, fixture, args.provider_context, args.embedded)
+                run_host(args.host, origin, workspace, temporary, fixture, args.provider_context, args.embedded or args.batch, acceptance=(("BatchTemplateTests", "testLiveCompleteTemplateGroupAndHistory", "batch") if args.host=="apple" else ("BatchTemplateTest", "liveCompleteTemplateGroupAndHistory", "batch")) if args.batch else None)
         finally:
             fixture.stop(process)
 

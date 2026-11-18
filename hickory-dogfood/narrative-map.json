@@ -157359,6 +157359,20 @@
       "page": ".hickory-source/mechanisms/snippet-regex-acceptance.md",
       "symbol": "snippet regex live android",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "batch-template-apple-witness",
+      "output": "apps/apple-simple/Tests/BatchTemplateTests.swift",
+      "page": ".hickory-source/frontends/batch-template-host-acceptance.md",
+      "symbol": "batch template apple witness",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "batch-template-android-witness",
+      "output": "apps/android-simple/app/src/test/java/com/hickorydocs/simple/BatchTemplateTest.kt",
+      "page": ".hickory-source/frontends/batch-template-host-acceptance.md",
+      "symbol": "batch template android witness",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

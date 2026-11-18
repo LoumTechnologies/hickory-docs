@@ -23,15 +23,54 @@ def exercise(driver,root,path,source):
  assert driver.act('editor-is-retained',path=path);assert driver.act('editor-size',path=path)==size
  return typed
 
+def exercise_batch(driver,root,path,source):
+ import re
+ driver.act('open',path=path);driver.act('remember-editor',path=path);size=driver.act('editor-size',path=path)
+ first=source.index('old');second=source.index('two',first+3);ranges=[{'from':first,'to':first+3},{'from':second,'to':second+3}]
+ assert driver.act('editor-selections',path=path,ranges=ranges,primary=0)=={'ranges':ranges,'primary':0}
+ catalog=driver.act('templates-open',path=path);assert 'Batch context' in catalog,catalog
+ preview=driver.act('templates-preview',label='Batch context');assert '2 captured selections' in preview,preview;assert driver.act('construction-source',path=path)==source
+ driver.act('templates-apply',path=path);after=driver.act('construction-source',path=path)
+ selected=after[first:len(after)-(len(source)-second-3)]
+ match=re.fullmatch(r'#0:1:(\d{4}):([0-9a-f]{6}):old\|old\|OLD #1:2:\1:\2:two\|two\|TWO',selected);assert match,selected
+ year,seed=match.groups();prefix=lambda i:f'#{i}:{i+1}:{year}:{seed}:'
+ def complete(value,upper):return source[:first]+prefix(0)+value+'|'+value+'|'+upper+' '+prefix(1)+value+'|'+value+'|'+upper+source[second+3:]
+ driver.act('type-source-selection',path=path,text='ßa');typed=complete('ßa','SSA');assert driver.act('construction-source',path=path)==typed
+ # Typing leaves collapsed carets. The existing field commands explicitly select both current fields before replacing them.
+ driver.act('template-next');driver.act('template-previous');assert [row['to']-row['from'] for row in driver.act('editor-selections',path=path)['ranges']]==[2,2]
+ # A second invocation must preserve the first group's mirrors and computed fields.
+ driver.act('templates-open',path=path);nested_preview=driver.act('templates-preview',label='Batch nested');assert '2 captured selections' in nested_preview,nested_preview
+ driver.act('templates-apply',path=path);nested=complete('kid-kid','KID-KID');assert driver.act('construction-source',path=path)==nested,driver.act('construction-source',path=path)
+ driver.act('type-source-selection',path=path,text='ßa');nested_typed=complete('ßa-ßa','SSA-SSA');assert driver.act('construction-source',path=path)==nested_typed
+ for expected in [nested,typed,after,source]:driver.act('undo',path=path);assert driver.act('construction-source',path=path)==expected
+ for expected in [after,typed,nested,nested_typed]:driver.act('redo',path=path);assert driver.act('construction-source',path=path)==expected
+ for _ in range(4):driver.act('undo',path=path)
+ assert driver.act('construction-source',path=path)==source
+ # Moving only a secondary selection retires a held Apply even when bytes and primary stay equal.
+ driver.act('editor-selections',path=path,ranges=ranges,primary=0);driver.act('templates-open',path=path);driver.act('templates-preview',label='Batch context');driver.act('templates-hold-apply')
+ moved=[ranges[0],{'from':second+3,'to':second+3}];driver.act('editor-selections',path=path,ranges=moved,primary=0);driver.act('templates-release-apply')
+ assert driver.act('construction-source',path=path)==source;assert not driver.act('templates-apply-enabled');driver.act('templates-close')
+ assert driver.act('editor-is-retained',path=path);assert driver.act('editor-size',path=path)==size
+ return source
+
 def main():
+ batch='--batch' in sys.argv
  with tempfile.TemporaryDirectory(prefix='embedded-template-browser-',dir=ROOT/'target') as temporary:
-  folder=Path(temporary);root=folder/'workspace';root.mkdir();original=project();part=doc('<h:copy id="body">saved</h:copy>');code='Narrative\n\n```python\nold\n```\n';(root/'project.md').write_text(original);(root/'part.md').write_text(part);(root/'notes.md').write_text(code)
-  (root/'.hickory').mkdir();(root/'.hickory/templates.json').write_text(json.dumps({'version':1,'templates':[{'id':'embedded.context','label':'Embedded context','description':'Compiler-bound comments and linked Unicode transforms','language':'python','syntax':'${LINE_COMMENT}${TM_FILENAME}|${1:${TM_SELECTED_TEXT}}|$1|${1/(.*)/${1:/upcase}/}$0'}]}))
+  folder=Path(temporary);root=folder/'workspace';root.mkdir();original=project();part=doc('<h:copy id="body">saved</h:copy>');code='Narrative\n\n```python\n'+('old two' if batch else 'old')+'\n```\n';(root/'project.md').write_text(original);(root/'part.md').write_text(part);(root/'notes.md').write_text(code)
+  (root/'.hickory').mkdir();(root/'.hickory/templates.json').write_text(json.dumps({'version':1,'templates':[{'id':'embedded.context','label':'Embedded context','description':'Compiler-bound comments and linked Unicode transforms','language':'python','syntax':'${LINE_COMMENT}${TM_FILENAME}|${1:${TM_SELECTED_TEXT}}|$1|${1/(.*)/${1:/upcase}/}$0'}, {'id':'batch.context','label':'Batch context','description':'One captured graph and clock for the complete caret roster','language':'python','syntax':'${LINE_COMMENT}${CURSOR_INDEX}:${CURSOR_NUMBER}:${CURRENT_YEAR}:${RANDOM_HEX}:${1:${TM_SELECTED_TEXT}}|$1|${1/(.*)/${1:/upcase}/}$0'}, {'id':'batch.nested','label':'Batch nested','description':'Continue each original outer mirror group','language':'python','syntax':'${1:kid}-$1$0'}]}))
   processes=[];driver=None
   try:
    with socket.socket() as reservation:reservation.bind(('127.0.0.1',0));port=reservation.getsockname()[1]
    env={**os.environ,'HICKORY_STATE_DIR':str(folder/'state')};ui=f'http://127.0.0.1:{port}';engine=fixture.start([os.environ.get('HICKORY_SIMPLE_TEST_ENGINE',str(ROOT/'target/source-edit-focus/debug/examples/engine_client')),str(root),'window',ui],env=env);processes.append(engine);backend=fixture.origin(engine)
    vite=fixture.start(['node','node_modules/vite/bin/vite.js','--config','vite.simple.config.ts','--host','127.0.0.1','--port',str(port),'--strictPort'],cwd=ROOT/'apps/web',env={**env,'HICKORY_API_ORIGIN':backend});processes.append(vite);driver=fixture.BrowserDriver(fixture.origin(vite)+'/simple.html')
+   if batch:
+    exercise_batch(driver,root,'notes.md',code)
+    driver.act('open',path='project.md');driver.act('construction-set-source',path='project.md',source=project('draft.py'))
+    driver.act('open',path='part.md');dirty_part=doc('<h:copy id="body">old two</h:copy>');driver.act('construction-set-source',path='part.md',source=dirty_part);exercise_batch(driver,root,'part.md',dirty_part)
+    for path,source in [('project.md',original),('part.md',part),('notes.md',code)]:assert (root/path).read_bytes()==source.encode(),path
+    assert all(not(root/name).exists() for name in ['saved.py','draft.py','second.py','mixed.js','guide.md'])
+    print('PASS: real batch code-fence and dirty reused-fragment catalogs, complete visible Preview/Apply, distinct caret indices/values under one clock/seed/graph, nested Unicode computed mirrors, atomic group UndoRedo, stale secondary selection refusal, retained editor/geometry and unchanged source disks')
+    return
    exercise(driver,root,'notes.md',code)
    driver.act('open',path='project.md');dirty=project('draft.py');driver.act('construction-set-source',path='project.md',source=dirty);assert driver.act('construction-source',path='project.md')==dirty
    driver.act('open',path='part.md');dirty_part=doc('<h:copy id="body">old</h:copy>');driver.act('construction-set-source',path='part.md',source=dirty_part);typed=exercise(driver,root,'part.md',dirty_part)

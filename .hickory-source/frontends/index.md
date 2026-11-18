@@ -317,4 +317,6 @@ Each client reads text before requesting optional capabilities. A save uses the 
 
 <ui:include file="embedded-template-host-acceptance.md" />
 
+<ui:include file="batch-template-host-acceptance.md" />
+
 </ui:doc>

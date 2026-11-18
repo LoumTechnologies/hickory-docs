@@ -32,6 +32,51 @@ class SourceTemplateTest {
         try{block(fixture)}finally{release.countDown();workspace.showTemplates=false;server.stop(0)}
     }
     private suspend fun review(f:Fixture){f.model.refresh(f.workspace);assertNotNull(f.model.notice,f.model.catalog);f.model.prepare(f.workspace,f.model.catalog!!.entries.single());assertNotNull(f.model.notice,f.model.reviewed)}
+    private fun batchCapture():SourceTemplateCapture {
+        val source="old two";val ranges=JSONArray().put(JSONObject().put("from",0).put("to",3)).put(JSONObject().put("from",4).put("to",7))
+        val carets=JSONObject().put("version",1).put("selections",ranges).put("primary",0).put("continuing",false)
+        val reading=JSONObject().put("version",1).put("project_entry",JSONObject.NULL).put("sources",JSONObject().put("main.py",source)).put("unaddressed_sources",JSONObject()).put("missing_sources",JSONArray())
+        return SourceTemplateCapture(Any(),Any(),Any(),"namespace",0,"main.py",source,0,3,0,SnippetVariableSnapshot(1704067200000,0,"0123456789abcdef0123456789abcdef"),reading.toString(),carets=carets.toString())
+    }
+    private fun batchCatalog(capture:SourceTemplateCapture):JSONObject {
+        val request=capture.body();val value=catalog(request);val context=value.getJSONObject("source_context").put("scope","caret-batch")
+        val light=JSONObject(context.toString()).apply{remove("source_hashes")};val ranges=JSONObject(capture.carets!!).getJSONArray("selections")
+        return value.put("template_batch_protocol",1).put("carets",JSONObject(capture.carets)).put("readings",JSONArray((0 until ranges.length()).map{JSONObject().put("selection",JSONObject(ranges.getJSONObject(it).toString())).put("context",JSONObject(light.toString()))}))
+    }
+    private fun batchPlan(capture:SourceTemplateCapture):JSONObject {
+        val value=batchCatalog(capture).apply{remove("entries")}.put("template_id","pair").put("origin","workspace")
+        val ranges=JSONObject(capture.carets!!).getJSONArray("selections")
+        return value.put("expansions",JSONArray((0 until ranges.length()).map{index->
+            val range=ranges.getJSONObject(index);val selected=capture.source.substring(range.getInt("from"),range.getInt("to"));val text="$selected:$selected"
+            JSONObject().put("selection",JSONObject(range.toString())).put("replacement",JSONObject(range.toString())).put("snippet",JSONObject().put("version",1).put("syntax","\${1:$selected}:\$1\$0").put("text",text).put("fields",JSONArray().put(field(0,1,0,selected.length)).put(field(1,1,selected.length+1,text.length)).put(field(2,0,text.length,text.length))))
+        }))
+    }
+    @Test fun completeBatchPlanPreservesDistinctOriginalSelectionsAndRefusesPartialReplies(){
+        val capture=batchCapture();val reading=SourceTemplateCatalog.decode(batchCatalog(capture),capture)
+        val value=batchPlan(capture);val plan=SourceTemplatePlan.decode(value,reading,"pair")
+        assertEquals("old:old two:two",plan.completeSource);assertEquals("old:old",plan.draft.primary!!.text)
+        for(mode in listOf("missing","wrongrange","primary","provisional","language","unknowntransform")){
+            val bad=JSONObject(value.toString())
+            when(mode){
+                "missing"->bad.getJSONArray("expansions").remove(1)
+                "wrongrange"->bad.getJSONArray("expansions").getJSONObject(1).getJSONObject("replacement").put("from",0)
+                "primary"->bad.getJSONObject("carets").put("primary",1)
+                "provisional"->bad.put("snippet",JSONObject())
+                "language"->bad.getJSONArray("readings").getJSONObject(1).getJSONObject("context").put("language","javascript")
+                else->bad.getJSONArray("expansions").getJSONObject(1).getJSONObject("snippet").getJSONArray("fields").getJSONObject(0).put("transform",JSONObject().put("version",3))
+            }
+            assertTrue("admitted $mode",runCatching{SourceTemplatePlan.decode(bad,reading,"pair")}.isFailure)
+        }
+        assertFalse(capture.matches(capture.copy(carets=JSONObject(capture.carets!!).put("primary",1).toString())))
+    }
+    @Test fun completeBatchPreflightRejectsAggregateOutputAndMetadataBeforeReaderMaterialization(){
+        val capture=batchCapture();val reading=SourceTemplateCatalog.decode(batchCatalog(capture),capture)
+        val output=batchPlan(capture);for(index in 0..1)output.getJSONArray("expansions").getJSONObject(index).getJSONObject("snippet").put("text","x".repeat(600000))
+        assertTrue(runCatching{SourceTemplatePlan.decode(output,reading,"pair")}.isFailure)
+        val metadata=batchPlan(capture);for(index in 0..1)metadata.getJSONArray("expansions").getJSONObject(index).getJSONObject("snippet").getJSONArray("fields").getJSONObject(0).put("choices",JSONArray().put("x".repeat(600000)))
+        assertTrue(runCatching{SourceTemplatePlan.decode(metadata,reading,"pair")}.isFailure)
+    }
+
     @Test fun captureRejectsSameSpellingEditorsAndReturnedTextRevisions(){
         val capture=SourceTemplateCapture(Any(),Any(),Any(),"namespace",7,"main.py","value",0,5,1)
         assertTrue(capture.matches(capture.copy()))
