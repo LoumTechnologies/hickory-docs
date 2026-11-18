@@ -60,6 +60,75 @@ import AppKit
         XCTAssertEqual(buffer.base,source)
         #endif
     }
+    func testActualMacMarkedTextCommitsMirrorsAfterNativeCandidateAndKeepsEarlierUndo() {
+        #if os(macOS)
+        let saved="a + a"
+        let buffer=DocumentBuffer(file:FileNode(name:"a.py",path:"a.py",dir:false),text:FileText(path:"a.py",content:saved,hash:"base"))
+        let editor=MacEditor(buffer)
+        let window=NSWindow(contentRect:NSRect(x:0,y:0,width:500,height:300),styleMask:[.titled],backing:.buffered,defer:false)
+        window.contentView=editor.scroll
+        window.makeFirstResponder(editor.text)
+        defer {window.contentView=nil}
+        let prior=NSRange(location:0,length:0)
+        XCTAssertTrue(editor.applySourceEdits([NativeSourceEdit(range:prior,text:"!")],source:saved))
+        let source="!a + a"
+        let choice=NSRange(location:1,length:1)
+        XCTAssertTrue(editor.selectSourceRange(choice,source:source))
+        let fields=[
+            SnippetField(index:1,from:1,to:2,choices:[],id:0),
+            SnippetField(index:1,from:5,to:6,choices:[],id:1),
+            SnippetField(index:0,from:6,to:6,choices:[],id:2),
+        ]
+        buffer.snippets.restore(beginSnippet(source,fields:fields))
+        let mark=NSRange(location:NSNotFound,length:0)
+        editor.text.setMarkedText("に",selectedRange:NSRange(location:1,length:0),replacementRange:mark)
+        XCTAssertTrue(editor.text.hasMarkedText())
+        XCTAssertEqual(buffer.text,"!に + a")
+        editor.text.setMarkedText("日本",selectedRange:NSRange(location:2,length:0),replacementRange:mark)
+        XCTAssertTrue(editor.text.hasMarkedText())
+        XCTAssertEqual(buffer.text,"!日本 + a")
+        editor.text.insertText("日本語",replacementRange:mark)
+        XCTAssertFalse(editor.text.hasMarkedText())
+        XCTAssertEqual(buffer.text,"!日本語 + 日本語")
+        XCTAssertEqual(editor.text.selectedRange(),NSRange(location:4,length:0))
+        XCTAssertNotNil(buffer.snippets.active)
+        editor.text.undoManager?.undo()
+        XCTAssertEqual(buffer.text,source)
+        XCTAssertEqual(editor.text.selectedRange(),choice)
+        XCTAssertNotNil(buffer.snippets.active)
+        editor.text.undoManager?.redo()
+        XCTAssertEqual(buffer.text,"!日本語 + 日本語")
+        editor.text.undoManager?.undo()
+        editor.text.undoManager?.undo()
+        XCTAssertEqual(buffer.text,saved)
+        XCTAssertEqual(buffer.base,saved)
+        #endif
+    }
+
+    func testMacUnmarkRetainsOrdinaryInputWhenSnippetIntentChanged() {
+        #if os(macOS)
+        let source="a + a"
+        let buffer=DocumentBuffer(file:FileNode(name:"a.py",path:"a.py",dir:false),text:FileText(path:"a.py",content:source,hash:"base"))
+        let editor=MacEditor(buffer)
+        let window=NSWindow(contentRect:NSRect(x:0,y:0,width:500,height:300),styleMask:[.titled],backing:.buffered,defer:false)
+        window.contentView=editor.scroll
+        window.makeFirstResponder(editor.text)
+        defer {window.contentView=nil}
+        XCTAssertTrue(editor.selectSourceRange(NSRange(location:0,length:1),source:source))
+        buffer.snippets.restore(beginSnippet(source,fields:fields()))
+        let mark=NSRange(location:NSNotFound,length:0)
+        editor.text.setMarkedText("に",selectedRange:NSRange(location:1,length:0),replacementRange:mark)
+        XCTAssertEqual(buffer.text,"に + a")
+        buffer.snippets.restore(nil)
+        editor.text.unmarkText()
+        XCTAssertFalse(editor.text.hasMarkedText())
+        XCTAssertEqual(buffer.text,"に + a")
+        XCTAssertNil(buffer.snippets.active)
+        editor.text.undoManager?.undo()
+        XCTAssertEqual(buffer.text,source)
+        #endif
+    }
+
     func testHistoryCostChargesEveryEmptyChoice() {
         let field=SnippetField(index:1,from:0,to:0,choices:Array(repeating:"",count:4096),id:0)
         XCTAssertEqual(snippetHistoryCost(SourceSnippetHistoryContext(fields:[field],active:1,current:0)),64+4096*32)

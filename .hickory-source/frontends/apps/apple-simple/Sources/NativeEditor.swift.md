@@ -3,6 +3,11 @@
 
 For maintainers iterating on the equivalent Apple, Android and browser editor frontends.
 
+The native text view brackets marked input around its actual commit. Nested
+unmark calls share the outer bracket. While a template field is composing,
+only the input method changes the marked text. The template completes its
+mirrors and records source history after the native widget has committed.
+
 Each cached native text view owns its UndoManager. Switching tabs must not make one source undo another source's last edit through a shared window manager. Snippet and guarded draft transactions reuse that same per-editor manager, so reparenting preserves both native typing and coordinated source history.
 
 When an empty pane closes, the surviving editor can move to a new position in the SwiftUI tree. Keep its native editor cached for selection, scroll and undo, but give each representable a fresh host. Reparent the editor inside that host; reusing the representable root lets teardown of the old tree location interfere with its new owner.
@@ -671,8 +676,48 @@ final class SimpleMacTextView: NSTextView {
     override func accessibilityChildren() -> [Any]? {
         (super.accessibilityChildren() ?? []) + subviews.filter { $0 is NSHostingView<NativeTableGrid> }
     }
-    var willCompose: (() -> Void)?
-    override func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) { willCompose?(); super.setMarkedText(string, selectedRange: selectedRange, replacementRange: replacementRange) }
+    var beginSnippetComposition: ((NSRange) -> Bool)?
+    var reportSnippetComposition: ((_ finished: Bool) -> Void)?
+    private(set) var ownsSnippetComposition = false
+    private(set) var performingMarkedInput = false
+
+    private func performMarkedInput(start: NSRange? = nil, _ apply: () -> Void) {
+        if performingMarkedInput { apply(); return }
+        if !ownsSnippetComposition, let start {
+            ownsSnippetComposition = beginSnippetComposition?(start) == true
+        }
+        guard ownsSnippetComposition else { apply(); return }
+
+        performingMarkedInput = true
+        let history = undoManager
+        history?.disableUndoRegistration()
+        apply()
+        history?.enableUndoRegistration()
+        performingMarkedInput = false
+
+        if !hasMarkedText() {
+            ownsSnippetComposition = false
+            reportSnippetComposition?(true)
+        } else {
+            reportSnippetComposition?(false)
+        }
+    }
+
+    override func setMarkedText(_ value: Any, selectedRange: NSRange, replacementRange: NSRange) {
+        performMarkedInput(start: replacementRange.location == NSNotFound ? self.selectedRange() : replacementRange) {
+            super.setMarkedText(value, selectedRange: selectedRange, replacementRange: replacementRange)
+        }
+    }
+
+    override func insertText(_ value: Any, replacementRange: NSRange) {
+        performMarkedInput {
+            super.insertText(value, replacementRange: replacementRange)
+        }
+    }
+
+    override func unmarkText() {
+        performMarkedInput { super.unmarkText() }
+    }
 }
 #else
 import UIKit
@@ -717,8 +762,46 @@ private final class SimpleTextView: UITextView {
         return tableCaretHidden(selection, tables: tableRanges) ? .zero : super.caretRect(for: position)
     }
 
-    var willCompose: (() -> Void)?
-    override func setMarkedText(_ markedText: String?, selectedRange: NSRange) { willCompose?(); super.setMarkedText(markedText, selectedRange: selectedRange) }
+    var beginSnippetComposition: ((NSRange) -> Bool)?
+    var reportSnippetComposition: ((_ finished: Bool) -> Void)?
+    private(set) var ownsSnippetComposition = false
+    private(set) var performingMarkedInput = false
+
+    private func performMarkedInput(start: NSRange? = nil, _ apply: () -> Void) {
+        if performingMarkedInput { apply(); return }
+        if !ownsSnippetComposition, let start {
+            ownsSnippetComposition = beginSnippetComposition?(start) == true
+        }
+        guard ownsSnippetComposition else { apply(); return }
+
+        performingMarkedInput = true
+        let history = undoManager
+        history?.disableUndoRegistration()
+        apply()
+        history?.enableUndoRegistration()
+        performingMarkedInput = false
+
+        if markedTextRange == nil {
+            ownsSnippetComposition = false
+            reportSnippetComposition?(true)
+        } else {
+            reportSnippetComposition?(false)
+        }
+    }
+
+    override func setMarkedText(_ value: String?, selectedRange: NSRange) {
+        performMarkedInput(start: self.selectedRange) {
+            super.setMarkedText(value, selectedRange: selectedRange)
+        }
+    }
+
+    override func insertText(_ value: String) {
+        performMarkedInput { super.insertText(value) }
+    }
+
+    override func unmarkText() {
+        performMarkedInput { super.unmarkText() }
+    }
 }
 #endif
 func simpleIndent(_ source: String) -> String {
@@ -902,6 +985,7 @@ private struct EquationLayout: Equatable {
     let buffer: DocumentBuffer
     private let folding = FoldLayout()
     private let sourceDraftHistory=SourceDraftHistory()
+    private var markedSnippet:CapturedMarkedSnippet?
     private var tableViewport: CGPoint?
     private var diagramSource = ""
     private var diagramAnchor: Int?
@@ -942,7 +1026,32 @@ private struct EquationLayout: Equatable {
         text.textContainerInset = NSSize(width: 8, height: 8)
         text.string = buffer.text; text.isEditable = !buffer.readOnly; text.allowsUndo = true
         text.setAccessibilityLabel(buffer.file.path); text.delegate = self
-        text.willCompose = { [weak self] in self?.buffer.clearMulti(); _ = self?.buffer.snippets.finish(); self?.unfoldAll() }
+        text.beginSnippetComposition = { [weak self] range in
+            guard let self else{return false}
+            self.unfoldAll()
+            guard self.text.undoManager != nil,self.text.isEditable,self.text.window != nil,
+                  let capture=CapturedMarkedSnippet(buffer:self.buffer,source:self.text.string,selection:self.text.selectedRange(),range:range) else{
+                self.buffer.clearMulti()
+                _ = self.buffer.snippets.finish()
+                return false
+            }
+            self.markedSnippet=capture
+            return true
+        }
+        text.reportSnippetComposition = { [weak self] finished in
+            guard let self else{return}
+            self.buffer.selection = self.text.selectedRange(); self.buffer.text = self.text.string
+            guard finished,let lease=self.markedSnippet else{return}
+            self.markedSnippet=nil
+            let observed=self.text.string
+            let selected=self.text.selectedRange()
+            completeMarkedSnippet(
+                lease, buffer:self.buffer, observed:observed, selected:selected,
+                history:self.sourceDraftHistory, manager:self.text.undoManager,
+                admitted:self.text.isEditable && self.text.window != nil,
+                apply:{[weak self] edits,source,selection in self?.applySourceEdits(edits,source:source,resultSelection:selection,manageUndo:false) ?? false}
+            )
+        }
         scroll.hasVerticalScroller = true; scroll.documentView = text
         // Retain the wheel recipient across gestures until the pointer moves.
         // Tables and WebKit previews can move under a stationary mouse.
@@ -1096,6 +1205,7 @@ private struct EquationLayout: Equatable {
     }
     func textView(_ textView: NSTextView, shouldChangeTextIn affectedCharRange: NSRange, replacementString: String?) -> Bool {
         if buffer.applyingMulti { return true }
+        if text.performingMarkedInput {return !buffer.readOnly && text.isEditable}
         if text.undoManager?.isUndoing == true || text.undoManager?.isRedoing == true { buffer.clearMulti(); unfoldAll(); return true }
         if exactUTF8(buffer.multiSource,buffer.text), buffer.multiRanges.count > 1, let replacementString, !text.hasMarkedText() {
             if buffer.snippets.parallel != nil {
@@ -1509,6 +1619,7 @@ import UIKit
     let text = SimpleTextView(usingTextLayoutManager: false)
     private let folding = FoldLayout()
     private let sourceDraftHistory=SourceDraftHistory()
+    private var markedSnippet:CapturedMarkedSnippet?
     private var tableViewport: CGPoint?
     private var diagramSource = ""
     private var diagramAnchor: Int?
@@ -1542,7 +1653,32 @@ import UIKit
         text.smartQuotesType = .no; text.smartDashesType = .no; text.smartInsertDeleteType = .no
         text.text = buffer.text; text.isEditable = !buffer.readOnly; text.alwaysBounceVertical = true
         text.accessibilityLabel = buffer.file.path; text.delegate = self
-        text.willCompose = { [weak self] in self?.buffer.clearMulti(); _ = self?.buffer.snippets.finish(); self?.unfoldAll() }
+        text.beginSnippetComposition = { [weak self] range in
+            guard let self else{return false}
+            self.unfoldAll()
+            guard self.text.undoManager != nil,self.text.isEditable,self.text.window != nil,
+                  let capture=CapturedMarkedSnippet(buffer:self.buffer,source:self.text.text ?? "",selection:self.text.selectedRange,range:range) else{
+                self.buffer.clearMulti()
+                _ = self.buffer.snippets.finish()
+                return false
+            }
+            self.markedSnippet=capture
+            return true
+        }
+        text.reportSnippetComposition = { [weak self] finished in
+            guard let self else{return}
+            self.buffer.selection = self.text.selectedRange; self.buffer.text = self.text.text
+            guard finished,let lease=self.markedSnippet else{return}
+            self.markedSnippet=nil
+            let observed=self.text.text ?? ""
+            let selected=self.text.selectedRange
+            completeMarkedSnippet(
+                lease, buffer:self.buffer, observed:observed, selected:selected,
+                history:self.sourceDraftHistory, manager:self.text.undoManager,
+                admitted:self.text.isEditable && self.text.window != nil,
+                apply:{[weak self] edits,source,selection in self?.applySourceEdits(edits,source:source,resultSelection:selection,manageUndo:false) ?? false}
+            )
+        }
         text.snippetActive={ [weak self] in self?.buffer.snippets.isActive == true }
         text.snippetCommand={ [weak self] direction in guard let self else{return false};return direction==0 ? self.buffer.snippets.finish():self.buffer.snippets.move(direction) }
 
@@ -1679,6 +1815,7 @@ import UIKit
     }
     func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
         if buffer.applyingMulti { return true }
+        if self.text.performingMarkedInput {return !buffer.readOnly && textView.isEditable}
         if textView.undoManager?.isUndoing == true || textView.undoManager?.isRedoing == true { buffer.clearMulti(); unfoldAll(); return true }
         if textView.undoManager?.isUndoing != true && textView.undoManager?.isRedoing != true,
            let equation = folding.equations.first(where: { NSIntersectionRange($0.range, range).length > 0 || range.length == 0 && range.location > $0.range.location && NSLocationInRange(range.location, $0.range) }) {

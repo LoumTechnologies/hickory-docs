@@ -417,7 +417,7 @@ if __name__=="__main__":main()
 
 ## Replay a native source draft and its selection as one operation
 
-Cocoa's default undo records each replacement's caret independently. An import applied after the primary completion therefore placed redo's caret at the import. This platform bridge derives forward/inverse edits from the shared change plan, suppresses nested native registrations and records one source-and-selection step. Consecutive explicit actions close the previous implicit event group and replace that event frame before registering the next step. Keeping the replacement frame open preserves Cocoa’s pending end-of-event grouping; nested caller groups and undo/redo replay retain their existing ownership. A typed context hook retains optional feature state with each direction; the history mechanism has no dependency on template rendering or field types. Sparse edit records use exact UTF-8 SHA-256 revision identities rather than retaining a complete file per keystroke. Optional context is held under bounded tokens, so an evicted field context cannot prevent source undo. The native editor still checks source and write permissions before application. Replay checks exact source and current editor permissions before applying; a mismatch retires incompatible native history while retaining the current draft. Other editing paths keep their existing history behavior. Source snapshots are retained by native undo entries rather than discarded on parser or provider attachment.
+Cocoa's default undo records each replacement's caret independently. An import applied after the primary completion therefore placed redo's caret at the import. This platform bridge derives forward/inverse edits from the shared change plan, suppresses nested native registrations and records one source-and-selection step. Consecutive explicit actions close the previous implicit event group and replace that event frame before registering the next step. Keeping the replacement frame open preserves Cocoa’s pending end-of-event grouping; nested caller groups and undo/redo replay retain their existing ownership. A typed context hook retains optional feature state with each direction; the history mechanism has no dependency on template rendering or field types. Sparse edit records use exact UTF-8 SHA-256 revision identities rather than retaining a complete file per keystroke. Optional context is held under bounded tokens, so an evicted field context cannot prevent source undo. The native editor still checks source and write permissions before application. Replay checks exact source and current editor permissions before applying; a mismatch retires incompatible native history while retaining the current draft. Marked input can also register a transition already reflected by the native editor. Observe its exact final bytes and independently reconstruct the forward patch from the original source before accepting its inverse. This preserves earlier native history while keeping provisional marked updates out of the source undo stack. Other editing paths keep their existing history behavior. Source snapshots are retained by native undo entries rather than discarded on parser or provider attachment.
 
 <ui:copy id="native-source-draft-history">
 import Foundation
@@ -456,13 +456,28 @@ import CryptoKit
     }
     typealias Apply=([NativeSourceEdit],String,NSRange)->Bool
     private func identity(_ source:String)->SHA256.Digest{SHA256.hash(data:Data(source.utf8))}
-    func commit<Context>(_ plan:ChangePlan,path:String,before:String,selectionBefore:NSRange,selectionAfter:NSRange,contextBefore:Context,contextAfter:Context,manager:UndoManager?,read:@escaping ()->String,apply:@escaping Apply,notice:@escaping (String)->Void,restoreContext:@escaping (Context)->Void,contextCost:(Context)->Int,discardContext:@escaping ()->Void)->Bool {
-        guard plan.patches.count<=1,exactUTF8(read(),before) else{return false}
+    func commit<Context>(_ plan:ChangePlan,path:String,before:String,selectionBefore:NSRange,selectionAfter:NSRange,contextBefore:Context,contextAfter:Context,manager:UndoManager?,read:@escaping ()->String,apply:@escaping Apply,notice:@escaping (String)->Void,restoreContext:@escaping (Context)->Void,contextCost:(Context)->Int,discardContext:@escaping ()->Void,alreadyObserved:Bool=false)->Bool {
+        guard plan.patches.count<=1 else{return false}
         let patch=plan.patches.first
         if let patch{guard exactUTF8(patch.path,path),exactUTF8(patch.before,before) else{return false}}
+        if alreadyObserved {
+            guard exactUTF8(read(),patch?.after ?? before) else{return false}
+            if let patch {
+                guard patch.edits.allSatisfy({$0.from>=0 && $0.to>=$0.from && $0.to<=before.utf16.count}) else{return false}
+                let edits=patch.edits.map{NativeSourceEdit(range:NSRange(location:$0.from,length:$0.to-$0.from),text:$0.text)}
+                guard validSourceEdits(edits,length:before.utf16.count) else{return false}
+                let observed=NSMutableString(string:before)
+                for edit in edits.reversed(){observed.replaceCharacters(in:edit.range,with:edit.text)}
+                guard exactUTF8(observed as String,patch.after) else{return false}
+            }
+        } else if !exactUTF8(read(),before) {return false}
         let first=Self.hold(contextBefore,cost:contextCost(contextBefore),restore:restoreContext),last=Self.hold(contextAfter,cost:contextCost(contextAfter),restore:restoreContext)
         let step=Step(before:identity(before),after:identity(patch?.after ?? before),edits:(patch?.edits ?? []).map{NativeSourceEdit(range:NSRange(location:$0.from,length:$0.to-$0.from),text:$0.text)},inverse:(invertChangePlan(plan).patches.first?.edits ?? []).map{NativeSourceEdit(range:NSRange(location:$0.from,length:$0.to-$0.from),text:$0.text)},selectionBefore:selectionBefore,selectionAfter:selectionAfter,title:plan.title,contextBefore:first,contextAfter:last)
-        guard perform(step,manager:manager,read:read,apply:apply,discardContext:discardContext,forwardContext:{restoreContext(contextAfter)}) else{return false}
+        if alreadyObserved {
+            restoreContext(contextAfter)
+        } else {
+            guard perform(step,manager:manager,read:read,apply:apply,discardContext:discardContext,forwardContext:{restoreContext(contextAfter)}) else{return false}
+        }
         if step.before != step.after,let manager{register(step.reversed,manager:manager,read:read,apply:apply,notice:notice,discardContext:discardContext)}
         return true
     }

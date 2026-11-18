@@ -34,13 +34,28 @@ import CryptoKit
     }
     typealias Apply=([NativeSourceEdit],String,NSRange)->Bool
     private func identity(_ source:String)->SHA256.Digest{SHA256.hash(data:Data(source.utf8))}
-    func commit<Context>(_ plan:ChangePlan,path:String,before:String,selectionBefore:NSRange,selectionAfter:NSRange,contextBefore:Context,contextAfter:Context,manager:UndoManager?,read:@escaping ()->String,apply:@escaping Apply,notice:@escaping (String)->Void,restoreContext:@escaping (Context)->Void,contextCost:(Context)->Int,discardContext:@escaping ()->Void)->Bool {
-        guard plan.patches.count<=1,exactUTF8(read(),before) else{return false}
+    func commit<Context>(_ plan:ChangePlan,path:String,before:String,selectionBefore:NSRange,selectionAfter:NSRange,contextBefore:Context,contextAfter:Context,manager:UndoManager?,read:@escaping ()->String,apply:@escaping Apply,notice:@escaping (String)->Void,restoreContext:@escaping (Context)->Void,contextCost:(Context)->Int,discardContext:@escaping ()->Void,alreadyObserved:Bool=false)->Bool {
+        guard plan.patches.count<=1 else{return false}
         let patch=plan.patches.first
         if let patch{guard exactUTF8(patch.path,path),exactUTF8(patch.before,before) else{return false}}
+        if alreadyObserved {
+            guard exactUTF8(read(),patch?.after ?? before) else{return false}
+            if let patch {
+                guard patch.edits.allSatisfy({$0.from>=0 && $0.to>=$0.from && $0.to<=before.utf16.count}) else{return false}
+                let edits=patch.edits.map{NativeSourceEdit(range:NSRange(location:$0.from,length:$0.to-$0.from),text:$0.text)}
+                guard validSourceEdits(edits,length:before.utf16.count) else{return false}
+                let observed=NSMutableString(string:before)
+                for edit in edits.reversed(){observed.replaceCharacters(in:edit.range,with:edit.text)}
+                guard exactUTF8(observed as String,patch.after) else{return false}
+            }
+        } else if !exactUTF8(read(),before) {return false}
         let first=Self.hold(contextBefore,cost:contextCost(contextBefore),restore:restoreContext),last=Self.hold(contextAfter,cost:contextCost(contextAfter),restore:restoreContext)
         let step=Step(before:identity(before),after:identity(patch?.after ?? before),edits:(patch?.edits ?? []).map{NativeSourceEdit(range:NSRange(location:$0.from,length:$0.to-$0.from),text:$0.text)},inverse:(invertChangePlan(plan).patches.first?.edits ?? []).map{NativeSourceEdit(range:NSRange(location:$0.from,length:$0.to-$0.from),text:$0.text)},selectionBefore:selectionBefore,selectionAfter:selectionAfter,title:plan.title,contextBefore:first,contextAfter:last)
-        guard perform(step,manager:manager,read:read,apply:apply,discardContext:discardContext,forwardContext:{restoreContext(contextAfter)}) else{return false}
+        if alreadyObserved {
+            restoreContext(contextAfter)
+        } else {
+            guard perform(step,manager:manager,read:read,apply:apply,discardContext:discardContext,forwardContext:{restoreContext(contextAfter)}) else{return false}
+        }
         if step.before != step.after,let manager{register(step.reversed,manager:manager,read:read,apply:apply,notice:notice,discardContext:discardContext)}
         return true
     }

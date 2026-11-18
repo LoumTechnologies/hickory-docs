@@ -191,3 +191,161 @@ func snippetHistoryCost(_ value:SourceSnippetHistoryContext?)->Int {
     guard exactUTF8(value as String,input.session.source) else{return nil}
     return ChangePlan(title:"Edit template field",patches:[SourcePatch(path:path,before:before,after:input.session.source,edits:input.edits.map{SourceReplacement(from:$0.range.location,to:NSMaxRange($0.range),text:$0.text)})])
 }
+
+private enum MarkedFieldGroup {
+    case single(SnippetSession)
+    case parallel(ParallelSnippet)
+}
+
+struct MarkedSnippetResult {
+    let source: String
+    let edits: [NativeSourceEdit]
+    let selection: NSRange
+    let context: SourceSnippetHistoryContext?
+}
+
+@MainActor struct CapturedMarkedSnippet {
+    let path: String
+    let source: String
+    let selection: NSRange
+    let history: SourceSnippetHistoryContext?
+    private let originalRange: NSRange
+    private let group: MarkedFieldGroup
+    private let intent: Int
+
+    init?(buffer: DocumentBuffer, source: String, selection: NSRange, range: NSRange) {
+        guard !buffer.readOnly, !buffer.saving, exactUTF8(buffer.text, source),
+              range.location >= 0, range.length >= 0, range.location <= source.utf16.count,
+              range.length <= source.utf16.count - range.location,
+              source.utf8.count <= 8 * 1024 * 1024 else { return nil }
+        if let parallel = buffer.snippets.parallel {
+            guard parallel.selections[parallel.primaryIndex] == range else { return nil }
+            group = .parallel(parallel)
+        } else if let active = buffer.snippets.active {
+            guard active.fields.contains(where: {
+                $0.id == active.current && $0.transform == nil &&
+                $0.from <= range.location && NSMaxRange(range) <= $0.to
+            }), !computedSnippetInput(active, range.location, NSMaxRange(range)) else { return nil }
+            group = .single(active)
+        } else { return nil }
+
+        self.path = buffer.file.path
+        self.source = source
+        self.selection = selection
+        self.originalRange = range
+        self.history = buffer.snippets.historyContext
+        // Earlier completion and choice offers cannot survive marked input.
+        _ = buffer.snippets.finish()
+        buffer.clearMulti()
+        self.intent = buffer.snippets.intent
+    }
+
+    func finish(buffer: DocumentBuffer, observed: String, selected: NSRange) -> MarkedSnippetResult? {
+        guard exactUTF8(path, buffer.file.path), exactUTF8(observed, buffer.text),
+              !buffer.readOnly, !buffer.saving, buffer.snippets.intent == intent else { return nil }
+        let raw = source as NSString
+        let prefix = raw.substring(to: originalRange.location)
+        let suffix = raw.substring(from: NSMaxRange(originalRange))
+        guard let inserted = markedSourceReplacement(observed, prefix: prefix, suffix: suffix),
+              inserted.utf8.count <= 1024 * 1024, selected.location >= originalRange.location,
+              selected.length >= 0, NSMaxRange(selected) <= originalRange.location + inserted.utf16.count else { return nil }
+        let offset = selected.location - originalRange.location - inserted.utf16.count
+        switch group {
+        case .single(let current):
+            guard let plan = editSnippet(current, source: source, from: originalRange.location,
+                                         to: NSMaxRange(originalRange), text: inserted) else { return nil }
+            let target = NSRange(location: plan.selection.from + offset, length: selected.length)
+            let session = plan.session
+            return MarkedSnippetResult(source: session.source, edits: plan.edits, selection: target,
+                context: SourceSnippetHistoryContext(fields: session.fields, active: session.active,
+                                                     current: session.current, scopes: session.scopes))
+        case .parallel(let current):
+            let edits = current.selections.map { NativeSourceEdit(range: $0, text: inserted) }
+            guard let plan = current.editing(source, input: edits) else { return nil }
+            let primary = plan.state.primaryIndex
+            var ranges = plan.state.selections
+            ranges[primary].location += offset
+            ranges[primary].length = selected.length
+            guard let next = plan.state.selecting(plan.state.source, ranges: ranges, primary: primary) else { return nil }
+            return MarkedSnippetResult(source: next.source, edits: plan.edits, selection: ranges[primary],
+                context: SourceSnippetHistoryContext(fields: [], active: 0, current: 0, parallel: next))
+        }
+    }
+}
+
+private func markedSourceReplacement(_ observed: String, prefix: String, suffix: String) -> String? {
+    let text = observed as NSString
+    let leading = prefix.utf16.count
+    let trailing = suffix.utf16.count
+    guard text.length >= leading + trailing,
+          exactUTF8(text.substring(to: leading), prefix),
+          exactUTF8(text.substring(from: text.length - trailing), suffix) else { return nil }
+    return text.substring(with: NSRange(location: leading, length: text.length - leading - trailing))
+}
+
+// Both sides are already observed source revisions. Use a single minimal
+// exact replacement for native history or for reflecting the mirror delta.
+func markedSourceEdit(from before: String, to after: String) -> NativeSourceEdit? {
+    if exactUTF8(before, after) { return nil }
+    let old = before as NSString
+    let new = after as NSString
+    let shortest = min(old.length, new.length)
+    func boundary(_ value: NSString, at: Int) -> Bool {
+        guard at > 0, at < value.length else { return true }
+        let left = value.character(at: at - 1)
+        let right = value.character(at: at)
+        return !(left == 13 && right == 10 ||
+                 (0xd800...0xdbff).contains(left) && (0xdc00...0xdfff).contains(right))
+    }
+    var start = 0
+    while start < shortest && old.character(at: start) == new.character(at: start) { start += 1 }
+    while !boundary(old, at: start) || !boundary(new, at: start) { start -= 1 }
+    var suffix = 0
+    while suffix < shortest - start &&
+          old.character(at: old.length - suffix - 1) == new.character(at: new.length - suffix - 1) {
+        suffix += 1
+    }
+    while !boundary(old, at: old.length - suffix) || !boundary(new, at: new.length - suffix) { suffix -= 1 }
+    return NativeSourceEdit(range: NSRange(location: start, length: old.length - start - suffix),
+                            text: new.substring(with: NSRange(location: start, length: new.length - start - suffix)))
+}
+
+@MainActor func completeMarkedSnippet(
+    _ capture: CapturedMarkedSnippet, buffer: DocumentBuffer, observed: String, selected: NSRange,
+    history: SourceDraftHistory, manager: UndoManager?, admitted: Bool,
+    apply: @escaping SourceDraftHistory.Apply
+) {
+    guard exactUTF8(capture.path, buffer.file.path), exactUTF8(observed, buffer.text) else { return }
+    var finalSource = observed
+    var finalSelection = selected
+    var finalEdits: [NativeSourceEdit]?
+    var context: SourceSnippetHistoryContext?
+    if admitted, let next = capture.finish(buffer: buffer, observed: observed, selected: selected) {
+        let delta = markedSourceEdit(from: observed, to: next.source)
+        manager?.disableUndoRegistration()
+        let reflected = apply(delta.map { [$0] } ?? [], observed, next.selection)
+        manager?.enableUndoRegistration()
+        if reflected, exactUTF8(buffer.text, next.source) {
+            finalSource = next.source
+            finalSelection = next.selection
+            finalEdits = next.edits
+            context = next.context
+        }
+    }
+    guard exactUTF8(buffer.text, finalSource) else { return }
+    let edits = finalEdits ?? markedSourceEdit(from: capture.source, to: finalSource).map { [$0] } ?? []
+    let patches = exactUTF8(capture.source, finalSource) ? [] : [
+        SourcePatch(path: capture.path, before: capture.source, after: finalSource,
+                    edits: edits.map { SourceReplacement(from: $0.range.location, to: NSMaxRange($0.range), text: $0.text) })
+    ]
+    let plan = ChangePlan(title: "Compose template field", patches: patches)
+    _ = history.commit(plan, path: capture.path, before: capture.source,
+        selectionBefore: capture.selection, selectionAfter: finalSelection,
+        contextBefore: capture.history, contextAfter: context, manager: manager,
+        read: { [weak buffer] in buffer?.text ?? "" }, apply: apply,
+        notice: { [weak buffer] message in buffer?.snippets.reportFailure(message) },
+        restoreContext: { [weak buffer] context in buffer?.snippets.restoreHistory(context) },
+        contextCost: snippetHistoryCost,
+        discardContext: { [weak buffer] in _ = buffer?.snippets.finish() },
+        alreadyObserved: true)
+}
