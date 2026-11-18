@@ -19,8 +19,32 @@ import AppKit
   let fresh=Workspace(),independent=buffer("files","independent draft");fresh.buffers["files"]=independent;fresh.layout.activateSource("files",in:"document-group");let identity=independent.sourceEditIdentity;try restoreEditorRecovery(snapshot,into:fresh)
   XCTAssertTrue(fresh.buffers["files"] === independent);XCTAssertEqual(independent.text,"independent draft");XCTAssertEqual(independent.sourceEditIdentity,identity);let recovered=fresh.buffers.values.filter{$0 !== independent};XCTAssertEqual(recovered.count,2);XCTAssertTrue(recovered.allSatisfy{$0.savedGuard==nil});XCTAssertEqual(recovered.filter{$0.readOnly}.count,1);XCTAssertEqual(recovered.filter{$0.isUntitledDraft}.count,1);XCTAssertTrue(recovered.allSatisfy{$0.recoveryBaseline?.save_guard=="original"})
  }
+ func testCompactRecoveryPlacesDraftTabsWithoutResizingExistingPanes()throws {
+  let original=Workspace(),one=buffer("one.md","first"),two=buffer("two.md","second")
+  original.buffers[one.file.path]=one;original.buffers[two.file.path]=two
+  original.layout.activateSource(one.file.path,in:"document-group")
+  XCTAssertNotNil(original.layout.split("document-group",axis:"vertical",newID:"other-group"))
+  original.layout.activateSource(two.file.path,in:"other-group");original.focused="other-group"
+  let snapshot=try captureEditorRecovery(original)
+  let live=Workspace(),retained=buffer("two.md","independent draft")
+  live.buffers[retained.file.path]=retained;live.layout.activateSource(retained.file.path,in:"document-group");live.focused="files-group"
+  let before=live.layout,identity=retained.sourceEditIdentity
+  try restoreEditorRecovery(snapshot,into:live,inTabs:true)
+  XCTAssertEqual(live.layout.rootID,before.rootID)
+  XCTAssertEqual(Set(live.layout.nodes.keys),Set(before.nodes.keys))
+  XCTAssertEqual(live.layout.nodes["files-group"],before.nodes["files-group"])
+  XCTAssertEqual(live.layout.nodes["root"],before.nodes["root"])
+  let tabs=try XCTUnwrap(live.layout.nodes["document-group"]?.tabs)
+  XCTAssertEqual(tabs.first,nativeSourceTab(retained.file.path))
+  XCTAssertEqual(tabs.dropFirst().compactMap{live.bufferForTab($0)?.text},["first","second"])
+  XCTAssertEqual(live.focused,"document-group");XCTAssertEqual(live.currentBuffer?.text,"second")
+  XCTAssertNil(live.currentBuffer?.savedGuard)
+  XCTAssertTrue(live.buffers[retained.file.path] === retained)
+  XCTAssertEqual(retained.text,"independent draft");XCTAssertEqual(retained.sourceEditIdentity,identity)
+ }
  func testMalformedLayoutCannotImportAnyPartialBuffer()throws {
-  let old=Workspace(),b=buffer("files");old.buffers[b.file.path]=b;var snapshot=try captureEditorRecovery(old);snapshot.layout = .object(["tree":.object([:])]);let target=Workspace();XCTAssertThrowsError(try restoreEditorRecovery(snapshot,into:target));XCTAssertTrue(target.buffers.isEmpty)
+  let old=Workspace(),b=buffer("files");old.buffers[b.file.path]=b;var snapshot=try captureEditorRecovery(old);snapshot.layout = .object(["tree":.object([:])]);let target=Workspace()
+  for inTabs in [false,true]{XCTAssertThrowsError(try restoreEditorRecovery(snapshot,into:target,inTabs:inTabs));XCTAssertTrue(target.buffers.isEmpty);XCTAssertEqual(target.layout.rootID,"root")}
  }
  func testSelectionAndFullRetainedLeaseRefuseInvalidRecovery()throws {
   let w=Workspace(),b=buffer("files");w.buffers[b.file.path]=b;var snapshot=try captureEditorRecovery(w);snapshot.buffers[0].view.selection.head=7;XCTAssertThrowsError(try validateEditorRecoverySnapshot(snapshot));let lease=try editorRecoveryLease(w);XCTAssertTrue(lease());w.retainedResourceEditors["new"]=buffer("later","note",unnamed:true);XCTAssertFalse(lease())

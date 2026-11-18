@@ -2,8 +2,139 @@
 import argparse,hashlib,importlib.util,json,os,plistlib,shutil,socket,subprocess,tempfile,uuid
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
-TARGET='HickorySimpleMobileParityTests'
-CASE='UIKitParityAcceptanceTests/testMountedUIKitEditingAndSelectedRustDebug'
+TARGET = 'HickorySimpleMobileParityTests'
+WORKFLOWS = {
+    'editing': ('testMountedUIKitEditingAndSelectedRustDebug', ['native-paste-history-passed', 'coordinated-cleanup-history-passed', 'debug-paused', 'completed']),
+    'workspace': ('testMountedSearchProblemsAndCollectedTests', ['workspace-navigation-problems-passed', 'workspace-tests-coverage-passed']),
+    'recovery': ('testMountedConnectedReadingAndPrivateRecovery', ['connected-impact-passed', 'private-recovery-passed']),
+    'proposal': ('testMountedHistoricalProposalRefusesApplication', ['historical-proposal-passed']),
+}
+
+def load_script(name):
+    spec = importlib.util.spec_from_file_location(name, ROOT/'scripts'/f'{name}.py')
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+def prepare_workflow(workflow, workspace, python_env, slow_debug):
+    workspace.mkdir()
+    if workflow == 'editing':
+        (workspace/'src').mkdir()
+        (workspace/'.git').mkdir()
+        sentinel = workspace/'wrong-ios-sibling-ran'
+        files = {
+            'src/lib.rs': '// owned-ios-parity-source\n#[cfg(test)]\nmod cases {\n #[test]\n fn test_selected(){\n  let selected_value=41;\n  assert_eq!(selected_value,41); // owned-ios-parity-stop\n }\n #[test]\n fn test_sibling(){std::fs::write('+json.dumps(str(sentinel))+',b"wrong").unwrap();}\n}\n',
+            'Cargo.toml': '[workspace]\n[package]\nname="owned-ios-parity"\nversion="0.1.0"\nedition="2024"\n',
+        }
+        if slow_debug:
+            files['build.rs'] = 'fn main() { std::thread::sleep(std::time::Duration::from_secs(33)); }\n'
+    elif workflow == 'workspace':
+        collector = load_script('test-collector-hosts')
+        (workspace/'.hick-cache').mkdir()
+        (workspace/'.venv').symlink_to(python_env.resolve(), target_is_directory=True)
+        sentinel = None
+        files = {
+            '.hickory-ios-workspace': 'owned-workspace-v1\n',
+            'app.py': collector.APP,
+            'test_app.py': collector.TEST,
+            'diagnostics.c': 'int first(void) {return owned_problem_one;}\nint second(void) {return owned_problem_two;}\n',
+            'pyproject.toml': '[project]\nname="ios-collector-fixture"\nversion="0.0.0"\n[tool.uv]\n[tool.pytest.ini_options]\njunit_family="xunit1"\n',
+        }
+    elif workflow == 'recovery':
+        details = load_script('test-behavior-readings-browser').prepare(workspace)
+        (workspace/'.venv').unlink()
+        (workspace/'.venv').symlink_to(python_env.resolve(), target_is_directory=True)
+        files = {name: (workspace/name).read_text() for name in ['project.md', 'source.md', 'behavior.md', 'a.py', 'test_a.py', 'test_undeclared.py', 'hickory-dogfood/behavior-map.json', 'hickory-dogfood/narrative-map.json']}
+        sentinel = Path(details['sibling'])
+    else:
+        archive = load_script('test-agent-proposal-persistence')
+        files = {**archive.FILES, '.hickory-proposal-archive-fixture': 'owned-proposal-archive-v1\n'}
+        sentinel = None
+    for name, text in files.items():
+        (workspace/name).write_text(text)
+    return files, sentinel
+
+def run_workflow(workflow, device, seed, temporary_device, candidate, derived, destination, python_env, slow_debug):
+    fixture = load_script('test-simple-browser')
+    method, markers = WORKFLOWS[workflow]
+    name = TARGET+'/UIKitParityAcceptanceTests/'+method
+    with tempfile.TemporaryDirectory(prefix='ios-parity-') as temporary:
+        folder = Path(temporary)
+        workspace, state = folder/'workspace', folder/'state'
+        files, sentinel = prepare_workflow(workflow, workspace, python_env, slow_debug)
+        environment = {**os.environ, 'HICKORY_STATE_DIR': str(state)}
+        with socket.socket() as reserve:
+            reserve.bind(('127.0.0.1', 0))
+            port = reserve.getsockname()[1]
+        command = [os.environ.get('HICKORY_SIMPLE_TEST_ENGINE', str(ROOT/'target/source-edit-focus/debug/examples/engine_client')), str(workspace), 'window', f'http://127.0.0.1:{port}']
+        archive = load_script('test-agent-proposal-persistence') if workflow == 'proposal' else None
+        metadata = {}
+        if workflow == 'editing' and slow_debug:
+            metadata['HICKORY_IOS_PARITY_SLOW_DEBUG'] = '1'
+            markers = [*markers, 'slow-debug-admission-passed']
+        if archive:
+            first = fixture.start(command, env=environment)
+            try:
+                original = archive.call(fixture.origin(first), 'POST', '/api/agent-proposals/prepare', archive.intention())
+                assert original['durability']['retained'] and not original['historical']
+            finally:
+                archive.stop_engine(fixture, first, state)
+            metadata = {'HICKORY_IOS_PROPOSAL_TOKEN': original['token'], 'HICKORY_IOS_PROPOSAL_FINGERPRINT': original['fingerprint']}
+        engine = fixture.start(command, env=environment)
+        try:
+            origin = fixture.origin(engine)
+            if archive:
+                catalogue = archive.call(origin, 'GET', '/api/agent-proposals')
+                assert catalogue['workspace'] != original['workspace'], 'Expected a new owned engine lifetime'
+            value = plistlib.loads(candidate.read_bytes())
+            target, = test_targets(value)
+            for key in ['EnvironmentVariables', 'TestHostEnvironmentVariables']:
+                target.setdefault(key, {}).update(HICKORY_IOS_PARITY_ORIGIN=origin, HICKORY_API_ORIGIN=origin, **metadata)
+            receipt = ROOT/'target/ios-parity'
+            receipt.mkdir(parents=True, exist_ok=True)
+            prefix = 'last' if workflow == 'editing' else workflow
+            result = receipt/f'{prefix}.xcresult'
+            if result.exists():
+                shutil.rmtree(result)
+            log = receipt/f'{prefix}.log'
+            configured = derived/'Build/Products/owned-ios-parity.xctestrun'
+            configured.write_bytes(plistlib.dumps(value))
+            try:
+                with log.open('w') as output:
+                    run(['xcodebuild', 'test-without-building', '-xctestrun', str(configured), '-destination', destination, '-parallel-testing-enabled', 'NO', '-maximum-concurrent-test-simulator-destinations', '1', '-only-testing:'+name, '-resultBundlePath', str(result), '-test-timeouts-enabled', 'YES', '-maximum-test-execution-time-allowance', '180'], stdout=output, stderr=subprocess.STDOUT)
+                summary = json.loads(subprocess.check_output(['xcrun', 'xcresulttool', 'get', 'test-results', 'summary', '--path', str(result)]))
+                (receipt/f'{prefix}-summary.json').write_text(json.dumps(summary, indent=2))
+                assert summary['result'] == 'Passed' and summary['totalTestCount'] == 1 and summary['passedTests'] == 1 and summary['failedTests'] == summary['skippedTests'] == 0, summary
+                for path, text in files.items():
+                    assert (workspace/path).read_bytes() == text.encode(), path
+                if sentinel:
+                    assert not sentinel.exists(), sentinel.name
+                if workflow == 'workspace':
+                    events = (workspace/'.hick-cache/executions').read_text().splitlines()
+                    assert sorted(events) == ['negative', 'positive', 'positive'], events
+                observed = log.read_text()
+                for marker in markers:
+                    assert observed.count('HickoryUIKitParity '+marker) == 1, marker
+                payload = {
+                    'workflow': workflow, 'device': device, 'seed_device': seed, 'temporary_device': temporary_device,
+                    'test': name, 'summary': summary, 'log_sha256': hashlib.sha256(log.read_bytes()).hexdigest(),
+                    'source_unchanged': True, 'asserted_milestones': markers, 'keyboard_input_verified': False,
+                    'physical_input_verified': False, 'accessibility_verified': False,
+                }
+                if sentinel:
+                    payload['sibling_excluded'] = True
+                if workflow == 'editing':
+                    payload.update(native_paste_undo_redo_verified=True, coordinated_cleanup_undo_redo_verified=True)
+                (receipt/f'{prefix}-receipt.json').write_text(json.dumps(payload, indent=2))
+            finally:
+                configured.unlink(missing_ok=True)
+        finally:
+            if archive:
+                archive.stop_engine(fixture, engine, state)
+            else:
+                fixture.stop(engine)
+    print(f'PASS mounted UIKit {workflow}', flush=True)
+
 def run(args,**kwargs):
  return subprocess.run(args,check=True,text=True,**kwargs)
 def require_space(minimum):
@@ -17,7 +148,13 @@ def test_targets(value):
  elif isinstance(value,list):
   for child in value:yield from test_targets(child)
 def main():
- parser=argparse.ArgumentParser();parser.add_argument('--device',required=True);parser.add_argument('--build',action='store_true');parser.add_argument('--boot',action='store_true');parser.add_argument('--temporary-device',action='store_true');parser.add_argument('--minimum-free-mib',type=int,default=2048);args=parser.parse_args()
+ parser=argparse.ArgumentParser();parser.add_argument('--device',required=True);parser.add_argument('--build',action='store_true');parser.add_argument('--boot',action='store_true');parser.add_argument('--temporary-device',action='store_true');parser.add_argument('--minimum-free-mib',type=int,default=2048)
+ parser.add_argument('--workflow', choices=WORKFLOWS, action='append', help='Repeat to use one simulator for several focused cases')
+ parser.add_argument('--python-env', type=Path, default=ROOT/'target/thread-debug-env')
+ parser.add_argument('--slow-debug', action='store_true', help='Delay the owned Rust fixture to exercise staged admission')
+ args=parser.parse_args()
+ if args.slow_debug and args.workflow and 'editing' not in args.workflow:
+  parser.error('--slow-debug requires the editing workflow')
  if args.minimum_free_mib<128:parser.error('Minimum free space must remain at least128MiB')
  require_space(args.minimum_free_mib)
  devices=json.loads(subprocess.check_output(['xcrun','simctl','list','devices','-j']))
@@ -27,7 +164,7 @@ def main():
  runtime,seed=selected[0]
  if not runtime.startswith('com.apple.CoreSimulator.SimRuntime.iOS-'):raise RuntimeError('Choose an installed iOS simulator')
  if args.temporary_device and not args.boot:parser.error('--temporary-device requires explicit --boot after resource coordination')
- device=args.device;owned_device=None;booted_here=False;passed=False
+ device=args.device;owned_device=None;booted_here=False;failures=[]
  try:
   state=seed['state']
   if args.temporary_device:
@@ -46,33 +183,15 @@ def main():
   candidates=[]
   for path in (derived/'Build/Products').glob('*.xctestrun'):
    value=plistlib.loads(path.read_bytes());targets=list(test_targets(value))
-   if len(targets)==1:candidates.append((path,value,targets[0]))
+   if len(targets)==1:candidates.append(path)
   if len(candidates)!=1:raise RuntimeError('Build exactly one hosted parity test configuration with --build; no launch-only acceptance is inferred')
-  spec=importlib.util.spec_from_file_location('fixture',ROOT/'scripts/test-simple-browser.py');fixture=importlib.util.module_from_spec(spec);spec.loader.exec_module(fixture)
-  with tempfile.TemporaryDirectory(prefix='ios-parity-')as temporary:
-   folder=Path(temporary);workspace=folder/'workspace';(workspace/'src').mkdir(parents=True);(workspace/'.git').mkdir();sentinel=workspace/'wrong-ios-sibling-ran';source='// owned-ios-parity-source\n#[cfg(test)]\nmod cases {\n #[test]\n fn test_selected(){\n  let selected_value=41;\n  assert_eq!(selected_value,41); // owned-ios-parity-stop\n }\n #[test]\n fn test_sibling(){std::fs::write('+json.dumps(str(sentinel))+',b"wrong").unwrap();}\n}\n';(workspace/'src/lib.rs').write_text(source);(workspace/'Cargo.toml').write_text('[workspace]\n[package]\nname="owned-ios-parity"\nversion="0.1.0"\nedition="2024"\n')
-   with socket.socket()as reserve:reserve.bind(('127.0.0.1',0));port=reserve.getsockname()[1]
-   engine=fixture.start([os.environ.get('HICKORY_SIMPLE_TEST_ENGINE',str(ROOT/'target/source-edit-focus/debug/examples/engine_client')),str(workspace),'window',f'http://127.0.0.1:{port}'],env={**os.environ,'HICKORY_STATE_DIR':str(folder/'state')})
+  for workflow in dict.fromkeys(args.workflow or ['editing']):
    try:
-    origin=fixture.origin(engine);original,value,target=candidates[0]
-    for key in ['EnvironmentVariables','TestHostEnvironmentVariables']:
-     target.setdefault(key,{})['HICKORY_IOS_PARITY_ORIGIN']=origin
-     target[key]['HICKORY_API_ORIGIN']=origin
-    configured=derived/'Build/Products/owned-ios-parity.xctestrun';configured.write_bytes(plistlib.dumps(value));receipt=ROOT/'target/ios-parity';receipt.mkdir(parents=True,exist_ok=True);result=receipt/'last.xcresult'
-    if result.exists():shutil.rmtree(result)
-    log=receipt/'last.log'
-    try:
-     with log.open('w')as output:run(['xcodebuild','test-without-building','-xctestrun',str(configured),'-destination',destination,'-parallel-testing-enabled','NO','-maximum-concurrent-test-simulator-destinations','1','-only-testing:'+TARGET+'/'+CASE,'-resultBundlePath',str(result),'-test-timeouts-enabled','YES','-maximum-test-execution-time-allowance','180'],stdout=output,stderr=subprocess.STDOUT)
-     summary=json.loads(subprocess.check_output(['xcrun','xcresulttool','get','test-results','summary','--path',str(result)]));(receipt/'last-summary.json').write_text(json.dumps(summary,indent=2))
-     assert summary['result']=='Passed' and summary['totalTestCount']==1 and summary['passedTests']==1 and summary['failedTests']==0 and summary['skippedTests']==0,summary
-     assert(workspace/'src/lib.rs').read_text()==source and not sentinel.exists()
-     observed=log.read_text()
-     for marker in ['native-paste-history-passed','coordinated-cleanup-history-passed','debug-paused','completed']:
-      assert observed.count('HickoryUIKitParity '+marker)==1,marker
-     (receipt/'last-receipt.json').write_text(json.dumps({'device':device,'seed_device':args.device,'temporary_device':owned_device is not None,'test':TARGET+'/'+CASE,'summary':summary,'log_sha256':hashlib.sha256(log.read_bytes()).hexdigest(),'source_unchanged':True,'sibling_excluded':True,'native_paste_undo_redo_verified':True,'coordinated_cleanup_undo_redo_verified':True,'keyboard_input_verified':False,'physical_input_verified':False,'accessibility_verified':False},indent=2))
-     passed=True
-    finally:configured.unlink(missing_ok=True)
-   finally:fixture.stop(engine)
+    require_space(args.minimum_free_mib)
+    run_workflow(workflow, device, args.device, owned_device is not None, candidates[0], derived, destination, args.python_env, args.slow_debug)
+   except (AssertionError, OSError, RuntimeError, subprocess.CalledProcessError) as error:
+    print(f'FAIL mounted UIKit {workflow}: {error}', flush=True)
+    failures.append(workflow)
  finally:
   lifecycle={'seed_device':args.device,'device':device,'temporary_device':owned_device is not None,'temporary_device_requested':args.temporary_device,'booted_here':booted_here,'seed_initial_state':seed['state']}
   if owned_device is not None:
@@ -85,5 +204,5 @@ def main():
   receipt=ROOT/'target/ios-parity';receipt.mkdir(parents=True,exist_ok=True);(receipt/'last-device-lifecycle.json').write_text(json.dumps(lifecycle,indent=2))
   if owned_device is not None and lifecycle['delete_exit']!=0:raise RuntimeError('Owned simulator cleanup failed; inspect last-device-lifecycle.json and delete only its recorded owned UDID')
   if owned_device is None and booted_here and lifecycle['shutdown_exit']!=0:raise RuntimeError('Selected simulator did not return to Shutdown')
- if passed:print('PASS mounted UIKit Paste Undo/Redo, guarded Cleanup Undo/Redo and saved Rust Debug')
+ if failures:raise RuntimeError('Unaccepted iOS workflows: '+', '.join(failures))
 if __name__=='__main__':main()

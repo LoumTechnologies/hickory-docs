@@ -81,7 +81,7 @@ func editorRecoveryBody<T:Encodable>(_ value:T)throws->[String:Any]{guard let re
  let rows=(Array(w.buffers.values)+Array(w.retainedResourceEditors.values)).map{b in (b,b.captureRecoveryViewport?(),b.sourceEditorState?()?.identity,b.selection)}
  return { [weak w] in guard let w,w.engine?.session === engine?.session,exactUTF8(w.sourceWorkspaceID,runtime),exactUTF8(w.sourceRootAddress,root),namespace(),(try? editorRecoveryData(EditorRecoveryLayout(tree:w.layout,focused:w.focused,tabs:[])))==layout else{return false};return rows.allSatisfy{b,point,id,selection in b.selection==selection&&b.captureRecoveryViewport?()==point&&b.sourceEditorState?()?.identity==id&&b.sourceEditorState?()?.composing != true}}
 }
-@MainActor func restoreEditorRecovery(_ snapshot:EditorRecoverySnapshot,into w:Workspace)throws {
+@MainActor func restoreEditorRecovery(_ snapshot:EditorRecoverySnapshot,into w:Workspace,inTabs:Bool=false)throws {
  try validateEditorRecoverySnapshot(snapshot);let prefix="recovered-"+editorRecoveryToken();var added:[String:DocumentBuffer]=[:],paths:[String:String]=[:]
  for row in snapshot.buffers {
   let path=prefix+"/"+row.id;guard w.buffers[path]==nil else{throw EngineError(message:"Recovered draft address was reused. Preview again.")}
@@ -102,7 +102,24 @@ func editorRecoveryBody<T:Encodable>(_ value:T)throws->[String:Any]{guard let re
   if !missing.isEmpty{let group=prefix+"-unplaced",root=prefix+"-unplaced-split";recovered.nodes[group]=PaneNode(id:group,tabs:missing,active:missing.first);recovered.nodes[root]=PaneNode(id:root,axis:"horizontal",first:recovered.rootID,second:group,ratio:0.75);recovered.rootID=root}
   focus=recovered.groups().first(where:{$0.id==prefix+"-"+saved.focused && !$0.tabs.isEmpty})?.id ?? recovered.groups().first(where:{!$0.tabs.isEmpty})?.id ?? recovered.rootID
  }
- var next=w.layout;guard recovered.nodes.keys.allSatisfy({next.nodes[$0]==nil}) else{throw EngineError(message:"Recovered layout address collision.")};for(id,node)in recovered.nodes{next.nodes[id]=node};let root=prefix+"-session";next.nodes[root]=PaneNode(id:root,axis:"horizontal",first:next.rootID,second:recovered.rootID,ratio:0.5);next.rootID=root
+ var next=w.layout
+ if inTabs {
+  let groups=next.groups()
+  let target=groups.first(where:{group in group.id==w.focused && group.active.flatMap(w.bufferForTab) != nil})
+   ?? groups.first(where:{$0.id=="document-group"})
+   ?? groups.first(where:{!$0.tabs.containsTab(NativeUtilityTab.files.rawValue)})
+   ?? groups.first
+  guard let target else{throw EngineError(message:"No retained pane can hold the recovered draft tabs.")}
+  for tab in recovered.groups().flatMap(\.tabs){next.activate(tab,in:target.id)}
+  if let active=recovered.nodes[focus]?.active{next.activate(active,in:target.id)}
+  focus=target.id
+ }else{
+  guard recovered.nodes.keys.allSatisfy({next.nodes[$0]==nil}) else{throw EngineError(message:"Recovered layout address collision.")}
+  for(id,node)in recovered.nodes{next.nodes[id]=node}
+  let root=prefix+"-session"
+  next.nodes[root]=PaneNode(id:root,axis:"horizontal",first:next.rootID,second:recovered.rootID,ratio:0.5)
+  next.rootID=root
+ }
  for(path,b)in added{w.buffers[path]=b};w.layout=next;w.focused=focus
 }
 @MainActor @Observable final class EditorRecoveryModel {
@@ -162,9 +179,15 @@ func editorRecoveryBody<T:Encodable>(_ value:T)throws->[String:Any]{guard let re
   }catch{if ticket==id{notice=error.localizedDescription+" Retry the exact original removal or stop retrying and refresh."}}
  }
  var canRestore:Bool{!busy&&snapshot != nil&&current()}
- func restore(_ w:Workspace){guard canRestore,let value=snapshot else{notice="Host editor lease changed. Preview again; open drafts were preserved.";return};do{try restoreEditorRecovery(value,into:w);snapshot=nil;current={false};notice="Recovered draft copies and layout. Existing editors and saved source were retained."}catch{notice=error.localizedDescription}}
+ func restore(_ w:Workspace,inTabs:Bool=false){guard canRestore,let value=snapshot else{notice="Host editor lease changed. Preview again; open drafts were preserved.";return};do{try restoreEditorRecovery(value,into:w,inTabs:inTabs);snapshot=nil;current={false};notice=inTabs ? "Recovered draft copies in tabs. Existing panes and saved source were retained." : "Recovered draft copies and layout. Existing editors and saved source were retained."}catch{notice=error.localizedDescription}}
 }
 struct EditorRecoveryView:View {
+ #if os(iOS)
+ @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+ private var recoverInTabs:Bool {horizontalSizeClass == .compact}
+ #else
+ private let recoverInTabs=false
+ #endif
  var workspace:Workspace;@State private var index=0;@State private var page=0;@State private var selected:[String:UInt32]=[:];@State private var armed:String?
  private func chosen(_ row:EditorRecoverySession)->UInt32{let value=selected[row.client_id] ?? row.revision;return row.versions.contains(where:{$0.revision==value}) ? value:row.revision}
  private func removal(_ row:EditorRecoveryRemoval,count:Int?)->some View {let model=workspace.editorRecovery;let confirming=row.record_guard != nil&&exactUTF8(armed,row.record_guard)
@@ -186,7 +209,7 @@ struct EditorRecoveryView:View {
     Text(String(String.UnicodeScalarView(scalars.dropFirst(shown*16000).prefix(16000)))).font(.system(.caption,design:.monospaced)).textSelection(.enabled)
     Text("Text page \(shown+1)/\(count) · \(row.address.kind=="generated" ? "read-only generated text":"unnamed draft; guarded Save As required")").font(.caption)
     HStack{Button("Previous text"){page=shown-1}.disabled(shown==0);Button("Next text"){page=shown+1}.disabled(shown+1>=count)}
-    Button("Recover complete session as draft copies"){model.restore(workspace)}.disabled(!model.canRestore)
+    Button("Recover complete session as draft copies"){model.restore(workspace,inTabs:recoverInTabs)}.disabled(!model.canRestore)
    }
   }.frame(maxWidth:.infinity,alignment:.leading).padding()}.frame(idealWidth:680,idealHeight:600).task{if !workspace.editorRecovery.busy{await workspace.editorRecovery.open(workspace)}}.onDisappear{workspace.editorRecovery.close()}
  }

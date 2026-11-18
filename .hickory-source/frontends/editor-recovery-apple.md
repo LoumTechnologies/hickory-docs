@@ -71,7 +71,7 @@ func editorRecoveryBody<T:Encodable>(_ value:T)throws->[String:Any]{guard let re
 
 ## Capture a complete retained roster and preserve the existing editors
 
-Source paths occur as values, including placement addresses, so native dictionary key normalization cannot collapse distinct filenames. Recovery allocates new source identities without save guards. Validate every layout node before adopting any buffer. The existing pane tree remains intact beside the recovered source subtree; utility instances stay in their current panes.
+Source paths occur as values, including placement addresses, so native dictionary key normalization cannot collapse distinct filenames. Recovery allocates new source identities without save guards. Validate every layout node before adopting any buffer. Regular-width recovery places the recovered source subtree beside the existing panes. A compact iOS window instead adds the recovered sources as tabs to an existing code pane in their projected order and opens the recovered active source. The same pane tree, split sizes and utility placement remain available when the original source tab is reopened.
 
 <ui:copy id="editor-recovery-apple-adapter">
 @MainActor func captureEditorRecovery(_ w:Workspace)throws->EditorRecoverySnapshot {
@@ -98,7 +98,7 @@ Source paths occur as values, including placement addresses, so native dictionar
  let rows=(Array(w.buffers.values)+Array(w.retainedResourceEditors.values)).map{b in (b,b.captureRecoveryViewport?(),b.sourceEditorState?()?.identity,b.selection)}
  return { [weak w] in guard let w,w.engine?.session === engine?.session,exactUTF8(w.sourceWorkspaceID,runtime),exactUTF8(w.sourceRootAddress,root),namespace(),(try? editorRecoveryData(EditorRecoveryLayout(tree:w.layout,focused:w.focused,tabs:[])))==layout else{return false};return rows.allSatisfy{b,point,id,selection in b.selection==selection&&b.captureRecoveryViewport?()==point&&b.sourceEditorState?()?.identity==id&&b.sourceEditorState?()?.composing != true}}
 }
-@MainActor func restoreEditorRecovery(_ snapshot:EditorRecoverySnapshot,into w:Workspace)throws {
+@MainActor func restoreEditorRecovery(_ snapshot:EditorRecoverySnapshot,into w:Workspace,inTabs:Bool=false)throws {
  try validateEditorRecoverySnapshot(snapshot);let prefix="recovered-"+editorRecoveryToken();var added:[String:DocumentBuffer]=[:],paths:[String:String]=[:]
  for row in snapshot.buffers {
   let path=prefix+"/"+row.id;guard w.buffers[path]==nil else{throw EngineError(message:"Recovered draft address was reused. Preview again.")}
@@ -119,7 +119,24 @@ Source paths occur as values, including placement addresses, so native dictionar
   if !missing.isEmpty{let group=prefix+"-unplaced",root=prefix+"-unplaced-split";recovered.nodes[group]=PaneNode(id:group,tabs:missing,active:missing.first);recovered.nodes[root]=PaneNode(id:root,axis:"horizontal",first:recovered.rootID,second:group,ratio:0.75);recovered.rootID=root}
   focus=recovered.groups().first(where:{$0.id==prefix+"-"+saved.focused && !$0.tabs.isEmpty})?.id ?? recovered.groups().first(where:{!$0.tabs.isEmpty})?.id ?? recovered.rootID
  }
- var next=w.layout;guard recovered.nodes.keys.allSatisfy({next.nodes[$0]==nil}) else{throw EngineError(message:"Recovered layout address collision.")};for(id,node)in recovered.nodes{next.nodes[id]=node};let root=prefix+"-session";next.nodes[root]=PaneNode(id:root,axis:"horizontal",first:next.rootID,second:recovered.rootID,ratio:0.5);next.rootID=root
+ var next=w.layout
+ if inTabs {
+  let groups=next.groups()
+  let target=groups.first(where:{group in group.id==w.focused && group.active.flatMap(w.bufferForTab) != nil})
+   ?? groups.first(where:{$0.id=="document-group"})
+   ?? groups.first(where:{!$0.tabs.containsTab(NativeUtilityTab.files.rawValue)})
+   ?? groups.first
+  guard let target else{throw EngineError(message:"No retained pane can hold the recovered draft tabs.")}
+  for tab in recovered.groups().flatMap(\.tabs){next.activate(tab,in:target.id)}
+  if let active=recovered.nodes[focus]?.active{next.activate(active,in:target.id)}
+  focus=target.id
+ }else{
+  guard recovered.nodes.keys.allSatisfy({next.nodes[$0]==nil}) else{throw EngineError(message:"Recovered layout address collision.")}
+  for(id,node)in recovered.nodes{next.nodes[id]=node}
+  let root=prefix+"-session"
+  next.nodes[root]=PaneNode(id:root,axis:"horizontal",first:next.rootID,second:recovered.rootID,ratio:0.5)
+  next.rootID=root
+ }
  for(path,b)in added{w.buffers[path]=b};w.layout=next;w.focused=focus
 }
 </ui:copy>
@@ -186,12 +203,18 @@ The visible reading holds its own editor lease. Automatic recording never renews
   }catch{if ticket==id{notice=error.localizedDescription+" Retry the exact original removal or stop retrying and refresh."}}
  }
  var canRestore:Bool{!busy&&snapshot != nil&&current()}
- func restore(_ w:Workspace){guard canRestore,let value=snapshot else{notice="Host editor lease changed. Preview again; open drafts were preserved.";return};do{try restoreEditorRecovery(value,into:w);snapshot=nil;current={false};notice="Recovered draft copies and layout. Existing editors and saved source were retained."}catch{notice=error.localizedDescription}}
+ func restore(_ w:Workspace,inTabs:Bool=false){guard canRestore,let value=snapshot else{notice="Host editor lease changed. Preview again; open drafts were preserved.";return};do{try restoreEditorRecovery(value,into:w,inTabs:inTabs);snapshot=nil;current={false};notice=inTabs ? "Recovered draft copies in tabs. Existing panes and saved source were retained." : "Recovered draft copies and layout. Existing editors and saved source were retained."}catch{notice=error.localizedDescription}}
 }
 </ui:copy>
 
 <ui:copy id="editor-recovery-apple-view">
 struct EditorRecoveryView:View {
+ #if os(iOS)
+ @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+ private var recoverInTabs:Bool {horizontalSizeClass == .compact}
+ #else
+ private let recoverInTabs=false
+ #endif
  var workspace:Workspace;@State private var index=0;@State private var page=0;@State private var selected:[String:UInt32]=[:];@State private var armed:String?
  private func chosen(_ row:EditorRecoverySession)->UInt32{let value=selected[row.client_id] ?? row.revision;return row.versions.contains(where:{$0.revision==value}) ? value:row.revision}
  private func removal(_ row:EditorRecoveryRemoval,count:Int?)->some View {let model=workspace.editorRecovery;let confirming=row.record_guard != nil&&exactUTF8(armed,row.record_guard)
@@ -213,7 +236,7 @@ struct EditorRecoveryView:View {
     Text(String(String.UnicodeScalarView(scalars.dropFirst(shown*16000).prefix(16000)))).font(.system(.caption,design:.monospaced)).textSelection(.enabled)
     Text("Text page \(shown+1)/\(count) · \(row.address.kind=="generated" ? "read-only generated text":"unnamed draft; guarded Save As required")").font(.caption)
     HStack{Button("Previous text"){page=shown-1}.disabled(shown==0);Button("Next text"){page=shown+1}.disabled(shown+1>=count)}
-    Button("Recover complete session as draft copies"){model.restore(workspace)}.disabled(!model.canRestore)
+    Button("Recover complete session as draft copies"){model.restore(workspace,inTabs:recoverInTabs)}.disabled(!model.canRestore)
    }
   }.frame(maxWidth:.infinity,alignment:.leading).padding()}.frame(idealWidth:680,idealHeight:600).task{if !workspace.editorRecovery.busy{await workspace.editorRecovery.open(workspace)}}.onDisappear{workspace.editorRecovery.close()}
  }
@@ -246,8 +269,32 @@ import AppKit
   let fresh=Workspace(),independent=buffer("files","independent draft");fresh.buffers["files"]=independent;fresh.layout.activateSource("files",in:"document-group");let identity=independent.sourceEditIdentity;try restoreEditorRecovery(snapshot,into:fresh)
   XCTAssertTrue(fresh.buffers["files"] === independent);XCTAssertEqual(independent.text,"independent draft");XCTAssertEqual(independent.sourceEditIdentity,identity);let recovered=fresh.buffers.values.filter{$0 !== independent};XCTAssertEqual(recovered.count,2);XCTAssertTrue(recovered.allSatisfy{$0.savedGuard==nil});XCTAssertEqual(recovered.filter{$0.readOnly}.count,1);XCTAssertEqual(recovered.filter{$0.isUntitledDraft}.count,1);XCTAssertTrue(recovered.allSatisfy{$0.recoveryBaseline?.save_guard=="original"})
  }
+ func testCompactRecoveryPlacesDraftTabsWithoutResizingExistingPanes()throws {
+  let original=Workspace(),one=buffer("one.md","first"),two=buffer("two.md","second")
+  original.buffers[one.file.path]=one;original.buffers[two.file.path]=two
+  original.layout.activateSource(one.file.path,in:"document-group")
+  XCTAssertNotNil(original.layout.split("document-group",axis:"vertical",newID:"other-group"))
+  original.layout.activateSource(two.file.path,in:"other-group");original.focused="other-group"
+  let snapshot=try captureEditorRecovery(original)
+  let live=Workspace(),retained=buffer("two.md","independent draft")
+  live.buffers[retained.file.path]=retained;live.layout.activateSource(retained.file.path,in:"document-group");live.focused="files-group"
+  let before=live.layout,identity=retained.sourceEditIdentity
+  try restoreEditorRecovery(snapshot,into:live,inTabs:true)
+  XCTAssertEqual(live.layout.rootID,before.rootID)
+  XCTAssertEqual(Set(live.layout.nodes.keys),Set(before.nodes.keys))
+  XCTAssertEqual(live.layout.nodes["files-group"],before.nodes["files-group"])
+  XCTAssertEqual(live.layout.nodes["root"],before.nodes["root"])
+  let tabs=try XCTUnwrap(live.layout.nodes["document-group"]?.tabs)
+  XCTAssertEqual(tabs.first,nativeSourceTab(retained.file.path))
+  XCTAssertEqual(tabs.dropFirst().compactMap{live.bufferForTab($0)?.text},["first","second"])
+  XCTAssertEqual(live.focused,"document-group");XCTAssertEqual(live.currentBuffer?.text,"second")
+  XCTAssertNil(live.currentBuffer?.savedGuard)
+  XCTAssertTrue(live.buffers[retained.file.path] === retained)
+  XCTAssertEqual(retained.text,"independent draft");XCTAssertEqual(retained.sourceEditIdentity,identity)
+ }
  func testMalformedLayoutCannotImportAnyPartialBuffer()throws {
-  let old=Workspace(),b=buffer("files");old.buffers[b.file.path]=b;var snapshot=try captureEditorRecovery(old);snapshot.layout = .object(["tree":.object([:])]);let target=Workspace();XCTAssertThrowsError(try restoreEditorRecovery(snapshot,into:target));XCTAssertTrue(target.buffers.isEmpty)
+  let old=Workspace(),b=buffer("files");old.buffers[b.file.path]=b;var snapshot=try captureEditorRecovery(old);snapshot.layout = .object(["tree":.object([:])]);let target=Workspace()
+  for inTabs in [false,true]{XCTAssertThrowsError(try restoreEditorRecovery(snapshot,into:target,inTabs:inTabs));XCTAssertTrue(target.buffers.isEmpty);XCTAssertEqual(target.layout.rootID,"root")}
  }
  func testSelectionAndFullRetainedLeaseRefuseInvalidRecovery()throws {
   let w=Workspace(),b=buffer("files");w.buffers[b.file.path]=b;var snapshot=try captureEditorRecovery(w);snapshot.buffers[0].view.selection.head=7;XCTAssertThrowsError(try validateEditorRecoverySnapshot(snapshot));let lease=try editorRecoveryLease(w);XCTAssertTrue(lease());w.retainedResourceEditors["new"]=buffer("later","note",unnamed:true);XCTAssertFalse(lease())

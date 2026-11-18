@@ -19,6 +19,12 @@ linked editing context. A paste into an active template field still updates
 the linked fields, and a paste across multiple carets keeps their coordinated
 selections together.
 
+Plain paste history records exact UTF-16 replacements against the editor's
+owned text storage. Apply and replay those replacements directly after checking
+the source and every scalar boundary. UIKit's interactive text ranges depend on
+the current layout and input state, which can change while another source tab
+is active. The draft history owns Undo and Redo registration for this path.
+
 When an empty pane closes, the surviving editor can move to a new position in the SwiftUI tree. Keep its native editor cached for selection, scroll and undo, but give each representable a fresh host. Reparent the editor inside that host; reusing the representable root lets teardown of the old tree location interfere with its new owner.
 
 SwiftUI owns the surrounding workspace; AppKit and UIKit own editing. Cache native views by buffer identity so changing a tab parent does not reconstruct text, undo history, selection or scroll. Delegates update only that buffer.
@@ -1865,12 +1871,25 @@ import UIKit
               (edits.isEmpty && resultSelection != nil || validSourceEdits(edits, length: (source as NSString).length)) else { return false }
         let resultLength=source.utf16.count+edits.reduce(0){$0+$1.text.utf16.count-$1.range.length}
         if let selected=resultSelection,!validSourceEdits([NativeSourceEdit(range:selected,text:"")],length:resultLength){return false}
-        let replacements: [(UITextRange, String)] = edits.sorted(by: { $0.range.location > $1.range.location }).compactMap { edit in
-            guard let start = text.position(from: text.beginningOfDocument, offset: edit.range.location),
-                  let end = text.position(from: start, offset: edit.range.length), let target = text.textRange(from: start, to: end) else { return nil }
-            return (target, edit.text)
+        let ordered = edits.sorted { $0.range.location > $1.range.location }
+        let replacements: [(UITextRange, String)]
+        if userInput {
+            func scalarBoundary(_ offset: Int) -> Bool {
+                String.Index(utf16Offset: offset, in: source).samePosition(in: source.unicodeScalars) != nil
+            }
+            guard exactUTF8(sourceTextStorage.string, source), ordered.allSatisfy({
+                scalarBoundary($0.range.location) && scalarBoundary(NSMaxRange($0.range))
+            }) else { return false }
+            replacements = []
+        } else {
+            replacements = ordered.compactMap { edit in
+                guard let start = text.position(from: text.beginningOfDocument, offset: edit.range.location),
+                      let end = text.position(from: start, offset: edit.range.length),
+                      let target = text.textRange(from: start, to: end) else { return nil }
+                return (target, edit.text)
+            }
+            guard replacements.count == edits.count else { return false }
         }
-        guard replacements.count == edits.count else { return false }
         let wasMulti = buffer.applyingMulti; buffer.applyingMulti = true
         if !wasMulti { buffer.clearMulti() }
         defer { buffer.applyingMulti = wasMulti }
@@ -1878,7 +1897,13 @@ import UIKit
         unfoldAll()
         let undo = manageUndo ? text.undoManager:nil; undo?.beginUndoGrouping()
         defer { undo?.endUndoGrouping() }
-        for (target, replacement) in replacements { text.replace(target, withText: replacement) }
+        if userInput {
+            sourceTextStorage.beginEditing()
+            for edit in ordered { sourceTextStorage.replaceCharacters(in: edit.range, with: edit.text) }
+            sourceTextStorage.endEditing()
+        } else {
+            for (target, replacement) in replacements { text.replace(target, withText: replacement) }
+        }
         if let selected=resultSelection{text.selectedRange=selected;text.setContentOffset(viewport,animated:false);text.scrollRangeToVisible(selected)}
         textViewDidChange(text); return true
     }
