@@ -8,11 +8,13 @@ For maintainers changing template behavior independently of editor layout. Sourc
 Multi-caret insertion uses the same authored source transaction and undo
 context as single-caret insertion. Keep logical peer identities even when the
 view coalesces two empty selections. An input transaction can stand for both
-only when it inserts at their exact shared boundary. One unsupported or stale
-peer retires the linked state and leaves native input in charge. Choices shared
-by all current fields use the existing completion popup.
+only when it inserts at their exact shared boundary. Once an input belongs to
+editable linked fields, a refused calculation or mirror blocks the whole edit
+and preserves the current session. Ordinary input outside the field can retire
+the session. Choices shared by all current fields use the existing completion
+popup.
 
-A compartment owns snippet state, source checks, linked input, numeric traversal, choices and history effects. The same adapter retains an opaque editor-input token for asynchronous completion leases. Source/selection transactions advance it without making layout or capability updates into input; undo restores text and field context while retaining a fresh intention. Complete mirroring is prepared before a transaction; rejected intent leaves ordinary input authoritative. Compose the original input transaction with the remaining source changes so its input metadata survives. History effects retain both directions of source, field state and intended selection. The dispatch bridge composes the original transaction with a verified replay selection, preserving the framework history annotation and input metadata; it never creates replacement source changes. This avoids inferring a caret from the old selection when a compound edit had an explicit result. History estimates count 128 bytes per snapshot and cap retained tokens at 4096, including empty/no-session snapshots. They count normalized computed-program bytes and 32 bytes of overhead for every choice, even an empty alternative, before retaining a snapshot. Oversized context is not copied into the cache and does not evict unrelated valid snapshots. History effects retain bounded context tokens: old text undo remains owned by CodeMirror when the estimated 32 MiB context budget evicts a field snapshot. Field marks use paint only, and choices reuse the existing completion popup.
+A compartment owns snippet state, source checks, linked input, numeric traversal, choices and history effects. The same adapter retains an opaque editor-input token for asynchronous completion leases. Source and selection transactions advance it. Undo restores text and field context with a fresh intention. Compose the original input transaction with the remaining source changes so its input metadata survives. History effects retain both directions of source, field state and intended selection. The dispatch bridge composes the original transaction with a verified replay selection, preserving framework history and input metadata. This preserves the result caret of a compound edit. History estimates count 128 bytes per snapshot and cap retained tokens at 4096, including empty snapshots. They count normalized computed-program bytes and 32 bytes of overhead for every choice before retaining a snapshot. Oversized context has no effect on cached snapshots. CodeMirror retains text undo when the estimated 32 MiB context budget evicts a field snapshot. Field marks use paint only, and choices reuse the existing completion popup.
 
 <ui:copy id="source-snippets-browser">
 import {authoredSource,authoredOffset,editorOffset,editorOffsetIn,authoredOffsetIn,authoredTransactionSource,authoredChanges,normalizedSource} from './SourceText';
@@ -31,6 +33,12 @@ import {
 } from './ParallelSnippet';
 import {snippetTransformBytes} from './SnippetTransform';
 function computedSnippetInput(session:SnippetSession,from:number,to:number):boolean{return session.fields.some(field=>!!field.transform&&field.from<field.to&&field.from<=from&&to<=field.to&&(from<to||from>field.from&&from<field.to));}
+function editableSnippetRange(session:SnippetSession,from:number,to:number):boolean {
+ return session.active>0&&!computedSnippetInput(session,from,to)&&session.fields.some(field=>
+  !field.transform&&field.index===session.active&&field.from<=from&&from<=to&&to<=field.to);
+}
+const refuseSnippetEdit=StateEffect.define<null>();
+const refusedSnippetEdit=():TransactionSpec=>({effects:refuseSnippetEdit.of(null)});
 export const setSourceSnippet=StateEffect.define<SnippetSession|null>();
 interface SnippetSnapshot {
  source:string;
@@ -155,12 +163,13 @@ export function sourceSnippets(adapter:{writable:()=>boolean;notice:(message:str
      &&adapter.writable()&&!tr.startState.readOnly&&tr.startState.facet(EditorView.editable))return reflectParallelSnippetInput(tr,parallel);
    const session=tr.startState.field(snippetState);if(!session||!tr.docChanged||tr.effects.some(effect=>effect.is(setSourceSnippet))||!['input.type','input.paste','input.drop','input.complete','delete'].some(event=>tr.isUserEvent(event))||tr.startState.selection.ranges.length!==1||!adapter.writable()||tr.startState.readOnly||!tr.startState.facet(EditorView.editable))return tr;
    const changes:{from:number;to:number;text:string}[]=[],after=authoredTransactionSource(tr);tr.changes.iterChanges((from,to,a,b)=>changes.push({from:authoredOffset(tr.startState,from),to:authoredOffset(tr.startState,to),text:after.slice(authoredOffsetIn(after,a),authoredOffsetIn(after,b))}));if(changes.length!==1)return tr;
-   const changed=changes[0];if(computedSnippetInput(session,changed.from,changed.to))return tr;const plan=editSnippet(session,authoredSource(tr.startState),changed.from,changed.to,changed.text);if(!plan)return tr;
-   const edits=plan.edits.map(edit=>({from:edit.from,to:edit.to,insert:edit.text})),prepared=prepareEditorChanges(session.source,edits);if('reason' in prepared||prepared.expected!==plan.session.source)return tr;
-   const authored=authoredChanges(tr.startState,edits),complete=tr.startState.changes(authored.changes);if(complete.apply(tr.startState.doc).toString()!==normalizedSource(plan.session.source))return tr;
+   const changed=changes[0];if(!editableSnippetRange(session,changed.from,changed.to))return tr;
+   const plan=editSnippet(session,authoredSource(tr.startState),changed.from,changed.to,changed.text);if(!plan)return refusedSnippetEdit();
+   const edits=plan.edits.map(edit=>({from:edit.from,to:edit.to,insert:edit.text})),prepared=prepareEditorChanges(session.source,edits);if('reason' in prepared||prepared.expected!==plan.session.source)return refusedSnippetEdit();
+   const authored=authoredChanges(tr.startState,edits),complete=tr.startState.changes(authored.changes);if(complete.apply(tr.startState.doc).toString()!==normalizedSource(plan.session.source))return refusedSnippetEdit();
    const additional=tr.changes.invert(tr.startState.doc).compose(complete),rawSelected=tr.newSelection.main,selected={from:authoredOffsetIn(after,rawSelected.from),to:authoredOffsetIn(after,rawSelected.to),anchor:authoredOffsetIn(after,rawSelected.anchor),head:authoredOffsetIn(after,rawSelected.head)},end=changed.from+changed.text.length;
    const anchor=plan.selection.from+selected.anchor-end,head=plan.selection.to+selected.head-end;
-   if(selected.from<changed.from||selected.to>end)return tr;
+   if(selected.from<changed.from||selected.to>end)return refusedSnippetEdit();
    return [tr,{changes:additional,selection:EditorSelection.single(editorOffsetIn(plan.session.source,anchor),editorOffsetIn(plan.session.source,head)),effects:[...(authored.effects as readonly StateEffect<unknown>[]??[]),setSourceSnippet.of(plan.session)],sequential:true}];
   }),
   Prec.high(keymap.of([
@@ -168,6 +177,9 @@ export function sourceSnippets(adapter:{writable:()=>boolean;notice:(message:str
    {key:'Escape',run:view=>{if(view.composing)return false;if(readCompletionAcceptance(view)?.phase==='resolving')return cancelCompletionAcceptance(view);return closeCompletion(view)||finishSourceSnippet(view);}},
   ])),
   EditorView.updateListener.of(update=>{
+   if(update.transactions.some(transaction=>transaction.effects.some(effect=>effect.is(refuseSnippetEdit)))){
+    adapter.notice('Linked template edit could not be prepared. Current draft is retained.');return;
+   }
    const before=update.startState.field(snippetState),after=update.state.field(snippetState);
    const oldGroup=readParallelSourceSnippet(update.startState),group=readParallelSourceSnippet(update.state);
    if(before===after&&oldGroup===group)return;
@@ -284,7 +296,14 @@ function reflectParallelSnippetInput(tr: Transaction, session: ParallelSnippet):
   }
   const plan = editParallelSnippet(session, authoredSource(tr.startState), inputs);
   const result = plan && prepareParallelSourceBatch(tr.startState, plan);
-  if (!result) return tr;
+  if (!result) {
+    const linked=session.peers.every((peer,index)=>{
+      const edit=inputs[index];
+      return peer.session?.active ? editableSnippetRange(peer.session,edit.from-peer.from,edit.to-peer.from) :
+        peer.from<=edit.from&&edit.from<=edit.to&&edit.to<=peer.to;
+    });
+    return linked ? [refusedSnippetEdit()] : tr;
+  }
   const changesAfterInput = tr.changes.invert(tr.startState.doc).compose(result.changes);
   // Keep the triggering input transaction and its native history metadata.
   return [tr, {...result.spec, changes: changesAfterInput, sequential: true}];
@@ -380,7 +399,7 @@ The browser session keeps authored UTF-16 field positions throughout. Only paint
 
 ## Keep Apple snippet intent outside AppKit and UIKit
 
-A source-bound controller exposes navigation and choices through existing selection and edit callbacks. The native editor still owns composition, permissions and actual batch/undo application. Stale intent and failed reflection retire the capability rather than blocking ordinary text input. A prepared change plan verifies its entire predicted source before entering history.
+A source-bound controller exposes navigation and choices through existing selection and edit callbacks. The native editor owns composition, permissions and batch application. A prepared change plan verifies its entire predicted source before entering history. Once the controller recognizes input inside the active editable field, the editor consumes the event even if a mirror fails. The status reports the refused edit and the earlier history remains available.
 
 Native template batches keep the primary selection first in the existing
 multi-selection overlay. Each linked change lands through the per-view undo
@@ -394,6 +413,11 @@ The existing native history pool retains optional field contexts under a 32 MiB 
 import Foundation
 import Observation
 private func computedSnippetInput(_ session:SnippetSession,_ from:Int,_ to:Int)->Bool {session.fields.contains{field in field.transform != nil && field.from<field.to && field.from<=from && to<=field.to && (from<to || from>field.from && from<field.to)}}
+private func editableSnippetRange(_ session:SnippetSession,_ from:Int,_ to:Int)->Bool {
+    session.active>0 && !computedSnippetInput(session,from,to) && session.fields.contains {
+        $0.transform==nil && $0.index==session.active && $0.from<=from && from<=to && to<=$0.to
+    }
+}
 struct SourceSnippetHistoryContext {var fields:[SnippetField];var active:Int;var current:Int;var scopes:[SnippetScope]=[];var parallel:ParallelSnippet?=nil;var ranges:[NSRange]=[]}
 func snippetHistoryCost(_ value:SourceSnippetHistoryContext?)->Int {
     guard let value else{return 0}
@@ -487,8 +511,15 @@ func snippetHistoryCost(_ value:SourceSnippetHistoryContext?)->Int {
             return false
         }
         guard edited[parallel.primaryIndex] == primaryRange,
-              let result = parallel.editing(source, input: edited.map { NativeSourceEdit(range: $0, text: text) }) else { return false }
-        return commitParallel?(result, source) == true
+              zip(parallel.peers,edited).allSatisfy({ peer, range in
+                  if let session=peer.session,session.active>0 {
+                      return editableSnippetRange(session,range.location-peer.range.location,NSMaxRange(range)-peer.range.location)
+                  }
+                  return range.location>=peer.range.location && NSMaxRange(range)<=NSMaxRange(peer.range)
+              }) else{return false}
+        if let result=parallel.editing(source,input:edited.map{NativeSourceEdit(range:$0,text:text)}),commitParallel?(result,source)==true{return true}
+        reportInputRefusal()
+        return true
     }
     var active:SnippetSession? {guard let buffer,let session,exactUTF8(buffer.text,session.source) else{return nil};return session}
     var choices:[String] {
@@ -544,14 +575,18 @@ func snippetHistoryCost(_ value:SourceSnippetHistoryContext?)->Int {
         guard buffer.selectSourceRange?(NSRange(location:next.selection.from,length:next.selection.to-next.selection.from),current.source)==true else{session=old;return false}
         intent+=1;buffer.focusSource?();report();return true
     }
-    // nil leaves ordinary native input in charge; true means one linked batch committed.
+    private func reportInputRefusal(){reportFailure("Linked template edit could not be prepared. Current draft is retained.")}
+
+    // nil hands the event to the editor. A Bool records whether linked input committed.
     func input(source:String,range:NSRange,text:String,caret:Int?=nil)->Bool? {
-        guard let buffer,let current=active,!buffer.readOnly,!buffer.saving,exactUTF8(source,buffer.text),buffer.multiRanges.count<2,!computedSnippetInput(current,range.location,NSMaxRange(range)),var input=editSnippet(current,source:source,from:range.location,to:NSMaxRange(range),text:text),let commit else{_ = finish();return nil}
+        guard let buffer,let current=active,!buffer.readOnly,!buffer.saving,exactUTF8(source,buffer.text),buffer.multiRanges.count<2,
+              editableSnippetRange(current,range.location,NSMaxRange(range)) else{_ = finish();return nil}
+        guard var input=editSnippet(current,source:source,from:range.location,to:NSMaxRange(range),text:text),let commit else{reportInputRefusal();return false}
         if let caret {
-            guard caret>=range.location,caret<=range.location+text.utf16.count else{_ = finish();return nil}
+            guard caret>=range.location,caret<=range.location+text.utf16.count else{reportInputRefusal();return false}
             let selected=input.selection.from+caret-(range.location+text.utf16.count);input.selection=CompletionSelection(from:selected,to:selected)
         }
-        guard commit(input,current) else{_ = finish();return nil};return true
+        guard commit(input,current) else{reportInputRefusal();return false};return true
     }
     func prepareCompletion(_ draft:CompletionDraft)throws->CompletionDraft {
         if parallel != nil {throw EngineError(message:"Finish editing the multiple template fields before accepting a completion.")}
@@ -758,6 +793,12 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.text.TextRange
 private fun computedSnippetInput(session:SnippetSession,from:Int,to:Int)=session.fields.any{field->field.transform!=null&&field.from<field.to&&field.from<=from&&to<=field.to&&(from<to||from>field.from&&from<field.to)}
+private fun editableSnippetRange(session:SnippetSession,from:Int,to:Int):Boolean =
+ session.active>0&&!computedSnippetInput(session,from,to)&&session.fields.any{
+  it.transform==null&&it.index==session.active&&it.from<=from&&from<=to&&to<=it.to
+ }
+
+internal data class ParallelSnippetInput(val change:ParallelSnippetChange?)
 // Charge actual retained vector slots, including empty alternatives. Stop at
 // budget+1 before retaining a context; the journal owns source text separately.
 internal fun snippetHistoryCost(context:SnippetSession?,budget:Long=32L*1024*1024):Long {
@@ -1028,11 +1069,12 @@ class SourceSnippetController(private val buffer:DocumentBuffer) {
  internal fun inputParallel(text: String): Boolean {
   val current = parallel ?: return false
   if (buffer.multiRanges != parallelRanges(current) || buffer.state.composition != null) return false
-  val next = current.editing(buffer.text, current.selections.map { NativeSourceEdit(it.from, it.to, text) }) ?: return false
-  return commitParallel(next, buffer.text)
+  val next = current.editing(buffer.text, current.selections.map { NativeSourceEdit(it.from, it.to, text) })
+  if(next==null||!commitParallel(next,buffer.text))reportInputRefusal()
+  return true
  }
 
- internal fun planParallelInput(source: String, from: Int, to: Int, text: String): ParallelSnippetChange? {
+ internal fun planParallelInput(source: String, from: Int, to: Int, text: String): ParallelSnippetInput? {
   val current = parallel ?: return null
   if (buffer.multiRanges != parallelRanges(current) || buffer.readOnly || buffer.saving ||
       source != buffer.text || buffer.state.composition != null) return null
@@ -1054,7 +1096,12 @@ class SourceSnippetController(private val buffer:DocumentBuffer) {
    else -> return null
   }
   if (edited[current.primaryIndex] != CompletionSelection(from, to)) return null
-  return current.editing(source, edited.map { NativeSourceEdit(it.from, it.to, text) })
+  if(!current.peers.zip(edited).all{(peer,range)->
+   val session=peer.session
+   if(session!=null&&session.active>0)editableSnippetRange(session,range.from-peer.from,range.to-peer.from)
+   else peer.from<=range.from&&range.from<=range.to&&range.to<=peer.to
+  })return null
+  return ParallelSnippetInput(current.editing(source, edited.map { NativeSourceEdit(it.from, it.to, text) }))
  }
 
  internal fun publishParallelInput(epoch: Int) {
@@ -1083,8 +1130,17 @@ class SourceSnippetController(private val buffer:DocumentBuffer) {
   val previous=value;stage(next.session)
   if(!buffer.selectSourceRange(next.selection.from,next.selection.to,current.source)){stage(previous);return false};publish(next.session);return true
  }
+ internal fun includesInput(source:String,from:Int,to:Int):Boolean {
+  val current=active ?: return false
+  return !buffer.readOnly&&!buffer.saving&&source==buffer.text&&buffer.multiRanges.size<2&&editableSnippetRange(current,from,to)
+ }
+ internal fun reportInputRefusal(){
+  notice="Linked template edit could not be prepared. Current draft is retained."
+  buffer.language?.completionNotice=notice
+ }
  fun proposal(source:String,from:Int,to:Int,text:String,caret:Int?=null):SnippetInput? {
-  val current=active ?: return null;if(buffer.readOnly||buffer.saving||source!=buffer.text||buffer.multiRanges.size>1||computedSnippetInput(current,from,to))return null
+  val current=active ?: return null
+  if(!includesInput(source,from,to))return null
   val input=editSnippet(current,source,from,to,text) ?: return null
   if(caret==null)return input;if(caret !in from..(from+text.length))return null;val selected=input.selection.from+caret-(from+text.length);return input.copy(selection=CompletionSelection(selected,selected))
  }
@@ -1122,17 +1178,25 @@ class SourceSnippetController(private val buffer:DocumentBuffer) {
 
 ## Apply one linked proposal inside the existing text transaction
 
-Input transformation uses original source/ranges and checks every mirror against the host display policy. Apply the complete batch and caret together in the existing native transaction. Stage only plain core state here; the caller publishes observable state after the transaction. A refusal retains the primary input for the ordinary editor.
+Input transformation checks the original source and ranges, then tests each
+mirror against the host display policy. It applies a complete batch with its
+caret in the native transaction. If an eligible field's calculation refuses,
+restore the input transaction to its original text and selection and keep the
+session. Folded text keeps the existing ordinary-input behavior. The caller
+publishes observable status after the transaction.
 
 <ui:copy id="source-snippets-android-input">
 data class SnippetPrimaryEdit(val edit:NativeSourceEdit,val caret:Int?=null)
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
-fun androidx.compose.foundation.text.input.TextFieldBuffer.applySourceSnippetInput(buffer:DocumentBuffer,prepare:(String,Int,Int,String)->SnippetPrimaryEdit={_,from,to,text->SnippetPrimaryEdit(NativeSourceEdit(from,to,text))},canReflect:(NativeSourceEdit)->Boolean={true},publish:(SnippetSession?)->Unit):Boolean {
+fun androidx.compose.foundation.text.input.TextFieldBuffer.applySourceSnippetInput(buffer:DocumentBuffer,prepare:(String,Int,Int,String)->SnippetPrimaryEdit={_,from,to,text->SnippetPrimaryEdit(NativeSourceEdit(from,to,text))},canReflect:(NativeSourceEdit)->Boolean={true},refused:()->Unit={buffer.snippets.reportInputRefusal()},publish:(SnippetSession?)->Unit):Boolean {
  if(buffer.snippets.active==null)return false
  if(changes.changeCount!=1||buffer.state.composition!=null){buffer.snippets.stage(null);publish(null);return false}
  val old=changes.getOriginalRange(0);val changed=changes.getRange(0)
  val source=originalText.toString();val primary=prepare(source,old.min,old.max,asCharSequence().subSequence(changed.min,changed.max).toString())
  val plan=buffer.snippets.proposal(source,primary.edit.from,primary.edit.to,primary.edit.text,primary.caret)
+ if(plan==null&&buffer.snippets.includesInput(source,primary.edit.from,primary.edit.to)){
+  revertAllChanges();selection=originalSelection;refused();return true
+ }
  if(plan==null||plan.edits.any{!canReflect(it)}){buffer.snippets.stage(null);publish(null);return false}
  revertAllChanges();plan.edits.asReversed().forEach{replace(it.from,it.to,it.text)};selection=TextRange(plan.selection.from,plan.selection.to)
  buffer.snippets.stage(plan.session);publish(plan.session);return true
@@ -1246,8 +1310,18 @@ it('charges empty alternative overhead before retaining bounded snippet history'
 it('bounds empty no-session history by both fixed token cost and entry capacity',()=>{const snapshot={source:'',session:null,selection:EditorState.create().selection},count=createSourceSnippetHistory(400,2),a=count.hold(snapshot),b=count.hold(snapshot),c=count.hold(snapshot);expect(count.read(a)).toBeUndefined();expect(count.read(b)).toBeDefined();expect(count.read(c)).toBeDefined();const bytes=createSourceSnippetHistory(250),first=bytes.hold(snapshot),last=bytes.hold(snapshot);expect(bytes.read(first)).toBeUndefined();expect(bytes.read(last)).toBeDefined();});
 
 it('computed input is one editor history action with exact source and selection replay',()=>{
- const transform=readSnippetTransform(derived.programs.upper),fields=[field(0,1,0,3),{...field(1,1,4,7),transform},field(2,0,7,7)],{view,close}=fixture('foo FOO',fields);
- try{view.dispatch({changes:{from:0,to:3,insert:'λ😀'},selection:{anchor:3},userEvent:'input.type'});expect(view.state.doc.toString()).toBe('λ😀 Λ😀');expect(view.state.selection.main.head).toBe(3);expect(readSourceSnippet(view)?.fields.find(field=>field.transform)?.to).toBe(7);expect(undo(view)).toBe(true);expect(view.state.doc.toString()).toBe('foo FOO');expect(readSourceSnippet(view)).not.toBeNull();expect(redo(view)).toBe(true);expect(view.state.doc.toString()).toBe('λ😀 Λ😀');expect(view.state.selection.main.head).toBe(3);}finally{close()}
+ const transform=readSnippetTransform(derived.programs.upper),fields=[field(0,1,0,3),{...field(1,1,4,7),transform},field(2,0,7,7)],{view,notices,close}=fixture('foo FOO',fields);
+ try{
+  const before=view.state.selection,intent=readSourceEditorIntent(view.state);
+  const overflow='x'.repeat(65537);
+  view.dispatch({changes:{from:0,to:3,insert:overflow},selection:{anchor:overflow.length},userEvent:'input.type'});
+  expect(authoredSource(view.state)).toBe('foo FOO');
+  expect(view.state.selection.eq(before)).toBe(true);
+  expect(readSourceEditorIntent(view.state)).toBe(intent);
+  expect(readSourceSnippet(view)?.source).toBe('foo FOO');
+  expect(notices.at(-1)).toContain('Current draft is retained');
+  expect(undo(view)).toBe(false);
+  view.dispatch({changes:{from:0,to:3,insert:'λ😀'},selection:{anchor:3},userEvent:'input.type'});expect(view.state.doc.toString()).toBe('λ😀 Λ😀');expect(view.state.selection.main.head).toBe(3);expect(readSourceSnippet(view)?.fields.find(field=>field.transform)?.to).toBe(7);expect(undo(view)).toBe(true);expect(view.state.doc.toString()).toBe('foo FOO');expect(readSourceSnippet(view)).not.toBeNull();expect(redo(view)).toBe(true);expect(view.state.doc.toString()).toBe('λ😀 Λ😀');expect(view.state.selection.main.head).toBe(3);}finally{close()}
 });
 it('computed child selection retires linked intent and leaves ordinary parent input authoritative',()=>{
  const transform=readSnippetTransform(derived.programs.upper),fields=[field(0,1,0,7),{...field(1,2,0,3),parent:0},{...field(2,2,4,7),parent:0,transform},field(3,1,10,17),{...field(4,2,10,13),parent:3},{...field(5,2,14,17),parent:3,transform},field(6,0,17,17)],{view,close}=fixture('foo FOO | foo FOO',fields);
@@ -1293,6 +1367,11 @@ it('replays a multi-caret template and its linked input with the primary selecti
   const beforeTyping=view.state.selection;
   expect(authoredSource(view.state)).toBe('a:a / beta:beta');
   expect(beforeTyping.mainIndex).toBe(1);
+  const retained=readParallelSourceSnippet(view.state);
+  view.dispatch({...view.state.replaceSelection('x'.repeat(262145)),userEvent:'input.type'});
+  expect(authoredSource(view.state)).toBe('a:a / beta:beta');
+  expect(view.state.selection.eq(beforeTyping)).toBe(true);
+  expect(readParallelSourceSnippet(view.state)).toBe(retained);
   view.dispatch({...view.state.replaceSelection('λ😀'),userEvent:'input.type'});
   expect(authoredSource(view.state)).toBe('λ😀:λ😀 / λ😀:λ😀');
   const afterTyping=view.state.selection;
@@ -1387,7 +1466,15 @@ import AppKit
         let source="foo FOO",values=[SnippetField(index:1,from:0,to:3,choices:[],id:0),SnippetField(index:1,from:4,to:7,choices:[],id:1,transform:transform),SnippetField(index:0,from:7,to:7,choices:[],id:2)]
         XCTAssertEqual(snippetHistoryCost(SourceSnippetHistoryContext(fields:values,active:1,current:0)),3*64+transform.bytes)
         let buffer=DocumentBuffer(file:FileNode(name:"a.py",path:"a.py",dir:false),text:FileText(path:"a.py",content:source,hash:"base")),editor=MacEditor(buffer),window=NSWindow(contentRect:NSRect(x:0,y:0,width:500,height:300),styleMask:[.titled],backing:.buffered,defer:false);window.contentView=editor.scroll;defer{window.contentView=nil}
-        editor.text.setSelectedRange(NSRange(location:0,length:3));buffer.selection=editor.text.selectedRange();buffer.snippets.restore(beginSnippet(source,fields:values));editor.text.insertText("λ😀",replacementRange:editor.text.selectedRange());XCTAssertEqual(Array(buffer.text.utf8),Array("λ😀 Λ😀".utf8));XCTAssertEqual(editor.text.selectedRange(),NSRange(location:3,length:0));XCTAssertNotNil(buffer.snippets.active)
+        editor.text.setSelectedRange(NSRange(location:0,length:3));buffer.selection=editor.text.selectedRange();buffer.snippets.restore(beginSnippet(source,fields:values))
+        let originalSelection=editor.text.selectedRange(),canUndo=editor.text.undoManager?.canUndo
+        editor.text.insertText(String(repeating:"x",count:65537),replacementRange:originalSelection)
+        XCTAssertEqual(buffer.text,source)
+        XCTAssertEqual(editor.text.selectedRange(),originalSelection)
+        XCTAssertEqual(editor.text.undoManager?.canUndo,canUndo)
+        XCTAssertNotNil(buffer.snippets.active)
+        XCTAssertTrue(buffer.snippets.notice.contains("Current draft is retained"))
+        editor.text.insertText("λ😀",replacementRange:editor.text.selectedRange());XCTAssertEqual(Array(buffer.text.utf8),Array("λ😀 Λ😀".utf8));XCTAssertEqual(editor.text.selectedRange(),NSRange(location:3,length:0));XCTAssertNotNil(buffer.snippets.active)
         editor.text.undoManager?.undo();XCTAssertEqual(buffer.text,source);XCTAssertNotNil(buffer.snippets.active);editor.text.undoManager?.redo();XCTAssertEqual(Array(buffer.text.utf8),Array("λ😀 Λ😀".utf8));XCTAssertEqual(editor.text.selectedRange(),NSRange(location:3,length:0));XCTAssertNotNil(buffer.snippets.active)
         editor.text.setSelectedRange(NSRange(location:4,length:3));buffer.selection=editor.text.selectedRange();editor.text.insertText("bar",replacementRange:editor.text.selectedRange());XCTAssertEqual(Array(buffer.text.utf8),Array("λ😀 bar".utf8));XCTAssertNil(buffer.snippets.active)
         #endif
@@ -1417,6 +1504,10 @@ import AppKit
         XCTAssertTrue(buffer.snippets.applyParallel(source:source,expansions:expansions,primary:0,expectedIntent:intent,admitted:{true}))
         let beforeInput=buffer.multiRanges
         XCTAssertEqual(buffer.text,"a:a / beta:beta")
+        editor.text.insertText(String(repeating:"x",count:262145),replacementRange:editor.text.selectedRange())
+        XCTAssertEqual(buffer.text,"a:a / beta:beta")
+        XCTAssertEqual(buffer.multiRanges,beforeInput)
+        XCTAssertNotNil(buffer.snippets.parallel)
         editor.text.insertText("λ😀",replacementRange:editor.text.selectedRange())
         let afterInput=buffer.multiRanges
         XCTAssertEqual(buffer.text,"λ😀:λ😀 / λ😀:λ😀")
@@ -1708,6 +1799,13 @@ class SourceSnippetInteractionTest {
   assertTrue(buffer.snippets.applyParallel(source,expansions,0,intent){true})
   val before=buffer.multiRanges
   assertEquals("a:a / beta:beta",buffer.text)
+  val overflow="x".repeat(262145);val primary=buffer.state.selection
+  val refused=checkNotNull(buffer.snippets.planParallelInput(buffer.text,primary.min,primary.max,overflow))
+  assertNull(refused.change)
+  assertTrue(buffer.snippets.inputParallel(overflow))
+  assertEquals("a:a / beta:beta",buffer.text)
+  assertEquals(before,buffer.multiRanges)
+  assertNotNull(buffer.snippets.parallel)
   assertTrue(buffer.snippets.inputParallel("λ😀"))
   val after=buffer.multiRanges
   assertEquals("λ😀:λ😀 / λ😀:λ😀",buffer.text)
@@ -1738,7 +1836,20 @@ class SourceSnippetInteractionTest {
  }
  @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
  @Test fun computedInputAndNativeHistoryAreOneAction(){
-  val root=generateSequence(java.io.File(System.getProperty("user.dir")).absoluteFile){it.parentFile}.first{it.resolve("apps/simple-contract/snippet-derived-cases.json").isFile};val transform=readSnippetTransform(org.json.JSONObject(root.resolve("apps/simple-contract/snippet-derived-cases.json").readText()).getJSONObject("programs").getJSONObject("upper"));val source="foo FOO";val values=listOf(SnippetField(1,0,3,emptyList(),0),SnippetField(1,4,7,emptyList(),1,transform=transform),SnippetField(0,7,7,emptyList(),2));val buffer=DocumentBuffer(FileNode("a.py","a.py",false,emptyList(),null,null),FileText(source,"base"));buffer.state.edit{selection=TextRange(0,3)};buffer.snippets.restore(beginSnippet(source,values));assertEquals(3*64L+transform.bytes,snippetHistoryCost(buffer.snippets.active));assertTrue(buffer.snippets.applyInput(source,0,3,"λ😀"));assertEquals("λ😀 Λ😀",buffer.text);assertEquals(TextRange(3),buffer.state.selection);assertNotNull(buffer.snippets.active);assertTrue(buffer.snippets.undoSource());assertEquals(source,buffer.text);assertNotNull(buffer.snippets.active);assertTrue(buffer.snippets.redoSource());assertEquals("λ😀 Λ😀",buffer.text);assertEquals(TextRange(3),buffer.state.selection)
+  val root=generateSequence(java.io.File(System.getProperty("user.dir")).absoluteFile){it.parentFile}.first{it.resolve("apps/simple-contract/snippet-derived-cases.json").isFile};val transform=readSnippetTransform(org.json.JSONObject(root.resolve("apps/simple-contract/snippet-derived-cases.json").readText()).getJSONObject("programs").getJSONObject("upper"));val source="foo FOO";val values=listOf(SnippetField(1,0,3,emptyList(),0),SnippetField(1,4,7,emptyList(),1,transform=transform),SnippetField(0,7,7,emptyList(),2));val buffer=DocumentBuffer(FileNode("a.py","a.py",false,emptyList(),null,null),FileText(source,"base"));buffer.state.edit{selection=TextRange(0,3)};buffer.snippets.restore(beginSnippet(source,values));assertEquals(3*64L+transform.bytes,snippetHistoryCost(buffer.snippets.active))
+  val intent=buffer.snippets.intent;val canUndo=buffer.snippets.canUndo
+  val overflow="x".repeat(65_537)
+  buffer.state.edit {
+   replace(0,3,overflow);selection=TextRange(overflow.length)
+   assertTrue(applySourceSnippetInput(buffer,publish={error("A refused edit cannot publish a replacement field")}))
+  }
+  assertEquals(source,buffer.text)
+  assertEquals(TextRange(0,3),buffer.state.selection)
+  assertEquals(intent,buffer.snippets.intent)
+  assertEquals(canUndo,buffer.snippets.canUndo)
+  assertNotNull(buffer.snippets.active)
+  assertTrue(buffer.snippets.notice.contains("Current draft is retained"))
+  assertTrue(buffer.snippets.applyInput(source,0,3,"λ😀"));assertEquals("λ😀 Λ😀",buffer.text);assertEquals(TextRange(3),buffer.state.selection);assertNotNull(buffer.snippets.active);assertTrue(buffer.snippets.undoSource());assertEquals(source,buffer.text);assertNotNull(buffer.snippets.active);assertTrue(buffer.snippets.redoSource());assertEquals("λ😀 Λ😀",buffer.text);assertEquals(TextRange(3),buffer.state.selection)
   var staged:SnippetSession?=buffer.snippets.active;buffer.state.edit{val before=buffer.snippets.captureBefore(originalText,originalSelection);replace(4,7,"bar");selection=TextRange(7);assertFalse(applySourceSnippetInput(buffer,publish={staged=it}));buffer.snippets.finishTextChange(before,asCharSequence(),selection)};buffer.snippets.publish(staged);assertEquals("λ😀 bar",buffer.text);assertNull(buffer.snippets.active)
  }
 

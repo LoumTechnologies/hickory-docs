@@ -5,6 +5,12 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.text.TextRange
 private fun computedSnippetInput(session:SnippetSession,from:Int,to:Int)=session.fields.any{field->field.transform!=null&&field.from<field.to&&field.from<=from&&to<=field.to&&(from<to||from>field.from&&from<field.to)}
+private fun editableSnippetRange(session:SnippetSession,from:Int,to:Int):Boolean =
+ session.active>0&&!computedSnippetInput(session,from,to)&&session.fields.any{
+  it.transform==null&&it.index==session.active&&it.from<=from&&from<=to&&to<=it.to
+ }
+
+internal data class ParallelSnippetInput(val change:ParallelSnippetChange?)
 // Charge actual retained vector slots, including empty alternatives. Stop at
 // budget+1 before retaining a context; the journal owns source text separately.
 internal fun snippetHistoryCost(context:SnippetSession?,budget:Long=32L*1024*1024):Long {
@@ -275,11 +281,12 @@ class SourceSnippetController(private val buffer:DocumentBuffer) {
  internal fun inputParallel(text: String): Boolean {
   val current = parallel ?: return false
   if (buffer.multiRanges != parallelRanges(current) || buffer.state.composition != null) return false
-  val next = current.editing(buffer.text, current.selections.map { NativeSourceEdit(it.from, it.to, text) }) ?: return false
-  return commitParallel(next, buffer.text)
+  val next = current.editing(buffer.text, current.selections.map { NativeSourceEdit(it.from, it.to, text) })
+  if(next==null||!commitParallel(next,buffer.text))reportInputRefusal()
+  return true
  }
 
- internal fun planParallelInput(source: String, from: Int, to: Int, text: String): ParallelSnippetChange? {
+ internal fun planParallelInput(source: String, from: Int, to: Int, text: String): ParallelSnippetInput? {
   val current = parallel ?: return null
   if (buffer.multiRanges != parallelRanges(current) || buffer.readOnly || buffer.saving ||
       source != buffer.text || buffer.state.composition != null) return null
@@ -301,7 +308,12 @@ class SourceSnippetController(private val buffer:DocumentBuffer) {
    else -> return null
   }
   if (edited[current.primaryIndex] != CompletionSelection(from, to)) return null
-  return current.editing(source, edited.map { NativeSourceEdit(it.from, it.to, text) })
+  if(!current.peers.zip(edited).all{(peer,range)->
+   val session=peer.session
+   if(session!=null&&session.active>0)editableSnippetRange(session,range.from-peer.from,range.to-peer.from)
+   else peer.from<=range.from&&range.from<=range.to&&range.to<=peer.to
+  })return null
+  return ParallelSnippetInput(current.editing(source, edited.map { NativeSourceEdit(it.from, it.to, text) }))
  }
 
  internal fun publishParallelInput(epoch: Int) {
@@ -330,8 +342,17 @@ class SourceSnippetController(private val buffer:DocumentBuffer) {
   val previous=value;stage(next.session)
   if(!buffer.selectSourceRange(next.selection.from,next.selection.to,current.source)){stage(previous);return false};publish(next.session);return true
  }
+ internal fun includesInput(source:String,from:Int,to:Int):Boolean {
+  val current=active ?: return false
+  return !buffer.readOnly&&!buffer.saving&&source==buffer.text&&buffer.multiRanges.size<2&&editableSnippetRange(current,from,to)
+ }
+ internal fun reportInputRefusal(){
+  notice="Linked template edit could not be prepared. Current draft is retained."
+  buffer.language?.completionNotice=notice
+ }
  fun proposal(source:String,from:Int,to:Int,text:String,caret:Int?=null):SnippetInput? {
-  val current=active ?: return null;if(buffer.readOnly||buffer.saving||source!=buffer.text||buffer.multiRanges.size>1||computedSnippetInput(current,from,to))return null
+  val current=active ?: return null
+  if(!includesInput(source,from,to))return null
   val input=editSnippet(current,source,from,to,text) ?: return null
   if(caret==null)return input;if(caret !in from..(from+text.length))return null;val selected=input.selection.from+caret-(from+text.length);return input.copy(selection=CompletionSelection(selected,selected))
  }
@@ -367,12 +388,15 @@ class SourceSnippetController(private val buffer:DocumentBuffer) {
 }
 data class SnippetPrimaryEdit(val edit:NativeSourceEdit,val caret:Int?=null)
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
-fun androidx.compose.foundation.text.input.TextFieldBuffer.applySourceSnippetInput(buffer:DocumentBuffer,prepare:(String,Int,Int,String)->SnippetPrimaryEdit={_,from,to,text->SnippetPrimaryEdit(NativeSourceEdit(from,to,text))},canReflect:(NativeSourceEdit)->Boolean={true},publish:(SnippetSession?)->Unit):Boolean {
+fun androidx.compose.foundation.text.input.TextFieldBuffer.applySourceSnippetInput(buffer:DocumentBuffer,prepare:(String,Int,Int,String)->SnippetPrimaryEdit={_,from,to,text->SnippetPrimaryEdit(NativeSourceEdit(from,to,text))},canReflect:(NativeSourceEdit)->Boolean={true},refused:()->Unit={buffer.snippets.reportInputRefusal()},publish:(SnippetSession?)->Unit):Boolean {
  if(buffer.snippets.active==null)return false
  if(changes.changeCount!=1||buffer.state.composition!=null){buffer.snippets.stage(null);publish(null);return false}
  val old=changes.getOriginalRange(0);val changed=changes.getRange(0)
  val source=originalText.toString();val primary=prepare(source,old.min,old.max,asCharSequence().subSequence(changed.min,changed.max).toString())
  val plan=buffer.snippets.proposal(source,primary.edit.from,primary.edit.to,primary.edit.text,primary.caret)
+ if(plan==null&&buffer.snippets.includesInput(source,primary.edit.from,primary.edit.to)){
+  revertAllChanges();selection=originalSelection;refused();return true
+ }
  if(plan==null||plan.edits.any{!canReflect(it)}){buffer.snippets.stage(null);publish(null);return false}
  revertAllChanges();plan.edits.asReversed().forEach{replace(it.from,it.to,it.text)};selection=TextRange(plan.selection.from,plan.selection.to)
  buffer.snippets.stage(plan.session);publish(plan.session);return true

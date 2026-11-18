@@ -92,6 +92,16 @@ catalog still needs to prepare and review all caret expansions from one
 captured source. Physical input, assistive technology and device rendering
 were not exercised by these witnesses.
 
+An input inside an active editable field belongs to its linked edit. If a
+transformation or grouped expansion exceeds its budget, the existing editor
+keeps the draft, field session and selection, and reports the refusal. The
+browser CodeMirror transaction, macOS AppKit input and Android text-state
+witnesses exercised both a transform above its input limit and a grouped edit
+above its combined output limit. The following valid edit and Undo/Redo still
+reach the original field history. The final focused groups passed 27 browser,
+14 Apple and 17 Android cases. This receipt covers ordinary input. Refused
+marked composition still needs its own acceptance.
+
 ## Native marked template input evidence
 
 The macOS editor's marked-text interface showed two provisional Japanese

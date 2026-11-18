@@ -98,8 +98,18 @@ it('charges empty alternative overhead before retaining bounded snippet history'
 it('bounds empty no-session history by both fixed token cost and entry capacity',()=>{const snapshot={source:'',session:null,selection:EditorState.create().selection},count=createSourceSnippetHistory(400,2),a=count.hold(snapshot),b=count.hold(snapshot),c=count.hold(snapshot);expect(count.read(a)).toBeUndefined();expect(count.read(b)).toBeDefined();expect(count.read(c)).toBeDefined();const bytes=createSourceSnippetHistory(250),first=bytes.hold(snapshot),last=bytes.hold(snapshot);expect(bytes.read(first)).toBeUndefined();expect(bytes.read(last)).toBeDefined();});
 
 it('computed input is one editor history action with exact source and selection replay',()=>{
- const transform=readSnippetTransform(derived.programs.upper),fields=[field(0,1,0,3),{...field(1,1,4,7),transform},field(2,0,7,7)],{view,close}=fixture('foo FOO',fields);
- try{view.dispatch({changes:{from:0,to:3,insert:'λ😀'},selection:{anchor:3},userEvent:'input.type'});expect(view.state.doc.toString()).toBe('λ😀 Λ😀');expect(view.state.selection.main.head).toBe(3);expect(readSourceSnippet(view)?.fields.find(field=>field.transform)?.to).toBe(7);expect(undo(view)).toBe(true);expect(view.state.doc.toString()).toBe('foo FOO');expect(readSourceSnippet(view)).not.toBeNull();expect(redo(view)).toBe(true);expect(view.state.doc.toString()).toBe('λ😀 Λ😀');expect(view.state.selection.main.head).toBe(3);}finally{close()}
+ const transform=readSnippetTransform(derived.programs.upper),fields=[field(0,1,0,3),{...field(1,1,4,7),transform},field(2,0,7,7)],{view,notices,close}=fixture('foo FOO',fields);
+ try{
+  const before=view.state.selection,intent=readSourceEditorIntent(view.state);
+  const overflow='x'.repeat(65537);
+  view.dispatch({changes:{from:0,to:3,insert:overflow},selection:{anchor:overflow.length},userEvent:'input.type'});
+  expect(authoredSource(view.state)).toBe('foo FOO');
+  expect(view.state.selection.eq(before)).toBe(true);
+  expect(readSourceEditorIntent(view.state)).toBe(intent);
+  expect(readSourceSnippet(view)?.source).toBe('foo FOO');
+  expect(notices.at(-1)).toContain('Current draft is retained');
+  expect(undo(view)).toBe(false);
+  view.dispatch({changes:{from:0,to:3,insert:'λ😀'},selection:{anchor:3},userEvent:'input.type'});expect(view.state.doc.toString()).toBe('λ😀 Λ😀');expect(view.state.selection.main.head).toBe(3);expect(readSourceSnippet(view)?.fields.find(field=>field.transform)?.to).toBe(7);expect(undo(view)).toBe(true);expect(view.state.doc.toString()).toBe('foo FOO');expect(readSourceSnippet(view)).not.toBeNull();expect(redo(view)).toBe(true);expect(view.state.doc.toString()).toBe('λ😀 Λ😀');expect(view.state.selection.main.head).toBe(3);}finally{close()}
 });
 it('computed child selection retires linked intent and leaves ordinary parent input authoritative',()=>{
  const transform=readSnippetTransform(derived.programs.upper),fields=[field(0,1,0,7),{...field(1,2,0,3),parent:0},{...field(2,2,4,7),parent:0,transform},field(3,1,10,17),{...field(4,2,10,13),parent:3},{...field(5,2,14,17),parent:3,transform},field(6,0,17,17)],{view,close}=fixture('foo FOO | foo FOO',fields);
@@ -145,6 +155,11 @@ it('replays a multi-caret template and its linked input with the primary selecti
   const beforeTyping=view.state.selection;
   expect(authoredSource(view.state)).toBe('a:a / beta:beta');
   expect(beforeTyping.mainIndex).toBe(1);
+  const retained=readParallelSourceSnippet(view.state);
+  view.dispatch({...view.state.replaceSelection('x'.repeat(262145)),userEvent:'input.type'});
+  expect(authoredSource(view.state)).toBe('a:a / beta:beta');
+  expect(view.state.selection.eq(beforeTyping)).toBe(true);
+  expect(readParallelSourceSnippet(view.state)).toBe(retained);
   view.dispatch({...view.state.replaceSelection('λ😀'),userEvent:'input.type'});
   expect(authoredSource(view.state)).toBe('λ😀:λ😀 / λ😀:λ😀');
   const afterTyping=view.state.selection;

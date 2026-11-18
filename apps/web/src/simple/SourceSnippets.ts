@@ -14,6 +14,12 @@ import {
 } from './ParallelSnippet';
 import {snippetTransformBytes} from './SnippetTransform';
 function computedSnippetInput(session:SnippetSession,from:number,to:number):boolean{return session.fields.some(field=>!!field.transform&&field.from<field.to&&field.from<=from&&to<=field.to&&(from<to||from>field.from&&from<field.to));}
+function editableSnippetRange(session:SnippetSession,from:number,to:number):boolean {
+ return session.active>0&&!computedSnippetInput(session,from,to)&&session.fields.some(field=>
+  !field.transform&&field.index===session.active&&field.from<=from&&from<=to&&to<=field.to);
+}
+const refuseSnippetEdit=StateEffect.define<null>();
+const refusedSnippetEdit=():TransactionSpec=>({effects:refuseSnippetEdit.of(null)});
 export const setSourceSnippet=StateEffect.define<SnippetSession|null>();
 interface SnippetSnapshot {
  source:string;
@@ -138,12 +144,13 @@ export function sourceSnippets(adapter:{writable:()=>boolean;notice:(message:str
      &&adapter.writable()&&!tr.startState.readOnly&&tr.startState.facet(EditorView.editable))return reflectParallelSnippetInput(tr,parallel);
    const session=tr.startState.field(snippetState);if(!session||!tr.docChanged||tr.effects.some(effect=>effect.is(setSourceSnippet))||!['input.type','input.paste','input.drop','input.complete','delete'].some(event=>tr.isUserEvent(event))||tr.startState.selection.ranges.length!==1||!adapter.writable()||tr.startState.readOnly||!tr.startState.facet(EditorView.editable))return tr;
    const changes:{from:number;to:number;text:string}[]=[],after=authoredTransactionSource(tr);tr.changes.iterChanges((from,to,a,b)=>changes.push({from:authoredOffset(tr.startState,from),to:authoredOffset(tr.startState,to),text:after.slice(authoredOffsetIn(after,a),authoredOffsetIn(after,b))}));if(changes.length!==1)return tr;
-   const changed=changes[0];if(computedSnippetInput(session,changed.from,changed.to))return tr;const plan=editSnippet(session,authoredSource(tr.startState),changed.from,changed.to,changed.text);if(!plan)return tr;
-   const edits=plan.edits.map(edit=>({from:edit.from,to:edit.to,insert:edit.text})),prepared=prepareEditorChanges(session.source,edits);if('reason' in prepared||prepared.expected!==plan.session.source)return tr;
-   const authored=authoredChanges(tr.startState,edits),complete=tr.startState.changes(authored.changes);if(complete.apply(tr.startState.doc).toString()!==normalizedSource(plan.session.source))return tr;
+   const changed=changes[0];if(!editableSnippetRange(session,changed.from,changed.to))return tr;
+   const plan=editSnippet(session,authoredSource(tr.startState),changed.from,changed.to,changed.text);if(!plan)return refusedSnippetEdit();
+   const edits=plan.edits.map(edit=>({from:edit.from,to:edit.to,insert:edit.text})),prepared=prepareEditorChanges(session.source,edits);if('reason' in prepared||prepared.expected!==plan.session.source)return refusedSnippetEdit();
+   const authored=authoredChanges(tr.startState,edits),complete=tr.startState.changes(authored.changes);if(complete.apply(tr.startState.doc).toString()!==normalizedSource(plan.session.source))return refusedSnippetEdit();
    const additional=tr.changes.invert(tr.startState.doc).compose(complete),rawSelected=tr.newSelection.main,selected={from:authoredOffsetIn(after,rawSelected.from),to:authoredOffsetIn(after,rawSelected.to),anchor:authoredOffsetIn(after,rawSelected.anchor),head:authoredOffsetIn(after,rawSelected.head)},end=changed.from+changed.text.length;
    const anchor=plan.selection.from+selected.anchor-end,head=plan.selection.to+selected.head-end;
-   if(selected.from<changed.from||selected.to>end)return tr;
+   if(selected.from<changed.from||selected.to>end)return refusedSnippetEdit();
    return [tr,{changes:additional,selection:EditorSelection.single(editorOffsetIn(plan.session.source,anchor),editorOffsetIn(plan.session.source,head)),effects:[...(authored.effects as readonly StateEffect<unknown>[]??[]),setSourceSnippet.of(plan.session)],sequential:true}];
   }),
   Prec.high(keymap.of([
@@ -151,6 +158,9 @@ export function sourceSnippets(adapter:{writable:()=>boolean;notice:(message:str
    {key:'Escape',run:view=>{if(view.composing)return false;if(readCompletionAcceptance(view)?.phase==='resolving')return cancelCompletionAcceptance(view);return closeCompletion(view)||finishSourceSnippet(view);}},
   ])),
   EditorView.updateListener.of(update=>{
+   if(update.transactions.some(transaction=>transaction.effects.some(effect=>effect.is(refuseSnippetEdit)))){
+    adapter.notice('Linked template edit could not be prepared. Current draft is retained.');return;
+   }
    const before=update.startState.field(snippetState),after=update.state.field(snippetState);
    const oldGroup=readParallelSourceSnippet(update.startState),group=readParallelSourceSnippet(update.state);
    if(before===after&&oldGroup===group)return;
@@ -267,7 +277,14 @@ function reflectParallelSnippetInput(tr: Transaction, session: ParallelSnippet):
   }
   const plan = editParallelSnippet(session, authoredSource(tr.startState), inputs);
   const result = plan && prepareParallelSourceBatch(tr.startState, plan);
-  if (!result) return tr;
+  if (!result) {
+    const linked=session.peers.every((peer,index)=>{
+      const edit=inputs[index];
+      return peer.session?.active ? editableSnippetRange(peer.session,edit.from-peer.from,edit.to-peer.from) :
+        peer.from<=edit.from&&edit.from<=edit.to&&edit.to<=peer.to;
+    });
+    return linked ? [refusedSnippetEdit()] : tr;
+  }
   const changesAfterInput = tr.changes.invert(tr.startState.doc).compose(result.changes);
   // Keep the triggering input transaction and its native history metadata.
   return [tr, {...result.spec, changes: changesAfterInput, sequential: true}];

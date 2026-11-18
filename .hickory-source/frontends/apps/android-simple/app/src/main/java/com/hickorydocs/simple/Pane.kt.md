@@ -966,7 +966,8 @@ Attach the grid only to an inline snapshot that still matches the field. Measure
                         val old = changes.getOriginalRange(0)
                         val change = changes.getRange(0)
                         val inserted = asCharSequence().subSequence(change.min, change.max).toString()
-                        val next = buffer.snippets.planParallelInput(originalText.toString(), old.min, old.max, inserted)
+                        val linked = buffer.snippets.planParallelInput(originalText.toString(), old.min, old.max, inserted)
+                        val next = linked?.change
                         if (next != null && next.edits.none { edit ->
                                 hiddenRanges.any { edit.from < it.to && edit.to > it.from || edit.from == edit.to && edit.from in it.from until it.to }
                             }) {
@@ -976,13 +977,17 @@ Attach the grid only to an inline snapshot that still matches the field. Measure
                             this.selection = TextRange(selected.from, selected.to)
                             buffer.snippets.stage(null, next.state)
                             parallelInput = buffer.snippets.intent
+                        } else if (linked != null && next == null) {
+                            revertAllChanges()
+                            this.selection = originalSelection
+                            scope.launch { kotlinx.coroutines.yield(); buffer.snippets.reportInputRefusal() }
                         } else buffer.snippets.stage(null)
                     }
                     else if (changes.changeCount == 1 && buffer.state.composition == null && !buffer.readOnly && buffer.multiRanges.size < 2) {
                         val linked=applySourceSnippetInput(buffer,prepare={text,from,to,inserted->
                             if(inserted=="\n"&&TextRange(from,to)==originalSelection){val plan=smartEnter(text,from,to,buffer.file.path,simpleIndent(text),enterIndent,enterRules);SnippetPrimaryEdit(NativeSourceEdit(plan.from,plan.to,plan.text),plan.caret)}
                             else SnippetPrimaryEdit(NativeSourceEdit(from,to,inserted))
-                        },canReflect={edit->hiddenRanges.none{edit.from<it.to&&edit.to>it.from||edit.from==edit.to&&edit.from in it.from until it.to}},publish={expected->scope.launch{kotlinx.coroutines.yield();buffer.snippets.publish(expected)}})
+                        },canReflect={edit->hiddenRanges.none{edit.from<it.to&&edit.to>it.from||edit.from==edit.to&&edit.from in it.from until it.to}},refused={scope.launch{kotlinx.coroutines.yield();buffer.snippets.reportInputRefusal()}},publish={expected->scope.launch{kotlinx.coroutines.yield();buffer.snippets.publish(expected)}})
                         if(!linked){
                         val original = changes.getOriginalRange(0)
                         val changed = changes.getRange(0)

@@ -77,6 +77,13 @@ class SourceSnippetInteractionTest {
   assertTrue(buffer.snippets.applyParallel(source,expansions,0,intent){true})
   val before=buffer.multiRanges
   assertEquals("a:a / beta:beta",buffer.text)
+  val overflow="x".repeat(262145);val primary=buffer.state.selection
+  val refused=checkNotNull(buffer.snippets.planParallelInput(buffer.text,primary.min,primary.max,overflow))
+  assertNull(refused.change)
+  assertTrue(buffer.snippets.inputParallel(overflow))
+  assertEquals("a:a / beta:beta",buffer.text)
+  assertEquals(before,buffer.multiRanges)
+  assertNotNull(buffer.snippets.parallel)
   assertTrue(buffer.snippets.inputParallel("λ😀"))
   val after=buffer.multiRanges
   assertEquals("λ😀:λ😀 / λ😀:λ😀",buffer.text)
@@ -107,7 +114,20 @@ class SourceSnippetInteractionTest {
  }
  @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
  @Test fun computedInputAndNativeHistoryAreOneAction(){
-  val root=generateSequence(java.io.File(System.getProperty("user.dir")).absoluteFile){it.parentFile}.first{it.resolve("apps/simple-contract/snippet-derived-cases.json").isFile};val transform=readSnippetTransform(org.json.JSONObject(root.resolve("apps/simple-contract/snippet-derived-cases.json").readText()).getJSONObject("programs").getJSONObject("upper"));val source="foo FOO";val values=listOf(SnippetField(1,0,3,emptyList(),0),SnippetField(1,4,7,emptyList(),1,transform=transform),SnippetField(0,7,7,emptyList(),2));val buffer=DocumentBuffer(FileNode("a.py","a.py",false,emptyList(),null,null),FileText(source,"base"));buffer.state.edit{selection=TextRange(0,3)};buffer.snippets.restore(beginSnippet(source,values));assertEquals(3*64L+transform.bytes,snippetHistoryCost(buffer.snippets.active));assertTrue(buffer.snippets.applyInput(source,0,3,"λ😀"));assertEquals("λ😀 Λ😀",buffer.text);assertEquals(TextRange(3),buffer.state.selection);assertNotNull(buffer.snippets.active);assertTrue(buffer.snippets.undoSource());assertEquals(source,buffer.text);assertNotNull(buffer.snippets.active);assertTrue(buffer.snippets.redoSource());assertEquals("λ😀 Λ😀",buffer.text);assertEquals(TextRange(3),buffer.state.selection)
+  val root=generateSequence(java.io.File(System.getProperty("user.dir")).absoluteFile){it.parentFile}.first{it.resolve("apps/simple-contract/snippet-derived-cases.json").isFile};val transform=readSnippetTransform(org.json.JSONObject(root.resolve("apps/simple-contract/snippet-derived-cases.json").readText()).getJSONObject("programs").getJSONObject("upper"));val source="foo FOO";val values=listOf(SnippetField(1,0,3,emptyList(),0),SnippetField(1,4,7,emptyList(),1,transform=transform),SnippetField(0,7,7,emptyList(),2));val buffer=DocumentBuffer(FileNode("a.py","a.py",false,emptyList(),null,null),FileText(source,"base"));buffer.state.edit{selection=TextRange(0,3)};buffer.snippets.restore(beginSnippet(source,values));assertEquals(3*64L+transform.bytes,snippetHistoryCost(buffer.snippets.active))
+  val intent=buffer.snippets.intent;val canUndo=buffer.snippets.canUndo
+  val overflow="x".repeat(65_537)
+  buffer.state.edit {
+   replace(0,3,overflow);selection=TextRange(overflow.length)
+   assertTrue(applySourceSnippetInput(buffer,publish={error("A refused edit cannot publish a replacement field")}))
+  }
+  assertEquals(source,buffer.text)
+  assertEquals(TextRange(0,3),buffer.state.selection)
+  assertEquals(intent,buffer.snippets.intent)
+  assertEquals(canUndo,buffer.snippets.canUndo)
+  assertNotNull(buffer.snippets.active)
+  assertTrue(buffer.snippets.notice.contains("Current draft is retained"))
+  assertTrue(buffer.snippets.applyInput(source,0,3,"λ😀"));assertEquals("λ😀 Λ😀",buffer.text);assertEquals(TextRange(3),buffer.state.selection);assertNotNull(buffer.snippets.active);assertTrue(buffer.snippets.undoSource());assertEquals(source,buffer.text);assertNotNull(buffer.snippets.active);assertTrue(buffer.snippets.redoSource());assertEquals("λ😀 Λ😀",buffer.text);assertEquals(TextRange(3),buffer.state.selection)
   var staged:SnippetSession?=buffer.snippets.active;buffer.state.edit{val before=buffer.snippets.captureBefore(originalText,originalSelection);replace(4,7,"bar");selection=TextRange(7);assertFalse(applySourceSnippetInput(buffer,publish={staged=it}));buffer.snippets.finishTextChange(before,asCharSequence(),selection)};buffer.snippets.publish(staged);assertEquals("λ😀 bar",buffer.text);assertNull(buffer.snippets.active)
  }
 

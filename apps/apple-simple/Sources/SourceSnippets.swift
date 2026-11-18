@@ -1,6 +1,11 @@
 import Foundation
 import Observation
 private func computedSnippetInput(_ session:SnippetSession,_ from:Int,_ to:Int)->Bool {session.fields.contains{field in field.transform != nil && field.from<field.to && field.from<=from && to<=field.to && (from<to || from>field.from && from<field.to)}}
+private func editableSnippetRange(_ session:SnippetSession,_ from:Int,_ to:Int)->Bool {
+    session.active>0 && !computedSnippetInput(session,from,to) && session.fields.contains {
+        $0.transform==nil && $0.index==session.active && $0.from<=from && from<=to && to<=$0.to
+    }
+}
 struct SourceSnippetHistoryContext {var fields:[SnippetField];var active:Int;var current:Int;var scopes:[SnippetScope]=[];var parallel:ParallelSnippet?=nil;var ranges:[NSRange]=[]}
 func snippetHistoryCost(_ value:SourceSnippetHistoryContext?)->Int {
     guard let value else{return 0}
@@ -94,8 +99,15 @@ func snippetHistoryCost(_ value:SourceSnippetHistoryContext?)->Int {
             return false
         }
         guard edited[parallel.primaryIndex] == primaryRange,
-              let result = parallel.editing(source, input: edited.map { NativeSourceEdit(range: $0, text: text) }) else { return false }
-        return commitParallel?(result, source) == true
+              zip(parallel.peers,edited).allSatisfy({ peer, range in
+                  if let session=peer.session,session.active>0 {
+                      return editableSnippetRange(session,range.location-peer.range.location,NSMaxRange(range)-peer.range.location)
+                  }
+                  return range.location>=peer.range.location && NSMaxRange(range)<=NSMaxRange(peer.range)
+              }) else{return false}
+        if let result=parallel.editing(source,input:edited.map{NativeSourceEdit(range:$0,text:text)}),commitParallel?(result,source)==true{return true}
+        reportInputRefusal()
+        return true
     }
     var active:SnippetSession? {guard let buffer,let session,exactUTF8(buffer.text,session.source) else{return nil};return session}
     var choices:[String] {
@@ -151,14 +163,18 @@ func snippetHistoryCost(_ value:SourceSnippetHistoryContext?)->Int {
         guard buffer.selectSourceRange?(NSRange(location:next.selection.from,length:next.selection.to-next.selection.from),current.source)==true else{session=old;return false}
         intent+=1;buffer.focusSource?();report();return true
     }
-    // nil leaves ordinary native input in charge; true means one linked batch committed.
+    private func reportInputRefusal(){reportFailure("Linked template edit could not be prepared. Current draft is retained.")}
+
+    // nil hands the event to the editor. A Bool records whether linked input committed.
     func input(source:String,range:NSRange,text:String,caret:Int?=nil)->Bool? {
-        guard let buffer,let current=active,!buffer.readOnly,!buffer.saving,exactUTF8(source,buffer.text),buffer.multiRanges.count<2,!computedSnippetInput(current,range.location,NSMaxRange(range)),var input=editSnippet(current,source:source,from:range.location,to:NSMaxRange(range),text:text),let commit else{_ = finish();return nil}
+        guard let buffer,let current=active,!buffer.readOnly,!buffer.saving,exactUTF8(source,buffer.text),buffer.multiRanges.count<2,
+              editableSnippetRange(current,range.location,NSMaxRange(range)) else{_ = finish();return nil}
+        guard var input=editSnippet(current,source:source,from:range.location,to:NSMaxRange(range),text:text),let commit else{reportInputRefusal();return false}
         if let caret {
-            guard caret>=range.location,caret<=range.location+text.utf16.count else{_ = finish();return nil}
+            guard caret>=range.location,caret<=range.location+text.utf16.count else{reportInputRefusal();return false}
             let selected=input.selection.from+caret-(range.location+text.utf16.count);input.selection=CompletionSelection(from:selected,to:selected)
         }
-        guard commit(input,current) else{_ = finish();return nil};return true
+        guard commit(input,current) else{reportInputRefusal();return false};return true
     }
     func prepareCompletion(_ draft:CompletionDraft)throws->CompletionDraft {
         if parallel != nil {throw EngineError(message:"Finish editing the multiple template fields before accepting a completion.")}

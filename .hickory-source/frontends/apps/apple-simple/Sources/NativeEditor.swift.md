@@ -1220,7 +1220,7 @@ private struct EquationLayout: Equatable {
         }
         if tableSourceEditHitsGrid(affectedCharRange, selection: text.selectedRange(), tables: text.tableRanges) { return false }
         let hidden = folding.ranges.contains { NSIntersectionRange($0, affectedCharRange).length > 0 || NSLocationInRange(affectedCharRange.location, $0) }
-        if !hidden,!text.hasMarkedText(),text.selectedRanges.count==1,let replacementString,buffer.snippets.active != nil,buffer.snippets.input(source:text.string,range:affectedCharRange,text:replacementString)==true{return false}
+        if !hidden,!text.hasMarkedText(),text.selectedRanges.count==1,let replacementString,buffer.snippets.active != nil,buffer.snippets.input(source:text.string,range:affectedCharRange,text:replacementString) != nil{return false}
         unfoldAll(); return !hidden
     }
     func textDidChange(_ notification: Notification) { if !buffer.applyingMulti { buffer.clearMulti() }; unfoldAll(); buffer.selection = text.selectedRange(); buffer.text = text.string; measureDebugLines() }
@@ -1252,7 +1252,7 @@ private struct EquationLayout: Equatable {
             }
             let plan = smartEnter(text.string, range: text.selectedRange(), path: buffer.file.path, unit: simpleIndent(text.string), mode: UserDefaults.standard.string(forKey: "editor.enterIndent") ?? "smart")
             guard !tableSourceEditHitsGrid(plan.range, selection: text.selectedRange(), tables: text.tableRanges) else { return true }
-            if buffer.snippets.active != nil,buffer.snippets.input(source:text.string,range:plan.range,text:plan.text,caret:plan.caret)==true{return true}
+            if buffer.snippets.active != nil,buffer.snippets.input(source:text.string,range:plan.range,text:plan.text,caret:plan.caret) != nil{return true}
             if applySourceEdits([NativeSourceEdit(range: plan.range, text: plan.text)], source: text.string) {
                 text.setSelectedRange(NSRange(location: plan.caret, length: 0)); text.scrollRangeToVisible(text.selectedRange())
             }
@@ -1831,11 +1831,11 @@ import UIKit
             if buffer.snippets.inputParallel(source:textView.text,primaryRange:range,text:text){return false}
             _ = buffer.snippets.finish()
         }
-        if text != "\n",text != "\t",textView.markedTextRange==nil,buffer.snippets.active != nil,!tableSourceEditHitsGrid(range,selection:textView.selectedRange,tables:self.text.tableRanges),!folding.ranges.contains(where:{NSIntersectionRange($0,range).length>0||NSLocationInRange(range.location,$0)}),buffer.snippets.input(source:textView.text,range:range,text:text)==true{return false}
+        if text != "\n",text != "\t",textView.markedTextRange==nil,buffer.snippets.active != nil,!tableSourceEditHitsGrid(range,selection:textView.selectedRange,tables:self.text.tableRanges),!folding.ranges.contains(where:{NSIntersectionRange($0,range).length>0||NSLocationInRange(range.location,$0)}),buffer.snippets.input(source:textView.text,range:range,text:text) != nil{return false}
         if text == "\n", textView.markedTextRange == nil, !buffer.readOnly, buffer.multiRanges.count < 2 {
             let plan = smartEnter(textView.text, range: range, path: buffer.file.path, unit: simpleIndent(textView.text), mode: UserDefaults.standard.string(forKey: "editor.enterIndent") ?? "smart")
             guard !tableSourceEditHitsGrid(plan.range, selection: textView.selectedRange, tables: self.text.tableRanges) else { return false }
-            if buffer.snippets.active != nil,buffer.snippets.input(source:textView.text,range:plan.range,text:plan.text,caret:plan.caret)==true{return false}
+            if buffer.snippets.active != nil,buffer.snippets.input(source:textView.text,range:plan.range,text:plan.text,caret:plan.caret) != nil{return false}
             if applySourceEdits([NativeSourceEdit(range: plan.range, text: plan.text)], source: textView.text) {
                 textView.selectedRange = NSRange(location: plan.caret, length: 0); buffer.selection = textView.selectedRange
             }
