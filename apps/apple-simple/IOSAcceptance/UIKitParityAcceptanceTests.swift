@@ -94,27 +94,83 @@ import SwiftUI
         XCTAssertTrue(window.isKeyWindow)
         mark("mounted")
         XCTAssertTrue(text.becomeFirstResponder())
-        text.selectedRange = NSRange(location: (source as NSString).length, length: 0)
-        let insertion = "   \t"
-        let provider=NSItemProvider(object:insertion as NSString)
+        let sourceText = source as NSString
+        let manager = try XCTUnwrap(text.undoManager)
         let pasteTarget:UIPasteConfigurationSupporting=text
         XCTAssertTrue(text.responds(to:#selector(UIPasteConfigurationSupporting.paste(itemProviders:))))
-        pasteTarget.paste?(itemProviders:[provider])
+        func paste(_ value: String) {
+            pasteTarget.paste?(itemProviders: [NSItemProvider(object: value as NSString)])
+        }
+
+        let replacementRange = sourceText.range(of: "owned-ios-parity-source")
+        let replacement = "UIKit 🧪"
+        let replacedSource = sourceText.replacingCharacters(in: replacementRange, with: replacement)
+        let replacementCaret = NSRange(location: replacementRange.location + replacement.utf16.count, length: 0)
+        text.selectedRange = replacementRange
+        paste(replacement)
+        try await wait("UIKit selection Paste did not replace the selected source", attempts: 500) {
+            buffer.text == replacedSource && text.text == replacedSource && text.selectedRange == replacementCaret
+        }
+        XCTAssertTrue(manager.canUndo)
+        XCTAssertEqual(manager.undoActionName, "Paste")
+        manager.undo()
+        try await wait("UIKit selection Paste Undo did not restore the original selection", attempts: 500) {
+            buffer.text == source && text.text == source && text.selectedRange == replacementRange
+        }
+        XCTAssertTrue(manager.canRedo)
+        manager.redo()
+        try await wait("UIKit selection Paste Redo did not restore the replacement", attempts: 500) {
+            buffer.text == replacedSource && text.text == replacedSource && text.selectedRange == replacementCaret
+        }
+        manager.undo()
+        try await wait("UIKit selection Paste Undo did not restore saved text", attempts: 500) {
+            buffer.text == source && text.text == source
+        }
+
+        let secondRange = sourceText.range(of: "selected_value")
+        let ranges = [replacementRange, secondRange]
+        XCTAssertTrue(buffer.selectMultiple(ranges, source: source))
+        let multipleSource = NSMutableString(string: source)
+        for range in ranges.reversed() { multipleSource.replaceCharacters(in: range, with: replacement) }
+        let carets = [
+            replacementCaret,
+            NSRange(location: secondRange.location + replacement.utf16.count * 2 - replacementRange.length, length: 0)
+        ]
+        paste(replacement)
+        try await wait("UIKit Paste did not edit both carets", attempts: 500) {
+            buffer.text == multipleSource as String && text.text == multipleSource as String && buffer.multiRanges == carets
+        }
+        manager.undo()
+        try await wait("UIKit multi-caret Paste Undo did not restore both selections", attempts: 500) {
+            buffer.text == source && text.text == source && text.selectedRange == replacementRange && buffer.multiRanges == ranges
+        }
+        manager.redo()
+        try await wait("UIKit multi-caret Paste Redo did not restore both carets", attempts: 500) {
+            buffer.text == multipleSource as String && text.text == multipleSource as String && buffer.multiRanges == carets
+        }
+        manager.undo()
+        try await wait("UIKit multi-caret Paste Undo did not restore saved text", attempts: 500) {
+            buffer.text == source && text.text == source
+        }
+
+        let appendCaret = NSRange(location: sourceText.length, length: 0)
+        text.selectedRange = appendCaret
+        let insertion = "   \t"
+        paste(insertion)
         try await wait("UIKit input did not reach the original source model",attempts:500) { buffer.text == source + insertion && buffer.dirty }
         XCTAssertEqual(text.text, source + insertion)
-        mark("pasted")
-        try await Task.sleep(for:.milliseconds(50))
-        let manager = try XCTUnwrap(text.undoManager)
-        let nativePasteUndo=manager.canUndo
-        mark("capability-native-paste-undo=\(nativePasteUndo)")
-        if nativePasteUndo {
-            manager.undo()
-            try await wait("UIKit paste undo did not restore source",attempts:500) { buffer.text == source && text.text == source }
-            XCTAssertTrue(manager.canRedo)
-            manager.redo()
-            try await wait("UIKit paste redo did not restore input",attempts:500) { buffer.text == source + insertion && text.text == source + insertion }
-            mark("native-paste-history-passed")
+        XCTAssertTrue(manager.canUndo)
+        manager.undo()
+        try await wait("UIKit Paste Undo did not restore source", attempts: 500) {
+            buffer.text == source && text.text == source && text.selectedRange == appendCaret
         }
+        XCTAssertTrue(manager.canRedo)
+        manager.redo()
+        try await wait("UIKit Paste Redo did not restore input", attempts: 500) {
+            buffer.text == source + insertion && text.text == source + insertion &&
+            text.selectedRange.location == sourceText.length + insertion.utf16.count
+        }
+        mark("native-paste-history-passed")
         workspace.changes.open("cleanup",workspace:workspace)
         await workspace.changes.prepare(workspace)
         let plan=try XCTUnwrap(workspace.changes.plan,workspace.changes.notice)
@@ -161,6 +217,12 @@ import SwiftUI
         let canUndo = manager.canUndo
         let canRedo = manager.canRedo
         let line = try XCTUnwrap(source.components(separatedBy: "\n").firstIndex { $0.contains("owned-ios-parity-stop") })
+        debug.observeRequestForTest = { request in
+            if let op = request["op"] as? String { mark("debug-request \(op)") }
+        }
+        debug.observeEventForTest = { response in
+            if let event = response["event"] as? String { mark("debug-event \(event)") }
+        }
         mark("debug-start")
         debug.toggle(buffer, line: line)
         await workspace.testSources.refresh(workspace)
@@ -169,8 +231,8 @@ import SwiftUI
         XCTAssertEqual(candidate.language, "rust")
         await workspace.testSources.debug(candidate, .nameFilter, workspace: workspace)
         try await wait("Selected Rust test did not pause") { debug.status == "paused" || debug.status == "failed" }
-        XCTAssertEqual(debug.status, "paused", debug.message)
-        XCTAssertEqual(debug.pausedLine, line)
+        let stoppedLine = try XCTUnwrap(debug.status == "paused" ? debug.pausedLine : nil, debug.message)
+        XCTAssertEqual(stoppedLine, line)
         mark("debug-paused")
         debug.toggle(buffer, line: line)
         debug.step("continue")

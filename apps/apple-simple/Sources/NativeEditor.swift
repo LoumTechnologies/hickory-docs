@@ -1412,7 +1412,7 @@ struct NativeEditor: NSViewRepresentable {
 }
 #else
 import UIKit
-@MainActor private final class MobileEditor: NSObject, UITextViewDelegate {
+@MainActor private final class MobileEditor: NSObject, UITextViewDelegate, UITextPasteDelegate {
     private let sourceEditorIdentity=UUID()
     let text:SimpleTextView
     private let sourceTextStorage:NSTextStorage
@@ -1464,7 +1464,7 @@ import UIKit
         text.autocorrectionType = .no; text.autocapitalizationType = .none
         text.smartQuotesType = .no; text.smartDashesType = .no; text.smartInsertDeleteType = .no
         text.text = buffer.text; text.isEditable = !buffer.readOnly; text.alwaysBounceVertical = true
-        text.accessibilityLabel = buffer.file.path; text.delegate = self
+        text.accessibilityLabel = buffer.file.path; text.delegate = self; text.pasteDelegate = self
         text.beginSnippetComposition = { [weak self] range in
             guard let self else{return false}
             self.unfoldAll()
@@ -1583,8 +1583,74 @@ import UIKit
     func canReflectWorkspaceEdits(_ edits: [NativeSourceEdit], source: String) -> Bool {
         !buffer.readOnly && text.isEditable && exactUTF8(text.text,source) && exactUTF8(buffer.text,source) && text.markedTextRange == nil && validSourceEdits(edits, length: (source as NSString).length)
     }
-    func applySourceEdits(_ edits: [NativeSourceEdit], source: String, expectedModelSource: String? = nil,resultSelection:NSRange?=nil,manageUndo:Bool=true) -> Bool {
-        guard !buffer.readOnly, (!buffer.saving || text.undoManager?.isUndoing==true || text.undoManager?.isRedoing==true), text.isEditable, exactUTF8(text.text,source), exactUTF8(buffer.text,expectedModelSource ?? source), text.markedTextRange == nil,
+    func textPasteConfigurationSupporting(
+        _ supporting: any UITextPasteConfigurationSupporting,
+        performPasteOf value: NSAttributedString,
+        to range: UITextRange
+    ) -> UITextRange {
+        guard supporting === text, text.window != nil, text.isEditable, !buffer.readOnly,
+              !buffer.resourceDeleted, text.markedTextRange == nil,
+              !value.string.isEmpty, exactUTF8(text.text, buffer.text) else { return range }
+        let start = text.offset(from: text.beginningOfDocument, to: range.start)
+        let end = text.offset(from: text.beginningOfDocument, to: range.end)
+        guard start >= 0, end >= start else { return range }
+        let target = NSRange(location: start, length: end - start)
+        let selected = text.selectedRange
+        let source = buffer.text
+        let insertion = value.string
+        let context = buffer.snippets.historyContext
+        let multiple = target == selected && buffer.multiRanges.first == target && exactUTF8(buffer.multiSource, source)
+        let ranges = multiple ? buffer.multiRanges.sorted { $0.location < $1.location } : [target]
+        guard let primary = ranges.firstIndex(of: target) else { return range }
+        let edits = ranges.map { NativeSourceEdit(range: $0, text: insertion) }
+        guard canReflectWorkspaceEdits(edits, source: source),
+              !ranges.contains(where: { tableSourceEditHitsGrid($0, selection: selected, tables: text.tableRanges) }) else { return range }
+        if ranges.contains(where: { edit in
+            folding.ranges.contains { NSIntersectionRange($0, edit).length > 0 || NSLocationInRange(edit.location, $0) }
+        }) { unfoldAll(); return range }
+
+        if ranges.count > 1, buffer.snippets.inputParallel(source: source, primaryRange: target, text: insertion) {
+            return text.selectedTextRange ?? range
+        }
+        if ranges.count == 1, buffer.snippets.active != nil,
+           buffer.snippets.input(source: source, range: target, text: insertion) != nil {
+            return text.selectedTextRange ?? range
+        }
+        guard Set(ranges).count == ranges.count else { return range }
+        let result = NSMutableString(string: source)
+        for edit in edits.reversed() { result.replaceCharacters(in: edit.range, with: edit.text) }
+        let count = insertion.utf16.count
+        var delta = 0
+        let carets = ranges.map { edit in
+            let caret = NSRange(location: edit.location + delta + count, length: 0)
+            delta += count - edit.length
+            return caret
+        }
+        let plan = ChangePlan(title: "Paste", patches: [SourcePatch(
+            path: buffer.file.path, before: source, after: result as String,
+            edits: ranges.map { SourceReplacement(from: $0.location, to: NSMaxRange($0), text: insertion) }
+        )])
+        let selection = carets[primary]
+        let logicalCarets = [selection] + carets.enumerated().compactMap { $0.offset == primary ? nil : $0.element }
+        let contextAfter = carets.count > 1 ? SourceSnippetHistoryContext(fields: [], active: 0, current: 0, ranges: logicalCarets) : nil
+        guard sourceDraftHistory.commit(
+            plan, path: buffer.file.path, before: source, selectionBefore: selected, selectionAfter: selection,
+            contextBefore: context, contextAfter: contextAfter, manager: text.undoManager,
+            read: { [weak self] in self?.buffer.text ?? "" },
+            apply: { [weak self] edits, before, selection in
+                guard let self, !self.buffer.resourceDeleted else { return false }
+                return self.applySourceEdits(edits, source: before, resultSelection: selection, manageUndo: false, userInput: true)
+            },
+            notice: { [weak self] in self?.buffer.snippets.reportFailure($0) },
+            restoreContext: { [weak self] in self?.buffer.snippets.restoreHistory($0) },
+            contextCost: snippetHistoryCost, discardContext: { [weak self] in _ = self?.buffer.snippets.finish() }
+        ) else { return range }
+        guard let first = text.position(from: text.beginningOfDocument, offset: selection.location - count),
+              let last = text.position(from: first, offset: count) else { return range }
+        return text.textRange(from: first, to: last) ?? range
+    }
+    func applySourceEdits(_ edits: [NativeSourceEdit], source: String, expectedModelSource: String? = nil,resultSelection:NSRange?=nil,manageUndo:Bool=true,userInput:Bool=false) -> Bool {
+        guard !buffer.readOnly, (!buffer.saving || userInput || text.undoManager?.isUndoing==true || text.undoManager?.isRedoing==true), text.isEditable, exactUTF8(text.text,source), exactUTF8(buffer.text,expectedModelSource ?? source), text.markedTextRange == nil,
               (edits.isEmpty && resultSelection != nil || validSourceEdits(edits, length: (source as NSString).length)) else { return false }
         let resultLength=source.utf16.count+edits.reduce(0){$0+$1.text.utf16.count-$1.range.length}
         if let selected=resultSelection,!validSourceEdits([NativeSourceEdit(range:selected,text:"")],length:resultLength){return false}

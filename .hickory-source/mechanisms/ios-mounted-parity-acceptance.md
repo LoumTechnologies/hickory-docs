@@ -5,7 +5,16 @@ For maintainers distinguishing an iOS product build or simulator launch from fea
 
 ## Interact with the production UIKit editor
 
-The owned fixture is explicitly identified by its supplied origin and source marker. The test connects normally, opens the exact engine-owned FileNode and mounts the real view in a UIWindow. Paste uses a test-owned NSString item provider, not the general or host clipboard. It must update the existing source model. Native Paste history is characterized independently: if available, its Undo/Redo is exercised; if unavailable, the receipt preserves that gap. A real backend whitespace Cleanup preview must not mutate source, then Apply and the app’s guarded workspace Undo/Redo restore the exact saved text before Debug. The test never invents a native undo action or treats coordinated workspace history as proof of keyboard history. The earlier raw programmatic insertText call reached the source model but did not register undo; this witness does not relabel that result as verified keyboard behavior. The review must finish dismissing, UIKit must report keyboard-did-hide, and layout must remain stable before geometry is captured. Pre/post frame, pixel, safe-area and keyboard diagnostics retain the exact geometry comparison. The selected test must pause at its original line and finish, while the editor, selection, viewport, geometry, available history and saved source remain attached. No product testing hooks, extra chrome or alternate provider are installed. This is automated UIKit/controller acceptance, not physical touch, hardware-keyboard, device IME or assistive-technology acceptance.
+The fixture checks its supplied origin and source marker before mounting the real
+workspace in a UIWindow. A test-owned NSString item provider enters UIKit's
+Paste path. Undo and Redo must restore the exact replacement text and selection
+through the editor's UndoManager. The whitespace append is a second native
+transaction so guarded Cleanup review and workspace Undo/Redo exercise a separate
+history path. Capture geometry after the review and keyboard have finished
+dismissing and UIKit reports a stable layout. Require a saved-source Rust
+breakpoint at the authored line, continuation and a retained process exit.
+This witness covers automated UIKit and controller interaction. Physical input,
+device IME and assistive-technology acceptance are separate.
 
 <ui:copy id="ios-mounted-parity-test">
 import XCTest
@@ -104,27 +113,83 @@ import SwiftUI
         XCTAssertTrue(window.isKeyWindow)
         mark("mounted")
         XCTAssertTrue(text.becomeFirstResponder())
-        text.selectedRange = NSRange(location: (source as NSString).length, length: 0)
-        let insertion = "   \t"
-        let provider=NSItemProvider(object:insertion as NSString)
+        let sourceText = source as NSString
+        let manager = try XCTUnwrap(text.undoManager)
         let pasteTarget:UIPasteConfigurationSupporting=text
         XCTAssertTrue(text.responds(to:#selector(UIPasteConfigurationSupporting.paste(itemProviders:))))
-        pasteTarget.paste?(itemProviders:[provider])
+        func paste(_ value: String) {
+            pasteTarget.paste?(itemProviders: [NSItemProvider(object: value as NSString)])
+        }
+
+        let replacementRange = sourceText.range(of: "owned-ios-parity-source")
+        let replacement = "UIKit 🧪"
+        let replacedSource = sourceText.replacingCharacters(in: replacementRange, with: replacement)
+        let replacementCaret = NSRange(location: replacementRange.location + replacement.utf16.count, length: 0)
+        text.selectedRange = replacementRange
+        paste(replacement)
+        try await wait("UIKit selection Paste did not replace the selected source", attempts: 500) {
+            buffer.text == replacedSource && text.text == replacedSource && text.selectedRange == replacementCaret
+        }
+        XCTAssertTrue(manager.canUndo)
+        XCTAssertEqual(manager.undoActionName, "Paste")
+        manager.undo()
+        try await wait("UIKit selection Paste Undo did not restore the original selection", attempts: 500) {
+            buffer.text == source && text.text == source && text.selectedRange == replacementRange
+        }
+        XCTAssertTrue(manager.canRedo)
+        manager.redo()
+        try await wait("UIKit selection Paste Redo did not restore the replacement", attempts: 500) {
+            buffer.text == replacedSource && text.text == replacedSource && text.selectedRange == replacementCaret
+        }
+        manager.undo()
+        try await wait("UIKit selection Paste Undo did not restore saved text", attempts: 500) {
+            buffer.text == source && text.text == source
+        }
+
+        let secondRange = sourceText.range(of: "selected_value")
+        let ranges = [replacementRange, secondRange]
+        XCTAssertTrue(buffer.selectMultiple(ranges, source: source))
+        let multipleSource = NSMutableString(string: source)
+        for range in ranges.reversed() { multipleSource.replaceCharacters(in: range, with: replacement) }
+        let carets = [
+            replacementCaret,
+            NSRange(location: secondRange.location + replacement.utf16.count * 2 - replacementRange.length, length: 0)
+        ]
+        paste(replacement)
+        try await wait("UIKit Paste did not edit both carets", attempts: 500) {
+            buffer.text == multipleSource as String && text.text == multipleSource as String && buffer.multiRanges == carets
+        }
+        manager.undo()
+        try await wait("UIKit multi-caret Paste Undo did not restore both selections", attempts: 500) {
+            buffer.text == source && text.text == source && text.selectedRange == replacementRange && buffer.multiRanges == ranges
+        }
+        manager.redo()
+        try await wait("UIKit multi-caret Paste Redo did not restore both carets", attempts: 500) {
+            buffer.text == multipleSource as String && text.text == multipleSource as String && buffer.multiRanges == carets
+        }
+        manager.undo()
+        try await wait("UIKit multi-caret Paste Undo did not restore saved text", attempts: 500) {
+            buffer.text == source && text.text == source
+        }
+
+        let appendCaret = NSRange(location: sourceText.length, length: 0)
+        text.selectedRange = appendCaret
+        let insertion = "   \t"
+        paste(insertion)
         try await wait("UIKit input did not reach the original source model",attempts:500) { buffer.text == source + insertion && buffer.dirty }
         XCTAssertEqual(text.text, source + insertion)
-        mark("pasted")
-        try await Task.sleep(for:.milliseconds(50))
-        let manager = try XCTUnwrap(text.undoManager)
-        let nativePasteUndo=manager.canUndo
-        mark("capability-native-paste-undo=\(nativePasteUndo)")
-        if nativePasteUndo {
-            manager.undo()
-            try await wait("UIKit paste undo did not restore source",attempts:500) { buffer.text == source && text.text == source }
-            XCTAssertTrue(manager.canRedo)
-            manager.redo()
-            try await wait("UIKit paste redo did not restore input",attempts:500) { buffer.text == source + insertion && text.text == source + insertion }
-            mark("native-paste-history-passed")
+        XCTAssertTrue(manager.canUndo)
+        manager.undo()
+        try await wait("UIKit Paste Undo did not restore source", attempts: 500) {
+            buffer.text == source && text.text == source && text.selectedRange == appendCaret
         }
+        XCTAssertTrue(manager.canRedo)
+        manager.redo()
+        try await wait("UIKit Paste Redo did not restore input", attempts: 500) {
+            buffer.text == source + insertion && text.text == source + insertion &&
+            text.selectedRange.location == sourceText.length + insertion.utf16.count
+        }
+        mark("native-paste-history-passed")
         workspace.changes.open("cleanup",workspace:workspace)
         await workspace.changes.prepare(workspace)
         let plan=try XCTUnwrap(workspace.changes.plan,workspace.changes.notice)
@@ -171,6 +236,12 @@ import SwiftUI
         let canUndo = manager.canUndo
         let canRedo = manager.canRedo
         let line = try XCTUnwrap(source.components(separatedBy: "\n").firstIndex { $0.contains("owned-ios-parity-stop") })
+        debug.observeRequestForTest = { request in
+            if let op = request["op"] as? String { mark("debug-request \(op)") }
+        }
+        debug.observeEventForTest = { response in
+            if let event = response["event"] as? String { mark("debug-event \(event)") }
+        }
         mark("debug-start")
         debug.toggle(buffer, line: line)
         await workspace.testSources.refresh(workspace)
@@ -179,8 +250,8 @@ import SwiftUI
         XCTAssertEqual(candidate.language, "rust")
         await workspace.testSources.debug(candidate, .nameFilter, workspace: workspace)
         try await wait("Selected Rust test did not pause") { debug.status == "paused" || debug.status == "failed" }
-        XCTAssertEqual(debug.status, "paused", debug.message)
-        XCTAssertEqual(debug.pausedLine, line)
+        let stoppedLine = try XCTUnwrap(debug.status == "paused" ? debug.pausedLine : nil, debug.message)
+        XCTAssertEqual(stoppedLine, line)
         mark("debug-paused")
         debug.toggle(buffer, line: line)
         debug.step("continue")
@@ -220,7 +291,7 @@ After generation and resource coordination, use `DEVELOPER_DIR=/Applications/Xco
 
 <ui:copy id="ios-mounted-parity-runner">
 """Owned mounted UIKit parity witness. Requires an explicitly selected simulator."""
-import argparse,hashlib,importlib.util,json,os,plistlib,re,shutil,socket,subprocess,tempfile,time,uuid
+import argparse,hashlib,importlib.util,json,os,plistlib,shutil,socket,subprocess,tempfile,uuid
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 TARGET='HickorySimpleMobileParityTests'
@@ -287,10 +358,10 @@ def main():
      summary=json.loads(subprocess.check_output(['xcrun','xcresulttool','get','test-results','summary','--path',str(result)]));(receipt/'last-summary.json').write_text(json.dumps(summary,indent=2))
      assert summary['result']=='Passed' and summary['totalTestCount']==1 and summary['passedTests']==1 and summary['failedTests']==0 and summary['skippedTests']==0,summary
      assert(workspace/'src/lib.rs').read_text()==source and not sentinel.exists()
-     observed=re.findall(r'HickoryUIKitParity capability-native-paste-undo=(true|false)',log.read_text());assert len(observed)==1,observed
-     native_paste_undo=observed[0]=='true'
-     assert 'HickoryUIKitParity coordinated-cleanup-history-passed'in log.read_text()
-     (receipt/'last-receipt.json').write_text(json.dumps({'device':device,'seed_device':args.device,'temporary_device':owned_device is not None,'test':TARGET+'/'+CASE,'summary':summary,'log_sha256':hashlib.sha256(log.read_bytes()).hexdigest(),'source_unchanged':True,'sibling_excluded':True,'native_paste_undo_verified':native_paste_undo,'coordinated_cleanup_undo_redo_verified':True,'keyboard_input_verified':False,'physical_input_verified':False,'accessibility_verified':False},indent=2))
+     observed=log.read_text()
+     for marker in ['native-paste-history-passed','coordinated-cleanup-history-passed','debug-paused','completed']:
+      assert observed.count('HickoryUIKitParity '+marker)==1,marker
+     (receipt/'last-receipt.json').write_text(json.dumps({'device':device,'seed_device':args.device,'temporary_device':owned_device is not None,'test':TARGET+'/'+CASE,'summary':summary,'log_sha256':hashlib.sha256(log.read_bytes()).hexdigest(),'source_unchanged':True,'sibling_excluded':True,'native_paste_undo_redo_verified':True,'coordinated_cleanup_undo_redo_verified':True,'keyboard_input_verified':False,'physical_input_verified':False,'accessibility_verified':False},indent=2))
      passed=True
     finally:configured.unlink(missing_ok=True)
    finally:fixture.stop(engine)
@@ -306,10 +377,41 @@ def main():
   receipt=ROOT/'target/ios-parity';receipt.mkdir(parents=True,exist_ok=True);(receipt/'last-device-lifecycle.json').write_text(json.dumps(lifecycle,indent=2))
   if owned_device is not None and lifecycle['delete_exit']!=0:raise RuntimeError('Owned simulator cleanup failed; inspect last-device-lifecycle.json and delete only its recorded owned UDID')
   if owned_device is None and booted_here and lifecycle['shutdown_exit']!=0:raise RuntimeError('Selected simulator did not return to Shutdown')
- if passed:print('PASS mounted UIKit Paste + guarded Cleanup Undo/Redo + genuine selected Rust Debug; native Paste Undo '+('verified'if native_paste_undo else'unverified')+'; physical input and accessibility unverified')
+ if passed:print('PASS mounted UIKit Paste Undo/Redo, guarded Cleanup Undo/Redo and saved Rust Debug')
 if __name__=='__main__':main()
 </ui:copy>
 <ui:file path="scripts/test-ios-parity.py"><ui:paste select="#ios-mounted-parity-runner"/></ui:file>
+
+## Trace saved Rust Debug from the mounted host
+
+The witness records the submitted operation and the debugger's event kinds.
+The earlier mounted run reached the 30-second admission deadline. The same
+physical Cargo fixture also ran through the workspace proxy and real engine
+from a direct protocol client, reached its selected breakpoint and exited with
+status zero. In the first mounted Paste history run, the UIKit host received
+`started` 4.77 seconds after `start_test`, then received `stopped` and
+`finished`. That run used the existing engine fixture binary and debugger
+deadline. The earlier timeout's original cause remains unknown.
+
+The final hosted run on 2026-11-18 built the iOS app and test bundle with
+Xcode 27 and used a fresh engine on an owned iPhone 18 Pro simulator with
+iOS 27.0. XCTest counted one pass, zero failures and zero skips. UIKit Paste
+and native Undo/Redo retained exact text and selections across one Unicode
+replacement, multiple selections and an append. Reviewed Cleanup and
+coordinated Undo/Redo restored the saved bytes before Debug. The saved Rust
+test's Cargo and LLDB admission took 6.83 seconds. Its breakpoint stopped at
+the selected line, Continue retained process exit zero, and the sibling
+sentinel stayed absent. The same editor, selection, viewport, history
+availability and pixel frame survived the session. The runner shut down and
+deleted only the temporary simulator. Its log SHA-256 is
+`dd8a205f78839888576abff2db414aa59291181b34804096b18724ffd31bc3ef`.
+Four runner ownership cases passed separately. Device hardware input, IME
+and assistive technology remain unexercised by this receipt.
+
+Apple and Android's source-Test Debug admission lease is 30 seconds, while
+individual Rust preparation operations can take up to 120 seconds and build
+events are delivered after startup completes. Longer cold admissions can
+exceed the client deadline. Both mounted passes kept the original lease.
 
 ## Refuse unsafe simulator ownership during failures
 

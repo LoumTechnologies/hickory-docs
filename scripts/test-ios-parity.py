@@ -1,5 +1,5 @@
 """Owned mounted UIKit parity witness. Requires an explicitly selected simulator."""
-import argparse,hashlib,importlib.util,json,os,plistlib,re,shutil,socket,subprocess,tempfile,time,uuid
+import argparse,hashlib,importlib.util,json,os,plistlib,shutil,socket,subprocess,tempfile,uuid
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 TARGET='HickorySimpleMobileParityTests'
@@ -66,10 +66,10 @@ def main():
      summary=json.loads(subprocess.check_output(['xcrun','xcresulttool','get','test-results','summary','--path',str(result)]));(receipt/'last-summary.json').write_text(json.dumps(summary,indent=2))
      assert summary['result']=='Passed' and summary['totalTestCount']==1 and summary['passedTests']==1 and summary['failedTests']==0 and summary['skippedTests']==0,summary
      assert(workspace/'src/lib.rs').read_text()==source and not sentinel.exists()
-     observed=re.findall(r'HickoryUIKitParity capability-native-paste-undo=(true|false)',log.read_text());assert len(observed)==1,observed
-     native_paste_undo=observed[0]=='true'
-     assert 'HickoryUIKitParity coordinated-cleanup-history-passed'in log.read_text()
-     (receipt/'last-receipt.json').write_text(json.dumps({'device':device,'seed_device':args.device,'temporary_device':owned_device is not None,'test':TARGET+'/'+CASE,'summary':summary,'log_sha256':hashlib.sha256(log.read_bytes()).hexdigest(),'source_unchanged':True,'sibling_excluded':True,'native_paste_undo_verified':native_paste_undo,'coordinated_cleanup_undo_redo_verified':True,'keyboard_input_verified':False,'physical_input_verified':False,'accessibility_verified':False},indent=2))
+     observed=log.read_text()
+     for marker in ['native-paste-history-passed','coordinated-cleanup-history-passed','debug-paused','completed']:
+      assert observed.count('HickoryUIKitParity '+marker)==1,marker
+     (receipt/'last-receipt.json').write_text(json.dumps({'device':device,'seed_device':args.device,'temporary_device':owned_device is not None,'test':TARGET+'/'+CASE,'summary':summary,'log_sha256':hashlib.sha256(log.read_bytes()).hexdigest(),'source_unchanged':True,'sibling_excluded':True,'native_paste_undo_redo_verified':True,'coordinated_cleanup_undo_redo_verified':True,'keyboard_input_verified':False,'physical_input_verified':False,'accessibility_verified':False},indent=2))
      passed=True
     finally:configured.unlink(missing_ok=True)
    finally:fixture.stop(engine)
@@ -85,5 +85,5 @@ def main():
   receipt=ROOT/'target/ios-parity';receipt.mkdir(parents=True,exist_ok=True);(receipt/'last-device-lifecycle.json').write_text(json.dumps(lifecycle,indent=2))
   if owned_device is not None and lifecycle['delete_exit']!=0:raise RuntimeError('Owned simulator cleanup failed; inspect last-device-lifecycle.json and delete only its recorded owned UDID')
   if owned_device is None and booted_here and lifecycle['shutdown_exit']!=0:raise RuntimeError('Selected simulator did not return to Shutdown')
- if passed:print('PASS mounted UIKit Paste + guarded Cleanup Undo/Redo + genuine selected Rust Debug; native Paste Undo '+('verified'if native_paste_undo else'unverified')+'; physical input and accessibility unverified')
+ if passed:print('PASS mounted UIKit Paste Undo/Redo, guarded Cleanup Undo/Redo and saved Rust Debug')
 if __name__=='__main__':main()
