@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import socket
 import tempfile
+import urllib.parse
 import urllib.request
 ROOT=Path(__file__).resolve().parents[1]
 def main():
@@ -21,7 +22,14 @@ def main():
     request=urllib.request.Request(backend+"/api/changes/"+route,data=json.dumps(body).encode(),headers={"Content-Type":"application/json"},method="POST")
     with urllib.request.urlopen(request,timeout=30) as reply:return json.load(reply)
    edit={"documentChanges":[{"kind":"rename","oldUri":"hick:///a%20%23%F0%9F%98%80.txt","newUri":"hick:///b.txt"}]}
-   capture={"context":"browser-recovery","edit":edit,"drafts":{"a #😀.txt":{"text":draft,"base_sha256":hashlib.sha256(saved.encode()).hexdigest(),"version":None,"writable":True}}}
+   original="a #😀.txt"
+   with urllib.request.urlopen(backend+"/api/file?path="+urllib.parse.quote(original,safe=""),timeout=20) as reply:
+    loaded=json.load(reply)
+   assert loaded["content"]==saved and loaded["save_guard"],"Owned fixture could not acquire its original saved baseline"
+   guard=loaded["save_guard"]
+   capture={"context":"browser-recovery","edit":edit,
+    "drafts":{original:{"text":draft,"base_sha256":hashlib.sha256(saved.encode()).hexdigest(),"save_guard":guard,"version":None,"writable":True}},
+    "saved_guards":{original:guard}}
    inputs=call("resource-inputs",capture);plan=call("plan-resources",{"context":capture["context"],"title":"Move retained draft","edit":edit,"sources":inputs["sources"]})["plan"];proposal={"inputs":inputs,"capture":capture,"plan":plan};facts=call("resource-consequences",proposal)
    result=call("resource-save",{"request_id":"a"*32,"reviewed_fingerprint":facts["fingerprint"],"proposal":proposal});assert result["outcome"]["complete"];record=Path(result["outcome"]["recovery"]).parent.name
    vite=fixture.start(["node","node_modules/vite/bin/vite.js","--config","vite.simple.config.ts","--host","127.0.0.1","--port",str(port),"--strictPort"],cwd=ROOT/"apps/web",env={**environment,"HICKORY_API_ORIGIN":backend});processes.append(vite)
