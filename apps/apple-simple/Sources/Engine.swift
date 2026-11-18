@@ -743,12 +743,15 @@ private struct NativeDebugFrameVariables:Decodable {
     private var stopPending = false
     private var pendingLaunch:NativeDebugLaunch?
     private var pendingSourceTest:(plan:SourceTestDebugPlan,facts:SourceTestScan,current:()->Bool,admitted:(String)->Void,rejected:(String)->Void,outcome:(String,String,Int?)->Void)?
+    private var sourceTestDeadline:Task<Void,Never>?
+    private var sourceTestPreparing=false
     private var testOutcomes:[String:(String,String,Int?)->Void]=[:]
     var retainedSessionID:String?
     private var activeLaunch:NativeDebugLaunch?
     private var retiredLaunches:[NativeDebugLaunch]=[]
     var launchRequestID:String? {pendingLaunch?.id ?? activeLaunch?.id}
     private func retireLaunches() {
+        clearSourceTestDeadline()
         for value in [pendingLaunch,activeLaunch].compactMap({$0}) where !retiredLaunches.contains(where:{$0.id==value.id}) {retiredLaunches.append(value)}
         retiredLaunches=Array(retiredLaunches.suffix(64));pendingLaunch=nil;activeLaunch=nil
     }
@@ -765,7 +768,11 @@ private struct NativeDebugFrameVariables:Decodable {
         retireLaunches();let id=UUID().uuidString;pendingLaunch=NativeDebugLaunch(id:id,doc:nativeDebugURI(owner));sessionID=nil;stopPending=false;message="";status="starting";return id
     }
     private func stopRetiredLaunch(_ event:[String:Any])->Bool {
-        guard event["event"] as? String=="started",let id=event["request_id"] as? String,let held=retiredLaunches.first(where:{$0.id==id}),event["doc"] as? String==held.doc,let session=event["session"] as? String,!session.isEmpty,session != sessionID else{return false}
+        guard event["event"] as? String=="started",let id=event["request_id"] as? String,
+              let index=retiredLaunches.firstIndex(where:{$0.id==id}),
+              exactUTF8(event["doc"] as? String,retiredLaunches[index].doc),
+              let session=event["session"] as? String,!session.isEmpty,session != sessionID else{return false}
+        retiredLaunches.remove(at:index)
         send(["op":"stop","session":session]);return true
     }
     init(engine: Engine) { self.engine = engine }
@@ -925,7 +932,10 @@ private struct NativeDebugFrameVariables:Decodable {
         for (path,_) in breakpoints where !exactUTF8(path,owner) {let key=Data(path.utf8);if let source=intentSources[key],let buffer=breakpointBuffers[key]?.buffer,!buffer.dirty,!buffer.saving,!buffer.resourceDeleted,exactUTF8(buffer.file.path,path),intentOwners[key]==buffer.id,exactUTF8(source,buffer.text){sources[nativeDebugURI(path)]=breakpointIntents(path);hashes[nativeDebugURI(path)]=nativeSourceHash(source);breakpointRequests[key]=NativeDebugBreakpointRequest(id:launch,source:source)}}
         request["sources"]=sources;request["source_hashes"]=hashes
     }
-    // Saved test choices never become profile/program guesses. Only their captured request reaches the shared engine admission.
+    // The initial deadline waits for the engine to read the saved choice. One
+    // matching preparation receipt enters a longer wait for actual Started.
+    // A response for another ticket, edited choice or retired launch cannot
+    // extend either wait or create a session.
     func launchSourceTest(_ buffer:DocumentBuffer,body:[String:Any],plan:SourceTestDebugPlan,facts:SourceTestScan,current:@escaping ()->Bool,admitted:@escaping (String)->Void,rejected:@escaping (String)->Void,outcome:@escaping (String,String,Int?)->Void={_,_,_ in}) {
         guard !active,current(),plan.available,!buffer.dirty,!buffer.saving,!buffer.resourceDeleted else{rejected("Test Debug context changed or another debugger is active. No Start was sent.");return}
         close();owner=buffer.file.path;launchBuffer=buffer;launchSource=buffer.text;preparationNamespace=sourceNamespace
@@ -934,12 +944,33 @@ private struct NativeDebugFrameVariables:Decodable {
         values=[:];variables=[];frames=[];pausedLine=nil;profiles=[];offer=nil
         openTransport()
         var request:[String:Any]=["op":"start_test","request_id":launch,"doc":plan.source_uri,"source_test":body]
-        appendLaunchBreakpoints(launch,to:&request);send(request)
-        Task{[weak self] in try? await Task.sleep(for:.seconds(30));self?.expireSourceTestPreparation(launch)}
+        appendLaunchBreakpoints(launch,to:&request);waitForSourceTest(launch,milliseconds:30_000,preparing:false);send(request)
     }
-    func expireSourceTestPreparation(_ request:String) {
-        guard pendingLaunch?.id==request,let pending=pendingSourceTest else{return}
-        pendingSourceTest=nil;retireLaunches();status="failed";message="Test Debug admission was not confirmed within 30 seconds. No request was retried. A late owned session will be stopped.";pending.rejected(message)
+    private func clearSourceTestDeadline() {
+        sourceTestDeadline?.cancel()
+        sourceTestDeadline=nil
+        sourceTestPreparing=false
+    }
+    private func waitForSourceTest(_ request:String,milliseconds:Int,preparing:Bool) {
+        sourceTestDeadline?.cancel()
+        sourceTestPreparing=preparing
+        sourceTestDeadline=Task{[weak self] in
+            do { try await Task.sleep(for:.milliseconds(milliseconds)) } catch { return }
+            self?.expireSourceTestPreparation(request,preparing:preparing)
+        }
+    }
+    func expireSourceTestPreparation(_ request:String,preparing:Bool=false) {
+        guard pendingLaunch?.id==request,sourceTestPreparing==preparing,let pending=pendingSourceTest else{return}
+        pendingSourceTest=nil;retireLaunches();status="failed"
+        message=(preparing ? "Test Debug session was not confirmed within the preparation wait." :
+            "Test Debug admission was not confirmed within 30 seconds.") + " No request was retried. A late owned session will be stopped."
+        pending.rejected(message)
+    }
+    private func admitsSourceTest(_ event:[String:Any],_ plan:SourceTestDebugPlan,_ facts:SourceTestScan)->Bool {
+        guard let raw=event["source_test"] as? [String:Any],JSONSerialization.isValidJSONObject(raw),
+              let bytes=try? JSONSerialization.data(withJSONObject:raw),
+              let binding=try? JSONDecoder().decode(SourceTestDebugBinding.self,from:bytes) else{return false}
+        return plan.admits(binding,facts)
     }
     func retireSourceTestPreparation() {
         guard pendingSourceTest != nil else{return}
@@ -989,6 +1020,16 @@ private struct NativeDebugFrameVariables:Decodable {
     func receive(_ event: [String: Any]) {
         observeEventForTest?(event)
         guard let kind = event["event"] as? String else { return }
+        if kind=="test_preparing" {
+            guard let launch=pendingLaunch,let test=pendingSourceTest,!sourceTestPreparing,
+                  ["starting","stopping"].contains(status),test.current(),
+                  exactUTF8(event["request_id"] as? String,launch.id),exactUTF8(event["doc"] as? String,launch.doc),
+                  event["session"]==nil,let wait=nativeDebugID(event["wait_ms"]),(30_001...180_000).contains(wait),
+                  admitsSourceTest(event,test.plan,test.facts) else{return}
+            waitForSourceTest(launch.id,milliseconds:wait+5_000,preparing:true)
+            if status=="starting" {message="Preparing the saved test. Waiting for the debugger session…"}
+            return
+        }
         if kind=="started" {
             if stopRetiredLaunch(event){return}
             guard let pending=pendingLaunch,event["request_id"] as? String==pending.id,event["doc"] as? String==pending.doc,let session=event["session"] as? String,!session.isEmpty,["starting","stopping"].contains(status) else{return}
@@ -1002,10 +1043,13 @@ private struct NativeDebugFrameVariables:Decodable {
         switch kind {
         case "started":
             if let pending=pendingSourceTest {
-                guard pending.current(),let raw=event["source_test"],let bytes=try? JSONSerialization.data(withJSONObject:raw),let binding=try? JSONDecoder().decode(SourceTestDebugBinding.self,from:bytes),pending.plan.admits(binding,pending.facts),exactUTF8(event["source_hash"] as? String,pending.plan.source_hash) else {
-                    if let session=event["session"] as? String{send(["op":"stop","session":session])}
-                    pendingSourceTest=nil;retireLaunches();status="failed";message="Test Debug admission no longer matches the selected saved candidate. Its owned session was stopped.";pending.rejected(message);return
+                guard pending.current(),admitsSourceTest(event,pending.plan,pending.facts),
+                      exactUTF8(event["source_hash"] as? String,pending.plan.source_hash) else {
+                    pendingSourceTest=nil;retireLaunches();_ = stopRetiredLaunch(event)
+                    status="failed";message="Test Debug admission no longer matches the selected saved candidate. A Stop was sent for its owned session.";pending.rejected(message);return
                 }
+                clearSourceTestDeadline()
+                message=""
             }
             launchBoundHash=(event["source_hash"] as? String)==nativeSourceHash(launchSource) ? event["source_hash"] as? String:nil
             if launchBoundHash==nil {message="The engine did not confirm the captured primary source hash. Runtime controls remain available; primary source positions, Jump and Run to caret are unbound."}

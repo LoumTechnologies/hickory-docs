@@ -210,6 +210,7 @@ class NativeDebugger(private val engine: Engine, private val scope: CoroutineSco
     private var movement:Movement?=null
     private data class SourceTestLaunch(val body:JSONObject,val plan:TestDebugPlan,val facts:SourceTestScan,val current:()->Boolean,val admitted:(String)->Unit,val rejected:(String)->Unit,val outcome:(String,String,Int?)->Unit)
     private var sourceTestDeadline:kotlinx.coroutines.Job?=null
+    private var sourceTestPreparing=false
     private var sourceTestLaunch:SourceTestLaunch?=null
     private var sourceTestOutcome:((String,String,Int?)->Unit)?=null
     private var launchRequest:String?=null
@@ -407,8 +408,22 @@ class NativeDebugger(private val engine: Engine, private val scope: CoroutineSco
         for(intent in candidates){val source=currentBreakpointSource(intent.source.identity) ?: continue;breakpointModel.request(source,"pending-start",launchRequest!!);if(source.path==owner)primary=JSONArray(intent.marks) else {sources.put(debugURI(source.path),JSONArray(intent.marks));sourceHashes.put(debugURI(source.path),hashes.first.getValue(source.identity))}}
         request.put("breakpoints",primary).put("sources",sources).put("source_hashes",sourceHashes)
         if(test!=null){request.put("op","start_test").put("doc",test.plan.sourceURI).put("source_test",test.body);request.remove("profile");request.remove("program")}
+        if(test!=null)waitForSourceTest(launchRequest!!,30_000,preparing=false)
         send(request)
-        if(test!=null){val id=launchRequest;sourceTestDeadline?.cancel();sourceTestDeadline=scope.launch {kotlinx.coroutines.delay(30_000);if(id!=null&&launchRequest==id&&sourceTestLaunch===test&&sessionID==null)fail("Test Debug admission was not confirmed within 30 seconds. No request was retried; a late owned session will be stopped.")}}
+    }
+    private fun waitForSourceTest(request:String,milliseconds:Long,preparing:Boolean) {
+        sourceTestDeadline?.cancel()
+        sourceTestPreparing=preparing
+        sourceTestDeadline=scope.launch {
+            kotlinx.coroutines.delay(milliseconds)
+            expireSourceTestPreparation(request,preparing)
+        }
+    }
+    internal fun expireSourceTestPreparation(request:String,preparing:Boolean=false) {
+        if(request!=launchRequest||sourceTestLaunch==null||sessionID!=null||sourceTestPreparing!=preparing)return
+        val phase=if(preparing)"Test Debug session was not confirmed within the preparation wait."
+                 else "Test Debug admission was not confirmed within 30 seconds."
+        fail("$phase No request was retried. A late owned session will be stopped.")
     }
     private fun send(request: JSONObject) {
         observeRequestForTest?.invoke(JSONObject(request.toString()))
@@ -416,7 +431,7 @@ class NativeDebugger(private val engine: Engine, private val scope: CoroutineSco
         if (socket?.send((byteArrayOf(3) + request.toString().toByteArray(Charsets.UTF_8)).toByteString()) != true) fail("Debugger command was not sent. Reconnect explicitly; it was not retried.")
     }
     private fun retireThreads(forgetStop:Boolean=false){adapterSources.retire();variableTree.clear();threadReading=null;threadNotice="";threadBusy=false;threadRequest=null;selectingThread=null;pendingValues.clear();frameRequest=null;frameNotice="";framesCurrent=false;if(forgetStop){stoppedGeneration=null;stoppedThread=null;selectedFrame=null}}
-    private fun retireLaunch(){val id=launchRequest;val doc=launchDocument;if(id!=null&&doc!=null){retiredLaunches[id]=doc;while(retiredLaunches.size>64)retiredLaunches.remove(retiredLaunches.keys.first())};launchRequest=null;launchDocument=null}
+    private fun retireLaunch(){sourceTestPreparing=false;val id=launchRequest;val doc=launchDocument;if(id!=null&&doc!=null){retiredLaunches[id]=doc;while(retiredLaunches.size>64)retiredLaunches.remove(retiredLaunches.keys.first())};launchRequest=null;launchDocument=null}
     private fun cleanupRetiredLaunch(event:JSONObject):Boolean {
         val request=event.optional("request_id") ?: return false
         if(retiredLaunches[request]!=event.optString("doc"))return false
@@ -431,6 +446,18 @@ class NativeDebugger(private val engine: Engine, private val scope: CoroutineSco
     fun close() { attaching=false;attachReading=null;sourceTestDeadline?.cancel();sourceTestDeadline=null;sourceTestLaunch?.rejected?.invoke("Test Debug preparation closed. No replacement was requested.");sourceTestLaunch=null;sessionID?.let{sourceTestOutcome?.invoke(it,"closed",null)};sourceTestOutcome=null;sourceLineage.clear();catalogNotices=emptyList();movement=null;launchTicket++;retireLaunch();retireThreads(true);breakpointModel.retireSession();runSourceHashes=emptyMap();stopPending = false; epoch = UUID.randomUUID(); socket?.cancel(); socket = null; sessionID = null; status = "idle"; pausedLine = null; frames = emptyList(); variables = emptyList(); values = emptyMap(); profiles = emptyList() }
     fun receive(event: JSONObject) {
         val kind = event.optString("event")
+        if(kind=="test_preparing"){
+            val request=launchRequest ?: return
+            val test=sourceTestLaunch ?: return
+            val wait=debugInteger(event.opt("wait_ms")) ?: return
+            if(sourceTestPreparing||status !in listOf("starting","stopping")||
+               !test.current()||event.optional("request_id")!=request||event.optional("doc")!=launchDocument||
+               event.has("session")||wait !in 30_001L..180_000L||
+               !test.plan.admits(event.optJSONObject("source_test"),test.facts))return
+            waitForSourceTest(request,wait+5_000,preparing=true)
+            if(status=="starting")message="Preparing the saved test. Waiting for the debugger session…"
+            return
+        }
         if(kind=="started"){
             val request=event.optional("request_id");val doc=event.optString("doc")
             if(request!=launchRequest||doc!=launchDocument){
@@ -449,7 +476,7 @@ class NativeDebugger(private val engine: Engine, private val scope: CoroutineSco
                 if((!attaching&&event.optString("source_hash")!=launchHash)||(attaching&&!event.isNull("source_hash")&&event.optString("source_hash")!=launchHash)){fail("Debugger source receipt does not match this launch. Its owned session was not adopted; review source and launch again.");cleanupRetiredLaunch(event);return}
                 retireThreads(true);message="";output = emptyList(); sessionID = event.getString("session");capabilities = event.optJSONObject("capabilities") ?: JSONObject();status = "running"
                 runSourceHashes=launchSourceBindings.values.associate{it.first.path to it.second};sourceSnapshots=launchSourceBindings.values.associate{it.first.path to it.first.text};breakpointModel.adoptStart(launchRequest!!,sessionID!!);bind(event,owner)
-                if(test!=null){sourceTestDeadline?.cancel();sourceTestDeadline=null;sourceTestLaunch=null;sourceTestOutcome=test.outcome;test.admitted(sessionID!!)}
+                if(test!=null){sourceTestDeadline?.cancel();sourceTestDeadline=null;sourceTestPreparing=false;sourceTestLaunch=null;sourceTestOutcome=test.outcome;test.admitted(sessionID!!)}
                 if(stopPending){stopPending=false;stop()}
             }
             "stopped" -> {

@@ -127,6 +127,43 @@ final class TestSourcesTests:XCTestCase {
         XCTAssertEqual(admitted,["accepted"]);debug.retireSourceTestPreparation();XCTAssertEqual(debug.sessionID,"accepted");XCTAssertEqual(debug.retainedSessionID,"accepted")
         let admittedCount=sent.count;debug.launchSourceTest(buffer,body:body,plan:plan,facts:facts,current:{true},admitted:{_ in XCTFail("replaced active runtime")},rejected:{rejected.append($0)});XCTAssertEqual(sent.count,admittedCount)
     }
+    @MainActor func testOwnedPreparationReceiptRetiresOnlyTheInitialDeadline()throws {
+        let (before,facts,plan,binding)=try debugFixture()
+        let file=FileNode(name:before.request.path,path:before.request.path,dir:false)
+        let buffer=DocumentBuffer(file:file,text:FileText(path:file.path,content:before.request.source,hash:"base"))
+        let debug=NativeDebugger(engine:try Engine(address:"http://fixture.invalid"))
+        var sent:[[String:Any]]=[],admitted:[String]=[],rejected:[String]=[]
+        debug.emitForTest={sent.append($0)}
+        defer{debug.close()}
+        let body=try sourceTestRun(before,facts,before,id:"case",selection:.nameFilter)
+        debug.launchSourceTest(buffer,body:body,plan:plan,facts:facts,current:{true},
+            admitted:{admitted.append($0)},rejected:{rejected.append($0)})
+        let request=try XCTUnwrap(debug.launchRequestID)
+        let preparation:[String:Any]=["event":"test_preparing","doc":plan.source_uri,"request_id":request,
+                                      "wait_ms":180_000,"source_test":binding]
+        var foreign=preparation;foreign["request_id"]="foreign"
+        var oversized=preparation;oversized["wait_ms"]=180_001
+        var masquerading=preparation;masquerading["session"]="fake"
+        var scalar=preparation;scalar["source_test"]="not a binding"
+        var boolean=preparation;boolean["wait_ms"]=true
+        debug.receive(foreign);debug.receive(oversized);debug.receive(masquerading)
+        debug.receive(scalar);debug.receive(boolean)
+        XCTAssertTrue(debug.message.isEmpty)
+        debug.receive(preparation);debug.receive(preparation)
+        XCTAssertTrue(debug.message.contains("Preparing the saved test"))
+        XCTAssertTrue(admitted.isEmpty);XCTAssertNil(debug.sessionID)
+        // Drive the callback that was armed for 30 seconds without a wall-clock sleep.
+        debug.expireSourceTestPreparation(request)
+        XCTAssertEqual(debug.status,"starting")
+        debug.expireSourceTestPreparation(request,preparing:true)
+        XCTAssertEqual(debug.status,"failed");XCTAssertTrue(rejected.last?.contains("preparation wait") == true)
+        let late:[String:Any]=["event":"started","doc":plan.source_uri,"request_id":request,
+            "session":"late-owned","source_hash":plan.source_hash,"source_test":binding,"capabilities":[:]]
+        debug.receive(late);debug.receive(late)
+        XCTAssertTrue(admitted.isEmpty)
+        XCTAssertEqual(sent.compactMap{$0["op"] as? String},["start_test","stop"])
+        XCTAssertEqual(sent.last?["session"] as? String,"late-owned")
+    }
     func testExplicitSelectionAndDynamicRefusal()throws {
         let (before,facts)=fixture();let value=try sourceTestRun(before,facts,before,id:"case",selection:.nameFilter)
         XCTAssertEqual(value["fingerprint"] as? String,"scan");XCTAssertEqual((value["input"] as? [String:String])?["kind"],"saved")

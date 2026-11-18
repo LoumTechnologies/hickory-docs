@@ -236,6 +236,14 @@ pub enum Response {
         session: String,
         reading: hick_observe::reading::Reading,
     },
+    /// The saved selection passed its admission and is preparing a runtime.
+    /// Session authority remains with the later Started receipt.
+    TestPreparing {
+        request_id: String,
+        doc: String,
+        wait_ms: u32,
+        source_test: crate::serve::test_debug::Binding,
+    },
     Started {
         session: String,
         #[serde(skip_serializing_if = "Option::is_none")]

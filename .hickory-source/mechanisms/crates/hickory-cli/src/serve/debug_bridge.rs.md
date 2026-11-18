@@ -107,6 +107,12 @@ Drain output before sending Finished, while clients can still recognize the
 session. The native `run_output` batch has its own wire name so browser-worker
 output events retain their separate streaming interface.
 
+Saved test Debug sends one preparation receipt as soon as the saved scope is
+admitted. It acknowledges the exact choice and gives slow Cargo and adapter
+preparation time to finish. Only the subsequent Started receipt grants a
+session. Delivery records the preparation prefix once, including when the
+build later fails.
+
 <storycode:copy id="f-b6fc115ecefd-handle">
 /// Handle one request and produce the responses to send back.
 ///
@@ -132,6 +138,17 @@ pub async fn dispatch(
 ) {
     let _ = handle_with(registry, root, request, |responses| reply(tx, responses)).await;
 }
+
+enum LaunchProgress<'a> {
+    Preparing(Response),
+    Started(&'a [Response]),
+}
+
+// The Rust harness can spend up to 120 seconds in its bounded Cargo and
+// metadata phase. Adapter TCP connection and the DAP initialized event each
+// allow up to 30 seconds. This permits a bounded client wait. It does not put
+// a new cancellation deadline on DAP operations already sent to the adapter.
+const TEST_PREPARATION_WAIT_MS: u32 = 180_000;
 
 async fn handle_with(
     registry: &Arc<Registry>,
@@ -191,9 +208,17 @@ async fn handle_with(
     let mut started_live = None;
     let mut started_operation = None;
     let mut delivered_prefix = 0;
-    let mut progress = |responses: &[Response]| {
-        deliver(responses);
-        delivered_prefix += responses.len();
+    let mut preparation = None;
+    let mut progress = |update: LaunchProgress<'_>| match update {
+        LaunchProgress::Preparing(response) => {
+            deliver(std::slice::from_ref(&response));
+            preparation = Some(response);
+            delivered_prefix += 1;
+        }
+        LaunchProgress::Started(responses) => {
+            deliver(responses);
+            delivered_prefix += responses.len();
+        }
     };
     let result = handle_inner(
         registry,
@@ -206,7 +231,9 @@ async fn handle_with(
     )
     .await;
     drop(progress);
-    let mut out = Vec::new();
+    let mut out: Vec<_> = preparation.into_iter().collect();
+    // A success already moved its entire Build/Started batch into the live
+    // prefix. Remaining build messages precede only the terminal failure.
     if !built.is_empty() {
         out.push(Response::Build {
             request_id: request_id.clone(),
@@ -467,7 +494,7 @@ async fn handle_inner(
     built: &mut Vec<Value>,
     started_live: &mut Option<Arc<crate::debug_sessions::Live>>,
     started_operation: &mut Option<tokio::sync::OwnedMutexGuard<()>>,
-    progress: &mut (impl FnMut(&[Response]) + Send),
+    progress: &mut (impl FnMut(LaunchProgress<'_>) + Send),
 ) -> Result<Vec<Response>, Failure> {
     let (request, test_launch) = match request {
         Request::StartTest(value) => (
@@ -562,7 +589,8 @@ async fn handle_inner(
             source_hashes,
             source_test: _,
         } => {
-            intent_ticket(request_id.as_deref()).map_err(|e| (None, e))?;
+            let launch_request = intent_ticket(request_id.as_deref())
+                .map_err(|e| (None, e))?;
             let primary_hash = sources::valid_hash(source_hash.as_deref())
                 .map_err(|e| (None, e))?
                 .to_owned();
@@ -627,6 +655,12 @@ async fn handle_inner(
                         ),
                     ));
                 }
+                progress(LaunchProgress::Preparing(Response::TestPreparing {
+                    request_id: launch_request.to_owned(),
+                    doc: doc.clone(),
+                    wait_ms: TEST_PREPARATION_WAIT_MS,
+                    source_test: admitted.binding.clone(),
+                }));
                 test_binding = Some(admitted.binding);
                 registry
                     .start_test_with_sources(admitted.launch, &sources, &mut on_build)
@@ -699,7 +733,7 @@ async fn handle_inner(
             out.extend(sources::statuses(&session, &live));
             // Expose the real session immediately, so Stop and live breakpoint
             // updates work while a program runs towards its first stop.
-            progress(&out);
+            progress(LaunchProgress::Started(&out));
             out.extend(settle(registry, root, &session, &live).await);
             Ok(out)
         }
@@ -1431,12 +1465,12 @@ pub fn describe() -> Value {
     json!({
         "channel": CHANNEL_DEBUG,
         "requests": [
-            "start", "breakpoints", "state", "eval", "step", "jump", "run_to",
+            "start", "start_test", "breakpoints", "state", "eval", "step", "jump", "run_to",
             "children", "exception_breakpoints", "set_variable", "stop", "located", "threads", "select_thread"
         ],
         "responses": [
             "started", "stopped", "breakpoints", "value", "children",
-            "finished", "ended", "failed", "build", "reading", "threads", "frame_variables"
+            "finished", "ended", "failed", "build", "test_preparing", "reading", "threads", "frame_variables"
         ],
     })
 }

@@ -174,6 +174,8 @@ export type DebugEvent =
   | {event:"frame_variables";session:string;stop:number;thread:number;frame:number;request_id?:string|null;variables:Variable[]}
   | { event: "run_output"; session: string; events: { category: string; text: string; source?: string | null; line?: number | null }[] }
   | { event: "reading"; session: string; reading: import("./observations").ObservationReading }
+  | { event: "test_preparing"; doc: string; request_id: string; wait_ms: number;
+      source_test: import("../simple/TestSources").SourceTestDebugBinding }
   | {
       event: "started";
       source_test?:import("../simple/TestSources").SourceTestDebugBinding|null;
@@ -297,7 +299,7 @@ export class DebugClient {
     try {
       const raw=new TextDecoder().decode(frame.subarray(1));
       const event = JSON.parse(raw) as DebugEvent;
-      if(event.event==='started'&&event.source_test)parseSourceTestDebugJson(raw);
+      if(event.event==='test_preparing'||event.event==='started'&&event.source_test)parseSourceTestDebugJson(raw);
       for (const listener of this.listeners) listener(event);
     } catch {
       // A frame we cannot read is dropped rather than thrown: one bad message

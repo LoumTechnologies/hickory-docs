@@ -310,6 +310,7 @@ export function eventIsOurs(
   uri: string,
   session: string | null,
 ): boolean {
+  if (event.event === "test_preparing") return event.doc === uri;
   if (event.event === "started" || event.event === "build") {
     return event.doc === undefined || event.doc === uri;
   }
@@ -506,7 +507,7 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
   const selectedFrameRef=useRef<number|null>(null);
   const evaluationSequence=useRef(0),evaluationRequests=useRef(new Map<string,{expression:string;context:"hover"|"watch"|"repl";stop:number;thread:number;frame:number|null}>()),latestEvaluation=useRef(new Map<string,string>());
   const [breakpointModel]=useState(()=>{const model=new DebugBreakpointModel();model.unknown(uri,initialBreakpoints.map(line=>({line})));return model;}),[,paintPolicy]=useState(0);
-  type TestPending={prepared:PreparedSourceTestDebug;current:()=>boolean;request:string|null;sent:boolean;resolve:(record:SourceTestDebugProcess)=>void;reject:(error:Error)=>void};
+  type TestPending={prepared:PreparedSourceTestDebug;current:()=>boolean;request:string|null;sent:boolean;preparing:boolean;resolve:(record:SourceTestDebugProcess)=>void;reject:(error:Error)=>void};
   const testIntent=useRef<PreparedSourceTestDebug|null>(null),pendingTest=useRef<TestPending|null>(null),testHistory=useRef(new Map<string,SourceTestDebugProcess>()),testContext=useRef<string|null>(null),lastOwnedSession=useRef<string|null>(null),canceledTestRequests=useRef(new Set<string>()),testCleanup=useRef(new Set<string>());
   const [testEpoch,paintTest]=useState(0);
   function publishTest(session:string,phase:string,exitCode:number|null=null,message:string|null=null){const before=testHistory.current.get(session);if(before){testHistory.current.set(session,{...before,phase,exitCode,message});paintTest(value=>value+1);}}
@@ -593,6 +594,15 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
       }
       if(event.event==='failed'&&event.request_id&&canceledTestRequests.current.delete(event.request_id)){if(!canceledTestRequests.current.size&&!testCleanup.current.size&&!sessionRef.current&&!launches.current){holdStatus('idle');setMessage('Canceled test-debug Start was refused; no session was adopted.');}return;}
       if (!eventIsOurs(event, uri, sessionRef.current)) return;
+      if(event.event==="test_preparing"){
+        const test=pendingTest.current;
+        if(!test?.sent||test.preparing||!launches.matches(event.request_id)||test.request!==event.request_id||
+          'session' in event||!Number.isInteger(event.wait_ms)||event.wait_ms<=30_000||event.wait_ms>180_000||
+          !test.current()||!sourceTestDebugStarted(test.prepared,event.source_test))return;
+        test.preparing=true;
+        setMessage('Preparing the saved test. Waiting for the debugger session…');
+        return;
+      }
       if(event.event==="started"){
         if(!event.request_id&&launches.current&&statusRef.current==="starting"){setMessage("A debugger startup reply has no caller identity; this view has not adopted it and the request remains unconfirmed.");return;}
         const admission=launches.started(event.request_id,event.session);if(admission==="retired"){if(event.session!==sessionRef.current){if(event.request_id&&canceledTestRequests.current.delete(event.request_id))testCleanup.current.add(event.session);client.stop(event.session);}return;}if(admission!=="current")return;
@@ -619,7 +629,7 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
         case "started": {
           setReading(null);
           sessionRef.current = event.session;lastOwnedSession.current=event.session;
-          const test=pendingTest.current;if(test&&test.request===event.request_id){const record:SourceTestDebugProcess={session:event.session,choice:retainedSourceTestDebugChoice(test.prepared.choice),binding:sourceTestDebugBinding(test.prepared),phase:'running',exitCode:null,message:null};testHistory.current.set(event.session,record);while(testHistory.current.size>32)testHistory.current.delete(testHistory.current.keys().next().value!);testContext.current=event.session;pendingTest.current=null;test.resolve(record);paintTest(value=>value+1);}
+          const test=pendingTest.current;if(test&&test.request===event.request_id){const record:SourceTestDebugProcess={session:event.session,choice:retainedSourceTestDebugChoice(test.prepared.choice),binding:sourceTestDebugBinding(test.prepared),phase:'running',exitCode:null,message:null};testHistory.current.set(event.session,record);while(testHistory.current.size>32)testHistory.current.delete(testHistory.current.keys().next().value!);testContext.current=event.session;pendingTest.current=null;setMessage(null);test.resolve(record);paintTest(value=>value+1);}
           setOutput([]);
           capabilitiesRef.current=event.capabilities;setCapabilities(event.capabilities);
           const prepared=preparedStart.current;runProofs.current=prepared&&prepared.request===event.request_id?new Map(prepared.proofs):new Map();runHashes.current.clear();
@@ -866,7 +876,7 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
   },[client,uri,projectContext]);
 
   const startSourceTest=useCallback((prepared:PreparedSourceTestDebug,current:()=>boolean)=>new Promise<SourceTestDebugProcess>((resolve,reject)=>{
-    try{if(client?.provider)throw Error('This browser-local provider does not implement source-test Debug admission.');prepareSourceTestDebug(prepared.choice,prepared.plan);if(uri!==prepared.choice.sourceUri)throw Error('This debugger belongs to a different authored input.');start(undefined,{},undefined,undefined,{}, {prepared,current,request:null,sent:false,resolve,reject});}catch(error){reject(error instanceof Error?error:Error(String(error)));}
+    try{if(client?.provider)throw Error('This browser-local provider does not implement source-test Debug admission.');prepareSourceTestDebug(prepared.choice,prepared.plan);if(uri!==prepared.choice.sourceUri)throw Error('This debugger belongs to a different authored input.');start(undefined,{},undefined,undefined,{}, {prepared,current,request:null,sent:false,preparing:false,resolve,reject});}catch(error){reject(error instanceof Error?error:Error(String(error)));}
   }),[start,client,uri]);
   const cancelSourceTestStart=useCallback((prepared:PreparedSourceTestDebug)=>{const held=pendingTest.current;if(!held||held.prepared!==prepared)return;pendingTest.current=null;launches.retire();client?.cancelStart(uri);held.reject(Error(held.sent?'Test-debug admission canceled after dispatch; the owned late session will be stopped without adoption.':'Test-debug preparation canceled; no Start was sent.'));if(held.sent&&held.request){canceledTestRequests.current.add(held.request);holdStatus('unconfirmed');setMessage('Canceled test-debug request awaits its owned session cleanup.');}else {if(!testContext.current)testIntent.current=null;holdStatus('idle');paintTest(value=>value+1);}},[client,uri]);
   const releaseSourceTest=useCallback(()=>{if(['starting','running','paused','unconfirmed','stopping'].includes(statusRef.current))return;testContext.current=null;testIntent.current=null;paintTest(value=>value+1);},[]);
@@ -2037,6 +2047,28 @@ describe('source-test Debug guarded host',()=>{
  it('uses distinct start_test without argv/profile/project or hidden entry breakpoints and retains the exact session after close',async()=>{const host=await testHost(),catalogs=vi.mocked(withDebugProtocol).mock.calls.length;await settle(()=>host.hook.result.current.toggleBreakpoint(14));const {admitted,request}=await dispatch(host);expect(vi.mocked(withDebugProtocol).mock.calls.length).toBe(catalogs);expect(request).toMatchObject({op:'start_test',doc:'hick:///orders.md',source_hash:host.hash,breakpoints:[{line:14}],source_test:host.prepared.choice.request});for(const key of ['program','profile','project'])expect(request).not.toHaveProperty(key);await settle(()=>host.socket.deliver({...STARTED,request_id:request.request_id,source_hash:host.hash,source_test:host.binding,breakpoints:[{line:14,state:'bound'}]}));expect((await admitted).session).toBe('dbg-0');await settle(()=>host.hook.result.current.cancelSourceTestStart?.(host.prepared));expect(host.socket.sent.filter(item=>(item as {op:string}).op==='stop')).toEqual([]);expect(host.hook.result.current.sourceTestInspectable?.('dbg-0')).toBe(true);await settle(()=>{host.socket.deliver(STOPPED);host.hook.result.current.stop();});await settle(()=>host.socket.deliver({event:'ended',session:'dbg-0'}));expect(host.hook.result.current.sourceTestProcesses?.()[0]).toMatchObject({phase:'stopped',exitCode:null});expect(host.hook.result.current.sourceTestProcesses?.()[0].choice).not.toHaveProperty('request');const count=host.socket.sent.length;await settle(()=>host.hook.result.current.start());expect(host.socket.sent).toHaveLength(count);await settle(()=>host.hook.result.current.releaseSourceTest?.());expect(host.hook.result.current.sourceTestInspectable?.('dbg-0')).toBe(false);});
  it('stops only a positively owned mismatched test Started and never adopts its partial contributor receipt',async()=>{const host=await testHost(),{admitted,request}=await dispatch(host),rejected=admitted.catch(error=>String(error));await settle(()=>host.socket.deliver({...STARTED,request_id:'foreign',source_hash:host.hash,source_test:host.binding}));expect(host.socket.sent.filter(item=>(item as {op:string}).op==='stop')).toEqual([]);await settle(()=>host.socket.deliver({...STARTED,request_id:request.request_id,source_hash:host.hash,source_test:{...host.binding,checked_sources:{}}}));expect(await rejected).toContain('exact test-debug selection');expect(host.hook.result.current.sourceTestProcesses?.()).toEqual([]);expect(host.hook.result.current.isActive?.()).toBe(true);expect(host.socket.sent.at(-1)).toMatchObject({op:'stop',session:'dbg-0'});await settle(()=>host.socket.deliver({event:'ended',session:'dbg-0'}));expect(host.hook.result.current.isActive?.()).toBe(false);});
  it('retires close-after-dispatch and waits for owned late cleanup without claiming a session or a test verdict',async()=>{const host=await testHost(),{admitted,request}=await dispatch(host),rejected=admitted.catch(error=>String(error));await settle(()=>host.hook.result.current.cancelSourceTestStart?.(host.prepared));expect(await rejected).toContain('after dispatch');expect(host.hook.result.current.status).toBe('unconfirmed');await settle(()=>host.hook.result.current.stop());expect(host.hook.result.current.isActive?.()).toBe(true);await settle(()=>host.socket.deliver({...STARTED,request_id:request.request_id,source_hash:host.hash,source_test:host.binding}));expect(host.socket.sent.at(-1)).toMatchObject({op:'stop',session:'dbg-0'});expect(host.hook.result.current.sourceTestProcesses?.()).toEqual([]);await settle(()=>host.socket.deliver({event:'ended',session:'dbg-0'}));expect(host.hook.result.current.status).toBe('idle');});
+ it('displays exact preparation without adopting a session or replaying Start',async()=>{
+  const host=await testHost();
+  const {request,admitted}=await dispatch(host);
+  const receipt={event:'test_preparing',doc:'hick:///orders.md',request_id:request.request_id,
+    source_test:host.binding,wait_ms:180_000};
+  await settle(()=>{
+   host.socket.deliver({...receipt,wait_ms:180_001});
+   host.socket.deliver({...receipt,request_id:'foreign'});
+   host.socket.deliver({...receipt,session:'fake'});
+   host.socket.deliver({...receipt,source_test:{...host.binding,candidate_id:'wrong'}});
+  });
+  expect(host.hook.result.current.message??'').not.toMatch(/Preparing the saved test/);
+  await settle(()=>{host.socket.deliver(receipt);host.socket.deliver(receipt);});
+  expect(host.hook.result.current.message).toMatch(/Preparing the saved test/);
+  expect(host.hook.result.current.status).toBe('starting');
+  expect(host.hook.result.current.sourceTestProcesses?.()).toEqual([]);
+  await settle(()=>host.socket.deliver({...STARTED,request_id:request.request_id,
+   doc:'hick:///orders.md',source_hash:host.hash,source_test:host.binding}));
+  expect((await admitted).session).toBe(STARTED.session);
+  expect(host.hook.result.current.message??'').not.toMatch(/Preparing the saved test/);
+  expect(host.socket.sent.filter(item=>(item as {op:string}).op==='start_test')).toHaveLength(1);
+ });
  it('cancels held preparation before any effect and does not turn a legacy websocket refusal into ordinary Start',async()=>{const host=await testHost();let pending!:Promise<unknown>;await settle(()=>{pending=host.hook.result.current.startSourceTest!(host.prepared,()=>true).catch(error=>String(error));host.hook.result.current.cancelSourceTestStart?.(host.prepared);});expect(await pending).toContain('no Start');expect(host.socket.sent).toEqual([]);const next=await dispatch(host),rejected=next.admitted.catch(error=>String(error));await settle(()=>host.socket.deliver({event:'failed',doc:'hick:///orders.md',about:'start',request_id:next.request.request_id,message:'unknown variant start_test'}));expect(await rejected).toContain('unknown variant');expect(host.socket.sent.every(item=>(item as {op:string}).op!=='start')).toBe(true);});
  it('refuses another test choice while the source owns an active ordinary session',async()=>{const host=await testHost();await settle(()=>host.hook.result.current.start());await settle(()=>{host.socket.deliver(STARTED);host.socket.deliver(STOPPED);});const count=host.socket.sent.length,frames=host.hook.result.current.frames;await expect(host.hook.result.current.startSourceTest!(host.prepared,()=>true)).rejects.toThrow('active debugger');expect(host.socket.sent).toHaveLength(count);expect(host.hook.result.current.frames).toBe(frames);expect(host.hook.result.current.status).toBe('paused');});
 });

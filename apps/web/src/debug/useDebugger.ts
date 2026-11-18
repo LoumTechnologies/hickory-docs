@@ -220,6 +220,7 @@ export function eventIsOurs(
   uri: string,
   session: string | null,
 ): boolean {
+  if (event.event === "test_preparing") return event.doc === uri;
   if (event.event === "started" || event.event === "build") {
     return event.doc === undefined || event.doc === uri;
   }
@@ -363,7 +364,7 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
   const selectedFrameRef=useRef<number|null>(null);
   const evaluationSequence=useRef(0),evaluationRequests=useRef(new Map<string,{expression:string;context:"hover"|"watch"|"repl";stop:number;thread:number;frame:number|null}>()),latestEvaluation=useRef(new Map<string,string>());
   const [breakpointModel]=useState(()=>{const model=new DebugBreakpointModel();model.unknown(uri,initialBreakpoints.map(line=>({line})));return model;}),[,paintPolicy]=useState(0);
-  type TestPending={prepared:PreparedSourceTestDebug;current:()=>boolean;request:string|null;sent:boolean;resolve:(record:SourceTestDebugProcess)=>void;reject:(error:Error)=>void};
+  type TestPending={prepared:PreparedSourceTestDebug;current:()=>boolean;request:string|null;sent:boolean;preparing:boolean;resolve:(record:SourceTestDebugProcess)=>void;reject:(error:Error)=>void};
   const testIntent=useRef<PreparedSourceTestDebug|null>(null),pendingTest=useRef<TestPending|null>(null),testHistory=useRef(new Map<string,SourceTestDebugProcess>()),testContext=useRef<string|null>(null),lastOwnedSession=useRef<string|null>(null),canceledTestRequests=useRef(new Set<string>()),testCleanup=useRef(new Set<string>());
   const [testEpoch,paintTest]=useState(0);
   function publishTest(session:string,phase:string,exitCode:number|null=null,message:string|null=null){const before=testHistory.current.get(session);if(before){testHistory.current.set(session,{...before,phase,exitCode,message});paintTest(value=>value+1);}}
@@ -450,6 +451,15 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
       }
       if(event.event==='failed'&&event.request_id&&canceledTestRequests.current.delete(event.request_id)){if(!canceledTestRequests.current.size&&!testCleanup.current.size&&!sessionRef.current&&!launches.current){holdStatus('idle');setMessage('Canceled test-debug Start was refused; no session was adopted.');}return;}
       if (!eventIsOurs(event, uri, sessionRef.current)) return;
+      if(event.event==="test_preparing"){
+        const test=pendingTest.current;
+        if(!test?.sent||test.preparing||!launches.matches(event.request_id)||test.request!==event.request_id||
+          'session' in event||!Number.isInteger(event.wait_ms)||event.wait_ms<=30_000||event.wait_ms>180_000||
+          !test.current()||!sourceTestDebugStarted(test.prepared,event.source_test))return;
+        test.preparing=true;
+        setMessage('Preparing the saved test. Waiting for the debugger session…');
+        return;
+      }
       if(event.event==="started"){
         if(!event.request_id&&launches.current&&statusRef.current==="starting"){setMessage("A debugger startup reply has no caller identity; this view has not adopted it and the request remains unconfirmed.");return;}
         const admission=launches.started(event.request_id,event.session);if(admission==="retired"){if(event.session!==sessionRef.current){if(event.request_id&&canceledTestRequests.current.delete(event.request_id))testCleanup.current.add(event.session);client.stop(event.session);}return;}if(admission!=="current")return;
@@ -476,7 +486,7 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
         case "started": {
           setReading(null);
           sessionRef.current = event.session;lastOwnedSession.current=event.session;
-          const test=pendingTest.current;if(test&&test.request===event.request_id){const record:SourceTestDebugProcess={session:event.session,choice:retainedSourceTestDebugChoice(test.prepared.choice),binding:sourceTestDebugBinding(test.prepared),phase:'running',exitCode:null,message:null};testHistory.current.set(event.session,record);while(testHistory.current.size>32)testHistory.current.delete(testHistory.current.keys().next().value!);testContext.current=event.session;pendingTest.current=null;test.resolve(record);paintTest(value=>value+1);}
+          const test=pendingTest.current;if(test&&test.request===event.request_id){const record:SourceTestDebugProcess={session:event.session,choice:retainedSourceTestDebugChoice(test.prepared.choice),binding:sourceTestDebugBinding(test.prepared),phase:'running',exitCode:null,message:null};testHistory.current.set(event.session,record);while(testHistory.current.size>32)testHistory.current.delete(testHistory.current.keys().next().value!);testContext.current=event.session;pendingTest.current=null;setMessage(null);test.resolve(record);paintTest(value=>value+1);}
           setOutput([]);
           capabilitiesRef.current=event.capabilities;setCapabilities(event.capabilities);
           const prepared=preparedStart.current;runProofs.current=prepared&&prepared.request===event.request_id?new Map(prepared.proofs):new Map();runHashes.current.clear();
@@ -723,7 +733,7 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
   },[client,uri,projectContext]);
 
   const startSourceTest=useCallback((prepared:PreparedSourceTestDebug,current:()=>boolean)=>new Promise<SourceTestDebugProcess>((resolve,reject)=>{
-    try{if(client?.provider)throw Error('This browser-local provider does not implement source-test Debug admission.');prepareSourceTestDebug(prepared.choice,prepared.plan);if(uri!==prepared.choice.sourceUri)throw Error('This debugger belongs to a different authored input.');start(undefined,{},undefined,undefined,{}, {prepared,current,request:null,sent:false,resolve,reject});}catch(error){reject(error instanceof Error?error:Error(String(error)));}
+    try{if(client?.provider)throw Error('This browser-local provider does not implement source-test Debug admission.');prepareSourceTestDebug(prepared.choice,prepared.plan);if(uri!==prepared.choice.sourceUri)throw Error('This debugger belongs to a different authored input.');start(undefined,{},undefined,undefined,{}, {prepared,current,request:null,sent:false,preparing:false,resolve,reject});}catch(error){reject(error instanceof Error?error:Error(String(error)));}
   }),[start,client,uri]);
   const cancelSourceTestStart=useCallback((prepared:PreparedSourceTestDebug)=>{const held=pendingTest.current;if(!held||held.prepared!==prepared)return;pendingTest.current=null;launches.retire();client?.cancelStart(uri);held.reject(Error(held.sent?'Test-debug admission canceled after dispatch; the owned late session will be stopped without adoption.':'Test-debug preparation canceled; no Start was sent.'));if(held.sent&&held.request){canceledTestRequests.current.add(held.request);holdStatus('unconfirmed');setMessage('Canceled test-debug request awaits its owned session cleanup.');}else {if(!testContext.current)testIntent.current=null;holdStatus('idle');paintTest(value=>value+1);}},[client,uri]);
   const releaseSourceTest=useCallback(()=>{if(['starting','running','paused','unconfirmed','stopping'].includes(statusRef.current))return;testContext.current=null;testIntent.current=null;paintTest(value=>value+1);},[]);
