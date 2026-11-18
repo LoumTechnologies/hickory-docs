@@ -34,6 +34,14 @@ infer a successful save from a historical receipt.
 
 A document-preserving Move may retain different saved and dirty bytes. Recovery accepts that distinction only when the entire after namespace is an exact permutation of original source states and their complete saved records, including modes. This representation does not authorize publication; the live entry intent still admits the Move under the shared publisher lease. Mutating draft content or saved permissions invalidates this special case.
 
+Version 4 records the two addresses of an interrupted Move completion. The
+original address can be physically absent while its retained editor still has a
+draft. Keep both observations in that record. The completed saved baseline
+matches the surviving saved source, including permissions. Its logical identity
+comes from a captured editor state. A cold completion can recover archived draft
+text under that identity. The publisher authenticates these observations against
+the original entry lease. The journal representation grants no write authority.
+
 <ui:copy id="resource-save-recovery-record">
 //! Explicit resource saves retain their before/after states before publishing source.
 use super::{
@@ -171,14 +179,53 @@ fn preserves_saved_namespace(
     }
     seen.len() == originals.len()
 }
+
+fn validate_interrupted_namespace(
+    manifest: &Manifest,
+    drafts: &BTreeMap<String, SourceState>,
+    after: &BTreeMap<String, SourceState>,
+) -> Result<(), String> {
+    if manifest.before.len() != 2 {
+        return Err("Interrupted completion requires both original namespace slots.".into());
+    }
+    let mut saved_files = manifest.after.iter().filter(|(_, state)| matches!(state, SavedSource::File { .. }));
+    let (destination, saved) = saved_files.next()
+        .ok_or("Interrupted completion must retain one saved construction.")?;
+    if saved_files.next().is_some() {
+        return Err("Interrupted completion must retain only one saved construction.".into());
+    }
+    let SourceState::File { identity, .. } = &after[destination] else {
+        return Err("Interrupted completion lost its captured logical construction.".into());
+    };
+    // A logical orphan can only be the displaced original, never a foreign
+    // editor already attached to the absent destination.
+    if matches!(manifest.before[destination], SavedSource::Missing)
+        && matches!(drafts[destination], SourceState::File { .. }) {
+        return Err("The interrupted destination has no saved owner for its captured editor.".into());
+    }
+    let mut baseline = false;
+    for source in manifest.before.values() {
+        if matches!(source, SavedSource::File { .. }) {
+            if source != saved {
+                return Err("Interrupted completion changed a saved baseline or its metadata.".into());
+            }
+            baseline = true;
+        }
+    }
+    if !baseline || !drafts.values().any(|state| matches!(state, SourceState::File { identity: original, .. } if original == identity)) {
+        return Err("Interrupted completion requires a saved baseline and a captured logical identity.".into());
+    }
+    Ok(())
+}
+
 fn manifest_bytes(manifest: &Manifest) -> Result<Vec<u8>, String> {
     if manifest.request_id.as_ref().is_some_and(|id| {
         id.len() != 32 || !id.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
     }) {
         return Err("Recovery request identity must be 32 lowercase hexadecimal characters.".into());
     }
-    if !matches!(manifest.version, 2 | 3)
-        || (manifest.version == 2 && manifest.restore_of.is_some())
+    if !matches!(manifest.version, 2 | 3 | 4)
+        || (matches!(manifest.version, 2 | 4) && manifest.restore_of.is_some())
         || (manifest.version == 3 && manifest.restore_of.is_none())
         || manifest.workspace.is_empty()
         || manifest.context.is_empty()
@@ -222,12 +269,14 @@ fn manifest_bytes(manifest: &Manifest) -> Result<Vec<u8>, String> {
         return Err("Resource recovery must retain every reviewed source path.".into());
     }
     let after = manifest.reviewed_plan.apply(&manifest.context, &drafts)?;
-    let preserved_namespace = preserves_saved_namespace(manifest, &drafts, &after);
+    let interrupted = manifest.version == 4;
+    let preserved_namespace = !interrupted && preserves_saved_namespace(manifest, &drafts, &after);
     for (path, saved) in &manifest.before {
         validate_saved(saved)?;
         validate_saved(&manifest.after[path])?;
-        if !same_kind(saved, &drafts[path])
-            || if manifest.restore_of.is_some() || preserved_namespace {
+        let orphan = interrupted && matches!((saved, &drafts[path]), (SavedSource::Missing, SourceState::File { .. }));
+        if (!same_kind(saved, &drafts[path]) && !orphan)
+            || if manifest.restore_of.is_some() || preserved_namespace || interrupted {
                 !same_kind(&manifest.after[path], &after[path])
             } else {
                 !same_saved_draft(&manifest.after[path], &after[path])
@@ -237,6 +286,9 @@ fn manifest_bytes(manifest: &Manifest) -> Result<Vec<u8>, String> {
                 "Resource recovery differs from the reviewed namespace: {path}. Prepare again."
             ));
         }
+    }
+    if interrupted {
+        validate_interrupted_namespace(manifest, &drafts, &after)?;
     }
     let bytes = serde_json::to_vec(manifest).map_err(|error| error.to_string())?;
     if bytes.len() > 40 * 1024 * 1024 {
@@ -659,6 +711,34 @@ impl Manifest {
             after,
         })
     }
+
+    pub(crate) fn from_interrupted_review(
+        inputs: &super::resource_inputs::Inputs,
+        plan: &ResourcePlan,
+        saved_after: &BTreeMap<String, SavedSource>,
+    ) -> Result<Self, String> {
+        if inputs.version != 1 || inputs.context != plan.context || inputs.workspace.is_empty()
+            || inputs.source_files_modified || !inputs.refusals.is_empty()
+            || inputs.sources.keys().ne(inputs.saved_sources.keys())
+            || plan.patches.iter().any(|patch| inputs.sources.get(&patch.path) != Some(&patch.before))
+        {
+            return Err("Acquire every interrupted source before retaining completion evidence.".into());
+        }
+        plan.apply(&inputs.context, &inputs.sources)?;
+        let manifest = Self {
+            version: 4,
+            request_id: None,
+            workspace: inputs.workspace.clone(),
+            context: inputs.context.clone(),
+            title: plan.title.clone(),
+            reviewed_plan: plan.clone(),
+            restore_of: None,
+            before: inputs.saved_sources.clone(),
+            after: saved_after.clone(),
+        };
+        manifest_bytes(&manifest)?;
+        Ok(manifest)
+    }
 }
 
 #[cfg(test)]
@@ -682,6 +762,74 @@ fn document_preserving_move_keeps_saved_bytes_and_dirty_draft_separate() {
     }
     assert!(manifest_bytes(&record).is_err());
 }
+
+#[cfg(test)]
+#[test]
+fn interrupted_review_records_an_orphan_or_a_cold_absence_without_changing_saved_bytes() {
+    use super::resource_inputs::{Inputs, Ownership};
+    let original = tests::manifest();
+    let baseline = original.before["a.py"].clone();
+    let missing = SourceState::Missing { creatable: true };
+    let old_draft = original.reviewed_plan.patches[0].before.clone();
+    let SavedSource::File { text, .. } = &baseline else { panic!("Saved fixture is a file") };
+    let destination = SourceState::File {
+        identity: "observed-copy".into(),
+        text: text.clone(),
+        writable: true,
+        removable: true,
+        version: None,
+    };
+    let mut plan = original.reviewed_plan;
+    plan.patches[1].before = destination.clone();
+    plan.patches[1].after = old_draft.clone();
+    let saved = BTreeMap::from([("a.py".into(), SavedSource::Missing), ("b.py".into(), baseline.clone())]);
+    let mut inputs = Inputs {
+        version: 1,
+        context: plan.context.clone(),
+        workspace: original.workspace,
+        ownership: Ownership {
+            mode: "test".into(), entry: None, protected_entries: vec![],
+            saved_sources: BTreeMap::new(), draft_sources: BTreeMap::new(),
+        },
+        sources: BTreeMap::from([("a.py".into(), old_draft), ("b.py".into(), destination.clone())]),
+        saved_sources: saved.clone(),
+        saved_guards: BTreeMap::new(),
+        refusals: BTreeMap::new(),
+        source_files_modified: false,
+    };
+    assert!(Manifest::from_review(&inputs, &plan).is_err());
+    let interrupted = Manifest::from_interrupted_review(&inputs, &plan, &saved).unwrap();
+    assert_eq!(interrupted.version, 4);
+    assert_eq!(interrupted.before, saved);
+    assert_eq!(interrupted.after, saved);
+    assert_eq!(interrupted.reviewed_plan.patches[1].after, plan.patches[1].after);
+    let root = tempfile::tempdir().unwrap();
+    let batch = Batch::begin(root.path(), &interrupted).unwrap();
+    let loaded = read_recovery(root.path(), &batch.id).unwrap();
+    assert!(!loaded.all_paths_recorded_applied);
+    assert_eq!(loaded.manifest.before, interrupted.before);
+    assert!(!root.path().join("a.py").exists());
+    assert!(!root.path().join("b.py").exists());
+
+    inputs.sources.insert("a.py".into(), missing.clone());
+    plan.patches[0].before = missing;
+    let mut recovered = destination;
+    if let SourceState::File { text, .. } = &mut recovered {
+        *text = "recovered archived draft\n".into();
+    }
+    plan.patches[1].after = recovered;
+    assert!(Manifest::from_interrupted_review(&inputs, &plan, &saved).is_ok());
+    let mut modified = saved.clone();
+    if let SavedSource::File { mode, .. } = modified.get_mut("b.py").unwrap() {
+        *mode = Some(0o600);
+    }
+    assert!(Manifest::from_interrupted_review(&inputs, &plan, &modified).is_err());
+    if let SourceState::File { identity, .. } = &mut plan.patches[1].after {
+        *identity = "unrelated-editor".into();
+    }
+    assert!(Manifest::from_interrupted_review(&inputs, &plan, &saved).is_err());
+}
+
 #[cfg(test)]
 #[test]
 fn reviewed_resource_record_follows_identity_permissions_and_keeps_dirty_baseline() {

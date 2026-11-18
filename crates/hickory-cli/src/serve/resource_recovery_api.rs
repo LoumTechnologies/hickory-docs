@@ -47,7 +47,9 @@ async fn prepare_inner(state: LocalState, request: PrepareRequest) -> Result<Pre
             );
         }
         let recovery = super::resource_journal::read_recovery(&root, &request.recovery_id)?;
-        super::source_history::validate_resource_after(&root,&recovery)?;
+        super::workspace_entry_authority::transitions::validate_restoration_origin(
+            &state, &request.capture, &recovery,
+        )?;
         let restoration = super::resource_restoration::prepare(&recovery, &request.inputs, &fresh)?;
         let consequences = restoration.analyze(&root, &fresh, &request.capture)?;
         if identity.check(&root)? != fresh.workspace {

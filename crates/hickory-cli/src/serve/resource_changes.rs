@@ -591,9 +591,15 @@ impl ResourcePlan {
     }
 }
 pub async fn inspect(
+    axum::extract::State(state): axum::extract::State<super::LocalState>,
     axum::Json(request): axum::Json<Request>,
 ) -> super::api::ApiResult<axum::Json<Value>> {
-    tokio::task::spawn_blocking(move || prepare(request))
+    tokio::task::spawn_blocking(move || {
+        match super::workspace_entry_authority::transitions::plan_interrupted(&state, &request)? {
+            Some(plan) => Ok(plan),
+            None => prepare(request),
+        }
+    })
         .await
         .map_err(|error| {
             super::api::ApiError::internal(format!(

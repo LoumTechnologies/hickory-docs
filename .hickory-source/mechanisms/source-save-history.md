@@ -302,6 +302,11 @@ An inverse must prove that the original publication still owns every result name
 
 Resource publication already owns coordinated moves, swaps and restoration. This bridge records no additional source writes. Before publication it pins the exact physical observations and reviewed logical source identities into the private history journal. Only a complete resource receipt and writer-held after identities may connect those observations. Equal text in an independently recreated name creates no edge. Deletion retains a readable terminal observation; a later inverse must name the original recovery and pass its own complete publication before history can follow it.
 
+An entry restoration can prove a previous producer through a sealed sequence
+of newer, complete inverse publications. The entry-only path borrows that proof
+under its original held binding while preparing the lineage journal. Ordinary
+resource restorations keep their direct original-producer check.
+
 <ui:copy id="source-save-history-lineage">
 const LINEAGE_KIND:&str="ordinary-source-resource-lineage-v1";
 #[derive(Clone,Serialize,Deserialize)]
@@ -349,6 +354,20 @@ impl ResourceAfterProof{pub(crate) fn check(&self,root:&Path,recovery:&super::re
 pub(crate) fn prove_resource_after(root:&Path,recovery:&super::resource_journal::Recovery)->Result<ResourceAfterProof,String>{validate_resource_after(root,recovery)?;Ok(ResourceAfterProof{root:workspace(root)?,record:recovery.id.clone(),manifest:recovery.manifest_sha256.clone()})}
 
 pub(super) fn prepare_resource_lineage(root:&Path,resource_id:&str,manifest:&Manifest,before_identities:&BTreeMap<String,String>)->Result<ResourceLineageCapture,String>{
+ prepare_resource_lineage_checked(root,resource_id,manifest,before_identities,validate_resource_after)
+}
+
+#[cfg(unix)]
+pub(super) fn prepare_resource_lineage_with_entry(root:&Path,resource_id:&str,manifest:&Manifest,
+ before_identities:&BTreeMap<String,String>,admission:&super::workspace_entry_authority::EntryLineageAdmission<'_>
+)->Result<ResourceLineageCapture,String>{
+ if manifest.restore_of.is_none(){return Err("Entry lineage needs the exact original restoration record.".into())}
+ prepare_resource_lineage_checked(root,resource_id,manifest,before_identities,|root,prior|admission.check(root,prior))
+}
+
+fn prepare_resource_lineage_checked(root:&Path,resource_id:&str,manifest:&Manifest,before_identities:&BTreeMap<String,String>,
+ validate_origin:impl FnOnce(&Path,&super::resource_journal::Recovery)->Result<(),String>
+)->Result<ResourceLineageCapture,String>{
  let original=super::resource_journal::read_recovery(root,resource_id)?;
  let bytes=serde_json::to_vec(manifest).map_err(|e|e.to_string())?;
  if super::workspace_fs::view::hash(&bytes)!=original.manifest_sha256{return Err("Source lineage does not name the retained resource manifest.".into())}
@@ -356,8 +375,8 @@ pub(super) fn prepare_resource_lineage(root:&Path,resource_id:&str,manifest:&Man
  let mut restored=BTreeMap::new();
  if let Some(origin)=&manifest.restore_of{
   let prior=super::resource_journal::read_recovery(root,&origin.recovery_id)?;
-  validate_resource_after(root,&prior)?;
   if prior.fingerprint!=origin.fingerprint||!prior.all_paths_recorded_applied{return Err("Restored history requires the exact original complete resource receipt.".into())}
+  validate_origin(root,&prior)?;
   let mut cursor=None;let mut found=None;
   for _ in 0..20{let page=super::resource_journal::list_recoveries(&storage(root)?,cursor.as_deref())?;for id in page.ids{
    let Ok(record)=super::resource_journal::read_recovery(&storage(root)?,&id)else{continue};let Ok(context)=serde_json::from_str::<LineageContext>(&record.manifest.context)else{continue};

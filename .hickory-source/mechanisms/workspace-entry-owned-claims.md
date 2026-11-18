@@ -85,6 +85,10 @@ mod claims {
                 root_volume: self.root_volume,
             })
         }
+        pub(super) fn protected_targets(&self, paths: &[String]) -> Result<BTreeSet<String>, String> {
+            let claims = self.projection()?;
+            Ok(paths.iter().filter(|path| owns(&claims, path)).cloned().collect())
+        }
         fn union(&mut self, other: &Self) {
             self.outputs.extend(other.outputs.clone());
             self.volumes.extend(other.volumes.clone());
@@ -217,6 +221,11 @@ mod claims {
     }
     pub(super) fn inventory(root: &Path, entry: &EntryStamp) -> Result<Inventory, String> {
         Ok(actual(root, entry)?.inventory.clone())
+    }
+    pub(super) fn retained_inventory(root: &Path, entry: &EntryStamp, retained: Option<&Inventory>) -> Result<Inventory, String> {
+        let mut inventory = actual(root, entry)?.inventory.clone();
+        if let Some(before) = retained { inventory.union(before); }
+        Ok(inventory)
     }
     #[cfg(unix)]
     pub(crate) fn positive(root: &Path) -> Result<Option<PositiveClaims>, String> {

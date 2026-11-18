@@ -14,12 +14,12 @@ use crate::serve::{
     LocalState,
     api::{ApiError, ApiResult},
     resource_changes::{ResourcePlan, SourceState},
-    resource_inputs::{Inputs, Request as Capture},
+    resource_inputs::{Draft, Inputs, Request as Capture, SavedSource},
 };
 use axum::{Json, extract::State};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::{collections::BTreeMap, path::Path};
+use std::{collections::{BTreeMap, BTreeSet}, path::Path};
 #[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct IntentRequest {
@@ -37,6 +37,7 @@ enum Operation {
         recovery_id: String,
         recovery_fingerprint: String,
     },
+    InterruptedCompletion,
 }
 #[derive(Clone, Serialize)]
 pub(crate) struct IntentResponse {
@@ -51,6 +52,8 @@ pub(crate) struct IntentResponse {
     after_entry: EntryStamp,
     edit: Value,
     source_files_modified: bool,
+    #[serde(flatten)]
+    extra:Option<super::recovery::IntentExtra>,
 }
 #[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -83,6 +86,12 @@ fn uri(path: &str) -> Result<String, String> {
 ## Preserve original source material while acquisition expands
 
 The bounded live catalogue retains immutable selection and parent identities. Initial source observations may gain newly discovered context, but already captured text, versions, writable state and physical guards cannot drift. Signed context names remain recognizable after cache expiry or restart only so the engine can refuse them: recognizing a historical name never recreates a live intent. Source reads remain available when this capability refuses.
+
+An inverse intent binds the retained producer to the current entry. If an
+exact newer inverse already canceled its descendants, retain the sealed
+producer-chain proof with that intent so Preview and Save use the same frame.
+Creation and other immediate role inverses keep their existing strict
+current-producer validation.
 
 <ui:copy id="workspace-entry-transition-intent">
 #[cfg(unix)]
@@ -139,15 +148,53 @@ mod unix {
         }
     }
     #[derive(Clone)]
+    enum Admission {
+        Selected(EntrySelection),
+        Interrupted {
+            reading: Arc<super::super::recovery::Reading>,
+            retained_paths: BTreeSet<String>,
+        },
+    }
+    impl Admission {
+        fn before(&self) -> &EntryStamp {
+            match self {
+                Self::Selected(proof) => &proof.entry,
+                Self::Interrupted { reading, .. } => &reading.material.current_entry,
+            }
+        }
+        fn compiler_entry(&self) -> Option<&String> {
+            match self {
+                Self::Selected(proof) => proof.entry.path.as_ref(),
+                Self::Interrupted { reading, .. } => reading.material.effective_entry.as_ref(),
+            }
+        }
+        fn original_guard(&self) -> Option<String> {
+            match self {
+                Self::Selected(proof) => proof.source_guard.clone(),
+                Self::Interrupted { reading, .. } => reading.material.paths.iter()
+                    .find(|path| Some(&path.path) == reading.material.current_entry.path.as_ref())
+                    .and_then(|path| path.save_guard.clone()),
+            }
+        }
+        fn interrupted(&self) -> Option<&super::super::recovery::Reading> {
+            match self {
+                Self::Interrupted { reading, .. } => Some(reading),
+                Self::Selected(_) => None,
+            }
+        }
+    }
+    #[derive(Clone)]
     struct LiveIntent {
         response: IntentResponse,
-        proof: EntrySelection,
+        admission: Admission,
         parents: Vec<Parent>,
         operation: Operation,
+        entry_lineage: Option<Arc<super::super::EntryLineageProof>>,
         created: Instant,
         originals: Originals,
         plan: Option<String>,
         saved: Option<String>,
+        sources:Option<String>,
     }
     static INTENTS: LazyLock<Mutex<BTreeMap<String, Arc<Mutex<LiveIntent>>>>> =
         LazyLock::new(|| Mutex::new(BTreeMap::new()));
@@ -245,21 +292,81 @@ mod unix {
                 "Entry review expired. Prepare the complete move or restoration again.".into(),
             );
         }
-        super::super::validate_selection_snapshot(
-            state.index.root(),
-            &state.resource_root,
-            &value.proof,
-            bound,
-        )?;
-        for parent in &value.parents {
-            if crate::serve::resource_inputs::RootIdentity::fingerprint(
-                &state.index.root().join(&parent.path),
-            )? != parent.identity
-            {
-                return Err("An original entry source/destination folder was replaced. No new parent was selected.".into());
+        match &value.admission {
+            Admission::Selected(proof)=>super::super::validate_selection_snapshot(state.index.root(),&state.resource_root,proof,bound)?,
+            Admission::Interrupted { reading, .. } => { super::super::recovery::validate_locked(state, reading, bound)?; },
+        }
+        check_parents(state.index.root(), &value.parents)
+    }
+    fn inverse_change(
+        root: &Path,
+        bound: &storage::Bound,
+        record: &crate::serve::resource_journal::Recovery,
+        entry_lineage: Option<&super::super::EntryLineageProof>,
+    ) -> Result<EntryChange, String> {
+        if let Some(proof) = entry_lineage {
+            return super::super::history_transition_with_entry_proof(
+                root, &bound.payload, record, proof,
+            );
+        }
+        check_retained_namespace(root, &bound.payload, record)?;
+        let proof = crate::serve::source_history::prove_resource_after(root, record)?;
+        super::super::history_transition_after_lineage(root, &bound.payload, record, &proof)
+    }
+    fn checked_inverse(
+        root: &Path,
+        bound: &storage::Bound,
+        intent: &LiveIntent,
+        record: &crate::serve::resource_journal::Recovery,
+    ) -> Result<EntryChange, String> {
+        let Operation::Restoration { recovery_id, recovery_fingerprint } = &intent.operation else {
+            return Err("Choose a reviewed entry restoration before preparing its inverse.".into());
+        };
+        if &record.id != recovery_id || &record.fingerprint != recovery_fingerprint {
+            return Err("Entry restoration changed its original sealed recovery record. Prepare a fresh review.".into());
+        }
+        let change = inverse_change(root, bound, record, intent.entry_lineage.as_deref())?;
+        if change.after != intent.response.after_entry {
+            return Err("Entry restoration no longer matches its original selected generation. Prepare a fresh review.".into());
+        }
+        Ok(change)
+    }
+    fn interrupted_record(binding: &Binding, id: &str) -> bool {
+        let recorded = |recovery: &super::super::RecoveryState| {
+            recovery.origin.request_id == id || recovery.attempts.iter().any(|attempt| attempt.request_id == id)
+        };
+        binding.pending.as_ref().is_some_and(|pending| {
+            pending.request_id == id || pending.recovery.as_ref().is_some_and(recorded)
+        }) || binding.history.iter().any(|row| {
+            (row.request_id == id && row.change.kind == TransitionKind::InterruptedCompletion)
+                || row.recovered_from.as_ref().is_some_and(recorded)
+        })
+    }
+
+    pub(crate) fn validate_restoration_origin(
+        state: &LocalState,
+        capture: &Capture,
+        record: &crate::serve::resource_journal::Recovery,
+    ) -> Result<(), String> {
+        let root = state.index.root();
+        let base = hickory_workspace::data_root().map_err(|error| error.to_string())?;
+        if let Some(bound) = storage::Bound::optional_under(&base, root)? {
+            if interrupted_record(&bound.payload, &record.id) {
+                return Err("Interrupted Move records require their own complete recovery review. These retained snapshots grant no generic inverse authority.".into());
+            }
+            if reserved_context(&bound.held.key, &capture.context)? {
+                let live = obtain(&capture.context)?;
+                let intent = live.lock().map_err(|_| "Entry review is unavailable")?.clone();
+                exact_capture(&intent, capture)?;
+                check(state, &intent, &bound)?;
+                checked_inverse(root, &bound, &intent, record)?;
+                return bound.unchanged();
+            }
+            if bound.payload.history.iter().any(|row| row.request_id == record.id) {
+                return Err("Prepare a fresh workspace-entry review to restore this retained transition.".into());
             }
         }
-        Ok(())
+        crate::serve::source_history::validate_resource_after(root, record)
     }
     pub(super) fn intent(
         state: LocalState,
@@ -294,6 +401,7 @@ mod unix {
             request.entry_selection.workspace.clone(),
             request.entry_selection.namespace.clone(),
         );
+        let mut entry_lineage = None;
         let (kind, title, after, edit, affected) = match &request.operation {
             Operation::Move { destination } => {
                 let path = before.path.as_ref().ok_or(
@@ -332,17 +440,16 @@ mod unix {
                     return Err("Choose an exact retained entry recovery identity.".into());
                 }
                 let record = crate::serve::resource_journal::read_recovery(root, recovery_id)?;
-                check_retained_namespace(root, &bound.payload, &record)?;
                 if record.fingerprint != *recovery_fingerprint {
                     return Err("Entry recovery evidence changed. Read it again; no old fingerprint was applied.".into());
                 }
-                let lineage = crate::serve::source_history::prove_resource_after(root, &record)?;
-                let change = super::super::history_transition_after_lineage(
-                    root,
-                    &bound.payload,
-                    &record,
-                    &lineage,
-                )?;
+                let row = retained_transition(&bound.payload, &record)?;
+                if row.change.after != bound.payload.current {
+                    entry_lineage = Some(Arc::new(super::super::lineage::prove(
+                        root, &bound.payload, &record,
+                    )?));
+                }
+                let change = inverse_change(root, &bound, &record, entry_lineage.as_deref())?;
                 let affected: Vec<_> = record.manifest.after.keys().cloned().collect();
                 let changes = affected
                     .iter()
@@ -355,6 +462,9 @@ mod unix {
                     json!({"changes":changes}),
                     affected,
                 )
+            }
+            Operation::InterruptedCompletion => {
+                return Err("Prepare interrupted recovery from its sealed Source Recovery reading.".into());
             }
         };
         let parents = parents(root, affected)?;
@@ -371,22 +481,288 @@ mod unix {
             after_entry: after,
             edit,
             source_files_modified: false,
+            extra: None,
         };
         let value = LiveIntent {
             response: response.clone(),
-            proof: request.entry_selection,
+            admission: Admission::Selected(request.entry_selection),
             parents,
             operation: request.operation,
+            entry_lineage,
             created: Instant::now(),
             originals: Originals::default(),
             plan: None,
             saved: None,
+            sources:None,
         };
         check(&state, &value, &bound)?;
         read.check()?;
         retain(value)?;
         Ok(response)
     }
+    fn exact_capture(intent: &LiveIntent, capture: &Capture) -> Result<(), String> {
+        if capture.context != intent.response.context
+            || capture.edit != intent.response.edit
+            || capture.project_entry.as_ref().is_some_and(|entry| Some(entry) != intent.admission.compiler_entry())
+        {
+            return Err("Entry acquisition changed its original operation or construction context. Prepare a new review.".into());
+        }
+        intent.originals.clone().extend(capture)
+    }
+
+    // The interrupted reading grants one typed acquisition scope. Ordinary
+    // resource inputs cannot sign their own sealed orphan alias. New source
+    // acquisitions may add clean buffers without taking ownership of an
+    // earlier, independently retained dirty draft.
+    /// A scope can only be constructed beside a live, sealed interruption.
+    /// Holding it keeps the exact root and binding readable through acquisition.
+    pub(crate) struct AcquisitionScope {
+        bound: storage::Bound,
+        lease: leases::Coordination,
+        intent: LiveIntent,
+        namespace: super::super::recovery::Namespace,
+        _ordinary: crate::engine::private_policy::Ordinary,
+    }
+
+    impl AcquisitionScope {
+        pub(crate) fn canonical_entry(&self) -> &str {
+            self.intent.admission.compiler_entry().expect("sealed surviving entry")
+        }
+
+        fn original_path(&self) -> &str {
+            self.intent.response.before_entry.path.as_deref().expect("sealed original path")
+        }
+
+        pub(crate) fn check(&self, root: &Path, request: &Capture) -> Result<(), String> {
+            exact_capture(&self.intent, request)?;
+            self.lease.check()?;
+            self.bound.unchanged()?;
+            let Admission::Interrupted { reading, retained_paths } = &self.intent.admission else {
+                return Err("No original interrupted entry scope".into());
+            };
+            for (path, draft) in &request.drafts {
+                if request.ownership_sources.get(path) != Some(&draft.text)
+                    || (!retained_paths.contains(path)
+                        && !matches!(self.namespace.saved.get(path), Some(SavedSource::File { text, .. }) if &draft.text == text))
+                {
+                    return Err(format!("Newly acquired or inconsistent draft cannot replace an original interrupted source: {path}."));
+                }
+            }
+            for observation in &reading.material.paths {
+                let path = &observation.path;
+                let (full, current) = crate::serve::resource_inputs::saved_target(root, path)?;
+                if self.namespace.saved.get(path) != Some(&current) {
+                    return Err(format!("Interrupted saved source changed during acquisition: {path}"));
+                }
+                if let Some(guard) = &observation.save_guard {
+                    crate::serve::source_history::validate_observed_guard(root, &full, path, guard)?;
+                }
+            }
+            check_parents(root, &self.intent.parents)
+        }
+
+        pub(crate) fn compiler_request(&self, request: &Capture) -> Capture {
+            let mut compiler = request.clone();
+            if matches!(self.namespace.saved[self.original_path()], SavedSource::Missing) {
+                // The compiler first reads the surviving saved entry. Candidate
+                // analysis places the retained orphan draft at the reviewed destination.
+                compiler.ownership_sources.remove(self.original_path());
+            }
+            compiler
+        }
+
+        pub(crate) fn retained_generated_targets(&self, paths: &[String]) -> Result<BTreeSet<String>, String> {
+            self.bound.payload.ownership.as_ref().map_or_else(
+                || Ok(BTreeSet::new()),
+                |inventory| inventory.protected_targets(paths),
+            )
+        }
+
+        pub(crate) fn orphan_draft(&self, path: &str, request: &Capture, saved: &SavedSource) -> Result<Option<Draft>, String> {
+            let Some(draft) = request.drafts.get(path) else { return Ok(None); };
+            if self.permits_orphan_path(path)
+                && matches!(saved, SavedSource::Missing)
+                && draft.save_guard.is_some()
+                && draft.save_guard == self.namespace.original_guard
+                && matches!(self.namespace.original.before.get(path), Some(SavedSource::File { sha256, .. }) if sha256 == &draft.base_sha256)
+                && !request.saved_guards.contains_key(path)
+                && request.ownership_sources.get(path) == Some(&draft.text)
+            {
+                return Ok(Some(draft.clone()));
+            }
+            Err(format!("Missing source has no matching retained original editor and sealed saved baseline: {path}. Preserve its draft."))
+        }
+
+        fn permits_orphan_path(&self, path: &str) -> bool {
+            let Admission::Interrupted { retained_paths, .. } = &self.intent.admission else { return false; };
+            path == self.original_path()
+                && retained_paths.contains(path)
+                && matches!(self.namespace.saved.get(path), Some(SavedSource::Missing))
+        }
+
+        pub(crate) fn permits_retained_source(&self, path: &str, source: &SourceState, text: &str) -> bool {
+            self.namespace.saved.contains_key(path)
+                && matches!(source, SourceState::File { text: captured, .. } if captured == text)
+        }
+
+        pub(crate) fn validate_orphan_sources(&self, sources: &BTreeMap<String, SourceState>) -> Result<(), String> {
+            if sources.keys().ne(self.namespace.saved.keys())
+                || sources.iter().any(|(path, source)| matches!(source, SourceState::File { .. })
+                    && matches!(self.namespace.saved[path], SavedSource::Missing)
+                    && !self.permits_orphan_path(path))
+            {
+                return Err("Interrupted capture exceeds its exact original Move source scope.".into());
+            }
+            Ok(())
+        }
+    }
+
+    pub(crate) fn capture_scope(state: &LocalState, request: &Capture) -> Result<Option<AcquisitionScope>, String> {
+        let Ok(live) = obtain(&request.context) else { return Ok(None); };
+        let intent = live.lock().map_err(|_| "Entry review is unavailable")?.clone();
+        if intent.admission.interrupted().is_none() {
+            return Ok(None);
+        }
+        let ordinary = crate::engine::private_policy::ordinary();
+        super::super::ordinary(state)?;
+        let root = state.index.root();
+        leases::ordinary_root(root)?;
+        let lease = leases::coordination(root, false)?;
+        let bound = storage::Bound::open(root, false)?;
+        let namespace = interrupted_namespace(state, &intent, &bound)?;
+        let scope = AcquisitionScope { bound, lease, intent, namespace, _ordinary: ordinary };
+        scope.check(root, request)?;
+        Ok(Some(scope))
+    }
+
+    fn check_parents(root: &Path, parents: &[Parent]) -> Result<(), String> {
+        for parent in parents {
+            if crate::serve::resource_inputs::RootIdentity::fingerprint(&root.join(&parent.path))? != parent.identity {
+                return Err("An original entry source/destination folder was replaced. No new parent was selected.".into());
+            }
+        }
+        Ok(())
+    }
+
+    fn interrupted_namespace(
+        state: &LocalState,
+        intent: &LiveIntent,
+        bound: &storage::Bound,
+    ) -> Result<super::super::recovery::Namespace, String> {
+        if intent.created.elapsed() >= LIFETIME {
+            return Err("Original interrupted entry review expired. Prepare a fresh review.".into());
+        }
+        let reading = intent.admission.interrupted().ok_or("No sealed interrupted entry reading")?;
+        let namespace = super::super::recovery::validate_locked(state, reading, bound)?;
+        check_parents(state.index.root(), &intent.parents)?;
+        Ok(namespace)
+    }
+
+    fn completion_plan(
+        intent: &LiveIntent,
+        namespace: &super::super::recovery::Namespace,
+        sources: &BTreeMap<String, SourceState>,
+    ) -> Result<super::super::completion::Completion, String> {
+        let Admission::Interrupted { retained_paths, .. } = &intent.admission else {
+            return Err("A live interrupted entry review is required".into());
+        };
+        super::super::completion::prepare(
+            &namespace.original,
+            intent.response.before_entry.path.as_deref().ok_or("Interrupted Move lost its source")?,
+            intent.response.after_entry.path.as_deref().ok_or("Interrupted Move lost its destination")?,
+            &namespace.saved,
+            sources,
+            retained_paths,
+            &intent.response.context,
+        )
+    }
+
+    pub(super) fn interrupted_intent(
+        state: LocalState,
+        request: super::super::recovery::IntentRequest,
+    ) -> Result<IntentResponse, String> {
+        if request.version != 1 {
+            return Err("Interrupted completion requires protocol 1.".into());
+        }
+        super::super::ordinary(&state)?;
+        let root = state.index.root();
+        leases::ordinary_root(root)?;
+        let lease = leases::coordination(root, false)?;
+        let bound = storage::Bound::open(root, false)?;
+        let namespace = super::super::recovery::validate_locked(&state, &request.reading, &bound)?;
+        let pending = bound.payload.pending.as_ref().ok_or("No interrupted Move remains")?;
+        let material = &request.reading.material;
+        let before = material.current_entry.clone();
+        let after = EntryStamp {
+            generation: material.reservation_floor.checked_add(1).ok_or("Interrupted recovery generation capacity exhausted")?,
+            path: material.change.after.path.clone(),
+            ..before.clone()
+        };
+        if bound.payload.history.len() >= 256 || material.attempts.len() >= 256 {
+            return Err("The retained entry journal is full. Preserve the original recovery evidence.".into());
+        }
+        let supersedes = request.supersede_request.as_ref().map(|selector| {
+            material.attempts.iter().find(|attempt| {
+                attempt.request_id == pending.request_id
+                    && attempt.request_id == selector.request_id
+                    && attempt.context == selector.context
+            }).cloned().ok_or("Superseding recovery must identify the exact retained current attempt.")
+        }).transpose()?;
+        let paths: Vec<_> = namespace.saved.keys().cloned().collect();
+        let parents = parents(root, paths.clone())?;
+        let edit = json!({"changes": paths.iter().map(|path| Ok((uri(path)?, json!([]))))
+            .collect::<Result<serde_json::Map<String, Value>, String>>()?});
+        let token = token(&bound.held.key)?;
+        let response = IntentResponse {
+            version: 1,
+            workspace: material.workspace.clone(),
+            namespace: material.namespace.clone(),
+            token: token.clone(),
+            context: token,
+            kind: "interrupted_completion".into(),
+            title: super::super::completion::TITLE.into(),
+            before_entry: before,
+            after_entry: after,
+            edit,
+            source_files_modified: false,
+            extra: Some(super::super::recovery::IntentExtra {
+                interrupted_reading_fingerprint: request.reading.fingerprint.clone(),
+                supersedes,
+            }),
+        };
+        let retained = request.retained_capture;
+        let retained_paths: BTreeSet<_> = retained.drafts.keys().cloned().collect();
+        if !retained_paths.iter().all(|path| namespace.saved.contains_key(path)) {
+            return Err("An original retained draft is outside the interrupted Move scope.".into());
+        }
+        let mut originals = Originals::default();
+        originals.extend(&Capture {
+            context: response.context.clone(),
+            edit: response.edit.clone(),
+            project_entry: None,
+            drafts: retained.drafts,
+            ownership_sources: retained.ownership_sources,
+            unaddressed_sources: retained.unaddressed_sources,
+            saved_guards: retained.saved_guards,
+        })?;
+        let value = LiveIntent {
+            response: response.clone(),
+            admission: Admission::Interrupted { reading: Arc::new(request.reading), retained_paths },
+            parents,
+            operation: Operation::InterruptedCompletion,
+            created: Instant::now(),
+            originals,
+            plan: None,
+            saved: None,
+            sources: None,
+            entry_lineage: None,
+        };
+        check(&state, &value, &bound)?;
+        lease.check()?;
+        retain(value)?;
+        Ok(response)
+    }
+
     pub(super) async fn inputs(state: LocalState, request: InputRequest) -> Result<Inputs, String> {
         super::super::ordinary(&state)?;
         if request.version != 1 {
@@ -397,29 +773,18 @@ mod unix {
             .lock()
             .map_err(|_| "Entry review is unavailable")?
             .clone();
-        if request.capture.context != original.response.context
-            || request.capture.edit != original.response.edit
-            || request
-                .capture
-                .project_entry
-                .as_ref()
-                .is_some_and(|entry| Some(entry) != original.proof.entry.path.as_ref())
-        {
-            return Err("Entry acquisition changed its original operation or construction context. Prepare a new review.".into());
-        }
-        let reading = super::super::acquire_entry_read_lease(
-            state.index.root(),
-            original
-                .proof
-                .entry
-                .path
-                .as_ref()
-                .map(|_| &original.proof.entry),
-        )?;
-        {
+        exact_capture(&original, &request.capture)?;
+        let reading = if original.admission.interrupted().is_none() {
+            let reading = super::super::acquire_entry_read_lease(
+                state.index.root(),
+                original.admission.before().path.as_ref().map(|_| original.admission.before()),
+            )?;
             let bound = storage::Bound::open(state.index.root(), false)?;
             check(&state, &original, &bound)?;
-        }
+            Some(reading)
+        } else {
+            None
+        };
         let result = crate::serve::resource_inputs::inspect(
             State(state.clone()),
             Json(request.capture.clone()),
@@ -427,24 +792,30 @@ mod unix {
         .await
         .map_err(|error| error.detail().to_string())?
         .0;
-        {
-            let bound = storage::Bound::open(state.index.root(), false)?;
-            check(&state, &original, &bound)?;
+        let bound = storage::Bound::open(state.index.root(), false)?;
+        check(&state, &original, &bound)?;
+        if let Some(reading) = reading {
+            reading.check()?;
         }
-        reading.check()?;
-        let plan =
-            if matches!(original.operation, Operation::Move { .. }) && result.refusals.is_empty() {
-                Some(hash(&crate::serve::resource_changes::prepare(
+        let plan = if result.refusals.is_empty() {
+            match &original.operation {
+                Operation::Move { .. } => Some(crate::serve::resource_changes::prepare(
                     crate::serve::resource_changes::Request {
                         context: result.context.clone(),
                         title: original.response.title.clone(),
                         edit: original.response.edit.clone(),
                         sources: result.sources.clone(),
                     },
-                )?)?)
-            } else {
-                None
-            };
+                )?),
+                Operation::InterruptedCompletion => {
+                    let namespace = interrupted_namespace(&state, &original, &bound)?;
+                    Some(completion_plan(&original, &namespace, &result.sources)?.plan)
+                }
+                Operation::Restoration { .. } => None,
+            }
+        } else {
+            None
+        };
         let mut value = live.lock().map_err(|_| "Entry review is unavailable")?;
         // Another acquisition cannot erase already frozen source material.
         let mut coherent = value.originals.clone();
@@ -456,21 +827,53 @@ mod unix {
                 &result.saved_guards,
                 &result.workspace,
             ))?);
-            value.plan = Some(plan);
+            value.plan = Some(hash(&plan)?);
+            value.sources = Some(hash(&result.sources)?);
         }
         Ok(result)
+    }
+
+    pub(crate) fn plan_interrupted(
+        state: &LocalState,
+        request: &crate::serve::resource_changes::Request,
+    ) -> Result<Option<ResourcePlan>, String> {
+        let Ok(live) = obtain(&request.context) else { return Ok(None); };
+        let intent = live.lock().map_err(|_| "Entry review is unavailable")?.clone();
+        if intent.admission.interrupted().is_none() { return Ok(None); }
+        super::super::ordinary(state)?;
+        let root = state.index.root();
+        leases::ordinary_root(root)?;
+        let lease = leases::coordination(root, false)?;
+        let bound = storage::Bound::open(root, false)?;
+        let namespace = interrupted_namespace(state, &intent, &bound)?;
+        if request.edit != intent.response.edit || request.title != intent.response.title
+            || intent.sources.as_deref() != Some(hash(&request.sources)?.as_str())
+        {
+            return Err("Interrupted plan changed its captured operation or logical source. Prepare a fresh review.".into());
+        }
+        let plan = completion_plan(&intent, &namespace, &request.sources)?.plan;
+        if intent.plan.as_deref() != Some(hash(&plan)?.as_str()) {
+            return Err("Interrupted plan differs from its exact acquired source review.".into());
+        }
+        lease.check()?;
+        Ok(Some(plan))
     }
 </ui:copy>
 
 ## Persist pending authority before the first source byte changes
 
-The shared publisher owns the exclusive physical-root provider. Stable ordinary resource operations keep their existing source rules; retiring the known main requires the live engine intent and exact prepared plan. The pending record precedes every source mutation. Only complete producer observations can seal the namespace and advance the logical generation. Incomplete effects retain the old role and readable recovery, without publishing a guessed inverse. The finite record/evidence budget refuses before mutation rather than discarding identities needed to classify old history safely.
+The shared publisher owns the exclusive physical-root provider. Retiring the known main requires the live engine intent and exact prepared plan. Before replacing an interrupted reservation, authenticate its original Move and latest producer checkpoints under that same lease. Keep the old role while the shared writer applies the reviewed saved namespace. A completion reserves the next generation beyond every retained attempt. Only complete producer observations confirm it. The finite record budget refuses before mutation and preserves the earlier identities needed to read history.
+
+Before the first writer, the shared publisher records physical source history.
+An older inverse lends its sealed frame to that preparer under this same
+exclusive publication lease. The borrow ends before any file callback can run.
 
 <ui:copy id="workspace-entry-transition-publisher">
     /// A live Move keeps saved bytes separate from its retained dirty editor.
     /// Fields remain private so ordinary resource callers cannot mint this proof.
     pub(crate) struct SavedMoveProjection {
-        states: BTreeMap<String, crate::serve::resource_inputs::SavedSource>,
+        states: BTreeMap<String, SavedSource>,
+        interrupted: bool,
     }
     impl SavedMoveProjection {
         pub(crate) fn states(
@@ -478,8 +881,14 @@ The shared publisher owns the exclusive physical-root provider. Stable ordinary 
         ) -> &BTreeMap<String, crate::serve::resource_inputs::SavedSource> {
             &self.states
         }
-        pub(crate) fn apply(self, manifest: &mut crate::serve::resource_journal::Manifest) {
+        pub(crate) fn manifest(self, inputs: &Inputs, plan: &ResourcePlan) -> Result<crate::serve::resource_journal::Manifest, String> {
+            use crate::serve::resource_journal::Manifest;
+            if self.interrupted {
+                return Manifest::from_interrupted_review(inputs, plan, &self.states);
+            }
+            let mut manifest = Manifest::from_review(inputs, plan)?;
             manifest.after = self.states;
+            Ok(manifest)
         }
     }
     pub(crate) fn saved_move_projection(
@@ -501,7 +910,7 @@ The shared publisher owns the exclusive physical-root provider. Stable ordinary 
             .map_err(|_| "Entry review is unavailable")?
             .clone();
         check(state, &intent, &bound)?;
-        if !matches!(intent.operation, Operation::Move { .. }) {
+        if !matches!(intent.operation, Operation::Move { .. } | Operation::InterruptedCompletion) {
             return Ok(None);
         }
         if intent.plan.as_deref() != Some(hash(plan)?.as_str())
@@ -519,6 +928,17 @@ The shared publisher owns the exclusive physical-root provider. Stable ordinary 
                 "Saved Move baseline differs from the original acquired review. Prepare again."
                     .into(),
             );
+        }
+        if intent.admission.interrupted().is_some() {
+            let namespace = interrupted_namespace(state, &intent, &bound)?;
+            let expected = completion_plan(&intent, &namespace, &inputs.sources)?;
+            if expected.saved_before != inputs.saved_sources
+                || hash(&expected.plan)? != hash(plan)?
+                || intent.sources.as_deref() != Some(hash(&inputs.sources)?.as_str())
+            {
+                return Err("Completion changed its reviewed logical draft or saved namespace.".into());
+            }
+            return Ok(Some(SavedMoveProjection { states: expected.saved_after, interrupted: true }));
         }
         let after = plan.apply(&inputs.context, &inputs.sources)?;
         let mut states = BTreeMap::new();
@@ -548,7 +968,7 @@ The shared publisher owns the exclusive physical-root provider. Stable ordinary 
             };
             states.insert(patch.path.clone(), saved);
         }
-        Ok(Some(SavedMoveProjection { states }))
+        Ok(Some(SavedMoveProjection { states, interrupted: false }))
     }
     pub(crate) struct Publication {
         root: std::path::PathBuf,
@@ -558,11 +978,13 @@ The shared publisher owns the exclusive physical-root provider. Stable ordinary 
         change: Option<EntryChange>,
         request: String,
         manifest: String,
+        reviewed_fingerprint: String,
         begun: bool,
         confirmed: bool,
         failure_original: Option<super::super::failures::Evidence>,
         writers_started: bool,
         no_effect: Option<EntryStamp>,
+        orphan_base: Option<(String, String)>,
         _ordinary: crate::engine::private_policy::Ordinary,
     }
     impl Publication {
@@ -570,6 +992,7 @@ The shared publisher owns the exclusive physical-root provider. Stable ordinary 
             state: &LocalState,
             manifest: &crate::serve::resource_journal::Manifest,
             transactional: bool,
+            reviewed_fingerprint: &str,
         ) -> Result<Self, String> {
             super::super::ordinary(state)?;
             let ordinary = crate::engine::private_policy::ordinary();
@@ -579,9 +1002,6 @@ The shared publisher owns the exclusive physical-root provider. Stable ordinary 
             coordination.check_exclusive_for(&root)?;
             let base = hickory_workspace::data_root().map_err(|error| error.to_string())?;
             let bound = storage::Bound::resolve_coordinated(&base, &root, &coordination)?;
-            if bound.payload.pending.is_some() {
-                return Err("Another entry publication remains unconfirmed. Read its recovery; no source was republished.".into());
-            }
             let reserved = reserved_context(&bound.held.key, &manifest.context)?;
             let live = match obtain(&manifest.context) {
                 Ok(value) => Some(
@@ -593,6 +1013,10 @@ The shared publisher owns the exclusive physical-root provider. Stable ordinary 
                 Err(error) if reserved => return Err(error),
                 Err(_) => None,
             };
+            let completing = live.as_ref().is_some_and(|intent| intent.admission.interrupted().is_some());
+            if bound.payload.pending.is_some() != completing {
+                return Err("The original interrupted entry publication changed. Read its current recovery before publishing.".into());
+            }
             if live.is_none()
                 && manifest.restore_of.as_ref().is_some_and(|origin| {
                     bound
@@ -600,11 +1024,13 @@ The shared publisher owns the exclusive physical-root provider. Stable ordinary 
                         .history
                         .iter()
                         .any(|row| row.request_id == origin.recovery_id)
+                        || interrupted_record(&bound.payload, &origin.recovery_id)
                 })
             {
                 return Err("Retained entry restoration requires a fresh live entry intent. Historical metadata is not application authority.".into());
             }
             let mut change = None;
+            let mut orphan_base = None;
             if let Some(intent) = &live {
                 check(state, intent, &bound)?;
                 match &intent.operation {
@@ -634,17 +1060,29 @@ The shared publisher owns the exclusive physical-root provider. Stable ordinary 
                         }
                         let record =
                             crate::serve::resource_journal::read_recovery(&root, recovery_id)?;
-                        check_retained_namespace(&root, &bound.payload, &record)?;
-                        let proof =
-                            crate::serve::source_history::prove_resource_after(&root, &record)?;
-                        let expected = super::super::history_transition_after_lineage(
-                            &root,
-                            &bound.payload,
-                            &record,
-                            &proof,
-                        )?;
-                        if expected.after != intent.response.after_entry {
-                            return Err("Entry restoration no longer matches its original selected generation.".into());
+                        checked_inverse(&root, &bound, intent, &record)?;
+                    }
+                    Operation::InterruptedCompletion => {
+                        let namespace = interrupted_namespace(state, intent, &bound)?;
+                        let sources: BTreeMap<_, _> = manifest.reviewed_plan.patches.iter()
+                            .map(|patch| (patch.path.clone(), patch.before.clone())).collect();
+                        let expected = completion_plan(intent, &namespace, &sources)?;
+                        if manifest.version != 4 || manifest.restore_of.is_some()
+                            || intent.sources.as_deref() != Some(hash(&sources)?.as_str())
+                            || intent.plan.as_deref() != Some(hash(&manifest.reviewed_plan)?.as_str())
+                            || hash(&expected.plan)? != hash(&manifest.reviewed_plan)?
+                            || expected.saved_before != manifest.before || expected.saved_after != manifest.after
+                        {
+                            return Err("Interrupted publication differs from its original saved and draft review.".into());
+                        }
+                        let old = intent.response.before_entry.path.as_ref().ok_or("Interrupted Move lost its old source")?;
+                        if matches!(manifest.before[old], SavedSource::Missing)
+                            && matches!(sources[old], SourceState::File { .. })
+                        {
+                            let SavedSource::File { text, .. } = &namespace.original.before[old] else {
+                                return Err("Retained orphan lacks its original saved room baseline.".into());
+                            };
+                            orphan_base = Some((old.clone(), text.clone()));
                         }
                     }
                 }
@@ -673,13 +1111,23 @@ The shared publisher owns the exclusive physical-root provider. Stable ordinary 
                             .and_then(|row| row.change.source_identity.clone()),
                         _ => None,
                     });
+                let (kind, source_identity) = match &intent.operation {
+                    Operation::Move { .. } => (TransitionKind::Move, source_identity),
+                    Operation::Restoration { .. } => (TransitionKind::Restoration, source_identity),
+                    Operation::InterruptedCompletion => (
+                        TransitionKind::InterruptedCompletion,
+                        manifest.reviewed_plan.patches.iter().find_map(|patch| {
+                            (Some(&patch.path) == intent.response.after_entry.path.as_ref())
+                                .then_some(&patch.after).and_then(|after| match after {
+                                    SourceState::File { identity, .. } => Some(identity.clone()),
+                                    SourceState::Missing { .. } => None,
+                                })
+                        }),
+                    ),
+                };
                 let candidate = EntryChange {
                     version: 1,
-                    kind: if matches!(intent.operation, Operation::Move { .. }) {
-                        TransitionKind::Move
-                    } else {
-                        TransitionKind::Restoration
-                    },
+                    kind,
                     before: bound.payload.current.clone(),
                     after: intent.response.after_entry.clone(),
                     source_identity,
@@ -774,15 +1222,32 @@ The shared publisher owns the exclusive physical-root provider. Stable ordinary 
                 change,
                 request,
                 manifest: fingerprint,
+                reviewed_fingerprint: reviewed_fingerprint.into(),
                 begun: false,
                 confirmed: false,
                 failure_original,
                 writers_started: false,
                 no_effect: None,
+                orphan_base,
                 _ordinary: ordinary,
             };
             result.check(state, &std::collections::BTreeSet::new())?;
             Ok(result)
+        }
+        pub(in crate::serve) fn prepare_lineage(
+            &self,
+            root: &Path,
+            resource_id: &str,
+            manifest: &crate::serve::resource_journal::Manifest,
+            before_identities: &BTreeMap<String, String>,
+        ) -> Result<crate::serve::source_history::ResourceLineageCapture, String> {
+            use crate::serve::source_history;
+            let Some(proof) = self.intent.as_ref().and_then(|intent| intent.entry_lineage.as_deref()) else {
+                return source_history::prepare_resource_lineage(root, resource_id, manifest, before_identities);
+            };
+            self.coordination.check_exclusive_for(root)?;
+            let admission = proof.admit(&self.bound)?;
+            source_history::prepare_resource_lineage_with_entry(root, resource_id, manifest, before_identities, &admission)
         }
         pub(crate) fn check(
             &self,
@@ -805,7 +1270,7 @@ The shared publisher owns the exclusive physical-root provider. Stable ordinary 
                         return Err("An original entry source/destination parent changed during publication.".into());
                     }
                 }
-                let expected = &intent.proof.entry;
+                let expected = intent.admission.before();
                 if &self.bound.payload.current != expected {
                     return Err(
                         "Entry generation changed during its reviewed source publication.".into(),
@@ -823,17 +1288,13 @@ The shared publisher owns the exclusive physical-root provider. Stable ordinary 
                 }
                 if let Some(path) = &expected.path {
                     if !published.contains(path) {
-                        let guard = intent
-                            .proof
-                            .source_guard
-                            .as_ref()
-                            .ok_or("Entry intent lost its original source guard")?;
-                        crate::serve::source_history::validate_observed_guard(
-                            &self.root,
-                            &self.root.join(path),
-                            path,
-                            guard,
-                        )?;
+                        if let Some(guard) = intent.admission.original_guard() {
+                            crate::serve::source_history::validate_observed_guard(
+                                &self.root, &self.root.join(path), path, &guard,
+                            )?;
+                        } else if intent.admission.interrupted().is_none() {
+                            return Err("Entry intent lost its original source guard".into());
+                        }
                     }
                 }
             }
@@ -845,17 +1306,33 @@ The shared publisher owns the exclusive physical-root provider. Stable ordinary 
             }
             self.coordination.check_exclusive_for(&self.root)?;
             if let Some(change) = &self.change {
+                let recovery = if change.kind == TransitionKind::InterruptedCompletion {
+                    let recovery = self.bound.payload.pending.as_ref().ok_or("Interrupted Move pending record disappeared")?.next_recovery(&self.root)?;
+                    if recovery.reservation_floor != change.after.generation {
+                        return Err("Interrupted completion reservation differs from the reviewed generation.".into());
+                    }
+                    Some(recovery)
+                } else {
+                    None
+                };
+                if change.kind == TransitionKind::Move {
+                    self.bound.payload.ownership = Some(super::super::claims::retained_inventory(
+                        &self.root, &change.before, self.bound.payload.ownership.as_ref(),
+                    )?);
+                }
                 self.bound.payload.pending = Some(super::super::Pending {
                     request_id: self.request.clone(),
                     manifest_sha256: self.manifest.clone(),
                     change: change.clone(),
                     after_guard: None,
                     failure: self.failure_original.clone(),
+                    reviewed_fingerprint: Some(self.reviewed_fingerprint.clone()),
+                    recovery,
                     namespace_guards: None,
                     before_guard: self
                         .intent
                         .as_ref()
-                        .and_then(|intent| intent.proof.source_guard.clone()),
+                        .and_then(|intent| intent.admission.original_guard()),
                 });
                 self.bound.persist()?;
                 write_hint(&self.root, &change.before.identity, change.after.generation)?;
@@ -913,6 +1390,16 @@ The shared publisher owns the exclusive physical-root provider. Stable ordinary 
             if self.writers_started || self.change.is_none() {
                 return Ok(());
             }
+            if self.change.as_ref().is_some_and(|change| change.kind == TransitionKind::InterruptedCompletion) {
+                self.failure_original.as_ref().ok_or("Interrupted no-effect refusal lost its namespace proofs")?
+                    .no_effect(&self.root, manifest)?;
+                let pending = self.bound.payload.pending.as_ref().ok_or("Interrupted no-effect refusal lost the prior pending Move")?;
+                if self.begun && (pending.request_id != self.request || pending.manifest_sha256 != self.manifest) {
+                    return Err("An unrelated pending entry cannot confirm interrupted no-effect.".into());
+                }
+                self.no_effect = Some(self.bound.payload.current.clone());
+                return Ok(());
+            }
             let Some(pending) = self.bound.payload.pending.as_ref() else {
                 self.failure_original
                     .as_ref()
@@ -948,6 +1435,10 @@ The shared publisher owns the exclusive physical-root provider. Stable ordinary 
             self.no_effect = Some(after);
             Ok(())
         }
+        pub(crate) fn orphan_saved_base(&self, path: &str) -> Option<&str> {
+            self.orphan_base.as_ref().filter(|(original, _)| original == path).map(|(_, base)| base.as_str())
+        }
+
         pub(crate) fn is_document_source(&self, path: &str) -> bool {
             path.ends_with(".md")
                 || self.bound.payload.current.path.as_deref() == Some(path)
@@ -1011,7 +1502,7 @@ The shared publisher owns the exclusive physical-root provider. Stable ordinary 
                     .and_then(|path| guards.get(path))
                     .cloned();
                 let guards_for_history = guards.clone();
-                {
+                let recovered_from = {
                     let pending = self
                         .bound
                         .payload
@@ -1020,12 +1511,13 @@ The shared publisher owns the exclusive physical-root provider. Stable ordinary 
                         .ok_or("Entry pending publication disappeared")?;
                     pending.after_guard = after_guard.clone();
                     pending.namespace_guards = Some(guards);
-                }
+                    pending.recovery.clone()
+                };
                 self.bound.persist()?;
                 let before_guard = self
                     .intent
                     .as_ref()
-                    .and_then(|intent| intent.proof.source_guard.clone());
+                    .and_then(|intent| intent.admission.original_guard());
                 self.bound
                     .payload
                     .history
@@ -1036,6 +1528,7 @@ The shared publisher owns the exclusive physical-root provider. Stable ordinary 
                         after_guard,
                         before_guard,
                         namespace_guards: Some(guards_for_history),
+                        recovered_from,
                     });
                 self.bound.payload.ownership = if change.after.path.is_some() {
                     match super::super::claims::inventory(&self.root, &change.after) {
@@ -1061,6 +1554,26 @@ The shared publisher owns the exclusive physical-root provider. Stable ordinary 
             self.no_effect.is_some()
         }
         pub(crate) fn outcome(&self) -> Option<Value> {
+            if let Some(change) = &self.change {
+                if let Some(reading) = self.intent.as_ref().and_then(|intent| intent.admission.interrupted()) {
+                    let previous = reading.material.reservation_floor;
+                    let floor = if self.confirmed { change.after.generation } else {
+                        self.bound.payload.pending.as_ref().map(|pending| pending.reservation_floor()).unwrap_or(previous)
+                    };
+                    let remaining = (!self.confirmed).then(|| json!({
+                        "request_id": reading.material.request_id,
+                        "manifest_sha256": reading.material.manifest_sha256
+                    }));
+                    return Some(json!({
+                        "version":2, "kind":"interrupted_completion",
+                        "state":if self.confirmed { "confirmed" } else if self.no_effect.is_some() { "no_effect" } else { "pending" },
+                        "request_id":self.request, "before_entry":change.before,
+                        "after_entry":change.after, "current_entry":self.bound.payload.current,
+                        "reservation_floor_before":previous, "reservation_floor":floor,
+                        "reservation_consumed":floor > previous, "remaining_interrupted":remaining
+                    }));
+                }
+            }
             if let (Some(current), Some(change)) = (&self.no_effect, &self.change) {
                 return Some(
                     json!({"version":1,"state":"no_effect","request_id":self.request,"before_entry":change.before,"after_entry":change.after,"current_entry":current,"reservation_consumed":current.generation!=change.before.generation,"notice":"No filesystem writer began. The original namespace was revalidated. Any persisted reservation consumed a generation; an unreserved refusal keeps its original generation."}),
@@ -1167,18 +1680,24 @@ The shared publisher owns the exclusive physical-root provider. Stable ordinary 
 A retained transition is read-only evidence. Restoration needs a fresh original reading and the same producer namespace; equal bytes from a replaced inode cannot recreate authority. Restart recovery may only finish a pending metadata commit whose complete record and sealed after guards still match. It never invokes the source writer. The focused models exercise material drift, expired live authority and literal URI routing; integration evidence must also drive the real source path.
 
 <ui:copy id="workspace-entry-transition-recovery">
-    fn check_retained_namespace(
-        root: &Path,
-        binding: &Binding,
+    fn retained_transition<'a>(
+        binding: &'a Binding,
         record: &crate::serve::resource_journal::Recovery,
-    ) -> Result<(), String> {
-        let row = binding
+    ) -> Result<&'a super::super::RetainedTransition, String> {
+        binding
             .history
             .iter()
             .find(|row| {
                 row.request_id == record.id && row.manifest_sha256 == record.manifest_sha256
             })
-            .ok_or("This record has no sealed retained entry transition")?;
+            .ok_or_else(|| "This record has no sealed retained entry transition".into())
+    }
+    fn check_retained_namespace(
+        root: &Path,
+        binding: &Binding,
+        record: &crate::serve::resource_journal::Recovery,
+    ) -> Result<(), String> {
+        let row = retained_transition(binding, record)?;
         let guards=row.namespace_guards.as_ref().ok_or("This historical entry record has no sealed producer namespace; it remains evidence only")?;
         validate_namespace_guards(root, &record.manifest, guards)
     }
@@ -1209,6 +1728,9 @@ A retained transition is read-only evidence. Restoration needs a fresh original 
                     return Err("No-effect evidence does not match this retained manifest".into());
                 }
                 return Err("No filesystem writer began for this retained entry attempt. Its original namespace was checked and a new generation retired the refused live intent; it grants no inverse authority.".into());
+            }
+            if interrupted_record(&bound.payload, &record.id) {
+                return Err("This record belongs to an interrupted Move and its recovery. Its saved and draft snapshots remain readable. A generic inverse cannot restore the interrupted namespace.".into());
             }
             let Some(row) = bound
                 .payload
@@ -1280,6 +1802,7 @@ A retained transition is read-only evidence. Restoration needs a fresh original 
                 after_guard: current.after_guard,
                 before_guard: current.before_guard,
                 namespace_guards: Some(guards.clone()),
+                recovered_from: current.recovery.clone(),
             });
         bound.payload.ownership = if current.change.after.path.is_some() {
             match super::super::claims::inventory(root, &current.change.after) {
@@ -1378,11 +1901,13 @@ A retained transition is read-only evidence. Restoration needs a fresh original 
                 change: Some(change),
                 request: "7".repeat(32),
                 manifest: hash(&manifest).unwrap(),
+                reviewed_fingerprint: "f".repeat(64),
                 begun: false,
                 confirmed: false,
                 failure_original: Some(evidence),
                 writers_started: false,
                 no_effect: None,
+                orphan_base: None,
                 _ordinary: crate::engine::private_policy::ordinary(),
             };
             (temporary, base, manifest, publication)
@@ -1524,6 +2049,25 @@ pub(crate) async fn intent(
         ))
     }
 }
+pub(crate) async fn interrupted_intent(
+    State(state): State<LocalState>,
+    Json(request): Json<super::recovery::IntentRequest>,
+) -> ApiResult<Json<IntentResponse>> {
+    #[cfg(unix)]
+    {
+        state.resource_root.ready().await.map_err(ApiError::conflict)?;
+        tokio::task::spawn_blocking(move || unix::interrupted_intent(state, request))
+            .await
+            .map_err(|error| ApiError::internal(error.to_string()))?
+            .map(Json)
+            .map_err(ApiError::conflict)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (state, request);
+        Err(ApiError::unavailable("Interrupted entry completion is unavailable on this engine platform."))
+    }
+}
 pub(crate) async fn inputs(
     State(state): State<LocalState>,
     Json(request): Json<InputRequest>,
@@ -1546,8 +2090,26 @@ pub(crate) async fn inputs(
 
 #[cfg(unix)]
 pub(crate) use unix::{
-    Publication, recover_completed_under, recovery_metadata, saved_move_projection,
+    AcquisitionScope, Publication, capture_scope, plan_interrupted,
+    recover_completed_under, recovery_metadata, saved_move_projection,
+    validate_restoration_origin,
 };
+#[cfg(not(unix))]
+pub(crate) struct AcquisitionScope;
+#[cfg(not(unix))]
+impl AcquisitionScope {
+    pub(crate) fn canonical_entry(&self) -> &str { unreachable!("no interrupted entry scope on this platform") }
+    pub(crate) fn check(&self, _root: &Path, _request: &Capture) -> Result<(), String> { Err("Interrupted acquisition is unavailable on this engine platform.".into()) }
+    pub(crate) fn compiler_request(&self, request: &Capture) -> Capture { request.clone() }
+    pub(crate) fn retained_generated_targets(&self, _paths: &[String]) -> Result<BTreeSet<String>, String> { Ok(BTreeSet::new()) }
+    pub(crate) fn orphan_draft(&self, _path: &str, _request: &Capture, _saved: &SavedSource) -> Result<Option<Draft>, String> { Ok(None) }
+    pub(crate) fn permits_retained_source(&self, _path: &str, _source: &SourceState, _text: &str) -> bool { false }
+    pub(crate) fn validate_orphan_sources(&self, _sources: &BTreeMap<String, SourceState>) -> Result<(), String> { Ok(()) }
+}
+#[cfg(not(unix))]
+pub(crate) fn capture_scope(_state: &LocalState, _request: &Capture) -> Result<Option<AcquisitionScope>, String> { Ok(None) }
+#[cfg(not(unix))]
+pub(crate) fn plan_interrupted(_state: &LocalState, _request: &crate::serve::resource_changes::Request) -> Result<Option<ResourcePlan>, String> { Ok(None) }
 #[cfg(not(unix))]
 pub(crate) struct Publication;
 #[cfg(not(unix))]
@@ -1556,8 +2118,18 @@ impl Publication {
         _state: &LocalState,
         _manifest: &crate::serve::resource_journal::Manifest,
         _transactional: bool,
+        _reviewed_fingerprint: &str,
     ) -> Result<Self, String> {
         Ok(Self)
+    }
+    pub(in crate::serve) fn prepare_lineage(
+        &self,
+        root: &Path,
+        resource_id: &str,
+        manifest: &crate::serve::resource_journal::Manifest,
+        before_identities: &BTreeMap<String, String>,
+    ) -> Result<crate::serve::source_history::ResourceLineageCapture, String> {
+        crate::serve::source_history::prepare_resource_lineage(root, resource_id, manifest, before_identities)
     }
     pub(crate) fn check(
         &self,
@@ -1580,6 +2152,7 @@ impl Publication {
     ) -> Result<(), String> {
         Ok(())
     }
+    pub(crate) fn orphan_saved_base(&self, _path: &str) -> Option<&str> { None }
     pub(crate) fn is_document_source(&self, path: &str) -> bool {
         path.ends_with(".md")
     }
@@ -1601,6 +2174,14 @@ impl Publication {
     pub(crate) fn outcome(&self) -> Option<Value> {
         None
     }
+}
+#[cfg(not(unix))]
+pub(crate) fn validate_restoration_origin(
+    state: &LocalState,
+    _capture: &Capture,
+    record: &crate::serve::resource_journal::Recovery,
+) -> Result<(), String> {
+    crate::serve::source_history::validate_resource_after(state.index.root(), record)
 }
 #[cfg(not(unix))]
 pub(crate) fn recovery_metadata(

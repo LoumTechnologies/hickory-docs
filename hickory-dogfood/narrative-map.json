@@ -157487,10 +157487,59 @@
       "basis": "explained-behavior"
     },
     {
+      "id": "fenced-source-preparation",
+      "output": "crates/hick-lsp/src/fenced_source.rs",
+      "page": ".hickory-source/mechanisms/fenced-source-readings.md",
+      "symbol": "fenced source preparation",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "fenced-source-tests",
+      "output": "crates/hick-lsp/src/fenced_source.rs",
+      "page": ".hickory-source/mechanisms/fenced-source-readings.md",
+      "symbol": "fenced source tests",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "fenced-backend-readings",
+      "output": "crates/hick-lsp/src/backend.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-lsp/src/backend.rs.md",
+      "symbol": "route and retire exact fenced provider readings",
+      "basis": "explained-behavior"
+    },
+    {
       "id": "workspace-entry-interrupted-evidence",
       "output": "crates/hickory-cli/src/serve/workspace_entry_authority.rs",
       "page": ".hickory-source/mechanisms/workspace-entry-failures.md",
       "symbol": "seal original and interrupted source publication evidence",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "fenced-provider-acceptance-runner",
+      "output": "scripts/test-fenced-source-readings.py",
+      "page": ".hickory-source/frontends/fenced-source-reading-host-acceptance.md",
+      "symbol": "fenced provider acceptance runner",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "fenced-provider-protocol-client",
+      "output": "scripts/fenced-source-reading-driver.mjs",
+      "page": ".hickory-source/frontends/fenced-source-reading-host-acceptance.md",
+      "symbol": "fenced provider protocol client",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "fenced-provider-apple-witness",
+      "output": "apps/apple-simple/Tests/FencedSourceReadingTests.swift",
+      "page": ".hickory-source/frontends/fenced-source-reading-host-acceptance.md",
+      "symbol": "fenced provider apple witness",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "fenced-provider-android-witness",
+      "output": "apps/android-simple/app/src/test/java/com/hickorydocs/simple/FencedSourceReadingTest.kt",
+      "page": ".hickory-source/frontends/fenced-source-reading-host-acceptance.md",
+      "symbol": "fenced provider android witness",
       "basis": "explained-behavior"
     },
     {
@@ -157550,55 +157599,6 @@
       "basis": "explained-behavior"
     },
     {
-      "id": "fenced-source-preparation",
-      "output": "crates/hick-lsp/src/fenced_source.rs",
-      "page": ".hickory-source/mechanisms/fenced-source-readings.md",
-      "symbol": "fenced source preparation",
-      "basis": "explained-behavior"
-    },
-    {
-      "id": "fenced-source-tests",
-      "output": "crates/hick-lsp/src/fenced_source.rs",
-      "page": ".hickory-source/mechanisms/fenced-source-readings.md",
-      "symbol": "fenced source tests",
-      "basis": "explained-behavior"
-    },
-    {
-      "id": "fenced-backend-readings",
-      "output": "crates/hick-lsp/src/backend.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-lsp/src/backend.rs.md",
-      "symbol": "route and retire exact fenced provider readings",
-      "basis": "explained-behavior"
-    },
-    {
-      "id": "fenced-provider-acceptance-runner",
-      "output": "scripts/test-fenced-source-readings.py",
-      "page": ".hickory-source/frontends/fenced-source-reading-host-acceptance.md",
-      "symbol": "fenced provider acceptance runner",
-      "basis": "explained-behavior"
-    },
-    {
-      "id": "fenced-provider-protocol-client",
-      "output": "scripts/fenced-source-reading-driver.mjs",
-      "page": ".hickory-source/frontends/fenced-source-reading-host-acceptance.md",
-      "symbol": "fenced provider protocol client",
-      "basis": "explained-behavior"
-    },
-    {
-      "id": "fenced-provider-apple-witness",
-      "output": "apps/apple-simple/Tests/FencedSourceReadingTests.swift",
-      "page": ".hickory-source/frontends/fenced-source-reading-host-acceptance.md",
-      "symbol": "fenced provider apple witness",
-      "basis": "explained-behavior"
-    },
-    {
-      "id": "fenced-provider-android-witness",
-      "output": "apps/android-simple/app/src/test/java/com/hickorydocs/simple/FencedSourceReadingTest.kt",
-      "page": ".hickory-source/frontends/fenced-source-reading-host-acceptance.md",
-      "symbol": "fenced provider android witness",
-      "basis": "explained-behavior"
-    },
-    {
       "id": "ios-mounted-parity-test",
       "output": "apps/apple-simple/IOSAcceptance/UIKitParityAcceptanceTests.swift",
       "page": ".hickory-source/mechanisms/ios-mounted-parity-acceptance.md",
@@ -157617,6 +157617,104 @@
       "output": "scripts/test-ios-parity-runner.py",
       "page": ".hickory-source/mechanisms/ios-mounted-parity-acceptance.md",
       "symbol": "ios mounted parity runner safety",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "workspace-entry-completion-model",
+      "output": "crates/hickory-cli/src/serve/workspace_entry_completion.rs",
+      "page": ".hickory-source/mechanisms/workspace-entry-completion.md",
+      "symbol": "workspace entry completion model",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "workspace-entry-interrupted-reading",
+      "output": "crates/hickory-cli/src/serve/workspace_entry_recovery.rs",
+      "page": ".hickory-source/mechanisms/workspace-entry-interrupted-reading.md",
+      "symbol": "workspace entry interrupted reading",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "workspace-entry-lineage-reduction",
+      "output": "crates/hickory-cli/src/serve/workspace_entry_lineage.rs",
+      "page": ".hickory-source/mechanisms/workspace-entry-lineage.md",
+      "symbol": "workspace entry lineage reduction",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "workspace-entry-lineage-authority",
+      "output": "crates/hickory-cli/src/serve/workspace_entry_lineage.rs",
+      "page": ".hickory-source/mechanisms/workspace-entry-lineage.md",
+      "symbol": "workspace entry lineage authority",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "workspace-entry-lineage-policy-witness",
+      "output": "crates/hickory-cli/src/serve/workspace_entry_lineage.rs",
+      "page": ".hickory-source/mechanisms/workspace-entry-lineage.md",
+      "symbol": "workspace entry lineage policy witness",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "workspace-entry-lineage-inverse-witness",
+      "output": "crates/hickory-cli/src/serve/workspace_entry_lineage.rs",
+      "page": ".hickory-source/mechanisms/workspace-entry-lineage.md",
+      "symbol": "workspace entry lineage inverse witness",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "workspace-entry-interrupted-host-runner",
+      "output": "scripts/test-interrupted-entry-hosts.py",
+      "page": ".hickory-source/frontends/workspace-entry-interrupted-acceptance.md",
+      "symbol": "workspace entry interrupted host runner",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "workspace-entry-interrupted-apple-witness",
+      "output": "apps/apple-simple/Tests/InterruptedEntryTests.swift",
+      "page": ".hickory-source/frontends/workspace-entry-interrupted-acceptance.md",
+      "symbol": "workspace entry interrupted apple witness",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "workspace-entry-interrupted-android-witness",
+      "output": "apps/android-simple/app/src/test/java/com/hickorydocs/simple/InterruptedEntryTest.kt",
+      "page": ".hickory-source/frontends/workspace-entry-interrupted-acceptance.md",
+      "symbol": "workspace entry interrupted android witness",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "workspace-entry-lineage-host-runner",
+      "output": "scripts/test-workspace-entry-lineage.py",
+      "page": ".hickory-source/frontends/workspace-entry-lineage-acceptance.md",
+      "symbol": "workspace entry lineage host runner",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "workspace-entry-lineage-apple-live",
+      "output": "apps/apple-simple/Tests/WorkspaceEntryLineageTests.swift",
+      "page": ".hickory-source/frontends/workspace-entry-lineage-acceptance.md",
+      "symbol": "workspace entry lineage apple live",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "workspace-entry-lineage-android-live",
+      "output": "apps/android-simple/app/src/test/java/com/hickorydocs/simple/WorkspaceEntryLineageTest.kt",
+      "page": ".hickory-source/frontends/workspace-entry-lineage-acceptance.md",
+      "symbol": "workspace entry lineage android live",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "workspace-entry-interrupted-fixture-driver",
+      "output": "scripts/prepare-interrupted-entry.py",
+      "page": ".hickory-source/mechanisms/workspace-entry-publication-failure-witness.md",
+      "symbol": "workspace entry interrupted fixture driver",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "workspace-entry-interrupted-fixture-tests",
+      "output": "crates/hickory-cli/src/serve/workspace_entry_authority.rs",
+      "page": ".hickory-source/mechanisms/workspace-entry-publication-failure-witness.md",
+      "symbol": "owned interrupted publisher fixture",
       "basis": "explained-behavior"
     }
   ],

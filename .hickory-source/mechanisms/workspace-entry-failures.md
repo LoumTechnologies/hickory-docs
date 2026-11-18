@@ -165,6 +165,7 @@ mod failures {
             self.observed.insert(path.into(), proof);
             Ok(())
         }
+        pub(super) fn guard(&self,path:&str)->Result<Option<String>,String>{self.observed.get(path).or_else(||self.original.get(path)).map(|proof|proof.guard.clone()).ok_or("Source is outside interrupted namespace".into())}
         pub(super) fn no_effect(&self, root: &Path, manifest: &Manifest) -> Result<(), String> {
             self.validate_shape()?;
             if !self.attempted.is_empty() || !self.observed.is_empty() {

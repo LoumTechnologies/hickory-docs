@@ -2,7 +2,8 @@ import {useEffect,useMemo,useReducer,useRef,useState} from 'react';
 import {createPortal} from 'react-dom';
 import {request} from '../api/client';
 import type {Buffer,Buffers} from './buffers';
-import {EntryPublicationNoEffect,prepareResourceRestore,publishResourceRestore,type ResourceRestoreReview,type ResourceEditorRoute} from './ResourceEditors';
+import {captureResourceRoster,EntryPublicationNoEffect,prepareResourceRestore,prepareResourceSave,publishResourceRestore,retainedResourceInputs,type ResourceRestoreReview,type ResourceEditorRoute} from './ResourceEditors';
+import {prepareInterruptedEntry,readInterruptedEntry,type InterruptedEntry} from './WorkspaceEntrySelection';
 export interface RecoveryPage {version:number;workspace:string;ids:string[];next:string|null;ignored:number}
 export interface RecoverySummary {kind:'file'|'missing';bytes?:number;sha256?:string}
 export interface RecoveryReading {version:number;workspace:string;id:string;fingerprint:string;title:string;title_truncated:boolean;paths:{path:string;saved_before:RecoverySummary;saved_after:RecoverySummary;draft_before:RecoverySummary;draft_after:RecoverySummary}[];all_paths_recorded_applied:boolean;unrecognized_files:string[];draft_text:string|null;saved_text:string|null;entry_transition?:unknown}
@@ -28,12 +29,54 @@ export function ResourceConsequencesView({review}:{review:ResourceRestoreReview}
  const [page,setPage]=useState(0),[layer,setLayer]=useState<'saved'|'draft'>('saved');const value=review.facts[layer],rows=[...value.entries.map(path=>'Construction entry: '+path),...value.removed_entries.map(path=>'Removed entry: '+path),...value.output_paths.map(path=>'Generated output: '+path)],last=Math.max(0,Math.ceil(rows.length/100)-1),selected=Math.min(page,last);
  return <section aria-label="Construction consequences"><label>Construction layer <select aria-label="Construction layer" value={layer} onChange={event=>{setLayer(event.target.value as 'saved'|'draft');setPage(0);}}><option value="saved">Saved construction</option><option value="draft">Draft construction</option></select></label><p>{value.output_paths.length} generated output paths · relationships observed by compiler analysis; no checks or coverage queried.</p><pre>{rows.slice(selected*100,(selected+1)*100).join('\n')||'No construction entries or outputs reported.'}</pre>{last>0&&<><button disabled={!selected} onClick={()=>setPage(selected-1)}>Previous consequences</button><span>{selected+1}/{last+1}</span><button disabled={selected===last} onClick={()=>setPage(selected+1)}>Next consequences</button></>}</section>;
 }
-export function SourceRecoveryView({close,buffers,acquire,adopt,alive,epoch,editorSessions}:{editorSessions?:()=>void;close:()=>void;buffers:Buffers;acquire:(path:string)=>Promise<Buffer>;adopt:(routes:ResourceEditorRoute<Buffer>[],recovery:string)=>void;alive:()=>boolean;epoch:()=>number}) {
+export function SourceRecoveryView({close,buffers,acquire,adopt,alive,epoch,editorSessions}:{editorSessions?:()=>void;close:()=>void;buffers:Buffers;acquire:(path:string)=>Promise<Buffer>;adopt:(routes:ResourceEditorRoute<Buffer>[],inverse:string|null)=>void;alive:()=>boolean;epoch:()=>number}) {
  const [,paint]=useReducer((n:number)=>n+1,0),model=useMemo(()=>new RecoveryReader(route=>request('GET',route),paint),[]),panel=useRef<HTMLElement>(null);
  const [path,setPath]=useState(''),[snapshot,setSnapshot]=useState<RecoverySnapshot>('draft_before');
  const [review,setReview]=useState<ResourceRestoreReview|null>(null),[busy,setBusy]=useState(false),[message,setMessage]=useState(''),[inverse,setInverse]=useState<string|null>(null);
  const [reviewPage,setReviewPage]=useState(0);
  const lifetime=useRef(true);
+ const [interrupted,setInterrupted]=useState<InterruptedEntry|null>(null);
+ const [interruptedNotice,setInterruptedNotice]=useState('');
+ const interruptedRead=useRef(0);
+ const workspace=buffers.workspaceId,namespace=buffers.workspace;
+ async function refreshInterrupted() {
+  const reading=++interruptedRead.current;
+  function current(){return lifetime.current&&alive()&&reading===interruptedRead.current&&
+    buffers.workspaceId===workspace&&buffers.workspace===namespace;}
+  setInterrupted(null);setInterruptedNotice('');
+  if(!workspace||!namespace)return;
+  try {
+   const value=await request('GET','/api/workspace/entry/interrupted');
+   if(current())setInterrupted(readInterruptedEntry(value,workspace,namespace));
+  }catch(error){if(current())setInterruptedNotice(String(error));}
+ }
+ async function prepareCompletion() {
+  const evidence=interrupted;
+  if(busy||!evidence?.canComplete)return;
+  const originalRead=interruptedRead.current,stamp=epoch();
+  setReview(null);setBusy(true);setMessage('Preparing the interrupted Move completion…');
+  try {
+   const roster=captureResourceRoster(buffers);
+   const current=()=>lifetime.current&&alive()&&stamp===epoch()&&originalRead===interruptedRead.current&&roster.current();
+   const paths=[evidence.source,evidence.destination];
+   const capture=await retainedResourceInputs(buffers,roster,paths,current,undefined,evidence);
+   const intent=await prepareInterruptedEntry(evidence,capture,
+     body=>request('POST','/api/workspace/entry/interrupted/intent',body),current);
+   const prepared=await prepareResourceSave(buffers,intent.title,intent.edit,async target=>{
+    if(!current()||!paths.includes(target))throw Error('Original interrupted sources changed. Refresh the recovery evidence.');
+    const retained=buffers.values.get(target);
+    if(retained)return retained;
+    const buffer=await acquire(target);
+    if(buffer.sourceRevision!==0||buffer.text!==buffer.base)throw Error('The acquired recovery source changed. Refresh the recovery evidence.');
+    roster.retain(target,buffer);
+    return buffer;
+   },(route,body)=>request('POST',route,body),current,undefined,intent);
+   if(!current())throw Error('Original interrupted sources changed. Refresh the recovery evidence.');
+   setReview(prepared);setReviewPage(0);setPath(prepared.patches[0].path);
+   setMessage('Review the saved source and retained draft before completing the Move.');
+  }catch(error){if(lifetime.current)setMessage(String(error));}
+  finally{if(lifetime.current)setBusy(false);}
+ }
  async function prepare(record=model.value){
   if(!record||busy)return;const stamp=epoch();setBusy(true);setReview(null);setMessage('Preparing current saved and draft restoration…');
   try{const next=await prepareResourceRestore(buffers,record,acquire,(route,body)=>request('POST',route,body),
@@ -42,15 +85,21 @@ export function SourceRecoveryView({close,buffers,acquire,adopt,alive,epoch,edit
   catch(error){setMessage(String(error));}finally{setBusy(false);}
  }
  async function publish(){if(!review||busy)return;const selected=review;setReview(null);setBusy(true);setMessage('Publishing reviewed source restoration…');
-  try{const result=await publishResourceRestore(buffers,selected,(route,body)=>request('POST',route,body));adopt(result.routes,result.recovery);setInverse(result.recovery);setMessage('Restored saved baselines and source drafts. Prepare inverse to undo this restoration. No checks were run.');}
-  catch(error){setMessage(error instanceof EntryPublicationNoEffect ? error.message : String(error)+' Inspect Source recovery and current files before preparing another operation.');}finally{setBusy(false);}
+  const completing=!!selected.entryIntent?.interrupted;
+  try{const result=await publishResourceRestore(buffers,selected,(route,body)=>request('POST',route,body));const inverse=completing?null:result.recovery;adopt(result.routes,inverse);setInverse(inverse);setMessage(completing?'Completed the reviewed Move. Saved source and the retained draft are separate.':'Restored saved baselines and source drafts. Prepare inverse to undo this restoration. No checks were run.');}
+  catch(error){setMessage(error instanceof EntryPublicationNoEffect ? error.message : String(error)+' Inspect Source recovery and current files before preparing another operation.');}finally{if(completing)void refreshInterrupted();setBusy(false);}
  }
  async function prepareInverse(){if(!inverse||busy)return;setBusy(true);setReview(null);try{const record=await request<RecoveryReading>('GET','/api/changes/resource-recovery?id='+encodeURIComponent(inverse));if(record.id!==inverse||!alive())throw new Error('Inverse recovery identity changed.');model.value=record;setBusy(false);await prepare(record);}catch(error){setMessage(String(error));setBusy(false);}}
  useEffect(()=>{lifetime.current=true;panel.current?.focus();void model.list();return()=>{lifetime.current=false;model.close();};},[model]);
+ useEffect(()=>{void refreshInterrupted();return()=>{interruptedRead.current++;};},[workspace,namespace]);
  const value=model.value,selected=value?.paths.find(item=>item.path===path),text=value?.[snapshot.startsWith('saved')?'saved_text':'draft_text'];
  return createPortal(<section ref={panel} tabIndex={-1} role="dialog" aria-label="Source recovery" className="simple-workspace-problems simple-source-tests" onKeyDown={event=>{if(event.key==='Escape'){event.preventDefault();if(!busy)close();}}}>
  <header><strong>Source recovery</strong>{editorSessions&&<button disabled={busy} onClick={editorSessions}>Editor sessions…</button>}<button disabled={busy} onClick={close}>Close</button></header>
- <button disabled={model.loading||busy} onClick={()=>{setReview(null);setPath('');void model.list();}}>Refresh records</button><p role="status">{model.notice}</p>
+ <button disabled={model.loading||busy} onClick={()=>{setReview(null);setPath('');void model.list();void refreshInterrupted();}}>Refresh records</button><p role="status">{model.notice}</p>
+ {interruptedNotice&&<p role="status">{interruptedNotice}</p>}
+ {interrupted&&<section aria-label="Interrupted Move"><p>{interrupted.source} → {interrupted.destination}</p>{interrupted.notice&&<p role="status">{interrupted.notice}</p>}
+  {interrupted.canComplete&&<button disabled={busy} onClick={()=>{void prepareCompletion();}}>Prepare Move completion</button>}
+ </section>}
  {model.page&&<><label>Retained record <select aria-label="Retained record" value={value?.id??''} disabled={model.loading||busy} onChange={event=>{if(event.target.value){setReview(null);setPath('');void model.read(event.target.value);}}}><option value="">Choose record</option>{model.page.ids.map(id=><option key={id} value={id}>{id}</option>)}</select></label>{model.page.ignored>0&&<p>{model.page.ignored} unrecognized entries omitted.</p>}{model.page.next&&<button disabled={model.loading||busy} onClick={()=>{setPath('');void model.list(model.page!.next);}}>Next 100 identities</button>}</>}
  {message&&<p role="status">{message}</p>}{inverse&&<button disabled={busy||model.loading} onClick={()=>{void prepareInverse();}}>Prepare inverse restoration</button>}
  {value&&<><h3>{value.title}{value.title_truncated?'…':''}</h3><p>{value.all_paths_recorded_applied?'Every path has an applied receipt.':'The record does not confirm every path was applied.'} These receipts describe the recorded operation, not current disk state.</p>{value.unrecognized_files.length>0&&<p>{value.unrecognized_files.length} unrecognized files in this record.</p>}
@@ -59,9 +108,9 @@ export function SourceRecoveryView({close,buffers,acquire,adopt,alive,epoch,edit
  <label>Snapshot <select aria-label="Snapshot" value={snapshot} disabled={model.loading||busy} onChange={event=>{const next=event.target.value as RecoverySnapshot;setSnapshot(next);if(path)void model.read(value.id,path,next);}}>{(['saved_before','draft_before','saved_after','draft_after'] as RecoverySnapshot[]).map(side=><option key={side} value={side}>{side.replace('_',' ')}</option>)}</select></label>
  {selected&&<><p>{selected[snapshot].kind==='missing'?'Source absent in this snapshot.':`${selected[snapshot].bytes} UTF-8 bytes · ${selected[snapshot].sha256}`}</p>{text!==null&&text!==undefined&&<><pre style={{whiteSpace:'pre-wrap'}}>{text.slice(0,32000)}</pre>{text.length>32000&&<p>First 32,000 characters shown.</p>}</>}</>}
  </>}
- {review&&<section aria-label="Restoration preview"><h3>Restore saved sources and drafts</h3><p>{review.patches.length} paths · source and construction revisions are checked again on publication.</p>
+ {review&&<section aria-label="Restoration preview"><h3>{review.entryIntent?.interrupted?review.plan.title:'Restore saved sources and drafts'}</h3><p>{review.patches.length} paths · source and construction revisions are checked again on publication.</p>
  <label>Restoration source <select aria-label="Restoration source" value={path} onChange={event=>{setPath(event.target.value);setReviewPage(0);}}>{review.patches.map(item=><option key={item.path} value={item.path}>{item.path}</option>)}</select></label>
  {review.patches.filter(item=>item.path===path).map(item=><div key={item.path}><strong>Current draft</strong><pre>{item.before?.text.slice(reviewPage*16000,(reviewPage+1)*16000)??'Source absent'}</pre><strong>Restored draft</strong><pre>{item.after?.text.slice(reviewPage*16000,(reviewPage+1)*16000)??'Source absent'}</pre><strong>Current saved baseline</strong><pre>{review.savedBefore[path]?.kind==='file'?(review.savedBefore[path] as {text:string}).text.slice(reviewPage*16000,(reviewPage+1)*16000):'Source absent'}</pre><strong>Restored saved baseline</strong><pre>{review.saved[path]?.kind==='file'?(review.saved[path] as {text:string}).text.slice(reviewPage*16000,(reviewPage+1)*16000):'Source absent'}</pre><p>Text page {reviewPage+1} · 16,000 characters per side. Draft text and saved text may differ.</p><button disabled={!reviewPage} onClick={()=>setReviewPage(reviewPage-1)}>Previous restoration text</button><button disabled={Math.max(item.before?.text.length??0,item.after?.text.length??0,review.savedBefore[path]?.kind==='file'?(review.savedBefore[path] as {text:string}).text.length:0,review.saved[path]?.kind==='file'?(review.saved[path] as {text:string}).text.length:0)<=(reviewPage+1)*16000} onClick={()=>setReviewPage(reviewPage+1)}>Next restoration text</button></div>)}
- <ResourceConsequencesView review={review}/><button disabled={busy} onClick={()=>{void publish();}}>Restore reviewed saved sources and drafts</button></section>}
+ <ResourceConsequencesView review={review}/><button disabled={busy} onClick={()=>{void publish();}}>{review.entryIntent?.interrupted?'Complete reviewed Move':'Restore reviewed saved sources and drafts'}</button></section>}
  </section>,document.body);
 }

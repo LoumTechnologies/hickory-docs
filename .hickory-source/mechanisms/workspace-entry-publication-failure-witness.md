@@ -111,6 +111,183 @@ process.stdin.on('data', () => socket.close());
 socket.on('close', () => { clearTimeout(deadline); doc.destroy(); process.exit(ready ? 0 : 1); });
 </ui:copy>
 
+
+## Prepare exact interrupted namespaces through production publishers
+
+The ignored fixture is executed only by its named driver with a new owned workspace and private state directory. It runs normal entry intent, inputs, consequence analysis, saved projection, filesystem writers, source room admission, journal and sealed per-path checkpoints. Its existing publication guard stops after the destination install (`copied`) or after the final original deletion (`old_deleted`). This is a test-only caller of the existing guard seam, not a product fault option.
+
+The preparation driver requires an explicit focused libtest executable and stage. It prints success and writes the acceptance marker only after exactly one ignored production fixture actually passes. A real source-room mismatch is already refused before publication during input acquisition, so a foreign-main Yjs setup is deliberately not presented as a partial-save fixture.
+
+<ui:copy id="workspace-entry-interrupted-fixture-tests">
+#[cfg(all(test, unix))]
+mod interrupted_fixture_tests {
+    use super::*;
+    use crate::serve::resource_saves::{publish_guarded, EntryTransition};
+    use crate::serve::{workspace_entry_authority as entry, ServeOptions};
+    use axum::{extract::State, Json};
+    use serde_json::json;
+
+    /// Fixture executable only: an owned publication guard interrupts real
+    /// production writers/checkpoints. No product endpoint or fault flag exists.
+    #[tokio::test]
+    #[ignore = "owned fixture preparation; run exactly with explicit root/state/stage"]
+    async fn prepare_owned_interrupted_fixture() {
+        let root = std::path::PathBuf::from(
+            std::env::var_os("HICKORY_ENTRY_FIXTURE_ROOT").expect("explicit owned fixture root"),
+        );
+        let state_dir = std::path::PathBuf::from(
+            std::env::var_os("HICKORY_STATE_DIR").expect("explicit private fixture state"),
+        );
+        assert!(
+            root.is_absolute() && state_dir.is_absolute() && root.is_dir() && !state_dir.exists()
+        );
+        let stage = std::env::var("HICKORY_ENTRY_FIXTURE_STAGE")
+            .expect("explicit copied or old_deleted stage");
+        assert!(matches!(stage.as_str(), "copied" | "old_deleted"));
+        assert!(!root.join("next.md").exists());
+        let source = std::fs::read_to_string(root.join("project.md")).unwrap();
+        assert!(source.contains("safe baseline"));
+        let dirty = source.replace("safe baseline", "retained dirty body");
+        let prepared = crate::serve::prepare(ServeOptions {
+            target: root.clone(),
+            port: 0,
+            params: vec![],
+            executor: crate::ExecutorChoice::Local,
+            key_store_path: None,
+            ui_settings_path: None,
+        })
+        .await
+        .unwrap();
+        let state = prepared.state;
+        let selected = entry::get(State(state.clone())).await.unwrap().0;
+        let selected = serde_json::to_value(selected).unwrap();
+        let intent=entry::transitions::intent(State(state.clone()),Json(serde_json::from_value(json!({"version":1,"entry_selection":selected,"operation":{"kind":"move","destination":"next.md"}})).unwrap())).await.unwrap().0;
+        let intent = serde_json::to_value(intent).unwrap();
+        let capture:super::super::resource_inputs::Request=serde_json::from_value(json!({"context":intent["context"],"edit":intent["edit"],"project_entry":null,"drafts":{"project.md":{"text":dirty,"base_sha256":super::super::workspace_fs::view::hash(source.as_bytes()),"version":7,"writable":true,"save_guard":selected["source_guard"]}},"ownership_sources":{"project.md":dirty},"saved_guards":{"project.md":selected["source_guard"]}})).unwrap();
+        let mut inputs = None;
+        for _ in 0..2 {
+            let result = entry::transitions::inputs(
+                State(state.clone()),
+                Json(
+                    serde_json::from_value(
+                        json!({"version":1,"token":intent["token"],"capture":capture}),
+                    )
+                    .unwrap(),
+                ),
+            )
+            .await
+            .unwrap()
+            .0;
+            assert!(result.refusals.is_empty());
+            inputs = Some(result);
+        }
+        let inputs = inputs.unwrap();
+        let plan =
+            super::super::resource_changes::prepare(super::super::resource_changes::Request {
+                context: inputs.context.clone(),
+                title: intent["title"].as_str().unwrap().into(),
+                edit: intent["edit"].clone(),
+                sources: inputs.sources.clone(),
+            })
+            .unwrap();
+        let facts = super::super::resource_candidates::inspect(
+            State(state.clone()),
+            Json(super::super::resource_candidates::Request {
+                inputs: inputs.clone(),
+                capture,
+                plan: plan.clone(),
+            }),
+        )
+        .await
+        .unwrap()
+        .0;
+        let manifest = entry::transitions::saved_move_projection(&state, &inputs, &plan)
+            .unwrap()
+            .unwrap()
+            .manifest(&inputs, &plan)
+            .unwrap();
+        let requested_stage = stage.clone();
+        let result = publish_guarded(
+            state.clone(),
+            manifest,
+            facts,
+            "f".repeat(32),
+            inputs.saved_guards.clone(),
+            inputs.ownership.protected_entries.clone(),
+            EntryTransition::Stable,
+            Box::new(move |root| {
+                if root.join("next.md").is_file()
+                    && (requested_stage == "copied" || !root.join("project.md").exists())
+                {
+                    return Err(
+                        "Owned fixture stopped at its exact observed publication boundary".into(),
+                    );
+                }
+                Ok(())
+            }),
+            false,
+        )
+        .await
+        .unwrap();
+        assert_eq!(result["outcome"]["complete"], false);
+        assert_eq!(result["outcome"]["source_files_modified"], true);
+        let applied = result["outcome"]["applied"].as_array().unwrap();
+        assert_eq!(applied.len(), if stage == "copied" { 1 } else { 2 });
+        assert!(applied.iter().any(|path| path == "next.md"));
+        assert_eq!(root.join("project.md").exists(), stage == "copied");
+        assert_eq!(
+            std::fs::read_to_string(root.join("next.md")).unwrap(),
+            source
+        );
+        assert_eq!(result["entry_outcome"]["state"], "pending");
+        let base = hickory_workspace::data_root().unwrap();
+        let retained = entry::storage::Bound::open_under(&base, &root, false).unwrap();
+        let pending = retained.payload.pending.as_ref().unwrap();
+        let record =
+            super::super::resource_journal::read_recovery(&root, &pending.request_id).unwrap();
+        assert_eq!(pending.manifest_sha256, record.manifest_sha256);
+        let namespace = pending
+            .failure
+            .as_ref()
+            .unwrap()
+            .current(&root, &record.manifest)
+            .unwrap();
+        assert_eq!(namespace["next.md"], record.manifest.after["next.md"]);
+        assert!(
+            pending.namespace_guards.is_none(),
+            "Interrupted fixture must not forge completed-role confirmation"
+        );
+        assert_eq!(retained.payload.current, pending.change.before);
+        println!("ENTRY_FIXTURE {}",serde_json::to_string(&json!({"version":1,"stage":stage,"original_request_id":pending.request_id,"original_context":record.manifest.context,"original_fingerprint":pending.reviewed_fingerprint,"before_entry":pending.change.before,"intended_after_entry":pending.change.after,"original_result":result})).unwrap());
+    }
+}
+</ui:copy>
+
+<ui:copy id="workspace-entry-interrupted-fixture-driver">
+#!/usr/bin/env python3
+"""Prepare one owned interrupted namespace through the production publisher test."""
+import argparse,importlib.util,json,os,subprocess
+from pathlib import Path
+ROOT=Path(__file__).resolve().parents[1]
+def module(name,path):
+ spec=importlib.util.spec_from_file_location(name,path);value=importlib.util.module_from_spec(spec);spec.loader.exec_module(value);return value
+def main():
+ parser=argparse.ArgumentParser();parser.add_argument('--root',required=True,type=Path);parser.add_argument('--state',required=True,type=Path);parser.add_argument('--test-binary',required=True,type=Path);parser.add_argument('--stage',choices=['copied','old_deleted'],required=True);args=parser.parse_args()
+ root=args.root.resolve();state=args.state.resolve();binary=args.test_binary.resolve();assert binary.is_file() and os.access(binary,os.X_OK),'Use the current focused CLI libtest executable';assert not root.exists() and not state.exists(),'Fixture owns only new root/state directories';assert root.parent.is_dir() and state.parent.is_dir();root.mkdir(mode=0o700)
+ move=module('entry_fixture_source',ROOT/'scripts/test-workspace-entry-transitions.py')
+ for path,text in {'project.md':move.MAIN,'part.md':move.PART,'note.py':'readable = True\n'}.items():(root/path).write_bytes(text.encode())
+ result=subprocess.run([str(binary),'serve::workspace_entry_authority::interrupted_fixture_tests::prepare_owned_interrupted_fixture','--exact','--ignored','--nocapture'],env={**os.environ,'HICKORY_STATE_DIR':str(state),'HICKORY_ENTRY_FIXTURE_ROOT':str(root),'HICKORY_ENTRY_FIXTURE_STAGE':args.stage},capture_output=True,text=True)
+ if result.returncode:raise RuntimeError(result.stdout+result.stderr)
+ lines=[line.partition('ENTRY_FIXTURE ')[2] for line in result.stdout.splitlines() if line.startswith('ENTRY_FIXTURE ')];assert len(lines)==1,'One exact production fixture case must report its sealed result';observed=json.loads(lines[0]);assert observed['stage']==args.stage and observed['original_result']['outcome']['complete'] is False
+ assert '1 passed' in result.stdout and '0 failed' in result.stdout,'Ignored fixture must actually execute exactly once'
+ marker={'version':1,'kind':'entry-interrupted-completion-fixture','stage':args.stage,'old_path':'project.md','destination':'next.md','saved_text':move.MAIN,'retained_text':move.DIRTY,'live_text':move.MAIN.replace('safe baseline','live retained completion body'),'original_request_id':'f'*32,'source_root':str(root),'state_dir':str(state),**observed}
+ assert (root/'project.md').exists()==(args.stage=='copied');assert (root/'next.md').read_bytes()==move.MAIN.encode()
+ (root/'.hick-cache/entry-completion-fixture.json').write_text(json.dumps(marker));print(json.dumps(marker),flush=True)
+if __name__=='__main__':main()
+</ui:copy>
+
+<ui:file path="scripts/prepare-interrupted-entry.py"><ui:paste select="#workspace-entry-interrupted-fixture-driver"/></ui:file>
+
 <ui:file path="scripts/test-entry-publication-failures.py"><ui:paste select="#workspace-entry-failure-http-driver"/></ui:file>
 <ui:file path="scripts/control-entry-room.mjs"><ui:paste select="#workspace-entry-failure-room-peer"/></ui:file>
 </ui:doc>

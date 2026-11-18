@@ -57,6 +57,9 @@ Stage and unstage use the selected saved path, never an editor draft. A rename s
 
 Use the existing floating surface and menu vocabulary. Paging limits the visible file list; staged and working-tree buttons select an explicit side. Keep saved Git state visibly separate from unsaved editor drafts, preserve code focus on close and retire pending requests when the surface disappears. Diff text stays selectable and never becomes an editor mutation.
 
+Give the repository reading its own live-region name so a saved diff or index
+refusal can be distinguished from the nested conflict preview's status.
+
 <ui:copy id="simple-git-review-browser-view">
 export function GitReviewView({visible,workspace,close,acquire,buffers,history,adopt,alive}:{visible:boolean;workspace:string;close:()=>void;acquire:(path:string)=>Promise<Buffer>;buffers?:Buffers;history?:WorkspaceChangeHistory;adopt?:(routes:ResourceEditorRoute<Buffer>[])=>void;alive?:()=>boolean}) {
  const [,paint]=useReducer((n:number)=>n+1,0),model=useMemo(()=>new GitReviewModel({changes:()=>api.gitChanges(),diff:(path,staged)=>api.gitDiff(path,staged),writeIndex:(paths,unstage)=>unstage?api.gitUnstage({paths}):api.gitStage({paths})},paint),[workspace]);
@@ -67,7 +70,7 @@ export function GitReviewView({visible,workspace,close,acquire,buffers,history,a
  if(!visible)return null;
  return createPortal(<section ref={panel} tabIndex={-1} className="simple-workspace-problems simple-source-tests" role="dialog" aria-label="Repository changes" onKeyDown={event=>{if(event.key==='Escape'){event.preventDefault();close();}}}>
   <header><strong>Repository changes {model.branch}</strong><button onClick={()=>void model.refresh()}>Refresh</button><button onClick={close}>Close</button></header>
-  <p role="status">{model.notice}</p><p>Saved working tree and index. Unsaved editor drafts are not included.</p>
+  <p role="status" aria-label="Repository change status">{model.notice}</p><p>Saved working tree and index. Unsaved editor drafts are not included.</p>
   <div aria-label="Changed files">{model.files.slice(model.page*20,(model.page+1)*20).map(file=><div key={file.path}><span>{file.from?`${file.from} → `:''}{file.path}</span> <button aria-label={`Working tree ${file.path}`} onClick={()=>void model.select(file.path,false)}>Working tree {file.tree}</button> <button aria-label={`Staged ${file.path}`} onClick={()=>void model.select(file.path,true)}>Staged {file.index}</button></div>)}</div>
   <nav aria-label="Changed file pages"><button disabled={model.page===0} onClick={()=>{model.page--;paint();}}>Previous</button><span>{model.files.length} changed files · page {model.page+1}</span><button disabled={(model.page+1)*20>=model.files.length} onClick={()=>{model.page++;paint();}}>Next</button></nav>
   {model.needsRefresh&&!model.indexPending&&<p>Refresh Git state before another index action.</p>}

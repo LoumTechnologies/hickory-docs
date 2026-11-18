@@ -267,10 +267,26 @@ pub(super) fn publish_observed_guarded_with(
     root: &Path,
     identity: &RootIdentity,
     manifest: &Manifest,
+    authority: impl FnMut(&BTreeSet<String>) -> Result<(), String>,
+    rollback_authority: impl FnMut(&BTreeSet<String>) -> Result<(), String>,
+    write: impl FnMut(&str, &SavedSource, &SavedSource,bool) -> Result<ObservedWrite, String>,
+    rollback: bool,
+) -> Result<Outcome, String> {
+    publish_observed_guarded_with_lineage(root,identity,manifest,authority,rollback_authority,write,rollback,
+        super::source_history::prepare_resource_lineage)
+}
+
+/// An entry inverse prepares its original-history journal while it borrows the
+/// retained proof. Release that borrow before any publisher callback can write.
+pub(super) fn publish_observed_guarded_with_lineage(
+    root: &Path,
+    identity: &RootIdentity,
+    manifest: &Manifest,
     mut authority: impl FnMut(&BTreeSet<String>) -> Result<(), String>,
     mut rollback_authority: impl FnMut(&BTreeSet<String>) -> Result<(), String>,
     mut write: impl FnMut(&str, &SavedSource, &SavedSource,bool) -> Result<ObservedWrite, String>,
     rollback: bool,
+    prepare_lineage: impl FnOnce(&Path, &str, &Manifest, &BTreeMap<String,String>) -> Result<super::source_history::ResourceLineageCapture, String>,
 ) -> Result<Outcome, String> {
     root_matches(root, identity, &manifest.workspace)?;
     authority(&BTreeSet::new())?;
@@ -288,7 +304,7 @@ pub(super) fn publish_observed_guarded_with(
     let mut before_sources=BTreeMap::new();for(path,saved)in &manifest.before{if let Some(source)=capture_source(root,path,saved)?{before_sources.insert(path.clone(),source);}}
     let before_identities=before_sources.iter().map(|(path,source)|(path.clone(),source.identity.clone())).collect();
     let batch = Batch::begin(root, manifest)?;
-    let lineage=super::source_history::prepare_resource_lineage(root,&batch.id,manifest,&before_identities)?;
+    let lineage=prepare_lineage(root,&batch.id,manifest,&before_identities)?;
     let mut all_proven=true;let mut after_sources=BTreeMap::new();
     let mut outcome = Outcome {
         complete: false,

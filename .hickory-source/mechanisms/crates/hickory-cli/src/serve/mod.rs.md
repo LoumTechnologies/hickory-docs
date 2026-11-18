@@ -1491,6 +1491,8 @@ pub(crate) fn router(state: LocalState) -> Router {
         .route("/workspace/recovery", get(editor_recovery::list))
         .route("/workspace/recovery/forget", post(editor_recovery::forget))
         .route("/workspace/entry", get(workspace_entry_authority::get))
+        .route("/workspace/entry/interrupted", get(workspace_entry_authority::recovery::inspect))
+        .route("/workspace/entry/interrupted/intent", post(workspace_entry_authority::transitions::interrupted_intent))
         .route("/workspace/entry/intent", post(workspace_entry_authority::transitions::intent))
         .route("/workspace/entry/inputs", post(workspace_entry_authority::transitions::inputs))
         .route("/workspace/recovery/{client}", get(editor_recovery::read))

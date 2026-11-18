@@ -5,6 +5,14 @@ import kotlinx.coroutines.*
 import org.json.JSONObject
 import org.json.JSONArray
 class SourceRecoveryTest {
+ @Test fun reviewedTextPagesKeepEveryCharacterAroundAUnicodeBoundary() {
+  val prefix="x".repeat(15_999)
+  val text=prefix+"😀 following text"
+  assertEquals(prefix,reviewedResourceTextPage(text,0))
+  assertEquals("😀 following text",reviewedResourceTextPage(text,1))
+  assertEquals(text,reviewedResourceTextPage(text,0)+reviewedResourceTextPage(text,1))
+  assertEquals("",reviewedResourceTextPage("",0))
+ }
  val id="a".repeat(32);val workspace="b".repeat(32)
  fun page()=RecoveryPage(1,workspace,listOf(id),null,0)
  fun reading(hash:String="c".repeat(64))=RecoveryReading(1,workspace,id,hash,"Move",false,listOf(RecoveryPath("a #😀.md",emptyMap())),false,0,"😀","")

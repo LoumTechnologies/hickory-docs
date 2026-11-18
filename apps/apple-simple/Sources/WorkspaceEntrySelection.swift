@@ -16,6 +16,9 @@ struct WorkspaceEntryStamp: Decodable, Equatable {
  static func ==(left:Self,right:Self)->Bool {
   left.version==right.version&&left.identity==right.identity&&left.generation==right.generation&&exactUTF8(left.path,right.path)
  }
+ func permitsRestorationReview(of historical:Self)->Bool {
+  identity==historical.identity && exactUTF8(path,historical.path) && generation>=historical.generation
+ }
 }
 private func workspaceEntryHex(_ text:String,_ count:Int)->Bool {text.utf8.count==count&&text.utf8.allSatisfy{(48...57).contains($0)||(97...102).contains($0)}}
 struct WorkspaceEntrySelectionProof {
@@ -77,6 +80,14 @@ struct WorkspaceEntryIntent:Decodable {
  let after_entry:WorkspaceEntryStamp
  let edit:ResourceJSON
  let source_files_modified:Bool
+ let interrupted_reading_fingerprint:String?
+ let supersedes:WorkspaceEntryAttempt?
+ var interrupted:InterruptedWorkspaceEntry?=nil
+
+ enum CodingKeys:String,CodingKey {
+  case version,workspace,namespace,token,context,kind,title,before_entry,after_entry,edit,source_files_modified
+  case interrupted_reading_fingerprint,supersedes
+ }
 
  func admit(_ proof:WorkspaceEntrySelectionProof,kind expected:String,path:String?)throws {
   guard version==1,workspace==proof.workspace,exactUTF8(namespace,proof.namespace),kind==expected,!source_files_modified,
@@ -84,6 +95,99 @@ struct WorkspaceEntryIntent:Decodable {
    UInt64(after_entry.generation)==UInt64(before_entry.generation)+1,exactUTF8(after_entry.path,path),!title.isEmpty else {
    throw EntrySelectionFailure("The entry review did not retain the requested construction and address.")
   }
+ }
+
+ mutating func admit(_ reading:InterruptedWorkspaceEntry,superseding attempt:WorkspaceEntryAttempt?)throws {
+  let facts=reading.material
+  guard facts.can_complete,version==1,kind=="interrupted_completion",workspace==facts.workspace,
+   exactUTF8(namespace,facts.namespace),!source_files_modified,workspaceEntryHex(token,64),context==token,
+   interrupted_reading_fingerprint==reading.fingerprint,supersedes==attempt,before_entry==facts.current_entry,
+   after_entry.identity==before_entry.identity,UInt64(after_entry.generation)==UInt64(facts.reservation_floor)+1,
+   exactUTF8(after_entry.path,facts.change.after.path),!title.isEmpty else {
+   throw EntrySelectionFailure("The interrupted Move review did not retain the original evidence and intended destination.")
+  }
+  interrupted=reading
+ }
+}
+
+struct WorkspaceEntryAttempt:Decodable,Equatable {
+ let request_id:String
+ let context:String
+ let before_entry:WorkspaceEntryStamp
+ let after_entry:WorkspaceEntryStamp
+ let reviewed_fingerprint:String?
+
+ var wellFormed:Bool {
+  workspaceEntryHex(request_id,32) && workspaceEntryHex(context,64) &&
+  before_entry.identity==after_entry.identity && after_entry.generation>before_entry.generation &&
+  (reviewed_fingerprint.map{workspaceEntryHex($0,64)} ?? true)
+ }
+}
+
+struct InterruptedWorkspaceEntry {
+ struct Change:Decodable {
+  let version:Int
+  let kind:String
+  let before:WorkspaceEntryStamp
+  let after:WorkspaceEntryStamp
+ }
+ struct PathState:Decodable {
+  let path:String
+  let saved_kind:String
+ }
+ struct Material:Decodable {
+  let version:Int
+  let workspace:String
+  let namespace:String
+  let current_entry:WorkspaceEntryStamp
+  let request_id:String
+  let manifest_sha256:String
+  let change:Change
+  let reservation_floor:UInt32
+  let paths:[PathState]
+  let attempts:[WorkspaceEntryAttempt]
+  let can_complete:Bool
+  let notice:String?
+  let source_files_modified:Bool
+ }
+ private struct Wire:Decodable {let material:Material;let fingerprint:String}
+ private struct Response:Decodable {
+  let version:Int
+  let workspace:String
+  let namespace:String
+  let interrupted:ResourceJSON?
+  let source_files_modified:Bool
+ }
+ let body:ResourceJSON
+ let material:Material
+ let fingerprint:String
+ let source:String
+ let destination:String
+ let missingOriginal:Bool
+
+ static func read(_ value:ResourceJSON,workspace:String,namespace:String)throws->Self? {
+  let response=try JSONDecoder().decode(Response.self,from:JSONEncoder().encode(value))
+  guard response.version==1,response.workspace==workspace,exactUTF8(response.namespace,namespace),
+   workspaceEntryHex(workspace,32),!namespace.isEmpty,!response.source_files_modified else {
+   throw EntrySelectionFailure("Interrupted construction evidence belongs to a different workspace.")
+  }
+  guard let body=response.interrupted else{return nil}
+  let wire=try JSONDecoder().decode(Wire.self,from:JSONEncoder().encode(body)),facts=wire.material
+  if facts.change.kind != "move",!facts.can_complete,let notice=facts.notice,!notice.isEmpty {throw EntrySelectionFailure(notice)}
+  let before=facts.change.before,after=facts.change.after
+  guard facts.version==1,facts.workspace==workspace,exactUTF8(facts.namespace,namespace),!facts.source_files_modified,
+   workspaceEntryHex(wire.fingerprint,64),workspaceEntryHex(facts.request_id,32),workspaceEntryHex(facts.manifest_sha256,64),
+   facts.change.version==1,facts.change.kind=="move",before==facts.current_entry,before.identity==after.identity,
+   UInt64(after.generation)==UInt64(before.generation)+1,facts.reservation_floor>=after.generation,
+   let source=before.path,let destination=after.path,!source.isEmpty,!destination.isEmpty,!exactUTF8(source,destination),
+   facts.paths.count==2,let original=facts.paths.first(where:{exactUTF8($0.path,source)}),
+   facts.paths.contains(where:{exactUTF8($0.path,destination)}),
+   facts.paths.allSatisfy({$0.saved_kind=="file" || $0.saved_kind=="missing" || ($0.saved_kind=="unknown" && !facts.can_complete)}),
+   facts.attempts.count<=256,facts.attempts.allSatisfy(\.wellFormed),facts.notice.map({!$0.isEmpty}) ?? facts.can_complete else {
+   throw EntrySelectionFailure("Interrupted construction evidence does not describe one exact Move.")
+  }
+  return Self(body:body,material:facts,fingerprint:wire.fingerprint,source:source,destination:destination,
+   missingOriginal:original.saved_kind=="missing")
  }
 }
 
@@ -111,6 +215,10 @@ struct WorkspaceEntryRetainedTransition:Decodable {
 }
 
 struct WorkspaceEntryPublication:Decodable {
+ struct Interruption:Decodable {
+  let request_id:String
+  let manifest_sha256:String
+ }
  let version:Int
  let state:String
  let request_id:String
@@ -118,12 +226,28 @@ struct WorkspaceEntryPublication:Decodable {
  let after_entry:WorkspaceEntryStamp
  let current_entry:WorkspaceEntryStamp
  var reservation_consumed:Bool?=nil
+ var kind:String?=nil
+ var reservation_floor_before:UInt32?=nil
+ var reservation_floor:UInt32?=nil
+ var remaining_interrupted:Interruption?=nil
 
  static func hadNoEffect(_ outcome: Self?, request: String, intent: WorkspaceEntryIntent?) throws -> Bool {
   guard let outcome, outcome.state == "no_effect" else { return false }
-  guard let intent, let consumed = outcome.reservation_consumed, outcome.version == 1, outcome.request_id == request,
-        outcome.before_entry == intent.before_entry, outcome.after_entry == intent.after_entry,
-        outcome.current_entry.identity == intent.before_entry.identity,
+  guard let intent,let consumed=outcome.reservation_consumed,outcome.request_id==request,
+        outcome.before_entry==intent.before_entry,outcome.after_entry==intent.after_entry else {
+   throw EntrySelectionFailure("The no-effect receipt does not match the original entry review.")
+  }
+  if let evidence=intent.interrupted {
+   guard outcome.version==2,outcome.kind=="interrupted_completion",outcome.current_entry==intent.before_entry,
+    outcome.reservation_floor_before==evidence.material.reservation_floor,
+    let floor=outcome.reservation_floor,UInt64(floor)==UInt64(evidence.material.reservation_floor)+(consumed ? 1:0),
+    outcome.remaining_interrupted?.request_id==evidence.material.request_id,
+    outcome.remaining_interrupted?.manifest_sha256==evidence.material.manifest_sha256 else {
+    throw EntrySelectionFailure("The prior interrupted Move remains unconfirmed.")
+   }
+   return true
+  }
+  guard outcome.version==1,outcome.current_entry.identity==intent.before_entry.identity,
         exactUTF8(outcome.current_entry.path, intent.before_entry.path),
         UInt64(outcome.current_entry.generation) == UInt64(intent.before_entry.generation) + (consumed ? 1 : 0) else {
    throw EntrySelectionFailure("The no-effect receipt does not match the original entry review.")
@@ -136,9 +260,16 @@ struct WorkspaceEntryPublication:Decodable {
    if outcome != nil{throw EntrySelectionFailure("Unexpected main construction publication.")}
    return
   }
-  guard let outcome,outcome.version==1,outcome.state=="confirmed",outcome.request_id==request,
+  guard let outcome,outcome.version==(intent.interrupted == nil ? 1:2),outcome.state=="confirmed",outcome.request_id==request,
    outcome.before_entry==intent.before_entry,outcome.after_entry==intent.after_entry,outcome.current_entry==intent.after_entry else {
    throw EntrySelectionFailure("The original main construction publication is unconfirmed.")
+  }
+  if let evidence=intent.interrupted {
+   guard outcome.kind=="interrupted_completion",outcome.reservation_consumed==true,
+    outcome.reservation_floor_before==evidence.material.reservation_floor,
+    outcome.reservation_floor==intent.after_entry.generation,outcome.remaining_interrupted==nil else {
+    throw EntrySelectionFailure("The receipt does not confirm completion of the reviewed interruption.")
+   }
   }
  }
 }

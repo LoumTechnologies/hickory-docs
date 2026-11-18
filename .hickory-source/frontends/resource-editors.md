@@ -57,7 +57,7 @@ import {EditorView} from '@codemirror/view';
 import {isolateHistory} from '@codemirror/commands';
 import type {Transaction} from '@codemirror/state';
 import {isGroup,groups,type Layout} from './layout';
-import {confirmEntryOutcome,entryPublicationHadNoEffect,prepareEntryIntent,readEntryTransition,readFrozenEntrySelection,requireEntryTransitionCurrent,type EntryIntent} from './WorkspaceEntrySelection';
+import {confirmEntryOutcome,entryPublicationHadNoEffect,prepareEntryIntent,readEntryTransition,readFrozenEntrySelection,requireEntryRestorationScope,type EntryIntent,type InterruptedEntry} from './WorkspaceEntrySelection';
 export interface ResourceSource {identity:string;text:string}
 export interface ResourceEditorPatch {path:string;before:ResourceSource|null;after:ResourceSource|null}
 export interface ResourceEditorCapture<T> {editor:T;source:string}
@@ -111,6 +111,10 @@ Capture current buffer authority before network publication. Adoption preflights
 every editor before removing addresses, retires delayed reads and retains deleted
 objects outside the writable namespace. Ordinary Save cannot write those objects.
 
+An interrupted Move can confirm a previously removed original address is still
+absent. Keep that row in the complete saved receipt. Omit it from the editor
+routes only when it is the interrupted original and no live editor owns it.
+
 A confirmed source deletion may leave a live debugger whose code still needs a readable control surface. Retain that exact buffer under a transient, NUL-prefixed tab alias; NUL cannot be a saved path, and the alias never enters engine requests or source ownership. Restoration replaces the alias with the newly confirmed real address. Save As retires only the original object after the copied text still matches; a different buffer reusing its old spelling survives.
 
 Resource acquisition captures both current and retained editor maps, deduplicating
@@ -133,14 +137,15 @@ export function captureResourceEditors(buffers:Buffers,patches:readonly Resource
  const captures=[...new Set([...paths.flatMap(row=>row.buffer?[row.buffer]:[]),...restoring.values()])].map(buffer=>({buffer,text:buffer.text,base:buffer.base,hash:buffer.hash,version:buffer.version,file:buffer.file}));
  return ()=>paths.every(row=>buffers.values.get(row.path)===row.buffer)&&captures.every(row=>row.buffer.text===row.text&&row.buffer.base===row.base&&row.buffer.hash===row.hash&&row.buffer.version===row.version&&row.buffer.file===row.file&&!row.buffer.saving);
 }
-export function adoptResourceReceipt(buffers:Buffers,patches:readonly ResourceEditorPatch[],receipt:ResourceReceipt,expected:ResourceExpectation,current:()=>boolean,restoring:ReadonlyMap<string,Buffer>=new Map()):ResourceEditorRoute<Buffer>[] {
+export function adoptResourceReceipt(buffers:Buffers,patches:readonly ResourceEditorPatch[],receipt:ResourceReceipt,expected:ResourceExpectation,current:()=>boolean,restoring:ReadonlyMap<string,Buffer>=new Map(),absentOriginal?:string):ResourceEditorRoute<Buffer>[] {
  if(!current())throw new Error('Editor drafts or baselines changed after review. Preserve them and inspect Source recovery.');
  const retained=buffers.retainedResources;
  const files=confirmedResourceFiles(patches,receipt,expected),live=new Map<string,ResourceEditorCapture<Buffer>>();
  for(const patch of patches)if(patch.before){const buffer=buffers.values.get(patch.path);if(!buffer||buffer.saving||buffer.readonly||buffer.transient)throw new Error('Source editor is unavailable or saving. Preserve drafts and inspect recovery.');live.set(patch.before.identity,{editor:buffer,source:buffer.text});}
  for(const buffer of restoring.values())if(!buffer.resourceDeleted||![...retained.values()].includes(buffer)||[...buffers.values.values()].includes(buffer))throw new Error('Restoration must select a retained deleted editor. Inspect Source recovery.');
  const held=new Map([...restoring].map(([id,editor])=>[id,{editor,source:editor.text}]));
- const routes=routeResourceEditors(patches,live,held),prepared:{route:ResourceEditorRoute<Buffer>;buffer:Buffer;view?:EditorView;transaction?:Transaction}[]=[];
+ const editorPatches=patches.filter(patch=>patch.path!==absentOriginal||patch.before||patch.after||buffers.values.has(patch.path));
+ const routes=routeResourceEditors(editorPatches,live,held),prepared:{route:ResourceEditorRoute<Buffer>;buffer:Buffer;view?:EditorView;transaction?:Transaction}[]=[];
  for(const route of routes){
   const entry=route.to===null?undefined:files.get(route.to)!;
   const buffer=route.editor??new Buffer(entry!.file,route.after!,entry!.hash,()=>buffers.changed(),false,buffers.workspace);
@@ -193,7 +198,7 @@ export async function prepareResourceRestore(buffers:Buffers,record:{id:string;w
  if(transition){
   if(!readEntry||!buffers.workspace||!buffers.workspaceId)throw new Error('Connect to the original workspace before reviewing its main construction restoration.');
   const selection=await readFrozenEntrySelection(readEntry,{workspace:buffers.workspaceId,namespace:buffers.workspace,current:original});
-  requireEntryTransitionCurrent(selection,transition.after);
+  requireEntryRestorationScope(selection,transition.after);
   entryIntent=await prepareEntryIntent(selection,{kind:'restoration',recovery_id:record.id,recovery_fingerprint:record.fingerprint},
    body=>load('/api/workspace/entry/intent',body),transition.before.path,original);
  }
@@ -240,7 +245,8 @@ export async function publishResourceRestore(buffers:Buffers,review:ResourceRest
    throw new EntryPublicationNoEffect();
   }
   confirmEntryOutcome(receipt.entry_outcome,request,review.entryIntent);
-  routes=adoptResourceReceipt(buffers,review.patches,receipt,{request,workspace:review.workspace,context:review.context,saved:new Map(Object.entries(review.saved))},review.current,review.restoring);
+  const interrupted=review.entryIntent?.interrupted;
+  routes=adoptResourceReceipt(buffers,review.patches,receipt,{request,workspace:review.workspace,context:review.context,saved:new Map(Object.entries(review.saved))},review.current,review.restoring,interrupted?.missingOriginal?interrupted.source:undefined);
  }catch(error){if(error instanceof EntryPublicationNoEffect)throw error;throw new Error(String(error)+" Publication request "+request+"; retained recovery "+(receipt.outcome?.recovery??"unknown")+". Preserve local drafts while inspecting the result.");}
  const match=receipt.outcome.recovery.match(/(?:^|\/)resource-changes\/([0-9a-f]{32})\/[^/]+$/);if(!match)throw new Error('Source restored but inverse recovery identity is unavailable. Inspect Source recovery.');
  return {routes,recovery:match[1]};
@@ -315,16 +321,33 @@ export function captureResourceRoster(buffers:Buffers){
  const retain=(path:string,buffer:Buffer)=>{const existing=values.find(([key])=>key===path);if(existing){if(existing[1]!==buffer||!current())throw Error("Original source owners changed during acquisition.");return;}if(!current(new Map([[path,buffer]])))throw Error("Original source owners changed during acquisition.");values.push([path,buffer]);captures.push(capture(buffer));};
  return {captures,ownership_sources,unaddressed_sources,current,retain};
 }
-export async function captureResourceInputs(buffers:Buffers,targetPaths:string[],context:string,edit:unknown,load:ResourceTransport,alive:()=>boolean,hash:(text:string)=>Promise<string>,entryIntent?:EntryIntent){
- const paths=new Set(targetPaths),roster=captureResourceRoster(buffers),current=()=>alive()&&roster.current();
+export async function retainedResourceInputs(buffers:Buffers,roster:ReturnType<typeof captureResourceRoster>,targetPaths:readonly string[],
+ current:()=>boolean,hash:(text:string)=>Promise<string>=resourceHash,interrupted?:InterruptedEntry){
+ const paths=new Set(targetPaths);
  const drafts:Record<string,unknown>=Object.create(null);for(const row of roster.captures){if(!paths.has(row.path)||buffers.values.get(row.path)!==row.buffer||row.deleted)continue;if(row.readonly||row.transient||row.buffer.saving)throw new Error('Choose writable current resource source.');if(!row.guard)throw Error('The loaded source has no physical identity guard. Preserve its draft and reopen or compare the exact saved source before preparing resource changes.');drafts[row.path]={save_guard:row.guard,text:row.text,base_sha256:await hash(row.base),version:row.version,writable:true};}
  if(!current())throw new Error('Source changed while capturing resource inputs.');
- const saved_guards:Record<string,string>=Object.create(null);for(const row of roster.captures)if(Object.hasOwn(roster.ownership_sources,row.path)&&row.guard)saved_guards[row.path]=row.guard;
- const capture={context,edit,drafts,ownership_sources:roster.ownership_sources,unaddressed_sources:roster.unaddressed_sources,saved_guards};
+ const saved_guards:Record<string,string>=Object.create(null);
+ for (const row of roster.captures) {
+  if (Object.hasOwn(roster.ownership_sources,row.path) && row.guard &&
+      !(interrupted?.missingOriginal && row.path === interrupted.source)) saved_guards[row.path]=row.guard;
+ }
+ return {drafts,ownership_sources:roster.ownership_sources,unaddressed_sources:roster.unaddressed_sources,saved_guards};
+}
+export async function captureResourceInputs(buffers:Buffers,targetPaths:string[],context:string,edit:unknown,load:ResourceTransport,alive:()=>boolean,hash:(text:string)=>Promise<string>,entryIntent?:EntryIntent){
+ const roster=captureResourceRoster(buffers),current=()=>alive()&&roster.current();
+ const retained=await retainedResourceInputs(buffers,roster,targetPaths,current,hash,entryIntent?.interrupted);
+ const capture={context,edit,...retained};
  const inputs=entryIntent
     ? await load<ResourceInputs>('/api/workspace/entry/inputs',{version:1,token:entryIntent.token,capture})
     : await load<ResourceInputs>('/api/changes/resource-inputs',capture);
- if(!current()||!inputs||inputs.context!==context||typeof inputs.workspace!=='string'||!inputs.workspace||inputs.source_files_modified!==false||!inputs.sources||typeof inputs.sources!=='object'||Array.isArray(inputs.sources)||!inputs.saved_sources||typeof inputs.saved_sources!=='object'||Array.isArray(inputs.saved_sources)||!inputs.refusals||typeof inputs.refusals!=='object'||Array.isArray(inputs.refusals)||!inputs.saved_guards||typeof inputs.saved_guards!=='object'||Array.isArray(inputs.saved_guards)||Object.entries(inputs.saved_guards).some(([path,guard])=>!path||typeof guard!=='string'||!guard||guard.length>16384)||Object.entries(inputs.sources).some(([path,source])=>source.kind==='file'&&!Object.hasOwn(inputs.saved_guards,path))||Object.keys(inputs.refusals).length)throw new Error('Current source acquisition refused or changed. Prepare again.');
+ if(!current()||!inputs||inputs.context!==context||typeof inputs.workspace!=='string'||!inputs.workspace||inputs.source_files_modified!==false||!inputs.sources||typeof inputs.sources!=='object'||Array.isArray(inputs.sources)||!inputs.saved_sources||typeof inputs.saved_sources!=='object'||Array.isArray(inputs.saved_sources)||!inputs.refusals||typeof inputs.refusals!=='object'||Array.isArray(inputs.refusals)||!inputs.saved_guards||typeof inputs.saved_guards!=='object'||Array.isArray(inputs.saved_guards)||Object.entries(inputs.saved_guards).some(([path,guard])=>!path||typeof guard!=='string'||!guard||guard.length>16384)||Object.keys(inputs.refusals).length)throw new Error('Current source acquisition refused or changed. Prepare again.');
+ const interrupted=entryIntent?.interrupted;
+ for (const [path, source] of Object.entries(inputs.sources)) {
+  if (source.kind !== 'file' || Object.hasOwn(inputs.saved_guards,path)) continue;
+  if (interrupted?.missingOriginal && path === interrupted.source && inputs.saved_sources[path]?.kind === 'missing' &&
+     Object.hasOwn(retained.drafts,path)) continue;
+  throw Error('Current source acquisition lacks its physical observation. Prepare again.');
+ }
  return {inputs,capture,current};
 }
 </ui:copy>

@@ -317,10 +317,12 @@ Each client reads text before requesting optional capabilities. A save uses the 
 
 <ui:include file="embedded-template-host-acceptance.md" />
 
+<ui:include file="fenced-source-reading-host-acceptance.md" />
+
 <ui:include file="batch-template-host-acceptance.md" />
 
 <ui:include file="workspace-entry-move-acceptance.md" />
-
-<ui:include file="fenced-source-reading-host-acceptance.md" />
+<ui:include file="workspace-entry-interrupted-acceptance.md" />
+<ui:include file="workspace-entry-lineage-acceptance.md" />
 
 </ui:doc>

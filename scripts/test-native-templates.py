@@ -110,14 +110,15 @@ def run_host(host, origin, workspace, temporary, fixture, provider_context=False
         name = name if acceptance is not None else ("testLiveEmbeddedTemplateCatalogAndHistory" if embedded else "testLiveProviderContextCompletionAndHistory" if provider_context else "testLiveNativeSourceTemplateCatalogAndHistory")
         test_class = test_class if acceptance is not None else ("EmbeddedTemplateTests" if embedded else "SnippetContextProviderTests" if provider_context else "SourceTemplateTests")
         report = temporary / "native-template.xml"
-        command = ["swift", "test", "--package-path", "apps/apple-simple", "--scratch-path", "target/apple-simple-spm", "--filter", test_class + "." + name + "$", "--xunit-output", str(report)]
+        command = ["swift", "test", "--jobs", "2", "--package-path", "apps/apple-simple", "--scratch-path", "target/apple-simple-spm", "--filter", test_class + "." + name + "$", "--xunit-output", str(report)]
     else:
         name = name if acceptance is not None else ("liveEmbeddedTemplateCatalogAndHistory" if embedded else "liveProviderContextCompletionAndHistory" if provider_context else "liveNativeSourceTemplateCatalogAndHistory")
         test_class = test_class if acceptance is not None else ("EmbeddedTemplateTest" if embedded else "SnippetContextProviderTest" if provider_context else "SourceTemplateTest")
         launcher = ROOT / "target/simple-android-gradle"
         if not launcher.is_file():
             subprocess.run(["rustc", "--edition=2021", "scripts/simple-android-gradle.rs", "-o", str(launcher)], cwd=ROOT, check=True)
-        command = [str(launcher), "-Pandroid.builder.sdkDownload=false", ":app:testDebugUnitTest", "--tests", "com.hickorydocs.simple." + test_class + "." + name, "--rerun-tasks"]
+        # The owned engine address changes on every run. Repeat this test task while keeping valid build outputs.
+        command = [str(launcher), "-Pandroid.builder.sdkDownload=false", ":app:testDebugUnitTest", "--tests", "com.hickorydocs.simple." + test_class + "." + name, "--rerun"]
         report = ROOT / ("apps/android-simple/app/build/test-results/testDebugUnitTest/TEST-com.hickorydocs.simple." + test_class + ".xml")
     report.unlink(missing_ok=True)
     suffix = "-" + label + "-last.log" if acceptance is not None else "-embedded-last.log" if embedded else "-provider-last.log" if provider_context else "-last.log"

@@ -407,14 +407,15 @@ Provider acquisition and resource publication share the same retained owner leas
         val session=generation
         return {generation==session&&paths.all{(path,buffer)->buffers[path]===buffer}&&captures.all{it.buffer.text==it.text&&it.buffer.base==it.base&&it.buffer.hash==it.hash&&it.buffer.file===it.file&&!it.buffer.saving}}
     }
-    fun adoptResourceReceipt(patches:List<ResourceEditorPatch>,receipt:ResourcePublication<FileNode>,request:String,workspace:String,context:String,expected:Map<String,ResourceSaved>,current:()->Boolean,restoring:Map<String,DocumentBuffer> = emptyMap()):List<ResourceEditorRoute<DocumentBuffer>> {
+    fun adoptResourceReceipt(patches:List<ResourceEditorPatch>,receipt:ResourcePublication<FileNode>,request:String,workspace:String,context:String,expected:Map<String,ResourceSaved>,current:()->Boolean,restoring:Map<String,DocumentBuffer> = emptyMap(),absentOriginal:String?=null):List<ResourceEditorRoute<DocumentBuffer>> {
         val server=engine ?: error("Reconnect and inspect Source recovery before changing editors.")
         check(current()) {"Editor drafts or baselines changed after review. Preserve them and inspect Source recovery."}
         val files=confirmedResourceFiles(patches,receipt,request,workspace,context,expected){it.path to (!it.dir&&it.generatedBy==null)}
         val nextTree=resourceTree(patches,files.values)
         val live=patches.mapNotNull{patch->patch.before?.let{before->val buffer=buffers[patch.path] ?: error("Source editor unavailable. Inspect recovery.");check(!buffer.saving&&!buffer.readOnly){"Source editor is saving or read-only. Inspect recovery."};before.identity to ResourceEditorCapture(buffer,buffer.text)}}.toMap()
         check(restoring.values.all{buffer->buffer.resourceDeleted&&retainedResourceEditors.values.any{it===buffer}&&buffers.values.none{it===buffer}}){"Restoration must select a retained deleted editor. Inspect Source recovery."}
-        val routes=routeResourceEditors(patches,live,restoring.mapValues{ResourceEditorCapture(it.value,it.value.text)})
+        val editorPatches=patches.filter{it.path!=absentOriginal||it.before!=null||it.after!=null||buffers.containsKey(it.path)}
+        val routes=routeResourceEditors(editorPatches,live,restoring.mapValues{ResourceEditorCapture(it.value,it.value.text)})
         val targets=routes.map{route->val entry=route.to?.let{files.getValue(it)};route to (route.editor ?: DocumentBuffer(entry!!.file,FileText(route.after!!,entry.hash,entry.saveGuard)))}
         for((route,buffer) in targets){
             check(buffer.state.composition==null){"Finish composition before adopting source editors. Inspect recovery."}

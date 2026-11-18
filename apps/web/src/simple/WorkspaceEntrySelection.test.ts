@@ -1,5 +1,5 @@
 import {describe,it,expect} from "vitest";
-import {confirmEntryOutcome,entryPublicationHadNoEffect,parseEntrySelection,prepareEntryIntent,readEntryTransition,readFrozenEntrySelection,requireEntryTransitionCurrent} from "./WorkspaceEntrySelection";
+import {confirmEntryOutcome,entryPublicationHadNoEffect,parseEntrySelection,prepareEntryIntent,prepareInterruptedEntry,readEntryTransition,readFrozenEntrySelection,readInterruptedEntry,requireEntryRestorationScope} from "./WorkspaceEntrySelection";
 function original(){return {version:1,entry_protocol:1,workspace:"a".repeat(32),namespace:"/workspace",entry:{version:1,identity:"b".repeat(32),generation:7,path:"project.md"},guard:"c".repeat(64),source_guard:"opaque physical observation",source_hash:"sha256:"+"d".repeat(64),movable:true,source_effects:false};}
 describe("workspace entry reading selection",()=>{
  it("retains an immutable exact original rather than a caller-owned response",()=>{const response=original(),proof=parseEntrySelection(response);response.entry.path="replacement.md";response.namespace="/other";expect(proof.entry.path).toBe("project.md");expect(proof.namespace).toBe("/workspace");expect(Object.isFrozen(proof)).toBe(true);expect(Object.isFrozen(proof.entry)).toBe(true);});
@@ -34,7 +34,39 @@ describe("workspace entry reading selection",()=>{
   const record={version:1,state:'retained',request_id:id,manifest_sha256:'b'.repeat(64),kind:'move',before_entry:proof.entry,after_entry:after};
   const transition=readEntryTransition(record,id)!;
   const selection=await readFrozenEntrySelection(async()=>proof,{workspace:proof.workspace,namespace:proof.namespace,current:()=>true});
-  expect(()=>requireEntryTransitionCurrent(selection,transition.after)).toThrow('earlier');
+  expect(()=>requireEntryRestorationScope(selection,transition.after)).toThrow('current construction');
+  const returned=await readFrozenEntrySelection(async()=>({...proof,entry:{...after,generation:10}}),{workspace:proof.workspace,namespace:proof.namespace,current:()=>true});
+  expect(()=>requireEntryRestorationScope(returned,transition.after)).not.toThrow();
   expect(()=>readEntryTransition({...record,kind:['move']},id)).toThrow();
+ });
+ it('requires the exact interrupted evidence and reserves above every attempted generation',async()=>{
+  const proof=original(),scope={workspace:proof.workspace,namespace:proof.namespace,version:1,source_files_modified:false};
+  const request='2'.repeat(32),manifest='3'.repeat(64),fingerprint='4'.repeat(64),token='5'.repeat(64);
+  const before=proof.entry,destination={...before,path:'moved.spec',generation:8};
+  const material={...scope,current_entry:before,request_id:request,manifest_sha256:manifest,reservation_floor:9,
+   change:{version:1,kind:'move',before,after:destination},can_complete:true,notice:null,
+   paths:[{path:before.path,saved_kind:'missing'},{path:destination.path,saved_kind:'file'}]};
+  const wire={...scope,interrupted:{material,fingerprint}};
+  const evidence=readInterruptedEntry(wire,scope.workspace,scope.namespace)!;
+  expect(evidence.missingOriginal).toBe(true);
+  expect(readInterruptedEntry({...scope,interrupted:null},scope.workspace,scope.namespace)).toBeNull();
+  expect(()=>readInterruptedEntry({...wire,namespace:'/other'},scope.workspace,scope.namespace)).toThrow();
+  const after={...destination,generation:10};
+  const reply={...scope,kind:'interrupted_completion',interrupted_reading_fingerprint:fingerprint,supersedes:null,
+   title:'Complete Move',token,context:token,before_entry:before,after_entry:after,edit:{documentChanges:[]}};
+  const load=(body:unknown)=>{expect(body).toEqual({version:1,reading:wire.interrupted,retained_capture:{drafts:{}}});return Promise.resolve(reply);};
+  const intent=await prepareInterruptedEntry(evidence,{drafts:{}},load,()=>true);
+  await expect(prepareInterruptedEntry(evidence,{},async()=>({...reply,after_entry:destination}),()=>true)).rejects.toThrow();
+  await expect(prepareInterruptedEntry(evidence,{},async()=>({...reply,interrupted_reading_fingerprint:'0'.repeat(64)}),()=>true)).rejects.toThrow();
+  let current=true;
+  await expect(prepareInterruptedEntry(evidence,{},async()=>{current=false;return reply;},()=>current)).rejects.toThrow();
+  const receipt={version:2,kind:'interrupted_completion',request_id:'6'.repeat(32),before_entry:before,after_entry:after,
+   reservation_floor_before:9,reservation_floor:10,reservation_consumed:true};
+  confirmEntryOutcome({...receipt,state:'confirmed',current_entry:after,remaining_interrupted:null},receipt.request_id,intent);
+  const noEffect={...receipt,state:'no_effect',current_entry:before,remaining_interrupted:{request_id:request,manifest_sha256:manifest}};
+  expect(entryPublicationHadNoEffect(noEffect,receipt.request_id,intent)).toBe(true);
+  expect(entryPublicationHadNoEffect({...noEffect,reservation_consumed:false,reservation_floor:9},receipt.request_id,intent)).toBe(true);
+  expect(()=>entryPublicationHadNoEffect({...noEffect,remaining_interrupted:null},receipt.request_id,intent)).toThrow();
+  expect(()=>entryPublicationHadNoEffect({...noEffect,current_entry:after},receipt.request_id,intent)).toThrow();
  });
 });

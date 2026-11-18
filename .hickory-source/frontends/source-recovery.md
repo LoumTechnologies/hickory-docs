@@ -5,6 +5,19 @@ For maintainers adding local recovery through the existing menu on browser, macO
 
 Discovery names retained resource operations, including interrupted ones. It does not label receipts as current disk state or grant restoration authority. Open a floating reading from the shared View menu and leave the editor mounted underneath it. Existing saved baselines and unsaved drafts can differ; request one explicit snapshot and preserve empty text separately from absent source. All hosts now prepare a source-current inverse and preview saved baselines separately from drafts. Explicit publication uses the shared engine guard, then admits only a complete matching receipt into live editors. Its inverse is another reviewed recovery operation, not an automatic retry. Provider resource proposals share this review, adoption and ordered workspace history. Ordinary-save history and general crash/session recovery remain separate work.
 
+For an interrupted main Move, the same reading offers a fresh completion
+review of the sealed producer evidence. The source address and destination are
+fixed by that evidence. Keep any retained editor and its original draft lease
+through the request. The floating review pages every saved and draft side so
+long source stays reviewable. An entirely missing saved source can still have a live
+draft at the old address. Its original guard identifies that retained draft
+and cannot authorize a write to the missing file. Publication still needs an
+explicit Save of the complete review.
+
+Completion repairs the namespace and leaves the journal readable. Keep it out
+of ordinary Undo. Its saved preimage is the partial namespace that required
+recovery, so an ordinary inverse cannot restore it safely.
+
 ## Focused evidence, 2026-11-15
 
 Connected publication acceptance: the actual-provider browser flow passed ordered
@@ -37,7 +50,8 @@ import {useEffect,useMemo,useReducer,useRef,useState} from 'react';
 import {createPortal} from 'react-dom';
 import {request} from '../api/client';
 import type {Buffer,Buffers} from './buffers';
-import {EntryPublicationNoEffect,prepareResourceRestore,publishResourceRestore,type ResourceRestoreReview,type ResourceEditorRoute} from './ResourceEditors';
+import {captureResourceRoster,EntryPublicationNoEffect,prepareResourceRestore,prepareResourceSave,publishResourceRestore,retainedResourceInputs,type ResourceRestoreReview,type ResourceEditorRoute} from './ResourceEditors';
+import {prepareInterruptedEntry,readInterruptedEntry,type InterruptedEntry} from './WorkspaceEntrySelection';
 export interface RecoveryPage {version:number;workspace:string;ids:string[];next:string|null;ignored:number}
 export interface RecoverySummary {kind:'file'|'missing';bytes?:number;sha256?:string}
 export interface RecoveryReading {version:number;workspace:string;id:string;fingerprint:string;title:string;title_truncated:boolean;paths:{path:string;saved_before:RecoverySummary;saved_after:RecoverySummary;draft_before:RecoverySummary;draft_after:RecoverySummary}[];all_paths_recorded_applied:boolean;unrecognized_files:string[];draft_text:string|null;saved_text:string|null;entry_transition?:unknown}
@@ -70,12 +84,54 @@ export function ResourceConsequencesView({review}:{review:ResourceRestoreReview}
  const [page,setPage]=useState(0),[layer,setLayer]=useState<'saved'|'draft'>('saved');const value=review.facts[layer],rows=[...value.entries.map(path=>'Construction entry: '+path),...value.removed_entries.map(path=>'Removed entry: '+path),...value.output_paths.map(path=>'Generated output: '+path)],last=Math.max(0,Math.ceil(rows.length/100)-1),selected=Math.min(page,last);
  return <section aria-label="Construction consequences"><label>Construction layer <select aria-label="Construction layer" value={layer} onChange={event=>{setLayer(event.target.value as 'saved'|'draft');setPage(0);}}><option value="saved">Saved construction</option><option value="draft">Draft construction</option></select></label><p>{value.output_paths.length} generated output paths · relationships observed by compiler analysis; no checks or coverage queried.</p><pre>{rows.slice(selected*100,(selected+1)*100).join('\n')||'No construction entries or outputs reported.'}</pre>{last>0&&<><button disabled={!selected} onClick={()=>setPage(selected-1)}>Previous consequences</button><span>{selected+1}/{last+1}</span><button disabled={selected===last} onClick={()=>setPage(selected+1)}>Next consequences</button></>}</section>;
 }
-export function SourceRecoveryView({close,buffers,acquire,adopt,alive,epoch,editorSessions}:{editorSessions?:()=>void;close:()=>void;buffers:Buffers;acquire:(path:string)=>Promise<Buffer>;adopt:(routes:ResourceEditorRoute<Buffer>[],recovery:string)=>void;alive:()=>boolean;epoch:()=>number}) {
+export function SourceRecoveryView({close,buffers,acquire,adopt,alive,epoch,editorSessions}:{editorSessions?:()=>void;close:()=>void;buffers:Buffers;acquire:(path:string)=>Promise<Buffer>;adopt:(routes:ResourceEditorRoute<Buffer>[],inverse:string|null)=>void;alive:()=>boolean;epoch:()=>number}) {
  const [,paint]=useReducer((n:number)=>n+1,0),model=useMemo(()=>new RecoveryReader(route=>request('GET',route),paint),[]),panel=useRef<HTMLElement>(null);
  const [path,setPath]=useState(''),[snapshot,setSnapshot]=useState<RecoverySnapshot>('draft_before');
  const [review,setReview]=useState<ResourceRestoreReview|null>(null),[busy,setBusy]=useState(false),[message,setMessage]=useState(''),[inverse,setInverse]=useState<string|null>(null);
  const [reviewPage,setReviewPage]=useState(0);
  const lifetime=useRef(true);
+ const [interrupted,setInterrupted]=useState<InterruptedEntry|null>(null);
+ const [interruptedNotice,setInterruptedNotice]=useState('');
+ const interruptedRead=useRef(0);
+ const workspace=buffers.workspaceId,namespace=buffers.workspace;
+ async function refreshInterrupted() {
+  const reading=++interruptedRead.current;
+  function current(){return lifetime.current&&alive()&&reading===interruptedRead.current&&
+    buffers.workspaceId===workspace&&buffers.workspace===namespace;}
+  setInterrupted(null);setInterruptedNotice('');
+  if(!workspace||!namespace)return;
+  try {
+   const value=await request('GET','/api/workspace/entry/interrupted');
+   if(current())setInterrupted(readInterruptedEntry(value,workspace,namespace));
+  }catch(error){if(current())setInterruptedNotice(String(error));}
+ }
+ async function prepareCompletion() {
+  const evidence=interrupted;
+  if(busy||!evidence?.canComplete)return;
+  const originalRead=interruptedRead.current,stamp=epoch();
+  setReview(null);setBusy(true);setMessage('Preparing the interrupted Move completion…');
+  try {
+   const roster=captureResourceRoster(buffers);
+   const current=()=>lifetime.current&&alive()&&stamp===epoch()&&originalRead===interruptedRead.current&&roster.current();
+   const paths=[evidence.source,evidence.destination];
+   const capture=await retainedResourceInputs(buffers,roster,paths,current,undefined,evidence);
+   const intent=await prepareInterruptedEntry(evidence,capture,
+     body=>request('POST','/api/workspace/entry/interrupted/intent',body),current);
+   const prepared=await prepareResourceSave(buffers,intent.title,intent.edit,async target=>{
+    if(!current()||!paths.includes(target))throw Error('Original interrupted sources changed. Refresh the recovery evidence.');
+    const retained=buffers.values.get(target);
+    if(retained)return retained;
+    const buffer=await acquire(target);
+    if(buffer.sourceRevision!==0||buffer.text!==buffer.base)throw Error('The acquired recovery source changed. Refresh the recovery evidence.');
+    roster.retain(target,buffer);
+    return buffer;
+   },(route,body)=>request('POST',route,body),current,undefined,intent);
+   if(!current())throw Error('Original interrupted sources changed. Refresh the recovery evidence.');
+   setReview(prepared);setReviewPage(0);setPath(prepared.patches[0].path);
+   setMessage('Review the saved source and retained draft before completing the Move.');
+  }catch(error){if(lifetime.current)setMessage(String(error));}
+  finally{if(lifetime.current)setBusy(false);}
+ }
  async function prepare(record=model.value){
   if(!record||busy)return;const stamp=epoch();setBusy(true);setReview(null);setMessage('Preparing current saved and draft restoration…');
   try{const next=await prepareResourceRestore(buffers,record,acquire,(route,body)=>request('POST',route,body),
@@ -84,15 +140,21 @@ export function SourceRecoveryView({close,buffers,acquire,adopt,alive,epoch,edit
   catch(error){setMessage(String(error));}finally{setBusy(false);}
  }
  async function publish(){if(!review||busy)return;const selected=review;setReview(null);setBusy(true);setMessage('Publishing reviewed source restoration…');
-  try{const result=await publishResourceRestore(buffers,selected,(route,body)=>request('POST',route,body));adopt(result.routes,result.recovery);setInverse(result.recovery);setMessage('Restored saved baselines and source drafts. Prepare inverse to undo this restoration. No checks were run.');}
-  catch(error){setMessage(error instanceof EntryPublicationNoEffect ? error.message : String(error)+' Inspect Source recovery and current files before preparing another operation.');}finally{setBusy(false);}
+  const completing=!!selected.entryIntent?.interrupted;
+  try{const result=await publishResourceRestore(buffers,selected,(route,body)=>request('POST',route,body));const inverse=completing?null:result.recovery;adopt(result.routes,inverse);setInverse(inverse);setMessage(completing?'Completed the reviewed Move. Saved source and the retained draft are separate.':'Restored saved baselines and source drafts. Prepare inverse to undo this restoration. No checks were run.');}
+  catch(error){setMessage(error instanceof EntryPublicationNoEffect ? error.message : String(error)+' Inspect Source recovery and current files before preparing another operation.');}finally{if(completing)void refreshInterrupted();setBusy(false);}
  }
  async function prepareInverse(){if(!inverse||busy)return;setBusy(true);setReview(null);try{const record=await request<RecoveryReading>('GET','/api/changes/resource-recovery?id='+encodeURIComponent(inverse));if(record.id!==inverse||!alive())throw new Error('Inverse recovery identity changed.');model.value=record;setBusy(false);await prepare(record);}catch(error){setMessage(String(error));setBusy(false);}}
  useEffect(()=>{lifetime.current=true;panel.current?.focus();void model.list();return()=>{lifetime.current=false;model.close();};},[model]);
+ useEffect(()=>{void refreshInterrupted();return()=>{interruptedRead.current++;};},[workspace,namespace]);
  const value=model.value,selected=value?.paths.find(item=>item.path===path),text=value?.[snapshot.startsWith('saved')?'saved_text':'draft_text'];
  return createPortal(<section ref={panel} tabIndex={-1} role="dialog" aria-label="Source recovery" className="simple-workspace-problems simple-source-tests" onKeyDown={event=>{if(event.key==='Escape'){event.preventDefault();if(!busy)close();}}}>
  <header><strong>Source recovery</strong>{editorSessions&&<button disabled={busy} onClick={editorSessions}>Editor sessions…</button>}<button disabled={busy} onClick={close}>Close</button></header>
- <button disabled={model.loading||busy} onClick={()=>{setReview(null);setPath('');void model.list();}}>Refresh records</button><p role="status">{model.notice}</p>
+ <button disabled={model.loading||busy} onClick={()=>{setReview(null);setPath('');void model.list();void refreshInterrupted();}}>Refresh records</button><p role="status">{model.notice}</p>
+ {interruptedNotice&&<p role="status">{interruptedNotice}</p>}
+ {interrupted&&<section aria-label="Interrupted Move"><p>{interrupted.source} → {interrupted.destination}</p>{interrupted.notice&&<p role="status">{interrupted.notice}</p>}
+  {interrupted.canComplete&&<button disabled={busy} onClick={()=>{void prepareCompletion();}}>Prepare Move completion</button>}
+ </section>}
  {model.page&&<><label>Retained record <select aria-label="Retained record" value={value?.id??''} disabled={model.loading||busy} onChange={event=>{if(event.target.value){setReview(null);setPath('');void model.read(event.target.value);}}}><option value="">Choose record</option>{model.page.ids.map(id=><option key={id} value={id}>{id}</option>)}</select></label>{model.page.ignored>0&&<p>{model.page.ignored} unrecognized entries omitted.</p>}{model.page.next&&<button disabled={model.loading||busy} onClick={()=>{setPath('');void model.list(model.page!.next);}}>Next 100 identities</button>}</>}
  {message&&<p role="status">{message}</p>}{inverse&&<button disabled={busy||model.loading} onClick={()=>{void prepareInverse();}}>Prepare inverse restoration</button>}
  {value&&<><h3>{value.title}{value.title_truncated?'…':''}</h3><p>{value.all_paths_recorded_applied?'Every path has an applied receipt.':'The record does not confirm every path was applied.'} These receipts describe the recorded operation, not current disk state.</p>{value.unrecognized_files.length>0&&<p>{value.unrecognized_files.length} unrecognized files in this record.</p>}
@@ -101,10 +163,10 @@ export function SourceRecoveryView({close,buffers,acquire,adopt,alive,epoch,edit
  <label>Snapshot <select aria-label="Snapshot" value={snapshot} disabled={model.loading||busy} onChange={event=>{const next=event.target.value as RecoverySnapshot;setSnapshot(next);if(path)void model.read(value.id,path,next);}}>{(['saved_before','draft_before','saved_after','draft_after'] as RecoverySnapshot[]).map(side=><option key={side} value={side}>{side.replace('_',' ')}</option>)}</select></label>
  {selected&&<><p>{selected[snapshot].kind==='missing'?'Source absent in this snapshot.':`${selected[snapshot].bytes} UTF-8 bytes · ${selected[snapshot].sha256}`}</p>{text!==null&&text!==undefined&&<><pre style={{whiteSpace:'pre-wrap'}}>{text.slice(0,32000)}</pre>{text.length>32000&&<p>First 32,000 characters shown.</p>}</>}</>}
  </>}
- {review&&<section aria-label="Restoration preview"><h3>Restore saved sources and drafts</h3><p>{review.patches.length} paths · source and construction revisions are checked again on publication.</p>
+ {review&&<section aria-label="Restoration preview"><h3>{review.entryIntent?.interrupted?review.plan.title:'Restore saved sources and drafts'}</h3><p>{review.patches.length} paths · source and construction revisions are checked again on publication.</p>
  <label>Restoration source <select aria-label="Restoration source" value={path} onChange={event=>{setPath(event.target.value);setReviewPage(0);}}>{review.patches.map(item=><option key={item.path} value={item.path}>{item.path}</option>)}</select></label>
  {review.patches.filter(item=>item.path===path).map(item=><div key={item.path}><strong>Current draft</strong><pre>{item.before?.text.slice(reviewPage*16000,(reviewPage+1)*16000)??'Source absent'}</pre><strong>Restored draft</strong><pre>{item.after?.text.slice(reviewPage*16000,(reviewPage+1)*16000)??'Source absent'}</pre><strong>Current saved baseline</strong><pre>{review.savedBefore[path]?.kind==='file'?(review.savedBefore[path] as {text:string}).text.slice(reviewPage*16000,(reviewPage+1)*16000):'Source absent'}</pre><strong>Restored saved baseline</strong><pre>{review.saved[path]?.kind==='file'?(review.saved[path] as {text:string}).text.slice(reviewPage*16000,(reviewPage+1)*16000):'Source absent'}</pre><p>Text page {reviewPage+1} · 16,000 characters per side. Draft text and saved text may differ.</p><button disabled={!reviewPage} onClick={()=>setReviewPage(reviewPage-1)}>Previous restoration text</button><button disabled={Math.max(item.before?.text.length??0,item.after?.text.length??0,review.savedBefore[path]?.kind==='file'?(review.savedBefore[path] as {text:string}).text.length:0,review.saved[path]?.kind==='file'?(review.saved[path] as {text:string}).text.length:0)<=(reviewPage+1)*16000} onClick={()=>setReviewPage(reviewPage+1)}>Next restoration text</button></div>)}
- <ResourceConsequencesView review={review}/><button disabled={busy} onClick={()=>{void publish();}}>Restore reviewed saved sources and drafts</button></section>}
+ <ResourceConsequencesView review={review}/><button disabled={busy} onClick={()=>{void publish();}}>{review.entryIntent?.interrupted?'Complete reviewed Move':'Restore reviewed saved sources and drafts'}</button></section>}
  </section>,document.body);
 }
 </ui:copy>
@@ -232,6 +294,7 @@ Retain a unique pending request before sending a write. A lost or partial result
 // read-only, and local admission is repeated before adopting a confirmed result.
 @MainActor @Observable final class ResourceRestoration {
  private(set) var confirmedReceipt:ResourcePublication<FileNode>?
+ private(set) var interruptedEvidenceRevision=UUID()
  var review:ResourceRestorationReview?;var notice="";var busy=false;var lastRecovery:String?;var selectedPath=0
  private var admitting=false
  private var ticket=UUID();private var pending:(id:String,review:ResourceRestorationReview)?;private weak var publishingWorkspace:Workspace?
@@ -259,6 +322,44 @@ Retain a unique pending request before sending a write. A lost or partial result
    let reply:ResourceJSON=try await self.call(workspace,"GET","/api/workspace/entry")
    return try resourceBody(reply)
   },workspace:runtime,namespace:namespace,current:valid)
+ }
+ func readInterruptedEntry(_ workspace:Workspace)async throws->InterruptedWorkspaceEntry? {
+  guard let runtime=workspace.sourceWorkspaceID,let namespace=workspace.sourceRootAddress else{return nil}
+  let session=workspace.engine?.session
+  let response:ResourceJSON=try await call(workspace,"GET","/api/workspace/entry/interrupted")
+  guard workspace.engine?.session === session,workspace.sourceWorkspaceID==runtime,
+        exactUTF8(workspace.sourceRootAddress,namespace) else{throw EntrySelectionFailure("Workspace changed while reading recovery evidence.")}
+  return try InterruptedWorkspaceEntry.read(response,workspace:runtime,namespace:namespace)
+ }
+ func prepareEntryCompletion(_ workspace:Workspace,reading:InterruptedWorkspaceEntry,current:@escaping()->Bool)async {
+  guard !busy,!admitting,reading.material.can_complete,current() else{return}
+  let epoch=workspace.sourceNavigationEpoch,session=workspace.engine?.session
+  let scope={current() && workspace.sourceNavigationEpoch==epoch && workspace.engine?.session === session &&
+    workspace.sourceWorkspaceID==reading.material.workspace && exactUTF8(workspace.sourceRootAddress,reading.material.namespace)}
+  let original=currentWorkspace(workspace)
+  let pendingID=pending?.id
+  let reload=UUID();ticket=reload;busy=true;review=nil
+  notice="Preparing the interrupted Move completion…"
+  do {
+   var attempt:WorkspaceEntryAttempt?
+   if let pending {
+    guard publishingWorkspace === workspace,confirmedReceipt==nil,let previous=pending.review.entryIntent,
+          let matching=reading.material.attempts.first(where:{ row in
+           row.request_id==pending.id && row.context==previous.context && row.before_entry==previous.before_entry &&
+           row.after_entry==previous.after_entry && row.reviewed_fingerprint==pending.review.result.consequences.fingerprint
+          }) else{throw EntrySelectionFailure("The current publication cannot be linked to this interrupted Move. Inspect its status.")}
+    attempt=matching
+   }
+   let retained=try resourceRetainedCapture(workspace,paths:[reading.source,reading.destination],interrupted:reading)
+   var body:[String:Any]=["version":1,"reading":try resourceBody(reading.body),"retained_capture":try resourceBody(retained)]
+   if let attempt{body["supersede_request"]=["request_id":attempt.request_id,"context":attempt.context]}
+   var intent:WorkspaceEntryIntent=try await call(workspace,"POST","/api/workspace/entry/interrupted/intent",body)
+   guard ticket==reload,scope(),original(),pending?.id==pendingID else{throw EntrySelectionFailure("Original source or pending request changed. Refresh recovery evidence.")}
+   try intent.admit(reading,superseding:attempt)
+   let edit=try resourceBody(intent.edit)
+   busy=false
+   await prepareEdit(workspace,title:intent.title,edit:edit,current:scope,entry:intent,superseding:pendingID)
+  }catch{if ticket==reload{busy=false;notice=error.localizedDescription}}
  }
  private func entryIntent(_ workspace:Workspace,selection:FrozenWorkspaceEntrySelection,kind:String,operation:[String:Any],path:String?,current:()->Bool)async throws->WorkspaceEntryIntent {
   guard selection.current(),current() else{throw EntrySelectionFailure("The original entry review changed. Prepare again.")}
@@ -293,7 +394,7 @@ Retain a unique pending request before sending a write. A lost or partial result
     let original=currentWorkspace(workspace)
     let valid={self.ticket==id&&historyCurrent()&&workspace.sourceNavigationEpoch==initial}
     let selection=try await readEntry(workspace,current:valid)
-    guard original(),selection.proof.entry==transition.after else{throw EntrySelectionFailure("This recovery belongs to an earlier construction generation or a changed source roster.")}
+    guard original(),selection.proof.entry.permitsRestorationReview(of:transition.after) else{throw EntrySelectionFailure("The retained transition or original source roster changed. Prepare the current restoration.")}
     let intent=try await entryIntent(workspace,selection:selection,kind:"restoration",operation:["recovery_id":record.id,"recovery_fingerprint":record.fingerprint],path:transition.before.path,current:{valid()&&original()})
     let acquired=try await acquireResourceInputs(workspace,paths:record.paths.map(\.path),edit:intent.edit,context:intent.context,current:{valid()&&selection.current()},readInputs:{capture in try await self.readInputs(workspace,capture:capture,entry:intent)})
     capture=acquired.capture;inputs=acquired.inputs;captured=acquired.current;entry=intent
@@ -329,8 +430,8 @@ Retain a unique pending request before sending a write. A lost or partial result
    notice="Review saved baselines and dirty drafts separately. Publication changes saved source; generated files are only analyzed."
   }catch{if ticket==id{notice=error.localizedDescription}}
  }
- func prepareEdit(_ workspace:Workspace,title:String,edit:Any,current:@escaping()->Bool={true},requery:(() async throws->Any)?=nil,entry:WorkspaceEntryIntent?=nil)async {
-  guard !busy,!hasPending else{notice="Inspect the pending publication before preparing another resource proposal.";return}
+ func prepareEdit(_ workspace:Workspace,title:String,edit:Any,current:@escaping()->Bool={true},requery:(() async throws->Any)?=nil,entry:WorkspaceEntryIntent?=nil,superseding:String?=nil)async {
+  guard !busy,pending?.id==superseding,superseding==nil||entry?.interrupted != nil else{notice="Inspect the pending publication before preparing another resource proposal.";return}
   let id=UUID();ticket=id;busy=true;review=nil;notice="Acquiring the complete resource proposal…";defer{if ticket==id{busy=false}}
   do {
    var selectedEdit=edit
@@ -338,7 +439,7 @@ Retain a unique pending request before sending a write. A lost or partial result
    let original=currentWorkspace(workspace)
    let discovered:ResourceWireTargets=try await call(workspace,"POST","/api/changes/resource-targets",["edit":edit])
    guard ticket==id,current(),entry==nil||original(),discovered.version==1,!discovered.paths.isEmpty,discovered.paths.count<=1000,Set(discovered.paths).count==discovered.paths.count else{throw EngineError(message:"Resource targets or provider changed. Prepare the complete proposal again.")}
-   let acquisition=try await acquireResourceInputs(workspace,paths:discovered.paths,edit:raw,context:entry?.context,current:{self.ticket==id&&current()},readInputs:{capture in try await self.readInputs(workspace,capture:capture,entry:entry)})
+   let acquisition=try await acquireResourceInputs(workspace,paths:discovered.paths,edit:raw,context:entry?.context,interrupted:entry?.interrupted,current:{self.ticket==id&&current()},readInputs:{capture in try await self.readInputs(workspace,capture:capture,entry:entry)})
    var sourceCapture=acquisition.capture,inputs=acquisition.inputs;let captured=acquisition.current,context=sourceCapture.context
    if acquisition.acquired,let requery {
     for path in discovered.paths {if let buffer=workspace.buffers[path],let service=buffer.language {let source=buffer.text;_ = try await service.readOutline(source:source);guard exactUTF8(buffer.text,source),ticket==id,current(),captured() else{throw EngineError(message:"Original source changed while synchronizing the resource proposal.")}}}
@@ -357,8 +458,10 @@ Retain a unique pending request before sending a write. A lost or partial result
    guard patches.allSatisfy({patch in patch.before.map{exactUTF8(workspace.buffers[patch.path]?.text,$0.text)} ?? (workspace.buffers[patch.path]==nil)}) else{throw EngineError(message:"Every current source must match the complete resource plan.")}
    let local=workspace.captureResourceEditors(patches)
    let restoration=ResourceWireRestoration(version:1,recovery_id:"",recovery_fingerprint:"",workspace:inputs.workspace,context:context,plan:planned.plan,saved_before:inputs.saved_sources,saved_after:saved)
+   guard pending?.id==superseding else{throw EntrySelectionFailure("The original publication changed during recovery preparation.")}
+   if superseding != nil {pending=nil;publishingWorkspace=nil}
    review=ResourceRestorationReview(request:ResourceWireRestoreRequest(recovery_id:"",inputs:inputs,capture:sourceCapture),result:ResourceWirePrepared(version:1,restoration:restoration,consequences:facts),patches:patches,retained:[:],current:{captured() && local() && current()},save:proposal,entryIntent:entry);selectedPath=0
-   notice="Review every text and namespace consequence together. Publish explicitly after reviewing saved source and generated consequences."
+   notice=entry?.interrupted == nil ? "Review every text and namespace consequence together. Publish explicitly after reviewing saved source and generated consequences.":"Review the saved source and retained draft before completing the Move."
   }catch{if ticket==id{notice=error.localizedDescription}}
  }
  func prepareHistory(_ workspace:Workspace,intent:ResourceHistoryIntent)async {
@@ -390,7 +493,7 @@ Retain a unique pending request before sending a write. A lost or partial result
   do{try await value.preflight?()}catch{notice=error.localizedDescription;return}
   guard review?.identity==value.identity,value.current(),pending==nil,!busy else{notice="Complete review changed during final admission.";return}
   let id=UUID().uuidString.replacingOccurrences(of:"-",with:"").lowercased();pending=(id,value);confirmedReceipt=nil;publishingWorkspace=workspace;review=nil;busy=true
-  defer{busy=false}
+  defer{busy=false;if value.entryIntent != nil {interruptedEvidenceRevision=UUID()}}
   do {
    var body:[String:Any]=["request_id":id,"reviewed_fingerprint":value.result.consequences.fingerprint]
    if let save=value.save {body["proposal"]=try resourceBody(save)}
@@ -400,7 +503,8 @@ Retain a unique pending request before sending a write. A lost or partial result
   }catch{notice=error.localizedDescription+(confirmedReceipt?.request_id==id ? " Saved publication is confirmed; editor adoption is incomplete. Preserve local drafts and inspect Source recovery. This action will not be resent.":" Publication is unconfirmed. Inspect status or retained recovery; this action will not be retried.")}
  }
  func status(_ workspace:Workspace)async {
-  guard !busy,let (id,value)=pending else{return};busy=true;defer{busy=false}
+  guard !busy,let (id,value)=pending else{return};busy=true
+  defer{busy=false;if value.entryIntent != nil {interruptedEvidenceRevision=UUID()}}
   do {guard publishingWorkspace === workspace else{throw EngineError(message:"Inspect recovery in the original workspace.")};let receipt:ResourcePublication<FileNode>=try await call(workspace,"GET","/api/changes/resource-save?request_id="+id);try adopt(workspace,id:id,value:value,receipt:receipt)}catch{notice=error.localizedDescription+(confirmedReceipt?.request_id==id ? " Saved publication is confirmed; preserve drafts and inspect recovery because editor adoption is incomplete.":" Preserve drafts and inspect retained recovery before another publication.")}
  }
  private func adopt(_ workspace:Workspace,id:String,value:ResourceRestorationReview,receipt:ResourcePublication<FileNode>)throws {
@@ -420,10 +524,19 @@ Retain a unique pending request before sending a write. A lost or partial result
   _ = try confirmedResourceFiles(value.patches,receipt:receipt,request:id,workspace:value.result.restoration.workspace,context:value.request.capture.context,expected:value.result.restoration.saved_after){($0.path,!$0.dir && $0.generated_by==nil)}
   confirmedReceipt=receipt
   let recovery=try resourceRecoveryIdentity(receipt.outcome.recovery)
-  _ = try workspace.adoptResourceReceipt(value.patches,receipt:receipt,request:id,workspace:value.result.restoration.workspace,context:value.request.capture.context,expected:value.result.restoration.saved_after,current:value.current,restoring:value.retained)
-  workspace.changes.recordResourcePublication(recovery,intent:value.history)
-  if value.entryIntent?.kind == "move" {workspace.changes.retireEntryMove()}
-  pending=nil;lastRecovery=recovery;value.published?(recovery);notice=value.save==nil ? "Restored confirmed saved baselines and retained dirty drafts. Prepare the inverse restoration to redo this operation.":"Saved the reviewed resource namespace. Use Undo workspace change to review its inverse. No tests were executed by this save."
+  let absentOriginal=value.entryIntent?.interrupted.flatMap{$0.missingOriginal ? $0.source:nil}
+  _ = try workspace.adoptResourceReceipt(value.patches,receipt:receipt,request:id,workspace:value.result.restoration.workspace,context:value.request.capture.context,expected:value.result.restoration.saved_after,current:value.current,restoring:value.retained,absentOriginal:absentOriginal)
+  let completing=value.entryIntent?.interrupted != nil
+  pending=nil
+  if completing {
+   lastRecovery=nil
+   notice="Completed the reviewed Move. Saved source and the retained draft are separate."
+  } else {
+   workspace.changes.recordResourcePublication(recovery,intent:value.history)
+   lastRecovery=recovery;value.published?(recovery)
+   notice=value.save==nil ? "Restored confirmed saved baselines and retained dirty drafts. Prepare the inverse restoration to redo this operation.":"Saved the reviewed resource namespace. Use Undo workspace change to review its inverse. No tests were executed by this save."
+  }
+  if value.entryIntent?.kind == "move" || completing {workspace.changes.retireEntryMove()}
   Task {await workspace.refresh()}
  }
 }
@@ -436,11 +549,35 @@ Render the selected retained evidence in a floating reading, reached through exi
 <ui:copy id="source-recovery-apple-1">
 struct SourceRecoveryView:View {
  var workspace:Workspace;@State private var model=RecoveryReader();@State private var path="";@State private var snapshot="draft_before"
+ @State private var interrupted:InterruptedWorkspaceEntry?
+ @State private var interruptedNotice=""
+ @State private var interruptedRead=UUID()
  private func list(_ after:String?=nil)async {guard let engine=workspace.engine else{model.notice="Connect to a workspace server first.";return};workspace.resourceRestoration.cancel();path="";await model.list(after:after){let route=URLComponents(string:$0)!;return try await engine.request("GET",route.path,query:route.queryItems ?? [])}}
  private func read(_ id:String,_ path:String?=nil,_ snapshot:String="draft_before")async {guard let engine=workspace.engine else{return};workspace.resourceRestoration.cancel();await model.read(id,path:path,snapshot:snapshot){let route=URLComponents(string:$0)!;return try await engine.request("GET",route.path,query:route.queryItems ?? [])}}
+ private func refreshInterrupted()async {
+  let identity=UUID();interruptedRead=identity;interrupted=nil;interruptedNotice=""
+  do {
+   let reading=try await workspace.resourceRestoration.readInterruptedEntry(workspace)
+   if interruptedRead==identity && workspace.showRecovery {interrupted=reading}
+  }catch{if interruptedRead==identity && workspace.showRecovery {interruptedNotice=error.localizedDescription}}
+ }
  var body:some View {VStack(alignment:.leading,spacing:8){
   HStack{Text("Source recovery").font(.headline);Spacer();Button("Editor sessions…"){workspace.showRecovery=false;workspace.editorRecovery.showing=true}.disabled(workspace.resourceRestoration.busy || workspace.resourceRestoration.hasPending);Button("Close"){workspace.showRecovery=false;workspace.currentBuffer?.focusSource?()}}
-  Button("Refresh records"){Task{await list()}}.disabled(model.loading);Text(model.notice).font(.caption).textSelection(.enabled)
+  Button("Refresh records"){Task{await list()};Task{await refreshInterrupted()}}
+   .disabled(model.loading || workspace.resourceRestoration.busy)
+  Text(model.notice).font(.caption).textSelection(.enabled)
+  if !interruptedNotice.isEmpty {Text(interruptedNotice).font(.caption).textSelection(.enabled)}
+  if let interrupted {
+   Text(interrupted.source+" → "+interrupted.destination).font(.caption).textSelection(.enabled)
+   if let notice=interrupted.material.notice {Text(notice).font(.caption).textSelection(.enabled)}
+   if interrupted.material.can_complete {
+    Button("Prepare Move completion"){
+     let reading=interruptedRead
+     Task{await workspace.resourceRestoration.prepareEntryCompletion(workspace,reading:interrupted,
+      current:{workspace.showRecovery && interruptedRead==reading})}
+    }.disabled(workspace.resourceRestoration.busy)
+   }
+  }
   ResourceRestorationPreview(workspace:workspace,model:workspace.resourceRestoration)
   ScrollView{VStack(alignment:.leading,spacing:8){
    if let page=model.page {Picker("Retained record",selection:Binding(get:{model.value?.id ?? ""},set:{id in if !id.isEmpty{path="";Task{await read(id)}}})){Text("Choose record").tag("");ForEach(page.ids,id:\.self){Text($0).tag($0)}}.disabled(model.loading)
@@ -460,15 +597,21 @@ struct SourceRecoveryView:View {
     }
    }
   }.frame(maxWidth:.infinity,alignment:.leading)}
- }.padding().frame(idealWidth:680,idealHeight:600).task{await list()}.onDisappear{model.close();workspace.resourceRestoration.cancel()}}
+ }.padding().frame(idealWidth:680,idealHeight:600).task{await list()}
+  .task(id:workspace.sourceWorkspaceID){await refreshInterrupted()}
+  .onChange(of:workspace.resourceRestoration.interruptedEvidenceRevision){_,_ in Task{await refreshInterrupted()}}
+  .onDisappear{interruptedRead=UUID();model.close();workspace.resourceRestoration.cancel()}}
 }
 
 struct ResourceRestorationPreview:View {
  var workspace:Workspace;var model:ResourceRestoration
+ @State private var textPage=0
+ private let pageSize=16_000
+ private func page(_ text:String)->String {String(text.dropFirst(textPage*pageSize).prefix(pageSize))}
  @ViewBuilder private func saved(_ name:String,_ value:ResourceSaved?) -> some View {
   Text(name).font(.headline)
   if let value {Text(value.kind=="missing" ? "Source absent.":"Saved file · mode \(value.mode.map(String.init) ?? "provider default") · \(value.readonly==true ? "read-only":"writable")").font(.caption)
-   if let text=value.text {Text(String(text.prefix(32000))).font(.system(.caption,design:.monospaced)).textSelection(.enabled);if text.count>32000{Text("First 32,000 characters shown.").font(.caption)}}
+   if let text=value.text {Text(page(text)).font(.system(.caption,design:.monospaced)).textSelection(.enabled)}
   }else{Text("Saved baseline missing from review. Publication will refuse.").font(.caption)}
  }
  var body:some View {VStack(alignment:.leading,spacing:8){
@@ -477,20 +620,30 @@ struct ResourceRestorationPreview:View {
   if model.lastRecovery != nil {Button("Prepare inverse restoration (undo/redo)"){Task{await model.prepareInverse(workspace)}}.disabled(model.busy || model.hasPending)}
   if let review=model.review {
    Text("Review source change: \(review.result.restoration.plan.title)").font(.headline)
-   Picker("Restored source",selection:Binding(get:{model.selectedPath},set:{model.selectedPath=$0})){ForEach(Array(review.patches.enumerated()),id:\.offset){index,patch in Text(patch.path).tag(index)}}
+   Picker("Restored source",selection:Binding(get:{model.selectedPath},set:{model.selectedPath=$0;textPage=0})){ForEach(Array(review.patches.enumerated()),id:\.offset){index,patch in Text(patch.path).tag(index)}}
    ScrollView([.horizontal,.vertical]){VStack(alignment:.leading,spacing:8){
     if review.patches.indices.contains(model.selectedPath){let patch=review.patches[model.selectedPath]
-     saved("Saved before",review.result.restoration.saved_before[patch.path]);saved("Saved after",review.result.restoration.saved_after[patch.path])
-     Text("Draft before").font(.headline);Text(patch.before.map{String($0.text.prefix(32000))} ?? "Source absent.").font(.system(.caption,design:.monospaced)).textSelection(.enabled)
-     Text("Draft after").font(.headline);Text(patch.after.map{String($0.text.prefix(32000))} ?? "Source absent.").font(.system(.caption,design:.monospaced)).textSelection(.enabled)
+     let before=review.result.restoration.saved_before[patch.path],after=review.result.restoration.saved_after[patch.path]
+     saved("Saved before",before);saved("Saved after",after)
+     Text("Draft before").font(.headline);Text(patch.before.map{page($0.text)} ?? "Source absent.").font(.system(.caption,design:.monospaced)).textSelection(.enabled)
+     Text("Draft after").font(.headline);Text(patch.after.map{page($0.text)} ?? "Source absent.").font(.system(.caption,design:.monospaced)).textSelection(.enabled)
+     let longest=[before?.text,after?.text,patch.before?.text,patch.after?.text].compactMap{$0?.count}.max() ?? 0
+     if longest>pageSize {
+      let count=(longest-1)/pageSize+1
+      HStack {
+       Button("Previous source text"){textPage-=1}.disabled(textPage==0)
+       Text("Page \(textPage+1) of \(count)").font(.caption)
+       Button("Next source text"){textPage+=1}.disabled(textPage+1>=count)
+      }
+     }
     }
     Text("Saved construction outputs: "+review.result.consequences.saved.output_paths.joined(separator:", ")).font(.caption).textSelection(.enabled)
     Text("Draft construction outputs: "+review.result.consequences.draft.output_paths.joined(separator:", ")).font(.caption).textSelection(.enabled)
     Text("Construction consequences are observed relationships; no tests or coverage were executed by this preview.").font(.caption)
    }.frame(maxWidth:.infinity,alignment:.leading)}.frame(maxHeight:240)
-   HStack{Button(review.save==nil ? "Publish reviewed restoration":"Save reviewed resource change"){Task{await model.publish(workspace)}}.disabled(model.busy || model.hasPending);Button("Discard preview"){model.cancel()}.disabled(model.busy)}
+   HStack{Button(review.entryIntent?.interrupted != nil ? "Complete reviewed Move":(review.save==nil ? "Publish reviewed restoration":"Save reviewed resource change")){Task{await model.publish(workspace)}}.disabled(model.busy || model.hasPending);Button("Discard preview"){model.cancel()}.disabled(model.busy)}
   }
- }}
+ }.onChange(of:model.review?.identity){_,_ in textPage=0}}
 }
 </ui:copy>
 
@@ -508,6 +661,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
@@ -526,6 +680,7 @@ class ResourceChangeReview(private val transport:(suspend(String,String,JSONObje
  var busy by mutableStateOf(false);private set
  var lastRecovery by mutableStateOf<String?>(null);private set
  var lastWorkspace by mutableStateOf<String?>(null);private set
+ var interruptedEvidenceRevision by mutableStateOf(0L);private set
  private var ticket=0L
  private var pending:Pair<String,Review>?=null
  private var publishedWorkspace:Workspace?=null
@@ -539,6 +694,47 @@ class ResourceChangeReview(private val transport:(suspend(String,String,JSONObje
   val epoch=workspace.sourceNavigationEpoch
   val valid={current()&&workspace.engine===server&&workspace.sourceNavigationEpoch==epoch&&server.sourceWorkspaceID==runtime&&server.sourceRootAddress==namespace}
   return WorkspaceEntrySelections.read({call(workspace,"GET","/api/workspace/entry")},runtime,namespace,valid)
+ }
+ suspend fun readInterruptedEntry(workspace:Workspace):InterruptedWorkspaceEntry? {
+  val server=workspace.engine ?: return null
+  val runtime=server.sourceWorkspaceID ?: return null
+  val namespace=server.sourceRootAddress ?: return null
+  val value=call(workspace,"GET","/api/workspace/entry/interrupted")
+  check(workspace.engine===server&&server.sourceWorkspaceID==runtime&&server.sourceRootAddress==namespace) {
+   "Workspace changed while reading recovery evidence."
+  }
+  return InterruptedWorkspaceEntry.read(value,runtime,namespace)
+ }
+ suspend fun prepareEntryCompletion(workspace:Workspace,reading:InterruptedWorkspaceEntry,visible:()->Boolean) {
+  if(busy||!reading.canComplete||!visible())return
+  val server=workspace.engine ?: return
+  val epoch=workspace.sourceNavigationEpoch
+  val scope={visible()&&workspace.engine===server&&workspace.sourceNavigationEpoch==epoch&&
+    server.sourceWorkspaceID==reading.workspace&&server.sourceRootAddress==reading.namespace}
+  val pendingID=pending?.first
+  val id=++ticket;busy=true;review=null;notice="Preparing the interrupted Move completion…"
+  try {
+   val attempt=pending?.let { (request,previous) ->
+    val intent=previous.entryIntent
+    check(publishedWorkspace===workspace&&intent!=null){"The current publication belongs to another review. Inspect its status."}
+    reading.attempts.firstOrNull { it.request==request&&it.context==intent.context&&it.before==intent.before&&
+     it.after==intent.after&&it.fingerprint==previous.facts.opt("fingerprint") }
+     ?: error("The current publication cannot be linked to this interrupted Move. Inspect its status.")
+   }
+   val paths=listOf(reading.source,reading.destination)
+   val (snapshot,current)=capture(workspace,paths,JSONObject(),scope,interrupted=reading)
+   val retained=JSONObject()
+   for(key in listOf("drafts","ownership_sources","unaddressed_sources","saved_guards"))retained.put(key,snapshot.get(key))
+   val body=JSONObject().put("version",1).put("reading",reading.body()).put("retained_capture",retained)
+   if(attempt!=null)body.put("supersede_request",JSONObject().put("request_id",attempt.request).put("context",attempt.context))
+   val reply=call(workspace,"POST","/api/workspace/entry/interrupted/intent",body)
+   check(id==ticket&&current()&&pending?.first==pendingID){"Original source or pending request changed. Refresh recovery evidence."}
+   val intent=WorkspaceEntryIntent.forCompletion(reply,reading,attempt)
+   busy=false
+   prepareResourceReview(workspace,intent.title,intent.edit(),scope,intent,pendingID)
+  }catch(cancelled:CancellationException){throw cancelled}
+  catch(error:Exception){if(id==ticket)notice=error.message.orEmpty()}
+  finally{if(id==ticket)busy=false}
  }
  private suspend fun entryIntent(workspace:Workspace,selection:FrozenWorkspaceEntrySelection,kind:String,operation:JSONObject,path:String?,current:()->Boolean):WorkspaceEntryIntent {
   check(selection.current()&&current()){"The original entry review changed. Prepare again."}
@@ -584,11 +780,11 @@ never enter writable draft capture; unfinished composition or Save
 refuses preparation before any publication request.
 
 <ui:copy id="source-resource-capture-android">
- private suspend fun capture(workspace:Workspace,paths:List<String>,edit:JSONObject,valid:()->Boolean,entry:WorkspaceEntryIntent?=null):Pair<JSONObject,()->Boolean> {
+ private suspend fun capture(workspace:Workspace,paths:List<String>,edit:JSONObject,valid:()->Boolean,entry:WorkspaceEntryIntent?=null,interrupted:InterruptedWorkspaceEntry?=entry?.interrupted):Pair<JSONObject,()->Boolean> {
   check(paths.isNotEmpty()&&paths.size<=1000&&paths.distinct().size==paths.size){"Choose a bounded complete source proposal."}
   val epoch=workspace.sourceNavigationEpoch;val server=workspace.engine
   fun find(nodes:List<FileNode>,path:String):FileNode?=nodes.firstNotNullOfOrNull{if(it.path==path)it else find(it.children,path)}
-  if(entry==null)for(path in paths){check(valid()&&workspace.sourceNavigationEpoch==epoch){"Source or workspace changed. Prepare again."};find(workspace.rootFiles,path)?.takeUnless{it.dir}?.let{workspace.loadBuffer(it)}}
+  if(entry==null&&interrupted==null)for(path in paths){check(valid()&&workspace.sourceNavigationEpoch==epoch){"Source or workspace changed. Prepare again."};find(workspace.rootFiles,path)?.takeUnless{it.dir}?.let{workspace.loadBuffer(it)}}
   val addresses=workspace.buffers.toMap();val retained=workspace.retainedResourceEditors.toMap();val tabs=workspace.retainedResourceTabs.toMap()
   fun roster()=(workspace.buffers.values+workspace.retainedResourceEditors.values+workspace.retainedResourceTabs.values).distinct().filter{it.file.generatedBy==null}
   data class Snapshot(val buffer:DocumentBuffer,val text:String,val base:String,val hash:String,val guard:String?,val file:FileNode,val revision:Long,val deleted:Boolean,val readonly:Boolean,val untitled:Boolean,val selection:androidx.compose.ui.text.TextRange)
@@ -600,7 +796,7 @@ refuses preparation before any publication request.
   val drafts=JSONObject();val ownership=JSONObject();val unaddressed=JSONObject();val guards=JSONObject();var bytes=0L
   for(s in snapshots){val named=!s.deleted&&!s.untitled&&!s.file.path.startsWith('/')&&addresses[s.file.path]===s.buffer
    val key=if(named)s.file.path else s.buffer.debugIdentity;check(s.text.length<=8*1024*1024&&key.length<=8192){"Retained source input exceeds its bounded capture."};bytes+=key.toByteArray(Charsets.UTF_8).size.toLong()+s.text.toByteArray(Charsets.UTF_8).size;check(bytes<=32L*1024*1024){"Retained resource ownership capture exceeds 32 MiB."}
-   if(named){check(!ownership.has(key)){"Retained authored source addresses are ambiguous."};ownership.put(key,s.text);s.guard?.takeIf{it.isNotEmpty()}?.let{guards.put(key,it)}}else unaddressed.put(key,s.text)
+   if(named){check(!ownership.has(key)){"Retained authored source addresses are ambiguous."};ownership.put(key,s.text);s.guard?.takeIf{it.isNotEmpty()&&!(interrupted!=null&&interrupted.missingOriginal&&key==interrupted.source)}?.let{guards.put(key,it)}}else unaddressed.put(key,s.text)
    if(named&&key in paths){check(!s.readonly){"A selected source is not writable."};check(!s.guard.isNullOrEmpty()){"A selected source has no captured physical save guard. Reopen its saved baseline before preparing resources."};drafts.put(key,JSONObject().put("save_guard",s.guard).put("text",s.text).put("base_sha256",hash(s.base)).put("version",JSONObject.NULL).put("writable",true))}
   }
   val capture=JSONObject().put("context",entry?.context ?: nonce()).put("edit",edit).put("drafts",drafts).put("project_entry",JSONObject.NULL).put("ownership_sources",ownership).put("unaddressed_sources",unaddressed).put("saved_guards",guards)
@@ -675,8 +871,8 @@ destinations refuse before a review can become writable.
  suspend fun prepare(workspace:Workspace,title:String,edit:JSONObject,valid:()->Boolean={true}) {
   prepareResourceReview(workspace,title,edit,valid,null)
  }
- private suspend fun prepareResourceReview(workspace:Workspace,title:String,edit:JSONObject,valid:()->Boolean,entry:WorkspaceEntryIntent?) {
-  if(busy||pending!=null){notice="Inspect the pending publication status before preparing another resource change.";return}
+ private suspend fun prepareResourceReview(workspace:Workspace,title:String,edit:JSONObject,valid:()->Boolean,entry:WorkspaceEntryIntent?,superseding:String?=null) {
+  if(busy||pending?.first!=superseding||(superseding!=null&&entry?.interrupted==null)){notice="Inspect the pending publication status before preparing another resource change.";return}
   val id=++ticket;busy=true;review=null;notice="Reading current resource authority…"
   try {
    val original=entry?.let{workspace.captureRetainedSourceNamespace()}
@@ -691,7 +887,10 @@ destinations refuse before a review can become writable.
    val patches=resourcePatches(plan);check(patches.all{it.before==null||workspace.buffers[it.path]?.text==it.before.text}){"Refresh files to acquire every existing source editor, then prepare again."}
    check(facts.getJSONArray("protected_targets").length()==0){"A proposed path becomes generated. Change its authored construction instead."}
    val expected=resourceSavedMap(facts.getJSONObject("saved_sources"))
-   review=Review(proposal,facts,plan,expected,false,null,current,emptyMap(),entryIntent=entry);workspace.showRecovery=true;notice="Review source drafts, saved publication and generated consequences before Save resources."
+   check(pending?.first==superseding){"The original publication changed during recovery preparation."}
+   if(superseding!=null){pending=null;publishedWorkspace=null}
+   review=Review(proposal,facts,plan,expected,false,null,current,emptyMap(),entryIntent=entry);workspace.showRecovery=true
+   notice=if(entry?.interrupted==null)"Review source drafts, saved publication and generated consequences before Save resources." else "Review the saved source and retained draft before completing the Move."
   }catch(error:CancellationException){throw error}catch(error:Exception){if(id==ticket)notice=error.message.orEmpty()}finally{if(id==ticket)busy=false}
  }
 </ui:copy>
@@ -725,7 +924,7 @@ inverse recovery identity to the opposite stack.
     val original=workspace.captureRetainedSourceNamespace()
     val stillCurrent={id==ticket&&valid()&&original()}
     val selection=readEntry(workspace,stillCurrent)
-    check(selection.proof.entry==it.after){"This recovery belongs to an earlier main construction generation. Restore the latest transition first."}
+    check(selection.proof.entry.permitsRestorationReview(it.after)){"The retained transition does not match the current construction. Restore later changes first."}
     val operation=JSONObject().put("recovery_id",reading.id).put("recovery_fingerprint",reading.fingerprint)
     entryIntent(workspace,selection,"restoration",operation,it.before.path,stillCurrent)
    }
@@ -766,11 +965,11 @@ and direct the user to retained recovery evidence.
   try{adopt(workspace,request,value,call(workspace,"POST",if(value.restoration)"/api/changes/restore-resources" else "/api/changes/resource-save",body))}
   catch(error:CancellationException){notice="Publication may have started. Inspect its status or Source recovery; do not repeat Save.";throw error}
   catch(error:Exception){notice="${error.message} Publication is unconfirmed. Inspect status or Source recovery; this action will not be retried."}
-  finally{busy=false}
+  finally{busy=false;if(value.entryIntent!=null)interruptedEvidenceRevision++}
  }
  suspend fun status(workspace:Workspace){val (request,value)=pending ?: return;if(busy)return;busy=true
   try{check(publishedWorkspace===workspace){"Workspace changed. Inspect recovery in the original workspace."};adopt(workspace,request,value,call(workspace,"GET","/api/changes/resource-save?request_id=$request"))}
-  catch(error:CancellationException){throw error}catch(error:Exception){notice=error.message.orEmpty()+" Inspect retained recovery before another publication."}finally{busy=false}
+  catch(error:CancellationException){throw error}catch(error:Exception){notice=error.message.orEmpty()+" Inspect retained recovery before another publication."}finally{busy=false;if(value.entryIntent!=null)interruptedEvidenceRevision++}
  }
  private fun adopt(workspace:Workspace,request:String,value:Review,raw:JSONObject){
   if(workspaceEntryPublicationHadNoEffect(raw.opt("entry_outcome"),request,value.entryIntent)) {
@@ -788,11 +987,19 @@ and direct the user to retained recovery evidence.
   }
   confirmWorkspaceEntryPublication(raw.opt("entry_outcome"),request,value.entryIntent)
   val receipt=resourcePublication(raw);val patches=resourcePatches(value.plan)
-  workspace.adoptResourceReceipt(patches,receipt,request,value.facts.getString("workspace"),value.facts.getString("context"),value.saved,value.current,value.restoring)
+  val absentOriginal=value.entryIntent?.interrupted?.takeIf{it.missingOriginal}?.source
+  workspace.adoptResourceReceipt(patches,receipt,request,value.facts.getString("workspace"),value.facts.getString("context"),value.saved,value.current,value.restoring,absentOriginal)
   val recovery=receipt.recovery.substringBeforeLast('/').substringAfterLast('/')
-  value.published?.invoke(recovery,receipt.workspace) ?: workspace.changes.recordResource(recovery,receipt.workspace)
-  lastRecovery=recovery;lastWorkspace=receipt.workspace;pending=null;publishedWorkspace=null
-  notice="Saved resources confirmed. Drafts and editor state retained. Restore this new recovery record to reverse the change; no checks were executed."
+  pending=null;publishedWorkspace=null
+  if(value.entryIntent?.interrupted!=null){
+   workspace.changes.retireEntryMove()
+   lastRecovery=null;lastWorkspace=null
+   notice="Completed the reviewed Move. Saved source and the retained draft are separate."
+  }else{
+   value.published?.invoke(recovery,receipt.workspace) ?: workspace.changes.recordResource(recovery,receipt.workspace)
+   lastRecovery=recovery;lastWorkspace=receipt.workspace
+   notice="Saved resources confirmed. Drafts and editor state retained. Restore this new recovery record to reverse the change; no checks were executed."
+  }
  }
  val hasPending get()=pending!=null
  val pendingRecovery get()=pending?.first
@@ -846,16 +1053,61 @@ class RecoveryReader {
 
 Render the selected retained evidence in a floating reading, reached through existing menu commands. Keep refresh, paging and snapshot controls inside this reading, with selectable abbreviated text and explicit absence. Closing returns focus to the existing source editor.
 
+Keep Close beside the title. On a narrow phone, sharing a row with both
+secondary actions squeezed Close to one character per line.
+
 <ui:copy id="source-recovery-android-1">
+private const val RESOURCE_TEXT_PAGE_SIZE=16_000
+
+internal fun reviewedResourceTextPage(text:String,page:Int):String {
+ fun boundary(offset:Int):Int {
+  val bounded=offset.coerceIn(0,text.length)
+  if(bounded in 1 until text.length&&text[bounded-1].isHighSurrogate()&&text[bounded].isLowSurrogate())return bounded-1
+  return bounded
+ }
+ return text.substring(boundary(page*RESOURCE_TEXT_PAGE_SIZE),boundary((page+1)*RESOURCE_TEXT_PAGE_SIZE))
+}
+
 @Composable fun SourceRecoveryView(workspace:Workspace){
  val model=remember{RecoveryReader()};val resources=workspace.resourceChanges;val scope=rememberCoroutineScope();val engine=workspace.engine;var path by remember{mutableStateOf("")};var snapshot by remember{mutableStateOf("draft_before")};var recordMenu by remember{mutableStateOf(false)};var pathMenu by remember{mutableStateOf(false)}
  var reviewFile by remember(resources.review){mutableStateOf(0)}
+ var textPage by remember(resources.review,reviewFile){mutableStateOf(0)}
+ var consequencePage by remember(resources.review){mutableStateOf(0)}
+ var interrupted by remember {mutableStateOf<InterruptedWorkspaceEntry?>(null)}
+ var interruptedNotice by remember {mutableStateOf("")}
+ var interruptedRead by remember {mutableStateOf(0L)}
  suspend fun list(after:String?=null){if(engine==null){model.notice="Connect to a workspace server first.";return};path="";model.list(after){recoveryPage(engine.request("GET",it))}}
  suspend fun read(id:String,path:String?=null,snapshot:String="draft_before",expectedWorkspace:String?=null){if(engine==null)return;model.read(id,path,snapshot,expectedWorkspace ?: model.value?.takeIf{it.id==id}?.workspace){recoveryReading(engine.request("GET",it))}}
- LaunchedEffect(engine){list()};DisposableEffect(model){onDispose{model.close();resources.dismiss()}}
+ suspend fun refreshInterrupted() {
+  val identity=++interruptedRead;interrupted=null;interruptedNotice=""
+  try{val result=resources.readInterruptedEntry(workspace);if(interruptedRead==identity&&workspace.showRecovery)interrupted=result}
+  catch(cancelled:CancellationException){throw cancelled}
+  catch(error:Exception){if(interruptedRead==identity&&workspace.showRecovery)interruptedNotice=error.message.orEmpty()}
+ }
+ LaunchedEffect(engine){list()}
+ LaunchedEffect(engine,resources.interruptedEvidenceRevision){refreshInterrupted()}
+ DisposableEffect(model){onDispose{interruptedRead++;model.close();resources.dismiss()}}
  Column(Modifier.widthIn(max=680.dp).heightIn(max=680.dp).padding(16.dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)){
-  Text("Source recovery",style=MaterialTheme.typography.titleMedium);Row{TextButton(enabled=!workspace.resourceChanges.busy&&!workspace.resourceChanges.hasPending,onClick={workspace.showRecovery=false;workspace.editorRecovery.showing=true}){Text("Editor sessions…")};TextButton(enabled=!model.loading,onClick={scope.launch{list()}}){Text("Refresh records")};TextButton(onClick={workspace.showRecovery=false;workspace.currentBuffer?.focusSource?.invoke()}){Text("Close")}}
+  Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){
+   Text("Source recovery",style=MaterialTheme.typography.titleMedium,modifier=Modifier.weight(1f))
+   TextButton(onClick={workspace.showRecovery=false;workspace.currentBuffer?.focusSource?.invoke()}){
+    Text("Close",maxLines=1,softWrap=false)
+   }
+  }
+  Row {
+   TextButton(enabled=!resources.busy&&!resources.hasPending,onClick={workspace.showRecovery=false;workspace.editorRecovery.showing=true}){Text("Editor sessions…")}
+   TextButton(enabled=!model.loading&&!resources.busy,onClick={scope.launch{list()};scope.launch{refreshInterrupted()}}){Text("Refresh records")}
+  }
   Text(model.notice,fontSize=12.sp)
+  if(interruptedNotice.isNotEmpty())Text(interruptedNotice,fontSize=12.sp)
+  interrupted?.let { evidence ->
+   SelectionContainer{Text("${evidence.source} → ${evidence.destination}",fontSize=12.sp)}
+   evidence.notice?.let{Text(it,fontSize=12.sp)}
+   if(evidence.canComplete)TextButton(enabled=!resources.busy,onClick={
+    val identity=interruptedRead
+    scope.launch{resources.prepareEntryCompletion(workspace,evidence){workspace.showRecovery&&interruptedRead==identity}}
+   }){Text("Prepare Move completion")}
+  }
   if(resources.notice.isNotEmpty())Text(resources.notice,fontSize=12.sp)
   if(resources.hasPending)TextButton(enabled=!resources.busy,onClick={scope.launch{resources.status(workspace)}}){Text("Inspect original publication status")}
   resources.pendingRecovery?.let{record->SelectionContainer{Text("Original publication: $record",fontSize=12.sp)};TextButton(enabled=!resources.busy,onClick={scope.launch{read(record,expectedWorkspace=resources.pendingWorkspace)}}){Text("Inspect interrupted request recovery")}}
@@ -864,13 +1116,42 @@ Render the selected retained evidence in a floating reading, reached through exi
    Text(review.plan.getString("title"),style=MaterialTheme.typography.titleSmall)
    Text("Save publishes the reviewed saved states. Draft text can differ from its saved baseline. Generated output is analyzed, never materialized by this action.",fontSize=12.sp)
    val patches=resourcePatches(review.plan)
+   val savedBefore=remember(review){review.proposal.optJSONObject("inputs")?.optJSONObject("saved_sources")?.let(::resourceSavedMap).orEmpty()}
    Row{TextButton(enabled=reviewFile>0,onClick={reviewFile--}){Text("Previous source")};Text("${reviewFile+1} / ${patches.size}",fontSize=12.sp);TextButton(enabled=reviewFile+1<patches.size,onClick={reviewFile++}){Text("Next source")}}
    patches.getOrNull(reviewFile)?.let{patch->
     Text(patch.path,style=MaterialTheme.typography.titleSmall)
-    listOf("Current draft" to patch.before?.text,"Reviewed draft" to patch.after?.text,"Reviewed saved baseline" to review.saved[patch.path]?.text).forEach{(label,text)->Text(label,fontSize=12.sp);SelectionContainer{Text(text?.take(16000) ?: "Source absent",fontFamily=FontFamily.Monospace,fontSize=12.sp)};if(text!=null&&text.length>16000)Text("First 16,000 characters shown.",fontSize=12.sp)}
+    val before=savedBefore[patch.path]
+    val after=review.saved[patch.path]
+    val sections=listOf("Current draft" to patch.before?.text,"Reviewed draft" to patch.after?.text,
+     "Current saved baseline" to before?.text,"Reviewed saved baseline" to after?.text)
+    sections.forEachIndexed { index,(label,text) ->
+     Text(label,fontSize=12.sp)
+     val absent=if((index==2&&before==null)||(index==3&&after==null))"Saved baseline unavailable" else "Source absent"
+     SelectionContainer{Text(text?.let{reviewedResourceTextPage(it,textPage)} ?: absent,fontFamily=FontFamily.Monospace,fontSize=12.sp)}
+    }
+    val longest=sections.maxOf{it.second?.length ?: 0}
+    if(longest>RESOURCE_TEXT_PAGE_SIZE){
+     val count=(longest-1)/RESOURCE_TEXT_PAGE_SIZE+1
+     Row{
+      TextButton(enabled=textPage>0,onClick={textPage--}){Text("Previous page")}
+      Text("Page ${textPage+1} of $count",fontSize=12.sp)
+      TextButton(enabled=textPage+1<count,onClick={textPage++}){Text("Next page")}
+     }
+    }
    }
-   listOf("saved","draft").forEach{layer->val outputs=review.facts.getJSONObject(layer).getJSONArray("output_paths");Text("$layer construction consequences: ${outputs.length()} outputs; execution evidence not queried.",fontSize=12.sp);SelectionContainer{Text((0 until minOf(outputs.length(),300)).joinToString("\n"){outputs.getString(it)},fontFamily=FontFamily.Monospace,fontSize=12.sp)};if(outputs.length()>300)Text("First 300 output paths shown.",fontSize=12.sp)}
-   Row{TextButton(enabled=!resources.busy,onClick={scope.launch{resources.apply(workspace,review)}}){Text(if(review.restoration)"Save reviewed restoration" else "Save resources")};TextButton(enabled=!resources.busy,onClick={resources.dismiss()}){Text("Discard review")}}
+   val outputLayers=listOf("saved","draft").map{it to review.facts.getJSONObject(it).getJSONArray("output_paths")}
+   outputLayers.forEach{(layer,outputs)->
+    Text("$layer construction consequences · ${outputs.length()} outputs",fontSize=12.sp)
+    val first=consequencePage*100
+    SelectionContainer{Text((first until minOf(outputs.length(),first+100)).joinToString("\n"){outputs.getString(it)},fontFamily=FontFamily.Monospace,fontSize=12.sp)}
+   }
+   val longestOutputList=outputLayers.maxOf{it.second.length()}
+   if(longestOutputList>100){Row{
+    TextButton(enabled=consequencePage>0,onClick={consequencePage--}){Text("Previous consequences")}
+    TextButton(enabled=(consequencePage+1)*100<longestOutputList,onClick={consequencePage++}){Text("Next consequences")}
+   }}
+   Text("Execution evidence was not queried.",fontSize=12.sp)
+   Row{TextButton(enabled=!resources.busy,onClick={scope.launch{resources.apply(workspace,review)}}){Text(when{review.entryIntent?.interrupted!=null->"Complete reviewed Move";review.restoration->"Save reviewed restoration";else->"Save resources"})};TextButton(enabled=!resources.busy,onClick={resources.dismiss()}){Text("Discard review")}}
   }
   model.page?.let{page->Box{TextButton(enabled=!model.loading,onClick={recordMenu=true}){Text(model.value?.id ?: "Choose retained record")};DropdownMenu(expanded=recordMenu,onDismissRequest={recordMenu=false}){page.ids.forEach{id->DropdownMenuItem(text={Text(id)},onClick={recordMenu=false;path="";scope.launch{read(id)}})}}};if(page.ignored>0)Text("${page.ignored} unrecognized entries omitted.",fontSize=12.sp);page.next?.let{next->TextButton(enabled=!model.loading,onClick={scope.launch{list(next)}}){Text("Next 100 identities")}}}
   model.value?.let{value->Text(value.title+if(value.titleTruncated)"…" else "",style=MaterialTheme.typography.titleSmall);Text((if(value.allApplied)"Every path has an applied receipt." else "The record does not confirm every path was applied.")+" These receipts describe the recorded operation, not current disk state.",fontSize=12.sp);if(value.unrecognized>0)Text("${value.unrecognized} unrecognized files in this record.",fontSize=12.sp)
@@ -1136,6 +1417,14 @@ import kotlinx.coroutines.*
 import org.json.JSONObject
 import org.json.JSONArray
 class SourceRecoveryTest {
+ @Test fun reviewedTextPagesKeepEveryCharacterAroundAUnicodeBoundary() {
+  val prefix="x".repeat(15_999)
+  val text=prefix+"😀 following text"
+  assertEquals(prefix,reviewedResourceTextPage(text,0))
+  assertEquals("😀 following text",reviewedResourceTextPage(text,1))
+  assertEquals(text,reviewedResourceTextPage(text,0)+reviewedResourceTextPage(text,1))
+  assertEquals("",reviewedResourceTextPage("",0))
+ }
  val id="a".repeat(32);val workspace="b".repeat(32)
  fun page()=RecoveryPage(1,workspace,listOf(id),null,0)
  fun reading(hash:String="c".repeat(64))=RecoveryReading(1,workspace,id,hash,"Move",false,listOf(RecoveryPath("a #😀.md",emptyMap())),false,0,"😀","")

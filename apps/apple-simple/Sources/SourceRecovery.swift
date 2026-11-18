@@ -94,6 +94,7 @@ struct ResourceRestorationReview {
 // read-only, and local admission is repeated before adopting a confirmed result.
 @MainActor @Observable final class ResourceRestoration {
  private(set) var confirmedReceipt:ResourcePublication<FileNode>?
+ private(set) var interruptedEvidenceRevision=UUID()
  var review:ResourceRestorationReview?;var notice="";var busy=false;var lastRecovery:String?;var selectedPath=0
  private var admitting=false
  private var ticket=UUID();private var pending:(id:String,review:ResourceRestorationReview)?;private weak var publishingWorkspace:Workspace?
@@ -121,6 +122,44 @@ struct ResourceRestorationReview {
    let reply:ResourceJSON=try await self.call(workspace,"GET","/api/workspace/entry")
    return try resourceBody(reply)
   },workspace:runtime,namespace:namespace,current:valid)
+ }
+ func readInterruptedEntry(_ workspace:Workspace)async throws->InterruptedWorkspaceEntry? {
+  guard let runtime=workspace.sourceWorkspaceID,let namespace=workspace.sourceRootAddress else{return nil}
+  let session=workspace.engine?.session
+  let response:ResourceJSON=try await call(workspace,"GET","/api/workspace/entry/interrupted")
+  guard workspace.engine?.session === session,workspace.sourceWorkspaceID==runtime,
+        exactUTF8(workspace.sourceRootAddress,namespace) else{throw EntrySelectionFailure("Workspace changed while reading recovery evidence.")}
+  return try InterruptedWorkspaceEntry.read(response,workspace:runtime,namespace:namespace)
+ }
+ func prepareEntryCompletion(_ workspace:Workspace,reading:InterruptedWorkspaceEntry,current:@escaping()->Bool)async {
+  guard !busy,!admitting,reading.material.can_complete,current() else{return}
+  let epoch=workspace.sourceNavigationEpoch,session=workspace.engine?.session
+  let scope={current() && workspace.sourceNavigationEpoch==epoch && workspace.engine?.session === session &&
+    workspace.sourceWorkspaceID==reading.material.workspace && exactUTF8(workspace.sourceRootAddress,reading.material.namespace)}
+  let original=currentWorkspace(workspace)
+  let pendingID=pending?.id
+  let reload=UUID();ticket=reload;busy=true;review=nil
+  notice="Preparing the interrupted Move completion…"
+  do {
+   var attempt:WorkspaceEntryAttempt?
+   if let pending {
+    guard publishingWorkspace === workspace,confirmedReceipt==nil,let previous=pending.review.entryIntent,
+          let matching=reading.material.attempts.first(where:{ row in
+           row.request_id==pending.id && row.context==previous.context && row.before_entry==previous.before_entry &&
+           row.after_entry==previous.after_entry && row.reviewed_fingerprint==pending.review.result.consequences.fingerprint
+          }) else{throw EntrySelectionFailure("The current publication cannot be linked to this interrupted Move. Inspect its status.")}
+    attempt=matching
+   }
+   let retained=try resourceRetainedCapture(workspace,paths:[reading.source,reading.destination],interrupted:reading)
+   var body:[String:Any]=["version":1,"reading":try resourceBody(reading.body),"retained_capture":try resourceBody(retained)]
+   if let attempt{body["supersede_request"]=["request_id":attempt.request_id,"context":attempt.context]}
+   var intent:WorkspaceEntryIntent=try await call(workspace,"POST","/api/workspace/entry/interrupted/intent",body)
+   guard ticket==reload,scope(),original(),pending?.id==pendingID else{throw EntrySelectionFailure("Original source or pending request changed. Refresh recovery evidence.")}
+   try intent.admit(reading,superseding:attempt)
+   let edit=try resourceBody(intent.edit)
+   busy=false
+   await prepareEdit(workspace,title:intent.title,edit:edit,current:scope,entry:intent,superseding:pendingID)
+  }catch{if ticket==reload{busy=false;notice=error.localizedDescription}}
  }
  private func entryIntent(_ workspace:Workspace,selection:FrozenWorkspaceEntrySelection,kind:String,operation:[String:Any],path:String?,current:()->Bool)async throws->WorkspaceEntryIntent {
   guard selection.current(),current() else{throw EntrySelectionFailure("The original entry review changed. Prepare again.")}
@@ -155,7 +194,7 @@ struct ResourceRestorationReview {
     let original=currentWorkspace(workspace)
     let valid={self.ticket==id&&historyCurrent()&&workspace.sourceNavigationEpoch==initial}
     let selection=try await readEntry(workspace,current:valid)
-    guard original(),selection.proof.entry==transition.after else{throw EntrySelectionFailure("This recovery belongs to an earlier construction generation or a changed source roster.")}
+    guard original(),selection.proof.entry.permitsRestorationReview(of:transition.after) else{throw EntrySelectionFailure("The retained transition or original source roster changed. Prepare the current restoration.")}
     let intent=try await entryIntent(workspace,selection:selection,kind:"restoration",operation:["recovery_id":record.id,"recovery_fingerprint":record.fingerprint],path:transition.before.path,current:{valid()&&original()})
     let acquired=try await acquireResourceInputs(workspace,paths:record.paths.map(\.path),edit:intent.edit,context:intent.context,current:{valid()&&selection.current()},readInputs:{capture in try await self.readInputs(workspace,capture:capture,entry:intent)})
     capture=acquired.capture;inputs=acquired.inputs;captured=acquired.current;entry=intent
@@ -191,8 +230,8 @@ struct ResourceRestorationReview {
    notice="Review saved baselines and dirty drafts separately. Publication changes saved source; generated files are only analyzed."
   }catch{if ticket==id{notice=error.localizedDescription}}
  }
- func prepareEdit(_ workspace:Workspace,title:String,edit:Any,current:@escaping()->Bool={true},requery:(() async throws->Any)?=nil,entry:WorkspaceEntryIntent?=nil)async {
-  guard !busy,!hasPending else{notice="Inspect the pending publication before preparing another resource proposal.";return}
+ func prepareEdit(_ workspace:Workspace,title:String,edit:Any,current:@escaping()->Bool={true},requery:(() async throws->Any)?=nil,entry:WorkspaceEntryIntent?=nil,superseding:String?=nil)async {
+  guard !busy,pending?.id==superseding,superseding==nil||entry?.interrupted != nil else{notice="Inspect the pending publication before preparing another resource proposal.";return}
   let id=UUID();ticket=id;busy=true;review=nil;notice="Acquiring the complete resource proposal…";defer{if ticket==id{busy=false}}
   do {
    var selectedEdit=edit
@@ -200,7 +239,7 @@ struct ResourceRestorationReview {
    let original=currentWorkspace(workspace)
    let discovered:ResourceWireTargets=try await call(workspace,"POST","/api/changes/resource-targets",["edit":edit])
    guard ticket==id,current(),entry==nil||original(),discovered.version==1,!discovered.paths.isEmpty,discovered.paths.count<=1000,Set(discovered.paths).count==discovered.paths.count else{throw EngineError(message:"Resource targets or provider changed. Prepare the complete proposal again.")}
-   let acquisition=try await acquireResourceInputs(workspace,paths:discovered.paths,edit:raw,context:entry?.context,current:{self.ticket==id&&current()},readInputs:{capture in try await self.readInputs(workspace,capture:capture,entry:entry)})
+   let acquisition=try await acquireResourceInputs(workspace,paths:discovered.paths,edit:raw,context:entry?.context,interrupted:entry?.interrupted,current:{self.ticket==id&&current()},readInputs:{capture in try await self.readInputs(workspace,capture:capture,entry:entry)})
    var sourceCapture=acquisition.capture,inputs=acquisition.inputs;let captured=acquisition.current,context=sourceCapture.context
    if acquisition.acquired,let requery {
     for path in discovered.paths {if let buffer=workspace.buffers[path],let service=buffer.language {let source=buffer.text;_ = try await service.readOutline(source:source);guard exactUTF8(buffer.text,source),ticket==id,current(),captured() else{throw EngineError(message:"Original source changed while synchronizing the resource proposal.")}}}
@@ -219,8 +258,10 @@ struct ResourceRestorationReview {
    guard patches.allSatisfy({patch in patch.before.map{exactUTF8(workspace.buffers[patch.path]?.text,$0.text)} ?? (workspace.buffers[patch.path]==nil)}) else{throw EngineError(message:"Every current source must match the complete resource plan.")}
    let local=workspace.captureResourceEditors(patches)
    let restoration=ResourceWireRestoration(version:1,recovery_id:"",recovery_fingerprint:"",workspace:inputs.workspace,context:context,plan:planned.plan,saved_before:inputs.saved_sources,saved_after:saved)
+   guard pending?.id==superseding else{throw EntrySelectionFailure("The original publication changed during recovery preparation.")}
+   if superseding != nil {pending=nil;publishingWorkspace=nil}
    review=ResourceRestorationReview(request:ResourceWireRestoreRequest(recovery_id:"",inputs:inputs,capture:sourceCapture),result:ResourceWirePrepared(version:1,restoration:restoration,consequences:facts),patches:patches,retained:[:],current:{captured() && local() && current()},save:proposal,entryIntent:entry);selectedPath=0
-   notice="Review every text and namespace consequence together. Publish explicitly after reviewing saved source and generated consequences."
+   notice=entry?.interrupted == nil ? "Review every text and namespace consequence together. Publish explicitly after reviewing saved source and generated consequences.":"Review the saved source and retained draft before completing the Move."
   }catch{if ticket==id{notice=error.localizedDescription}}
  }
  func prepareHistory(_ workspace:Workspace,intent:ResourceHistoryIntent)async {
@@ -252,7 +293,7 @@ struct ResourceRestorationReview {
   do{try await value.preflight?()}catch{notice=error.localizedDescription;return}
   guard review?.identity==value.identity,value.current(),pending==nil,!busy else{notice="Complete review changed during final admission.";return}
   let id=UUID().uuidString.replacingOccurrences(of:"-",with:"").lowercased();pending=(id,value);confirmedReceipt=nil;publishingWorkspace=workspace;review=nil;busy=true
-  defer{busy=false}
+  defer{busy=false;if value.entryIntent != nil {interruptedEvidenceRevision=UUID()}}
   do {
    var body:[String:Any]=["request_id":id,"reviewed_fingerprint":value.result.consequences.fingerprint]
    if let save=value.save {body["proposal"]=try resourceBody(save)}
@@ -262,7 +303,8 @@ struct ResourceRestorationReview {
   }catch{notice=error.localizedDescription+(confirmedReceipt?.request_id==id ? " Saved publication is confirmed; editor adoption is incomplete. Preserve local drafts and inspect Source recovery. This action will not be resent.":" Publication is unconfirmed. Inspect status or retained recovery; this action will not be retried.")}
  }
  func status(_ workspace:Workspace)async {
-  guard !busy,let (id,value)=pending else{return};busy=true;defer{busy=false}
+  guard !busy,let (id,value)=pending else{return};busy=true
+  defer{busy=false;if value.entryIntent != nil {interruptedEvidenceRevision=UUID()}}
   do {guard publishingWorkspace === workspace else{throw EngineError(message:"Inspect recovery in the original workspace.")};let receipt:ResourcePublication<FileNode>=try await call(workspace,"GET","/api/changes/resource-save?request_id="+id);try adopt(workspace,id:id,value:value,receipt:receipt)}catch{notice=error.localizedDescription+(confirmedReceipt?.request_id==id ? " Saved publication is confirmed; preserve drafts and inspect recovery because editor adoption is incomplete.":" Preserve drafts and inspect retained recovery before another publication.")}
  }
  private func adopt(_ workspace:Workspace,id:String,value:ResourceRestorationReview,receipt:ResourcePublication<FileNode>)throws {
@@ -282,20 +324,53 @@ struct ResourceRestorationReview {
   _ = try confirmedResourceFiles(value.patches,receipt:receipt,request:id,workspace:value.result.restoration.workspace,context:value.request.capture.context,expected:value.result.restoration.saved_after){($0.path,!$0.dir && $0.generated_by==nil)}
   confirmedReceipt=receipt
   let recovery=try resourceRecoveryIdentity(receipt.outcome.recovery)
-  _ = try workspace.adoptResourceReceipt(value.patches,receipt:receipt,request:id,workspace:value.result.restoration.workspace,context:value.request.capture.context,expected:value.result.restoration.saved_after,current:value.current,restoring:value.retained)
-  workspace.changes.recordResourcePublication(recovery,intent:value.history)
-  if value.entryIntent?.kind == "move" {workspace.changes.retireEntryMove()}
-  pending=nil;lastRecovery=recovery;value.published?(recovery);notice=value.save==nil ? "Restored confirmed saved baselines and retained dirty drafts. Prepare the inverse restoration to redo this operation.":"Saved the reviewed resource namespace. Use Undo workspace change to review its inverse. No tests were executed by this save."
+  let absentOriginal=value.entryIntent?.interrupted.flatMap{$0.missingOriginal ? $0.source:nil}
+  _ = try workspace.adoptResourceReceipt(value.patches,receipt:receipt,request:id,workspace:value.result.restoration.workspace,context:value.request.capture.context,expected:value.result.restoration.saved_after,current:value.current,restoring:value.retained,absentOriginal:absentOriginal)
+  let completing=value.entryIntent?.interrupted != nil
+  pending=nil
+  if completing {
+   lastRecovery=nil
+   notice="Completed the reviewed Move. Saved source and the retained draft are separate."
+  } else {
+   workspace.changes.recordResourcePublication(recovery,intent:value.history)
+   lastRecovery=recovery;value.published?(recovery)
+   notice=value.save==nil ? "Restored confirmed saved baselines and retained dirty drafts. Prepare the inverse restoration to redo this operation.":"Saved the reviewed resource namespace. Use Undo workspace change to review its inverse. No tests were executed by this save."
+  }
+  if value.entryIntent?.kind == "move" || completing {workspace.changes.retireEntryMove()}
   Task {await workspace.refresh()}
  }
 }
 struct SourceRecoveryView:View {
  var workspace:Workspace;@State private var model=RecoveryReader();@State private var path="";@State private var snapshot="draft_before"
+ @State private var interrupted:InterruptedWorkspaceEntry?
+ @State private var interruptedNotice=""
+ @State private var interruptedRead=UUID()
  private func list(_ after:String?=nil)async {guard let engine=workspace.engine else{model.notice="Connect to a workspace server first.";return};workspace.resourceRestoration.cancel();path="";await model.list(after:after){let route=URLComponents(string:$0)!;return try await engine.request("GET",route.path,query:route.queryItems ?? [])}}
  private func read(_ id:String,_ path:String?=nil,_ snapshot:String="draft_before")async {guard let engine=workspace.engine else{return};workspace.resourceRestoration.cancel();await model.read(id,path:path,snapshot:snapshot){let route=URLComponents(string:$0)!;return try await engine.request("GET",route.path,query:route.queryItems ?? [])}}
+ private func refreshInterrupted()async {
+  let identity=UUID();interruptedRead=identity;interrupted=nil;interruptedNotice=""
+  do {
+   let reading=try await workspace.resourceRestoration.readInterruptedEntry(workspace)
+   if interruptedRead==identity && workspace.showRecovery {interrupted=reading}
+  }catch{if interruptedRead==identity && workspace.showRecovery {interruptedNotice=error.localizedDescription}}
+ }
  var body:some View {VStack(alignment:.leading,spacing:8){
   HStack{Text("Source recovery").font(.headline);Spacer();Button("Editor sessions…"){workspace.showRecovery=false;workspace.editorRecovery.showing=true}.disabled(workspace.resourceRestoration.busy || workspace.resourceRestoration.hasPending);Button("Close"){workspace.showRecovery=false;workspace.currentBuffer?.focusSource?()}}
-  Button("Refresh records"){Task{await list()}}.disabled(model.loading);Text(model.notice).font(.caption).textSelection(.enabled)
+  Button("Refresh records"){Task{await list()};Task{await refreshInterrupted()}}
+   .disabled(model.loading || workspace.resourceRestoration.busy)
+  Text(model.notice).font(.caption).textSelection(.enabled)
+  if !interruptedNotice.isEmpty {Text(interruptedNotice).font(.caption).textSelection(.enabled)}
+  if let interrupted {
+   Text(interrupted.source+" → "+interrupted.destination).font(.caption).textSelection(.enabled)
+   if let notice=interrupted.material.notice {Text(notice).font(.caption).textSelection(.enabled)}
+   if interrupted.material.can_complete {
+    Button("Prepare Move completion"){
+     let reading=interruptedRead
+     Task{await workspace.resourceRestoration.prepareEntryCompletion(workspace,reading:interrupted,
+      current:{workspace.showRecovery && interruptedRead==reading})}
+    }.disabled(workspace.resourceRestoration.busy)
+   }
+  }
   ResourceRestorationPreview(workspace:workspace,model:workspace.resourceRestoration)
   ScrollView{VStack(alignment:.leading,spacing:8){
    if let page=model.page {Picker("Retained record",selection:Binding(get:{model.value?.id ?? ""},set:{id in if !id.isEmpty{path="";Task{await read(id)}}})){Text("Choose record").tag("");ForEach(page.ids,id:\.self){Text($0).tag($0)}}.disabled(model.loading)
@@ -315,15 +390,21 @@ struct SourceRecoveryView:View {
     }
    }
   }.frame(maxWidth:.infinity,alignment:.leading)}
- }.padding().frame(idealWidth:680,idealHeight:600).task{await list()}.onDisappear{model.close();workspace.resourceRestoration.cancel()}}
+ }.padding().frame(idealWidth:680,idealHeight:600).task{await list()}
+  .task(id:workspace.sourceWorkspaceID){await refreshInterrupted()}
+  .onChange(of:workspace.resourceRestoration.interruptedEvidenceRevision){_,_ in Task{await refreshInterrupted()}}
+  .onDisappear{interruptedRead=UUID();model.close();workspace.resourceRestoration.cancel()}}
 }
 
 struct ResourceRestorationPreview:View {
  var workspace:Workspace;var model:ResourceRestoration
+ @State private var textPage=0
+ private let pageSize=16_000
+ private func page(_ text:String)->String {String(text.dropFirst(textPage*pageSize).prefix(pageSize))}
  @ViewBuilder private func saved(_ name:String,_ value:ResourceSaved?) -> some View {
   Text(name).font(.headline)
   if let value {Text(value.kind=="missing" ? "Source absent.":"Saved file · mode \(value.mode.map(String.init) ?? "provider default") · \(value.readonly==true ? "read-only":"writable")").font(.caption)
-   if let text=value.text {Text(String(text.prefix(32000))).font(.system(.caption,design:.monospaced)).textSelection(.enabled);if text.count>32000{Text("First 32,000 characters shown.").font(.caption)}}
+   if let text=value.text {Text(page(text)).font(.system(.caption,design:.monospaced)).textSelection(.enabled)}
   }else{Text("Saved baseline missing from review. Publication will refuse.").font(.caption)}
  }
  var body:some View {VStack(alignment:.leading,spacing:8){
@@ -332,18 +413,28 @@ struct ResourceRestorationPreview:View {
   if model.lastRecovery != nil {Button("Prepare inverse restoration (undo/redo)"){Task{await model.prepareInverse(workspace)}}.disabled(model.busy || model.hasPending)}
   if let review=model.review {
    Text("Review source change: \(review.result.restoration.plan.title)").font(.headline)
-   Picker("Restored source",selection:Binding(get:{model.selectedPath},set:{model.selectedPath=$0})){ForEach(Array(review.patches.enumerated()),id:\.offset){index,patch in Text(patch.path).tag(index)}}
+   Picker("Restored source",selection:Binding(get:{model.selectedPath},set:{model.selectedPath=$0;textPage=0})){ForEach(Array(review.patches.enumerated()),id:\.offset){index,patch in Text(patch.path).tag(index)}}
    ScrollView([.horizontal,.vertical]){VStack(alignment:.leading,spacing:8){
     if review.patches.indices.contains(model.selectedPath){let patch=review.patches[model.selectedPath]
-     saved("Saved before",review.result.restoration.saved_before[patch.path]);saved("Saved after",review.result.restoration.saved_after[patch.path])
-     Text("Draft before").font(.headline);Text(patch.before.map{String($0.text.prefix(32000))} ?? "Source absent.").font(.system(.caption,design:.monospaced)).textSelection(.enabled)
-     Text("Draft after").font(.headline);Text(patch.after.map{String($0.text.prefix(32000))} ?? "Source absent.").font(.system(.caption,design:.monospaced)).textSelection(.enabled)
+     let before=review.result.restoration.saved_before[patch.path],after=review.result.restoration.saved_after[patch.path]
+     saved("Saved before",before);saved("Saved after",after)
+     Text("Draft before").font(.headline);Text(patch.before.map{page($0.text)} ?? "Source absent.").font(.system(.caption,design:.monospaced)).textSelection(.enabled)
+     Text("Draft after").font(.headline);Text(patch.after.map{page($0.text)} ?? "Source absent.").font(.system(.caption,design:.monospaced)).textSelection(.enabled)
+     let longest=[before?.text,after?.text,patch.before?.text,patch.after?.text].compactMap{$0?.count}.max() ?? 0
+     if longest>pageSize {
+      let count=(longest-1)/pageSize+1
+      HStack {
+       Button("Previous source text"){textPage-=1}.disabled(textPage==0)
+       Text("Page \(textPage+1) of \(count)").font(.caption)
+       Button("Next source text"){textPage+=1}.disabled(textPage+1>=count)
+      }
+     }
     }
     Text("Saved construction outputs: "+review.result.consequences.saved.output_paths.joined(separator:", ")).font(.caption).textSelection(.enabled)
     Text("Draft construction outputs: "+review.result.consequences.draft.output_paths.joined(separator:", ")).font(.caption).textSelection(.enabled)
     Text("Construction consequences are observed relationships; no tests or coverage were executed by this preview.").font(.caption)
    }.frame(maxWidth:.infinity,alignment:.leading)}.frame(maxHeight:240)
-   HStack{Button(review.save==nil ? "Publish reviewed restoration":"Save reviewed resource change"){Task{await model.publish(workspace)}}.disabled(model.busy || model.hasPending);Button("Discard preview"){model.cancel()}.disabled(model.busy)}
+   HStack{Button(review.entryIntent?.interrupted != nil ? "Complete reviewed Move":(review.save==nil ? "Publish reviewed restoration":"Save reviewed resource change")){Task{await model.publish(workspace)}}.disabled(model.busy || model.hasPending);Button("Discard preview"){model.cancel()}.disabled(model.busy)}
   }
- }}
+ }.onChange(of:model.review?.identity){_,_ in textPage=0}}
 }

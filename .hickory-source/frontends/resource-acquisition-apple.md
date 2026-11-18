@@ -32,13 +32,35 @@ struct ResourceAcquisition {var capture:ResourceWireCapture;var inputs:ResourceW
 The first resource-input reading establishes the closed source's saved bytes and guard. A loaded editor must still have that exact baseline, no source intent since construction and no dirty text. Reacquiring inputs uses the original owner lease and newly admitted targets; it never silently recaptures changed unrelated drafts. The caller may requery a provider under this same lease before using its final edit.
 
 <ui:copy id="resource-acquisition-apple-inputs">
-@MainActor func acquireResourceInputs(_ w:Workspace,paths:[String],edit:ResourceJSON,context suppliedContext:String?=nil,current:@escaping()->Bool,load:((FileNode)async throws->DocumentBuffer)?=nil,readInputs:(ResourceWireCapture)async throws->ResourceWireInputs)async throws->ResourceAcquisition {
+struct ResourceRetainedCapture:Encodable {
+ let drafts:[String:ResourceWireDraft]
+ let ownership_sources:[String:String]
+ let unaddressed_sources:[String:String]
+ let saved_guards:[String:String]
+}
+
+@MainActor func resourceRetainedCapture(_ workspace:Workspace,paths:[String],interrupted:InterruptedWorkspaceEntry?=nil)throws->ResourceRetainedCapture {
+ var drafts:[String:ResourceWireDraft]=[:]
+ for path in paths {
+  guard let buffer=workspace.buffers[path] else{continue}
+  drafts[path]=ResourceWireDraft(text:buffer.text,base_sha256:nativeSourceHash(buffer.base),version:nil,
+   writable:!buffer.readOnly && !buffer.saving,save_guard:buffer.savedGuard)
+ }
+ let ownership=try resourceOwnershipSnapshot(workspace)
+ var guards=ownership.guards
+ if let interrupted,interrupted.missingOriginal {guards.removeValue(forKey:interrupted.source)}
+ return ResourceRetainedCapture(drafts:drafts,ownership_sources:ownership.named,
+  unaddressed_sources:ownership.unaddressed,saved_guards:guards)
+}
+
+@MainActor func acquireResourceInputs(_ w:Workspace,paths:[String],edit:ResourceJSON,context suppliedContext:String?=nil,interrupted:InterruptedWorkspaceEntry?=nil,current:@escaping()->Bool,load:((FileNode)async throws->DocumentBuffer)?=nil,readInputs:(ResourceWireCapture)async throws->ResourceWireInputs)async throws->ResourceAcquisition {
  guard !paths.isEmpty,paths.count<=1000,Set(paths).count==paths.count else{throw EngineError(message:"Choose bounded resource paths distinguishable by the native wire format.")}
  let lease=ResourceAcquisitionLease(w,current:current),context=suppliedContext ?? UUID().uuidString.replacingOccurrences(of:"-",with:"").lowercased()
  func capture()throws->ResourceWireCapture {
-  guard lease.current() else{throw EngineError(message:"Original source owners changed. Prepare the complete intention again.")};var drafts:[String:ResourceWireDraft]=[:]
-  for path in paths {if let b=w.buffers[path]{drafts[path]=ResourceWireDraft(text:b.text,base_sha256:nativeSourceHash(b.base),version:nil,writable:!b.readOnly && !b.saving,save_guard:b.savedGuard)}}
-  let ownership=try resourceOwnershipSnapshot(w);return ResourceWireCapture(context:context,edit:edit,drafts:drafts,project_entry:nil,ownership_sources:ownership.named,unaddressed_sources:ownership.unaddressed,saved_guards:ownership.guards)
+  guard lease.current() else{throw EngineError(message:"Original source owners changed. Prepare the complete intention again.")}
+  let retained=try resourceRetainedCapture(w,paths:paths,interrupted:interrupted)
+  return ResourceWireCapture(context:context,edit:edit,drafts:retained.drafts,project_entry:nil,
+   ownership_sources:retained.ownership_sources,unaddressed_sources:retained.unaddressed_sources,saved_guards:retained.saved_guards)
  }
  func admit(_ inputs:ResourceWireInputs)throws {guard lease.current(),inputs.version==1,inputs.context==context,!inputs.workspace.isEmpty,inputs.saved_guards != nil,inputs.refusals.isEmpty,!inputs.source_files_modified,Set(inputs.sources.keys)==Set(paths) else{throw EngineError(message:"Complete resource inputs changed or refused a source. Preserve drafts and prepare again.")}}
  var captured=try capture(),inputs=try await readInputs(captured);try admit(inputs);let first=inputs;var acquired=false

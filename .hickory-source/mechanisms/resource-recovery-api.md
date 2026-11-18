@@ -18,6 +18,12 @@ claimed by these service witnesses.
 
 Read one bounded recovery record and reacquire all current source and ownership facts. The pure inverse validates saved baselines, drafts and current preparation versions. Compile saved and dirty restoration layers independently and return their exact consequences and parent fingerprint. Root identity is checked around blocking work; this named preparation is read-only and independent of the file-write gate.
 
+Ordinary resources prove that their original physical publication is still
+current. A retained main transition also needs its live entry intent. The
+[entry proof](workspace-entry-lineage.md) can carry authority through canceled
+Move publications when their original physical files have been replaced by
+their exact inverse producers.
+
 <ui:copy id="resource-recovery-api-preparation">
 //! Read-only recovery inspection and reviewed saved/draft restoration admission.
 use super::{
@@ -68,7 +74,9 @@ async fn prepare_inner(state: LocalState, request: PrepareRequest) -> Result<Pre
             );
         }
         let recovery = super::resource_journal::read_recovery(&root, &request.recovery_id)?;
-        super::source_history::validate_resource_after(&root,&recovery)?;
+        super::workspace_entry_authority::transitions::validate_restoration_origin(
+            &state, &request.capture, &recovery,
+        )?;
         let restoration = super::resource_restoration::prepare(&recovery, &request.inputs, &fresh)?;
         let consequences = restoration.analyze(&root, &fresh, &request.capture)?;
         if identity.check(&root)? != fresh.workspace {
@@ -348,56 +356,139 @@ pub async fn list(
 <ui:file path="crates/hickory-cli/src/serve/resource_recovery_api.rs"><ui:paste select="#resource-recovery-api-preparation"/><ui:paste select="#resource-recovery-api-publication"/><ui:paste select="#resource-recovery-api-inspection"/><ui:paste select="#resource-recovery-list-route"/></ui:file>
 ## Check canonical entry restoration through the actual engine
 
-Create the canonical entry through the resource API, then restore its recorded
-prior absence. That historical deletion must remain supported. Next move an
-explicitly selected entry to the canonical address: restoring it to another
-address would silently lose implicit ownership, so it must refuse before creating
-a recovery record. All files and records live under a temporary workspace.
+Create the canonical entry through the resource API, then review Undo to
+absence and Redo through the explicit entry protocol. Move that same entry
+to a different address. A generic inverse without a live entry intent must
+refuse during preparation, before creating a publication record. The explicit
+inverse still restores the source and role. Each accepted write advances the
+original entry generation inside an owned temporary workspace.
+
+The fresh engine witness observed creation, Undo to absence, Redo, and Move
+to a `.spec` address. A generic inverse refused at preparation and left the
+journal directory unchanged. A subsequent explicitly reviewed inverse restored
+the canonical path, original logical identity and exact saved bytes.
 
 <ui:copy id="resource-recovery-entry-service-witness">
-"""Actual recovery admission keeps the address-bound canonical entry coherent."""
-import importlib.util,json,os,tempfile,urllib.request,urllib.error
+"""Actual engine restores a canonical role only through explicit review."""
+import importlib.util
+import os
+import tempfile
+import urllib.error
 from pathlib import Path
-ROOT=Path(__file__).resolve().parents[1]
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def load_script(name):
+    spec = importlib.util.spec_from_file_location(name, ROOT / "scripts" / (name + ".py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def main():
- spec=importlib.util.spec_from_file_location("fixture",ROOT/"scripts/test-simple-browser.py");fixture=importlib.util.module_from_spec(spec);spec.loader.exec_module(fixture)
- with tempfile.TemporaryDirectory(prefix="entry-restoration-") as temporary:
-  folder=Path(temporary);root=folder/"workspace";root.mkdir();engine=None
-  source='<h:doc xmlns:h="http://www.hickorydocs.com/1.0"><h:project sources=""/></h:doc>'
-  try:
-   engine=fixture.start([os.environ.get("HICKORY_SIMPLE_TEST_ENGINE",str(ROOT/"target/source-edit-focus/debug/examples/engine_client")),str(root),"window","http://127.0.0.1:1"],env={**os.environ,"HICKORY_STATE_DIR":str(folder/"state")});origin=fixture.origin(engine)
-   def call(route,body):
-    request=urllib.request.Request(origin+"/api/"+route,data=json.dumps(body).encode(),headers={"Content-Type":"application/json"},method="POST")
-    with urllib.request.urlopen(request,timeout=30) as reply:return json.load(reply)
-   def save(edit,context,identifier,entry=None):
-    capture={"context":context,"edit":edit}
-    if entry is not None:capture["project_entry"]=entry
-    inputs=call("changes/resource-inputs",capture)
-    plan=call("changes/plan-resources",{"context":context,"title":context,"edit":edit,"sources":inputs["sources"]})["plan"]
-    proposal={"inputs":inputs,"capture":capture,"plan":plan};facts=call("changes/resource-consequences",proposal)
-    return call("changes/resource-save",{"request_id":identifier,"reviewed_fingerprint":facts["fingerprint"],"proposal":proposal})
-   def restoration(result,context,identifier):
-    record=json.loads((root/result["outcome"]["recovery"]).read_text())
-    capture={"context":context,"edit":{"changes":{"hick:///"+path:[] for path in record["after"]}}}
-    proposal={"recovery_id":Path(result["outcome"]["recovery"]).parent.name,"inputs":call("changes/resource-inputs",capture),"capture":capture}
-    prepared=call("changes/prepare-restoration",proposal)
-    return {"request_id":identifier,"proposal":proposal,"reviewed_fingerprint":prepared["consequences"]["fingerprint"],"reviewed_recovery_fingerprint":prepared["restoration"]["recovery_fingerprint"]}
-   created=save({"documentChanges":[{"kind":"create","uri":"hick:///project.md"},{"textDocument":{"uri":"hick:///project.md","version":None},"edits":[{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":0}},"newText":source}]}]},"Create canonical entry","a"*32)
-   assert created["outcome"]["complete"] and (root/"project.md").read_text()==source
-   removed=call("changes/restore-resources",restoration(created,"Undo entry creation","b"*32))
-   assert removed["outcome"]["complete"] and not (root/"project.md").exists()
-   (root/"entry.md").write_text(source)
-   moved=save({"documentChanges":[{"kind":"rename","oldUri":"hick:///entry.md","newUri":"hick:///project.md"}]},"Move selected entry to canonical address","c"*32,"entry.md")
-   assert moved["outcome"]["complete"] and not (root/"entry.md").exists()
-   record_folder=root/".hick-cache/resource-changes";before=set(record_folder.iterdir())
-   try:call("changes/restore-resources",restoration(moved,"Refuse implicit canonical entry move","d"*32))
-   except urllib.error.HTTPError as error:assert error.code==409 and "canonical project.md" in error.read().decode()
-   else:raise AssertionError("Historical restoration silently moved canonical entry ownership")
-   assert (root/"project.md").read_text()==source and not (root/"entry.md").exists() and set(record_folder.iterdir())==before
-   print("PASS: canonical creation can be restored to absence, but historical moves cannot silently discard canonical entry ownership")
-  finally:
-   if engine:fixture.stop(engine)
-if __name__=="__main__":main()
+    fixture = load_script("test-simple-browser")
+    owned = load_script("test-agent-proposal-persistence")
+    with tempfile.TemporaryDirectory(prefix="entry-restoration-") as temporary:
+        folder = Path(temporary).resolve()
+        root, state = folder / "workspace", folder / "state"
+        root.mkdir()
+        executable = os.environ.get("HICKORY_SIMPLE_TEST_ENGINE", str(ROOT / "target/source-edit-focus/debug/examples/engine_client"))
+        engine = fixture.start([executable, str(root), "window", "http://127.0.0.1:1"], env={**os.environ, "HICKORY_STATE_DIR": str(state)})
+        try:
+            check(root, fixture.origin(engine), owned.call)
+        finally:
+            owned.stop_engine(fixture, engine, state)
+
+
+def check(root, origin, request):
+    source = '\x3ch:doc xmlns:h="http://www.hickorydocs.com/1.0">\x3ch:project sources=""/>\x3c/h:doc>'
+    main_path, moved_path = "project.md", "moved.spec"
+
+    def get(route):
+        return request(origin, "GET", "/api/" + route)
+
+    def post(route, body):
+        return request(origin, "POST", "/api/" + route, body)
+
+    def acquire(capture, token=None):
+        if token is None:
+            inputs = post("changes/resource-inputs", capture)
+        else:
+            for _ in range(2):
+                inputs = post("workspace/entry/inputs", {"version": 1, "token": token, "capture": capture})
+        assert not inputs["refusals"], inputs
+        return {"inputs": inputs, "capture": capture}
+
+    def entry_proposal(operation):
+        selection = get("workspace/entry")
+        intent = post("workspace/entry/intent", {"version": 1, "entry_selection": selection, "operation": operation})
+        capture = {"context": intent["context"], "edit": intent["edit"]}
+        if selection.get("source_guard"):
+            capture["saved_guards"] = {selection["entry"]["path"]: selection["source_guard"]}
+        return intent["title"], acquire(capture, intent["token"])
+
+    def publish(title, proposal, identifier):
+        proposal["plan"] = post("changes/plan-resources", {"context": proposal["capture"]["context"], "title": title, "edit": proposal["capture"]["edit"], "sources": proposal["inputs"]["sources"]})["plan"]
+        facts = post("changes/resource-consequences", proposal)
+        return post("changes/resource-save", {"request_id": identifier, "reviewed_fingerprint": facts["fingerprint"], "proposal": proposal})
+
+    def recovery(result):
+        identifier = Path(result["outcome"]["recovery"]).parent.name
+        return get("changes/resource-recovery?id=" + identifier)
+
+    def restore(result, identifier):
+        record = recovery(result)
+        _, proposal = entry_proposal({"kind": "restoration", "recovery_id": record["id"], "recovery_fingerprint": record["fingerprint"]})
+        proposal["recovery_id"] = record["id"]
+        reviewed = post("changes/prepare-restoration", proposal)
+        return post("changes/restore-resources", {"request_id": identifier, "reviewed_fingerprint": reviewed["consequences"]["fingerprint"], "reviewed_recovery_fingerprint": reviewed["restoration"]["recovery_fingerprint"], "proposal": proposal})
+
+    created = publish("Create canonical entry", acquire({"context": "create-canonical", "edit": {"documentChanges": [
+        {"kind": "create", "uri": "hick:///project.md"},
+        {"textDocument": {"uri": "hick:///project.md", "version": None}, "edits": [
+            {"range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 0}}, "newText": source}
+        ]},
+    ]}}), "a" * 32)
+    baseline = created["entry_outcome"]["current_entry"]
+
+    def assert_entry(result, path, generation):
+        assert result["outcome"]["complete"] and result["entry_outcome"]["state"] == "confirmed", result
+        expected = {**baseline, "path": path, "generation": baseline["generation"] + generation}
+        assert result["entry_outcome"]["current_entry"] == expected == get("workspace/entry")["entry"]
+        for relative in (main_path, moved_path):
+            if relative == path:
+                assert (root / relative).read_text() == source
+            else:
+                assert not (root / relative).exists()
+
+    assert_entry(created, main_path, 0)
+    removed = restore(created, "b" * 32)
+    assert_entry(removed, None, 1)
+    assert_entry(restore(removed, "c" * 32), main_path, 2)
+    title, proposal = entry_proposal({"kind": "move", "destination": moved_path})
+    moved = publish(title, proposal, "d" * 32)
+    assert_entry(moved, moved_path, 3)
+
+    journals = root / ".hick-cache/resource-changes"
+    original = set(journals.iterdir())
+    record = recovery(moved)
+    generic = acquire({"context": "unbound-inverse", "edit": {"changes": {"hick:///" + path: [] for path in (main_path, moved_path)}}})
+    try:
+        post("changes/prepare-restoration", {**generic, "recovery_id": record["id"]})
+    except urllib.error.HTTPError as error:
+        detail = error.read().decode()
+        assert error.code == 409 and "fresh workspace-entry review" in detail, (error.code, detail)
+    else:
+        raise AssertionError("Unbound inverse acquired a retained main transition")
+    assert set(journals.iterdir()) == original
+    assert_entry(moved, moved_path, 3)
+    assert_entry(restore(moved, "e" * 32), main_path, 4)
+    print("PASS: explicit canonical creation Undo/Redo, unbound Move inverse refusal, guarded Move inverse, exact entry generations and bytes")
+
+
+if __name__ == "__main__":
+    main()
 </ui:copy>
 
 <ui:file path="scripts/test-resource-entry-restoration-service.py"><ui:paste select="#resource-recovery-entry-service-witness"/></ui:file>

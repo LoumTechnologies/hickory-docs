@@ -21,15 +21,23 @@ impl EntryStamp {
 }
 #[derive(Clone,Debug,PartialEq,Eq,Serialize,Deserialize)]
 #[serde(rename_all="snake_case")]
-pub(crate) enum TransitionKind {Move,Create,Restoration,Repair}
+pub(crate) enum TransitionKind {Move,Create,Restoration,Repair,InterruptedCompletion}
 #[derive(Clone,Debug,PartialEq,Eq,Serialize,Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct EntryChange {pub version:u32,pub kind:TransitionKind,pub before:EntryStamp,pub after:EntryStamp,pub source_identity:Option<String>}
 impl EntryChange {
- fn validate_shape(&self)->Result<(),String>{self.before.validate()?;self.after.validate()?;if self.version!=1||self.before.identity!=self.after.identity||self.before.generation.checked_add(1)!=Some(self.after.generation){return Err("Workspace entry transition must advance one retained identity without reusing an old generation.".into())}Ok(())}
+ fn validate_shape(&self)->Result<(),String>{self.before.validate()?;self.after.validate()?;if self.version!=1||self.before.identity!=self.after.identity||(if self.kind==TransitionKind::InterruptedCompletion{self.after.generation<=self.before.generation.saturating_add(1)}else{self.before.generation.checked_add(1)!=Some(self.after.generation)}){return Err("Workspace entry transition must advance one retained identity without reusing an old generation.".into())}Ok(())}
  fn validate(&self,plan:&super::resource_changes::ResourcePlan)->Result<(),String>{
   self.validate_shape()?;
   use super::resource_changes::SourceState;
+  if self.kind==TransitionKind::InterruptedCompletion{
+   let target=self.after.path.as_ref().ok_or("Interrupted completion must retain its intended construction")?;
+   let source=plan.patches.iter().find(|patch|&patch.path==target).ok_or("Interrupted completion lacks its intended destination")?;
+   let identity=match &source.after{SourceState::File{identity,..}=>identity,_=>return Err("Interrupted completion lost its logical construction".into())};
+   if self.source_identity.as_deref()!=Some(identity.as_str())||!plan.patches.iter().any(|patch|matches!(&patch.before,SourceState::File{identity:before,..}if before==identity)){return Err("Interrupted completion has no captured surviving editor identity".into())}
+   if let Some(before)=&self.before.path{if before!=target&&!plan.patches.iter().any(|patch|&patch.path==before&&matches!(patch.after,SourceState::Missing{..})){return Err("Interrupted completion retained an ambiguous original main slot".into())}}
+   return Ok(())
+  }
   if let Some(before)=&self.before.path{
    let source=plan.patches.iter().find(|patch|patch.path==*before).ok_or("Workspace entry transition lacks its original source patch.")?;
    let identity=match &source.before{SourceState::File{identity,..}=>identity,_=>return Err("Workspace entry transition requires the original authored source identity.".into())};
@@ -45,11 +53,48 @@ impl EntryChange {
 }
 #[derive(Clone,Debug,Serialize,Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Pending {request_id:String,manifest_sha256:String,change:EntryChange,after_guard:Option<String>,#[serde(default,skip_serializing_if="Option::is_none")] namespace_guards:Option<BTreeMap<String,String>>,#[serde(default,skip_serializing_if="Option::is_none")] before_guard:Option<String>,#[serde(default,skip_serializing_if="Option::is_none")] failure:Option<failures::Evidence>}
+struct InterruptedOrigin {request_id:String,manifest_sha256:String,change:EntryChange,before_guard:Option<String>}
 #[derive(Clone,Debug,Serialize,Deserialize)]
 #[serde(deny_unknown_fields)]
-struct RetainedTransition {request_id:String,manifest_sha256:String,change:EntryChange,after_guard:Option<String>,#[serde(default,skip_serializing_if="Option::is_none")] before_guard:Option<String>,#[serde(default,skip_serializing_if="Option::is_none")] namespace_guards:Option<BTreeMap<String,String>>}
+struct RecoveryState {origin:InterruptedOrigin,reservation_floor:u32,attempts:Vec<recovery::Attempt>}
+impl RecoveryState {
+ fn validate(&self,current:&EntryStamp)->Result<(),String>{
+  self.origin.change.validate_shape()?;
+  if self.origin.change.kind!=TransitionKind::Move||&self.origin.change.before!=current||self.reservation_floor<self.origin.change.after.generation||self.attempts.len()>256||!super::resource_saves::hex(&self.origin.request_id,32)||!super::resource_saves::hex(&self.origin.manifest_sha256,64){return Err("Interrupted recovery origin or reservation bound is invalid".into())}
+  let mut ids=std::collections::BTreeSet::new();
+  for row in &self.attempts{row.before_entry.validate()?;row.after_entry.validate()?;
+   if row.before_entry!=*current||row.after_entry.identity!=current.identity||row.after_entry.path!=self.origin.change.after.path||row.after_entry.generation<=current.generation||row.after_entry.generation>self.reservation_floor||!super::resource_saves::hex(&row.request_id,32)||!super::resource_saves::hex(&row.context,64)||!ids.insert(&row.request_id)||row.reviewed_fingerprint.as_ref().is_some_and(|hash|!super::resource_saves::hex(hash,64)){return Err("Retained interrupted attempt relationship is malformed".into())}
+  }Ok(())
+ }
+}
 #[derive(Clone,Debug,Serialize,Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Pending {request_id:String,manifest_sha256:String,change:EntryChange,after_guard:Option<String>,#[serde(default,skip_serializing_if="Option::is_none")] namespace_guards:Option<BTreeMap<String,String>>,#[serde(default,skip_serializing_if="Option::is_none")] before_guard:Option<String>,#[serde(default,skip_serializing_if="Option::is_none")] failure:Option<failures::Evidence>,#[serde(default,skip_serializing_if="Option::is_none")] reviewed_fingerprint:Option<String>,#[serde(default,skip_serializing_if="Option::is_none")] recovery:Option<RecoveryState>}
+impl Pending {
+ fn reservation_floor(&self)->u32 {self.recovery.as_ref().map(|state|state.reservation_floor).unwrap_or(self.change.after.generation)}
+ fn interrupted_origin(&self)->Result<InterruptedOrigin,String>{
+  if let Some(state)=&self.recovery{return Ok(state.origin.clone())}
+  if self.change.kind!=TransitionKind::Move{return Err("Only a sealed interrupted main Move admits this completion path".into())}
+  Ok(InterruptedOrigin{request_id:self.request_id.clone(),manifest_sha256:self.manifest_sha256.clone(),change:self.change.clone(),before_guard:self.before_guard.clone()})
+ }
+ fn attempt_relations(&self,root:&std::path::Path)->Result<Vec<recovery::Attempt>,String>{
+  let record=super::resource_journal::read_recovery(root,&self.request_id)?;
+  if record.manifest_sha256!=self.manifest_sha256{return Err("Interrupted attempt no longer names its exact sealed manifest".into())}
+  let row=recovery::Attempt{request_id:self.request_id.clone(),context:record.manifest.context,before_entry:self.change.before.clone(),after_entry:self.change.after.clone(),reviewed_fingerprint:self.reviewed_fingerprint.clone()};
+  let mut rows=self.recovery.as_ref().map(|state|state.attempts.clone()).unwrap_or_default();
+  if let Some(existing)=rows.iter().find(|prior|prior.request_id==row.request_id){if serde_json::to_vec(existing).map_err(|error|error.to_string())?!=serde_json::to_vec(&row).map_err(|error|error.to_string())?{return Err("Interrupted request has conflicting retained material".into())}}
+  else {rows.push(row)}
+  if rows.len()>256{return Err("Interrupted attempt retention is full; no prior preview relation was discarded".into())}Ok(rows)
+ }
+ fn next_recovery(&self,root:&std::path::Path)->Result<RecoveryState,String>{
+  let attempts=self.attempt_relations(root)?;if attempts.len()>=256{return Err("Interrupted attempt retention is full; no new reservation or source writer began".into())}
+  let result=RecoveryState{origin:self.interrupted_origin()?,reservation_floor:self.reservation_floor().checked_add(1).ok_or("Interrupted recovery generation capacity exhausted")?,attempts};result.validate(&self.change.before)?;Ok(result)
+ }
+}
+#[derive(Clone,Debug,Serialize,Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RetainedTransition {request_id:String,manifest_sha256:String,change:EntryChange,after_guard:Option<String>,#[serde(default,skip_serializing_if="Option::is_none")] before_guard:Option<String>,#[serde(default,skip_serializing_if="Option::is_none")] namespace_guards:Option<BTreeMap<String,String>>,#[serde(default,skip_serializing_if="Option::is_none")] recovered_from:Option<RecoveryState>}
+#[derive(Clone,Serialize,Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Binding {version:u32,physical_root:String,namespace:String,physical_store:String,current:EntryStamp,bootstrap_default:bool,pending:Option<Pending>,history:Vec<RetainedTransition>,#[serde(default,skip_serializing_if="Option::is_none")] ownership:Option<claims::Inventory>,#[serde(default,skip_serializing_if="Option::is_none")] no_effects:Option<Vec<failures::NoEffect>>}
 #[derive(Serialize,Deserialize)]
@@ -59,6 +104,7 @@ fn digest(bytes:&[u8])->String{super::workspace_fs::view::hash(bytes)}
 fn initial_stamp(path:Option<String>)->Result<EntryStamp,String>{let mut bytes=[0;16];getrandom::fill(&mut bytes).map_err(|error|error.to_string())?;Ok(EntryStamp{version:1,identity:hex::encode(bytes),generation:0,path})}
 fn history_transition(binding:&Binding,record:&super::resource_journal::Recovery)->Result<EntryChange,String>{
  let known=binding.history.iter().find(|old|old.request_id==record.id&&old.manifest_sha256==record.manifest_sha256).ok_or("This retained record has no sealed workspace-entry transition authority; it remains readable evidence only.")?;
+ if known.change.kind==TransitionKind::InterruptedCompletion{return Err("Interrupted completion inverse requires an explicit superseding producer proof; generic inverse authority remains unavailable".into())}
  if binding.current!=known.change.after{return Err("Workspace entry changed since this retained namespace. Restore its latest transition first.".into())}
  let before=binding.current.clone();
  let inverse=record.manifest.reviewed_plan.inverse();
@@ -81,10 +127,17 @@ Use a distinct private namespace and HMAC domain. Finding the physical bucket af
 <ui:copy id="workspace-entry-storage">
 fn history_transition_after_lineage(root:&std::path::Path,binding:&Binding,record:&super::resource_journal::Recovery,proof:&super::source_history::ResourceAfterProof)->Result<EntryChange,String>{
  proof.check(root,record)?;
+ // A strict physical producer proof is not permission to cross newer role
+ // generations. Rebased inverses require the separate sealed entry chain.
+ history_transition(binding,record)
+}
+#[cfg(unix)]
+fn history_transition_with_entry_proof(root:&std::path::Path,binding:&Binding,record:&super::resource_journal::Recovery,proof:&lineage::Proof)->Result<EntryChange,String>{
+ proof.check(root,binding,record)?;
  let known=binding.history.iter().find(|old|old.request_id==record.id&&old.manifest_sha256==record.manifest_sha256).ok_or("This retained record has no sealed workspace-entry transition authority")?;
- if binding.current.identity!=known.change.after.identity||binding.current.path!=known.change.after.path{return Err("Retained entry restoration no longer follows the same construction identity and address.".into())}
  let mut rebased=binding.clone();rebased.current=known.change.after.clone();let mut change=history_transition(&rebased,record)?;change.before=binding.current.clone();change.after=binding.current.advance(change.after.path)?;change.validate(&record.manifest.reviewed_plan.inverse())?;Ok(change)
 }
+
 #[cfg(unix)]
 mod storage {
  use super::*;
@@ -112,9 +165,9 @@ mod storage {
    if let Some(inventory)=&payload.ownership{inventory.validate()?;}payload.current.validate()?;super::leases::validate_role_hint(root,&payload)?;
    if payload.history.len()>256{return Err("Workspace-entry retained transition bound is invalid.".into())}
    let mut ids=std::collections::BTreeSet::new();
-   for row in &payload.history{row.change.validate_shape()?;if !ids.insert(&row.request_id)||!super::super::resource_saves::hex(&row.request_id,32)||!super::super::resource_saves::hex(&row.manifest_sha256,64){return Err("Workspace-entry retained transition identities are malformed or repeated.".into())}}
+   for row in &payload.history{row.change.validate_shape()?;if let Some(recovered)=&row.recovered_from{recovered.validate(&row.change.before)?;}else if row.change.kind==TransitionKind::InterruptedCompletion{return Err("Recovered entry history lost its original interrupted scope".into())}if !ids.insert(&row.request_id)||!super::super::resource_saves::hex(&row.request_id,32)||!super::super::resource_saves::hex(&row.manifest_sha256,64){return Err("Workspace-entry retained transition identities are malformed or repeated.".into())}}
    if let Some(rows)=&payload.no_effects{if rows.len()>256{return Err("Retained no-effect journal exceeds its bound".into())}for row in rows{row.before.validate()?;row.after.validate()?;if row.after!=row.before.advance(row.before.path.clone())?||!ids.insert(&row.request_id)||!super::super::resource_saves::hex(&row.request_id,32)||!super::super::resource_saves::hex(&row.manifest_sha256,64){return Err("Retained no-effect evidence is malformed".into())}}}
-   if let Some(pending)=&payload.pending{pending.change.validate_shape()?;if let Some(failure)=&pending.failure{failure.validate_shape()?;}if pending.change.before!=payload.current{return Err("Pending entry publication does not begin at its retained current generation.".into())}}
+   if let Some(pending)=&payload.pending{pending.change.validate_shape()?;if let Some(failure)=&pending.failure{failure.validate_shape()?;}if let Some(recovery)=&pending.recovery{recovery.validate(&payload.current)?;if pending.change.after.generation>recovery.reservation_floor{return Err("Interrupted reservation exceeds its retained floor".into())}}else if pending.change.kind==TransitionKind::InterruptedCompletion{return Err("Interrupted completion lacks its original sealed Move".into())}if pending.change.before!=payload.current{return Err("Pending entry publication does not begin at its retained current generation.".into())}}
    held.check()?;Ok(Self{held,payload,original})
   }
   pub(super) fn resolve(root:&std::path::Path)->Result<Self,String>{
@@ -207,6 +260,15 @@ pub(crate) fn validate_entry_selection(_state:&super::LocalState,_proof:&EntrySe
 Only this optional endpoint waits for root readiness. Ordinary file opening remains independent. A malformed main retains its role and exact readable bytes but offers no move capability. An unconfirmed transition refuses a new reading scope; it never selects an arbitrary fallback entry.
 
 <ui:copy id="workspace-entry-reading">
+#[cfg(unix)]
+#[path="workspace_entry_lineage.rs"]
+mod lineage;
+#[cfg(unix)]
+pub(crate) use lineage::{Proof as EntryLineageProof,Admission as EntryLineageAdmission};
+#[path="workspace_entry_completion.rs"]
+pub(crate) mod completion;
+#[path="workspace_entry_recovery.rs"]
+pub(crate) mod recovery;
 #[path="workspace_entry_transitions.rs"]pub(crate) mod transitions;
 #[cfg(unix)]pub(crate) fn configured_entry(root:&std::path::Path)->Result<Option<String>,String>{let bound=storage::Bound::snapshot_or_initialize(root)?;if bound.payload.pending.is_some(){return Err("The retained main transition is unconfirmed. Read its recovery; no project.md fallback was selected.".into())}Ok(bound.payload.current.path.clone())}
 
@@ -266,9 +328,9 @@ mod tests {
  #[test]
  fn malformed_main_is_retained_as_readable_role_without_move_authority(){let(_temporary,root,base)=fixture(true);drop(storage::Bound::resolve_under(&base,&root).unwrap());std::fs::write(root.join("project.md"),"<h:doc").unwrap();let identity=super::super::resource_inputs::RootIdentity::bind(&root);let proof=issue(&base,&root,&identity);assert_eq!(proof.entry.path.as_deref(),Some("project.md"));assert!(!proof.movable);validate(&base,&root,&identity,&proof).unwrap();assert_eq!(std::fs::read_to_string(root.join("project.md")).unwrap(),"<h:doc");}
  #[test]
- fn forged_selection_fields_and_unconfirmed_publication_refuse_whole_reading_scope(){let(_temporary,root,base)=fixture(true);let identity=super::super::resource_inputs::RootIdentity::bind(&root);let proof=issue(&base,&root,&identity);for mutation in ["namespace","source","generation","effects"]{let mut forged=proof.clone();match mutation{"namespace"=>forged.namespace.push_str("/other"),"source"=>forged.source_hash=Some(format!("sha256:{}","0".repeat(64))),"generation"=>forged.entry.generation+=1,_=>forged.source_effects=true};assert!(validate(&base,&root,&identity,&forged).is_err());}let mut bound=storage::Bound::open_under(&base,&root,true).unwrap();bound.payload.pending=Some(Pending{request_id:"1".repeat(32),manifest_sha256:"2".repeat(64),change:EntryChange{version:1,kind:TransitionKind::Move,before:proof.entry.clone(),after:proof.entry.advance(Some("next.md".into())).unwrap(),source_identity:Some("original".into())},after_guard:None,namespace_guards:None,before_guard:None,failure:None});bound.persist().unwrap();assert!(issue_selection(&root,&identity,&bound).is_err());drop(bound);assert!(validate(&base,&root,&identity,&proof).is_err());}
+ fn forged_selection_fields_and_unconfirmed_publication_refuse_whole_reading_scope(){let(_temporary,root,base)=fixture(true);let identity=super::super::resource_inputs::RootIdentity::bind(&root);let proof=issue(&base,&root,&identity);for mutation in ["namespace","source","generation","effects"]{let mut forged=proof.clone();match mutation{"namespace"=>forged.namespace.push_str("/other"),"source"=>forged.source_hash=Some(format!("sha256:{}","0".repeat(64))),"generation"=>forged.entry.generation+=1,_=>forged.source_effects=true};assert!(validate(&base,&root,&identity,&forged).is_err());}let mut bound=storage::Bound::open_under(&base,&root,true).unwrap();bound.payload.pending=Some(Pending{request_id:"1".repeat(32),manifest_sha256:"2".repeat(64),change:EntryChange{version:1,kind:TransitionKind::Move,before:proof.entry.clone(),after:proof.entry.advance(Some("next.md".into())).unwrap(),source_identity:Some("original".into())},after_guard:None,namespace_guards:None,before_guard:None,failure:None,reviewed_fingerprint:None,recovery:None});bound.persist().unwrap();assert!(issue_selection(&root,&identity,&bound).is_err());drop(bound);assert!(validate(&base,&root,&identity,&proof).is_err());}
 }
 </ui:copy>
 
-<ui:file path="crates/hickory-cli/src/serve/workspace_entry_authority.rs"><ui:paste select="#workspace-entry-model"/><ui:paste select="#workspace-entry-interrupted-evidence"/><ui:paste select="#workspace-entry-owned-claims"/><ui:paste select="#workspace-entry-storage"/><ui:paste select="#workspace-entry-selection"/><ui:paste select="#workspace-entry-reading"/><ui:paste select="#workspace-entry-coordination-provider"/><ui:paste select="#workspace-entry-read-lease-admission"/><ui:paste select="#workspace-entry-source-coordination"/><ui:paste select="#workspace-entry-source-batch-coordination"/><ui:paste select="#workspace-entry-direct-namespace-coordination"/><ui:paste select="#workspace-entry-read-lease-witness"/><ui:paste select="#workspace-entry-reading-witness"/></ui:file>
+<ui:file path="crates/hickory-cli/src/serve/workspace_entry_authority.rs"><ui:paste select="#workspace-entry-model"/><ui:paste select="#workspace-entry-interrupted-evidence"/><ui:paste select="#workspace-entry-owned-claims"/><ui:paste select="#workspace-entry-storage"/><ui:paste select="#workspace-entry-selection"/><ui:paste select="#workspace-entry-reading"/><ui:paste select="#workspace-entry-coordination-provider"/><ui:paste select="#workspace-entry-read-lease-admission"/><ui:paste select="#workspace-entry-source-coordination"/><ui:paste select="#workspace-entry-source-batch-coordination"/><ui:paste select="#workspace-entry-direct-namespace-coordination"/><ui:paste select="#workspace-entry-read-lease-witness"/><ui:paste select="#workspace-entry-reading-witness"/><ui:paste select="#workspace-entry-interrupted-fixture-tests"/></ui:file>
 </ui:doc>

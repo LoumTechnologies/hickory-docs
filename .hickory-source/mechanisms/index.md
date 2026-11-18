@@ -396,9 +396,15 @@ is included with that control; opening a document is not generation authority.
 
 <storycode:include file="embedded-source-language-context.md" />
 
+<storycode:include file="fenced-source-readings.md" />
+
 <storycode:include file="parallel-snippet-sessions.md" />
 
 <storycode:include file="workspace-entry-authority.md" />
+
+<storycode:include file="workspace-entry-failures.md" />
+
+<storycode:include file="workspace-entry-publication-failure-witness.md" />
 
 <storycode:include file="workspace-entry-leases.md" />
 
@@ -417,17 +423,15 @@ is included with that control; opening a document is not generation authority.
 
 <storycode:include file="rust-selected-test-debug.md" />
 
-<storycode:include file="workspace-entry-transitions.md" />
-<storycode:include file="workspace-entry-transition-protocol-witness.md" />
-<storycode:include file="workspace-entry-owned-claims.md" />
-
-<storycode:include file="workspace-entry-failures.md" />
-<storycode:include file="workspace-entry-publication-failure-witness.md" />
-
 <storycode:include file="rust-test-source-proof.md" />
 
-<storycode:include file="fenced-source-readings.md" />
-
 <storycode:include file="ios-mounted-parity-acceptance.md" />
+
+<storycode:include file="workspace-entry-transitions.md" />
+<storycode:include file="workspace-entry-completion.md" />
+<storycode:include file="workspace-entry-interrupted-reading.md" />
+<storycode:include file="workspace-entry-lineage.md" />
+<storycode:include file="workspace-entry-transition-protocol-witness.md" />
+<storycode:include file="workspace-entry-owned-claims.md" />
 
 </storycode:doc>

@@ -73280,7 +73280,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "workspace-entry-source-batch-coordination",
         "workspace-entry-direct-namespace-coordination",
         "workspace-entry-read-lease-witness",
-        "workspace-entry-reading-witness"
+        "workspace-entry-reading-witness",
+        "workspace-entry-interrupted-fixture-tests"
       ]
     },
     "scripts/test-workspace-entry-reading.py": {
@@ -73824,6 +73825,62 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "workspace-entry-transition-protocol-driver"
       ]
     },
+    "crates/hick-lsp/src/fenced_source.rs": {
+      "source": ".hickory-source/mechanisms/fenced-source-readings.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "4ce43ef288d320df8f41db2fe70233a41404d4097bf28e5afec5e876460e5bb2",
+      "construction": "fragments",
+      "fragments": [
+        "fenced-source-preparation",
+        "fenced-source-tests"
+      ]
+    },
+    "scripts/test-fenced-source-readings.py": {
+      "source": ".hickory-source/frontends/fenced-source-reading-host-acceptance.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "a582618949690d54379b9df2e179410092bb0085d8ffae5c436e474901eabbe3",
+      "construction": "fragments",
+      "fragments": [
+        "fenced-provider-acceptance-runner"
+      ]
+    },
+    "scripts/fenced-source-reading-driver.mjs": {
+      "source": ".hickory-source/frontends/fenced-source-reading-host-acceptance.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "caa7273ff32ed2524e47beffb2dc461dde639a575c145917c0e6e68b221cedef",
+      "construction": "fragments",
+      "fragments": [
+        "fenced-provider-protocol-client"
+      ]
+    },
+    "apps/apple-simple/Tests/FencedSourceReadingTests.swift": {
+      "source": ".hickory-source/frontends/fenced-source-reading-host-acceptance.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "784b20090e1bce48cfac2f844aef91e5758515fa04f707ebfa7ce99f2957bb95",
+      "construction": "fragments",
+      "fragments": [
+        "fenced-provider-apple-witness"
+      ]
+    },
+    "apps/android-simple/app/src/test/java/com/hickorydocs/simple/FencedSourceReadingTest.kt": {
+      "source": ".hickory-source/frontends/fenced-source-reading-host-acceptance.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "904f6f456208016d512567e7c621d46cad7733143366a869725e9699493ac9d1",
+      "construction": "fragments",
+      "fragments": [
+        "fenced-provider-android-witness"
+      ]
+    },
     "scripts/test-entry-publication-failures.py": {
       "source": ".hickory-source/mechanisms/workspace-entry-publication-failure-witness.md",
       "owner": "shared",
@@ -73892,62 +73949,6 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "rust-selected-test-source-proof-protocol"
       ]
     },
-    "crates/hick-lsp/src/fenced_source.rs": {
-      "source": ".hickory-source/mechanisms/fenced-source-readings.md",
-      "owner": "shared",
-      "used_by": [],
-      "role": "implementation",
-      "sha256": "4ce43ef288d320df8f41db2fe70233a41404d4097bf28e5afec5e876460e5bb2",
-      "construction": "fragments",
-      "fragments": [
-        "fenced-source-preparation",
-        "fenced-source-tests"
-      ]
-    },
-    "scripts/test-fenced-source-readings.py": {
-      "source": ".hickory-source/frontends/fenced-source-reading-host-acceptance.md",
-      "owner": "simple-frontends",
-      "used_by": [],
-      "role": "test",
-      "sha256": "a582618949690d54379b9df2e179410092bb0085d8ffae5c436e474901eabbe3",
-      "construction": "fragments",
-      "fragments": [
-        "fenced-provider-acceptance-runner"
-      ]
-    },
-    "scripts/fenced-source-reading-driver.mjs": {
-      "source": ".hickory-source/frontends/fenced-source-reading-host-acceptance.md",
-      "owner": "simple-frontends",
-      "used_by": [],
-      "role": "test",
-      "sha256": "caa7273ff32ed2524e47beffb2dc461dde639a575c145917c0e6e68b221cedef",
-      "construction": "fragments",
-      "fragments": [
-        "fenced-provider-protocol-client"
-      ]
-    },
-    "apps/apple-simple/Tests/FencedSourceReadingTests.swift": {
-      "source": ".hickory-source/frontends/fenced-source-reading-host-acceptance.md",
-      "owner": "simple-frontends",
-      "used_by": [],
-      "role": "test",
-      "sha256": "784b20090e1bce48cfac2f844aef91e5758515fa04f707ebfa7ce99f2957bb95",
-      "construction": "fragments",
-      "fragments": [
-        "fenced-provider-apple-witness"
-      ]
-    },
-    "apps/android-simple/app/src/test/java/com/hickorydocs/simple/FencedSourceReadingTest.kt": {
-      "source": ".hickory-source/frontends/fenced-source-reading-host-acceptance.md",
-      "owner": "simple-frontends",
-      "used_by": [],
-      "role": "test",
-      "sha256": "904f6f456208016d512567e7c621d46cad7733143366a869725e9699493ac9d1",
-      "construction": "fragments",
-      "fragments": [
-        "fenced-provider-android-witness"
-      ]
-    },
     "apps/apple-simple/IOSAcceptance/UIKitParityAcceptanceTests.swift": {
       "source": ".hickory-source/mechanisms/ios-mounted-parity-acceptance.md",
       "owner": "shared",
@@ -73979,6 +73980,119 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "construction": "fragments",
       "fragments": [
         "ios-mounted-parity-runner-safety"
+      ]
+    },
+    "crates/hickory-cli/src/serve/workspace_entry_completion.rs": {
+      "source": ".hickory-source/mechanisms/workspace-entry-completion.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "49c4d1fcb5dbf142c864d3c7e24811e659cc0380916efbc2ddf755401a4e2836",
+      "construction": "fragments",
+      "fragments": [
+        "workspace-entry-completion-model"
+      ]
+    },
+    "crates/hickory-cli/src/serve/workspace_entry_recovery.rs": {
+      "source": ".hickory-source/mechanisms/workspace-entry-interrupted-reading.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "005189d65588c42f0d77ee7c0e86bdf060fefcfdb9e66bb25266d8941be52b3e",
+      "construction": "fragments",
+      "fragments": [
+        "workspace-entry-interrupted-reading"
+      ]
+    },
+    "crates/hickory-cli/src/serve/workspace_entry_lineage.rs": {
+      "source": ".hickory-source/mechanisms/workspace-entry-lineage.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "bbcc2e964e6fc0b2dffbacfdb868bb2e602e06e705733b10c8c1891a4bce1828",
+      "construction": "fragments",
+      "fragments": [
+        "workspace-entry-lineage-reduction",
+        "workspace-entry-lineage-authority",
+        "workspace-entry-lineage-policy-witness",
+        "workspace-entry-lineage-inverse-witness"
+      ]
+    },
+    "scripts/test-interrupted-entry-hosts.py": {
+      "source": ".hickory-source/frontends/workspace-entry-interrupted-acceptance.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "9469993c1e32197f99a0a9570dfafd62f7a0ab28dae8129ec22bf1e2e3b41af7",
+      "construction": "fragments",
+      "fragments": [
+        "workspace-entry-interrupted-host-runner"
+      ]
+    },
+    "apps/apple-simple/Tests/InterruptedEntryTests.swift": {
+      "source": ".hickory-source/frontends/workspace-entry-interrupted-acceptance.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "13ecf155caf7641d75efd0affe7605e1351f48fd073496b153d7ede8539fa62a",
+      "construction": "fragments",
+      "fragments": [
+        "workspace-entry-interrupted-apple-witness"
+      ]
+    },
+    "apps/android-simple/app/src/test/java/com/hickorydocs/simple/InterruptedEntryTest.kt": {
+      "source": ".hickory-source/frontends/workspace-entry-interrupted-acceptance.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "484cc21eb0480e5b8b224f23a31cb1e87680e0b898b9e6c6da5834136e988176",
+      "construction": "fragments",
+      "fragments": [
+        "workspace-entry-interrupted-android-witness"
+      ]
+    },
+    "scripts/test-workspace-entry-lineage.py": {
+      "source": ".hickory-source/frontends/workspace-entry-lineage-acceptance.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "bd33be89198059d87505afe27e2c5f2da8ae69a803bcc54edd55f79f8d015965",
+      "construction": "fragments",
+      "fragments": [
+        "workspace-entry-lineage-host-runner"
+      ]
+    },
+    "apps/apple-simple/Tests/WorkspaceEntryLineageTests.swift": {
+      "source": ".hickory-source/frontends/workspace-entry-lineage-acceptance.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "64c9b5099fcd0492a77a0f2a2f99f59b814f73fbc77585ae97658cf70a239490",
+      "construction": "fragments",
+      "fragments": [
+        "workspace-entry-lineage-apple-live"
+      ]
+    },
+    "apps/android-simple/app/src/test/java/com/hickorydocs/simple/WorkspaceEntryLineageTest.kt": {
+      "source": ".hickory-source/frontends/workspace-entry-lineage-acceptance.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "76c82dcf680c53c95078fe5c69ea231b128b83af094723fc64c39fd87c70e96d",
+      "construction": "fragments",
+      "fragments": [
+        "workspace-entry-lineage-android-live"
+      ]
+    },
+    "scripts/prepare-interrupted-entry.py": {
+      "source": ".hickory-source/mechanisms/workspace-entry-publication-failure-witness.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "test",
+      "sha256": "953ad0ab9034ec51a8e4cd96b711a8c7dfc978b86935e628a8a281e432cb5009",
+      "construction": "fragments",
+      "fragments": [
+        "workspace-entry-interrupted-fixture-driver"
       ]
     }
   },

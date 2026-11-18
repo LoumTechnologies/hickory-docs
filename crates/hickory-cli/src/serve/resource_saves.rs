@@ -106,6 +106,7 @@ fn room_write(
     } else {
         state.index.id_for_path(path)
     };
+    let orphan_base = publication.orphan_saved_base(path).map(str::to_owned);
     runtime.block_on(async {
         let mut written = None;
         let mut persist = || -> anyhow::Result<()> {
@@ -119,9 +120,16 @@ fn room_write(
             (SavedSource::File { text: expected, .. }, SavedSource::File { text, .. }) => state.rooms.replace_source_if_current(&id, expected, text, persist).await.map_err(|error|error.to_string())?,
             (SavedSource::File { text: expected, .. }, SavedSource::Missing) => state.rooms.retire_source_if_current(&id, expected, persist).await.map_err(|error|error.to_string())?,
             (SavedSource::Missing, _) => {
-                if state.rooms.get(&id).await.is_some() { return Err(format!("A live editor owns the missing source path: {path}. Reconcile it before saving resources.")); }
-                persist().map_err(|error|error.to_string())?;
-                true
+                if state.rooms.get(&id).await.is_some() {
+                    let (Some(expected), SavedSource::Missing) = (orphan_base.as_deref(), after) else {
+                        return Err(format!("A live editor owns the missing source path: {path}. Reconcile it before saving resources."));
+                    };
+                    state.rooms.retire_source_if_current(&id, expected, persist)
+                        .await.map_err(|error| error.to_string())?
+                } else {
+                    persist().map_err(|error|error.to_string())?;
+                    true
+                }
             }
         };
         if !accepted { return Err(format!("A live document changed after review: {path}. Save or reconcile it before resource changes.")); }
@@ -177,13 +185,17 @@ async fn execute(state: LocalState, request: Request) -> Result<Value, String> {
         &fresh,
         &request.proposal.plan,
     )?;
-    let mut manifest = Manifest::from_review(&request.proposal.inputs, &request.proposal.plan)?;
     #[cfg(unix)]
-    if let Some(projection) = super::workspace_entry_authority::transitions::saved_move_projection(
+    let projection = super::workspace_entry_authority::transitions::saved_move_projection(
         &state, &request.proposal.inputs, &request.proposal.plan,
-    )? {
-        projection.apply(&mut manifest);
-    }
+    )?;
+    #[cfg(unix)]
+    let manifest = match projection {
+        Some(projection) => projection.manifest(&request.proposal.inputs, &request.proposal.plan)?,
+        None => Manifest::from_review(&request.proposal.inputs, &request.proposal.plan)?,
+    };
+    #[cfg(not(unix))]
+    let manifest = Manifest::from_review(&request.proposal.inputs, &request.proposal.plan)?;
     let entries = request.proposal.inputs.ownership.protected_entries.clone();
     publish(
         state,
@@ -235,7 +247,7 @@ pub(super) async fn publish_guarded(
         // Unix admission below uses the actual retained role and sealed intent.
         #[cfg(unix)]let _=(&protected_entries,&entry_policy);
         let claims = super::api::generated_outputs(root, &state.index);
-        let entry_publication=std::cell::RefCell::new(super::workspace_entry_authority::transitions::Publication::admit(&state,&manifest,transactional_rollback)?);
+        let entry_publication=std::cell::RefCell::new(super::workspace_entry_authority::transitions::Publication::admit(&state,&manifest,transactional_rollback,&facts.fingerprint)?);
         #[cfg(not(unix))]
         // The default entry is still address-bound. Do not silently lose its
         // ownership scope before an explicit workspace-entry transition exists.
@@ -261,10 +273,14 @@ pub(super) async fn publish_guarded(
             }
         }
         let dependencies: BTreeMap<_, _> = facts.checked_saved_sources.into_iter().filter(|(path, _)| !paths.contains(path)).collect();
-        let mut outcome = super::resource_publish::publish_observed_guarded_with(root, &state.resource_root, &manifest,
+        let mut outcome = super::resource_publish::publish_observed_guarded_with_lineage(root, &state.resource_root, &manifest,
             |published| { entry_publication.borrow().check(&state,published)?;admission(root)?;super::resource_inputs::validate_guard_map(root,&saved_guards,published)?; super::source_tests::check_saved_sources(root, &dependencies).map(|_| ()).map_err(|error|error.detail().to_string()) },
             |published| { entry_publication.borrow().check(&state,published)?;admission(root)?;super::resource_inputs::validate_guard_map(root,&saved_guards,published)?; super::source_tests::check_saved_sources(root, &dependencies).map(|_| ()).map_err(|error|error.detail().to_string()) },
-            |path, before, after,force| {let document=entry_publication.borrow().is_document_source(path);room_write(&state, &runtime, root, path, before, after,force,document,&mut entry_publication.borrow_mut())}, transactional_rollback)?;
+            |path, before, after,force| {let document=entry_publication.borrow().is_document_source(path);room_write(&state, &runtime, root, path, before, after,force,document,&mut entry_publication.borrow_mut())},
+            transactional_rollback,
+            |root, resource_id, manifest, before_identities| {
+                entry_publication.borrow().prepare_lineage(root, resource_id, manifest, before_identities)
+            })?;
         if outcome.complete {
             for (path, expected) in &manifest.after {
                 match super::resource_inputs::saved_target(root, path) {

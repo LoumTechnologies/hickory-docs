@@ -13,6 +13,7 @@ use super::{
     LocalState,
     api::{ApiError, ApiResult},
     resource_changes::{self, SourceState},
+    workspace_entry_authority::transitions::AcquisitionScope,
 };
 use axum::{Json, extract::State};
 use serde::{Deserialize, Serialize};
@@ -346,7 +347,12 @@ fn ownership(
     index: &super::store::DocIndex,
     request: &Request,
 ) -> Result<(Ownership, BTreeSet<String>), String> {
-    let canonical_entry = default_project_entry(root)?;
+    ownership_with_entry(root,index,request,None)
+}
+fn ownership_with_entry(
+    root:&Path,index:&super::store::DocIndex,request:&Request,canonical:Option<&str>,
+)->Result<(Ownership,BTreeSet<String>),String>{
+    let canonical_entry=match canonical {Some(entry)=>Some(entry.to_owned()),None=>default_project_entry(root)?};
     let entry = if let Some(entry) = &request.project_entry {
         resource_changes::validate_path(entry)?;
         Some(entry.clone())
@@ -482,12 +488,14 @@ the selected construction already proves its draft hash. Reuse the resource plan
 builder to prove this case instead of recognizing a second edit syntax.
 
 <ui:copy id="resource-input-retained-ownership">
-fn retained_ownership(root:&Path,request:&Request,ownership:&Ownership,sources:&BTreeMap<String,SourceState>)->Result<(),String>{
+fn retained_ownership(root:&Path,request:&Request,ownership:&Ownership,sources:&BTreeMap<String,SourceState>,scope:Option<&AcquisitionScope>)->Result<(),String>{
+ if let Some(scope)=scope {scope.validate_orphan_sources(sources)?;}
  let mut candidate=None;
  for text in request.unaddressed_sources.values(){if contains_construction(text)?{return Err("An unaddressed retained construction draft has no saved namespace authority. Preserve it, assign its authored source and select its construction before changing the namespace.".into())}}
  for(path,text)in &request.ownership_sources{
   if !contains_construction(text)?{continue}
   resource_changes::validate_path(path)?;
+  if scope.is_some_and(|scope|sources.get(path).is_some_and(|source|scope.permits_retained_source(path,source,text))){continue;}
   if ownership.draft_sources.get(path)!=Some(&sha(text.as_bytes())){return Err(format!("Retained construction source {path} is outside the proven selected context. Preserve its draft and select its construction before changing the namespace."))}
   let(_,saved)=saved_target(root,path)?;
   match saved{
@@ -502,6 +510,8 @@ fn retained_ownership(root:&Path,request:&Request,ownership:&Ownership,sources:&
 }
 </ui:copy>
 
+A missing named draft normally refuses before planning. Interrupted-entry acquisition has one separate engine-issued exception: its held scope validates the exact original retained winner, current producer checkpoint and live intent before and after the read. Only that scope can return a logical orphan File. The saved state remains Missing and receives no existing-file guard. Current compiler ownership is read from the proven physically present alias and real contributors, unioned with the original retained generated targets. The complete engine projection must validate orphan transfer before the retained-ownership exemption applies. Neither a caller flag nor equal text grants this scope; ordinary captures use the unchanged no-scope path.
+
 <ui:copy id="resource-input-capture">
 fn captured_file_guard(root:&Path,path:&str,saved:&SavedSource)->Result<String,String>{
  let(full,current)=saved_target(root,path)?;if &current!=saved{return Err(format!("Saved source changed while capturing its physical guard: {path}"))}
@@ -513,12 +523,21 @@ fn captured_file_guard(root:&Path,path:&str,saved:&SavedSource)->Result<String,S
 pub(super) fn validate_guard_map(root:&Path,guards:&BTreeMap<String,String>,published:&BTreeSet<String>)->Result<(),String>{
  for(path,guard)in guards{if !published.contains(path){super::resource_changes::validate_path(path)?;super::source_history::validate_observed_guard(root,&root.join(path),path,guard)?}}Ok(())
 }
+fn logical_source_identity()->Result<String,String>{
+ let mut nonce=[0u8;16];getrandom::fill(&mut nonce).map_err(|error|format!("Source identity could not be captured: {error}. Retry the proposal."))?;Ok(hex::encode(nonce))
+}
 fn capture(
     root: &Path,
     index: &super::store::DocIndex,
     identity: &RootIdentity,
     request: Request,
 ) -> Result<Inputs, String> {
+    capture_with_scope(root,index,identity,&request,None)
+}
+fn capture_with_scope(
+    root:&Path,index:&super::store::DocIndex,identity:&RootIdentity,request:&Request,scope:Option<&AcquisitionScope>,
+)->Result<Inputs,String>{
+    if let Some(scope)=scope {scope.check(root,&request)?;}
     if request.saved_guards.len()>4096||request.saved_guards.values().any(|guard|guard.len()>16*1024)||request.saved_guards.values().map(String::len).sum::<usize>()>4*1024*1024{return Err("Captured physical source metadata exceeds its bounded capacity.".into())}
     if request.context.is_empty() || request.context.len() > 4096 {
         return Err(
@@ -551,7 +570,11 @@ fn capture(
     if request.drafts.keys().any(|path| !selected.contains(path)) {
         return Err("A draft was supplied outside this proposal’s discovered source set. Acquire the exact target set again.".into());
     }
-    let (ownership, generated) = ownership(&root, index, &request)?;
+    let (ownership,mut generated)=if let Some(scope)=scope {
+        let compiler=scope.compiler_request(&request);
+        ownership_with_entry(&root,index,&compiler,Some(scope.canonical_entry()))?
+    }else{ownership(&root,index,&request)?};
+    if let Some(scope)=scope {generated.extend(scope.retained_generated_targets(&paths)?);}
     let mut names = Names {
         entries: BTreeMap::new(),
         count: 0,
@@ -575,13 +598,21 @@ fn capture(
         };
         let source = match &observed {
             SavedSource::Missing => {
-                if request.drafts.contains_key(&path) {
-                    return Err(format!(
-                        "Saved source disappeared or a named draft has no saved baseline: {path}. Preserve it and choose a new destination explicitly."
-                    ));
-                }
-                SourceState::Missing {
-                    creatable: parent_writable && !generated.contains(&path),
+                let orphan=scope.map(|scope|scope.orphan_draft(&path,&request,&observed)).transpose()?.flatten();
+                if let Some(draft)=orphan {
+                    if draft.text.len()>MAX_SOURCE{return Err("Retained orphan draft exceeds its bounded source size.".into());}
+                    size=size.saturating_add(draft.text.len());
+                    let writable=parent_writable&&!generated.contains(&path)&&draft.writable;
+                    // Logical editor identity is not a saved preimage. No old
+                    // guard is inserted into the actual saved-source guard map.
+                    SourceState::File{identity:logical_source_identity()?,text:draft.text,writable,removable:writable,version:draft.version}
+                }else{
+                    if request.drafts.contains_key(&path) {
+                        return Err(format!(
+                            "Saved source disappeared or a named draft has no saved baseline: {path}. Preserve it and choose a new destination explicitly."
+                        ));
+                    }
+                    SourceState::Missing {creatable:parent_writable&&!generated.contains(&path)}
                 }
             }
             SavedSource::File {
@@ -608,12 +639,8 @@ fn capture(
                     && parent_writable
                     && !generated.contains(&path)
                     && draft.is_none_or(|draft| draft.writable);
-                let mut nonce = [0u8; 16];
-                getrandom::fill(&mut nonce).map_err(|error| {
-                    format!("Source identity could not be captured: {error}. Retry the proposal.")
-                })?;
                 SourceState::File {
-                    identity: hex::encode(nonce),
+                    identity: logical_source_identity()?,
                     text,
                     writable,
                     removable: writable,
@@ -647,7 +674,7 @@ fn capture(
         saved.insert(path, observed);
     }
     identity.check(&root)?;
-    retained_ownership(&root,&request,&ownership,&sources)?;
+    retained_ownership(&root,&request,&ownership,&sources,scope)?;
     for(path,expected_hash)in &ownership.saved_sources{
         let(_,saved)=saved_target(&root,path)?;let SavedSource::File{sha256,..}=&saved else{return Err(format!("Saved construction input disappeared: {path}"))};if sha256!=expected_hash{return Err(format!("Saved construction bytes changed: {path}"))}
         let guard=if let Some(guard)=saved_guards.get(path){guard.clone()}else{captured_file_guard(&root,path,&saved)?};
@@ -658,7 +685,7 @@ fn capture(
     identity.check(&root)?;
     let result = Inputs {
         version: 1,
-        context: request.context,
+        context: request.context.clone(),
         workspace,
         ownership,
         sources,
@@ -677,13 +704,14 @@ fn capture(
                 .into(),
         );
     }
+    if let Some(scope)=scope {scope.check(&root,&request)?;}
     Ok(result)
 }
 </ui:copy>
 
 ## Keep acquisition off the editor and verify live rooms
 
-At most two blocking acquisitions run at once; unrelated routes do not share this gate. After the read, refuse any live document room that differs from the saved baseline, then recheck root identity. These are preconditions for preparing a proposal, not authorization to publish it. A later write must revalidate saved and editor revisions independently.
+At most two blocking acquisitions run at once; unrelated routes do not share this gate. After the read, refuse any live document room that differs from the saved baseline, then recheck root identity. For a scope-validated missing-old logical File, the original draft base hash is checked against any retained live room; no old File save guard or missing disk body is fabricated. Ordinary missing destinations retain their original behavior. These are preconditions for preparing a proposal, not authorization to publish it. A later write must revalidate saved and editor revisions independently.
 
 <ui:copy id="resource-input-independent-handler">
 static INPUT_READS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(2);
@@ -704,9 +732,19 @@ pub async fn inspect(
     let root = state.index.root().to_path_buf();
     let index = state.index.clone();
     let identity = state.resource_root.clone();
-    let result = tokio::task::spawn_blocking(move || {
+    let capture_state = state.clone();
+    let (result, orphan_bases, recovery, request) = tokio::task::spawn_blocking(move || {
         let _permit = permit;
-        capture(&root, &index, &identity, request)
+        let recovery = super::workspace_entry_authority::transitions::capture_scope(&capture_state, &request)?;
+        let result = capture_with_scope(&root, &index, &identity, &request, recovery.as_ref())?;
+        let mut orphan_bases=BTreeMap::new();
+        for(path,saved)in &result.saved_sources {
+            if matches!(saved,SavedSource::Missing)&&matches!(result.sources.get(path),Some(SourceState::File{..})){
+                let draft=request.drafts.get(path).ok_or("A logical orphan has no originally retained draft baseline")?;
+                orphan_bases.insert(path.clone(),draft.base_sha256.clone());
+            }
+        }
+        Ok::<_,String>((result, orphan_bases, recovery, request))
     })
     .await
     .map_err(|error| {
@@ -716,14 +754,18 @@ pub async fn inspect(
     })?
     .map_err(ApiError::unprocessable)?;
     for (path, saved) in &result.saved_sources {
-        if let SavedSource::File { text, .. } = saved {
-            let id = state.index.id_for_path(path);
-            if let Some(room) = state.rooms.get(&id).await {
-                if room.text().await != *text {
-                    return Err(ApiError::conflict(format!(
-                        "A live document differs from its saved baseline: {path}. Save or reconcile that document before resource changes."
-                    )));
-                }
+        if matches!(saved,SavedSource::Missing)&&!orphan_bases.contains_key(path){continue;}
+        let id=state.index.id_for_path(path);
+        if let Some(room)=state.rooms.get(&id).await {
+            let source=room.text().await;
+            let current=match saved {
+                SavedSource::File{text,..}=>source==*text,
+                SavedSource::Missing=>orphan_bases.get(path).is_none_or(|original|sha(source.as_bytes())==*original),
+            };
+            if !current {
+                return Err(ApiError::conflict(format!(
+                    "A live document differs from its saved baseline: {path}. Save or reconcile that document before resource changes."
+                )));
             }
         }
     }
@@ -736,6 +778,9 @@ pub async fn inspect(
             return Err(
                 "Workspace root changed during acquisition. Reconnect and prepare again.".into(),
             );
+        }
+        if let Some(scope) = recovery {
+            scope.check(&root, &request)?;
         }
         Ok::<_, String>(())
     })
@@ -853,6 +898,19 @@ mod tests {
                 .contains("outside this proposal")
         );
         assert_eq!(std::fs::read(root.join("a.py")).unwrap(), b"external");
+    }
+    #[test]
+    fn ordinary_missing_draft_cannot_borrow_an_old_guard_or_request_a_scope() {
+        let temp=tempfile::tempdir().unwrap();let root=temp.path();
+        std::fs::write(root.join("a.py"),"saved baseline").unwrap();
+        let old=super::super::source_history::read_observed(root,&root.join("a.py"),"a.py").unwrap().save_guard;
+        std::fs::rename(root.join("a.py"),root.join("retained.py")).unwrap();
+        let mut request=fixture(json!({"changes":{"hick:///a.py":[]}}));
+        request.drafts.insert("a.py".into(),Draft{save_guard:old,text:"retained orphan draft".into(),base_sha256:sha(b"saved baseline"),version:Some(7),writable:true});
+        let error=capture_at(root,request.clone()).unwrap_err();assert!(error.contains("Saved source disappeared"),"{error}");
+        let mut caller=serde_json::to_value(request).unwrap();caller["acquisition_scope"]=json!({"canonical_entry":"a.py","allow_orphan":true});
+        assert!(serde_json::from_value::<Request>(caller).is_err(),"Only the engine may issue the typed scope; no caller flag opts into recovery");
+        assert!(!root.join("a.py").exists());assert_eq!(std::fs::read_to_string(root.join("retained.py")).unwrap(),"saved baseline");
     }
     #[test]
     fn saved_and_draft_compiler_constructions_protect_missing_generated_destinations() {
@@ -1658,7 +1716,10 @@ def main():
    root_proposal={"inputs":root_inputs,"capture":root_capture,"plan":root_plan};root_facts=call("changes/resource-consequences",root_proposal)
    root_records=set(records.iterdir())
    try:call("changes/resource-save",{"request_id":"5"*32,"reviewed_fingerprint":root_facts["fingerprint"],"proposal":root_proposal})
-   except urllib.error.HTTPError as error:assert error.code==409 and "canonical project.md" in error.read().decode()
+   except urllib.error.HTTPError as error:
+    detail=error.read().decode()
+    expected="canonical project.md" if os.name=="nt" else "requires an explicit reviewed workspace-entry intent"
+    assert error.code==409 and expected in detail,detail
    else:raise AssertionError("Resource save silently removed canonical entry ownership")
    assert (root/"project.md").read_text()==entry and not (root/"moved-project.md").exists() and set(records.iterdir())==root_records
 

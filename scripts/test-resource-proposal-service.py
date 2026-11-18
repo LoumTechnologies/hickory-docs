@@ -122,7 +122,10 @@ def main():
    root_proposal={"inputs":root_inputs,"capture":root_capture,"plan":root_plan};root_facts=call("changes/resource-consequences",root_proposal)
    root_records=set(records.iterdir())
    try:call("changes/resource-save",{"request_id":"5"*32,"reviewed_fingerprint":root_facts["fingerprint"],"proposal":root_proposal})
-   except urllib.error.HTTPError as error:assert error.code==409 and "canonical project.md" in error.read().decode()
+   except urllib.error.HTTPError as error:
+    detail=error.read().decode()
+    expected="canonical project.md" if os.name=="nt" else "requires an explicit reviewed workspace-entry intent"
+    assert error.code==409 and expected in detail,detail
    else:raise AssertionError("Resource save silently removed canonical entry ownership")
    assert (root/"project.md").read_text()==entry and not (root/"moved-project.md").exists() and set(records.iterdir())==root_records
 

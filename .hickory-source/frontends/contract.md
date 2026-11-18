@@ -31,44 +31,155 @@ an earlier open item only for the behavior it actually exercises.
 
 | Required outcome | Current usable evidence and remaining acceptance |
 | --- | --- |
-| Navigation and code intelligence | Existing source-bound navigation and provider receipts remain in force. Browser mixed-line-ending source/view coordination has rendered provider and history acceptance. Android controller acceptance covers exact navigation into a literal source tab with an Agent utility still open. Ordinary Markdown fences now have genuine Python and TypeScript inspection and navigation receipts in the browser, mounted macOS editor and Android controller. Other embedded provider shapes retain their stated limits. |
-| Refactoring, cleanup, generation, templates and history | Rename, formatting, genuine TypeScript extraction/accessor generation/cleanup and coordinated history have focused host receipts. Genuine TypeScript move-to-new-file review, publication and inverse/redo have browser, macOS and Android controller receipts. Source-bound variables and expanded regex transforms in completion and reusable templates have live browser, macOS and Android controller receipts. Embedded and multi-caret template review retains source, selections, mirrors and grouped history, including native secondary-caret round-trip invalidation. The mounted iOS witness applied a reviewed Cleanup and exercised coordinated Undo and Redo. Native Paste Undo is open. |
-| Diagnostics and contextual fixes | Existing source-bound Problems/fix receipts remain scoped to their stated providers and paths. A command or backend implementation alone is not further acceptance. |
-| Testing and coverage | Retained sessions, results and coverage retain their provider receipts. Exact JavaScript collection/rerun has 31 focused collector cases and 11 fresh-engine Vitest flows. Rust test Debug matches the saved declaration to a compiled inline or external module and its qualified harness name. The direct engine, rendered browser, mounted macOS and Android controller verified that path in physical and compiler-authored source. |
-| Review, staging, attribution, conflicts and recovery | Existing Git/native conflict receipts remain in force. Complete 32-session recovery management and three exact revisions have service, browser, macOS and Android-controller receipts. The canonical entry has a retained read identity and guarded source proof. Grouped text replacement and selected-worktree writes share that exclusion. A single reviewed main Move and its immediate Undo/Redo pass on browser, mounted macOS and the Android controller. Older inverse chains and interrupted publication recovery remain open. |
-| Debugging | Existing debugpy and installed LLDB launch/attach, thread/frame and breakpoint receipts remain scoped evidence. Installed Cargo and LLDB also verified saved Rust test selection against emitted source metadata. The latest mounted iOS test timed out waiting for Debug admission. Unsupported adapters and unexecuted device acceptance remain visible. |
-| Connected behavior readings | Guarded contract/explanation/source/generated/test/evidence readings and dirty construction graphs have host receipts. Default construction and connected readings retain the bound entry proof through execution admission. Declared, observed, stale and unknown relationships remain distinct. |
-| Change impact and relevant verification | Existing compiler/relationship-based impact and selected verification receipts remain scoped evidence. Unknown relationships and missing execution evidence do not become verified through graph reachability. |
-| Agent proposal review and guarded application | Sealed complete review, original-context application and restart-retained historical reading have host receipts. Historical evidence never revives application authority. |
+| Navigation and code intelligence | Search Everywhere, file and saved-text search, outlines, semantic locations and back/forward have focused receipts. The genuine Python browser witness covers cross-file definitions/usages and caller/callee queries. A controlled child covers standard LSP type hierarchy, with browser rendering and native protocol/model checks. Installed basedpyright and TypeScript Language Server read ordinary Markdown fences on browser, mounted macOS and the Android controller. An Android controller can navigate into a literal source tab while Agent is open. Index breadth depends on the installed provider. Unavailable capabilities and unsupported fence actions leave the authored text readable. |
+| Refactoring, cleanup, generation, templates and history | Installed basedpyright covers cross-file rename in the browser. Genuine TypeScript Language Server 6.1.0 with TypeScript 6.0.3 covers extraction, accessor generation, cleanup and Move to a new file on browser, mounted macOS and the Android controller. Guarded native action and formatting receipts include controlled providers. Preview holds the complete edit. Missing preimages, commands without supported effects and changed owner revisions refuse the group. Later template receipts close the earlier embedded and multi-caret catalog gaps. Expanded regex and source-bound variable programs retain their explicit syntax and work bounds. The previous mounted iOS witness covered reviewed Cleanup and coordinated Undo/Redo. |
+| Diagnostics and contextual fixes | Genuine Python browser Problems covers exact source-hash navigation, editor geometry and saved-source preservation. Real clangd engine coverage includes the missing-semicolon quick fix. Controlled-child host receipts cover complete-file `source.fixAll` acquisition, review, draft Apply and Undo/Redo on browser, mounted macOS and the Android controller. The later host receipts include a prose-origin action that acquires its copy contributor. Stale and unversioned diagnostics stay readable, with precise navigation and application subject to matching authority. Provider workspace completeness and additional source mappings remain open. |
+| Testing and coverage | Collected discovery, failure results, coverage and failed-only reruns have genuine pytest, Jest, Vitest, Cargo with cargo-llvm-cov, and C# with .NET and Coverlet receipts. The connected pytest path runs on browser, macOS and the Android controller. Eleven Vitest flows follow the shared terminal-result visibility correction. Source-adjacent run and debug distinguish process exit from provider verdicts. Unsupported runners and stale, missing or ambiguous test identities refuse selection. Coverage navigation requires matching captured source hashes. |
+| Review, staging, attribution, conflicts and recovery | Browser, macOS and Android controller receipts cover Git status/diffs, history, attribution, shared conflict composition including deletion/rename, staging, local source history and guarded Save As. Later complete 32-session recovery management and three exact revisions supersede the earlier private-session capacity gap. Browser reload and native restart receipts cover retained drafts, layout and view state. Canonical entry reads and grouped writes retain a shared namespace exclusion. Reviewed main Move and its immediate Undo/Redo have browser, mounted macOS and Android controller acceptance. |
+| Debugging | Genuine debugpy launch/loopback attach and installed LLDB canonical C launch/PID attach pass on browser, macOS and the Android controller. Scoped receipts cover profiles, conditional breakpoints, threads, frames including a deep stack, evaluation, source navigation, Continue and retained exits. Saved source-test Debug has verified pytest/debugpy and Cargo/LLDB adapters. Rust binds the selected declaration to the compiled inline or external-module function before exact harness selection, with engine and host acceptance for physical and compiler-authored source. Other discovered adapters still need accepted workflows. |
+| Connected behavior readings | Browser, mounted macOS and Android controller have guarded contract/explanation/implementation/generated/test/evidence readings through the captured construction graph, including dirty contributors. Default entry reads carry their original proof through execution admission. Missing mappings and stale captures retain their own status. |
+| Change impact and relevant verification | The same hosts have scoped compiler consequences, bounded declared relationships, selected checks/profiles and retained process-only results. Undeclared dependencies remain unknown. A command exit supplies process evidence and independent verification requires its own source-bound receipt. |
+| Agent proposal review and guarded application | Owned managed-provider flows on browser, macOS and Android cover a sealed complete review, original-context application, coordinated draft history and separate resource publication. The later restart receipts cover historical reading without restoring application authority. External provider breadth and platform acceptance remain open. |
 
-Across all rows, physical input and assistive-technology acceptance remain
-unexecuted where stated. Android controller checks ran against the engine. The
-emulator refused to start due to insufficient host disk space, so rendered Android
-acceptance is open. iOS has build and limited mounted simulator evidence. The
-platform and provider scope of each receipt determines which outcomes it verifies.
+Across all rows, the evidence distinguishes engine protocols, native controllers,
+mounted AppKit/UIKit, rendered browser and rendered Android. Physical input,
+device IME and assistive technology need their own acceptance. The emulator
+originally refused userdata allocation. An owned API 36 emulator booted after
+inactive compiler caches were reclaimed, and the checkpoint Android APK built.
 
-### Mounted iOS acceptance and recovery checkpoint
+### Mounted iOS Paste, Cleanup and selected Rust Debug
 
-The mounted UIKit run confirmed an editor-owned Undo manager and applied a
-reviewed Cleanup, then restored and reapplied it through coordinated Undo and
-Redo. With the keyboard settled, editor identity, selection, scroll and pixel
-geometry survived opening the debugger controls. Native Paste inserted text,
-but the editor reported no associated native Undo action. The test failed after
-the 30-second Debug admission deadline because it could not observe the expected
-stop, continued execution or retained exit status. The runner's four focused
-fixture safety checks passed. See the [mounted acceptance reading](../mechanisms/ios-mounted-parity-acceptance.md).
+An owned iPhone 18 Pro running iOS 27 mounted the actual editor against a fresh
+engine. Native Paste replaced a Unicode selection, pasted at multiple carets
+and appended text. Each action replayed through its editor-owned Undo and Redo.
+Reviewed Cleanup also passed coordinated Undo and Redo. The selected saved Rust
+test went from `start_test` to `started` in 6.83 seconds, stopped at its authored
+line, continued and retained exit 0. Its sibling never ran. Editor identity,
+selection, scroll, history, pixel geometry after keyboard settling and saved
+bytes were checked. The XCTest result was one pass with zero skips, and the
+four fixture safety cases passed separately. The owned simulator was deleted.
 
-The local `codex/parity-recovery-checkpoint` branch preserves interrupted Move
-publication and older Move history work. It contains recovery evidence and
-journal models, host adapters and exact acceptance fixtures. The engine still
-needs scoped completion admission and publication, plus integration of older
-Undo and Redo into the shared publisher. The checkpoint failed `cargo check`
-for the CLI library with missing acquisition scope and transition wiring.
-The 25 focused browser tests and
-TypeScript check covered the adapter snapshot. The interrupted-completion and
-multi-generation Move fixtures have yet to run end to end on an engine with
-those paths wired. The immediate Move Undo and Redo and ordinary Source Recovery
-receipts above remain the verified behavior on `master`.
+The earlier 30-second admission failure did not recur. The cause of that
+incident remains unknown. The native deadline can still expire while a slower
+valid Cargo preparation is in progress. The client reports the timeout, avoids
+resubmission and stops a late owned session. The [mounted acceptance reading](../mechanisms/ios-mounted-parity-acceptance.md)
+records the exact fixture and event sequence.
+
+### Reviewed entry recovery and older Move lineage
+
+The checkpoint's typed interruption scope carries its sealed original Move
+through acquisition, Preview and explicit Save. A clean automatically opened
+editor can receive the sealed dirty draft, and an existing dirty original
+retains its current text. Saved publication follows the producer's physical
+proof. The completion journal remains readable, and the partial namespace it
+repaired is excluded from ordinary workspace Undo.
+
+An ordinary older Move can be reversed through the shared publisher when the
+retained producer sequence proves the return to its source address. The direct
+protocol passed A → B → C → B → A → B → C, with one logical identity, six new
+generations, separate saved and draft bytes and the original local history.
+An independent same-path role cycle and an equal-byte, different-inode source
+were refused. A separate protocol passed explicit creation Undo to absence,
+Redo and a guarded Move inverse, with unsigned inverse Preview refusal before
+a journal write.
+
+Rendered browser acceptance exercised the six Move publications from the
+existing command and review. It checked the original editor, selection, scroll,
+geometry, local save history, and ordinary text Undo and Redo. It held a fresh
+Undo preview across a same-byte inode substitution and refused publication.
+
+The rendered browser also completed a live copied-destination interruption and
+two cold interruptions, with the original present and already deleted. The
+live case rejected an edit/Undo round trip after Preview and completed a new
+review in the same editor. Both cold cases restored the sealed draft separately
+from the saved baseline. A substituted destination refused both before and
+after Preview. Two direct engine probes also covered a retained original draft
+whose saved path was absent, an altered sealed generation floor and a changed
+logical plan. Generated files stayed absent in the host fixtures.
+
+The mounted AppKit and Android controller replays each passed one interruption
+case and one older Move case with zero skips. They retained the same editor
+or native text state, selection, scroll owner, saved baseline, draft and local
+Undo. The older Move cases rejected the after-preview replacement and checked
+the original request status without replaying the write. The final engine
+passed 64 focused Rust cases across completion, lineage, interrupted evidence,
+transition lifecycle, input guards, journal and publication. Two producer
+fixtures established the copied and old-deleted starting states by interrupting
+the actual publisher at the selected boundary.
+[Older Move acceptance](workspace-entry-lineage-acceptance.md)
+[Interrupted Move acceptance](workspace-entry-interrupted-acceptance.md)
+
+### Other fresh focused flows
+
+Rendered browser replays covered basedpyright and TypeScript Language Server
+navigation from ordinary fences, all five genuine TypeScript refactoring cases,
+and exact basedpyright Problems navigation. The Rust source-test gutter replay
+checked stationary adjacent controls, ran the selected Cargo test, retained its
+output and refused a stale run from an edited buffer. A live pytest replay
+discovered cases, retained a failed run and coverage, and reran only the
+failure. A separate Vitest engine run distinguished the same test names in two
+files and retained the three-run history.
+
+Repository review passed a removed-file diff refusal, literal renamed paths,
+saved-file stage and unstage, immutable history and saved attribution. The
+browser now names the repository status separately from the nested conflict
+status so the reading and its acceptance can address the correct update.
+
+The connected browser reading replay reached the later fragment, its explicit
+contract, explanation, compiler and test links, selected pytest and an exact
+user profile. It retained current, stale, manual and process-only evidence as
+separate states and rejected a substituted root and an obsolete engine reading.
+The controlled provider engine run replayed whole-file diagnostic actions
+across copy contributors, including opaque resolution and an unmappable
+whole-action refusal. The saved-entry read refused an equal-byte substituted
+source before verification. The agent browser replay read a sealed historical
+proposal after restart and kept Apply unavailable. The independent engine
+replay refused a tampered archive and preserved the exact original source.
+
+The rendered browser conflict replays passed index, source and complete
+namespace resolution. The rendered pytest/debugpy replay selected a test in
+compiler-authored source, stopped at its body breakpoint, read locals and
+watch values, then retained its source link and process outcome. The sibling
+test stayed excluded, and the editor and saved source stayed intact.
+
+An owned API 36 Android emulator also exercised the actual app's Files and
+editor, whitespace Cleanup preview and draft application, basedpyright
+Problems navigation, saved Git diff and stage, and default construction and
+connected behavior readings. The reported evidence stayed missing when the
+fixture supplied no related check. A real sealed agent proposal was readable
+as historical, with its exact material digest and saved source preserved.
+
+A separate rendered Move with clean source published `project.md` to the
+extensionless `b`, preserving its logical identity, exact saved bytes and code
+frame bounds. The old address and generated output remained absent. The older
+Undo/Redo sequence and interrupted recovery ran on the Android controller.
+The rendered Rust panel found the exact test candidate and exposed Run and Debug.
+The attempted Run left zero retained sessions after 45 seconds, with no visible
+refusal. Rendered test execution, coverage, agent application and the older Move
+chain remain open. The owned emulator was stopped and its data removed.
+
+The rendered recovery panel exposed a narrow-screen wrap in Close. Close now
+shares the title row. The revised header still needs a rendered replay. The
+emulator receipts are in `target/parity-rendered-android.sgYIt7/rendered-receipts`.
+
+### Provider admission
+
+Language tools use the installed provider's capabilities and exact source
+mapping. The candidates include alternatives per language, such as OmniSharp
+and csharp-ls for C#. A missing provider or unavailable action leaves readable
+source and reports unavailability. A discovered action grants no authority
+until its complete source effects and original target versions can be reviewed.
+[Language-server candidates](../mechanisms/crates/hick-plugins/src/languages/lsp.rs.md)
+[C# provider declarations](../mechanisms/crates/hick-plugins/src/csharp.rs.md)
+
+The saved test Debug providers exercised here are pytest with debugpy and Cargo
+with LLDB. C# collects tests through the .NET runner and registers netcoredbg
+for application debugging. Its source test Debug request refuses because the
+test runner supplies no debug recipe. CodeLLDB, js-debug, Delve, Java's LSP-hosted
+adapter and netcoredbg have their own installation and workflow requirements.
+Their complete simple-host launch, attach and source navigation workflows were
+unexecuted in this pass.
+[Debugger adapter declarations](../mechanisms/crates/hick-plugins/src/languages/dap.rs.md)
 
 ## Inspect authored code in ordinary Markdown fences
 
@@ -837,7 +948,7 @@ The regenerated iOS simulator app builds. Native physical input, IME and assisti
 technology remain unverified; full external-provider semantic breadth is not
 established by controlled-provider receipts.
 
-## Current integration ledger
+## Integration ledger, 2026-11-17
 
 This ledger reconciles the required outcome with the implementation inspected on
 2026-11-17. The dated paragraphs below retain focused evidence for their own

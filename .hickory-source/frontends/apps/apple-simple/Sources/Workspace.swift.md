@@ -349,13 +349,14 @@ normal capability setup. Deleted dirty buffers still guard workspace switching.
             }
         }
     }
-    func adoptResourceReceipt(_ patches:[ResourceEditorPatch],receipt:ResourcePublication<FileNode>,request:String,workspace:String,context:String,expected:[String:ResourceSaved],current:()->Bool,restoring:[String:DocumentBuffer]=[:]) throws->[ResourceEditorRoute<DocumentBuffer>] {
+    func adoptResourceReceipt(_ patches:[ResourceEditorPatch],receipt:ResourcePublication<FileNode>,request:String,workspace:String,context:String,expected:[String:ResourceSaved],current:()->Bool,restoring:[String:DocumentBuffer]=[:],absentOriginal:String?=nil) throws->[ResourceEditorRoute<DocumentBuffer>] {
         guard current(),let engine else{throw EngineError(message:"Editor drafts or baselines changed after review. Preserve them and inspect Source recovery.")}
         let files=try confirmedResourceFiles(patches,receipt:receipt,request:request,workspace:workspace,context:context,expected:expected){($0.path,!$0.dir && $0.generated_by==nil)}
         var live:[String:ResourceEditorCapture<DocumentBuffer>]=[:]
         for patch in patches {if let before=patch.before {guard let buffer=buffers[patch.path],!buffer.saving,!buffer.readOnly else{throw EngineError(message:"Source editor unavailable. Preserve drafts and inspect recovery.")};live[before.identity]=ResourceEditorCapture(editor:buffer,source:buffer.text)}}
         guard restoring.values.allSatisfy({buffer in buffer.resourceDeleted && retainedResourceEditors.values.contains(where:{$0 === buffer}) && !buffers.values.contains(where:{$0 === buffer})}) else{throw EngineError(message:"Restoration must select a retained deleted editor. Inspect Source recovery.")}
-        let routes=try routeResourceEditors(patches,live:live,retained:restoring.mapValues{ResourceEditorCapture(editor:$0,source:$0.text)})
+        let editorPatches=patches.filter{!exactUTF8($0.path,absentOriginal) || $0.before != nil || $0.after != nil || buffers[$0.path] != nil}
+        let routes=try routeResourceEditors(editorPatches,live:live,retained:restoring.mapValues{ResourceEditorCapture(editor:$0,source:$0.text)})
         let targets=routes.map{route->(ResourceEditorRoute<DocumentBuffer>,DocumentBuffer,[NativeSourceEdit]) in
             let entry=route.to.flatMap{files[Data($0.utf8)]}
             let buffer=route.editor ?? DocumentBuffer(file:entry!.file,text:FileText(path:entry!.file.path,content:route.after!,hash:entry!.hash))
