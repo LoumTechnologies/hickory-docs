@@ -4,7 +4,8 @@ import type {SourceTestCandidate,TestSourcePoint} from '../api/testSources';
 import {request} from '../api/client';
 import {retainedBehaviorReading} from './BehaviorReading';
 import {BehaviorReadingPanel} from './BehaviorReadingView';
-export interface ConstructionInput {entry:string;sources:Record<string,string>;focus:string|null}
+import {readFrozenEntrySelection,type EntrySelection} from './WorkspaceEntrySelection';
+export interface ConstructionInput {entry:string;sources:Record<string,string>;focus:string|null;entry_selection?:EntrySelection}
 export interface ConstructedSnapshot {hash:string;kind:string;executable:boolean;size:number;preview:string|null;preview_truncated:boolean}
 export interface ConstructionOutput {path:string;change:string;before:ConstructedSnapshot|null;after:ConstructedSnapshot|null;contributors:string[];origins_truncated:boolean;origins:{phase:string;path:string;source_bytes:[number,number];output_bytes:[number,number];exact:boolean;source_hash:string|null;source_point?:TestSourcePoint|null;fragment?:{name:string;kind:string;body:[number,number]}|null}[]}
 export interface ConstructionReading {version:number;entry:string;focus:string|null;materialized:boolean;output_count:number;outputs_truncated:boolean;outputs:ConstructionOutput[];tests:SourceTestCandidate[];test_count:number;tests_truncated:boolean;test_relationship:string;evidence_status:string;notices:string[];unused_sources:string[]}
@@ -13,20 +14,57 @@ export class ConstructionReadingModel {
  constructor(private load:(input:ConstructionInput)=>Promise<ConstructionReading>,private changed:()=>void=()=>{}){}
  sourceLink(value:ConstructionReading){const id=++this.linkTicket;return ()=>this.value===value&&id===this.linkTicket;}
  close(){this.ticket++;this.loading=false;this.value=null;}
- async read(provided:ConstructionInput){const input={...provided,sources:{...provided.sources}};const id=++this.ticket;this.value=null;this.loading=true;this.notice='Reading construction…';this.changed();
- try{const value=await this.load(input);if(id!==this.ticket)return;if(value.version!==1||value.entry!==input.entry||value.focus!==input.focus||value.materialized!==false)throw new Error('Construction identity changed or unsupported response. Refresh the reading.');this.value=value;this.notice='Captured construction and draft consequences. Editor changes after capture are not included.';}
+ async read(provided:ConstructionInput,current:()=>boolean=()=>true){const input={...provided,sources:{...provided.sources}};const id=++this.ticket;this.value=null;this.loading=true;this.notice='Reading construction…';this.changed();
+ try{const value=await this.load(input);if(id!==this.ticket)return;if(!current())throw Error('Original construction selection changed. Refresh the reading.');if(value.version!==1||value.entry!==input.entry||value.focus!==input.focus||value.materialized!==false)throw new Error('Construction identity changed or unsupported response. Refresh the reading.');this.value=value;this.notice='Captured construction and draft consequences. Editor changes after capture are not included.';}
  catch(error){if(id===this.ticket)this.notice=String(error);}finally{if(id===this.ticket){this.loading=false;this.changed();}}}
 }
 export function ConstructionReadingView({sources,retainedSources,capture,workspace,engineWorkspace,terminal,close,navigate}:{sources:()=>Record<string,string>;retainedSources?:()=>{sources:Record<string,string>;missing_sources:string[];unaddressed_sources:Record<string,string>;saved_guards:Record<string,string>};capture?:()=>()=>boolean;workspace?:string;engineWorkspace?:string;terminal?:(id:string)=>void;close:()=>void;navigate:(point:TestSourcePoint,current:()=>boolean)=>Promise<void>}){
  const [,paint]=useReducer((n:number)=>n+1,0),model=useMemo(()=>new ConstructionReadingModel(input=>request('POST','/api/construction/reading',input),paint),[]);
  const behavior=useMemo(()=>retainedBehaviorReading(workspace??'unknown',engineWorkspace??''),[workspace,engineWorkspace]);behavior.changed=paint;
- const [entry,setEntry]=useState('project.md'),[focus,setFocus]=useState(''),[selected,setSelected]=useState(''),[phase,setPhase]=useState<'before'|'after'>('after');const panel=useRef<HTMLElement>(null);
- useEffect(()=>{panel.current?.focus();return()=>{model.close();behavior.close();behavior.changed=()=>{};};},[model,behavior]);
+ const [entry,setEntry]=useState(''),[focus,setFocus]=useState(''),[selected,setSelected]=useState(''),[phase,setPhase]=useState<'before'|'after'>('after');
+ const [acquiring,setAcquiring]=useState(false),panel=useRef<HTMLElement>(null),reading=useRef(0);
+ useEffect(()=>{panel.current?.focus();return()=>{reading.current++;model.close();behavior.close();behavior.changed=()=>{};};},[model,behavior]);
+
+ async function readCaptured(){
+  const intent=++reading.current,explicit=entry.trim()?entry:'',contributor=focus.trim()||null;
+  const retained=retainedSources?.(),snapshot=retained?.sources??sources();
+  const lease=capture?.()??(()=>JSON.stringify(sources())===JSON.stringify(snapshot));
+  const current=()=>intent===reading.current&&lease();
+  setSelected('');
+  model.close();behavior.close();
+  try{
+   let address=explicit;
+   let proof:EntrySelection|undefined;
+   if(!address){
+    if(!workspace||!engineWorkspace)throw Error('Refresh Files to read this workspace’s current construction entry.');
+    setAcquiring(true);
+    model.notice='Reading the current workspace entry…';paint();
+    const acquired=await readFrozenEntrySelection(()=>request('GET','/api/workspace/entry'),
+       {namespace:workspace,workspace:engineWorkspace,current});
+    if(!acquired.entryPath)throw Error('This workspace has no default construction entry. Enter an authored path.');
+    address=acquired.entryPath;
+    proof=acquired.proof;
+   }
+   if(!current())throw Error('Original construction scope changed. Read again from its current source.');
+   const input:ConstructionInput={entry:address,focus:contributor,sources:snapshot,...(proof?{entry_selection:proof}:{})};
+   void model.read(input,current);
+   void behavior.read({version:1,...input,missing_sources:retained?.missing_sources??[],
+     unaddressed_sources:retained?.unaddressed_sources??{},saved_guards:retained?.saved_guards??{}},current);
+  }catch(error){
+   if(intent===reading.current){model.notice=String(error);paint();}
+  }finally{if(intent===reading.current)setAcquiring(false);}
+ }
+ function retireReading(){
+  reading.current++;
+  setAcquiring(false);
+  model.close();behavior.close();
+  model.notice='';
+ }
  const value=model.value,output=value?.outputs.find(item=>item.path===selected)??value?.outputs[0],snapshot=output?.[phase];
  return createPortal(<section ref={panel} tabIndex={-1} role="dialog" aria-label="Construction reading" className="simple-workspace-problems simple-source-tests" onKeyDown={event=>{if(event.key==='Escape'){event.preventDefault();close();}}}>
  <header><strong>Construction reading</strong><button onClick={close}>Close</button></header>
- <label>Construction entry <input value={entry} onChange={event=>setEntry(event.target.value)}/></label><label>Contributor or output (optional) <input value={focus} onChange={event=>setFocus(event.target.value)}/></label>
- <button disabled={model.loading||!entry.trim()} onClick={()=>{setSelected('');const retained=retainedSources?.(),input={entry:entry.trim(),focus:focus.trim()||null,sources:retained?.sources??sources()},lease=capture?.()??(()=>JSON.stringify(sources())===JSON.stringify(input.sources));void model.read(input);void behavior.read({version:1,...input,missing_sources:retained?.missing_sources??[],unaddressed_sources:retained?.unaddressed_sources??{},saved_guards:retained?.saved_guards??{}},lease);}}>Read captured drafts</button><p role="status">{model.notice}</p>
+ <label>Construction entry <input value={entry} placeholder="Current workspace entry" onChange={event=>{retireReading();setEntry(event.target.value);}}/></label><label>Contributor or output (optional) <input value={focus} onChange={event=>{retireReading();setFocus(event.target.value);}}/></label>
+ <button disabled={model.loading||acquiring} onClick={()=>void readCaptured()}>Read captured drafts</button><p role="status">{model.notice}</p>
  {value&&<><p>Captured entry: {value.entry}{value.focus?` · focus: ${value.focus}`:""}</p><p>{value.output_count} related outputs{value.outputs_truncated?' · first 300 shown':''}. {value.test_count} detected tests{value.tests_truncated?' · test list truncated':''}. Evidence: {value.evidence_status}. Outputs have not been written.</p><p>{value.test_relationship}</p><details><summary>Detected test declarations</summary>{value.tests.map(test=><p key={test.id}>{test.name} · {test.source?.path??test.target.path}:{test.source?.line??test.target.line}</p>)}</details>{value.notices.map((notice,index)=><p key={index}>{notice}</p>)}{value.unused_sources.length>0&&<p>{value.unused_sources.length} supplied drafts did not contribute to this entry.</p>}
  <label>Constructed output <select value={output?.path??''} onChange={event=>setSelected(event.target.value)}>{value.outputs.map(item=><option key={item.path} value={item.path}>{item.change} · {item.path}</option>)}</select></label>
  {output&&<article><strong>{output.change} · {output.path}</strong><p>Contributors: {output.contributors.join(', ')||'No compiler source origins reported.'}</p><button onClick={()=>setPhase('before')}>Saved construction</button><button onClick={()=>setPhase('after')}>Draft construction</button>

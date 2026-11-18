@@ -31,14 +31,16 @@ func validateConnectedBehaviorPage(_ page:ConnectedBehaviorPage,reading:Connecte
  if let prior,exactUTF8(prior.node_id,node.id),prior.source_hash==page.source_hash {guard prior.total==page.total,prior.origin==page.origin,prior.state==page.state,prior.target_status==page.target_status else{throw EngineError(message:"Captured source changed between pages.")}}
 }
 
-@MainActor func connectedBehaviorRetainedContext(_ workspace:Workspace,entry:String,focus:String?)throws->ResourceJSON {
+@MainActor func connectedBehaviorRetainedContext(_ workspace:Workspace,entry:String,focus:String?,entrySelection:WorkspaceEntrySelectionProof?=nil)throws->ResourceJSON {
  var sources:[String:String]=[:],guards:[String:String]=[:],unaddressed:[String:String]=[:],missing:[String]=[];var seen=Set<String>(),bytes=0
  let roster=(workspace.buffers.values+Array(workspace.retainedResourceEditors.values)).reduce(into:[UUID:DocumentBuffer]()){$0[$1.id]=$1}.values
  guard roster.count<=4096 else{throw EngineError(message:"Retained behavior context exceeds its editor budget.")}
  for b in roster where b.file.generated_by==nil {let path=b.file.path;guard b.text.utf8.count<=8*1024*1024 else{throw EngineError(message:"Retained behavior source exceeds its capture budget.")};bytes+=b.text.utf8.count+path.utf8.count+(b.savedGuard?.utf8.count ?? 0);guard bytes<=32*1024*1024 else{throw EngineError(message:"Retained behavior context exceeds32MiB.")};let addressable = !b.isUntitledDraft && !path.hasPrefix("/") && !path.split(separator:"/").contains(where:{$0==".."||$0=="."}),named=addressable && !b.resourceDeleted && workspace.buffers[path] === b
   if named {guard seen.insert(path).inserted else{throw EngineError(message:"The graph JSON adapter cannot represent canonically equivalent source keys. All editors remain readable; use a distinct source scope.")};sources[path]=b.text;if let guardValue=b.savedGuard,!guardValue.isEmpty{guards[path]=guardValue}}else{unaddressed[b.id.uuidString.lowercased()]=b.text;if addressable,b.resourceDeleted,workspace.buffers[path]==nil{missing.append(path)}}
  }
- return try connectedBehaviorJSON(["version":1,"entry":entry,"focus":focus as Any? ?? NSNull(),"sources":sources,"missing_sources":missing,"unaddressed_sources":unaddressed,"saved_guards":guards])
+ var body:[String:Any]=["version":1,"entry":entry,"focus":focus as Any? ?? NSNull(),"sources":sources,"missing_sources":missing,"unaddressed_sources":unaddressed,"saved_guards":guards]
+ if let entrySelection{body["entry_selection"]=try entrySelection.body()}
+ return try connectedBehaviorJSON(body)
 }
 
 @MainActor @Observable final class ConnectedBehaviorModel {
@@ -54,13 +56,13 @@ func validateConnectedBehaviorPage(_ page:ConnectedBehaviorPage,reading:Connecte
  var current:Bool{value != nil&&valid()}
  var currentPage:Bool{current&&page != nil&&pageReading==ticket}
  func close(){ticket=UUID();pageTicket=UUID();valid={false};busy=false;pageBusy=false;profiles=[]}
- func read(_ workspace:Workspace,entry:String,focus:String?)async {
+ func read(_ workspace:Workspace,entry:String,focus:String?,entrySelection:WorkspaceEntrySelectionProof?=nil,original:@escaping()->Bool={true})async {
   guard let engine=workspace.engine,let namespace=workspace.sourceRootAddress,let runtime=workspace.sourceWorkspaceID else{notice="Refresh Files to bind the physical workspace and engine lifetime.";return}
   let epoch=workspace.sourceNavigationEpoch,rows=workspace.buffers,retained=workspace.retainedResourceEditors
   let unique=(Array(rows.values)+Array(retained.values)).reduce(into:[UUID:DocumentBuffer]()){$0[$1.id]=$1}.values
   let snapshots=unique.map{($0,$0.sourceEditIdentity,$0.text,$0.base,$0.hash,$0.savedGuard,$0.file.path,$0.file.generated_by,$0.resourceDeleted,$0.selection,$0.sourceEditorState?()?.identity,$0.isUntitledDraft)}
-  let valid={ [weak workspace] in guard let workspace,!workspace.connecting,workspace.showConstruction,workspace.engine?.session===engine.session,workspace.sourceNavigationEpoch==epoch,workspace.sourceRootAddress.map({exactUTF8($0,namespace)})==true,workspace.sourceWorkspaceID.map({exactUTF8($0,runtime)})==true,workspace.buffers.count==rows.count,workspace.retainedResourceEditors.count==retained.count,rows.allSatisfy({workspace.buffers[$0.key] === $0.value}),retained.allSatisfy({workspace.retainedResourceEditors[$0.key] === $0.value}) else{return false};return snapshots.allSatisfy{s in let b=s.0;return b.sourceEditIdentity==s.1&&exactUTF8(b.text,s.2)&&exactUTF8(b.base,s.3)&&exactUTF8(b.hash,s.4)&&b.savedGuard==s.5&&exactUTF8(b.file.path,s.6)&&b.file.generated_by==s.7&&b.resourceDeleted==s.8&&b.selection==s.9 && !b.saving&&b.sourceEditorState?()?.composing != true&&b.sourceEditorState?()?.identity==s.10&&b.isUntitledDraft==s.11}}
-  do{let context=try connectedBehaviorRetainedContext(workspace,entry:entry,focus:focus);await read(engine:engine,namespace:namespace,runtime:runtime,context:context,current:valid)}catch{notice=error.localizedDescription}
+  let valid={ [weak workspace] in guard original(),let workspace,!workspace.connecting,workspace.showConstruction,workspace.engine?.session===engine.session,workspace.sourceNavigationEpoch==epoch,workspace.sourceRootAddress.map({exactUTF8($0,namespace)})==true,workspace.sourceWorkspaceID.map({exactUTF8($0,runtime)})==true,workspace.buffers.count==rows.count,workspace.retainedResourceEditors.count==retained.count,rows.allSatisfy({workspace.buffers[$0.key] === $0.value}),retained.allSatisfy({workspace.retainedResourceEditors[$0.key] === $0.value}) else{return false};return snapshots.allSatisfy{s in let b=s.0;return b.sourceEditIdentity==s.1&&exactUTF8(b.text,s.2)&&exactUTF8(b.base,s.3)&&exactUTF8(b.hash,s.4)&&b.savedGuard==s.5&&exactUTF8(b.file.path,s.6)&&b.file.generated_by==s.7&&b.resourceDeleted==s.8&&b.selection==s.9 && !b.saving&&b.sourceEditorState?()?.composing != true&&b.sourceEditorState?()?.identity==s.10&&b.isUntitledDraft==s.11}}
+  do{let context=try connectedBehaviorRetainedContext(workspace,entry:entry,focus:focus,entrySelection:entrySelection);await read(engine:engine,namespace:namespace,runtime:runtime,context:context,current:valid)}catch{notice=error.localizedDescription}
  }
  func read(engine:Engine,namespace:String,runtime:String,context:ResourceJSON,current:@escaping()->Bool)async {
   let id=UUID();ticket=id;pageTicket=UUID();pageBusy=false;valid={false};busy=true;profiles=[];notice="Reading connected behavior…";defer{if ticket==id{busy=false}}

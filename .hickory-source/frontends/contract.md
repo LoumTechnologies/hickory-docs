@@ -37,7 +37,7 @@ an earlier open item only for the behavior it actually exercises.
 | Testing and coverage | Retained sessions/results and supported collector receipts below remain scoped evidence. Exact JavaScript collection/rerun integration now has31 focused collector cases and11 fresh-engine Vitest flows; the retained-result race is corrected. Earlier native provider receipts retain their stated revisions. |
 | Review, staging, attribution, conflicts and recovery | Existing Git/native conflict receipts remain in force. Complete32-session recovery management and three exact revisions now have service/browser/macOS/Android-controller receipts. The canonical entry has a retained read identity and guarded source proof. Move publication and its inverse remain open. |
 | Debugging | Existing debugpy and installed LLDB launch/attach, thread/frame and breakpoint receipts remain scoped evidence. Unsupported adapters remain explicit; physical/device acceptance is not inferred from transport tests. |
-| Connected behavior readings | Guarded contract/explanation/source/generated/test/evidence readings and dirty construction graphs have host receipts. Declared, observed, stale and unknown relationships remain distinct. |
+| Connected behavior readings | Guarded contract/explanation/source/generated/test/evidence readings and dirty construction graphs have host receipts. Default construction and connected readings retain the bound entry proof through execution admission. Declared, observed, stale and unknown relationships remain distinct. |
 | Change impact and relevant verification | Existing compiler/relationship-based impact and selected verification receipts remain scoped evidence. Unknown relationships and missing execution evidence do not become verified through graph reachability. |
 | Agent proposal review and guarded application | Sealed complete review, original-context application and restart-retained historical reading have host receipts. Historical evidence never revives application authority. |
 
@@ -75,7 +75,10 @@ primary selection retention and exact insertion/input undo and redo. It
 refused changed editor intentions even when the visible selection was equal.
 The macOS AppKit editor and Android text-state witnesses retained both native
 selections through insertion, linked typing, field traversal, undo and redo.
-The focused groups passed 22 browser, 11 Apple and 10 Android checks. The
+The focused groups passed 22 browser, 11 Apple and 10 Android checks.
+A later focused replay passed nested insertion, return to each outer field
+and coordinated undo with 23 browser, 15 Apple and 14 Android tests. The
+browser also continued two logical empty carets drawn as one cursor. The
 catalog still needs to prepare and review all caret expansions from one
 captured source. Physical input, assistive technology and device rendering
 were not exercised by these witnesses.
@@ -109,6 +112,27 @@ readable. A workspace with no entry could discover its first authored entry.
 The focused engine cases also submitted stale proofs to the shared validator.
 Template consumer admission, entry Move and its inverse still require their
 own integration evidence.
+
+### Keep the original entry in a connected reading
+
+The existing Construction reading surface resolves a blank entry field to the
+current workspace entry. An explicit address uses its literal bytes. A default
+reading keeps its original proof through the construction preview, behavior
+graph, source pages, profile choices and verification. Retiring an address,
+contributor selection or draft roster retires the in-flight selection.
+
+The actual engine refused a proof paired with another path and an original
+proof after an identical-byte file replacement. The old proof could start no
+verification. A fresh proof and the explicit address still read the source.
+The browser passed the existing menu flow, draft comparison, contributor link
+guards, and editor identity, dimensions and undo/redo checks. The mounted macOS
+editor and Android controller each passed a live connected reading with the
+entry proof, full source paging, an exact selected check, a chosen manual
+profile and retained editor history. Saved source stayed unchanged. The
+browser group passed 30 focused cases and type checking. Focused native groups
+passed 13 Apple and 14 Android cases, with each opt-in live case exercised
+separately. Physical input, assistive technology, Android rendering and iOS
+runtime acceptance remain unverified.
 
 ## Checkpoint requested during implementation
 

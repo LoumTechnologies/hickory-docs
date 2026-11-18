@@ -37,18 +37,32 @@ class ConstructionReadingModel {
  var entry by mutableStateOf("project.md");var focus by mutableStateOf("");var selected by mutableStateOf("");var after by mutableStateOf(true);var value by mutableStateOf<ConstructionReading?>(null);var notice by mutableStateOf("");var loading by mutableStateOf(false);private var ticket=0L;private var linkTicket=0L
  fun sourceLink():()->Boolean {val reading=ticket;val link=++linkTicket;return {ticket==reading&&linkTicket==link&&value!=null}}
  fun close(){ticket++;loading=false;value=null}
- suspend fun read(load:suspend (String,String?)->ConstructionReading){val entry=entry.trim();val focus=focus.trim().takeIf{it.isNotEmpty()};val id=++ticket;value=null;loading=true;notice="Reading construction…"
+ suspend fun read(entryOverride:String?=null,load:suspend (String,String?)->ConstructionReading){val entry=entryOverride ?: entry.trim();val focus=focus.trim().takeIf{it.isNotEmpty()};val id=++ticket;value=null;loading=true;notice="Reading construction…"
  try{val reply=load(entry,focus);if(ticket!=id)return;check(reply.entry==entry&&reply.focus==focus){"Construction identity changed. Refresh the reading."};value=reply;selected="";notice="Captured construction and draft consequences. Editor changes after capture are not included."}catch(error:CancellationException){throw error}catch(error:Exception){if(ticket==id)notice=error.message.orEmpty()}finally{if(ticket==id)loading=false}}
 }
 </ui:copy>
 
 ## Compare captured outputs without resizing the editor
 
-Use the existing floating surface and menus. Capture retained authored drafts only when the reader requests analysis. Label the entry, focus, preview side, binary output and every truncation. Contributor byte ranges remain readable observations. Only service-supplied source points with matching acquired source hashes and valid scalar positions enable navigation. Newer links, replaced readings, closing and workspace switches retire pending navigation. Closing restores source focus and retires the request.
+Use the existing floating surface and menus. A blank field reads the bound
+workspace entry. A typed address retains its literal bytes. Capture the draft
+roster and original intent before requesting the workspace entry. Changing
+the address, contributor, or captured source retires the pending reading.
+
+Label the entry, focus, preview side, binary output and every truncation.
+Only service-supplied source points with matching acquired source hashes and
+valid scalar positions enable navigation. Closing restores source focus and
+retires the request.
 
 <ui:copy id="construction-reading-android-view">
 @Composable fun ConstructionReadingView(workspace:Workspace){
- val model=remember{ConstructionReadingModel()};val scope=rememberCoroutineScope();DisposableEffect(model){onDispose{model.close();workspace.behaviorReading.close()}}
+ val model=remember{ConstructionReadingModel()}
+ val scope=rememberCoroutineScope()
+ var address by remember{mutableStateOf("")}
+ var readingIntent by remember{mutableLongStateOf(0L)}
+ var acquiring by remember{mutableStateOf(false)}
+ fun retireReading(){readingIntent++;acquiring=false;model.close();workspace.behaviorReading.close();model.notice=""}
+ DisposableEffect(model){onDispose{readingIntent++;model.close();workspace.behaviorReading.close()}}
  suspend fun openPoint(point:TestSourcePoint){
   val current=model.sourceLink();val epoch=workspace.sourceNavigationEpoch
   fun valid()=current()&&workspace.showConstruction&&workspace.sourceNavigationEpoch==epoch
@@ -62,12 +76,54 @@ Use the existing floating surface and menus. Capture retained authored drafts on
    workspace.openSemanticLocation(SemanticLocation(languageURI(point.path),point.line-1,point.character),allowDirty=true,expectedSource=source,isCurrent=::valid,onRevealed={if(valid())workspace.showConstruction=false})
   }catch(error:CancellationException){throw error}catch(error:Exception){if(valid())model.notice=error.message.orEmpty()}
  }
- suspend fun read(){val engine=workspace.engine ?: run{model.notice="Connect to a workspace server first.";return};val sources=JSONObject(workspace.buffers.values.filter{!it.readOnly}.associate{it.file.path to it.text});model.read{entry,focus->constructionReading(engine.request("POST","/api/construction/reading",JSONObject().put("entry",entry).put("focus",focus ?: JSONObject.NULL).put("sources",sources)),entry,focus)}}
+ suspend fun read(connectedOnly:Boolean=false) {
+  val engine=workspace.engine ?: run{model.notice="Connect to a workspace server first.";return}
+  val id=++readingIntent
+  val namespace=engine.sourceRootAddress
+  val runtime=engine.sourceWorkspaceID
+  val lease=workspace.captureRetainedSourceNamespace()
+  val focus=model.focus
+  fun current()=id==readingIntent&&model.focus==focus&&workspace.showConstruction&&workspace.engine===engine&&
+   engine.sourceRootAddress==namespace&&engine.sourceWorkspaceID==runtime&&lease()
+  if(connectedOnly)workspace.behaviorReading.close() else model.close()
+  try {
+   var entry=address.takeUnless{it.isBlank()}.orEmpty()
+   var proof:WorkspaceEntrySelectionProof?=null
+   if(entry.isEmpty()) {
+    check(namespace!=null&&runtime!=null){"Refresh Files to bind the current workspace entry."}
+    acquiring=true
+    model.notice="Reading the current workspace entry…"
+    val selected=WorkspaceEntrySelections.read(
+     load={engine.request("GET","/api/workspace/entry")},workspace=runtime,namespace=namespace,current=::current,
+    )
+    entry=selected.entryPath ?: error("This workspace has no default construction entry. Enter an authored path.")
+    proof=selected.proof
+   }
+   if(!current())return
+   acquiring=false
+   if(connectedOnly) {
+    workspace.behaviorReading.read(workspace,entry,focus.trim().takeIf{it.isNotEmpty()},proof,::current)
+   }else{
+    model.entry=entry
+    val sources=JSONObject(workspace.buffers.values.filter{!it.readOnly}.associate{it.file.path to it.text})
+    model.read(entryOverride=entry){path,focus->
+     val body=JSONObject().put("entry",path).put("focus",focus ?: JSONObject.NULL).put("sources",sources)
+     proof?.let{body.put("entry_selection",it.body())}
+     val reply=engine.request("POST","/api/construction/reading",body)
+     check(current()){"Original construction selection changed. Refresh the reading."}
+     constructionReading(reply,path,focus)
+    }
+   }
+  }catch(error:CancellationException){throw error}
+  catch(error:Exception){if(readingIntent==id)model.notice=error.message.orEmpty()}
+  finally{if(readingIntent==id)acquiring=false}
+ }
  Column(Modifier.widthIn(max=680.dp).heightIn(max=680.dp).padding(16.dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)){
- TextButton(enabled=!workspace.behaviorReading.loading&&model.entry.isNotBlank(),onClick={scope.launch{workspace.behaviorReading.read(workspace,model.entry.trim(),model.focus.trim().takeIf{it.isNotEmpty()})}}){Text("Read connected behavior and change impact")}
+ TextButton(enabled=!workspace.behaviorReading.loading&&!acquiring,onClick={scope.launch{read(connectedOnly=true)}}){Text("Read connected behavior and change impact")}
  BehaviorReadingView(workspace)
  Text("Construction reading",style=MaterialTheme.typography.titleMedium);TextButton(onClick={workspace.showConstruction=false;workspace.currentBuffer?.focusSource?.invoke()}){Text("Close")}
- OutlinedTextField(value=model.entry,onValueChange={model.entry=it},label={Text("Construction entry")});OutlinedTextField(value=model.focus,onValueChange={model.focus=it},label={Text("Contributor or output (optional)")});TextButton(enabled=!model.loading&&model.entry.isNotBlank(),onClick={scope.launch{read()}}){Text("Read captured drafts")};Text(model.notice,fontSize=12.sp)
+ OutlinedTextField(value=address,onValueChange={retireReading();address=it},label={Text("Construction entry")},placeholder={Text("Current workspace entry")})
+ OutlinedTextField(value=model.focus,onValueChange={retireReading();model.focus=it},label={Text("Contributor or output (optional)")});TextButton(enabled=!model.loading&&!acquiring,onClick={scope.launch{read()}}){Text("Read captured drafts")};Text(model.notice,fontSize=12.sp)
  model.value?.let{value->Text("Captured entry: ${value.entry} · focus: ${value.focus ?: "all"}",fontSize=12.sp);Text("${value.count} related outputs${if(value.truncated)" · first 300 shown" else ""}. ${value.testCount} detected tests${if(value.testsTruncated)" · test list truncated" else ""}. Evidence: ${value.evidence}. Outputs have not been written.",fontSize=12.sp);Text(value.relationship,fontSize=12.sp);value.notices.forEach{Text(it,fontSize=12.sp)};if(value.unused>0)Text("${value.unused} supplied drafts did not contribute to this entry.",fontSize=12.sp)
  value.outputs.forEach{output->TextButton(onClick={model.selected=output.path}){Text("${output.change} · ${output.path}")}}
  (value.outputs.firstOrNull{it.path==model.selected} ?: value.outputs.firstOrNull())?.let{output->Text("${output.change} · ${output.path}",style=MaterialTheme.typography.titleSmall);Text("Contributors: ${output.contributors.joinToString()}",fontSize=12.sp);Row{TextButton(onClick={model.after=false}){Text("Saved construction")};TextButton(onClick={model.after=true}){Text("Draft construction")}}
@@ -104,6 +160,16 @@ import org.junit.Test
 import org.junit.Assert.*
 import kotlinx.coroutines.*
 class ConstructionReadingTest {
+ @Test fun boundEntryOverridePreservesLiteralAddress()=kotlinx.coroutines.runBlocking {
+  val model=ConstructionReadingModel()
+  val address=" folder/entry.md "
+  model.read(entryOverride=address){entry,focus->
+   assertEquals(address,entry)
+   assertNull(focus)
+   value(entry)
+  }
+  assertEquals(address,model.value?.entry)
+ }
  fun value(entry:String="project.md")=ConstructionReading(entry,null,emptyList(),0,false,emptyList(),0,false,"declaration","not_queried",emptyList(),0)
  @Test fun closedAndSupersededRepliesCannotReplaceTheCapturedReading()=runBlocking{
   val model=ConstructionReadingModel();val pending=CompletableDeferred<ConstructionReading>();val old=async(start=CoroutineStart.UNDISPATCHED){model.read{_,_->pending.await()}}

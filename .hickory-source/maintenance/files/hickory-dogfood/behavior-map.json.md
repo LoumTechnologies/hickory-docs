@@ -73396,6 +73396,17 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "fragments": [
         "embedded-template-android-witness"
       ]
+    },
+    "scripts/test-workspace-default-reading.py": {
+      "source": ".hickory-source/mechanisms/workspace-default-readings.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "test",
+      "sha256": "c96f4bacad82b55da55e24ebe37b9aad90abee9a68197d8dc1d28bf34f9ccae2",
+      "construction": "fragments",
+      "fragments": [
+        "workspace-default-reading-http-witness"
+      ]
     }
   },
   "evidence_records": [

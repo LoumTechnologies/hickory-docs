@@ -48,7 +48,13 @@ class BehaviorReadingTest{
   try{
   val engine=Engine(origin!!);w.engine=engine;val (_,tree)=engine.files();assertEquals(root.toPath().toRealPath().toString(),engine.sourceRootAddress);w.rootFiles=tree
   fun find(nodes:List<FileNode>):FileNode? {for(node in nodes){if(node.path=="source.md")return node;find(node.children)?.let{return it}};return null}
-  val b=w.loadBuffer(find(tree) ?: error("Construction source missing"));w.show(b.file.path);val source=b.text;val state=b.state;val selection=state.selection;val scroll=b.sourceScroll.value;w.showConstruction=true;val model=w.behaviorReading;model.read(w,"project.md","a.py");assertNotNull(model.notice,model.value)
+  val b=w.loadBuffer(find(tree) ?: error("Construction source missing"));w.show(b.file.path);val source=b.text;val state=b.state;val selection=state.selection;val scroll=b.sourceScroll.value
+  w.showConstruction=true
+  val original=WorkspaceEntrySelections.read(load={engine.request("GET","/api/workspace/entry")},
+   workspace=checkNotNull(engine.sourceWorkspaceID),namespace=checkNotNull(engine.sourceRootAddress),current={w.showConstruction})
+  val model=w.behaviorReading
+  model.read(w,checkNotNull(original.entryPath),"a.py",original.proof,original.current)
+  assertNotNull(model.notice,model.value)
   val connected=model.value!!;assertEquals(engine.sourceRootAddress,connected.namespace);assertEquals(engine.sourceWorkspaceID,connected.engineWorkspace);assertTrue(connected.workspace.matches(Regex("[a-f0-9]{64}")));val nodes=JSONObject(connected.raw).getJSONObject("graph").getJSONObject("nodes");val contractID=nodes.keys().asSequence().single{nodes.getJSONObject(it).getString("kind")=="contract"};model.readSource(contractID);assertNotNull(model.notice,model.sourcePage);assertEquals(root.resolve("behavior.md").readText(),model.sourcePage!!.text);assertEquals("whole-source",model.sourcePage!!.target)
   val explanationID=nodes.keys().asSequence().single{nodes.getJSONObject(it).getString("kind")=="explanation"};model.readSource(explanationID);assertEquals("source.md",model.sourcePage!!.path);assertEquals("answer",model.sourcePage!!.fragment);assertEquals("observed-fragment-context",model.sourcePage!!.target);assertTrue(model.sourcePage!!.text.contains("Later explanation for the declared answer"))
   model.readSource(explanationID,0);val full=StringBuilder();while(true){val page=model.sourcePage!!;full.append(page.text);val next=page.next ?: break;model.continueSource(page,next)};assertEquals(source,full.toString())

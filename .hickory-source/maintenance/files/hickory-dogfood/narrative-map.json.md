@@ -157010,6 +157010,13 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/frontends/embedded-template-host-acceptance.md",
       "symbol": "embedded template android witness",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "workspace-default-reading-http-witness",
+      "output": "scripts/test-workspace-default-reading.py",
+      "page": ".hickory-source/mechanisms/workspace-default-readings.md",
+      "symbol": "workspace default reading http witness",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

@@ -405,4 +405,6 @@ is included with that control; opening a document is not generation authority.
 
 <storycode:include file="android-marked-snippet-input.md" />
 
+<storycode:include file="workspace-default-readings.md" />
+
 </storycode:doc>

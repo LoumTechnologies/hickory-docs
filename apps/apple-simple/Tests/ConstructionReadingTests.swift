@@ -1,6 +1,16 @@
 import XCTest
 @testable import HickorySimple
 @MainActor final class ConstructionReadingTests:XCTestCase {
+ func testBoundEntryOverridePreservesLiteralAddress()async {
+  let model=ConstructionReadingModel()
+  let address=" folder/entry.md "
+  await model.read(entryOverride:address){entry,focus in
+   XCTAssertEqual(Array(entry.utf8),Array(address.utf8))
+   XCTAssertNil(focus)
+   return self.value(entry)
+  }
+  XCTAssertEqual(model.value?.entry,address)
+ }
  func value(_ entry:String="project.md",materialized:Bool=false)->ConstructionReading{ConstructionReading(version:1,entry:entry,materialized:materialized,outputs:[],output_count:0,outputs_truncated:false,tests:[],test_count:0,tests_truncated:false,test_relationship:"declaration",evidence_status:"not_queried",notices:[],unused_sources:[])}
  func testClosedAndSupersededRepliesCannotReplaceTheCapturedReading()async{
   let model=ConstructionReadingModel();var pending:CheckedContinuation<ConstructionReading,Never>?

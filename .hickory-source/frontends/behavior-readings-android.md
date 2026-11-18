@@ -32,12 +32,13 @@ fun behaviorSnapshot(raw:JSONObject,context:JSONObject,address:String,runtime:St
  val graph=raw.getJSONObject("graph");graph.getJSONObject("nodes");graph.getJSONArray("edges");val checks=graph.getJSONArray("checks");check(checks.length()<=10000){"Check reading exceeds bounded capacity."};val seen=mutableSetOf<String>()
  return BehaviorSnapshot(raw.getString("workspace_id"),raw.getString("reading_fingerprint"),context.toString(),raw.toString(),(0 until checks.length()).map{val item=checks.getJSONObject(it);val id=item.getString("id");check(id.isNotEmpty()&&seen.add(id)){"Ambiguous check identity."};BehaviorCheck(id,item.getString("label"),item.getString("path"),item.get("available") as? Boolean ?: error("Malformed check availability."),item.getString("reason"))},raw.opt("verification_available")==true,address,runtime)
 }
-internal fun behaviorRetainedContext(w:Workspace,entry:String,focus:String?):JSONObject {
+internal fun behaviorRetainedContext(w:Workspace,entry:String,focus:String?,entrySelection:WorkspaceEntrySelectionProof?=null):JSONObject {
  val sources=JSONObject();val missing=JSONArray();val unaddressed=JSONObject();val guards=JSONObject();val roster=(w.buffers.values+w.retainedResourceEditors.values+w.retainedResourceTabs.values).distinct().filter{it.file.generatedBy==null};check(roster.size<=4096){"Retained behavior context exceeds its editor budget."};var bytes=0L
  for(b in roster){val path=b.file.path;check(b.text.length<=8*1024*1024){"Retained behavior source exceeds its capture budget."};bytes+=b.text.toByteArray(Charsets.UTF_8).size.toLong()+path.toByteArray(Charsets.UTF_8).size+(b.saveGuard?.length ?: 0);check(bytes<=32L*1024*1024){"Retained behavior context exceeds32MiB."};val addressable=!b.isUntitledDraft&&!path.startsWith('/')&&path.split('/').none{it==".."||it=="."};val named=addressable&&!b.resourceDeleted&&w.buffers[path]===b
   if(named){check(!sources.has(path)){"Retained behavior source identity is ambiguous."};sources.put(path,b.text);b.saveGuard?.takeIf{it.isNotEmpty()}?.let{guards.put(path,it)}}else{unaddressed.put(b.debugIdentity,b.text);if(addressable&&b.resourceDeleted&&w.buffers[path]==null)missing.put(path)}
  }
  return JSONObject().put("version",1).put("entry",entry).put("sources",sources).put("missing_sources",missing).put("focus",focus ?: JSONObject.NULL).put("unaddressed_sources",unaddressed).put("saved_guards",guards)
+  .also{body->entrySelection?.let{body.put("entry_selection",it.body())}}
 }
 class BehaviorReadingModel(private val transport:(suspend(Engine,String,JSONObject?)->JSONObject)?=null){
  var value by mutableStateOf<BehaviorSnapshot?>(null);private set
@@ -55,9 +56,9 @@ class BehaviorReadingModel(private val transport:(suspend(Engine,String,JSONObje
  private suspend fun call(engine:Engine,path:String,body:JSONObject?=null)=transport?.invoke(engine,path,body) ?: engine.request(if(body==null)"GET" else "POST",path,body)
  val currentReading get()=value!=null&&current()
  fun close(){ticket++;sourceTicket++;sourceLoading=false;current={false};loading=false;profiles=emptyList()}
- suspend fun read(w:Workspace,entry:String,focus:String?){val engine=w.engine ?: run{notice="Connect to a workspace server.";return};val address=engine.sourceRootAddress ?: run{notice="Refresh Files to bind the exact workspace address.";return};val runtime=engine.sourceWorkspaceID ?: run{notice="Refresh Files to bind this engine workspace lifetime.";return};val rows=w.buffers.toMap();val namespace=w.captureRetainedSourceNamespace()
-  val valid={namespace()&&engine.sourceRootAddress==address&&engine.sourceWorkspaceID==runtime&&w.showConstruction}
-  try{read(engine,address,behaviorRetainedContext(w,entry,focus),runtime,valid)}catch(e:Exception){notice=e.message.orEmpty()}
+ suspend fun read(w:Workspace,entry:String,focus:String?,entrySelection:WorkspaceEntrySelectionProof?=null,original:()->Boolean={true}){val engine=w.engine ?: run{notice="Connect to a workspace server.";return};val address=engine.sourceRootAddress ?: run{notice="Refresh Files to bind the exact workspace address.";return};val runtime=engine.sourceWorkspaceID ?: run{notice="Refresh Files to bind this engine workspace lifetime.";return};val rows=w.buffers.toMap();val namespace=w.captureRetainedSourceNamespace()
+  val valid={original()&&namespace()&&engine.sourceRootAddress==address&&engine.sourceWorkspaceID==runtime&&w.showConstruction}
+  try{read(engine,address,behaviorRetainedContext(w,entry,focus,entrySelection),runtime,valid)}catch(e:Exception){notice=e.message.orEmpty()}
  }
  suspend fun read(engine:Engine,address:String,context:JSONObject,runtime:String,current:()->Boolean){val input=JSONObject(context.toString());val id=++ticket;sourceTicket++;sourceLoading=false;this.current={false};loading=true;profiles=emptyList();notice="Reading connected behavior…"
   try{val raw=call(engine,"/api/behavior/reading",input);if(id!=ticket)return;val next=behaviorSnapshot(raw,input,address,runtime);value=next;this.engine=engine;this.current=current
@@ -211,7 +212,13 @@ class BehaviorReadingTest{
   try{
   val engine=Engine(origin!!);w.engine=engine;val (_,tree)=engine.files();assertEquals(root.toPath().toRealPath().toString(),engine.sourceRootAddress);w.rootFiles=tree
   fun find(nodes:List<FileNode>):FileNode? {for(node in nodes){if(node.path=="source.md")return node;find(node.children)?.let{return it}};return null}
-  val b=w.loadBuffer(find(tree) ?: error("Construction source missing"));w.show(b.file.path);val source=b.text;val state=b.state;val selection=state.selection;val scroll=b.sourceScroll.value;w.showConstruction=true;val model=w.behaviorReading;model.read(w,"project.md","a.py");assertNotNull(model.notice,model.value)
+  val b=w.loadBuffer(find(tree) ?: error("Construction source missing"));w.show(b.file.path);val source=b.text;val state=b.state;val selection=state.selection;val scroll=b.sourceScroll.value
+  w.showConstruction=true
+  val original=WorkspaceEntrySelections.read(load={engine.request("GET","/api/workspace/entry")},
+   workspace=checkNotNull(engine.sourceWorkspaceID),namespace=checkNotNull(engine.sourceRootAddress),current={w.showConstruction})
+  val model=w.behaviorReading
+  model.read(w,checkNotNull(original.entryPath),"a.py",original.proof,original.current)
+  assertNotNull(model.notice,model.value)
   val connected=model.value!!;assertEquals(engine.sourceRootAddress,connected.namespace);assertEquals(engine.sourceWorkspaceID,connected.engineWorkspace);assertTrue(connected.workspace.matches(Regex("[a-f0-9]{64}")));val nodes=JSONObject(connected.raw).getJSONObject("graph").getJSONObject("nodes");val contractID=nodes.keys().asSequence().single{nodes.getJSONObject(it).getString("kind")=="contract"};model.readSource(contractID);assertNotNull(model.notice,model.sourcePage);assertEquals(root.resolve("behavior.md").readText(),model.sourcePage!!.text);assertEquals("whole-source",model.sourcePage!!.target)
   val explanationID=nodes.keys().asSequence().single{nodes.getJSONObject(it).getString("kind")=="explanation"};model.readSource(explanationID);assertEquals("source.md",model.sourcePage!!.path);assertEquals("answer",model.sourcePage!!.fragment);assertEquals("observed-fragment-context",model.sourcePage!!.target);assertTrue(model.sourcePage!!.text.contains("Later explanation for the declared answer"))
   model.readSource(explanationID,0);val full=StringBuilder();while(true){val page=model.sourcePage!!;full.append(page.text);val next=page.next ?: break;model.continueSource(page,next)};assertEquals(source,full.toString())

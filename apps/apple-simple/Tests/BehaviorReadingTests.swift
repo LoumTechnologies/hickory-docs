@@ -70,7 +70,14 @@ import Darwin
   func editor(_ view:NSView)->NSTextView?{if let text=view as? NSTextView{return text};return view.subviews.lazy.compactMap{editor($0)}.first}
   for _ in 0..<200{if editor(host) != nil{break};try await Task.sleep(for:.milliseconds(10))};let native=try XCTUnwrap(editor(host)),scroll=try XCTUnwrap(native.enclosingScrollView),identity=try XCTUnwrap(buffer.sourceEditorState?()).identity,geometry=scroll.convert(scroll.bounds,to:host),manager=try XCTUnwrap(native.undoManager)
   print("Apple behavior actual stage: read physical-root graph")
-  space.showConstruction=true;await model.read(space,entry:"project.md",focus:"a.py");let value=try XCTUnwrap(model.value,model.notice);XCTAssertEqual(value.namespace,listing.root_path);XCTAssertEqual(value.engine_workspace_id,listing.workspace_id);XCTAssertTrue(connectedBehaviorHex(value.workspace_id));let contract=try XCTUnwrap(value.graph.nodes.values.first{$0.kind=="contract"});await model.readSource(contract.id);XCTAssertEqual(model.page?.text,try String(contentsOfFile:path+"/behavior.md",encoding:.utf8))
+  space.showConstruction=true
+  let original=try await WorkspaceEntrySelections.read(load:{
+   let reply:ResourceJSON=try await engine.request("GET","/api/workspace/entry")
+   return try JSONSerialization.jsonObject(with:JSONEncoder().encode(reply))
+  },workspace:try XCTUnwrap(listing.workspace_id),namespace:try XCTUnwrap(listing.root_path),current:{space.showConstruction})
+  let entry=try XCTUnwrap(original.entryPath)
+  await model.read(space,entry:entry,focus:"a.py",entrySelection:original.proof,original:original.current)
+  let value=try XCTUnwrap(model.value,model.notice);XCTAssertEqual(value.namespace,listing.root_path);XCTAssertEqual(value.engine_workspace_id,listing.workspace_id);XCTAssertTrue(connectedBehaviorHex(value.workspace_id));let contract=try XCTUnwrap(value.graph.nodes.values.first{$0.kind=="contract"});await model.readSource(contract.id);XCTAssertEqual(model.page?.text,try String(contentsOfFile:path+"/behavior.md",encoding:.utf8))
   print("Apple behavior actual stage: read full explanation pages")
   let explanation=try XCTUnwrap(value.graph.nodes.values.first{$0.kind=="explanation"});await model.readSource(explanation.id);XCTAssertEqual(model.page?.target_status,"observed-fragment-context");XCTAssertEqual(model.page?.fragment_id,"answer");await model.readSource(explanation.id,offset:0);var full="";while let page=model.page{full+=page.text;guard let next=page.next else{break};await model.continueSource(page,offset:next)};XCTAssertEqual(full,source)
   print("Apple behavior actual stage: run selected relevant check")

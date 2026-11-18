@@ -17,8 +17,8 @@ struct ConstructionReading:Decodable {var version:Int;var entry:String;var focus
  var entry="project.md";var focus="";var selected="";var after=true;var value:ConstructionReading?;var notice="";var loading=false;private var ticket=UUID();private var linkTicket=UUID()
  func sourceLink()->()->Bool {let reading=ticket,link=UUID();linkTicket=link;return {[weak self] in self?.ticket==reading&&self?.linkTicket==link&&self?.value != nil}}
  func close(){ticket=UUID();loading=false;value=nil}
- func read(load:(String,String?)async throws->ConstructionReading)async {
-  let entry=entry.trimmingCharacters(in:.whitespacesAndNewlines),focus=focus.trimmingCharacters(in:.whitespacesAndNewlines);let expectedFocus=focus.isEmpty ? nil:focus
+ func read(entryOverride:String?=nil,load:(String,String?)async throws->ConstructionReading)async {
+  let entry=entryOverride ?? entry.trimmingCharacters(in:.whitespacesAndNewlines),focus=focus.trimmingCharacters(in:.whitespacesAndNewlines);let expectedFocus=focus.isEmpty ? nil:focus
   let id=UUID();ticket=id;value=nil;loading=true;notice="Reading construction…";defer{if ticket==id{loading=false}}
   do{let reply=try await load(entry,expectedFocus);guard ticket==id else{return};guard reply.version==1,exactUTF8(reply.entry,entry),reply.focus.map({Array($0.utf8)})==expectedFocus.map({Array($0.utf8)}),!reply.materialized else{throw EngineError(message:"Construction identity changed or unsupported response. Refresh the reading.")};value=reply;selected="";notice="Captured construction and draft consequences. Editor changes after capture are not included."}catch{if ticket==id{notice=error.localizedDescription}}
  }
@@ -27,13 +27,75 @@ struct ConstructionReading:Decodable {var version:Int;var entry:String;var focus
 
 ## Compare captured outputs without resizing the editor
 
-Use the existing floating surface and menus. Capture retained authored drafts only when the reader requests analysis. Label the entry, focus, preview side, binary output and every truncation. Contributor byte ranges remain readable observations. Only service-supplied source points with matching acquired source hashes and valid scalar positions enable navigation. Newer links, replaced readings, closing and workspace switches retire pending navigation. Closing restores source focus and retires the request.
+Use the existing floating surface and menus. A blank field reads the bound
+workspace entry. A typed address retains its literal bytes. Capture the draft
+roster and original intent before requesting the workspace entry. Changing
+the address, contributor, or captured source retires the pending reading.
+
+Label the entry, focus, preview side, binary output and every truncation.
+Only service-supplied source points with matching acquired source hashes and
+valid scalar positions enable navigation. Closing restores source focus and
+retires the request.
 
 <ui:copy id="construction-reading-apple-view">
+@MainActor private final class ConstructionEntryIntent {var id=UUID()}
 struct ConstructionReadingView:View {
  var workspace:Workspace;@State private var model=ConstructionReadingModel();@State private var connected=ConnectedBehaviorModel()
- private func read()async {guard let engine=workspace.engine else{model.notice="Connect to a workspace server first.";return};let sources=Dictionary(uniqueKeysWithValues:workspace.buffers.values.filter{!$0.readOnly}.map{($0.file.path,$0.text)})
-  await model.read{entry,focus in try await engine.request("POST","/api/construction/reading",body:["entry":entry,"sources":sources,"focus":focus as Any? ?? NSNull()])}
+ @State private var address=""
+ @State private var readingIntent=ConstructionEntryIntent()
+ @State private var acquiring=false
+
+ @MainActor private func read(connectedOnly:Bool=false)async {
+  guard let engine=workspace.engine else{model.notice="Connect to a workspace server first.";return}
+  let id=UUID(),epoch=workspace.sourceNavigationEpoch
+  let namespace=workspace.sourceRootAddress,runtime=workspace.sourceWorkspaceID
+  let sourceCurrent=captureRetainedSourceNamespace(workspace)
+  let explicit=address.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty ? "":address
+  let focus=model.focus,reading=readingIntent
+  reading.id=id
+  defer{if reading.id==id{acquiring=false}}
+  let current={ [weak workspace=workspace,weak reading,weak model=model] in
+   guard let workspace,reading?.id==id,model?.focus==focus else{return false}
+   return workspace.showConstruction && workspace.sourceNavigationEpoch == epoch
+    && workspace.engine?.session === engine.session
+    && workspace.sourceRootAddress.map{Data($0.utf8)} == namespace.map{Data($0.utf8)}
+    && workspace.sourceWorkspaceID == runtime
+    && sourceCurrent()
+  }
+  if connectedOnly{connected.close()}else{model.close()}
+  do {
+   var entry=explicit
+   var proof:WorkspaceEntrySelectionProof?
+   if explicit.isEmpty {
+    guard let namespace,let runtime else{throw EngineError(message:"Refresh Files to bind the current workspace entry.")}
+    acquiring=true;model.notice="Reading the current workspace entry…"
+    let selected=try await WorkspaceEntrySelections.read(load:{
+     let reply:ResourceJSON=try await engine.request("GET","/api/workspace/entry")
+     return try JSONSerialization.jsonObject(with:JSONEncoder().encode(reply))
+    },workspace:runtime,namespace:namespace,current:current)
+    guard let path=selected.entryPath else{throw EngineError(message:"This workspace has no default construction entry. Enter an authored path.")}
+    entry=path;proof=selected.proof
+   }
+   guard current() else{return}
+   acquiring=false
+   if connectedOnly {
+    await connected.read(workspace,entry:entry,focus:focus.isEmpty ? nil:focus,entrySelection:proof,original:current)
+   }else{
+    model.entry=entry
+    let sources=Dictionary(uniqueKeysWithValues:workspace.buffers.values.filter{!$0.readOnly}.map{($0.file.path,$0.text)})
+    await model.read(entryOverride:entry){entry,focus in
+     var body:[String:Any]=["entry":entry,"sources":sources,"focus":focus as Any? ?? NSNull()]
+     if let proof{body["entry_selection"]=try proof.body()}
+     let result:ConstructionReading=try await engine.request("POST","/api/construction/reading",body:body)
+     guard current() else{throw EngineError(message:"Original construction selection changed. Refresh the reading.")}
+     return result
+    }
+   }
+  }catch{if readingIntent.id==id{model.notice=error.localizedDescription}}
+ }
+
+ private func retireReading() {
+  readingIntent.id=UUID();acquiring=false;model.close();connected.close();model.notice=""
  }
  private func openPoint(_ point:TestSourcePoint)async {
   let current=model.sourceLink(),epoch=workspace.sourceNavigationEpoch
@@ -50,8 +112,10 @@ struct ConstructionReadingView:View {
  }
  var body:some View {VStack(alignment:.leading,spacing:8){
   HStack{Text("Construction reading").font(.headline);Spacer();Button("Close"){workspace.showConstruction=false;workspace.currentBuffer?.focusSource?()}}
-  TextField("Construction entry",text:$model.entry);TextField("Contributor or output (optional)",text:$model.focus);Button("Read captured drafts"){Task{await read()}}.disabled(model.loading||model.entry.isEmpty)
-  Button("Read connected behavior and relevant verification"){Task{await connected.read(workspace,entry:model.entry,focus:model.focus.isEmpty ? nil:model.focus)}}.disabled(connected.busy||model.entry.isEmpty)
+  TextField("Construction entry",text:Binding(get:{address},set:{retireReading();address=$0}),prompt:Text("Current workspace entry"))
+  TextField("Contributor or output (optional)",text:Binding(get:{model.focus},set:{retireReading();model.focus=$0}))
+  Button("Read captured drafts"){Task{await read()}}.disabled(model.loading||acquiring)
+  Button("Read connected behavior and relevant verification"){Task{await read(connectedOnly:true)}}.disabled(connected.busy||acquiring)
   Text(model.notice).font(.caption).textSelection(.enabled)
   ScrollView{VStack(alignment:.leading,spacing:8){if let value=model.value{
    Text("Captured entry: \(value.entry) · focus: \(value.focus ?? "all")").font(.caption)
@@ -69,7 +133,7 @@ struct ConstructionReadingView:View {
   }
    ConnectedBehaviorView(workspace:workspace,model:connected)
   }}
- }.padding().frame(idealWidth:680,idealHeight:600).onDisappear{model.close();connected.close()}}
+ }.padding().frame(idealWidth:680,idealHeight:600).onDisappear{readingIntent.id=UUID();model.close();connected.close()}}
 }
 </ui:copy>
 
@@ -95,6 +159,16 @@ Release held compiler replies after a newer reading or after closing. Neither ma
 import XCTest
 @testable import HickorySimple
 @MainActor final class ConstructionReadingTests:XCTestCase {
+ func testBoundEntryOverridePreservesLiteralAddress()async {
+  let model=ConstructionReadingModel()
+  let address=" folder/entry.md "
+  await model.read(entryOverride:address){entry,focus in
+   XCTAssertEqual(Array(entry.utf8),Array(address.utf8))
+   XCTAssertNil(focus)
+   return self.value(entry)
+  }
+  XCTAssertEqual(model.value?.entry,address)
+ }
  func value(_ entry:String="project.md",materialized:Bool=false)->ConstructionReading{ConstructionReading(version:1,entry:entry,materialized:materialized,outputs:[],output_count:0,outputs_truncated:false,tests:[],test_count:0,tests_truncated:false,test_relationship:"declaration",evidence_status:"not_queried",notices:[],unused_sources:[])}
  func testClosedAndSupersededRepliesCannotReplaceTheCapturedReading()async{
   let model=ConstructionReadingModel();var pending:CheckedContinuation<ConstructionReading,Never>?

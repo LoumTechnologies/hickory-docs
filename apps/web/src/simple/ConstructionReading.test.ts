@@ -21,3 +21,14 @@ it('requires exact source hashes and scalar UTF-16 boundaries and supersedes old
  expect(constructionPointOffset(source,point,'b'.repeat(64))).toBeNull();
  const model=new ConstructionReadingModel(async()=>value());model.value=value();const old=model.sourceLink(model.value),latest=model.sourceLink(model.value);expect(old()).toBe(false);expect(latest()).toBe(true);model.close();expect(latest()).toBe(false);
 });
+it('does not reflect a compiler reply after the original default selection retired',async()=>{
+ const deferred:((reply:ConstructionReading)=>void)[]=[];
+ const model=new ConstructionReadingModel(()=>new Promise(resolve=>deferred.push(resolve)));
+ let current=true;
+ const pending=model.read({entry:'moved/project.md',sources:{},focus:null},()=>current);
+ current=false;
+ deferred[0](value('moved/project.md'));
+ await pending;
+ expect(model.value).toBeNull();
+ expect(model.notice).toContain('Original construction selection changed');
+});

@@ -3,6 +3,16 @@ import org.junit.Test
 import org.junit.Assert.*
 import kotlinx.coroutines.*
 class ConstructionReadingTest {
+ @Test fun boundEntryOverridePreservesLiteralAddress()=kotlinx.coroutines.runBlocking {
+  val model=ConstructionReadingModel()
+  val address=" folder/entry.md "
+  model.read(entryOverride=address){entry,focus->
+   assertEquals(address,entry)
+   assertNull(focus)
+   value(entry)
+  }
+  assertEquals(address,model.value?.entry)
+ }
  fun value(entry:String="project.md")=ConstructionReading(entry,null,emptyList(),0,false,emptyList(),0,false,"declaration","not_queried",emptyList(),0)
  @Test fun closedAndSupersededRepliesCannotReplaceTheCapturedReading()=runBlocking{
   val model=ConstructionReadingModel();val pending=CompletableDeferred<ConstructionReading>();val old=async(start=CoroutineStart.UNDISPATCHED){model.read{_,_->pending.await()}}

@@ -20,7 +20,7 @@ def main():
    vite=fixture.start(["node","node_modules/vite/bin/vite.js","--config","vite.simple.config.ts","--host","127.0.0.1","--port",str(port),"--strictPort"],cwd=ROOT/"apps/web",env={**environment,"HICKORY_API_ORIGIN":backend});processes.append(vite)
    driver=fixture.BrowserDriver(fixture.origin(vite)+"/simple.html");driver.act("open",path="part.md");driver.act("remember-editor",path="part.md");size=driver.act("editor-size",path="part.md")
    driver.act("construction-set-source",path="part.md",source=draft);actual=driver.act("construction-source",path="part.md");assert actual==draft,(draft,actual)
-   driver.act("construction-open");text=driver.act("construction-read",entry="project.md",focus="part.md");assert "modified" in text and "output.txt" in text and "not_queried" in text,text
+   driver.act("construction-open");text=driver.act("construction-read",entry="",focus="part.md");assert "modified" in text and "output.txt" in text and "not_queried" in text,text
    assert driver.act("construction-side",after=False)=="one";assert driver.act("construction-side",after=True)=="two"
    stale=driver.act("construction-origin",phase="before",path="part.md",stale=True);assert "Source changed" in stale and "declared copy #body" in stale,stale
    driver.act("construction-origin",phase="after",path="part.md",stale=False)

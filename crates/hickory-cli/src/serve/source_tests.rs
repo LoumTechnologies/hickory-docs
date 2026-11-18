@@ -803,6 +803,8 @@ fn retained_compiler_sources_pin_later_analysis_without_materializing_or_leaking
 pub struct ConstructionRequest {
     pub entry: String,
     #[serde(default)]
+    pub(crate) entry_selection: Option<super::workspace_entry_authority::EntrySelection>,
+    #[serde(default)]
     pub missing_sources: BTreeSet<String>,
     #[serde(default)]
     pub sources: BTreeMap<String, String>,
@@ -984,6 +986,9 @@ pub async fn inspect_construction(
 ) -> ApiResult<Json<Value>> {
     let root_lease=state.resource_root.check(state.index.root()).map_err(ApiError::conflict)?;
     let root = state.index.root().to_path_buf();
+    let entry=request.entry.clone();
+    let proof=request.entry_selection.clone();
+    super::behavior_readings::check_selected_entry(&state, &entry, proof.as_ref())?;
     let value=tokio::task::spawn_blocking(move || construction_reading(&root, request))
         .await
         .map_err(|error| {
@@ -994,6 +999,7 @@ pub async fn inspect_construction(
         .map(Json)
         .map_err(ApiError::unprocessable)?;
     if state.resource_root.check(state.index.root()).map_err(ApiError::conflict)?!=root_lease{return Err(ApiError::conflict("Workspace changed during construction observation."));}
+    super::behavior_readings::check_selected_entry(&state, &entry, proof.as_ref())?;
     Ok(value)
 }
 #[cfg(test)]

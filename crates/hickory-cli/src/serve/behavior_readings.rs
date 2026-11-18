@@ -22,6 +22,8 @@ use std::{
 pub struct ReadingRequest {
     pub version: u32,
     pub entry: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) entry_selection: Option<super::workspace_entry_authority::EntrySelection>,
     #[serde(default)]
     pub sources: BTreeMap<String, String>,
     #[serde(default)]
@@ -51,6 +53,20 @@ pub struct VerificationQuery {
 }
 fn root_lease(state:&LocalState)->ApiResult<String>{state.resource_root.check(state.index.root()).map(str::to_owned).map_err(ApiError::conflict)}
 fn root_current(state:&LocalState,expected:&str)->ApiResult<()>{if root_lease(state)?!=expected{return Err(ApiError::conflict("Workspace engine or physical root changed. No verification was started."));}Ok(())}
+pub(crate) fn check_selected_entry(
+    state: &LocalState,
+    address: &str,
+    proof: Option<&super::workspace_entry_authority::EntrySelection>,
+) -> ApiResult<()> {
+    if let Some(proof) = proof {
+        if proof.entry.path.as_deref() != Some(address) {
+            return Err(ApiError::conflict("The original workspace entry proof belongs to another construction address."));
+        }
+        super::workspace_entry_authority::validate_entry_selection(state, proof)
+            .map_err(ApiError::conflict)?;
+    }
+    Ok(())
+}
 fn intent_fingerprint(request: &VerifyRequest) -> Result<String, serde_json::Error> {
     serde_json::to_vec(request).map(|bytes| hash(&bytes))
 }
@@ -149,6 +165,7 @@ pub async fn profiles(
     Json(request): Json<ProfileRequest>,
 ) -> ApiResult<Json<Value>> {
     let engine=root_lease(&state)?;root_current(&state,&request.engine_workspace_id)?;
+    check_selected_entry(&state, &request.context.entry, request.context.entry_selection.as_ref())?;
     let root = state.index.root().to_path_buf();
     let context = request.context.clone();
     let build_root = root.clone();
@@ -157,6 +174,7 @@ pub async fn profiles(
         .map_err(|e| ApiError::internal(e.to_string()))?
         .map_err(ApiError::unprocessable)?;
     root_current(&state,&engine)?;
+    check_selected_entry(&state, &request.context.entry, request.context.entry_selection.as_ref())?;
     if built.value["verification_available"]!=true{return Err(ApiError::conflict("Physical source or construction authority is unavailable. Captured readings remain readable; verification was not started."));}
     if built.value["workspace_id"] != request.workspace_id
         || built.value["reading_fingerprint"] != request.reading_fingerprint
@@ -169,7 +187,9 @@ pub async fn profiles(
     source_tests::check_saved_sources(&root, &scan.source_hashes)?;
     root_current(&state,&engine)?;
     let query=profile_query(&request.context,&built)?;let provider=state.clone();let runtime=tokio::runtime::Handle::current();
-    let value=tokio::task::spawn_blocking(move||runtime.block_on(super::launch_profiles::list(State(provider),Json(query)))).await.map_err(|error|ApiError::internal(error.to_string()))??;root_current(&state,&engine)?;Ok(Json(verification_profiles(value.0).map_err(ApiError::unprocessable)?))
+    let value=tokio::task::spawn_blocking(move||runtime.block_on(super::launch_profiles::list(State(provider),Json(query)))).await.map_err(|error|ApiError::internal(error.to_string()))??;root_current(&state,&engine)?;
+    check_selected_entry(&state, &request.context.entry, request.context.entry_selection.as_ref())?;
+    Ok(Json(verification_profiles(value.0).map_err(ApiError::unprocessable)?))
 }
 fn preview_text(source:&str,start:usize,budget:&mut usize)->String {let mut text=String::new();for character in source.chars().skip(start).take(2000){if text.len()+character.len_utf8()>*budget{break}text.push(character)}*budget=budget.saturating_sub(text.len());text}
 fn attach_source_previews(root:&Path,request:&ReadingRequest,scan:Option<&source_tests::Scan>,graph:&mut Graph)->usize {
@@ -217,6 +237,7 @@ fn build(root: &Path, request: &ReadingRequest) -> Result<Built, String> {
     let construction = match source_tests::construction_reading(
         root,
         source_tests::ConstructionRequest {
+            entry_selection: None,
             entry: request.entry.clone(),
             sources: request.sources.clone(),
             missing_sources: request.missing_sources.clone(),
@@ -528,8 +549,13 @@ fn checked_execution_parts(root:&Path,context:&ReadingRequest,sources:&BTreeMap<
 fn terminal_receipt(value:&Value)->Value {let fields=["id","title","cwd","state","since_ms","monitor","cwd_is_live","exit_code"];Value::Object(fields.into_iter().filter_map(|key|value.get(key).map(|value|(key.to_string(),if let Some(text)=value.as_str(){json!(text.chars().take(if key=="cwd"{4096}else{512}).collect::<String>())}else{value.clone()}))).collect())}
 pub async fn reading(State(state):State<LocalState>,Json(request):Json<ReadingRequest>)->ApiResult<Json<Value>>{
  let engine=root_lease(&state)?;let root=state.index.root().to_path_buf();
+ let entry=request.entry.clone();
+ let proof=request.entry_selection.clone();
+ check_selected_entry(&state, &entry, proof.as_ref())?;
  let mut value=tokio::task::spawn_blocking(move||build(&root,&request).map(|b|b.value)).await.map_err(|e|ApiError::internal(e.to_string()))?.map_err(ApiError::unprocessable)?;
- root_current(&state,&engine)?;value["engine_workspace_id"]=json!(engine);Ok(Json(value))
+ root_current(&state,&engine)?;
+ check_selected_entry(&state, &entry, proof.as_ref())?;
+ value["engine_workspace_id"]=json!(engine);Ok(Json(value))
 }
 
 pub async fn verify(
@@ -548,6 +574,7 @@ pub async fn verify(
         return observe_owned(&state,&request.request_id,owned).map(Json);
     }
     let engine=root_lease(&state)?;root_current(&state,&request.engine_workspace_id)?;
+    check_selected_entry(&state, &request.context.entry, request.context.entry_selection.as_ref())?;
     let root = state.index.root().to_path_buf();
     let context = request.context.clone();
     let build_root = root.clone();
@@ -556,6 +583,7 @@ pub async fn verify(
         .map_err(|e| ApiError::internal(e.to_string()))?
         .map_err(ApiError::unprocessable)?;
     root_current(&state,&engine)?;
+    check_selected_entry(&state, &request.context.entry, request.context.entry_selection.as_ref())?;
     if built.value["verification_available"]!=true{return Err(ApiError::conflict("Physical source or construction authority is unavailable. Captured readings remain readable; verification was not started."));}
     if built.value["workspace_id"] != request.workspace_id
         || built.value["reading_fingerprint"] != request.reading_fingerprint
@@ -589,6 +617,7 @@ pub async fn verify(
     let guard_root=root.clone();let guard_context=request.context.clone();let guard_sources=scan.source_hashes.clone();let guard_tree=scan.tree.clone();let physical_outputs=request.profile.is_none();
     let checked_sources=tokio::task::spawn_blocking(move||checked_execution_parts(&guard_root,&guard_context,&guard_sources,guard_tree.as_ref(),physical_outputs)).await.map_err(|error|ApiError::internal(error.to_string()))?.map_err(ApiError::conflict)?;
     root_current(&state,&engine)?;
+    check_selected_entry(&state, &request.context.entry, request.context.entry_selection.as_ref())?;
     let mut receipt = json!({"version":1,"engine_workspace_id":engine,"workspace_identity_kind":"physical-root-v1","request_id":request.request_id,"request_fingerprint":request_fingerprint,"workspace_id":request.workspace_id,"reading_fingerprint":request.reading_fingerprint,"check_id":request.check_id,"label":check["label"],"profile":request.profile,"relationship":if request.profile.is_some(){"user-declared profile for this check"}else{"detected declaration in explicitly related module"},"started_ms":std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis(),"status":"admitting","outcome":"unknown","source_hashes":checked_sources,"execution_inputs_frozen":false,"notice":"Process-only verification; no collected test verdict is inferred."});
     if let Some(owned)=store::claim_owned(&state.resource_root,&state.terminals,&engine,&request.request_id,&receipt).map_err(ApiError::conflict)? {return observe_owned(&state,&request.request_id,owned).map(Json);}
     if let Err(error)=store::reserve(&root,&request.request_id,&receipt){receipt["status"]=json!("request-refused");receipt["error"]=json!(error);store::update_owned(&state.resource_root,&state.terminals,&request.request_id,None,receipt.clone(),None,false).map_err(ApiError::internal)?;return Ok(Json(receipt));}
@@ -596,8 +625,11 @@ pub async fn verify(
     if let Err(error)=root_current(&state,&engine){receipt["status"]=json!("request-refused");receipt["error"]=json!(error.detail());let owned=store::update_owned(&state.resource_root,&state.terminals,&request.request_id,None,receipt,None,false).map_err(ApiError::internal)?;return observe_owned(&state,&request.request_id,owned).map(Json);}
 
     let profile=request.profile.clone();let query=if profile.is_some(){Some(profile_query(&request.context,&built)?)}else{None};let provider=state.clone();let provider_engine=engine.clone();let runtime=tokio::runtime::Handle::current();let fingerprint=scan.fingerprint.clone();let analysis=built.analysis;
+    let entry_address = request.context.entry.clone();
+    let entry_selection = request.context.entry_selection.clone();
     let result=tokio::task::spawn_blocking(move||runtime.block_on(async move {
     root_current(&provider,&provider_engine)?;
+    check_selected_entry(&provider, &entry_address, entry_selection.as_ref())?;
     if let Some(profile) = profile {
         super::launch_profiles::run(
             State(provider),
@@ -679,25 +711,32 @@ fn source_page(root:&Path,request:SourceRequest)->Result<Value,String>{
  let mut target_status="whole-source";let mut start=0usize;if let Some(fragment)=node["fragment_id"].as_str(){let starts:Vec<_>=hick_lang::parse(&source).ok().map(|document|document.all_tags().into_iter().filter(|tag|tag.get_attribute("id")==Some(fragment)).filter_map(|tag|tag.source_span.filter(|span|span.file_id.is_none()).map(|span|span.start)).collect()).unwrap_or_default();if starts.len()==1{if let Some(prefix)=source.get(..starts[0]){start=prefix.chars().count().saturating_sub(800);target_status="observed-fragment-context";}}else{target_status=if starts.is_empty(){"missing-declared-fragment"}else{"ambiguous-declared-fragment"};}}
  let total=source.chars().count();let offset=request.offset.unwrap_or(start);if offset>total{return Err("Source page offset exceeds the captured scalar range.".into())}let text:String=source.chars().skip(offset).take(4000).collect();let count=text.chars().count();let next=(offset+count<total).then_some(offset+count);let page_hash=hash(text.as_bytes());Ok(json!({"version":1,"behavior_protocol":1,"workspace_id":request.workspace_id,"reading_fingerprint":request.reading_fingerprint,"node_id":request.node_id,"source_hash":request.source_hash,"page_hash":page_hash,"source_path":node["source_path"],"fragment_id":node["fragment_id"],"origin":origin,"target_status":target_status,"state":if origin=="saved-baseline"{"historical-deleted-baseline"}else{"captured"},"units":"unicode-scalars","offset":offset,"total":total,"next":next,"text":text,"notice":"Captured text only; current editor changes and later disk bytes are not silently adopted. Retained observation summaries are not raw collector reports or test verdicts."}))
 }
-pub async fn source(State(state):State<LocalState>,Json(request):Json<SourceRequest>)->ApiResult<Json<Value>>{let engine=root_lease(&state)?;let root=state.index.root().to_path_buf();let value=tokio::task::spawn_blocking(move||source_page(&root,request).map(Json)).await.map_err(|error|ApiError::internal(error.to_string()))?.map_err(ApiError::conflict)?;root_current(&state,&engine)?;Ok(value)}
+pub async fn source(State(state):State<LocalState>,Json(request):Json<SourceRequest>)->ApiResult<Json<Value>>{let engine=root_lease(&state)?;
+ let address=request.context.entry.clone();let proof=request.context.entry_selection.clone();
+ check_selected_entry(&state, &address, proof.as_ref())?;
+ let root=state.index.root().to_path_buf();
+ let value=tokio::task::spawn_blocking(move||source_page(&root,request).map(Json)).await.map_err(|error|ApiError::internal(error.to_string()))?.map_err(ApiError::conflict)?;
+ root_current(&state,&engine)?;
+ check_selected_entry(&state, &address, proof.as_ref())?;
+ Ok(value)}
 #[cfg(test)] mod tests {
  use super::*;
- #[test] fn valid_original_guard_does_not_authorize_unsaved_unselected_plain_text(){let temp=tempfile::tempdir().unwrap();let root=temp.path();std::fs::write(root.join("notes.txt"),"saved").unwrap();let guard=super::super::source_history::read_observed(root,&root.join("notes.txt"),"notes.txt").unwrap().save_guard.unwrap();let mut context=ReadingRequest{version:1,entry:"project.md".into(),sources:BTreeMap::from([("notes.txt".into(),"saved".into())]),missing_sources:BTreeSet::new(),unaddressed_sources:BTreeMap::new(),saved_guards:BTreeMap::from([("notes.txt".into(),guard)]),focus:None};assert!(retained_source_authority(root,&context,&BTreeMap::new()).is_ok());context.sources.insert("notes.txt".into(),"unsaved".into());assert!(retained_source_authority(root,&context,&BTreeMap::new()).unwrap_err().contains("unsaved"));assert_eq!(std::fs::read_to_string(root.join("notes.txt")).unwrap(),"saved");}
+ #[test] fn valid_original_guard_does_not_authorize_unsaved_unselected_plain_text(){let temp=tempfile::tempdir().unwrap();let root=temp.path();std::fs::write(root.join("notes.txt"),"saved").unwrap();let guard=super::super::source_history::read_observed(root,&root.join("notes.txt"),"notes.txt").unwrap().save_guard.unwrap();let mut context=ReadingRequest{version:1,entry_selection:None,entry:"project.md".into(),sources:BTreeMap::from([("notes.txt".into(),"saved".into())]),missing_sources:BTreeSet::new(),unaddressed_sources:BTreeMap::new(),saved_guards:BTreeMap::from([("notes.txt".into(),guard)]),focus:None};assert!(retained_source_authority(root,&context,&BTreeMap::new()).is_ok());context.sources.insert("notes.txt".into(),"unsaved".into());assert!(retained_source_authority(root,&context,&BTreeMap::new()).unwrap_err().contains("unsaved"));assert_eq!(std::fs::read_to_string(root.join("notes.txt")).unwrap(),"saved");}
  #[test] fn attach_profiles_remain_explicitly_unavailable_for_relevant_run(){let value=verification_profiles(json!({"fingerprint":"inventory","profiles":[{"id":"external","name":"Inspect existing process","attach":{"host":"127.0.0.1","port":5678}},{"id":"manual","name":"Run declared profile"}],"notices":["Provider notice"]})).unwrap();assert_eq!(value["profiles"].as_array().unwrap().len(),1);assert_eq!(value["profiles"][0]["id"],"manual");assert!(value["notices"].as_array().unwrap().iter().any(|notice|notice.as_str().is_some_and(|notice|notice.contains("attach profile unavailable"))));}
- #[test] fn retained_constructions_require_selected_named_context_and_original_guards(){let root=tempfile::tempdir().unwrap();let mut context=ReadingRequest{version:1,entry:"project.md".into(),sources:BTreeMap::new(),missing_sources:BTreeSet::new(),unaddressed_sources:BTreeMap::new(),saved_guards:BTreeMap::new(),focus:None};context.unaddressed_sources.insert("opaque-owner".into(),"ordinary unsaved notes".into());assert!(retained_source_authority(root.path(),&context,&BTreeMap::new()).is_ok());let declaration="<h:doc xmlns:h=\"http://www.hickorydocs.com/1.0\"><h:include path=\"elsewhere.md\"/></h:doc>";context.unaddressed_sources.insert("opaque-owner".into(),declaration.into());assert!(retained_source_authority(root.path(),&context,&BTreeMap::new()).unwrap_err().contains("unaddressed"));context.unaddressed_sources.clear();context.sources.insert("construction.unusual".into(),declaration.into());assert!(retained_source_authority(root.path(),&context,&BTreeMap::new()).unwrap_err().contains("Originally loaded"));context.saved_guards.insert("construction.unusual".into(),"original-token".into());assert!(retained_source_authority(root.path(),&context,&BTreeMap::new()).unwrap_err().contains("outside the selected"));}
- #[test] fn exact_profile_observation_anchor_uses_a_typed_regular_compiler_output(){let temporary=tempfile::tempdir().unwrap();let root=temporary.path();std::fs::write(root.join("project.md"),"<h:doc xmlns:h=\"http://www.hickorydocs.com/1.0\"><h:project sources=\"part.md\"/></h:doc>").unwrap();std::fs::write(root.join("part.md"),"<h:doc xmlns:h=\"http://www.hickorydocs.com/1.0\"><h:file path=\"literal%2F #.py\">value=41</h:file></h:doc>").unwrap();let request=ReadingRequest{version:1,unaddressed_sources:BTreeMap::new(),saved_guards:BTreeMap::new(),entry:"project.md".into(),sources:BTreeMap::new(),missing_sources:BTreeSet::new(),focus:Some("literal%2F #.py".into())};let built=build(root,&request).unwrap();assert_eq!(built.value["profile_source"],"literal%2F #.py","{}",built.value);let query=profile_query(&request,&built).unwrap();assert_eq!(query.program.as_deref(),Some("literal%2F #.py"));assert_eq!(query.uri,"hick:///project.md");}
- #[test] fn saved_verification_rejects_stale_known_outputs_and_hashes_binary_assets_without_text_coercion(){let temporary=tempfile::tempdir().unwrap();let root=temporary.path();std::fs::write(root.join("project.md"),"<h:doc xmlns:h=\"http://www.hickorydocs.com/1.0\"><h:project sources=\"part.md\"/></h:doc>").unwrap();std::fs::write(root.join("part.md"),"<h:doc xmlns:h=\"http://www.hickorydocs.com/1.0\"><h:file path=\"a.py\">value=41</h:file></h:doc>").unwrap();std::fs::write(root.join("a.py"),"value=41").unwrap();let context=ReadingRequest{version:1,unaddressed_sources:BTreeMap::new(),saved_guards:BTreeMap::new(),entry:"project.md".into(),sources:BTreeMap::new(),missing_sources:BTreeSet::new(),focus:Some("a.py".into())};let mut built=build(root,&context).unwrap();let scan=built.scan.as_mut().unwrap();let binary=vec![0,255,128,1];scan.tree.as_mut().unwrap().insert("asset.bin",hick_lang::ProjectEntry::file(binary.clone())).unwrap();std::fs::write(root.join("asset.bin"),binary).unwrap();assert!(checked_execution_parts(root,&context,&scan.source_hashes,scan.tree.as_ref(),true).unwrap().contains_key("asset.bin"));std::fs::write(root.join("a.py"),"value=99").unwrap();assert!(checked_execution_parts(root,&context,&scan.source_hashes,scan.tree.as_ref(),true).is_err());assert!(checked_execution_parts(root,&context,&scan.source_hashes,scan.tree.as_ref(),false).is_ok());}
+ #[test] fn retained_constructions_require_selected_named_context_and_original_guards(){let root=tempfile::tempdir().unwrap();let mut context=ReadingRequest{version:1,entry_selection:None,entry:"project.md".into(),sources:BTreeMap::new(),missing_sources:BTreeSet::new(),unaddressed_sources:BTreeMap::new(),saved_guards:BTreeMap::new(),focus:None};context.unaddressed_sources.insert("opaque-owner".into(),"ordinary unsaved notes".into());assert!(retained_source_authority(root.path(),&context,&BTreeMap::new()).is_ok());let declaration="<h:doc xmlns:h=\"http://www.hickorydocs.com/1.0\"><h:include path=\"elsewhere.md\"/></h:doc>";context.unaddressed_sources.insert("opaque-owner".into(),declaration.into());assert!(retained_source_authority(root.path(),&context,&BTreeMap::new()).unwrap_err().contains("unaddressed"));context.unaddressed_sources.clear();context.sources.insert("construction.unusual".into(),declaration.into());assert!(retained_source_authority(root.path(),&context,&BTreeMap::new()).unwrap_err().contains("Originally loaded"));context.saved_guards.insert("construction.unusual".into(),"original-token".into());assert!(retained_source_authority(root.path(),&context,&BTreeMap::new()).unwrap_err().contains("outside the selected"));}
+ #[test] fn exact_profile_observation_anchor_uses_a_typed_regular_compiler_output(){let temporary=tempfile::tempdir().unwrap();let root=temporary.path();std::fs::write(root.join("project.md"),"<h:doc xmlns:h=\"http://www.hickorydocs.com/1.0\"><h:project sources=\"part.md\"/></h:doc>").unwrap();std::fs::write(root.join("part.md"),"<h:doc xmlns:h=\"http://www.hickorydocs.com/1.0\"><h:file path=\"literal%2F #.py\">value=41</h:file></h:doc>").unwrap();let request=ReadingRequest{version:1,entry_selection:None,unaddressed_sources:BTreeMap::new(),saved_guards:BTreeMap::new(),entry:"project.md".into(),sources:BTreeMap::new(),missing_sources:BTreeSet::new(),focus:Some("literal%2F #.py".into())};let built=build(root,&request).unwrap();assert_eq!(built.value["profile_source"],"literal%2F #.py","{}",built.value);let query=profile_query(&request,&built).unwrap();assert_eq!(query.program.as_deref(),Some("literal%2F #.py"));assert_eq!(query.uri,"hick:///project.md");}
+ #[test] fn saved_verification_rejects_stale_known_outputs_and_hashes_binary_assets_without_text_coercion(){let temporary=tempfile::tempdir().unwrap();let root=temporary.path();std::fs::write(root.join("project.md"),"<h:doc xmlns:h=\"http://www.hickorydocs.com/1.0\"><h:project sources=\"part.md\"/></h:doc>").unwrap();std::fs::write(root.join("part.md"),"<h:doc xmlns:h=\"http://www.hickorydocs.com/1.0\"><h:file path=\"a.py\">value=41</h:file></h:doc>").unwrap();std::fs::write(root.join("a.py"),"value=41").unwrap();let context=ReadingRequest{version:1,entry_selection:None,unaddressed_sources:BTreeMap::new(),saved_guards:BTreeMap::new(),entry:"project.md".into(),sources:BTreeMap::new(),missing_sources:BTreeSet::new(),focus:Some("a.py".into())};let mut built=build(root,&context).unwrap();let scan=built.scan.as_mut().unwrap();let binary=vec![0,255,128,1];scan.tree.as_mut().unwrap().insert("asset.bin",hick_lang::ProjectEntry::file(binary.clone())).unwrap();std::fs::write(root.join("asset.bin"),binary).unwrap();assert!(checked_execution_parts(root,&context,&scan.source_hashes,scan.tree.as_ref(),true).unwrap().contains_key("asset.bin"));std::fs::write(root.join("a.py"),"value=99").unwrap();assert!(checked_execution_parts(root,&context,&scan.source_hashes,scan.tree.as_ref(),true).is_err());assert!(checked_execution_parts(root,&context,&scan.source_hashes,scan.tree.as_ref(),false).is_ok());}
  #[test] fn request_identity_binds_the_complete_typed_context_and_profile(){let context=json!({"version":1,"entry":"project.md","sources":{"a.md":"one"},"missing_sources":[],"focus":"a.py"});let base=json!({"version":1,"engine_workspace_id":"engine","workspace_id":"workspace","reading_fingerprint":"reading","check_id":"check","request_id":"0123456789abcdef0123456789abcdef","context":context,"profile":{"id":"one","fingerprint":"inventory"}});let fingerprint=intent_fingerprint(&serde_json::from_value(base.clone()).unwrap()).unwrap();for mutation in ["profile","context","check","workspace"]{let mut changed=base.clone();match mutation{"profile"=>changed["profile"]["id"]=json!("two"),"context"=>changed["context"]["sources"]["a.md"]=json!("two"),"check"=>changed["check_id"]=json!("different"),_=>changed["workspace_id"]=json!("different")};assert_ne!(intent_fingerprint(&serde_json::from_value(changed).unwrap()).unwrap(),fingerprint);}}
  #[test] fn invalid_drafts_and_deleted_contributors_keep_declared_readings_but_retire_execution(){
   let temporary=tempfile::tempdir().unwrap();let root=temporary.path();std::fs::create_dir(root.join("hickory-dogfood")).unwrap();std::fs::write(root.join("project.md"),"<h:doc xmlns:h=\"http://www.hickorydocs.com/1.0\"><h:project sources=\"source.md\"/></h:doc>").unwrap();std::fs::write(root.join("source.md"),"<h:doc xmlns:h=\"http://www.hickorydocs.com/1.0\"><h:file path=\"a.py\">value=41</h:file></h:doc>").unwrap();std::fs::write(root.join("behavior#%2F.md"),"Readable behavior contract").unwrap();std::fs::write(root.join("hickory-dogfood/behavior-map.json"),json!({"format":1,"contracts":{"c":{"page":"behavior#%2F.md","title":"Readable behavior","references":["source.md"],"tests":[{"runner":"external","file":"unavailable","name":"declared check"}]}}}).to_string()).unwrap();
-  let mut request=ReadingRequest{version:1,unaddressed_sources:BTreeMap::new(),saved_guards:BTreeMap::new(),entry:"project.md".into(),sources:BTreeMap::from([("source.md".into(),"<h:doc xmlns:h=\"http://www.hickorydocs.com/1.0\"><h:file path=\"../outside.py\">value=41</h:file></h:doc>".into())]),missing_sources:BTreeSet::new(),focus:Some("source.md".into())};
+  let mut request=ReadingRequest{version:1,entry_selection:None,unaddressed_sources:BTreeMap::new(),saved_guards:BTreeMap::new(),entry:"project.md".into(),sources:BTreeMap::from([("source.md".into(),"<h:doc xmlns:h=\"http://www.hickorydocs.com/1.0\"><h:file path=\"../outside.py\">value=41</h:file></h:doc>".into())]),missing_sources:BTreeSet::new(),focus:Some("source.md".into())};
   let invalid=build(root,&request).unwrap();assert_eq!(invalid.value["verification_available"],false);assert_eq!(invalid.value["construction"]["status"],"unavailable");assert!(invalid.value["graph"]["nodes"].as_object().unwrap().values().any(|node|node["preview"].as_str().is_some_and(|text|text.contains("Readable behavior contract"))));assert!(invalid.scan.is_none());
   request.sources.clear();std::fs::remove_file(root.join("source.md")).unwrap();let deleted=build(root,&request).unwrap();assert_eq!(deleted.value["verification_available"],false);assert!(!deleted.value["graph"]["checks"].as_array().unwrap().is_empty());assert!(deleted.value["impact"]["construction_error"].is_string());
  }
 }
 #[cfg(test)] mod source_page_tests {
  use super::*;
- fn fixture()->(tempfile::TempDir,ReadingRequest){let temporary=tempfile::tempdir().unwrap();let root=temporary.path();std::fs::create_dir(root.join("hickory-dogfood")).unwrap();std::fs::write(root.join("project.md"),"<h:doc xmlns:h=\"http://www.hickorydocs.com/1.0\"><h:project sources=\"literal#source.md\"/></h:doc>").unwrap();let source=format!("<h:doc xmlns:h=\"http://www.hickorydocs.com/1.0\">\n{}\n## Explanation beyond the abbreviation\n\nThis is the explicitly declared later explanation.\n<h:copy id=\"later\">\ndef answer():\n    return 41\n</h:copy>\n<h:file path=\"a.py\"><h:paste select=\"#later\"/></h:file>\n</h:doc>","Earlier retained prose 😀.\n".repeat(240));std::fs::write(root.join("literal#source.md"),source).unwrap();std::fs::write(root.join("contract#literal.md"),format!("{}end","😀".repeat(4100))).unwrap();std::fs::write(root.join("hickory-dogfood/behavior-map.json"),json!({"format":1,"contracts":{"answer":{"page":"contract#literal.md","disposition":"retained-requirement","title":"Answer behavior","references":["a.py"]}}}).to_string()).unwrap();std::fs::write(root.join("hickory-dogfood/narrative-map.json"),json!({"format":1,"fragments":[{"id":"later","page":"literal#source.md","output":"a.py","symbol":"answer","basis":"needs-explanation"}]}).to_string()).unwrap();(temporary,ReadingRequest{version:1,unaddressed_sources:BTreeMap::new(),saved_guards:BTreeMap::new(),entry:"project.md".into(),sources:BTreeMap::new(),missing_sources:BTreeSet::new(),focus:Some("a.py".into())})}
+ fn fixture()->(tempfile::TempDir,ReadingRequest){let temporary=tempfile::tempdir().unwrap();let root=temporary.path();std::fs::create_dir(root.join("hickory-dogfood")).unwrap();std::fs::write(root.join("project.md"),"<h:doc xmlns:h=\"http://www.hickorydocs.com/1.0\"><h:project sources=\"literal#source.md\"/></h:doc>").unwrap();let source=format!("<h:doc xmlns:h=\"http://www.hickorydocs.com/1.0\">\n{}\n## Explanation beyond the abbreviation\n\nThis is the explicitly declared later explanation.\n<h:copy id=\"later\">\ndef answer():\n    return 41\n</h:copy>\n<h:file path=\"a.py\"><h:paste select=\"#later\"/></h:file>\n</h:doc>","Earlier retained prose 😀.\n".repeat(240));std::fs::write(root.join("literal#source.md"),source).unwrap();std::fs::write(root.join("contract#literal.md"),format!("{}end","😀".repeat(4100))).unwrap();std::fs::write(root.join("hickory-dogfood/behavior-map.json"),json!({"format":1,"contracts":{"answer":{"page":"contract#literal.md","disposition":"retained-requirement","title":"Answer behavior","references":["a.py"]}}}).to_string()).unwrap();std::fs::write(root.join("hickory-dogfood/narrative-map.json"),json!({"format":1,"fragments":[{"id":"later","page":"literal#source.md","output":"a.py","symbol":"answer","basis":"needs-explanation"}]}).to_string()).unwrap();(temporary,ReadingRequest{version:1,entry_selection:None,unaddressed_sources:BTreeMap::new(),saved_guards:BTreeMap::new(),entry:"project.md".into(),sources:BTreeMap::new(),missing_sources:BTreeSet::new(),focus:Some("a.py".into())})}
  fn query(root:&Path,context:&ReadingRequest,kind:&str)->SourceRequest{let built=build(root,context).unwrap();let node=built.value["graph"]["nodes"].as_object().unwrap().values().find(|node|node["kind"]==kind).unwrap();SourceRequest{version:1,workspace_id:built.value["workspace_id"].as_str().unwrap().into(),reading_fingerprint:built.value["reading_fingerprint"].as_str().unwrap().into(),node_id:node["id"].as_str().unwrap().into(),source_hash:node["hash"].as_str().unwrap().into(),context:context.clone(),offset:None}}
  #[test] fn source_pages_reach_later_declared_context_and_preserve_literal_paths(){let (temporary,context)=fixture();let value=source_page(temporary.path(),query(temporary.path(),&context,"explanation")).unwrap();assert!(value["offset"].as_u64().unwrap()>2000);assert!(value["text"].as_str().unwrap().contains("explicitly declared later explanation"));assert_eq!(value["source_path"],"literal#source.md");assert_eq!(value["fragment_id"],"later");assert_eq!(value["target_status"],"observed-fragment-context");assert_eq!(value["page_hash"],hash(value["text"].as_str().unwrap().as_bytes()));assert!(!temporary.path().join("a.py").exists());}
  #[test] fn scalar_pages_are_bounded_and_refuse_foreign_stale_and_out_of_range_reads(){let (temporary,context)=fixture();let request=query(temporary.path(),&context,"contract");let value=source_page(temporary.path(),request.clone()).unwrap();assert_eq!(value["text"].as_str().unwrap().chars().count(),4000);assert_eq!(value["next"],4000);let mut next=request.clone();next.offset=Some(4000);let tail=source_page(temporary.path(),next).unwrap();assert_eq!(tail["text"].as_str().unwrap().chars().count(),103);for change in ["workspace","reading","node","source","offset"]{let mut changed=request.clone();match change{"workspace"=>changed.workspace_id="f".repeat(64),"reading"=>changed.reading_fingerprint="f".repeat(64),"node"=>changed.node_id="unknown".into(),"source"=>changed.source_hash="f".repeat(64),_=>changed.offset=Some(999999)}assert!(source_page(temporary.path(),changed).is_err());}std::fs::write(temporary.path().join("contract#literal.md"),"newer same-named disk text").unwrap();assert!(source_page(temporary.path(),request).is_err());}
