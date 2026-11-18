@@ -3,9 +3,15 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.input.TextFieldLineLimits
+import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.CancellationException
@@ -26,6 +32,8 @@ private fun captureDraftHistory(plan:ChangePlan,workspace:Workspace):WorkspaceDr
 }
 class WorkspaceChanges {
     var entrySelection by mutableStateOf<FrozenWorkspaceEntrySelection?>(null);private set
+    var entryDestination by mutableStateOf(TextFieldState()); private set
+    var preparingEntryMove by mutableStateOf(false); private set
     private var entryScope=0L
     var mode by mutableStateOf<String?>(null)
     var name by mutableStateOf(""); private set
@@ -59,8 +67,20 @@ class WorkspaceChanges {
         if(mode=="entryMove")workspace.resourceChanges.dismiss()
         retireEntryMove();mode=null;workspace.currentBuffer?.focusSource?.invoke()
     }
-    internal fun retireEntryMove(){entryScope++;entrySelection=null}
-    fun updateName(value: String) { revision++; name=value; plan=null; choices=emptyList(); notice="" }
+    internal fun retireEntryMove() {
+        entryScope++
+        entrySelection = null
+        entryDestination = TextFieldState()
+        preparingEntryMove = false
+    }
+    fun updateName(value: String) {
+        revision++
+        if (mode == "entryMove") entryDestination.edit { replace(0, length, value) }
+        else name = value
+        plan = null
+        choices = emptyList()
+        notice = ""
+    }
     fun open(kind: String, workspace: Workspace) {
         revision++;retireEntryMove();mode=kind;name="";plan=null;choices=emptyList();notice="";actionPage=0
         if(kind=="entryMove"){
@@ -100,15 +120,24 @@ class WorkspaceChanges {
     suspend fun prepare(workspace: Workspace,proposal:(suspend (String,String)->Any)?=null,resolution:(suspend (JSONObject)->JSONObject)?=null,acquisition:(suspend (String)->SourceSnapshot)?=null,enforceProviderProofs:Boolean=false) {
         if(mode=="entryMove"){
             val selection=entrySelection ?: return
-            val destination=name
-            if(destination.isEmpty()||destination==selection.entryPath)return
-            val request=++revision
-            val valid={revision==request&&selection.current()}
-            notice="Preparing the main construction move…"
-            workspace.resourceChanges.prepareEntryMove(workspace,selection,destination,valid)
-            if(valid()){
-                if(workspace.resourceChanges.review!=null)mode=null
-                else notice=workspace.resourceChanges.notice
+            val field = entryDestination
+            val destination = field.text.toString()
+            if (preparingEntryMove || field.composition != null || destination.isEmpty() || destination == selection.entryPath) return
+            val request = ++revision
+            val valid = {
+                revision == request && entryDestination === field && field.text.contentEquals(destination) &&
+                    field.composition == null && selection.current()
+            }
+            preparingEntryMove = true
+            notice = "Preparing the main construction move…"
+            try {
+                workspace.resourceChanges.prepareEntryMove(workspace, selection, destination, valid)
+                if (valid()) {
+                    if (workspace.resourceChanges.review != null) mode = null
+                    else notice = workspace.resourceChanges.notice
+                }
+            } finally {
+                if (entryDestination === field) preparingEntryMove = false
             }
             return
         }
@@ -288,8 +317,29 @@ fun Workspace.applyWorkspacePlan(plan: ChangePlan) {
         if (changes.mode=="rename") OutlinedTextField(changes.name,{changes.updateName(it)},label={Text("New symbol name")},singleLine=true)
         if(changes.mode=="entryMove")changes.entrySelection?.entryPath?.let{path->
             Text("Current main construction $path")
-            OutlinedTextField(changes.name,{changes.updateName(it)},label={Text("New workspace-relative path")},singleLine=true,enabled=!workspace.resourceChanges.hasPending)
-            TextButton(enabled=changes.name.isNotEmpty()&&changes.name!=path&&!workspace.resourceChanges.busy&&!workspace.resourceChanges.hasPending,onClick={scope.launch{changes.prepare(workspace)}}){Text("Prepare move")}
+            val destination = changes.entryDestination
+            val editing = !changes.preparingEntryMove && !workspace.resourceChanges.hasPending
+            val keyboard = LocalSoftwareKeyboardController.current
+            var destinationFocused by remember(destination) { mutableStateOf(false) }
+            LaunchedEffect(destinationFocused) {
+                if (destinationFocused) {
+                    withFrameNanos { }
+                    keyboard?.show()
+                }
+            }
+            OutlinedTextField(
+                state = destination,
+                modifier = Modifier.onFocusChanged { destinationFocused = it.isFocused },
+                label = { Text("New workspace-relative path") },
+                lineLimits = TextFieldLineLimits.SingleLine,
+                keyboardOptions = KeyboardOptions(autoCorrectEnabled = false, imeAction = ImeAction.Done),
+                enabled = editing,
+            )
+            TextButton(
+                enabled = editing && !workspace.resourceChanges.busy && destination.composition == null &&
+                    destination.text.isNotEmpty() && !destination.text.contentEquals(path),
+                onClick = { scope.launch { changes.prepare(workspace) } },
+            ) { Text("Prepare move") }
         }
         if (changes.mode!="undo" && changes.mode!="redo" && changes.mode!="proposal" && changes.mode!="entryMove") TextButton(enabled=changes.mode!="rename" || changes.name.isNotBlank(),onClick={scope.launch {changes.prepare(workspace)}}) { Text(if(changes.mode=="fixAll") "Prepare file-wide diagnostic fixes" else if(changes.mode=="sourceActions") "Prepare source actions" else if(changes.mode=="actions") "Prepare provider actions" else if(changes.mode=="format") "Prepare formatting" else if(changes.mode=="cleanup") "Prepare cleanup" else "Prepare rename") }
         if (changes.notice.isNotEmpty()) Text(changes.notice,fontSize=12.sp)

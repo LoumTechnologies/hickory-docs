@@ -32,14 +32,14 @@ an earlier open item only for the behavior it actually exercises.
 | Required outcome | Current usable evidence and remaining acceptance |
 | --- | --- |
 | Navigation and code intelligence | Search Everywhere, file and saved-text search, outlines, semantic locations and back/forward have focused receipts. The genuine Python browser witness covers cross-file definitions/usages and caller/callee queries. Configured csharp-ls adds browser definitions, usages and history. A controlled child covers standard LSP type hierarchy, including browser rendering and native protocol/model checks. Installed basedpyright and TypeScript Language Server read ordinary Markdown fences on browser, mounted macOS and the Android controller. Mounted iOS reached saved search and caret history. An Android controller navigated into a literal source tab while Agent was open. Index breadth depends on the installed provider. Unavailable capabilities and unsupported fence actions leave authored text readable. |
-| Refactoring, cleanup, generation, templates and history | Genuine basedpyright and configured csharp-ls cover cross-file rename in the browser. TypeScript Language Server 6.1.0 with TypeScript 6.0.3 covers extraction, accessor generation, cleanup and Move to a new file on browser, mounted macOS and the Android controller. Guarded native action and formatting receipts include controlled providers. Preview holds the complete edit. Missing preimages, commands without supported effects and changed owner revisions refuse the group. Later template receipts close the earlier embedded and multi-caret catalog gaps. Expanded regex and source-bound variable programs retain their syntax and work bounds. Mounted iOS and rendered Android covered reviewed Cleanup. Mounted iOS also replayed native Paste, coordinated Cleanup Undo/Redo and the genuine CRLF TypeScript extraction. |
+| Refactoring, cleanup, generation, templates and history | Genuine basedpyright and configured csharp-ls cover cross-file rename in the browser. TypeScript Language Server 6.1.0 with TypeScript 6.0.3 covers extraction, accessor generation, cleanup and Move to a new file on browser, mounted macOS and the Android controller. Guarded native action and formatting receipts include controlled providers. Preview holds the complete edit. Missing preimages, commands without supported effects and changed owner revisions refuse the group. Later template receipts close the earlier embedded and multi-caret catalog gaps. Expanded regex and source-bound variable programs retain their syntax and work bounds. Mounted iOS and rendered Android covered reviewed Cleanup. Mounted iOS also replayed native Paste, coordinated Cleanup Undo/Redo and the genuine CRLF and LF TypeScript extraction. |
 | Diagnostics and contextual fixes | Genuine basedpyright browser and rendered Android Problems, configured csharp-ls browser Problems, and clangd mounted iOS Problems exercised exact source navigation. Real clangd engine coverage includes the missing-semicolon quick fix. Controlled-child receipts cover complete-file `source.fixAll` acquisition, review, draft Apply and Undo/Redo on browser, mounted macOS and the Android controller, including a prose-origin action that acquires its copy contributor. Stale and unversioned diagnostics stay readable. Precise navigation and application require matching authority. Mounted iOS exercised the genuine clangd missing-semicolon Quick Fix through review, draft Apply and coordinated Undo/Redo. Provider workspace completeness and additional source mappings remain open. |
 | Testing and coverage | Discovery, failed results, coverage and failed-only reruns have provider receipts for pytest, Jest, Vitest, Cargo with cargo-llvm-cov, and .NET with Coverlet. Connected pytest runs on browser, macOS and the Android controller. Mounted iOS executed selected pytest and rendered a collected failure and coverage. Rendered Android ran the saved Rust case and retained exit 0. Rendered Android discovered both pytest cases, retained a coverage run and reran only the deliberate failure. Source-adjacent Run and Debug distinguish process exit from a provider verdict. Unsupported runners and stale, missing or ambiguous test identities refuse selection. Coverage navigation requires matching source hashes. |
-| Review, staging, attribution, conflicts and recovery | Browser, macOS and Android controller receipts cover Git status/diffs, history, attribution, shared conflict composition including deletion/rename, staging, local source history and guarded Save As. Later complete 32-session recovery management and three exact revisions supersede the earlier capacity gap. Browser reload, native restart and mounted iOS compact recovery cover retained drafts, layout and view state. Shared publisher Move and interruption have rendered browser, mounted macOS and Android controller receipts. Mounted iOS completed cold recovery with the original path present and deleted, plus the six-publication older Move chain. Rendered Android completed cold recovery for the copied-destination fixture. The first dirty Move passed on the Android renderer. The second destination input and remaining Undo/Redo publications still need acceptance. |
-| Debugging | Genuine debugpy launch/loopback attach and LLDB canonical C launch/PID attach pass on browser, macOS and the Android controller. Scoped receipts cover profiles, conditional breakpoints, threads, deep frames, evaluation, source navigation, Continue and retained outcomes. Browser and mounted iOS application launches also passed with netcoredbg for .NET and js-debug for Node.js. Saved source-test Debug has verified pytest/debugpy and Cargo/LLDB adapters. Rust binds the selected declaration to the compiled inline or external-module function before exact harness selection, with engine and host acceptance for plain and compiler-authored source. Mounted iOS reached the real selected Rust breakpoint after a build exceeded 30 seconds. Rendered Android paused the selected pytest test at its saved body line, continued and retained exit 0. Additional adapter/host combinations still need acceptance. |
+| Review, staging, attribution, conflicts and recovery | Browser, macOS and Android controller receipts cover Git status/diffs, history, attribution, shared conflict composition including deletion/rename, staging, local source history and guarded Save As. Later complete 32-session recovery management and three exact revisions supersede the earlier capacity gap. Browser reload, native restart and mounted iOS compact recovery cover retained drafts, layout and view state. Shared publisher Move and interruption have rendered browser, mounted macOS and Android controller receipts. Mounted iOS completed cold recovery with the original path present and deleted, plus the six-publication older Move chain. Rendered Android completed cold recovery for the copied-destination fixture. Rendered Android completed both dirty Moves and both pairs of workspace Undo and Redo, preserving exact saved bytes, draft text, entry identity and editor frame. Android key events supplied both destinations. Software-keyboard acceptance remains open. |
+| Debugging | Genuine debugpy launch/loopback attach and LLDB canonical C launch/PID attach pass on browser, macOS and the Android controller. Scoped receipts cover profiles, conditional breakpoints, threads, deep frames, evaluation, source navigation, Continue and retained outcomes. Browser, mounted macOS and mounted iOS application launches also passed with netcoredbg for .NET and js-debug for Node.js. Saved source-test Debug has verified pytest/debugpy and Cargo/LLDB adapters. Rust binds the selected declaration to the compiled inline or external-module function before exact harness selection, with engine and host acceptance for plain and compiler-authored source. Mounted iOS reached the real selected Rust breakpoint after a build exceeded 30 seconds. Rendered Android paused the selected pytest test and a netcoredbg .NET application at their saved lines, continued and retained exit 0. Rendered Android reached a genuine saved Node.js breakpoint with its locals. Android Node Continue and expression Watch remain open. |
 | Connected behavior readings | Browser, mounted macOS and Android controller have guarded contract, explanation, implementation, generated, test and evidence readings through the captured construction graph, including dirty contributors. Mounted iOS opened the connected reading and exercised its source-staleness boundary. Default entry reads carry their original proof through execution admission. Missing mappings and stale captures retain their own status. |
 | Change impact and relevant verification | Browser, mounted macOS and Android controller have scoped compiler consequences, bounded declared relationships, selected checks/profiles and retained process-only results. Mounted iOS reached the selected process-only receipt from its connected reading. Undeclared dependencies remain unknown. A command exit supplies process evidence. Independent verification requires a source-bound receipt. |
-| Agent proposal review and guarded application | Owned managed-provider flows on browser, macOS and the Android controller cover a sealed complete review, original-context application, coordinated draft history and separate resource publication. Mounted iOS also passed managed two-draft Apply and coordinated Undo/Redo. Rendered Android and mounted iOS read sealed historical material without restoring application authority. Mounted iOS also completed a guarded resource rename and its reviewed inverse. Rendered Android applied a live caller-prepared proposal to two drafts. Rendered managed-provider Apply and external provider breadth remain open. |
+| Agent proposal review and guarded application | Owned managed-provider flows on browser, macOS and the Android controller cover a sealed complete review, original-context application, coordinated draft history and separate resource publication. Mounted iOS also passed managed two-draft Apply and coordinated Undo/Redo. Rendered Android and mounted iOS read sealed historical material without restoring application authority. Mounted iOS also completed a guarded resource rename and its reviewed inverse. Rendered Android applied a live caller-prepared proposal and an owned managed-provider proposal to two drafts in separate replays. Rendered managed Send and coordinated Undo/Redo, plus external provider breadth, remain open. |
 
 Across all rows, the evidence distinguishes engine protocols, native controllers,
 mounted AppKit/UIKit, rendered browser and rendered Android. Physical input,
@@ -207,8 +207,12 @@ different bytes from the reviewed multi-edit patch. After the exact storage
 fix, the CRLF and supplementary-Unicode replay preserved the planned text in
 both the mounted editor and model. Undo recovered the exact dirty draft and
 Redo restored the reviewed result with the original editor and saved bytes.
-The focused receipt is `mounted-typescript-uvpaqkz1`. The LF case awaits a
-separate replay on that build.
+The focused receipt is `mounted-typescript-uvpaqkz1`. A separate mounted
+UIKit replay of the genuine LF case passed one XCTest with zero failures
+and zero skips. Review, Apply and both history steps kept
+the exact LF bytes, the earlier dirty Paste, the original editor and saved
+source. The XCTest bundle, fixture receipt and simulator cleanup are under
+`target/ios-parity/lf-harness.3c5onn1o/focused.XXXXXXXX-receipts`.
 The maintained hosted suite repeated the CRLF extraction and two-draft
 managed Apply after the fix. Both passed one case with zero skips, with
 receipts under `target/ios-parity/maintained-exact-reflection`.
@@ -219,8 +223,11 @@ the provisional Japanese candidates in the primary field, mirrored on commit,
 replayed composition Undo/Redo and then successfully undid the earlier Paste.
 The retained result bundles are `mounted-typescript-fhnbwuu7`,
 `mounted-uikit-composition-c3itk45s` and `mounted-uikit-composition-bends7zx`.
-The paired physical iPhone was offline, leaving physical input, device IME
-and VoiceOver without device acceptance.
+The paired physical iPhone was offline. A fresh Xcode 27.0 CoreDevice query
+again reported it as `unavailable`. Physical input, device IME and VoiceOver
+acceptance remain blocked. The two status receipts are under
+`target/ios-parity/physical-device-availability-cjc9xsc7` and
+`target/ios-parity/physical-device-availability-hh0i2srf`.
 
 ### Other fresh focused flows
 
@@ -335,7 +342,7 @@ line 2, continued and retained exit 0. The saved source stayed exact and the
 sibling did not execute. The paused and retained-process screens are in the
 same receipt directory under `debug`.
 
-The final rendered lineage replay published the first dirty Move from
+An earlier rendered lineage replay published the first dirty Move from
 `project.md` to `b`. One resource-save request returned HTTP 200. The
 editor retained the exact draft and frame without fetching a new baseline,
 while the destination held the saved bytes. The logical entry kept its
@@ -344,6 +351,46 @@ The second destination field had focus but stayed empty after text
 injection, and Gboard stayed hidden. The replay stopped before a second
 publication. The confirmed first transition and the blocked second form
 are in `final-android-5ug201y6/lineage` under the same receipts directory.
+
+The subsequent API 36 replay began with 10.18 GiB available and used the
+APK with SHA-256
+`4c47f1c7456ff1ffe14fb53c65e518728b3078285f5f92e965dce7d2f2f94590`.
+Both destination fields accepted Android key events with Gboard hidden.
+The rendered commands used Android accessibility click actions. The app
+confirmed `project.md → b → c → b → project.md → b → c` through two Move
+and four restoration publications, each returning HTTP 200. Every step
+retained the original entry identity with one generation advance, the exact
+saved bytes and separate dirty draft, and the editor frame without fetching
+a new baseline. The optional Local source history read stopped after the
+sixth confirmation because its menu item was outside the reachable viewport.
+The per-step screenshots, input and wire receipts, and replay sources are in
+`final-android-xc10nz1r` under the same receipts directory.
+The maintained Android controller lineage witness separately passed one test
+with zero skips. It checked the same editor state, selection, scroll and
+local history, plus refusal after an equal-byte inode replacement. Its result
+is in `target/native-template-smoke/android-entry-lineage-move-handoff-last.xml`.
+
+The Android application Debug follow-ups sent both genuine adapters a saved
+line 2 breakpoint. The Node renderer paused at that line with local value
+41. The Watch expression field failed to take focus on the earlier replay.
+A later frame-local read hit a retired inspector control before Continue.
+The .NET renderer read selected-frame local value 41, continued, displayed
+42 and retained exit 0. Its fixture verified the exact source and editor
+frame. The launch, pause and finish receipts are in
+`final-android-rrq_6ur7/provider-dotnet` and the Node pause is in
+`final-android-rrq_6ur7/provider-node`. The earlier expression-field attempts
+are in `final-android-tdjwr952`.
+
+Rendered managed Send stopped at the empty prompt despite key events,
+Gboard taps and Android's accessibility text action. A separate fixture
+initiated owned ACP using the app's private checkpoint to bind two pristine
+openers, including their live editor IDs and saved guards. The normal Android
+review applied the engine-managed proposal and both rendered drafts matched
+the planned bytes. Validation and the exact host report returned HTTP 200.
+The report marked saved and checks-executed false, and the wire retained
+draft-only application. The keyboard overlay stopped the replay before
+coordinated Undo or Redo. The checkpoint binding, tool result, review, Apply
+and boundary receipts are in `final-android-rrq_6ur7/provider-managed`.
 
 ### Provider admission
 
@@ -367,11 +414,41 @@ The separately installed netcoredbg 3.2.0-1092 passed a rendered browser .NET
 1.117.0 with Node.js 24.22.0 also reached the rendered browser's breakpoint at
 line 2, evaluated `value=41`, continued and retained output `42` and one
 finished result. The adapter supplied no exit code and the UI reported none.
+Mounted macOS replayed both launch profiles in the current AppKit build.
+Both stopped at line 2, read local value 41, continued and retained output
+42, the same editor frame and exact saved bytes. Node finished without an
+exit code. .NET returned exit 0. The receipts are in
+`target/mobile-provider-followup/mac-current-acceptance`.
+The rendered browser also passed loopback netcoredbg PID attach for an
+already-running owned .NET process. It paused with value 41 and withheld
+saved-source authority. Detach ended the Hickory session and the target
+remained alive. Releasing the owned fixture then produced 42 and exit 0
+with exact saved bytes and the same editor frame. The wire and paused
+screen are in `target/mobile-provider-followup/netcoredbg-attach-first`.
+The browser's Node attach received Started and the target reported
+`Debugger attached`. js-debug then requested a child session with
+`startDebugging`. The host did not answer that request, and the target's
+debugger statement produced no rendered pause in the bounded replay.
+Watch and detach remain open. The adapter and host traces are in
+`target/mobile-provider-followup/js-debug-attach-first`.
 The confined CodeLLDB 1.12.3 install and direct DAP initialize passed. Its
-simple-host Rust launch did not reach Started in the focused attempt. Go
-installation reported that Hickory has no Delve installer. The Go provider
-discovers an independently installed `dlv`. The Java LSP-hosted adapter and
-additional attach combinations remain unexecuted.
+first simple-host Rust attempt stopped before Started. A fresh browser replay
+started the actual adapter, stopped at line 3 and displayed the inline value
+41. Selected-frame locals and Watch refused the frame. The raw adapter issued
+IDs 1001 and 1017 in successive stack reads for the same paused thread and
+source line. A raw Watch on the latest frame returned 41, and raw Continue
+produced 42 and exit 0. A separate browser Continue attempt timed out during
+page load. The receipts are in `target/parity-codelldb-replay-xvhbeppi` and
+`target/parity-codelldb-frame-replay-noaumdne`.
+
+Hickory's installer reported that it has no Delve recipe. The browser
+replay used independently installed Delve 1.26.3 and Go 1.26.8. The adapter
+ended before sending `initialized`, so the selected breakpoint remained
+unverified. Both confined Java installs passed with the owned JDK available.
+The rendered Java Debug profile failed before adapter startup with
+`a debug adapter command cannot be empty`. The Go and Java browser wire
+receipts are under `target/mobile-provider-followup/go-browser-q5oorx5j` and
+`target/mobile-provider-followup/java-browser-lcvkp401`.
 
 Configured csharp-ls 0.28.0 on .NET 10.0.401 supplied rendered browser
 definitions, usages, back navigation and a two-file rename. Review applied the
@@ -388,7 +465,10 @@ and workspace diagnostic pulls remain outside this receipt. The confined .NET
 tool installer could not load the NuGet service index and reported an arithmetic
 overflow with a local feed. The live witness used an explicit `.hick-lsp.json`
 workspace command to launch the package from the public NuGet release.
-OmniSharp has no live receipt here.
+The configured OmniSharp 2.0.0 Apple Silicon replay reached the rendered
+definition command, which timed out waiting for `textDocument/definition`.
+The launch configuration and trace are under
+`target/mobile-provider-followup/omnisharp`.
 [Debugger adapter declarations](../mechanisms/crates/hick-plugins/src/languages/dap.rs.md)
 
 ## Inspect authored code in ordinary Markdown fences

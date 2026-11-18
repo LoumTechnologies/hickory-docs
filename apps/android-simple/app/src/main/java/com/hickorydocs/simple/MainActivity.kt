@@ -13,6 +13,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.key.*
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -28,6 +29,11 @@ class MainActivity : ComponentActivity() {
 @Composable fun SimpleWorkspace(workspace: Workspace, initialAddress: String? = null) {
     var connection by remember { mutableStateOf(workspace.engine == null) }
     val scope = rememberCoroutineScope()
+    val workspaceFocus = LocalFocusManager.current
+    val moveOpen = workspace.changes.mode == "entryMove"
+    LaunchedEffect(moveOpen) {
+        if (moveOpen) workspaceFocus.clearFocus(force = true)
+    }
     LaunchedEffect(workspace){workspace.editorRecovery.captureLoop(workspace)}
     val context = androidx.compose.ui.platform.LocalContext.current
     val descriptors=remember {runCatching {context.assets.open("commands.json").bufferedReader().use {commandDescriptors(it.readText())}}.getOrDefault(emptyList())}

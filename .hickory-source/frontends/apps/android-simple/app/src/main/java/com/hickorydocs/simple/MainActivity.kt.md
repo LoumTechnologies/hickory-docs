@@ -7,6 +7,11 @@ The activity retains a ViewModel across recreation. A development launch supplie
 
 File commands act on the connected workspace: path entry opens a file or directory, New Tab keeps an unnamed buffer, and Save As exclusively creates a new destination before a hash-checked write. Existing destinations are never overwritten by Save As. Save All visits each named buffer; unnamed drafts ask for a path and failed saves retain their original edits. Refresh observes the tree without replacing open buffers.
 
+Opening Move releases the workspace editor's text focus so its separate
+dialog can take keyboard input. Android can otherwise leave Gboard targeting
+the previous editor after the dialog displays a caret. Releasing focus
+preserves the editor's buffer and layout.
+
 <ui:copy id="simple-d8c991adb6-0">
 package com.hickorydocs.simple
 
@@ -23,6 +28,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.key.*
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -38,6 +44,11 @@ class MainActivity : ComponentActivity() {
 @Composable fun SimpleWorkspace(workspace: Workspace, initialAddress: String? = null) {
     var connection by remember { mutableStateOf(workspace.engine == null) }
     val scope = rememberCoroutineScope()
+    val workspaceFocus = LocalFocusManager.current
+    val moveOpen = workspace.changes.mode == "entryMove"
+    LaunchedEffect(moveOpen) {
+        if (moveOpen) workspaceFocus.clearFocus(force = true)
+    }
     LaunchedEffect(workspace){workspace.editorRecovery.captureLoop(workspace)}
     val context = androidx.compose.ui.platform.LocalContext.current
     val descriptors=remember {runCatching {context.assets.open("commands.json").bufferedReader().use {commandDescriptors(it.readText())}}.getOrDefault(emptyList())}
