@@ -315,4 +315,6 @@ Each client reads text before requesting optional capabilities. A save uses the 
 
 <ui:include file="native-snippet-context-provider-witness.md" />
 
+<ui:include file="embedded-template-host-acceptance.md" />
+
 </ui:doc>

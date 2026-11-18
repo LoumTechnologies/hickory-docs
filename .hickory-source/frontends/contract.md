@@ -32,7 +32,7 @@ an earlier open item only for the behavior it actually exercises.
 | Required outcome | Current usable evidence and remaining acceptance |
 | --- | --- |
 | Navigation and code intelligence | Existing source-bound navigation and provider receipts remain in force. Browser mixed-line-ending source/view coordination now has rendered provider and history acceptance; source-bound completion variables now have live host receipts. Embedded-language breadth remains open. |
-| Refactoring, cleanup, generation, templates and history | Rename, formatting, genuine TypeScript extraction/accessor generation/cleanup and coordinated history have focused host receipts. Genuine TypeScript move-to-new-file review, publication and inverse/redo now have all-three-host receipts. Source-bound variable contexts and bounded production transforms now have completion/template receipts on all three hosts. Multi-caret editing and undo have browser, macOS editor and Android text-state evidence. Marked input has AppKit and Android text-state commit and history evidence. Catalog preparation across carets, full regex syntax and complete embedded-language template acceptance remain open. |
+| Refactoring, cleanup, generation, templates and history | Rename, formatting, genuine TypeScript extraction/accessor generation/cleanup and coordinated history have focused host receipts. Genuine TypeScript move-to-new-file review, publication and inverse/redo now have all-three-host receipts. Source-bound variable contexts and bounded production transforms now have completion/template receipts on all three hosts. Multi-caret editing and undo have browser, macOS editor and Android text-state evidence. Marked input has AppKit and Android text-state commit and history evidence. Embedded source templates have live browser, macOS and Android controller evidence. Catalog preparation across carets and full regex syntax remain open. |
 | Diagnostics and contextual fixes | Existing source-bound Problems/fix receipts remain scoped to their stated providers and paths. A command or backend implementation alone is not further acceptance. |
 | Testing and coverage | Retained sessions/results and supported collector receipts below remain scoped evidence. Exact JavaScript collection/rerun integration now has31 focused collector cases and11 fresh-engine Vitest flows; the retained-result race is corrected. Earlier native provider receipts retain their stated revisions. |
 | Review, staging, attribution, conflicts and recovery | Existing Git/native conflict receipts remain in force. Complete32-session recovery management and three exact revisions now have service/browser/macOS/Android-controller receipts. The canonical entry has a retained read identity and guarded source proof. Move publication and its inverse remain open. |
@@ -45,6 +45,28 @@ Across all rows, physical input and assistive-technology acceptance remain
 unexecuted where stated. Android controller/state acceptance and iOS builds are
 reported separately from rendered/device runtime acceptance. No full parity
 claim is made while the integration work in this ledger remains open.
+
+## Embedded source template evidence
+
+Templates now use the authored language at the selection. The same captured
+compiler graph supplies the language when a fragment belongs to a selected
+construction. Multiple compatible uses retain that language. Mixed languages,
+unavailable contributors, generated ownership and changed entry proofs refuse
+the affected action while the editor keeps showing the source.
+
+Twelve focused engine cases and 29 browser cases passed, along with TypeScript
+checking. The focused Apple and Android catalog runs executed nine and ten
+cases, respectively. Their opt-in tests were executed separately with the
+owned engine fixture. The rendered browser, mounted macOS editor and Android
+controller each passed fenced code and a reused fragment with dirty
+contributors. The flows verified contextual comments, authored filenames,
+Unicode transformed mirrors, exact undo and redo, retained editor state and
+unchanged saved source. The browser also held Apply while the physical entry
+changed and rejected that old proof. Mixed-language and generated-location
+refusals were exercised in the browser. The native fixture exercised dirty
+contributor changes, mixed languages and read-only source. The iOS simulator
+product build is build evidence. UIKit, Android rendering, physical input and
+assistive technology remain unverified.
 
 ## Multi-caret template editing evidence
 

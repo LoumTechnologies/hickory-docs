@@ -156975,6 +156975,41 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/mechanisms/android-marked-snippet-input.md",
       "symbol": "android marked snippet connection",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "embedded-template-captured-graph",
+      "output": "crates/hickory-cli/src/serve/source_templates.rs",
+      "page": ".hickory-source/mechanisms/source-template-service.md",
+      "symbol": "embedded template captured graph",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "embedded-template-service-witness",
+      "output": "crates/hickory-cli/src/serve/source_templates.rs",
+      "page": ".hickory-source/mechanisms/source-template-service.md",
+      "symbol": "embedded template service witness",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "embedded-template-browser-runner",
+      "output": "scripts/test-embedded-templates-browser.py",
+      "page": ".hickory-source/frontends/embedded-template-host-acceptance.md",
+      "symbol": "embedded template browser runner",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "embedded-template-apple-witness",
+      "output": "apps/apple-simple/Tests/EmbeddedTemplateTests.swift",
+      "page": ".hickory-source/frontends/embedded-template-host-acceptance.md",
+      "symbol": "embedded template apple witness",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "embedded-template-android-witness",
+      "output": "apps/android-simple/app/src/test/java/com/hickorydocs/simple/EmbeddedTemplateTest.kt",
+      "page": ".hickory-source/frontends/embedded-template-host-acceptance.md",
+      "symbol": "embedded template android witness",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

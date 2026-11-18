@@ -329,6 +329,20 @@ impl PreparedSourceLanguageContext {
             parsed,
         })
     }
+    pub fn declares_project(&self) -> bool {
+        self.parsed
+            .as_ref()
+            .is_some_and(|doc| !doc.find_tags("project").is_empty())
+    }
+    pub fn with_project(mut self, project: Option<(&hick_lang::ProjectTree, &str)>) -> Self {
+        self.project = project.map(|(tree, document)| (tree.clone(), document.into()));
+        self
+    }
+    pub fn requires_construction_scope(&self, from: usize, to: usize) -> bool {
+        self.regions.iter().any(|region| {
+            matches!(region.kind, "file" | "fragment") && region.from <= from && to <= region.to
+        })
+    }
     pub fn language(&self, from: usize, to: usize) -> Result<SourceLanguageContext, String> {
         let path = self.path.as_str();
         let source = self.source.as_str();

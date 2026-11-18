@@ -8,7 +8,8 @@ import Darwin
 @MainActor final class SourceTemplateTests:XCTestCase {
     func reply(_ source:String="value = 'old'\n")->([String:Any],[String:Any]) {
         let entry:[String:Any]=["id":"workspace.wrap","label":"Wrap selection","description":"Mirrored selected text","language":"python","origin":"workspace","available":true]
-        let catalog:[String:Any]=["version":1,"template_protocol":1,"path":"main.py","selection":["from":9,"to":12],"source_hash":nativeSourceHash(source),"workspace_id":"fixture-workspace","language":"python","catalog_fingerprint":"catalog","available":true,"notices":[],"entries":[entry]]
+        var catalog:[String:Any]=["version":1,"template_protocol":1,"path":"main.py","selection":["from":9,"to":12],"source_hash":nativeSourceHash(source),"workspace_id":"fixture-workspace","language":"python","catalog_fingerprint":"catalog","available":true,"notices":[],"entries":[entry]]
+        catalog["transform_program_versions"]=[2];catalog["source_context"]=["version":1,"scope":"authored-source","language":"python","languages":["python"],"targets":["main.py"],"reason":NSNull(),"project_entry":NSNull(),"source_hashes":["main.py":nativeSourceHash(source)],"graph_fingerprint":String(repeating:"a",count:64),"fingerprint":String(repeating:"b",count:64)]
         var plan=catalog;plan.removeValue(forKey:"entries");plan["template_id"]="workspace.wrap";plan["origin"]="workspace";plan["replacement"]=["from":9,"to":12]
         plan["snippet"]=["version":1,"syntax":"${1:${TM_SELECTED_TEXT}} + $1$0","text":"old + old","fields":[["id":0,"parent":NSNull(),"index":1,"from":0,"to":3,"choices":[]],["id":1,"parent":NSNull(),"index":1,"from":6,"to":9,"choices":[]],["id":2,"parent":NSNull(),"index":0,"from":9,"to":9,"choices":[]]]]
         return(catalog,plan)
@@ -21,6 +22,13 @@ import Darwin
         ResponseProtocol.responsesByPath=["/api/templates/catalog":try JSONSerialization.data(withJSONObject:catalog),"/api/templates/plan":try JSONSerialization.data(withJSONObject:plan)]
     }
     func decode<T:Decodable>(_ value:[String:Any],as type:T.Type)throws->T {try JSONDecoder().decode(type,from:JSONSerialization.data(withJSONObject:value))}
+    func testEmbeddedBindingRetainsLanguageAndRejectsMalformedContext()throws {
+        let (raw,body)=reply(),catalog=try decode(raw,as:SourceTemplateCatalog.self),plan=try decode(body,as:SourceTemplatePlan.self)
+        let binding=try XCTUnwrap(catalog.source_context);XCTAssertTrue(binding.valid(path:"main.py",source:"value = 'old'\n",project:nil,language:"python"));XCTAssertFalse(binding.valid(path:"main.py",source:"changed",project:nil,language:"python"));XCTAssertFalse(binding.valid(path:"main.py",source:"value = 'old'\n",project:nil,language:"javascript"))
+        var changed=plan;changed.source_context?.fingerprint=String(repeating:"c",count:64);XCTAssertFalse(sourceTemplatePlanMatches(changed,catalog:catalog,entry:catalog.entries[0]))
+        var bad=raw,context=raw["source_context"] as! [String:Any];context["extra"]=true;bad["source_context"]=context;XCTAssertThrowsError(try decode(bad,as:SourceTemplateCatalog.self))
+        bad=raw;bad["reading_context_request"]=["version":true,"kind":"construction_entry"];XCTAssertThrowsError(try decode(bad,as:SourceTemplateCatalog.self))
+    }
     func testPlanBytesAndExactSelectionAreRequired()throws {
         let (raw,body)=reply(),catalog=try decode(raw,as:SourceTemplateCatalog.self),plan=try decode(body,as:SourceTemplatePlan.self),entry=try XCTUnwrap(catalog.entries.first)
         XCTAssertTrue(sourceTemplateCatalogMatches(catalog,path:"main.py",source:"value = 'old'\n",selection:NSRange(location:9,length:3)));XCTAssertTrue(sourceTemplatePlanMatches(plan,catalog:catalog,entry:entry))
@@ -68,6 +76,13 @@ import Darwin
             XCTAssertTrue(initial["clipboard"] is NSNull);XCTAssertEqual((retry["clipboard"] as? [String:Any])?["available"] as? Bool,mode != "denied")
             XCTAssertEqual(try JSONSerialization.data(withJSONObject:retry,options:.sortedKeys),try JSONSerialization.data(withJSONObject:requests[2]["variable_context"]!,options:.sortedKeys))
         }
+    }
+    func testReadonlyContributorRemainsReadableAndABAChangeRetiresWholePreview()async throws {
+        let (space,buffer,editor,window)=native(),(catalog,plan)=reply();try install(catalog,plan);defer{window.contentView=nil;ResponseProtocol.responsesByPath=[:]}
+        let file=FileNode(name:"context.md",path:"context.md",dir:false,generated_by:"fixture.md"),contributor=DocumentBuffer(file:file,text:FileText(path:file.path,content:"context",hash:"saved"));space.buffers[file.path]=contributor
+        await space.sourceTemplates.open(space);await space.sourceTemplates.choose(try XCTUnwrap(space.sourceTemplates.catalog?.entries.first));XCTAssertNotNil(space.sourceTemplates.preview,space.sourceTemplates.notice)
+        let request=try XCTUnwrap(ResponseProtocol.requestBodies("/api/templates/catalog").first),reading=try XCTUnwrap(request["reading_context"] as? [String:Any]);XCTAssertEqual((reading["sources"] as? [String:String])?[file.path],"context")
+        contributor.text="changed";contributor.text="context";let before=ResponseProtocol.requestCount("/api/templates/plan");let applied=await space.sourceTemplates.apply();XCTAssertFalse(applied);XCTAssertEqual(ResponseProtocol.requestCount("/api/templates/plan"),before);XCTAssertEqual(buffer.text,"value = 'old'\n");XCTAssertTrue(contributor.readOnly);_ = editor
     }
     func testPreviewApplyAndLinkedInputRetainActualNativeHistory()async throws {
         let (space,buffer,editor,window)=native(),(catalog,plan)=reply();try install(catalog,plan);defer{window.contentView=nil;ResponseProtocol.responsesByPath=[:]}
@@ -125,7 +140,7 @@ import Darwin
         let originalManifest=try Data(contentsOf:manifest);defer{try? originalManifest.write(to:manifest,options:.atomic)}
         let engine=try Engine(address:origin),space=Workspace(),path=ProcessInfo.processInfo.environment["HICKORY_NATIVE_TEMPLATE_INPUT"] ?? "main.py",tree=try await engine.files()
         func find(_ files:[FileNode],_ path:String)->FileNode?{for file in files{if exactUTF8(file.path,path){return file};if let child=find(file.children ?? [],path){return child}};return nil}
-        let file=try XCTUnwrap(find(tree.tree,path));space.engine=engine;space.rootFiles=tree.tree;space.debugger=NativeDebugger(engine:engine)
+        let file=try XCTUnwrap(find(tree.tree,path));space.engine=engine;space.rootFiles=tree.tree;space.sourceRootAddress=tree.root_path;space.sourceWorkspaceID=tree.workspace_id;space.debugger=NativeDebugger(engine:engine)
         let buffer=try await space.loadBuffer(file);XCTAssertFalse(buffer.readOnly);space.layout.activate(file.path,in:"document-group")
         _ = NSApplication.shared;NSApp.setActivationPolicy(.regular);NSApp.activate(ignoringOtherApps:true)
         let host=NSHostingView(rootView:WorkspaceView(workspace:space)),window=NSWindow(contentRect:NSRect(x:0,y:0,width:700,height:480),styleMask:[.titled],backing:.buffered,defer:false);window.contentView=host;window.makeKeyAndOrderFront(nil);host.layoutSubtreeIfNeeded()

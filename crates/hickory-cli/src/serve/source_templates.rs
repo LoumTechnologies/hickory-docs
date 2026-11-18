@@ -26,6 +26,10 @@ pub struct Context {
     selection: Selection,
     #[serde(default)]
     variable_context: Option<Value>,
+    #[serde(default)]
+    reading_context: Option<TemplateReadingContext>,
+    #[serde(default)]
+    transform_program_versions: Option<Vec<u32>>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -38,6 +42,10 @@ pub struct PlanRequest {
     template_id: String,
     #[serde(default)]
     variable_context: Option<Value>,
+    #[serde(default)]
+    reading_context: Option<TemplateReadingContext>,
+    #[serde(default)]
+    transform_program_versions: Option<Vec<u32>>,
 }
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -78,6 +86,10 @@ fn validate(context: &Context) -> Result<(usize, usize), String> {
     if !matches!(context.version, 1 | 2) {
         return Err("Unsupported template protocol. Update app and engine together.".into());
     }
+    template_programs(context)?;
+    if context.version == 1 && context.reading_context.is_some() {
+        return Err("Template protocol1 does not support captured construction contexts".into());
+    }
     if context.version == 1 && context.variable_context.is_some() {
         return Err("Template protocol 1 cannot carry a variable snapshot".into());
     }
@@ -95,6 +107,386 @@ fn validate(context: &Context) -> Result<(usize, usize), String> {
         boundary(&context.source, context.selection.from)?,
         boundary(&context.source, context.selection.to)?,
     ))
+}
+#[derive(Clone, Default, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct TemplateReadingContext {
+    version: u32,
+    #[serde(default)]
+    project_entry: Option<String>,
+    #[serde(default)]
+    project_endpoint: Option<String>,
+    #[serde(default)]
+    sources: BTreeMap<String, String>,
+    #[serde(default)]
+    unaddressed_sources: BTreeMap<String, String>,
+    #[serde(default)]
+    missing_sources: BTreeSet<String>,
+    #[serde(default)]
+    entry_selection: Option<Value>,
+}
+struct CapturedTemplateLanguage {
+    language: hick_lsp::source_context::SourceLanguageContext,
+    binding: Value,
+    needs_entry: bool,
+}
+struct PreparedTemplateGraph<'a> {
+    context: &'a Context,
+    reader: hick_lsp::source_context::PreparedSourceLanguageContext,
+    explicit: Option<String>,
+    contributes: bool,
+    hashes: BTreeMap<String, String>,
+    graph_fingerprint: String,
+    needs_entry: bool,
+}
+impl<'a> PreparedTemplateGraph<'a> {
+    fn capture(root: &Path, context: &'a Context, scope: Option<&str>) -> Result<Self, String> {
+        validate(context)?;
+        let mut supplied = BTreeMap::new();
+        let mut missing = BTreeSet::new();
+        let reading = context.reading_context.as_ref();
+        if let Some(reading) = reading {
+            if reading.version != 1 {
+                return Err("Unsupported source-language reading context".into());
+            }
+            if reading
+                .sources
+                .len()
+                .saturating_add(reading.unaddressed_sources.len())
+                > 4096
+                || reading
+                    .sources
+                    .values()
+                    .map(String::len)
+                    .sum::<usize>()
+                    .saturating_add(
+                        reading
+                            .unaddressed_sources
+                            .values()
+                            .map(String::len)
+                            .sum::<usize>(),
+                    )
+                    > 32 * 1024 * 1024
+                || reading.missing_sources.len() > 4096
+                || reading
+                    .missing_sources
+                    .iter()
+                    .map(String::len)
+                    .sum::<usize>()
+                    > 1024 * 1024
+            {
+                return Err("Template contributor capture exceeds its interactive budget".into());
+            }
+            for text in reading.unaddressed_sources.values() {
+                if text.len() > 8 * 1024 * 1024
+                    || super::resource_inputs::contains_construction(text)?
+                {
+                    return Err("An unaddressed retained construction has no source namespace authority; preserve it and select its authored context".into());
+                }
+            }
+            for (path, text) in &reading.sources {
+                let normalized = super::source_tests::relative(Path::new(""), path)?;
+                if normalized != *path
+                    || text.len() > 8 * 1024 * 1024
+                    || supplied.insert(normalized, text.clone()).is_some()
+                {
+                    return Err("Template source capture has ambiguous paths or exceeds8MiB".into());
+                }
+            }
+            for path in &reading.missing_sources {
+                let normalized = super::source_tests::relative(Path::new(""), path)?;
+                if normalized != *path || supplied.contains_key(path) {
+                    return Err("A template contributor is both supplied and deleted".into());
+                }
+                missing.insert(normalized);
+            }
+        }
+        if supplied
+            .get(&context.path)
+            .is_some_and(|source| source != &context.source)
+            || missing.contains(&context.path)
+        {
+            return Err("Original template source disagrees with the contributor capture".into());
+        }
+        supplied.insert(context.path.clone(), context.source.clone());
+        let markdown = hick_plugins::routing::language_id(&context.path) == Some("markdown");
+        let reader = hick_lsp::source_context::PreparedSourceLanguageContext::new(
+            &context.path,
+            &context.source,
+            None,
+        )?;
+        let explicit = reading
+            .and_then(|value| value.project_entry.clone())
+            .or_else(|| reader.declares_project().then(|| context.path.clone()));
+        if reading
+            .and_then(|value| value.project_endpoint.as_ref())
+            .is_some()
+            && explicit.is_none()
+        {
+            return Err("A selected endpoint requires its original construction entry".into());
+        }
+        let mut compiled_sources = BTreeSet::new();
+        let mut observed = BTreeMap::from([(context.path.clone(), context.source.clone())]);
+        let mut state = None;
+        let mut logical_origin = context.path.clone();
+        let mut contributes = false;
+        let mut construction_base = std::path::PathBuf::new();
+        if let Some(entry) = &explicit {
+            let entry = super::source_tests::relative(Path::new(""), entry)?;
+            let base = Path::new(&entry).parent().unwrap_or(Path::new(""));
+            let name = Path::new(&entry)
+                .file_name()
+                .and_then(|name| name.to_str())
+                .ok_or("Construction entry has no UTF-8 filename")?;
+            let captured = std::cell::RefCell::new((BTreeMap::new(), 0usize));
+            let sources = hick_lang::load_project_sources(name, &|logical| {
+                let path = super::source_tests::relative(base, logical)?;
+                if missing.contains(&path) {
+                    return Err(format!(
+                        "Construction still references deleted source {path}"
+                    ));
+                }
+                let text = match supplied.get(&path) {
+                    Some(text) => text.clone(),
+                    None => super::source_tests::saved_source(root, &path)?,
+                };
+                let mut values = captured.borrow_mut();
+                if !values.0.contains_key(&path) {
+                    values.1 += text.len();
+                    if values.0.len() >= 10000 || values.1 > 128 * 1024 * 1024 {
+                        return Err(
+                            "Template construction closure exceeds its interactive budget".into(),
+                        );
+                    }
+                    values.0.insert(path, text.clone());
+                }
+                Ok(text)
+            })?;
+            observed = captured.into_inner().0;
+            compiled_sources = observed.keys().cloned().collect();
+            contributes = observed.contains_key(&context.path);
+            construction_base = base.to_path_buf();
+            if contributes {
+                logical_origin = Path::new(&context.path)
+                    .strip_prefix(base)
+                    .map_err(|_| "Template source is outside its selected construction namespace")?
+                    .to_str()
+                    .ok_or("Template source identity is not UTF-8")?
+                    .replace('\\', "/");
+            } else {
+                observed.insert(context.path.clone(), context.source.clone());
+            }
+            let endpoint = hick_lsp::project::ProjectEndpoint::parse(
+                reading
+                    .and_then(|value| value.project_endpoint.as_deref())
+                    .unwrap_or("new"),
+            )?;
+            state = Some(
+                hick_lsp::document::HickDocumentState::from_project_at(
+                    name,
+                    &sources,
+                    &hick_lang::ProjectTree::default(),
+                    &endpoint,
+                )
+                .map_err(|error| {
+                    format!("Template construction language is unavailable: {error}")
+                })?,
+            );
+        }
+        let needs_entry = reading.is_some()
+            && explicit.is_none()
+            && reading
+                .and_then(|value| value.entry_selection.as_ref())
+                .is_none();
+        let mut claims = std::collections::HashMap::new();
+        let mut ownership_saved_bytes = 0usize;
+        for (path, text) in &supplied {
+            if !super::resource_inputs::contains_construction(text)? {
+                continue;
+            }
+            let doc = hick_lang::parse(text).map_err(|error| error.to_string())?;
+            if state.is_some() && !compiled_sources.contains(path) {
+                let changed = match std::fs::symlink_metadata(root.join(path)) {
+                    Ok(_) => {
+                        let saved = super::source_tests::saved_source(root, path)?;
+                        ownership_saved_bytes = ownership_saved_bytes
+                            .checked_add(saved.len())
+                            .ok_or("Ownership source budget overflow")?;
+                        if ownership_saved_bytes > 128 * 1024 * 1024 {
+                            return Err(
+                                "Ownership source reads exceed their interactive budget".into()
+                            );
+                        }
+                        saved != *text
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => true,
+                    Err(error) => {
+                        return Err(format!("Retained source ownership is unavailable: {error}"));
+                    }
+                };
+                if changed {
+                    return Err(format!(
+                        "Retained construction {path} is outside the captured ownership context"
+                    ));
+                }
+            }
+            if state.is_none() && !doc.find_tags("project").is_empty() && !needs_entry {
+                return Err(
+                    "Choose the retained construction entry before applying a template".into(),
+                );
+            }
+            for tag in doc.find_tags("file") {
+                if tag.get_attribute("path").is_none_or(|value| {
+                    super::api::join_under(path.rsplit_once('/').map_or("", |(dir, _)| dir), value)
+                        .is_none()
+                }) {
+                    return Err("A dynamic or unknown construction output cannot grant template write authority".into());
+                }
+            }
+            for target in super::api::declared_outputs(path, text) {
+                claims.insert(target, path.clone());
+            }
+        }
+        if let Some(tree) = state
+            .as_ref()
+            .and_then(|state| state.selected_project.as_ref())
+        {
+            for target in tree.entries().keys() {
+                claims.insert(
+                    super::source_tests::relative(&construction_base, target)?,
+                    explicit.clone().unwrap(),
+                );
+            }
+        }
+        if let Some(owner) = super::api::generated_by(&claims, &context.path) {
+            return Err(format!(
+                "Captured construction {owner} generates this source; insert the template in its authored owner"
+            ));
+        }
+        for (target, owner) in &claims {
+            if !target.ends_with('/')
+                && same_file::is_same_file(root.join(&context.path), root.join(target))
+                    .unwrap_or(false)
+            {
+                return Err(format!("This source aliases a captured output of {owner}"));
+            }
+        }
+        let project = state
+            .as_ref()
+            .filter(|_| contributes)
+            .and_then(|state| state.selected_project.as_ref())
+            .map(|tree| (tree, logical_origin.as_str()));
+        let reader = reader.with_project(project);
+        // Every supplied source participates in ownership, even when not a compiler contributor.
+        observed.extend(supplied);
+        let hashes: BTreeMap<_, _> = observed
+            .iter()
+            .map(|(path, text)| (path.clone(), hash(text.as_bytes())))
+            .collect();
+        if hashes.len() > 10000 {
+            return Err(
+                "Template source fingerprint exceeds its interactive metadata budget".into(),
+            );
+        }
+        let unaddressed: BTreeMap<_, _> = reading
+            .into_iter()
+            .flat_map(|reading| reading.unaddressed_sources.iter())
+            .map(|(id, text)| (id.clone(), hash(text.as_bytes())))
+            .collect();
+        let graph_fingerprint = hash(
+            serde_json::to_vec(&(
+                1,
+                &context.path,
+                &explicit,
+                reading.and_then(|value| value.project_endpoint.as_ref()),
+                reading.and_then(|value| value.entry_selection.as_ref()),
+                &hashes,
+                &missing,
+                &unaddressed,
+                scope,
+            ))
+            .map_err(|error| error.to_string())?,
+        );
+        Ok(Self {
+            context,
+            reader,
+            explicit,
+            contributes,
+            hashes,
+            graph_fingerprint,
+            needs_entry,
+        })
+    }
+    fn language_context(&self, selection: &Selection) -> Result<CapturedTemplateLanguage, String> {
+        if selection.from > selection.to {
+            return Err("Template selection is reversed".into());
+        }
+        let from = boundary(&self.context.source, selection.from)?;
+        let to = boundary(&self.context.source, selection.to)?;
+        if self.reader.requires_construction_scope(from, to)
+            && self.explicit.is_some()
+            && !self.contributes
+        {
+            return Err("The original embedded source does not contribute to its selected construction entry".into());
+        }
+        let mut language = self.reader.language(from, to)?;
+        if self.needs_entry {
+            language.language = None;
+            language.scope = "entry-required";
+            language.reason=Some("Read the current construction entry before associating this source with a language".into());
+        }
+        let fingerprint = hash(
+            serde_json::to_vec(&(
+                1,
+                &self.graph_fingerprint,
+                selection,
+                language.scope,
+                &language.language,
+                &language.languages,
+                &language.targets,
+                &language.reason,
+            ))
+            .map_err(|error| error.to_string())?,
+        );
+        let binding = json!({"version":1,"scope":language.scope,"language":language.language,"languages":language.languages,"targets":language.targets,"reason":language.reason,"project_entry":self.explicit,"source_hashes":self.hashes,"graph_fingerprint":self.graph_fingerprint,"fingerprint":fingerprint});
+        if serde_json::to_vec(&binding)
+            .map_err(|error| error.to_string())?
+            .len()
+            > 1024 * 1024
+        {
+            return Err("Template language reading exceeds its interactive metadata budget".into());
+        }
+        Ok(CapturedTemplateLanguage {
+            language,
+            binding,
+            needs_entry: self.needs_entry,
+        })
+    }
+}
+fn capture_template_language(
+    root: &Path,
+    context: &Context,
+    scope: Option<&str>,
+) -> Result<CapturedTemplateLanguage, String> {
+    PreparedTemplateGraph::capture(root, context, scope)?.language_context(&context.selection)
+}
+
+fn template_programs(context: &Context) -> Result<Vec<u32>, String> {
+    let programs = context
+        .transform_program_versions
+        .clone()
+        .unwrap_or_else(|| vec![2]);
+    if programs.is_empty()
+        || programs.len() > 8
+        || programs.iter().any(|version| *version == 0)
+        || programs.iter().copied().collect::<BTreeSet<_>>().len() != programs.len()
+    {
+        return Err("Malformed supported transform program versions".into());
+    }
+    if !programs.contains(&2) {
+        return Err("This template provider currently requires transform program version2".into());
+    }
+    Ok(programs)
 }
 fn builtin() -> Vec<Template> {
     [
@@ -385,15 +777,49 @@ fn prepare(
     context: &Context,
     selected: Option<(&str, &str)>,
 ) -> Result<Value, String> {
+    prepare_for_scope(root, context, selected, None)
+}
+fn prepare_for_scope(
+    root: &Path,
+    context: &Context,
+    selected: Option<(&str, &str)>,
+    scope: Option<&str>,
+) -> Result<Value, String> {
     let (from, to) = validate(context)?;
     let root = root
         .canonicalize()
         .map_err(|e| format!("Workspace unavailable: {e}"))?;
     // Paths name source drafts, never instructions or process arguments.
-    let language = hick_plugins::routing::language_id(&context.path).unwrap_or("unknown");
+    let captured = if context.version == 2 {
+        Some(capture_template_language(&root, context, scope)?)
+    } else {
+        None
+    };
+    let language = captured
+        .as_ref()
+        .and_then(|reading| reading.language.language.as_deref())
+        .unwrap_or_else(|| {
+            if context.version == 1 {
+                hick_plugins::routing::language_id(&context.path).unwrap_or("unknown")
+            } else {
+                "unknown"
+            }
+        });
     let entries = load(&root)?;
-    let fingerprint =
-        hash(serde_json::to_vec(&(1, language, &entries)).map_err(|e| e.to_string())?);
+    let programs = template_programs(context)?;
+    let fingerprint = hash(
+        serde_json::to_vec(&(
+            1,
+            language,
+            &entries,
+            captured
+                .as_ref()
+                .map(|reading| &reading.binding["fingerprint"]),
+            &programs,
+            scope,
+        ))
+        .map_err(|error| error.to_string())?,
+    );
     let mut value = json!({"version":1,"template_protocol":context.version,"path":context.path,"selection":context.selection,"source_hash":hash(context.source.as_bytes()),"workspace_id":hash(root.as_os_str().as_encoded_bytes()),"language":language,"catalog_fingerprint":fingerprint,"notices":["Templates edit the retained source draft only. They do not run commands, save files or establish semantic correctness.","Finish composition and choose one selection before applying."]});
     if context.version == 2 {
         value["variable_context"] = json!(context.variable_context);
@@ -402,6 +828,37 @@ fn prepare(
             "Templates edit the retained source draft only. They do not run commands, save files or establish semantic correctness.",
             "Finish composition and choose one selection before applying."
         ]);
+    }
+    if context.transform_program_versions.is_some() {
+        value["transform_program_versions"] = json!(programs);
+    }
+    if let Some(captured) = &captured {
+        value["source_context"] = captured.binding.clone();
+        if captured.needs_entry {
+            if selected.is_some() {
+                return Err(
+                    "Read the original construction entry and refresh its template catalog".into(),
+                );
+            }
+            value["available"] = json!(false);
+            value["entries"] = json!([]);
+            value["reading_context_request"] = json!({"version":1,"kind":"construction_entry"});
+            value["reason"] = json!(captured.language.reason);
+            return Ok(value);
+        }
+        if captured.language.language.is_none() {
+            if selected.is_some() {
+                return Err(captured
+                    .language
+                    .reason
+                    .clone()
+                    .unwrap_or("No unambiguous language context is available".into()));
+            }
+            value["available"] = json!(false);
+            value["entries"] = json!([]);
+            value["reason"] = json!(captured.language.reason);
+            return Ok(value);
+        }
     }
     if let Some((id, expected)) = selected {
         if expected != fingerprint {
@@ -444,12 +901,32 @@ fn prepare(
     }
     Ok(value)
 }
+fn validate_template_entry(state: &LocalState, context: &Context) -> Result<(), String> {
+    if let Some(reading) = &context.reading_context {
+        if let Some(raw) = &reading.entry_selection {
+            let proof: super::workspace_entry_authority::EntrySelection =
+                serde_json::from_value(raw.clone()).map_err(|error| {
+                    format!("Malformed original construction entry proof: {error}")
+                })?;
+            if proof.entry.path != reading.project_entry {
+                return Err(
+                    "The captured entry proof does not match the selected construction entry"
+                        .into(),
+                );
+            }
+            super::workspace_entry_authority::validate_entry_selection(state, &proof)?;
+        }
+    }
+    Ok(())
+}
 fn admitted(
     state: &LocalState,
     context: &Context,
     selected: Option<(&str, &str)>,
 ) -> Result<Value, String> {
     validate(context)?;
+    let scope = state.resource_root.check(state.index.root())?.to_owned();
+    validate_template_entry(state, context)?;
     let root = state
         .index
         .root()
@@ -492,12 +969,22 @@ fn admitted(
             ));
         }
     }
-    prepare(&root, context, selected)
+    let value = prepare_for_scope(&root, context, selected, Some(&scope))?;
+    validate_template_entry(state, context)?;
+    if state.resource_root.check(state.index.root())? != scope {
+        return Err("Original template workspace changed while reading its language context".into());
+    }
+    Ok(value)
 }
 pub async fn catalog(
     State(state): State<LocalState>,
     Json(context): Json<Context>,
 ) -> ApiResult<Json<Value>> {
+    state
+        .resource_root
+        .ready()
+        .await
+        .map_err(ApiError::unprocessable)?;
     tokio::task::spawn_blocking(move || admitted(&state, &context, None))
         .await
         .map_err(|e| ApiError::internal(format!("Template catalog failed: {e}")))?
@@ -508,6 +995,11 @@ pub async fn plan(
     State(state): State<LocalState>,
     Json(request): Json<PlanRequest>,
 ) -> ApiResult<Json<Value>> {
+    state
+        .resource_root
+        .ready()
+        .await
+        .map_err(ApiError::unprocessable)?;
     tokio::task::spawn_blocking(move || {
         let context = Context {
             version: request.version,
@@ -515,6 +1007,8 @@ pub async fn plan(
             source: request.source,
             selection: request.selection,
             variable_context: request.variable_context,
+            reading_context: request.reading_context,
+            transform_program_versions: request.transform_program_versions,
         };
         admitted(
             &state,
@@ -534,6 +1028,8 @@ mod tests {
         Context {
             version: 1,
             variable_context: None,
+            reading_context: None,
+            transform_program_versions: None,
             path: "part.py".into(),
             source: "😀 old\r\n".into(),
             selection: Selection { from: 3, to: 6 },
@@ -636,6 +1132,8 @@ mod tests {
         let context = Context {
             version: 1,
             variable_context: None,
+            reading_context: None,
+            transform_program_versions: None,
             path: "part.py".into(),
             source: "    ".into(),
             selection: Selection { from: 4, to: 4 },
@@ -750,6 +1248,8 @@ mod refusal_tests {
         let context = Context {
             version: 1,
             variable_context: None,
+            reading_context: None,
+            transform_program_versions: None,
             path: "a.py".into(),
             source: String::new(),
             selection: Selection { from: 0, to: 0 },
@@ -789,5 +1289,175 @@ mod refusal_tests {
         .unwrap();
         let canonical = root.path().canonicalize().unwrap();
         assert!(load(&canonical).err().unwrap().contains("escapes"));
+    }
+}
+#[cfg(test)]
+mod embedded_template_tests {
+    use super::*;
+    fn doc(body: &str) -> String {
+        format!("\x3ch:doc xmlns:h=\"http://www.hickorydocs.com/1.0\">{body}\x3c/h:doc>")
+    }
+    fn entry(target: &str) -> String {
+        doc(&format!(
+            "\x3ch:project sources=\"part.md\"/>\x3ch:file path=\"{target}\">\x3ch:paste select=\"#body\"/>\x3c/h:file>"
+        ))
+    }
+    fn setup() -> (tempfile::TempDir, Context) {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir(root.path().join(".hickory")).unwrap();
+        std::fs::write(root.path().join("project.md"), entry("saved.py")).unwrap();
+        let saved = doc("\x3ch:copy id=\"body\">saved\x3c/h:copy>");
+        std::fs::write(root.path().join("part.md"), saved).unwrap();
+        std::fs::write(root.path().join(".hickory/templates.json"),serde_json::to_vec(&json!({"version":1,"templates":[{"id":"workspace.context","label":"Context","description":"Bound language comments and fields","language":"python","syntax":"${LINE_COMMENT}${TM_FILENAME}|${1:${TM_SELECTED_TEXT}}|$1|${1/(.*)/${1:/upcase}/}$0"}]})).unwrap()).unwrap();
+        let source = doc("\x3ch:copy id=\"body\">old\x3c/h:copy>");
+        let from = source.find("old").unwrap();
+        let context = Context {
+            version: 2,
+            path: "part.md".into(),
+            source: source.clone(),
+            selection: Selection { from, to: from + 3 },
+            variable_context: Some(
+                json!({"clock":{"unix_millis":1704067200000i64,"utc_offset_minutes":0},"random_hex":"0123456789abcdef0123456789abcdef","clipboard":null}),
+            ),
+            reading_context: Some(TemplateReadingContext {
+                version: 1,
+                project_entry: Some("project.md".into()),
+                sources: BTreeMap::from([
+                    ("project.md".into(), entry("draft.py")),
+                    ("part.md".into(), source),
+                ]),
+                ..Default::default()
+            }),
+            transform_program_versions: Some(vec![2]),
+        };
+        (root, context)
+    }
+    #[test]
+    fn dirty_external_fragment_gets_language_comments_and_transform_without_materializing() {
+        let (root, context) = setup();
+        let before = std::fs::read(root.path().join("project.md")).unwrap();
+        let graph =
+            PreparedTemplateGraph::capture(root.path(), &context, Some("same-root")).unwrap();
+        let first = graph.language_context(&context.selection).unwrap();
+        let second = graph.language_context(&context.selection).unwrap();
+        assert_eq!(first.binding, second.binding);
+        let catalog = prepare(root.path(), &context, None).unwrap();
+        assert_eq!(catalog["language"], "python");
+        assert_eq!(
+            catalog["source_context"]["source_hashes"]["project.md"],
+            hash(entry("draft.py").as_bytes())
+        );
+        let plan = prepare(
+            root.path(),
+            &context,
+            Some((
+                "workspace.context",
+                catalog["catalog_fingerprint"].as_str().unwrap(),
+            )),
+        )
+        .unwrap();
+        assert_eq!(plan["snippet"]["text"], "#part.md|old|old|OLD");
+        assert_eq!(plan["source_files_modified"], false);
+        assert_eq!(plan["transform_program_versions"], json!([2]));
+        assert_eq!(
+            std::fs::read(root.path().join("project.md")).unwrap(),
+            before
+        );
+        assert!(!root.path().join("draft.py").exists());
+    }
+    #[test]
+    fn mixed_language_reuse_and_changed_original_graph_never_rebind_review() {
+        let (root, mut context) = setup();
+        let catalog = prepare(root.path(), &context, None).unwrap();
+        let fingerprint = catalog["catalog_fingerprint"].as_str().unwrap().to_owned();
+        let mixed = entry("draft.py").replace(
+            "\x3c/h:doc>",
+            "\x3ch:file path=\"other.js\">\x3ch:paste select=\"#body\"/>\x3c/h:file>\x3c/h:doc>",
+        );
+        context
+            .reading_context
+            .as_mut()
+            .unwrap()
+            .sources
+            .insert("project.md".into(), mixed);
+        let unavailable = prepare(root.path(), &context, None).unwrap();
+        assert_eq!(unavailable["available"], false);
+        assert_eq!(unavailable["entries"], json!([]));
+        assert!(
+            prepare(
+                root.path(),
+                &context,
+                Some(("workspace.context", &fingerprint))
+            )
+            .is_err()
+        );
+    }
+    #[test]
+    fn missing_contributors_and_new_dirty_generated_claims_refuse_whole_plan() {
+        let (root, mut context) = setup();
+        context
+            .reading_context
+            .as_mut()
+            .unwrap()
+            .missing_sources
+            .insert("part.md".into());
+        assert!(prepare(root.path(), &context, None).is_err());
+        context
+            .reading_context
+            .as_mut()
+            .unwrap()
+            .missing_sources
+            .clear();
+        context.path = "draft.py".into();
+        context.source = "old".into();
+        context.selection = Selection { from: 0, to: 3 };
+        context
+            .reading_context
+            .as_mut()
+            .unwrap()
+            .sources
+            .insert("draft.py".into(), "old".into());
+        assert!(
+            prepare(root.path(), &context, None)
+                .unwrap_err()
+                .contains("generates")
+        );
+    }
+    #[test]
+    fn canonical_entry_acquisition_is_separate_from_unaddressed_ownership_and_programs() {
+        let (root, mut context) = setup();
+        context.reading_context.as_mut().unwrap().project_entry = None;
+        context
+            .reading_context
+            .as_mut()
+            .unwrap()
+            .sources
+            .remove("project.md");
+        let request = prepare(root.path(), &context, None).unwrap();
+        assert_eq!(request["available"], false);
+        assert_eq!(
+            request["reading_context_request"],
+            json!({"version":1,"kind":"construction_entry"})
+        );
+        context
+            .reading_context
+            .as_mut()
+            .unwrap()
+            .unaddressed_sources
+            .insert(
+                "opaque-editor".into(),
+                doc("\x3ch:file path=\"draft.py\">unknown\x3c/h:file>"),
+            );
+        assert!(prepare(root.path(), &context, None).is_err());
+        context
+            .reading_context
+            .as_mut()
+            .unwrap()
+            .unaddressed_sources
+            .clear();
+        context.transform_program_versions = Some(vec![3]);
+        assert!(prepare(root.path(), &context, None).is_err());
+        context.transform_program_versions = Some(vec![2, 2]);
+        assert!(prepare(root.path(), &context, None).is_err());
     }
 }

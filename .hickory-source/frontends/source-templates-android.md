@@ -7,6 +7,9 @@ The catalog is a reading, not write authority. Capture the actual workspace, eng
 
 Capture local time and random seed once when this reading opens, and send protocol 2 with that immutable variable context. Clipboard is initially unattempted: a verified engine request may demand it once, then the same source lease and clock/seed travel with either its captured text or explicit denial. Catalog identity does not change merely because clipboard was attempted. Apply repeats the reviewed context without reading the clipboard again. Reject additional effects and malformed or substituted context before preparing any draft; the existing editor and source revision checks remain authoritative after every asynchronous response.
 
+
+The embedded reading also freezes all retained contributor text before awaiting any capability. A compiler-produced source-language binding controls catalog eligibility and comment variables, while filename and selection remain authored source coordinates. A demanded canonical entry is acquired once through the shared readonly entry reader; its original proof and contributor lease survive Preview, clipboard retry and Apply. Mixed or unknown occurrences remain unavailable. The new embedded focused witnesses are implementation checks awaiting execution; they do not establish mounted or physical-input acceptance.
+
 <ui:copy id="source-templates-android-policy">
 package com.hickorydocs.simple
 
@@ -25,6 +28,7 @@ data class SourceTemplateCapture(
     val workspace:Any,val engine:Any,val editor:Any,val namespace:Any,val revision:Long,
     val path:String,val source:String,val anchor:Int,val head:Int,val snippetIntent:Int,
     val variables:SnippetVariableSnapshot?=null,
+    val readingContext:String?=null,val contributorsCurrent:()->Boolean={true},val entryCurrent:()->Boolean={true},
 ) {
     init {
         check(anchor in 0..source.length&&head in 0..source.length){"Template selection is outside the source."}
@@ -33,7 +37,7 @@ data class SourceTemplateCapture(
     val from get()=minOf(anchor,head)
     val to get()=maxOf(anchor,head)
     val protocol get()=if(variables==null)1 else 2
-    fun body()=JSONObject().put("version",protocol).put("path",path).put("source",source).put("selection",JSONObject().put("from",from).put("to",to)).apply{variables?.let{put("variable_context",it.body())}}
+    fun body()=JSONObject().put("version",protocol).put("path",path).put("source",source).put("selection",JSONObject().put("from",from).put("to",to)).apply{variables?.let{put("variable_context",it.body())};readingContext?.let{put("reading_context",JSONObject(it));put("transform_program_versions",org.json.JSONArray(listOf(2)))}}
     fun matches(now:SourceTemplateCapture)=workspace===now.workspace&&engine===now.engine&&editor===now.editor&&namespace==now.namespace&&revision==now.revision&&path==now.path&&source==now.source&&anchor==now.anchor&&head==now.head&&snippetIntent==now.snippetIntent
 }
 private fun templateJSONMatches(value:Any?,expected:Any?):Boolean {
@@ -53,16 +57,30 @@ private fun templateSnapshotMatches(value:JSONObject?,expected:SnippetVariableSn
  return true
 }
 private fun templateVariableIdentity(value:JSONObject,capture:SourceTemplateCapture){
+ if(capture.readingContext!=null)check(templateJSONMatches(value.opt("transform_program_versions"),org.json.JSONArray(listOf(2)))){"Template transform consumer versions changed."}
  check(listOf("command","additionalTextEdits","workspaceEdit","edit").none{value.has(it)}){"Template contains unsupported additional effects. No edits were applied."}
  check(templateNumber(value.opt("version"))==1&&templateNumber(value.opt("template_protocol"))==capture.protocol){"This engine does not support the captured template protocol."}
  if(capture.protocol==2)check(value.opt("source_files_modified")==false&&templateSnapshotMatches(value.optJSONObject("variable_context"),capture.variables!!)){"Template variable context changed. Refresh before applying."}else check(value.opt("source_files_modified")!=true&&value.isNull("variable_context")){"Legacy template response carries unsupported context/effects"}
 }
+private fun templateSourceContext(value:JSONObject,capture:SourceTemplateCapture):String? {
+ if(capture.readingContext==null)return null
+ val context=value.optJSONObject("source_context") ?: error("Embedded source language context is unavailable")
+ check(context.keys().asSequence().toSet()==setOf("version","scope","language","languages","targets","reason","project_entry","source_hashes","graph_fingerprint","fingerprint")){"Malformed embedded source language context"}
+ fun digest(text:String)=text.matches(Regex("[0-9a-f]{64}"))
+ check(templateNumber(context.opt("version"))==1&&templateText(context,"scope").isNotEmpty()&&digest(templateText(context,"fingerprint"))&&digest(templateText(context,"graph_fingerprint"))){"Malformed source language binding"}
+ val languages=templateStrings(context,"languages");val targets=templateStrings(context,"targets");val language=context.opt("language");check(language===JSONObject.NULL||language is String){"Malformed effective language"}
+ check(languages.size<=1024&&targets.size<=1024&&(language===JSONObject.NULL||languages==listOf(language))&&value.opt("language")==if(language===JSONObject.NULL)"unknown" else language){"Ambiguous source language"}
+ val project=JSONObject(capture.readingContext).opt("project_entry");check(templateJSONMatches(context.opt("project_entry"),project)||(project===JSONObject.NULL&&context.opt("project_entry")==capture.path)){"Construction entry changed"}
+ val hashes=context.optJSONObject("source_hashes") ?: error("Missing compiler source hashes");check(hashes.length()<=10000&&hashes.keys().asSequence().all{digest(hashes.opt(it) as? String ?: "")}&&hashes.opt(capture.path)==debugHash(capture.source)){"Original compiler source binding changed"}
+ check(context.opt("reason")===JSONObject.NULL||context.opt("reason") is String){"Malformed source-language reason"}
+ val encoded=context.toString();check(encoded.toByteArray(Charsets.UTF_8).size<=1024*1024){"Source language metadata exceeds its interactive budget"};return encoded
+}
 data class SourceTemplateEntry(val id:String,val label:String,val description:String,val language:String,val origin:String,val available:Boolean,val reason:String?)
 class SourceTemplateCatalog private constructor(
     val capture:SourceTemplateCapture,val workspaceID:String,val language:String,val fingerprint:String,
-    val available:Boolean,val reason:String?,val notices:List<String>,val entries:List<SourceTemplateEntry>,
+    val available:Boolean,val reason:String?,val notices:List<String>,val entries:List<SourceTemplateEntry>,val sourceContext:String?=null,
 ) {
-    fun withCapture(next:SourceTemplateCapture):SourceTemplateCatalog {check(capture.matches(next)){"Template source capture changed"};return SourceTemplateCatalog(next,workspaceID,language,fingerprint,available,reason,notices,entries)}
+    fun withCapture(next:SourceTemplateCapture):SourceTemplateCatalog {check(capture.matches(next)){"Template source capture changed"};return SourceTemplateCatalog(next,workspaceID,language,fingerprint,available,reason,notices,entries,sourceContext)}
     companion object {
         fun decode(value:JSONObject,capture:SourceTemplateCapture):SourceTemplateCatalog {
             check(!value.has("context_request")){"Unexpected template catalog context request"}
@@ -78,8 +96,8 @@ class SourceTemplateCatalog private constructor(
                 val origin=templateText(row,"origin");check(origin in listOf("builtin","workspace")){"Unsupported template origin"}
                 SourceTemplateEntry(templateText(row,"id"),templateText(row,"label"),templateText(row,"description"),templateText(row,"language"),origin,row.opt("available") as? Boolean ?: error("Malformed template availability"),row.opt("reason") as? String)
             }
-            check(entries.map{it.id}.toSet().size==entries.size&&entries.all{it.id.isNotEmpty()}){"Ambiguous template identities"}
-            return SourceTemplateCatalog(capture,workspace,language,fingerprint,available,value.opt("reason") as? String,java.util.Collections.unmodifiableList(templateStrings(value,"notices")),java.util.Collections.unmodifiableList(entries))
+            check(entries.map{it.id}.toSet().size==entries.size&&entries.all{it.id.isNotEmpty()&&it.language==language}){"Ambiguous template identities"}
+            return SourceTemplateCatalog(capture,workspace,language,fingerprint,available,value.opt("reason") as? String,java.util.Collections.unmodifiableList(templateStrings(value,"notices")),java.util.Collections.unmodifiableList(entries),templateSourceContext(value,capture))
         }
     }
 }
@@ -93,6 +111,7 @@ private fun templatePlanIdentity(value:JSONObject,catalog:SourceTemplateCatalog,
             check(catalog.available&&entry.available){entry.reason ?: "Template unavailable for this source."}
             val context=catalog.capture
             templateVariableIdentity(value,context)
+            check(templateSourceContext(value,context)?.let{fresh->catalog.sourceContext?.let{templateJSONMatches(JSONObject(fresh),JSONObject(it))}} ?: (catalog.sourceContext==null)){"The original compiler language context changed"}
             val expected=mapOf("path" to context.path,"source_hash" to debugHash(context.source),"workspace_id" to catalog.workspaceID,"language" to catalog.language,"catalog_fingerprint" to catalog.fingerprint,"template_id" to entry.id,"origin" to entry.origin)
             check(expected.all{(key,text)->templateText(value,key)==text}){"The template plan does not match the captured catalog and source."}
             for(key in listOf("selection","replacement")){val range=value.optJSONObject(key) ?: error("Missing template $key");check(templateNumber(range.opt("from"))==context.from&&templateNumber(range.opt("to"))==context.to){"Template replacement must equal the captured selection."}}
@@ -134,7 +153,7 @@ import kotlinx.coroutines.async
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 class SourceTemplateTest {
     private fun field(id:Int,index:Int,from:Int,to:Int)=JSONObject().put("id",id).put("parent",JSONObject.NULL).put("index",index).put("from",from).put("to",to).put("choices",JSONArray())
-    private fun observation(request:JSONObject)=JSONObject().put("version",1).put("template_protocol",request.optInt("version",1)).put("variable_context",request.opt("variable_context")?:JSONObject.NULL).put("source_files_modified",false).put("path",request.getString("path")).put("selection",JSONObject(request.getJSONObject("selection").toString())).put("source_hash",debugHash(request.getString("source"))).put("workspace_id","workspace").put("language","python").put("catalog_fingerprint","catalog").put("available",true).put("notices",JSONArray())
+    private fun observation(request:JSONObject)=JSONObject().put("version",1).put("template_protocol",request.optInt("version",1)).put("variable_context",request.opt("variable_context")?:JSONObject.NULL).put("source_files_modified",false).put("path",request.getString("path")).put("selection",JSONObject(request.getJSONObject("selection").toString())).put("source_hash",debugHash(request.getString("source"))).put("workspace_id","workspace").put("language","python").put("catalog_fingerprint","catalog").put("available",true).put("notices",JSONArray()).apply{if(request.has("reading_context")){put("transform_program_versions",JSONArray().put(2));put("source_context",JSONObject().put("version",1).put("scope","authored-source").put("language","python").put("languages",JSONArray().put("python")).put("targets",JSONArray().put(request.getString("path"))).put("reason",JSONObject.NULL).put("project_entry",request.getJSONObject("reading_context").opt("project_entry")?:JSONObject.NULL).put("source_hashes",JSONObject().put(request.getString("path"),debugHash(request.getString("source")))).put("graph_fingerprint","a".repeat(64)).put("fingerprint","b".repeat(64)))}}
     private fun catalog(request:JSONObject)=observation(request).put("entries",JSONArray().put(JSONObject().put("id","pair").put("label","Pair").put("description","Two linked names").put("language","python").put("origin","workspace").put("available",true)))
     private fun plan(request:JSONObject,changed:Boolean=false)=observation(request).put("template_id","pair").put("origin","workspace").put("replacement",JSONObject(request.getJSONObject("selection").toString())).put("snippet",JSONObject().put("version",1).put("syntax",if(changed)"\${1:name} + \${1}\$0" else "\${1:name} + \$1\$0").put("text","name + name").put("fields",JSONArray().put(field(0,1,0,4)).put(field(1,1,7,11)).put(field(2,0,11,11))))
     private class Fixture(val workspace:Workspace,val buffer:DocumentBuffer,val model:SourceTemplatesModel,val calls:java.util.concurrent.atomic.AtomicInteger,val mode:java.util.concurrent.atomic.AtomicReference<String>,val entered:java.util.concurrent.CountDownLatch,val release:java.util.concurrent.CountDownLatch)
@@ -164,6 +183,16 @@ class SourceTemplateTest {
         for(other in listOf(capture.copy(workspace=Any()),capture.copy(engine=Any()),capture.copy(editor=Any()),capture.copy(namespace="next"),capture.copy(revision=9),capture.copy(path="moved.py"),capture.copy(source="other"),capture.copy(anchor=5,head=0),capture.copy(snippetIntent=2)))assertFalse(capture.matches(other))
         assertTrue(runCatching{capture.copy(source="😀",anchor=1,head=1)}.isFailure)
     }
+    @Test fun embeddedBindingRejectsForeignLanguageOriginAndMetadata(){
+        val reading=JSONObject().put("version",1).put("project_entry",JSONObject.NULL).put("sources",JSONObject().put("main.py","old")).put("unaddressed_sources",JSONObject()).put("missing_sources",JSONArray())
+        val capture=SourceTemplateCapture(Any(),Any(),Any(),"namespace",0,"main.py","old",0,3,0,SnippetVariableSnapshot.capture(),reading.toString());val raw=catalog(capture.body());val value=SourceTemplateCatalog.decode(raw,capture);assertNotNull(value.sourceContext)
+        for(change in listOf("language","origin","extra")){val bad=JSONObject(raw.toString());val context=bad.getJSONObject("source_context");when(change){"language"->context.put("language","javascript");"origin"->context.getJSONObject("source_hashes").put("main.py","a".repeat(64));else->context.put("extra",true)};assertTrue(runCatching{SourceTemplateCatalog.decode(bad,capture)}.isFailure)}
+        val changed=plan(capture.body());changed.getJSONObject("source_context").put("fingerprint","c".repeat(64));assertTrue(runCatching{SourceTemplatePlan.decode(changed,value,"pair")}.isFailure)
+    }
+    @Test fun readonlyContributorABAChangeRetiresReviewedTemplate()=kotlinx.coroutines.runBlocking{host{f->
+        val file=FileNode("context.md","context.md",false,emptyList(),null,"fixture.md");val contributor=DocumentBuffer(file,FileText("context","saved"));f.workspace.buffers[file.path]=contributor
+        review(f);contributor.state.edit{replace(0,length,"changed")};contributor.advanceSourceRevision();contributor.state.edit{replace(0,length,"context")};contributor.advanceSourceRevision();val before=f.calls.get();assertFalse(f.model.apply(f.workspace));assertEquals(before,f.calls.get());assertEquals("old",f.buffer.text);assertTrue(contributor.readOnly)
+    }}
     @Test fun strictCatalogAndPlanBindingsRefuseWholeMalformedReadings(){
         val capture=SourceTemplateCapture(Any(),Any(),Any(),"namespace",0,"main.py","old",0,3,0);val request=capture.body();val raw=catalog(request);val reading=SourceTemplateCatalog.decode(raw,capture)
         for((key,value) in listOf("version" to true,"template_protocol" to 1.5,"source_hash" to "wrong","path" to "other"))assertTrue(runCatching{SourceTemplateCatalog.decode(JSONObject(raw.toString()).put(key,value),capture)}.isFailure)
@@ -274,6 +303,17 @@ class SourceTemplateTest {
 The host adapter keeps transport separate from policy. It captures one retained editor and invokes the engine's two read-only endpoints. Each request has a current ticket; the captured native revision, selection and snippet intent must still match after the await. A reviewed draft includes nested mirrors before it is shown, so Apply does not discover additional effects after review.
 
 <ui:copy id="source-templates-android-host">
+private fun captureSourceTemplateContributors(workspace:Workspace):Pair<String,()->Boolean>{
+ val lease=workspace.sourceAcquisitionLease(protectSelection=false);val all=(workspace.buffers.values+workspace.retainedResourceEditors.values+workspace.retainedResourceTabs.values).distinct();check(all.size<=4096){"Too many retained template contributors"}
+ val sources=JSONObject();val unaddressed=JSONObject();val missing=linkedSetOf<String>();var bytes=0L
+ for(buffer in all){val size=buffer.text.toByteArray(Charsets.UTF_8).size;check(size<=8*1024*1024&&size<=32*1024*1024-bytes){"Template contributor text exceeds the interactive budget"};bytes+=size
+  if(buffer.resourceDeleted){if(!buffer.file.path.startsWith("/"))missing.add(buffer.file.path);continue}
+  if(buffer.isUntitledDraft||buffer.file.path.startsWith("/")){unaddressed.put(java.util.UUID.randomUUID().toString(),buffer.text);continue}
+  check(!sources.has(buffer.file.path)){"Template contributor addresses are ambiguous"};sources.put(buffer.file.path,buffer.text)
+ }
+ for(path in sources.keys())missing.remove(path)
+ return JSONObject().put("version",1).put("project_entry",JSONObject.NULL).put("sources",sources).put("unaddressed_sources",unaddressed).put("missing_sources",org.json.JSONArray(missing.sorted())).toString() to {lease.current()}
+}
 class SourceTemplatesModel {
     var captureVariables:()->SnippetVariableSnapshot={SnippetVariableSnapshot.capture()}
     var catalog by androidx.compose.runtime.mutableStateOf<SourceTemplateCatalog?>(null);private set
@@ -291,15 +331,27 @@ class SourceTemplatesModel {
         val selected=buffer.state.selection
         return SourceTemplateCapture(workspace,engine,buffer,workspace.sourceNavigationEpoch,buffer.sourceRevision,buffer.file.path,buffer.text,selected.start,selected.end,buffer.snippets.intent,variables)
     }
-    fun current(workspace:Workspace,context:SourceTemplateCapture)=workspace.sourceTemplates===this&&workspace.showTemplates&&runCatching{context.matches(capture(workspace))}.getOrDefault(false)
+    fun current(workspace:Workspace,context:SourceTemplateCapture)=workspace.sourceTemplates===this&&workspace.showTemplates&&runCatching{context.contributorsCurrent()&&context.entryCurrent()&&context.matches(capture(workspace))}.getOrDefault(false)
     suspend fun refresh(workspace:Workspace){
         close();val id=ticket;busy=true;notice="Reading source templates…"
         try {
-            val context=capture(workspace,captureVariables());val engine=context.engine as Engine
-            val reply=engine.request("POST","/api/templates/catalog",context.body())
-            if(ticket!=id)return
-            check(current(workspace,context)){"Source or selection changed while reading templates. Refresh the catalog."}
-            catalog=SourceTemplateCatalog.decode(reply,context);notice=if(catalog!!.available)"Choose a template to review its complete draft." else catalog!!.reason ?: "Templates are unavailable for this source."
+            val origin=capture(workspace,captureVariables());val graph=captureSourceTemplateContributors(workspace);var context=origin.copy(readingContext=graph.first,contributorsCurrent=graph.second);val engine=context.engine as Engine
+            for(attempt in 0 until 2){
+                val reply=engine.request("POST","/api/templates/catalog",context.body())
+                if(ticket!=id)return
+                check(current(workspace,context)){"Source, selection or contributors changed while reading templates. Refresh the catalog."}
+                val value=SourceTemplateCatalog.decode(reply,context)
+                if(reply.has("reading_context_request")){
+                    val required=reply.optJSONObject("reading_context_request") ?: error("Malformed construction entry request")
+                    check(attempt==0&&required.length()==2&&templateNumber(required.opt("version"))==1&&required.opt("kind")=="construction_entry"&&!value.available&&value.entries.isEmpty()&&!JSONObject(context.readingContext!!).has("entry_selection")){"Unsupported or repeated construction entry request"}
+                    val original=context;val runtime=engine.sourceWorkspaceID ?: error("Original workspace runtime is unavailable");val namespace=engine.sourceRootAddress ?: error("Original workspace root is unavailable")
+                    val entry=WorkspaceEntrySelections.read(load={engine.request("GET","/api/workspace/entry")},workspace=runtime,namespace=namespace,current={current(workspace,original)})
+                    if(ticket!=id)return;check(current(workspace,original)&&entry.current()){"Construction entry or original contributors changed"}
+                    val reading=JSONObject(context.readingContext!!).put("project_entry",entry.entryPath ?: JSONObject.NULL).put("entry_selection",entry.proof.body());context=context.copy(readingContext=reading.toString(),entryCurrent=entry.current);continue
+                }
+                catalog=value;notice=if(value.available)"Choose a template to review its complete draft." else value.reason ?: "Templates are unavailable for this source.";return
+            }
+            error("Repeated construction entry demand. Source remains readable.")
         }catch(cancelled:kotlinx.coroutines.CancellationException){throw cancelled}
         catch(error:Exception){if(ticket==id)notice=error.message.orEmpty()}
         finally{if(ticket==id)busy=false}

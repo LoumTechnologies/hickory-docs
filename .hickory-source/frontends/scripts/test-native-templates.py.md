@@ -33,7 +33,7 @@ def fixture_api():
     spec.loader.exec_module(module)
     return module
 
-def prepare(root, provider_context=False):
+def prepare(root, provider_context=False, embedded=False):
     root.mkdir()
     (root / ".git").mkdir()
     (root / ".hickory").mkdir()
@@ -46,6 +46,12 @@ def prepare(root, provider_context=False):
             (root / name).write_bytes(b"old\r\nsecond\n")
         provider = ROOT / "scripts/snippet-context-controlled-provider.py"
         (root / ".hick-lsp.json").write_text(json.dumps({"servers": {"python": {"command": [sys.executable, str(provider), str(root.parent / "provider-events.jsonl")]}}}))
+    if embedded:
+        ns = 'http://www.hickorydocs.com/1.0'
+        def doc(body): return '<h:doc xmlns:h="'+ns+'">'+body+'</h:doc>'
+        (root / "project.md").write_text(doc('<h:project sources="part.md"/><h:file path="saved.py"><h:paste select="#body"/></h:file><h:file path="second.py"><h:paste select="#body"/></h:file>'))
+        (root / "part.md").write_text(doc('<h:copy id="body">saved</h:copy>'))
+        (root / "notes.md").write_text("Narrative\n\n```python\nold\n```\n")
     entries = [
         {"id": "workspace.wrap", "label": "Wrap selection", "description": "Linked selected text", "language": "python", "syntax": SYNTAX},
         {"id": "workspace.context", "label": "Captured context and transform", "description": "Filename, frozen time/random and linked uppercase transform", "language": "python", "syntax": "${TM_FILENAME}|${CURRENT_YEAR}|${RANDOM_HEX}|${1:${TM_SELECTED_TEXT}}|$1|${1/(.*)/${1:/upcase}/}$0"},
@@ -53,6 +59,7 @@ def prepare(root, provider_context=False):
         {"id": "workspace.unused-clipboard", "label": "Selected text before clipboard default", "description": "A used selected-text variable never reads its unused clipboard default", "language": "python", "syntax": "${TM_SELECTED_TEXT:${CLIPBOARD}}$0"},
         {"id": "workspace.unsupported", "label": "Unsupported transform", "description": "An explicit unavailable transform", "language": "python", "syntax": "${1:old}${1/(?<=o)ld/x/}$0"},
     ]
+    if embedded: entries.append({"id":"workspace.embedded","label":"Embedded context","description":"Compiler-bound language and linked transforms","language":"python","syntax":"${LINE_COMMENT}${TM_FILENAME}|${1:${TM_SELECTED_TEXT}}|$1|${1/(.*)/${1:/upcase}/}$0"})
     (root / ".hickory/templates.json").write_text(json.dumps({"version": 1, "templates": entries}))
 
 def request(origin, path, body=None):
@@ -99,23 +106,23 @@ def confirm(origin):
 The runtime owns only its temporary workspace, engine and selected native process group. Pass the workspace path to native tests so they can verify the engine root and the fixture marker before temporarily revoking the data-only catalog. Always preserve native failures and inspect exactly one executed test receipt; an old report or skipped optional case cannot establish acceptance. The server helper consumes its own output for readiness, while native output is retained separately.
 
 <ui:copy id="native-template-fixture-runtime">
-def run_host(host, origin, workspace, temporary, fixture, provider_context=False):
+def run_host(host, origin, workspace, temporary, fixture, provider_context=False, embedded=False):
     environment = {**os.environ, "HICKORY_NATIVE_TEMPLATE_ORIGIN": origin, "HICKORY_NATIVE_TEMPLATE_WORKSPACE": str(workspace), "HICKORY_NATIVE_TEMPLATE_INPUT": "main.py"}
     if host == "apple":
-        name = "testLiveProviderContextCompletionAndHistory" if provider_context else "testLiveNativeSourceTemplateCatalogAndHistory"
-        test_class = "SnippetContextProviderTests" if provider_context else "SourceTemplateTests"
+        name = "testLiveEmbeddedTemplateCatalogAndHistory" if embedded else "testLiveProviderContextCompletionAndHistory" if provider_context else "testLiveNativeSourceTemplateCatalogAndHistory"
+        test_class = "EmbeddedTemplateTests" if embedded else "SnippetContextProviderTests" if provider_context else "SourceTemplateTests"
         report = temporary / "native-template.xml"
         command = ["swift", "test", "--package-path", "apps/apple-simple", "--scratch-path", "target/apple-simple-spm", "--filter", test_class + "." + name + "$", "--xunit-output", str(report)]
     else:
-        name = "liveProviderContextCompletionAndHistory" if provider_context else "liveNativeSourceTemplateCatalogAndHistory"
-        test_class = "SnippetContextProviderTest" if provider_context else "SourceTemplateTest"
+        name = "liveEmbeddedTemplateCatalogAndHistory" if embedded else "liveProviderContextCompletionAndHistory" if provider_context else "liveNativeSourceTemplateCatalogAndHistory"
+        test_class = "EmbeddedTemplateTest" if embedded else "SnippetContextProviderTest" if provider_context else "SourceTemplateTest"
         launcher = ROOT / "target/simple-android-gradle"
         if not launcher.is_file():
             subprocess.run(["rustc", "--edition=2021", "scripts/simple-android-gradle.rs", "-o", str(launcher)], cwd=ROOT, check=True)
         command = [str(launcher), "-Pandroid.builder.sdkDownload=false", ":app:testDebugUnitTest", "--tests", "com.hickorydocs.simple." + test_class + "." + name, "--rerun-tasks"]
         report = ROOT / ("apps/android-simple/app/build/test-results/testDebugUnitTest/TEST-com.hickorydocs.simple." + test_class + ".xml")
     report.unlink(missing_ok=True)
-    log = ROOT / "target/native-template-smoke" / (host + ("-provider-last.log" if provider_context else "-last.log"))
+    log = ROOT / "target/native-template-smoke" / (host + ("-embedded-last.log" if embedded else "-provider-last.log" if provider_context else "-last.log"))
     log.parent.mkdir(parents=True, exist_ok=True)
     log.with_suffix(".xml").unlink(missing_ok=True)
     log.with_suffix(".json").unlink(missing_ok=True)
@@ -156,6 +163,7 @@ def main():
     parser.add_argument("--engine", type=Path, default=ROOT / "target/source-edit-focus/debug/examples/engine_client")
     parser.add_argument("--serve-only", action="store_true", help="Keep the owned fixture alive; this does not execute acceptance.")
     parser.add_argument("--provider-context", action="store_true", help="Execute the exact native provider-completion context/transform/clipboard witness.")
+    parser.add_argument("--embedded", action="store_true", help="Execute exact native code-fence/reused-fragment template acceptance.")
     args = parser.parse_args()
     def interrupted(number, _frame):
         raise SystemExit(128 + number)
@@ -167,7 +175,7 @@ def main():
     with tempfile.TemporaryDirectory(prefix=f"hickory-native-{args.host}-templates-") as folder:
         temporary = Path(folder)
         workspace = temporary / "workspace"
-        prepare(workspace, args.provider_context)
+        prepare(workspace, args.provider_context, args.embedded)
         process = fixture.start([str(engine), str(workspace), "window", "http://127.0.0.1:1"], env={**os.environ, "HICKORY_STATE_DIR": str(temporary / "state")})
         try:
             origin = fixture.origin(process)
@@ -176,7 +184,7 @@ def main():
             if args.serve_only:
                 threading.Event().wait()
             else:
-                run_host(args.host, origin, workspace, temporary, fixture, args.provider_context)
+                run_host(args.host, origin, workspace, temporary, fixture, args.provider_context, args.embedded)
         finally:
             fixture.stop(process)
 
