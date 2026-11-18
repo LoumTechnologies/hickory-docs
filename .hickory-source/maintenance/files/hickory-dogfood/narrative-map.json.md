@@ -157066,6 +157066,27 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/mechanisms/crates/hickory-cli/src/engine/client.rs.md",
       "symbol": "engine generation entry capability witness",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "source-template-batch-values",
+      "output": "crates/hickory-cli/src/serve/source_templates.rs",
+      "page": ".hickory-source/mechanisms/source-template-service.md",
+      "symbol": "source template batch values",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-template-batch-plans",
+      "output": "crates/hickory-cli/src/serve/source_templates.rs",
+      "page": ".hickory-source/mechanisms/source-template-service.md",
+      "symbol": "source template batch plans",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-template-batch-witness",
+      "output": "crates/hickory-cli/src/serve/source_templates.rs",
+      "page": ".hickory-source/mechanisms/source-template-service.md",
+      "symbol": "source template batch witness",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

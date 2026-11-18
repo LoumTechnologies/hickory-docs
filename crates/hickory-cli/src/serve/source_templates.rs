@@ -1,10 +1,10 @@
 use super::{
-    LocalState,
     api::{ApiError, ApiResult},
+    LocalState,
 };
-use axum::{Json, extract::State};
+use axum::{extract::State, Json};
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -30,6 +30,8 @@ pub struct Context {
     reading_context: Option<TemplateReadingContext>,
     #[serde(default)]
     transform_program_versions: Option<Vec<u32>>,
+    #[serde(default)]
+    carets: Option<TemplateCarets>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -46,6 +48,8 @@ pub struct PlanRequest {
     reading_context: Option<TemplateReadingContext>,
     #[serde(default)]
     transform_program_versions: Option<Vec<u32>>,
+    #[serde(default)]
+    carets: Option<TemplateCarets>,
 }
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -87,6 +91,7 @@ fn validate(context: &Context) -> Result<(usize, usize), String> {
         return Err("Unsupported template protocol. Update app and engine together.".into());
     }
     template_programs(context)?;
+    validate_template_carets(context)?;
     if context.version == 1 && context.reading_context.is_some() {
         return Err("Template protocol1 does not support captured construction contexts".into());
     }
@@ -107,6 +112,193 @@ fn validate(context: &Context) -> Result<(usize, usize), String> {
         boundary(&context.source, context.selection.from)?,
         boundary(&context.source, context.selection.to)?,
     ))
+}
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct TemplateCarets {
+    version: u32,
+    selections: Vec<Selection>,
+    primary: usize,
+    #[serde(default)]
+    continuing: bool,
+}
+fn validate_template_carets<'a>(
+    context: &'a Context,
+) -> Result<Option<&'a TemplateCarets>, String> {
+    let Some(carets) = &context.carets else {
+        return Ok(None);
+    };
+    if context.version != 2
+        || carets.version != 1
+        || !(2..=256).contains(&carets.selections.len())
+        || carets.primary >= carets.selections.len()
+        || carets.selections[carets.primary].from != context.selection.from
+        || carets.selections[carets.primary].to != context.selection.to
+    {
+        return Err("The complete template selection roster or primary is invalid".into());
+    }
+    for selected in &carets.selections {
+        if selected.from > selected.to {
+            return Err("Template caret interval is reversed".into());
+        }
+    }
+    let mut ordered: Vec<_> = carets.selections.iter().collect();
+    ordered.sort_by_key(|selected| (selected.from, selected.to));
+    for pair in ordered.windows(2) {
+        let (before, after) = (pair[0], pair[1]);
+        if before.to > after.from
+            || before.from == after.from
+                && before.to == after.to
+                && (!carets.continuing || before.from != before.to)
+        {
+            return Err(
+                "Overlapping template selections or duplicate initial carets are unsupported"
+                    .into(),
+            );
+        }
+    }
+    Ok(Some(carets))
+}
+fn template_selection_offsets(context: &Context) -> Result<BTreeMap<usize, usize>, String> {
+    if context.source.len() > 8 * 1024 * 1024 {
+        return Err("Template source exceeds its eight MiB reading budget".into());
+    }
+    let carets = validate_template_carets(context)?;
+    let selections = carets
+        .map(|value| value.selections.as_slice())
+        .unwrap_or(std::slice::from_ref(&context.selection));
+    if selections.iter().any(|range| range.from > range.to) {
+        return Err("Template selection is reversed".into());
+    }
+    let wanted: BTreeSet<_> = selections
+        .iter()
+        .flat_map(|range| [range.from, range.to])
+        .collect();
+    let mut wanted = wanted.into_iter().peekable();
+    let mut offsets = BTreeMap::new();
+    let mut units = 0usize;
+    for (byte, ch) in context.source.char_indices() {
+        if wanted.peek().is_some_and(|offset| *offset < units) {
+            return Err("Template selection splits a Unicode scalar".into());
+        }
+        if wanted.peek() == Some(&units) {
+            if context.source[..byte].ends_with('\r') && ch == '\n' {
+                return Err("Template selection splits a CRLF line ending".into());
+            }
+            offsets.insert(units, byte);
+            wanted.next();
+        }
+        units += ch.len_utf16();
+    }
+    if wanted.peek() == Some(&units) {
+        offsets.insert(units, context.source.len());
+        wanted.next();
+    }
+    if wanted.next().is_some() {
+        return Err("Template selection is outside source or splits a Unicode scalar".into());
+    }
+    Ok(offsets)
+}
+fn bind_template_cursor(
+    values: &mut BTreeMap<String, Option<String>>,
+    requested: &BTreeSet<String>,
+    cursor: usize,
+    budget: &mut hick_lsp::snippet::SnippetExpansionBudget,
+) -> Result<(), String> {
+    if cursor >= 256 {
+        return Err("Template cursor index exceeds the captured roster".into());
+    }
+    // The rebinding allocates its own bounded numeric literals after the
+    // context reader's default values; charge those allocations as well.
+    fn digits(number: usize) -> usize {
+        if number < 10 {
+            1
+        } else if number < 100 {
+            2
+        } else {
+            3
+        }
+    }
+    for (name, number) in [("CURSOR_INDEX", cursor), ("CURSOR_NUMBER", cursor + 1)] {
+        if requested.contains(name) {
+            budget.charge_context_bytes(digits(number))?;
+        }
+    }
+    hick_lsp::snippet_context::bind_cursor_variables(values, requested, cursor)
+}
+fn template_row_variables(
+    root: &Path,
+    context: &Context,
+    syntax: &str,
+    language: &str,
+    from: usize,
+    to: usize,
+    cursor: usize,
+    budget: &mut hick_lsp::snippet::SnippetExpansionBudget,
+) -> Result<(BTreeMap<String, Option<String>>, bool), String> {
+    let snapshot = variable_snapshot(context)?;
+    let path = root.join(&context.path);
+    let origin = hick_lsp::snippet_context::SnippetVariableContext {
+        source: &context.source,
+        from,
+        to,
+        path: &path,
+        workspace: Some(root),
+        language: Some(language),
+    };
+    let requested = hick_lsp::snippet::requested_variables_with_budget(syntax, budget)?;
+    let mut presence = hick_lsp::snippet_context::variable_presence_with_budget(
+        &origin, &snapshot, &requested, budget,
+    )?;
+    bind_template_cursor(&mut presence, &requested, cursor, budget)?;
+    let effective =
+        hick_lsp::snippet::effective_requested_variables_with_budget(syntax, &presence, budget)?;
+    let mut values =
+        hick_lsp::snippet_context::variables_with_budget(&origin, &snapshot, &effective, budget)?;
+    bind_template_cursor(&mut values, &effective, cursor, budget)?;
+    Ok((values, effective.contains("CLIPBOARD")))
+}
+struct TemplateRowExpansion {
+    selection: Selection,
+    syntax: String,
+    values: BTreeMap<String, Option<String>>,
+    clipboard: bool,
+}
+fn template_expansion_rows(
+    root: &Path,
+    context: &Context,
+    entry: &Template,
+    language: &str,
+    carets: &TemplateCarets,
+    graph: &PreparedTemplateGraph<'_>,
+    budget: &mut hick_lsp::snippet::SnippetExpansionBudget,
+) -> Result<Vec<TemplateRowExpansion>, String> {
+    carets
+        .selections
+        .iter()
+        .enumerate()
+        .map(|(index, selection)| {
+            let (from, to) = graph.byte_range(selection)?;
+            let syntax = contextual_syntax(entry, context, from)?;
+            let (values, clipboard) =
+                template_row_variables(root, context, &syntax, language, from, to, index, budget)?;
+            Ok(TemplateRowExpansion {
+                selection: selection.clone(),
+                syntax,
+                values,
+                clipboard,
+            })
+        })
+        .collect()
+}
+fn materialize_template_rows(
+    rows: &[TemplateRowExpansion],
+    budget: &mut hick_lsp::snippet::SnippetExpansionBudget,
+) -> Result<Vec<Value>, String> {
+    rows.iter().map(|row| {
+        let plan = hick_lsp::snippet::expand_snippet_v2_with_budget(&row.syntax, &row.values, budget)?;
+        Ok(json!({"selection":row.selection,"replacement":row.selection,"snippet":plan.metadata(&row.syntax)}))
+    }).collect()
 }
 #[derive(Clone, Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -138,10 +330,12 @@ struct PreparedTemplateGraph<'a> {
     hashes: BTreeMap<String, String>,
     graph_fingerprint: String,
     needs_entry: bool,
+    byte_offsets: BTreeMap<usize, usize>,
 }
 impl<'a> PreparedTemplateGraph<'a> {
     fn capture(root: &Path, context: &'a Context, scope: Option<&str>) -> Result<Self, String> {
         validate(context)?;
+        let byte_offsets = template_selection_offsets(context)?;
         let mut supplied = BTreeMap::new();
         let mut missing = BTreeSet::new();
         let reading = context.reading_context.as_ref();
@@ -415,14 +609,54 @@ impl<'a> PreparedTemplateGraph<'a> {
             hashes,
             graph_fingerprint,
             needs_entry,
+            byte_offsets,
         })
     }
+    fn byte_range(&self, selection: &Selection) -> Result<(usize, usize), String> {
+        let admitted = self.context.carets.as_ref().map_or_else(
+            || {
+                self.context.selection.from == selection.from
+                    && self.context.selection.to == selection.to
+            },
+            |carets| {
+                carets
+                    .selections
+                    .iter()
+                    .any(|row| row.from == selection.from && row.to == selection.to)
+            },
+        );
+        if !admitted {
+            return Err("The selection is outside the original captured template roster".into());
+        }
+        Ok((
+            *self
+                .byte_offsets
+                .get(&selection.from)
+                .ok_or("Original template start offset is unavailable")?,
+            *self
+                .byte_offsets
+                .get(&selection.to)
+                .ok_or("Original template end offset is unavailable")?,
+        ))
+    }
     fn language_context(&self, selection: &Selection) -> Result<CapturedTemplateLanguage, String> {
+        self.read_language_context(selection, true)
+    }
+    fn light_language_context(
+        &self,
+        selection: &Selection,
+    ) -> Result<CapturedTemplateLanguage, String> {
+        self.read_language_context(selection, false)
+    }
+    fn read_language_context(
+        &self,
+        selection: &Selection,
+        include_hashes: bool,
+    ) -> Result<CapturedTemplateLanguage, String> {
         if selection.from > selection.to {
             return Err("Template selection is reversed".into());
         }
-        let from = boundary(&self.context.source, selection.from)?;
-        let to = boundary(&self.context.source, selection.to)?;
+        let (from, to) = self.byte_range(selection)?;
         if self.reader.requires_construction_scope(from, to)
             && self.explicit.is_some()
             && !self.contributes
@@ -448,7 +682,10 @@ impl<'a> PreparedTemplateGraph<'a> {
             ))
             .map_err(|error| error.to_string())?,
         );
-        let binding = json!({"version":1,"scope":language.scope,"language":language.language,"languages":language.languages,"targets":language.targets,"reason":language.reason,"project_entry":self.explicit,"source_hashes":self.hashes,"graph_fingerprint":self.graph_fingerprint,"fingerprint":fingerprint});
+        let mut binding = json!({"version":1,"scope":language.scope,"language":language.language,"languages":language.languages,"targets":language.targets,"reason":language.reason,"project_entry":self.explicit,"graph_fingerprint":self.graph_fingerprint,"fingerprint":fingerprint});
+        if include_hashes {
+            binding["source_hashes"] = json!(self.hashes);
+        }
         if serde_json::to_vec(&binding)
             .map_err(|error| error.to_string())?
             .len()
@@ -786,6 +1023,9 @@ fn prepare_for_scope(
     scope: Option<&str>,
 ) -> Result<Value, String> {
     let (from, to) = validate(context)?;
+    if context.carets.is_some() {
+        return prepare_caret_templates(root, context, selected, scope);
+    }
     let root = root
         .canonicalize()
         .map_err(|e| format!("Workspace unavailable: {e}"))?;
@@ -901,6 +1141,173 @@ fn prepare_for_scope(
     }
     Ok(value)
 }
+fn prepare_caret_templates(
+    root: &Path,
+    context: &Context,
+    selected: Option<(&str, &str)>,
+    scope: Option<&str>,
+) -> Result<Value, String> {
+    let carets = validate_template_carets(context)?.ok_or("Template caret roster is missing")?;
+    let root = root
+        .canonicalize()
+        .map_err(|error| format!("Workspace unavailable: {error}"))?;
+    let graph = PreparedTemplateGraph::capture(&root, context, scope)?;
+    let entries = load(&root)?;
+    let programs = template_programs(context)?;
+    let mut readings = Vec::with_capacity(carets.selections.len());
+    let mut languages = BTreeSet::new();
+    let mut targets = BTreeSet::new();
+    let mut reason = None;
+    let mut metadata_bytes = 0usize;
+    for selection in &carets.selections {
+        let captured = graph.light_language_context(selection)?;
+        languages.extend(captured.language.languages.iter().cloned());
+        targets.extend(captured.language.targets.iter().cloned());
+        if let Some(message) = &captured.language.reason {
+            reason.get_or_insert_with(|| message.clone());
+        }
+        let reading = json!({"selection":selection,"context":captured.binding});
+        metadata_bytes = metadata_bytes
+            .checked_add(
+                serde_json::to_vec(&reading)
+                    .map_err(|error| error.to_string())?
+                    .len(),
+            )
+            .ok_or("Template reading metadata overflow")?;
+        if metadata_bytes > 1024 * 1024 || targets.len() > 1024 {
+            return Err(
+                "The complete template caret reading exceeds its interactive metadata budget"
+                    .into(),
+            );
+        }
+        readings.push(reading);
+    }
+    if languages.len() != 1 {
+        reason.get_or_insert_with(|| {
+            "The captured carets do not share one known source language".into()
+        });
+    }
+    let language = if reason.is_none() && languages.len() == 1 {
+        languages.iter().next().cloned()
+    } else {
+        None
+    };
+    let source_fingerprint = hash(
+        serde_json::to_vec(&(1, &graph.graph_fingerprint, carets, &readings))
+            .map_err(|error| error.to_string())?,
+    );
+    let binding = json!({"version":1,"scope":"caret-batch","language":language,"languages":languages,"targets":targets,"reason":reason,"project_entry":graph.explicit,"source_hashes":graph.hashes,"graph_fingerprint":graph.graph_fingerprint,"fingerprint":source_fingerprint});
+    if serde_json::to_vec(&binding)
+        .map_err(|error| error.to_string())?
+        .len()
+        > 1024 * 1024
+    {
+        return Err("The captured template graph exceeds its interactive metadata budget".into());
+    }
+    let fingerprint = hash(
+        serde_json::to_vec(&(
+            1,
+            "caret-batch",
+            &binding["fingerprint"],
+            &entries,
+            &programs,
+            scope,
+        ))
+        .map_err(|error| error.to_string())?,
+    );
+    let mut value = json!({"version":1,"template_protocol":2,"template_batch_protocol":1,"path":context.path,"selection":context.selection,"carets":carets,"source_hash":hash(context.source.as_bytes()),"workspace_id":hash(root.as_os_str().as_encoded_bytes()),"language":language.as_deref().unwrap_or("unknown"),"catalog_fingerprint":fingerprint,"variable_context":context.variable_context,"source_files_modified":false,"source_context":binding,"readings":readings,"notices":["Every captured template insertion is reviewed and applied together through source Undo/Redo. No file is saved and no command runs.","Finish composition before applying the complete selection roster."]});
+    if context.transform_program_versions.is_some() {
+        value["transform_program_versions"] = json!(programs);
+    }
+    if graph.needs_entry {
+        if selected.is_some() {
+            return Err(
+                "Read the original construction entry and refresh all template caret contexts"
+                    .into(),
+            );
+        }
+        value["available"] = json!(false);
+        value["entries"] = json!([]);
+        value["reading_context_request"] = json!({"version":1,"kind":"construction_entry"});
+        return Ok(value);
+    }
+    let Some(language) = language else {
+        if selected.is_some() {
+            return Err(
+                reason.unwrap_or("The complete template caret language is unavailable".into())
+            );
+        }
+        value["available"] = json!(false);
+        value["entries"] = json!([]);
+        value["reason"] = json!(reason);
+        return Ok(value);
+    };
+    let mut budget = hick_lsp::snippet::SnippetExpansionBudget::default();
+    if let Some((id, expected)) = selected {
+        if expected != fingerprint {
+            return Err(
+                "The original template caret catalog changed. Refresh and review the whole batch."
+                    .into(),
+            );
+        }
+        let (entry, origin) = entries
+            .iter()
+            .find(|(entry, _)| entry.id == id && entry.language == language)
+            .ok_or("Template is unavailable for the complete caret language")?;
+        let rows = template_expansion_rows(
+            &root,
+            context,
+            entry,
+            &language,
+            carets,
+            &graph,
+            &mut budget,
+        )?;
+        let clipboard = rows.iter().any(|row| row.clipboard);
+        value["template_id"] = json!(id);
+        value["origin"] = json!(origin);
+        let snapshot = variable_snapshot(context)?;
+        if clipboard && snapshot.clipboard.is_none() {
+            value["available"] = json!(false);
+            value["context_request"] = json!({"version":1,"variables":["CLIPBOARD"]});
+            value["reason"]=json!("At least one captured caret needs the clipboard before the whole batch can be previewed.");
+            return Ok(value);
+        }
+        let expansions = materialize_template_rows(&rows, &mut budget)?;
+        if clipboard && snapshot.clipboard == Some(None) {
+            value["context_unavailable"] = json!(["CLIPBOARD"]);
+            value["notices"].as_array_mut().unwrap().push(json!(
+                "Clipboard unavailable; affected caret defaults used their fallback or empty text."
+            ));
+        }
+        value["available"] = json!(true);
+        value["expansions"] = json!(expansions);
+    } else {
+        let mut choices = Vec::new();
+        for (entry, origin) in entries
+            .iter()
+            .filter(|(entry, _)| entry.language == language)
+        {
+            let outcome = template_expansion_rows(
+                &root,
+                context,
+                entry,
+                &language,
+                carets,
+                &graph,
+                &mut budget,
+            )
+            .and_then(|rows| materialize_template_rows(&rows, &mut budget));
+            if budget.exhausted() {
+                return Err("The complete template caret catalog exceeds its aggregate work or expansion budget. Choose fewer carets or a smaller catalog.".into());
+            }
+            choices.push(json!({"id":entry.id,"label":entry.label,"description":entry.description,"language":entry.language,"origin":origin,"available":outcome.is_ok(),"reason":outcome.err()}));
+        }
+        value["available"] = json!(choices.iter().any(|entry| entry["available"] == true));
+        value["entries"] = json!(choices);
+    }
+    Ok(value)
+}
 fn validate_template_entry(state: &LocalState, context: &Context) -> Result<(), String> {
     if let Some(reading) = &context.reading_context {
         if let Some(raw) = &reading.entry_selection {
@@ -972,7 +1379,9 @@ fn admitted(
     let value = prepare_for_scope(&root, context, selected, Some(&scope))?;
     validate_template_entry(state, context)?;
     if state.resource_root.check(state.index.root())? != scope {
-        return Err("Original template workspace changed while reading its language context".into());
+        return Err(
+            "Original template workspace changed while reading its language context".into(),
+        );
     }
     Ok(value)
 }
@@ -1009,6 +1418,7 @@ pub async fn plan(
             variable_context: request.variable_context,
             reading_context: request.reading_context,
             transform_program_versions: request.transform_program_versions,
+            carets: request.carets,
         };
         admitted(
             &state,
@@ -1030,6 +1440,7 @@ mod tests {
             variable_context: None,
             reading_context: None,
             transform_program_versions: None,
+            carets: None,
             path: "part.py".into(),
             source: "😀 old\r\n".into(),
             selection: Selection { from: 3, to: 6 },
@@ -1053,13 +1464,11 @@ mod tests {
         .unwrap();
         assert_eq!(plan["replacement"], json!({"from":3,"to":6}));
         assert_eq!(plan["snippet"]["text"], "def name(args):\n    pass\n");
-        assert!(
-            plan["snippet"]["fields"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .any(|field| field["index"] == 0)
-        );
+        assert!(plan["snippet"]["fields"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|field| field["index"] == 0));
         assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 0);
     }
     #[test]
@@ -1134,6 +1543,7 @@ mod tests {
             variable_context: None,
             reading_context: None,
             transform_program_versions: None,
+            carets: None,
             path: "part.py".into(),
             source: "    ".into(),
             selection: Selection { from: 4, to: 4 },
@@ -1166,18 +1576,16 @@ mod tests {
         };
         let unavailable = prepare(root.path(), &large, None).unwrap();
         assert_eq!(unavailable["available"], false);
-        assert!(
-            prepare(
-                root.path(),
-                &large,
-                Some((
-                    "python.function",
-                    unavailable["catalog_fingerprint"].as_str().unwrap()
-                ))
-            )
-            .unwrap_err()
-            .contains("input limit")
-        );
+        assert!(prepare(
+            root.path(),
+            &large,
+            Some((
+                "python.function",
+                unavailable["catalog_fingerprint"].as_str().unwrap()
+            ))
+        )
+        .unwrap_err()
+        .contains("input limit"));
     }
     #[test]
     fn workspace_data_templates_recheck_catalog_and_reject_conflicting_ids() {
@@ -1187,18 +1595,16 @@ mod tests {
         let context = context();
         let before = prepare(root.path(), &context, None).unwrap();
         std::fs::write(&manifest,r#"{"version":1,"templates":[{"id":"project.function","label":"Project","description":"selected text","language":"python","syntax":"${TM_SELECTED_TEXT} ${TM_FILENAME} $0"}]}"#).unwrap();
-        assert!(
-            prepare(
-                root.path(),
-                &context,
-                Some((
-                    "python.function",
-                    before["catalog_fingerprint"].as_str().unwrap()
-                ))
-            )
-            .unwrap_err()
-            .contains("catalog changed")
-        );
+        assert!(prepare(
+            root.path(),
+            &context,
+            Some((
+                "python.function",
+                before["catalog_fingerprint"].as_str().unwrap()
+            ))
+        )
+        .unwrap_err()
+        .contains("catalog changed"));
         let catalog = prepare(root.path(), &context, None).unwrap();
         let plan = prepare(
             root.path(),
@@ -1212,11 +1618,9 @@ mod tests {
         assert_eq!(plan["origin"], "workspace");
         assert_eq!(plan["snippet"]["text"], "old part.py ");
         std::fs::write(manifest,r#"{"version":1,"templates":[{"id":"python.function","label":"Shadow","description":"","language":"python","syntax":"bad"}]}"#).unwrap();
-        assert!(
-            prepare(root.path(), &context, None)
-                .unwrap_err()
-                .contains("unique")
-        );
+        assert!(prepare(root.path(), &context, None)
+            .unwrap_err()
+            .contains("unique"));
     }
     #[test]
     fn invalid_positions_protocols_and_manifest_shapes_never_return_partial_plans() {
@@ -1250,6 +1654,7 @@ mod refusal_tests {
             variable_context: None,
             reading_context: None,
             transform_program_versions: None,
+            carets: None,
             path: "a.py".into(),
             source: String::new(),
             selection: Selection { from: 0, to: 0 },
@@ -1263,17 +1668,15 @@ mod refusal_tests {
             .unwrap();
         assert_eq!(entry["available"], false);
         assert!(entry["reason"].as_str().unwrap().contains("transforms"));
-        assert!(
-            prepare(
-                root.path(),
-                &context,
-                Some((
-                    "project.transform",
-                    catalog["catalog_fingerprint"].as_str().unwrap()
-                ))
-            )
-            .is_err()
-        );
+        assert!(prepare(
+            root.path(),
+            &context,
+            Some((
+                "project.transform",
+                catalog["catalog_fingerprint"].as_str().unwrap()
+            ))
+        )
+        .is_err());
     }
     #[cfg(unix)]
     #[test]
@@ -1329,6 +1732,7 @@ mod embedded_template_tests {
                 ..Default::default()
             }),
             transform_program_versions: Some(vec![2]),
+            carets: None,
         };
         (root, context)
     }
@@ -1383,14 +1787,12 @@ mod embedded_template_tests {
         let unavailable = prepare(root.path(), &context, None).unwrap();
         assert_eq!(unavailable["available"], false);
         assert_eq!(unavailable["entries"], json!([]));
-        assert!(
-            prepare(
-                root.path(),
-                &context,
-                Some(("workspace.context", &fingerprint))
-            )
-            .is_err()
-        );
+        assert!(prepare(
+            root.path(),
+            &context,
+            Some(("workspace.context", &fingerprint))
+        )
+        .is_err());
     }
     #[test]
     fn missing_contributors_and_new_dirty_generated_claims_refuse_whole_plan() {
@@ -1417,11 +1819,9 @@ mod embedded_template_tests {
             .unwrap()
             .sources
             .insert("draft.py".into(), "old".into());
-        assert!(
-            prepare(root.path(), &context, None)
-                .unwrap_err()
-                .contains("generates")
-        );
+        assert!(prepare(root.path(), &context, None)
+            .unwrap_err()
+            .contains("generates"));
     }
     #[test]
     fn canonical_entry_acquisition_is_separate_from_unaddressed_ownership_and_programs() {
@@ -1459,5 +1859,223 @@ mod embedded_template_tests {
         assert!(prepare(root.path(), &context, None).is_err());
         context.transform_program_versions = Some(vec![2, 2]);
         assert!(prepare(root.path(), &context, None).is_err());
+    }
+}
+#[cfg(test)]
+mod caret_template_tests {
+    use super::*;
+    fn fixture(syntax: &str) -> (tempfile::TempDir, Context) {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir(root.path().join(".hickory")).unwrap();
+        std::fs::write(root.path().join(".hickory/templates.json"), serde_json::to_vec(&json!({"version":1,"templates":[{"id":"workspace.carets","label":"Captured carets","description":"One reviewed selection roster","language":"python","syntax":syntax}]})).unwrap()).unwrap();
+        let source = "left right".to_string();
+        std::fs::write(root.path().join("main.py"), &source).unwrap();
+        let context = Context {
+            version: 2,
+            path: "main.py".into(),
+            source,
+            selection: Selection { from: 0, to: 4 },
+            variable_context: Some(
+                json!({"clock":{"unix_millis":1704067200000i64,"utc_offset_minutes":0},"random_hex":"0123456789abcdef0123456789abcdef","clipboard":null}),
+            ),
+            reading_context: None,
+            transform_program_versions: Some(vec![2]),
+            carets: Some(TemplateCarets {
+                version: 1,
+                selections: vec![Selection { from: 5, to: 10 }, Selection { from: 0, to: 4 }],
+                primary: 1,
+                continuing: false,
+            }),
+        };
+        (root, context)
+    }
+    fn planned(root: &Path, context: &Context, catalog: &Value) -> Result<Value, String> {
+        prepare(
+            root,
+            context,
+            Some((
+                "workspace.carets",
+                catalog["catalog_fingerprint"].as_str().unwrap(),
+            )),
+        )
+    }
+    #[test]
+    fn ordered_carets_share_clock_seed_graph_and_keep_distinct_source_values() {
+        let (root,context)=fixture("${CURSOR_INDEX}|${CURSOR_NUMBER}|${CURRENT_YEAR}|${RANDOM_HEX}|${1:${TM_SELECTED_TEXT}}|$1|${1/(.*)/${1:/upcase}/}$0");
+        let before = std::fs::read(root.path().join("main.py")).unwrap();
+        let catalog = prepare(root.path(), &context, None).unwrap();
+        let plan = planned(root.path(), &context, &catalog).unwrap();
+        assert_eq!(catalog["template_batch_protocol"], 1);
+        assert_eq!(catalog["carets"], json!(context.carets));
+        assert_eq!(plan["variable_context"], json!(context.variable_context));
+        assert_eq!(plan["source_files_modified"], false);
+        assert!(plan.get("snippet").is_none());
+        assert!(plan.get("replacement").is_none());
+        assert_eq!(
+            plan["expansions"][0]["snippet"]["text"],
+            "0|1|2024|012345|right|right|RIGHT"
+        );
+        assert_eq!(
+            plan["expansions"][1]["snippet"]["text"],
+            "1|2|2024|012345|left|left|LEFT"
+        );
+        assert_eq!(
+            plan["expansions"][0]["replacement"],
+            json!({"from":5,"to":10})
+        );
+        assert_eq!(
+            plan["expansions"][1]["replacement"],
+            json!({"from":0,"to":4})
+        );
+        assert_eq!(
+            plan["source_context"]["source_hashes"]["main.py"],
+            hash(context.source.as_bytes())
+        );
+        for reading in plan["readings"].as_array().unwrap() {
+            assert!(reading["context"].get("source_hashes").is_none());
+            assert_eq!(
+                reading["context"]["graph_fingerprint"],
+                plan["source_context"]["graph_fingerprint"]
+            );
+        }
+        assert_eq!(std::fs::read(root.path().join("main.py")).unwrap(), before);
+    }
+    #[test]
+    fn one_effective_clipboard_demand_and_denial_cover_the_complete_original_roster() {
+        let (root, mut context) = fixture("${TM_SELECTED_TEXT:${CLIPBOARD:fallback}}$0");
+        context.source = "old ".into();
+        context.selection = Selection { from: 0, to: 3 };
+        context.carets = Some(TemplateCarets {
+            version: 1,
+            selections: vec![context.selection.clone(), Selection { from: 4, to: 4 }],
+            primary: 0,
+            continuing: false,
+        });
+        // Empty selected text is still a known value: its unused default
+        // must not acquire clipboard data for either logical slot.
+        let unused_catalog = prepare(root.path(), &context, None).unwrap();
+        let unused = planned(root.path(), &context, &unused_catalog).unwrap();
+        assert!(unused.get("context_request").is_none());
+        assert_eq!(unused["expansions"][0]["snippet"]["text"], "old");
+        assert_eq!(unused["expansions"][1]["snippet"]["text"], "");
+        let manifest = root.path().join(".hickory/templates.json");
+        let mut declaration: Value =
+            serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
+        declaration["templates"][0]["syntax"] =
+            json!("${TM_SELECTED_TEXT}|${CLIPBOARD:fallback}$0");
+        std::fs::write(&manifest, serde_json::to_vec(&declaration).unwrap()).unwrap();
+        let catalog = prepare(root.path(), &context, None).unwrap();
+        let demand = planned(root.path(), &context, &catalog).unwrap();
+        assert_eq!(
+            demand["context_request"],
+            json!({"version":1,"variables":["CLIPBOARD"]})
+        );
+        assert_eq!(demand["carets"], json!(context.carets));
+        assert!(demand.get("expansions").is_none());
+        context.variable_context.as_mut().unwrap()["clipboard"] =
+            json!({"available":false,"text":null});
+        let denied = planned(root.path(), &context, &catalog).unwrap();
+        assert_eq!(denied["expansions"][0]["snippet"]["text"], "old|fallback");
+        assert_eq!(denied["expansions"][1]["snippet"]["text"], "|fallback");
+        assert_eq!(denied["context_unavailable"], json!(["CLIPBOARD"]));
+        assert_eq!(planned(root.path(), &context, &catalog).unwrap(), denied);
+    }
+    #[test]
+    fn secondary_roster_changes_cannot_reuse_a_reviewed_catalog() {
+        let (root, mut context) = fixture("${CURSOR_NUMBER}:${1:${TM_SELECTED_TEXT}}$0");
+        let catalog = prepare(root.path(), &context, None).unwrap();
+        context.carets.as_mut().unwrap().selections[0] = Selection { from: 6, to: 10 };
+        assert!(planned(root.path(), &context, &catalog).is_err());
+        context.carets.as_mut().unwrap().primary = 0;
+        assert!(prepare(root.path(), &context, None).is_err());
+    }
+    #[test]
+    fn scalar_crlf_offsets_are_indexed_once_and_coincident_slots_require_continuation() {
+        let (_, mut context) = fixture("$0");
+        context.source = "😀\r\nx".into();
+        context.selection = Selection { from: 0, to: 2 };
+        context.carets = Some(TemplateCarets {
+            version: 1,
+            selections: vec![context.selection.clone(), Selection { from: 4, to: 5 }],
+            primary: 0,
+            continuing: false,
+        });
+        assert_eq!(
+            template_selection_offsets(&context).unwrap(),
+            BTreeMap::from([(0, 0), (2, 4), (4, 6), (5, 7)])
+        );
+        context.carets.as_mut().unwrap().selections[1] = Selection { from: 1, to: 2 };
+        assert!(template_selection_offsets(&context).is_err());
+        context.carets.as_mut().unwrap().selections[1] = Selection { from: 3, to: 5 };
+        assert!(template_selection_offsets(&context).is_err());
+        context.source.clear();
+        context.selection = Selection { from: 0, to: 0 };
+        context.carets.as_mut().unwrap().selections =
+            vec![context.selection.clone(), context.selection.clone()];
+        assert!(template_selection_offsets(&context).is_err());
+        context.carets.as_mut().unwrap().continuing = true;
+        assert_eq!(
+            template_selection_offsets(&context).unwrap(),
+            BTreeMap::from([(0, 0)])
+        );
+        context.carets.as_mut().unwrap().selections = vec![context.selection.clone(); 257];
+        assert!(template_selection_offsets(&context).is_err());
+    }
+    #[test]
+    fn different_embedded_languages_refuse_the_whole_choice() {
+        let (root, mut context) = fixture("${1:${TM_SELECTED_TEXT}}$0");
+        context.path = "notes.md".into();
+        context.source = "```python\nold\n```\n```javascript\nnew\n```\n".into();
+        let first = context.source.find("old").unwrap();
+        let second = context.source.find("new").unwrap();
+        context.selection = Selection {
+            from: first,
+            to: first + 3,
+        };
+        context.carets = Some(TemplateCarets {
+            version: 1,
+            selections: vec![
+                context.selection.clone(),
+                Selection {
+                    from: second,
+                    to: second + 3,
+                },
+            ],
+            primary: 0,
+            continuing: false,
+        });
+        let catalog = prepare(root.path(), &context, None).unwrap();
+        assert_eq!(catalog["available"], false);
+        assert_eq!(catalog["entries"], json!([]));
+        assert_eq!(
+            catalog["source_context"]["languages"],
+            json!(["javascript", "python"])
+        );
+        assert!(planned(root.path(), &context, &catalog).is_err());
+    }
+    #[test]
+    fn aggregate_variable_and_expansion_budget_refuses_before_any_partial_plan() {
+        let (root, mut context) = fixture("${TM_SELECTED_TEXT}$0");
+        context.source = format!("{} {}", "a".repeat(600000), "b".repeat(600000));
+        context.selection = Selection {
+            from: 0,
+            to: 600000,
+        };
+        context.carets = Some(TemplateCarets {
+            version: 1,
+            selections: vec![
+                context.selection.clone(),
+                Selection {
+                    from: 600001,
+                    to: 1200001,
+                },
+            ],
+            primary: 0,
+            continuing: false,
+        });
+        let before = std::fs::read(root.path().join("main.py")).unwrap();
+        let error = prepare(root.path(), &context, None).unwrap_err();
+        assert!(error.contains("aggregate"), "{error}");
+        assert_eq!(std::fs::read(root.path().join("main.py")).unwrap(), before);
     }
 }

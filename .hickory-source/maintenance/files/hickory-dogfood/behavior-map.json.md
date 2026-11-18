@@ -71134,12 +71134,15 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "construction": "fragments",
       "fragments": [
         "source-template-inputs",
+        "source-template-batch-values",
         "embedded-template-captured-graph",
         "source-template-catalog",
         "source-template-planning",
+        "source-template-batch-plans",
         "source-template-http",
         "source-template-witness",
-        "embedded-template-service-witness"
+        "embedded-template-service-witness",
+        "source-template-batch-witness"
       ],
       "narrative_owner": "mechanism:source-template-service"
     },
