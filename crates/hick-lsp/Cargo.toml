@@ -16,6 +16,8 @@ hick-blocks = { path = "../hick-blocks" }
 hick-project-env = { path = "../hick-project-env" }
 sha2 = "0.10"
 chrono = { version = "=0.4.45", default-features = false, features = ["std"] }
+oxc_regular_expression = "=0.110.0"
+oxc_allocator = "=0.110.0"
 tower-lsp = "0.20"
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }

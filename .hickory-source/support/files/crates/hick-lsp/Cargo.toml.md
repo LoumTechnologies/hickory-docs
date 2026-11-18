@@ -12,6 +12,8 @@ Diagnostics compute a canonical `sha256:` source digest with the small cryptogra
 
 The snippet context reads the editor-captured clock with the existing pinned Chrono parser and formatter. Enable only standard-library support: this mechanism must not discover engine-local time or timezone values when the host omitted them.
 
+The pinned Oxc parser supplies ECMAScript syntax facts only. Pattern size/nesting and resulting AST/program budgets remain our policy; no JavaScript execution runtime or provider command is introduced.
+
 <book:entry path="crates/hick-lsp/Cargo.toml">
 [package]
 name = "hick-lsp"
@@ -31,6 +33,8 @@ hick-blocks = { path = "../hick-blocks" }
 hick-project-env = { path = "../hick-project-env" }
 sha2 = "0.10"
 chrono = { version = "=0.4.45", default-features = false, features = ["std"] }
+oxc_regular_expression = "=0.110.0"
+oxc_allocator = "=0.110.0"
 tower-lsp = "0.20"
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
