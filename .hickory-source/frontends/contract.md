@@ -23,7 +23,7 @@ The complete outcome includes:
 
 These are required outcomes. Existing verification paragraphs establish only the explicitly tested slices; unsupported providers, missing relationships and unexecuted native acceptance must remain visible. JetBrains-specific language engines are supplied through existing language/provider interfaces; the UI must never claim an unavailable refactoring or an unmeasured test result.
 
-## Current integration ledger, 2026-11-17
+## Current integration ledger, 2026-11-18
 
 This ledger distinguishes exercised paths from mechanisms awaiting integration.
 Dated receipts below retain their original test scope; a later receipt supersedes
@@ -32,7 +32,7 @@ an earlier open item only for the behavior it actually exercises.
 | Required outcome | Current usable evidence and remaining acceptance |
 | --- | --- |
 | Navigation and code intelligence | Existing source-bound navigation and provider receipts remain in force. Browser mixed-line-ending source/view coordination now has rendered provider and history acceptance; source-bound completion variables now have live host receipts. Embedded-language breadth remains open. |
-| Refactoring, cleanup, generation, templates and history | Rename, formatting, genuine TypeScript extraction/accessor generation/cleanup and coordinated history have focused host receipts. Genuine TypeScript move-to-new-file review, publication and inverse/redo have browser, macOS and Android receipts. Source-bound variables and bounded transforms work in completion and template paths. Expanded regex transforms have live completion receipts on those three hosts. Multi-caret editing and marked input retain their editor and text-state receipts. Embedded and multi-caret reusable templates have live browser, macOS and Android controller evidence. Secondary-caret round-trip invalidation and expanded transforms in reusable templates remain open. |
+| Refactoring, cleanup, generation, templates and history | Rename, formatting, genuine TypeScript extraction/accessor generation/cleanup and coordinated history have focused host receipts. Genuine TypeScript move-to-new-file review, publication and inverse/redo have browser, macOS and Android receipts. Source-bound variables and bounded transforms work in completion and template paths. Expanded regex transforms have live completion receipts on those three hosts. Multi-caret editing and marked input retain their editor and text-state receipts. Embedded and multi-caret reusable templates have live browser, macOS and Android controller evidence, including native secondary-caret round-trip invalidation. Expanded transforms in reusable templates remain open. |
 | Diagnostics and contextual fixes | Existing source-bound Problems/fix receipts remain scoped to their stated providers and paths. A command or backend implementation alone is not further acceptance. |
 | Testing and coverage | Retained sessions/results and supported collector receipts below remain scoped evidence. Exact JavaScript collection/rerun integration now has31 focused collector cases and11 fresh-engine Vitest flows; the retained-result race is corrected. Earlier native provider receipts retain their stated revisions. |
 | Review, staging, attribution, conflicts and recovery | Existing Git/native conflict receipts remain in force. Complete 32-session recovery management and three exact revisions have service, browser, macOS and Android-controller receipts. The canonical entry has a retained read identity and guarded source proof. Grouped text replacement and selected-worktree writes share that exclusion. Move publication and its inverse remain open. |
@@ -82,8 +82,11 @@ Unicode edits, complete Undo and Redo, and refusal after a secondary selection
 moved. They retained the original editor and saved bytes. Thirty-four focused
 browser checks passed with type checking. The native focused runs passed eleven
 Apple and twelve Android cases. Each native live fixture then executed its one
-opt-in case with zero skips. The iOS simulator product built. A secondary caret
-that moves away and returns to the same offsets has separate acceptance.
+opt-in case with zero skips. A second native run moved only the secondary caret
+away and back while the primary and source stayed fixed. Both hosts rejected the
+old preview and retained the draft and history. The iOS simulator product built
+with the selection-identity change. Its application startup was exercised
+separately in an owned simulator.
 
 ## Embedded source template evidence
 

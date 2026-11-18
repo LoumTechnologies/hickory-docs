@@ -31,7 +31,7 @@ data class SourceTemplateCapture(
     val path:String,val source:String,val anchor:Int,val head:Int,val snippetIntent:Int,
     val variables:SnippetVariableSnapshot?=null,
     val readingContext:String?=null,val contributorsCurrent:()->Boolean={true},val entryCurrent:()->Boolean={true},
-    val carets:String?=null,val continuation:SourceTemplateContinuation?=null,
+    val carets:String?=null,val continuation:SourceTemplateContinuation?=null,val multiSelectionRevision:Long=0,
 ) {
     init {
         check(anchor in 0..source.length&&head in 0..source.length){"Template selection is outside the source."}
@@ -41,7 +41,7 @@ data class SourceTemplateCapture(
     val to get()=maxOf(anchor,head)
     val protocol get()=if(variables==null)1 else 2
     fun body()=JSONObject().put("version",protocol).put("path",path).put("source",source).put("selection",JSONObject().put("from",from).put("to",to)).apply{variables?.let{put("variable_context",it.body())};readingContext?.let{put("reading_context",JSONObject(it));put("transform_program_versions",org.json.JSONArray(listOf(2)))};carets?.let{put("carets",JSONObject(it))}}
-    fun matches(now:SourceTemplateCapture)=workspace===now.workspace&&engine===now.engine&&editor===now.editor&&namespace==now.namespace&&revision==now.revision&&path==now.path&&source==now.source&&anchor==now.anchor&&head==now.head&&snippetIntent==now.snippetIntent&&carets==now.carets&&continuation?.group===now.continuation?.group
+    fun matches(now:SourceTemplateCapture)=workspace===now.workspace&&engine===now.engine&&editor===now.editor&&namespace==now.namespace&&revision==now.revision&&path==now.path&&source==now.source&&anchor==now.anchor&&head==now.head&&snippetIntent==now.snippetIntent&&carets==now.carets&&continuation?.group===now.continuation?.group&&multiSelectionRevision==now.multiSelectionRevision
 }
 private fun templateJSONMatches(value:Any?,expected:Any?):Boolean {
  if(value==null||value===JSONObject.NULL)return expected==null||expected===JSONObject.NULL
@@ -293,7 +293,7 @@ class SourceTemplateTest {
     @Test fun captureRejectsSameSpellingEditorsAndReturnedTextRevisions(){
         val capture=SourceTemplateCapture(Any(),Any(),Any(),"namespace",7,"main.py","value",0,5,1)
         assertTrue(capture.matches(capture.copy()))
-        for(other in listOf(capture.copy(workspace=Any()),capture.copy(engine=Any()),capture.copy(editor=Any()),capture.copy(namespace="next"),capture.copy(revision=9),capture.copy(path="moved.py"),capture.copy(source="other"),capture.copy(anchor=5,head=0),capture.copy(snippetIntent=2)))assertFalse(capture.matches(other))
+        for(other in listOf(capture.copy(workspace=Any()),capture.copy(engine=Any()),capture.copy(editor=Any()),capture.copy(namespace="next"),capture.copy(revision=9),capture.copy(path="moved.py"),capture.copy(source="other"),capture.copy(anchor=5,head=0),capture.copy(snippetIntent=2),capture.copy(multiSelectionRevision=1)))assertFalse(capture.matches(other))
         assertTrue(runCatching{capture.copy(source="😀",anchor=1,head=1)}.isFailure)
     }
     @Test fun embeddedBindingRejectsForeignLanguageOriginAndMetadata(){
@@ -444,7 +444,7 @@ class SourceTemplatesModel {
         val logical=parallel?.selections?.map{NativeSourceEdit(it.from,it.to,"")} ?: buffer.multiRanges.takeIf{buffer.multiSource==buffer.text}.orEmpty()
         val carets=if(logical.size<2)null else {check(logical.size<=256){"Choose at most 256 source selections"};JSONObject().put("version",1).put("selections",org.json.JSONArray(logical.map{JSONObject().put("from",it.from).put("to",it.to)})).put("primary",parallel?.primaryIndex ?: 0).put("continuing",parallel!=null).toString()}
         val selected=buffer.state.selection
-        return SourceTemplateCapture(workspace,engine,buffer,workspace.sourceNavigationEpoch,buffer.sourceRevision,buffer.file.path,buffer.text,selected.start,selected.end,buffer.snippets.intent,variables,carets=carets,continuation=parallel?.let(::SourceTemplateContinuation))
+        return SourceTemplateCapture(workspace,engine,buffer,workspace.sourceNavigationEpoch,buffer.sourceRevision,buffer.file.path,buffer.text,selected.start,selected.end,buffer.snippets.intent,variables,carets=carets,continuation=parallel?.let(::SourceTemplateContinuation),multiSelectionRevision=buffer.multiSelectionRevision)
     }
     fun current(workspace:Workspace,context:SourceTemplateCapture)=workspace.sourceTemplates===this&&workspace.showTemplates&&runCatching{context.contributorsCurrent()&&context.entryCurrent()&&context.matches(capture(workspace))}.getOrDefault(false)
     suspend fun refresh(workspace:Workspace){
@@ -582,8 +582,8 @@ This is native host/controller and TextFieldState acceptance. A rendered Compose
 
 ## Executed complete-group acceptance
 
-On 2026-11-17 the generated production and test Kotlin compiled, and the focused `SourceTemplateTest` XML recorded 13 total cases: 12 executed passes and one expected opt-in skip, zero failures/errors. The separate exact `BatchTemplateTest.liveCompleteTemplateGroupAndHistory` passed with zero skips, failures or errors through `scripts/test-native-templates.py android --batch` (case 0.825 seconds; suite 0.827). Both source contexts used the production catalog/Preview/Apply and source history: a Python code fence and a dirty original fragment reused through one dirty canonical graph, distinct cursor values under one clock/seed, nested Unicode mirrors, field navigation, one denied clipboard attempt retained through Apply, whole-group Undo/Redo and secondary-caret movement refusal.
+On 2026-11-17 the generated production and test Kotlin compiled, and the focused `SourceTemplateTest` XML recorded 13 total cases: 12 executed passes and one expected opt-in skip, zero failures/errors. The separate exact `BatchTemplateTest.liveCompleteTemplateGroupAndHistory` passed with zero skips, failures or errors through `scripts/test-native-templates.py android --batch` (case 0.856 seconds; suite 0.858). Both source contexts used the production catalog/Preview/Apply and source history: a Python code fence and a dirty original fragment reused through one dirty canonical graph, distinct cursor values under one clock/seed, nested Unicode mirrors, field navigation, one denied clipboard attempt retained through Apply, whole-group Undo/Redo and secondary-caret movement refusal.
 
-The exact producer XML and log are retained at `target/native-template-smoke/android-batch-last.xml` and `.log`; the focused report is copied to `target/template-batch-android-focused.xml`. Saved source bytes, TextFieldState, editor identity and scroll were preserved and no generated output was materialized. A separate return-to-equal secondary-roster guard follow-up remains open; these receipts do not claim that ABA case, physical input, accessibility or device IME acceptance.
+The exact producer XML and log are retained at `target/native-template-smoke/android-batch-last.xml` and `.log`; the focused report is copied to `target/template-batch-aba-android-focused.xml`. Saved source bytes, TextFieldState, editor identity and scroll were preserved and no generated output was materialized. The final exact replay also moved a secondary selection away and back while leaving the primary and source revision unchanged; the separately captured monotonic multi-selection revision refused the old preview. Physical input, accessibility and device IME acceptance remain unverified.
 
 </ui:doc>

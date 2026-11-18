@@ -80,7 +80,7 @@ class SourceTemplateTest {
     @Test fun captureRejectsSameSpellingEditorsAndReturnedTextRevisions(){
         val capture=SourceTemplateCapture(Any(),Any(),Any(),"namespace",7,"main.py","value",0,5,1)
         assertTrue(capture.matches(capture.copy()))
-        for(other in listOf(capture.copy(workspace=Any()),capture.copy(engine=Any()),capture.copy(editor=Any()),capture.copy(namespace="next"),capture.copy(revision=9),capture.copy(path="moved.py"),capture.copy(source="other"),capture.copy(anchor=5,head=0),capture.copy(snippetIntent=2)))assertFalse(capture.matches(other))
+        for(other in listOf(capture.copy(workspace=Any()),capture.copy(engine=Any()),capture.copy(editor=Any()),capture.copy(namespace="next"),capture.copy(revision=9),capture.copy(path="moved.py"),capture.copy(source="other"),capture.copy(anchor=5,head=0),capture.copy(snippetIntent=2),capture.copy(multiSelectionRevision=1)))assertFalse(capture.matches(other))
         assertTrue(runCatching{capture.copy(source="😀",anchor=1,head=1)}.isFailure)
     }
     @Test fun embeddedBindingRejectsForeignLanguageOriginAndMetadata(){

@@ -89,7 +89,16 @@ class DocumentBuffer(file: FileNode, loaded: FileText, untitledDraft:Boolean=fal
     var focusSource: (() -> Unit)? = null
     fun closeFind() { showFind = false; focusSource?.invoke() }
     var multiSource by mutableStateOf("")
-    var multiRanges by mutableStateOf<List<NativeSourceEdit>>(emptyList())
+    private var logicalSelections by mutableStateOf<List<NativeSourceEdit>>(emptyList())
+    var multiSelectionRevision = 0L
+        private set
+    var multiRanges: List<NativeSourceEdit>
+        get() = logicalSelections
+        set(ranges) {
+            if (logicalSelections == ranges) return
+            logicalSelections = ranges.toList()
+            multiSelectionRevision++
+        }
     var multiText by mutableStateOf("")
     var showMulti by mutableStateOf(false)
     var applyingMulti = false

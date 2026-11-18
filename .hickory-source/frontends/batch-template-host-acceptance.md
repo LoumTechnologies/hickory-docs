@@ -3,7 +3,7 @@
 
 For maintainers joining compiler-backed template plans to the existing multiple-selection editor. These opt-in native witnesses use the same guarded service, catalog, Preview and explicit Apply actions as production. They require different original selected values and cursor numbers under one clock and seed, nested Unicode computed mirrors, a single denied clipboard attempt for the complete roster, refusal after only a secondary caret moves, retained editor/history/scroll and unchanged saved source bytes.
 
-The fixture also retains a dirty canonical graph and reuses an original fragment in Python files and a generated Markdown code fence. Every replacement stays in its original authored source; no generated file is materialized. Apple mounts the actual editor and uses its input and undo manager. Android exercises the production controller and TextFieldState. Both exact cases passed on 2026-11-17 with zero skips or failures: mounted Mac 0.773 seconds and Android controller 0.825 seconds (suite 0.827). These receipts are not evidence of physical input, accessibility, device IME or iOS runtime behavior. Run exactly one through `scripts/test-native-templates.py <host> --batch --engine <current-built-engine>`; the shared runner retains an exact one-case producer receipt and refuses skips or zero executed cases.
+The fixture also retains a dirty canonical graph and reuses an original fragment in Python files and a generated Markdown code fence. Every replacement stays in its original authored source; no generated file is materialized. Apple mounts the actual editor and uses its input and undo manager. Android exercises the production controller and TextFieldState. Both exact cases passed on 2026-11-17 with zero skips or failures: mounted Mac 1.207 seconds and Android controller 0.856 seconds (suite 0.858). These receipts are not evidence of physical input, accessibility, device IME or iOS runtime behavior. Run exactly one through `scripts/test-native-templates.py <host> --batch --engine <current-built-engine>`; the shared runner retains an exact one-case producer receipt and refuses skips or zero executed cases.
 
 <ui:copy id="batch-template-apple-witness">
 import XCTest
@@ -47,6 +47,11 @@ import AppKit
    for _ in 0..<4{manager.undo()};XCTAssertEqual(buffer.text,source)
    XCTAssertTrue(buffer.selectMultiple(ranges,source:source));let beforeClipboard=reads;try await open();try await choose("workspace.clipboard");XCTAssertEqual(reads,beforeClipboard+1);XCTAssertEqual(model.batchPreview?.expansions?.map{$0.snippet.text},["fallback","fallback"]);let deniedAccepted=await model.apply();XCTAssertTrue(deniedAccepted,model.notice);XCTAssertEqual(reads,beforeClipboard+1);manager.undo();XCTAssertEqual(buffer.text,source)
    XCTAssertTrue(buffer.selectMultiple(ranges,source:source));try await open();try await choose("workspace.batch-context");XCTAssertNotNil(model.batchPreview,model.notice);XCTAssertTrue(buffer.selectMultiple([first,NSRange(location:NSMaxRange(second),length:0)],source:source));let stale=await model.apply();XCTAssertFalse(stale);XCTAssertEqual(buffer.text,source)
+   XCTAssertTrue(buffer.selectMultiple(ranges,source:source));try await open();try await choose("workspace.batch-context");XCTAssertNotNil(model.batchPreview,model.notice)
+   let heldSelectionIdentity=buffer.selectionIdentity,heldSourceIdentity=buffer.sourceEditIdentity
+   XCTAssertTrue(buffer.selectMultiple([first,NSRange(location:NSMaxRange(second),length:0)],source:source));XCTAssertTrue(buffer.selectMultiple(ranges,source:source));XCTAssertEqual(buffer.selection,first);XCTAssertNotEqual(buffer.selectionIdentity,heldSelectionIdentity);XCTAssertEqual(buffer.sourceEditIdentity,heldSourceIdentity)
+   let returned=await model.apply();XCTAssertFalse(returned);XCTAssertEqual(buffer.text,source)
+
    XCTAssertEqual(buffer.sourceEditorState?()?.identity,identity);XCTAssertTrue(native.undoManager===manager);XCTAssertEqual(editor.scroll.frame,geometry);XCTAssertEqual(try String(contentsOf:root.appendingPathComponent(path),encoding:.utf8),saved)
   }
   XCTAssertEqual(try String(contentsOf:root.appendingPathComponent("project.md"),encoding:.utf8),savedProject);for name in ["saved.py","draft.py","second.py","guide.md"]{XCTAssertFalse(FileManager.default.fileExists(atPath:root.appendingPathComponent(name).path))}
@@ -55,6 +60,8 @@ import AppKit
 }
 </ui:copy>
 <ui:file path="apps/apple-simple/Tests/BatchTemplateTests.swift"><ui:paste select="#batch-template-apple-witness"/></ui:file>
+
+The follow-up returned-roster check moves only the secondary selection away and back before Apply, retaining equal source bytes and primary selection. Swift must advance its selection identity; Android must advance its separate multi-selection revision without pretending the source text changed. The existing captured lease then refuses the old preview. Both final exact native replays passed this return-to-equal case with zero skips or failures.
 
 The Android witness uses the same original caret order and complete expected source. Its controller Apply must use the shared parallel planner and one source-history transaction; direct test text changes only prepare the deliberately unsaved original fixture.
 
@@ -91,6 +98,10 @@ class BatchTemplateTest {
     repeat(4){command("editor.undo").run()};assertEquals(source,buffer.text)
     assertTrue(buffer.selectMultiple(ranges,source));val beforeClipboard=reads;open();choose("workspace.clipboard");assertEquals(beforeClipboard+1,reads);assertNotNull(model.notice,model.reviewed?.plan?.batch);assertTrue(model.notice,model.apply(workspace));assertEquals(beforeClipboard+1,reads);assertEquals(source.replaceRange(second,second+3,"fallback").replaceRange(first,first+3,"fallback"),buffer.text);command("editor.undo").run();assertEquals(source,buffer.text)
     assertTrue(buffer.selectMultiple(ranges,source));open();choose("workspace.batch-context");assertNotNull(model.notice,model.reviewed);assertTrue(buffer.selectMultiple(listOf(ranges[0],NativeSourceEdit(second+3,second+3,"")),source));assertFalse(model.apply(workspace));assertEquals(source,buffer.text)
+    assertTrue(buffer.selectMultiple(ranges,source));open();choose("workspace.batch-context");assertNotNull(model.notice,model.reviewed)
+    val heldMultiRevision=buffer.multiSelectionRevision;val heldSourceRevision=buffer.sourceRevision;val heldPrimary=state.selection
+    assertTrue(buffer.selectMultiple(listOf(ranges[0],NativeSourceEdit(second+3,second+3,"")),source));assertTrue(buffer.selectMultiple(ranges,source));assertEquals(heldPrimary,state.selection);assertTrue(buffer.multiSelectionRevision>heldMultiRevision);assertEquals(heldSourceRevision,buffer.sourceRevision)
+    assertFalse(model.apply(workspace));assertEquals(source,buffer.text)
     assertSame(state,buffer.state);assertSame(buffer,workspace.currentBuffer);assertEquals(scroll,buffer.sourceScroll.value);assertEquals(saved,root.resolve(path).readText())
    }
    assertEquals(savedProject,root.resolve("project.md").readText());for(path in listOf("saved.py","draft.py","second.py","guide.md"))assertFalse(root.resolve(path).exists())
@@ -104,6 +115,6 @@ class BatchTemplateTest {
 
 The generated browser policy/view/entry-reader selection passed 34 checks, and the full generated web typecheck passed. The separate rendered `scripts/test-embedded-templates-browser.py --batch` then passed through the real visible catalog/Preview/Apply paths for both code fence and dirty reused fragment, including nested Unicode mirrors, field menu navigation, complete group Undo/Redo and a held Apply refused after only the secondary selection moved. Its final log is `target/template-batch-browser-actual.log`. Earlier bounded fixture failures are retained separately; the final path uses the attached editor selection constructor and explicitly selects fields before nested replacement.
 
-Swift focused template checks ran 11 passes plus one expected opt-in skip; Android focused template XML ran 12 passes plus one expected opt-in skip. The exact actual receipts are `target/native-template-smoke/apple-batch-last.json` (truthful XCTest console producer/log hash) and `target/native-template-smoke/android-batch-last.xml` (producer XML), each exactly one case with zero skips/failures. These movement-refusal receipts precede the separately tracked return-to-equal secondary-roster ABA guard work.
+Swift focused template checks ran 11 passes plus one expected opt-in skip; Android focused template XML ran 12 passes plus one expected opt-in skip. The exact actual receipts are `target/native-template-smoke/apple-batch-last.json` (truthful XCTest console producer/log hash) and `target/native-template-smoke/android-batch-last.xml` (producer XML), each exactly one case with zero skips/failures. The final native receipts also cover return-to-equal secondary-roster refusal without changing source identity/revision; the separate multi-selection stamp is captured by the Android template adapter.
 
 </ui:doc>

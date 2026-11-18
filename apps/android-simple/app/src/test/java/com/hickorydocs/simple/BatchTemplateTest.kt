@@ -30,6 +30,10 @@ class BatchTemplateTest {
     repeat(4){command("editor.undo").run()};assertEquals(source,buffer.text)
     assertTrue(buffer.selectMultiple(ranges,source));val beforeClipboard=reads;open();choose("workspace.clipboard");assertEquals(beforeClipboard+1,reads);assertNotNull(model.notice,model.reviewed?.plan?.batch);assertTrue(model.notice,model.apply(workspace));assertEquals(beforeClipboard+1,reads);assertEquals(source.replaceRange(second,second+3,"fallback").replaceRange(first,first+3,"fallback"),buffer.text);command("editor.undo").run();assertEquals(source,buffer.text)
     assertTrue(buffer.selectMultiple(ranges,source));open();choose("workspace.batch-context");assertNotNull(model.notice,model.reviewed);assertTrue(buffer.selectMultiple(listOf(ranges[0],NativeSourceEdit(second+3,second+3,"")),source));assertFalse(model.apply(workspace));assertEquals(source,buffer.text)
+    assertTrue(buffer.selectMultiple(ranges,source));open();choose("workspace.batch-context");assertNotNull(model.notice,model.reviewed)
+    val heldMultiRevision=buffer.multiSelectionRevision;val heldSourceRevision=buffer.sourceRevision;val heldPrimary=state.selection
+    assertTrue(buffer.selectMultiple(listOf(ranges[0],NativeSourceEdit(second+3,second+3,"")),source));assertTrue(buffer.selectMultiple(ranges,source));assertEquals(heldPrimary,state.selection);assertTrue(buffer.multiSelectionRevision>heldMultiRevision);assertEquals(heldSourceRevision,buffer.sourceRevision)
+    assertFalse(model.apply(workspace));assertEquals(source,buffer.text)
     assertSame(state,buffer.state);assertSame(buffer,workspace.currentBuffer);assertEquals(scroll,buffer.sourceScroll.value);assertEquals(saved,root.resolve(path).readText())
    }
    assertEquals(savedProject,root.resolve("project.md").readText());for(path in listOf("saved.py","draft.py","second.py","guide.md"))assertFalse(root.resolve(path).exists())

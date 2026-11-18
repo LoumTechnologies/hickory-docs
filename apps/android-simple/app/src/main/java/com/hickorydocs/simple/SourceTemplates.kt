@@ -18,7 +18,7 @@ data class SourceTemplateCapture(
     val path:String,val source:String,val anchor:Int,val head:Int,val snippetIntent:Int,
     val variables:SnippetVariableSnapshot?=null,
     val readingContext:String?=null,val contributorsCurrent:()->Boolean={true},val entryCurrent:()->Boolean={true},
-    val carets:String?=null,val continuation:SourceTemplateContinuation?=null,
+    val carets:String?=null,val continuation:SourceTemplateContinuation?=null,val multiSelectionRevision:Long=0,
 ) {
     init {
         check(anchor in 0..source.length&&head in 0..source.length){"Template selection is outside the source."}
@@ -28,7 +28,7 @@ data class SourceTemplateCapture(
     val to get()=maxOf(anchor,head)
     val protocol get()=if(variables==null)1 else 2
     fun body()=JSONObject().put("version",protocol).put("path",path).put("source",source).put("selection",JSONObject().put("from",from).put("to",to)).apply{variables?.let{put("variable_context",it.body())};readingContext?.let{put("reading_context",JSONObject(it));put("transform_program_versions",org.json.JSONArray(listOf(2)))};carets?.let{put("carets",JSONObject(it))}}
-    fun matches(now:SourceTemplateCapture)=workspace===now.workspace&&engine===now.engine&&editor===now.editor&&namespace==now.namespace&&revision==now.revision&&path==now.path&&source==now.source&&anchor==now.anchor&&head==now.head&&snippetIntent==now.snippetIntent&&carets==now.carets&&continuation?.group===now.continuation?.group
+    fun matches(now:SourceTemplateCapture)=workspace===now.workspace&&engine===now.engine&&editor===now.editor&&namespace==now.namespace&&revision==now.revision&&path==now.path&&source==now.source&&anchor==now.anchor&&head==now.head&&snippetIntent==now.snippetIntent&&carets==now.carets&&continuation?.group===now.continuation?.group&&multiSelectionRevision==now.multiSelectionRevision
 }
 private fun templateJSONMatches(value:Any?,expected:Any?):Boolean {
  if(value==null||value===JSONObject.NULL)return expected==null||expected===JSONObject.NULL
@@ -210,7 +210,7 @@ class SourceTemplatesModel {
         val logical=parallel?.selections?.map{NativeSourceEdit(it.from,it.to,"")} ?: buffer.multiRanges.takeIf{buffer.multiSource==buffer.text}.orEmpty()
         val carets=if(logical.size<2)null else {check(logical.size<=256){"Choose at most 256 source selections"};JSONObject().put("version",1).put("selections",org.json.JSONArray(logical.map{JSONObject().put("from",it.from).put("to",it.to)})).put("primary",parallel?.primaryIndex ?: 0).put("continuing",parallel!=null).toString()}
         val selected=buffer.state.selection
-        return SourceTemplateCapture(workspace,engine,buffer,workspace.sourceNavigationEpoch,buffer.sourceRevision,buffer.file.path,buffer.text,selected.start,selected.end,buffer.snippets.intent,variables,carets=carets,continuation=parallel?.let(::SourceTemplateContinuation))
+        return SourceTemplateCapture(workspace,engine,buffer,workspace.sourceNavigationEpoch,buffer.sourceRevision,buffer.file.path,buffer.text,selected.start,selected.end,buffer.snippets.intent,variables,carets=carets,continuation=parallel?.let(::SourceTemplateContinuation),multiSelectionRevision=buffer.multiSelectionRevision)
     }
     fun current(workspace:Workspace,context:SourceTemplateCapture)=workspace.sourceTemplates===this&&workspace.showTemplates&&runCatching{context.contributorsCurrent()&&context.entryCurrent()&&context.matches(capture(workspace))}.getOrDefault(false)
     suspend fun refresh(workspace:Workspace){

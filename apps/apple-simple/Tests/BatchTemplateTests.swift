@@ -39,6 +39,11 @@ import AppKit
    for _ in 0..<4{manager.undo()};XCTAssertEqual(buffer.text,source)
    XCTAssertTrue(buffer.selectMultiple(ranges,source:source));let beforeClipboard=reads;try await open();try await choose("workspace.clipboard");XCTAssertEqual(reads,beforeClipboard+1);XCTAssertEqual(model.batchPreview?.expansions?.map{$0.snippet.text},["fallback","fallback"]);let deniedAccepted=await model.apply();XCTAssertTrue(deniedAccepted,model.notice);XCTAssertEqual(reads,beforeClipboard+1);manager.undo();XCTAssertEqual(buffer.text,source)
    XCTAssertTrue(buffer.selectMultiple(ranges,source:source));try await open();try await choose("workspace.batch-context");XCTAssertNotNil(model.batchPreview,model.notice);XCTAssertTrue(buffer.selectMultiple([first,NSRange(location:NSMaxRange(second),length:0)],source:source));let stale=await model.apply();XCTAssertFalse(stale);XCTAssertEqual(buffer.text,source)
+   XCTAssertTrue(buffer.selectMultiple(ranges,source:source));try await open();try await choose("workspace.batch-context");XCTAssertNotNil(model.batchPreview,model.notice)
+   let heldSelectionIdentity=buffer.selectionIdentity,heldSourceIdentity=buffer.sourceEditIdentity
+   XCTAssertTrue(buffer.selectMultiple([first,NSRange(location:NSMaxRange(second),length:0)],source:source));XCTAssertTrue(buffer.selectMultiple(ranges,source:source));XCTAssertEqual(buffer.selection,first);XCTAssertNotEqual(buffer.selectionIdentity,heldSelectionIdentity);XCTAssertEqual(buffer.sourceEditIdentity,heldSourceIdentity)
+   let returned=await model.apply();XCTAssertFalse(returned);XCTAssertEqual(buffer.text,source)
+
    XCTAssertEqual(buffer.sourceEditorState?()?.identity,identity);XCTAssertTrue(native.undoManager===manager);XCTAssertEqual(editor.scroll.frame,geometry);XCTAssertEqual(try String(contentsOf:root.appendingPathComponent(path),encoding:.utf8),saved)
   }
   XCTAssertEqual(try String(contentsOf:root.appendingPathComponent("project.md"),encoding:.utf8),savedProject);for name in ["saved.py","draft.py","second.py","guide.md"]{XCTAssertFalse(FileManager.default.fileExists(atPath:root.appendingPathComponent(name).path))}

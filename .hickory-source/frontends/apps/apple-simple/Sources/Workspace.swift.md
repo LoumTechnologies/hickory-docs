@@ -129,7 +129,11 @@ import Observation
     @ObservationIgnored var focusSource: (() -> Void)?
     func closeFind() { showFind = false; focusSource?() }
     var multiSource = ""
-    var multiRanges: [NSRange] = []
+    var multiRanges: [NSRange] = [] {
+        didSet {
+            if multiRanges != oldValue { selectionIdentity = UUID() }
+        }
+    }
     var multiRects: [CGRect] = []
     var showMulti = false
     var multiText = ""
