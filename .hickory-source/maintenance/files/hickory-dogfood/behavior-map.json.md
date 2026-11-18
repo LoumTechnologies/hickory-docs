@@ -73844,6 +73844,52 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "fragments": [
         "workspace-entry-failure-room-peer"
       ]
+    },
+    "crates/hick-plugins/src/testing/rust_debug_source.rs": {
+      "source": ".hickory-source/mechanisms/rust-test-source-proof.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "bf06e7c6f02155be6e8418f533bad62db34ec895b0428ddf5176f21127be11e6",
+      "construction": "fragments",
+      "fragments": [
+        "rust-test-source-declaration"
+      ]
+    },
+    "crates/hickory-cli/src/rust_test_source_metadata.py": {
+      "source": ".hickory-source/mechanisms/rust-test-source-proof.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "3b37f7a59f4f63e4c6cba8dc8849a82a43ca92cb4bafe2ed6963eb247a245c88",
+      "construction": "fragments",
+      "fragments": [
+        "rust-test-source-metadata"
+      ]
+    },
+    "crates/hickory-cli/src/rust_test_source_proof.rs": {
+      "source": ".hickory-source/mechanisms/rust-test-source-proof.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "d2a2d5055bebbedf434bb8ddccbb1d8a7204185a63f0a5ce76dbe7db5ec8d3d6",
+      "construction": "fragments",
+      "fragments": [
+        "rust-test-source-reader",
+        "rust-test-source-capture",
+        "rust-test-source-reader-tests"
+      ]
+    },
+    "scripts/test-rust-test-source-proof.py": {
+      "source": ".hickory-source/mechanisms/rust-selected-test-debug.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "test",
+      "sha256": "de07f3180942b730b254d45daf17898c059ff40fc4696ab34fc18d1aa436b34b",
+      "construction": "fragments",
+      "fragments": [
+        "rust-selected-test-source-proof-protocol"
+      ]
     }
   },
   "evidence_records": [

@@ -143,6 +143,10 @@ pub(crate) fn admit(root: &Path, request: &RunRequest) -> ApiResult<Admission> {
     let launch = crate::debug_sessions::TestLaunch {
         workspace_id:scan.workspace_id.clone(),
         rust_manifest,
+        target_line:candidate.target.line,
+        target_character:candidate.target.character,
+        target_hash:candidate.target.hash.clone(),
+        open_sources:request.analysis.sources.clone(),
         workspace: root.clone(),
         input: root.join(&scan.input_path),
         input_source: request.analysis.source.clone(),

@@ -108,6 +108,8 @@ The test capability exposes a pure source detector alongside its command planner
 
 <storycode:copy id="test-source-candidates-module">
 pub mod candidates;
+/// Pure selected-declaration and ordinary module ownership for compiled Rust test Debug.
+pub mod rust_debug_source;
 </storycode:copy>
 
 ## Name the scope a runner actually accepts

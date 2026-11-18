@@ -55,9 +55,9 @@ pub struct Live {
     pub observations: Mutex<hick_observe::Run>,
     pub reading: Mutex<Option<hick_observe::reading::Reading>>,
     pub session: Session,
-    /// The scratch directory a DOCUMENT's debuggee runs in. Deleted with
-    /// the session. `None` for a plain file, which runs in its own project —
-    /// see [`Registry::start`].
+    /// Owned constructed runtime or compiled-test artifacts, deleted with the session.
+    /// Plain source debugging normally uses its project directly; selected compiled
+    /// tests retain an owned build target while keeping a source-side working directory.
     scratch: Option<tempfile::TempDir>,
     /// The thread the program last stopped on, so a caller need not repeat it.
     pub thread_id: Mutex<Option<i64>>,
@@ -116,8 +116,9 @@ impl Live {
     }
 }
 impl Live {
-    /// Where a document's debuggee ran — for tests that check it is gone
-    /// afterwards. A plain file has no scratch copy and answers `None`.
+    /// Owned runtime/artifact directory, for lifetime and cleanup checks.
+    /// Plain source launches usually have none; compiled selected tests retain
+    /// their build artifacts here even when their working directory is source-side.
     pub fn scratch_path(&self) -> Option<&Path> {
         self.scratch.as_ref().map(|dir| dir.path())
     }

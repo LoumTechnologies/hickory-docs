@@ -424,4 +424,6 @@ is included with that control; opening a document is not generation authority.
 <storycode:include file="workspace-entry-failures.md" />
 <storycode:include file="workspace-entry-publication-failure-witness.md" />
 
+<storycode:include file="rust-test-source-proof.md" />
+
 </storycode:doc>

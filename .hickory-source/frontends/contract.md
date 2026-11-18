@@ -34,9 +34,9 @@ an earlier open item only for the behavior it actually exercises.
 | Navigation and code intelligence | Existing source-bound navigation and provider receipts remain in force. Browser mixed-line-ending source/view coordination now has rendered provider and history acceptance; source-bound completion variables now have live host receipts. Android controller acceptance covers exact navigation into a literal source tab with an Agent utility still open. Embedded-language breadth remains open. |
 | Refactoring, cleanup, generation, templates and history | Rename, formatting, genuine TypeScript extraction/accessor generation/cleanup and coordinated history have focused host receipts. Genuine TypeScript move-to-new-file review, publication and inverse/redo have browser, macOS and Android receipts. Source-bound variables and expanded regex transforms in completion and reusable templates have live browser, macOS and Android-controller receipts. Embedded and multi-caret template review retains source, selections, mirrors and grouped history, including native secondary-caret round-trip invalidation. |
 | Diagnostics and contextual fixes | Existing source-bound Problems/fix receipts remain scoped to their stated providers and paths. A command or backend implementation alone is not further acceptance. |
-| Testing and coverage | Retained sessions, results and coverage retain their provider receipts. Exact JavaScript collection/rerun has 31 focused collector cases and 11 fresh-engine Vitest flows. Rust test Debug has browser, mounted macOS and Android-controller receipts for qualified name filters in ordinary and compiler-authored source. A compiler-proven declaration-to-artifact match remains open. |
+| Testing and coverage | Retained sessions, results and coverage retain their provider receipts. Exact JavaScript collection/rerun has 31 focused collector cases and 11 fresh-engine Vitest flows. Rust test Debug matches the saved declaration to a compiled inline or external module and its qualified harness name. The direct engine, rendered browser, mounted macOS and Android controller verified that path in physical and compiler-authored source. |
 | Review, staging, attribution, conflicts and recovery | Existing Git/native conflict receipts remain in force. Complete 32-session recovery management and three exact revisions have service, browser, macOS and Android-controller receipts. The canonical entry has a retained read identity and guarded source proof. Grouped text replacement and selected-worktree writes share that exclusion. A single reviewed main Move and its immediate Undo/Redo pass on browser, mounted macOS and the Android controller. Older inverse chains and interrupted publication recovery remain open. |
-| Debugging | Existing debugpy and installed LLDB launch/attach, thread/frame and breakpoint receipts remain scoped evidence. Installed Cargo and LLDB also passed the saved Rust test Debug flows described below. Unsupported adapters and unexecuted device acceptance remain visible. |
+| Debugging | Existing debugpy and installed LLDB launch/attach, thread/frame and breakpoint receipts remain scoped evidence. Installed Cargo and LLDB also verified saved Rust test selection against emitted source metadata. Unsupported adapters and unexecuted device acceptance remain visible. |
 | Connected behavior readings | Guarded contract/explanation/source/generated/test/evidence readings and dirty construction graphs have host receipts. Default construction and connected readings retain the bound entry proof through execution admission. Declared, observed, stale and unknown relationships remain distinct. |
 | Change impact and relevant verification | Existing compiler/relationship-based impact and selected verification receipts remain scoped evidence. Unknown relationships and missing execution evidence do not become verified through graph reachability. |
 | Agent proposal review and guarded application | Sealed complete review, original-context application and restart-retained historical reading have host receipts. Historical evidence never revives application authority. |
@@ -62,8 +62,29 @@ Rust. Browser rendering, mounted macOS and the Android controller followed the
 same path through Breakpoint, Continue and retained history. They excluded the
 sibling test and preserved editor state and saved bytes. The existing real
 pytest Debug path also passed. This receipt uses qualified name-filter
-selection. Compiler-backed declaration-to-artifact proof and other provider
-adapters retain their own acceptance requirements.
+selection. The later declaration-to-artifact witness adds the guard below.
+
+### Match the saved Rust test declaration to the emitted function
+
+Before Cargo lists a harness, the launcher checks its root against the captured
+package targets and active module routes. Read-only LLDB metadata must bind the
+qualified test symbol to the selected physical input and declaration span.
+Ambiguous module routes, unavailable source metadata, and unsupported custom
+harnesses refuse. The receipt describes the selected declaration and emitted
+artifact. The compiler, build scripts and dependency graph remain independent
+of that proof.
+
+Six focused declaration cases, six emitted-source cases and three existing
+debug-plan checks passed. The focused Rust launcher also exercised real Cargo
+artifact listing and refused a custom harness. The actual pytest Debug case
+passed with its original authored source and sibling exclusion.
+The genuine workspace protocol exercised six inline, external-module and
+disabled-sibling cases across ordinary and compiler-authored Rust. A disabled
+declaration refused before a debug session started. Rendered browser, mounted
+macOS and the Android controller each stopped in the four supported cases,
+continued to a successful process exit and preserved saved source, editor
+identity and history. The sibling test never ran. iOS feature runtime, Android
+rendering, physical input and assistive technology remain unverified.
 
 ## Use expanded transforms in source-bound completion
 

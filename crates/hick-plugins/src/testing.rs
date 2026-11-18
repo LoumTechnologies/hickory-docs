@@ -58,6 +58,8 @@ pub fn test_command(
     }
 }
 pub mod candidates;
+/// Pure selected-declaration and ordinary module ownership for compiled Rust test Debug.
+pub mod rust_debug_source;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Scope {

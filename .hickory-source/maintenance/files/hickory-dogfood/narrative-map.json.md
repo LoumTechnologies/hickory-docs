@@ -157514,6 +157514,48 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/mechanisms/workspace-entry-publication-failure-witness.md",
       "symbol": "workspace entry failure room peer",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "rust-test-source-declaration",
+      "output": "crates/hick-plugins/src/testing/rust_debug_source.rs",
+      "page": ".hickory-source/mechanisms/rust-test-source-proof.md",
+      "symbol": "rust test source declaration",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "rust-test-source-metadata",
+      "output": "crates/hickory-cli/src/rust_test_source_metadata.py",
+      "page": ".hickory-source/mechanisms/rust-test-source-proof.md",
+      "symbol": "rust test source metadata",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "rust-test-source-reader",
+      "output": "crates/hickory-cli/src/rust_test_source_proof.rs",
+      "page": ".hickory-source/mechanisms/rust-test-source-proof.md",
+      "symbol": "rust test source reader",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "rust-test-source-capture",
+      "output": "crates/hickory-cli/src/rust_test_source_proof.rs",
+      "page": ".hickory-source/mechanisms/rust-test-source-proof.md",
+      "symbol": "rust test source capture",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "rust-test-source-reader-tests",
+      "output": "crates/hickory-cli/src/rust_test_source_proof.rs",
+      "page": ".hickory-source/mechanisms/rust-test-source-proof.md",
+      "symbol": "rust test source reader tests",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "rust-selected-test-source-proof-protocol",
+      "output": "scripts/test-rust-test-source-proof.py",
+      "page": ".hickory-source/mechanisms/rust-selected-test-debug.md",
+      "symbol": "rust selected test source proof protocol",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

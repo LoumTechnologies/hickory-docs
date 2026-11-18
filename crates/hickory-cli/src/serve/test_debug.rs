@@ -124,6 +124,10 @@ pub(crate) fn admit(root: &Path, request: &RunRequest) -> ApiResult<Admission> {
     let launch = crate::debug_sessions::TestLaunch {
         workspace_id:scan.workspace_id.clone(),
         rust_manifest,
+        target_line:candidate.target.line,
+        target_character:candidate.target.character,
+        target_hash:candidate.target.hash.clone(),
+        open_sources:request.analysis.sources.clone(),
         workspace: root.clone(),
         input: root.join(&scan.input_path),
         input_source: request.analysis.source.clone(),
@@ -357,18 +361,204 @@ mod tests {
         }
     }
 }
-#[cfg(test)]mod rust_selected_test_live{
- use super::*;use serde_json::{Value,json};use std::sync::Arc;
- async fn ask(registry:&Arc<crate::debug_sessions::Registry>,root:&Path,request:Value)->Vec<Value>{crate::serve::debug_bridge::handle(registry,root,serde_json::from_value(request).unwrap()).await.into_iter().map(|row|serde_json::to_value(row).unwrap()).collect()}
- fn event<'a>(rows:&'a[Value],kind:&str)->&'a Value{rows.iter().find(|row|row["event"]==kind).unwrap_or_else(||panic!("Missing {kind}: {rows:?}"))}
- fn saved_request(root:&Path,path:&str,text:&str)->RunRequest{std::fs::write(root.join(path),text).unwrap();let analysis=source_tests::Request{path:path.into(),source:text.into(),project_entry:None,sources:BTreeMap::new(),capture:false};let scan=source_tests::scan(root,&analysis).unwrap();let candidate=scan.candidates.iter().find(|c|c.name=="test_selected").unwrap();RunRequest{version:1,input:source_tests::RunInput::Saved{},analysis,fingerprint:scan.fingerprint,candidate_id:candidate.id.clone(),selection:Selection::NameFilter{}}}
- #[test]fn constructed_rust_plan_reads_the_compiler_manifest_without_materializing_it(){let dir=tempfile::tempdir().unwrap();let text="<h:doc xmlns:h=\"http://www.hickorydocs.com/1.0\">\n<h:file path=\"Cargo.toml\">\n[package]\nname=\"owned\"\nversion=\"0.1.0\"\n</h:file>\n<h:file path=\"src/lib.rs\">\n#[test]fn test_selected(){}\n</h:file>\n</h:doc>\n";let request=saved_request(dir.path(),"cases.md",text);let value=admit(dir.path(),&request).unwrap();assert!(value.plan.available,"{:?}",value.plan.reason);assert_eq!(value.launch.rust_manifest.as_ref().unwrap().0,"Cargo.toml");assert!(!dir.path().join("Cargo.toml").exists());assert!(!dir.path().join("src/lib.rs").exists());assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(),1);}
- #[test]fn constructed_rust_missing_manifest_stays_unavailable_without_output(){let dir=tempfile::tempdir().unwrap();let text="<h:doc xmlns:h=\"http://www.hickorydocs.com/1.0\">\n<h:file path=\"src/lib.rs\">\n#[test]fn test_selected(){}\n</h:file>\n</h:doc>\n";let request=saved_request(dir.path(),"cases.md",text);let value=admit(dir.path(),&request).unwrap();assert!(!value.plan.available);assert!(value.plan.reason.unwrap().contains("no admitted Cargo.toml"));assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(),1);}
- #[cfg(unix)]#[tokio::test(flavor="multi_thread")]#[ignore="requires installed Cargo and LLDB DAP; owned physical and compiler-author fixture"]
- async fn genuine_rust_selected_test_uses_exact_cargo_harness_and_preserves_authored_sources(){
-  for authored in [false,true]{let directory=tempfile::tempdir().unwrap();let root=directory.path().canonicalize().unwrap();std::fs::create_dir(root.join(".git")).unwrap();let sibling=root.join("sibling-ran");let code=format!("#[cfg(test)]\nmod cases {{\n #[test]\n fn test_selected() {{\n  let selected_value=41;\n  assert_eq!(selected_value,41); // owned-rust-stop\n }}\n #[test]\n fn test_sibling() {{std::fs::write({:?},b\"wrong\").unwrap();}}\n}}\n",sibling.to_str().unwrap());let manifest="[workspace]\n[package]\nname=\"owned-selected-debug\"\nversion=\"0.1.0\"\nedition=\"2024\"\n";
-   let(path,text)=if authored{("tests.md",format!("<h:doc xmlns:h=\"http://www.hickorydocs.com/1.0\">\n<h:file path=\"Cargo.toml\">\n{manifest}</h:file>\n<h:file path=\"src/lib.rs\">\n{code}</h:file>\n</h:doc>\n"))}else{std::fs::write(root.join("Cargo.toml"),manifest).unwrap();std::fs::create_dir(root.join("src")).unwrap();("src/lib.rs",code)};
-   let request=saved_request(&root,path,&text);let admitted=admit(&root,&request).unwrap();assert!(admitted.plan.available,"{:?}",admitted.plan.reason);assert_eq!(admitted.plan.framework,"libtest");let line=text.lines().position(|line|line.contains("owned-rust-stop")).unwrap();let registry=Arc::new(crate::debug_sessions::Registry::with_projects(Default::default(),root.clone()));let rows=ask(&registry,&root,json!({"op":"start_test","doc":admitted.plan.source_uri,"source_hash":admitted.plan.source_hash,"request_id":"rust-selected","source_test":request,"breakpoints":[{"line":line}]})).await;let started=event(&rows,"started");let stopped=event(&rows,"stopped");assert_eq!(stopped["line"],line);let session=started["session"].as_str().unwrap();assert_eq!(started["source_test"]["candidate_id"],admitted.binding.candidate_id);assert!(!sibling.exists());let cleared=ask(&registry,&root,json!({"op":"breakpoints","session":session,"source_hash":admitted.plan.source_hash,"request_id":"clear-rust-mark","breakpoints":[]})).await;assert!(cleared.iter().all(|row|row["event"]!="failed"),"{cleared:?}");let done=ask(&registry,&root,json!({"op":"step","session":session,"how":"continue","stop":stopped["stop"],"thread":stopped["thread"],"request_id":"finish-rust-selected"})).await;assert_eq!(event(&done,"finished")["exit_code"],0);assert!(!sibling.exists());assert_eq!(std::fs::read_to_string(root.join(path)).unwrap(),text);if authored{assert!(!root.join("Cargo.toml").exists());assert!(!root.join("src/lib.rs").exists())}assert!(registry.get(session).await.is_err());
-  }
- }
+#[cfg(test)]
+mod rust_selected_test_live {
+    use super::*;
+    use serde_json::{Value, json};
+    use std::sync::Arc;
+    async fn ask(
+        registry: &Arc<crate::debug_sessions::Registry>,
+        root: &Path,
+        request: Value,
+    ) -> Vec<Value> {
+        crate::serve::debug_bridge::handle(registry, root, serde_json::from_value(request).unwrap())
+            .await
+            .into_iter()
+            .map(|row| serde_json::to_value(row).unwrap())
+            .collect()
+    }
+    fn event<'a>(rows: &'a [Value], kind: &str) -> &'a Value {
+        rows.iter()
+            .find(|row| row["event"] == kind)
+            .unwrap_or_else(|| panic!("Missing {kind}: {rows:?}"))
+    }
+    fn saved_request(root: &Path, path: &str, text: &str) -> RunRequest {
+        std::fs::write(root.join(path), text).unwrap();
+        let analysis = source_tests::Request {
+            path: path.into(),
+            source: text.into(),
+            project_entry: None,
+            sources: BTreeMap::new(),
+            capture: false,
+        };
+        let scan = source_tests::scan(root, &analysis).unwrap();
+        let candidate = scan
+            .candidates
+            .iter()
+            .find(|c| c.name == "test_selected")
+            .unwrap();
+        RunRequest {
+            version: 1,
+            input: source_tests::RunInput::Saved {},
+            analysis,
+            fingerprint: scan.fingerprint,
+            candidate_id: candidate.id.clone(),
+            selection: Selection::NameFilter {},
+        }
+    }
+    #[test]
+    fn constructed_rust_plan_reads_the_compiler_manifest_without_materializing_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let text = "<h:doc xmlns:h=\"http://www.hickorydocs.com/1.0\">\n<h:file path=\"Cargo.toml\">\n[package]\nname=\"owned\"\nversion=\"0.1.0\"\n</h:file>\n<h:file path=\"src/lib.rs\">\n#[test]fn test_selected(){}\n</h:file>\n</h:doc>\n";
+        let request = saved_request(dir.path(), "cases.md", text);
+        let value = admit(dir.path(), &request).unwrap();
+        assert!(value.plan.available, "{:?}", value.plan.reason);
+        assert_eq!(value.launch.rust_manifest.as_ref().unwrap().0, "Cargo.toml");
+        assert!(!dir.path().join("Cargo.toml").exists());
+        assert!(!dir.path().join("src/lib.rs").exists());
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
+    }
+    #[test]
+    fn constructed_rust_missing_manifest_stays_unavailable_without_output() {
+        let dir = tempfile::tempdir().unwrap();
+        let text = "<h:doc xmlns:h=\"http://www.hickorydocs.com/1.0\">\n<h:file path=\"src/lib.rs\">\n#[test]fn test_selected(){}\n</h:file>\n</h:doc>\n";
+        let request = saved_request(dir.path(), "cases.md", text);
+        let value = admit(dir.path(), &request).unwrap();
+        assert!(!value.plan.available);
+        assert!(
+            value
+                .plan
+                .reason
+                .unwrap()
+                .contains("no admitted Cargo.toml")
+        );
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
+    }
+    #[cfg(unix)]
+    #[tokio::test(flavor = "multi_thread")]
+    #[ignore = "requires installed Cargo and LLDB DAP; owned physical and compiler-author fixture"]
+    async fn genuine_rust_selected_test_uses_exact_cargo_harness_and_preserves_authored_sources() {
+        for authored in [false, true] {
+            let directory = tempfile::tempdir().unwrap();
+            let root = directory.path().canonicalize().unwrap();
+            std::fs::create_dir(root.join(".git")).unwrap();
+            let sibling = root.join("sibling-ran");
+            let code = format!(
+                "#[cfg(test)]\nmod cases {{\n #[test]\n fn test_selected() {{\n  let selected_value=41;\n  assert_eq!(selected_value,41); // owned-rust-stop\n }}\n #[test]\n fn test_sibling() {{std::fs::write({:?},b\"wrong\").unwrap();}}\n}}\n",
+                sibling.to_str().unwrap()
+            );
+            let manifest = "[workspace]\n[package]\nname=\"owned-selected-debug\"\nversion=\"0.1.0\"\nedition=\"2024\"\n";
+            let (path, text) = if authored {
+                (
+                    "tests.md",
+                    format!(
+                        "<h:doc xmlns:h=\"http://www.hickorydocs.com/1.0\">\n<h:file path=\"Cargo.toml\">\n{manifest}</h:file>\n<h:file path=\"src/lib.rs\">\n{code}</h:file>\n</h:doc>\n"
+                    ),
+                )
+            } else {
+                std::fs::write(root.join("Cargo.toml"), manifest).unwrap();
+                std::fs::create_dir(root.join("src")).unwrap();
+                ("src/lib.rs", code)
+            };
+            let request = saved_request(&root, path, &text);
+            let admitted = admit(&root, &request).unwrap();
+            assert!(admitted.plan.available, "{:?}", admitted.plan.reason);
+            assert_eq!(admitted.plan.framework, "libtest");
+            let line = text
+                .lines()
+                .position(|line| line.contains("owned-rust-stop"))
+                .unwrap();
+            let registry = Arc::new(crate::debug_sessions::Registry::with_projects(
+                Default::default(),
+                root.clone(),
+            ));
+            let rows=ask(&registry,&root,json!({"op":"start_test","doc":admitted.plan.source_uri,"source_hash":admitted.plan.source_hash,"request_id":"rust-selected","source_test":request,"breakpoints":[{"line":line}]})).await;
+            let started = event(&rows, "started");
+            let stopped = event(&rows, "stopped");
+            assert_eq!(stopped["line"], line);
+            let session = started["session"].as_str().unwrap();
+            assert_eq!(
+                started["source_test"]["candidate_id"],
+                admitted.binding.candidate_id
+            );
+            assert!(!sibling.exists());
+            let cleared=ask(&registry,&root,json!({"op":"breakpoints","session":session,"source_hash":admitted.plan.source_hash,"request_id":"clear-rust-mark","breakpoints":[]})).await;
+            assert!(
+                cleared.iter().all(|row| row["event"] != "failed"),
+                "{cleared:?}"
+            );
+            let done=ask(&registry,&root,json!({"op":"step","session":session,"how":"continue","stop":stopped["stop"],"thread":stopped["thread"],"request_id":"finish-rust-selected"})).await;
+            assert_eq!(event(&done, "finished")["exit_code"], 0);
+            assert!(!sibling.exists());
+            assert_eq!(std::fs::read_to_string(root.join(path)).unwrap(), text);
+            if authored {
+                assert!(!root.join("Cargo.toml").exists());
+                assert!(!root.join("src/lib.rs").exists())
+            }
+            assert!(registry.get(session).await.is_err());
+        }
+    }
+    #[cfg(unix)]
+    #[tokio::test(flavor = "multi_thread")]
+    #[ignore = "requires installed Cargo and LLDB DAP; exact ordinary external module and cfg-disabled sibling fixtures"]
+    async fn genuine_rust_external_module_and_disabled_sibling_have_proven_source_owners() {
+        for disabled in [false, true] {
+            let directory = tempfile::tempdir().unwrap();
+            let root = directory.path().canonicalize().unwrap();
+            std::fs::create_dir(root.join(".git")).unwrap();
+            std::fs::create_dir(root.join("src")).unwrap();
+            std::fs::write(root.join("Cargo.toml"),"[workspace]\n[package]\nname='owned-source-proof'\nversion='0.1.0'\nedition='2024'\n").unwrap();
+            let sentinel = root.join("wrong-sibling-ran");
+            let code = "#[test]\nfn test_selected(){\n let selected_value=41;\n assert_eq!(selected_value,41); // owned-external-stop\n}\n";
+            let declarations = if disabled {
+                "#[cfg(any())]mod selected;\nmod sibling;\n"
+            } else {
+                "mod selected;\nmod sibling;\n"
+            };
+            std::fs::write(root.join("src/lib.rs"), declarations).unwrap();
+            std::fs::write(
+                root.join("src/sibling.rs"),
+                format!(
+                    "#[test]fn test_selected(){{std::fs::write({:?},b\"wrong\").unwrap();}}\n",
+                    sentinel.to_str().unwrap()
+                ),
+            )
+            .unwrap();
+            let request = saved_request(&root, "src/selected.rs", code);
+            let admitted = admit(&root, &request).unwrap();
+            let registry = Arc::new(crate::debug_sessions::Registry::with_projects(
+                Default::default(),
+                root.clone(),
+            ));
+            let line = code
+                .lines()
+                .position(|line| line.contains("owned-external-stop"))
+                .unwrap();
+            let rows=ask(&registry,&root,json!({"op":"start_test","doc":admitted.plan.source_uri,"source_hash":admitted.plan.source_hash,"request_id":"rust-source-proof","source_test":request,"breakpoints":[{"line":line}]})).await;
+            if disabled {
+                assert!(!rows.iter().any(|r| r["event"] == "started"), "{rows:?}");
+                assert!(rows.iter().any(|r| r["event"] == "failed"), "{rows:?}");
+                assert!(
+                    serde_json::to_string(&rows)
+                        .unwrap()
+                        .contains("no proven active module/target identity"),
+                    "{rows:?}"
+                );
+            } else {
+                let started = event(&rows, "started");
+                let stopped = event(&rows, "stopped");
+                assert_eq!(stopped["line"], line);
+                let session = started["session"].as_str().unwrap();
+                let cleared=ask(&registry,&root,json!({"op":"breakpoints","session":session,"source_hash":admitted.plan.source_hash,"request_id":"clear-external-mark","breakpoints":[]})).await;
+                assert!(cleared.iter().all(|r| r["event"] != "failed"));
+                let done=ask(&registry,&root,json!({"op":"step","session":session,"how":"continue","stop":stopped["stop"],"thread":stopped["thread"],"request_id":"finish-external"})).await;
+                assert_eq!(event(&done, "finished")["exit_code"], 0);
+            }
+            assert!(!sentinel.exists());
+            assert_eq!(
+                std::fs::read_to_string(root.join("src/selected.rs")).unwrap(),
+                code
+            );
+        }
+    }
 }

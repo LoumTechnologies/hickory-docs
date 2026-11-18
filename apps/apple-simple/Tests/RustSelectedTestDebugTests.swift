@@ -7,7 +7,7 @@ import SwiftUI
  func testLiveSavedRustSelectionAndHistory()async throws{
   guard let origin=ProcessInfo.processInfo.environment["HICKORY_NATIVE_TEMPLATE_ORIGIN"],let path=ProcessInfo.processInfo.environment["HICKORY_NATIVE_TEMPLATE_WORKSPACE"]else{throw XCTSkip("Use the maintained Rust test Debug fixture")}
   let root=URL(fileURLWithPath:path);XCTAssertEqual(try String(contentsOf:root.appendingPathComponent(".hickory-rust-test-debug-fixture"),encoding:.utf8),"owned-rust-test-debug-v1\n");_ = NSApplication.shared;NSApp.setActivationPolicy(.regular);let engine=try Engine(address:origin),listing=try await engine.files()
-  for path in ["physical/src/lib.rs","tests.md"]{
+  for path in ["physical/src/lib.rs","tests.md","external/src/cases.rs","external.md"]{
    let w=Workspace();w.engine=engine;w.rootFiles=listing.tree;w.sourceRootAddress=listing.root_path;w.sourceWorkspaceID=listing.workspace_id
    func find(_ path:String,_ nodes:[FileNode])->FileNode?{for node in nodes{if node.path==path{return node};if let value=find(path,node.children ?? []){return value}};return nil}
    let file=try XCTUnwrap(find(path,listing.tree)),b=try await w.loadBuffer(file),source=b.text;w.layout.activateSource(path,in:"document-group");let debug=NativeDebugger(engine:engine);w.debugger=debug;debug.sourceBuffers={Array(w.buffers.values)}
