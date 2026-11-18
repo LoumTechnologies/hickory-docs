@@ -296,6 +296,11 @@ async fn prediction_policy(State(engine): State<Arc<Engine>>) -> Json<Value> {
 <a id="f-49126839fdb7-attach"></a>
 ### `attach`
 
+A foreground startup failure removes its exact client and subscription before
+returning. A refused explicit watch cannot keep a later successful watch at that
+address active after the real watcher closes. A replacement attachment owns its
+own lifetime.
+
 The shared room base is a directory, but discovery follows the requested target.
 A file attachment must not turn Documents into a project. A later explicit folder
 attachment expands the same index; existing file clients keep their room identities.
@@ -600,12 +605,10 @@ async fn attach(
     drop(_attach);
     if !opts.background {
         if let Err(failure) = startup.wait().await {
-            if opts.implicit_entry.is_some() {
-                let mut clients = engine.clients.lock().await;
-                if clients.get(&client_id).is_some_and(|client| Arc::ptr_eq(&client.attachment, &attachment)) {
-                    clients.remove(&client_id);
-                    engine.subscriptions.write().unwrap().remove(&client_id);
-                }
+            let mut clients = engine.clients.lock().await;
+            if clients.get(&client_id).is_some_and(|client| Arc::ptr_eq(&client.attachment, &attachment)) {
+                clients.remove(&client_id);
+                engine.subscriptions.write().unwrap().remove(&client_id);
             }
             return Err(error(failure));
         }

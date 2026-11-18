@@ -540,12 +540,10 @@ async fn attach(
     drop(_attach);
     if !opts.background {
         if let Err(failure) = startup.wait().await {
-            if opts.implicit_entry.is_some() {
-                let mut clients = engine.clients.lock().await;
-                if clients.get(&client_id).is_some_and(|client| Arc::ptr_eq(&client.attachment, &attachment)) {
-                    clients.remove(&client_id);
-                    engine.subscriptions.write().unwrap().remove(&client_id);
-                }
+            let mut clients = engine.clients.lock().await;
+            if clients.get(&client_id).is_some_and(|client| Arc::ptr_eq(&client.attachment, &attachment)) {
+                clients.remove(&client_id);
+                engine.subscriptions.write().unwrap().remove(&client_id);
             }
             return Err(error(failure));
         }

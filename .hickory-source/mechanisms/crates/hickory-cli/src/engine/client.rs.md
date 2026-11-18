@@ -480,6 +480,11 @@ pub(crate) async fn require_ordinary_agent_context() -> Result<()> {
 <a id="f-5c9c7cadce49-up"></a>
 ### `up`
 
+Listen for Ctrl-C while attaching. A startup that already reached the engine
+may have registered a lease, so let its acknowledgement return and then detach
+before exiting. Once active, stop the watch's heartbeat before removing the
+lease so a racing heartbeat cannot attach it again.
+
 <storycode:copy id="f-5c9c7cadce49-up">
 pub async fn up(config: crate::up::UpConfig) -> Result<()> {
     anyhow::ensure!(
@@ -510,8 +515,19 @@ pub async fn up(config: crate::up::UpConfig) -> Result<()> {
         (root, entry)
     };
     opts.generation_entry = Some(entry.clone());
-    let connection = connect(opts).await?;
-    let _guard = connection.guard();
+    let stop = tokio::signal::ctrl_c();
+    let opening = connect(opts);
+    tokio::pin!(stop, opening);
+    let connection = tokio::select! {
+        biased;
+        signal = &mut stop => {
+            signal?;
+            opening.await?.detach().await?;
+            return Ok(());
+        }
+        result = &mut opening => result?,
+    };
+    let guard = connection.guard();
     eprintln!(
         "hick up: generation root {}; entry {}",
         root.display(),
@@ -529,7 +545,7 @@ pub async fn up(config: crate::up::UpConfig) -> Result<()> {
             eprint!("{}", String::from_utf8_lossy(&bytes));
         }
         tokio::select! {
-            _ = tokio::signal::ctrl_c() => { connection.detach().await?; return Ok(()); }
+            signal = &mut stop => { signal?; guard.detach().await?; return Ok(()); }
             _ = tokio::time::sleep(std::time::Duration::from_millis(100)) => {}
         }
     }

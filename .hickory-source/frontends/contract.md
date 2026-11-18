@@ -282,6 +282,14 @@ runtime acceptance remain unverified.
 
 ### Keep the original role during a folder watch
 
+The actual Move and inverse watcher fixture kept the original implicit
+subscription active while its entry generation advanced. It remained retired
+even when Undo returned the original spelling. A failed explicit watch
+preserved differing unrecorded output and released its subscription. A new
+explicit watch then published an independent output, and a fresh implicit
+watch published from the restored role. Ctrl-C completed through the same
+detachment path during startup and after activation.
+
 An implicit folder watch binds the retained entry identity, generation and
 address when it starts. It requires an engine that acknowledges that complete
 binding. Capture and publication keep a shared lease on the physical root and
