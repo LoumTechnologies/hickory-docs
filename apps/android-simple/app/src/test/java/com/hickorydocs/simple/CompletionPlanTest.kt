@@ -3,6 +3,11 @@ import org.junit.Test
 import org.junit.Assert.*
 import org.json.JSONObject
 class CompletionPlanTest {
+ @Test fun rebasedComputedProgramsRemainUsableAfterImportEdits(){
+  val programs=JSONObject(javaClass.classLoader!!.getResource("snippet-derived-cases.json")!!.readText()).getJSONObject("programs");val transform=readSnippetTransform(programs.get("upper"));val fields=listOf(SnippetField(1,0,3,emptyList(),0),SnippetField(1,4,7,emptyList(),1,transform=transform),SnippetField(0,7,7,emptyList(),2))
+  val item=JSONObject().put("label","derived").put("insertTextFormat",2).put("insertText","derived").put("additionalTextEdits",org.json.JSONArray().put(JSONObject().put("range",JSONObject().put("start",JSONObject().put("line",0).put("character",0)).put("end",JSONObject().put("line",0).put("character",0))).put("newText","import\n")))
+  val draft=planCompletion("hick:///a.py",item,SourceSnapshot("😀 old\n",true),3,6,CompletionExpansion("foo FOO",CompletionSelection(0,3),fields));val after=draft.plan.patches.first().after;assertEquals("import\n😀 foo FOO\n",after);assertEquals(14,draft.fields[1].from);assertSame(transform,draft.fields[1].transform);val session=beginSnippet(after,draft.fields);assertNotNull(session);assertEquals("import\n😀 ßa SSA\n",editSnippet(session!!,after,draft.selection.from,draft.selection.to,"ßa")!!.session.source)
+ }
  @Test fun sharedSourceImportSelectionAndRefusalVectors() {
   val cases=JSONObject(javaClass.classLoader!!.getResource("completion-plan-cases.json")!!.readText()).getJSONArray("cases")
   for(index in 0 until cases.length()) {

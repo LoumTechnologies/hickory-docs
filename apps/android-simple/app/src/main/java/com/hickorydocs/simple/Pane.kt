@@ -76,6 +76,8 @@ private const val TAB_MIME = "application/vnd.hickorydocs.tab"
 }
 @OptIn(ExperimentalFoundationApi::class)
 @Composable fun Pane(workspace: Workspace, id: String) {
+    val clipboardContext=androidx.compose.ui.platform.LocalContext.current.applicationContext
+    androidx.compose.runtime.SideEffect{workspace.engine?.let{engine->if(engine.snippetClipboardReader==null)engine.snippetClipboardReader={val manager=clipboardContext.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager;manager?.primaryClip?.let{clip->if(clip.itemCount>0)clip.getItemAt(0).text?.toString() else null}}}}
     val node = workspace.layout.nodes[id] ?: return
     if (node.first != null && node.second != null) {
         BoxWithConstraints(Modifier.fillMaxSize()) {

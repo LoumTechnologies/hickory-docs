@@ -24,7 +24,7 @@ import UIKit
  value=nil
  #endif
  }
- guard let value,value.utf8.count<=1048576 else{return SnippetClipboard(available:false,text:nil)};return SnippetClipboard(available:true,text:value)
+ guard let value,value.utf16.prefix(1048577).count<=1048576,value.utf8.prefix(1048577).count<=1048576 else{return SnippetClipboard(available:false,text:nil)};return SnippetClipboard(available:true,text:value)
 }
 func validSnippetContextSelection(_ source:String,_ from:Int,_ to:Int)->Bool {
  let ns=source as NSString

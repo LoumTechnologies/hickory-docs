@@ -13,7 +13,10 @@ import Darwin
         plan["snippet"]=["version":1,"syntax":"${1:${TM_SELECTED_TEXT}} + $1$0","text":"old + old","fields":[["id":0,"parent":NSNull(),"index":1,"from":0,"to":3,"choices":[]],["id":1,"parent":NSNull(),"index":1,"from":6,"to":9,"choices":[]],["id":2,"parent":NSNull(),"index":0,"from":9,"to":9,"choices":[]]]]
         return(catalog,plan)
     }
-    func install(_ catalog:[String:Any],_ plan:[String:Any])throws {
+    static let variables=SnippetVariableSnapshot(clock:SnippetVariableClock(unix_millis:1704067200000,utc_offset_minutes:0),random_hex:"0123456789abcdef0123456789abcdef")
+    func install(_ originalCatalog:[String:Any],_ originalPlan:[String:Any])throws {
+        var catalog=originalCatalog,plan=originalPlan
+        catalog["template_protocol"]=2;plan["template_protocol"]=2;catalog["variable_context"]=Self.variables.body;plan["variable_context"]=Self.variables.body;catalog["source_files_modified"]=false;plan["source_files_modified"]=false
         ResponseProtocol.status=200;ResponseProtocol.beforeResponse=nil;ResponseProtocol.resetRequests()
         ResponseProtocol.responsesByPath=["/api/templates/catalog":try JSONSerialization.data(withJSONObject:catalog),"/api/templates/plan":try JSONSerialization.data(withJSONObject:plan)]
     }
@@ -27,15 +30,44 @@ import Darwin
         XCTAssertThrowsError(try validateSourceTestJSON(Data(#"{"template_protocol":1e0}"#.utf8)))
         changed=plan;changed.snippet.fields[0].to=99;XCTAssertThrowsError(try sourceTemplateDraft(changed,source:"value = 'old'\n",label:"Bad field"))
     }
+    func testVariableContextRequiresExactStructureAndTypedNoEffects()throws {
+        let (original,originalPlan)=reply();var raw=original,body=originalPlan
+        for key in ["template_protocol","variable_context","source_files_modified"]{raw[key]=key=="template_protocol" ? 2 as Any:key=="variable_context" ? Self.variables.body as Any:false as Any;body[key]=raw[key]}
+        let catalog=try decode(raw,as:SourceTemplateCatalog.self),plan=try decode(body,as:SourceTemplatePlan.self)
+        XCTAssertTrue(sourceTemplateCatalogMatches(catalog,path:"main.py",source:"value = 'old'\n",selection:NSRange(location:9,length:3),variables:Self.variables));XCTAssertTrue(sourceTemplatePlanMatches(plan,catalog:catalog,entry:catalog.entries[0]))
+        for effect in ["command","edit","workspaceEdit","additionalTextEdits"]{var changed=raw;changed[effect]=NSNull();XCTAssertThrowsError(try decode(changed,as:SourceTemplateCatalog.self));changed=body;changed[effect]=NSNull();XCTAssertThrowsError(try decode(changed,as:SourceTemplatePlan.self))}
+        for value in [0 as Any,"false" as Any,true as Any]{var changed=raw;changed["source_files_modified"]=value;if let parsed=try? decode(changed,as:SourceTemplateCatalog.self){XCTAssertFalse(sourceTemplateCatalogMatches(parsed,path:"main.py",source:"value = 'old'\n",selection:NSRange(location:9,length:3),variables:Self.variables))}}
+        var context=Self.variables.body;context["extra"]=true;raw["variable_context"]=context;XCTAssertThrowsError(try decode(raw,as:SourceTemplateCatalog.self))
+        context=Self.variables.body;var clock=context["clock"] as! [String:Any];clock["extra"]=true;context["clock"]=clock;body["variable_context"]=context;XCTAssertThrowsError(try decode(body,as:SourceTemplatePlan.self))
+    }
     #if os(macOS)
     func native()->(Workspace,DocumentBuffer,MacEditor,NSWindow) {
         _ = NSApplication.shared
         let configuration=URLSessionConfiguration.ephemeral;configuration.protocolClasses=[ResponseProtocol.self]
         let space=Workspace(),engine=try! Engine(address:"http://fixture.invalid",session:URLSession(configuration:configuration)),file=FileNode(name:"main.py",path:"main.py",dir:false),buffer=DocumentBuffer(file:file,text:FileText(path:file.path,content:"value = 'old'\n",hash:"base")),editor=MacEditor(buffer)
-        space.engine=engine;space.buffers[file.path]=buffer;space.layout.activate(file.path,in:"document-group")
+        space.engine=engine;space.buffers[file.path]=buffer;space.layout.activate(file.path,in:"document-group");space.sourceTemplates.captureVariables={Self.variables}
         let window=NSWindow(contentRect:NSRect(x:0,y:0,width:640,height:420),styleMask:[.titled],backing:.buffered,defer:false);window.contentView=editor.scroll
         editor.text.setSelectedRange(NSRange(location:9,length:3));buffer.selection=editor.text.selectedRange()
         return(space,buffer,editor,window)
+    }
+    func testDemandedClipboardIsCapturedOnceDeniedExplicitlyAndCannotOutliveSourceLease()async throws {
+        for mode in ["available","denied","stale","repeated"] {
+            let (space,buffer,editor,window)=native(),(catalog,basePlan)=reply();try install(catalog,basePlan)
+            defer{window.contentView=nil;ResponseProtocol.beforeResponse=nil;ResponseProtocol.responsesByPath=[:]}
+            let model=space.sourceTemplates;var reads=0
+            model.clipboardReader={reads+=1;if mode=="stale"{editor.text.setSelectedRange(NSRange(location:0,length:0));buffer.selection=editor.text.selectedRange()};return mode=="denied" ? nil:"copied"}
+            var requested=basePlan;requested.removeValue(forKey:"snippet");requested["template_protocol"]=2;requested["source_files_modified"]=false;requested["variable_context"]=Self.variables.body;requested["available"]=false;requested["context_request"]=["version":1,"variables":["CLIPBOARD"]]
+            var resolved=basePlan;resolved["template_protocol"]=2;resolved["source_files_modified"]=false
+            var snapshot=Self.variables;snapshot.clipboard=SnippetClipboard(available:mode != "denied",text:mode=="denied" ? nil:"copied");resolved["variable_context"]=snapshot.body;resolved["context_unavailable"]=mode=="denied" ? ["CLIPBOARD"]:[]
+            ResponseProtocol.beforeResponse={request in if request.url?.path=="/api/templates/plan"{let value=ResponseProtocol.requestCount("/api/templates/plan")==1||mode=="repeated" ? requested:resolved;ResponseProtocol.responsesByPath["/api/templates/plan"]=try! JSONSerialization.data(withJSONObject:value)}}
+            await model.open(space);await model.choose(try XCTUnwrap(model.catalog?.entries.first));XCTAssertEqual(reads,1)
+            if mode=="stale"||mode=="repeated"{XCTAssertNil(model.preview);XCTAssertEqual(buffer.text,"value = 'old'\n");continue}
+            XCTAssertNotNil(model.preview,model.notice);let applied=await model.apply();XCTAssertTrue(applied,model.notice);XCTAssertEqual(reads,1);XCTAssertEqual(buffer.base,"value = 'old'\n")
+            let requests=ResponseProtocol.requestBodies("/api/templates/plan");XCTAssertEqual(requests.count,3)
+            let initial=requests[0]["variable_context"] as! [String:Any],retry=requests[1]["variable_context"] as! [String:Any]
+            XCTAssertTrue(initial["clipboard"] is NSNull);XCTAssertEqual((retry["clipboard"] as? [String:Any])?["available"] as? Bool,mode != "denied")
+            XCTAssertEqual(try JSONSerialization.data(withJSONObject:retry,options:.sortedKeys),try JSONSerialization.data(withJSONObject:requests[2]["variable_context"]!,options:.sortedKeys))
+        }
     }
     func testPreviewApplyAndLinkedInputRetainActualNativeHistory()async throws {
         let (space,buffer,editor,window)=native(),(catalog,plan)=reply();try install(catalog,plan);defer{window.contentView=nil;ResponseProtocol.responsesByPath=[:]}
@@ -116,6 +148,25 @@ import Darwin
         manager.redo();manager.redo();XCTAssertEqual(buffer.text,"value = 'new + new'\n");XCTAssertNotNil(buffer.snippets.active)
         XCTAssertTrue(editor(host) === native);XCTAssertTrue(native.undoManager === manager);XCTAssertEqual(buffer.sourceEditorState?()?.identity,identity);XCTAssertEqual(scroll.convert(scroll.bounds,to:host),geometry);XCTAssertEqual(buffer.base,source)
         manager.undo();manager.undo();native.setSelectedRange(NSRange(location:9,length:3));buffer.selection=native.selectedRange()
+        model.captureVariables={Self.variables};var clipboardReads=0;model.clipboardReader={clipboardReads+=1;return "copied"}
+        await model.open(space);await model.choose(try XCTUnwrap(model.catalog?.entries.first(where:{$0.id=="workspace.context"})));XCTAssertEqual(model.preview?.snippet.text,"main.py|2024|012345|old|old|OLD",model.notice);XCTAssertEqual(clipboardReads,0)
+        let contextApplied=await model.apply();XCTAssertTrue(contextApplied,model.notice);XCTAssertEqual(buffer.text,"value = 'main.py|2024|012345|old|old|OLD'\n")
+        let installed=try XCTUnwrap(buffer.snippets.active,"Derived template metadata must install an active native session");XCTAssertEqual(installed.fields.filter{$0.transform != nil}.count,1);XCTAssertNotNil(buffer.snippets.commit)
+        let selectedField=try XCTUnwrap(installed.fields.first(where:{$0.id==installed.current}));XCTAssertNil(selectedField.transform);XCTAssertEqual(native.selectedRange(),NSRange(location:selectedField.from,length:selectedField.to-selectedField.from))
+        native.insertText("new",replacementRange:native.selectedRange());XCTAssertEqual(buffer.text,"value = 'main.py|2024|012345|new|new|NEW'\n")
+        manager.undo();manager.undo();XCTAssertEqual(buffer.text,source);manager.redo();manager.redo();XCTAssertEqual(buffer.text,"value = 'main.py|2024|012345|new|new|NEW'\n");manager.undo();manager.undo()
+        for denied in [false,true]{
+            native.setSelectedRange(NSRange(location:9,length:3));buffer.selection=native.selectedRange();let before=clipboardReads
+            model.clipboardReader={clipboardReads+=1;return denied ? nil:"copied"}
+            await model.open(space);XCTAssertEqual(clipboardReads,before);await model.choose(try XCTUnwrap(model.catalog?.entries.first(where:{$0.id=="workspace.clipboard"})))
+            XCTAssertEqual(clipboardReads,before+1);XCTAssertEqual(model.preview?.snippet.text,denied ? "fallback":"copied",model.notice);XCTAssertEqual(model.preview?.context_unavailable ?? [],denied ? ["CLIPBOARD"]:[])
+            let applied=await model.apply();XCTAssertTrue(applied,model.notice);XCTAssertEqual(clipboardReads,before+1);XCTAssertEqual(buffer.text,"value = '\(denied ? "fallback":"copied")'\n");manager.undo();XCTAssertEqual(buffer.text,source);manager.redo();XCTAssertEqual(buffer.text,"value = '\(denied ? "fallback":"copied")'\n");manager.undo()
+        }
+        native.setSelectedRange(NSRange(location:9,length:3));buffer.selection=native.selectedRange();let beforeUnused=clipboardReads
+        await model.open(space);await model.choose(try XCTUnwrap(model.catalog?.entries.first(where:{$0.id=="workspace.unused-clipboard"})));XCTAssertEqual(model.preview?.snippet.text,"old",model.notice);XCTAssertEqual(clipboardReads,beforeUnused);model.close()
+        model.clipboardReader={clipboardReads+=1;native.setSelectedRange(NSRange(location:0,length:0));buffer.selection=native.selectedRange();return "stale"}
+        await model.open(space);await model.choose(try XCTUnwrap(model.catalog?.entries.first(where:{$0.id=="workspace.clipboard"})));XCTAssertNil(model.preview);XCTAssertEqual(buffer.text,source)
+        native.setSelectedRange(NSRange(location:9,length:3));buffer.selection=native.selectedRange();XCTAssertTrue(editor(host) === native);XCTAssertEqual(buffer.sourceEditorState?()?.identity,identity);XCTAssertEqual(buffer.base,source)
         await model.open(space);await model.choose(try XCTUnwrap(model.catalog?.entries.first(where:{exactUTF8($0.id,"workspace.wrap")})));XCTAssertNotNil(model.preview,model.notice)
         try Data(#"{"version":1,"templates":[]}"#.utf8).write(to:manifest,options:.atomic)
         let revoked=await model.apply();XCTAssertFalse(revoked);XCTAssertEqual(buffer.text,source);XCTAssertTrue(manager.canRedo);XCTAssertNil(buffer.snippets.active)

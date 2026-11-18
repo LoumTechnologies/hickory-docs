@@ -360,32 +360,36 @@ is included with that control; opening a document is not generation authority.
 <storycode:include file="editor-recovery.md" />
 
 <storycode:include file="provider-bulk-literate-witness.md" />
+<storycode:include file="provider-source-proofs.md" />
 
 <storycode:include file="bound-source-edits.md" />
 
 <storycode:include file="project-overlay-graph.md" />
 
-<storycode:include file="provider-source-proofs.md" />
+<storycode:include file="snippet-transforms.md" />
 
 <storycode:include file="agent-proposal-persistence.md" />
 
-<storycode:include file="snippet-transforms.md" />
+<storycode:include file="test-collector-provider-replays.md" />
+
 <storycode:include file="snippet-derived-acceptance.md" />
+
 <storycode:include file="snippet-case-policy.md" />
+
+<storycode:include file="exact-failed-js-collector.md" />
 
 <storycode:include file="provider-refactor-readings.md" />
 
 <storycode:include file="editor-recovery-management.md" />
 
-<storycode:include file="completion-intent-acceptance.md" />
-
 <storycode:include file="resource-volume-guards.md" />
 
-<storycode:include file="test-collector-provider-replays.md" />
-<storycode:include file="exact-failed-js-collector.md" />
+<storycode:include file="completion-intent-acceptance.md" />
 
 <storycode:include file="browser-source-text.md" />
 
 <storycode:include file="snippet-variable-context.md" />
+
+<storycode:include file="snippet-context-protocol-acceptance.md" />
 
 </storycode:doc>

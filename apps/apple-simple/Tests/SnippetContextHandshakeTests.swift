@@ -2,6 +2,7 @@ import XCTest
 @testable import HickorySimple
 
 @MainActor final class SnippetContextHandshakeTests:XCTestCase {
+ func testClipboardReadBoundsValidationWithoutEncodingAnExcessiveCopy(){for value in [String(repeating:"x",count:1048577),String(repeating:"😀",count:300000)]{let result=captureSnippetClipboard(read:{value});XCTAssertFalse(result.available);XCTAssertNil(result.text)};XCTAssertTrue(captureSnippetClipboard(read:{String(repeating:"x",count:1048576)}).available)}
  private let source="λ😀\r\nword"
  private var proof:[String:Any]{["source_hash":"sha256:"+nativeSourceHash(source),"source_revision":String(repeating:"a",count:64)]}
  private var original:[String:Any]{["label":"field","data":["hickory_completion":"original","hickory_context":proof,"opaque":["provider":["untouched"]]]]}

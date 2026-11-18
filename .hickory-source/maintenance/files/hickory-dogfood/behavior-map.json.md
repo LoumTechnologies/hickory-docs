@@ -72267,6 +72267,28 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "bulk-fix-native-runner"
       ]
     },
+    "scripts/test-collector-hosts.py": {
+      "source": ".hickory-source/frontends/coverage-browser-witness.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "77222e47582c41a1690de6ce7d36b5c84a025c7a7e417419c29614fd5382dde1",
+      "construction": "fragments",
+      "fragments": [
+        "collector-host-fixture"
+      ]
+    },
+    "scripts/collector-browser-driver.mjs": {
+      "source": ".hickory-source/frontends/coverage-browser-witness.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "c13d172e836da5cf685f42dfad92441f9937e4dd3e3b5ae7b2ddc05ae2d15cf9",
+      "construction": "fragments",
+      "fragments": [
+        "collector-browser-driver"
+      ]
+    },
     "scripts/controlled-bulk-literate-provider.py": {
       "source": ".hickory-source/mechanisms/provider-bulk-literate-witness.md",
       "owner": "shared",
@@ -72399,61 +72421,6 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "installed-lldb-android-tests"
       ]
     },
-    "scripts/controlled-bound-source-provider.py": {
-      "source": ".hickory-source/mechanisms/bound-source-edits.md",
-      "owner": "shared",
-      "used_by": [],
-      "role": "test",
-      "sha256": "545fbcc0805d432efbef86e6bc73dc3335d2122c8d6e320860d71f0ce01bed1f",
-      "construction": "fragments",
-      "fragments": [
-        "bound-source-controlled-provider"
-      ]
-    },
-    "scripts/bound-source-edits-driver.mjs": {
-      "source": ".hickory-source/mechanisms/bound-source-edits.md",
-      "owner": "shared",
-      "used_by": [],
-      "role": "test",
-      "sha256": "e054ff93e1f167d4c4dac0bf470a54ca1bf1278ebb4d7cc44b38ec2858ed746e",
-      "construction": "fragments",
-      "fragments": [
-        "bound-source-protocol-driver"
-      ]
-    },
-    "scripts/test-bound-source-edits.py": {
-      "source": ".hickory-source/mechanisms/bound-source-edits.md",
-      "owner": "shared",
-      "used_by": [],
-      "role": "test",
-      "sha256": "507f40b2d8eda86caeef9745a62c94dd3741e10b167740fd025209ef71131798",
-      "construction": "fragments",
-      "fragments": [
-        "bound-source-protocol-runner"
-      ]
-    },
-    "scripts/test-collector-hosts.py": {
-      "source": ".hickory-source/frontends/coverage-browser-witness.md",
-      "owner": "simple-frontends",
-      "used_by": [],
-      "role": "test",
-      "sha256": "77222e47582c41a1690de6ce7d36b5c84a025c7a7e417419c29614fd5382dde1",
-      "construction": "fragments",
-      "fragments": [
-        "collector-host-fixture"
-      ]
-    },
-    "scripts/collector-browser-driver.mjs": {
-      "source": ".hickory-source/frontends/coverage-browser-witness.md",
-      "owner": "simple-frontends",
-      "used_by": [],
-      "role": "test",
-      "sha256": "c13d172e836da5cf685f42dfad92441f9937e4dd3e3b5ae7b2ddc05ae2d15cf9",
-      "construction": "fragments",
-      "fragments": [
-        "collector-browser-driver"
-      ]
-    },
     "apps/web/src/simple/ProviderSourceProofs.ts": {
       "source": ".hickory-source/mechanisms/provider-source-proofs.md",
       "owner": "shared",
@@ -72531,6 +72498,39 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "source-preparation-browser-witness"
       ]
     },
+    "scripts/controlled-bound-source-provider.py": {
+      "source": ".hickory-source/mechanisms/bound-source-edits.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "test",
+      "sha256": "545fbcc0805d432efbef86e6bc73dc3335d2122c8d6e320860d71f0ce01bed1f",
+      "construction": "fragments",
+      "fragments": [
+        "bound-source-controlled-provider"
+      ]
+    },
+    "scripts/bound-source-edits-driver.mjs": {
+      "source": ".hickory-source/mechanisms/bound-source-edits.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "test",
+      "sha256": "e054ff93e1f167d4c4dac0bf470a54ca1bf1278ebb4d7cc44b38ec2858ed746e",
+      "construction": "fragments",
+      "fragments": [
+        "bound-source-protocol-driver"
+      ]
+    },
+    "scripts/test-bound-source-edits.py": {
+      "source": ".hickory-source/mechanisms/bound-source-edits.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "test",
+      "sha256": "507f40b2d8eda86caeef9745a62c94dd3741e10b167740fd025209ef71131798",
+      "construction": "fragments",
+      "fragments": [
+        "bound-source-protocol-runner"
+      ]
+    },
     "apps/apple-simple/Tests/BoundProposalWireTests.swift": {
       "source": ".hickory-source/frontends/native-bound-proposal-wire.md",
       "owner": "simple-frontends",
@@ -72573,28 +72573,6 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "construction": "fragments",
       "fragments": [
         "native-bound-source-host-driver"
-      ]
-    },
-    "scripts/test-agent-proposal-persistence.py": {
-      "source": ".hickory-source/mechanisms/agent-proposal-persistence.md",
-      "owner": "shared",
-      "used_by": [],
-      "role": "test",
-      "sha256": "7fdd5dfc81117bb619891c66eb3586dd991f6d82a44c3ed3d114bd46f151ba54",
-      "construction": "fragments",
-      "fragments": [
-        "agent-proposal-persistence-protocol"
-      ]
-    },
-    "scripts/test-agent-proposal-history-host.py": {
-      "source": ".hickory-source/frontends/agent-proposal-history-witness.md",
-      "owner": "simple-frontends",
-      "used_by": [],
-      "role": "test",
-      "sha256": "4d5a97751b052933d264e7e077b654f852018793a34e1461ef4682fbfc9cf2bd",
-      "construction": "fragments",
-      "fragments": [
-        "agent-proposal-history-host-driver"
       ]
     },
     "crates/hick-lsp/src/snippet_transform.rs": {
@@ -72683,6 +72661,39 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "construction": "fragments",
       "fragments": [
         "snippet-transform-android-tests"
+      ]
+    },
+    "scripts/test-agent-proposal-persistence.py": {
+      "source": ".hickory-source/mechanisms/agent-proposal-persistence.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "test",
+      "sha256": "7fdd5dfc81117bb619891c66eb3586dd991f6d82a44c3ed3d114bd46f151ba54",
+      "construction": "fragments",
+      "fragments": [
+        "agent-proposal-persistence-protocol"
+      ]
+    },
+    "scripts/test-agent-proposal-history-host.py": {
+      "source": ".hickory-source/frontends/agent-proposal-history-witness.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "4d5a97751b052933d264e7e077b654f852018793a34e1461ef4682fbfc9cf2bd",
+      "construction": "fragments",
+      "fragments": [
+        "agent-proposal-history-host-driver"
+      ]
+    },
+    "scripts/test-collector-providers.py": {
+      "source": ".hickory-source/mechanisms/test-collector-provider-replays.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "test",
+      "sha256": "3adf0fdbe7d1351d7c33a07d32cd5365d9cfdba403a94a637a1345fa12b626e9",
+      "construction": "fragments",
+      "fragments": [
+        "collector-provider-live-replay"
       ]
     },
     "apps/simple-contract/snippet-derived-cases.json": {
@@ -72839,6 +72850,33 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "snippet-case-generator"
       ]
     },
+    "crates/hickory-cli/src/coverage/exact.rs": {
+      "source": ".hickory-source/mechanisms/exact-failed-js-collector.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "f4445e4024c5d151e900eed01ed7b8617caac896d260282a202320ffcf371cd4",
+      "construction": "fragments",
+      "fragments": [
+        "exact-failed-runner-plan"
+      ]
+    },
+    "crates/hick-lsp/src/snippet_context.rs": {
+      "source": ".hickory-source/mechanisms/snippet-variable-context.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "4e11a73c2e37ca2156d5f6c2d88e9fbaa7e022466b76a1ec57969c9dddfcae41",
+      "construction": "fragments",
+      "fragments": [
+        "snippet-variable-context-engine",
+        "snippet-context-snapshot-admission",
+        "snippet-context-source-proof",
+        "snippet-context-comment-values",
+        "snippet-context-reachable-values",
+        "snippet-context-rust-witnesses"
+      ]
+    },
     "crates/hick-lsp/src/provider_refactors.rs": {
       "source": ".hickory-source/mechanisms/provider-refactor-readings.md",
       "owner": "shared",
@@ -72849,6 +72887,17 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "fragments": [
         "provider-refactor-read-only-model",
         "provider-refactor-read-only-witness"
+      ]
+    },
+    "crates/hick-plugins/src/testing/javascript.mjs": {
+      "source": ".hickory-source/mechanisms/exact-failed-js-collector.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "d9bba23c8e87da3163a5728ebeba01396a154ca687e2d78322e975ed9737f3c3",
+      "construction": "fragments",
+      "fragments": [
+        "exact-failed-js-native-driver"
       ]
     },
     "scripts/test-provider-refactor-host.py": {
@@ -72884,6 +72933,28 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "provider-refactor-android-actual"
       ]
     },
+    "apps/apple-simple/Tests/CompletionIntentTests.swift": {
+      "source": ".hickory-source/mechanisms/completion-intent-acceptance.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "test",
+      "sha256": "11e320597524c315ef6f2287be73e251d554eef484d895cd16ae4459c3bdbce7",
+      "construction": "fragments",
+      "fragments": [
+        "completion-intent-apple-tests"
+      ]
+    },
+    "apps/android-simple/app/src/test/java/com/hickorydocs/simple/CompletionIntentTest.kt": {
+      "source": ".hickory-source/mechanisms/completion-intent-acceptance.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "test",
+      "sha256": "9c850fa5bb1bc480c000666cb0eed8dd8f8550b9b8e1139d516e50a48883d39f",
+      "construction": "fragments",
+      "fragments": [
+        "completion-intent-android-tests"
+      ]
+    },
     "scripts/test-editor-recovery-management.py": {
       "source": ".hickory-source/frontends/editor-recovery-management-witness.md",
       "owner": "simple-frontends",
@@ -72917,28 +72988,6 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "editor-recovery-management-android-actual"
       ]
     },
-    "apps/apple-simple/Tests/CompletionIntentTests.swift": {
-      "source": ".hickory-source/mechanisms/completion-intent-acceptance.md",
-      "owner": "shared",
-      "used_by": [],
-      "role": "test",
-      "sha256": "11e320597524c315ef6f2287be73e251d554eef484d895cd16ae4459c3bdbce7",
-      "construction": "fragments",
-      "fragments": [
-        "completion-intent-apple-tests"
-      ]
-    },
-    "apps/android-simple/app/src/test/java/com/hickorydocs/simple/CompletionIntentTest.kt": {
-      "source": ".hickory-source/mechanisms/completion-intent-acceptance.md",
-      "owner": "shared",
-      "used_by": [],
-      "role": "test",
-      "sha256": "9c850fa5bb1bc480c000666cb0eed8dd8f8550b9b8e1139d516e50a48883d39f",
-      "construction": "fragments",
-      "fragments": [
-        "completion-intent-android-tests"
-      ]
-    },
     "scripts/test-resource-volume-guards.py": {
       "source": ".hickory-source/mechanisms/resource-volume-guards.md",
       "owner": "shared",
@@ -72948,39 +72997,6 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "construction": "fragments",
       "fragments": [
         "resource-volume-guard-http-driver"
-      ]
-    },
-    "scripts/test-collector-providers.py": {
-      "source": ".hickory-source/mechanisms/test-collector-provider-replays.md",
-      "owner": "shared",
-      "used_by": [],
-      "role": "test",
-      "sha256": "3adf0fdbe7d1351d7c33a07d32cd5365d9cfdba403a94a637a1345fa12b626e9",
-      "construction": "fragments",
-      "fragments": [
-        "collector-provider-live-replay"
-      ]
-    },
-    "crates/hickory-cli/src/coverage/exact.rs": {
-      "source": ".hickory-source/mechanisms/exact-failed-js-collector.md",
-      "owner": "shared",
-      "used_by": [],
-      "role": "implementation",
-      "sha256": "f4445e4024c5d151e900eed01ed7b8617caac896d260282a202320ffcf371cd4",
-      "construction": "fragments",
-      "fragments": [
-        "exact-failed-runner-plan"
-      ]
-    },
-    "crates/hick-plugins/src/testing/javascript.mjs": {
-      "source": ".hickory-source/mechanisms/exact-failed-js-collector.md",
-      "owner": "shared",
-      "used_by": [],
-      "role": "implementation",
-      "sha256": "d9bba23c8e87da3163a5728ebeba01396a154ca687e2d78322e975ed9737f3c3",
-      "construction": "fragments",
-      "fragments": [
-        "exact-failed-js-native-driver"
       ]
     },
     "apps/web/src/simple/SourceText.ts": {
@@ -73025,17 +73041,6 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "construction": "fragments",
       "fragments": [
         "android-language-connection-concurrency-tests"
-      ]
-    },
-    "crates/hick-lsp/src/snippet_context.rs": {
-      "source": ".hickory-source/mechanisms/snippet-variable-context.md",
-      "owner": "shared",
-      "used_by": [],
-      "role": "implementation",
-      "sha256": "4e11a73c2e37ca2156d5f6c2d88e9fbaa7e022466b76a1ec57969c9dddfcae41",
-      "construction": "fragments",
-      "fragments": [
-        "snippet-variable-context-engine"
       ]
     },
     "apps/web/src/simple/SnippetContext.ts": {
@@ -73102,6 +73107,72 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "construction": "fragments",
       "fragments": [
         "snippet-variable-context-android-witness"
+      ]
+    },
+    "scripts/snippet-context-controlled-provider.py": {
+      "source": ".hickory-source/mechanisms/snippet-context-protocol-acceptance.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "test",
+      "sha256": "c22979f1088a9b6e4323a6e0230acc3fd524f66e1df80ed011325e2774852693",
+      "construction": "fragments",
+      "fragments": [
+        "snippet-context-protocol-provider"
+      ]
+    },
+    "scripts/snippet-context-protocol-driver.mjs": {
+      "source": ".hickory-source/mechanisms/snippet-context-protocol-acceptance.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "test",
+      "sha256": "78d3346fe50e676264eaca9823d7c506a6860dcf87b34088daa3c7167fc9014e",
+      "construction": "fragments",
+      "fragments": [
+        "snippet-context-protocol-driver"
+      ]
+    },
+    "scripts/test-snippet-context-protocol.py": {
+      "source": ".hickory-source/mechanisms/snippet-context-protocol-acceptance.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "test",
+      "sha256": "8edb963c51ddd64f4f328fd69dad612a21c1ae427afcee1c2dc393f30d5149f4",
+      "construction": "fragments",
+      "fragments": [
+        "snippet-context-protocol-runner"
+      ]
+    },
+    "scripts/test-snippet-context-browser.py": {
+      "source": ".hickory-source/mechanisms/snippet-context-protocol-acceptance.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "test",
+      "sha256": "a905bc5641fb95815b934aec38d0b33478170cc31efe1f6189c9ce1a5420eb81",
+      "construction": "fragments",
+      "fragments": [
+        "snippet-context-browser-runner"
+      ]
+    },
+    "apps/apple-simple/Tests/SnippetContextProviderTests.swift": {
+      "source": ".hickory-source/frontends/native-snippet-context-provider-witness.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "c3c3989aeeb30d4741d22a05d24f0a4ce0620934b68a2c80bfbc6e6141047f2e",
+      "construction": "fragments",
+      "fragments": [
+        "native-snippet-context-provider-apple"
+      ]
+    },
+    "apps/android-simple/app/src/test/java/com/hickorydocs/simple/SnippetContextProviderTest.kt": {
+      "source": ".hickory-source/frontends/native-snippet-context-provider-witness.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "ea10108928da8762174e59b1cd0d453e140c2ffccc00539abc30a084eafac6b0",
+      "construction": "fragments",
+      "fragments": [
+        "native-snippet-context-provider-android"
       ]
     }
   },

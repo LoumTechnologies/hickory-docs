@@ -6,6 +6,7 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class SnippetContextHandshakeTest {
+ @Test fun clipboardReadBoundsValidationBeforeAnExcessiveEncoding(){for(value in listOf("x".repeat(1048577),"😀".repeat(300000),"\uD800")){val result=captureSnippetClipboard{value};assertFalse(result.available);assertNull(result.text)};assertTrue(captureSnippetClipboard{"x".repeat(1048576)}.available)}
  private val source="λ😀\r\nword"
  private fun proof()=JSONObject().put("source_hash","sha256:"+debugHash(source)).put("source_revision","a".repeat(64))
  private fun original()=JSONObject().put("label","field").put("data",JSONObject().put("hickory_completion","original").put("hickory_context",proof()).put("opaque",JSONObject().put("provider","untouched")))

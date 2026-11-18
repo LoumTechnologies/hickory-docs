@@ -151412,7 +151412,7 @@
     },
     {
       "id": "simple-workspace-command-descriptors",
-      "output": "apps/apple-simple/Sources/Resources/commands.json",
+      "output": "apps/simple-contract/commands.json",
       "page": ".hickory-source/frontends/workspace-commands.md",
       "symbol": "simple-workspace-command-descriptors",
       "basis": "explained-behavior"
@@ -156017,6 +156017,20 @@
       "basis": "explained-behavior"
     },
     {
+      "id": "collector-host-fixture",
+      "output": "scripts/test-collector-hosts.py",
+      "page": ".hickory-source/frontends/coverage-browser-witness.md",
+      "symbol": "collector host fixture",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "collector-browser-driver",
+      "output": "scripts/collector-browser-driver.mjs",
+      "page": ".hickory-source/frontends/coverage-browser-witness.md",
+      "symbol": "collector browser driver",
+      "basis": "explained-behavior"
+    },
+    {
       "id": "bulk-literate-controlled-provider",
       "output": "scripts/controlled-bulk-literate-provider.py",
       "page": ".hickory-source/mechanisms/provider-bulk-literate-witness.md",
@@ -156035,27 +156049,6 @@
       "output": "scripts/test-provider-bulk-literate.py",
       "page": ".hickory-source/mechanisms/provider-bulk-literate-witness.md",
       "symbol": "bulk literate protocol runner",
-      "basis": "explained-behavior"
-    },
-    {
-      "id": "provider-document-source-lifetime",
-      "output": "crates/hick-lsp/src/backend.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-lsp/src/backend.rs.md",
-      "symbol": "provider document source lifetime",
-      "basis": "explained-behavior"
-    },
-    {
-      "id": "provider-action-source-proof-witness",
-      "output": "crates/hick-lsp/src/backend/actions.rs",
-      "page": ".hickory-source/mechanisms/provider-action-artifacts.md",
-      "symbol": "provider action source proof witness",
-      "basis": "explained-behavior"
-    },
-    {
-      "id": "provider-action-graph-revision",
-      "output": "crates/hick-lsp/src/backend/actions.rs",
-      "page": ".hickory-source/mechanisms/provider-action-artifacts.md",
-      "symbol": "provider action graph revision",
       "basis": "explained-behavior"
     },
     {
@@ -156087,6 +156080,13 @@
       "basis": "explained-behavior"
     },
     {
+      "id": "provider-document-source-lifetime",
+      "output": "crates/hick-lsp/src/backend.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-lsp/src/backend.rs.md",
+      "symbol": "provider document source lifetime",
+      "basis": "explained-behavior"
+    },
+    {
       "id": "source-preparation-ack-apple-tests",
       "output": "apps/apple-simple/Tests/SourcePreparationAckTests.swift",
       "page": ".hickory-source/frontends/source-preparation-ack-native.md",
@@ -156098,6 +156098,27 @@
       "output": "apps/android-simple/app/src/test/java/com/hickorydocs/simple/SourcePreparationAckTest.kt",
       "page": ".hickory-source/frontends/source-preparation-ack-native.md",
       "symbol": "source preparation ack android tests",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "provider-action-source-proof-witness",
+      "output": "crates/hick-lsp/src/backend/actions.rs",
+      "page": ".hickory-source/mechanisms/provider-action-artifacts.md",
+      "symbol": "provider action source proof witness",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "provider-action-graph-revision",
+      "output": "crates/hick-lsp/src/backend/actions.rs",
+      "page": ".hickory-source/mechanisms/provider-action-artifacts.md",
+      "symbol": "provider action graph revision",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "collector-owned-root-witness",
+      "output": "crates/hickory-cli/src/coverage/real_tests.rs",
+      "page": ".hickory-source/mechanisms/crates/hickory-cli/src/coverage/real_tests.rs.md",
+      "symbol": "collector owned root witness",
       "basis": "explained-behavior"
     },
     {
@@ -156119,90 +156140,6 @@
       "output": "apps/android-simple/app/src/test/java/com/hickorydocs/simple/InstalledLLDBTest.kt",
       "page": ".hickory-source/frontends/installed-lldb-acceptance.md",
       "symbol": "installed lldb android tests",
-      "basis": "explained-behavior"
-    },
-    {
-      "id": "bound-source-edit-queries",
-      "output": "crates/hick-lsp/src/backend/actions.rs",
-      "page": ".hickory-source/mechanisms/bound-source-edits.md",
-      "symbol": "bound source edit queries",
-      "basis": "explained-behavior"
-    },
-    {
-      "id": "bound-source-edit-witness",
-      "output": "crates/hick-lsp/src/backend/actions.rs",
-      "page": ".hickory-source/mechanisms/bound-source-edits.md",
-      "symbol": "bound source edit witness",
-      "basis": "explained-behavior"
-    },
-    {
-      "id": "bound-source-controlled-provider",
-      "output": "scripts/controlled-bound-source-provider.py",
-      "page": ".hickory-source/mechanisms/bound-source-edits.md",
-      "symbol": "bound source controlled provider",
-      "basis": "explained-behavior"
-    },
-    {
-      "id": "bound-source-protocol-driver",
-      "output": "scripts/bound-source-edits-driver.mjs",
-      "page": ".hickory-source/mechanisms/bound-source-edits.md",
-      "symbol": "bound source protocol driver",
-      "basis": "explained-behavior"
-    },
-    {
-      "id": "bound-source-protocol-runner",
-      "output": "scripts/test-bound-source-edits.py",
-      "page": ".hickory-source/mechanisms/bound-source-edits.md",
-      "symbol": "bound source protocol runner",
-      "basis": "explained-behavior"
-    },
-    {
-      "id": "collector-host-fixture",
-      "output": "scripts/test-collector-hosts.py",
-      "page": ".hickory-source/frontends/coverage-browser-witness.md",
-      "symbol": "collector host fixture",
-      "basis": "explained-behavior"
-    },
-    {
-      "id": "collector-browser-driver",
-      "output": "scripts/collector-browser-driver.mjs",
-      "page": ".hickory-source/frontends/coverage-browser-witness.md",
-      "symbol": "collector browser driver",
-      "basis": "explained-behavior"
-    },
-    {
-      "id": "collector-owned-root-witness",
-      "output": "crates/hickory-cli/src/coverage/real_tests.rs",
-      "page": ".hickory-source/mechanisms/crates/hickory-cli/src/coverage/real_tests.rs.md",
-      "symbol": "collector owned root witness",
-      "basis": "explained-behavior"
-    },
-    {
-      "id": "project-overlay-source-reader",
-      "output": "crates/hick-lsp/src/project.rs",
-      "page": ".hickory-source/mechanisms/project-overlay-graph.md",
-      "symbol": "project overlay source reader",
-      "basis": "explained-behavior"
-    },
-    {
-      "id": "project-overlay-core-witness",
-      "output": "crates/hick-lsp/src/project.rs",
-      "page": ".hickory-source/mechanisms/project-overlay-graph.md",
-      "symbol": "project overlay core witness",
-      "basis": "explained-behavior"
-    },
-    {
-      "id": "project-overlay-root-refresh",
-      "output": "crates/hick-lsp/src/backend.rs",
-      "page": ".hickory-source/mechanisms/crates/hick-lsp/src/backend.rs.md",
-      "symbol": "project overlay root refresh",
-      "basis": "explained-behavior"
-    },
-    {
-      "id": "project-overlay-backend-witness",
-      "output": "crates/hick-lsp/src/backend.rs",
-      "page": ".hickory-source/mechanisms/project-overlay-graph.md",
-      "symbol": "project overlay backend witness",
       "basis": "explained-behavior"
     },
     {
@@ -156255,6 +156192,62 @@
       "basis": "explained-behavior"
     },
     {
+      "id": "bound-source-edit-queries",
+      "output": "crates/hick-lsp/src/backend/actions.rs",
+      "page": ".hickory-source/mechanisms/bound-source-edits.md",
+      "symbol": "bound source edit queries",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "bound-source-edit-witness",
+      "output": "crates/hick-lsp/src/backend/actions.rs",
+      "page": ".hickory-source/mechanisms/bound-source-edits.md",
+      "symbol": "bound source edit witness",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "bound-source-controlled-provider",
+      "output": "scripts/controlled-bound-source-provider.py",
+      "page": ".hickory-source/mechanisms/bound-source-edits.md",
+      "symbol": "bound source controlled provider",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "bound-source-protocol-driver",
+      "output": "scripts/bound-source-edits-driver.mjs",
+      "page": ".hickory-source/mechanisms/bound-source-edits.md",
+      "symbol": "bound source protocol driver",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "bound-source-protocol-runner",
+      "output": "scripts/test-bound-source-edits.py",
+      "page": ".hickory-source/mechanisms/bound-source-edits.md",
+      "symbol": "bound source protocol runner",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "project-overlay-source-reader",
+      "output": "crates/hick-lsp/src/project.rs",
+      "page": ".hickory-source/mechanisms/project-overlay-graph.md",
+      "symbol": "project overlay source reader",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "project-overlay-core-witness",
+      "output": "crates/hick-lsp/src/project.rs",
+      "page": ".hickory-source/mechanisms/project-overlay-graph.md",
+      "symbol": "project overlay core witness",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "project-overlay-root-refresh",
+      "output": "crates/hick-lsp/src/backend.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-lsp/src/backend.rs.md",
+      "symbol": "project overlay root refresh",
+      "basis": "explained-behavior"
+    },
+    {
       "id": "native-bound-proposal-wire-apple-tests",
       "output": "apps/apple-simple/Tests/BoundProposalWireTests.swift",
       "page": ".hickory-source/frontends/native-bound-proposal-wire.md",
@@ -156276,52 +156269,17 @@
       "basis": "explained-behavior"
     },
     {
+      "id": "project-overlay-backend-witness",
+      "output": "crates/hick-lsp/src/backend.rs",
+      "page": ".hickory-source/mechanisms/project-overlay-graph.md",
+      "symbol": "project overlay backend witness",
+      "basis": "explained-behavior"
+    },
+    {
       "id": "native-bound-source-host-driver",
       "output": "scripts/test-native-bound-source.py",
       "page": ".hickory-source/frontends/native-bound-source-acceptance.md",
       "symbol": "native bound source host driver",
-      "basis": "explained-behavior"
-    },
-    {
-      "id": "agent-proposal-archive",
-      "output": "crates/hickory-cli/src/serve/agent_proposals.rs",
-      "page": ".hickory-source/mechanisms/agent-proposal-persistence.md",
-      "symbol": "agent proposal archive",
-      "basis": "explained-behavior"
-    },
-    {
-      "id": "agent-proposal-archive-witness",
-      "output": "crates/hickory-cli/src/serve/agent_proposals.rs",
-      "page": ".hickory-source/mechanisms/agent-proposal-persistence.md",
-      "symbol": "agent proposal archive witness",
-      "basis": "explained-behavior"
-    },
-    {
-      "id": "agent-proposal-archive-api",
-      "output": "crates/hickory-cli/src/serve/agent_proposals.rs",
-      "page": ".hickory-source/mechanisms/agent-proposal-persistence.md",
-      "symbol": "agent proposal archive api",
-      "basis": "explained-behavior"
-    },
-    {
-      "id": "agent-proposal-archive-routes",
-      "output": "crates/hickory-cli/src/serve/agent_proposals.rs",
-      "page": ".hickory-source/mechanisms/agent-proposal-persistence.md",
-      "symbol": "agent proposal archive routes",
-      "basis": "explained-behavior"
-    },
-    {
-      "id": "agent-proposal-persistence-protocol",
-      "output": "scripts/test-agent-proposal-persistence.py",
-      "page": ".hickory-source/mechanisms/agent-proposal-persistence.md",
-      "symbol": "agent proposal persistence protocol",
-      "basis": "explained-behavior"
-    },
-    {
-      "id": "agent-proposal-history-host-driver",
-      "output": "scripts/test-agent-proposal-history-host.py",
-      "page": ".hickory-source/frontends/agent-proposal-history-witness.md",
-      "symbol": "agent proposal history host driver",
       "basis": "explained-behavior"
     },
     {
@@ -156378,6 +156336,55 @@
       "output": "apps/android-simple/app/src/test/java/com/hickorydocs/simple/SnippetTransformTest.kt",
       "page": ".hickory-source/mechanisms/snippet-transforms.md",
       "symbol": "snippet transform android tests",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "agent-proposal-archive",
+      "output": "crates/hickory-cli/src/serve/agent_proposals.rs",
+      "page": ".hickory-source/mechanisms/agent-proposal-persistence.md",
+      "symbol": "agent proposal archive",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "agent-proposal-archive-witness",
+      "output": "crates/hickory-cli/src/serve/agent_proposals.rs",
+      "page": ".hickory-source/mechanisms/agent-proposal-persistence.md",
+      "symbol": "agent proposal archive witness",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "agent-proposal-archive-api",
+      "output": "crates/hickory-cli/src/serve/agent_proposals.rs",
+      "page": ".hickory-source/mechanisms/agent-proposal-persistence.md",
+      "symbol": "agent proposal archive api",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "agent-proposal-archive-routes",
+      "output": "crates/hickory-cli/src/serve/agent_proposals.rs",
+      "page": ".hickory-source/mechanisms/agent-proposal-persistence.md",
+      "symbol": "agent proposal archive routes",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "agent-proposal-persistence-protocol",
+      "output": "scripts/test-agent-proposal-persistence.py",
+      "page": ".hickory-source/mechanisms/agent-proposal-persistence.md",
+      "symbol": "agent proposal persistence protocol",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "agent-proposal-history-host-driver",
+      "output": "scripts/test-agent-proposal-history-host.py",
+      "page": ".hickory-source/frontends/agent-proposal-history-witness.md",
+      "symbol": "agent proposal history host driver",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "collector-provider-live-replay",
+      "output": "scripts/test-collector-providers.py",
+      "page": ".hickory-source/mechanisms/test-collector-provider-replays.md",
+      "symbol": "collector provider live replay",
       "basis": "explained-behavior"
     },
     {
@@ -156500,6 +156507,27 @@
       "basis": "explained-behavior"
     },
     {
+      "id": "exact-failed-runner-plan",
+      "output": "crates/hickory-cli/src/coverage/exact.rs",
+      "page": ".hickory-source/mechanisms/exact-failed-js-collector.md",
+      "symbol": "exact failed runner plan",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "exact-failed-js-native-driver",
+      "output": "crates/hick-plugins/src/testing/javascript.mjs",
+      "page": ".hickory-source/mechanisms/exact-failed-js-collector.md",
+      "symbol": "exact failed js native driver",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-variable-context-engine",
+      "output": "crates/hick-lsp/src/snippet_context.rs",
+      "page": ".hickory-source/mechanisms/snippet-variable-context.md",
+      "symbol": "snippet variable context engine",
+      "basis": "explained-behavior"
+    },
+    {
       "id": "provider-refactor-read-only-model",
       "output": "crates/hick-lsp/src/provider_refactors.rs",
       "page": ".hickory-source/mechanisms/provider-refactor-readings.md",
@@ -156511,6 +156539,13 @@
       "output": "crates/hick-lsp/src/provider_refactors.rs",
       "page": ".hickory-source/mechanisms/provider-refactor-readings.md",
       "symbol": "provider refactor read only witness",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "editor-recovery-management-core",
+      "output": "crates/hickory-cli/src/serve/editor_recovery.rs",
+      "page": ".hickory-source/mechanisms/editor-recovery-management.md",
+      "symbol": "select and manage private retained recovery sessions",
       "basis": "explained-behavior"
     },
     {
@@ -156535,10 +156570,17 @@
       "basis": "explained-behavior"
     },
     {
-      "id": "editor-recovery-management-core",
-      "output": "crates/hickory-cli/src/serve/editor_recovery.rs",
-      "page": ".hickory-source/mechanisms/editor-recovery-management.md",
-      "symbol": "select and manage private retained recovery sessions",
+      "id": "completion-intent-apple-tests",
+      "output": "apps/apple-simple/Tests/CompletionIntentTests.swift",
+      "page": ".hickory-source/mechanisms/completion-intent-acceptance.md",
+      "symbol": "completion intent apple tests",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "completion-intent-android-tests",
+      "output": "apps/android-simple/app/src/test/java/com/hickorydocs/simple/CompletionIntentTest.kt",
+      "page": ".hickory-source/mechanisms/completion-intent-acceptance.md",
+      "symbol": "completion intent android tests",
       "basis": "explained-behavior"
     },
     {
@@ -156563,27 +156605,6 @@
       "basis": "explained-behavior"
     },
     {
-      "id": "editor-recovery-management-tests",
-      "output": "crates/hickory-cli/src/serve/editor_recovery.rs",
-      "page": ".hickory-source/mechanisms/editor-recovery-management.md",
-      "symbol": "editor recovery management tests",
-      "basis": "explained-behavior"
-    },
-    {
-      "id": "completion-intent-apple-tests",
-      "output": "apps/apple-simple/Tests/CompletionIntentTests.swift",
-      "page": ".hickory-source/mechanisms/completion-intent-acceptance.md",
-      "symbol": "completion intent apple tests",
-      "basis": "explained-behavior"
-    },
-    {
-      "id": "completion-intent-android-tests",
-      "output": "apps/android-simple/app/src/test/java/com/hickorydocs/simple/CompletionIntentTest.kt",
-      "page": ".hickory-source/mechanisms/completion-intent-acceptance.md",
-      "symbol": "completion intent android tests",
-      "basis": "explained-behavior"
-    },
-    {
       "id": "resource-volume-guard-http-driver",
       "output": "scripts/test-resource-volume-guards.py",
       "page": ".hickory-source/mechanisms/resource-volume-guards.md",
@@ -156605,24 +156626,10 @@
       "basis": "explained-behavior"
     },
     {
-      "id": "collector-provider-live-replay",
-      "output": "scripts/test-collector-providers.py",
-      "page": ".hickory-source/mechanisms/test-collector-provider-replays.md",
-      "symbol": "collector provider live replay",
-      "basis": "explained-behavior"
-    },
-    {
-      "id": "exact-failed-runner-plan",
-      "output": "crates/hickory-cli/src/coverage/exact.rs",
-      "page": ".hickory-source/mechanisms/exact-failed-js-collector.md",
-      "symbol": "exact failed runner plan",
-      "basis": "explained-behavior"
-    },
-    {
-      "id": "exact-failed-js-native-driver",
-      "output": "crates/hick-plugins/src/testing/javascript.mjs",
-      "page": ".hickory-source/mechanisms/exact-failed-js-collector.md",
-      "symbol": "exact failed js native driver",
+      "id": "editor-recovery-management-tests",
+      "output": "crates/hickory-cli/src/serve/editor_recovery.rs",
+      "page": ".hickory-source/mechanisms/editor-recovery-management.md",
+      "symbol": "editor recovery management tests",
       "basis": "explained-behavior"
     },
     {
@@ -156651,13 +156658,6 @@
       "output": "apps/android-simple/app/src/test/java/com/hickorydocs/simple/LanguageConnectionConcurrencyTest.kt",
       "page": ".hickory-source/frontends/language-connection-android.md",
       "symbol": "android language connection concurrency tests",
-      "basis": "explained-behavior"
-    },
-    {
-      "id": "snippet-variable-context-engine",
-      "output": "crates/hick-lsp/src/snippet_context.rs",
-      "page": ".hickory-source/mechanisms/snippet-variable-context.md",
-      "symbol": "snippet variable context engine",
       "basis": "explained-behavior"
     },
     {
@@ -156700,6 +156700,83 @@
       "output": "apps/android-simple/app/src/test/java/com/hickorydocs/simple/SnippetContextHandshakeTest.kt",
       "page": ".hickory-source/mechanisms/snippet-variable-context.md",
       "symbol": "snippet variable context android witness",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-context-protocol-provider",
+      "output": "scripts/snippet-context-controlled-provider.py",
+      "page": ".hickory-source/mechanisms/snippet-context-protocol-acceptance.md",
+      "symbol": "snippet context protocol provider",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-context-protocol-driver",
+      "output": "scripts/snippet-context-protocol-driver.mjs",
+      "page": ".hickory-source/mechanisms/snippet-context-protocol-acceptance.md",
+      "symbol": "snippet context protocol driver",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-context-protocol-runner",
+      "output": "scripts/test-snippet-context-protocol.py",
+      "page": ".hickory-source/mechanisms/snippet-context-protocol-acceptance.md",
+      "symbol": "snippet context protocol runner",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-context-browser-runner",
+      "output": "scripts/test-snippet-context-browser.py",
+      "page": ".hickory-source/mechanisms/snippet-context-protocol-acceptance.md",
+      "symbol": "snippet context browser runner",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "native-snippet-context-provider-apple",
+      "output": "apps/apple-simple/Tests/SnippetContextProviderTests.swift",
+      "page": ".hickory-source/frontends/native-snippet-context-provider-witness.md",
+      "symbol": "native snippet context provider apple",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "native-snippet-context-provider-android",
+      "output": "apps/android-simple/app/src/test/java/com/hickorydocs/simple/SnippetContextProviderTest.kt",
+      "page": ".hickory-source/frontends/native-snippet-context-provider-witness.md",
+      "symbol": "native snippet context provider android",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-context-snapshot-admission",
+      "output": "crates/hick-lsp/src/snippet_context.rs",
+      "page": ".hickory-source/mechanisms/snippet-variable-context.md",
+      "symbol": "snippet context snapshot admission",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-context-source-proof",
+      "output": "crates/hick-lsp/src/snippet_context.rs",
+      "page": ".hickory-source/mechanisms/snippet-variable-context.md",
+      "symbol": "snippet context source proof",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-context-comment-values",
+      "output": "crates/hick-lsp/src/snippet_context.rs",
+      "page": ".hickory-source/mechanisms/snippet-variable-context.md",
+      "symbol": "snippet context comment values",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-context-reachable-values",
+      "output": "crates/hick-lsp/src/snippet_context.rs",
+      "page": ".hickory-source/mechanisms/snippet-variable-context.md",
+      "symbol": "snippet context reachable values",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-context-rust-witnesses",
+      "output": "crates/hick-lsp/src/snippet_context.rs",
+      "page": ".hickory-source/mechanisms/snippet-variable-context.md",
+      "symbol": "snippet context rust witnesses",
       "basis": "explained-behavior"
     }
   ],

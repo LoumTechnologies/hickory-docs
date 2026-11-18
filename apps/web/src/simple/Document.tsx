@@ -1,5 +1,5 @@
 import {sourceText,authoredSource,authoredOffset,editorOffset,editorOffsetIn,authoredChanges,authoredInsert} from './SourceText';
-import {sourceSnippets,moveSourceSnippet,finishSourceSnippet,openSourceSnippetChoices,readSourceSnippet,dispatchSourceSnippetTransactions} from './SourceSnippets';
+import {sourceSnippets,moveSourceSnippet,finishSourceSnippet,openSourceSnippetChoices,readSourceSnippet,readSourceEditorIntent,dispatchSourceSnippetTransactions} from './SourceSnippets';
 import {useCoverageLineActions} from "./SourceCoverage";
 import {useSourceTestLineActions} from "./SourceTestGutters";
 import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
@@ -24,6 +24,8 @@ import { lspSupport, setLspDiagnostics, diagnosticRanges } from "../lsp/cmLsp";
 import { lspFeatures } from "../lsp/cmLspFeatures";
 import { completions } from "../lsp/completion";
 import {sourceCompletion} from "./SourceCompletion";
+import {resolveSnippetCompletion} from "./SnippetContext";
+import {readCompletionAcceptance} from "../lsp/completionAcceptance";
 import { positionToUtf16, utf16ToPosition } from "../lsp/positions";
 import { sameDocumentUri,documentUri } from "../lsp/documentUri";
 import { diagnosticBoundSource } from "../lsp/diagnosticRevision";
@@ -325,7 +327,11 @@ export function Document({ buffer,current }: { buffer: Buffer;current?:()=>boole
     ]),completion.reconfigure(!buffer.readonly ? completions({ lsp: { client: session.client, uri: session.uri,
         positionAt: (offset, state) => utf16ToPosition(authoredSource(state), authoredOffset(state,offset)) },
         lspItem:(item,context)=>sourceCompletion(item,context,{uri:session.uri,current:()=>providerCurrent,writable:()=>!buffer.readonly&&!buffer.saving&&!buffer.transient,
-          resolve:async original=>await session.client!.request("completionItem/resolve",{...original,textDocument:{uri:session.uri}}) as import("../lsp/client").CompletionItem,
+          resolve:async original=>{
+            const client=session.client!,uri=session.uri,source=authoredSource(view.state),doc=view.state.doc,selection=view.state.selection,revision=buffer.sourceRevision,file=buffer.file,path=file.path,namespace=buffer.namespace,intent=readSourceEditorIntent(view.state),job=readCompletionAcceptance(view)?.job;
+            const current=()=>providerCurrent&&buffer.namespace===namespace&&buffer.file===file&&buffer.file.path===path&&buffer.sourceRevision===revision&&!buffer.readonly&&!buffer.saving&&!buffer.resourceDeleted&&!buffer.transient&&view.dom.isConnected&&view.state.doc===doc&&view.state.selection.eq(selection)&&readSourceEditorIntent(view.state)===intent&&(!job||readCompletionAcceptance(view)?.job===job&&readCompletionAcceptance(view)?.phase==='resolving');
+            return await resolveSnippetCompletion(original,{source,from:authoredOffset(view.state,selection.main.from),to:authoredOffset(view.state,selection.main.to),current,request:async item=>await client.request("completionItem/resolve",{...item,textDocument:{uri}}) as import("../lsp/client").CompletionItem});
+          },
           notice:text=>buffer.setCompletionNotice(text)}) }) : completions({}))] });
     return () => { providerCurrent = false; view.dispatch({ effects: [language.reconfigure([]),completion.reconfigure(completions({}))] }); };
   }, [buffer, session.client, session.uri, session.ready, capabilities]);

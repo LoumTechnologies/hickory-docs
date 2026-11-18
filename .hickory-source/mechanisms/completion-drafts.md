@@ -59,6 +59,8 @@ export function planCompletion(uri:string,item:unknown,snapshot:SourceSnapshot,f
 
 Prepare the complete source change before touching a view. A completion explicitly names its primary edit, so additional insertions at its start precede that insertion in declared provider order. Deduplicate identical imports, validate all other replacements through the shared source planner, and map the final selection and every retained snippet field through earlier edits. Commands and unavailable snippet expansion refuse the whole proposal. Retain the primary replacement and deduplicated additions separately from their assembled patch. An active template can then mirror only the primary text and apply imports once; renderer code must not reverse-engineer those roles from a merged edit. The retained before snapshot also guards selection-only acceptance.
 
+Offset rebasing preserves every field property, including its computed program. A derived occurrence must remain derived after prefix/import edits; dropping that program makes its different initial text look like an inconsistent ordinary mirror and silently prevents session installation. The connected witness below rebases a real program, starts a session from the resulting draft, then edits its source and requires the derived result.
+
 <ui:copy id="completion-draft-apple">
 import Foundation
 struct CompletionSelection {var from:Int;var to:Int}
@@ -114,7 +116,7 @@ func planCompletion(_ uri:String,item:[String:Any],snapshot:SourceSnapshot,from 
     let fields=try inserted.fields.map{field in
         try validateOffset(inserted.text,field.from);try validateOffset(inserted.text,field.to)
         guard field.from<=field.to else{throw EngineError(message:"Invalid snippet field")}
-        return SnippetField(index:field.index,from:insertionFrom+field.from,to:insertionFrom+field.to,choices:field.choices,id:field.id,parent:field.parent)
+        return SnippetField(index:field.index,from:insertionFrom+field.from,to:insertionFrom+field.to,choices:field.choices,id:field.id,parent:field.parent,transform:field.transform)
     }
     return CompletionDraft(path:path,before:source,plan:plan,insertionFrom:insertionFrom,selection:CompletionSelection(from:insertionFrom+selection.from,to:insertionFrom+selection.to),fields:fields,primary:SourceReplacement(from:from,to:to,text:inserted.text),additional:additions)
 }
@@ -692,6 +694,9 @@ Require exact before/after source and UTF-16 selection, verify the inverse draft
 import {expect,it} from 'vitest';
 import cases from '../../../simple-contract/completion-plan-cases.json';
 import {planCompletion,type CompletionExpansion} from './CompletionPlan';
+import derived from '../../../simple-contract/snippet-derived-cases.json';
+import {readSnippetTransform} from './SnippetTransform';
+import {beginSnippet,editSnippet} from './SnippetSession';
 import {invertChangePlan,validateChangePlan} from './ChangePlan';
 it('prepares source, import order, UTF16 selection and refusal from shared completion vectors',()=>{
  for(const item of cases.cases){
@@ -701,6 +706,10 @@ it('prepares source, import order, UTF16 selection and refusal from shared compl
   if('patchCount' in item)expect(value.plan.patches).toHaveLength(item.patchCount!);
   if(value.plan.patches.length){const inverse=invertChangePlan(value.plan);expect(inverse.patches[0].after).toBe(item.source);expect(validateChangePlan(inverse,new Map([['a.py',{text:value.plan.patches[0].after,writable:true}]]))).toBeNull();}
  }
+});
+it('preserves rebased computed programs through import edits and usable linked input',()=>{
+ const transform=readSnippetTransform(derived.programs.upper),fields=[{index:1,from:0,to:3,choices:[],id:0,parent:null},{index:1,from:4,to:7,choices:[],id:1,parent:null,transform},{index:0,from:7,to:7,choices:[],id:2,parent:null}],draft=planCompletion('hick:///a.py',{label:'derived',insertTextFormat:2,insertText:'${1:foo} ${1/(.*)/${1:/upcase}/}$0',additionalTextEdits:[{range:{start:{line:0,character:0},end:{line:0,character:0}},newText:'import\n'}]},{text:'😀 old\n',writable:true},3,6,{text:'foo FOO',selection:{from:0,to:3},fields}),after=draft.plan.patches[0].after;
+ expect(after).toBe('import\n😀 foo FOO\n');expect(draft.fields![1].from).toBe(14);expect(draft.fields![1].transform).toBe(transform);const session=beginSnippet(after,draft.fields!)!;expect(session).not.toBeNull();expect(editSnippet(session,after,draft.selection.from,draft.selection.to,'ßa')?.session.source).toBe('import\n😀 ßa SSA\n');
 });
 </ui:copy>
 
@@ -714,6 +723,13 @@ Foundation string normalization must not collapse distinct source or import byte
 import XCTest
 @testable import HickorySimple
 final class CompletionPlanTests:XCTestCase {
+    func testRebasedComputedProgramsRemainUsableAfterImportEdits()throws {
+      let apps=URL(fileURLWithPath:#filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent();let raw=try JSONSerialization.jsonObject(with:Data(contentsOf:apps.appendingPathComponent("simple-contract/snippet-derived-cases.json"))) as! [String:Any];let program=try readSnippetTransform((raw["programs"] as! [String:Any])["upper"]!)
+      let fields=[SnippetField(index:1,from:0,to:3,choices:[],id:0),SnippetField(index:1,from:4,to:7,choices:[],id:1,transform:program),SnippetField(index:0,from:7,to:7,choices:[],id:2)]
+      let item:[String:Any]=["label":"derived","insertTextFormat":2,"insertText":"${1:foo} ${1/(.*)/${1:/upcase}/}$0","additionalTextEdits":[["range":["start":["line":0,"character":0],"end":["line":0,"character":0]],"newText":"import\n"]]]
+      let draft=try planCompletion("hick:///a.py",item:item,snapshot:SourceSnapshot(text:"😀 old\n",writable:true),from:3,to:6,expansion:CompletionExpansion(text:"foo FOO",selection:CompletionSelection(from:0,to:3),fields:fields));let after=try XCTUnwrap(draft.plan.patches.first?.after)
+      XCTAssertEqual(after,"import\n😀 foo FOO\n");XCTAssertEqual(draft.fields[1].from,14);XCTAssertNotNil(draft.fields[1].transform);let session=try XCTUnwrap(beginSnippet(after,fields:draft.fields));let edited=try XCTUnwrap(editSnippet(session,source:after,from:draft.selection.from,to:draft.selection.to,text:"ßa"));XCTAssertEqual(edited.session.source,"import\n😀 ßa SSA\n")
+    }
     func testSharedSourceImportSelectionAndRefusalVectors()throws {
         let apps=URL(fileURLWithPath:#filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         let raw=try JSONSerialization.jsonObject(with:Data(contentsOf:apps.appendingPathComponent("simple-contract/completion-plan-cases.json"))) as! [String:Any]
@@ -745,6 +761,11 @@ import org.junit.Test
 import org.junit.Assert.*
 import org.json.JSONObject
 class CompletionPlanTest {
+ @Test fun rebasedComputedProgramsRemainUsableAfterImportEdits(){
+  val programs=JSONObject(javaClass.classLoader!!.getResource("snippet-derived-cases.json")!!.readText()).getJSONObject("programs");val transform=readSnippetTransform(programs.get("upper"));val fields=listOf(SnippetField(1,0,3,emptyList(),0),SnippetField(1,4,7,emptyList(),1,transform=transform),SnippetField(0,7,7,emptyList(),2))
+  val item=JSONObject().put("label","derived").put("insertTextFormat",2).put("insertText","derived").put("additionalTextEdits",org.json.JSONArray().put(JSONObject().put("range",JSONObject().put("start",JSONObject().put("line",0).put("character",0)).put("end",JSONObject().put("line",0).put("character",0))).put("newText","import\n")))
+  val draft=planCompletion("hick:///a.py",item,SourceSnapshot("😀 old\n",true),3,6,CompletionExpansion("foo FOO",CompletionSelection(0,3),fields));val after=draft.plan.patches.first().after;assertEquals("import\n😀 foo FOO\n",after);assertEquals(14,draft.fields[1].from);assertSame(transform,draft.fields[1].transform);val session=beginSnippet(after,draft.fields);assertNotNull(session);assertEquals("import\n😀 ßa SSA\n",editSnippet(session!!,after,draft.selection.from,draft.selection.to,"ßa")!!.session.source)
+ }
  @Test fun sharedSourceImportSelectionAndRefusalVectors() {
   val cases=JSONObject(javaClass.classLoader!!.getResource("completion-plan-cases.json")!!.readText()).getJSONArray("cases")
   for(index in 0 until cases.length()) {

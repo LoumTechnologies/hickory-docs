@@ -1,6 +1,13 @@
 import XCTest
 @testable import HickorySimple
 final class CompletionPlanTests:XCTestCase {
+    func testRebasedComputedProgramsRemainUsableAfterImportEdits()throws {
+      let apps=URL(fileURLWithPath:#filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent();let raw=try JSONSerialization.jsonObject(with:Data(contentsOf:apps.appendingPathComponent("simple-contract/snippet-derived-cases.json"))) as! [String:Any];let program=try readSnippetTransform((raw["programs"] as! [String:Any])["upper"]!)
+      let fields=[SnippetField(index:1,from:0,to:3,choices:[],id:0),SnippetField(index:1,from:4,to:7,choices:[],id:1,transform:program),SnippetField(index:0,from:7,to:7,choices:[],id:2)]
+      let item:[String:Any]=["label":"derived","insertTextFormat":2,"insertText":"${1:foo} ${1/(.*)/${1:/upcase}/}$0","additionalTextEdits":[["range":["start":["line":0,"character":0],"end":["line":0,"character":0]],"newText":"import\n"]]]
+      let draft=try planCompletion("hick:///a.py",item:item,snapshot:SourceSnapshot(text:"😀 old\n",writable:true),from:3,to:6,expansion:CompletionExpansion(text:"foo FOO",selection:CompletionSelection(from:0,to:3),fields:fields));let after=try XCTUnwrap(draft.plan.patches.first?.after)
+      XCTAssertEqual(after,"import\n😀 foo FOO\n");XCTAssertEqual(draft.fields[1].from,14);XCTAssertNotNil(draft.fields[1].transform);let session=try XCTUnwrap(beginSnippet(after,fields:draft.fields));let edited=try XCTUnwrap(editSnippet(session,source:after,from:draft.selection.from,to:draft.selection.to,text:"ßa"));XCTAssertEqual(edited.session.source,"import\n😀 ßa SSA\n")
+    }
     func testSharedSourceImportSelectionAndRefusalVectors()throws {
         let apps=URL(fileURLWithPath:#filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         let raw=try JSONSerialization.jsonObject(with:Data(contentsOf:apps.appendingPathComponent("simple-contract/completion-plan-cases.json"))) as! [String:Any]

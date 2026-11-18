@@ -526,14 +526,13 @@ func validateNativeSourcePreparation(_ raw:Any,source:String,requireParsed:Bool=
         if completionPending{completionNotice="Completion cancelled."}
         completionPending=false
     }
+    var snippetClipboardReader:(()->String?)?=nil
     func resolveCompletion(_ item:[String:Any]) async throws->[String:Any] {
         if item["data"]==nil || item["data"] is NSNull{return item}
-        guard let buffer,!buffer.readOnly,subscription != nil else{throw EngineError(message:"Choose writable source with a connected language provider.")}
-        sync();let source=buffer.text,selection=buffer.selection,identity=epoch,revision=buffer.sourceEditIdentity,selectionRevision=buffer.selectionIdentity
-        var params=item;params["textDocument"]=["uri":uri]
-        let result=try await request("completionItem/resolve",params)
-        guard self.buffer === buffer,epoch==identity,buffer.sourceEditIdentity==revision,buffer.selectionIdentity==selectionRevision,!buffer.resourceDeleted,exactUTF8(languageURI(buffer.file.path),uri),exactUTF8(buffer.text,source),buffer.selection==selection else{throw EngineError(message:"Source, cursor or provider changed. Request completions again.")}
-        guard let value=result as? [String:Any],value["label"] is String else{throw EngineError(message:"Provider did not resolve this completion. Request again.")};return value
+        guard let buffer,!buffer.readOnly,!buffer.saving,!buffer.resourceDeleted,subscription != nil else{throw EngineError(message:"Choose writable source with a connected language provider.")}
+        sync();let source=buffer.text,selection=buffer.selection,identity=epoch,revision=buffer.sourceEditIdentity,selectionRevision=buffer.selectionIdentity,acceptance=acceptingCompletion
+        func current()->Bool{self.buffer === buffer && epoch==identity && acceptingCompletion==acceptance && buffer.sourceEditIdentity==revision && buffer.selectionIdentity==selectionRevision && !buffer.readOnly && !buffer.saving && !buffer.resourceDeleted && exactUTF8(languageURI(buffer.file.path),uri) && exactUTF8(buffer.text,source) && buffer.selection==selection}
+        return try await resolveSnippetCompletion(item,source:source,from:selection.location,to:NSMaxRange(selection),current:current,request:{item in var params=item;params["textDocument"]=["uri":self.uri];let result=try await self.request("completionItem/resolve",params);guard let value=result as? [String:Any],value["label"] is String else{throw EngineError(message:"Provider did not resolve this completion. Request again.")};return value},clipboard:snippetClipboardReader)
     }
     @discardableResult func accept(_ completion:NativeCompletion,resolution:(([String:Any]) async throws->[String:Any])?=nil) async->Bool {
         guard let buffer,!buffer.readOnly,!buffer.saving,!buffer.resourceDeleted,completion.sourceIdentity.map({$0==buffer.sourceEditIdentity}) ?? true,completion.selectionIdentity.map({$0==buffer.selectionIdentity}) ?? true,exactUTF8(buffer.text,completion.source),buffer.selection==completion.selection else{completionNotice="Suggestion is out of date. Request completions again.";return false}
@@ -550,10 +549,11 @@ func validateNativeSourcePreparation(_ raw:Any,source:String,requireParsed:Bool=
             let resolved=try await (resolution ?? {try await self.resolveCompletion($0)})(original)
             guard acceptingCompletion==request else{return false}
             guard self.buffer === buffer,epoch==identity,buffer.sourceEditIdentity==revision,buffer.selectionIdentity==selectionRevision,!buffer.resourceDeleted,exactUTF8(languageURI(buffer.file.path),uri),buffer.snippets.intent==snippetIntent,buffer.language===self,!buffer.readOnly,!buffer.saving,exactUTF8(buffer.text,completion.source),buffer.selection==completion.selection,!(exactUTF8(buffer.multiSource,buffer.text)&&buffer.multiRanges.count>1) else{throw EngineError(message:"Source, cursor or provider changed. Request completions again.")}
+            let contextNotice=try snippetContextNotice(resolved)
             let initialDraft=try planCompletion(uri,item:resolved,snapshot:SourceSnapshot(text:completion.source,writable:!buffer.readOnly && !buffer.saving),from:completion.range.location,to:NSMaxRange(completion.range),expansion:try completionExpansion(resolved))
             let draft=try buffer.snippets.prepareCompletion(initialDraft)
             guard exactUTF8(draft.path,buffer.file.path),buffer.applyCompletionDraft?(draft,completion.selection)==true else{throw EngineError(message:"Editor refused the complete completion. Finish composition or request again.")}
-            completionPending=false;completionNotice=draft.plan.patches.isEmpty ? "Completion selected":"Completion applied · draft";showingSuggestions=false;return true
+            completionPending=false;completionNotice=(draft.plan.patches.isEmpty ? "Completion selected":"Completion applied · draft")+(contextNotice.isEmpty ? "":" · "+contextNotice);showingSuggestions=false;return true
         }catch{if acceptingCompletion==request{completionNotice=error.localizedDescription};return false}
     }
 

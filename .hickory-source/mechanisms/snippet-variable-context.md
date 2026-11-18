@@ -5,6 +5,10 @@ Completion and reusable templates share one variable context. The source, scalar
 
 Only requested source/clipboard variables are materialized. An excessive requested value refuses the entire expansion; an unused long source line cannot block a file or unrelated template. Byte selection endpoints must be scalar boundaries outside CRLF. Host leases and the engine’s source revision still authorize application separately.
 
+## Bound the shared inputs before resolving values
+
+The known-name catalogue and one-mebibyte value limit are common policy. Keep source/path inputs separate from host clock, seed and clipboard: recognizing a variable does not authorize a device read.
+
 <ui:copy id="snippet-variable-context-engine">
 //! Explicit source-bound inputs for completion and reusable template variables.
 use chrono::{DateTime, Datelike, FixedOffset};
@@ -63,6 +67,13 @@ pub struct SnippetVariableSnapshot {
     /// None means unattempted; Some(None) records an unavailable/denied read.
     pub clipboard: Option<Option<String>>,
 }
+</ui:copy>
+
+## Admit one immutable host snapshot
+
+Validate the supplied clock, seed and clipboard shapes once. Missing values remain recognized but unset, preserving defaults; the engine never discovers its own local clock or silently truncates a supplied value.
+
+<ui:copy id="snippet-context-snapshot-admission">
 impl SnippetVariableSnapshot {
     pub fn read(clock: &Value, random_hex: &Value, clipboard: &Value) -> Result<Self, String> {
         let date = if clock.is_null() {
@@ -137,6 +148,13 @@ impl SnippetVariableSnapshot {
 }
 /// Editor context is data, never new source authority. Callers supply the held exact stamp.
 #[derive(Debug)]
+</ui:copy>
+
+## Bind context to the held source and selection
+
+A returned completion proof must describe the same source revision and exact authored selection. Validate scalar and CRLF boundaries before translating offsets. Reject foreign context instead of rebinding it to newer text.
+
+<ui:copy id="snippet-context-source-proof">
 pub struct SnippetEditorContext {
     pub from: usize,
     pub to: usize,
@@ -209,6 +227,13 @@ impl SnippetEditorContext {
         Ok(Self { from, to, snapshot })
     }
 }
+</ui:copy>
+
+## Keep language comment values explicit
+
+Comment delimiters depend on the producing language. Unsupported languages leave those values unset. Escape literal HTML-comment delimiters in Rust source strings so literate parsing preserves the intended runtime bytes.
+
+<ui:copy id="snippet-context-comment-values">
 fn comments(
     language: Option<&str>,
 ) -> (
@@ -234,6 +259,13 @@ fn comments(
 }
 /// Materialize only requested values while retaining every recognized unset name.
 /// Query availability without cloning values from unused defaults.
+</ui:copy>
+
+## Inspect presence before materializing reachable values
+
+The presence pass reports whether a value exists without allocating its full text. The parser uses it to follow only rendered defaults and field dependencies; only then materialize the reachable values and enforce byte/work limits. An unused oversized selection cannot prevent an unrelated filename expansion.
+
+<ui:copy id="snippet-context-reachable-values">
 pub fn variable_presence(
     context: &SnippetVariableContext<'_>,
     snapshot: &SnippetVariableSnapshot,
@@ -421,6 +453,13 @@ fn read_variables(
     Ok(values)
 }
 
+</ui:copy>
+
+## Exercise values, source refusal and unused-value budgets
+
+These focused cases compare fixed host clock/offset and seed values, refuse malformed source boundaries and excessive requested values, and prove that presence-only analysis does not allocate or reject unused data. They establish this mechanism separately from host permission and editor acceptance.
+
+<ui:copy id="snippet-context-rust-witnesses">
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -621,7 +660,7 @@ mod tests {
     }
 }
 </ui:copy>
-<ui:file path="crates/hick-lsp/src/snippet_context.rs"><ui:paste select="#snippet-variable-context-engine"/></ui:file>
+<ui:file path="crates/hick-lsp/src/snippet_context.rs"><ui:paste select="#snippet-variable-context-engine"/><ui:paste select="#snippet-context-snapshot-admission"/><ui:paste select="#snippet-context-source-proof"/><ui:paste select="#snippet-context-comment-values"/><ui:paste select="#snippet-context-reachable-values"/><ui:paste select="#snippet-context-rust-witnesses"/></ui:file>
 
 ## Capture host values without moving source authority into UI callbacks
 
@@ -635,7 +674,8 @@ export function captureSnippetVariables():SnippetVariableSnapshot {
  const now=new Date();let random_hex:string|null=null;try{const bytes=globalThis.crypto?.getRandomValues(new Uint8Array(16));if(bytes)random_hex=Array.from(bytes,b=>b.toString(16).padStart(2,'0')).join('');}catch{}
  const clock=Number.isFinite(now.getTime())?Object.freeze({unix_millis:now.getTime(),utc_offset_minutes:-now.getTimezoneOffset()}):null;return Object.freeze({clock,random_hex,clipboard:null});
 }
-export async function captureSnippetClipboard():Promise<Readonly<SnippetClipboard>>{try{const value=await globalThis.navigator?.clipboard?.readText();if(typeof value==='string'&&validSnippetContextSelection(value,0,value.length)&&new TextEncoder().encode(value).length<=1048576)return Object.freeze({available:true,text:value});}catch{}return Object.freeze({available:false,text:null});}
+function boundedClipboardText(value:string):boolean{if(value.length>1048576)return false;let bytes=0;for(let at=0;at<value.length;at++){const unit=value.charCodeAt(at);if(unit>=0xD800&&unit<=0xDBFF){const low=value.charCodeAt(++at);if(!(low>=0xDC00&&low<=0xDFFF))return false;bytes+=4;}else{if(unit>=0xDC00&&unit<=0xDFFF)return false;bytes+=unit<=0x7f?1:unit<=0x7ff?2:3;}if(bytes>1048576)return false;}return true;}
+export async function captureSnippetClipboard():Promise<Readonly<SnippetClipboard>>{try{const value=await globalThis.navigator?.clipboard?.readText();if(typeof value==='string'&&boundedClipboardText(value))return Object.freeze({available:true,text:value});}catch{}return Object.freeze({available:false,text:null});}
 export function validSnippetContextSelection(source:string,from:number,to:number):boolean {
  const boundary=(at:number)=>Number.isSafeInteger(at)&&at>=0&&at<=source.length&&!(at>0&&at<source.length&&(source.charCodeAt(at-1)>=0xD800&&source.charCodeAt(at-1)<=0xDBFF&&source.charCodeAt(at)>=0xDC00&&source.charCodeAt(at)<=0xDFFF||source[at-1]==='\r'&&source[at]==='\n'));
  return from<=to&&boundary(from)&&boundary(to)&&!/[\uD800-\uDFFF]/u.test(source);
@@ -690,7 +730,7 @@ import UIKit
  value=nil
  #endif
  }
- guard let value,value.utf8.count<=1048576 else{return SnippetClipboard(available:false,text:nil)};return SnippetClipboard(available:true,text:value)
+ guard let value,value.utf16.prefix(1048577).count<=1048576,value.utf8.prefix(1048577).count<=1048576 else{return SnippetClipboard(available:false,text:nil)};return SnippetClipboard(available:true,text:value)
 }
 func validSnippetContextSelection(_ source:String,_ from:Int,_ to:Int)->Bool {
  let ns=source as NSString
@@ -725,7 +765,8 @@ data class SnippetVariableSnapshot(val unixMillis:Long?,val utcOffsetMinutes:Int
  companion object{fun capture():SnippetVariableSnapshot{val now=System.currentTimeMillis();return SnippetVariableSnapshot(now,TimeZone.getDefault().getOffset(now)/60000,UUID.randomUUID().toString().replace("-",""))}}
  fun body()=JSONObject().put("clock",if(unixMillis!=null&&utcOffsetMinutes!=null)JSONObject().put("unix_millis",unixMillis).put("utc_offset_minutes",utcOffsetMinutes) else JSONObject.NULL).put("random_hex",randomHex?:JSONObject.NULL).put("clipboard",clipboard?.let{JSONObject().put("available",it.available).put("text",it.text?:JSONObject.NULL)}?:JSONObject.NULL)
 }
-internal fun captureSnippetClipboard(read:(()->String?)?):SnippetClipboard=try{val value=read?.invoke();if(value!=null&&validSnippetContextSelection(value,0,value.length)&&value.toByteArray(Charsets.UTF_8).size<=1048576)SnippetClipboard(true,value) else SnippetClipboard(false,null)}catch(_:Exception){SnippetClipboard(false,null)}
+private fun boundedClipboardText(value:String):Boolean{if(value.length>1048576)return false;var bytes=0;var at=0;while(at<value.length){val unit=value[at++];if(unit.isHighSurrogate()){if(at==value.length||!value[at++].isLowSurrogate())return false;bytes+=4}else{if(unit.isLowSurrogate())return false;bytes+=if(unit.code<=0x7f)1 else if(unit.code<=0x7ff)2 else 3};if(bytes>1048576)return false};return true}
+internal fun captureSnippetClipboard(read:(()->String?)?):SnippetClipboard=try{val value=read?.invoke();if(value!=null&&boundedClipboardText(value))SnippetClipboard(true,value) else SnippetClipboard(false,null)}catch(_:Exception){SnippetClipboard(false,null)}
 internal fun validSnippetContextSelection(source:String,from:Int,to:Int):Boolean {
  fun boundary(at:Int)=at in 0..source.length&&!(at>0&&at<source.length&&(source[at-1].isHighSurrogate()&&source[at].isLowSurrogate()||source[at-1]=='\r'&&source[at]=='\n'))
  var at=0;while(at<source.length){val ch=source[at++];if(ch.isHighSurrogate()){if(at==source.length||!source[at++].isLowSurrogate())return false}else if(ch.isLowSurrogate())return false};return from<=to&&boundary(from)&&boundary(to)
@@ -745,7 +786,7 @@ internal fun snippetContextNotice(item:JSONObject):String {val data=item.optJSON
 
 ## Keep the same context lease across all hosts
 
-Each client captures its own clock, timezone offset and random seed once. It binds those values to the exact retained source proof and selection before a resolve. Clipboard access happens only after a valid demanded context response and never reaches the child language provider. A denial is an explicit availability value, so its fallback and notice are reproducible at Apply. Every asynchronous boundary rechecks the original editor lease; a foreign source proof refuses before clipboard access. Ordinary provider data remains opaque and unchanged.
+Each client captures its own clock, timezone offset and random seed once. It binds those values to the exact retained source proof and selection before a resolve. Clipboard validation rejects an excessive value before allocating an encoded copy, and scans at most the accepted byte budget. Clipboard access happens only after a valid demanded context response and never reaches the child language provider. A denial is an explicit availability value, so its fallback and notice are reproducible at Apply. Every asynchronous boundary rechecks the original editor lease; a foreign source proof refuses before clipboard access. Ordinary provider data remains opaque and unchanged.
 <ui:file path="apps/web/src/simple/SnippetContext.ts"><ui:paste select="#snippet-variable-context-browser"/></ui:file>
 <ui:file path="apps/apple-simple/Sources/SnippetContext.swift"><ui:paste select="#snippet-variable-context-apple"/></ui:file>
 <ui:file path="apps/android-simple/app/src/main/java/com/hickorydocs/simple/SnippetContext.kt"><ui:paste select="#snippet-variable-context-android"/></ui:file>
@@ -754,8 +795,8 @@ Each client captures its own clock, timezone offset and random seed once. It bin
 
 These focused host witnesses drive the reusable two-step handshake. They retain the same clock and seed, preserve the original opaque item, reject foreign source stamps before reading clipboard content, and retire a pending read when the source or selection lease changes. Actual provider and retained-editor flows are checked separately; these tests do not establish physical input or accessibility acceptance.
 <ui:copy id="snippet-variable-context-browser-witness">
-import {describe,it,expect,beforeAll} from 'vitest';
-import {resolveSnippetCompletion} from './SnippetContext';
+import {describe,it,expect,beforeAll,vi} from 'vitest';
+import {resolveSnippetCompletion,captureSnippetClipboard} from './SnippetContext';
 beforeAll(async()=>{const name='node:'+'crypto';const {webcrypto}=await import(name);Object.defineProperty(globalThis,'crypto',{value:webcrypto,configurable:true});});
 const source='λ😀\r\nword';
 const hash='sha256:b780b85cc61fcebbfa18870c45ac77760d59272f59d6b40db68250fb081f8452';
@@ -763,6 +804,7 @@ const proof={source_hash:hash,source_revision:'a'.repeat(64)};
 const initial=():{label:string;data:Record<string,unknown>}=>({label:'field',data:{hickory_completion:'original-token',hickory_context:proof,opaque:{provider:['untouched']}}});
 const requested=(token='resolved-token',p=proof)=>({label:'field',data:{hickory_completion:token,hickory_context:p,hickory_context_request:{version:1,variables:['CLIPBOARD']}}});
 describe('source-bound completion variable handshake',()=>{
+ it('bounds clipboard validation before encoding or walking an excessive value',async()=>{const original=globalThis.TextEncoder;try{vi.stubGlobal('TextEncoder',class{encode(){throw Error('Clipboard must not allocate an encoded copy');}});for(const value of['x'.repeat(1048577),'😀'.repeat(300000),'\uD800']){vi.stubGlobal('navigator',{clipboard:{readText:async()=>value}});expect(await captureSnippetClipboard()).toEqual({available:false,text:null});}vi.stubGlobal('navigator',{clipboard:{readText:async()=>'x'.repeat(1048576)}});expect((await captureSnippetClipboard()).available).toBe(true);}finally{vi.unstubAllGlobals();globalThis.TextEncoder=original;}});
  it('reads clipboard once on demand, keeps clock and seed, and leaves the original opaque item unchanged',async()=>{
   const original=initial(),before=JSON.stringify(original),calls:any[]=[];let reads=0;
   const final=await resolveSnippetCompletion(original,{source,from:5,to:9,current:()=>true,clipboard:async()=>{reads++;return {available:true,text:'clipboard text'};},request:async item=>{calls.push(item);return (calls.length===1?requested():{label:'done',data:{hickory_context:proof}}) as typeof item;}});
@@ -798,6 +840,7 @@ import XCTest
 @testable import HickorySimple
 
 @MainActor final class SnippetContextHandshakeTests:XCTestCase {
+ func testClipboardReadBoundsValidationWithoutEncodingAnExcessiveCopy(){for value in [String(repeating:"x",count:1048577),String(repeating:"😀",count:300000)]{let result=captureSnippetClipboard(read:{value});XCTAssertFalse(result.available);XCTAssertNil(result.text)};XCTAssertTrue(captureSnippetClipboard(read:{String(repeating:"x",count:1048576)}).available)}
  private let source="λ😀\r\nword"
  private var proof:[String:Any]{["source_hash":"sha256:"+nativeSourceHash(source),"source_revision":String(repeating:"a",count:64)]}
  private var original:[String:Any]{["label":"field","data":["hickory_completion":"original","hickory_context":proof,"opaque":["provider":["untouched"]]]]}
@@ -829,6 +872,7 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class SnippetContextHandshakeTest {
+ @Test fun clipboardReadBoundsValidationBeforeAnExcessiveEncoding(){for(value in listOf("x".repeat(1048577),"😀".repeat(300000),"\uD800")){val result=captureSnippetClipboard{value};assertFalse(result.available);assertNull(result.text)};assertTrue(captureSnippetClipboard{"x".repeat(1048576)}.available)}
  private val source="λ😀\r\nword"
  private fun proof()=JSONObject().put("source_hash","sha256:"+debugHash(source)).put("source_revision","a".repeat(64))
  private fun original()=JSONObject().put("label","field").put("data",JSONObject().put("hickory_completion","original").put("hickory_context",proof()).put("opaque",JSONObject().put("provider","untouched")))

@@ -16,7 +16,7 @@ export function SourceTemplatesView({visible,close,editor,provider=engineTemplat
   catch(error){if(id===ticket.current)setNotice(error instanceof Error?error.message:String(error));}finally{if(id===ticket.current)setLoading(false);}
  }
  async function choose(id:string){if(!snapshot||!catalog)return;const held=snapshot,read=++ticket.current;setLoading(true);setPreview(null);setNotice('');
-  try{if(!shown.current||!sameEditor(held)||catalogProvider.current!==providers.current)throw Error('The selected editor or provider changed. Refresh templates.');const plan=await prepareTemplate(held,catalog,id,providers.current);if(read!==ticket.current||!shown.current||!sameEditor(held))return;setPreview(plan);}
+  try{if(!shown.current||!sameEditor(held)||catalogProvider.current!==providers.current)throw Error('The selected editor or provider changed. Refresh templates.');const plan=await prepareTemplate(held,catalog,id,providers.current,()=>read===ticket.current&&shown.current&&sameEditor(held)&&catalogProvider.current===providers.current);if(read!==ticket.current||!shown.current||!sameEditor(held))return;setPreview(plan);}
   catch(error){if(read===ticket.current)setNotice(error instanceof Error?error.message:String(error));}finally{if(read===ticket.current)setLoading(false);}
  }
  async function apply(){if(!preview)return;const held=preview,id=++ticket.current;setLoading(true);setNotice('');

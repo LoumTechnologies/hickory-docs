@@ -16,7 +16,7 @@ def main():
         source="old";path="a.py";(root/path).write_text(source)
         (root/"generated.py").write_text("generated = True\n")
         (root/"generator.md").write_text('<h:doc xmlns:h="http://www.hickorydocs.com/1.0">\n<h:file path="generated.py">\ngenerated = True\n</h:file>\n</h:doc>\n')
-        manifest={"version":1,"templates":[{"id":"workspace.linked","label":"Workspace linked","description":"Mirrors, Unicode and selected text","language":"python","syntax":"${1|first,second|} + $1\n${2:😀 value} ${TM_FILENAME} ${TM_SELECTED_TEXT}$0"},{"id":"workspace.unsupported","label":"Unsupported transform","description":"Explicit unsupported capability","language":"python","syntax":"${1/x/y/}"}]}
+        manifest={"version":1,"templates":[{"id":"workspace.linked","label":"Workspace linked","description":"Mirrors, Unicode and selected text","language":"python","syntax":"${1|first,second|} + $1\n${2:😀 value} ${TM_FILENAME} ${TM_SELECTED_TEXT}$0"},{"id":"workspace.unsupported","label":"Unsupported transform","description":"Explicit unsupported capability","language":"python","syntax":"${1/(?=x)/y/}"}]}
         (root/".hickory/templates.json").write_text(json.dumps(manifest,ensure_ascii=False))
         environment={**os.environ,"HICKORY_STATE_DIR":str(Path(temporary)/"state")};processes=[];driver=None
         try:

@@ -31,8 +31,8 @@ an earlier open item only for the behavior it actually exercises.
 
 | Required outcome | Current usable evidence and remaining acceptance |
 | --- | --- |
-| Navigation and code intelligence | Existing source-bound navigation and provider receipts remain in force. Browser mixed-line-ending source/view coordination now has rendered provider and history acceptance; full completion context and embedded-language breadth remain open. |
-| Refactoring, cleanup, generation, templates and history | Rename, formatting, genuine TypeScript extraction/accessor generation/cleanup and coordinated history have focused host receipts. Genuine TypeScript move-to-new-file review, publication and inverse/redo now have all-three-host receipts. Bounded transform parsing/evaluation are foundations; full context, production transform activation and multi-caret templates remain open. |
+| Navigation and code intelligence | Existing source-bound navigation and provider receipts remain in force. Browser mixed-line-ending source/view coordination now has rendered provider and history acceptance; source-bound completion variables now have live host receipts. Embedded-language breadth remains open. |
+| Refactoring, cleanup, generation, templates and history | Rename, formatting, genuine TypeScript extraction/accessor generation/cleanup and coordinated history have focused host receipts. Genuine TypeScript move-to-new-file review, publication and inverse/redo now have all-three-host receipts. Source-bound variable contexts and bounded production transforms now have completion/template receipts on all three hosts. Full regex syntax, embedded-language templates, multi-caret templates and mirrored native IME remain open. |
 | Diagnostics and contextual fixes | Existing source-bound Problems/fix receipts remain scoped to their stated providers and paths. A command or backend implementation alone is not further acceptance. |
 | Testing and coverage | Retained sessions/results and supported collector receipts below remain scoped evidence. Exact JavaScript collection/rerun integration now has31 focused collector cases and11 fresh-engine Vitest flows; the retained-result race is corrected. Earlier native provider receipts retain their stated revisions. |
 | Review, staging, attribution, conflicts and recovery | Existing Git/native conflict receipts remain in force. Complete32-session recovery management and three exact revisions now have service/browser/macOS/Android-controller receipts. Explicit canonical construction-entry transitions remain open. |
@@ -1992,5 +1992,40 @@ classes pass; web type checking and the iOS simulator product build pass. These
 are shared mechanisms and protocol models. Production completion/template
 integration and usable provider flows remain a separate acceptance step; these
 receipts alone do not establish complete template parity.
+
+## Apply source-bound variable and computed-field expansions through each host
+
+Completion and reusable templates now use the captured source/selection context
+and bounded transform programs through their production adapters. Preview and Apply
+retain one clock/seed and clipboard outcome. An exact demand may read clipboard
+once; denial retains defaults and a notice, an unused default performs no read,
+and an obsolete lease refuses before transmitting or applying context. Hosts reject
+foreign proof, repeated requests, extra effects and changed template/context data.
+Clipboard admission rejects oversized values before unbounded scans or encodings.
+
+The real macOS flow exposed a planner dropping computed-field programs while
+rebasing fields. Preserving that metadata now keeps ordinary mirrors and derived
+Unicode fields live after insertion. Connected planning/session/input cases cover
+this handoff on all three hosts.
+
+Executed evidence (2026-11-17): generated Rust parser11/context5/trigger1 and engine
+template-service8 cases pass; browser focused36 and type checking pass. Swift12
+and Android13 focused checks pass, with Android's one opt-in model-run skip
+executed separately in its owned fixture. Fresh-engine protocol acceptance proves
+one child resolve across a demanded clipboard retry, denial/default behavior,
+unused-default privacy, exact physical producer identity and foreign-proof refusal;
+the legacy protocol remains compatible. Rendered browser provider blank/selected
+and template Preview/Apply flows pass variables, computed Unicode mirrors,
+Undo/Redo, editor identity/geometry and unchanged CRLF source bytes. Four native
+real-engine flows pass exact1/zero skips each: templates and provider completion
+on mounted macOS and Android controller/state. Android retains producer XML;
+macOS's SDK emits console results, retained as explicitly labelled console JSON
+receipts with verified log hashes. The final iOS simulator product build passes.
+
+These receipts establish the supported bounded language. Full ECMAScript regex,
+embedded-language template routing, multi-caret templates and mirrored native IME
+remain required open work. Physical input, OS clipboard permission prompts,
+assistive technology, Android rendering and iOS device/runtime acceptance remain
+unverified; they are not inferred from controller or build results.
 
 </ui:doc>

@@ -10,6 +10,143 @@ struct HeldCompletion {
     virtual_uri: Url,
     origin: Url,
     position: Position,
+    source: CompletionSourceCapture,
+}
+#[derive(Clone)]
+struct CompletionSourceCapture {
+    revision: crate::source_identity::SourceRevision,
+    hash: String,
+    workspace: Option<Url>,
+    language: String,
+}
+impl CompletionSourceCapture {
+    fn matches(&self, entry: &DocEntry) -> bool {
+        !entry.preparing
+            && entry.source_revision == self.revision
+            && entry.source_hash.as_deref() == Some(self.hash.as_str())
+    }
+    fn proof(&self, origin: &Url) -> Value {
+        json!({"source_hash":self.hash,"source_revision":crate::source_identity::source_graph_fingerprint(std::iter::once((origin.as_str(),self.revision)))})
+    }
+}
+impl HickBackend {
+    async fn capture_completion_source(
+        &self,
+        origin: &Url,
+        virtual_uri: &Url,
+        language: &str,
+    ) -> Result<CompletionSourceCapture> {
+        let workspace = self.workspace_root.read().await.clone();
+        let capture = {
+            let documents = self.documents.read().await;
+            let entry = documents
+                .get(origin)
+                .filter(|entry| !entry.preparing)
+                .ok_or_else(|| {
+                    completion_error("Completion source is preparing or closed. Request again.")
+                })?;
+            CompletionSourceCapture {
+                revision: entry.source_revision,
+                hash: entry.source_hash.clone().ok_or_else(|| {
+                    completion_error("Completion source has no current byte identity")
+                })?,
+                workspace,
+                language: language.to_owned(),
+            }
+        };
+        let index = self.vfile_index.read().await;
+        if !index.get(virtual_uri).is_some_and(|mapping| {
+            mapping.hick_uri == *origin && mapping.primary_source_hash == capture.hash
+        }) {
+            return Err(completion_error(
+                "Completion positions do not describe the current authored source. Prepare language services again.",
+            ));
+        }
+        Ok(capture)
+    }
+    async fn require_completion_source(
+        &self,
+        origin: &Url,
+        capture: &CompletionSourceCapture,
+    ) -> Result<()> {
+        let workspace = self.workspace_root.read().await.clone();
+        if workspace != capture.workspace {
+            return Err(completion_error(
+                "Completion workspace changed. Request again.",
+            ));
+        }
+        let documents = self.documents.read().await;
+        if !documents
+            .get(origin)
+            .is_some_and(|entry| capture.matches(entry))
+        {
+            return Err(completion_error(
+                "Completion source changed. Request again.",
+            ));
+        }
+        Ok(())
+    }
+    async fn read_completion_context(
+        &self,
+        origin: &Url,
+        capture: &CompletionSourceCapture,
+        raw: &Value,
+    ) -> Result<crate::snippet_context::SnippetEditorContext> {
+        self.require_completion_source(origin, capture).await?;
+        let documents = self.documents.read().await;
+        let entry = documents
+            .get(origin)
+            .filter(|entry| capture.matches(entry))
+            .ok_or_else(|| completion_error("Completion source changed. Request again."))?;
+        let proof = capture.proof(origin);
+        crate::snippet_context::SnippetEditorContext::read(
+            raw,
+            &entry.source_text,
+            proof["source_hash"].as_str().unwrap(),
+            proof["source_revision"].as_str().unwrap(),
+        )
+        .map_err(completion_error)
+    }
+    async fn completion_variables(
+        &self,
+        origin: &Url,
+        capture: &CompletionSourceCapture,
+        context: &crate::snippet_context::SnippetEditorContext,
+        requested: &std::collections::BTreeSet<String>,
+        presence_only: bool,
+    ) -> Result<std::collections::BTreeMap<String, Option<String>>> {
+        self.require_completion_source(origin, capture).await?;
+        let documents = self.documents.read().await;
+        let entry = documents
+            .get(origin)
+            .filter(|entry| capture.matches(entry))
+            .ok_or_else(|| completion_error("Completion source changed. Request again."))?;
+        let path = origin
+            .to_file_path()
+            .map_err(|_| completion_error("Authored completion path is unavailable"))?;
+        let workspace = capture
+            .workspace
+            .as_ref()
+            .and_then(|uri| uri.to_file_path().ok());
+        let read = if presence_only {
+            crate::snippet_context::variable_presence
+        } else {
+            crate::snippet_context::variables
+        };
+        read(
+            &crate::snippet_context::SnippetVariableContext {
+                source: &entry.source_text,
+                from: context.from,
+                to: context.to,
+                path: &path,
+                workspace: workspace.as_deref(),
+                language: Some(&capture.language),
+            },
+            &context.snapshot,
+            requested,
+        )
+        .map_err(completion_error)
+    }
 }
 pub(super) struct PreparedCompletions {
     items: ProviderArtifacts<HeldCompletion>,
@@ -24,8 +161,49 @@ impl Default for PreparedCompletions {
 fn completion_error(message: impl Into<String>) -> tower_lsp::jsonrpc::Error {
     tower_lsp::jsonrpc::Error::invalid_params(message.into())
 }
-fn completion_triggers(capabilities:Option<&Value>)->std::collections::BTreeSet<String>{capabilities.and_then(|caps|caps.pointer("/completionProvider/triggerCharacters")).and_then(Value::as_array).filter(|values|values.len()<=128).into_iter().flatten().filter_map(Value::as_str).filter(|value|value.len()<=4&&value.chars().count()==1).map(str::to_owned).collect()}
-fn completion_query_context(context:Option<CompletionContext>,triggers:&std::collections::BTreeSet<String>)->Result<Option<Value>>{let Some(mut context)=context else{return Ok(None)};if ![CompletionTriggerKind::INVOKED,CompletionTriggerKind::TRIGGER_CHARACTER,CompletionTriggerKind::TRIGGER_FOR_INCOMPLETE_COMPLETIONS].contains(&context.trigger_kind){return Err(completion_error("Unsupported completion trigger kind"))}if context.trigger_kind==CompletionTriggerKind::TRIGGER_CHARACTER&&!context.trigger_character.as_ref().is_some_and(|value|triggers.contains(value)){return Err(completion_error("Completion provider does not advertise this trigger"))}if context.trigger_kind!=CompletionTriggerKind::TRIGGER_CHARACTER{context.trigger_character=None}Ok(Some(json!(context)))}
+fn completion_triggers(capabilities: Option<&Value>) -> std::collections::BTreeSet<String> {
+    capabilities
+        .and_then(|caps| caps.pointer("/completionProvider/triggerCharacters"))
+        .and_then(Value::as_array)
+        .filter(|values| values.len() <= 128)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .filter(|value| value.len() <= 4 && value.chars().count() == 1)
+        .map(str::to_owned)
+        .collect()
+}
+fn completion_query_context(
+    context: Option<CompletionContext>,
+    triggers: &std::collections::BTreeSet<String>,
+) -> Result<Option<Value>> {
+    let Some(mut context) = context else {
+        return Ok(None);
+    };
+    if ![
+        CompletionTriggerKind::INVOKED,
+        CompletionTriggerKind::TRIGGER_CHARACTER,
+        CompletionTriggerKind::TRIGGER_FOR_INCOMPLETE_COMPLETIONS,
+    ]
+    .contains(&context.trigger_kind)
+    {
+        return Err(completion_error("Unsupported completion trigger kind"));
+    }
+    if context.trigger_kind == CompletionTriggerKind::TRIGGER_CHARACTER
+        && !context
+            .trigger_character
+            .as_ref()
+            .is_some_and(|value| triggers.contains(value))
+    {
+        return Err(completion_error(
+            "Completion provider does not advertise this trigger",
+        ));
+    }
+    if context.trigger_kind != CompletionTriggerKind::TRIGGER_CHARACTER {
+        context.trigger_character = None
+    }
+    Ok(Some(json!(context)))
+}
 fn completion_items(value: &mut Value) -> Result<&mut Vec<Value>> {
     if value.is_array() {
         return value
@@ -239,12 +417,29 @@ impl HickBackend {
                 .and_then(|caps| caps.pointer("/completionProvider/resolveProvider"))
                 .and_then(Value::as_bool)
                 == Some(true);
-            (handle.clone(), resolve, completion_triggers(dispatcher.server_capabilities(&language,&root)))
+            (
+                handle.clone(),
+                resolve,
+                completion_triggers(dispatcher.server_capabilities(&language, &root)),
+            )
         };
+        let source_capture = self
+            .capture_completion_source(&origin, &virtual_uri, &language)
+            .await?;
         self.require_provider_revision(&revision).await?;
-        if params.context.as_ref().is_some_and(|context|context.trigger_kind==CompletionTriggerKind::TRIGGER_CHARACTER&&!context.trigger_character.as_ref().is_some_and(|character|triggers.contains(character))){return Ok(Some(CompletionResponse::Array(vec![])))}
         let mut request = json!({"textDocument":{"uri":virtual_uri},"position":position});
-        if let Some(context)=completion_query_context(params.context,&triggers)? {request["context"]=context;}
+        if params.context.as_ref().is_some_and(|context| {
+            context.trigger_kind == CompletionTriggerKind::TRIGGER_CHARACTER
+                && !context
+                    .trigger_character
+                    .as_ref()
+                    .is_some_and(|character| triggers.contains(character))
+        }) {
+            return Ok(Some(CompletionResponse::Array(vec![])));
+        }
+        if let Some(context) = completion_query_context(params.context, &triggers)? {
+            request["context"] = context;
+        }
         let mut result = handle
             .request("textDocument/completion", request)
             .await
@@ -269,6 +464,8 @@ impl HickBackend {
             .map(|item| map_completion_item(item, primary, map, &origin, position))
             .collect::<Result<Vec<_>>>()?;
         self.require_provider_revision(&revision).await?;
+        self.require_completion_source(&origin, &source_capture)
+            .await?;
         let mut held = self.prepared_completions.lock().await;
         for ((item, original), mapped) in items.iter_mut().zip(originals).zip(mapped) {
             let token = held.items.insert(
@@ -281,10 +478,12 @@ impl HickBackend {
                     virtual_uri: virtual_uri.clone(),
                     origin: origin.clone(),
                     position,
+                    source: source_capture.clone(),
                 },
             );
             *item = mapped;
-            item["data"] = json!({"hickory_completion":token});
+            item["data"] =
+                json!({"hickory_completion":token,"hickory_context":source_capture.proof(&origin)});
         }
         drop(held);
         self.require_provider_revision(&revision).await?;
@@ -312,7 +511,21 @@ impl HickBackend {
             .ok_or_else(|| {
                 completion_error("Completion expired or source changed. Request completions again.")
             })?;
-        let mut original = held.original;
+        self.require_completion_source(&held.origin, &held.source)
+            .await?;
+        let raw_context = item
+            .data
+            .as_ref()
+            .and_then(|data| data.get("hickory_context"))
+            .filter(|raw| raw.get("version").is_some());
+        let editor_context = match raw_context {
+            Some(raw) => Some(
+                self.read_completion_context(&held.origin, &held.source, raw)
+                    .await?,
+            ),
+            None => None,
+        };
+        let mut original = held.original.clone();
         if held.resolve {
             let resolved = held
                 .handle
@@ -320,6 +533,8 @@ impl HickBackend {
                 .await
                 .map_err(child_request_error)?;
             self.require_provider_revision(&revision).await?;
+            self.require_completion_source(&held.origin, &held.source)
+                .await?;
             let fields = resolved
                 .as_object()
                 .ok_or_else(|| completion_error("Provider did not resolve this completion"))?;
@@ -335,11 +550,65 @@ impl HickBackend {
             .get(&uri_key(held.virtual_uri.as_str()))
             .ok_or_else(|| completion_error("Completion source mapping changed. Request again."))?;
         let mut mapped = map_completion_item(&original, primary, map, &held.origin, held.position)?;
-        let snippet = completion_snippet_data(&mapped, &held.origin, held.position, map)?;
-        mapped["data"] = json!({"hickory_completion":token});
+        let mut response_token = token.to_owned();
+        let mut context_request = false;
+        let mut unavailable = vec![];
+        let snippet = if let Some(context) = &editor_context {
+            if let Some(syntax) = completion_snippet_syntax(&mapped)? {
+                let requested =
+                    crate::snippet::requested_variables(syntax).map_err(completion_error)?;
+                let variables = self
+                    .completion_variables(&held.origin, &held.source, context, &requested, true)
+                    .await?;
+                let requested = crate::snippet::effective_requested_variables(syntax, &variables)
+                    .map_err(completion_error)?;
+                let variables = self
+                    .completion_variables(&held.origin, &held.source, context, &requested, false)
+                    .await?;
+                let plan = crate::snippet::expand_snippet_v2(syntax, &variables)
+                    .map_err(completion_error)?;
+                if requested.contains("CLIPBOARD") && context.snapshot.clipboard.is_none() {
+                    let mut cached = held.clone();
+                    cached.original = original;
+                    cached.resolve = false;
+                    response_token = self.prepared_completions.lock().await.items.insert(
+                        Instant::now(),
+                        revision.clone(),
+                        cached,
+                    );
+                    context_request = true;
+                    None
+                } else {
+                    for name in &requested {
+                        if name == "CLIPBOARD" && context.snapshot.clipboard == Some(None)
+                            || name.starts_with("CURRENT_") && context.snapshot.date.is_none()
+                            || matches!(name.as_str(), "RANDOM" | "RANDOM_HEX" | "UUID")
+                                && context.snapshot.random.is_none()
+                        {
+                            unavailable.push(name.clone())
+                        }
+                    }
+                    Some(plan.metadata(syntax))
+                }
+            } else {
+                None
+            }
+        } else {
+            completion_snippet_data(&mapped, &held.origin, held.position, map)?
+        };
+        mapped["data"] = json!({"hickory_completion":response_token,"hickory_context":held.source.proof(&held.origin)});
+        if context_request {
+            mapped["data"]["hickory_context_request"] =
+                json!({"version":1,"variables":["CLIPBOARD"]});
+        }
+        if !unavailable.is_empty() {
+            mapped["data"]["hickory_context_unavailable"] = json!(unavailable);
+        }
         if let Some(snippet) = snippet {
             mapped["data"]["hickory_snippet"] = snippet;
         }
+        self.require_completion_source(&held.origin, &held.source)
+            .await?;
         self.require_provider_revision(&revision).await?;
         serde_json::from_value(mapped)
             .map_err(|_| completion_error("Malformed resolved completion"))
@@ -349,10 +618,30 @@ impl HickBackend {
 mod tests {
     use super::*;
     #[test]
-    fn trigger_context_is_bound_to_the_actual_producing_child_capabilities(){
-      let declared=completion_triggers(Some(&json!({"completionProvider":{"triggerCharacters":[".","😀","invalid",false]}})));assert_eq!(declared,std::collections::BTreeSet::from([".".into(),"😀".into()]));let context=|kind:u32,character:&str|serde_json::from_value(json!({"triggerKind":kind,"triggerCharacter":character})).unwrap();assert_eq!(completion_query_context(Some(context(2,".")),&declared).unwrap(),Some(json!({"triggerKind":2,"triggerCharacter":"."})));assert!(completion_query_context(Some(context(2,":")),&declared).is_err());assert_eq!(completion_query_context(Some(context(3,".")),&declared).unwrap(),Some(json!({"triggerKind":3})));assert!(completion_query_context(Some(context(99,".")),&declared).is_err());assert!(completion_query_context(None,&declared).unwrap().is_none());
+    fn trigger_context_is_bound_to_the_actual_producing_child_capabilities() {
+        let declared = completion_triggers(Some(
+            &json!({"completionProvider":{"triggerCharacters":[".","😀","invalid",false]}}),
+        ));
+        assert_eq!(
+            declared,
+            std::collections::BTreeSet::from([".".into(), "😀".into()])
+        );
+        let context = |kind: u32, character: &str| {
+            serde_json::from_value(json!({"triggerKind":kind,"triggerCharacter":character}))
+                .unwrap()
+        };
+        assert_eq!(
+            completion_query_context(Some(context(2, ".")), &declared).unwrap(),
+            Some(json!({"triggerKind":2,"triggerCharacter":"."}))
+        );
+        assert!(completion_query_context(Some(context(2, ":")), &declared).is_err());
+        assert_eq!(
+            completion_query_context(Some(context(3, ".")), &declared).unwrap(),
+            Some(json!({"triggerKind":3}))
+        );
+        assert!(completion_query_context(Some(context(99, ".")), &declared).is_err());
+        assert!(completion_query_context(None, &declared).unwrap().is_none());
     }
-
     #[test]
     fn completion_defaults_expand_before_retaining_the_provider_item() {
         let range = json!({"start":{"line":0,"character":0},"end":{"line":0,"character":3}});
@@ -429,12 +718,7 @@ mod tests {
         );
     }
 }
-fn completion_snippet_data(
-    item: &Value,
-    origin: &Url,
-    position: Position,
-    map: &PositionMap,
-) -> Result<Option<Value>> {
+fn completion_snippet_syntax(item: &Value) -> Result<Option<&str>> {
     if item.get("insertTextFormat").and_then(Value::as_u64) != Some(2) {
         return Ok(None);
     }
@@ -445,6 +729,17 @@ fn completion_snippet_data(
         .or_else(|| item.get("label"))
         .and_then(Value::as_str)
         .ok_or_else(|| completion_error("Missing snippet insertion text"))?;
+    Ok(Some(syntax))
+}
+fn completion_snippet_data(
+    item: &Value,
+    origin: &Url,
+    position: Position,
+    map: &PositionMap,
+) -> Result<Option<Value>> {
+    let Some(syntax) = completion_snippet_syntax(item)? else {
+        return Ok(None);
+    };
     let mut variables: std::collections::BTreeMap<String, Option<String>> = [
         "TM_SELECTED_TEXT",
         "TM_CURRENT_LINE",

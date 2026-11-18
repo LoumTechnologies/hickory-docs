@@ -38,6 +38,7 @@ data class AgentTurn(val id: String, val prompt: String, val answer: String?, va
 private fun JSONObject.optional(key: String) = if (isNull(key)) null else optString(key).takeIf { it.isNotEmpty() }
 private fun JSONArray.objects() = (0 until length()).map { getJSONObject(it) }
 class Engine(address: String) {
+    var snippetClipboardReader:(()->String?)?=null
     private val origin = URI(address).also {
         require(it.scheme in listOf("http", "https") && it.host != null && it.userInfo == null && it.query == null && it.fragment == null && it.path in listOf("", "/")) {
             "Enter the workspace server's http:// or https:// address, without a path or password."
@@ -701,7 +702,7 @@ internal fun validateNativeSourcePreparation(raw:JSONObject,source:String,requir
  val count=(raw.opt("open_files") as? Number)?.toString();val countValid=count!=null&&count.matches(Regex("0|[1-9][0-9]{0,19}"))&&java.math.BigInteger(count)<=java.math.BigInteger("18446744073709551615")
  check(processed==true&&current==true&&parsed!=null&&modified==false&&(!requireParsed||parsed)&&countValid&&raw.opt("source_hash")=="sha256:"+debugHash(source)&&(raw.opt("source_revision") as? String)?.matches(Regex("[a-f0-9]{64}"))==true){"Source preparation is unsupported, superseded or incomplete. Retry language services and prepare again."}
 }
-class NativeLanguage(engine: Engine, private val buffer: DocumentBuffer, private val scope: CoroutineScope, sharedConnection: NativeLanguageConnection? = null) {
+class NativeLanguage(private val engine: Engine, private val buffer: DocumentBuffer, private val scope: CoroutineScope, sharedConnection: NativeLanguageConnection? = null) {
     val connection = sharedConnection ?: NativeLanguageConnection(engine,scope)
     private val ownsConnection = sharedConnection == null
     private var subscription: UUID? = null
@@ -980,11 +981,10 @@ Retain each offered provider item and its source/selection. Resolve before plann
     fun cancelCompletion(){acceptingCompletion++;if(completionPending)completionNotice="Completion cancelled.";completionPending=false}
     suspend fun resolveCompletion(item:JSONObject):JSONObject {
         if(item.isNull("data"))return item
-        check(opened&&!buffer.readOnly){"Choose writable source with a connected language provider."}
-        sync();val source=buffer.text;val selection=buffer.state.selection;val identity=epoch;val revision=buffer.sourceRevision
-        val result=request("completionItem/resolve",JSONObject(item.toString()).put("textDocument",doc()))
-        check(epoch==identity&&buffer.sourceRevision==revision&&!buffer.resourceDeleted&&languageURI(buffer.file.path)==uri&&buffer.text==source&&buffer.state.selection==selection){"Source, cursor or provider changed. Request completions again."}
-        check(result is JSONObject&&result.opt("label") is String){"Provider did not resolve this completion. Request again."};return result
+        check(opened&&!buffer.readOnly&&!buffer.saving&&!buffer.resourceDeleted){"Choose writable source with a connected language provider."}
+        sync();val source=buffer.text;val selection=buffer.state.selection;val identity=epoch;val revision=buffer.sourceRevision;val acceptance=acceptingCompletion;val owner=buffer.file
+        fun current()=opened&&epoch==identity&&acceptingCompletion==acceptance&&buffer.file===owner&&buffer.sourceRevision==revision&&!buffer.readOnly&&!buffer.saving&&!buffer.resourceDeleted&&languageURI(buffer.file.path)==uri&&buffer.text==source&&buffer.state.selection==selection
+        return resolveSnippetCompletion(item,source,selection.min,selection.max,::current,request={item->val result=request("completionItem/resolve",JSONObject(item.toString()).put("textDocument",doc()));check(result is JSONObject&&result.opt("label") is String){"Provider did not resolve this completion. Request again."};result},clipboard=engine.snippetClipboardReader)
     }
     suspend fun accept(item:NativeLanguageCompletion,resolution:(suspend (JSONObject)->JSONObject)?=null):Boolean {
         if(buffer.readOnly||buffer.saving||buffer.resourceDeleted||item.sourceRevision?.let{it!=buffer.sourceRevision}==true||buffer.text!=item.source||buffer.state.selection!=item.selection){completionNotice="Suggestion is out of date. Request completions again.";return false}
@@ -996,13 +996,14 @@ Retain each offered provider item and its source/selection. Resolve before plann
             val resolved=(resolution ?: {resolveCompletion(it)})(original)
             if(acceptingCompletion!=request)return false
             check(epoch==identity&&buffer.sourceRevision==revision&&!buffer.resourceDeleted&&languageURI(buffer.file.path)==uri&&buffer.snippets.intent==snippetIntent&&buffer.language===this&&!buffer.readOnly&&!buffer.saving&&buffer.text==item.source&&buffer.state.selection==item.selection&&!(buffer.multiSource==buffer.text&&buffer.multiRanges.size>1)){"Source, cursor or provider changed. Request completions again."}
+            val contextNotice=snippetContextNotice(resolved)
             val initialDraft=planCompletion(uri,resolved,SourceSnapshot(item.source,!buffer.readOnly&&!buffer.saving),item.edit.from,item.edit.to,completionExpansion(resolved))
             val draft=buffer.snippets.prepareCompletion(initialDraft)
             val edits=draft.plan.patches.firstOrNull()?.edits.orEmpty().map{NativeSourceEdit(it.from,it.to,it.text)}
             val snippetBefore=buffer.snippets.captureBefore(draft.before,buffer.state.selection,true)!!;val snippetRecord=buffer.snippets.recordSerial
             check(buffer.applySourceEdits(edits,draft.before,androidx.compose.ui.text.TextRange(draft.selection.from,draft.selection.to))){"Editor refused the complete completion. Finish composition or request again."}
             buffer.snippets.attachCompletionContext(snippetBefore,draft.continuing ?: beginSnippet(buffer.text,draft.fields),snippetRecord)
-            completionPending=false;completionNotice=if(draft.plan.patches.isEmpty())"Completion selected" else "Completion applied · draft";return true
+            completionPending=false;completionNotice=(if(draft.plan.patches.isEmpty())"Completion selected" else "Completion applied · draft")+(if(contextNotice.isEmpty())"" else " · "+contextNotice);return true
         }catch(cancelled:kotlinx.coroutines.CancellationException){if(acceptingCompletion==request)completionNotice="Completion cancelled.";throw cancelled}
         catch(error:Exception){if(acceptingCompletion==request)completionNotice=error.message.orEmpty();return false}
         finally{if(acceptingCompletion==request)completionPending=false}

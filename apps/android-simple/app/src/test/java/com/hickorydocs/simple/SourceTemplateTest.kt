@@ -8,7 +8,7 @@ import kotlinx.coroutines.async
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 class SourceTemplateTest {
     private fun field(id:Int,index:Int,from:Int,to:Int)=JSONObject().put("id",id).put("parent",JSONObject.NULL).put("index",index).put("from",from).put("to",to).put("choices",JSONArray())
-    private fun observation(request:JSONObject)=JSONObject().put("version",1).put("template_protocol",1).put("path",request.getString("path")).put("selection",JSONObject(request.getJSONObject("selection").toString())).put("source_hash",debugHash(request.getString("source"))).put("workspace_id","workspace").put("language","python").put("catalog_fingerprint","catalog").put("available",true).put("notices",JSONArray())
+    private fun observation(request:JSONObject)=JSONObject().put("version",1).put("template_protocol",request.optInt("version",1)).put("variable_context",request.opt("variable_context")?:JSONObject.NULL).put("source_files_modified",false).put("path",request.getString("path")).put("selection",JSONObject(request.getJSONObject("selection").toString())).put("source_hash",debugHash(request.getString("source"))).put("workspace_id","workspace").put("language","python").put("catalog_fingerprint","catalog").put("available",true).put("notices",JSONArray())
     private fun catalog(request:JSONObject)=observation(request).put("entries",JSONArray().put(JSONObject().put("id","pair").put("label","Pair").put("description","Two linked names").put("language","python").put("origin","workspace").put("available",true)))
     private fun plan(request:JSONObject,changed:Boolean=false)=observation(request).put("template_id","pair").put("origin","workspace").put("replacement",JSONObject(request.getJSONObject("selection").toString())).put("snippet",JSONObject().put("version",1).put("syntax",if(changed)"\${1:name} + \${1}\$0" else "\${1:name} + \$1\$0").put("text","name + name").put("fields",JSONArray().put(field(0,1,0,4)).put(field(1,1,7,11)).put(field(2,0,11,11))))
     private class Fixture(val workspace:Workspace,val buffer:DocumentBuffer,val model:SourceTemplatesModel,val calls:java.util.concurrent.atomic.AtomicInteger,val mode:java.util.concurrent.atomic.AtomicReference<String>,val entered:java.util.concurrent.CountDownLatch,val release:java.util.concurrent.CountDownLatch)
@@ -19,7 +19,11 @@ class SourceTemplateTest {
             val request=JSONObject(exchange.requestBody.bufferedReader().readText());val preparing=exchange.requestURI.path.endsWith("/plan")
             if(preparing){calls.incrementAndGet();if(mode.get()=="hold"){entered.countDown();release.await(5,java.util.concurrent.TimeUnit.SECONDS)}}
             val status=if(preparing&&mode.get()=="revoked")409 else 200
-            val value=if(status!=200)JSONObject().put("error","Template catalog changed; review again") else if(preparing)plan(request,mode.get()=="changed") else catalog(request)
+            val value=if(status!=200)JSONObject().put("error","Template catalog changed; review again") else if(preparing){
+                val reply=plan(request,mode.get()=="changed")
+                if(mode.get() in listOf("clipboard","repeated")&&(request.getJSONObject("variable_context").isNull("clipboard")||mode.get()=="repeated")){reply.remove("snippet");reply.put("available",false).put("context_request",JSONObject().put("version",1).put("variables",JSONArray().put("CLIPBOARD")))}else if(mode.get()=="clipboard"&&!request.getJSONObject("variable_context").getJSONObject("clipboard").getBoolean("available")){reply.put("context_unavailable",JSONArray().put("CLIPBOARD"))}
+                reply
+            }else catalog(request)
             val bytes=value.toString().toByteArray();exchange.sendResponseHeaders(status,bytes.size.toLong());exchange.responseBody.use{it.write(bytes)}
         };server.start()
         val workspace=Workspace(this);workspace.engine=Engine("http://127.0.0.1:${server.address.port}")
@@ -43,6 +47,26 @@ class SourceTemplateTest {
         assertTrue(runCatching{SourceTemplatePlan.decode(JSONObject(good.toString()).put("replacement",JSONObject().put("from",0).put("to",0)),reading,"pair")}.isFailure)
         assertTrue(runCatching{SourceTemplatePlan.decode(JSONObject(good.toString()).put("command",JSONObject()),reading,"pair")}.isFailure)
         raw.getJSONArray("entries").getJSONObject(0).put("id","mutated");assertEquals("pair",reading.entries.single().id)
+    }
+    @Test fun variableContextRequiresExactStructureAndTypedNoEffects(){
+        val snapshot=SnippetVariableSnapshot(1704067200000,0,"0123456789abcdef0123456789abcdef")
+        val capture=SourceTemplateCapture(Any(),Any(),Any(),"namespace",0,"main.py","old",0,3,0,snapshot)
+        val raw=catalog(capture.body());val reading=SourceTemplateCatalog.decode(raw,capture);val good=plan(capture.body());assertEquals("name + name",SourceTemplatePlan.decode(good,reading,"pair").draft.primary!!.text)
+        for(key in listOf("command","edit","workspaceEdit","additionalTextEdits")){assertTrue(runCatching{SourceTemplateCatalog.decode(JSONObject(raw.toString()).put(key,JSONObject.NULL),capture)}.isFailure);assertTrue(runCatching{SourceTemplatePlan.decode(JSONObject(good.toString()).put(key,JSONObject.NULL),reading,"pair")}.isFailure)}
+        for(value in listOf(0,"false",true)){assertTrue(runCatching{SourceTemplateCatalog.decode(JSONObject(raw.toString()).put("source_files_modified",value),capture)}.isFailure)}
+        val extra=JSONObject(raw.toString());extra.getJSONObject("variable_context").put("extra",true);assertTrue(runCatching{SourceTemplateCatalog.decode(extra,capture)}.isFailure)
+        val numeric=JSONObject(raw.toString());numeric.getJSONObject("variable_context").getJSONObject("clock").put("utc_offset_minutes",0.0);assertTrue(runCatching{SourceTemplateCatalog.decode(numeric,capture)}.isFailure)
+    }
+    @Test fun demandedClipboardIsCapturedOnceDeniedExplicitlyAndCannotOutliveSourceLease()=kotlinx.coroutines.runBlocking {
+        for(mode in listOf("available","denied","stale","repeated"))host{f->
+            var reads=0;f.mode.set(if(mode=="repeated")"repeated" else "clipboard")
+            f.workspace.engine!!.snippetClipboardReader={reads++;if(mode=="stale")f.buffer.selectSourceRange(0,0,f.buffer.text);if(mode=="denied")null else "copied"}
+            f.model.refresh(f.workspace);f.model.prepare(f.workspace,f.model.catalog!!.entries.single());assertEquals(1,reads)
+            if(mode=="stale"||mode=="repeated"){assertNull(f.model.reviewed);assertEquals("old",f.buffer.text)}else{
+                assertNotNull(f.model.notice,f.model.reviewed);val captured=f.model.reviewed!!.plan.catalog.capture.variables!!;assertEquals(mode!="denied",captured.clipboard!!.available);assertEquals(if(mode=="denied")null else "copied",captured.clipboard!!.text)
+                assertTrue(f.model.apply(f.workspace));assertEquals(1,reads);assertEquals(3,f.calls.get());assertEquals("old",f.buffer.base)
+            }
+        }
     }
     @Test fun realNativeDraftMirrorsNestedScopesAndMenuUndoRedoRetainEditor()=kotlinx.coroutines.runBlocking {host {f->
         val state=f.buffer.state;val scroll=f.buffer.sourceScroll.value;review(f);assertEquals("old",f.buffer.text);assertTrue(f.model.apply(f.workspace));assertEquals("name + name",f.buffer.text);assertEquals(TextRange(0,4),state.selection);assertFalse(f.workspace.showTemplates);assertNotNull(f.buffer.snippets.active)
@@ -94,6 +118,19 @@ class SourceTemplateTest {
             repeat(2){val undo=command("editor.undo");assertNull(undo.reason);undo.run()};assertEquals(saved.content,buffer.text);assertEquals(selected,state.selection)
             repeat(2){val redo=command("editor.redo");assertNull(redo.reason);redo.run()};assertEquals("value = 'new + new'\n",buffer.text);assertEquals(afterSelection,state.selection)
             repeat(2){command("editor.undo").run()};assertEquals(saved.content,buffer.text);buffer.snippets.finish();buffer.selectSourceRange(9,12,buffer.text)
+            model.captureVariables={SnippetVariableSnapshot(1704067200000,0,"0123456789abcdef0123456789abcdef")};var clipboardReads=0;engine.snippetClipboardReader={clipboardReads++;"copied"}
+            opened();model.prepare(workspace,model.catalog!!.entries.single{it.id=="workspace.context"});assertNotNull(model.notice,model.reviewed);assertEquals("main.py|2024|012345|old|old|OLD",model.reviewed!!.plan.draft.primary!!.text);assertEquals(0,clipboardReads)
+            assertTrue(model.notice,model.apply(workspace));assertEquals("value = 'main.py|2024|012345|old|old|OLD'\n",buffer.text)
+            assertTrue(buffer.snippets.applyInput(buffer.text,state.selection.min,state.selection.max,"new"));assertEquals("value = 'main.py|2024|012345|new|new|NEW'\n",buffer.text)
+            repeat(2){command("editor.undo").run()};assertEquals(saved.content,buffer.text);repeat(2){command("editor.redo").run()};assertEquals("value = 'main.py|2024|012345|new|new|NEW'\n",buffer.text);repeat(2){command("editor.undo").run()};buffer.snippets.finish()
+            for(denied in listOf(false,true)){
+                buffer.selectSourceRange(9,12,buffer.text);val before=clipboardReads;engine.snippetClipboardReader={clipboardReads++;if(denied)null else "copied"}
+                opened();assertEquals(before,clipboardReads);model.prepare(workspace,model.catalog!!.entries.single{it.id=="workspace.clipboard"});assertNotNull(model.notice,model.reviewed);assertEquals(before+1,clipboardReads)
+                val expected=if(denied)"fallback" else "copied";assertEquals(expected,model.reviewed!!.plan.draft.primary!!.text);assertEquals(if(denied)listOf("CLIPBOARD") else emptyList<String>(),model.reviewed!!.plan.unavailable)
+                assertTrue(model.notice,model.apply(workspace));assertEquals(before+1,clipboardReads);assertEquals("value = '$expected'\n",buffer.text);command("editor.undo").run();assertEquals(saved.content,buffer.text);command("editor.redo").run();assertEquals("value = '$expected'\n",buffer.text);command("editor.undo").run();buffer.snippets.finish()
+            }
+            buffer.selectSourceRange(9,12,buffer.text);val beforeUnused=clipboardReads;opened();model.prepare(workspace,model.catalog!!.entries.single{it.id=="workspace.unused-clipboard"});assertNotNull(model.notice,model.reviewed);assertEquals(0,clipboardReads-beforeUnused);assertEquals("old",model.reviewed!!.plan.draft.primary!!.text);workspace.showTemplates=false
+            engine.snippetClipboardReader={clipboardReads++;buffer.selectSourceRange(0,0,buffer.text);"stale"};buffer.selectSourceRange(9,12,buffer.text);opened();model.prepare(workspace,model.catalog!!.entries.single{it.id=="workspace.clipboard"});assertNull(model.reviewed);assertEquals(saved.content,buffer.text);workspace.showTemplates=false;buffer.selectSourceRange(9,12,buffer.text)
             opened();model.prepare(workspace,model.catalog!!.entries.single{it.id=="workspace.wrap"});assertNotNull(model.reviewed)
             val revoked=JSONObject(original.toString(Charsets.UTF_8));revoked.getJSONArray("templates").getJSONObject(0).put("syntax","\${1:revoked}\$0");manifest.writeText(revoked.toString())
             assertFalse(model.apply(workspace));assertEquals(saved.content,buffer.text);assertNull(model.reviewed);manifest.writeBytes(original)

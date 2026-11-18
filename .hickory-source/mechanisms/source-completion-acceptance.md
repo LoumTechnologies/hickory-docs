@@ -47,6 +47,7 @@ import {beginCompletionAcceptance} from '../lsp/completionAcceptance';
 import {prepareEditorChanges} from '../editor/textInput';
 import {planCompletion} from './CompletionPlan';
 import {completionExpansion} from './SnippetExpansion';
+import {snippetContextNotice} from './SnippetContext';
 import {sourceSnippetEffect,continueSourceSnippetCompletion,readSourceSnippet,readSourceEditorIntent} from './SourceSnippets';
 import {authoredSource,authoredOffset,editorOffsetIn,authoredChanges} from './SourceText';
 export interface SourceCompletionAdapter {
@@ -74,6 +75,7 @@ export async function acceptSourceCompletion(view:EditorView,item:CompletionItem
   if(!request.current()||request.cancelled())return;
   if(view.composing)throw new Error('Finish composition, then request completions again.');
   if(!valid())throw new Error('Source, cursor or provider changed. Request completions again.');
+  const contextNotice=snippetContextNotice(resolved);
   const draft=continueSourceSnippetCompletion(view,planCompletion(adapter.uri,resolved,{text:source,writable:adapter.writable()},from,to,completionExpansion(resolved)));
   const patch=draft.plan.patches[0],after=patch?.after??source,changes=(patch?.edits??[]).map(edit=>({from:edit.from,to:edit.to,insert:edit.text}));
   const input=prepareEditorChanges(source,changes);if('reason' in input)throw new Error(input.reason);
@@ -87,7 +89,7 @@ export async function acceptSourceCompletion(view:EditorView,item:CompletionItem
   expectedAfter=after;request.update({phase:'applying'});view.update(retainedSelection?[transaction,retainedSelection]:[transaction]);
   const applied=authoredSource(view.state)===after;
   request.update({phase:applied?'applied':'unavailable',applied,source_changed:applied&&source!==after,message:applied?'Completion applied to draft.':'Editor could not reflect the complete completion. Inspect the current draft.'});
-  report(applied?(source!==after?'Completion applied · draft':'Completion selected'):'Editor could not reflect the complete completion. Inspect the current draft.');
+  report(applied?((source!==after?'Completion applied · draft':'Completion selected')+(contextNotice?' · '+contextNotice:'')):'Editor could not reflect the complete completion. Inspect the current draft.');
  }catch(error){if((request.current()||expectedAfter!==undefined)&&!request.cancelled()){const applied=expectedAfter!==undefined&&authoredSource(view.state)===expectedAfter,message=error instanceof Error?error.message:String(error);request.update({phase:'unavailable',message,applied,source_changed:applied&&source!==expectedAfter});report(message);}}
 }
 </ui:copy>
