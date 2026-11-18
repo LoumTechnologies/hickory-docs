@@ -568,6 +568,9 @@ fn file_tree(root: &std::path::Path, index: &super::store::DocIndex) -> (Vec<Tre
     let mut documents: Vec<(String, std::path::PathBuf)> = Vec::new();
     let mut count = 0usize;
     let mut truncated = false;
+    let retained_entry = super::workspace_entry_authority::retained_tree_entry(root)
+        .ok()
+        .flatten();
     let walker = ignore::WalkBuilder::new(root)
         .hidden(true)
         .git_ignore(true)
@@ -601,7 +604,8 @@ fn file_tree(root: &std::path::Path, index: &super::store::DocIndex) -> (Vec<Tre
         if !dir && rel.ends_with(".md") {
             documents.push((rel.clone(), entry.path().to_path_buf()));
         }
-        insert_tree_node(&mut top, &rel, dir, index);
+        let retained_document = !dir && retained_entry.as_deref() == Some(rel.as_str());
+        insert_tree_node(&mut top, &rel, dir, index, retained_document);
     }
     // Which files the documents in this folder write. Done after the walk so
     // a document is credited with an output that was listed before it.
@@ -857,7 +861,13 @@ fn mark_generated(nodes: &mut [TreeNode], generated: &GeneratedOutputs) {
 /// Place one walked entry. The walker yields a directory before its contents,
 /// so ancestors already exist; they are still created on demand so a missed
 /// parent can never panic the listing.
-fn insert_tree_node(top: &mut Vec<TreeNode>, rel: &str, dir: bool, index: &super::store::DocIndex) {
+fn insert_tree_node(
+    top: &mut Vec<TreeNode>,
+    rel: &str,
+    dir: bool,
+    index: &super::store::DocIndex,
+    retained_document: bool,
+) {
     let mut siblings = top;
     let mut parts = rel.split('/').peekable();
     let mut prefix = String::new();
@@ -870,15 +880,19 @@ fn insert_tree_node(top: &mut Vec<TreeNode>, rel: &str, dir: bool, index: &super
             // New project documents register as they appear. Runtime files
             // stay openable through explicit file actions without joining
             // the project graph just because a tree listing encountered them.
-            let doc_id = (!dir && rel.ends_with(".md"))
-                .then(|| index.discover(rel))
-                .flatten();
+            let doc_id = if retained_document {
+                Some(index.add(rel))
+            } else {
+                (!dir && rel.ends_with(".md")).then(|| index.discover(rel)).flatten()
+            };
             siblings.push(TreeNode {
                 name: part.to_string(),
                 path: prefix.clone(),
                 dir,
                 language: if dir {
                     None
+                } else if retained_document {
+                    Some("markdown")
                 } else {
                     hick_plugins::routing::language_id(rel)
                 },

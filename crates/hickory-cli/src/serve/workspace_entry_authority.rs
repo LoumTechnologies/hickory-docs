@@ -393,6 +393,24 @@ pub(crate) fn protect_source_body(
 ) -> Result<(), String> {
     claims::protect_body(root, path, source)
 }
+#[cfg(unix)]
+pub(crate) fn retained_tree_entry(root: &std::path::Path) -> Result<Option<String>, String> {
+    leases::ordinary_root(root)?;
+    let base = hickory_workspace::data_root().map_err(|error| error.to_string())?;
+    let Some(bound) = storage::Bound::optional_under(&base, root)? else {
+        return Ok(None);
+    };
+    bound.unchanged()?;
+    Ok(if bound.payload.pending.is_none() {
+        bound.payload.current.path.clone()
+    } else {
+        None
+    })
+}
+#[cfg(not(unix))]
+pub(crate) fn retained_tree_entry(_root: &std::path::Path) -> Result<Option<String>, String> {
+    Ok(None)
+}
 fn history_transition_after_lineage(root:&std::path::Path,binding:&Binding,record:&super::resource_journal::Recovery,proof:&super::source_history::ResourceAfterProof)->Result<EntryChange,String>{
  proof.check(root,record)?;
  let known=binding.history.iter().find(|old|old.request_id==record.id&&old.manifest_sha256==record.manifest_sha256).ok_or("This retained record has no sealed workspace-entry transition authority")?;

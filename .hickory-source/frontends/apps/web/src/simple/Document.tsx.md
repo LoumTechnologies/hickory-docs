@@ -49,6 +49,10 @@ A provider can answer with locations, nested document symbols, flat workspace sy
 
 The workspace buffer owns its language session, matching Apple and Android. Hiding a tab must not close the provider's document and erase usages or unsaved semantic knowledge. A small per-buffer subscription lets a mounted editor borrow current capabilities and diagnostics without owning their lifecycle; standalone document surfaces retain their existing local session. Provider attachment still follows readable text, and removing a buffer or unmounting the workspace closes its owner.
 
+Use the engine's document identity for literate controls and source folding.
+The same retained main can use a literal non-Markdown filename. The usual
+Markdown extension still provides a presentation hint while metadata loads.
+
 A query identifies a language-provider operation; its answer is a list of source locations. Menus and floating results consume these values without owning the LSP session or pane layout. Admit only authored workspace URI paths for opening. Other provider identities remain visible as unsupported results. Each request captures source, selection, provider and a monotonic ticket; late answers never navigate or replace a newer query. No query edits or saves text.
 
 <ui:copy id="simple-browser-semantic-locations">
@@ -245,6 +249,10 @@ export function runEditorCommand(buffer: Buffer,command: "tools"|"rectangle"|"cu
   view.dispatch({selection:EditorSelection.create(ranges),scrollIntoView:true});return true;
 }
 
+function usesLiteratePresentation(buffer: Buffer): boolean {
+  return Boolean(buffer.file.doc_id) || /\.(md|markdown)$/i.test(buffer.file.path);
+}
+
 export function Document({ buffer,current }: { buffer: Buffer;current?:()=>boolean }) {
   const host = useRef<HTMLDivElement>(null);
   const [csvReady, setCsvReady] = useState(false);
@@ -265,7 +273,7 @@ export function Document({ buffer,current }: { buffer: Buffer;current?:()=>boole
     return () => { cancelled = true; };
   }, []);
   const language = languageFromPath(buffer.file.path);
-  const literate = /\.(md|markdown)$/i.test(buffer.file.path);
+  const literate = usesLiteratePresentation(buffer);
   const debuggable = !buffer.transient && (literate || isDebuggable(language));
   const debug = useFollowingDebugSession(buffer.file.path,undefined,buffer,()=>!buffer.resourceDeleted&&(current?.()??true),{
     read:()=>{const file=buffer.file,text=buffer.text,namespace=buffer.namespace,revision=buffer.sourceRevision;return {uri:documentUri(file.path),workspace:namespace,namespace,identity:buffer,text,saved:!buffer.dirty&&!buffer.saving&&!buffer.resourceDeleted,current:()=>buffer.file===file&&buffer.sourceRevision===revision&&buffer.text===text&&buffer.namespace===namespace&&!buffer.resourceDeleted&&(current?.()??true)};},subscribe:buffer.subscribe
@@ -331,7 +339,7 @@ export function Document({ buffer,current }: { buffer: Buffer;current?:()=>boole
           const query = tr.effects.find(effect => effect.is(setSearchQuery))?.value as SearchQuery | undefined;
           return query && !query.literal ? { effects: setSearchQuery.of(new SearchQuery({ ...query, literal: true })) } : null;
         }),
-        foldService.of((state, from) => localFold(state, from, /\.(md|markdown)$/i.test(buffer.file.path))), EditorView.lineWrapping, language.of([]), prose.of([]), completion.of(completions({})),
+        foldService.of((state, from) => localFold(state, from, usesLiteratePresentation(buffer))), EditorView.lineWrapping, language.of([]), prose.of([]), completion.of(completions({})),
         keymap.of([...wordNavigationKeys, { key: "Enter", run: view => simpleEnter(view, buffer.file.path) }, { key: "Tab", run: simpleTab, shift: indentLess }, { key: "Ctrl-Space", run: startCompletion }, ...searchKeymap, ...foldKeymap, ...completionKeymap, ...defaultKeymap, ...historyKeymap]),
         EditorState.readOnly.of(buffer.readonly), EditorView.editable.of(!buffer.readonly),
         address.of(EditorView.contentAttributes.of({ "aria-label": buffer.file.path })),

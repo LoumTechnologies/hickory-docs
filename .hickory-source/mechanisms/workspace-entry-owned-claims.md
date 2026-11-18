@@ -3,6 +3,11 @@
 
 For maintainers protecting source writes after an explicit main relocation. The role supplies the entry; its compiler supplies actual output paths. Retained positive claims remain protective when current compilation fails. A plain map cannot create a workspace-root volume claim, and an unknown closure never proves another source writable. The small immutable compiler cache validates every consumed physical source guard; it avoids rerunning the compiler under the global history writer mutex.
 
+Files can also recover the entry's document identity from the retained role
+without compiling it. This optional reading observes a confirmed binding and
+never initializes one. The tree attaches the identity only to an exact visible
+file, so readable paths and source acquisition do not depend on that metadata.
+
 <ui:copy id="workspace-entry-owned-claims">
 mod claims {
     use super::*;
@@ -336,6 +341,24 @@ pub(crate) fn protect_source_body(
     source: &str,
 ) -> Result<(), String> {
     claims::protect_body(root, path, source)
+}
+#[cfg(unix)]
+pub(crate) fn retained_tree_entry(root: &std::path::Path) -> Result<Option<String>, String> {
+    leases::ordinary_root(root)?;
+    let base = hickory_workspace::data_root().map_err(|error| error.to_string())?;
+    let Some(bound) = storage::Bound::optional_under(&base, root)? else {
+        return Ok(None);
+    };
+    bound.unchanged()?;
+    Ok(if bound.payload.pending.is_none() {
+        bound.payload.current.path.clone()
+    } else {
+        None
+    })
+}
+#[cfg(not(unix))]
+pub(crate) fn retained_tree_entry(_root: &std::path::Path) -> Result<Option<String>, String> {
+    Ok(None)
 }
 </ui:copy>
 

@@ -248,6 +248,13 @@ The shared Apple host code built for the arm64 iOS simulator. Chained older
 inverses, interrupted publication recovery, iOS feature runtime, Android
 rendering, physical input and assistive technology still require acceptance.
 
+After restart, Files reattaches the retained entry's document identity and
+language independently of its filename. The actual engine reopened the moved
+`.spec` source through the document route with its original saved bytes and
+physical guard. A neighboring `.spec` with the same declaration remained an
+ordinary file. The rendered browser Move and connected-reading replay and
+TypeScript checking also passed.
+
 Six focused engine cases and the actual workspace-entry HTTP flow passed. The
 flow retained the entry identity across a fresh engine process, issued a new
 process-bound proof, and observed new source proofs after an edit and after

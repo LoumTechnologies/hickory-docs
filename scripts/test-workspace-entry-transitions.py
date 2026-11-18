@@ -46,6 +46,14 @@ def main():
   engine=start(root,state)
   try:
    origin=fixture.origin(engine);fresh=entry(origin);assert fresh['entry']==after['entry'] and fresh['workspace']!=after['workspace'];support.refused(lambda:post(origin,'workspace/entry/inputs',{'version':1,'token':review['token'],'capture':proposal['capture']}))
+   (root/'unselected.spec').write_text(MAIN)
+   files=call(origin,'GET','/api/files')['tree']
+   moved_node=next(child for folder in files if folder['path']=='next' for child in folder['children'] if child['path']=='next/main.spec')
+   ordinary=next(node for node in files if node['path']=='unselected.spec')
+   assert moved_node['doc_id'] and moved_node['language']=='markdown',moved_node
+   assert ordinary.get('doc_id') is None and ordinary.get('language') is None,ordinary
+   document=call(origin,'GET','/api/docs/'+urllib.parse.quote(moved_node['doc_id'],safe=''))
+   assert document['path']=='next/main.spec' and document['source']==MAIN and document['save_guard']==fresh['source_guard'],document
    undone=restore(origin,moved,'b'*32);assert (root/'project.md').read_text()==MAIN and not (root/'next/main.spec').exists();assert entry(origin)['entry']['path']=='project.md'
    redone=restore(origin,undone,'c'*32);assert (root/'next/main.spec').read_text()==MAIN and not (root/'project.md').exists();assert entry(origin)['entry']['generation']==before['entry']['generation']+3
    frozen=entry(origin);late=intent(origin,{'kind':'move','destination':'next/final.spec'},frozen);replacement=root/'replacement';replacement.write_text(MAIN);os.replace(replacement,root/'next/main.spec');support.refused(lambda:post(origin,'workspace/entry/inputs',{'version':1,'token':late['token'],'capture':{'context':late['context'],'edit':late['edit']}}));assert call(origin,'GET','/api/file?path=note.py')['content']=='readable = True\n'
