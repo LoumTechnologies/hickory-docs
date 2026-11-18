@@ -56,6 +56,15 @@ internal data class ParallelSnippet(
             append(source, start, source.length)
         }
 
+        fun plan(source: String, expansions: List<ParallelSnippetExpansion>, primary: Int,
+                 continuing: ParallelSnippet? = null): ParallelSnippetChange? {
+            if (continuing == null) return begin(source, expansions, primary)
+            val input = expansions.map { it.edit }
+            if (continuing.primaryIndex != primary ||
+                input.map { CompletionSelection(it.from,it.to) } != continuing.selections) return null
+            return continuing.preparingInput(source, input, expansions)
+        }
+
         fun begin(source: String, expansions: List<ParallelSnippetExpansion>, primary: Int): ParallelSnippetChange? {
             if (expansions.size !in 2..maxCarets || primary !in expansions.indices ||
                 source.length > 8 * maxBytes || !scalarText(source) || utf8Size(source) > 8 * maxBytes) return null
@@ -131,20 +140,35 @@ internal data class ParallelSnippet(
         return copy(peers = selected, primary = peers[primary].id)
     }
 
-    fun editing(source: String, input: List<NativeSourceEdit>): ParallelSnippetChange? {
+    fun editing(source: String, input: List<NativeSourceEdit>): ParallelSnippetChange? =
+        preparingInput(source, input, null)
+
+    private fun preparingInput(source: String, input: List<NativeSourceEdit>,
+                               expansions: List<ParallelSnippetExpansion>?): ParallelSnippetChange? {
         if (!matches(source) || input.size != peers.size) return null
         val budget = SnippetTransformBudget()
         val edits = mutableListOf<NativeSourceEdit>()
         val updated = mutableListOf<Peer>()
         var shift = 0
         var bytes = 0
+        var metadata = 0L
+        var fields = 0
         for ((index, peer) in peers.withIndex()) {
             val replacement = input[index]
             val range = localSelection(peer, CompletionSelection(replacement.from, replacement.to)) ?: return null
             if (replacement.text.length > maxBytes - bytes || !scalarText(replacement.text)) return null
-            val session = peer.session
-            val plan = if (session != null && session.active != 0) {
-                editSnippet(session, peer.text, range.from, range.to, replacement.text, budget) ?: return null
+            val inner = expansions?.get(index)?.fields
+            if (inner != null) {
+                val exit = inner.firstOrNull { it.index == 0 } ?: return null
+                if (exit.from != exit.to || exit.id == null || exit.id !in 0 until maxFields || exit.transform != null ||
+                    inner.size > maxFields || inner.any { !valid(replacement.text, it.from, it.to) }) return null
+            }
+            val current = peer.session
+            val plan = if (current != null && current.active != 0) {
+                val proposed = if (inner != null) nestSnippet(current, peer.text,
+                    SourceReplacement(range.from, range.to, replacement.text), emptyList(), inner, budget)
+                else editSnippet(current, peer.text, range.from, range.to, replacement.text, budget)
+                proposed ?: return null
             } else null
             val local = plan?.edits ?: listOf(NativeSourceEdit(range.from, range.to, replacement.text))
             val text = plan?.session?.source ?: replace(peer.text, local)
@@ -152,8 +176,26 @@ internal data class ParallelSnippet(
             if (bytes > maxBytes) return null
             val start = peer.from + shift
             val caret = range.from + replacement.text.length
-            updated.add(Peer(peer.id, start, start + text.length, text,
-                plan?.selection ?: CompletionSelection(caret, caret), plan?.session))
+            var selected = plan?.selection ?: CompletionSelection(caret, caret)
+            var session = plan?.session
+            if (plan == null && inner != null) {
+                val exit = inner.first { it.index == 0 }
+                val shifted = inner.map { it.copy(from = it.from + range.from, to = it.to + range.from) }
+                val live = beginSnippet(text, shifted, budget)
+                session = live
+                val field = live?.fields?.firstOrNull { it.id == live.current }
+                selected = if (field != null) CompletionSelection(field.from,field.to) else {
+                    if (shifted.size != 1 || exit.parent != null) return null
+                    CompletionSelection(range.from + exit.from,range.from + exit.to)
+                }
+            }
+            if (inner != null) {
+                val retained = session?.fields.orEmpty()
+                fields += retained.size
+                if (fields > maxFields) return null
+                metadata += snippetMetadataCost(retained, maxBytes - metadata) ?: return null
+            }
+            updated.add(Peer(peer.id, start, start + text.length, text, selected, session))
             shift += text.length - peer.text.length
 
             for (localEdit in local) {

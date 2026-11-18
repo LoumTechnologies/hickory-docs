@@ -253,7 +253,7 @@ class SourceSnippetController(private val buffer:DocumentBuffer) {
       buffer.state.composition != null || buffer.readOnly || buffer.saving) return false
   val ranges = expansions.map { it.edit.copy(text = "") }
   if (ranges.toSet() != buffer.multiRanges.toSet() || ranges[primary] != buffer.multiRanges.firstOrNull()) return false
-  val next = ParallelSnippet.begin(source, expansions, primary) ?: return false
+  val next = ParallelSnippet.plan(source, expansions, primary, continuing = parallel) ?: return false
   return intent == expectedIntent && admitted() && commitParallel(next, source)
  }
 

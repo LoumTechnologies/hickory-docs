@@ -67,7 +67,7 @@ func snippetHistoryCost(_ value:SourceSnippetHistoryContext?)->Int {
               expansions.indices.contains(primary),
               expansions[primary].edit.range == buffer.selection,
               Set(expansions.map { $0.edit.range }) == Set(buffer.multiRanges),
-              let prepared = ParallelSnippet.begin(source, expansions: expansions, primary: primary),
+              let prepared = ParallelSnippet.plan(source, expansions: expansions, primary: primary, continuing: parallel),
               expectedIntent == intent, admitted() else { return false }
         return commitParallel?(prepared, source) == true
     }

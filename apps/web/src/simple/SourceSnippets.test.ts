@@ -7,7 +7,8 @@ import {acceptCompletion,completionStatus,setSelectedCompletion,CompletionContex
 import {waitFor} from '@testing-library/react';
 import {completions,exclusiveCompletionSources} from '../lsp/completion';
 import {beginSnippet} from './SnippetSession';
-import {sourceSnippets,setSourceSnippet,readSourceSnippet,moveSourceSnippet,openSourceSnippetChoices,dispatchSourceSnippetTransactions,createSourceSnippetHistory,applyParallelSourceSnippet,sourceSnippetMenuState,readSourceEditorIntent} from './SourceSnippets';
+import {sourceSnippets,setSourceSnippet,readSourceSnippet,moveSourceSnippet,openSourceSnippetChoices,dispatchSourceSnippetTransactions,createSourceSnippetHistory,applyParallelSourceSnippet,sourceSnippetMenuState,readSourceEditorIntent,readParallelSourceSnippet} from './SourceSnippets';
+import {parallelSelections} from './ParallelSnippet';
 import type {SnippetField} from './SnippetExpansion';
 import derived from '../../../simple-contract/snippet-derived-cases.json';
 import {readSnippetTransform} from './SnippetTransform';
@@ -178,5 +179,42 @@ it('keeps two logical empty peers and applies an insertion to both when the view
   expect(undo(view)).toBe(true);
   expect(view.state.doc.length).toBe(0);
   expect(sourceSnippetMenuState(view).active).toBe(true);
+  const peers=parallelSelections(readParallelSourceSnippet(view.state)!);
+  expect(peers.ranges).toEqual([{from:0,to:0},{from:0,to:0}]);
+  expect(applyParallelSourceSnippet(view,'',peers.ranges.map(range=>({
+   ...range,text:'q',fields:[field(0,1,0,1),field(1,0,1,1)],
+  })),peers.primary,readSourceEditorIntent(view.state)!,()=>true)).toBe(true);
+  expect(authoredSource(view.state)).toBe('qq');
+  expect(view.state.selection.ranges).toHaveLength(2);
+ } finally {close();}
+});
+
+it('continues both outer caret scopes through nested template typing, exits and undo',()=>{
+ const source='aa / bb',ranges=[{from:0,to:2},{from:5,to:7}],{view,close}=parallelFixture(source,ranges,1);
+ const expansion=(range:{from:number;to:number},value:string)=>({
+  ...range,text:value+':'+value,fields:[
+   field(0,1,0,value.length),field(1,1,value.length+1,2*value.length+1),
+   field(2,0,2*value.length+1,2*value.length+1),
+  ],
+ });
+ try {
+  const append=(text:string,plans:ReturnType<typeof expansion>[]) =>
+   applyParallelSourceSnippet(view,text,plans,1,readSourceEditorIntent(view.state)!,()=>true);
+  expect(append(source,[expansion(ranges[0],'a'),expansion(ranges[1],'b')])).toBe(true);
+  const outer=readParallelSourceSnippet(view.state)!;
+  const context=parallelSelections(outer);
+  expect(append(outer.source,context.ranges.map(range=>expansion(range,'q')))).toBe(true);
+  const inner=readParallelSourceSnippet(view.state)!;
+  expect(inner.source).toBe('q:q:q:q / q:q:q:q');
+  expect(inner.peers.every(peer=>peer.session?.scopes?.length===1)).toBe(true);
+  view.dispatch({...view.state.replaceSelection('λ'),userEvent:'input.type'});
+  expect(authoredSource(view.state)).toBe('λ:λ:λ:λ / λ:λ:λ:λ');
+  expect(moveSourceSnippet(view,1)).toBe(true);
+  expect(readParallelSourceSnippet(view.state)?.peers.every(peer=>!peer.session?.scopes?.length)).toBe(true);
+  expect(undo(view)).toBe(true);
+  expect(readParallelSourceSnippet(view.state)?.peers.every(peer=>peer.session?.scopes?.length===1)).toBe(true);
+  expect(undo(view)).toBe(true);
+  expect(authoredSource(view.state)).toBe('a:a / b:b');
+  expect(readParallelSourceSnippet(view.state)?.peers.every(peer=>!peer.session?.scopes?.length)).toBe(true);
  } finally {close();}
 });

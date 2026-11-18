@@ -15,7 +15,10 @@ its final caret. The caller receives all edits and the resulting selections
 together. A stale source, invalid scalar boundary, overlapping replacement or
 failed transform leaves the previous state available for ordinary editing.
 Coincident empty regions retain their order in the session even when a text
-widget draws a single caret there.
+widget draws a single caret there. A nested template starts from the existing
+logical roster. Each peer mirrors the inner insertion through its own outer
+field and stores a local traversal scope. Reaching its inner exit resumes its
+original outer field. The combined field and transform limits still apply.
 
 ## Prepare browser source coordinates
 
@@ -24,7 +27,7 @@ only when it reflects the complete proposal.
 
 <ui:copy id="parallel-snippet-session-browser">
 import {
-  advanceSnippet, beginSnippet, editSnippet, snippetMetadataCost,
+  advanceSnippet, beginSnippet, editSnippet, nestSnippet, snippetMetadataCost,
   type SnippetSession,
 } from './SnippetSession';
 import type {SnippetField} from './SnippetExpansion';
@@ -198,6 +201,24 @@ export function selectParallelSnippet(
 export function editParallelSnippet(
   state: ParallelSnippet, source: string, input: readonly ParallelReplacement[],
 ): ParallelSnippetChange | null {
+  return prepareParallelInput(state, source, input);
+}
+
+export function planParallelSnippet(
+  source: string, expansions: readonly ParallelExpansion[], primary: number,
+  continuing: ParallelSnippet | null = null,
+): ParallelSnippetChange | null {
+  if (!continuing) return beginParallelSnippet(source, expansions, primary);
+  const previous = parallelSelections(continuing);
+  if (primary !== previous.primary || expansions.length !== previous.ranges.length ||
+      expansions.some((row, index) => !sameRange(row, previous.ranges[index]))) return null;
+  return prepareParallelInput(continuing, source, expansions);
+}
+
+function prepareParallelInput(
+  state: ParallelSnippet, source: string,
+  input: readonly (ParallelExpansion | ParallelReplacement)[],
+): ParallelSnippetChange | null {
   if (!current(state, source) || input.length !== state.peers.length) return null;
 
   const budget = {work: 0};
@@ -205,28 +226,60 @@ export function editParallelSnippet(
   const edits: ParallelReplacement[] = [];
   let shift = 0;
   let bytes = 0;
+  let metadata = 0;
+  let fields = 0;
   for (const [index, peer] of state.peers.entries()) {
     const replacement = input[index];
     const selected = selectPeer(peer, replacement);
     if (!selected || replacement.text.length > maxBytes - bytes ||
         !scalarText(replacement.text)) return null;
     const {from, to} = selected.selection;
+    const local = {from, to, text: replacement.text};
+    const expansion = 'fields' in replacement ? replacement : null;
+    if (expansion) {
+      const exit = expansion.fields.find(field => field.index === 0);
+      if (!exit || exit.from !== exit.to || exit.id == null || !Number.isSafeInteger(exit.id) ||
+          exit.id < 0 || exit.id >= maxFields || exit.transform || expansion.fields.length > maxFields ||
+          expansion.fields.some(field => !valid(expansion.text, field))) return null;
+    }
     let plan;
     if (peer.session?.active) {
-      plan = editSnippet(peer.session, peer.text, from, to, replacement.text, budget);
+      plan = expansion ?
+        nestSnippet(peer.session, peer.text, local, [], expansion.fields, budget) :
+        editSnippet(peer.session, peer.text, from, to, replacement.text, budget);
       if (!plan) return null;
     }
-    const text = plan?.session.source ?? replace(peer.text, [{from, to, text: replacement.text}]);
+    const text = plan?.session.source ?? replace(peer.text, [local]);
     const caret = from + replacement.text.length;
-    const selection = plan?.selection ?? {from: caret, to: caret};
+    let selection = plan?.selection ?? {from: caret, to: caret};
+    let session = plan?.session ?? null;
+    if (!plan && expansion) {
+      const exit = expansion.fields.find(field => field.index === 0);
+      if (!exit || !valid(expansion.text, exit) || exit.from !== exit.to) return null;
+      const shifted = expansion.fields.map(field => ({
+        ...field, from: field.from + from, to: field.to + from,
+      }));
+      session = beginSnippet(text, shifted, budget);
+      if (!session && (shifted.length !== 1 || exit.transform || exit.parent != null ||
+          exit.id == null || !Number.isSafeInteger(exit.id) || exit.id < 0 || exit.id >= maxFields)) return null;
+      const first = session?.fields.find(field => field.id === session!.current);
+      selection = first ? {from: first.from, to: first.to} : {from: from + exit.from, to: from + exit.to};
+    }
+    if (expansion) {
+      const retained = session?.fields ?? [];
+      const cost = snippetMetadataCost(retained);
+      fields += retained.length;
+      if (cost === null || cost > maxBytes - metadata || fields > maxFields) return null;
+      metadata += cost;
+    }
     const start = peer.from + shift;
     bytes += encoder.encode(text).length;
     if (bytes > maxBytes) return null;
-    peers.push({id: peer.id, from: start, to: start + text.length, text, selection, session: plan?.session ?? null});
+    peers.push({id: peer.id, from: start, to: start + text.length, text, selection, session});
     shift += text.length - peer.text.length;
 
-    for (const local of plan?.edits ?? [{from, to, text: replacement.text}]) {
-      const edit = {from: peer.from + local.from, to: peer.from + local.to, text: local.text};
+    for (const replacement of plan?.edits ?? [local]) {
+      const edit = {from: peer.from + replacement.from, to: peer.from + replacement.to, text: replacement.text};
       const previous = edits.at(-1);
       if (previous && previous.to > edit.from) return null;
       if (previous && previous.to === edit.from) {
@@ -422,21 +475,51 @@ struct ParallelSnippet {
         return next
     }
 
+    static func plan(_ source: String, expansions: [ParallelSnippetExpansion], primary: Int,
+                     continuing: ParallelSnippet? = nil) -> ParallelSnippetChange? {
+        guard let continuing else { return begin(source, expansions: expansions, primary: primary) }
+        let input = expansions.map(\.edit)
+        guard continuing.primaryIndex == primary, input.map(\.range) == continuing.selections else { return nil }
+        return continuing.preparingInput(source, input: input, expansions: expansions)
+    }
+
     func editing(_ source: String, input: [NativeSourceEdit]) -> ParallelSnippetChange? {
+        preparingInput(source, input: input, expansions: nil)
+    }
+
+    private func preparingInput(_ source: String, input: [NativeSourceEdit],
+                                expansions: [ParallelSnippetExpansion]?) -> ParallelSnippetChange? {
         guard matches(source), input.count == peers.count else { return nil }
         var budget = SnippetTransformBudget()
         var edits: [NativeSourceEdit] = []
         var next = self
         var shift = 0
         var bytes = 0
+        var metadata = 0
+        var fields = 0
         for (index, peer) in peers.enumerated() {
             let replacement = input[index]
             guard let range = localSelection(replacement.range, in: peer),
                   replacement.text.utf8.count <= Self.maxBytes - bytes else { return nil }
+            let inner = expansions?[index].fields
+            if let inner {
+                guard let exit = inner.first(where: { $0.index == 0 }), exit.from == exit.to,
+                      let id = exit.id, (0..<Self.maxFields).contains(id), exit.transform == nil,
+                      inner.count <= Self.maxFields, inner.allSatisfy({ field in
+                          field.from >= 0 && field.from <= field.to && field.to <= replacement.text.utf16.count &&
+                              Self.valid(replacement.text as NSString,
+                                  NSRange(location: field.from, length: field.to - field.from))
+                      }) else { return nil }
+            }
             let plan: SnippetInput?
             if let session = peer.session, session.active != 0 {
-                plan = editSnippet(session, source: peer.text, from: range.location, to: NSMaxRange(range),
-                                   text: replacement.text, budget: &budget)
+                if let inner {
+                    let primary = SourceReplacement(from: range.location, to: NSMaxRange(range), text: replacement.text)
+                    plan = nestSnippet(session, source: peer.text, primary: primary, additional: [], inner: inner, budget: &budget)
+                } else {
+                    plan = editSnippet(session, source: peer.text, from: range.location, to: NSMaxRange(range),
+                                       text: replacement.text, budget: &budget)
+                }
                 if plan == nil { return nil }
             } else {
                 plan = nil
@@ -446,11 +529,35 @@ struct ParallelSnippet {
             bytes += text.utf8.count
             guard bytes <= Self.maxBytes else { return nil }
             let caret = range.location + replacement.text.utf16.count
-            let selected = plan.map { NSRange(location: $0.selection.from, length: $0.selection.to - $0.selection.from) }
+            var selected = plan.map { NSRange(location: $0.selection.from, length: $0.selection.to - $0.selection.from) }
+            var session = plan?.session
+            if plan == nil, let inner {
+                let exit = inner.first { $0.index == 0 }!
+                let shifted = inner.map { field -> SnippetField in
+                    var copy = field
+                    copy.from += range.location
+                    copy.to += range.location
+                    return copy
+                }
+                session = beginSnippet(text, fields: shifted, budget: &budget)
+                if let live = session, let field = live.fields.first(where: { $0.id == live.current }) {
+                    selected = NSRange(location: field.from, length: field.to - field.from)
+                } else {
+                    guard shifted.count == 1, exit.parent == nil else { return nil }
+                    selected = NSRange(location: range.location + exit.from, length: 0)
+                }
+            }
+            if inner != nil {
+                let retained = session?.fields ?? []
+                fields += retained.count
+                guard fields <= Self.maxFields, let cost = snippetMetadataCost(retained),
+                      cost <= Self.maxBytes - metadata else { return nil }
+                metadata += cost
+            }
             let updatedLength = text.utf16.count
             next.peers[index] = Peer(
                 id: peer.id, range: NSRange(location: peer.range.location + shift, length: updatedLength),
-                text: text, selection: selected ?? NSRange(location: caret, length: 0), session: plan?.session
+                text: text, selection: selected ?? NSRange(location: caret, length: 0), session: session
             )
             shift += updatedLength - peer.range.length
             for replacement in local {
@@ -564,6 +671,15 @@ internal data class ParallelSnippet(
             append(source, start, source.length)
         }
 
+        fun plan(source: String, expansions: List<ParallelSnippetExpansion>, primary: Int,
+                 continuing: ParallelSnippet? = null): ParallelSnippetChange? {
+            if (continuing == null) return begin(source, expansions, primary)
+            val input = expansions.map { it.edit }
+            if (continuing.primaryIndex != primary ||
+                input.map { CompletionSelection(it.from,it.to) } != continuing.selections) return null
+            return continuing.preparingInput(source, input, expansions)
+        }
+
         fun begin(source: String, expansions: List<ParallelSnippetExpansion>, primary: Int): ParallelSnippetChange? {
             if (expansions.size !in 2..maxCarets || primary !in expansions.indices ||
                 source.length > 8 * maxBytes || !scalarText(source) || utf8Size(source) > 8 * maxBytes) return null
@@ -639,20 +755,35 @@ internal data class ParallelSnippet(
         return copy(peers = selected, primary = peers[primary].id)
     }
 
-    fun editing(source: String, input: List<NativeSourceEdit>): ParallelSnippetChange? {
+    fun editing(source: String, input: List<NativeSourceEdit>): ParallelSnippetChange? =
+        preparingInput(source, input, null)
+
+    private fun preparingInput(source: String, input: List<NativeSourceEdit>,
+                               expansions: List<ParallelSnippetExpansion>?): ParallelSnippetChange? {
         if (!matches(source) || input.size != peers.size) return null
         val budget = SnippetTransformBudget()
         val edits = mutableListOf<NativeSourceEdit>()
         val updated = mutableListOf<Peer>()
         var shift = 0
         var bytes = 0
+        var metadata = 0L
+        var fields = 0
         for ((index, peer) in peers.withIndex()) {
             val replacement = input[index]
             val range = localSelection(peer, CompletionSelection(replacement.from, replacement.to)) ?: return null
             if (replacement.text.length > maxBytes - bytes || !scalarText(replacement.text)) return null
-            val session = peer.session
-            val plan = if (session != null && session.active != 0) {
-                editSnippet(session, peer.text, range.from, range.to, replacement.text, budget) ?: return null
+            val inner = expansions?.get(index)?.fields
+            if (inner != null) {
+                val exit = inner.firstOrNull { it.index == 0 } ?: return null
+                if (exit.from != exit.to || exit.id == null || exit.id !in 0 until maxFields || exit.transform != null ||
+                    inner.size > maxFields || inner.any { !valid(replacement.text, it.from, it.to) }) return null
+            }
+            val current = peer.session
+            val plan = if (current != null && current.active != 0) {
+                val proposed = if (inner != null) nestSnippet(current, peer.text,
+                    SourceReplacement(range.from, range.to, replacement.text), emptyList(), inner, budget)
+                else editSnippet(current, peer.text, range.from, range.to, replacement.text, budget)
+                proposed ?: return null
             } else null
             val local = plan?.edits ?: listOf(NativeSourceEdit(range.from, range.to, replacement.text))
             val text = plan?.session?.source ?: replace(peer.text, local)
@@ -660,8 +791,26 @@ internal data class ParallelSnippet(
             if (bytes > maxBytes) return null
             val start = peer.from + shift
             val caret = range.from + replacement.text.length
-            updated.add(Peer(peer.id, start, start + text.length, text,
-                plan?.selection ?: CompletionSelection(caret, caret), plan?.session))
+            var selected = plan?.selection ?: CompletionSelection(caret, caret)
+            var session = plan?.session
+            if (plan == null && inner != null) {
+                val exit = inner.first { it.index == 0 }
+                val shifted = inner.map { it.copy(from = it.from + range.from, to = it.to + range.from) }
+                val live = beginSnippet(text, shifted, budget)
+                session = live
+                val field = live?.fields?.firstOrNull { it.id == live.current }
+                selected = if (field != null) CompletionSelection(field.from,field.to) else {
+                    if (shifted.size != 1 || exit.parent != null) return null
+                    CompletionSelection(range.from + exit.from,range.from + exit.to)
+                }
+            }
+            if (inner != null) {
+                val retained = session?.fields.orEmpty()
+                fields += retained.size
+                if (fields > maxFields) return null
+                metadata += snippetMetadataCost(retained, maxBytes - metadata) ?: return null
+            }
+            updated.add(Peer(peer.id, start, start + text.length, text, selected, session))
             shift += text.length - peer.text.length
 
             for (localEdit in local) {

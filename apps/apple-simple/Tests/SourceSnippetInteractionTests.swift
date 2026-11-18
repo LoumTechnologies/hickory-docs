@@ -57,6 +57,17 @@ import AppKit
         XCTAssertEqual(buffer.multiRanges,afterInput)
         XCTAssertTrue(buffer.snippets.move(1))
         XCTAssertEqual(buffer.multiRanges.map(\.location),[7,17])
+        XCTAssertTrue(buffer.snippets.move(-1))
+        let outer=try XCTUnwrap(buffer.snippets.parallel)
+        let nested=outer.selections.map{expansion("q",$0)}
+        XCTAssertTrue(buffer.snippets.applyParallel(source:outer.source,expansions:nested,
+            primary:outer.primaryIndex,expectedIntent:buffer.snippets.intent,admitted:{true}))
+        XCTAssertEqual(buffer.text,"q:q:q:q / q:q:q:q")
+        XCTAssertTrue(buffer.snippets.parallel?.peers.allSatisfy{$0.session?.scopes.count==1}==true)
+        XCTAssertTrue(buffer.snippets.move(1))
+        XCTAssertTrue(buffer.snippets.parallel?.peers.allSatisfy{$0.session?.scopes.isEmpty==true}==true)
+        editor.text.undoManager?.undo()
+        XCTAssertEqual(buffer.text,"λ😀:λ😀 / λ😀:λ😀")
         XCTAssertEqual(buffer.base,source)
         #endif
     }

@@ -26,7 +26,7 @@ import {prepareEditorChanges} from '../editor/textInput';
 import {beginSnippet,advanceSnippet,editSnippet,completeSnippet,nestSnippet,type SnippetSession} from './SnippetSession';
 import type {CompletionDraft} from './CompletionPlan';
 import {
- beginParallelSnippet, editParallelSnippet, moveParallelSnippet, parallelSelections, selectParallelSnippet,
+ editParallelSnippet, moveParallelSnippet, parallelSelections, planParallelSnippet, selectParallelSnippet,
  type ParallelExpansion, type ParallelReplacement, type ParallelSnippet, type ParallelSnippetChange,
 } from './ParallelSnippet';
 import {snippetTransformBytes} from './SnippetTransform';
@@ -193,7 +193,7 @@ function parallelSelection(session: ParallelSnippet): EditorSelection {
   );
 }
 
-function readParallelSourceSnippet(state: EditorState): ParallelSnippet | null {
+export function readParallelSourceSnippet(state: EditorState): ParallelSnippet | null {
   return state.field(parallelSnippetState, false) ?? null;
 }
 
@@ -298,13 +298,18 @@ export function applyParallelSourceSnippet(
       view.state.readOnly || !view.state.facet(EditorView.editable) ||
       authoredSource(view.state) !== source || !view.state.facet(EditorState.allowMultipleSelections)) return false;
   const selected = view.state.selection;
-  if (selected.mainIndex !== primary || expansions.length !== selected.ranges.length) return false;
-  for (const [index, range] of selected.ranges.entries()) {
-    const edit = expansions[index];
-    if (edit.from !== authoredOffset(view.state, range.from) ||
-        edit.to !== authoredOffset(view.state, range.to)) return false;
-  }
-  const plan = beginParallelSnippet(source, expansions, primary);
+  const continuing = readParallelSourceSnippet(view.state);
+  if (continuing && !parallelSelection(continuing).eq(selected)) return false;
+  const capture = continuing ? parallelSelections(continuing) : {
+    primary: selected.mainIndex,
+    ranges: selected.ranges.map(range => ({
+      from: authoredOffset(view.state, range.from), to: authoredOffset(view.state, range.to),
+    })),
+  };
+  if (capture.primary !== primary || expansions.length !== capture.ranges.length ||
+      capture.ranges.some((range, index) => range.from !== expansions[index].from ||
+        range.to !== expansions[index].to)) return false;
+  const plan = planParallelSnippet(source, expansions, primary, continuing);
   if (!plan) return false;
   const prepared = prepareParallelSourceBatch(view.state, plan);
   if (!prepared || !admitted() || readSourceEditorIntent(view.state) !== intent) return false;
@@ -455,7 +460,7 @@ func snippetHistoryCost(_ value:SourceSnippetHistoryContext?)->Int {
               expansions.indices.contains(primary),
               expansions[primary].edit.range == buffer.selection,
               Set(expansions.map { $0.edit.range }) == Set(buffer.multiRanges),
-              let prepared = ParallelSnippet.begin(source, expansions: expansions, primary: primary),
+              let prepared = ParallelSnippet.plan(source, expansions: expansions, primary: primary, continuing: parallel),
               expectedIntent == intent, admitted() else { return false }
         return commitParallel?(prepared, source) == true
     }
@@ -1001,7 +1006,7 @@ class SourceSnippetController(private val buffer:DocumentBuffer) {
       buffer.state.composition != null || buffer.readOnly || buffer.saving) return false
   val ranges = expansions.map { it.edit.copy(text = "") }
   if (ranges.toSet() != buffer.multiRanges.toSet() || ranges[primary] != buffer.multiRanges.firstOrNull()) return false
-  val next = ParallelSnippet.begin(source, expansions, primary) ?: return false
+  val next = ParallelSnippet.plan(source, expansions, primary, continuing = parallel) ?: return false
   return intent == expectedIntent && admitted() && commitParallel(next, source)
  }
 
@@ -1150,7 +1155,8 @@ import {acceptCompletion,completionStatus,setSelectedCompletion,CompletionContex
 import {waitFor} from '@testing-library/react';
 import {completions,exclusiveCompletionSources} from '../lsp/completion';
 import {beginSnippet} from './SnippetSession';
-import {sourceSnippets,setSourceSnippet,readSourceSnippet,moveSourceSnippet,openSourceSnippetChoices,dispatchSourceSnippetTransactions,createSourceSnippetHistory,applyParallelSourceSnippet,sourceSnippetMenuState,readSourceEditorIntent} from './SourceSnippets';
+import {sourceSnippets,setSourceSnippet,readSourceSnippet,moveSourceSnippet,openSourceSnippetChoices,dispatchSourceSnippetTransactions,createSourceSnippetHistory,applyParallelSourceSnippet,sourceSnippetMenuState,readSourceEditorIntent,readParallelSourceSnippet} from './SourceSnippets';
+import {parallelSelections} from './ParallelSnippet';
 import type {SnippetField} from './SnippetExpansion';
 import derived from '../../../simple-contract/snippet-derived-cases.json';
 import {readSnippetTransform} from './SnippetTransform';
@@ -1321,6 +1327,43 @@ it('keeps two logical empty peers and applies an insertion to both when the view
   expect(undo(view)).toBe(true);
   expect(view.state.doc.length).toBe(0);
   expect(sourceSnippetMenuState(view).active).toBe(true);
+  const peers=parallelSelections(readParallelSourceSnippet(view.state)!);
+  expect(peers.ranges).toEqual([{from:0,to:0},{from:0,to:0}]);
+  expect(applyParallelSourceSnippet(view,'',peers.ranges.map(range=>({
+   ...range,text:'q',fields:[field(0,1,0,1),field(1,0,1,1)],
+  })),peers.primary,readSourceEditorIntent(view.state)!,()=>true)).toBe(true);
+  expect(authoredSource(view.state)).toBe('qq');
+  expect(view.state.selection.ranges).toHaveLength(2);
+ } finally {close();}
+});
+
+it('continues both outer caret scopes through nested template typing, exits and undo',()=>{
+ const source='aa / bb',ranges=[{from:0,to:2},{from:5,to:7}],{view,close}=parallelFixture(source,ranges,1);
+ const expansion=(range:{from:number;to:number},value:string)=>({
+  ...range,text:value+':'+value,fields:[
+   field(0,1,0,value.length),field(1,1,value.length+1,2*value.length+1),
+   field(2,0,2*value.length+1,2*value.length+1),
+  ],
+ });
+ try {
+  const append=(text:string,plans:ReturnType<typeof expansion>[]) =>
+   applyParallelSourceSnippet(view,text,plans,1,readSourceEditorIntent(view.state)!,()=>true);
+  expect(append(source,[expansion(ranges[0],'a'),expansion(ranges[1],'b')])).toBe(true);
+  const outer=readParallelSourceSnippet(view.state)!;
+  const context=parallelSelections(outer);
+  expect(append(outer.source,context.ranges.map(range=>expansion(range,'q')))).toBe(true);
+  const inner=readParallelSourceSnippet(view.state)!;
+  expect(inner.source).toBe('q:q:q:q / q:q:q:q');
+  expect(inner.peers.every(peer=>peer.session?.scopes?.length===1)).toBe(true);
+  view.dispatch({...view.state.replaceSelection('λ'),userEvent:'input.type'});
+  expect(authoredSource(view.state)).toBe('λ:λ:λ:λ / λ:λ:λ:λ');
+  expect(moveSourceSnippet(view,1)).toBe(true);
+  expect(readParallelSourceSnippet(view.state)?.peers.every(peer=>!peer.session?.scopes?.length)).toBe(true);
+  expect(undo(view)).toBe(true);
+  expect(readParallelSourceSnippet(view.state)?.peers.every(peer=>peer.session?.scopes?.length===1)).toBe(true);
+  expect(undo(view)).toBe(true);
+  expect(authoredSource(view.state)).toBe('a:a / b:b');
+  expect(readParallelSourceSnippet(view.state)?.peers.every(peer=>!peer.session?.scopes?.length)).toBe(true);
  } finally {close();}
 });
 </ui:copy>
@@ -1391,6 +1434,17 @@ import AppKit
         XCTAssertEqual(buffer.multiRanges,afterInput)
         XCTAssertTrue(buffer.snippets.move(1))
         XCTAssertEqual(buffer.multiRanges.map(\.location),[7,17])
+        XCTAssertTrue(buffer.snippets.move(-1))
+        let outer=try XCTUnwrap(buffer.snippets.parallel)
+        let nested=outer.selections.map{expansion("q",$0)}
+        XCTAssertTrue(buffer.snippets.applyParallel(source:outer.source,expansions:nested,
+            primary:outer.primaryIndex,expectedIntent:buffer.snippets.intent,admitted:{true}))
+        XCTAssertEqual(buffer.text,"q:q:q:q / q:q:q:q")
+        XCTAssertTrue(buffer.snippets.parallel?.peers.allSatisfy{$0.session?.scopes.count==1}==true)
+        XCTAssertTrue(buffer.snippets.move(1))
+        XCTAssertTrue(buffer.snippets.parallel?.peers.allSatisfy{$0.session?.scopes.isEmpty==true}==true)
+        editor.text.undoManager?.undo()
+        XCTAssertEqual(buffer.text,"λ😀:λ😀 / λ😀:λ😀")
         XCTAssertEqual(buffer.base,source)
         #endif
     }
@@ -1670,6 +1724,16 @@ class SourceSnippetInteractionTest {
   assertEquals(after,buffer.multiRanges)
   assertTrue(buffer.snippets.move(1))
   assertEquals(listOf(7,17),buffer.multiRanges.map{it.from})
+  assertTrue(buffer.snippets.move(-1))
+  val outer=buffer.snippets.parallel!!
+  val nested=outer.selections.map{expansion(NativeSourceEdit(it.from,it.to,""),"q")}
+  assertTrue(buffer.snippets.applyParallel(outer.source,nested,outer.primaryIndex,buffer.snippets.intent){true})
+  assertEquals("q:q:q:q / q:q:q:q",buffer.text)
+  assertTrue(buffer.snippets.parallel!!.peers.all{it.session?.scopes?.size==1})
+  assertTrue(buffer.snippets.move(1))
+  assertTrue(buffer.snippets.parallel!!.peers.all{it.session?.scopes?.isEmpty()==true})
+  assertTrue(buffer.snippets.undoSource())
+  assertEquals("λ😀:λ😀 / λ😀:λ😀",buffer.text)
   assertEquals(source,buffer.base)
  }
  @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)

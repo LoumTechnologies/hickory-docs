@@ -98,7 +98,11 @@ func editSnippet(_ session:SnippetSession,source:String,from:Int,to:Int,text:Str
     return SnippetInput(session:SnippetSession(source:after,fields:updated,active:session.active,current:origin.id!,scopes:session.scopes),edits:native,selection:CompletionSelection(from:caret,to:caret))
 }
 func completeSnippet(_ session:SnippetSession,source:String,primary:SourceReplacement,additional:[SourceReplacement])->SnippetInput? {
-    guard let input=editSnippet(session,source:source,from:primary.from,to:primary.to,text:primary.text) else{return nil}
+    var budget=SnippetTransformBudget()
+    return completeSnippet(session,source:source,primary:primary,additional:additional,budget:&budget)
+}
+func completeSnippet(_ session:SnippetSession,source:String,primary:SourceReplacement,additional:[SourceReplacement],budget:inout SnippetTransformBudget)->SnippetInput? {
+    guard let input=editSnippet(session,source:source,from:primary.from,to:primary.to,text:primary.text,budget:&budget) else{return nil}
     if additional.isEmpty{return input}
     let start=session.fields.map{$0.from}.min()!,end=session.fields.map{$0.to}.max()!,text=source as NSString
     var shift=0,bytes=0,edits=input.edits.map{SourceReplacement(from:$0.range.location,to:NSMaxRange($0.range),text:$0.text)}
@@ -112,14 +116,18 @@ func completeSnippet(_ session:SnippetSession,source:String,primary:SourceReplac
     for index in edits.indices.dropFirst(){guard edits[index-1].to<=edits[index].from,edits[index-1].from != edits[index].from else{return nil}}
     let output=NSMutableString(string:source);for edit in edits.reversed(){output.replaceCharacters(in:NSRange(location:edit.from,length:edit.to-edit.from),with:edit.text)}
     let after=output as String,fields=input.session.fields.map{field in var value=field;value.from+=shift;value.to+=shift;return value}
-    guard beginSnippet(after,fields:fields) != nil else{return nil}
+    guard beginSnippet(after,fields:fields,budget:&budget) != nil else{return nil}
     var next=input.session;next.source=after;next.fields=fields
     return SnippetInput(session:next,edits:edits.map{NativeSourceEdit(range:NSRange(location:$0.from,length:$0.to-$0.from),text:$0.text)},selection:CompletionSelection(from:input.selection.from+shift,to:input.selection.to+shift))
 }
 func nestSnippet(_ session:SnippetSession,source:String,primary:SourceReplacement,additional:[SourceReplacement],inner:[SnippetField])->SnippetInput? {
+    var budget=SnippetTransformBudget()
+    return nestSnippet(session,source:source,primary:primary,additional:additional,inner:inner,budget:&budget)
+}
+func nestSnippet(_ session:SnippetSession,source:String,primary:SourceReplacement,additional:[SourceReplacement],inner:[SnippetField],budget:inout SnippetTransformBudget)->SnippetInput? {
     guard session.scopes.count<32,!inner.isEmpty,let innerCost=snippetMetadataCost(inner),let exit=inner.first(where:{$0.index==0}) else{return nil}
-    let parsed=beginSnippet(primary.text,fields:inner);guard parsed != nil || (inner.count==1 && exit.id != nil && exit.parent==nil && exit.from==exit.to && snippetScalar(primary.text as NSString,exit.from)) else{return nil}
-    guard let origin=session.fields.first(where:{$0.id==session.current&&$0.from<=primary.from&&$0.to>=primary.to}),let input=completeSnippet(session,source:source,primary:primary,additional:additional) else{return nil}
+    let parsed=beginSnippet(primary.text,fields:inner,budget:&budget);guard parsed != nil || (inner.count==1 && exit.id != nil && exit.parent==nil && exit.from==exit.to && snippetScalar(primary.text as NSString,exit.from)) else{return nil}
+    guard let origin=session.fields.first(where:{$0.id==session.current&&$0.from<=primary.from&&$0.to>=primary.to}),let input=completeSnippet(session,source:source,primary:primary,additional:additional,budget:&budget) else{return nil}
     let parents=input.session.fields.filter{$0.transform==nil&&$0.index==session.active};guard let current=parents.first(where:{$0.id==input.session.current}) else{return nil}
     let relative=primary.from-origin.from,order=Array(Set(inner.filter{$0.transform==nil&&$0.index>0}.map{$0.index})).sorted()
     if order.isEmpty{var result=input;let caret=current.from+relative+exit.from;result.selection=CompletionSelection(from:caret,to:caret);return result}
@@ -134,7 +142,7 @@ func nestSnippet(_ session:SnippetSession,source:String,primary:SourceReplacemen
             if parent.id==current.id{if field.index==0{exitId=id}else if field.id==parsed!.current{currentId=id}}
         }
     }
-    guard beginSnippet(input.session.source,fields:fields) != nil,let selected=fields.first(where:{$0.id==currentId}) else{return nil}
+    guard beginSnippet(input.session.source,fields:fields,budget:&budget) != nil,let selected=fields.first(where:{$0.id==currentId}) else{return nil}
     let scope=SnippetScope(order:order.map{indices[$0]!},exitIndex:indices[0]!,exitId:exitId,outerActive:session.active,outerCurrent:input.session.current)
     var result=input;result.session.fields=fields;result.session.active=scope.order[0];result.session.current=currentId;result.session.scopes.append(scope);result.selection=CompletionSelection(from:selected.from,to:selected.to);return result
 }

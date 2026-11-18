@@ -93,6 +93,16 @@ class SourceSnippetInteractionTest {
   assertEquals(after,buffer.multiRanges)
   assertTrue(buffer.snippets.move(1))
   assertEquals(listOf(7,17),buffer.multiRanges.map{it.from})
+  assertTrue(buffer.snippets.move(-1))
+  val outer=buffer.snippets.parallel!!
+  val nested=outer.selections.map{expansion(NativeSourceEdit(it.from,it.to,""),"q")}
+  assertTrue(buffer.snippets.applyParallel(outer.source,nested,outer.primaryIndex,buffer.snippets.intent){true})
+  assertEquals("q:q:q:q / q:q:q:q",buffer.text)
+  assertTrue(buffer.snippets.parallel!!.peers.all{it.session?.scopes?.size==1})
+  assertTrue(buffer.snippets.move(1))
+  assertTrue(buffer.snippets.parallel!!.peers.all{it.session?.scopes?.isEmpty()==true})
+  assertTrue(buffer.snippets.undoSource())
+  assertEquals("λ😀:λ😀 / λ😀:λ😀",buffer.text)
   assertEquals(source,buffer.base)
  }
  @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)

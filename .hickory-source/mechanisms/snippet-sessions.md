@@ -99,8 +99,8 @@ export function editSnippet(session:SnippetSession,source:string,from:number,to:
 Compose the primary mirrored edit with imports once in original source coordinates. Imports outside the complete field forest may change source length; only imports before it shift field ranges and the intended caret. Merge coincident prefix insertions in provider order and reject interior or overlapping additions before returning any proposal.
 
 <ui:copy id="snippet-session-browser-completion">
-export function completeSnippet(session:SnippetSession,source:string,primary:SnippetEdit,additional:readonly SnippetEdit[]):SnippetInput|null {
- const input=editSnippet(session,source,primary.from,primary.to,primary.text);if(!input)return null;
+export function completeSnippet(session:SnippetSession,source:string,primary:SnippetEdit,additional:readonly SnippetEdit[],budget:SnippetTransformBudget={work:0}):SnippetInput|null {
+ const input=editSnippet(session,source,primary.from,primary.to,primary.text,budget);if(!input)return null;
  if(!additional.length)return input;
  const start=Math.min(...session.fields.map(field=>field.from)),end=Math.max(...session.fields.map(field=>field.to));
  let shift=0,bytes=0;const edits=input.edits.map(edit=>({...edit}));
@@ -115,26 +115,26 @@ export function completeSnippet(session:SnippetSession,source:string,primary:Sni
  if(edits.some((edit,index)=>index>0&&(edits[index-1].to>edit.from||edits[index-1].from===edit.from)))return null;
  let after=source;for(const edit of [...edits].reverse())after=after.slice(0,edit.from)+edit.text+after.slice(edit.to);
  const fields=input.session.fields.map(field=>({...field,from:field.from+shift,to:field.to+shift}));
- if(!beginSnippet(after,fields))return null;
+ if(!beginSnippet(after,fields,budget))return null;
  return {session:{...input.session,source:after,fields},edits,selection:{from:input.selection.from+shift,to:input.selection.to+shift}};
 }
-export function nestSnippet(session:SnippetSession,source:string,primary:SnippetEdit,additional:readonly SnippetEdit[],inner:readonly SnippetField[]):SnippetInput|null {
+export function nestSnippet(session:SnippetSession,source:string,primary:SnippetEdit,additional:readonly SnippetEdit[],inner:readonly SnippetField[],budget:SnippetTransformBudget={work:0}):SnippetInput|null {
  if((session.scopes?.length??0)>=32||!inner.length||snippetMetadataCost(session.fields)===null)return null;
  const innerBytes=snippetMetadataCost(inner),exit=inner.find(field=>field.index===0);if(innerBytes===null||!exit)return null;
  const origin=session.fields.find(field=>field.id===session.current&&field.from<=primary.from&&field.to>=primary.to);if(!origin)return null;
- const input=completeSnippet(session,source,primary,additional);if(!input)return null;
+ const input=completeSnippet(session,source,primary,additional,budget);if(!input)return null;
  const parents=input.session.fields.filter(field=>!field.transform&&field.index===session.active),current=parents.find(field=>field.id===input.session.current);if(!current)return null;
  const relative=primary.from-origin.from,order=[...new Set(inner.filter(field=>!field.transform&&field.index>0).map(field=>field.index))].sort((a,b)=>a-b);
  if(order.length){const retainedBytes=snippetMetadataCost(input.session.fields);if(retainedBytes===null||retainedBytes+parents.length*innerBytes>1048576||input.session.fields.length+parents.length*inner.length>4096)return null;}
  // Reserve the complete mirrored forest before beginSnippet can clone inner choices.
- const parsed=beginSnippet(primary.text,inner);if(!parsed&&(inner.length!==1||exit.id===undefined||exit.parent!=null||exit.from!==exit.to||!scalar(primary.text,exit.from)))return null;
+ const parsed=beginSnippet(primary.text,inner,budget);if(!parsed&&(inner.length!==1||exit.id===undefined||exit.parent!=null||exit.from!==exit.to||!scalar(primary.text,exit.from)))return null;
  if(!order.length){const caret=current.from+relative+exit.from;return {...input,selection:{from:caret,to:caret}};}
  let nextIndex=Math.max(...input.session.fields.map(field=>field.index))+1;const indices=new Map([...order,0].map(index=>[index,nextIndex++]));if(nextIndex>1004097)return null;
  const used=new Set(input.session.fields.map(field=>field.id!)),fields=[...input.session.fields];let nextId=0,exitId=-1,currentId=-1;
  for(const parent of parents){const ids=new Map<number,number>();for(const field of inner){while(used.has(nextId))nextId++;if(nextId>=4096)return null;ids.set(field.id!,nextId);used.add(nextId++);}
   for(const field of inner){const id=ids.get(field.id!)!;fields.push({...field,id,index:indices.get(field.index)!,parent:field.parent==null?parent.id!:ids.get(field.parent)!,from:parent.from+relative+field.from,to:parent.from+relative+field.to});if(parent.id===current.id){if(field.index===0)exitId=id;else if(field.id===parsed!.current)currentId=id;}}
  }
- if(snippetMetadataCost(fields)===null||!beginSnippet(input.session.source,fields))return null;
+ if(snippetMetadataCost(fields)===null||!beginSnippet(input.session.source,fields,budget))return null;
  const scope:SnippetScope={order:order.map(index=>indices.get(index)!),exitIndex:indices.get(0)!,exitId,outerActive:session.active,outerCurrent:input.session.current},active=scope.order[0],selected=fields.find(field=>field.id===currentId);if(!selected)return null;
  return {...input,session:{...input.session,fields,active,current:currentId,scopes:[...(input.session.scopes??[]),scope]},selection:{from:selected.from,to:selected.to}};
 }
@@ -297,7 +297,11 @@ Compose the primary mirrored edit with imports once in original source coordinat
 
 <ui:copy id="snippet-session-apple-completion">
 func completeSnippet(_ session:SnippetSession,source:String,primary:SourceReplacement,additional:[SourceReplacement])->SnippetInput? {
-    guard let input=editSnippet(session,source:source,from:primary.from,to:primary.to,text:primary.text) else{return nil}
+    var budget=SnippetTransformBudget()
+    return completeSnippet(session,source:source,primary:primary,additional:additional,budget:&budget)
+}
+func completeSnippet(_ session:SnippetSession,source:String,primary:SourceReplacement,additional:[SourceReplacement],budget:inout SnippetTransformBudget)->SnippetInput? {
+    guard let input=editSnippet(session,source:source,from:primary.from,to:primary.to,text:primary.text,budget:&budget) else{return nil}
     if additional.isEmpty{return input}
     let start=session.fields.map{$0.from}.min()!,end=session.fields.map{$0.to}.max()!,text=source as NSString
     var shift=0,bytes=0,edits=input.edits.map{SourceReplacement(from:$0.range.location,to:NSMaxRange($0.range),text:$0.text)}
@@ -311,14 +315,18 @@ func completeSnippet(_ session:SnippetSession,source:String,primary:SourceReplac
     for index in edits.indices.dropFirst(){guard edits[index-1].to<=edits[index].from,edits[index-1].from != edits[index].from else{return nil}}
     let output=NSMutableString(string:source);for edit in edits.reversed(){output.replaceCharacters(in:NSRange(location:edit.from,length:edit.to-edit.from),with:edit.text)}
     let after=output as String,fields=input.session.fields.map{field in var value=field;value.from+=shift;value.to+=shift;return value}
-    guard beginSnippet(after,fields:fields) != nil else{return nil}
+    guard beginSnippet(after,fields:fields,budget:&budget) != nil else{return nil}
     var next=input.session;next.source=after;next.fields=fields
     return SnippetInput(session:next,edits:edits.map{NativeSourceEdit(range:NSRange(location:$0.from,length:$0.to-$0.from),text:$0.text)},selection:CompletionSelection(from:input.selection.from+shift,to:input.selection.to+shift))
 }
 func nestSnippet(_ session:SnippetSession,source:String,primary:SourceReplacement,additional:[SourceReplacement],inner:[SnippetField])->SnippetInput? {
+    var budget=SnippetTransformBudget()
+    return nestSnippet(session,source:source,primary:primary,additional:additional,inner:inner,budget:&budget)
+}
+func nestSnippet(_ session:SnippetSession,source:String,primary:SourceReplacement,additional:[SourceReplacement],inner:[SnippetField],budget:inout SnippetTransformBudget)->SnippetInput? {
     guard session.scopes.count<32,!inner.isEmpty,let innerCost=snippetMetadataCost(inner),let exit=inner.first(where:{$0.index==0}) else{return nil}
-    let parsed=beginSnippet(primary.text,fields:inner);guard parsed != nil || (inner.count==1 && exit.id != nil && exit.parent==nil && exit.from==exit.to && snippetScalar(primary.text as NSString,exit.from)) else{return nil}
-    guard let origin=session.fields.first(where:{$0.id==session.current&&$0.from<=primary.from&&$0.to>=primary.to}),let input=completeSnippet(session,source:source,primary:primary,additional:additional) else{return nil}
+    let parsed=beginSnippet(primary.text,fields:inner,budget:&budget);guard parsed != nil || (inner.count==1 && exit.id != nil && exit.parent==nil && exit.from==exit.to && snippetScalar(primary.text as NSString,exit.from)) else{return nil}
+    guard let origin=session.fields.first(where:{$0.id==session.current&&$0.from<=primary.from&&$0.to>=primary.to}),let input=completeSnippet(session,source:source,primary:primary,additional:additional,budget:&budget) else{return nil}
     let parents=input.session.fields.filter{$0.transform==nil&&$0.index==session.active};guard let current=parents.first(where:{$0.id==input.session.current}) else{return nil}
     let relative=primary.from-origin.from,order=Array(Set(inner.filter{$0.transform==nil&&$0.index>0}.map{$0.index})).sorted()
     if order.isEmpty{var result=input;let caret=current.from+relative+exit.from;result.selection=CompletionSelection(from:caret,to:caret);return result}
@@ -333,7 +341,7 @@ func nestSnippet(_ session:SnippetSession,source:String,primary:SourceReplacemen
             if parent.id==current.id{if field.index==0{exitId=id}else if field.id==parsed!.current{currentId=id}}
         }
     }
-    guard beginSnippet(input.session.source,fields:fields) != nil,let selected=fields.first(where:{$0.id==currentId}) else{return nil}
+    guard beginSnippet(input.session.source,fields:fields,budget:&budget) != nil,let selected=fields.first(where:{$0.id==currentId}) else{return nil}
     let scope=SnippetScope(order:order.map{indices[$0]!},exitIndex:indices[0]!,exitId:exitId,outerActive:session.active,outerCurrent:input.session.current)
     var result=input;result.session.fields=fields;result.session.active=scope.order[0];result.session.current=currentId;result.session.scopes.append(scope);result.selection=CompletionSelection(from:selected.from,to:selected.to);return result
 }
@@ -487,8 +495,10 @@ internal fun editSnippet(session:SnippetSession,source:String,from:Int,to:Int,te
 Compose the primary mirrored edit with imports once in original source coordinates. Imports outside the complete field forest may change source length; only imports before it shift field ranges and the intended caret. Merge coincident prefix insertions in provider order and reject interior or overlapping additions before returning any proposal.
 
 <ui:copy id="snippet-session-android-completion">
-fun completeSnippet(session:SnippetSession,source:String,primary:SourceReplacement,additional:List<SourceReplacement>):SnippetInput? {
- val input=editSnippet(session,source,primary.from,primary.to,primary.text) ?: return null
+fun completeSnippet(session:SnippetSession,source:String,primary:SourceReplacement,additional:List<SourceReplacement>):SnippetInput? =
+ completeSnippet(session,source,primary,additional,SnippetTransformBudget())
+internal fun completeSnippet(session:SnippetSession,source:String,primary:SourceReplacement,additional:List<SourceReplacement>,budget:SnippetTransformBudget):SnippetInput? {
+ val input=editSnippet(session,source,primary.from,primary.to,primary.text,budget) ?: return null
  if(additional.isEmpty())return input
  val start=session.fields.minOf{it.from};val end=session.fields.maxOf{it.to};var shift=0;var bytes=0L
  val edits=input.edits.map{SourceReplacement(it.from,it.to,it.text)}.toMutableList()
@@ -501,15 +511,17 @@ fun completeSnippet(session:SnippetSession,source:String,primary:SourceReplaceme
  }
  edits.sortWith(compareBy({it.from},{it.to}));for(index in 1 until edits.size)if(edits[index-1].to>edits[index].from||edits[index-1].from==edits[index].from)return null
  var after=source;for(edit in edits.asReversed())after=after.replaceRange(edit.from,edit.to,edit.text)
- val fields=input.session.fields.map{it.copy(from=it.from+shift,to=it.to+shift)};if(beginSnippet(after,fields)==null)return null
+ val fields=input.session.fields.map{it.copy(from=it.from+shift,to=it.to+shift)};if(beginSnippet(after,fields,budget)==null)return null
  return SnippetInput(input.session.copy(source=after,fields=fields),edits.map{NativeSourceEdit(it.from,it.to,it.text)},CompletionSelection(input.selection.from+shift,input.selection.to+shift))
 }
-fun nestSnippet(session:SnippetSession,source:String,primary:SourceReplacement,additional:List<SourceReplacement>,inner:List<SnippetField>):SnippetInput? {
+fun nestSnippet(session:SnippetSession,source:String,primary:SourceReplacement,additional:List<SourceReplacement>,inner:List<SnippetField>):SnippetInput? =
+ nestSnippet(session,source,primary,additional,inner,SnippetTransformBudget())
+internal fun nestSnippet(session:SnippetSession,source:String,primary:SourceReplacement,additional:List<SourceReplacement>,inner:List<SnippetField>,budget:SnippetTransformBudget):SnippetInput? {
  if(session.scopes.size>=32||inner.isEmpty()||snippetMetadataCost(session.fields)==null)return null
  val innerBytes=snippetMetadataCost(inner) ?: return null
  val exit=inner.firstOrNull{it.index==0} ?: return null
  val origin=session.fields.firstOrNull{it.id==session.current&&it.from<=primary.from&&it.to>=primary.to} ?: return null
- val input=completeSnippet(session,source,primary,additional) ?: return null;val parents=input.session.fields.filter{it.transform==null&&it.index==session.active};val current=parents.firstOrNull{it.id==input.session.current} ?: return null
+ val input=completeSnippet(session,source,primary,additional,budget) ?: return null;val parents=input.session.fields.filter{it.transform==null&&it.index==session.active};val current=parents.firstOrNull{it.id==input.session.current} ?: return null
  val relative=primary.from-origin.from;val order=inner.filter{it.transform==null&&it.index>0}.map{it.index}.distinct().sorted()
  if(order.isNotEmpty()){
   val retainedBytes=snippetMetadataCost(input.session.fields) ?: return null
@@ -517,14 +529,14 @@ fun nestSnippet(session:SnippetSession,source:String,primary:SourceReplacement,a
  }
  // Only after the entire mirrored proposal fits may validation clone an inner
  // vector. A rejected nested proposal publishes no session or text edits.
- val parsed=beginSnippet(primary.text,inner);if(parsed==null&&(inner.size!=1||exit.id==null||exit.parent!=null||exit.from!=exit.to||!snippetScalar(primary.text,exit.from)))return null
+ val parsed=beginSnippet(primary.text,inner,budget);if(parsed==null&&(inner.size!=1||exit.id==null||exit.parent!=null||exit.from!=exit.to||!snippetScalar(primary.text,exit.from)))return null
  if(order.isEmpty()){val caret=current.from+relative+exit.from;return input.copy(selection=CompletionSelection(caret,caret))}
  var nextIndex=input.session.fields.maxOf{it.index}+1;val indices=(order+0).associateWith{nextIndex++};if(nextIndex>1004097)return null
  val used=input.session.fields.map{it.id!!}.toMutableSet();val fields=input.session.fields.toMutableList();var nextId=0;var exitId = -1;var currentId = -1
  for(parent in parents){val ids=mutableMapOf<Int,Int>();for(field in inner){while(nextId in used)nextId++;if(nextId>=4096)return null;ids[field.id!!]=nextId;used.add(nextId++)}
   for(field in inner){val id=ids.getValue(field.id!!);fields.add(field.copy(id=id,index=indices.getValue(field.index),parent=field.parent?.let{ids.getValue(it)} ?: parent.id,from=parent.from+relative+field.from,to=parent.from+relative+field.to));if(parent.id==current.id){if(field.index==0)exitId=id else if(field.id==parsed!!.current)currentId=id}}
  }
- if(snippetMetadataCost(fields)==null||beginSnippet(input.session.source,fields)==null)return null
+ if(snippetMetadataCost(fields)==null||beginSnippet(input.session.source,fields,budget)==null)return null
  val selected=fields.firstOrNull{it.id==currentId} ?: return null;val scope=SnippetScope(order.map{indices.getValue(it)},indices.getValue(0),exitId,session.active,input.session.current)
  return input.copy(session=input.session.copy(fields=fields,active=scope.order[0],current=currentId,scopes=input.session.scopes+scope),selection=CompletionSelection(selected.from,selected.to))
 }

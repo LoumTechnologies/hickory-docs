@@ -1,5 +1,5 @@
 import {
-  advanceSnippet, beginSnippet, editSnippet, snippetMetadataCost,
+  advanceSnippet, beginSnippet, editSnippet, nestSnippet, snippetMetadataCost,
   type SnippetSession,
 } from './SnippetSession';
 import type {SnippetField} from './SnippetExpansion';
@@ -173,6 +173,24 @@ export function selectParallelSnippet(
 export function editParallelSnippet(
   state: ParallelSnippet, source: string, input: readonly ParallelReplacement[],
 ): ParallelSnippetChange | null {
+  return prepareParallelInput(state, source, input);
+}
+
+export function planParallelSnippet(
+  source: string, expansions: readonly ParallelExpansion[], primary: number,
+  continuing: ParallelSnippet | null = null,
+): ParallelSnippetChange | null {
+  if (!continuing) return beginParallelSnippet(source, expansions, primary);
+  const previous = parallelSelections(continuing);
+  if (primary !== previous.primary || expansions.length !== previous.ranges.length ||
+      expansions.some((row, index) => !sameRange(row, previous.ranges[index]))) return null;
+  return prepareParallelInput(continuing, source, expansions);
+}
+
+function prepareParallelInput(
+  state: ParallelSnippet, source: string,
+  input: readonly (ParallelExpansion | ParallelReplacement)[],
+): ParallelSnippetChange | null {
   if (!current(state, source) || input.length !== state.peers.length) return null;
 
   const budget = {work: 0};
@@ -180,28 +198,60 @@ export function editParallelSnippet(
   const edits: ParallelReplacement[] = [];
   let shift = 0;
   let bytes = 0;
+  let metadata = 0;
+  let fields = 0;
   for (const [index, peer] of state.peers.entries()) {
     const replacement = input[index];
     const selected = selectPeer(peer, replacement);
     if (!selected || replacement.text.length > maxBytes - bytes ||
         !scalarText(replacement.text)) return null;
     const {from, to} = selected.selection;
+    const local = {from, to, text: replacement.text};
+    const expansion = 'fields' in replacement ? replacement : null;
+    if (expansion) {
+      const exit = expansion.fields.find(field => field.index === 0);
+      if (!exit || exit.from !== exit.to || exit.id == null || !Number.isSafeInteger(exit.id) ||
+          exit.id < 0 || exit.id >= maxFields || exit.transform || expansion.fields.length > maxFields ||
+          expansion.fields.some(field => !valid(expansion.text, field))) return null;
+    }
     let plan;
     if (peer.session?.active) {
-      plan = editSnippet(peer.session, peer.text, from, to, replacement.text, budget);
+      plan = expansion ?
+        nestSnippet(peer.session, peer.text, local, [], expansion.fields, budget) :
+        editSnippet(peer.session, peer.text, from, to, replacement.text, budget);
       if (!plan) return null;
     }
-    const text = plan?.session.source ?? replace(peer.text, [{from, to, text: replacement.text}]);
+    const text = plan?.session.source ?? replace(peer.text, [local]);
     const caret = from + replacement.text.length;
-    const selection = plan?.selection ?? {from: caret, to: caret};
+    let selection = plan?.selection ?? {from: caret, to: caret};
+    let session = plan?.session ?? null;
+    if (!plan && expansion) {
+      const exit = expansion.fields.find(field => field.index === 0);
+      if (!exit || !valid(expansion.text, exit) || exit.from !== exit.to) return null;
+      const shifted = expansion.fields.map(field => ({
+        ...field, from: field.from + from, to: field.to + from,
+      }));
+      session = beginSnippet(text, shifted, budget);
+      if (!session && (shifted.length !== 1 || exit.transform || exit.parent != null ||
+          exit.id == null || !Number.isSafeInteger(exit.id) || exit.id < 0 || exit.id >= maxFields)) return null;
+      const first = session?.fields.find(field => field.id === session!.current);
+      selection = first ? {from: first.from, to: first.to} : {from: from + exit.from, to: from + exit.to};
+    }
+    if (expansion) {
+      const retained = session?.fields ?? [];
+      const cost = snippetMetadataCost(retained);
+      fields += retained.length;
+      if (cost === null || cost > maxBytes - metadata || fields > maxFields) return null;
+      metadata += cost;
+    }
     const start = peer.from + shift;
     bytes += encoder.encode(text).length;
     if (bytes > maxBytes) return null;
-    peers.push({id: peer.id, from: start, to: start + text.length, text, selection, session: plan?.session ?? null});
+    peers.push({id: peer.id, from: start, to: start + text.length, text, selection, session});
     shift += text.length - peer.text.length;
 
-    for (const local of plan?.edits ?? [{from, to, text: replacement.text}]) {
-      const edit = {from: peer.from + local.from, to: peer.from + local.to, text: local.text};
+    for (const replacement of plan?.edits ?? [local]) {
+      const edit = {from: peer.from + replacement.from, to: peer.from + replacement.to, text: replacement.text};
       const previous = edits.at(-1);
       if (previous && previous.to > edit.from) return null;
       if (previous && previous.to === edit.from) {

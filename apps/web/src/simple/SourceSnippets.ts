@@ -9,7 +9,7 @@ import {prepareEditorChanges} from '../editor/textInput';
 import {beginSnippet,advanceSnippet,editSnippet,completeSnippet,nestSnippet,type SnippetSession} from './SnippetSession';
 import type {CompletionDraft} from './CompletionPlan';
 import {
- beginParallelSnippet, editParallelSnippet, moveParallelSnippet, parallelSelections, selectParallelSnippet,
+ editParallelSnippet, moveParallelSnippet, parallelSelections, planParallelSnippet, selectParallelSnippet,
  type ParallelExpansion, type ParallelReplacement, type ParallelSnippet, type ParallelSnippetChange,
 } from './ParallelSnippet';
 import {snippetTransformBytes} from './SnippetTransform';
@@ -176,7 +176,7 @@ function parallelSelection(session: ParallelSnippet): EditorSelection {
   );
 }
 
-function readParallelSourceSnippet(state: EditorState): ParallelSnippet | null {
+export function readParallelSourceSnippet(state: EditorState): ParallelSnippet | null {
   return state.field(parallelSnippetState, false) ?? null;
 }
 
@@ -281,13 +281,18 @@ export function applyParallelSourceSnippet(
       view.state.readOnly || !view.state.facet(EditorView.editable) ||
       authoredSource(view.state) !== source || !view.state.facet(EditorState.allowMultipleSelections)) return false;
   const selected = view.state.selection;
-  if (selected.mainIndex !== primary || expansions.length !== selected.ranges.length) return false;
-  for (const [index, range] of selected.ranges.entries()) {
-    const edit = expansions[index];
-    if (edit.from !== authoredOffset(view.state, range.from) ||
-        edit.to !== authoredOffset(view.state, range.to)) return false;
-  }
-  const plan = beginParallelSnippet(source, expansions, primary);
+  const continuing = readParallelSourceSnippet(view.state);
+  if (continuing && !parallelSelection(continuing).eq(selected)) return false;
+  const capture = continuing ? parallelSelections(continuing) : {
+    primary: selected.mainIndex,
+    ranges: selected.ranges.map(range => ({
+      from: authoredOffset(view.state, range.from), to: authoredOffset(view.state, range.to),
+    })),
+  };
+  if (capture.primary !== primary || expansions.length !== capture.ranges.length ||
+      capture.ranges.some((range, index) => range.from !== expansions[index].from ||
+        range.to !== expansions[index].to)) return false;
+  const plan = planParallelSnippet(source, expansions, primary, continuing);
   if (!plan) return false;
   const prepared = prepareParallelSourceBatch(view.state, plan);
   if (!prepared || !admitted() || readSourceEditorIntent(view.state) !== intent) return false;
