@@ -156869,6 +156869,48 @@
       "page": ".hickory-source/mechanisms/parallel-snippet-sessions.md",
       "symbol": "parallel snippet session android",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "workspace-entry-model",
+      "output": "crates/hickory-cli/src/serve/workspace_entry_authority.rs",
+      "page": ".hickory-source/mechanisms/workspace-entry-authority.md",
+      "symbol": "workspace entry model",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "workspace-entry-storage",
+      "output": "crates/hickory-cli/src/serve/workspace_entry_authority.rs",
+      "page": ".hickory-source/mechanisms/workspace-entry-authority.md",
+      "symbol": "workspace entry storage",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "workspace-entry-selection",
+      "output": "crates/hickory-cli/src/serve/workspace_entry_authority.rs",
+      "page": ".hickory-source/mechanisms/workspace-entry-authority.md",
+      "symbol": "workspace entry selection",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "workspace-entry-reading",
+      "output": "crates/hickory-cli/src/serve/workspace_entry_authority.rs",
+      "page": ".hickory-source/mechanisms/workspace-entry-authority.md",
+      "symbol": "workspace entry reading",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "workspace-entry-reading-witness",
+      "output": "crates/hickory-cli/src/serve/workspace_entry_authority.rs",
+      "page": ".hickory-source/mechanisms/workspace-entry-authority.md",
+      "symbol": "workspace entry reading witness",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "workspace-entry-reading-protocol-driver",
+      "output": "scripts/test-workspace-entry-reading.py",
+      "page": ".hickory-source/mechanisms/workspace-entry-reading-protocol-witness.md",
+      "symbol": "workspace entry reading protocol driver",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

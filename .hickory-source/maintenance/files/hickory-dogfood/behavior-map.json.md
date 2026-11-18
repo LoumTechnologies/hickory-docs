@@ -73247,6 +73247,32 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "fragments": [
         "parallel-snippet-session-android"
       ]
+    },
+    "crates/hickory-cli/src/serve/workspace_entry_authority.rs": {
+      "source": ".hickory-source/mechanisms/workspace-entry-authority.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "56ba652e4fe9b616c06c167e7e4dbad68a08e0095603b89d6fc5c00e8d48b8e2",
+      "construction": "fragments",
+      "fragments": [
+        "workspace-entry-model",
+        "workspace-entry-storage",
+        "workspace-entry-selection",
+        "workspace-entry-reading",
+        "workspace-entry-reading-witness"
+      ]
+    },
+    "scripts/test-workspace-entry-reading.py": {
+      "source": ".hickory-source/mechanisms/workspace-entry-reading-protocol-witness.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "test",
+      "sha256": "979dba734646a012f98f72c6fa78bed03cecee8da068a5111cb11c39e588be53",
+      "construction": "fragments",
+      "fragments": [
+        "workspace-entry-reading-protocol-driver"
+      ]
     }
   },
   "evidence_records": [

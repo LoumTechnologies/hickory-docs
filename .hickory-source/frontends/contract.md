@@ -35,7 +35,7 @@ an earlier open item only for the behavior it actually exercises.
 | Refactoring, cleanup, generation, templates and history | Rename, formatting, genuine TypeScript extraction/accessor generation/cleanup and coordinated history have focused host receipts. Genuine TypeScript move-to-new-file review, publication and inverse/redo now have all-three-host receipts. Source-bound variable contexts and bounded production transforms now have completion/template receipts on all three hosts. Full regex syntax, embedded-language templates, multi-caret templates and mirrored native IME remain open. |
 | Diagnostics and contextual fixes | Existing source-bound Problems/fix receipts remain scoped to their stated providers and paths. A command or backend implementation alone is not further acceptance. |
 | Testing and coverage | Retained sessions/results and supported collector receipts below remain scoped evidence. Exact JavaScript collection/rerun integration now has31 focused collector cases and11 fresh-engine Vitest flows; the retained-result race is corrected. Earlier native provider receipts retain their stated revisions. |
-| Review, staging, attribution, conflicts and recovery | Existing Git/native conflict receipts remain in force. Complete32-session recovery management and three exact revisions now have service/browser/macOS/Android-controller receipts. Explicit canonical construction-entry transitions remain open. |
+| Review, staging, attribution, conflicts and recovery | Existing Git/native conflict receipts remain in force. Complete32-session recovery management and three exact revisions now have service/browser/macOS/Android-controller receipts. The canonical entry has a retained read identity and guarded source proof. Move publication and its inverse remain open. |
 | Debugging | Existing debugpy and installed LLDB launch/attach, thread/frame and breakpoint receipts remain scoped evidence. Unsupported adapters remain explicit; physical/device acceptance is not inferred from transport tests. |
 | Connected behavior readings | Guarded contract/explanation/source/generated/test/evidence readings and dirty construction graphs have host receipts. Declared, observed, stale and unknown relationships remain distinct. |
 | Change impact and relevant verification | Existing compiler/relationship-based impact and selected verification receipts remain scoped evidence. Unknown relationships and missing execution evidence do not become verified through graph reachability. |
@@ -45,6 +45,19 @@ Across all rows, physical input and assistive-technology acceptance remain
 unexecuted where stated. Android controller/state acceptance and iOS builds are
 reported separately from rendered/device runtime acceptance. No full parity
 claim is made while the integration work in this ledger remains open.
+
+## Canonical entry reading evidence
+
+Six focused engine cases and the actual workspace-entry HTTP flow passed. The
+flow retained the entry identity across a fresh engine process, issued a new
+process-bound proof, and observed new source proofs after an edit and after
+restoring the original bytes. A malformed bound entry remained readable. A
+missing entry, symlink replacement, tampered private record and renamed
+workspace namespace refused the entry reading while unrelated text stayed
+readable. A workspace with no entry could discover its first authored entry.
+The focused engine cases also submitted stale proofs to the shared validator.
+Template consumer admission, entry Move and its inverse still require their
+own integration evidence.
 
 ## Checkpoint requested during implementation
 

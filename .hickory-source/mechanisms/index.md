@@ -398,4 +398,7 @@ is included with that control; opening a document is not generation authority.
 
 <storycode:include file="parallel-snippet-sessions.md" />
 
+<storycode:include file="workspace-entry-authority.md" />
+<storycode:include file="workspace-entry-reading-protocol-witness.md" />
+
 </storycode:doc>
