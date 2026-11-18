@@ -114,6 +114,8 @@ async fn publish(
         // perform a write (or require write permission) to report that fact.
         return Ok(());
     }
+    let publication=super::workspace_entry_authority::acquire_source_coordination(root,&full,text).map_err(anyhow::Error::msg)?;
+    publication.check().map_err(anyhow::Error::msg)?;
     anyhow::ensure!(
         !meta.permissions().readonly(),
         "Target is read-only: {}",
@@ -151,6 +153,7 @@ async fn publish(
         }
     }
     let persist = || -> anyhow::Result<()> {
+        publication.check().map_err(anyhow::Error::msg)?;
         anyhow::ensure!(
             std::fs::read_to_string(&full)? == expected,
             "Target changed before publication: {}",
@@ -170,6 +173,7 @@ async fn publish(
             tree.name
         );
         temporary.persist(&full)?;
+        publication.check().map_err(anyhow::Error::msg)?;
         Ok(())
     };
     if path.ends_with(".md")

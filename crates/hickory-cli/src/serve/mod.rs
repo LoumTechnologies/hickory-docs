@@ -398,7 +398,11 @@ impl LocalState {
                     "Only ordinary source saves accept save request identities",
                 ));
             }
-            writer().map(|_| ()).map_err(ApiError::internal)
+            let publication=workspace_entry_authority::acquire_source_coordination(self.index.root(),&path,source).map_err(ApiError::conflict)?;
+            publication.check().map_err(ApiError::conflict)?;
+            let result=writer();
+            publication.check().map_err(ApiError::conflict)?;
+            result.map(|_| ()).map_err(ApiError::internal)
         }
     }
     pub fn write_source_as(

@@ -125,6 +125,8 @@ fn chosen(root: &Path, names: &[String]) -> anyhow::Result<Vec<Worktree>> {
 <a id="f-1635aa80d82b-publish"></a>
 ### `publish`
 
+Each selected worktree uses its own physical root and obtains one nonblocking source publication lease before the final ownership check. The lease stays held through its room comparison and synchronous file replacement; targets are still applied sequentially with independent results. A room callback never reacquires the lease.
+
 <storycode:copy id="f-1635aa80d82b-publish">
 async fn publish(
     state: &LocalState,
@@ -163,6 +165,8 @@ async fn publish(
         // perform a write (or require write permission) to report that fact.
         return Ok(());
     }
+    let publication=super::workspace_entry_authority::acquire_source_coordination(root,&full,text).map_err(anyhow::Error::msg)?;
+    publication.check().map_err(anyhow::Error::msg)?;
     anyhow::ensure!(
         !meta.permissions().readonly(),
         "Target is read-only: {}",
@@ -200,6 +204,7 @@ async fn publish(
         }
     }
     let persist = || -> anyhow::Result<()> {
+        publication.check().map_err(anyhow::Error::msg)?;
         anyhow::ensure!(
             std::fs::read_to_string(&full)? == expected,
             "Target changed before publication: {}",
@@ -219,6 +224,7 @@ async fn publish(
             tree.name
         );
         temporary.persist(&full)?;
+        publication.check().map_err(anyhow::Error::msg)?;
         Ok(())
     };
     if path.ends_with(".md")

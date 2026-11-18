@@ -242,7 +242,10 @@ impl Engine {
                     "file already exists"
                 );
                 if p["directory"] == true {
+                    let publication=super::super::workspace_entry_authority::acquire_namespace_coordination(&root,&[rel]).map_err(anyhow::Error::msg)?;
+                    publication.check().map_err(anyhow::Error::msg)?;
                     std::fs::create_dir(&path)?;
+                    publication.check().map_err(anyhow::Error::msg)?;
                 } else {
                     super::super::source_history::write_observed(&root,&path,"",None,None,||{
                         self.state.resource_root.check(&root)?;
@@ -270,6 +273,9 @@ impl Engine {
                     !self.handles.values().any(|h| h.path == rel && h.dirty),
                     "close the temporary file before renaming it"
                 );
+                // Preflight the source role before a content-install branch can
+                // publish anything. The exact removal is admitted again below.
+                drop(super::super::workspace_entry_authority::acquire_namespace_coordination(&root,&[rel]).map_err(anyhow::Error::msg)?);
                 let from = view::confined(&root, rel)?;
                 let dest = view::confined(&root, to)?;
                 if view.sources.contains_key(to)
@@ -291,9 +297,15 @@ impl Engine {
                             (view.clone(), before)
                         };
                     self.commit(to, &base, &before, &after).await?;
+                    let publication=super::super::workspace_entry_authority::acquire_namespace_coordination(&root,&[rel]).map_err(anyhow::Error::msg)?;
+                    publication.check().map_err(anyhow::Error::msg)?;
                     std::fs::remove_file(from)?;
+                    publication.check().map_err(anyhow::Error::msg)?;
                 } else {
+                    let publication=super::super::workspace_entry_authority::acquire_namespace_coordination(&root,&[rel,to]).map_err(anyhow::Error::msg)?;
+                    publication.check().map_err(anyhow::Error::msg)?;
                     std::fs::rename(from, dest)?;
+                    publication.check().map_err(anyhow::Error::msg)?;
                 }
                 Ok(json!({}))
             }
@@ -309,11 +321,14 @@ impl Engine {
                     "delete documents and generated files through Hickory's Files pane"
                 );
                 let path = view::confined(&root, rel)?;
+                let publication=super::super::workspace_entry_authority::acquire_namespace_coordination(&root,&[rel]).map_err(anyhow::Error::msg)?;
+                publication.check().map_err(anyhow::Error::msg)?;
                 if path.is_dir() {
                     std::fs::remove_dir(path)?;
                 } else {
                     std::fs::remove_file(path)?;
                 }
+                publication.check().map_err(anyhow::Error::msg)?;
                 Ok(json!({}))
             }
             _ => anyhow::bail!("unsupported filesystem operation {op}"),
@@ -396,7 +411,13 @@ impl Engine {
             self.record.lock().await.context("filesystem-write", &json!({"turn":self.turn,"path":rel,"pending_capture":capture.id,"before":view::hash(before),"after":view::hash(after)}))?;
             return Ok(());
         } else {
-            store::write_atomic(&view::confined(self.state.index.root(), rel)?, after)?;
+            // This byte-oriented authored path only requests coordination;
+            // existing view/candidate authority still governs its contents.
+            let path=view::confined(self.state.index.root(),rel)?;
+            let publication=super::super::workspace_entry_authority::acquire_source_coordination(self.state.index.root(),&path,"").map_err(anyhow::Error::msg)?;
+            publication.check().map_err(anyhow::Error::msg)?;
+            store::write_atomic(&path, after)?;
+            publication.check().map_err(anyhow::Error::msg)?;
             if rel.ends_with(".md") {
                 self.state.index.add(rel);
             }
@@ -417,10 +438,6 @@ impl Engine {
         for rel in changed {
             let id = self.state.index.add(&rel);
             let original = base.sources.get(&rel).map(String::as_str).unwrap_or("");
-            let path = view::confined(self.state.index.root(), &rel)?;
-            if !path.exists() {
-                store::write_atomic(&path, b"")?;
-            }
             let published = self
                 .state
                 .rooms

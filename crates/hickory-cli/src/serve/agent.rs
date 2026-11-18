@@ -737,7 +737,7 @@ async fn run_turn(
     {
         let live = room.text().await;
         if live != std::fs::read_to_string(&doc_path).unwrap_or_default()
-            && let Err(e) = store::write_atomic(&doc_path, live.as_bytes())
+            && let Err(e) = state.write_source(doc_id, &live).map_err(|error|anyhow::anyhow!(error.detail().to_string()))
         {
             return Err(format!(
                 "could not flush unsaved edits to {}: {e:#}",

@@ -671,6 +671,7 @@ export interface ReplaceResponse {
     matches: number;
     reason: string;
     document?: string;
+    notice?: string;
   }[];
   replacements: number;
 }

@@ -253,6 +253,7 @@ pub async fn replace(
         // make the undo useless.
         let mut writes: Vec<(std::path::PathBuf, Vec<u8>)> = Vec::new();
         let mut planned = Vec::new();
+        let mut original_guards=std::collections::BTreeMap::new();
         let mut seen = std::collections::HashSet::new();
         for (rel, absolute, text) in walk_text_files(&root) {
             if only.as_ref().is_some_and(|set| !set.contains(&rel)) {
@@ -270,7 +271,7 @@ pub async fn replace(
             }
             // The refusal, and the reason. Writing here either loses the edit
             // at the next weave or fights the up-loop for it.
-            if let Some(doc) = generated.get(&rel) {
+            if let Some(doc) = super::api::generated_by(&generated, &rel) {
                 skipped.push(json!({
                     "path": rel,
                     "matches": count,
@@ -283,6 +284,10 @@ pub async fn replace(
             if next == text {
                 continue;
             }
+            let observed=match super::source_history::read_observed(&root,&absolute,&rel){Ok(observed)=>observed,Err(reason)=>{skipped.push(json!({"path":rel,"matches":count,"reason":"source_changed","notice":reason}));continue;}};
+            if observed.source!=text{skipped.push(json!({"path":rel,"matches":count,"reason":"source_changed"}));continue;}
+            let Some(guard)=observed.save_guard else{skipped.push(json!({"path":rel,"matches":count,"reason":"source_identity_unavailable","notice":observed.save_guard_reason}));continue;};
+            original_guards.insert(rel.clone(),guard);
             writes.push((absolute.clone(), next.into_bytes()));
             planned.push((rel, absolute, source_hash, count));
         }
@@ -292,24 +297,37 @@ pub async fn replace(
             }
         }
 
-        // One act for the whole replace, recorded before any of it lands.
-        // This is what closes the sentence at the end of
-        // `docs/guarantees/search/find-and-replace-is-exhaustive.md`.
-        crate::history::record(
-            &root,
-            hickory_workspace::history::ActKind::Replace,
-            Some(format!("{find} → {replacement}")),
-            &writes,
-        );
-        for ((absolute, bytes), (relative, _, source_hash, count)) in writes.iter().zip(planned) {
-            if expected.is_some() && !std::fs::read(absolute).is_ok_and(|current| hick_context_protocol::digest(&current) == source_hash) {
-                skipped.push(json!({"path":relative,"matches":count,"reason":"source_changed_before_write"}));
-                continue;
-            }
-            super::store::write_atomic(absolute, bytes)
-                .map_err(|e| format!("could not write {}: {e:#}", absolute.display()))?;
-            total += count;
-            changed.push(json!({"path":relative,"matches":count,"before_source_hash":source_hash,"after_source_hash":hick_context_protocol::digest(bytes)}));
+        if writes.is_empty(){return Ok(json!({"changed":changed,"skipped":skipped,"replacements":0}))}
+        state.resource_root.check(&root)?;
+        let paths:Vec<_>=writes.iter().map(|(path,_)|path.clone()).collect();
+        let publication=match super::workspace_entry_authority::acquire_source_batch_coordination(&root,&paths){Ok(lease)=>lease,Err(reason)=>{
+            for(relative,_,_,count)in &planned{skipped.push(json!({"path":relative,"matches":count,"reason":"source_publication_refused","notice":reason}));}
+            return Ok(json!({"changed":changed,"skipped":skipped,"replacements":0}));
+        }};
+        if let Err(reason)=publication.check(){for(relative,_,_,count)in &planned{skipped.push(json!({"path":relative,"matches":count,"reason":"source_publication_refused","notice":reason}));}return Ok(json!({"changed":changed,"skipped":skipped,"replacements":0}));}
+        // Filter under the one held lease, before the grouped inverse exists.
+        // Equal bytes from a replaced inode do not satisfy the captured guard.
+        let claims=generated_map(&state);let mut admitted=Vec::new();let mut guards=Vec::new();
+        let candidates=std::mem::take(&mut writes);
+        for((absolute,bytes),(relative,_,source_hash,count))in candidates.into_iter().zip(planned){
+            if let Some(doc)=super::api::generated_by(&claims,&relative){skipped.push(json!({"path":relative,"matches":count,"reason":"generated","document":doc}));continue;}
+            let observed=match super::source_history::read_observed(&root,&absolute,&relative){Ok(observed)=>observed,Err(reason)=>{skipped.push(json!({"path":relative,"matches":count,"reason":"source_changed_before_write","notice":reason}));continue;}};
+            if hick_context_protocol::digest(observed.source.as_bytes())!=source_hash{skipped.push(json!({"path":relative,"matches":count,"reason":"source_changed_before_write"}));continue;}
+            let guard=original_guards.remove(&relative).ok_or("Replacement lost its original physical source capture")?;
+            if observed.save_guard.as_ref()!=Some(&guard){skipped.push(json!({"path":relative,"matches":count,"reason":"source_changed_before_write"}));continue;}
+            if let Err(reason)=super::source_history::validate_observed_guard(&root,&absolute,&relative,&guard){skipped.push(json!({"path":relative,"matches":count,"reason":"source_changed_before_write","notice":reason}));continue;}
+            writes.push((absolute,bytes));admitted.push((relative,source_hash,count));guards.push(guard);
+        }
+        if writes.is_empty(){return Ok(json!({"changed":changed,"skipped":skipped,"replacements":0}))}
+        if let Err(reason)=publication.check(){for(relative,_,count)in &admitted{skipped.push(json!({"path":relative,"matches":count,"reason":"source_publication_refused","notice":reason}));}return Ok(json!({"changed":changed,"skipped":skipped,"replacements":0}));}
+        // One inverse for exactly the admitted writes, recorded before effects.
+        crate::history::record(&root,hickory_workspace::history::ActKind::Replace,Some(format!("{find} → {replacement}")),&writes);
+        for(((absolute,bytes),(relative,source_hash,count)),guard)in writes.iter().zip(admitted).zip(guards){
+            publication.check()?;
+            if let Err(reason)=super::source_history::validate_observed_guard(&root,absolute,&relative,&guard){skipped.push(json!({"path":relative,"matches":count,"reason":"source_changed_before_write","notice":reason}));continue;}
+            super::store::write_atomic(absolute,bytes).map_err(|error|format!("could not write {}: {error:#}",absolute.display()))?;
+            publication.check()?;
+            total+=count;changed.push(json!({"path":relative,"matches":count,"before_source_hash":source_hash,"after_source_hash":hick_context_protocol::digest(bytes)}));
         }
         Ok(json!({ "changed": changed, "skipped": skipped, "replacements": total }))
     })

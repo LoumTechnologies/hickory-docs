@@ -182,6 +182,24 @@ it("opens one modal search with replacement and all match options", () => {
   fireEvent.click(screen.getByRole("button", { name: "Close find" }));
   expect(screen.queryByRole("dialog")).toBeNull();
 });
+
+it("reports a publication refusal in the existing search dialog", async () => {
+  vi.spyOn(api, "find").mockResolvedValue({
+    files: [{ path: "source.txt", source_hash: "a".repeat(64), matches: [{ line: 1, text: "old", at: [{ column: 0, length: 3 }] }] }],
+    truncated: false,
+  });
+  const notice = "Another workspace entry publication is active. Preserve source and retry.";
+  vi.spyOn(api, "replaceAll").mockResolvedValue({
+    changed: [], replacements: 0,
+    skipped: [{ path: "source.txt", matches: 1, reason: "source_publication_refused", notice }],
+  });
+  render(<TreeFindReplace onOpenHit={vi.fn()} onReplaced={vi.fn()} />);
+  fireEvent.click(screen.getByRole("button", { name: "Search files" }));
+  fireEvent.change(screen.getByPlaceholderText("Find"), { target: { value: "old" } });
+  fireEvent.change(screen.getByPlaceholderText("Replace with"), { target: { value: "new" } });
+  fireEvent.click(await screen.findByRole("button", { name: "Replace in 1 file" }));
+  await waitFor(() => expect(screen.getByRole("status").textContent).toContain(`Skipped 1 file. ${notice}`));
+});
 </storycode:copy>
 
 ### Assemble `apps/web/src/shell/TreeFindReplace.test.tsx`
@@ -333,6 +351,7 @@ export function TreeFindReplace({
     }, !busy && !!query && sourceGuardAvailable && !result?.truncated, parent, "Find complete fresh writable matches with source identities; narrow truncated results");
   }
   useUiCommands(commands);
+  const skipNotice = report?.skipped.find(file => file.notice)?.notice;
 
   return <>
     <div style={{ display: "flex", justifyContent: "flex-end", height: 28 }}><button ref={searchButton} type="button" aria-label="Search files" title="Search files" onClick={() => setOpen(true)} style={{ background: "transparent", border: 0, color: "var(--fg)", cursor: "pointer" }}>
@@ -428,10 +447,10 @@ export function TreeFindReplace({
       {report && (
         <p className="tree-find__summary" role="status">
           Replaced {report.replacements} in {report.changed.length} file
-          {report.changed.length === 1 ? "" : "s"}
+          {report.changed.length === 1 ? "" : "s"}.
           {report.skipped.length > 0 &&
-            `; skipped ${report.skipped.length} generated file${report.skipped.length === 1 ? "" : "s"}`}
-          .
+            ` Skipped ${report.skipped.length} file${report.skipped.length === 1 ? "" : "s"}.`}
+          {skipNotice && ` ${skipNotice}`}
         </p>
       )}
 
@@ -763,6 +782,8 @@ pub struct ReplaceBody {
 
 `POST /api/find/replace` — rewrite every match, and say what was skipped.
 
+Replacement acquires one root-wide lease for the complete intended content batch, then rechecks current generated ownership and physical source guards before recording one grouped history act for exactly the admitted writes. A contended batch returns typed skips with no history act or source effects. Recheck the observed source hash after admission even for legacy requests without an explicit expected hash: the scanned text is the preimage of the replacement. Generated directory-prefix claims use the same lookup as the preview; an exact-map lookup alone would miss a volume's descendants. The engine captures the physical guard with its initial matched text and retains it through admission; a same-byte replacement during that interval refuses. Legacy clients still supply a SHA-only observation, so physical replacement before the request reaches engine planning is not distinguished by that wire protocol.
+
 <storycode:copy id="f-51c37beeedd8-replace">
 /// `POST /api/find/replace` — rewrite every match, and say what was skipped.
 pub async fn replace(
@@ -813,6 +834,7 @@ pub async fn replace(
         // make the undo useless.
         let mut writes: Vec<(std::path::PathBuf, Vec<u8>)> = Vec::new();
         let mut planned = Vec::new();
+        let mut original_guards=std::collections::BTreeMap::new();
         let mut seen = std::collections::HashSet::new();
         for (rel, absolute, text) in walk_text_files(&root) {
             if only.as_ref().is_some_and(|set| !set.contains(&rel)) {
@@ -830,7 +852,7 @@ pub async fn replace(
             }
             // The refusal, and the reason. Writing here either loses the edit
             // at the next weave or fights the up-loop for it.
-            if let Some(doc) = generated.get(&rel) {
+            if let Some(doc) = super::api::generated_by(&generated, &rel) {
                 skipped.push(json!({
                     "path": rel,
                     "matches": count,
@@ -843,6 +865,10 @@ pub async fn replace(
             if next == text {
                 continue;
             }
+            let observed=match super::source_history::read_observed(&root,&absolute,&rel){Ok(observed)=>observed,Err(reason)=>{skipped.push(json!({"path":rel,"matches":count,"reason":"source_changed","notice":reason}));continue;}};
+            if observed.source!=text{skipped.push(json!({"path":rel,"matches":count,"reason":"source_changed"}));continue;}
+            let Some(guard)=observed.save_guard else{skipped.push(json!({"path":rel,"matches":count,"reason":"source_identity_unavailable","notice":observed.save_guard_reason}));continue;};
+            original_guards.insert(rel.clone(),guard);
             writes.push((absolute.clone(), next.into_bytes()));
             planned.push((rel, absolute, source_hash, count));
         }
@@ -852,24 +878,37 @@ pub async fn replace(
             }
         }
 
-        // One act for the whole replace, recorded before any of it lands.
-        // This is what closes the sentence at the end of
-        // `docs/guarantees/search/find-and-replace-is-exhaustive.md`.
-        crate::history::record(
-            &root,
-            hickory_workspace::history::ActKind::Replace,
-            Some(format!("{find} → {replacement}")),
-            &writes,
-        );
-        for ((absolute, bytes), (relative, _, source_hash, count)) in writes.iter().zip(planned) {
-            if expected.is_some() && !std::fs::read(absolute).is_ok_and(|current| hick_context_protocol::digest(&current) == source_hash) {
-                skipped.push(json!({"path":relative,"matches":count,"reason":"source_changed_before_write"}));
-                continue;
-            }
-            super::store::write_atomic(absolute, bytes)
-                .map_err(|e| format!("could not write {}: {e:#}", absolute.display()))?;
-            total += count;
-            changed.push(json!({"path":relative,"matches":count,"before_source_hash":source_hash,"after_source_hash":hick_context_protocol::digest(bytes)}));
+        if writes.is_empty(){return Ok(json!({"changed":changed,"skipped":skipped,"replacements":0}))}
+        state.resource_root.check(&root)?;
+        let paths:Vec<_>=writes.iter().map(|(path,_)|path.clone()).collect();
+        let publication=match super::workspace_entry_authority::acquire_source_batch_coordination(&root,&paths){Ok(lease)=>lease,Err(reason)=>{
+            for(relative,_,_,count)in &planned{skipped.push(json!({"path":relative,"matches":count,"reason":"source_publication_refused","notice":reason}));}
+            return Ok(json!({"changed":changed,"skipped":skipped,"replacements":0}));
+        }};
+        if let Err(reason)=publication.check(){for(relative,_,_,count)in &planned{skipped.push(json!({"path":relative,"matches":count,"reason":"source_publication_refused","notice":reason}));}return Ok(json!({"changed":changed,"skipped":skipped,"replacements":0}));}
+        // Filter under the one held lease, before the grouped inverse exists.
+        // Equal bytes from a replaced inode do not satisfy the captured guard.
+        let claims=generated_map(&state);let mut admitted=Vec::new();let mut guards=Vec::new();
+        let candidates=std::mem::take(&mut writes);
+        for((absolute,bytes),(relative,_,source_hash,count))in candidates.into_iter().zip(planned){
+            if let Some(doc)=super::api::generated_by(&claims,&relative){skipped.push(json!({"path":relative,"matches":count,"reason":"generated","document":doc}));continue;}
+            let observed=match super::source_history::read_observed(&root,&absolute,&relative){Ok(observed)=>observed,Err(reason)=>{skipped.push(json!({"path":relative,"matches":count,"reason":"source_changed_before_write","notice":reason}));continue;}};
+            if hick_context_protocol::digest(observed.source.as_bytes())!=source_hash{skipped.push(json!({"path":relative,"matches":count,"reason":"source_changed_before_write"}));continue;}
+            let guard=original_guards.remove(&relative).ok_or("Replacement lost its original physical source capture")?;
+            if observed.save_guard.as_ref()!=Some(&guard){skipped.push(json!({"path":relative,"matches":count,"reason":"source_changed_before_write"}));continue;}
+            if let Err(reason)=super::source_history::validate_observed_guard(&root,&absolute,&relative,&guard){skipped.push(json!({"path":relative,"matches":count,"reason":"source_changed_before_write","notice":reason}));continue;}
+            writes.push((absolute,bytes));admitted.push((relative,source_hash,count));guards.push(guard);
+        }
+        if writes.is_empty(){return Ok(json!({"changed":changed,"skipped":skipped,"replacements":0}))}
+        if let Err(reason)=publication.check(){for(relative,_,count)in &admitted{skipped.push(json!({"path":relative,"matches":count,"reason":"source_publication_refused","notice":reason}));}return Ok(json!({"changed":changed,"skipped":skipped,"replacements":0}));}
+        // One inverse for exactly the admitted writes, recorded before effects.
+        crate::history::record(&root,hickory_workspace::history::ActKind::Replace,Some(format!("{find} → {replacement}")),&writes);
+        for(((absolute,bytes),(relative,source_hash,count)),guard)in writes.iter().zip(admitted).zip(guards){
+            publication.check()?;
+            if let Err(reason)=super::source_history::validate_observed_guard(&root,absolute,&relative,&guard){skipped.push(json!({"path":relative,"matches":count,"reason":"source_changed_before_write","notice":reason}));continue;}
+            super::store::write_atomic(absolute,bytes).map_err(|error|format!("could not write {}: {error:#}",absolute.display()))?;
+            publication.check()?;
+            total+=count;changed.push(json!({"path":relative,"matches":count,"before_source_hash":source_hash,"after_source_hash":hick_context_protocol::digest(bytes)}));
         }
         Ok(json!({ "changed": changed, "skipped": skipped, "replacements": total }))
     })

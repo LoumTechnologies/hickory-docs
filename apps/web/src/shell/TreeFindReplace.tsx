@@ -113,6 +113,7 @@ export function TreeFindReplace({
     }, !busy && !!query && sourceGuardAvailable && !result?.truncated, parent, "Find complete fresh writable matches with source identities; narrow truncated results");
   }
   useUiCommands(commands);
+  const skipNotice = report?.skipped.find(file => file.notice)?.notice;
 
   return <>
     <div style={{ display: "flex", justifyContent: "flex-end", height: 28 }}><button ref={searchButton} type="button" aria-label="Search files" title="Search files" onClick={() => setOpen(true)} style={{ background: "transparent", border: 0, color: "var(--fg)", cursor: "pointer" }}>
@@ -208,10 +209,10 @@ export function TreeFindReplace({
       {report && (
         <p className="tree-find__summary" role="status">
           Replaced {report.replacements} in {report.changed.length} file
-          {report.changed.length === 1 ? "" : "s"}
+          {report.changed.length === 1 ? "" : "s"}.
           {report.skipped.length > 0 &&
-            `; skipped ${report.skipped.length} generated file${report.skipped.length === 1 ? "" : "s"}`}
-          .
+            ` Skipped ${report.skipped.length} file${report.skipped.length === 1 ? "" : "s"}.`}
+          {skipNotice && ` ${skipNotice}`}
         </p>
       )}
 

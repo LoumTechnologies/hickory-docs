@@ -900,6 +900,8 @@ impl UiStore {
 <a id="f-09ea558208cd-impl-LocalState"></a>
 ### `impl-LocalState`
 
+Non-Saved authored operations join the same per-root publication exclusion immediately around their existing writer. Saved operations already hold that lease through source history and must not acquire it twice. This changes admission, not the chosen history act or draft/room policy.
+
 <storycode:copy id="f-09ea558208cd-impl-LocalState">
 impl LocalState {
     pub fn executor_kind(&self) -> &'static str {
@@ -961,7 +963,11 @@ impl LocalState {
                     "Only ordinary source saves accept save request identities",
                 ));
             }
-            writer().map(|_| ()).map_err(ApiError::internal)
+            let publication=workspace_entry_authority::acquire_source_coordination(self.index.root(),&path,source).map_err(ApiError::conflict)?;
+            publication.check().map_err(ApiError::conflict)?;
+            let result=writer();
+            publication.check().map_err(ApiError::conflict)?;
+            result.map(|_| ()).map_err(ApiError::internal)
         }
     }
     pub fn write_source_as(

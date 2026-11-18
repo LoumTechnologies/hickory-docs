@@ -157094,6 +157094,20 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/mechanisms/workspace-entry-leases.md",
       "symbol": "coordinate source publication",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "workspace-entry-direct-namespace-coordination",
+      "output": "crates/hickory-cli/src/serve/workspace_entry_authority.rs",
+      "page": ".hickory-source/mechanisms/workspace-entry-leases.md",
+      "symbol": "coordinate direct namespace changes",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "workspace-entry-source-batch-coordination",
+      "output": "crates/hickory-cli/src/serve/workspace_entry_authority.rs",
+      "page": ".hickory-source/mechanisms/workspace-entry-leases.md",
+      "symbol": "admit a whole source replacement",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

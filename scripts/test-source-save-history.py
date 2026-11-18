@@ -88,13 +88,31 @@ def missing_suite(origin,root):
     absent={'version':1,'namespace':value['namespace'],'workspace':value['workspace'],'path':created,'id':entry['id'],'fingerprint':entry['fingerprint'],'current_identity':value['current_identity'],'current_hash':'missing','draft_hash':digest('retained created draft'),'side':'before'}
     refused(lambda:request(origin,'POST','/api/source-history/restore-draft',absent));assert not created_file.exists();restored=request(origin,'POST','/api/source-history/restore-draft',{**absent,'side':'after'});assert restored['source']==entry['after']['text'] and restored['source_effects'] is False and not created_file.exists()
     print('PASS deleted-source history: Missing distinct from empty File, confirmed text becomes only unmaterialized draft, no retry/identity promotion or file creation, independent replacement and absence-ABA refusal, Missing-before side never coerced to empty text',flush=True)
-def coordination_suite(origin, root, state):
+def coordination_suite(origin, root, state, check_find=False):
     import fcntl
 
     # The deleted-source witness intentionally removed the other literal path.
     path = 'source λ%2F?#.txt'
     loaded = guard_file(origin, path)
     body = save_body(path, loaded, 'saved after releasing the publication lease\n')
+    find_path = 'replace witness.txt'
+    find_source = 'before replacement\n'
+    find_result = 'after replacement\n'
+    replace = {
+        'q': find_source.strip(), 'replacement': find_result.strip(),
+        'paths': [find_path], 'expected_sources': {find_path: digest(find_source)},
+    }
+    def recorded_find():
+        result = []
+        for journal in (state / 'workspaces').glob('*/history/acts.jsonl'):
+            for line in journal.read_text().splitlines():
+                act = json.loads(line)
+                if act['kind'] == 'replace' and any(item['path'] == find_path for item in act['files']):
+                    result.append(act)
+        return result
+
+    if check_find:
+        assert recorded_find() == []
     route = '/api/source-history?path=' + urllib.parse.quote(path, safe='')
     previous = request(origin, 'GET', route)
     locks = list((state / 'workspace-source-publication-v1').glob('*/publication.lock'))
@@ -111,26 +129,47 @@ def coordination_suite(origin, root, state):
         assert (root / path).read_text() == loaded['content']
         assert get_file(origin, path)['content'] == loaded['content']
         assert request(origin, 'GET', route)['entries'] == previous['entries']
+        if check_find:
+            result = request(origin, 'POST', '/api/find/replace', replace)
+            assert result['changed'] == [] and result['replacements'] == 0, result
+            skipped, = result['skipped']
+            assert skipped['path'] == find_path and skipped['reason'] == 'source_publication_refused', result
+            assert 'retry' in skipped['notice'].lower(), skipped
+            assert (root / find_path).read_text() == find_source
+            assert recorded_find() == []
 
     saved = request(origin, 'PUT', '/api/source-history/file', body)
     check_saved(saved, body, path, body['content'])
     assert (root / path).read_text() == body['content']
     assert sum(entry['id'] == body['request_id'] for entry in request(origin, 'GET', route)['entries']) == 1
     print('PASS held publication descriptor keeps source readable and refuses Save before history; exact request publishes after release')
+    if check_find:
+        result = request(origin, 'POST', '/api/find/replace', replace)
+        assert result['replacements'] == 1 and result['skipped'] == [], result
+        changed, = result['changed']
+        assert changed['path'] == find_path and changed['before_source_hash'].removeprefix('sha256:') == digest(find_source), result
+        assert changed['after_source_hash'].removeprefix('sha256:') == digest(find_result), result
+        assert (root / find_path).read_text() == find_result
+        assert len(recorded_find()) == 1
+        print('PASS guarded Find replacement leaves no effects or history under a held reader and publishes one act after release')
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--coordination', action='store_true', help='Also exercise the Unix source publication interlock')
+    parser.add_argument('--find-coordination', action='store_true', help='Also exercise guarded Find against the same Unix interlock')
     args = parser.parse_args()
-    if args.coordination and os.name != 'posix':
+    if (args.coordination or args.find_coordination) and os.name != 'posix':
         parser.error('The source publication coordination witness requires Unix')
     spec=importlib.util.spec_from_file_location('fixture',ROOT/'scripts/test-simple-browser.py');fixture=importlib.util.module_from_spec(spec);spec.loader.exec_module(fixture)
     with tempfile.TemporaryDirectory(prefix='hickory-history-service-') as folder:
         temporary=Path(folder);root=temporary/'workspace';root.mkdir();root=root.resolve()
         for path,text in {'source λ%?#.txt':'before\n','source λ%2F?#.txt':'distinct sibling\n','note.md':'# Original\n','project.md':'<h:doc xmlns:h="http://www.hickorydocs.com/1.0"><h:project sources="construction.md"/></h:doc>\n','construction.md':'<h:doc xmlns:h="http://www.hickorydocs.com/1.0"><h:file path="generated.py">value = 1\n</h:file></h:doc>\n','generated.py':'value = 1\n'}.items():(root/path).write_text(text)
+        if args.find_coordination:
+            (root / 'replace witness.txt').write_text('before replacement\n')
         process=fixture.start([os.environ.get('HICKORY_SIMPLE_TEST_ENGINE',str(ROOT/'target/source-edit-focus/debug/examples/engine_client')),str(root),'window','http://127.0.0.1:1'],env={**os.environ,'HICKORY_STATE_DIR':str(temporary/'state')})
         try:
             origin=fixture.origin(process);suite(origin,root);creation_suite(origin,root);missing_suite(origin,root)
-            if args.coordination:coordination_suite(origin,root,temporary/'state')
+            if args.coordination or args.find_coordination:
+                coordination_suite(origin, root, temporary/'state', check_find=args.find_coordination)
         finally:fixture.stop(process)
 if __name__=='__main__':main()

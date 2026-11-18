@@ -845,6 +845,8 @@ pub(super) struct TurnIdentity {
 <a id="f-2ce16640df92-run_turn"></a>
 ### `run_turn`
 
+Flushing a live room before an agent turn is an ordinary source publication. Reuse the existing checked Save/history path so a compiler reader or pending main-entry transition can refuse that flush without losing the live draft. The agent does not gain a second writer merely by starting a session.
+
 <storycode:copy id="f-2ce16640df92-run_turn">
 async fn run_turn(
     state: &LocalState,
@@ -864,7 +866,7 @@ async fn run_turn(
     {
         let live = room.text().await;
         if live != std::fs::read_to_string(&doc_path).unwrap_or_default()
-            && let Err(e) = store::write_atomic(&doc_path, live.as_bytes())
+            && let Err(e) = state.write_source(doc_id, &live).map_err(|error|anyhow::anyhow!(error.detail().to_string()))
         {
             return Err(format!(
                 "could not flush unsaved edits to {}: {e:#}",

@@ -35,7 +35,7 @@ an earlier open item only for the behavior it actually exercises.
 | Refactoring, cleanup, generation, templates and history | Rename, formatting, genuine TypeScript extraction/accessor generation/cleanup and coordinated history have focused host receipts. Genuine TypeScript move-to-new-file review, publication and inverse/redo now have all-three-host receipts. Source-bound variable contexts and bounded production transforms now have completion/template receipts on all three hosts. Multi-caret editing and undo have browser, macOS editor and Android text-state evidence. Marked input has AppKit and Android text-state commit and history evidence. Embedded source templates have live browser, macOS and Android controller evidence. Batch catalog preparation has service evidence. Host batch catalog and Apply paths and full regex syntax remain open. |
 | Diagnostics and contextual fixes | Existing source-bound Problems/fix receipts remain scoped to their stated providers and paths. A command or backend implementation alone is not further acceptance. |
 | Testing and coverage | Retained sessions/results and supported collector receipts below remain scoped evidence. Exact JavaScript collection/rerun integration now has31 focused collector cases and11 fresh-engine Vitest flows; the retained-result race is corrected. Earlier native provider receipts retain their stated revisions. |
-| Review, staging, attribution, conflicts and recovery | Existing Git/native conflict receipts remain in force. Complete32-session recovery management and three exact revisions now have service/browser/macOS/Android-controller receipts. The canonical entry has a retained read identity and guarded source proof. Move publication and its inverse remain open. |
+| Review, staging, attribution, conflicts and recovery | Existing Git/native conflict receipts remain in force. Complete 32-session recovery management and three exact revisions have service, browser, macOS and Android-controller receipts. The canonical entry has a retained read identity and guarded source proof. Grouped text replacement and selected-worktree writes share that exclusion. Move publication and its inverse remain open. |
 | Debugging | Existing debugpy and installed LLDB launch/attach, thread/frame and breakpoint receipts remain scoped evidence. Unsupported adapters remain explicit; physical/device acceptance is not inferred from transport tests. |
 | Connected behavior readings | Guarded contract/explanation/source/generated/test/evidence readings and dirty construction graphs have host receipts. Default construction and connected readings retain the bound entry proof through execution admission. Declared, observed, stale and unknown relationships remain distinct. |
 | Change impact and relevant verification | Existing compiler/relationship-based impact and selected verification receipts remain scoped evidence. Unknown relationships and missing execution evidence do not become verified through graph reachability. |
@@ -210,6 +210,31 @@ source fixtures also passed. Both native connected-reading fixtures passed
 selected and manual-profile verification against the preceding leased watcher
 engine. The ordinary Save compatibility branch covers engines without this
 retained-role provider. The executed checks used the Unix engine.
+
+### Coordinate grouped replacement and mounted source writes
+
+Find and Replace holds one publication lease for the complete path set. It
+checks original physical source guards and current generated claims before it
+records the grouped inverse. A blocked request leaves source and history
+untouched. The existing browser result popover gives the writer's retry reason.
+Merged worktree publication and mounted authored writes use the same lease.
+Mounted namespace writes refuse retirement of the retained main or its parent,
+including physical aliases and case spellings. Ordinary source admission reads
+the retained role only after acquiring the exclusive lease, so a pending role
+created during admission refuses the write.
+
+An actual engine fixture held the shared descriptor during Find and Replace,
+observed zero replacements and no new history act, then replayed the same
+request after release and observed one exact act. The mounted engine checks
+confirmed pre-publication Markdown validation and path/link confinement. The
+selected-worktree writer saved and undid only the chosen target. Twenty focused
+entry and lease checks covered pending-role races and alias refusals. Twelve
+source history and nine agent checks passed, along with three focused browser
+checks and TypeScript checking. The earlier Find preview carries a content hash.
+The physical guard begins when the server plans the replacement.
+External filesystem and Git writers, the legacy history revert command and
+the raw Files API have separate publication paths. Entry Move and its inverse
+still require guarded publication and host acceptance.
 
 ## Checkpoint requested during implementation
 

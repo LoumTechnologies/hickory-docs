@@ -44,3 +44,21 @@ it("opens one modal search with replacement and all match options", () => {
   fireEvent.click(screen.getByRole("button", { name: "Close find" }));
   expect(screen.queryByRole("dialog")).toBeNull();
 });
+
+it("reports a publication refusal in the existing search dialog", async () => {
+  vi.spyOn(api, "find").mockResolvedValue({
+    files: [{ path: "source.txt", source_hash: "a".repeat(64), matches: [{ line: 1, text: "old", at: [{ column: 0, length: 3 }] }] }],
+    truncated: false,
+  });
+  const notice = "Another workspace entry publication is active. Preserve source and retry.";
+  vi.spyOn(api, "replaceAll").mockResolvedValue({
+    changed: [], replacements: 0,
+    skipped: [{ path: "source.txt", matches: 1, reason: "source_publication_refused", notice }],
+  });
+  render(<TreeFindReplace onOpenHit={vi.fn()} onReplaced={vi.fn()} />);
+  fireEvent.click(screen.getByRole("button", { name: "Search files" }));
+  fireEvent.change(screen.getByPlaceholderText("Find"), { target: { value: "old" } });
+  fireEvent.change(screen.getByPlaceholderText("Replace with"), { target: { value: "new" } });
+  fireEvent.click(await screen.findByRole("button", { name: "Replace in 1 file" }));
+  await waitFor(() => expect(screen.getByRole("status").textContent).toContain(`Skipped 1 file. ${notice}`));
+});
