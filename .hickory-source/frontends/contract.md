@@ -32,19 +32,43 @@ an earlier open item only for the behavior it actually exercises.
 | Required outcome | Current usable evidence and remaining acceptance |
 | --- | --- |
 | Navigation and code intelligence | Existing source-bound navigation and provider receipts remain in force. Browser mixed-line-ending source/view coordination has rendered provider and history acceptance. Android controller acceptance covers exact navigation into a literal source tab with an Agent utility still open. Ordinary Markdown fences now have genuine Python and TypeScript inspection and navigation receipts in the browser, mounted macOS editor and Android controller. Other embedded provider shapes retain their stated limits. |
-| Refactoring, cleanup, generation, templates and history | Rename, formatting, genuine TypeScript extraction/accessor generation/cleanup and coordinated history have focused host receipts. Genuine TypeScript move-to-new-file review, publication and inverse/redo have browser, macOS and Android receipts. Source-bound variables and expanded regex transforms in completion and reusable templates have live browser, macOS and Android-controller receipts. Embedded and multi-caret template review retains source, selections, mirrors and grouped history, including native secondary-caret round-trip invalidation. |
+| Refactoring, cleanup, generation, templates and history | Rename, formatting, genuine TypeScript extraction/accessor generation/cleanup and coordinated history have focused host receipts. Genuine TypeScript move-to-new-file review, publication and inverse/redo have browser, macOS and Android controller receipts. Source-bound variables and expanded regex transforms in completion and reusable templates have live browser, macOS and Android controller receipts. Embedded and multi-caret template review retains source, selections, mirrors and grouped history, including native secondary-caret round-trip invalidation. The mounted iOS witness applied a reviewed Cleanup and exercised coordinated Undo and Redo. Native Paste Undo is open. |
 | Diagnostics and contextual fixes | Existing source-bound Problems/fix receipts remain scoped to their stated providers and paths. A command or backend implementation alone is not further acceptance. |
 | Testing and coverage | Retained sessions, results and coverage retain their provider receipts. Exact JavaScript collection/rerun has 31 focused collector cases and 11 fresh-engine Vitest flows. Rust test Debug matches the saved declaration to a compiled inline or external module and its qualified harness name. The direct engine, rendered browser, mounted macOS and Android controller verified that path in physical and compiler-authored source. |
 | Review, staging, attribution, conflicts and recovery | Existing Git/native conflict receipts remain in force. Complete 32-session recovery management and three exact revisions have service, browser, macOS and Android-controller receipts. The canonical entry has a retained read identity and guarded source proof. Grouped text replacement and selected-worktree writes share that exclusion. A single reviewed main Move and its immediate Undo/Redo pass on browser, mounted macOS and the Android controller. Older inverse chains and interrupted publication recovery remain open. |
-| Debugging | Existing debugpy and installed LLDB launch/attach, thread/frame and breakpoint receipts remain scoped evidence. Installed Cargo and LLDB also verified saved Rust test selection against emitted source metadata. Unsupported adapters and unexecuted device acceptance remain visible. |
+| Debugging | Existing debugpy and installed LLDB launch/attach, thread/frame and breakpoint receipts remain scoped evidence. Installed Cargo and LLDB also verified saved Rust test selection against emitted source metadata. The latest mounted iOS test timed out waiting for Debug admission. Unsupported adapters and unexecuted device acceptance remain visible. |
 | Connected behavior readings | Guarded contract/explanation/source/generated/test/evidence readings and dirty construction graphs have host receipts. Default construction and connected readings retain the bound entry proof through execution admission. Declared, observed, stale and unknown relationships remain distinct. |
 | Change impact and relevant verification | Existing compiler/relationship-based impact and selected verification receipts remain scoped evidence. Unknown relationships and missing execution evidence do not become verified through graph reachability. |
 | Agent proposal review and guarded application | Sealed complete review, original-context application and restart-retained historical reading have host receipts. Historical evidence never revives application authority. |
 
 Across all rows, physical input and assistive-technology acceptance remain
-unexecuted where stated. Android controller/state acceptance and iOS builds are
-reported separately from rendered/device runtime acceptance. No full parity
-claim is made while the integration work in this ledger remains open.
+unexecuted where stated. Android controller checks ran against the engine. The
+emulator refused to start due to insufficient host disk space, so rendered Android
+acceptance is open. iOS has build and limited mounted simulator evidence. The
+platform and provider scope of each receipt determines which outcomes it verifies.
+
+### Mounted iOS acceptance and recovery checkpoint
+
+The mounted UIKit run confirmed an editor-owned Undo manager and applied a
+reviewed Cleanup, then restored and reapplied it through coordinated Undo and
+Redo. With the keyboard settled, editor identity, selection, scroll and pixel
+geometry survived opening the debugger controls. Native Paste inserted text,
+but the editor reported no associated native Undo action. The test failed after
+the 30-second Debug admission deadline because it could not observe the expected
+stop, continued execution or retained exit status. The runner's four focused
+fixture safety checks passed. See the [mounted acceptance reading](../mechanisms/ios-mounted-parity-acceptance.md).
+
+The local `codex/parity-recovery-checkpoint` branch preserves interrupted Move
+publication and older Move history work. It contains recovery evidence and
+journal models, host adapters and exact acceptance fixtures. The engine still
+needs scoped completion admission and publication, plus integration of older
+Undo and Redo into the shared publisher. The checkpoint failed `cargo check`
+for the CLI library with missing acquisition scope and transition wiring.
+The 25 focused browser tests and
+TypeScript check covered the adapter snapshot. The interrupted-completion and
+multi-generation Move fixtures have yet to run end to end on an engine with
+those paths wired. The immediate Move Undo and Redo and ordinary Source Recovery
+receipts above remain the verified behavior on `master`.
 
 ## Inspect authored code in ordinary Markdown fences
 
