@@ -34,4 +34,10 @@ final class SnippetExpansionTests:XCTestCase {
         XCTAssertThrowsError(try completionExpansion(item(4096,8)))
     }
 
+ func testDecodedRowsShareTheirCalculatedMirrorBudget()throws {
+  let syntax="${1:a}|${1/(.*)/${1:/upcase}/}$0",program:[String:Any]=["version":2,"case_map":"hickory-ucd-16.0.0-v1","regex":["capture",1,["repeat",["dot"],0,NSNull(),false]],"format":[["capture",1,"upcase"]],"flags":"","groups":1]
+  let fields:[[String:Any]]=[["id":0,"parent":NSNull(),"index":1,"from":0,"to":1,"choices":[]],["id":1,"parent":NSNull(),"index":1,"from":2,"to":3,"choices":[],"transform":program],["id":2,"parent":NSNull(),"index":0,"from":3,"to":3,"choices":[]]]
+  let item:[String:Any]=["label":"shared mirror","insertTextFormat":2,"insertText":syntax,"data":["hickory_snippet":["version":2,"syntax":syntax,"text":"a|A","fields":fields]]]
+  XCTAssertEqual(try completionExpansion(item)?.text,"a|A");var budget=SnippetTransformBudget();_ = try completionExpansion(item,budget:&budget);let first=budget.work;XCTAssertGreaterThan(first,0);_ = try completionExpansion(item,budget:&budget);XCTAssertGreaterThan(budget.work,first);var limited=SnippetTransformBudget(work:100000);XCTAssertThrowsError(try completionExpansion(item,budget:&limited))
+ }
 }

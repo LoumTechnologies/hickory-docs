@@ -33,7 +33,7 @@ func validSnippetContextSelection(_ source:String,_ from:Int,_ to:Int)->Bool {
 }
 func bindSnippetVariables(_ source:String,from:Int,to:Int,proof:Any,snapshot:SnippetVariableSnapshot = .capture())throws->[String:Any] {
  guard validSnippetContextSelection(source,from,to),let expected=proof as? [String:Any],let hash=expected["source_hash"] as? String,let revision=expected["source_revision"] as? String,hash=="sha256:"+nativeSourceHash(source),revision.count==64,revision.utf8.allSatisfy({(48...57).contains($0)||(97...102).contains($0)}) else{throw EngineError(message:"Snippet source context changed. Request completions again.")}
- return snapshot.body.merging(["version":1,"expected":["source_hash":hash,"source_revision":revision],"selection":["from":from,"to":to]]){_,new in new}
+ return snapshot.body.merging(["version":1,"expected":["source_hash":hash,"source_revision":revision],"selection":["from":from,"to":to],"transform_program_versions":supportedSnippetTransformPrograms]){_,new in new}
 }
 
 @MainActor func resolveSnippetCompletion(_ original:[String:Any],source:String,from:Int,to:Int,current:()->Bool,request:([String:Any])async throws->[String:Any],clipboard:(()->String?)?=nil)async throws->[String:Any]{

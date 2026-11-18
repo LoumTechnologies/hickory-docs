@@ -35,4 +35,11 @@ class SnippetExpansionTest {
   assertTrue(runCatching{completionExpansion(item(4096,8))}.isFailure)
  }
 
+ @Test fun decodedRowsShareTheirCalculatedMirrorBudget(){
+  val syntax="""${'$'}{1:a}|${'$'}{1/(.*)/${'$'}{1:/upcase}/}${'$'}0"""
+  val raw="""{"version":2,"case_map":"hickory-ucd-16.0.0-v1","regex":["capture",1,["repeat",["dot"],0,null,false]],"format":[["capture",1,"upcase"]],"flags":"","groups":1}"""
+  val fields=org.json.JSONArray().put(JSONObject().put("id",0).put("parent",JSONObject.NULL).put("index",1).put("from",0).put("to",1).put("choices",org.json.JSONArray())).put(JSONObject().put("id",1).put("parent",JSONObject.NULL).put("index",1).put("from",2).put("to",3).put("choices",org.json.JSONArray()).put("transform",JSONObject(raw))).put(JSONObject().put("id",2).put("parent",JSONObject.NULL).put("index",0).put("from",3).put("to",3).put("choices",org.json.JSONArray()))
+  val item=JSONObject().put("label","shared mirror").put("insertTextFormat",2).put("insertText",syntax).put("data",JSONObject().put("hickory_snippet",JSONObject().put("version",2).put("syntax",syntax).put("text","a|A").put("fields",fields)))
+  assertEquals("a|A",completionExpansion(item)!!.text);val budget=SnippetTransformBudget();completionExpansion(item,budget);val first=budget.work;assertTrue(first>0);completionExpansion(item,budget);assertTrue(budget.work>first);assertTrue(runCatching{completionExpansion(item,SnippetTransformBudget(100000))}.isFailure)
+ }
 }

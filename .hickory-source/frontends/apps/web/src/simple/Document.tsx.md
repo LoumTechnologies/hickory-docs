@@ -83,6 +83,7 @@ import { lspSupport, setLspDiagnostics, diagnosticRanges } from "../lsp/cmLsp";
 import { lspFeatures } from "../lsp/cmLspFeatures";
 import { completions } from "../lsp/completion";
 import {sourceCompletion} from "./SourceCompletion";
+import {supportedSnippetTransformPrograms} from "./SnippetTransform";
 import {resolveSnippetCompletion} from "./SnippetContext";
 import {readCompletionAcceptance} from "../lsp/completionAcceptance";
 import { positionToUtf16, utf16ToPosition } from "../lsp/positions";
@@ -383,7 +384,7 @@ export function Document({ buffer,current }: { buffer: Buffer;current?:()=>boole
           else { const { anchor, head } = view.state.selection.main; setSemanticResult({ source: authoredSource(view.state), anchor, head, ticket: ++semanticTicket.current, message: "Provider target is outside authored workspace files.", locations: [target] }); }
         } } }),
       ...lspFeatures({ client: session.client, uri: session.uri, positionAt, offsetAt, inlayHints: true }),
-    ]),completion.reconfigure(!buffer.readonly ? completions({ lsp: { client: session.client, uri: session.uri,
+    ]),completion.reconfigure(!buffer.readonly ? completions({ lsp: { client: session.client, uri: session.uri,transformPrograms:supportedSnippetTransformPrograms,
         positionAt: (offset, state) => utf16ToPosition(authoredSource(state), authoredOffset(state,offset)) },
         lspItem:(item,context)=>sourceCompletion(item,context,{uri:session.uri,current:()=>providerCurrent,writable:()=>!buffer.readonly&&!buffer.saving&&!buffer.transient,
           resolve:async original=>{

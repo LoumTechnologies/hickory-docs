@@ -23,3 +23,8 @@ it('counts every empty alternative and refuses cumulative mirror metadata before
  expect(()=>completionExpansion(item(4097))).toThrow(/metadata/);
  expect(()=>completionExpansion(item(4096,8))).toThrow(/metadata/);
 });
+it('shares calculated-mirror validation work across decoded rows',()=>{
+ const program={version:2,case_map:'hickory-ucd-16.0.0-v1',regex:['capture',1,['repeat',['dot'],0,null,false]],format:[['capture',1,'upcase']],flags:'',groups:1};
+ const item={label:'shared mirror',insertTextFormat:2,insertText:'${1:a}|${1/(.*)/${1:/upcase}/}$0',data:{hickory_snippet:{version:2,syntax:'${1:a}|${1/(.*)/${1:/upcase}/}$0',text:'a|A',fields:[{id:0,parent:null,index:1,from:0,to:1,choices:[]},{id:1,parent:null,index:1,from:2,to:3,choices:[],transform:program},{id:2,parent:null,index:0,from:3,to:3,choices:[]}]}}};
+ expect(completionExpansion(item)?.text).toBe('a|A');const budget={work:0};completionExpansion(item,budget);const first=budget.work;expect(first).toBeGreaterThan(0);completionExpansion(item,budget);expect(budget.work).toBeGreaterThan(first);expect(()=>completionExpansion(item,{work:100000})).toThrow();
+});

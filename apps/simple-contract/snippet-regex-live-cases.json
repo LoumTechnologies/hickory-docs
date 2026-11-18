@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "source": "OldOld\r\nsecond\n",
+  "syntax": "${1:${TM_SELECTED_TEXT}}|$1|${1/(?<=.{3})(?<tail>.+)/${1:/upcase}/u}|${1/(?<\\u0077ord>[a-z]{3})\\k<word>/${1:/upcase}/i}|${1/[\\p{L}&&\\p{ASCII}]+/${0:/snakecase}/v}|${1/(?i:old)/${0:/downcase}/g}|${1/(?:\\p{RGI_Emoji}|(?<word>[A-Za-z]+))/${1:?word:emoji}/gv}$0",
+  "budget_syntax": "${1:${TM_SELECTED_TEXT}}|${1/(a+)+$/ok/}$0",
+  "after": "OldOld|OldOld|OldOLD|OLD|old_old|oldold|word\r\nsecond\n",
+  "typed": "NewNew|NewNew|NewNEW|NEW|new_new|NewNew|word\r\nsecond\n",
+  "emoji": "😀|😀|😀|😀|😀|😀|emoji\r\nsecond\n",
+  "budget_after": "OldOld|OldOld\r\nsecond\n"
+}

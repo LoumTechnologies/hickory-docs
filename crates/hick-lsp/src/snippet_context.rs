@@ -135,6 +135,7 @@ pub struct SnippetEditorContext {
     pub from: usize,
     pub to: usize,
     pub snapshot: SnippetVariableSnapshot,
+    pub transform_program_versions:Vec<u32>,
 }
 impl SnippetEditorContext {
     pub fn read(
@@ -152,17 +153,10 @@ impl SnippetEditorContext {
             }
             Ok(())
         }
-        keys(
-            raw,
-            &[
-                "version",
-                "expected",
-                "selection",
-                "clock",
-                "random_hex",
-                "clipboard",
-            ],
-        )?;
+        let programs=if let Some(raw)=raw.get("transform_program_versions"){let values=raw.as_array().ok_or("Malformed snippet transform program versions")?;if values.len()>2{return Err("Excessive snippet transform program versions".into())};values.iter().map(|n|n.as_u64().and_then(|n|u32::try_from(n).ok()).ok_or_else(||"Malformed snippet transform program version".to_owned())).collect::<Result<Vec<_>,_>>()?}else{vec![2]};
+        crate::snippet_transform::validate_program_versions(&programs)?;
+        let mut allowed=vec!["version","expected","selection","clock","random_hex","clipboard"];
+        if raw.get("transform_program_versions").is_some(){allowed.push("transform_program_versions")};keys(raw,&allowed)?;
         if raw["version"].as_u64() != Some(1) {
             return Err("Unsupported editor snippet context version".into());
         }
@@ -200,7 +194,7 @@ impl SnippetEditorContext {
         }
         let snapshot =
             SnippetVariableSnapshot::read(&raw["clock"], &raw["random_hex"], &raw["clipboard"])?;
-        Ok(Self { from, to, snapshot })
+        Ok(Self { from, to, snapshot, transform_program_versions:programs })
     }
 }
 fn comments(

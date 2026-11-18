@@ -854,7 +854,7 @@ class NativeLanguage(private val engine: Engine, private val buffer: DocumentBuf
         try {
             kotlinx.coroutines.delay(350)
             if(epoch!=current||completion!=id||buffer.sourceRevision!=revision||buffer.resourceDeleted||languageURI(buffer.file.path)!=uri||buffer.text!=source||buffer.state.selection!=selection)return
-            val result = request("textDocument/completion", JSONObject().put("textDocument", doc()).put("position", languagePosition(source, selection.min)))
+            val result = request("hick/completion", JSONObject().put("textDocument", doc()).put("position", languagePosition(source, selection.min)).put("transform_program_versions",JSONArray(supportedSnippetTransformPrograms)))
             if (epoch != current || completion != id || buffer.sourceRevision!=revision||buffer.resourceDeleted||languageURI(buffer.file.path)!=uri||buffer.text != source || buffer.state.selection != selection) return
             if (result == JSONObject.NULL) return
             val items = result as? JSONArray ?: (result as? JSONObject)?.optJSONArray("items") ?: JSONArray()

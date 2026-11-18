@@ -161,6 +161,7 @@ pub struct SnippetEditorContext {
     pub from: usize,
     pub to: usize,
     pub snapshot: SnippetVariableSnapshot,
+    pub transform_program_versions:Vec<u32>,
 }
 impl SnippetEditorContext {
     pub fn read(
@@ -178,17 +179,10 @@ impl SnippetEditorContext {
             }
             Ok(())
         }
-        keys(
-            raw,
-            &[
-                "version",
-                "expected",
-                "selection",
-                "clock",
-                "random_hex",
-                "clipboard",
-            ],
-        )?;
+        let programs=if let Some(raw)=raw.get("transform_program_versions"){let values=raw.as_array().ok_or("Malformed snippet transform program versions")?;if values.len()>2{return Err("Excessive snippet transform program versions".into())};values.iter().map(|n|n.as_u64().and_then(|n|u32::try_from(n).ok()).ok_or_else(||"Malformed snippet transform program version".to_owned())).collect::<Result<Vec<_>,_>>()?}else{vec![2]};
+        crate::snippet_transform::validate_program_versions(&programs)?;
+        let mut allowed=vec!["version","expected","selection","clock","random_hex","clipboard"];
+        if raw.get("transform_program_versions").is_some(){allowed.push("transform_program_versions")};keys(raw,&allowed)?;
         if raw["version"].as_u64() != Some(1) {
             return Err("Unsupported editor snippet context version".into());
         }
@@ -226,7 +220,7 @@ impl SnippetEditorContext {
         }
         let snapshot =
             SnippetVariableSnapshot::read(&raw["clock"], &raw["random_hex"], &raw["clipboard"])?;
-        Ok(Self { from, to, snapshot })
+        Ok(Self { from, to, snapshot, transform_program_versions:programs })
     }
 }
 </ui:copy>
@@ -922,6 +916,7 @@ mod tests {
 The adapters collect one editor-local clock and random seed, then retain plain immutable values. Completion binding checks the exact offered engine hash and opaque revision before creating the request envelope. The outer editor lease must still be current after any asynchronous hash or provider request. Template capture reuses the same snapshot across catalog, preview and revalidation; no keystroke performs a provider request. Missing browser crypto leaves random variables unavailable rather than inventing a weaker random source.
 
 <ui:copy id="snippet-variable-context-browser">
+import {supportedSnippetTransformPrograms} from './SnippetTransform';
 import {sha256} from '../lib/reviews';
 export interface SnippetClipboard {readonly available:boolean;readonly text:string|null}
 export interface SnippetVariableSnapshot {readonly clipboard:Readonly<SnippetClipboard>|null;readonly clock:Readonly<{unix_millis:number;utc_offset_minutes:number}>|null;readonly random_hex:string|null}
@@ -938,7 +933,7 @@ export function validSnippetContextSelection(source:string,from:number,to:number
 export async function bindSnippetVariables(source:string,from:number,to:number,proof:unknown,snapshot:SnippetVariableSnapshot=captureSnippetVariables()):Promise<Record<string,unknown>> {
  if(!validSnippetContextSelection(source,from,to)||!proof||typeof proof!=='object'||Array.isArray(proof))throw Error('Snippet source context is unavailable. Request completions again.');const expected=proof as Record<string,unknown>;
  if(typeof expected.source_hash!=='string'||!/^sha256:[a-f0-9]{64}$/.test(expected.source_hash)||typeof expected.source_revision!=='string'||! /^[a-f0-9]{64}$/.test(expected.source_revision)||expected.source_hash!=='sha256:'+await sha256(source))throw Error('Snippet source context changed. Request completions again.');
- return Object.freeze({version:1,expected:Object.freeze({source_hash:expected.source_hash,source_revision:expected.source_revision}),selection:Object.freeze({from,to}),clock:snapshot.clock,random_hex:snapshot.random_hex,clipboard:snapshot.clipboard});
+ return Object.freeze({version:1,expected:Object.freeze({source_hash:expected.source_hash,source_revision:expected.source_revision}),selection:Object.freeze({from,to}),clock:snapshot.clock,random_hex:snapshot.random_hex,clipboard:snapshot.clipboard,transform_program_versions:supportedSnippetTransformPrograms});
 }
 
 function snippetRecord(value:unknown):value is Record<string,unknown>{return !!value&&typeof value==='object'&&!Array.isArray(value);}
@@ -994,7 +989,7 @@ func validSnippetContextSelection(_ source:String,_ from:Int,_ to:Int)->Bool {
 }
 func bindSnippetVariables(_ source:String,from:Int,to:Int,proof:Any,snapshot:SnippetVariableSnapshot = .capture())throws->[String:Any] {
  guard validSnippetContextSelection(source,from,to),let expected=proof as? [String:Any],let hash=expected["source_hash"] as? String,let revision=expected["source_revision"] as? String,hash=="sha256:"+nativeSourceHash(source),revision.count==64,revision.utf8.allSatisfy({(48...57).contains($0)||(97...102).contains($0)}) else{throw EngineError(message:"Snippet source context changed. Request completions again.")}
- return snapshot.body.merging(["version":1,"expected":["source_hash":hash,"source_revision":revision],"selection":["from":from,"to":to]]){_,new in new}
+ return snapshot.body.merging(["version":1,"expected":["source_hash":hash,"source_revision":revision],"selection":["from":from,"to":to],"transform_program_versions":supportedSnippetTransformPrograms]){_,new in new}
 }
 
 @MainActor func resolveSnippetCompletion(_ original:[String:Any],source:String,from:Int,to:Int,current:()->Bool,request:([String:Any])async throws->[String:Any],clipboard:(()->String?)?=nil)async throws->[String:Any]{
@@ -1028,7 +1023,7 @@ internal fun validSnippetContextSelection(source:String,from:Int,to:Int):Boolean
 }
 internal fun bindSnippetVariables(source:String,from:Int,to:Int,proof:Any?,snapshot:SnippetVariableSnapshot=SnippetVariableSnapshot.capture()):JSONObject {
  check(validSnippetContextSelection(source,from,to)&&proof is JSONObject&&proof.opt("source_hash")=="sha256:"+debugHash(source)&&(proof.opt("source_revision") as? String)?.matches(Regex("[a-f0-9]{64}"))==true){"Snippet source context changed. Request completions again."}
- return snapshot.body().put("version",1).put("expected",JSONObject().put("source_hash",proof.getString("source_hash")).put("source_revision",proof.getString("source_revision"))).put("selection",JSONObject().put("from",from).put("to",to))
+ return snapshot.body().put("version",1).put("expected",JSONObject().put("source_hash",proof.getString("source_hash")).put("source_revision",proof.getString("source_revision"))).put("selection",JSONObject().put("from",from).put("to",to)).put("transform_program_versions",org.json.JSONArray(supportedSnippetTransformPrograms))
 }
 
 internal suspend fun resolveSnippetCompletion(original:JSONObject,source:String,from:Int,to:Int,current:()->Boolean,request:suspend (JSONObject)->JSONObject,clipboard:(()->String?)?=null):JSONObject {

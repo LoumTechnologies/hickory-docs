@@ -276,8 +276,10 @@ export class LspClient {
     return normalizeLocations(result);
   }
 
-  async completion(uri: string, position: LspPosition, context?:{triggerKind:1|2|3;triggerCharacter?:string}): Promise<CompletionItem[]> {
-    const result = await this.request("textDocument/completion", {
+  async completion(uri: string, position: LspPosition, context?:{triggerKind:1|2|3;triggerCharacter?:string},transformPrograms:readonly number[]=[2]): Promise<CompletionItem[]> {
+    const extended=transformPrograms.length!==1||transformPrograms[0]!==2;
+    const result = await this.request(extended?"hick/completion":"textDocument/completion", {
+      ...(extended?{transform_program_versions:transformPrograms}:{}),
       textDocument: { uri },
       position,
       ...(context?{context}:{}),

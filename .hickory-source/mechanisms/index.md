@@ -411,4 +411,8 @@ is included with that control; opening a document is not generation authority.
 
 <storycode:include file="workspace-default-readings.md" />
 
+<storycode:include file="snippet-regex-unicode.md" />
+<storycode:include file="snippet-regex-v3.md" />
+<storycode:include file="snippet-regex-acceptance.md" />
+
 </storycode:doc>

@@ -3,7 +3,7 @@ import {readSnippetTransform,applySnippetTransform,snippetTransformBytes,type Sn
 import {completionInsertion,type CompletionExpansion} from './CompletionPlan';
 import {utf16ToPosition} from '../lsp/positions';
 export interface SnippetField {index:number;from:number;to:number;choices:string[];id?:number;parent?:number|null;transform?:SnippetTransform}
-export function completionExpansion(item:unknown):CompletionExpansion|undefined {
+export function completionExpansion(item:unknown,budget:SnippetTransformBudget={work:0}):CompletionExpansion|undefined {
  const value=item as {insertTextFormat?:unknown;data?:{hickory_snippet?:unknown}};
  if(value?.insertTextFormat!==2)return undefined;
  const raw=value.data?.hickory_snippet as {version?:unknown;syntax?:unknown;text?:unknown;fields?:unknown}|undefined;
@@ -31,7 +31,7 @@ export function completionExpansion(item:unknown):CompletionExpansion|undefined 
   for(const field of fields){const chain=new Set<number>();let next:SnippetField|undefined=field;while(next&&!visited.has(next.id!)){if(chain.has(next.id!))throw new Error('Cyclic snippet ancestry');chain.add(next.id!);if(next.parent===null)break;const parent=ids.get(next.parent!);if(!parent||parent.from>next.from||parent.to<next.to)throw new Error('Malformed snippet ancestry');next=parent;}for(const id of chain)visited.add(id);}
  }
  if(fields.filter(field=>field.index===0).length!==1)throw new Error('Malformed snippet exit');
- validateSnippetMirrors(text,fields);
+ validateSnippetMirrors(text,fields,budget);
  const active=Math.min(...fields.filter(field=>!field.transform&&field.index>0).map(field=>field.index),Infinity),selected=fields.find(field=>!field.transform&&field.index===(active===Infinity?0:active))!;
  return {text,fields,selection:{from:selected.from,to:selected.to}};
 }

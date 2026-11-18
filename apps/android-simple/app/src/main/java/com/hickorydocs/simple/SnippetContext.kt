@@ -15,7 +15,7 @@ internal fun validSnippetContextSelection(source:String,from:Int,to:Int):Boolean
 }
 internal fun bindSnippetVariables(source:String,from:Int,to:Int,proof:Any?,snapshot:SnippetVariableSnapshot=SnippetVariableSnapshot.capture()):JSONObject {
  check(validSnippetContextSelection(source,from,to)&&proof is JSONObject&&proof.opt("source_hash")=="sha256:"+debugHash(source)&&(proof.opt("source_revision") as? String)?.matches(Regex("[a-f0-9]{64}"))==true){"Snippet source context changed. Request completions again."}
- return snapshot.body().put("version",1).put("expected",JSONObject().put("source_hash",proof.getString("source_hash")).put("source_revision",proof.getString("source_revision"))).put("selection",JSONObject().put("from",from).put("to",to))
+ return snapshot.body().put("version",1).put("expected",JSONObject().put("source_hash",proof.getString("source_hash")).put("source_revision",proof.getString("source_revision"))).put("selection",JSONObject().put("from",from).put("to",to)).put("transform_program_versions",org.json.JSONArray(supportedSnippetTransformPrograms))
 }
 
 internal suspend fun resolveSnippetCompletion(original:JSONObject,source:String,from:Int,to:Int,current:()->Boolean,request:suspend (JSONObject)->JSONObject,clipboard:(()->String?)?=null):JSONObject {

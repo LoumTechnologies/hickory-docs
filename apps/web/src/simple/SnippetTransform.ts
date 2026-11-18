@@ -1,9 +1,13 @@
 import {snippetCase,snippetCaseWords,snippetCaseVersion} from './SnippetCase';
+import {readRegexV3,evaluateRegexV3,regexV3ProgramBytes,type RegexV3Program} from './SnippetTransformV3';
+export const supportedSnippetTransformPrograms=Object.freeze([2,3] as const);
 const scalarText=(text:string)=>!/[\uD800-\uDFFF]/u.test(text);
-export interface SnippetTransform {readonly version:2;readonly case_map:typeof snippetCaseVersion;readonly regex:readonly unknown[];readonly format:readonly unknown[];readonly flags:string;readonly groups:number}
+export interface SnippetTransformV2 {readonly version:2;readonly case_map:typeof snippetCaseVersion;readonly regex:readonly unknown[];readonly format:readonly unknown[];readonly flags:string;readonly groups:number}
+export type SnippetTransform=SnippetTransformV2|(RegexV3Program & {readonly regex?:never});
 export interface SnippetTransformBudget {work:number}
 const maximum=1048576;
 export function readSnippetTransform(raw:unknown):SnippetTransform {
+ if(raw&&typeof raw==='object'&&'version' in raw&&raw.version===3)return readRegexV3(raw);
  let count=0,bytes=0;const tick=(n=1)=>{count+=n;if(count>512)throw Error('Snippet transform program limit exceeded');};
  const integer=(v:unknown,max=1114111)=>{if(typeof v!=='number'||!Number.isSafeInteger(v)||v<0||v>max)throw Error('Malformed snippet transform integer');return v;};
  const text=(v:unknown)=>{if(typeof v!=='string'||!scalarText(v))throw Error('Malformed snippet transform text');bytes+=new TextEncoder().encode(v).length;if(bytes>16384)throw Error('Snippet transform metadata limit exceeded');return v;};
@@ -24,11 +28,11 @@ export function readSnippetTransform(raw:unknown):SnippetTransform {
  const format=(v:unknown,depth:number):readonly unknown[]=>{if(depth>32||!Array.isArray(v)||v.length>512)throw Error('Malformed transform format');return Object.freeze(v.map(op=>{tick();if(typeof op==='string')return text(op);if(!Array.isArray(op))throw Error('Malformed transform format');if(op[0]==='capture'&&op.length===3&&['','upcase','downcase','capitalize','camelcase','pascalcase'].includes(op[2]))return Object.freeze(['capture',integer(op[1],32),op[2]]);if(op[0]==='if'&&op.length===4)return Object.freeze(['if',integer(op[1],32),format(op[2],depth+1),format(op[3],depth+1)]);throw Error('Unsupported transform format');}));};
  return Object.freeze({version:2,case_map:snippetCaseVersion,regex:node(value.regex,0),format:format(value.format,0),flags,groups});
 }
-export function snippetTransformBytes(program:SnippetTransform):number{return new TextEncoder().encode(JSON.stringify(program)).length;}
+export function snippetTransformBytes(program:SnippetTransform):number{return program.version===3?regexV3ProgramBytes(program):new TextEncoder().encode(JSON.stringify(program)).length;}
 interface MatchState {at:number;captures:({from:number;to:number}|null)[]}
 const newline=(c:string|undefined)=>c!==undefined&&['\n','\r','\u2028','\u2029'].includes(c),word=(c:string|undefined)=>c!==undefined&&/^[A-Za-z0-9_]$/.test(c);
 export function applySnippetTransform(raw:SnippetTransform,input:string,budget:SnippetTransformBudget={work:0}):string {
- const program=readSnippetTransform(raw);if(!scalarText(input)||new TextEncoder().encode(input).length>65536)throw Error('Snippet transform input limit exceeded');const chars=Array.from(input),flags=program.flags;
+ const program=readSnippetTransform(raw);if(program.version===3)return evaluateRegexV3(program,input,budget);if(!scalarText(input)||new TextEncoder().encode(input).length>65536)throw Error('Snippet transform input limit exceeded');const chars=Array.from(input),flags=program.flags;
  const tick=(n=1)=>{budget.work+=n;if(!Number.isSafeInteger(budget.work)||budget.work<0||budget.work>100000)throw Error('Snippet transform work limit exceeded');};
  const matches=(node:readonly unknown[],state:MatchState,depth:number):MatchState[]=>{
   tick();if(depth>64)throw Error('Snippet transform evaluation depth exceeded');const op=node[0];let result:MatchState[]=[];

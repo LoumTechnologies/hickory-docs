@@ -1,7 +1,8 @@
 package com.hickorydocs.simple
 import org.json.JSONObject
 data class SnippetField(val index:Int,val from:Int,val to:Int,val choices:List<String>,val id:Int?=null,val parent:Int?=null,val transform:SnippetTransform?=null)
-fun completionExpansion(item:JSONObject):CompletionExpansion? {
+fun completionExpansion(item:JSONObject):CompletionExpansion? = completionExpansion(item,SnippetTransformBudget())
+internal fun completionExpansion(item:JSONObject,budget:SnippetTransformBudget):CompletionExpansion? {
  if((item.opt("insertTextFormat") as? Number)?.toDouble()!=2.0)return null
  val raw=item.optJSONObject("data")?.optJSONObject("hickory_snippet") ?: error("Snippet expansion unavailable or out of date. Request completions again.")
  fun number(value:Any?):Int {check(value is Number&&value.toDouble().isFinite()&&value.toDouble()==value.toInt().toDouble()&&value.toInt()>=0){"Malformed snippet field"};return value.toInt()}
@@ -33,7 +34,7 @@ fun completionExpansion(item:JSONObject):CompletionExpansion? {
   }
  }
  check(fields.count{it.index==0}==1){"Malformed snippet exit"}
- validateSnippetMirrors(text,fields)
+ validateSnippetMirrors(text,fields,budget)
  val active=fields.filter{it.transform==null&&it.index>0}.map{it.index}.minOrNull() ?: 0;val selected=fields.first{it.transform==null&&it.index==active}
  return CompletionExpansion(text,CompletionSelection(selected.from,selected.to),fields)
 }

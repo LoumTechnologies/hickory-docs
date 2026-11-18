@@ -277,7 +277,7 @@ impl ChildLspHandle {
                     },
                     "completion": {
                         "completionItem": {
-                            "snippetSupport": false
+                            "snippetSupport": true
                         }
                     },
                     "hover": {

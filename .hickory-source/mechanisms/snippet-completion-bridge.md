@@ -7,13 +7,15 @@ For maintainers changing snippet expansion independently of popup rendering. The
 
 A resolved snippet must match its exact insertion syntax. Reject malformed versions, offsets splitting a scalar, missing or repeated exits and inconsistent mirror contents. Derive the first field from numeric order rather than trusting transport order; retain every occurrence and choice for the later editing session. Optional occurrence identities must be complete and unique, with a contained, acyclic parent forest. Legacy payloads without identities can still expand and select text, but do not establish a field-editing session. This capability writes neither source nor disk.
 
+Batch callers pass one calculation budget through every row decoder. Each calculated occurrence spends from that same meter before the group planner or any source mutation runs. Existing single-row callers retain fresh-budget overloads; the checks below exercise both entry points and refusal after the caller's budget is exhausted.
+
 <ui:copy id="snippet-expansion-browser">
 import {sourceChangeOffset} from './ChangePlan';
 import {readSnippetTransform,applySnippetTransform,snippetTransformBytes,type SnippetTransform,type SnippetTransformBudget} from './SnippetTransform';
 import {completionInsertion,type CompletionExpansion} from './CompletionPlan';
 import {utf16ToPosition} from '../lsp/positions';
 export interface SnippetField {index:number;from:number;to:number;choices:string[];id?:number;parent?:number|null;transform?:SnippetTransform}
-export function completionExpansion(item:unknown):CompletionExpansion|undefined {
+export function completionExpansion(item:unknown,budget:SnippetTransformBudget={work:0}):CompletionExpansion|undefined {
  const value=item as {insertTextFormat?:unknown;data?:{hickory_snippet?:unknown}};
  if(value?.insertTextFormat!==2)return undefined;
  const raw=value.data?.hickory_snippet as {version?:unknown;syntax?:unknown;text?:unknown;fields?:unknown}|undefined;
@@ -41,7 +43,7 @@ export function completionExpansion(item:unknown):CompletionExpansion|undefined 
   for(const field of fields){const chain=new Set<number>();let next:SnippetField|undefined=field;while(next&&!visited.has(next.id!)){if(chain.has(next.id!))throw new Error('Cyclic snippet ancestry');chain.add(next.id!);if(next.parent===null)break;const parent=ids.get(next.parent!);if(!parent||parent.from>next.from||parent.to<next.to)throw new Error('Malformed snippet ancestry');next=parent;}for(const id of chain)visited.add(id);}
  }
  if(fields.filter(field=>field.index===0).length!==1)throw new Error('Malformed snippet exit');
- validateSnippetMirrors(text,fields);
+ validateSnippetMirrors(text,fields,budget);
  const active=Math.min(...fields.filter(field=>!field.transform&&field.index>0).map(field=>field.index),Infinity),selected=fields.find(field=>!field.transform&&field.index===(active===Infinity?0:active))!;
  return {text,fields,selection:{from:selected.from,to:selected.to}};
 }
@@ -77,7 +79,8 @@ Reserve the choice-list floor before bridging it into retained Swift strings: at
 <ui:copy id="snippet-expansion-apple">
 import Foundation
 struct SnippetField {var index:Int;var from:Int;var to:Int;var choices:[String];var id:Int?=nil;var parent:Int?=nil;var transform:SnippetTransform?=nil}
-func completionExpansion(_ item:[String:Any])throws->CompletionExpansion? {
+func completionExpansion(_ item:[String:Any])throws->CompletionExpansion? {var budget=SnippetTransformBudget();return try completionExpansion(item,budget:&budget)}
+func completionExpansion(_ item:[String:Any],budget:inout SnippetTransformBudget)throws->CompletionExpansion? {
     guard sourceChangeInteger(item["insertTextFormat"])==2 else{return nil}
     guard let raw=(item["data"] as? [String:Any])?["hickory_snippet"] as? [String:Any],let version=sourceChangeInteger(raw["version"]),[1,2].contains(version),let syntax=raw["syntax"] as? String,exactUTF8(syntax,try completionInsertion(item)),let text=raw["text"] as? String,text.utf8.count<=1048576,let values=raw["fields"] as? [[String:Any]],!values.isEmpty,values.count<=4096 else{throw EngineError(message:"Snippet expansion unavailable or out of date. Request completions again.")}
     var fields:[SnippetField]=[];var metadataBytes=0
@@ -112,7 +115,7 @@ func completionExpansion(_ item:[String:Any])throws->CompletionExpansion? {
         }
     }
     guard fields.filter({$0.index==0}).count==1 else{throw EngineError(message:"Malformed snippet exit")}
-    _ = try validateSnippetMirrors(text,fields)
+    _ = try validateSnippetMirrors(text,fields,budget:&budget)
     let active=fields.filter{$0.transform==nil&&$0.index>0}.map(\.index).min() ?? 0,selected=fields.first{$0.transform==nil&&$0.index==active}!
     return CompletionExpansion(text:text,selection:CompletionSelection(from:selected.from,to:selected.to),fields:fields)
 }
@@ -150,7 +153,8 @@ A resolved snippet must match its exact insertion syntax. Reject malformed versi
 package com.hickorydocs.simple
 import org.json.JSONObject
 data class SnippetField(val index:Int,val from:Int,val to:Int,val choices:List<String>,val id:Int?=null,val parent:Int?=null,val transform:SnippetTransform?=null)
-fun completionExpansion(item:JSONObject):CompletionExpansion? {
+fun completionExpansion(item:JSONObject):CompletionExpansion? = completionExpansion(item,SnippetTransformBudget())
+internal fun completionExpansion(item:JSONObject,budget:SnippetTransformBudget):CompletionExpansion? {
  if((item.opt("insertTextFormat") as? Number)?.toDouble()!=2.0)return null
  val raw=item.optJSONObject("data")?.optJSONObject("hickory_snippet") ?: error("Snippet expansion unavailable or out of date. Request completions again.")
  fun number(value:Any?):Int {check(value is Number&&value.toDouble().isFinite()&&value.toDouble()==value.toInt().toDouble()&&value.toInt()>=0){"Malformed snippet field"};return value.toInt()}
@@ -182,7 +186,7 @@ fun completionExpansion(item:JSONObject):CompletionExpansion? {
   }
  }
  check(fields.count{it.index==0}==1){"Malformed snippet exit"}
- validateSnippetMirrors(text,fields)
+ validateSnippetMirrors(text,fields,budget)
  val active=fields.filter{it.transform==null&&it.index>0}.map{it.index}.minOrNull() ?: 0;val selected=fields.first{it.transform==null&&it.index==active}
  return CompletionExpansion(text,CompletionSelection(selected.from,selected.to),fields)
 }
@@ -2104,6 +2108,11 @@ it('counts every empty alternative and refuses cumulative mirror metadata before
  expect(()=>completionExpansion(item(4097))).toThrow(/metadata/);
  expect(()=>completionExpansion(item(4096,8))).toThrow(/metadata/);
 });
+it('shares calculated-mirror validation work across decoded rows',()=>{
+ const program={version:2,case_map:'hickory-ucd-16.0.0-v1',regex:['capture',1,['repeat',['dot'],0,null,false]],format:[['capture',1,'upcase']],flags:'',groups:1};
+ const item={label:'shared mirror',insertTextFormat:2,insertText:'${1:a}|${1/(.*)/${1:/upcase}/}$0',data:{hickory_snippet:{version:2,syntax:'${1:a}|${1/(.*)/${1:/upcase}/}$0',text:'a|A',fields:[{id:0,parent:null,index:1,from:0,to:1,choices:[]},{id:1,parent:null,index:1,from:2,to:3,choices:[],transform:program},{id:2,parent:null,index:0,from:3,to:3,choices:[]}]}}};
+ expect(completionExpansion(item)?.text).toBe('a|A');const budget={work:0};completionExpansion(item,budget);const first=budget.work;expect(first).toBeGreaterThan(0);completionExpansion(item,budget);expect(budget.work).toBeGreaterThan(first);expect(()=>completionExpansion(item,{work:100000})).toThrow();
+});
 </ui:copy>
 
 <ui:file path="apps/web/src/simple/SnippetExpansion.test.ts"><ui:paste select="#snippet-expansion-browser-tests"/></ui:file>
@@ -2149,6 +2158,12 @@ final class SnippetExpansionTests:XCTestCase {
         XCTAssertThrowsError(try completionExpansion(item(4096,8)))
     }
 
+ func testDecodedRowsShareTheirCalculatedMirrorBudget()throws {
+  let syntax="${1:a}|${1/(.*)/${1:/upcase}/}$0",program:[String:Any]=["version":2,"case_map":"hickory-ucd-16.0.0-v1","regex":["capture",1,["repeat",["dot"],0,NSNull(),false]],"format":[["capture",1,"upcase"]],"flags":"","groups":1]
+  let fields:[[String:Any]]=[["id":0,"parent":NSNull(),"index":1,"from":0,"to":1,"choices":[]],["id":1,"parent":NSNull(),"index":1,"from":2,"to":3,"choices":[],"transform":program],["id":2,"parent":NSNull(),"index":0,"from":3,"to":3,"choices":[]]]
+  let item:[String:Any]=["label":"shared mirror","insertTextFormat":2,"insertText":syntax,"data":["hickory_snippet":["version":2,"syntax":syntax,"text":"a|A","fields":fields]]]
+  XCTAssertEqual(try completionExpansion(item)?.text,"a|A");var budget=SnippetTransformBudget();_ = try completionExpansion(item,budget:&budget);let first=budget.work;XCTAssertGreaterThan(first,0);_ = try completionExpansion(item,budget:&budget);XCTAssertGreaterThan(budget.work,first);var limited=SnippetTransformBudget(work:100000);XCTAssertThrowsError(try completionExpansion(item,budget:&limited))
+ }
 }
 </ui:copy>
 
@@ -2196,6 +2211,13 @@ class SnippetExpansionTest {
   assertTrue(runCatching{completionExpansion(item(4096,8))}.isFailure)
  }
 
+ @Test fun decodedRowsShareTheirCalculatedMirrorBudget(){
+  val syntax="""${'$'}{1:a}|${'$'}{1/(.*)/${'$'}{1:/upcase}/}${'$'}0"""
+  val raw="""{"version":2,"case_map":"hickory-ucd-16.0.0-v1","regex":["capture",1,["repeat",["dot"],0,null,false]],"format":[["capture",1,"upcase"]],"flags":"","groups":1}"""
+  val fields=org.json.JSONArray().put(JSONObject().put("id",0).put("parent",JSONObject.NULL).put("index",1).put("from",0).put("to",1).put("choices",org.json.JSONArray())).put(JSONObject().put("id",1).put("parent",JSONObject.NULL).put("index",1).put("from",2).put("to",3).put("choices",org.json.JSONArray()).put("transform",JSONObject(raw))).put(JSONObject().put("id",2).put("parent",JSONObject.NULL).put("index",0).put("from",3).put("to",3).put("choices",org.json.JSONArray()))
+  val item=JSONObject().put("label","shared mirror").put("insertTextFormat",2).put("insertText",syntax).put("data",JSONObject().put("hickory_snippet",JSONObject().put("version",2).put("syntax",syntax).put("text","a|A").put("fields",fields)))
+  assertEquals("a|A",completionExpansion(item)!!.text);val budget=SnippetTransformBudget();completionExpansion(item,budget);val first=budget.work;assertTrue(first>0);completionExpansion(item,budget);assertTrue(budget.work>first);assertTrue(runCatching{completionExpansion(item,SnippetTransformBudget(100000))}.isFailure)
+ }
 }
 </ui:copy>
 

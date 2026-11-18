@@ -11,6 +11,7 @@ struct HeldCompletion {
     origin: Url,
     position: Position,
     source: CompletionSourceCapture,
+    programs:Vec<u32>,
 }
 #[derive(Clone)]
 struct CompletionSourceCapture {
@@ -114,6 +115,7 @@ impl HickBackend {
         context: &crate::snippet_context::SnippetEditorContext,
         requested: &std::collections::BTreeSet<String>,
         presence_only: bool,
+        budget:&mut crate::snippet::SnippetExpansionBudget,
     ) -> Result<std::collections::BTreeMap<String, Option<String>>> {
         self.require_completion_source(origin, capture).await?;
         let documents = self.documents.read().await;
@@ -129,9 +131,9 @@ impl HickBackend {
             .as_ref()
             .and_then(|uri| uri.to_file_path().ok());
         let read = if presence_only {
-            crate::snippet_context::variable_presence
+            crate::snippet_context::variable_presence_with_budget
         } else {
-            crate::snippet_context::variables
+            crate::snippet_context::variables_with_budget
         };
         read(
             &crate::snippet_context::SnippetVariableContext {
@@ -144,6 +146,7 @@ impl HickBackend {
             },
             &context.snapshot,
             requested,
+            budget,
         )
         .map_err(completion_error)
     }
@@ -395,7 +398,18 @@ impl HickBackend {
     pub(super) async fn provider_completion(
         &self,
         params: CompletionParams,
-    ) -> Result<Option<CompletionResponse>> {
+    ) -> Result<Option<CompletionResponse>> {self.provider_completion_with_programs(params,vec![2]).await
+    }
+    /// A workspace bridge is shared by hosts. Negotiate on each query, not global initialize.
+    pub async fn source_bound_completion(&self,raw:Value)->Result<Option<CompletionResponse>>{
+        let object=raw.as_object().ok_or_else(||completion_error("Malformed completion request"))?;
+        if object.keys().any(|key|!["textDocument","position","context","workDoneToken","partialResultToken","transform_program_versions"].contains(&key.as_str())){return Err(completion_error("Unsupported completion request fields"))};
+        let mut programs=if let Some(raw)=raw.get("transform_program_versions"){let values=raw.as_array().filter(|a|a.len()<=2).ok_or_else(||completion_error("Malformed completion program versions"))?;values.iter().map(|n|n.as_u64().and_then(|n|u32::try_from(n).ok()).ok_or_else(||completion_error("Malformed completion program version"))).collect::<Result<Vec<_>>>()?}else{vec![2]};
+        crate::snippet_transform::validate_program_versions(&programs).map_err(completion_error)?;programs.sort_unstable();
+        let params=serde_json::from_value(raw).map_err(|_|completion_error("Malformed completion query"))?;
+        self.provider_completion_with_programs(params,programs).await
+    }
+    async fn provider_completion_with_programs(&self,params:CompletionParams,programs:Vec<u32>)->Result<Option<CompletionResponse>>{
         let revision = self.provider_source_revision().await;
         let source = params.text_document_position;
         let origin = source.text_document.uri;
@@ -458,6 +472,9 @@ impl HickBackend {
                 "More than 2,048 completion items. Type a longer prefix.",
             ));
         }
+        // Ordinary items and opaque deferred items need no snippet compilation.
+        // Only legacy inline snippets are admitted before their edits reach an older host.
+        if !programs.contains(&3){let mut admission_budget=crate::snippet::SnippetExpansionBudget::default();let mut syntax_bytes=0usize;let mut allowed=Vec::with_capacity(items.len());for item in items.iter(){let keep=if let Some(syntax)=completion_snippet_syntax(item)?{syntax_bytes=syntax_bytes.checked_add(syntax.len()).filter(|n|*n<=1_048_576).ok_or_else(||completion_error("Completion snippet admission budget exceeded. Type a longer prefix."))?;{let result=crate::snippet::requested_variables_with_programs_and_budget(syntax,&programs,&mut admission_budget);if admission_budget.exhausted(){return Err(completion_error("Completion snippet admission budget exceeded. Type a longer prefix."))};result.is_ok()}}else{true};if keep{allowed.push(item.clone())}};*items=allowed;}
         let originals = items.clone();
         let mapped = originals
             .iter()
@@ -479,11 +496,12 @@ impl HickBackend {
                     origin: origin.clone(),
                     position,
                     source: source_capture.clone(),
+                    programs:programs.clone(),
                 },
             );
             *item = mapped;
             item["data"] =
-                json!({"hickory_completion":token,"hickory_context":source_capture.proof(&origin)});
+                json!({"hickory_completion":token,"hickory_context":source_capture.proof(&origin),"hickory_transform_program_versions":programs});
         }
         drop(held);
         self.require_provider_revision(&revision).await?;
@@ -525,6 +543,8 @@ impl HickBackend {
             ),
             None => None,
         };
+        if let Some(context)=&editor_context {let mut programs=context.transform_program_versions.clone();programs.sort_unstable();if programs!=held.programs{return Err(completion_error("Completion program support changed. Request again."))}}
+        if let Some(programs)=item.data.as_ref().and_then(|data|data.get("hickory_transform_program_versions")){if programs!=&json!(held.programs){return Err(completion_error("Foreign completion program policy. Request again."))}}
         let mut original = held.original.clone();
         if held.resolve {
             let resolved = held
@@ -555,17 +575,18 @@ impl HickBackend {
         let mut unavailable = vec![];
         let snippet = if let Some(context) = &editor_context {
             if let Some(syntax) = completion_snippet_syntax(&mapped)? {
+                let mut expansion_budget=crate::snippet::SnippetExpansionBudget::default();
                 let requested =
-                    crate::snippet::requested_variables(syntax).map_err(completion_error)?;
+                    crate::snippet::requested_variables_with_programs_and_budget(syntax,&context.transform_program_versions,&mut expansion_budget).map_err(completion_error)?;
                 let variables = self
-                    .completion_variables(&held.origin, &held.source, context, &requested, true)
+                    .completion_variables(&held.origin, &held.source, context, &requested, true,&mut expansion_budget)
                     .await?;
-                let requested = crate::snippet::effective_requested_variables(syntax, &variables)
+                let requested = crate::snippet::effective_requested_variables_with_programs_and_budget(syntax, &variables,&context.transform_program_versions,&mut expansion_budget)
                     .map_err(completion_error)?;
                 let variables = self
-                    .completion_variables(&held.origin, &held.source, context, &requested, false)
+                    .completion_variables(&held.origin, &held.source, context, &requested, false,&mut expansion_budget)
                     .await?;
-                let plan = crate::snippet::expand_snippet_v2(syntax, &variables)
+                let plan = crate::snippet::expand_snippet_with_programs_and_budget(syntax, &variables,&context.transform_program_versions,&mut expansion_budget)
                     .map_err(completion_error)?;
                 if requested.contains("CLIPBOARD") && context.snapshot.clipboard.is_none() {
                     let mut cached = held.clone();
@@ -596,7 +617,7 @@ impl HickBackend {
         } else {
             completion_snippet_data(&mapped, &held.origin, held.position, map)?
         };
-        mapped["data"] = json!({"hickory_completion":response_token,"hickory_context":held.source.proof(&held.origin)});
+        mapped["data"] = json!({"hickory_completion":response_token,"hickory_context":held.source.proof(&held.origin),"hickory_transform_program_versions":held.programs});
         if context_request {
             mapped["data"]["hickory_context_request"] =
                 json!({"version":1,"variables":["CLIPBOARD"]});

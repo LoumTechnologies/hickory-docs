@@ -1,6 +1,7 @@
 import Foundation
 struct SnippetField {var index:Int;var from:Int;var to:Int;var choices:[String];var id:Int?=nil;var parent:Int?=nil;var transform:SnippetTransform?=nil}
-func completionExpansion(_ item:[String:Any])throws->CompletionExpansion? {
+func completionExpansion(_ item:[String:Any])throws->CompletionExpansion? {var budget=SnippetTransformBudget();return try completionExpansion(item,budget:&budget)}
+func completionExpansion(_ item:[String:Any],budget:inout SnippetTransformBudget)throws->CompletionExpansion? {
     guard sourceChangeInteger(item["insertTextFormat"])==2 else{return nil}
     guard let raw=(item["data"] as? [String:Any])?["hickory_snippet"] as? [String:Any],let version=sourceChangeInteger(raw["version"]),[1,2].contains(version),let syntax=raw["syntax"] as? String,exactUTF8(syntax,try completionInsertion(item)),let text=raw["text"] as? String,text.utf8.count<=1048576,let values=raw["fields"] as? [[String:Any]],!values.isEmpty,values.count<=4096 else{throw EngineError(message:"Snippet expansion unavailable or out of date. Request completions again.")}
     var fields:[SnippetField]=[];var metadataBytes=0
@@ -35,7 +36,7 @@ func completionExpansion(_ item:[String:Any])throws->CompletionExpansion? {
         }
     }
     guard fields.filter({$0.index==0}).count==1 else{throw EngineError(message:"Malformed snippet exit")}
-    _ = try validateSnippetMirrors(text,fields)
+    _ = try validateSnippetMirrors(text,fields,budget:&budget)
     let active=fields.filter{$0.transform==nil&&$0.index>0}.map(\.index).min() ?? 0,selected=fields.first{$0.transform==nil&&$0.index==active}!
     return CompletionExpansion(text:text,selection:CompletionSelection(from:selected.from,to:selected.to),fields:fields)
 }

@@ -1,8 +1,10 @@
 import Foundation
 import CoreFoundation
-struct SnippetTransform {let regex:[Any];let format:[Any];let flags:String;let groups:Int;let bytes:Int}
+let supportedSnippetTransformPrograms=[2,3]
+struct SnippetTransform {let regex:[Any];let format:[Any];let flags:String;let groups:Int;let bytes:Int;var v3:RegexV3Program?=nil}
 struct SnippetTransformBudget {var work=0}
 func readSnippetTransform(_ raw:Any)throws->SnippetTransform {
+ if let value=raw as? [String:Any],let version=value["version"] as? NSNumber,CFGetTypeID(version) != CFBooleanGetTypeID(),version.doubleValue==3{let program=try readRegexV3(value);return SnippetTransform(regex:[],format:program.format,flags:program.flags,groups:program.groups,bytes:program.bytes,v3:program)}
  var count=0,bytes=0
  func tick(_ n:Int=1)throws{count+=n;guard count<=512 else{throw EngineError(message:"Snippet transform program limit exceeded")}}
  func integer(_ raw:Any,_ max:Int=1114111)throws->Int{guard let n=raw as? NSNumber,CFGetTypeID(n) != CFBooleanGetTypeID(),let value=Int(n.stringValue),value>=0,value<=max else{throw EngineError(message:"Malformed transform integer")};return value}
@@ -56,6 +58,7 @@ private struct TransformEvaluator {
  }
 }
 func applySnippetTransform(_ program:SnippetTransform,_ input:String,budget:inout SnippetTransformBudget)throws->String {
+ if let v3=program.v3{return try applyRegexV3(v3,input,work:&budget.work)}
  guard input.utf8.count<=65536 else{throw EngineError(message:"Transform input limit exceeded")};var evaluator=TransformEvaluator(text:Array(input.unicodeScalars),flags:program.flags,work:budget.work),output="",cursor=0,search=0,matched=false;let count=evaluator.text.count
  while search<=count{var found:(Int,TransformMatch)?;for start in search...count{let initial=TransformMatch(at:start,captures:Array(repeating:nil,count:program.groups+1));if var state=try evaluator.matches(program.regex,initial,0).first{state.captures[0]=start..<state.at;found=(start,state);break}};guard let(start,state)=found else{break};matched=true;let prefix=evaluator.string(cursor,start),replacement=try evaluator.format(program.format,state.captures,0);guard prefix.utf8.count+replacement.utf8.count<=1048576-output.utf8.count else{throw EngineError(message:"Transform output limit exceeded")};output+=prefix+replacement;cursor=state.at;if !program.flags.contains("g"){break};search=state.at==start ? state.at+1:state.at}
  if !matched,program.format.contains(where:{raw in guard let op=raw as? [Any],op.first as? String=="if",let branch=op[3] as? [Any] else{return false};return !branch.isEmpty}){let result=try evaluator.format(program.format,Array(repeating:nil,count:program.groups+1),0);budget.work=evaluator.work;return result}

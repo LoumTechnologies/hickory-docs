@@ -1,3 +1,4 @@
+import {supportedSnippetTransformPrograms} from './SnippetTransform';
 import {sha256} from '../lib/reviews';
 export interface SnippetClipboard {readonly available:boolean;readonly text:string|null}
 export interface SnippetVariableSnapshot {readonly clipboard:Readonly<SnippetClipboard>|null;readonly clock:Readonly<{unix_millis:number;utc_offset_minutes:number}>|null;readonly random_hex:string|null}
@@ -14,7 +15,7 @@ export function validSnippetContextSelection(source:string,from:number,to:number
 export async function bindSnippetVariables(source:string,from:number,to:number,proof:unknown,snapshot:SnippetVariableSnapshot=captureSnippetVariables()):Promise<Record<string,unknown>> {
  if(!validSnippetContextSelection(source,from,to)||!proof||typeof proof!=='object'||Array.isArray(proof))throw Error('Snippet source context is unavailable. Request completions again.');const expected=proof as Record<string,unknown>;
  if(typeof expected.source_hash!=='string'||!/^sha256:[a-f0-9]{64}$/.test(expected.source_hash)||typeof expected.source_revision!=='string'||! /^[a-f0-9]{64}$/.test(expected.source_revision)||expected.source_hash!=='sha256:'+await sha256(source))throw Error('Snippet source context changed. Request completions again.');
- return Object.freeze({version:1,expected:Object.freeze({source_hash:expected.source_hash,source_revision:expected.source_revision}),selection:Object.freeze({from,to}),clock:snapshot.clock,random_hex:snapshot.random_hex,clipboard:snapshot.clipboard});
+ return Object.freeze({version:1,expected:Object.freeze({source_hash:expected.source_hash,source_revision:expected.source_revision}),selection:Object.freeze({from,to}),clock:snapshot.clock,random_hex:snapshot.random_hex,clipboard:snapshot.clipboard,transform_program_versions:supportedSnippetTransformPrograms});
 }
 
 function snippetRecord(value:unknown):value is Record<string,unknown>{return !!value&&typeof value==='object'&&!Array.isArray(value);}

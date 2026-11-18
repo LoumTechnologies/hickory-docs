@@ -33,6 +33,7 @@ enum Node {
 }
 struct Parser<'a> {
     text: &'a str,
+    programs:&'a[u32],
     transforms: bool,
     program_bytes: usize,
     at: usize,
@@ -211,7 +212,7 @@ impl Parser<'_> {
                     if self.take() != Some('}') {
                         return self.fail("Malformed snippet transform terminator");
                     }
-                    let program = crate::snippet_transform::compile(&pattern, &format, flags)?;
+                    let program = crate::snippet_transform::compile_supported(&pattern,&format,flags,self.programs)?;
                     self.program_bytes = self
                         .program_bytes
                         .checked_add(
@@ -619,17 +620,14 @@ impl SnippetExpansionBudget {
         }
     }
 }
-fn parse_budgeted(
-    text: &str,
-    transforms: bool,
-    budget: &mut SnippetExpansionBudget,
-) -> Result<Vec<Node>, String> {
+fn parse_budgeted_programs(text:&str,transforms:bool,programs:&[u32],budget:&mut SnippetExpansionBudget)->Result<Vec<Node>,String>{crate::snippet_transform::validate_program_versions(programs)?;
     budget.syntax_bytes = budget.charge(budget.syntax_bytes, text.len(), MAX_OUTPUT)?;
     if text.len() > MAX_BYTES {
         return Err("Snippet input limit exceeded".into());
     };
     let mut parser = Parser {
         text,
+        programs,
         program_bytes: budget.program_bytes,
         transforms,
         at: 0,
@@ -678,11 +676,13 @@ pub fn requested_variables(text: &str) -> Result<BTreeSet<String>, String> {
 pub fn requested_variables_with_budget(
     text: &str,
     budget: &mut SnippetExpansionBudget,
-) -> Result<BTreeSet<String>, String> {
+) -> Result<BTreeSet<String>, String> {requested_variables_with_programs_and_budget(text,&[2],budget)}
+pub fn requested_variables_with_programs(text:&str,programs:&[u32])->Result<BTreeSet<String>,String>{requested_variables_with_programs_and_budget(text,programs,&mut SnippetExpansionBudget::default())}
+pub fn requested_variables_with_programs_and_budget(text:&str,programs:&[u32],budget:&mut SnippetExpansionBudget)->Result<BTreeSet<String>,String>{
     if text.len() > MAX_BYTES {
         return Err("Snippet input limit exceeded".into());
     }
-    let nodes = parse_budgeted(text, true, budget)?;
+    let nodes = parse_budgeted_programs(text,true,programs,budget)?;
     fn visit(nodes: &[Node], result: &mut BTreeSet<String>) {
         for node in nodes {
             match node {
@@ -720,11 +720,13 @@ pub fn effective_requested_variables_with_budget(
     text: &str,
     variables: &BTreeMap<String, Option<String>>,
     budget: &mut SnippetExpansionBudget,
-) -> Result<BTreeSet<String>, String> {
+) -> Result<BTreeSet<String>, String> {effective_requested_variables_with_programs_and_budget(text,variables,&[2],budget)}
+pub fn effective_requested_variables_with_programs(text:&str,variables:&BTreeMap<String,Option<String>>,programs:&[u32])->Result<BTreeSet<String>,String>{effective_requested_variables_with_programs_and_budget(text,variables,programs,&mut SnippetExpansionBudget::default())}
+pub fn effective_requested_variables_with_programs_and_budget(text:&str,variables:&BTreeMap<String,Option<String>>,programs:&[u32],budget:&mut SnippetExpansionBudget)->Result<BTreeSet<String>,String>{
     if text.len() > MAX_BYTES {
         return Err("Snippet input limit exceeded".into());
     }
-    let nodes = parse_budgeted(text, true, budget)?;
+    let nodes = parse_budgeted_programs(text,true,programs,budget)?;
     let mut definitions_map = BTreeMap::new();
     let mut max = 0;
     definitions(&nodes, &mut definitions_map, &mut max)?;
@@ -817,8 +819,11 @@ fn expand_with_budget(
     variables: &BTreeMap<String, Option<String>>,
     transforms: bool,
     budget: &mut SnippetExpansionBudget,
-) -> Result<SnippetPlan, String> {
-    let nodes = parse_budgeted(text, transforms, budget)?;
+) -> Result<SnippetPlan, String> {expand_with_programs_budget(text,variables,transforms,&[2],budget)}
+pub fn expand_snippet_with_programs(text:&str,variables:&BTreeMap<String,Option<String>>,programs:&[u32])->Result<SnippetPlan,String>{expand_snippet_with_programs_and_budget(text,variables,programs,&mut SnippetExpansionBudget::default())}
+pub fn expand_snippet_with_programs_and_budget(text:&str,variables:&BTreeMap<String,Option<String>>,programs:&[u32],budget:&mut SnippetExpansionBudget)->Result<SnippetPlan,String>{expand_with_programs_budget(text,variables,true,programs,budget)}
+fn expand_with_programs_budget(text:&str,variables:&BTreeMap<String,Option<String>>,transforms:bool,programs:&[u32],budget:&mut SnippetExpansionBudget)->Result<SnippetPlan,String>{
+    let nodes = parse_budgeted_programs(text,transforms,programs,budget)?;
     let mut definitions_map = BTreeMap::new();
     let mut max = 0;
     definitions(&nodes, &mut definitions_map, &mut max)?;

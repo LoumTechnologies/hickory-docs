@@ -32,7 +32,7 @@ an earlier open item only for the behavior it actually exercises.
 | Required outcome | Current usable evidence and remaining acceptance |
 | --- | --- |
 | Navigation and code intelligence | Existing source-bound navigation and provider receipts remain in force. Browser mixed-line-ending source/view coordination now has rendered provider and history acceptance; source-bound completion variables now have live host receipts. Embedded-language breadth remains open. |
-| Refactoring, cleanup, generation, templates and history | Rename, formatting, genuine TypeScript extraction/accessor generation/cleanup and coordinated history have focused host receipts. Genuine TypeScript move-to-new-file review, publication and inverse/redo now have all-three-host receipts. Source-bound variable contexts and bounded production transforms now have completion/template receipts on all three hosts. Multi-caret editing and undo have browser, macOS editor and Android text-state evidence. Marked input has AppKit and Android text-state commit and history evidence. Embedded source templates have live browser, macOS and Android controller evidence. Batch catalog preparation has service evidence. Host batch catalog and Apply paths and full regex syntax remain open. |
+| Refactoring, cleanup, generation, templates and history | Rename, formatting, genuine TypeScript extraction/accessor generation/cleanup and coordinated history have focused host receipts. Genuine TypeScript move-to-new-file review, publication and inverse/redo have browser, macOS and Android receipts. Source-bound variables and bounded transforms work in completion and template paths. Expanded regex transforms have live completion receipts on those three hosts. Multi-caret editing and marked input retain their editor and text-state receipts. Embedded source templates have live browser, macOS and Android controller evidence. Batch catalog preparation has service evidence. Host batch acceptance and expanded transforms in reusable templates have separate receipts and requirements. |
 | Diagnostics and contextual fixes | Existing source-bound Problems/fix receipts remain scoped to their stated providers and paths. A command or backend implementation alone is not further acceptance. |
 | Testing and coverage | Retained sessions/results and supported collector receipts below remain scoped evidence. Exact JavaScript collection/rerun integration now has31 focused collector cases and11 fresh-engine Vitest flows; the retained-result race is corrected. Earlier native provider receipts retain their stated revisions. |
 | Review, staging, attribution, conflicts and recovery | Existing Git/native conflict receipts remain in force. Complete 32-session recovery management and three exact revisions have service, browser, macOS and Android-controller receipts. The canonical entry has a retained read identity and guarded source proof. Grouped text replacement and selected-worktree writes share that exclusion. Move publication and its inverse remain open. |
@@ -45,6 +45,27 @@ Across all rows, physical input and assistive-technology acceptance remain
 unexecuted where stated. Android controller/state acceptance and iOS builds are
 reported separately from rendered/device runtime acceptance. No full parity
 claim is made while the integration work in this ledger remains open.
+
+## Use expanded transforms in source-bound completion
+
+A completion host explicitly advertises the transform programs it can execute.
+The engine binds that choice to the original query and resolve, along with the
+source and selection. Legacy requests retain program 2. The newer program uses
+bounded matching, shared Unicode data and one work budget for the complete
+edit. Lookbehind, named captures, backreferences, set operations and scoped
+flags can produce linked edits. Evaluation that exceeds its budget refuses the
+whole linked edit and leaves Undo history intact.
+
+The focused Rust cases checked 637 executable oracle cases, 221 syntax
+refusals, 23 replacement format cases and 23 work or output bounds. The
+browser, Apple and Android models consumed the executable fixtures. A fresh
+engine with a real child process checked initialization, original resolve
+payload, stale and foreign replies, and legacy refusal. Browser rendering,
+mounted macOS and the Android controller each exercised completion through
+linked Unicode input, budget refusal and Undo/Redo. Those runs retained editor
+identity, source and saved bytes. The iOS simulator product built. Reusable
+template negotiation, iOS runtime, physical input and assistive technology have
+separate acceptance requirements.
 
 ## Embedded source template evidence
 

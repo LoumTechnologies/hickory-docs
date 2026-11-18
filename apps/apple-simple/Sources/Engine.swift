@@ -499,7 +499,7 @@ func validateNativeSourcePreparation(_ raw:Any,source:String,requireParsed:Bool=
             // Keep the popup responsive while typing settles; never use an obsolete position.
             try await Task.sleep(for: .milliseconds(350))
             guard self.buffer === buffer,buffer.sourceEditIdentity==revision,buffer.selectionIdentity==selectionRevision,!buffer.resourceDeleted,exactUTF8(languageURI(buffer.file.path),uri),exactUTF8(self.buffer?.text,source), self.buffer?.selection == selection, epoch == current, completionID == id else { return }
-            let result = try await request("textDocument/completion", ["textDocument": ["uri": uri], "position": languagePosition(source, selection.location)])
+            let result = try await request("hick/completion", ["textDocument": ["uri": uri], "position": languagePosition(source, selection.location),"transform_program_versions":supportedSnippetTransformPrograms])
             guard self.buffer === buffer,buffer.sourceEditIdentity==revision,buffer.selectionIdentity==selectionRevision,!buffer.resourceDeleted,exactUTF8(languageURI(buffer.file.path),uri),exactUTF8(self.buffer?.text,source), self.buffer?.selection == selection, epoch == current, completionID == id else { return }
             guard !(result is NSNull) else { return }
             let items = result as? [[String: Any]] ?? (result as? [String: Any])?["items"] as? [[String: Any]] ?? []

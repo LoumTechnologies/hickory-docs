@@ -157108,6 +157108,265 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/mechanisms/workspace-entry-leases.md",
       "symbol": "admit a whole source replacement",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-regex-case17-part-0",
+      "output": "apps/simple-contract/snippet-regex-case17.json",
+      "page": ".hickory-source/mechanisms/snippet-regex-unicode.md",
+      "symbol": "snippet regex case17 part 0",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-regex-case17-part-1",
+      "output": "apps/simple-contract/snippet-regex-case17.json",
+      "page": ".hickory-source/mechanisms/snippet-regex-unicode.md",
+      "symbol": "snippet regex case17 part 1",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-regex-case17-part-2",
+      "output": "apps/simple-contract/snippet-regex-case17.json",
+      "page": ".hickory-source/mechanisms/snippet-regex-unicode.md",
+      "symbol": "snippet regex case17 part 2",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-regex-case17-part-3",
+      "output": "apps/simple-contract/snippet-regex-case17.json",
+      "page": ".hickory-source/mechanisms/snippet-regex-unicode.md",
+      "symbol": "snippet regex case17 part 3",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-regex-case17-part-4",
+      "output": "apps/simple-contract/snippet-regex-case17.json",
+      "page": ".hickory-source/mechanisms/snippet-regex-unicode.md",
+      "symbol": "snippet regex case17 part 4",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-regex-case17-part-5",
+      "output": "apps/simple-contract/snippet-regex-case17.json",
+      "page": ".hickory-source/mechanisms/snippet-regex-unicode.md",
+      "symbol": "snippet regex case17 part 5",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-regex-case17-part-6",
+      "output": "apps/simple-contract/snippet-regex-case17.json",
+      "page": ".hickory-source/mechanisms/snippet-regex-unicode.md",
+      "symbol": "snippet regex case17 part 6",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-regex-case17-part-7",
+      "output": "apps/simple-contract/snippet-regex-case17.json",
+      "page": ".hickory-source/mechanisms/snippet-regex-unicode.md",
+      "symbol": "snippet regex case17 part 7",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-regex-unicode17-data",
+      "output": "apps/simple-contract/snippet-regex-unicode17.json",
+      "page": ".hickory-source/mechanisms/snippet-regex-unicode.md",
+      "symbol": "snippet regex unicode17 data",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-regex-generator-prepare-properties-py",
+      "output": "scripts/prepare-snippet-regex-properties.py",
+      "page": ".hickory-source/mechanisms/snippet-regex-unicode.md",
+      "symbol": "snippet regex generator prepare properties py",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-regex-generator-export-properties-mjs",
+      "output": "scripts/export-snippet-regex-properties.mjs",
+      "page": ".hickory-source/mechanisms/snippet-regex-unicode.md",
+      "symbol": "snippet regex generator export properties mjs",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-regex-generator-finish-unicode-py",
+      "output": "scripts/finish-snippet-regex-unicode.py",
+      "page": ".hickory-source/mechanisms/snippet-regex-unicode.md",
+      "symbol": "snippet regex generator finish unicode py",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-regex-unicode-license",
+      "output": "apps/simple-contract/snippet-regex-unicode-LICENSE.txt",
+      "page": ".hickory-source/mechanisms/snippet-regex-unicode.md",
+      "symbol": "snippet regex unicode license",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-regex-v3-engine-api",
+      "output": "crates/hick-lsp/src/snippet_transform_v3.rs",
+      "page": ".hickory-source/mechanisms/snippet-regex-v3.md",
+      "symbol": "snippet regex v3 engine api",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-regex-v3-lowering",
+      "output": "crates/hick-lsp/src/snippet_transform_v3.rs",
+      "page": ".hickory-source/mechanisms/snippet-regex-v3.md",
+      "symbol": "snippet regex v3 lowering",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-regex-v3-sets",
+      "output": "crates/hick-lsp/src/snippet_transform_v3.rs",
+      "page": ".hickory-source/mechanisms/snippet-regex-v3.md",
+      "symbol": "snippet regex v3 sets",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-regex-v3-bytecode",
+      "output": "crates/hick-lsp/src/snippet_transform_v3.rs",
+      "page": ".hickory-source/mechanisms/snippet-regex-v3.md",
+      "symbol": "snippet regex v3 bytecode",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-regex-v3-format",
+      "output": "crates/hick-lsp/src/snippet_transform_v3.rs",
+      "page": ".hickory-source/mechanisms/snippet-regex-v3.md",
+      "symbol": "snippet regex v3 format",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-regex-v3-reader",
+      "output": "crates/hick-lsp/src/snippet_transform_v3.rs",
+      "page": ".hickory-source/mechanisms/snippet-regex-v3.md",
+      "symbol": "snippet regex v3 reader",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-regex-v3-matcher",
+      "output": "crates/hick-lsp/src/snippet_transform_v3.rs",
+      "page": ".hickory-source/mechanisms/snippet-regex-v3.md",
+      "symbol": "snippet regex v3 matcher",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-regex-v3-formatter",
+      "output": "crates/hick-lsp/src/snippet_transform_v3.rs",
+      "page": ".hickory-source/mechanisms/snippet-regex-v3.md",
+      "symbol": "snippet regex v3 formatter",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-regex-v3-engine-tests",
+      "output": "crates/hick-lsp/src/snippet_transform_v3.rs",
+      "page": ".hickory-source/mechanisms/snippet-regex-v3.md",
+      "symbol": "snippet regex v3 engine tests",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-regex-v3-browser",
+      "output": "apps/web/src/simple/SnippetTransformV3.ts",
+      "page": ".hickory-source/mechanisms/snippet-regex-v3.md",
+      "symbol": "snippet regex v3 browser",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-regex-v3-apple",
+      "output": "apps/apple-simple/Sources/SnippetTransformV3.swift",
+      "page": ".hickory-source/mechanisms/snippet-regex-v3.md",
+      "symbol": "snippet regex v3 apple",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-regex-v3-android",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/SnippetTransformV3.kt",
+      "page": ".hickory-source/mechanisms/snippet-regex-v3.md",
+      "symbol": "snippet regex v3 android",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-regex-v3-oracle-cases-compiled-json",
+      "output": "apps/simple-contract/snippet-regex-pattern-cases.json",
+      "page": ".hickory-source/mechanisms/snippet-regex-v3.md",
+      "symbol": "snippet regex v3 oracle cases compiled json",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-regex-v3-format-oracle-cases-compiled-json",
+      "output": "apps/simple-contract/snippet-regex-format-cases.json",
+      "page": ".hickory-source/mechanisms/snippet-regex-v3.md",
+      "symbol": "snippet regex v3 format oracle cases compiled json",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-regex-v3-budget-cases-json",
+      "output": "apps/simple-contract/snippet-regex-budget-cases.json",
+      "page": ".hickory-source/mechanisms/snippet-regex-v3.md",
+      "symbol": "snippet regex v3 budget cases json",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-regex-v3-browser-tests",
+      "output": "apps/web/src/simple/SnippetTransformV3.test.ts",
+      "page": ".hickory-source/mechanisms/snippet-regex-v3.md",
+      "symbol": "snippet regex v3 browser tests",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-regex-v3-apple-tests",
+      "output": "apps/apple-simple/Tests/SnippetTransformV3Tests.swift",
+      "page": ".hickory-source/mechanisms/snippet-regex-v3.md",
+      "symbol": "snippet regex v3 apple tests",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-regex-v3-android-tests",
+      "output": "apps/android-simple/app/src/test/java/com/hickorydocs/simple/SnippetTransformV3Test.kt",
+      "page": ".hickory-source/mechanisms/snippet-regex-v3.md",
+      "symbol": "snippet regex v3 android tests",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-regex-live-cases",
+      "output": "apps/simple-contract/snippet-regex-live-cases.json",
+      "page": ".hickory-source/mechanisms/snippet-regex-acceptance.md",
+      "symbol": "snippet regex live cases",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-regex-child-fixture",
+      "output": "scripts/snippet-regex-controlled-provider.py",
+      "page": ".hickory-source/mechanisms/snippet-regex-acceptance.md",
+      "symbol": "snippet regex child fixture",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-regex-protocol-driver",
+      "output": "scripts/snippet-regex-protocol-driver.mjs",
+      "page": ".hickory-source/mechanisms/snippet-regex-acceptance.md",
+      "symbol": "snippet regex protocol driver",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-regex-live-runner",
+      "output": "scripts/test-snippet-regex-live.py",
+      "page": ".hickory-source/mechanisms/snippet-regex-acceptance.md",
+      "symbol": "snippet regex live runner",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-regex-live-apple",
+      "output": "apps/apple-simple/Tests/SnippetRegexTests.swift",
+      "page": ".hickory-source/mechanisms/snippet-regex-acceptance.md",
+      "symbol": "snippet regex live apple",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "snippet-regex-live-android",
+      "output": "apps/android-simple/app/src/test/java/com/hickorydocs/simple/SnippetRegexTest.kt",
+      "page": ".hickory-source/mechanisms/snippet-regex-acceptance.md",
+      "symbol": "snippet regex live android",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

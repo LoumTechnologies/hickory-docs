@@ -5,8 +5,12 @@ The engine compiles source syntax into a data-only regular-expression and replac
 
 The common expression language includes scalar literals, dot, ASCII character shorthands, explicit ranges, captures, alternatives, anchors, word boundaries and greedy or lazy repetitions. Backreferences, lookaround, named groups and Unicode property escapes are explicit unsupported syntax. This is a measured common transform language, not a full ECMAScript-regex parity claim. Replacement capture references, casing and conditional branches are compiled separately from matching. Input indexing uses Unicode scalars internally; field/session ranges remain exact UTF-16 positions. Program version 2 also carries the frozen Unicode case-policy identifier. Insensitive classes are expanded once in the engine; every host checks only those literal ranges and the declared word-boundary policy. Legacy insensitive matching preserves ECMAScript’s non-ASCII-to-ASCII exclusion; Unicode-insensitive matching includes the simple-fold closure. Replacement casing and camel/pascal token boundaries use the same versioned data, independent of the OS locale and Unicode library. Lone UTF-16 surrogates refuse before producing an action.
 
+Explicitly negotiated program 3 uses the bounded ECMAScript machine in [the regex compiler and host reading](snippet-regex-v3.md). Existing program 2 keeps its frozen Unicode 16 behavior. The wrappers below preserve the apply interface so input adapters share their existing whole-action refusal and history paths. Admission checks the program version before any edit; advertising a reader alone does not prove the provider or template path.
+
 <ui:copy id="snippet-transform-engine">
 //! Bounded data-only snippet transforms shared with the pure host evaluators.
+#[path = "snippet_transform_v3.rs"]
+mod v3;
 use crate::snippet_case;
 use serde_json::{Value, json};
 const MAX_NODES: usize = 512;
@@ -416,6 +420,9 @@ impl FormatParser {
 }
 
 /// Compile once in the engine; hosts accept only this versioned bounded program.
+/// The client must opt into a complete program evaluator; never fall back after a v3 error.
+pub fn validate_program_versions(programs:&[u32])->Result<(),String>{if programs.is_empty()||programs.len()>2||programs.iter().any(|n|![2,3].contains(n))||programs.iter().enumerate().any(|(i,n)|programs[..i].contains(n)){return Err("Unsupported snippet transform program versions".into())};Ok(())}
+pub fn compile_supported(pattern:&str,format:&str,flags:&str,programs:&[u32])->Result<Value,String>{validate_program_versions(programs)?;if programs.contains(&3){v3::compile(pattern,format,flags)}else{compile(pattern,format,flags)}}
 pub fn compile(pattern: &str, format: &str, flags: &str) -> Result<Value, String> {
     if pattern.len() + format.len() > 8192 {
         return Err("Transform syntax limit exceeded".into());
@@ -818,6 +825,7 @@ pub fn apply(program: &Value, input: &str) -> Result<String, String> {
 }
 /// Share one work budget across every derived occurrence in an atomic action.
 pub fn apply_with_budget(program: &Value, input: &str, work: &mut usize) -> Result<String, String> {
+    if program["version"].as_f64()==Some(3.0){return v3::apply(program,input,work)}
     if program["version"] != 2
         || program["case_map"] != snippet_case::VERSION
         || input.len() > MAX_TEXT
@@ -994,11 +1002,15 @@ Admission copies and freezes a bounded program before it can join source history
 
 <ui:copy id="snippet-transform-browser">
 import {snippetCase,snippetCaseWords,snippetCaseVersion} from './SnippetCase';
+import {readRegexV3,evaluateRegexV3,regexV3ProgramBytes,type RegexV3Program} from './SnippetTransformV3';
+export const supportedSnippetTransformPrograms=Object.freeze([2,3] as const);
 const scalarText=(text:string)=>!/[\uD800-\uDFFF]/u.test(text);
-export interface SnippetTransform {readonly version:2;readonly case_map:typeof snippetCaseVersion;readonly regex:readonly unknown[];readonly format:readonly unknown[];readonly flags:string;readonly groups:number}
+export interface SnippetTransformV2 {readonly version:2;readonly case_map:typeof snippetCaseVersion;readonly regex:readonly unknown[];readonly format:readonly unknown[];readonly flags:string;readonly groups:number}
+export type SnippetTransform=SnippetTransformV2|(RegexV3Program & {readonly regex?:never});
 export interface SnippetTransformBudget {work:number}
 const maximum=1048576;
 export function readSnippetTransform(raw:unknown):SnippetTransform {
+ if(raw&&typeof raw==='object'&&'version' in raw&&raw.version===3)return readRegexV3(raw);
  let count=0,bytes=0;const tick=(n=1)=>{count+=n;if(count>512)throw Error('Snippet transform program limit exceeded');};
  const integer=(v:unknown,max=1114111)=>{if(typeof v!=='number'||!Number.isSafeInteger(v)||v<0||v>max)throw Error('Malformed snippet transform integer');return v;};
  const text=(v:unknown)=>{if(typeof v!=='string'||!scalarText(v))throw Error('Malformed snippet transform text');bytes+=new TextEncoder().encode(v).length;if(bytes>16384)throw Error('Snippet transform metadata limit exceeded');return v;};
@@ -1019,11 +1031,11 @@ export function readSnippetTransform(raw:unknown):SnippetTransform {
  const format=(v:unknown,depth:number):readonly unknown[]=>{if(depth>32||!Array.isArray(v)||v.length>512)throw Error('Malformed transform format');return Object.freeze(v.map(op=>{tick();if(typeof op==='string')return text(op);if(!Array.isArray(op))throw Error('Malformed transform format');if(op[0]==='capture'&&op.length===3&&['','upcase','downcase','capitalize','camelcase','pascalcase'].includes(op[2]))return Object.freeze(['capture',integer(op[1],32),op[2]]);if(op[0]==='if'&&op.length===4)return Object.freeze(['if',integer(op[1],32),format(op[2],depth+1),format(op[3],depth+1)]);throw Error('Unsupported transform format');}));};
  return Object.freeze({version:2,case_map:snippetCaseVersion,regex:node(value.regex,0),format:format(value.format,0),flags,groups});
 }
-export function snippetTransformBytes(program:SnippetTransform):number{return new TextEncoder().encode(JSON.stringify(program)).length;}
+export function snippetTransformBytes(program:SnippetTransform):number{return program.version===3?regexV3ProgramBytes(program):new TextEncoder().encode(JSON.stringify(program)).length;}
 interface MatchState {at:number;captures:({from:number;to:number}|null)[]}
 const newline=(c:string|undefined)=>c!==undefined&&['\n','\r','\u2028','\u2029'].includes(c),word=(c:string|undefined)=>c!==undefined&&/^[A-Za-z0-9_]$/.test(c);
 export function applySnippetTransform(raw:SnippetTransform,input:string,budget:SnippetTransformBudget={work:0}):string {
- const program=readSnippetTransform(raw);if(!scalarText(input)||new TextEncoder().encode(input).length>65536)throw Error('Snippet transform input limit exceeded');const chars=Array.from(input),flags=program.flags;
+ const program=readSnippetTransform(raw);if(program.version===3)return evaluateRegexV3(program,input,budget);if(!scalarText(input)||new TextEncoder().encode(input).length>65536)throw Error('Snippet transform input limit exceeded');const chars=Array.from(input),flags=program.flags;
  const tick=(n=1)=>{budget.work+=n;if(!Number.isSafeInteger(budget.work)||budget.work<0||budget.work>100000)throw Error('Snippet transform work limit exceeded');};
  const matches=(node:readonly unknown[],state:MatchState,depth:number):MatchState[]=>{
   tick();if(depth>64)throw Error('Snippet transform evaluation depth exceeded');const op=node[0];let result:MatchState[]=[];
@@ -1049,9 +1061,11 @@ Apple retains only normalized bounded arrays. The evaluator uses Unicode scalar 
 <ui:copy id="snippet-transform-apple">
 import Foundation
 import CoreFoundation
-struct SnippetTransform {let regex:[Any];let format:[Any];let flags:String;let groups:Int;let bytes:Int}
+let supportedSnippetTransformPrograms=[2,3]
+struct SnippetTransform {let regex:[Any];let format:[Any];let flags:String;let groups:Int;let bytes:Int;var v3:RegexV3Program?=nil}
 struct SnippetTransformBudget {var work=0}
 func readSnippetTransform(_ raw:Any)throws->SnippetTransform {
+ if let value=raw as? [String:Any],let version=value["version"] as? NSNumber,CFGetTypeID(version) != CFBooleanGetTypeID(),version.doubleValue==3{let program=try readRegexV3(value);return SnippetTransform(regex:[],format:program.format,flags:program.flags,groups:program.groups,bytes:program.bytes,v3:program)}
  var count=0,bytes=0
  func tick(_ n:Int=1)throws{count+=n;guard count<=512 else{throw EngineError(message:"Snippet transform program limit exceeded")}}
  func integer(_ raw:Any,_ max:Int=1114111)throws->Int{guard let n=raw as? NSNumber,CFGetTypeID(n) != CFBooleanGetTypeID(),let value=Int(n.stringValue),value>=0,value<=max else{throw EngineError(message:"Malformed transform integer")};return value}
@@ -1105,6 +1119,7 @@ private struct TransformEvaluator {
  }
 }
 func applySnippetTransform(_ program:SnippetTransform,_ input:String,budget:inout SnippetTransformBudget)throws->String {
+ if let v3=program.v3{return try applyRegexV3(v3,input,work:&budget.work)}
  guard input.utf8.count<=65536 else{throw EngineError(message:"Transform input limit exceeded")};var evaluator=TransformEvaluator(text:Array(input.unicodeScalars),flags:program.flags,work:budget.work),output="",cursor=0,search=0,matched=false;let count=evaluator.text.count
  while search<=count{var found:(Int,TransformMatch)?;for start in search...count{let initial=TransformMatch(at:start,captures:Array(repeating:nil,count:program.groups+1));if var state=try evaluator.matches(program.regex,initial,0).first{state.captures[0]=start..<state.at;found=(start,state);break}};guard let(start,state)=found else{break};matched=true;let prefix=evaluator.string(cursor,start),replacement=try evaluator.format(program.format,state.captures,0);guard prefix.utf8.count+replacement.utf8.count<=1048576-output.utf8.count else{throw EngineError(message:"Transform output limit exceeded")};output+=prefix+replacement;cursor=state.at;if !program.flags.contains("g"){break};search=state.at==start ? state.at+1:state.at}
  if !matched,program.format.contains(where:{raw in guard let op=raw as? [Any],op.first as? String=="if",let branch=op[3] as? [Any] else{return false};return !branch.isEmpty}){let result=try evaluator.format(program.format,Array(repeating:nil,count:program.groups+1),0);budget.work=evaluator.work;return result}
@@ -1123,11 +1138,13 @@ package com.hickorydocs.simple
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.Locale
+internal val supportedSnippetTransformPrograms=listOf(2,3)
 @ConsistentCopyVisibility
-data class SnippetTransform internal constructor(val regex:List<Any?>,val format:List<Any?>,val flags:String,val groups:Int,val bytes:Int)
+data class SnippetTransform internal constructor(val regex:List<Any?>,val format:List<Any?>,val flags:String,val groups:Int,val bytes:Int,internal val v3:RegexV3Program?=null)
 internal data class SnippetTransformBudget(var work:Int=0)
 private fun scalarText(value:String):Boolean {var at=0;while(at<value.length){val c=value[at++];if(c.isHighSurrogate()){if(at==value.length||!value[at++].isLowSurrogate())return false}else if(c.isLowSurrogate())return false};return true}
 internal fun readSnippetTransform(raw:Any?):SnippetTransform {
+ if(raw is JSONObject&&(raw.opt("version") as? Number)?.toDouble()==3.0){val program=readRegexV3(raw);return SnippetTransform(emptyList(),program.format,program.flags,program.groups,program.bytes,program)}
  var count=0;var bytes=0
  fun tick(n:Int=1){count+=n;check(count<=512){"Transform program limit exceeded"}}
  fun integer(raw:Any?,max:Int=1114111):Int {val value=(raw as? Number)?.toString()?.toLongOrNull();check(value!=null&&value in 0..max.toLong()){"Malformed transform integer"};return value.toInt()}
@@ -1177,6 +1194,7 @@ private class TransformEvaluator(val text:IntArray,val flags:String,var work:Int
   }};check(value.toByteArray(Charsets.UTF_8).size<=1048576-output.toByteArray(Charsets.UTF_8).size){"Transform output limit exceeded"};output+=value};return output}
 }
 internal fun applySnippetTransform(program:SnippetTransform,input:String,budget:SnippetTransformBudget=SnippetTransformBudget()):String {
+ program.v3?.let{val work=intArrayOf(budget.work);try{return applyRegexV3(it,input,work)}finally{budget.work=work[0]}}
  check(scalarText(input)&&input.toByteArray(Charsets.UTF_8).size<=65536){"Transform input limit exceeded"};val evaluator=TransformEvaluator(input.codePoints().toArray(),program.flags,budget.work);var output="";var cursor=0;var search=0;var matched=false;val count=evaluator.text.size
  while(search<=count){var found:Pair<Int,TransformMatch>?=null;for(start in search..count){val initial=TransformMatch(start,List(program.groups+1){null});val state=evaluator.matches(program.regex,initial,0).firstOrNull();if(state!=null){val captures=state.captures.toMutableList();captures[0]=TransformCapture(start,state.at);found=start to state.copy(captures=captures.toList());break}};val selected=found?:break;matched=true;val (start,state)=selected;val prefix=evaluator.string(cursor,start);val replacement=evaluator.format(program.format,state.captures,0);check((output+prefix+replacement).toByteArray(Charsets.UTF_8).size<=1048576){"Transform output limit exceeded"};output+=prefix+replacement;cursor=state.at;if('g' !in program.flags)break;search=if(state.at==start)state.at+1 else state.at}
  if(!matched&&program.format.any{it is List<*>&&it[0]=="if"&&(it[3] as List<*>).isNotEmpty()}){val value=evaluator.format(program.format,List(program.groups+1){null},0);budget.work=evaluator.work;return value};val suffix=evaluator.string(cursor,count);check((output+suffix).toByteArray(Charsets.UTF_8).size<=1048576){"Transform output limit exceeded"};budget.work=evaluator.work;return output+suffix

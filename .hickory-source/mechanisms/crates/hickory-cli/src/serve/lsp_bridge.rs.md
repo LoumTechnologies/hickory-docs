@@ -562,7 +562,7 @@ fn initialize_request(root_uri: &str) -> Value {
                     "hover": { "contentFormat": ["markdown", "plaintext"] },
                     "completion": {
                         "completionItem": {
-                            "snippetSupport": false,
+                            "snippetSupport": true,
                             "documentationFormat": ["markdown", "plaintext"],
                             "resolveSupport": { "properties": ["documentation", "detail"] },
                         }

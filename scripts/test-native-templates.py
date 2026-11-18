@@ -94,23 +94,30 @@ def confirm(origin):
     files = {node["path"]: node for node in rows(request(origin, "/api/files")["tree"])}
     if files["main.py"].get("generated_by") or files["main.py"].get("doc_id") or not files["generated.py"].get("generated_by"):
         raise RuntimeError("Template fixture must expose an independent writable primary and a distinct generated, read-only source.")
-def run_host(host, origin, workspace, temporary, fixture, provider_context=False, embedded=False):
+def run_host(host, origin, workspace, temporary, fixture, provider_context=False, embedded=False, acceptance=None):
     environment = {**os.environ, "HICKORY_NATIVE_TEMPLATE_ORIGIN": origin, "HICKORY_NATIVE_TEMPLATE_WORKSPACE": str(workspace), "HICKORY_NATIVE_TEMPLATE_INPUT": "main.py"}
     if host == "apple":
-        name = "testLiveEmbeddedTemplateCatalogAndHistory" if embedded else "testLiveProviderContextCompletionAndHistory" if provider_context else "testLiveNativeSourceTemplateCatalogAndHistory"
-        test_class = "EmbeddedTemplateTests" if embedded else "SnippetContextProviderTests" if provider_context else "SourceTemplateTests"
+        name = name if acceptance is not None else ("testLiveEmbeddedTemplateCatalogAndHistory" if embedded else "testLiveProviderContextCompletionAndHistory" if provider_context else "testLiveNativeSourceTemplateCatalogAndHistory")
+        test_class = test_class if acceptance is not None else ("EmbeddedTemplateTests" if embedded else "SnippetContextProviderTests" if provider_context else "SourceTemplateTests")
         report = temporary / "native-template.xml"
+    if acceptance is not None:
+        if not isinstance(acceptance, tuple) or len(acceptance) != 3:
+            raise ValueError("Choose exactly one explicit native acceptance class, method and receipt label.")
+        test_class, name, label = acceptance
+        if not all(isinstance(value, str) and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", value) for value in (test_class, name)) or not isinstance(label, str) or not re.fullmatch(r"[a-z][a-z0-9-]{0,63}", label):
+            raise ValueError("Native acceptance identifiers or receipt label are invalid.")
         command = ["swift", "test", "--package-path", "apps/apple-simple", "--scratch-path", "target/apple-simple-spm", "--filter", test_class + "." + name + "$", "--xunit-output", str(report)]
     else:
-        name = "liveEmbeddedTemplateCatalogAndHistory" if embedded else "liveProviderContextCompletionAndHistory" if provider_context else "liveNativeSourceTemplateCatalogAndHistory"
-        test_class = "EmbeddedTemplateTest" if embedded else "SnippetContextProviderTest" if provider_context else "SourceTemplateTest"
+        name = name if acceptance is not None else ("liveEmbeddedTemplateCatalogAndHistory" if embedded else "liveProviderContextCompletionAndHistory" if provider_context else "liveNativeSourceTemplateCatalogAndHistory")
+        test_class = test_class if acceptance is not None else ("EmbeddedTemplateTest" if embedded else "SnippetContextProviderTest" if provider_context else "SourceTemplateTest")
         launcher = ROOT / "target/simple-android-gradle"
         if not launcher.is_file():
             subprocess.run(["rustc", "--edition=2021", "scripts/simple-android-gradle.rs", "-o", str(launcher)], cwd=ROOT, check=True)
         command = [str(launcher), "-Pandroid.builder.sdkDownload=false", ":app:testDebugUnitTest", "--tests", "com.hickorydocs.simple." + test_class + "." + name, "--rerun-tasks"]
         report = ROOT / ("apps/android-simple/app/build/test-results/testDebugUnitTest/TEST-com.hickorydocs.simple." + test_class + ".xml")
     report.unlink(missing_ok=True)
-    log = ROOT / "target/native-template-smoke" / (host + ("-embedded-last.log" if embedded else "-provider-last.log" if provider_context else "-last.log"))
+    suffix = "-" + label + "-last.log" if acceptance is not None else "-embedded-last.log" if embedded else "-provider-last.log" if provider_context else "-last.log"
+    log = ROOT / "target/native-template-smoke" / (host + suffix)
     log.parent.mkdir(parents=True, exist_ok=True)
     log.with_suffix(".xml").unlink(missing_ok=True)
     log.with_suffix(".json").unlink(missing_ok=True)
@@ -142,7 +149,7 @@ def run_host(host, origin, workspace, temporary, fixture, provider_context=False
         rows = list(ET.parse(report).getroot().iter("testcase"))
         if len(rows) != 1 or rows[0].get("name", "").split("(")[0] != name or any(rows[0].find(key) is not None for key in ("skipped", "failure", "error")):
             raise RuntimeError(f"Expected exactly one executed passing native template witness; inspect {report} and {log}")
-    kind = "provider-completion context" if provider_context else "source-template"
+    kind = label if acceptance is not None else "provider-completion context" if provider_context else "source-template"
     print(f"PASS {host}: one actual {kind} host/controller witness executed without skips. Physical pointer, device IME and accessibility remain unverified.")
 
 def main():

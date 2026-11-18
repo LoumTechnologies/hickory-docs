@@ -143,6 +143,7 @@ export function completionSource(options: {
   lsp?: {
     client: LspClient;
     uri: string;
+    transformPrograms?:readonly number[];
     positionAt: (offset: number, view: CompletionContext["state"]) => LspPosition | null;
   };
   project?: (prefix: string, context: string) => Promise<ProjectSuggestion[]>;
@@ -163,7 +164,7 @@ export function completionSource(options: {
     const [lspItems, projectItems] = await Promise.all([
       options.lsp && position
         ? options.lsp.client
-            .completion(options.lsp.uri, position, triggerContext)
+            .completion(options.lsp.uri, position, triggerContext,options.lsp.transformPrograms)
             .catch(() => [])
         : Promise.resolve([]),
       options.project
@@ -207,6 +208,7 @@ export function completions(options: {
   lsp?: {
     client: LspClient;
     uri: string;
+    transformPrograms?:readonly number[];
     positionAt: (offset: number, state: CompletionContext["state"]) => LspPosition | null;
   };
   project?: (prefix: string, context: string) => Promise<ProjectSuggestion[]>;

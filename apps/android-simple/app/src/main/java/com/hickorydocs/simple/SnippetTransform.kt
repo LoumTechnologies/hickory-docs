@@ -3,11 +3,13 @@ package com.hickorydocs.simple
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.Locale
+internal val supportedSnippetTransformPrograms=listOf(2,3)
 @ConsistentCopyVisibility
-data class SnippetTransform internal constructor(val regex:List<Any?>,val format:List<Any?>,val flags:String,val groups:Int,val bytes:Int)
+data class SnippetTransform internal constructor(val regex:List<Any?>,val format:List<Any?>,val flags:String,val groups:Int,val bytes:Int,internal val v3:RegexV3Program?=null)
 internal data class SnippetTransformBudget(var work:Int=0)
 private fun scalarText(value:String):Boolean {var at=0;while(at<value.length){val c=value[at++];if(c.isHighSurrogate()){if(at==value.length||!value[at++].isLowSurrogate())return false}else if(c.isLowSurrogate())return false};return true}
 internal fun readSnippetTransform(raw:Any?):SnippetTransform {
+ if(raw is JSONObject&&(raw.opt("version") as? Number)?.toDouble()==3.0){val program=readRegexV3(raw);return SnippetTransform(emptyList(),program.format,program.flags,program.groups,program.bytes,program)}
  var count=0;var bytes=0
  fun tick(n:Int=1){count+=n;check(count<=512){"Transform program limit exceeded"}}
  fun integer(raw:Any?,max:Int=1114111):Int {val value=(raw as? Number)?.toString()?.toLongOrNull();check(value!=null&&value in 0..max.toLong()){"Malformed transform integer"};return value.toInt()}
@@ -57,6 +59,7 @@ private class TransformEvaluator(val text:IntArray,val flags:String,var work:Int
   }};check(value.toByteArray(Charsets.UTF_8).size<=1048576-output.toByteArray(Charsets.UTF_8).size){"Transform output limit exceeded"};output+=value};return output}
 }
 internal fun applySnippetTransform(program:SnippetTransform,input:String,budget:SnippetTransformBudget=SnippetTransformBudget()):String {
+ program.v3?.let{val work=intArrayOf(budget.work);try{return applyRegexV3(it,input,work)}finally{budget.work=work[0]}}
  check(scalarText(input)&&input.toByteArray(Charsets.UTF_8).size<=65536){"Transform input limit exceeded"};val evaluator=TransformEvaluator(input.codePoints().toArray(),program.flags,budget.work);var output="";var cursor=0;var search=0;var matched=false;val count=evaluator.text.size
  while(search<=count){var found:Pair<Int,TransformMatch>?=null;for(start in search..count){val initial=TransformMatch(start,List(program.groups+1){null});val state=evaluator.matches(program.regex,initial,0).firstOrNull();if(state!=null){val captures=state.captures.toMutableList();captures[0]=TransformCapture(start,state.at);found=start to state.copy(captures=captures.toList());break}};val selected=found?:break;matched=true;val (start,state)=selected;val prefix=evaluator.string(cursor,start);val replacement=evaluator.format(program.format,state.captures,0);check((output+prefix+replacement).toByteArray(Charsets.UTF_8).size<=1048576){"Transform output limit exceeded"};output+=prefix+replacement;cursor=state.at;if('g' !in program.flags)break;search=if(state.at==start)state.at+1 else state.at}
  if(!matched&&program.format.any{it is List<*>&&it[0]=="if"&&(it[3] as List<*>).isNotEmpty()}){val value=evaluator.format(program.format,List(program.groups+1){null},0);budget.work=evaluator.work;return value};val suffix=evaluator.string(cursor,count);check((output+suffix).toByteArray(Charsets.UTF_8).size<=1048576){"Transform output limit exceeded"};budget.work=evaluator.work;return output+suffix

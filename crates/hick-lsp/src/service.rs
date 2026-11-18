@@ -10,6 +10,7 @@ where
 {
     tower_lsp::LspService::build(init)
         .custom_method("hick/captureDocument", crate::HickBackend::capture_document)
+        .custom_method("hick/completion", crate::HickBackend::source_bound_completion)
         .custom_method("hick/rename", crate::HickBackend::source_bound_rename)
         .custom_method("hick/formatting", crate::HickBackend::source_bound_formatting)
         .finish()

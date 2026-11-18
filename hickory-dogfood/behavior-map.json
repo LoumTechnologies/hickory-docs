@@ -73422,6 +73422,279 @@
       "fragments": [
         "workspace-entry-watch-live-witness"
       ]
+    },
+    "apps/simple-contract/snippet-regex-case17.json": {
+      "source": ".hickory-source/mechanisms/snippet-regex-unicode.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "cdf3179501ca79b3a16d676dd014dd15f3e8c5c801c1f1ba3604e95f00701317",
+      "construction": "fragments",
+      "fragments": [
+        "snippet-regex-case17-part-0",
+        "snippet-regex-case17-part-1",
+        "snippet-regex-case17-part-2",
+        "snippet-regex-case17-part-3",
+        "snippet-regex-case17-part-4",
+        "snippet-regex-case17-part-5",
+        "snippet-regex-case17-part-6",
+        "snippet-regex-case17-part-7"
+      ]
+    },
+    "apps/simple-contract/snippet-regex-unicode17.json": {
+      "source": ".hickory-source/mechanisms/snippet-regex-unicode.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "2792c0954bca3d8b6fe33af225e913c4d22b59cb20f36a8cdd34526a232cc6d1",
+      "construction": "fragments",
+      "fragments": [
+        "snippet-regex-unicode17-data"
+      ]
+    },
+    "scripts/prepare-snippet-regex-properties.py": {
+      "source": ".hickory-source/mechanisms/snippet-regex-unicode.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "2880faffcc7fa498581d6983c9f319af4317f6913f954d1a07866ad696d3483e",
+      "construction": "fragments",
+      "fragments": [
+        "snippet-regex-generator-prepare-properties-py"
+      ]
+    },
+    "scripts/export-snippet-regex-properties.mjs": {
+      "source": ".hickory-source/mechanisms/snippet-regex-unicode.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "1e6a0a448b5ffc849f1491d6d4c9fd5f234257e18b11444c5aa5e9a88b2695b1",
+      "construction": "fragments",
+      "fragments": [
+        "snippet-regex-generator-export-properties-mjs"
+      ]
+    },
+    "scripts/finish-snippet-regex-unicode.py": {
+      "source": ".hickory-source/mechanisms/snippet-regex-unicode.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "24d4e6dad924de00a4fe50882035af156abdfd81f8eb27c70a6471ddd8f0afee",
+      "construction": "fragments",
+      "fragments": [
+        "snippet-regex-generator-finish-unicode-py"
+      ]
+    },
+    "apps/simple-contract/snippet-regex-unicode-LICENSE.txt": {
+      "source": ".hickory-source/mechanisms/snippet-regex-unicode.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "d9a52140f486a859a52aad5a4574d11358028b24e5df81ea3f9a20a6dbcf8583",
+      "construction": "fragments",
+      "fragments": [
+        "snippet-regex-unicode-license"
+      ]
+    },
+    "crates/hick-lsp/src/snippet_transform_v3.rs": {
+      "source": ".hickory-source/mechanisms/snippet-regex-v3.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "757b1ff5b9134a2e8ff84b8bc48d3e5bae2498b2ef111dcad24a88df319113a8",
+      "construction": "fragments",
+      "fragments": [
+        "snippet-regex-v3-engine-api",
+        "snippet-regex-v3-lowering",
+        "snippet-regex-v3-sets",
+        "snippet-regex-v3-bytecode",
+        "snippet-regex-v3-format",
+        "snippet-regex-v3-reader",
+        "snippet-regex-v3-matcher",
+        "snippet-regex-v3-formatter",
+        "snippet-regex-v3-engine-tests"
+      ]
+    },
+    "apps/web/src/simple/SnippetTransformV3.ts": {
+      "source": ".hickory-source/mechanisms/snippet-regex-v3.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "0db93ebb0e161f8559f585428517c31a637f9a2d22730edb98f5496d02bd7cbc",
+      "construction": "fragments",
+      "fragments": [
+        "snippet-regex-v3-browser"
+      ]
+    },
+    "apps/apple-simple/Sources/SnippetTransformV3.swift": {
+      "source": ".hickory-source/mechanisms/snippet-regex-v3.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "24c8924d2ed6ea20502a577ec28e87279c4a18c6b2006b8ffc5a562a76fca336",
+      "construction": "fragments",
+      "fragments": [
+        "snippet-regex-v3-apple",
+        "snippet-regex-case17-part-0",
+        "snippet-regex-case17-part-1",
+        "snippet-regex-case17-part-2",
+        "snippet-regex-case17-part-3",
+        "snippet-regex-case17-part-4",
+        "snippet-regex-case17-part-5",
+        "snippet-regex-case17-part-6",
+        "snippet-regex-case17-part-7"
+      ]
+    },
+    "apps/android-simple/app/src/main/java/com/hickorydocs/simple/SnippetTransformV3.kt": {
+      "source": ".hickory-source/mechanisms/snippet-regex-v3.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "6cf9b2f0961fe785808e58b4d95f27bc6aaa2fd3dd077f5a1d80dc72d18bd3c8",
+      "construction": "fragments",
+      "fragments": [
+        "snippet-regex-v3-android",
+        "snippet-regex-case17-part-0",
+        "snippet-regex-case17-part-1",
+        "snippet-regex-case17-part-2",
+        "snippet-regex-case17-part-3",
+        "snippet-regex-case17-part-4",
+        "snippet-regex-case17-part-5",
+        "snippet-regex-case17-part-6",
+        "snippet-regex-case17-part-7"
+      ]
+    },
+    "apps/simple-contract/snippet-regex-pattern-cases.json": {
+      "source": ".hickory-source/mechanisms/snippet-regex-v3.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "test",
+      "sha256": "bab96d0ab73fcf71442210fb0c833d36e5f84550180583f74dcb942acea36e18",
+      "construction": "fragments",
+      "fragments": [
+        "snippet-regex-v3-oracle-cases-compiled-json"
+      ]
+    },
+    "apps/simple-contract/snippet-regex-format-cases.json": {
+      "source": ".hickory-source/mechanisms/snippet-regex-v3.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "test",
+      "sha256": "7fdf0326dce73725aacc6e2c2381b0d878dc6a563ad94da084a73c2a2aa87e62",
+      "construction": "fragments",
+      "fragments": [
+        "snippet-regex-v3-format-oracle-cases-compiled-json"
+      ]
+    },
+    "apps/simple-contract/snippet-regex-budget-cases.json": {
+      "source": ".hickory-source/mechanisms/snippet-regex-v3.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "test",
+      "sha256": "4881b395c286a6acb582e743027bf6aa236aa826751bd82976d7bce62e791f72",
+      "construction": "fragments",
+      "fragments": [
+        "snippet-regex-v3-budget-cases-json"
+      ]
+    },
+    "apps/web/src/simple/SnippetTransformV3.test.ts": {
+      "source": ".hickory-source/mechanisms/snippet-regex-v3.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "test",
+      "sha256": "b91047984e89bbfa003c8e3ca916575d1e91218031da0061ab8e7f9c80986eb7",
+      "construction": "fragments",
+      "fragments": [
+        "snippet-regex-v3-browser-tests"
+      ]
+    },
+    "apps/apple-simple/Tests/SnippetTransformV3Tests.swift": {
+      "source": ".hickory-source/mechanisms/snippet-regex-v3.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "test",
+      "sha256": "cba58838bf23a45fad2a352123d91e7dbb16e17effc1b32935547c7359393236",
+      "construction": "fragments",
+      "fragments": [
+        "snippet-regex-v3-apple-tests"
+      ]
+    },
+    "apps/android-simple/app/src/test/java/com/hickorydocs/simple/SnippetTransformV3Test.kt": {
+      "source": ".hickory-source/mechanisms/snippet-regex-v3.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "test",
+      "sha256": "db221e4b85cb13e1d82000b109471c7386b554a15f2b3b614e11ab0d73cf1782",
+      "construction": "fragments",
+      "fragments": [
+        "snippet-regex-v3-android-tests"
+      ]
+    },
+    "apps/simple-contract/snippet-regex-live-cases.json": {
+      "source": ".hickory-source/mechanisms/snippet-regex-acceptance.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "c1cb04e1b462e0a99de6f5ec172c7f266bf5ee889d211399025eb4dbfe746f3a",
+      "construction": "fragments",
+      "fragments": [
+        "snippet-regex-live-cases"
+      ]
+    },
+    "scripts/snippet-regex-controlled-provider.py": {
+      "source": ".hickory-source/mechanisms/snippet-regex-acceptance.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "test",
+      "sha256": "e991f39fbe30c73dda7c58c36a34934e35f454362ea663b3451d457234936951",
+      "construction": "fragments",
+      "fragments": [
+        "snippet-regex-child-fixture"
+      ]
+    },
+    "scripts/snippet-regex-protocol-driver.mjs": {
+      "source": ".hickory-source/mechanisms/snippet-regex-acceptance.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "test",
+      "sha256": "83292567cf4ce990bfe1bcadfe3a405dd1b52d767a0975bb3cb150211e86398c",
+      "construction": "fragments",
+      "fragments": [
+        "snippet-regex-protocol-driver"
+      ]
+    },
+    "scripts/test-snippet-regex-live.py": {
+      "source": ".hickory-source/mechanisms/snippet-regex-acceptance.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "test",
+      "sha256": "8ef3b7e5ae71f9153e9f8816b0d334aa46d317b963bb235da61b49d3abdadccd",
+      "construction": "fragments",
+      "fragments": [
+        "snippet-regex-live-runner"
+      ]
+    },
+    "apps/apple-simple/Tests/SnippetRegexTests.swift": {
+      "source": ".hickory-source/mechanisms/snippet-regex-acceptance.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "test",
+      "sha256": "eede630a105320f211af120aa8f6f2d6089597846d96476bb5e5b6dfde2b773f",
+      "construction": "fragments",
+      "fragments": [
+        "snippet-regex-live-apple"
+      ]
+    },
+    "apps/android-simple/app/src/test/java/com/hickorydocs/simple/SnippetRegexTest.kt": {
+      "source": ".hickory-source/mechanisms/snippet-regex-acceptance.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "test",
+      "sha256": "198b10d79f349022302018db6eb735b4e03166d833c298909dd80581bb2b42d3",
+      "construction": "fragments",
+      "fragments": [
+        "snippet-regex-live-android"
+      ]
     }
   },
   "evidence_records": [

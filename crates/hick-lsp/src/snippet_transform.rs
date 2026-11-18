@@ -1,4 +1,6 @@
 //! Bounded data-only snippet transforms shared with the pure host evaluators.
+#[path = "snippet_transform_v3.rs"]
+mod v3;
 use crate::snippet_case;
 use serde_json::{Value, json};
 const MAX_NODES: usize = 512;
@@ -408,6 +410,9 @@ impl FormatParser {
 }
 
 /// Compile once in the engine; hosts accept only this versioned bounded program.
+/// The client must opt into a complete program evaluator; never fall back after a v3 error.
+pub fn validate_program_versions(programs:&[u32])->Result<(),String>{if programs.is_empty()||programs.len()>2||programs.iter().any(|n|![2,3].contains(n))||programs.iter().enumerate().any(|(i,n)|programs[..i].contains(n)){return Err("Unsupported snippet transform program versions".into())};Ok(())}
+pub fn compile_supported(pattern:&str,format:&str,flags:&str,programs:&[u32])->Result<Value,String>{validate_program_versions(programs)?;if programs.contains(&3){v3::compile(pattern,format,flags)}else{compile(pattern,format,flags)}}
 pub fn compile(pattern: &str, format: &str, flags: &str) -> Result<Value, String> {
     if pattern.len() + format.len() > 8192 {
         return Err("Transform syntax limit exceeded".into());
@@ -810,6 +815,7 @@ pub fn apply(program: &Value, input: &str) -> Result<String, String> {
 }
 /// Share one work budget across every derived occurrence in an atomic action.
 pub fn apply_with_budget(program: &Value, input: &str, work: &mut usize) -> Result<String, String> {
+    if program["version"].as_f64()==Some(3.0){return v3::apply(program,input,work)}
     if program["version"] != 2
         || program["case_map"] != snippet_case::VERSION
         || input.len() > MAX_TEXT
