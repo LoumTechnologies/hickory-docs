@@ -73166,6 +73166,19 @@
       "fragments": [
         "native-snippet-context-provider-android"
       ]
+    },
+    "crates/hickory-cli/src/serve/private_record.rs": {
+      "source": ".hickory-source/mechanisms/private-record-storage.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "a6d4c0ee623b129e73f94e185970808a5ea258103afacb0a84d0d7b02d91519a",
+      "construction": "fragments",
+      "fragments": [
+        "private-record-specification",
+        "private-record-held-storage",
+        "private-record-witness"
+      ]
     }
   },
   "evidence_records": [

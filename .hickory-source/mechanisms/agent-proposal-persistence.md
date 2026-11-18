@@ -25,8 +25,9 @@ mod archive {
  #[serde(deny_unknown_fields)]
  struct Sealed {payload:Catalogue,seal:String}
  fn digest(bytes:&[u8])->String{super::super::workspace_fs::view::hash(bytes)}
- fn seal(key:&[u8],bytes:&[u8])->Result<String,String>{use hmac::{Hmac,Mac};let mut mac=Hmac::<sha2::Sha256>::new_from_slice(key).map_err(|_|"Proposal archive seal unavailable")?;mac.update(bytes);Ok(hex::encode(mac.finalize().into_bytes()))}
- fn verify(key:&[u8],bytes:&[u8],signature:&str)->Result<(),String>{use hmac::{Hmac,Mac};let mut mac=Hmac::<sha2::Sha256>::new_from_slice(key).map_err(|_|"Proposal archive seal unavailable")?;mac.update(bytes);let signature=hex::decode(signature).map_err(|_|"Proposal archive seal is malformed")?;mac.verify_slice(&signature).map_err(|_|"Proposal archive seal does not match. Retained readings were not admitted as live proposals.".into())}
+ fn seal(key:&[u8],bytes:&[u8])->Result<String,String>{super::super::private_record::seal(key,None,bytes)}
+ fn verify(key:&[u8],bytes:&[u8],signature:&str)->Result<(),String>{super::super::private_record::verify(key,None,bytes,signature)}
+
  fn validate_reading(row:&Reading)->Result<(),String>{
   if !super::super::resource_saves::hex(&row.token,32)||row.token.bytes().any(|b|b.is_ascii_uppercase())||row.material.len()>MATERIAL||digest(row.material.as_bytes())!=row.fingerprint{return Err("Proposal archive material or identity is damaged.".into())}
   let material:Value=serde_json::from_str(&row.material).map_err(|_|"Proposal archive material is malformed")?;
@@ -38,70 +39,14 @@ mod archive {
  #[cfg(unix)]
  mod unix {
   use super::*;
-  use std::{ffi::CString,os::{fd::{AsRawFd,FromRawFd},unix::fs::{MetadataExt,OpenOptionsExt}}};
-  static HELD:LazyLock<Mutex<BTreeMap<String,Arc<File>>>>=LazyLock::new(||Mutex::new(BTreeMap::new()));
-  fn c(value:&str)->Result<CString,String>{CString::new(value).map_err(|_|"Invalid proposal store component".into())}
-  fn same(file:&File,path:&Path)->Result<(),String>{
-   let metadata=std::fs::symlink_metadata(path).map_err(|e|e.to_string())?;
-   if metadata.file_type().is_symlink()||same_file::Handle::from_file(file.try_clone().map_err(|e|e.to_string())?).map_err(|e|e.to_string())?!=same_file::Handle::from_path(path).map_err(|e|e.to_string())?{return Err("Proposal archive storage was substituted. Preserve live reviews and restore its original private store.".into())}Ok(())
-  }
-  fn directory(parent:&File,name:&str,create:bool)->Result<File,String>{
-   let name=c(name)?;if create&&unsafe{libc::mkdirat(parent.as_raw_fd(),name.as_ptr(),0o700)}!=0{let error=std::io::Error::last_os_error();if error.kind()!=std::io::ErrorKind::AlreadyExists{return Err(format!("Cannot create private proposal archive: {error}"));}}
-   let fd=unsafe{libc::openat(parent.as_raw_fd(),name.as_ptr(),libc::O_RDONLY|libc::O_DIRECTORY|libc::O_NOFOLLOW|libc::O_CLOEXEC)};
-   if fd<0{return Err(format!("Proposal archive requires ordinary held directories: {}",std::io::Error::last_os_error()));}Ok(unsafe{File::from_raw_fd(fd)})
-  }
-  fn data_base(desired:&Path)->Result<(File,PathBuf),String>{
-   let desired=if desired.is_absolute(){desired.to_path_buf()}else{std::env::current_dir().map_err(|e|e.to_string())?.join(desired)};
-   if desired.components().any(|part|matches!(part,std::path::Component::ParentDir)){return Err("Proposal state directory cannot contain parent traversal.".into())}
-   let mut ancestor=desired.clone();let mut missing=Vec::new();
-   loop{match std::fs::symlink_metadata(&ancestor){Ok(meta)=>{if !meta.is_dir()||meta.file_type().is_symlink(){return Err("Proposal state root must be an ordinary directory.".into())}break},Err(error)if error.kind()==std::io::ErrorKind::NotFound=>{missing.push(ancestor.file_name().ok_or("Proposal state directory has no existing ancestor")?.to_os_string());if !ancestor.pop(){return Err("Proposal state directory has no existing ancestor".into())}},Err(error)=>return Err(error.to_string())}}
-   let canonical=ancestor.canonicalize().map_err(|e|e.to_string())?;
-   let mut options=std::fs::OpenOptions::new();options.read(true).custom_flags(libc::O_DIRECTORY|libc::O_NOFOLLOW|libc::O_CLOEXEC);
-   let mut held=options.open(&canonical).map_err(|e|e.to_string())?;same(&held,&ancestor)?;
-   for name in missing.into_iter().rev(){held=directory(&held,name.to_str().ok_or("Proposal store component is not exact UTF-8")?,true)?;}
-   same(&held,&desired)?;let path=desired.canonicalize().map_err(|e|e.to_string())?;Ok((held,path))
-  }
-  pub(super) struct Store {root:PathBuf,root_id:String,base:File,address:PathBuf,base_path:PathBuf,parent:File,parent_path:PathBuf,bucket:Arc<File>,path:PathBuf,store_id:String,key:Vec<u8>,key_file:File,_lock:File}
+  use std::os::unix::fs::MetadataExt;
+  use super::super::super::private_record::{HeldRecord,Spec};
+  pub(super) struct Store {held:HeldRecord}
+  impl std::ops::Deref for Store{type Target=HeldRecord;fn deref(&self)->&HeldRecord{&self.held}}
   impl Store {
-   pub(super) fn under(base:&Path,root:&Path)->Result<Self,String>{
-    let root_id=resource_inputs::RootIdentity::fingerprint(root)?;let root=root.canonicalize().map_err(|e|e.to_string())?;
-    let address=if base.is_absolute(){base.to_path_buf()}else{std::env::current_dir().map_err(|e|e.to_string())?.join(base)};
-    let (base,base_path)=data_base(base)?;let parent=directory(&base,"agent-proposal-readings-v1",true)?;let parent_path=base_path.join("agent-proposal-readings-v1");
-    let bucket=Arc::new(directory(&parent,&root_id,true)?);let path=parent_path.join(&root_id);
-    if parent.metadata().map_err(|e|e.to_string())?.mode()&0o077!=0||bucket.metadata().map_err(|e|e.to_string())?.mode()&0o077!=0{return Err("Proposal archive directories must remain private to this user.".into())}
-    same(&parent,&parent_path)?;same(&bucket,&path)?;
-    let held_key=format!("{}:{}",address.display(),root_id);let mut stores=HELD.lock().map_err(|_|"Proposal store identity unavailable")?;
-    if !stores.contains_key(&held_key)&&stores.len()>=64{return Err("Proposal store identity capacity reached; keep the current live review and retry in its original engine.".into())}
-    if let Some(previous)=stores.get(&held_key){if same_file::Handle::from_file(previous.try_clone().map_err(|e|e.to_string())?).map_err(|e|e.to_string())?!=same_file::Handle::from_file(bucket.try_clone().map_err(|e|e.to_string())?).map_err(|e|e.to_string())?{return Err("Original proposal store was replaced; historical recovery requires its original storage.".into())}}else{stores.insert(held_key,bucket.clone());}drop(stores);
-    let lock=Self::open_file(&bucket,"archive.lock",libc::O_RDWR|libc::O_CREAT,0o600)?;
-    fs2::FileExt::try_lock_exclusive(&lock).map_err(|_|"Another proposal reading is being retained. Keep the live review and retry its reading.".to_string())?;
-    let store_id=resource_inputs::RootIdentity::fingerprint(&path)?;
-    let key=match Self::read_file(&bucket,"archive.key",32)?{Some(bytes)if bytes.len()==32=>bytes,Some(_)=>return Err("Proposal archive key is damaged; no records were promoted to live authority.".into()),None=>{
-     if Self::read_file(&bucket,"readings.json",BUDGET+1024)?.is_some(){return Err("Proposal archive key is missing. Existing readings cannot be verified.".into())}
-     let mut key=vec![0;32];getrandom::fill(&mut key).map_err(|e|e.to_string())?;let mut file=Self::open_file(&bucket,"archive.key",libc::O_WRONLY|libc::O_CREAT|libc::O_EXCL,0o600)?;file.write_all(&key).and_then(|_|file.sync_all()).map_err(|e|e.to_string())?;bucket.sync_all().map_err(|e|e.to_string())?;key
-    }};
-    let key_file=Self::open_file(&bucket,"archive.key",libc::O_RDONLY,0)?;
-    let store=Self{root,root_id,base,address,base_path,parent,parent_path,bucket,path,store_id,key,key_file,_lock:lock};store.check()?;Ok(store)
-   }
-   fn open_file(directory:&File,name:&str,flags:i32,mode:u32)->Result<File,String>{
-    let name=c(name)?;let fd=unsafe{libc::openat(directory.as_raw_fd(),name.as_ptr(),flags|libc::O_NOFOLLOW|libc::O_NONBLOCK|libc::O_CLOEXEC,mode)};
-    if fd<0{return Err(std::io::Error::last_os_error().to_string())}let file=unsafe{File::from_raw_fd(fd)};let metadata=file.metadata().map_err(|e|e.to_string())?;
-    if !metadata.is_file()||metadata.nlink()!=1||metadata.mode()&0o077!=0{return Err("Proposal archive files must be private ordinary files with one identity.".into())}Ok(file)
-   }
-   fn read_file(directory:&File,name:&str,limit:usize)->Result<Option<Vec<u8>>,String>{
-    let name_c=c(name)?;let fd=unsafe{libc::openat(directory.as_raw_fd(),name_c.as_ptr(),libc::O_RDONLY|libc::O_NOFOLLOW|libc::O_NONBLOCK|libc::O_CLOEXEC)};
-    if fd<0{let error=std::io::Error::last_os_error();return if error.kind()==std::io::ErrorKind::NotFound{Ok(None)}else{Err(format!("Cannot read private proposal archive: {error}"))}}
-    let file=unsafe{File::from_raw_fd(fd)};let metadata=file.metadata().map_err(|e|e.to_string())?;
-    if !metadata.is_file()||metadata.nlink()!=1||metadata.mode()&0o077!=0||metadata.len()>limit as u64{return Err("Proposal archive file is not a bounded private ordinary file.".into())}
-    let mut bytes=Vec::new();file.take(limit as u64+1).read_to_end(&mut bytes).map_err(|e|e.to_string())?;if bytes.len()>limit{return Err("Proposal archive exceeds its reading budget.".into())}Ok(Some(bytes))
-   }
-   fn check(&self)->Result<(),String>{
-    if self.parent.metadata().map_err(|e|e.to_string())?.mode()&0o077!=0||self.bucket.metadata().map_err(|e|e.to_string())?.mode()&0o077!=0{return Err("Proposal archive directory privacy changed while reading or retaining it.".into())}
-    if resource_inputs::RootIdentity::fingerprint(&self.root)?!=self.root_id{return Err("Original physical proposal workspace changed; no replacement source was adopted.".into())}
-    same(&self.base,&self.address)?;same(&self.base,&self.base_path)?;same(&self.parent,&self.parent_path)?;same(&self.bucket,&self.path)?;same(&self.key_file,&self.path.join("archive.key"))?;same(&self._lock,&self.path.join("archive.lock"))?;
-    if Self::read_file(&self.bucket,"archive.key",32)?.as_ref()!=Some(&self.key){return Err("Proposal archive key changed while retaining a reading.".into())}
-    if resource_inputs::RootIdentity::fingerprint(&self.path)?!=self.store_id{return Err("Proposal archive physical identity changed.".into())}Ok(())
-   }
+   pub(super) fn under(base:&Path,root:&Path)->Result<Self,String>{Ok(Self{held:HeldRecord::under(base,root,Spec{namespace:"agent-proposal-readings-v1",key:"archive.key",lock:"archive.lock",record:"readings.json",limit:BUDGET+1024,physical_bucket:false})?})}
+   fn open_file(directory:&File,name:&str,flags:i32,mode:u32)->Result<File,String>{HeldRecord::open_file(directory,name,flags,mode)}
+   fn read_file(directory:&File,name:&str,limit:usize)->Result<Option<Vec<u8>>,String>{HeldRecord::read_file(directory,name,limit)}
    fn load(&self)->Result<(Catalogue,Option<Vec<u8>>),String>{
     self.check()?;let bytes=Self::read_file(&self.bucket,"readings.json",BUDGET+1024)?;
     let payload=if let Some(bytes)=&bytes{
@@ -116,15 +61,15 @@ mod archive {
     while payload.records.len()>32{payload.records.remove(0);}
     let signed=loop{let bytes=serde_json::to_vec(&payload).map_err(|e|e.to_string())?;if bytes.len()<=BUDGET{break bytes}if payload.records.len()<=1{return Err("Complete proposal exceeds its private archive budget.".into())}payload.records.remove(0);};
     let signature=seal(&self.key,&signed)?;let bytes=serde_json::to_vec(&Sealed{payload,seal:signature}).map_err(|e|e.to_string())?;
-    let temporary=format!(".{}.tmp",nonce()?);let mut file=Self::open_file(&self.bucket,&temporary,libc::O_WRONLY|libc::O_CREAT|libc::O_EXCL,0o600)?;
-    let result=(||{file.write_all(&bytes).and_then(|_|file.sync_all()).map_err(|e|e.to_string())?;self.check()?;if Self::read_file(&self.bucket,"readings.json",BUDGET+1024)?!=original{return Err("Proposal archive changed while retaining this reading.".into())}
-     let from=c(&temporary)?;let to=c("readings.json")?;if unsafe{libc::renameat(self.bucket.as_raw_fd(),from.as_ptr(),self.bucket.as_raw_fd(),to.as_ptr())}!=0{return Err(std::io::Error::last_os_error().to_string())}self.bucket.sync_all().map_err(|e|e.to_string())?;self.check()
-    })();if result.is_err(){if let Ok(name)=c(&temporary){unsafe{libc::unlinkat(self.bucket.as_raw_fd(),name.as_ptr(),0)};}}result
+    self.held.replace(&original,&bytes)
    }
+
    pub(super) fn retain(&self,review:&Review,application:Option<&Value>)->Result<(),String>{self.put(Reading{token:review.token.clone(),fingerprint:review.fingerprint.clone(),material:review.material.clone(),workspace:review.workspace.clone(),namespace:review.namespace.clone(),title:review.intention.title.clone(),origin:review.intention.origin.clone(),origin_authority:review.origin_authority.clone(),request_id:review.intention.request_id.clone(),host_application:application.cloned(),retained_at:std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_err(|e|e.to_string())?.as_millis().min(u64::MAX as u128)as u64})}
    pub(super) fn readings(&self,workspace:&str,namespace:&str)->Result<Vec<Value>,String>{let(payload,_)=self.load()?;Ok(payload.records.iter().rev().map(|row|historical(row,workspace,namespace)).collect())}
   }
 </ui:copy>
+
+The held filesystem implementation now comes from [private records](private-record-storage.md). The wrapper retains the existing namespace, filenames, catalogue schema, signing bytes and retention policy; extraction does not turn an archived reading into an application capability.
 
 ## Verify restart and hostile storage without manufacturing current authority
 

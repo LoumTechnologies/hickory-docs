@@ -156778,6 +156778,27 @@
       "page": ".hickory-source/mechanisms/snippet-variable-context.md",
       "symbol": "snippet context rust witnesses",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "private-record-specification",
+      "output": "crates/hickory-cli/src/serve/private_record.rs",
+      "page": ".hickory-source/mechanisms/private-record-storage.md",
+      "symbol": "private record specification",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "private-record-held-storage",
+      "output": "crates/hickory-cli/src/serve/private_record.rs",
+      "page": ".hickory-source/mechanisms/private-record-storage.md",
+      "symbol": "private record held storage",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "private-record-witness",
+      "output": "crates/hickory-cli/src/serve/private_record.rs",
+      "page": ".hickory-source/mechanisms/private-record-storage.md",
+      "symbol": "private record witness",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

@@ -107,6 +107,7 @@ pub mod anchored;
 <storycode:copy id="f-09ea558208cd-api">
 pub mod api;
 mod generation;
+mod private_record;
 </storycode:copy>
 <a id="f-09ea558208cd-asset"></a>
 ### `asset`

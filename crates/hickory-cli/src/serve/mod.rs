@@ -39,6 +39,7 @@ mod agent_review;
 pub mod anchored;
 pub mod api;
 mod generation;
+mod private_record;
 pub mod asset;
 mod audit_evidence;
 pub mod bisect;

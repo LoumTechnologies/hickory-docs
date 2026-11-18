@@ -392,4 +392,6 @@ is included with that control; opening a document is not generation authority.
 
 <storycode:include file="snippet-context-protocol-acceptance.md" />
 
+<storycode:include file="private-record-storage.md" />
+
 </storycode:doc>
