@@ -73206,6 +73206,39 @@
         "embedded-source-language-local",
         "embedded-source-language-witness"
       ]
+    },
+    "apps/web/src/simple/ParallelSnippet.ts": {
+      "source": ".hickory-source/mechanisms/parallel-snippet-sessions.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "5919574876540b2f3c280a05bd267054599c5a1db91903f8d55902caca80e1ac",
+      "construction": "fragments",
+      "fragments": [
+        "parallel-snippet-session-browser"
+      ]
+    },
+    "apps/apple-simple/Sources/ParallelSnippet.swift": {
+      "source": ".hickory-source/mechanisms/parallel-snippet-sessions.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "a421591af3820bb9d190ab4a5cc50e8b2171c5a5f6812bfacfab9dc86aa05dc9",
+      "construction": "fragments",
+      "fragments": [
+        "parallel-snippet-session-apple"
+      ]
+    },
+    "apps/android-simple/app/src/main/java/com/hickorydocs/simple/ParallelSnippet.kt": {
+      "source": ".hickory-source/mechanisms/parallel-snippet-sessions.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "40469c93927d9aaeb14e76b28292727287d0a5d8f988cbee099b7a7e9bd28816",
+      "construction": "fragments",
+      "fragments": [
+        "parallel-snippet-session-android"
+      ]
     }
   },
   "evidence_records": [

@@ -22,6 +22,10 @@ private func snippetScalar(_ text:NSString,_ at:Int)->Bool {
     return true
 }
 func beginSnippet(_ source:String,fields:[SnippetField])->SnippetSession? {
+    var budget=SnippetTransformBudget()
+    return beginSnippet(source,fields:fields,budget:&budget)
+}
+func beginSnippet(_ source:String,fields:[SnippetField],budget:inout SnippetTransformBudget)->SnippetSession? {
     let text=source as NSString
     guard !fields.isEmpty,snippetMetadataCost(fields) != nil,fields.allSatisfy({field in field.id != nil && field.id!>=0 && field.id!<4096 && field.index>=0 && field.index<=1004096 && field.from<=field.to && snippetScalar(text,field.from) && snippetScalar(text,field.to)}),fields.filter({$0.index==0}).count==1,!fields.contains(where:{$0.index==0&&$0.from != $0.to}) else{return nil}
     var ids:[Int:SnippetField]=[:]
@@ -30,7 +34,7 @@ func beginSnippet(_ source:String,fields:[SnippetField])->SnippetSession? {
     for field in fields{var chain:Set<Int>=[],next:SnippetField?=field
         while let value=next,!visited.contains(value.id!){guard chain.insert(value.id!).inserted else{return nil};guard let identity=value.parent else{break};guard let parent=ids[identity],parent.from<=value.from,parent.to>=value.to else{return nil};next=parent};visited.formUnion(chain)
     }
-    if fields.contains(where:{$0.transform != nil}){guard (try? validateSnippetMirrors(source,fields)) != nil else{return nil}}
+    if fields.contains(where:{$0.transform != nil}){guard (try? validateSnippetMirrors(source,fields,budget:&budget)) != nil else{return nil}}
     guard let active=fields.filter({$0.transform==nil}).map({$0.index}).filter({$0>0}).min(),let first=fields.first(where:{$0.transform==nil&&$0.index==active}) else{return nil}
     return SnippetSession(source:source,fields:fields,active:active,current:first.id!)
 }
@@ -45,7 +49,11 @@ func advanceSnippet(_ session:SnippetSession,source:String,from:Int,to:Int,direc
 
 private struct SnippetReplacement {var from:Int;var to:Int;var text:String;var owners:[Int]}
 func editSnippet(_ session:SnippetSession,source:String,from:Int,to:Int,text:String)->SnippetInput? {
-    if session.fields.contains(where:{$0.transform != nil}){return editDerivedSnippet(session,source:source,from:from,to:to,text:text)}
+    var budget=SnippetTransformBudget()
+    return editSnippet(session,source:source,from:from,to:to,text:text,budget:&budget)
+}
+func editSnippet(_ session:SnippetSession,source:String,from:Int,to:Int,text:String,budget:inout SnippetTransformBudget)->SnippetInput? {
+    if session.fields.contains(where:{$0.transform != nil}){return editDerivedSnippet(session,source:source,from:from,to:to,text:text,budget:&budget)}
     let original=source as NSString
     guard snippetMetadataCost(session.fields) != nil,exactUTF8(source,session.source),from<=to,snippetScalar(original,from),snippetScalar(original,to),session.active != 0 else{return nil}
     func terminal(_ field:SnippetField)->Bool{field.index==0 || session.scopes.contains(where:{$0.exitIndex==field.index})}
@@ -133,11 +141,11 @@ func nestSnippet(_ session:SnippetSession,source:String,primary:SourceReplacemen
 private struct DerivedSnippetPart {var from:Int;var to:Int;var text:String;var owner:Int}
 private struct DerivedSnippetSpan {var owner:Int;var from:Int;var to:Int}
 private struct DerivedSnippetReplacement {var from:Int;var to:Int;var text:String;var spans:[DerivedSnippetSpan]}
-private func editDerivedSnippet(_ session:SnippetSession,source:String,from:Int,to:Int,text:String)->SnippetInput? {
+private func editDerivedSnippet(_ session:SnippetSession,source:String,from:Int,to:Int,text:String,budget:inout SnippetTransformBudget)->SnippetInput? {
  let original=source as NSString
  guard exactUTF8(source,session.source),from<=to,snippetScalar(original,from),snippetScalar(original,to),session.active>0,snippetMetadataCost(session.fields) != nil else{return nil}
  do {
-  var budget=SnippetTransformBudget();_ = try validateSnippetMirrors(source,session.fields,budget:&budget)
+  _ = try validateSnippetMirrors(source,session.fields,budget:&budget)
   let fields=session.fields;var ids:[Int:SnippetField]=[:],ordinals:[Int:Int]=[:];for(index,field)in fields.enumerated(){guard let id=field.id else{return nil};ids[id]=field;ordinals[id]=index}
   func ancestors(_ parent:Int,_ child:Int)->Bool{var next=ids[child],steps=0;while let value=next,steps<=fields.count{if value.id==parent{return true};next=value.parent.flatMap{ids[$0]};steps+=1};return false}
   func terminal(_ field:SnippetField)->Bool{field.index==0 || session.scopes.contains{$0.exitIndex==field.index}}

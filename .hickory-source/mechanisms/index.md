@@ -396,4 +396,6 @@ is included with that control; opening a document is not generation authority.
 
 <storycode:include file="embedded-source-language-context.md" />
 
+<storycode:include file="parallel-snippet-sessions.md" />
+
 </storycode:doc>

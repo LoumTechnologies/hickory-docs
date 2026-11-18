@@ -156856,6 +156856,27 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/mechanisms/crates/hick-lsp/src/lib.rs.md",
       "symbol": "source language context public module",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "parallel-snippet-session-browser",
+      "output": "apps/web/src/simple/ParallelSnippet.ts",
+      "page": ".hickory-source/mechanisms/parallel-snippet-sessions.md",
+      "symbol": "parallel snippet session browser",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "parallel-snippet-session-apple",
+      "output": "apps/apple-simple/Sources/ParallelSnippet.swift",
+      "page": ".hickory-source/mechanisms/parallel-snippet-sessions.md",
+      "symbol": "parallel snippet session apple",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "parallel-snippet-session-android",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/ParallelSnippet.kt",
+      "page": ".hickory-source/mechanisms/parallel-snippet-sessions.md",
+      "symbol": "parallel snippet session android",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

@@ -14,13 +14,15 @@ internal fun snippetMetadataCost(fields:List<SnippetField>,budget:Long=1048576L)
  }
  return bytes
 }
-fun beginSnippet(source:String,fields:List<SnippetField>):SnippetSession? {
+fun beginSnippet(source:String,fields:List<SnippetField>):SnippetSession? =
+ beginSnippet(source,fields,SnippetTransformBudget())
+internal fun beginSnippet(source:String,fields:List<SnippetField>,budget:SnippetTransformBudget):SnippetSession? {
  if(fields.isEmpty()||snippetMetadataCost(fields)==null||fields.any{it.id==null||it.id !in 0..4095||it.index !in 0..1004096||it.from>it.to||!snippetScalar(source,it.from)||!snippetScalar(source,it.to)}||fields.count{it.index==0}!=1||fields.any{it.index==0&&it.from!=it.to})return null
  val ids=fields.associateBy{it.id!!};if(ids.size!=fields.size)return null;val visited=mutableSetOf<Int>()
  for(field in fields){val chain=mutableSetOf<Int>();var next:SnippetField?=field
   while(next!=null&&!visited.contains(next.id!!)){val value=next;if(!chain.add(value.id!!))return null;val identity=value.parent ?: break;val parent=ids[identity] ?: return null;if(parent.from>value.from||parent.to<value.to)return null;next=parent};visited.addAll(chain)
  }
- if(fields.any{it.transform!=null}&&runCatching{validateSnippetMirrors(source,fields)}.isFailure)return null
+ if(fields.any{it.transform!=null}&&runCatching{validateSnippetMirrors(source,fields,budget)}.isFailure)return null
  val active=fields.filter{it.transform==null}.map{it.index}.filter{it>0}.minOrNull() ?: return null;return SnippetSession(source,fields.map{it.copy(choices=it.choices.toList())},active,fields.first{it.transform==null&&it.index==active}.id!!)
 }
 fun advanceSnippet(session:SnippetSession,source:String,from:Int,to:Int,direction:Int):SnippetAdvance? {
@@ -31,8 +33,10 @@ fun advanceSnippet(session:SnippetSession,source:String,from:Int,to:Int,directio
 }
 
 private data class SnippetReplacement(val from:Int,val to:Int,var text:String,val owners:MutableList<Int>)
-fun editSnippet(session:SnippetSession,source:String,from:Int,to:Int,text:String):SnippetInput? {
- if(session.fields.any{it.transform!=null})return editDerivedSnippet(session,source,from,to,text)
+fun editSnippet(session:SnippetSession,source:String,from:Int,to:Int,text:String):SnippetInput? =
+ editSnippet(session,source,from,to,text,SnippetTransformBudget())
+internal fun editSnippet(session:SnippetSession,source:String,from:Int,to:Int,text:String,budget:SnippetTransformBudget):SnippetInput? {
+ if(session.fields.any{it.transform!=null})return editDerivedSnippet(session,source,from,to,text,budget)
  if(source!=session.source||from>to||!snippetScalar(source,from)||!snippetScalar(source,to)||session.active==0)return null
  fun terminal(field:SnippetField)=field.index==0||session.scopes.any{it.exitIndex==field.index}
  val fields=session.fields;val ids=fields.associateBy{it.id!!}
@@ -109,10 +113,10 @@ fun nestSnippet(session:SnippetSession,source:String,primary:SourceReplacement,a
 private data class DerivedSnippetPart(val from:Int,val to:Int,val text:String,val owner:Int)
 private data class DerivedSnippetSpan(val owner:Int,val from:Int,val to:Int)
 private data class DerivedSnippetReplacement(val from:Int,val to:Int,val text:String,val spans:List<DerivedSnippetSpan>)
-private fun editDerivedSnippet(session:SnippetSession,source:String,from:Int,to:Int,text:String):SnippetInput? {
+private fun editDerivedSnippet(session:SnippetSession,source:String,from:Int,to:Int,text:String,budget:SnippetTransformBudget):SnippetInput? {
  if(source!=session.source||from>to||!snippetScalar(source,from)||!snippetScalar(source,to)||session.active==0||snippetMetadataCost(session.fields)==null)return null
  return runCatching {
-  val budget=SnippetTransformBudget();validateSnippetMirrors(source,session.fields,budget)
+  validateSnippetMirrors(source,session.fields,budget)
   val fields=session.fields;val ids=fields.associateBy{it.id!!};val ordinals=fields.mapIndexed{index,field->field.id!! to index}.toMap()
   fun ancestors(parent:Int,child:Int):Boolean {var next=ids[child];var steps=0;while(next!=null&&steps<=fields.size){val value=next;if(value.id==parent)return true;next=value.parent?.let{ids[it]};steps++};return false}
   fun terminal(field:SnippetField)=field.index==0||session.scopes.any{it.exitIndex==field.index}

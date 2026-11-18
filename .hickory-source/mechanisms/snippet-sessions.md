@@ -12,26 +12,28 @@ The completion planner retains separate primary and additional edits. Mirror the
 
 A source-bound session owns ordered occurrences and active intent. Only an edit wholly inside a current active occurrence can produce linked replacements. Parent edits retire descendants; child edits update enclosing mirrors. Coincident empty mirrors produce ordered text for every occurrence, while explicit ancestry distinguishes them from nested fields. Validate scalar boundaries and fanout before producing a proposal. A stale or unsupported edit returns no linked plan so the host can retain ordinary input.
 
+Callers preparing several caret-local edits can lend one transform budget to all of them. Single-caret callers use a fresh budget automatically. Counting work across the group prevents repeated copies of one computed field from multiplying the action limit.
+
 The pure capacity check counts field overhead and every alternative, including empty strings, before cloning choices. Nested proposals reserve the retained forest plus the complete inner metadata multiplied by the number of outer mirrors; an excessive proposal returns no edits or new session.
 
 <ui:copy id="snippet-session-browser">
 import {validateSnippetMirrors,snippetTransformOrder,type SnippetField} from './SnippetExpansion';
-import {applySnippetTransform,readSnippetTransform,snippetTransformBytes} from './SnippetTransform';
+import {applySnippetTransform,readSnippetTransform,snippetTransformBytes,type SnippetTransformBudget} from './SnippetTransform';
 export interface SnippetScope {order:number[];exitIndex:number;exitId:number;outerActive:number;outerCurrent:number}
 export interface SnippetSession {source:string;fields:SnippetField[];active:number;current:number;scopes?:SnippetScope[]}
 export interface SnippetEdit {from:number;to:number;text:string}
 export interface SnippetInput {session:SnippetSession;edits:SnippetEdit[];selection:{from:number;to:number}}
 const scalar=(text:string,at:number)=>Number.isSafeInteger(at)&&at>=0&&at<=text.length&&!(at>0&&at<text.length&&((text.charCodeAt(at-1)>=0xd800&&text.charCodeAt(at-1)<=0xdbff&&text.charCodeAt(at)>=0xdc00&&text.charCodeAt(at)<=0xdfff)||(text[at-1]==='\r'&&text[at]==='\n')));
-function snippetMetadataCost(fields:readonly SnippetField[]):number|null {
+export function snippetMetadataCost(fields:readonly SnippetField[]):number|null {
  if(fields.length>4096)return null;let bytes=0;
  for(const field of fields){if(!field||!Array.isArray(field.choices)||field.choices.length>4096)return null;bytes+=64+field.choices.length*32;try{if(field.transform)bytes+=snippetTransformBytes(field.transform);}catch{return null;}if(bytes>1048576)return null;for(const choice of field.choices){if(typeof choice!=='string'||choice.length>1048576-bytes)return null;bytes+=choice.length?new TextEncoder().encode(choice).length:0;if(bytes>1048576)return null;}}
  return bytes;
 }
-export function beginSnippet(source:string,fields:readonly SnippetField[]):SnippetSession|null {
+export function beginSnippet(source:string,fields:readonly SnippetField[],budget:SnippetTransformBudget={work:0}):SnippetSession|null {
  if(!fields.length||fields.length>4096||snippetMetadataCost(fields)===null||fields.some(field=>field.id===undefined||!Number.isSafeInteger(field.id)||field.id!<0||field.id!>=4096||!scalar(source,field.from)||!scalar(source,field.to)||field.from>field.to||!Number.isSafeInteger(field.index)||field.index<0||field.index>1004096||field.parent!=null&&!Number.isSafeInteger(field.parent)))return null;
  const ids=new Map(fields.map(field=>[field.id!,field]));if(ids.size!==fields.length||fields.filter(field=>field.index===0).length!==1||fields.some(field=>field.index===0&&field.from!==field.to))return null;
  for(const field of fields){const seen=new Set<number>();let next:SnippetField|undefined=field;while(next){if(seen.has(next.id!))return null;seen.add(next.id!);if(next.parent==null)break;const parent=ids.get(next.parent!);if(!parent||parent.from>next.from||parent.to<next.to)return null;next=parent;}}
- if(fields.some(field=>field.transform)){try{validateSnippetMirrors(source,fields);}catch{return null;}}
+ if(fields.some(field=>field.transform)){try{validateSnippetMirrors(source,fields,budget);}catch{return null;}}
  const active=Math.min(...fields.filter(field=>!field.transform).map(field=>field.index).filter(index=>index>0));
  const first=fields.find(field=>!field.transform&&field.index===active);return first?{source,fields:fields.map(field=>({...field,choices:[...field.choices],parent:field.parent??null,...(field.transform?{transform:readSnippetTransform(field.transform)}:{})})),active,current:first.id!}:null;
 }
@@ -52,8 +54,8 @@ export function advanceSnippet(session:SnippetSession,source:string,from:number,
 Capture and numeric traversal above retain a source-bound intent, without editor or disk effects. For input, require the entire replacement to lie inside one current active occurrence, match the exact source and validate scalar boundaries. Compute all mirrors before returning anything. Explicit parents decide which descendants retire and which enclosing fields grow; a no-op keeps nested fields. Ordered coincident empty mirrors produce separate text and positions rather than collapsing to one insertion. Map source, fields and the originating caret together, and bound total UTF-8 mirror fanout before constructing output. A refused proposal leaves ordinary host input authoritative.
 
 <ui:copy id="snippet-session-browser-input">
-export function editSnippet(session:SnippetSession,source:string,from:number,to:number,text:string):SnippetInput|null {
- if(session.fields.some(field=>field.transform))return editDerivedSnippet(session,source,from,to,text);
+export function editSnippet(session:SnippetSession,source:string,from:number,to:number,text:string,budget:SnippetTransformBudget={work:0}):SnippetInput|null {
+ if(session.fields.some(field=>field.transform))return editDerivedSnippet(session,source,from,to,text,budget);
  if(source!==session.source||from>to||!scalar(source,from)||!scalar(source,to)||session.active===0)return null;
  const terminal=(field:SnippetField)=>field.index===0||!!session.scopes?.some(scope=>scope.exitIndex===field.index);
  const fields=session.fields,ids=new Map(fields.map(field=>[field.id!,field]));
@@ -145,10 +147,10 @@ A derived occurrence has its own text length and never supplies editable source.
 <ui:copy id="snippet-session-browser-derived">
 // Computed occurrences are never editable sources. Build every base and derived
 // replacement in original source coordinates before returning one action.
-function editDerivedSnippet(session:SnippetSession,source:string,from:number,to:number,text:string):SnippetInput|null {
+function editDerivedSnippet(session:SnippetSession,source:string,from:number,to:number,text:string,budget:SnippetTransformBudget):SnippetInput|null {
  if(source!==session.source||from>to||!scalar(source,from)||!scalar(source,to)||session.active===0||snippetMetadataCost(session.fields)===null)return null;
  try{
-  const budget={work:0};validateSnippetMirrors(source,session.fields,budget);
+  validateSnippetMirrors(source,session.fields,budget);
   const fields=session.fields,ids=new Map(fields.map(field=>[field.id!,field])),ordinals=new Map(fields.map((field,index)=>[field.id!,index]));
   const ancestors=(parent:number,child:number)=>{let value=ids.get(child);for(let count=0;value&&count<=fields.length;count++){if(value.id===parent)return true;value=value.parent==null?undefined:ids.get(value.parent);}return false;};
   const terminal=(field:SnippetField)=>field.index===0||!!session.scopes?.some(scope=>scope.exitIndex===field.index),occurrences=fields.filter(field=>!field.transform&&field.index===session.active),matches=occurrences.filter(field=>field.from<=from&&field.to>=to),origin=matches.find(field=>field.id===session.current)??matches[0];
@@ -205,6 +207,10 @@ private func snippetScalar(_ text:NSString,_ at:Int)->Bool {
     return true
 }
 func beginSnippet(_ source:String,fields:[SnippetField])->SnippetSession? {
+    var budget=SnippetTransformBudget()
+    return beginSnippet(source,fields:fields,budget:&budget)
+}
+func beginSnippet(_ source:String,fields:[SnippetField],budget:inout SnippetTransformBudget)->SnippetSession? {
     let text=source as NSString
     guard !fields.isEmpty,snippetMetadataCost(fields) != nil,fields.allSatisfy({field in field.id != nil && field.id!>=0 && field.id!<4096 && field.index>=0 && field.index<=1004096 && field.from<=field.to && snippetScalar(text,field.from) && snippetScalar(text,field.to)}),fields.filter({$0.index==0}).count==1,!fields.contains(where:{$0.index==0&&$0.from != $0.to}) else{return nil}
     var ids:[Int:SnippetField]=[:]
@@ -213,7 +219,7 @@ func beginSnippet(_ source:String,fields:[SnippetField])->SnippetSession? {
     for field in fields{var chain:Set<Int>=[],next:SnippetField?=field
         while let value=next,!visited.contains(value.id!){guard chain.insert(value.id!).inserted else{return nil};guard let identity=value.parent else{break};guard let parent=ids[identity],parent.from<=value.from,parent.to>=value.to else{return nil};next=parent};visited.formUnion(chain)
     }
-    if fields.contains(where:{$0.transform != nil}){guard (try? validateSnippetMirrors(source,fields)) != nil else{return nil}}
+    if fields.contains(where:{$0.transform != nil}){guard (try? validateSnippetMirrors(source,fields,budget:&budget)) != nil else{return nil}}
     guard let active=fields.filter({$0.transform==nil}).map({$0.index}).filter({$0>0}).min(),let first=fields.first(where:{$0.transform==nil&&$0.index==active}) else{return nil}
     return SnippetSession(source:source,fields:fields,active:active,current:first.id!)
 }
@@ -235,7 +241,11 @@ Capture and numeric traversal above retain a source-bound intent, without editor
 <ui:copy id="snippet-session-apple-input">
 private struct SnippetReplacement {var from:Int;var to:Int;var text:String;var owners:[Int]}
 func editSnippet(_ session:SnippetSession,source:String,from:Int,to:Int,text:String)->SnippetInput? {
-    if session.fields.contains(where:{$0.transform != nil}){return editDerivedSnippet(session,source:source,from:from,to:to,text:text)}
+    var budget=SnippetTransformBudget()
+    return editSnippet(session,source:source,from:from,to:to,text:text,budget:&budget)
+}
+func editSnippet(_ session:SnippetSession,source:String,from:Int,to:Int,text:String,budget:inout SnippetTransformBudget)->SnippetInput? {
+    if session.fields.contains(where:{$0.transform != nil}){return editDerivedSnippet(session,source:source,from:from,to:to,text:text,budget:&budget)}
     let original=source as NSString
     guard snippetMetadataCost(session.fields) != nil,exactUTF8(source,session.source),from<=to,snippetScalar(original,from),snippetScalar(original,to),session.active != 0 else{return nil}
     func terminal(_ field:SnippetField)->Bool{field.index==0 || session.scopes.contains(where:{$0.exitIndex==field.index})}
@@ -337,11 +347,11 @@ Use the same original-coordinate replacement policy and dependency order as the 
 private struct DerivedSnippetPart {var from:Int;var to:Int;var text:String;var owner:Int}
 private struct DerivedSnippetSpan {var owner:Int;var from:Int;var to:Int}
 private struct DerivedSnippetReplacement {var from:Int;var to:Int;var text:String;var spans:[DerivedSnippetSpan]}
-private func editDerivedSnippet(_ session:SnippetSession,source:String,from:Int,to:Int,text:String)->SnippetInput? {
+private func editDerivedSnippet(_ session:SnippetSession,source:String,from:Int,to:Int,text:String,budget:inout SnippetTransformBudget)->SnippetInput? {
  let original=source as NSString
  guard exactUTF8(source,session.source),from<=to,snippetScalar(original,from),snippetScalar(original,to),session.active>0,snippetMetadataCost(session.fields) != nil else{return nil}
  do {
-  var budget=SnippetTransformBudget();_ = try validateSnippetMirrors(source,session.fields,budget:&budget)
+  _ = try validateSnippetMirrors(source,session.fields,budget:&budget)
   let fields=session.fields;var ids:[Int:SnippetField]=[:],ordinals:[Int:Int]=[:];for(index,field)in fields.enumerated(){guard let id=field.id else{return nil};ids[id]=field;ordinals[id]=index}
   func ancestors(_ parent:Int,_ child:Int)->Bool{var next=ids[child],steps=0;while let value=next,steps<=fields.count{if value.id==parent{return true};next=value.parent.flatMap{ids[$0]};steps+=1};return false}
   func terminal(_ field:SnippetField)->Bool{field.index==0 || session.scopes.contains{$0.exitIndex==field.index}}
@@ -408,13 +418,15 @@ internal fun snippetMetadataCost(fields:List<SnippetField>,budget:Long=1048576L)
  }
  return bytes
 }
-fun beginSnippet(source:String,fields:List<SnippetField>):SnippetSession? {
+fun beginSnippet(source:String,fields:List<SnippetField>):SnippetSession? =
+ beginSnippet(source,fields,SnippetTransformBudget())
+internal fun beginSnippet(source:String,fields:List<SnippetField>,budget:SnippetTransformBudget):SnippetSession? {
  if(fields.isEmpty()||snippetMetadataCost(fields)==null||fields.any{it.id==null||it.id !in 0..4095||it.index !in 0..1004096||it.from>it.to||!snippetScalar(source,it.from)||!snippetScalar(source,it.to)}||fields.count{it.index==0}!=1||fields.any{it.index==0&&it.from!=it.to})return null
  val ids=fields.associateBy{it.id!!};if(ids.size!=fields.size)return null;val visited=mutableSetOf<Int>()
  for(field in fields){val chain=mutableSetOf<Int>();var next:SnippetField?=field
   while(next!=null&&!visited.contains(next.id!!)){val value=next;if(!chain.add(value.id!!))return null;val identity=value.parent ?: break;val parent=ids[identity] ?: return null;if(parent.from>value.from||parent.to<value.to)return null;next=parent};visited.addAll(chain)
  }
- if(fields.any{it.transform!=null}&&runCatching{validateSnippetMirrors(source,fields)}.isFailure)return null
+ if(fields.any{it.transform!=null}&&runCatching{validateSnippetMirrors(source,fields,budget)}.isFailure)return null
  val active=fields.filter{it.transform==null}.map{it.index}.filter{it>0}.minOrNull() ?: return null;return SnippetSession(source,fields.map{it.copy(choices=it.choices.toList())},active,fields.first{it.transform==null&&it.index==active}.id!!)
 }
 fun advanceSnippet(session:SnippetSession,source:String,from:Int,to:Int,direction:Int):SnippetAdvance? {
@@ -432,8 +444,10 @@ Capture and numeric traversal above retain a source-bound intent, without editor
 
 <ui:copy id="snippet-session-android-input">
 private data class SnippetReplacement(val from:Int,val to:Int,var text:String,val owners:MutableList<Int>)
-fun editSnippet(session:SnippetSession,source:String,from:Int,to:Int,text:String):SnippetInput? {
- if(session.fields.any{it.transform!=null})return editDerivedSnippet(session,source,from,to,text)
+fun editSnippet(session:SnippetSession,source:String,from:Int,to:Int,text:String):SnippetInput? =
+ editSnippet(session,source,from,to,text,SnippetTransformBudget())
+internal fun editSnippet(session:SnippetSession,source:String,from:Int,to:Int,text:String,budget:SnippetTransformBudget):SnippetInput? {
+ if(session.fields.any{it.transform!=null})return editDerivedSnippet(session,source,from,to,text,budget)
  if(source!=session.source||from>to||!snippetScalar(source,from)||!snippetScalar(source,to)||session.active==0)return null
  fun terminal(field:SnippetField)=field.index==0||session.scopes.any{it.exitIndex==field.index}
  val fields=session.fields;val ids=fields.associateBy{it.id!!}
@@ -524,10 +538,10 @@ The Android model uses the same original-coordinate dependency calculation and p
 private data class DerivedSnippetPart(val from:Int,val to:Int,val text:String,val owner:Int)
 private data class DerivedSnippetSpan(val owner:Int,val from:Int,val to:Int)
 private data class DerivedSnippetReplacement(val from:Int,val to:Int,val text:String,val spans:List<DerivedSnippetSpan>)
-private fun editDerivedSnippet(session:SnippetSession,source:String,from:Int,to:Int,text:String):SnippetInput? {
+private fun editDerivedSnippet(session:SnippetSession,source:String,from:Int,to:Int,text:String,budget:SnippetTransformBudget):SnippetInput? {
  if(source!=session.source||from>to||!snippetScalar(source,from)||!snippetScalar(source,to)||session.active==0||snippetMetadataCost(session.fields)==null)return null
  return runCatching {
-  val budget=SnippetTransformBudget();validateSnippetMirrors(source,session.fields,budget)
+  validateSnippetMirrors(source,session.fields,budget)
   val fields=session.fields;val ids=fields.associateBy{it.id!!};val ordinals=fields.mapIndexed{index,field->field.id!! to index}.toMap()
   fun ancestors(parent:Int,child:Int):Boolean {var next=ids[child];var steps=0;while(next!=null&&steps<=fields.size){val value=next;if(value.id==parent)return true;next=value.parent?.let{ids[it]};steps++};return false}
   fun terminal(field:SnippetField)=field.index==0||session.scopes.any{it.exitIndex==field.index}

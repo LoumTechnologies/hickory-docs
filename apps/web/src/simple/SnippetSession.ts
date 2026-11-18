@@ -1,20 +1,20 @@
 import {validateSnippetMirrors,snippetTransformOrder,type SnippetField} from './SnippetExpansion';
-import {applySnippetTransform,readSnippetTransform,snippetTransformBytes} from './SnippetTransform';
+import {applySnippetTransform,readSnippetTransform,snippetTransformBytes,type SnippetTransformBudget} from './SnippetTransform';
 export interface SnippetScope {order:number[];exitIndex:number;exitId:number;outerActive:number;outerCurrent:number}
 export interface SnippetSession {source:string;fields:SnippetField[];active:number;current:number;scopes?:SnippetScope[]}
 export interface SnippetEdit {from:number;to:number;text:string}
 export interface SnippetInput {session:SnippetSession;edits:SnippetEdit[];selection:{from:number;to:number}}
 const scalar=(text:string,at:number)=>Number.isSafeInteger(at)&&at>=0&&at<=text.length&&!(at>0&&at<text.length&&((text.charCodeAt(at-1)>=0xd800&&text.charCodeAt(at-1)<=0xdbff&&text.charCodeAt(at)>=0xdc00&&text.charCodeAt(at)<=0xdfff)||(text[at-1]==='\r'&&text[at]==='\n')));
-function snippetMetadataCost(fields:readonly SnippetField[]):number|null {
+export function snippetMetadataCost(fields:readonly SnippetField[]):number|null {
  if(fields.length>4096)return null;let bytes=0;
  for(const field of fields){if(!field||!Array.isArray(field.choices)||field.choices.length>4096)return null;bytes+=64+field.choices.length*32;try{if(field.transform)bytes+=snippetTransformBytes(field.transform);}catch{return null;}if(bytes>1048576)return null;for(const choice of field.choices){if(typeof choice!=='string'||choice.length>1048576-bytes)return null;bytes+=choice.length?new TextEncoder().encode(choice).length:0;if(bytes>1048576)return null;}}
  return bytes;
 }
-export function beginSnippet(source:string,fields:readonly SnippetField[]):SnippetSession|null {
+export function beginSnippet(source:string,fields:readonly SnippetField[],budget:SnippetTransformBudget={work:0}):SnippetSession|null {
  if(!fields.length||fields.length>4096||snippetMetadataCost(fields)===null||fields.some(field=>field.id===undefined||!Number.isSafeInteger(field.id)||field.id!<0||field.id!>=4096||!scalar(source,field.from)||!scalar(source,field.to)||field.from>field.to||!Number.isSafeInteger(field.index)||field.index<0||field.index>1004096||field.parent!=null&&!Number.isSafeInteger(field.parent)))return null;
  const ids=new Map(fields.map(field=>[field.id!,field]));if(ids.size!==fields.length||fields.filter(field=>field.index===0).length!==1||fields.some(field=>field.index===0&&field.from!==field.to))return null;
  for(const field of fields){const seen=new Set<number>();let next:SnippetField|undefined=field;while(next){if(seen.has(next.id!))return null;seen.add(next.id!);if(next.parent==null)break;const parent=ids.get(next.parent!);if(!parent||parent.from>next.from||parent.to<next.to)return null;next=parent;}}
- if(fields.some(field=>field.transform)){try{validateSnippetMirrors(source,fields);}catch{return null;}}
+ if(fields.some(field=>field.transform)){try{validateSnippetMirrors(source,fields,budget);}catch{return null;}}
  const active=Math.min(...fields.filter(field=>!field.transform).map(field=>field.index).filter(index=>index>0));
  const first=fields.find(field=>!field.transform&&field.index===active);return first?{source,fields:fields.map(field=>({...field,choices:[...field.choices],parent:field.parent??null,...(field.transform?{transform:readSnippetTransform(field.transform)}:{})})),active,current:first.id!}:null;
 }
@@ -28,8 +28,8 @@ export function advanceSnippet(session:SnippetSession,source:string,from:number,
  return {session:active===0?null:{...session,active,current:field.id!},selection:{from:field.from,to:field.to}};
 }
 
-export function editSnippet(session:SnippetSession,source:string,from:number,to:number,text:string):SnippetInput|null {
- if(session.fields.some(field=>field.transform))return editDerivedSnippet(session,source,from,to,text);
+export function editSnippet(session:SnippetSession,source:string,from:number,to:number,text:string,budget:SnippetTransformBudget={work:0}):SnippetInput|null {
+ if(session.fields.some(field=>field.transform))return editDerivedSnippet(session,source,from,to,text,budget);
  if(source!==session.source||from>to||!scalar(source,from)||!scalar(source,to)||session.active===0)return null;
  const terminal=(field:SnippetField)=>field.index===0||!!session.scopes?.some(scope=>scope.exitIndex===field.index);
  const fields=session.fields,ids=new Map(fields.map(field=>[field.id!,field]));
@@ -107,10 +107,10 @@ export function nestSnippet(session:SnippetSession,source:string,primary:Snippet
 }
 // Computed occurrences are never editable sources. Build every base and derived
 // replacement in original source coordinates before returning one action.
-function editDerivedSnippet(session:SnippetSession,source:string,from:number,to:number,text:string):SnippetInput|null {
+function editDerivedSnippet(session:SnippetSession,source:string,from:number,to:number,text:string,budget:SnippetTransformBudget):SnippetInput|null {
  if(source!==session.source||from>to||!scalar(source,from)||!scalar(source,to)||session.active===0||snippetMetadataCost(session.fields)===null)return null;
  try{
-  const budget={work:0};validateSnippetMirrors(source,session.fields,budget);
+  validateSnippetMirrors(source,session.fields,budget);
   const fields=session.fields,ids=new Map(fields.map(field=>[field.id!,field])),ordinals=new Map(fields.map((field,index)=>[field.id!,index]));
   const ancestors=(parent:number,child:number)=>{let value=ids.get(child);for(let count=0;value&&count<=fields.length;count++){if(value.id===parent)return true;value=value.parent==null?undefined:ids.get(value.parent);}return false;};
   const terminal=(field:SnippetField)=>field.index===0||!!session.scopes?.some(scope=>scope.exitIndex===field.index),occurrences=fields.filter(field=>!field.transform&&field.index===session.active),matches=occurrences.filter(field=>field.from<=from&&field.to>=to),origin=matches.find(field=>field.id===session.current)??matches[0];
