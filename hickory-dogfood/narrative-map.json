@@ -157597,6 +157597,27 @@
       "page": ".hickory-source/frontends/fenced-source-reading-host-acceptance.md",
       "symbol": "fenced provider android witness",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "ios-mounted-parity-test",
+      "output": "apps/apple-simple/IOSAcceptance/UIKitParityAcceptanceTests.swift",
+      "page": ".hickory-source/mechanisms/ios-mounted-parity-acceptance.md",
+      "symbol": "ios mounted parity test",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "ios-mounted-parity-runner",
+      "output": "scripts/test-ios-parity.py",
+      "page": ".hickory-source/mechanisms/ios-mounted-parity-acceptance.md",
+      "symbol": "ios mounted parity runner",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "ios-mounted-parity-runner-safety",
+      "output": "scripts/test-ios-parity-runner.py",
+      "page": ".hickory-source/mechanisms/ios-mounted-parity-acceptance.md",
+      "symbol": "ios mounted parity runner safety",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

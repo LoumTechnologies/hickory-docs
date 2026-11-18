@@ -44,3 +44,25 @@ targets:
         TARGETED_DEVICE_FAMILY: "1,2"
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
+  HickorySimpleMobileParityTests:
+    type: bundle.unit-test
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: IOSAcceptance
+    dependencies:
+      - target: HickorySimpleMobile
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.hickorydocs.simple.mobile.paritytests
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/HickorySimpleMobile.app/HickorySimpleMobile"
+        BUNDLE_LOADER: "$(TEST_HOST)"
+schemes:
+  HickorySimpleMobileParity:
+    build:
+      targets:
+        HickorySimpleMobile: all
+        HickorySimpleMobileParityTests: [test]
+    test:
+      targets:
+        - HickorySimpleMobileParityTests

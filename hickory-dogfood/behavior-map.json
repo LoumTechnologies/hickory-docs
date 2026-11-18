@@ -73939,6 +73939,39 @@
       "fragments": [
         "fenced-provider-android-witness"
       ]
+    },
+    "apps/apple-simple/IOSAcceptance/UIKitParityAcceptanceTests.swift": {
+      "source": ".hickory-source/mechanisms/ios-mounted-parity-acceptance.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "92f1c6eea5dcf2bbcdddf1c32efb302360ad54646c3087cd2bb1724650fc2294",
+      "construction": "fragments",
+      "fragments": [
+        "ios-mounted-parity-test"
+      ]
+    },
+    "scripts/test-ios-parity.py": {
+      "source": ".hickory-source/mechanisms/ios-mounted-parity-acceptance.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "test",
+      "sha256": "652e95754e881e318ccece6917ab6b59f8de8e617f3dfc3d750a4f1dc22dece1",
+      "construction": "fragments",
+      "fragments": [
+        "ios-mounted-parity-runner"
+      ]
+    },
+    "scripts/test-ios-parity-runner.py": {
+      "source": ".hickory-source/mechanisms/ios-mounted-parity-acceptance.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "test",
+      "sha256": "3302184e1be8a7045a2477a6ebb823f44fbb00f49bdbd7e7505e08bedd859a1d",
+      "construction": "fragments",
+      "fragments": [
+        "ios-mounted-parity-runner-safety"
+      ]
     }
   },
   "evidence_records": [

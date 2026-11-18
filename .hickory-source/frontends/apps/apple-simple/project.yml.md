@@ -7,6 +7,8 @@ Generate the Xcode project into an ignored build directory, using paths relative
 
 The build generates its ignored Xcode project beside this spec and the Sources directory. The installed XcodeGen emits folder references relative to the spec root even when a project is relocated; keeping the project beside its sources makes both Swift and Resources resolve consistently. Derived build products still go under target/, and no user configuration is needed. Copy the source Resources folder beneath HickoryAssets: a top-level Resources folder makes Foundation misclassify the flat iOS app bundle and lose its bundle identifier during installation.
 
+The opt-in hosted `HickorySimpleMobileParity` test scheme mounts the production UIKit editor and uses an owned real-engine fixture. Its separate test folder is excluded from application source discovery and the macOS SPM suite. Building the application alone does not run the witness or start a simulator. See the [mounted UIKit acceptance](../../../mechanisms/ios-mounted-parity-acceptance.md) for resource coordination and the exact focused invocation.
+
 <ui:copy id="simple-9203f6a7de-0">
 name: HickorySimple
 options:
@@ -54,6 +56,28 @@ targets:
         TARGETED_DEVICE_FAMILY: "1,2"
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
+  HickorySimpleMobileParityTests:
+    type: bundle.unit-test
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: IOSAcceptance
+    dependencies:
+      - target: HickorySimpleMobile
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.hickorydocs.simple.mobile.paritytests
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/HickorySimpleMobile.app/HickorySimpleMobile"
+        BUNDLE_LOADER: "$(TEST_HOST)"
+schemes:
+  HickorySimpleMobileParity:
+    build:
+      targets:
+        HickorySimpleMobile: all
+        HickorySimpleMobileParityTests: [test]
+    test:
+      targets:
+        - HickorySimpleMobileParityTests
 </ui:copy>
 
 ## Assemble the maintained output

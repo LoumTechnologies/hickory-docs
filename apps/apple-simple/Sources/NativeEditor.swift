@@ -1414,7 +1414,9 @@ struct NativeEditor: NSViewRepresentable {
 import UIKit
 @MainActor private final class MobileEditor: NSObject, UITextViewDelegate {
     private let sourceEditorIdentity=UUID()
-    let text = SimpleTextView(usingTextLayoutManager: false)
+    let text:SimpleTextView
+    private let sourceTextStorage:NSTextStorage
+    private let sourceLayoutManager:NSLayoutManager
     private let folding = FoldLayout()
     private let sourceDraftHistory=SourceDraftHistory()
     private var markedSnippet:CapturedMarkedSnippet?
@@ -1442,6 +1444,18 @@ import UIKit
     let buffer: DocumentBuffer
     init(_ buffer: DocumentBuffer) {
         self.buffer = buffer
+        // The imported TextKit convenience initializer is a UIKit class factory.
+        // The designated initializer runs Swift-owned input/history initialization.
+        let storage=NSTextStorage()
+        let manager=NSLayoutManager()
+        let container=NSTextContainer(size:CGSize(width:0,height:CGFloat.greatestFiniteMagnitude))
+        container.widthTracksTextView=true
+        container.heightTracksTextView=false
+        storage.addLayoutManager(manager)
+        manager.addTextContainer(container)
+        self.sourceTextStorage=storage
+        self.sourceLayoutManager=manager
+        self.text=SimpleTextView(frame:.zero,textContainer:container)
         super.init()
         text.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
         let tabs = NSMutableParagraphStyle(); tabs.tabStops = []

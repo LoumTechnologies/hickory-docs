@@ -10,6 +10,8 @@ mirrors and records source history after the native widget has committed.
 
 Each cached native text view owns its UndoManager. Switching tabs must not make one source undo another source's last edit through a shared window manager. Snippet and guarded draft transactions reuse that same per-editor manager, so reparenting preserves both native typing and coordinated source history.
 
+UIKit constructs the source subclass through its designated frame/text-container initializer. Its imported TextKit convenience initializer is a class factory: a real simulator probe retained the Swift subclass but skipped its stored-property initialization, leaving owned history nil. Retain the TextKit1 storage and layout manager for the editor lifetime; changing this constructor does not replace a cached live editor. The [mounted simulator witness](../../../../mechanisms/ios-mounted-parity-acceptance.md) checks the actual runtime class, native history and source bindings rather than relying on the Swift variable’s declared type.
+
 When an empty pane closes, the surviving editor can move to a new position in the SwiftUI tree. Keep its native editor cached for selection, scroll and undo, but give each representable a fresh host. Reparent the editor inside that host; reusing the representable root lets teardown of the old tree location interfere with its new owner.
 
 SwiftUI owns the surrounding workspace; AppKit and UIKit own editing. Cache native views by buffer identity so changing a tab parent does not reconstruct text, undo history, selection or scroll. Delegates update only that buffer.
@@ -1616,7 +1618,9 @@ struct NativeEditor: NSViewRepresentable {
 import UIKit
 @MainActor private final class MobileEditor: NSObject, UITextViewDelegate {
     private let sourceEditorIdentity=UUID()
-    let text = SimpleTextView(usingTextLayoutManager: false)
+    let text:SimpleTextView
+    private let sourceTextStorage:NSTextStorage
+    private let sourceLayoutManager:NSLayoutManager
     private let folding = FoldLayout()
     private let sourceDraftHistory=SourceDraftHistory()
     private var markedSnippet:CapturedMarkedSnippet?
@@ -1644,6 +1648,18 @@ import UIKit
     let buffer: DocumentBuffer
     init(_ buffer: DocumentBuffer) {
         self.buffer = buffer
+        // The imported TextKit convenience initializer is a UIKit class factory.
+        // The designated initializer runs Swift-owned input/history initialization.
+        let storage=NSTextStorage()
+        let manager=NSLayoutManager()
+        let container=NSTextContainer(size:CGSize(width:0,height:CGFloat.greatestFiniteMagnitude))
+        container.widthTracksTextView=true
+        container.heightTracksTextView=false
+        storage.addLayoutManager(manager)
+        manager.addTextContainer(container)
+        self.sourceTextStorage=storage
+        self.sourceLayoutManager=manager
+        self.text=SimpleTextView(frame:.zero,textContainer:container)
         super.init()
         text.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
         let tabs = NSMutableParagraphStyle(); tabs.tabStops = []

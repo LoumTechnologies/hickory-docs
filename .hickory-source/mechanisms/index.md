@@ -428,4 +428,6 @@ is included with that control; opening a document is not generation authority.
 
 <storycode:include file="fenced-source-readings.md" />
 
+<storycode:include file="ios-mounted-parity-acceptance.md" />
+
 </storycode:doc>
