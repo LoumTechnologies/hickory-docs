@@ -124,26 +124,30 @@ async fn discover_and_attach(
 }
 
 async fn attach(http: &reqwest::Client, endpoint: &Endpoint, opts: &Attach) -> Result<Attached> {
-    if opts.prediction.is_some() {
+    if opts.prediction.is_some() || opts.implicit_entry.is_some() {
         let response = http
             .get(format!("{}/health", endpoint.url))
             .bearer_auth(&endpoint.token)
             .timeout(std::time::Duration::from_secs(2))
             .send()
             .await?;
-        ensure!(
-            response.status().is_success(),
-            "Private prediction engine capability unavailable; no attach attempted"
-        );
+        ensure!(response.status().is_success(), "Engine capability reading failed before Attach");
         let health: serde_json::Value = response.json().await?;
-        ensure!(
-            health["capabilities"]
-                .as_array()
-                .is_some_and(|capabilities| capabilities
-                    .iter()
-                    .any(|capability| capability == super::PREDICTION_PROTOCOL)),
-            "This engine cannot enforce private prediction startup; close its clients and reopen with a supporting build. No ordinary attach fallback was attempted"
-        );
+        let supports = |name: &str| {
+            health["capabilities"].as_array().is_some_and(|values| values.iter().any(|value| value == name))
+        };
+        if opts.prediction.is_some() {
+            ensure!(
+                supports(super::PREDICTION_PROTOCOL),
+                "This engine cannot enforce private prediction startup; close its clients and reopen with a supporting build. No ordinary attach fallback was attempted"
+            );
+        }
+        if opts.implicit_entry.is_some() {
+            ensure!(
+                supports(super::WORKSPACE_ENTRY_PROTOCOL),
+                "This engine cannot guard the workspace's current construction entry. Reopen with a supporting engine before starting generation."
+            );
+        }
     }
     let request = http
         .post(format!("{}/attach", endpoint.url))
@@ -174,6 +178,10 @@ async fn attach(http: &reqwest::Client, endpoint: &Endpoint, opts: &Attach) -> R
         );
     }
     let attached: Attached = response.json().await?;
+    ensure!(
+        attached.implicit_entry == opts.implicit_entry,
+        "The engine did not acknowledge the captured workspace entry. Reopen the current folder to start a new watch."
+    );
     if let Some(profile) = &opts.prediction {
         ensure!(
             attached.prediction.as_ref() == Some(&profile.fingerprint()?),
@@ -373,23 +381,25 @@ pub async fn up(config: crate::up::UpConfig) -> Result<()> {
         !config.run,
         "Observation does not execute cells. Use hick run for execution, or hick project materialize ROOT_ENTRY --root ROOT for generation."
     );
-    // Keep the CLI's useful empty-folder diagnosis.
-    crate::expand_docs(&config.root)?;
-    let mut opts = Attach::new(config.root.clone(), config.executor);
+    let selected = config.root.canonicalize()?;
+    let mut opts = Attach::new(selected.clone(), config.executor);
     opts.params = config.params;
     opts.run = config.run;
     opts.amend_output_edits = config.amend_output_edits;
-    let selected = config.root.canonicalize()?;
     let (root, entry) = if selected.is_dir() {
-        (selected.clone(), "project.md".to_owned())
+        let role = crate::serve::workspace_entry_authority::default_entry_binding(&selected)
+            .map_err(anyhow::Error::msg)?;
+        let entry = role.path.clone().context("This folder has no current construction entry")?;
+        opts.implicit_entry = Some(role);
+        (selected, entry)
     } else {
-        (
-            selected.parent().unwrap().to_path_buf(),
-            selected.file_name().unwrap().to_string_lossy().into_owned(),
-        )
+        let root = selected.parent().context("Construction entry has no containing folder")?.to_path_buf();
+        let entry = selected.file_name().and_then(|name| name.to_str()).context("Construction entry must have a UTF-8 filename")?.to_owned();
+        // The declared construction establishes its own authority at the literal address.
+        hick_project_env::generation::GenerationContext::capture(&root, &entry)
+            .map_err(anyhow::Error::msg)?;
+        (root, entry)
     };
-    hick_project_env::generation::GenerationContext::capture(&root, &entry)
-        .map_err(anyhow::Error::msg)?;
     opts.generation_entry = Some(entry.clone());
     let connection = connect(opts).await?;
     let _guard = connection.guard();
@@ -532,3 +542,71 @@ pub async fn forward_cli(args: &[String]) -> Result<Option<i32>> {
 #[cfg(test)]
 #[path = "client_prediction_tests.rs"]
 mod prediction_tests;
+#[cfg(test)]
+mod workspace_entry_client_tests {
+    use super::*;
+    use axum::{Json, Router, routing::{get, post}};
+    use std::sync::{Arc, atomic::{AtomicUsize, Ordering}};
+    use crate::serve::workspace_entry_authority::EntryStamp;
+
+    async fn fake_daemon(
+        capability: bool,
+        acknowledgement: Option<EntryStamp>,
+    ) -> (Endpoint, Arc<AtomicUsize>, tokio::task::JoinHandle<()>) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let requests = Arc::new(AtomicUsize::new(0));
+        let record = requests.clone();
+        let app = Router::new()
+            .route("/health", get(move || async move {
+                let entries = if capability { vec![super::super::WORKSPACE_ENTRY_PROTOCOL] } else { vec![] };
+                Json(serde_json::json!({"protocol": PROTOCOL, "capabilities": entries}))
+            }))
+            .route("/attach", post(move || {
+                let record = record.clone();
+                let acknowledgement = acknowledgement.clone();
+                async move {
+                    record.fetch_add(1, Ordering::SeqCst);
+                    Json(serde_json::json!({
+                        "slot":"fake", "log_offset":0, "implicit_entry":acknowledgement
+                    }))
+                }
+            }));
+        let task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap(); });
+        (
+            Endpoint { url, token: "fixture-only".to_owned(), protocol: PROTOCOL, pid: std::process::id() },
+            requests,
+            task,
+        )
+    }
+
+    #[tokio::test]
+    async fn implicit_watch_refuses_legacy_engine_before_post_and_requires_exact_acknowledgement() {
+        let root = tempfile::tempdir().unwrap();
+        let mut opts = Attach::new(root.path().to_path_buf(), crate::ExecutorChoice::Local);
+        let captured = EntryStamp {
+            version: 1, identity: "4".repeat(32), generation: 7, path: Some("authored.md".to_owned()),
+        };
+        opts.generation_entry = captured.path.clone();
+        opts.implicit_entry = Some(captured.clone());
+        let http = reqwest::Client::builder().no_proxy().build().unwrap();
+        let (endpoint, requests, task) = fake_daemon(false, None).await;
+        let error = attach(&http, &endpoint, &opts).await.err().unwrap();
+        assert!(error.to_string().contains("cannot guard"));
+        assert_eq!(requests.load(Ordering::SeqCst), 0);
+        task.abort();
+
+        let wrong = EntryStamp { generation: 6, ..captured.clone() };
+        let (endpoint, requests, task) = fake_daemon(true, Some(wrong)).await;
+        let error = attach(&http, &endpoint, &opts).await.err().unwrap();
+        assert!(error.to_string().contains("did not acknowledge"));
+        assert_eq!(requests.load(Ordering::SeqCst), 1);
+        task.abort();
+
+        let (endpoint, requests, task) = fake_daemon(true, Some(captured.clone())).await;
+        let attached = attach(&http, &endpoint, &opts).await.unwrap();
+        assert_eq!(attached.implicit_entry, Some(captured));
+        assert_eq!(requests.load(Ordering::SeqCst), 1);
+        task.abort();
+    }
+}

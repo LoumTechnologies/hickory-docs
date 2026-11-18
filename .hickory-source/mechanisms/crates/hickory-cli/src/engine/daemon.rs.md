@@ -59,6 +59,7 @@ struct Client {
     slot: String,
     seen: Instant,
     startup: super::startup::Startup,
+    attachment: Arc<()>,
 }
 </storycode:copy>
 <a id="f-49126839fdb7-Engine"></a>
@@ -149,7 +150,9 @@ async fn run() -> Result<()> {
         .route(
             "/health",
             get(|| async {
-                Json(json!({"protocol":PROTOCOL,"capabilities":[super::PREDICTION_PROTOCOL]}))
+                let mut capabilities = vec![super::PREDICTION_PROTOCOL];
+                if cfg!(unix) { capabilities.push(super::WORKSPACE_ENTRY_PROTOCOL); }
+                Json(json!({"protocol":PROTOCOL,"capabilities":capabilities}))
             }),
         )
         .route("/prediction-policy", get(prediction_policy))
@@ -320,6 +323,12 @@ async fn attach(
     } else {
         opts.target.parent().unwrap().to_path_buf()
     };
+    let binding = opts.generation_binding().map_err(error)?;
+    if let Some(role) = binding.as_ref().and_then(|binding| binding.implicit.as_ref()) {
+        let held = serve::workspace_entry_authority::acquire_entry_read_lease(&root, Some(role))
+            .map_err(error)?;
+        held.check().map_err(error)?;
+    }
     if let Some(callback) = &opts.callback {
         let url: reqwest::Url = callback.parse().map_err(error)?;
         if url.scheme() != "http" || url.host_str() != Some("127.0.0.1") || url.port().is_none() {
@@ -571,10 +580,13 @@ async fn attach(
         .as_ref()
         .and_then(|bound| bound.startup_fingerprint.get())
         .cloned();
+    let client_id = opts.client.clone();
+    let attachment = Arc::new(());
     engine.clients.lock().await.insert(
         opts.client,
         Client {
             root,
+            attachment: attachment.clone(),
             router,
             state,
             slot: slot.clone(),
@@ -587,9 +599,19 @@ async fn attach(
         .store(true, std::sync::atomic::Ordering::SeqCst);
     drop(_attach);
     if !opts.background {
-        startup.wait().await.map_err(error)?;
+        if let Err(failure) = startup.wait().await {
+            if opts.implicit_entry.is_some() {
+                let mut clients = engine.clients.lock().await;
+                if clients.get(&client_id).is_some_and(|client| Arc::ptr_eq(&client.attachment, &attachment)) {
+                    clients.remove(&client_id);
+                    engine.subscriptions.write().unwrap().remove(&client_id);
+                }
+            }
+            return Err(error(failure));
+        }
     }
     Ok(Json(Attached {
+        implicit_entry: opts.implicit_entry,
         slot,
         log_offset,
         prediction: requested_prediction.or_else(|| state_prediction),

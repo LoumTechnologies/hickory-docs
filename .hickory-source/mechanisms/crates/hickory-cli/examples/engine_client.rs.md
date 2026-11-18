@@ -23,7 +23,19 @@ fn main() -> anyhow::Result<()> {
     if let Some(result) = engine::run_argv(&args) {
         return result;
     }
-    tokio::runtime::Runtime::new()?.block_on(run(args))
+    let runtime = tokio::runtime::Runtime::new()?;
+    if args.first().is_some_and(|arg| arg == "--watch") {
+        anyhow::ensure!(std::env::var_os("HICKORY_STATE_DIR").is_some(), "Watch fixture requires isolated engine state");
+        anyhow::ensure!(args.len() == 2, "Supply one isolated construction path to --watch");
+        return runtime.block_on(engine::up(hickory_cli::up::UpConfig {
+            root: std::path::PathBuf::from(&args[1]),
+            params: vec![],
+            run: false,
+            amend_output_edits: false,
+            executor: ExecutorChoice::Local,
+        }));
+    }
+    runtime.block_on(run(args))
 }
 
 </storycode:copy>

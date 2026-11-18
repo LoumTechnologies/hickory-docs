@@ -45,6 +45,9 @@ pub struct Attach {
     /// Explicit headless generation subscription. Opening clients leave this absent.
     #[serde(default)]
     pub generation_entry: Option<String>,
+    /// Compare this retained role before accepting default-folder generation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) implicit_entry: Option<crate::serve::workspace_entry_authority::EntryStamp>,
     pub target: PathBuf,
     pub params: Vec<(String, String)>,
     pub executor: crate::ExecutorChoice,
@@ -69,6 +72,7 @@ impl Attach {
         Self {
             prediction: None,
             generation_entry: None,
+            implicit_entry: None,
             amend_output_edits: false,
             target,
             executor,
@@ -86,6 +90,8 @@ impl Attach {
 }
 #[derive(Serialize, Deserialize)]
 struct Attached {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    implicit_entry: Option<crate::serve::workspace_entry_authority::EntryStamp>,
     #[serde(default)]
     prediction: Option<String>,
     slot: String,
@@ -120,3 +126,27 @@ pub(super) fn load_keys(path: &std::path::Path) -> Result<hickory_agent::KeyStor
 }
 
 pub(crate) use client::{private_prediction_active, require_ordinary_agent_context_at};
+const WORKSPACE_ENTRY_PROTOCOL: &str = "workspace_entry_binding_v1";
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct GenerationBinding {
+    entry: String,
+    implicit: Option<crate::serve::workspace_entry_authority::EntryStamp>,
+}
+
+impl Attach {
+    fn generation_binding(&self) -> Result<Option<GenerationBinding>> {
+        if let Some(stamp) = &self.implicit_entry {
+            anyhow::ensure!(
+                self.generation_entry.is_some() &&
+                    stamp.path.as_ref() == self.generation_entry.as_ref() &&
+                    self.target.is_dir() && !self.background && self.prediction.is_none(),
+                "The implicit workspace entry requires its exact address and foreground folder attachment"
+            );
+        }
+        Ok(self.generation_entry.as_ref().map(|entry| GenerationBinding {
+            entry: entry.clone(),
+            implicit: self.implicit_entry.clone(),
+        }))
+    }
+}

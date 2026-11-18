@@ -1044,7 +1044,11 @@ pub async fn verify(
     let entry_selection = request.context.entry_selection.clone();
     let result=tokio::task::spawn_blocking(move||runtime.block_on(async move {
     root_current(&provider,&provider_engine)?;
+    let entry_lease=entry_selection.as_ref().map(|proof|
+        super::workspace_entry_authority::acquire_entry_read_lease(provider.index.root(),Some(&proof.entry))
+    ).transpose().map_err(ApiError::conflict)?;
     check_selected_entry(&provider, &entry_address, entry_selection.as_ref())?;
+    if let Some(lease)=&entry_lease{lease.check().map_err(ApiError::conflict)?;}
     if let Some(profile) = profile {
         super::launch_profiles::run(
             State(provider),

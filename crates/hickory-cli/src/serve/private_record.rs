@@ -10,6 +10,7 @@ mod unix {
  use super::*;
  use std::{ffi::CString,os::{fd::{AsRawFd,FromRawFd},unix::fs::{MetadataExt,OpenOptionsExt}}};
 fn physical_key(root:&Path)->Result<String,String>{let file=std::fs::OpenOptions::new().read(true).custom_flags(libc::O_RDONLY|libc::O_DIRECTORY|libc::O_NOFOLLOW|libc::O_CLOEXEC).open(root).map_err(|error|error.to_string())?;let metadata=file.metadata().map_err(|error|error.to_string())?;let birth=metadata.created().map_err(|_|"Persistent physical workspace identity is unavailable")?.duration_since(std::time::UNIX_EPOCH).map_err(|error|error.to_string())?.as_nanos();Ok(super::super::workspace_fs::view::hash(&serde_json::to_vec(&(metadata.dev(),metadata.ino(),birth)).map_err(|error|error.to_string())?))}
+  static HELD_PUBLICATION:LazyLock<Mutex<BTreeMap<PathBuf,Arc<File>>>>=LazyLock::new(||Mutex::new(BTreeMap::new()));
   static HELD:LazyLock<Mutex<BTreeMap<(PathBuf,&'static str,String),Arc<File>>>>=LazyLock::new(||Mutex::new(BTreeMap::new()));
   fn c(value:&str)->Result<CString,String>{CString::new(value).map_err(|_|"Invalid private store component".into())}
   fn same(file:&File,path:&Path)->Result<(),String>{
@@ -33,10 +34,32 @@ fn physical_key(root:&Path)->Result<String,String>{let file=std::fs::OpenOptions
    for name in missing.into_iter().rev(){held=directory(&held,name.to_str().ok_or("Private store component is not exact UTF-8")?,true)?;}
    same(&held,&desired)?;let path=desired.canonicalize().map_err(|e|e.to_string())?;Ok((held,path))
   }
+// Insert beside data_base: absence is a typed observation, never an error string.
+fn optional_base_exists(desired:&Path)->Result<bool,String>{
+ let desired=if desired.is_absolute(){desired.to_path_buf()}else{std::env::current_dir().map_err(|error|error.to_string())?.join(desired)};
+ if desired.components().any(|part|matches!(part,std::path::Component::ParentDir)){return Err("Private state directory cannot contain parent traversal.".into())}
+ let mut ancestor=desired.clone();let mut missing=false;
+ loop{match std::fs::symlink_metadata(&ancestor){Ok(metadata)=>{if !metadata.is_dir()||metadata.file_type().is_symlink(){return Err("Private state ancestor is not an ordinary directory.".into())}break},Err(error)if error.kind()==std::io::ErrorKind::NotFound=>{missing=true;if !ancestor.pop(){return Err("Private state directory has no existing ordinary ancestor.".into())}},Err(error)=>return Err(error.to_string())}}
+ let canonical=ancestor.canonicalize().map_err(|error|error.to_string())?;let held=std::fs::OpenOptions::new().read(true).custom_flags(libc::O_DIRECTORY|libc::O_NOFOLLOW|libc::O_CLOEXEC).open(&canonical).map_err(|error|error.to_string())?;same(&held,&ancestor)?;Ok(!missing)
+}
+fn optional_directory(parent:&File,name:&str)->Result<Option<File>,String>{let name=c(name)?;let descriptor=unsafe{libc::openat(parent.as_raw_fd(),name.as_ptr(),libc::O_RDONLY|libc::O_DIRECTORY|libc::O_NOFOLLOW|libc::O_CLOEXEC)};if descriptor<0{let error=std::io::Error::last_os_error();if error.kind()==std::io::ErrorKind::NotFound{return Ok(None)}return Err(error.to_string())}Ok(Some(unsafe{File::from_raw_fd(descriptor)}))}
   pub(crate) struct HeldRecord {root:PathBuf,pub(crate) root_id:String,base:File,address:PathBuf,base_path:PathBuf,parent:File,parent_path:PathBuf,pub(crate) bucket:Arc<File>,pub(crate) path:PathBuf,pub(crate) store_id:String,pub(crate) key:Vec<u8>,pub(crate) created_key:bool,exclusive:bool,spec:Spec,key_file:File,_lock:File}
   impl HeldRecord {
    pub(crate) fn under(base:&Path,root:&Path,spec:Spec)->Result<Self,String>{Self::open(base,root,spec,true)}
    pub(crate) fn snapshot(base:&Path,root:&Path,spec:Spec)->Result<Self,String>{Self::open(base,root,spec,false)}
+   pub(crate) fn try_snapshot(base:&Path,root:&Path,spec:Spec)->Result<Option<Self>,String>{
+    for value in [spec.namespace,spec.key,spec.lock,spec.record]{if value.is_empty()||Path::new(value).components().count()!=1||Path::new(value).components().any(|part|!matches!(part,std::path::Component::Normal(_))){return Err("Private record specification is not a single component".into())}}
+    let root_id=resource_inputs::RootIdentity::fingerprint(root)?;let address=if base.is_absolute(){base.to_path_buf()}else{std::env::current_dir().map_err(|error|error.to_string())?.join(base)};
+    let bucket_id=if spec.physical_bucket{physical_key(root)?}else{root_id};let key=(address,spec.namespace,bucket_id.clone());
+    let known=HELD.lock().map_err(|_|"Original private store identity is unavailable")?.contains_key(&key);
+    if !optional_base_exists(base)?{return if known{Err("Original private storage disappeared; absence cannot initialize a replacement.".into())}else{Ok(None)}}
+    let(base_handle,_)=data_base(base,false)?;
+    let Some(parent)=optional_directory(&base_handle,spec.namespace)? else{return if known{Err("Original private namespace disappeared.".into())}else{Ok(None)}};
+    if parent.metadata().map_err(|error|error.to_string())?.mode()&0o077!=0{return Err("Private namespace privacy is unavailable; absence cannot authorize a fresh scope.".into())}
+    let Some(bucket)=optional_directory(&parent,&bucket_id)? else{return if known{Err("Original private store disappeared.".into())}else{Ok(None)}};
+    drop(bucket);drop(parent);drop(base_handle);Self::open(base,root,spec,false).map(Some)
+   }
+
    fn open(base:&Path,root:&Path,spec:Spec,exclusive:bool)->Result<Self,String>{
     for value in [spec.namespace,spec.key,spec.lock,spec.record]{if value.is_empty()||Path::new(value).components().count()!=1||Path::new(value).components().any(|part|!matches!(part,std::path::Component::Normal(_))){return Err("Private record specification is not a single component".into())}}
     let root_id=resource_inputs::RootIdentity::fingerprint(root)?;let root=root.canonicalize().map_err(|e|e.to_string())?;
@@ -79,8 +102,15 @@ fn physical_key(root:&Path)->Result<String,String>{let file=std::fs::OpenOptions
     if resource_inputs::RootIdentity::fingerprint(&self.path)?!=self.store_id{return Err("Private record physical identity changed.".into())}Ok(())
    }
    pub(crate) fn read(&self)->Result<Option<Vec<u8>>,String>{self.check()?;let value=Self::read_file(&self.bucket,self.spec.record,self.spec.limit)?;self.check()?;Ok(value)}
-   pub(crate) fn publication_lock(&self,exclusive:bool)->Result<File,String>{self.check()?;let file=Self::open_file(&self.bucket,"publication.lock",libc::O_RDWR|libc::O_CREAT,0o600)?;if exclusive{fs2::FileExt::try_lock_exclusive(&file)}else{fs2::FileExt::try_lock_shared(&file)}.map_err(|_|"Another workspace entry publication is active; preserve source and retry.".to_string())?;self.check_publication_lock(&file)?;Ok(file)}
-   pub(crate) fn check_publication_lock(&self,file:&File)->Result<(),String>{self.check()?;same(file,&self.path.join("publication.lock"))}
+   pub(crate) fn publication_lock(&self,exclusive:bool)->Result<File,String>{
+    self.check()?;let file=Self::open_file(&self.bucket,"publication.lock",libc::O_RDWR|libc::O_CREAT,0o600)?;
+    // Keep an independently opened, unlocked description. Duplicating the
+    // locked descriptor here would accidentally retain its flock forever.
+    let mut retained=HELD_PUBLICATION.lock().map_err(|_|"Original publication identity is unavailable")?;
+    if let Some(original)=retained.get(&self.path){same(original,&self.path.join("publication.lock"))?;}else{if retained.len()>=256{return Err("Original publication identity capacity reached; preserve drafts and use the original engine.".into())}let original=Self::open_file(&self.bucket,"publication.lock",libc::O_RDONLY,0)?;same(&original,&self.path.join("publication.lock"))?;retained.insert(self.path.clone(),Arc::new(original));}drop(retained);
+    if exclusive{fs2::FileExt::try_lock_exclusive(&file)}else{fs2::FileExt::try_lock_shared(&file)}.map_err(|_|"Another workspace entry publication is active; preserve source and retry.".to_string())?;self.check_publication_lock(&file)?;Ok(file)
+   }
+   pub(crate) fn check_publication_lock(&self,file:&File)->Result<(),String>{self.check()?;let metadata=file.metadata().map_err(|error|error.to_string())?;if !metadata.is_file()||metadata.nlink()!=1||metadata.mode()&0o077!=0{return Err("Publication lock must retain its private ordinary file identity.".into())}same(file,&self.path.join("publication.lock"))}
    pub(crate) fn replace(&self,expected:&Option<Vec<u8>>,bytes:&[u8])->Result<(),String>{
     if !self.exclusive{return Err("A read-only private snapshot cannot publish metadata.".into())}if bytes.len()>self.spec.limit{return Err("Private record exceeds its bounded storage limit.".into())}self.check()?;
     let mut random=[0;16];getrandom::fill(&mut random).map_err(|e|e.to_string())?;let temporary=format!(".{}.tmp",hex::encode(random));let mut file=Self::open_file(&self.bucket,&temporary,libc::O_WRONLY|libc::O_CREAT|libc::O_EXCL,0o600)?;
@@ -99,4 +129,12 @@ mod tests {
  fn shared_snapshots_and_publication_leases_never_grant_metadata_writes(){let temporary=tempfile::tempdir().unwrap();let root=temporary.path().join("workspace");std::fs::create_dir(&root).unwrap();let base=temporary.path().join("private");let store=HeldRecord::under(&base,&root,spec(true)).unwrap();assert!(store.created_key);store.replace(&None,b"original").unwrap();drop(store);let first=HeldRecord::snapshot(&base,&root,spec(true)).unwrap();let second=HeldRecord::snapshot(&base,&root,spec(true)).unwrap();assert!(!first.created_key);assert_eq!(first.read().unwrap().unwrap(),b"original");assert!(first.replace(&Some(b"original".to_vec()),b"forbidden").is_err());assert!(HeldRecord::under(&base,&root,spec(true)).is_err());let a=first.publication_lock(false).unwrap();let b=second.publication_lock(false).unwrap();assert!(second.publication_lock(true).is_err());first.check_publication_lock(&a).unwrap();drop(a);drop(b);drop(first);drop(second);let store=HeldRecord::under(&base,&root,spec(true)).unwrap();assert!(store.replace(&Some(b"wrong".to_vec()),b"new").is_err());assert_eq!(store.read().unwrap().unwrap(),b"original");store.replace(&Some(b"original".to_vec()),b"new").unwrap();}
  #[test]
  fn physical_bucket_finds_retained_bytes_after_root_rename_without_reusing_namespace_guard(){let temporary=tempfile::tempdir().unwrap();let root=temporary.path().join("workspace");std::fs::create_dir(&root).unwrap();let base=temporary.path().join("private");let store=HeldRecord::under(&base,&root,spec(true)).unwrap();let bucket=store.path.clone();let old_guard=store.root_id.clone();store.replace(&None,b"retained binding").unwrap();let renamed=temporary.path().join("renamed");std::fs::rename(&root,&renamed).unwrap();assert!(store.check().is_err());drop(store);let current=HeldRecord::under(&base,&renamed,spec(true)).unwrap();assert_eq!(current.path,bucket);assert_ne!(current.root_id,old_guard);assert_eq!(current.read().unwrap().unwrap(),b"retained binding");}
+ #[test]
+ fn optional_snapshot_distinguishes_absence_from_alias_damage_and_original_loss(){
+  let temporary=tempfile::tempdir().unwrap();let root=temporary.path().join("workspace");std::fs::create_dir(&root).unwrap();let base=temporary.path().join("state");assert!(HeldRecord::try_snapshot(&base,&root,spec(true)).unwrap().is_none());assert!(!base.exists());std::fs::create_dir(&base).unwrap();std::fs::write(base.join("private-record-owned-test"),"not a namespace directory").unwrap();assert!(HeldRecord::try_snapshot(&base,&root,spec(true)).is_err());std::fs::remove_file(base.join("private-record-owned-test")).unwrap();let namespace=base.join("private-record-owned-test");std::fs::create_dir(&namespace).unwrap();std::fs::set_permissions(&namespace,<std::fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(0o755)).unwrap();assert!(HeldRecord::try_snapshot(&base,&root,spec(true)).is_err());std::fs::remove_dir(namespace).unwrap();let original=HeldRecord::under(&base,&root,spec(true)).unwrap();original.replace(&None,b"retained").unwrap();let path=original.path.clone();drop(original);assert_eq!(HeldRecord::try_snapshot(&base,&root,spec(true)).unwrap().unwrap().read().unwrap().unwrap(),b"retained");std::fs::remove_file(path.join("state.key")).unwrap();assert!(HeldRecord::try_snapshot(&base,&root,spec(true)).is_err());std::fs::remove_dir_all(path).unwrap();assert!(HeldRecord::try_snapshot(&base,&root,spec(true)).is_err());
+ }
+ #[test]
+ fn publication_lock_substitution_refuses_without_retaining_its_advisory_lock_forever(){
+  let temporary=tempfile::tempdir().unwrap();let root=temporary.path().join("workspace");std::fs::create_dir(&root).unwrap();let base=temporary.path().join("state");let store=HeldRecord::under(&base,&root,spec(true)).unwrap();let reader=store.publication_lock(false).unwrap();let path=store.path.join("publication.lock");let retired=store.path.join("retired.lock");std::fs::rename(&path,&retired).unwrap();drop(HeldRecord::open_file(&store.bucket,"publication.lock",libc::O_RDWR|libc::O_CREAT|libc::O_EXCL,0o600).unwrap());assert!(store.publication_lock(true).is_err());assert!(store.check_publication_lock(&reader).is_err());std::fs::remove_file(&path).unwrap();std::fs::rename(retired,&path).unwrap();store.check_publication_lock(&reader).unwrap();drop(reader);drop(store);let store=HeldRecord::under(&base,&root,spec(true)).unwrap();store.publication_lock(true).unwrap();
+ }
 }

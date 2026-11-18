@@ -157009,6 +157009,55 @@
       "page": ".hickory-source/mechanisms/workspace-default-readings.md",
       "symbol": "workspace default reading http witness",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "workspace-entry-coordination-provider",
+      "output": "crates/hickory-cli/src/serve/workspace_entry_authority.rs",
+      "page": ".hickory-source/mechanisms/workspace-entry-leases.md",
+      "symbol": "workspace entry coordination provider",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "workspace-entry-read-lease-admission",
+      "output": "crates/hickory-cli/src/serve/workspace_entry_authority.rs",
+      "page": ".hickory-source/mechanisms/workspace-entry-leases.md",
+      "symbol": "workspace entry read lease admission",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "workspace-entry-read-lease-witness",
+      "output": "crates/hickory-cli/src/serve/workspace_entry_authority.rs",
+      "page": ".hickory-source/mechanisms/workspace-entry-leases.md",
+      "symbol": "workspace entry read lease witness",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "workspace-entry-watch-live-witness",
+      "output": "scripts/test-workspace-entry-watch.py",
+      "page": ".hickory-source/mechanisms/workspace-entry-watch-witness.md",
+      "symbol": "workspace entry watch live witness",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "engine-generation-entry-binding",
+      "output": "crates/hickory-cli/src/engine/mod.rs",
+      "page": ".hickory-source/mechanisms/crates/hickory-cli/src/engine/mod.rs.md",
+      "symbol": "engine generation entry binding",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "engine-generation-entry-lease",
+      "output": "crates/hickory-cli/src/engine/watch.rs",
+      "page": ".hickory-source/mechanisms/crates/hickory-cli/src/engine/watch.rs.md",
+      "symbol": "engine generation entry lease",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "engine-generation-entry-capability-witness",
+      "output": "crates/hickory-cli/src/engine/client.rs",
+      "page": ".hickory-source/mechanisms/crates/hickory-cli/src/engine/client.rs.md",
+      "symbol": "engine generation entry capability witness",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

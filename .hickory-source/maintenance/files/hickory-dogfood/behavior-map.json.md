@@ -50686,7 +50686,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "f-5c9c7cadce49-require_ordinary_agent_context",
         "f-5c9c7cadce49-up",
         "f-5c9c7cadce49-forward_cli",
-        "f-5c9c7cadce49-prediction_tests"
+        "f-5c9c7cadce49-prediction_tests",
+        "engine-generation-entry-capability-witness"
       ],
       "anchor": "output-5c9c7cadce49",
       "narrative_owner": "mechanism:crates/hickory-cli"
@@ -50825,7 +50826,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "f-e55203129482-window_token",
         "f-e55203129482-secret",
         "f-e55203129482-load_keys",
-        "f-e55203129482-use_declaration-7"
+        "f-e55203129482-use_declaration-7",
+        "engine-generation-entry-binding"
       ],
       "anchor": "output-e55203129482",
       "narrative_owner": "mechanism:crates/hickory-cli"
@@ -50917,7 +50919,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "f-dc5bee2ae567-Registration",
         "f-dc5bee2ae567-View",
         "f-dc5bee2ae567-impl-Coordinator",
-        "f-dc5bee2ae567-publish"
+        "f-dc5bee2ae567-publish",
+        "engine-generation-entry-lease"
       ],
       "anchor": "output-dc5bee2ae567",
       "narrative_owner": "mechanism:crates/hickory-cli"
@@ -73262,6 +73265,9 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "workspace-entry-storage",
         "workspace-entry-selection",
         "workspace-entry-reading",
+        "workspace-entry-coordination-provider",
+        "workspace-entry-read-lease-admission",
+        "workspace-entry-read-lease-witness",
         "workspace-entry-reading-witness"
       ]
     },
@@ -73406,6 +73412,17 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "construction": "fragments",
       "fragments": [
         "workspace-default-reading-http-witness"
+      ]
+    },
+    "scripts/test-workspace-entry-watch.py": {
+      "source": ".hickory-source/mechanisms/workspace-entry-watch-witness.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "test",
+      "sha256": "78e70591efb0924bcc20a337de0c3ee698d26b925793ada95ecdc18c658ef74f",
+      "construction": "fragments",
+      "fragments": [
+        "workspace-entry-watch-live-witness"
       ]
     }
   },

@@ -166,6 +166,9 @@ pub struct Attach {
     /// Explicit headless generation subscription. Opening clients leave this absent.
     #[serde(default)]
     pub generation_entry: Option<String>,
+    /// Compare this retained role before accepting default-folder generation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) implicit_entry: Option<crate::serve::workspace_entry_authority::EntryStamp>,
     pub target: PathBuf,
     pub params: Vec<(String, String)>,
     pub executor: crate::ExecutorChoice,
@@ -195,6 +198,7 @@ impl Attach {
         Self {
             prediction: None,
             generation_entry: None,
+            implicit_entry: None,
             amend_output_edits: false,
             target,
             executor,
@@ -217,6 +221,8 @@ impl Attach {
 <storycode:copy id="f-e55203129482-Attached">
 #[derive(Serialize, Deserialize)]
 struct Attached {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    implicit_entry: Option<crate::serve::workspace_entry_authority::EntryStamp>,
     #[serde(default)]
     prediction: Option<String>,
     slot: String,
@@ -282,6 +288,41 @@ pub(crate) use client::{private_prediction_active, require_ordinary_agent_contex
 
 The selections below preserve the original byte order. Narrative reading order does not change the output.
 
-<storycode:file path="crates/hickory-cli/src/engine/mod.rs"><storycode:paste select="#f-e55203129482-client"/><storycode:paste select="#f-e55203129482-daemon"/><storycode:paste select="#f-e55203129482-mcp"/><storycode:paste select="#f-e55203129482-private_policy"/><storycode:paste select="#f-e55203129482-proxy"/><storycode:paste select="#f-e55203129482-startup"/><storycode:paste select="#f-e55203129482-watch"/><storycode:paste select="#f-e55203129482-writes"/><storycode:paste select="#f-e55203129482-use_declaration"/><storycode:paste select="#f-e55203129482-use_declaration-2"/><storycode:paste select="#f-e55203129482-use_declaration-3"/><storycode:paste select="#f-e55203129482-use_declaration-4"/><storycode:paste select="#f-e55203129482-use_declaration-5"/><storycode:paste select="#f-e55203129482-use_declaration-6"/><storycode:paste select="#f-e55203129482-PROTOCOL"/><storycode:paste select="#f-e55203129482-PREDICTION_PROTOCOL"/><storycode:paste select="#f-e55203129482-WORKER"/><storycode:paste select="#f-e55203129482-HEARTBEAT"/><storycode:paste select="#f-e55203129482-LEASE"/><storycode:paste select="#f-e55203129482-Endpoint"/><storycode:paste select="#f-e55203129482-Attach"/><storycode:paste select="#f-e55203129482-impl-Attach"/><storycode:paste select="#f-e55203129482-Attached"/><storycode:paste select="#f-e55203129482-directory"/><storycode:paste select="#f-e55203129482-window_token"/><storycode:paste select="#f-e55203129482-secret"/><storycode:paste select="#f-e55203129482-load_keys"/><storycode:paste select="#f-e55203129482-use_declaration-7"/></storycode:file>
+## Keep an implicit entry distinct from an explicit address
+
+An explicit filename keeps its address. A folder watch carries the retained
+entry's identity, generation and address. Old engine builds may accept
+unrecognized optional fields, so an implicit caller requires the advertised
+capability before Attach and a matching acknowledgement afterward. Background
+editor opens keep their existing observation-only startup path.
+
+<storycode:copy id="engine-generation-entry-binding">
+const WORKSPACE_ENTRY_PROTOCOL: &str = "workspace_entry_binding_v1";
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct GenerationBinding {
+    entry: String,
+    implicit: Option<crate::serve::workspace_entry_authority::EntryStamp>,
+}
+
+impl Attach {
+    fn generation_binding(&self) -> Result<Option<GenerationBinding>> {
+        if let Some(stamp) = &self.implicit_entry {
+            anyhow::ensure!(
+                self.generation_entry.is_some() &&
+                    stamp.path.as_ref() == self.generation_entry.as_ref() &&
+                    self.target.is_dir() && !self.background && self.prediction.is_none(),
+                "The implicit workspace entry requires its exact address and foreground folder attachment"
+            );
+        }
+        Ok(self.generation_entry.as_ref().map(|entry| GenerationBinding {
+            entry: entry.clone(),
+            implicit: self.implicit_entry.clone(),
+        }))
+    }
+}
+</storycode:copy>
+
+<storycode:file path="crates/hickory-cli/src/engine/mod.rs"><storycode:paste select="#f-e55203129482-client"/><storycode:paste select="#f-e55203129482-daemon"/><storycode:paste select="#f-e55203129482-mcp"/><storycode:paste select="#f-e55203129482-private_policy"/><storycode:paste select="#f-e55203129482-proxy"/><storycode:paste select="#f-e55203129482-startup"/><storycode:paste select="#f-e55203129482-watch"/><storycode:paste select="#f-e55203129482-writes"/><storycode:paste select="#f-e55203129482-use_declaration"/><storycode:paste select="#f-e55203129482-use_declaration-2"/><storycode:paste select="#f-e55203129482-use_declaration-3"/><storycode:paste select="#f-e55203129482-use_declaration-4"/><storycode:paste select="#f-e55203129482-use_declaration-5"/><storycode:paste select="#f-e55203129482-use_declaration-6"/><storycode:paste select="#f-e55203129482-PROTOCOL"/><storycode:paste select="#f-e55203129482-PREDICTION_PROTOCOL"/><storycode:paste select="#f-e55203129482-WORKER"/><storycode:paste select="#f-e55203129482-HEARTBEAT"/><storycode:paste select="#f-e55203129482-LEASE"/><storycode:paste select="#f-e55203129482-Endpoint"/><storycode:paste select="#f-e55203129482-Attach"/><storycode:paste select="#f-e55203129482-impl-Attach"/><storycode:paste select="#f-e55203129482-Attached"/><storycode:paste select="#f-e55203129482-directory"/><storycode:paste select="#f-e55203129482-window_token"/><storycode:paste select="#f-e55203129482-secret"/><storycode:paste select="#f-e55203129482-load_keys"/><storycode:paste select="#f-e55203129482-use_declaration-7"/><storycode:paste select="#engine-generation-entry-binding"/></storycode:file>
 
 </storycode:doc>

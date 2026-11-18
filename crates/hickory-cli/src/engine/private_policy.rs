@@ -114,6 +114,25 @@ pub(super) fn binding(
     }
 }
 
+fn recorded_private_store(retained:&Retained,root:&Path)->Result<Option<PathBuf>>{
+ if !retained.roots.contains(root){return Ok(None)}
+ let store=retained.stores.get(root).ok_or_else(||anyhow::anyhow!("Retained private root has no original protected store; ordinary fallback refused"))?;
+ ensure!(store.is_absolute(),"Retained private store has no exact absolute identity");Ok(Some(store.clone()))
+}
+/// This is a refusal predicate, not permission to run private tools. Only the
+/// already captured private provider owns isolated source edits.
+pub(crate) fn exact_private_root(root:&Path)->Result<bool>{
+ let root=root.canonicalize()?;let retained=read()?;let Some(store)=recorded_private_store(&retained,&root)? else{return Ok(false)};
+ let recovery=binding(&root)?.ok_or_else(||anyhow::anyhow!("Original private source binding is unavailable; ordinary fallback refused"))?;
+ ensure!(recovery.root()==root,"Retained private source provider belongs to another root");
+ let protected=recovery.protected_store().canonicalize()?;
+ ensure!(protected==store&&store.canonicalize()?==store,"Retained private provider and protected store no longer correspond");
+ let metadata=std::fs::symlink_metadata(&store)?;ensure!(metadata.is_dir()&&!metadata.file_type().is_symlink(),"Private provider store is no longer its ordinary directory");Ok(true)
+}
+#[cfg(test)]mod exact_source_scope_tests{
+ use super::*;
+ #[test]fn retained_private_selection_is_exact_even_after_end_and_never_selects_ancestors(){let temporary=tempfile::tempdir().unwrap();let root=temporary.path().join("private");let sibling=temporary.path().join("ordinary");let store=temporary.path().join("store");std::fs::create_dir(&root).unwrap();std::fs::create_dir(&sibling).unwrap();std::fs::create_dir(&store).unwrap();let root=root.canonicalize().unwrap();let store=store.canonicalize().unwrap();let retained=Retained{version:1,roots:BTreeSet::from([root.clone()]),ended:BTreeSet::from([root.clone()]),stores:BTreeMap::from([(root.clone(),store.clone())])};assert_eq!(recorded_private_store(&retained,&root).unwrap(),Some(store));assert!(recorded_private_store(&retained,&sibling).unwrap().is_none());assert!(recorded_private_store(&retained,root.parent().unwrap()).unwrap().is_none());let missing=Retained{stores:BTreeMap::new(),..retained};assert!(recorded_private_store(&missing,&root).is_err());}
+}
 /// Ending releases global context quarantine, never this root's private admission.
 pub(super) fn end(root: &Path) -> Result<()> {
     let mut retained = read()?;

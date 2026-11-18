@@ -17,7 +17,7 @@ A single event queue and write history, including overlapping folder views.
 
 <storycode:copy id="f-dc5bee2ae567-Coordinator">
 //! A single event queue and write history, including overlapping folder views.
-use super::Attach;
+use super::{Attach, GenerationBinding};
 use super::startup::Startup;
 use crate::{
     serve::{
@@ -59,8 +59,9 @@ struct Registration {
 <storycode:copy id="f-dc5bee2ae567-View">
 struct View {
     state: LocalState,
-    // Only `hick up` supplies this explicit publication binding. GUI opens do not.
-    generation_entry: Option<String>,
+    // Each admitted headless watch keeps its own role policy. Ordinary
+    // editor windows never add a generation binding.
+    generation_bindings: Vec<GenerationBinding>,
     generated_revision: Option<String>,
 }
 
@@ -127,13 +128,23 @@ impl Coordinator {
                                 crate::serve::watch::discover_changed_path(&reg.state, &root, true);
                             }
                             *reg.state.up_commands.lock().unwrap() = Some(commands.clone());
-                            let view = views.entry(root.clone()).or_insert(View { state: reg.state, generation_entry: None, generated_revision: None });
-                            if let Some(entry) = reg.attach.generation_entry {
-                                anyhow::ensure!(view.generation_entry.as_ref().is_none_or(|bound| bound == &entry), "This root already has a different explicit generation entry");
-                                let context = hick_project_env::generation::GenerationContext::capture(&root, &entry).map_err(anyhow::Error::msg)?;
-                                let revision = context.plan().revision;
-                                context.publish(&revision).map_err(anyhow::Error::msg)?;
-                                view.generation_entry = Some(entry);
+                            let view = views.entry(root.clone()).or_insert(View {
+                                state: reg.state, generation_bindings: Vec::new(), generated_revision: None,
+                            });
+                            if let Some(binding) = reg.attach.generation_binding()? {
+                                let active = subscriptions.read().unwrap().values().cloned().collect::<Vec<_>>();
+                                view.state.resource_root.check(&root).map_err(anyhow::Error::msg)?;
+                                let held = entry_lease(&root, &binding)?;
+                                let mut retained = view.generation_bindings.clone();
+                                retained.retain(|old| generation_is_active(&root, old, &active)
+                                    && old.implicit.as_ref().is_none_or(|stamp| held.matches_current(stamp)));
+                                anyhow::ensure!(
+                                    retained.iter().all(|old| old.entry == binding.entry),
+                                    "This root already has a different live generation entry"
+                                );
+                                let revision = publish_generation(&root, &binding, &held, None)?;
+                                if !retained.contains(&binding) { retained.push(binding); }
+                                view.generation_bindings = retained;
                                 view.generated_revision = Some(revision);
                             }
                             Ok(())
@@ -171,27 +182,35 @@ impl Coordinator {
                                 }
                             }
                         }
-                        // This branch is reachable only for a separate explicit
-                        // headless subscription, never because a scan found a page.
+                        // Only a live headless subscription may publish. A
+                        // stale implicit stamp cannot become current again,
+                        // even if the next role later returns to its address.
                         for (root, view) in &mut views {
-                            let Some(entry) = &view.generation_entry else { continue; };
-                            if !active.iter().any(|sub| sub.generation_entry.as_ref() == Some(entry)
-                                && (sub.target == *root || sub.target.parent() == Some(root.as_path()))) {
-                                view.generation_entry = None;
+                            view.generation_bindings.retain(|binding| generation_is_active(root, binding, &active));
+                            if view.generation_bindings.is_empty() {
                                 view.generated_revision = None;
                                 continue;
                             }
-                            if !batch.iter().any(|path| path.starts_with(root) || (root.starts_with(path) && path.is_dir())) { continue; }
-                            let result = (|| -> Result<()> {
-                                let context = hick_project_env::generation::GenerationContext::capture(root, entry).map_err(anyhow::Error::msg)?;
-                                let revision = context.plan().revision;
-                                if view.generated_revision.as_ref() != Some(&revision) {
-                                    context.publish(&revision).map_err(anyhow::Error::msg)?;
-                                    view.generated_revision = Some(revision);
+                            if !batch.iter().any(|path| path.starts_with(root) || (root.starts_with(path) && path.is_dir())) {
+                                continue;
+                            }
+                            let mut last_failure = None;
+                            for binding in &view.generation_bindings {
+                                let result = (|| {
+                                    view.state.resource_root.check(root).map_err(anyhow::Error::msg)?;
+                                    let held = entry_lease(root, binding)?;
+                                    publish_generation(root, binding, &held, view.generated_revision.as_deref())
+                                })();
+                                match result {
+                                    Ok(revision) => {
+                                        view.generated_revision = Some(revision);
+                                        last_failure = None;
+                                        break;
+                                    }
+                                    Err(error) => last_failure = Some(error),
                                 }
-                                Ok(())
-                            })();
-                            if let Err(error) = result { eprintln!("generation held: {error:#}"); }
+                            }
+                            if let Some(error) = last_failure { eprintln!("generation held: {error:#}"); }
                         }
                         let woven = history.lock().await;
                         publish(&views, &woven, &mut marks).await;
@@ -261,6 +280,86 @@ async fn publish(
 
 The selections below preserve the original byte order. Narrative reading order does not change the output.
 
-<storycode:file path="crates/hickory-cli/src/engine/watch.rs"><storycode:paste select="#f-dc5bee2ae567-Coordinator"/><storycode:paste select="#f-dc5bee2ae567-Registration"/><storycode:paste select="#f-dc5bee2ae567-View"/><storycode:paste select="#f-dc5bee2ae567-impl-Coordinator"/><storycode:paste select="#f-dc5bee2ae567-publish"/></storycode:file>
+## Hold one generation binding through capture and publication
+
+The watcher compares the complete subscription, including any entry
+generation. An explicit watch for the same address has its own authority.
+The held read lease blocks a competing entry transition while capture and
+publication run. Generated output snapshots still go through their existing
+revision and physical publication checks.
+
+<storycode:copy id="engine-generation-entry-lease">
+fn generation_is_active(root: &std::path::Path, binding: &GenerationBinding, active: &[Attach]) -> bool {
+    active.iter().any(|subscription| {
+        subscription.generation_entry.as_ref() == Some(&binding.entry) &&
+            subscription.implicit_entry == binding.implicit &&
+            (subscription.target == root ||
+                binding.implicit.is_none() && subscription.target.parent() == Some(root))
+    })
+}
+
+fn entry_lease(
+    root: &std::path::Path,
+    binding: &GenerationBinding,
+) -> Result<crate::serve::workspace_entry_authority::EntryReadLease> {
+    crate::serve::workspace_entry_authority::acquire_entry_read_lease(root, binding.implicit.as_ref())
+        .map_err(anyhow::Error::msg)
+}
+
+fn publish_generation(
+    root: &std::path::Path,
+    binding: &GenerationBinding,
+    held: &crate::serve::workspace_entry_authority::EntryReadLease,
+    previous: Option<&str>,
+) -> Result<String> {
+    held.check().map_err(anyhow::Error::msg)?;
+    let context = hick_project_env::generation::GenerationContext::capture(root, &binding.entry)
+        .map_err(anyhow::Error::msg)?;
+    let revision = context.plan().revision;
+    held.check().map_err(anyhow::Error::msg)?;
+    if previous != Some(revision.as_str()) {
+        context.publish(&revision).map_err(anyhow::Error::msg)?;
+    }
+    Ok(revision)
+}
+
+#[cfg(test)]
+mod workspace_entry_watch_tests {
+    use super::*;
+    use crate::serve::workspace_entry_authority::EntryStamp;
+
+    #[test]
+    fn an_explicit_watch_and_a_new_role_do_not_keep_an_old_implicit_binding_active() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path();
+        let entry = "project.md".to_owned();
+        let mut implicit = Attach::new(root.to_path_buf(), crate::ExecutorChoice::Local);
+        implicit.generation_entry = Some(entry.clone());
+        implicit.implicit_entry = Some(EntryStamp {
+            version: 1, identity: "a".repeat(32), generation: 1, path: Some(entry.clone()),
+        });
+        let original = implicit.generation_binding().unwrap().unwrap();
+        let mut restored = implicit.clone();
+        restored.implicit_entry.as_mut().unwrap().generation = 3;
+        let restored_binding = restored.generation_binding().unwrap().unwrap();
+
+        let mut explicit = Attach::new(root.join(&entry), crate::ExecutorChoice::Local);
+        explicit.generation_entry = Some(entry.clone());
+        let explicit_binding = explicit.generation_binding().unwrap().unwrap();
+        let living = [restored, explicit];
+        assert!(!generation_is_active(root, &original, &living));
+        assert!(generation_is_active(root, &restored_binding, &living));
+        assert!(generation_is_active(root, &explicit_binding, &living));
+
+        implicit.background = true;
+        assert!(implicit.generation_binding().is_err());
+        implicit.background = false;
+        implicit.generation_entry = Some("foreign.md".into());
+        assert!(implicit.generation_binding().is_err());
+    }
+}
+</storycode:copy>
+
+<storycode:file path="crates/hickory-cli/src/engine/watch.rs"><storycode:paste select="#f-dc5bee2ae567-Coordinator"/><storycode:paste select="#f-dc5bee2ae567-Registration"/><storycode:paste select="#f-dc5bee2ae567-View"/><storycode:paste select="#f-dc5bee2ae567-impl-Coordinator"/><storycode:paste select="#f-dc5bee2ae567-publish"/><storycode:paste select="#engine-generation-entry-lease"/></storycode:file>
 
 </storycode:doc>

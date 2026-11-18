@@ -46,8 +46,9 @@ use super::validate_project_path;
 use crate::parse;
 use std::collections::BTreeMap;
 
-/// Discover only explicitly declared Markdown inputs. The caller provides a
-/// read-only revision reader; discovery never consults sibling code or config.
+/// Read an exact entry address as Markdown and discover its declared inputs.
+/// The caller provides a read-only revision reader. Discovered inputs must
+/// carry the Markdown extension.
 pub fn load_project_sources(
     entry: &str,
     read: &impl Fn(&str) -> Result<String, String>,
@@ -60,7 +61,11 @@ pub fn load_project_sources(
 <a id="f-9f0933415862-load"></a>
 ### `load`
 
-Follow only declared project sources, include edges and upstream edges. Remember loaded paths before recursing so a repeated include does not cause another filesystem read; require included inputs to be Markdown.
+The caller supplies the exact entry address. This keeps a moved entry readable
+after a filename change. Follow declared project sources, include edges and
+upstream edges from there. Require a Markdown extension before reading any
+discovered contributor. Remember loaded paths so repeated edges reuse the
+same captured source.
 
 <storycode:copy id="f-9f0933415862-load">
 fn load(
@@ -69,9 +74,6 @@ fn load(
     sources: &mut BTreeMap<String, String>,
 ) -> Result<(), String> {
     validate_project_path(path)?;
-    if !path.ends_with(".md") {
-        return Err(format!("source closure requires Markdown: {path}"));
-    }
     if sources.contains_key(path) {
         return Ok(());
     }
@@ -98,10 +100,36 @@ fn load(
             let name = path
                 .rsplit_once('/')
                 .map_or(name.to_owned(), |(dir, _)| format!("{dir}/{name}"));
+            if !name.ends_with(".md") {
+                return Err(format!("source closure requires Markdown: {name}"));
+            }
             load(&name, read, sources)?;
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn literal_entry_extension_does_not_extend_discovered_contributor_authority() {
+        let entry = "nested/literal #entry.spec";
+        let sources = load_project_sources(entry, &|path| match path {
+            name if name == entry => Ok(r#"<h:doc xmlns:h="http://www.hickorydocs.com/1.0"><h:project sources="body.md"/></h:doc>"#.into()),
+            "nested/body.md" => Ok("Explanation".into()),
+            other => panic!("Unexpected source read: {other}"),
+        }).unwrap();
+        assert!(sources.contains_key(entry));
+        assert_eq!(sources["nested/body.md"], "Explanation");
+
+        let refused = load_project_sources(entry, &|path| {
+            assert_eq!(path, entry);
+            Ok(r#"<h:doc xmlns:h="http://www.hickorydocs.com/1.0"><h:project sources="body.spec"/></h:doc>"#.into())
+        }).unwrap_err();
+        assert_eq!(refused, "source closure requires Markdown: nested/body.spec");
+    }
 }
 </storycode:copy>
 

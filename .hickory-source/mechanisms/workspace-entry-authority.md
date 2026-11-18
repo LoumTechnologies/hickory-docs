@@ -112,6 +112,9 @@ mod storage {
    let base=hickory_workspace::data_root().map_err(|error|error.to_string())?;Self::resolve_under(&base,root)
   }
   pub(super) fn resolve_under(base:&std::path::Path,root:&std::path::Path)->Result<Self,String>{
+   let _coordination=super::leases::coordination_under(base,root,true)?;
+   let existing=HeldRecord::try_snapshot(base,root,SPEC)?;let absent=existing.is_none();drop(existing);
+   if absent&&super::leases::role_loss_hint(root)?{return Err("Retained workspace-entry history has lost its original private binding. Restore that binding; no default entry was inferred.".into())}
    let held=HeldRecord::under(base,root,SPEC)?;let original=held.read()?;
    let mut bound=if original.is_some(){Self::decode(root,held,original)?}else{
     if !held.created_key{return Err("Workspace-entry binding is missing from its existing private store; missing metadata does not restore project.md authority.".into())}
@@ -122,6 +125,13 @@ mod storage {
    if bound.payload.bootstrap_default&&bound.payload.pending.is_none(){if let Some(path)=legacy_main(root)?{bound.payload.current=bound.payload.current.advance(Some(path))?;bound.payload.bootstrap_default=false;bound.persist()?;}}
    Ok(bound)
   }
+  pub(super) fn optional_under(base:&std::path::Path,root:&std::path::Path)->Result<Option<Self>,String>{match HeldRecord::try_snapshot(base,root,SPEC)?{Some(held)=>{let original=held.read()?;Self::decode(root,held,original).map(Some)},None=>{if super::leases::role_loss_hint(root)?{Err("Original workspace-entry binding is unavailable while its retained transition hint remains. No missing-entry permission was granted.".into())}else{Ok(None)}}}}
+  pub(super) fn snapshot_or_initialize(root:&std::path::Path)->Result<Self,String>{let base=hickory_workspace::data_root().map_err(|error|error.to_string())?;Self::snapshot_or_initialize_under(&base,root)}
+  pub(super) fn snapshot_or_initialize_under(base:&std::path::Path,root:&std::path::Path)->Result<Self,String>{
+   if let Some(bound)=Self::optional_under(base,root)?{if !bound.payload.bootstrap_default||bound.payload.pending.is_some()||super::legacy_main(root)?.is_none(){return Ok(bound)}drop(bound);}
+   drop(Self::resolve_under(base,root)?);Self::optional_under(base,root)?.ok_or("Workspace-entry initialization did not produce its original binding.".into())
+  }
+  pub(super) fn unchanged(&self)->Result<(),String>{self.held.check()?;if self.held.read()?!=self.original{return Err("Workspace-entry record changed after its original lease. No new role was selected.".into())}Ok(())}
   pub(super) fn persist(&mut self)->Result<(),String>{
    let signed=serde_json::to_vec(&self.payload).map_err(|error|error.to_string())?;
    let seal=super::super::private_record::seal(&self.held.key,Some(DOMAIN),&signed)?;
@@ -192,7 +202,7 @@ fn legacy_main(root:&std::path::Path)->Result<Option<String>,String>{
 #[cfg(unix)]
 fn read_selection(state:&super::LocalState)->Result<EntrySelection,String>{
  let _ordinary=crate::engine::private_policy::ordinary();ordinary(state)?;
- let root=state.index.root();state.resource_root.check(root)?;let bound=storage::Bound::resolve(root)?;
+ let root=state.index.root();state.resource_root.check(root)?;let bound=storage::Bound::snapshot_or_initialize(root)?;
  let proof=issue_selection(root,&state.resource_root,&bound)?;ordinary(state)?;Ok(proof)
 }
 #[cfg(unix)]
@@ -245,5 +255,5 @@ mod tests {
 }
 </ui:copy>
 
-<ui:file path="crates/hickory-cli/src/serve/workspace_entry_authority.rs"><ui:paste select="#workspace-entry-model"/><ui:paste select="#workspace-entry-storage"/><ui:paste select="#workspace-entry-selection"/><ui:paste select="#workspace-entry-reading"/><ui:paste select="#workspace-entry-reading-witness"/></ui:file>
+<ui:file path="crates/hickory-cli/src/serve/workspace_entry_authority.rs"><ui:paste select="#workspace-entry-model"/><ui:paste select="#workspace-entry-storage"/><ui:paste select="#workspace-entry-selection"/><ui:paste select="#workspace-entry-reading"/><ui:paste select="#workspace-entry-coordination-provider"/><ui:paste select="#workspace-entry-read-lease-admission"/><ui:paste select="#workspace-entry-read-lease-witness"/><ui:paste select="#workspace-entry-reading-witness"/></ui:file>
 </ui:doc>

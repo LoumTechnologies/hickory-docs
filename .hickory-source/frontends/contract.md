@@ -153,6 +153,26 @@ passed 13 Apple and 14 Android cases, with each opt-in live case exercised
 separately. Physical input, assistive technology, Android rendering and iOS
 runtime acceptance remain unverified.
 
+### Keep the original role during a folder watch
+
+An implicit folder watch binds the retained entry identity, generation and
+address when it starts. It requires an engine that acknowledges that complete
+binding. Capture and publication keep a shared lease on the physical root and
+selected role. An explicit watch keeps its literal address. Both paths require
+a real project declaration, including when the supplied entry has a different
+filename extension. Discovered contributors still require Markdown filenames.
+
+Forty-three focused engine checks passed after tightening private namespace
+admission. They cover shared readers, competing publishers, damaged records,
+stale role stamps, exact handshake acknowledgement and connected verification
+admission. A separate compiler witness checked the explicit entry distinction.
+Actual folder and explicit-file watches each published twice from their own
+sources. The explicit watch used a literal `.spec` path despite a different
+`project.md`. An ordinary `.spec` file refused before publication. The actual
+default-reading proof still rejected identical-byte replacement. Move, its
+inverse and exclusion against ordinary source writes still require their own
+integration evidence.
+
 ## Checkpoint requested during implementation
 
 The requested checkpoint was committed as `4a612978`. Its focused receipts include

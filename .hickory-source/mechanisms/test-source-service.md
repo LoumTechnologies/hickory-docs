@@ -1134,6 +1134,7 @@ fn construction_reading_compares_drafts_without_writing_or_claiming_evidence() {
     let reading = construction_reading(
         root,
         ConstructionRequest {
+            entry_selection: None,
             missing_sources: BTreeSet::new(),
             entry: "entry.md".into(),
             sources: BTreeMap::from([("part.md".into(), part.replace("one", "two"))]),
@@ -1171,6 +1172,7 @@ fn construction_reading_compares_drafts_without_writing_or_claiming_evidence() {
         construction_reading(
             root,
             ConstructionRequest {
+                entry_selection: None,
                 missing_sources: BTreeSet::new(),
                 entry: "../entry.md".into(),
                 sources: BTreeMap::new(),
@@ -1192,6 +1194,7 @@ fn construction_reading_reports_additions_deletions_and_invalid_drafts() {
     let reading = construction_reading(
         root,
         ConstructionRequest {
+            entry_selection: None,
             missing_sources: BTreeSet::new(),
             entry: "entry.md".into(),
             sources: BTreeMap::from([("part.md".into(), part.replace("old.txt", "new.txt"))]),
@@ -1207,6 +1210,7 @@ fn construction_reading_reports_additions_deletions_and_invalid_drafts() {
         construction_reading(
             root,
             ConstructionRequest {
+                entry_selection: None,
                 missing_sources: BTreeSet::new(),
                 entry: "entry.md".into(),
                 sources: BTreeMap::from([(
@@ -1348,6 +1352,7 @@ fn construction_reading_bounds_detail_and_includes_metadata_only_changes() {
     let reading = construction_reading(
         root,
         ConstructionRequest {
+            entry_selection: None,
             missing_sources: BTreeSet::new(),
             entry: "entry.md".into(),
             sources: BTreeMap::from([(
