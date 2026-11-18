@@ -2,18 +2,21 @@ package com.hickorydocs.simple
 // The native text state owns text undo. This bounded journal restores optional context only.
 data class SourceUndoSnapshot<C>(val source:String,val anchor:Int,val head:Int,val context:C)
 class SourceUndoContexts<C>(private val contextCost:(C)->Long,private val budget:Long=32L*1024*1024) {
- private data class Step<C>(val before:SourceUndoSnapshot<C>,val after:SourceUndoSnapshot<C>)
+ private data class Step<C>(
+  val before:SourceUndoSnapshot<C>,val after:SourceUndoSnapshot<C>,val marked:MarkedSourceReplay?=null
+ )
  private val past=mutableListOf<Step<C>>();private val future=mutableListOf<Step<C>>()
  var serial=0L;private set
  val retained:Boolean get()=past.isNotEmpty()||future.isNotEmpty()
  init{require(budget in 0 until Long.MAX_VALUE)}
  private fun sum(vararg values:Long):Long {var total=0L;for(value in values){if(value<0||value>budget-total)return budget+1;total+=value};return total}
- private fun cost(step:Step<C>)=sum(2L*step.before.source.length,2L*step.after.source.length,contextCost(step.before.context),contextCost(step.after.context))
+ private fun cost(step:Step<C>)=sum(2L*step.before.source.length,2L*step.after.source.length,contextCost(step.before.context),contextCost(step.after.context),step.marked?.retainedBytes ?: 0)
  private fun trim(){var bytes=past.sumOf{cost(it)}+future.sumOf{cost(it)};while((bytes>budget||past.size+future.size>4096)&&past.isNotEmpty()){bytes-=cost(past.removeAt(0))};while((bytes>budget||past.size+future.size>4096)&&future.isNotEmpty()){bytes-=cost(future.removeAt(future.lastIndex))}}
  private fun clear(){past.clear();future.clear()}
- fun record(before:SourceUndoSnapshot<C>,after:SourceUndoSnapshot<C>) {
+ fun record(before:SourceUndoSnapshot<C>,after:SourceUndoSnapshot<C>) = recordMarked(before,after,null)
+ internal fun recordMarked(before:SourceUndoSnapshot<C>,after:SourceUndoSnapshot<C>,marked:MarkedSourceReplay?) {
   if(before.source==after.source)return
-  val next=Step(before,after);if(cost(next)>budget)return
+  val next=Step(before,after,marked);if(cost(next)>budget)return
   if(past.lastOrNull()?.after?.source?.let{it!=before.source}==true)clear()
   future.clear();past.add(next);serial++;trim()
  }
@@ -22,6 +25,22 @@ class SourceUndoContexts<C>(private val contextCost:(C)->Long,private val budget
   if(serial<=since||last.before.source!=beforeSource||last.after.source!=after.source||last.after.anchor!=after.anchor||last.after.head!=after.head)return false
   val next=last.copy(after=after);if(cost(next)>budget)return false
   past[past.lastIndex]=next;trim();return true
+ }
+ internal fun currentMarked(source:String,backwards:Boolean):MarkedSourceReplay? {
+  val step=if(backwards)past.lastOrNull() else future.firstOrNull()
+  val expected=if(backwards)step?.after else step?.before
+  return step?.marked?.takeIf{expected?.source==source}
+ }
+ internal fun acceptMarkedReplay(
+  mark:MarkedSourceReplay,before:String,after:String,backwards:Boolean
+ ):SourceUndoSnapshot<C>? {
+  val entry=if(backwards)past.lastOrNull() else future.firstOrNull()
+  val expected=if(backwards)entry?.after else entry?.before
+  val target=if(backwards)entry?.before else entry?.after
+  if(entry==null||entry.marked!==mark||expected?.source!=before||target?.source!=after)return null
+  if(backwards){past.removeAt(past.lastIndex);future.add(0,entry)}
+  else{future.removeAt(0);past.add(entry)}
+  return target
  }
  fun undo(beforeSource:String,afterSource:String,anchor:Int,head:Int):SourceUndoSnapshot<C>? {
   if(past.lastOrNull()?.after?.source!=beforeSource){clear();return null}

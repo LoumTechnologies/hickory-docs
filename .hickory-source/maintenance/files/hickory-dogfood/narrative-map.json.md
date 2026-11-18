@@ -156961,6 +156961,20 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/mechanisms/workspace-entry-reading-hosts.md",
       "symbol": "workspace entry reading android witness",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "android-marked-snippet-plan",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/MarkedSnippetInput.kt",
+      "page": ".hickory-source/mechanisms/android-marked-snippet-input.md",
+      "symbol": "android marked snippet plan",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "android-marked-snippet-connection",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/MarkedSnippetConnection.kt",
+      "page": ".hickory-source/mechanisms/android-marked-snippet-input.md",
+      "symbol": "android marked snippet connection",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

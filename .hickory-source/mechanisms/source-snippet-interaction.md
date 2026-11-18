@@ -790,6 +790,99 @@ class SourceSnippetController(private val buffer:DocumentBuffer) {
  private var revision by mutableIntStateOf(0)
  var notice by mutableStateOf("");private set
  private val contexts=SourceUndoContexts<AndroidSnippetHistory?>(::androidSnippetHistoryCost)
+ private var markedInput: MarkedSnippetInput? = null
+ private var markedConnection: Any? = null
+ private var markedCommitRequested = false
+
+ private var nativeMarkingDepth = 0
+ internal val retainsMarkedInput: Boolean get() = markedInput != null
+ internal val inMarkedInput: Boolean get() = nativeMarkingDepth > 0 || retainsMarkedInput
+ internal fun enteringMarkedEvent() { nativeMarkingDepth++ }
+ internal fun leavingMarkedEvent() { nativeMarkingDepth-- }
+
+ internal fun beginMarkedInput(connection: Any, supplied: CompletionSelection? = null) {
+  if (markedConnection === connection && markedInput != null) {
+   markedCommitRequested = false
+   return
+  }
+  if (markedInput != null || buffer.state.composition != null || buffer.readOnly || buffer.saving) return
+  val source = buffer.text
+  if (source.length > 8 * 1024 * 1024 || source.toByteArray(Charsets.UTF_8).size > 8 * 1024 * 1024) return
+  val selected = buffer.state.selection
+  val selection = CompletionSelection(selected.min, selected.max)
+  val range = supplied ?: selection
+  if (range.from < 0 || range.to < range.from || range.to > source.length) return
+  val multiple = parallel
+  val single = active
+  if (multiple != null) {
+   if (multiple.selections[multiple.primaryIndex] != range) return
+  } else if (single == null || computedSnippetInput(single, range.from, range.to) ||
+      single.fields.none { it.id == single.current && it.from <= range.from && range.to <= it.to }) {
+   return
+  }
+
+  val initial = captureBefore(source, selected, true) ?: return
+  finish()
+  buffer.clearMulti()
+  markedInput = MarkedSnippetInput(buffer.file.path, source, selection, range, initial, intent)
+  markedConnection = connection
+ }
+
+ internal fun markCommitRequested(connection: Any) {
+  if (markedConnection === connection) markedCommitRequested = true
+ }
+
+ internal fun observeMarkedInput(source: String) {
+  markedInput?.observe(source)
+ }
+
+ internal fun settleMarkedInput(connection: Any, closing: Boolean = false) {
+  if (markedConnection !== connection || !closing && (!markedCommitRequested || buffer.state.composition != null)) return
+  val capture = markedInput ?: return
+  markedInput = null
+  markedConnection = null
+  markedCommitRequested = false
+  if (capture.path != buffer.file.path) return
+
+  val source = buffer.text
+  val rawSelection = buffer.state.selection
+  val observed = CompletionSelection(rawSelection.min, rawSelection.max)
+  capture.observe(source)
+  var follow: AndroidSnippetHistory? = null
+  if (!closing && capture.intent == intent && !buffer.readOnly && !buffer.saving) {
+   val next = capture.finish(source, observed)
+   if (next != null) {
+    val delta = changedMarkedSource(source, next.source)
+    if (reflectMarkedInput(delta, source, next.selection) && buffer.text == next.source) {
+     val ranges = next.parallel?.let(::parallelRanges).orEmpty()
+     follow = AndroidSnippetHistory(next.session, next.parallel, ranges)
+     restoreHistory(follow)
+    }
+   }
+  }
+  val finalSelection = buffer.state.selection
+  val history = SourceUndoSnapshot<AndroidSnippetHistory?>(buffer.text, finalSelection.start, finalSelection.end, follow)
+  val replay = capture.replay(buffer.text, mirrored = follow != null)
+  if (replay != null) contexts.recordMarked(capture.history, history, replay)
+ }
+
+ // The native text state records the supplemental edit. Its observed trail is
+ // rebound to the original composition as one action in the source menu.
+ private fun reflectMarkedInput(edit: NativeSourceEdit?, source: String, selected: CompletionSelection): Boolean {
+  if (buffer.text != source || buffer.state.composition != null || buffer.readOnly || buffer.saving) return false
+  val length = source.length + (edit?.let { it.text.length - (it.to - it.from) } ?: 0)
+  if (selected.from < 0 || selected.to < selected.from || selected.to > length) return false
+  if (edit != null && !validSourceEdits(listOf(edit), source.length)) return false
+  val previousSelection = buffer.state.selection
+  buffer.state.edit {
+   if (edit != null) replace(edit.from, edit.to, edit.text)
+   selection = TextRange(selected.from, selected.to)
+  }
+  if (buffer.text != source || buffer.state.selection != previousSelection) buffer.advanceSourceRevision()
+  buffer.clearFolds()
+  return true
+ }
+
  val recordSerial get()=contexts.serial
  val canUndo get()=buffer.state.undoState.canUndo
  val canRedo get()=buffer.state.undoState.canRedo
@@ -824,15 +917,41 @@ class SourceSnippetController(private val buffer:DocumentBuffer) {
   if(!contexts.replaceLastAfter(before.source,snapshot,since))contexts.record(before,snapshot)
   restore(after)
  }
+
+ private fun replayMarked(backwards: Boolean): Boolean? {
+  val before = buffer.text
+  val replay = contexts.currentMarked(before, backwards) ?: return null
+  val outcome = replay.run(backwards, { buffer.text }) { undo ->
+   if (undo && canUndo) { buffer.state.undoState.undo(); true }
+   else if (!undo && canRedo) { buffer.state.undoState.redo(); true }
+   else false
+  }
+  if (outcome == MarkedSourceReplay.Result.Ordinary) return null
+  buffer.advanceSourceRevision()
+  if (outcome == MarkedSourceReplay.Result.Interrupted) {
+   finish()
+   notice = "Native history changed during composition replay. Current draft is retained."
+   buffer.language?.completionNotice = notice
+   return false
+  }
+  val target = contexts.acceptMarkedReplay(replay, before, buffer.text, backwards) ?: return false
+  if (target.anchor in 0..buffer.text.length && target.head in 0..buffer.text.length) {
+   buffer.state.edit { selection = TextRange(target.anchor, target.head) }
+  }
+  restoreHistory(target.context)
+  return true
+ }
  fun undoSource():Boolean {
-  if(buffer.readOnly||buffer.state.composition!=null||!canUndo)return false
+  if(buffer.readOnly||buffer.state.composition!=null||inMarkedInput||!canUndo)return false
+  replayMarked(true)?.let { return it }
   val before=buffer.text;val oldSelection=buffer.state.selection;buffer.state.undoState.undo();val selected=buffer.state.selection
   if(before!=buffer.text||selected!=oldSelection)buffer.advanceSourceRevision()
   val target=contexts.undo(before,buffer.text,selected.start,selected.end);restoreHistory(target?.context)
   if(target?.context==null){notice="Text edit undone · draft";buffer.language?.completionNotice=notice};return true
  }
  fun redoSource():Boolean {
-  if(buffer.readOnly||buffer.state.composition!=null||!canRedo)return false
+  if(buffer.readOnly||buffer.state.composition!=null||inMarkedInput||!canRedo)return false
+  replayMarked(false)?.let { return it }
   val before=buffer.text;val oldSelection=buffer.state.selection;buffer.state.undoState.redo();val selected=buffer.state.selection
   if(before!=buffer.text||selected!=oldSelection)buffer.advanceSourceRevision()
   val target=contexts.redo(before,buffer.text,selected.start,selected.end);restoreHistory(target?.context)
@@ -1463,6 +1582,60 @@ import androidx.compose.ui.text.TextRange
 import kotlinx.coroutines.async
 class SourceSnippetInteractionTest {
  @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+ @Test fun markedTemplateCandidatesStayNativeThenUndoAsOneSourceAction() {
+  val buffer=buffer()
+  val controller=buffer.snippets
+  val connection=Any()
+  val original=buffer.text
+  controller.finish()
+  assertTrue(buffer.applySourceEdits(listOf(NativeSourceEdit(0,0,"!")),original,TextRange(1,2)))
+  controller.restore(beginSnippet(buffer.text,fields().map{it.copy(from=it.from+1,to=it.to+1)}))
+  // These edits exercise the native TextFieldState and the controller's event
+  // boundary. The OS input connection itself requires a device IME.
+  controller.beginMarkedInput(connection)
+  assertTrue(controller.retainsMarkedInput)
+  buffer.state.edit { replace(1,2,"に");selection=TextRange(2) }
+  controller.observeMarkedInput(buffer.text)
+  assertEquals("!に + a",buffer.text)
+  buffer.state.edit { replace(1,2,"日本");selection=TextRange(3) }
+  controller.observeMarkedInput(buffer.text)
+  assertEquals("!日本 + a",buffer.text)
+  controller.settleMarkedInput(connection)
+  assertEquals("!日本 + a",buffer.text)
+  controller.markCommitRequested(connection)
+  controller.settleMarkedInput(connection)
+  assertEquals("!日本 + 日本",buffer.text)
+  assertEquals(TextRange(3),buffer.state.selection)
+  assertTrue(controller.undoSource())
+  assertEquals("!a + a",buffer.text)
+  assertEquals(TextRange(1,2),buffer.state.selection)
+  assertNotNull(controller.active)
+  assertTrue(controller.redoSource())
+  assertEquals("!日本 + 日本",buffer.text)
+  assertNotNull(controller.active)
+  assertTrue(controller.undoSource())
+  assertTrue(controller.undoSource())
+  assertEquals(original,buffer.text)
+  assertEquals(original,buffer.base)
+ }
+
+ @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+ @Test fun closingMarkedConnectionKeepsOrdinaryDraftAndRejectsLateMirrors() {
+  val buffer=buffer()
+  val controller=buffer.snippets
+  val closed=Any()
+  controller.beginMarkedInput(closed)
+  buffer.state.edit { replace(0,1,"に");selection=TextRange(1) }
+  controller.observeMarkedInput(buffer.text)
+  controller.settleMarkedInput(closed,closing=true)
+  controller.markCommitRequested(closed)
+  controller.settleMarkedInput(closed)
+  assertEquals("に + a",buffer.text)
+  assertNull(controller.active)
+  assertTrue(controller.undoSource())
+  assertEquals("a + a",buffer.text)
+ }
+ @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
  @Test fun parallelTemplateRetainsBothSelectionsThroughNativeTextStateHistory() {
   val source="aa / bb"
   val buffer=DocumentBuffer(FileNode("a.py","a.py",false,emptyList(),null,null),FileText(source,"base"))
@@ -1585,18 +1758,21 @@ package com.hickorydocs.simple
 // The native text state owns text undo. This bounded journal restores optional context only.
 data class SourceUndoSnapshot<C>(val source:String,val anchor:Int,val head:Int,val context:C)
 class SourceUndoContexts<C>(private val contextCost:(C)->Long,private val budget:Long=32L*1024*1024) {
- private data class Step<C>(val before:SourceUndoSnapshot<C>,val after:SourceUndoSnapshot<C>)
+ private data class Step<C>(
+  val before:SourceUndoSnapshot<C>,val after:SourceUndoSnapshot<C>,val marked:MarkedSourceReplay?=null
+ )
  private val past=mutableListOf<Step<C>>();private val future=mutableListOf<Step<C>>()
  var serial=0L;private set
  val retained:Boolean get()=past.isNotEmpty()||future.isNotEmpty()
  init{require(budget in 0 until Long.MAX_VALUE)}
  private fun sum(vararg values:Long):Long {var total=0L;for(value in values){if(value<0||value>budget-total)return budget+1;total+=value};return total}
- private fun cost(step:Step<C>)=sum(2L*step.before.source.length,2L*step.after.source.length,contextCost(step.before.context),contextCost(step.after.context))
+ private fun cost(step:Step<C>)=sum(2L*step.before.source.length,2L*step.after.source.length,contextCost(step.before.context),contextCost(step.after.context),step.marked?.retainedBytes ?: 0)
  private fun trim(){var bytes=past.sumOf{cost(it)}+future.sumOf{cost(it)};while((bytes>budget||past.size+future.size>4096)&&past.isNotEmpty()){bytes-=cost(past.removeAt(0))};while((bytes>budget||past.size+future.size>4096)&&future.isNotEmpty()){bytes-=cost(future.removeAt(future.lastIndex))}}
  private fun clear(){past.clear();future.clear()}
- fun record(before:SourceUndoSnapshot<C>,after:SourceUndoSnapshot<C>) {
+ fun record(before:SourceUndoSnapshot<C>,after:SourceUndoSnapshot<C>) = recordMarked(before,after,null)
+ internal fun recordMarked(before:SourceUndoSnapshot<C>,after:SourceUndoSnapshot<C>,marked:MarkedSourceReplay?) {
   if(before.source==after.source)return
-  val next=Step(before,after);if(cost(next)>budget)return
+  val next=Step(before,after,marked);if(cost(next)>budget)return
   if(past.lastOrNull()?.after?.source?.let{it!=before.source}==true)clear()
   future.clear();past.add(next);serial++;trim()
  }
@@ -1605,6 +1781,22 @@ class SourceUndoContexts<C>(private val contextCost:(C)->Long,private val budget
   if(serial<=since||last.before.source!=beforeSource||last.after.source!=after.source||last.after.anchor!=after.anchor||last.after.head!=after.head)return false
   val next=last.copy(after=after);if(cost(next)>budget)return false
   past[past.lastIndex]=next;trim();return true
+ }
+ internal fun currentMarked(source:String,backwards:Boolean):MarkedSourceReplay? {
+  val step=if(backwards)past.lastOrNull() else future.firstOrNull()
+  val expected=if(backwards)step?.after else step?.before
+  return step?.marked?.takeIf{expected?.source==source}
+ }
+ internal fun acceptMarkedReplay(
+  mark:MarkedSourceReplay,before:String,after:String,backwards:Boolean
+ ):SourceUndoSnapshot<C>? {
+  val entry=if(backwards)past.lastOrNull() else future.firstOrNull()
+  val expected=if(backwards)entry?.after else entry?.before
+  val target=if(backwards)entry?.before else entry?.after
+  if(entry==null||entry.marked!==mark||expected?.source!=before||target?.source!=after)return null
+  if(backwards){past.removeAt(past.lastIndex);future.add(0,entry)}
+  else{future.removeAt(0);past.add(entry)}
+  return target
  }
  fun undo(beforeSource:String,afterSource:String,anchor:Int,head:Int):SourceUndoSnapshot<C>? {
   if(past.lastOrNull()?.after?.source!=beforeSource){clear();return null}

@@ -403,4 +403,6 @@ is included with that control; opening a document is not generation authority.
 
 <storycode:include file="workspace-entry-reading-hosts.md" />
 
+<storycode:include file="android-marked-snippet-input.md" />
+
 </storycode:doc>

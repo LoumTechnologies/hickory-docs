@@ -73339,6 +73339,28 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "fragments": [
         "workspace-entry-reading-android-witness"
       ]
+    },
+    "apps/android-simple/app/src/main/java/com/hickorydocs/simple/MarkedSnippetInput.kt": {
+      "source": ".hickory-source/mechanisms/android-marked-snippet-input.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "10e705be43552e1ffd1ec7c993d1c2ec0ada3695ea847e49adda55f72f1bb81d",
+      "construction": "fragments",
+      "fragments": [
+        "android-marked-snippet-plan"
+      ]
+    },
+    "apps/android-simple/app/src/main/java/com/hickorydocs/simple/MarkedSnippetConnection.kt": {
+      "source": ".hickory-source/mechanisms/android-marked-snippet-input.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "6a5118172a22d08864435c7d4a6cdf03a97e4517cd8badef4072c6972e48092e",
+      "construction": "fragments",
+      "fragments": [
+        "android-marked-snippet-connection"
+      ]
     }
   },
   "evidence_records": [

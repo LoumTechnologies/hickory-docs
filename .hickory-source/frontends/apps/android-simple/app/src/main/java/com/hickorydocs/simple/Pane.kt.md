@@ -947,6 +947,7 @@ Attach the grid only to an inline snapshot that still matches the field. Measure
                 }
             }
             Box(Modifier.weight(1f).fillMaxHeight().clipToBounds()) {
+            SourceSnippetInputSession(buffer) {
             BasicTextField(state = buffer.state, readOnly = buffer.readOnly,
                 scrollState = scroll,
                 inputTransformation = InputTransformation {
@@ -957,6 +958,10 @@ Attach the grid only to an inline snapshot that still matches the field. Measure
                     }
                     var parallelInput: Int? = null
                     if (hiddenEdit) { revertAllChanges(); scope.launch { buffer.tableSourceVisible = true } }
+                    else if (buffer.snippets.inMarkedInput) {
+                        // The IME owns provisional candidates. Reflect only
+                        // after its native commit and exact source admission.
+                    }
                     else if (changes.changeCount == 1 && buffer.state.composition == null && buffer.snippets.parallel != null) {
                         val old = changes.getOriginalRange(0)
                         val change = changes.getRange(0)
@@ -997,7 +1002,8 @@ Attach the grid only to an inline snapshot that still matches the field. Measure
                     }
                     }
                     if(changes.changeCount>0||selection!=originalSelection){buffer.advanceSourceRevision(false);scope.launch{buffer.publishSourceRevision()}}
-                    buffer.snippets.finishTextChange(snippetBefore,asCharSequence(),selection)
+                    if(buffer.snippets.retainsMarkedInput) buffer.snippets.observeMarkedInput(asCharSequence().toString())
+                    else buffer.snippets.finishTextChange(snippetBefore,asCharSequence(),selection)
                     // Retire display state after the input transaction, outside its receiver.
                     scope.launch {
                         kotlinx.coroutines.yield()
@@ -1083,6 +1089,7 @@ Attach the grid only to an inline snapshot that still matches the field. Measure
                 }.clipToBounds().semantics { contentDescription = buffer.file.path },
                 textStyle = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface),
                 keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None, autoCorrectEnabled = false))
+            }
             val density = LocalDensity.current
             val layout = textLayout
             // Values were evaluated in this stopped frame. Keep them out of

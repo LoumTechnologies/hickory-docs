@@ -5,6 +5,60 @@ import androidx.compose.ui.text.TextRange
 import kotlinx.coroutines.async
 class SourceSnippetInteractionTest {
  @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+ @Test fun markedTemplateCandidatesStayNativeThenUndoAsOneSourceAction() {
+  val buffer=buffer()
+  val controller=buffer.snippets
+  val connection=Any()
+  val original=buffer.text
+  controller.finish()
+  assertTrue(buffer.applySourceEdits(listOf(NativeSourceEdit(0,0,"!")),original,TextRange(1,2)))
+  controller.restore(beginSnippet(buffer.text,fields().map{it.copy(from=it.from+1,to=it.to+1)}))
+  // These edits exercise the native TextFieldState and the controller's event
+  // boundary. The OS input connection itself requires a device IME.
+  controller.beginMarkedInput(connection)
+  assertTrue(controller.retainsMarkedInput)
+  buffer.state.edit { replace(1,2,"に");selection=TextRange(2) }
+  controller.observeMarkedInput(buffer.text)
+  assertEquals("!に + a",buffer.text)
+  buffer.state.edit { replace(1,2,"日本");selection=TextRange(3) }
+  controller.observeMarkedInput(buffer.text)
+  assertEquals("!日本 + a",buffer.text)
+  controller.settleMarkedInput(connection)
+  assertEquals("!日本 + a",buffer.text)
+  controller.markCommitRequested(connection)
+  controller.settleMarkedInput(connection)
+  assertEquals("!日本 + 日本",buffer.text)
+  assertEquals(TextRange(3),buffer.state.selection)
+  assertTrue(controller.undoSource())
+  assertEquals("!a + a",buffer.text)
+  assertEquals(TextRange(1,2),buffer.state.selection)
+  assertNotNull(controller.active)
+  assertTrue(controller.redoSource())
+  assertEquals("!日本 + 日本",buffer.text)
+  assertNotNull(controller.active)
+  assertTrue(controller.undoSource())
+  assertTrue(controller.undoSource())
+  assertEquals(original,buffer.text)
+  assertEquals(original,buffer.base)
+ }
+
+ @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+ @Test fun closingMarkedConnectionKeepsOrdinaryDraftAndRejectsLateMirrors() {
+  val buffer=buffer()
+  val controller=buffer.snippets
+  val closed=Any()
+  controller.beginMarkedInput(closed)
+  buffer.state.edit { replace(0,1,"に");selection=TextRange(1) }
+  controller.observeMarkedInput(buffer.text)
+  controller.settleMarkedInput(closed,closing=true)
+  controller.markCommitRequested(closed)
+  controller.settleMarkedInput(closed)
+  assertEquals("に + a",buffer.text)
+  assertNull(controller.active)
+  assertTrue(controller.undoSource())
+  assertEquals("a + a",buffer.text)
+ }
+ @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
  @Test fun parallelTemplateRetainsBothSelectionsThroughNativeTextStateHistory() {
   val source="aa / bb"
   val buffer=DocumentBuffer(FileNode("a.py","a.py",false,emptyList(),null,null),FileText(source,"base"))
