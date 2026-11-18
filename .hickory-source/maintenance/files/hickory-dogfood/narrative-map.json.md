@@ -156807,6 +156807,55 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/mechanisms/private-record-storage.md",
       "symbol": "private record witness",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "embedded-source-parser-facts",
+      "output": "crates/hick-lang/src/source_context.rs",
+      "page": ".hickory-source/mechanisms/embedded-source-language-context.md",
+      "symbol": "embedded source parser facts",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "embedded-source-parser-witness",
+      "output": "crates/hick-lang/src/source_context.rs",
+      "page": ".hickory-source/mechanisms/embedded-source-language-context.md",
+      "symbol": "embedded source parser witness",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "embedded-source-language-model",
+      "output": "crates/hick-lsp/src/source_context.rs",
+      "page": ".hickory-source/mechanisms/embedded-source-language-context.md",
+      "symbol": "embedded source language model",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "embedded-source-language-project",
+      "output": "crates/hick-lsp/src/source_context.rs",
+      "page": ".hickory-source/mechanisms/embedded-source-language-context.md",
+      "symbol": "embedded source language project",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "embedded-source-language-local",
+      "output": "crates/hick-lsp/src/source_context.rs",
+      "page": ".hickory-source/mechanisms/embedded-source-language-context.md",
+      "symbol": "embedded source language local",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "embedded-source-language-witness",
+      "output": "crates/hick-lsp/src/source_context.rs",
+      "page": ".hickory-source/mechanisms/embedded-source-language-context.md",
+      "symbol": "embedded source language witness",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "source-language-context-public-module",
+      "output": "crates/hick-lsp/src/lib.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-lsp/src/lib.rs.md",
+      "symbol": "source language context public module",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

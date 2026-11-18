@@ -45676,7 +45676,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "f-e8bff405197e-use_declaration-4",
         "provider-artifact-mechanism-modules",
         "type-hierarchy-service-module",
-        "snippet-plan-public-module"
+        "snippet-plan-public-module",
+        "source-language-context-public-module"
       ],
       "anchor": "output-e8bff405197e",
       "narrative_owner": "mechanism:crates/hick-lsp"
@@ -73186,6 +73187,32 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "private-record-specification",
         "private-record-held-storage",
         "private-record-witness"
+      ]
+    },
+    "crates/hick-lang/src/source_context.rs": {
+      "source": ".hickory-source/mechanisms/embedded-source-language-context.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "2913a2e4d8d20dc0c728c07a0145caa36c3b4001149e036068b13a00fbfe2ef2",
+      "construction": "fragments",
+      "fragments": [
+        "embedded-source-parser-facts",
+        "embedded-source-parser-witness"
+      ]
+    },
+    "crates/hick-lsp/src/source_context.rs": {
+      "source": ".hickory-source/mechanisms/embedded-source-language-context.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "db753a1d0ed44fecb7592227134680c79cf70de1bc694a49dfec59d02337c899",
+      "construction": "fragments",
+      "fragments": [
+        "embedded-source-language-model",
+        "embedded-source-language-project",
+        "embedded-source-language-local",
+        "embedded-source-language-witness"
       ]
     }
   },

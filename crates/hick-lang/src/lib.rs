@@ -25,6 +25,7 @@ pub use project::{
     validate_project_path,
 };
 mod fence;
+pub mod source_context;
 mod literal_files;
 pub mod notebook;
 pub use literal_files::{LiteralFile, LiteralSegment, literal_files, strip_opening_break};

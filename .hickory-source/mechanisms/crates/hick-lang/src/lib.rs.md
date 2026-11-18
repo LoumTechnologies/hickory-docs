@@ -18,6 +18,8 @@ uses prefix `h`, while `<hick:doc xmlns:hick="...">` uses prefix `hick`.
 
 Related contracts: [A Claude Code Transcript Imports As A Session](../../../../guarantees/agent/a-claude-code-transcript-imports-as-a-session/contract.md), [A Claim Says Who Is Asserting It, And Never Looks Verified](../../../../guarantees/authoring/a-claim-says-who-is-asserting-it/contract.md), [A Document May Begin With Markdown](../../../../guarantees/authoring/a-document-may-begin-with-markdown/contract.md), [A Syntax Error Names The Invariant It Hit](../../../../guarantees/authoring/a-syntax-error-names-the-invariant-it-hit/contract.md), [A Transcript Derives Its Speaker Turns, And Cannot Disagree With Itself](../../../../guarantees/authoring/a-transcript-derives-its-speaker-turns/contract.md), [Every Document Weaves A Markdown File Of Its Own Name](../../../../guarantees/authoring/every-document-weaves-a-markdown-file/contract.md), [Many Documents Contribute To One File, And None Of Them Names The Others](../../../../guarantees/authoring/many-documents-contribute-to-one-file/contract.md), [Bind the document language before quoting code](../../../../guarantees/language/prefix-only-parsing-no-escaping/contract.md), [The Editor Reads A Document With The Parser The Server Uses](../../../../guarantees/language/the-editor-reads-with-the-parser-the-server-uses/contract.md), [An Edited AI Passage Stops Claiming The Model Wrote It](../../../../guarantees/lineage/an-edited-ai-passage-stops-claiming-the-model-wrote-it/contract.md), [An Included Span Names Its Own File, And An Edit Through It Lands There](../../../../guarantees/lineage/included-spans-name-their-own-file/contract.md), [Rebuild the program from its Markdown source](../../../../guarantees/literate-projects/markdown-constructs-the-complete-project/contract.md), [A Recording A Document Keeps Lives In The Document](../../../../guarantees/verification/a-recording-a-document-keeps-lives-in-the-document/contract.md), [A Report Is Not a Reproducible Artifact](../../../../guarantees/verification/a-report-is-not-a-reproducible-artifact/contract.md).
 
+The source-context module publishes bounded body and fence facts from this same parser. Host template adapters consume those facts instead of inventing a second Markdown or structured-tag grammar.
+
 This literal construction preserves embedded document syntax and exact file bytes. Its internal reasoning boundaries still need editorial review.
 
 <storycode:entry path="crates/hick-lang/src/lib.rs">
@@ -48,6 +50,7 @@ pub use project::{
     validate_project_path,
 };
 mod fence;
+pub mod source_context;
 mod literal_files;
 pub mod notebook;
 pub use literal_files::{LiteralFile, LiteralSegment, literal_files, strip_opening_break};

@@ -394,4 +394,6 @@ is included with that control; opening a document is not generation authority.
 
 <storycode:include file="private-record-storage.md" />
 
+<storycode:include file="embedded-source-language-context.md" />
+
 </storycode:doc>
