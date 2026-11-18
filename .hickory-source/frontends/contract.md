@@ -255,6 +255,23 @@ physical guard. A neighboring `.spec` with the same declaration remained an
 ordinary file. The rendered browser Move and connected-reading replay and
 TypeScript checking also passed.
 
+### Retain the editor when publication ends before any writer
+
+The entry publisher checks the live room before its filesystem callback. A
+confirmed no-effect result binds the exact request, intended transition and
+unchanged source address. An unused reservation consumes its generation only
+after exact original-namespace revalidation. A started or uncertain writer
+keeps its pending evidence for recovery.
+
+The real HTTP fixture held a foreign Yjs room on an absent destination. Move
+returned a confirmed zero-write result with the original generation and no
+adoption. Repeating the request returned the same outcome, and a fresh review
+after daemon restart completed one Move. Rendered browser, mounted macOS and
+Android controller witnesses each exercised the same refusal. They retained
+the draft and editor history and opened a fresh review. Forty-five focused
+browser cases and TypeScript checking passed. The arm64 iOS simulator product
+built. Interrupted completion and device interaction remain separate work.
+
 Six focused engine cases and the actual workspace-entry HTTP flow passed. The
 flow retained the entry identity across a fresh engine process, issued a new
 process-bound proof, and observed new source proofs after an edit and after

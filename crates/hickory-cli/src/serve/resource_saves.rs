@@ -93,9 +93,13 @@ fn room_write(
     after: &SavedSource,
     force_identity:bool,
     document_source:bool,
+    publication: &mut super::workspace_entry_authority::transitions::Publication,
 ) -> Result<super::resource_publish::ObservedWrite, String> {
     if !document_source {
-        return super::resource_publish::replace_observed_for_identity(root, path, before, after,force_identity);
+        publication.before_path(path)?;
+        let written = super::resource_publish::replace_observed_for_identity(root, path, before, after,force_identity)?;
+        publication.observed_path(path, after, &written)?;
+        return Ok(written);
     }
     let id = if matches!(before, SavedSource::File { .. }) {
         state.store.register_source(&state.index, path)
@@ -105,7 +109,10 @@ fn room_write(
     runtime.block_on(async {
         let mut written = None;
         let mut persist = || -> anyhow::Result<()> {
-            written = Some(super::resource_publish::replace_observed_for_identity(root, path, before, after,force_identity).map_err(anyhow::Error::msg)?);
+            publication.before_path(path).map_err(anyhow::Error::msg)?;
+            let observed = super::resource_publish::replace_observed_for_identity(root, path, before, after,force_identity).map_err(anyhow::Error::msg)?;
+            publication.observed_path(path, after, &observed).map_err(anyhow::Error::msg)?;
+            written = Some(observed);
             Ok(())
         };
         let accepted = match (before, after) {
@@ -257,7 +264,7 @@ pub(super) async fn publish_guarded(
         let mut outcome = super::resource_publish::publish_observed_guarded_with(root, &state.resource_root, &manifest,
             |published| { entry_publication.borrow().check(&state,published)?;admission(root)?;super::resource_inputs::validate_guard_map(root,&saved_guards,published)?; super::source_tests::check_saved_sources(root, &dependencies).map(|_| ()).map_err(|error|error.detail().to_string()) },
             |published| { entry_publication.borrow().check(&state,published)?;admission(root)?;super::resource_inputs::validate_guard_map(root,&saved_guards,published)?; super::source_tests::check_saved_sources(root, &dependencies).map(|_| ()).map_err(|error|error.detail().to_string()) },
-            |path, before, after,force| {entry_publication.borrow_mut().begin()?;let document=entry_publication.borrow().is_document_source(path);room_write(&state, &runtime, root, path, before, after,force,document)}, transactional_rollback)?;
+            |path, before, after,force| {let document=entry_publication.borrow().is_document_source(path);room_write(&state, &runtime, root, path, before, after,force,document,&mut entry_publication.borrow_mut())}, transactional_rollback)?;
         if outcome.complete {
             for (path, expected) in &manifest.after {
                 match super::resource_inputs::saved_target(root, path) {
@@ -275,6 +282,10 @@ pub(super) async fn publish_guarded(
             }
         } else { Vec::new() };
         if let Err(error)=entry_publication.borrow_mut().finish(&state,&manifest,&outcome,&files){outcome.complete=false;outcome.source_files_uncertain=true;outcome.error=Some(format!("Source publication was observed, but its entry binding is unconfirmed: {error}. Inspect retained recovery; no source was retried."));}
+        if entry_publication.borrow().proved_no_effect() {
+            outcome.source_files_modified = false;
+            outcome.source_files_uncertain = false;
+        }
         let entry_outcome=entry_publication.borrow().outcome();
         let mut reply=publication_reply(request_id, manifest.workspace, manifest.context, outcome, manifest.after, files)?;
         if let Some(value)=entry_outcome{reply["entry_outcome"]=value;}Ok(reply)
@@ -403,6 +414,53 @@ pub async fn status(
         attempts.records.get(&format!("{workspace}:{}",query.request_id)).ok_or_else(||ApiError::not_found("No retained save outcome in this engine session. Inspect recovery records before retrying a request from an earlier session."))?.result.clone().ok_or_else(||ApiError::conflict("Save outcome is pending or uncertain. Inspect recovery records before retrying."))?};
     match retained{Ok(value)=>checked_retained(&state,value).await.map(Json).map_err(ApiError::conflict),Err(error)=>Err(ApiError::conflict(error))}
 }
+#[cfg(test)]
+mod room_entry_admission_tests {
+    use std::sync::{Arc, Mutex};
+    use hickory_collab::{DocStore, RoomRegistry};
+    struct Store(Mutex<String>);
+    #[async_trait::async_trait]
+    impl DocStore for Store {
+        async fn load_source(&self, _: &String) -> anyhow::Result<String> { Ok(self.0.lock().unwrap().clone()) }
+        async fn load_crdt(&self, _: &String) -> anyhow::Result<Option<Vec<u8>>> { Ok(None) }
+        async fn save(&self, _: &String, source: &str, _: &[u8]) -> anyhow::Result<()> { *self.0.lock().unwrap() = source.into(); Ok(()) }
+    }
+    #[tokio::test]
+    async fn foreign_room_never_invokes_entry_pending_or_writer() {
+        let rooms = Arc::new(RoomRegistry::new(Arc::new(Store(Mutex::new("foreign".into())))));
+        let effects = Mutex::new(Vec::new());
+        let accepted = rooms.retire_source_if_current(&"main".into(), "saved", || {
+            effects.lock().unwrap().push("pending");
+            effects.lock().unwrap().push("writer");
+            Ok(())
+        }).await.unwrap();
+        assert!(!accepted);
+        assert!(effects.lock().unwrap().is_empty());
+        assert!(rooms.get("main").await.is_some());
+    }
+    #[tokio::test]
+    async fn accepted_room_persist_seals_pending_before_writer() {
+        let rooms = Arc::new(RoomRegistry::new(Arc::new(Store(Mutex::new("saved".into())))));
+        let effects = Mutex::new(Vec::new());
+        assert!(rooms.retire_source_if_current(&"main".into(), "saved", || {
+            effects.lock().unwrap().push("pending");
+            effects.lock().unwrap().push("writer");
+            Ok(())
+        }).await.unwrap());
+        assert_eq!(*effects.lock().unwrap(), vec!["pending", "writer"]);
+        assert!(rooms.get("main").await.is_none());
+    }
+    #[tokio::test]
+    async fn pending_store_refusal_keeps_room_and_permits_exact_retry() {
+        let rooms = Arc::new(RoomRegistry::new(Arc::new(Store(Mutex::new("saved".into())))));
+        assert!(rooms.retire_source_if_current(&"main".into(), "saved", || {
+            Err(anyhow::anyhow!("sealed entry store unavailable"))
+        }).await.is_err());
+        assert!(rooms.get("main").await.is_some());
+        assert!(rooms.retire_source_if_current(&"main".into(), "saved", || Ok(())).await.unwrap());
+    }
+}
+
 #[cfg(test)]
 mod outcome_contract_tests {
     use super::*;

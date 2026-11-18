@@ -267,6 +267,17 @@ struct ResourceRestorationReview {
  }
  private func adopt(_ workspace:Workspace,id:String,value:ResourceRestorationReview,receipt:ResourcePublication<FileNode>)throws {
   guard publishingWorkspace === workspace else{throw EngineError(message:"Workspace changed during publication. Inspect recovery in its original workspace.")}
+  if try WorkspaceEntryPublication.hadNoEffect(receipt.entry_outcome,request:id,intent:value.entryIntent) {
+   guard receipt.version==2, receipt.request_id==id, receipt.workspace==value.result.restoration.workspace,
+         receipt.context==value.request.capture.context, !receipt.adoption_current, receipt.saved_sources==nil, !receipt.outcome.complete,
+         receipt.outcome.source_files_modified==false, receipt.outcome.source_files_uncertain==false,
+         receipt.outcome.applied.isEmpty, receipt.source_files.isEmpty else {
+    throw EntrySelectionFailure("The no-effect receipt does not confirm the original source state.")
+   }
+   pending=nil;publishingWorkspace=nil;workspace.changes.retireEntryMove()
+   notice="Publication ended before any source write. Your draft and history are retained. Prepare a fresh review."
+   return
+  }
   try WorkspaceEntryPublication.confirm(receipt.entry_outcome,request:id,intent:value.entryIntent)
   _ = try confirmedResourceFiles(value.patches,receipt:receipt,request:id,workspace:value.result.restoration.workspace,context:value.request.capture.context,expected:value.result.restoration.saved_after){($0.path,!$0.dir && $0.generated_by==nil)}
   confirmedReceipt=receipt

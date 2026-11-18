@@ -74,3 +74,15 @@ export function confirmEntryOutcome(value:unknown,request:string,intent:EntryInt
  if(body.version!==1||body.state!=='confirmed'||body.request_id!==request||!sameEntry(entryStamp(body.before_entry),intent.before)||
     !sameEntry(entryStamp(body.after_entry),intent.after)||!sameEntry(entryStamp(body.current_entry),intent.after))throw new Error('The original main construction publication is unconfirmed.');
 }
+
+export function entryPublicationHadNoEffect(value: unknown, request: string, intent: EntryIntent | undefined): boolean {
+  if (!value || typeof value !== 'object' || !('state' in value) || value.state !== 'no_effect') return false;
+  const body = object(value), consumed = body.reservation_consumed;
+  if (!intent || body.version !== 1 || body.request_id !== request || typeof consumed !== 'boolean' ||
+      !sameEntry(entryStamp(body.before_entry), intent.before) || !sameEntry(entryStamp(body.after_entry), intent.after)) {
+    throw new Error('The no-effect receipt does not match the original entry review.');
+  }
+  const retained = { ...intent.before, generation: intent.before.generation + (consumed ? 1 : 0) };
+  if (!sameEntry(entryStamp(body.current_entry), retained)) throw new Error('The original entry namespace is unconfirmed.');
+  return true;
+}

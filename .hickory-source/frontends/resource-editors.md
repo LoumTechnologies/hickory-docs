@@ -57,7 +57,7 @@ import {EditorView} from '@codemirror/view';
 import {isolateHistory} from '@codemirror/commands';
 import type {Transaction} from '@codemirror/state';
 import {isGroup,groups,type Layout} from './layout';
-import {confirmEntryOutcome,prepareEntryIntent,readEntryTransition,readFrozenEntrySelection,requireEntryTransitionCurrent,type EntryIntent} from './WorkspaceEntrySelection';
+import {confirmEntryOutcome,entryPublicationHadNoEffect,prepareEntryIntent,readEntryTransition,readFrozenEntrySelection,requireEntryTransitionCurrent,type EntryIntent} from './WorkspaceEntrySelection';
 export interface ResourceSource {identity:string;text:string}
 export interface ResourceEditorPatch {path:string;before:ResourceSource|null;after:ResourceSource|null}
 export interface ResourceEditorCapture<T> {editor:T;source:string}
@@ -86,7 +86,7 @@ baselines independently of draft text; restoration intentionally keeps them diff
 
 <ui:copy id="resource-editor-confirmation-browser">
 export type ResourceSaved = {kind:'missing'}|{kind:'file';text:string;sha256:string;readonly:boolean;executable:boolean;mode:number|null};
-export interface ResourceReceipt {version:number;adoption_current:boolean;adoption_reason?:string;request_id:string;workspace:string;context:string;outcome:{complete:boolean;recovery:string;applied:string[]};saved_sources:Record<string,ResourceSaved>|null;source_files:{file:FileNode;saved:ResourceSaved;hash:string;save_guard?:string}[];entry_outcome?:unknown}
+export interface ResourceReceipt {version:number;adoption_current:boolean;adoption_reason?:string;request_id:string;workspace:string;context:string;outcome:{complete:boolean;recovery:string;applied:string[];source_files_modified?:boolean;source_files_uncertain?:boolean};saved_sources:Record<string,ResourceSaved>|null;source_files:{file:FileNode;saved:ResourceSaved;hash:string;save_guard?:string}[];entry_outcome?:unknown}
 export interface ResourceExpectation {request:string;workspace:string;context:string;saved:ReadonlyMap<string,ResourceSaved>}
 function sameSaved(a:ResourceSaved|undefined,b:ResourceSaved|undefined):boolean {
  if(!a||!b||a.kind!==b.kind)return false;
@@ -218,6 +218,9 @@ export async function prepareResourceRestore(buffers:Buffers,record:{id:string;w
  return {operation:'restore',facts:prepared.consequences,record:record.id,fingerprint:record.fingerprint,consequence:prepared.consequences.fingerprint,workspace:record.workspace,context,plan:prepared.restoration.plan,patches,saved:prepared.restoration.saved_after,savedBefore:prepared.restoration.saved_before,proposal,current:()=>current()&&editorCurrent(),restoring,entryIntent};
 }
 const resourceAttempts=new WeakMap<ResourceRestoreReview,string>();
+export class EntryPublicationNoEffect extends Error {
+ constructor(){super('Publication ended before any source write. Your draft and history are retained. Prepare a fresh review.');}
+}
 /** Never retry a failed/uncertain write here. The caller requires a new review. */
 export async function publishResourceRestore(buffers:Buffers,review:ResourceRestoreReview,load:ResourceTransport):Promise<{routes:ResourceEditorRoute<Buffer>[];recovery:string}>{
  const earlier=resourceAttempts.get(review);if(earlier)throw new Error('This review already has publication request '+earlier+'. Inspect its retained recovery; it will not be retried.');
@@ -227,9 +230,18 @@ export async function publishResourceRestore(buffers:Buffers,review:ResourceRest
  let receipt:ResourceReceipt;try{receipt=await load<ResourceReceipt>(review.operation==='save'?'/api/changes/resource-save':'/api/changes/restore-resources',{request_id:request,reviewed_fingerprint:review.consequence,...(review.operation==='restore'?{reviewed_recovery_fingerprint:review.fingerprint}:{}),proposal:review.proposal});}catch(error){throw new Error(String(error)+' Publication request '+request+' is not confirmed. Inspect Source recovery using this identity before another review.');}
  let routes:ResourceEditorRoute<Buffer>[];
  try {
+  if (entryPublicationHadNoEffect(receipt.entry_outcome,request,review.entryIntent)) {
+   if (receipt.version!==2 || receipt.request_id!==request || receipt.workspace!==review.workspace || receipt.context!==review.context ||
+       receipt.adoption_current!==false || receipt.saved_sources!==null || receipt.outcome?.complete!==false ||
+       receipt.outcome.source_files_modified!==false || receipt.outcome.source_files_uncertain!==false ||
+       !Array.isArray(receipt.outcome.applied) || receipt.outcome.applied.length || !Array.isArray(receipt.source_files) || receipt.source_files.length) {
+    throw new Error('The no-effect receipt does not confirm the original source state.');
+   }
+   throw new EntryPublicationNoEffect();
+  }
   confirmEntryOutcome(receipt.entry_outcome,request,review.entryIntent);
   routes=adoptResourceReceipt(buffers,review.patches,receipt,{request,workspace:review.workspace,context:review.context,saved:new Map(Object.entries(review.saved))},review.current,review.restoring);
- }catch(error){throw new Error(String(error)+" Publication request "+request+"; retained recovery "+(receipt.outcome?.recovery??"unknown")+". Preserve local drafts while inspecting the result.");}
+ }catch(error){if(error instanceof EntryPublicationNoEffect)throw error;throw new Error(String(error)+" Publication request "+request+"; retained recovery "+(receipt.outcome?.recovery??"unknown")+". Preserve local drafts while inspecting the result.");}
  const match=receipt.outcome.recovery.match(/(?:^|\/)resource-changes\/([0-9a-f]{32})\/[^/]+$/);if(!match)throw new Error('Source restored but inverse recovery identity is unavailable. Inspect Source recovery.');
  return {routes,recovery:match[1]};
 }
@@ -363,7 +375,7 @@ struct ResourceSaved:Codable {
  }
 }
 struct ResourcePublication<File:Decodable>:Decodable {
- struct Outcome:Decodable {var complete:Bool;var recovery:String;var applied:[String]}
+ struct Outcome:Decodable {var complete:Bool;var recovery:String;var applied:[String];var source_files_modified:Bool?=nil;var source_files_uncertain:Bool?=nil}
  struct Entry:Decodable {var file:File;var saved:ResourceSaved;var hash:String;var save_guard:String? = nil}
  var version:Int;var request_id:String;var workspace:String;var context:String;var outcome:Outcome;var saved_sources:[String:ResourceSaved]?;var source_files:[Entry];var adoption_current:Bool=false;var adoption_reason:String?=nil;var entry_outcome:WorkspaceEntryPublication?=nil
 }

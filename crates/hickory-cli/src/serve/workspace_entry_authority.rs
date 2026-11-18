@@ -33,13 +33,13 @@ impl EntryChange {
 }
 #[derive(Clone,Debug,Serialize,Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Pending {request_id:String,manifest_sha256:String,change:EntryChange,after_guard:Option<String>,#[serde(default,skip_serializing_if="Option::is_none")] namespace_guards:Option<BTreeMap<String,String>>,#[serde(default,skip_serializing_if="Option::is_none")] before_guard:Option<String>}
+struct Pending {request_id:String,manifest_sha256:String,change:EntryChange,after_guard:Option<String>,#[serde(default,skip_serializing_if="Option::is_none")] namespace_guards:Option<BTreeMap<String,String>>,#[serde(default,skip_serializing_if="Option::is_none")] before_guard:Option<String>,#[serde(default,skip_serializing_if="Option::is_none")] failure:Option<failures::Evidence>}
 #[derive(Clone,Debug,Serialize,Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RetainedTransition {request_id:String,manifest_sha256:String,change:EntryChange,after_guard:Option<String>,#[serde(default,skip_serializing_if="Option::is_none")] before_guard:Option<String>,#[serde(default,skip_serializing_if="Option::is_none")] namespace_guards:Option<BTreeMap<String,String>>}
 #[derive(Clone,Debug,Serialize,Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Binding {version:u32,physical_root:String,namespace:String,physical_store:String,current:EntryStamp,bootstrap_default:bool,pending:Option<Pending>,history:Vec<RetainedTransition>,#[serde(default,skip_serializing_if="Option::is_none")] ownership:Option<claims::Inventory>}
+struct Binding {version:u32,physical_root:String,namespace:String,physical_store:String,current:EntryStamp,bootstrap_default:bool,pending:Option<Pending>,history:Vec<RetainedTransition>,#[serde(default,skip_serializing_if="Option::is_none")] ownership:Option<claims::Inventory>,#[serde(default,skip_serializing_if="Option::is_none")] no_effects:Option<Vec<failures::NoEffect>>}
 #[derive(Serialize,Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SealedBinding {payload:Binding,seal:String}
@@ -59,6 +59,369 @@ fn history_transition(binding:&Binding,record:&super::resource_journal::Recovery
  let after=before.advance(destinations.into_iter().next())?;
  let change=EntryChange{version:1,kind:TransitionKind::Restoration,before,after,source_identity:Some(identity)};
  change.validate(&inverse)?;Ok(change)
+}
+mod failures {
+    use super::*;
+    use crate::serve::{resource_inputs::SavedSource, resource_journal::Manifest};
+    use std::{
+        collections::{BTreeMap, BTreeSet},
+        path::Path,
+    };
+
+    #[derive(Clone, Debug, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub(super) struct PathProof {
+        version: u32,
+        saved_sha256: String,
+        parent: String,
+        guard: Option<String>,
+    }
+    #[derive(Clone, Debug, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub(super) struct Evidence {
+        version: u32,
+        original: BTreeMap<String, PathProof>,
+        attempted: BTreeSet<String>,
+        observed: BTreeMap<String, PathProof>,
+    }
+    #[derive(Clone, Debug, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub(super) struct NoEffect {
+        pub request_id: String,
+        pub manifest_sha256: String,
+        pub before: EntryStamp,
+        pub after: EntryStamp,
+    }
+    fn saved_hash(saved: &SavedSource) -> Result<String, String> {
+        Ok(digest(
+            &serde_json::to_vec(saved).map_err(|error| error.to_string())?,
+        ))
+    }
+    impl PathProof {
+        fn capture(root: &Path, path: &str, expected: &SavedSource) -> Result<Self, String> {
+            let (full, current) = crate::serve::resource_inputs::saved_target(root, path)?;
+            if &current != expected {
+                return Err(format!(
+                    "Source changed before retaining interrupted-publication evidence: {path}"
+                ));
+            }
+            let parent = crate::serve::resource_inputs::RootIdentity::fingerprint(
+                full.parent().ok_or("Source has no parent")?,
+            )?;
+            let guard = if matches!(expected, SavedSource::File { .. }) {
+                Some(
+                    crate::serve::source_history::read_observed(root, &full, path)?
+                        .save_guard
+                        .ok_or("Source has no original physical guard")?,
+                )
+            } else {
+                None
+            };
+            let proof = Self {
+                version: 1,
+                saved_sha256: saved_hash(expected)?,
+                parent,
+                guard,
+            };
+            proof.check(root, path, expected)?;
+            Ok(proof)
+        }
+        fn check(&self, root: &Path, path: &str, expected: &SavedSource) -> Result<(), String> {
+            if self.version != 1 || self.saved_sha256 != saved_hash(expected)? {
+                return Err(
+                    "Interrupted source proof differs from its exact saved namespace".into(),
+                );
+            }
+            let (full, current) = crate::serve::resource_inputs::saved_target(root, path)?;
+            if &current != expected
+                || crate::serve::resource_inputs::RootIdentity::fingerprint(
+                    full.parent().ok_or("Source has no parent")?,
+                )? != self.parent
+            {
+                return Err(format!("Interrupted source namespace changed: {path}"));
+            }
+            match (expected, &self.guard) {
+                (SavedSource::File { .. }, Some(guard)) => {
+                    crate::serve::source_history::validate_observed_guard(root, &full, path, guard)
+                }
+                (SavedSource::Missing, None) => Ok(()),
+                _ => Err("Interrupted source proof is incomplete".into()),
+            }
+        }
+    }
+    impl Evidence {
+        pub(super) fn prepare(root: &Path, manifest: &Manifest) -> Result<Self, String> {
+            let original = manifest
+                .before
+                .iter()
+                .map(|(path, saved)| Ok((path.clone(), PathProof::capture(root, path, saved)?)))
+                .collect::<Result<_, String>>()?;
+            Ok(Self {
+                version: 1,
+                original,
+                attempted: BTreeSet::new(),
+                observed: BTreeMap::new(),
+            })
+        }
+        pub(super) fn validate_shape(&self) -> Result<(), String> {
+            if self.version != 1
+                || self.original.len() > 10_000
+                || !self
+                    .attempted
+                    .iter()
+                    .all(|path| self.original.contains_key(path))
+                || !self
+                    .observed
+                    .keys()
+                    .all(|path| self.attempted.contains(path))
+            {
+                return Err("Interrupted publication evidence has an invalid namespace".into());
+            }
+            for (path, proof) in &self.original {
+                crate::serve::resource_changes::validate_path(path)?;
+                if proof.version != 1 || !crate::serve::resource_saves::hex(&proof.saved_sha256, 64)
+                {
+                    return Err("Interrupted source evidence is malformed".into());
+                }
+            }
+            Ok(())
+        }
+        pub(super) fn attempt(&mut self, path: &str) -> Result<(), String> {
+            if !self.original.contains_key(path) {
+                return Err("Writer is outside the retained interrupted namespace".into());
+            }
+            self.attempted.insert(path.into());
+            Ok(())
+        }
+        pub(super) fn observe(
+            &mut self,
+            root: &Path,
+            path: &str,
+            saved: &SavedSource,
+            write: &crate::serve::resource_publish::ObservedWrite,
+        ) -> Result<(), String> {
+            if !self.attempted.contains(path) || !write.proven {
+                return Err("Interrupted checkpoint lacks its original admitted producer".into());
+            }
+            match (saved, &write.source) {
+                (SavedSource::File { .. }, Some(source)) => source.verify(root, path, saved)?,
+                (SavedSource::Missing, None) => {}
+                _ => return Err("Interrupted checkpoint has no matching held producer".into()),
+            }
+            let proof = PathProof::capture(root, path, saved)?;
+            if let Some(source) = &write.source {
+                source.verify(root, path, saved)?;
+            }
+            self.observed.insert(path.into(), proof);
+            Ok(())
+        }
+        pub(super) fn no_effect(&self, root: &Path, manifest: &Manifest) -> Result<(), String> {
+            self.validate_shape()?;
+            if !self.attempted.is_empty() || !self.observed.is_empty() {
+                return Err(
+                    "Attempted writers remain uncertain; no no-effect cleanup was inferred".into(),
+                );
+            }
+            if self.original.keys().ne(manifest.before.keys()) || manifest.after.keys().ne(manifest.before.keys()) {
+                return Err("Interrupted original namespace is incomplete".into());
+            }
+            for (path, proof) in &self.original {
+                proof.check(root, path, &manifest.before[path])?;
+            }
+            Ok(())
+        }
+        pub(super) fn current(
+            &self,
+            root: &Path,
+            manifest: &Manifest,
+        ) -> Result<BTreeMap<String, SavedSource>, String> {
+            self.validate_shape()?;
+            if self.original.keys().ne(manifest.before.keys()) || manifest.after.keys().ne(manifest.before.keys()) {
+                return Err("Interrupted namespace does not match its original manifest".into());
+            }
+            self.original
+                .iter()
+                .map(|(path, original)| {
+                    let (proof, saved) = match self.observed.get(path) {
+                        Some(proof) => (proof, &manifest.after[path]),
+                        None => (original, &manifest.before[path]),
+                    };
+                    proof.check(root, path, saved)?;
+                    Ok((path.clone(), saved.clone()))
+                })
+                .collect()
+        }
+    }
+}
+#[cfg(all(test, unix))]
+mod interrupted_evidence_tests {
+    use super::*;
+    use crate::serve::{
+        resource_changes::{ResourcePatch, ResourcePlan, SourceState},
+        resource_inputs::SavedSource,
+        resource_journal::Manifest,
+    };
+    use failures::Evidence;
+    fn fixture() -> (tempfile::TempDir, Manifest) {
+        use std::os::unix::fs::PermissionsExt;
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path();
+        std::fs::write(root.join("main.md"), b"saved\r\n").unwrap();
+        std::fs::set_permissions(root.join("main.md"), std::fs::Permissions::from_mode(0o640))
+            .unwrap();
+        let source = SourceState::File {
+            identity: "original".into(),
+            text: "dirty\r\n".into(),
+            writable: true,
+            removable: true,
+            version: Some(7),
+        };
+        let missing = SourceState::Missing { creatable: true };
+        let saved = crate::serve::resource_inputs::saved_target(root, "main.md")
+            .unwrap()
+            .1;
+        let before = BTreeMap::from([
+            ("main.md".into(), saved.clone()),
+            ("next.spec".into(), SavedSource::Missing),
+        ]);
+        let after = BTreeMap::from([
+            ("main.md".into(), SavedSource::Missing),
+            ("next.spec".into(), saved),
+        ]);
+        let manifest = Manifest {
+            version: 2,
+            workspace: "fixture".into(),
+            context: "original".into(),
+            title: "Move".into(),
+            restore_of: None,
+            request_id: None,
+            before,
+            after,
+            reviewed_plan: ResourcePlan {
+                version: 1,
+                context: "original".into(),
+                title: "Move".into(),
+                annotations: vec![],
+                patches: vec![
+                    ResourcePatch {
+                        path: "main.md".into(),
+                        before: source.clone(),
+                        after: missing.clone(),
+                    },
+                    ResourcePatch {
+                        path: "next.spec".into(),
+                        before: missing,
+                        after: source,
+                    },
+                ],
+            },
+        };
+        (temporary, manifest)
+    }
+    #[test]
+    fn unchanged_namespace_is_provably_no_effect_and_equal_byte_replacement_is_not() {
+        let (root, manifest) = fixture();
+        let evidence = Evidence::prepare(root.path(), &manifest).unwrap();
+        evidence.no_effect(root.path(), &manifest).unwrap();
+        let path = root.path().join("main.md");
+        let bytes = std::fs::read(&path).unwrap();
+        std::fs::remove_file(&path).unwrap();
+        std::fs::write(&path, bytes).unwrap();
+        assert!(evidence.no_effect(root.path(), &manifest).is_err());
+    }
+    #[test]
+    fn unresolved_writer_attempt_cannot_claim_no_effect() {
+        let (root, manifest) = fixture();
+        let mut evidence = Evidence::prepare(root.path(), &manifest).unwrap();
+        evidence.attempt("next.spec").unwrap();
+        assert!(evidence.no_effect(root.path(), &manifest).is_err());
+        assert!(evidence.attempt("foreign.txt").is_err());
+    }
+    #[test]
+    fn producer_checkpoint_retains_exact_mixed_namespace_across_serialization() {
+        let (root, manifest) = fixture();
+        let mut evidence = Evidence::prepare(root.path(), &manifest).unwrap();
+        evidence.attempt("next.spec").unwrap();
+        let written = crate::serve::resource_publish::replace_observed_for_identity(
+            root.path(),
+            "next.spec",
+            &manifest.before["next.spec"],
+            &manifest.after["next.spec"],
+            false,
+        )
+        .unwrap();
+        evidence
+            .observe(
+                root.path(),
+                "next.spec",
+                &manifest.after["next.spec"],
+                &written,
+            )
+            .unwrap();
+        let restarted: Evidence =
+            serde_json::from_slice(&serde_json::to_vec(&evidence).unwrap()).unwrap();
+        let namespace = restarted.current(root.path(), &manifest).unwrap();
+        assert_eq!(namespace["main.md"], manifest.before["main.md"]);
+        assert_eq!(namespace["next.spec"], manifest.after["next.spec"]);
+        assert_eq!(
+            std::fs::read(root.path().join("next.spec")).unwrap(),
+            b"saved\r\n"
+        );
+        assert!(restarted.no_effect(root.path(), &manifest).is_err());
+    }
+    #[test]
+    fn writer_to_checkpoint_crash_does_not_guess_progress() {
+        let (root, manifest) = fixture();
+        let mut evidence = Evidence::prepare(root.path(), &manifest).unwrap();
+        evidence.attempt("next.spec").unwrap();
+        let _written = crate::serve::resource_publish::replace_observed_for_identity(
+            root.path(),
+            "next.spec",
+            &manifest.before["next.spec"],
+            &manifest.after["next.spec"],
+            false,
+        )
+        .unwrap();
+        assert!(evidence.current(root.path(), &manifest).is_err());
+    }
+    #[test]
+    fn substituted_producer_never_becomes_checkpoint_authority() {
+        let (root, manifest) = fixture();
+        let mut evidence = Evidence::prepare(root.path(), &manifest).unwrap();
+        evidence.attempt("next.spec").unwrap();
+        let written = crate::serve::resource_publish::replace_observed_for_identity(
+            root.path(),
+            "next.spec",
+            &manifest.before["next.spec"],
+            &manifest.after["next.spec"],
+            false,
+        )
+        .unwrap();
+        let path = root.path().join("next.spec");
+        let bytes = std::fs::read(&path).unwrap();
+        std::fs::remove_file(&path).unwrap();
+        std::fs::write(path, bytes).unwrap();
+        assert!(evidence
+            .observe(
+                root.path(),
+                "next.spec",
+                &manifest.after["next.spec"],
+                &written
+            )
+            .is_err());
+    }
+    #[test]
+    fn changed_saved_permissions_or_parent_refuse_recovery() {
+        use std::os::unix::fs::PermissionsExt;
+        let (root, manifest) = fixture();
+        let evidence = Evidence::prepare(root.path(), &manifest).unwrap();
+        std::fs::set_permissions(
+            root.path().join("main.md"),
+            std::fs::Permissions::from_mode(0o600),
+        )
+        .unwrap();
+        assert!(evidence.current(root.path(), &manifest).is_err());
+    }
 }
 mod claims {
     use super::*;
@@ -445,7 +808,8 @@ mod storage {
    if payload.history.len()>256{return Err("Workspace-entry retained transition bound is invalid.".into())}
    let mut ids=std::collections::BTreeSet::new();
    for row in &payload.history{row.change.validate_shape()?;if !ids.insert(&row.request_id)||!super::super::resource_saves::hex(&row.request_id,32)||!super::super::resource_saves::hex(&row.manifest_sha256,64){return Err("Workspace-entry retained transition identities are malformed or repeated.".into())}}
-   if let Some(pending)=&payload.pending{pending.change.validate_shape()?;if pending.change.before!=payload.current{return Err("Pending entry publication does not begin at its retained current generation.".into())}}
+   if let Some(rows)=&payload.no_effects{if rows.len()>256{return Err("Retained no-effect journal exceeds its bound".into())}for row in rows{row.before.validate()?;row.after.validate()?;if row.after!=row.before.advance(row.before.path.clone())?||!ids.insert(&row.request_id)||!super::super::resource_saves::hex(&row.request_id,32)||!super::super::resource_saves::hex(&row.manifest_sha256,64){return Err("Retained no-effect evidence is malformed".into())}}}
+   if let Some(pending)=&payload.pending{pending.change.validate_shape()?;if let Some(failure)=&pending.failure{failure.validate_shape()?;}if pending.change.before!=payload.current{return Err("Pending entry publication does not begin at its retained current generation.".into())}}
    held.check()?;Ok(Self{held,payload,original})
   }
   pub(super) fn resolve(root:&std::path::Path)->Result<Self,String>{
@@ -462,7 +826,7 @@ mod storage {
    let mut bound=if original.is_some(){Self::decode(root,held,original)?}else{
     if !held.created_key{return Err("Workspace-entry binding is missing from its existing private store; missing metadata does not restore project.md authority.".into())}
     let path=legacy_main(root)?;let namespace=root.canonicalize().map_err(|error|error.to_string())?.to_str().ok_or("Workspace namespace is not exact UTF-8")?.to_owned();
-    let payload=Binding{version:1,physical_root:held.root_id.clone(),namespace,physical_store:held.store_id.clone(),bootstrap_default:path.is_none(),current:initial_stamp(path)?,pending:None,history:vec![],ownership:None};
+    let payload=Binding{version:1,physical_root:held.root_id.clone(),namespace,physical_store:held.store_id.clone(),bootstrap_default:path.is_none(),current:initial_stamp(path)?,pending:None,history:vec![],ownership:None,no_effects:None};
     let mut bound=Self{held,payload,original};bound.persist()?;bound
    };
    if bound.payload.bootstrap_default&&bound.payload.pending.is_none(){if let Some(path)=legacy_main(root)?{bound.payload.current=bound.payload.current.advance(Some(path))?;bound.payload.bootstrap_default=false;bound.persist()?;}}
@@ -582,7 +946,7 @@ mod leases {
   let path=directory.join("workspace-entry-role.json");match std::fs::symlink_metadata(&path){Err(error)if error.kind()==std::io::ErrorKind::NotFound=>Ok(None),Err(error)=>Err(error.to_string()),Ok(_)=>{let bytes=super::super::resource_journal::read_regular(&path,4096)?;let hint:RoleLossHint=serde_json::from_slice(&bytes).map_err(|_|"Workspace-entry role hint is damaged; missing state cannot become a fresh default.")?;if hint.version!=1||hint.identity.len()!=32||!hint.identity.bytes().all(|byte|byte.is_ascii_digit()||(b'a'..=b'f').contains(&byte)){return Err("Workspace-entry role hint is unsupported; restore the original private binding.".into())}Ok(Some(hint))}}
  }
  pub(super) fn role_loss_hint(root:&Path)->Result<bool,String>{Ok(role_hint(root)?.is_some())}
- pub(super) fn validate_role_hint(root:&Path,binding:&Binding)->Result<(),String>{match role_hint(root)?{Some(hint)=>{if hint.identity!=binding.current.identity{return Err("Entry recovery hint belongs to a different retained construction identity.".into())}if let Some(floor)=hint.generation_floor{let expected=binding.pending.as_ref().map(|pending|pending.change.after.generation).unwrap_or(binding.current.generation);if floor!=expected{return Err("Entry generation conflicts with its retained recovery floor; an older sealed frame was not revived.".into())}}else if !binding.history.is_empty(){return Err("Retained entry transitions have no current recovery generation floor.".into())}Ok(())},None if !binding.history.is_empty()=>Err("Retained entry transition recovery hint is missing; no old frame was revived.".into()),None=>Ok(())}}
+ pub(super) fn validate_role_hint(root:&Path,binding:&Binding)->Result<(),String>{match role_hint(root)?{Some(hint)=>{if hint.identity!=binding.current.identity{return Err("Entry recovery hint belongs to a different retained construction identity.".into())}if let Some(floor)=hint.generation_floor{let expected=binding.pending.as_ref().map(|pending|pending.change.after.generation).unwrap_or(binding.current.generation);if floor!=expected{return Err("Entry generation conflicts with its retained recovery floor; an older sealed frame was not revived.".into())}}else if (!binding.history.is_empty()||binding.no_effects.as_ref().is_some_and(|rows|!rows.is_empty())){return Err("Retained entry transitions have no current recovery generation floor.".into())}Ok(())},None if (!binding.history.is_empty()||binding.no_effects.as_ref().is_some_and(|rows|!rows.is_empty()))=>Err("Retained entry transition recovery hint is missing; no old frame was revived.".into()),None=>Ok(())}}
 
  pub(super) fn ordinary_root(root:&Path)->Result<(),String>{
   if crate::engine::private_policy::active().map_err(|error|error.to_string())?||crate::engine::private_policy::exact_private_root(root).map_err(|error|error.to_string())?{return Err("Ordinary workspace entry and generation are unavailable for a retained private-practice scope. Use its captured source provider.".into())}Ok(())
@@ -737,7 +1101,7 @@ mod namespace_retirement_tests {
   fn fixture()->(tempfile::TempDir,std::path::PathBuf,std::path::PathBuf){let temporary=tempfile::tempdir().unwrap();let root=temporary.path().join("workspace");std::fs::create_dir(&root).unwrap();let root=root.canonicalize().unwrap();let base=temporary.path().join("state");(temporary,root,base)}
   #[test]fn explicit_read_never_initializes_a_main_and_shared_reads_do_not_block_each_other(){let(_temporary,root,base)=fixture();let first=read_under(&base,&root,None,None).unwrap();let second=read_under(&base,&root,None,None).unwrap();first.check().unwrap();second.check().unwrap();assert!(!first.matches_current(&EntryStamp{version:1,identity:"0".repeat(32),generation:0,path:Some("project.md".into())}));assert!(!base.join("workspace-entry-v1").exists());assert!(coordination_under(&base,&root,true).is_err());drop(first);drop(second);coordination_under(&base,&root,true).unwrap();}
   #[test]fn original_implicit_binding_must_be_present_and_exact(){let(_temporary,root,base)=fixture();std::fs::write(root.join("project.md"),"<h:doc xmlns:h=\"http://www.hickorydocs.com/1.0\"><h:project/></h:doc>").unwrap();let bound=super::super::storage::Bound::resolve_under(&base,&root).unwrap();let stamp=bound.payload.current.clone();drop(bound);let lease=read_under(&base,&root,Some(&stamp),None).unwrap();lease.check().unwrap();assert!(lease.matches_current(&stamp));let stale=stamp.advance(stamp.path.clone()).unwrap();assert!(!lease.matches_current(&stale));assert!(read_under(&base,&root,Some(&stale),None).is_err());drop(lease);let other=root.parent().unwrap().join("other");std::fs::create_dir(&other).unwrap();assert!(read_under(&base,&other,Some(&stamp),None).is_err());}
-  #[test]fn pending_binding_is_not_explicit_absence(){let(_temporary,root,base)=fixture();std::fs::write(root.join("project.md"),"<h:doc xmlns:h=\"http://www.hickorydocs.com/1.0\"><h:project/></h:doc>").unwrap();let mut bound=super::super::storage::Bound::resolve_under(&base,&root).unwrap();let stamp=bound.payload.current.clone();bound.payload.pending=Some(Pending{request_id:"1".repeat(32),manifest_sha256:"2".repeat(64),change:EntryChange{version:1,kind:TransitionKind::Move,before:stamp.clone(),after:stamp.advance(Some("next.md".into())).unwrap(),source_identity:Some("owned".into())},after_guard:None,namespace_guards:None,before_guard:None});bound.persist().unwrap();drop(bound);assert!(read_under(&base,&root,None,None).is_err());}
+  #[test]fn pending_binding_is_not_explicit_absence(){let(_temporary,root,base)=fixture();std::fs::write(root.join("project.md"),"<h:doc xmlns:h=\"http://www.hickorydocs.com/1.0\"><h:project/></h:doc>").unwrap();let mut bound=super::super::storage::Bound::resolve_under(&base,&root).unwrap();let stamp=bound.payload.current.clone();bound.payload.pending=Some(Pending{request_id:"1".repeat(32),manifest_sha256:"2".repeat(64),change:EntryChange{version:1,kind:TransitionKind::Move,before:stamp.clone(),after:stamp.advance(Some("next.md".into())).unwrap(),source_identity:Some("owned".into())},after_guard:None,namespace_guards:None,before_guard:None,failure:None});bound.persist().unwrap();drop(bound);assert!(read_under(&base,&root,None,None).is_err());}
   #[test]fn lost_or_inaccessible_role_store_refuses_instead_of_creating_explicit_authority(){let(_temporary,root,base)=fixture();let bound=super::super::storage::Bound::resolve_under(&base,&root).unwrap();let path=bound.held.path.clone();drop(bound);std::fs::remove_file(path.join("entry.json")).unwrap();assert!(read_under(&base,&root,None,None).is_err());let fresh_base=base.with_file_name("another-state");std::fs::create_dir(root.join(".hick-cache")).unwrap();std::fs::write(root.join(".hick-cache/workspace-entry-role.json"),serde_json::to_vec(&serde_json::json!({"version":1,"identity":"f".repeat(32)})).unwrap()).unwrap();assert!(read_under(&fresh_base,&root,None,None).is_err());assert!(!fresh_base.join("workspace-entry-v1").exists());std::fs::remove_file(root.join(".hick-cache/workspace-entry-role.json")).unwrap();std::fs::write(fresh_base.join("workspace-entry-v1"),"not a directory").unwrap();assert!(read_under(&fresh_base,&root,None,None).is_err());}
 
   #[test]fn tag_free_contributor_write_is_exclusive_until_inventory_proves_independence(){let(_temporary,root,base)=fixture();let path=root.join("part.md");std::fs::write(&path,"ordinary prose\r\n").unwrap();let reading=read_under(&base,&root,None,None).unwrap();assert!(source_coordination_under(&base,&root,&path,"new prose",None).is_err());assert!(!base.join("workspace-entry-v1").exists());drop(reading);let writing=source_coordination_under(&base,&root,&path,"new prose",None).unwrap();assert!(read_under(&base,&root,None,None).is_err());writing.check().unwrap();drop(writing);read_under(&base,&root,None,None).unwrap();}
@@ -756,7 +1120,7 @@ mod namespace_retirement_tests {
   #[test]fn direct_namespace_refuses_main_physical_aliases_and_case_spellings_without_broad_prefix_claims(){let(_temporary,root,base)=fixture();std::fs::create_dir(root.join("docs")).unwrap();std::fs::write(root.join("docs/main.spec"),"main").unwrap();let mut bound=super::super::storage::Bound::resolve_under(&base,&root).unwrap();bound.payload.current=bound.payload.current.advance(Some("docs/main.spec".into())).unwrap();bound.payload.bootstrap_default=false;bound.persist().unwrap();drop(bound);std::fs::hard_link(root.join("docs/main.spec"),root.join("same-inode.txt")).unwrap();std::os::unix::fs::symlink(root.join("docs"),root.join("folder-alias")).unwrap();std::os::unix::fs::symlink("cycle",root.join("cycle")).unwrap();for path in ["same-inode.txt","folder-alias","docs/MAIN.SPEC","DOCS","cycle"]{assert!(namespace_coordination_under(&base,&root,&[path],None).is_err(),"{path}")}std::fs::remove_file(root.join("docs/main.spec")).unwrap();assert!(namespace_coordination_under(&base,&root,&["docs/MAIN.SPEC"],None).is_err());namespace_coordination_under(&base,&root,&["docs-sibling"],None).unwrap();}
 
 
-  #[test]fn pending_role_created_after_preflight_is_observed_under_the_exclusive_source_lease(){let(_temporary,root,base)=fixture();let path=root.join("plain.txt");std::fs::write(&path,"original").unwrap();assert!(super::super::storage::Bound::optional_under(&base,&root).unwrap().is_none());let admission=source_coordination_after_preflight(&base,&root,&path,"new",None,||{let mut bound=super::super::storage::Bound::resolve_under(&base,&root)?;let before=bound.payload.current.clone();bound.payload.pending=Some(Pending{request_id:"1".repeat(32),manifest_sha256:"2".repeat(64),change:EntryChange{version:1,kind:TransitionKind::Create,before:before.clone(),after:before.advance(Some("project.md".into()))?,source_identity:Some("owned".into())},after_guard:None,namespace_guards:None,before_guard:None});bound.persist()});assert!(admission.is_err());assert_eq!(std::fs::read_to_string(path).unwrap(),"original");assert!(super::super::storage::Bound::optional_under(&base,&root).unwrap().unwrap().payload.pending.is_some());}
+  #[test]fn pending_role_created_after_preflight_is_observed_under_the_exclusive_source_lease(){let(_temporary,root,base)=fixture();let path=root.join("plain.txt");std::fs::write(&path,"original").unwrap();assert!(super::super::storage::Bound::optional_under(&base,&root).unwrap().is_none());let admission=source_coordination_after_preflight(&base,&root,&path,"new",None,||{let mut bound=super::super::storage::Bound::resolve_under(&base,&root)?;let before=bound.payload.current.clone();bound.payload.pending=Some(Pending{request_id:"1".repeat(32),manifest_sha256:"2".repeat(64),change:EntryChange{version:1,kind:TransitionKind::Create,before:before.clone(),after:before.advance(Some("project.md".into()))?,source_identity:Some("owned".into())},after_guard:None,namespace_guards:None,before_guard:None,failure:None});bound.persist()});assert!(admission.is_err());assert_eq!(std::fs::read_to_string(path).unwrap(),"original");assert!(super::super::storage::Bound::optional_under(&base,&root).unwrap().unwrap().payload.pending.is_some());}
 
  }
 }
@@ -793,5 +1157,5 @@ mod tests {
  #[test]
  fn malformed_main_is_retained_as_readable_role_without_move_authority(){let(_temporary,root,base)=fixture(true);drop(storage::Bound::resolve_under(&base,&root).unwrap());std::fs::write(root.join("project.md"),"<h:doc").unwrap();let identity=super::super::resource_inputs::RootIdentity::bind(&root);let proof=issue(&base,&root,&identity);assert_eq!(proof.entry.path.as_deref(),Some("project.md"));assert!(!proof.movable);validate(&base,&root,&identity,&proof).unwrap();assert_eq!(std::fs::read_to_string(root.join("project.md")).unwrap(),"<h:doc");}
  #[test]
- fn forged_selection_fields_and_unconfirmed_publication_refuse_whole_reading_scope(){let(_temporary,root,base)=fixture(true);let identity=super::super::resource_inputs::RootIdentity::bind(&root);let proof=issue(&base,&root,&identity);for mutation in ["namespace","source","generation","effects"]{let mut forged=proof.clone();match mutation{"namespace"=>forged.namespace.push_str("/other"),"source"=>forged.source_hash=Some(format!("sha256:{}","0".repeat(64))),"generation"=>forged.entry.generation+=1,_=>forged.source_effects=true};assert!(validate(&base,&root,&identity,&forged).is_err());}let mut bound=storage::Bound::open_under(&base,&root,true).unwrap();bound.payload.pending=Some(Pending{request_id:"1".repeat(32),manifest_sha256:"2".repeat(64),change:EntryChange{version:1,kind:TransitionKind::Move,before:proof.entry.clone(),after:proof.entry.advance(Some("next.md".into())).unwrap(),source_identity:Some("original".into())},after_guard:None,namespace_guards:None,before_guard:None});bound.persist().unwrap();assert!(issue_selection(&root,&identity,&bound).is_err());drop(bound);assert!(validate(&base,&root,&identity,&proof).is_err());}
+ fn forged_selection_fields_and_unconfirmed_publication_refuse_whole_reading_scope(){let(_temporary,root,base)=fixture(true);let identity=super::super::resource_inputs::RootIdentity::bind(&root);let proof=issue(&base,&root,&identity);for mutation in ["namespace","source","generation","effects"]{let mut forged=proof.clone();match mutation{"namespace"=>forged.namespace.push_str("/other"),"source"=>forged.source_hash=Some(format!("sha256:{}","0".repeat(64))),"generation"=>forged.entry.generation+=1,_=>forged.source_effects=true};assert!(validate(&base,&root,&identity,&forged).is_err());}let mut bound=storage::Bound::open_under(&base,&root,true).unwrap();bound.payload.pending=Some(Pending{request_id:"1".repeat(32),manifest_sha256:"2".repeat(64),change:EntryChange{version:1,kind:TransitionKind::Move,before:proof.entry.clone(),after:proof.entry.advance(Some("next.md".into())).unwrap(),source_identity:Some("original".into())},after_guard:None,namespace_guards:None,before_guard:None,failure:None});bound.persist().unwrap();assert!(issue_selection(&root,&identity,&bound).is_err());drop(bound);assert!(validate(&base,&root,&identity,&proof).is_err());}
 }

@@ -93,3 +93,18 @@ fun confirmWorkspaceEntryPublication(raw:Any?,request:String,intent:WorkspaceEnt
   entryStamp(value.getJSONObject("before_entry"))==intent.before&&entryStamp(value.getJSONObject("after_entry"))==intent.after&&
   entryStamp(value.getJSONObject("current_entry"))==intent.after){"The original main construction publication is unconfirmed."}
 }
+
+fun workspaceEntryPublicationHadNoEffect(raw: Any?, request: String, intent: WorkspaceEntryIntent?): Boolean {
+ val outcome = raw as? JSONObject ?: return false
+ if (outcome.opt("state") != "no_effect") return false
+ val expected = checkNotNull(intent) { "No original entry review exists for this receipt." }
+ val consumed = outcome.opt("reservation_consumed") as? Boolean ?: error("The entry reservation outcome is malformed.")
+ val retained = expected.before.copy(generation = expected.before.generation + if (consumed) 1 else 0)
+ check(entryInteger(outcome, "version") == 1L && outcome.opt("request_id") == request &&
+       entryStamp(outcome.getJSONObject("before_entry")) == expected.before &&
+       entryStamp(outcome.getJSONObject("after_entry")) == expected.after &&
+       entryStamp(outcome.getJSONObject("current_entry")) == retained) {
+  "The no-effect receipt does not match the original entry review."
+ }
+ return true
+}

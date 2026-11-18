@@ -15,7 +15,8 @@ class WorkspaceEntryMoveTest {
   val root=File(System.getenv("HICKORY_NATIVE_TEMPLATE_WORKSPACE") ?: error("Use the owned entry Move fixture")).canonicalFile
   assertEquals("owned-entry-move-v1\n",root.resolve(".hickory-entry-move-fixture").readText())
   val old="project.md"
-  val new="literal #main.spec"
+  val foreign=System.getenv("HICKORY_ENTRY_MOVE_FOREIGN_ROOM")
+  val new=foreign ?: "literal #main.spec"
   val engine=Engine(origin!!)
   val (_,tree)=engine.files()
   val background=CoroutineScope(SupervisorJob()+Dispatchers.Unconfined)
@@ -73,6 +74,17 @@ class WorkspaceEntryMoveTest {
    assertEquals(space.resourceChanges.notice,new,space.resourceChanges.review?.entryIntent?.after?.path)
    assertState(old,new,0)
    publish()
+   if(foreign!=null){
+    assertTrue(space.resourceChanges.notice,space.resourceChanges.notice.contains("Publication ended before any source write"))
+    assertState(old,new,0)
+    assertTrue(state.undoState.canUndo)
+    state.undoState.undo();assertEquals(saved,buffer.text)
+    state.undoState.redo();assertEquals(draft,buffer.text)
+    command("workspace.moveEntry");wait{space.changes.entrySelection?.entryPath==old}
+    space.changes.updateName(new);space.changes.prepare(space)
+    assertNotNull(space.resourceChanges.notice,space.resourceChanges.review)
+    return@runBlocking
+   }
    assertState(new,old,1)
 
    command("workspace.undo")

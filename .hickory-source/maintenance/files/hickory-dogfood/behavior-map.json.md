@@ -73268,6 +73268,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "construction": "fragments",
       "fragments": [
         "workspace-entry-model",
+        "workspace-entry-interrupted-evidence",
         "workspace-entry-owned-claims",
         "workspace-entry-storage",
         "workspace-entry-selection",
@@ -73820,6 +73821,28 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "construction": "fragments",
       "fragments": [
         "workspace-entry-transition-protocol-driver"
+      ]
+    },
+    "scripts/test-entry-publication-failures.py": {
+      "source": ".hickory-source/mechanisms/workspace-entry-publication-failure-witness.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "test",
+      "sha256": "7d1e41a1285bfc8732ad71f742b0c6748731717251bab3d1c9f7eaa5425067f8",
+      "construction": "fragments",
+      "fragments": [
+        "workspace-entry-failure-http-driver"
+      ]
+    },
+    "scripts/control-entry-room.mjs": {
+      "source": ".hickory-source/mechanisms/workspace-entry-publication-failure-witness.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "test",
+      "sha256": "eaa782162db07f64bcf95be5c48522b68102246a6705ed6049f6cd92ee587187",
+      "construction": "fragments",
+      "fragments": [
+        "workspace-entry-failure-room-peer"
       ]
     }
   },

@@ -1,5 +1,5 @@
 import {describe,it,expect} from "vitest";
-import {confirmEntryOutcome,parseEntrySelection,prepareEntryIntent,readEntryTransition,readFrozenEntrySelection,requireEntryTransitionCurrent} from "./WorkspaceEntrySelection";
+import {confirmEntryOutcome,entryPublicationHadNoEffect,parseEntrySelection,prepareEntryIntent,readEntryTransition,readFrozenEntrySelection,requireEntryTransitionCurrent} from "./WorkspaceEntrySelection";
 function original(){return {version:1,entry_protocol:1,workspace:"a".repeat(32),namespace:"/workspace",entry:{version:1,identity:"b".repeat(32),generation:7,path:"project.md"},guard:"c".repeat(64),source_guard:"opaque physical observation",source_hash:"sha256:"+"d".repeat(64),movable:true,source_effects:false};}
 describe("workspace entry reading selection",()=>{
  it("retains an immutable exact original rather than a caller-owned response",()=>{const response=original(),proof=parseEntrySelection(response);response.entry.path="replacement.md";response.namespace="/other";expect(proof.entry.path).toBe("project.md");expect(proof.namespace).toBe("/workspace");expect(Object.isFrozen(proof)).toBe(true);expect(Object.isFrozen(proof.entry)).toBe(true);});
@@ -17,6 +17,14 @@ describe("workspace entry reading selection",()=>{
   const confirmed={version:1,state:'confirmed',request_id:request,before_entry:proof.entry,after_entry:after,current_entry:after};
   confirmEntryOutcome(confirmed,request,intent);
   for(const receipt of [undefined,{...confirmed,state:'pending'},{...confirmed,current_entry:proof.entry},{...confirmed,request_id:'b'.repeat(32)}])expect(()=>confirmEntryOutcome(receipt,request,intent)).toThrow();
+  const noEffect={...confirmed,state:'no_effect',current_entry:proof.entry,reservation_consumed:false};
+  expect(entryPublicationHadNoEffect(noEffect,request,intent)).toBe(true);
+  const consumed={...noEffect,reservation_consumed:true,current_entry:{...proof.entry,generation:8}};
+  expect(entryPublicationHadNoEffect(consumed,request,intent)).toBe(true);
+  for(const wrong of [{...consumed,current_entry:after},{...consumed,reservation_consumed:1},{...noEffect,request_id:'b'.repeat(32)}]){
+   expect(()=>entryPublicationHadNoEffect(wrong,request,intent)).toThrow();
+  }
+  expect(entryPublicationHadNoEffect({...confirmed,state:'pending'},request,intent)).toBe(false);
   await expect(prepareEntryIntent(selection,{kind:'move',destination:path},async()=>({...reply,after_entry:{...after,generation:proof.entry.generation}}),path,()=>true)).rejects.toThrow();
  });
  it('keeps retained history evidence separate from current entry permission',async()=>{

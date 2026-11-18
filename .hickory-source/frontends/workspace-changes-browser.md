@@ -33,7 +33,7 @@ import {authoredSource,authoredOffset,authoredChanges,authoredTransactionSource}
 import { useEffect, useRef, useState } from "react";
 import {api,request} from "../api/client";
 import {ResourceConsequencesView} from "./SourceRecovery";
-import {captureResourceRoster,isResourceEdit,prepareResourceSave,prepareResourceRestore,publishResourceRestore,type ResourceRestoreReview,type ResourceEditorRoute} from "./ResourceEditors";
+import {captureResourceRoster,EntryPublicationNoEffect,isResourceEdit,prepareResourceSave,prepareResourceRestore,publishResourceRestore,type ResourceRestoreReview,type ResourceEditorRoute} from "./ResourceEditors";
 import {prepareEntryIntent,readFrozenEntrySelection,type FrozenEntrySelection} from "./WorkspaceEntrySelection";
 import { createPortal } from "react-dom";
 import { isolateHistory } from "@codemirror/commands";
@@ -310,7 +310,10 @@ export function WorkspaceChanges({ buffers, current, focus,files,adoptResources,
     try{const result=await publishResourceRestore(buffers,review,(route,body)=>request("POST",route,body));adoptResources(result.routes);if(token)history.commit(token,{kind:'resource',recovery:result.recovery});else history.record({kind:'resource',recovery:result.recovery});resourceHistory.current=null;
       if(review.entryIntent){entryScope.current++;setEntrySelection(null);}
       setNotice("Saved source resources. Review Source recovery record "+result.recovery+" for coordinated inverse restoration. Generated files and checks were not run.");}
-    catch(error){setNotice(String(error)+" Preserve drafts and inspect Source recovery before another publication.");}finally{busy.current=false;setPublishing(false);}
+    catch(error){
+      if(error instanceof EntryPublicationNoEffect){resourceHistory.current=null;entryScope.current++;setEntrySelection(null);setNotice(error.message);}
+      else setNotice(String(error)+" Preserve drafts and inspect Source recovery before another publication.");
+    }finally{busy.current=false;setPublishing(false);}
   }
   function apply() {
     if (!plan) return;

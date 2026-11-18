@@ -59,7 +59,7 @@ class WorkspaceChanges {
         if(mode=="entryMove")workspace.resourceChanges.dismiss()
         retireEntryMove();mode=null;workspace.currentBuffer?.focusSource?.invoke()
     }
-    private fun retireEntryMove(){entryScope++;entrySelection=null}
+    internal fun retireEntryMove(){entryScope++;entrySelection=null}
     fun updateName(value: String) { revision++; name=value; plan=null; choices=emptyList(); notice="" }
     fun open(kind: String, workspace: Workspace) {
         revision++;retireEntryMove();mode=kind;name="";plan=null;choices=emptyList();notice="";actionPage=0

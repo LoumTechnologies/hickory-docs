@@ -11,7 +11,8 @@ import AppKit
         let directory=ProcessInfo.processInfo.environment["HICKORY_NATIVE_TEMPLATE_WORKSPACE"] else {
    throw XCTSkip("Use the owned workspace entry Move fixture.")
   }
-  let root=URL(fileURLWithPath:directory),old="project.md",new="literal #main.spec"
+  let foreign=ProcessInfo.processInfo.environment["HICKORY_ENTRY_MOVE_FOREIGN_ROOM"]
+  let root=URL(fileURLWithPath:directory),old="project.md",new=foreign ?? "literal #main.spec"
   func disk(_ path:String)throws->String {try String(contentsOf:root.appendingPathComponent(path),encoding:.utf8)}
   XCTAssertEqual(try disk(".hickory-entry-move-fixture"),"owned-entry-move-v1\n")
   let engine=try Engine(address:address),tree=try await engine.files(),space=Workspace()
@@ -57,6 +58,18 @@ import AppKit
   try await assertState(old,absent:new,advance:0)
   await space.resourceRestoration.publish(space)
   XCTAssertFalse(space.resourceRestoration.hasPending,space.resourceRestoration.notice)
+  if foreign != nil {
+   XCTAssertTrue(space.resourceRestoration.notice.contains("Publication ended before any source write"),space.resourceRestoration.notice)
+   try await assertState(old,absent:new,advance:0)
+   XCTAssertTrue(native.undoManager===manager);XCTAssertTrue(manager.canUndo)
+   manager.undo();XCTAssertEqual(buffer.text,saved)
+   manager.redo();XCTAssertEqual(buffer.text,draft)
+   try command("workspace.moveEntry")
+   try await wait{space.changes.entrySelection?.entryPath==old}
+   space.changes.name=new;await space.changes.prepare(space)
+   XCTAssertNotNil(space.resourceRestoration.review,space.resourceRestoration.notice)
+   return
+  }
   try await assertState(new,absent:old,advance:1)
 
   for (id,path,absent,advance) in [("workspace.undo",old,new,UInt32(2)),("workspace.redo",new,old,UInt32(3))] {

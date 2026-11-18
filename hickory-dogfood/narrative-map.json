@@ -157485,6 +157485,27 @@
       "page": ".hickory-source/mechanisms/workspace-entry-transition-protocol-witness.md",
       "symbol": "workspace entry transition protocol driver",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "workspace-entry-interrupted-evidence",
+      "output": "crates/hickory-cli/src/serve/workspace_entry_authority.rs",
+      "page": ".hickory-source/mechanisms/workspace-entry-failures.md",
+      "symbol": "seal original and interrupted source publication evidence",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "workspace-entry-failure-http-driver",
+      "output": "scripts/test-entry-publication-failures.py",
+      "page": ".hickory-source/mechanisms/workspace-entry-publication-failure-witness.md",
+      "symbol": "workspace entry failure http driver",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "workspace-entry-failure-room-peer",
+      "output": "scripts/control-entry-room.mjs",
+      "page": ".hickory-source/mechanisms/workspace-entry-publication-failure-witness.md",
+      "symbol": "workspace entry failure room peer",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

@@ -37,7 +37,7 @@ import {useEffect,useMemo,useReducer,useRef,useState} from 'react';
 import {createPortal} from 'react-dom';
 import {request} from '../api/client';
 import type {Buffer,Buffers} from './buffers';
-import {prepareResourceRestore,publishResourceRestore,type ResourceRestoreReview,type ResourceEditorRoute} from './ResourceEditors';
+import {EntryPublicationNoEffect,prepareResourceRestore,publishResourceRestore,type ResourceRestoreReview,type ResourceEditorRoute} from './ResourceEditors';
 export interface RecoveryPage {version:number;workspace:string;ids:string[];next:string|null;ignored:number}
 export interface RecoverySummary {kind:'file'|'missing';bytes?:number;sha256?:string}
 export interface RecoveryReading {version:number;workspace:string;id:string;fingerprint:string;title:string;title_truncated:boolean;paths:{path:string;saved_before:RecoverySummary;saved_after:RecoverySummary;draft_before:RecoverySummary;draft_after:RecoverySummary}[];all_paths_recorded_applied:boolean;unrecognized_files:string[];draft_text:string|null;saved_text:string|null;entry_transition?:unknown}
@@ -85,7 +85,7 @@ export function SourceRecoveryView({close,buffers,acquire,adopt,alive,epoch,edit
  }
  async function publish(){if(!review||busy)return;const selected=review;setReview(null);setBusy(true);setMessage('Publishing reviewed source restoration…');
   try{const result=await publishResourceRestore(buffers,selected,(route,body)=>request('POST',route,body));adopt(result.routes,result.recovery);setInverse(result.recovery);setMessage('Restored saved baselines and source drafts. Prepare inverse to undo this restoration. No checks were run.');}
-  catch(error){setMessage(String(error)+' Inspect Source recovery and current files before preparing another operation.');}finally{setBusy(false);}
+  catch(error){setMessage(error instanceof EntryPublicationNoEffect ? error.message : String(error)+' Inspect Source recovery and current files before preparing another operation.');}finally{setBusy(false);}
  }
  async function prepareInverse(){if(!inverse||busy)return;setBusy(true);setReview(null);try{const record=await request<RecoveryReading>('GET','/api/changes/resource-recovery?id='+encodeURIComponent(inverse));if(record.id!==inverse||!alive())throw new Error('Inverse recovery identity changed.');model.value=record;setBusy(false);await prepare(record);}catch(error){setMessage(String(error));setBusy(false);}}
  useEffect(()=>{lifetime.current=true;panel.current?.focus();void model.list();return()=>{lifetime.current=false;model.close();};},[model]);
@@ -405,6 +405,17 @@ Retain a unique pending request before sending a write. A lost or partial result
  }
  private func adopt(_ workspace:Workspace,id:String,value:ResourceRestorationReview,receipt:ResourcePublication<FileNode>)throws {
   guard publishingWorkspace === workspace else{throw EngineError(message:"Workspace changed during publication. Inspect recovery in its original workspace.")}
+  if try WorkspaceEntryPublication.hadNoEffect(receipt.entry_outcome,request:id,intent:value.entryIntent) {
+   guard receipt.version==2, receipt.request_id==id, receipt.workspace==value.result.restoration.workspace,
+         receipt.context==value.request.capture.context, !receipt.adoption_current, receipt.saved_sources==nil, !receipt.outcome.complete,
+         receipt.outcome.source_files_modified==false, receipt.outcome.source_files_uncertain==false,
+         receipt.outcome.applied.isEmpty, receipt.source_files.isEmpty else {
+    throw EntrySelectionFailure("The no-effect receipt does not confirm the original source state.")
+   }
+   pending=nil;publishingWorkspace=nil;workspace.changes.retireEntryMove()
+   notice="Publication ended before any source write. Your draft and history are retained. Prepare a fresh review."
+   return
+  }
   try WorkspaceEntryPublication.confirm(receipt.entry_outcome,request:id,intent:value.entryIntent)
   _ = try confirmedResourceFiles(value.patches,receipt:receipt,request:id,workspace:value.result.restoration.workspace,context:value.request.capture.context,expected:value.result.restoration.saved_after){($0.path,!$0.dir && $0.generated_by==nil)}
   confirmedReceipt=receipt
@@ -762,6 +773,19 @@ and direct the user to retained recovery evidence.
   catch(error:CancellationException){throw error}catch(error:Exception){notice=error.message.orEmpty()+" Inspect retained recovery before another publication."}finally{busy=false}
  }
  private fun adopt(workspace:Workspace,request:String,value:Review,raw:JSONObject){
+  if(workspaceEntryPublicationHadNoEffect(raw.opt("entry_outcome"),request,value.entryIntent)) {
+   val outcome=raw.getJSONObject("outcome")
+   check(publishedWorkspace===workspace && raw.opt("version")==2 && raw.opt("request_id")==request &&
+         raw.opt("workspace")==value.facts.getString("workspace") && raw.opt("context")==value.facts.getString("context") &&
+         raw.opt("adoption_current")==false && raw.opt("saved_sources")===JSONObject.NULL &&
+         outcome.opt("complete")==false && outcome.opt("source_files_modified")==false && outcome.opt("source_files_uncertain")==false &&
+         outcome.getJSONArray("applied").length()==0 && raw.getJSONArray("source_files").length()==0) {
+    "The no-effect receipt does not confirm the original source state."
+   }
+   pending=null;publishedWorkspace=null;workspace.changes.retireEntryMove()
+   notice="Publication ended before any source write. Your draft and history are retained. Prepare a fresh review."
+   return
+  }
   confirmWorkspaceEntryPublication(raw.opt("entry_outcome"),request,value.entryIntent)
   val receipt=resourcePublication(raw);val patches=resourcePatches(value.plan)
   workspace.adoptResourceReceipt(patches,receipt,request,value.facts.getString("workspace"),value.facts.getString("context"),value.saved,value.current,value.restoring)

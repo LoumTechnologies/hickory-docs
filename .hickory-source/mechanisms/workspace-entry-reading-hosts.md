@@ -92,6 +92,18 @@ export function confirmEntryOutcome(value:unknown,request:string,intent:EntryInt
  if(body.version!==1||body.state!=='confirmed'||body.request_id!==request||!sameEntry(entryStamp(body.before_entry),intent.before)||
     !sameEntry(entryStamp(body.after_entry),intent.after)||!sameEntry(entryStamp(body.current_entry),intent.after))throw new Error('The original main construction publication is unconfirmed.');
 }
+
+export function entryPublicationHadNoEffect(value: unknown, request: string, intent: EntryIntent | undefined): boolean {
+  if (!value || typeof value !== 'object' || !('state' in value) || value.state !== 'no_effect') return false;
+  const body = object(value), consumed = body.reservation_consumed;
+  if (!intent || body.version !== 1 || body.request_id !== request || typeof consumed !== 'boolean' ||
+      !sameEntry(entryStamp(body.before_entry), intent.before) || !sameEntry(entryStamp(body.after_entry), intent.after)) {
+    throw new Error('The no-effect receipt does not match the original entry review.');
+  }
+  const retained = { ...intent.before, generation: intent.before.generation + (consumed ? 1 : 0) };
+  if (!sameEntry(entryStamp(body.current_entry), retained)) throw new Error('The original entry namespace is unconfirmed.');
+  return true;
+}
 </ui:copy>
 
 ## Browser: refuse incomplete authority and obsolete replies
@@ -100,7 +112,7 @@ The witness checks mutation isolation, strict wire types, positive no-main versu
 
 <ui:copy id="workspace-entry-reading-browser-witness">
 import {describe,it,expect} from "vitest";
-import {confirmEntryOutcome,parseEntrySelection,prepareEntryIntent,readEntryTransition,readFrozenEntrySelection,requireEntryTransitionCurrent} from "./WorkspaceEntrySelection";
+import {confirmEntryOutcome,entryPublicationHadNoEffect,parseEntrySelection,prepareEntryIntent,readEntryTransition,readFrozenEntrySelection,requireEntryTransitionCurrent} from "./WorkspaceEntrySelection";
 function original(){return {version:1,entry_protocol:1,workspace:"a".repeat(32),namespace:"/workspace",entry:{version:1,identity:"b".repeat(32),generation:7,path:"project.md"},guard:"c".repeat(64),source_guard:"opaque physical observation",source_hash:"sha256:"+"d".repeat(64),movable:true,source_effects:false};}
 describe("workspace entry reading selection",()=>{
  it("retains an immutable exact original rather than a caller-owned response",()=>{const response=original(),proof=parseEntrySelection(response);response.entry.path="replacement.md";response.namespace="/other";expect(proof.entry.path).toBe("project.md");expect(proof.namespace).toBe("/workspace");expect(Object.isFrozen(proof)).toBe(true);expect(Object.isFrozen(proof.entry)).toBe(true);});
@@ -118,6 +130,14 @@ describe("workspace entry reading selection",()=>{
   const confirmed={version:1,state:'confirmed',request_id:request,before_entry:proof.entry,after_entry:after,current_entry:after};
   confirmEntryOutcome(confirmed,request,intent);
   for(const receipt of [undefined,{...confirmed,state:'pending'},{...confirmed,current_entry:proof.entry},{...confirmed,request_id:'b'.repeat(32)}])expect(()=>confirmEntryOutcome(receipt,request,intent)).toThrow();
+  const noEffect={...confirmed,state:'no_effect',current_entry:proof.entry,reservation_consumed:false};
+  expect(entryPublicationHadNoEffect(noEffect,request,intent)).toBe(true);
+  const consumed={...noEffect,reservation_consumed:true,current_entry:{...proof.entry,generation:8}};
+  expect(entryPublicationHadNoEffect(consumed,request,intent)).toBe(true);
+  for(const wrong of [{...consumed,current_entry:after},{...consumed,reservation_consumed:1},{...noEffect,request_id:'b'.repeat(32)}]){
+   expect(()=>entryPublicationHadNoEffect(wrong,request,intent)).toThrow();
+  }
+  expect(entryPublicationHadNoEffect({...confirmed,state:'pending'},request,intent)).toBe(false);
   await expect(prepareEntryIntent(selection,{kind:'move',destination:path},async()=>({...reply,after_entry:{...after,generation:proof.entry.generation}}),path,()=>true)).rejects.toThrow();
  });
  it('keeps retained history evidence separate from current entry permission',async()=>{
@@ -257,6 +277,19 @@ struct WorkspaceEntryPublication:Decodable {
  let before_entry:WorkspaceEntryStamp
  let after_entry:WorkspaceEntryStamp
  let current_entry:WorkspaceEntryStamp
+ var reservation_consumed:Bool?=nil
+
+ static func hadNoEffect(_ outcome: Self?, request: String, intent: WorkspaceEntryIntent?) throws -> Bool {
+  guard let outcome, outcome.state == "no_effect" else { return false }
+  guard let intent, let consumed = outcome.reservation_consumed, outcome.version == 1, outcome.request_id == request,
+        outcome.before_entry == intent.before_entry, outcome.after_entry == intent.after_entry,
+        outcome.current_entry.identity == intent.before_entry.identity,
+        exactUTF8(outcome.current_entry.path, intent.before_entry.path),
+        UInt64(outcome.current_entry.generation) == UInt64(intent.before_entry.generation) + (consumed ? 1 : 0) else {
+   throw EntrySelectionFailure("The no-effect receipt does not match the original entry review.")
+  }
+  return true
+ }
 
  static func confirm(_ outcome:Self?,request:String,intent:WorkspaceEntryIntent?)throws {
   guard let intent else{
@@ -283,6 +316,24 @@ final class WorkspaceEntrySelectionTests:XCTestCase {
  func testOriginalProofDoesNotFollowMutableResponseOrReturnedBody()throws {var response=original();let proof=try WorkspaceEntrySelectionProof(response);response["namespace"]="/other";var body=try XCTUnwrap(proof.body() as? [String:Any]);body["namespace"]="/mutated";XCTAssertEqual(proof.namespace,"/workspace");XCTAssertEqual(proof.entry.path,"project.md");XCTAssertEqual((try proof.body() as? [String:Any])?["namespace"] as? String,"/workspace")}
  func testStrictTypesAndGenerationsRefuseIncompleteAuthority(){for (key,value) in [("unexpected",1 as Any),("source_effects","false" as Any),("source_effects",0 as Any),("movable",1 as Any),("source_guard",NSNull()),("source_hash","wrong" as Any),("guard",String(repeating:"C",count:64) as Any)]{var response=original();response[key]=value;XCTAssertThrowsError(try WorkspaceEntrySelectionProof(response))};for generation in [-1,4_294_967_296]{var response=original(),entry=response["entry"] as! [String:Any];entry["generation"]=generation;response["entry"]=entry;XCTAssertThrowsError(try WorkspaceEntrySelectionProof(response))}}
  func testPositiveAbsenceCannotBorrowSourceOrMoveAuthority()throws {var response=original(),entry=response["entry"] as! [String:Any];entry["path"]=NSNull();response["entry"]=entry;XCTAssertThrowsError(try WorkspaceEntrySelectionProof(response));response.removeValue(forKey:"source_guard");response.removeValue(forKey:"source_hash");response["movable"]=false;XCTAssertNil(try WorkspaceEntrySelectionProof(response).entry.path)}
+ func testNoEffectRequiresTheExactRequestAndOriginalAddress() throws {
+  let response=original(),before=try XCTUnwrap(response["entry"] as? [String:Any]),request=String(repeating:"a",count:32)
+  let after=before.merging(["generation":8,"path":"moved.spec"]){_,new in new}
+  let token=String(repeating:"e",count:64)
+  let intentBody:[String:Any]=["version":1,"workspace":response["workspace"]!,"namespace":"/workspace","context":token,
+    "token":token,"kind":"move","title":"Move","edit":[:],"before_entry":before,"after_entry":after,"source_files_modified":false]
+  let intent=try JSONDecoder().decode(WorkspaceEntryIntent.self,from:JSONSerialization.data(withJSONObject:intentBody))
+  func outcome(consumed:Any,current:[String:Any])throws->WorkspaceEntryPublication {
+   let body:[String:Any]=["version":1,"state":"no_effect","request_id":request,"before_entry":before,"after_entry":after,
+      "current_entry":current,"reservation_consumed":consumed]
+   return try JSONDecoder().decode(WorkspaceEntryPublication.self,from:JSONSerialization.data(withJSONObject:body))
+  }
+  XCTAssertTrue(try WorkspaceEntryPublication.hadNoEffect(outcome(consumed:false,current:before),request:request,intent:intent))
+  let retained=before.merging(["generation":8]){_,new in new}
+  XCTAssertTrue(try WorkspaceEntryPublication.hadNoEffect(outcome(consumed:true,current:retained),request:request,intent:intent))
+  XCTAssertThrowsError(try WorkspaceEntryPublication.hadNoEffect(outcome(consumed:true,current:after),request:request,intent:intent))
+  XCTAssertThrowsError(try WorkspaceEntryPublication.hadNoEffect(outcome(consumed:1,current:retained),request:request,intent:intent))
+ }
  @MainActor func testAsynchronousAcquisitionNeverRebindsOriginalLease()async throws {let response=original();let workspace=response["workspace"] as! String;var live=false,reads=0;do{_ = try await WorkspaceEntrySelections.read(load:{reads+=1;return response},workspace:workspace,namespace:"/workspace",current:{live});XCTFail("stale source must refuse before request")}catch{};XCTAssertEqual(reads,0);live=true;do{_ = try await WorkspaceEntrySelections.read(load:{live=false;return response},workspace:workspace,namespace:"/workspace",current:{live});XCTFail("late reply must refuse")}catch{};live=true;let frozen=try await WorkspaceEntrySelections.read(load:{response},workspace:workspace,namespace:"/workspace",current:{live});XCTAssertEqual(frozen.entryPath,"project.md");live=false;XCTAssertFalse(frozen.current())}
 }
 </ui:copy>
@@ -387,6 +438,21 @@ fun confirmWorkspaceEntryPublication(raw:Any?,request:String,intent:WorkspaceEnt
   entryStamp(value.getJSONObject("before_entry"))==intent.before&&entryStamp(value.getJSONObject("after_entry"))==intent.after&&
   entryStamp(value.getJSONObject("current_entry"))==intent.after){"The original main construction publication is unconfirmed."}
 }
+
+fun workspaceEntryPublicationHadNoEffect(raw: Any?, request: String, intent: WorkspaceEntryIntent?): Boolean {
+ val outcome = raw as? JSONObject ?: return false
+ if (outcome.opt("state") != "no_effect") return false
+ val expected = checkNotNull(intent) { "No original entry review exists for this receipt." }
+ val consumed = outcome.opt("reservation_consumed") as? Boolean ?: error("The entry reservation outcome is malformed.")
+ val retained = expected.before.copy(generation = expected.before.generation + if (consumed) 1 else 0)
+ check(entryInteger(outcome, "version") == 1L && outcome.opt("request_id") == request &&
+       entryStamp(outcome.getJSONObject("before_entry")) == expected.before &&
+       entryStamp(outcome.getJSONObject("after_entry")) == expected.after &&
+       entryStamp(outcome.getJSONObject("current_entry")) == retained) {
+  "The no-effect receipt does not match the original entry review."
+ }
+ return true
+}
 </ui:copy>
 
 ## Android: reject coercion and stale acquisition
@@ -405,6 +471,22 @@ class WorkspaceEntrySelectionTest {
  @Test fun originalProofDoesNotFollowMutableResponseOrReturnedBody(){val response=original();val proof=WorkspaceEntrySelectionProof(response);response.put("namespace","/other");proof.body().put("namespace","/mutated");assertEquals("/workspace",proof.namespace);assertEquals("project.md",proof.entry.path);assertEquals("/workspace",proof.body().getString("namespace"))}
  @Test fun strictTypesAndGenerationBoundsRefuseIncompleteAuthority(){for((key,value)in listOf("unexpected" to 1,"source_effects" to "false","source_effects" to 0,"movable" to 1,"source_guard" to JSONObject.NULL,"source_hash" to "wrong","guard" to "C".repeat(64))){refuses{WorkspaceEntrySelectionProof(original().put(key,value))}};for(value in listOf(-1L,0x100000000L)){val body=original();body.getJSONObject("entry").put("generation",value);refuses{WorkspaceEntrySelectionProof(body)}}}
  @Test fun positiveAbsenceCannotBorrowSourceOrMoveAuthority(){val response=original();response.getJSONObject("entry").put("path",JSONObject.NULL);refuses{WorkspaceEntrySelectionProof(response)};response.remove("source_guard");response.remove("source_hash");response.put("movable",false);assertNull(WorkspaceEntrySelectionProof(response).entry.path)}
+ @Test fun noEffectRequiresTheExactRequestAndOriginalAddress(){
+  val response=original();val proof=WorkspaceEntrySelectionProof(response);val before=response.getJSONObject("entry")
+  val after=JSONObject(before.toString()).put("generation",8).put("path","moved.spec")
+  val request="a".repeat(32);val token="e".repeat(64)
+  val reply=JSONObject().put("version",1).put("workspace",proof.workspace).put("namespace",proof.namespace)
+   .put("before_entry",before).put("after_entry",after).put("context",token).put("token",token)
+   .put("kind","move").put("title","Move").put("edit",JSONObject()).put("source_files_modified",false)
+  val intent=WorkspaceEntryIntent(reply,proof,"move","moved.spec")
+  fun outcome(consumed:Any,retained:JSONObject)=JSONObject().put("version",1).put("state","no_effect").put("request_id",request)
+   .put("before_entry",before).put("after_entry",after).put("reservation_consumed",consumed).put("current_entry",retained)
+  val retained=JSONObject(before.toString()).put("generation",8)
+  assertTrue(workspaceEntryPublicationHadNoEffect(outcome(false,before),request,intent))
+  assertTrue(workspaceEntryPublicationHadNoEffect(outcome(true,retained),request,intent))
+  refuses{workspaceEntryPublicationHadNoEffect(outcome(true,after),request,intent)}
+  refuses{workspaceEntryPublicationHadNoEffect(outcome(1,retained),request,intent)}
+ }
  @Test fun asynchronousAcquisitionNeverRebindsOriginalLease()=runBlocking {val response=original();var live=false;var reads=0;try{WorkspaceEntrySelections.read({reads++;response},"a".repeat(32),"/workspace"){live};fail("stale source must refuse before request")}catch(expected:IllegalStateException){};assertEquals(0,reads);live=true;try{WorkspaceEntrySelections.read({live=false;response},"a".repeat(32),"/workspace"){live};fail("late reply must refuse")}catch(expected:IllegalStateException){};live=true;val frozen=WorkspaceEntrySelections.read({response},"a".repeat(32),"/workspace"){live};assertEquals("project.md",frozen.entryPath);live=false;assertFalse(frozen.current())}
 }
 </ui:copy>

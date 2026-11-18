@@ -536,6 +536,9 @@ mod unix {
         manifest: String,
         begun: bool,
         confirmed: bool,
+        failure_original: Option<super::super::failures::Evidence>,
+        writers_started: bool,
+        no_effect: Option<EntryStamp>,
         _ordinary: crate::engine::private_policy::Ordinary,
     }
     impl Publication {
@@ -724,6 +727,21 @@ mod unix {
                 .clone()
                 .ok_or("Resource publication lacks its retained request identity")?;
             let fingerprint = hash(manifest)?;
+            let failure_original = change
+                .as_ref()
+                .map(|_| super::super::failures::Evidence::prepare(&root, manifest))
+                .transpose()?;
+            if change.is_some()
+                && bound
+                    .payload
+                    .no_effects
+                    .as_ref()
+                    .is_some_and(|rows| rows.len() >= 256)
+            {
+                return Err(
+                    "Retained no-effect evidence capacity is full; no source was written".into(),
+                );
+            }
             let result = Self {
                 root,
                 coordination,
@@ -734,6 +752,9 @@ mod unix {
                 manifest: fingerprint,
                 begun: false,
                 confirmed: false,
+                failure_original,
+                writers_started: false,
+                no_effect: None,
                 _ordinary: ordinary,
             };
             result.check(state, &std::collections::BTreeSet::new())?;
@@ -805,6 +826,7 @@ mod unix {
                     manifest_sha256: self.manifest.clone(),
                     change: change.clone(),
                     after_guard: None,
+                    failure: self.failure_original.clone(),
                     namespace_guards: None,
                     before_guard: self
                         .intent
@@ -815,6 +837,91 @@ mod unix {
                 write_hint(&self.root, &change.before.identity, change.after.generation)?;
             }
             self.begun = true;
+            Ok(())
+        }
+        pub(crate) fn before_path(&mut self, path: &str) -> Result<(), String> {
+            self.begin()?;
+            if self.change.is_some() {
+                let pending = self
+                    .bound
+                    .payload
+                    .pending
+                    .as_mut()
+                    .ok_or("Entry pending publication disappeared")?;
+                pending
+                    .failure
+                    .as_mut()
+                    .ok_or("Entry attempt has no original namespace evidence")?
+                    .attempt(path)?;
+                self.bound.persist()?;
+            }
+            // Only the live invocation can know that no filesystem writer began.
+            // Restarted records never reconstruct this flag as live authority.
+            self.writers_started = true;
+            Ok(())
+        }
+        pub(crate) fn observed_path(
+            &mut self,
+            path: &str,
+            saved: &crate::serve::resource_inputs::SavedSource,
+            written: &crate::serve::resource_publish::ObservedWrite,
+        ) -> Result<(), String> {
+            if self.change.is_some() {
+                let pending = self
+                    .bound
+                    .payload
+                    .pending
+                    .as_mut()
+                    .ok_or("Entry pending publication disappeared")?;
+                pending
+                    .failure
+                    .as_mut()
+                    .ok_or("Entry producer has no original namespace evidence")?
+                    .observe(&self.root, path, saved, written)?;
+                self.bound.persist()?;
+            }
+            Ok(())
+        }
+        fn finish_no_effect(
+            &mut self,
+            manifest: &crate::serve::resource_journal::Manifest,
+        ) -> Result<(), String> {
+            if self.writers_started || self.change.is_none() {
+                return Ok(());
+            }
+            let Some(pending) = self.bound.payload.pending.as_ref() else {
+                self.failure_original
+                    .as_ref()
+                    .ok_or("No-effect refusal lost its original namespace proofs")?
+                    .no_effect(&self.root, manifest)?;
+                self.no_effect = Some(self.bound.payload.current.clone());
+                return Ok(());
+            };
+            if pending.request_id != self.request || pending.manifest_sha256 != self.manifest {
+                return Err("An unrelated pending entry cannot be retired as no-effect".into());
+            }
+            self.failure_original
+                .as_ref()
+                .ok_or("No-effect cleanup lost its original source proofs")?
+                .no_effect(&self.root, manifest)?;
+            let before = self.bound.payload.current.clone();
+            let after = before.advance(before.path.clone())?;
+            write_hint(&self.root, &before.identity, after.generation)?;
+            let row = super::super::failures::NoEffect {
+                request_id: self.request.clone(),
+                manifest_sha256: self.manifest.clone(),
+                before,
+                after: after.clone(),
+            };
+            self.bound
+                .payload
+                .no_effects
+                .get_or_insert_with(Vec::new)
+                .push(row);
+            self.bound.payload.current = after.clone();
+            self.bound.payload.pending = None;
+            self.bound.persist()?;
+            self.no_effect = Some(after);
             Ok(())
         }
         pub(crate) fn is_document_source(&self, path: &str) -> bool {
@@ -843,6 +950,9 @@ mod unix {
             self.coordination.check_exclusive_for(&self.root)?;
             self.bound.unchanged()?;
             if !outcome.complete {
+                if outcome.applied.is_empty() {
+                    self.finish_no_effect(manifest)?;
+                }
                 return Ok(());
             }
             if let Some(change) = &self.change {
@@ -923,7 +1033,15 @@ mod unix {
             }
             Ok(())
         }
+        pub(crate) fn proved_no_effect(&self) -> bool {
+            self.no_effect.is_some()
+        }
         pub(crate) fn outcome(&self) -> Option<Value> {
+            if let (Some(current), Some(change)) = (&self.no_effect, &self.change) {
+                return Some(
+                    json!({"version":1,"state":"no_effect","request_id":self.request,"before_entry":change.before,"after_entry":change.after,"current_entry":current,"reservation_consumed":current.generation!=change.before.generation,"notice":"No filesystem writer began. The original namespace was revalidated. Any persisted reservation consumed a generation; an unreserved refusal keeps its original generation."}),
+                );
+            }
             self.change.as_ref().map(|change|json!({"version":1,"state":if self.confirmed{"confirmed"}else{"pending"},"request_id":self.request,"before_entry":change.before,"after_entry":change.after,"current_entry":if self.confirmed{&change.after}else{&change.before}}))
         }
     }
@@ -1050,6 +1168,17 @@ mod unix {
             {
                 return Err("This retained main transition remains pending; inspect its source receipts without applying historical authority.".into());
             }
+            if let Some(row) = bound
+                .payload
+                .no_effects
+                .as_ref()
+                .and_then(|rows| rows.iter().find(|row| row.request_id == record.id))
+            {
+                if row.manifest_sha256 != record.manifest_sha256 {
+                    return Err("No-effect evidence does not match this retained manifest".into());
+                }
+                return Err("No filesystem writer began for this retained entry attempt. Its original namespace was checked and a new generation retired the refused live intent; it grants no inverse authority.".into());
+            }
             let Some(row) = bound
                 .payload
                 .history
@@ -1139,6 +1268,149 @@ mod unix {
     #[cfg(test)]
     mod tests {
         use super::*;
+        fn no_effect_fixture() -> (
+            tempfile::TempDir,
+            std::path::PathBuf,
+            crate::serve::resource_journal::Manifest,
+            Publication,
+        ) {
+            use crate::serve::resource_changes::ResourcePatch;
+            use crate::serve::resource_inputs::SavedSource;
+            let temporary = tempfile::tempdir().unwrap();
+            let root = temporary.path().join("workspace");
+            let base = temporary.path().join("private");
+            std::fs::create_dir(&root).unwrap();
+            let source = "<h:doc xmlns:h=\"http://www.hickorydocs.com/1.0\"><h:project/></h:doc>";
+            std::fs::write(root.join("project.md"), source).unwrap();
+            let coordination = leases::coordination_under(&base, &root, true).unwrap();
+            let bound = storage::Bound::resolve_coordinated(&base, &root, &coordination).unwrap();
+            let before = bound.payload.current.clone();
+            let change = EntryChange {
+                version: 1,
+                kind: TransitionKind::Move,
+                before: before.clone(),
+                after: before.advance(Some("next.spec".into())).unwrap(),
+                source_identity: Some("original".into()),
+            };
+            let original = SourceState::File {
+                identity: "original".into(),
+                text: source.into(),
+                writable: true,
+                removable: true,
+                version: None,
+            };
+            let missing = SourceState::Missing { creatable: true };
+            let saved = crate::serve::resource_inputs::saved_target(&root, "project.md")
+                .unwrap()
+                .1;
+            let manifest = crate::serve::resource_journal::Manifest {
+                version: 2,
+                workspace: bound.payload.physical_root.clone(),
+                context: "fixture".into(),
+                title: "Move".into(),
+                request_id: Some("7".repeat(32)),
+                restore_of: None,
+                before: BTreeMap::from([
+                    ("project.md".into(), saved.clone()),
+                    ("next.spec".into(), SavedSource::Missing),
+                ]),
+                after: BTreeMap::from([
+                    ("project.md".into(), SavedSource::Missing),
+                    ("next.spec".into(), saved),
+                ]),
+                reviewed_plan: ResourcePlan {
+                    version: 1,
+                    context: "fixture".into(),
+                    title: "Move".into(),
+                    annotations: vec![],
+                    patches: vec![
+                        ResourcePatch {
+                            path: "project.md".into(),
+                            before: original.clone(),
+                            after: missing.clone(),
+                        },
+                        ResourcePatch {
+                            path: "next.spec".into(),
+                            before: missing,
+                            after: original,
+                        },
+                    ],
+                },
+            };
+            let evidence =
+                super::super::super::failures::Evidence::prepare(&root, &manifest).unwrap();
+            let publication = Publication {
+                root,
+                coordination,
+                bound,
+                intent: None,
+                change: Some(change),
+                request: "7".repeat(32),
+                manifest: hash(&manifest).unwrap(),
+                begun: false,
+                confirmed: false,
+                failure_original: Some(evidence),
+                writers_started: false,
+                no_effect: None,
+                _ordinary: crate::engine::private_policy::ordinary(),
+            };
+            (temporary, base, manifest, publication)
+        }
+        #[test]
+        fn unreserved_refusal_reports_exact_no_effect_without_advancing_role() {
+            let (_temporary, _base, manifest, mut publication) = no_effect_fixture();
+            let original = publication.bound.payload.current.clone();
+            publication.finish_no_effect(&manifest).unwrap();
+            let outcome = publication.outcome().unwrap();
+            assert_eq!(outcome["state"], "no_effect");
+            assert_eq!(outcome["reservation_consumed"], false);
+            assert_eq!(publication.bound.payload.current, original);
+            assert!(publication.bound.payload.pending.is_none());
+            assert!(publication.bound.payload.no_effects.is_none());
+        }
+        #[test]
+        fn persisted_zero_writer_reservation_consumes_generation_and_survives_restart() {
+            let (_temporary, base, manifest, mut publication) = no_effect_fixture();
+            let root = publication.root.clone();
+            let original = publication.bound.payload.current.clone();
+            publication.begin().unwrap();
+            assert!(publication.bound.payload.pending.is_some());
+            publication.finish_no_effect(&manifest).unwrap();
+            assert_eq!(publication.outcome().unwrap()["reservation_consumed"], true);
+            drop(publication);
+            let reopened = storage::Bound::open_under(&base, &root, false).unwrap();
+            assert_eq!(
+                reopened.payload.current,
+                original.advance(original.path.clone()).unwrap()
+            );
+            assert!(reopened.payload.pending.is_none());
+            assert_eq!(reopened.payload.no_effects.as_ref().unwrap().len(), 1);
+        }
+        #[test]
+        fn started_writer_or_foreign_pending_never_clears_as_no_effect() {
+            let (_temporary, _base, manifest, mut publication) = no_effect_fixture();
+            publication.before_path("next.spec").unwrap();
+            publication.finish_no_effect(&manifest).unwrap();
+            assert!(!publication.proved_no_effect());
+            assert!(publication.bound.payload.pending.is_some());
+            publication.writers_started = false;
+            publication.request = "8".repeat(32);
+            assert!(publication.finish_no_effect(&manifest).is_err());
+            assert!(publication.bound.payload.pending.is_some());
+        }
+        #[test]
+        fn same_byte_source_replacement_keeps_zero_writer_reservation_pending() {
+            let (_temporary, _base, manifest, mut publication) = no_effect_fixture();
+            publication.begin().unwrap();
+            let path = publication.root.join("project.md");
+            let source = std::fs::read(&path).unwrap();
+            std::fs::remove_file(&path).unwrap();
+            std::fs::write(path, source).unwrap();
+            assert!(publication.finish_no_effect(&manifest).is_err());
+            assert!(publication.bound.payload.pending.is_some());
+            assert!(!publication.proved_no_effect());
+        }
+
         fn capture() -> Capture {
             serde_json::from_value(json!({"context":"original","edit":{},"drafts":{"main.spec":{"text":"draft\r\n","base_sha256":"a".repeat(64),"version":1,"writable":true}},"project_entry":null,"ownership_sources":{},"unaddressed_sources":{},"saved_guards":{}})).unwrap()
         }
@@ -1259,6 +1531,17 @@ impl Publication {
     pub(crate) fn begin(&mut self) -> Result<(), String> {
         Ok(())
     }
+    pub(crate) fn before_path(&mut self, _path: &str) -> Result<(), String> {
+        Ok(())
+    }
+    pub(crate) fn observed_path(
+        &mut self,
+        _path: &str,
+        _saved: &crate::serve::resource_inputs::SavedSource,
+        _written: &crate::serve::resource_publish::ObservedWrite,
+    ) -> Result<(), String> {
+        Ok(())
+    }
     pub(crate) fn is_document_source(&self, path: &str) -> bool {
         path.ends_with(".md")
     }
@@ -1273,6 +1556,9 @@ impl Publication {
         _files: &[Value],
     ) -> Result<(), String> {
         Ok(())
+    }
+    pub(crate) fn proved_no_effect(&self) -> bool {
+        false
     }
     pub(crate) fn outcome(&self) -> Option<Value> {
         None

@@ -207,6 +207,19 @@ class ResourceChangeReview(private val transport:(suspend(String,String,JSONObje
   catch(error:CancellationException){throw error}catch(error:Exception){notice=error.message.orEmpty()+" Inspect retained recovery before another publication."}finally{busy=false}
  }
  private fun adopt(workspace:Workspace,request:String,value:Review,raw:JSONObject){
+  if(workspaceEntryPublicationHadNoEffect(raw.opt("entry_outcome"),request,value.entryIntent)) {
+   val outcome=raw.getJSONObject("outcome")
+   check(publishedWorkspace===workspace && raw.opt("version")==2 && raw.opt("request_id")==request &&
+         raw.opt("workspace")==value.facts.getString("workspace") && raw.opt("context")==value.facts.getString("context") &&
+         raw.opt("adoption_current")==false && raw.opt("saved_sources")===JSONObject.NULL &&
+         outcome.opt("complete")==false && outcome.opt("source_files_modified")==false && outcome.opt("source_files_uncertain")==false &&
+         outcome.getJSONArray("applied").length()==0 && raw.getJSONArray("source_files").length()==0) {
+    "The no-effect receipt does not confirm the original source state."
+   }
+   pending=null;publishedWorkspace=null;workspace.changes.retireEntryMove()
+   notice="Publication ended before any source write. Your draft and history are retained. Prepare a fresh review."
+   return
+  }
   confirmWorkspaceEntryPublication(raw.opt("entry_outcome"),request,value.entryIntent)
   val receipt=resourcePublication(raw);val patches=resourcePatches(value.plan)
   workspace.adoptResourceReceipt(patches,receipt,request,value.facts.getString("workspace"),value.facts.getString("context"),value.saved,value.current,value.restoring)

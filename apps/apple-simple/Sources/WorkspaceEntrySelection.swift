@@ -117,6 +117,19 @@ struct WorkspaceEntryPublication:Decodable {
  let before_entry:WorkspaceEntryStamp
  let after_entry:WorkspaceEntryStamp
  let current_entry:WorkspaceEntryStamp
+ var reservation_consumed:Bool?=nil
+
+ static func hadNoEffect(_ outcome: Self?, request: String, intent: WorkspaceEntryIntent?) throws -> Bool {
+  guard let outcome, outcome.state == "no_effect" else { return false }
+  guard let intent, let consumed = outcome.reservation_consumed, outcome.version == 1, outcome.request_id == request,
+        outcome.before_entry == intent.before_entry, outcome.after_entry == intent.after_entry,
+        outcome.current_entry.identity == intent.before_entry.identity,
+        exactUTF8(outcome.current_entry.path, intent.before_entry.path),
+        UInt64(outcome.current_entry.generation) == UInt64(intent.before_entry.generation) + (consumed ? 1 : 0) else {
+   throw EntrySelectionFailure("The no-effect receipt does not match the original entry review.")
+  }
+  return true
+ }
 
  static func confirm(_ outcome:Self?,request:String,intent:WorkspaceEntryIntent?)throws {
   guard let intent else{

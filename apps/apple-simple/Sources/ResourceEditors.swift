@@ -31,7 +31,7 @@ struct ResourceSaved:Codable {
  }
 }
 struct ResourcePublication<File:Decodable>:Decodable {
- struct Outcome:Decodable {var complete:Bool;var recovery:String;var applied:[String]}
+ struct Outcome:Decodable {var complete:Bool;var recovery:String;var applied:[String];var source_files_modified:Bool?=nil;var source_files_uncertain:Bool?=nil}
  struct Entry:Decodable {var file:File;var saved:ResourceSaved;var hash:String;var save_guard:String? = nil}
  var version:Int;var request_id:String;var workspace:String;var context:String;var outcome:Outcome;var saved_sources:[String:ResourceSaved]?;var source_files:[Entry];var adoption_current:Bool=false;var adoption_reason:String?=nil;var entry_outcome:WorkspaceEntryPublication?=nil
 }
