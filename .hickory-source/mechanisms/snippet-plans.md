@@ -44,6 +44,7 @@ enum Node {
 struct Parser<'a> {
     text: &'a str,
     transforms: bool,
+    program_bytes: usize,
     at: usize,
     nodes: usize,
 }
@@ -221,6 +222,15 @@ impl Parser<'_> {
                         return self.fail("Malformed snippet transform terminator");
                     }
                     let program = crate::snippet_transform::compile(&pattern, &format, flags)?;
+                    self.program_bytes = self
+                        .program_bytes
+                        .checked_add(
+                            serde_json::to_vec(&program)
+                                .map_err(|_| "Malformed transform program")?
+                                .len(),
+                        )
+                        .filter(|bytes| *bytes <= MAX_COMPILED_WORK)
+                        .ok_or("Snippet transform compilation metadata budget exceeded")?;
                     return Ok(match index {
                         Some(index) => Node::FieldTransform(index, program),
                         None => Node::VariableTransform(name.to_owned(), program),
@@ -531,6 +541,139 @@ impl Renderer<'_> {
         Ok(())
     }
 }
+/// A single bounded reading or coordinated source action shares this budget.
+/// Legacy entry points construct a fresh budget; batched callers retain one.
+#[derive(Default, Debug)]
+pub struct SnippetExpansionBudget {
+    syntax_bytes: usize,
+    parse_nodes: usize,
+    demand_work: usize,
+    program_bytes: usize,
+    value_work: usize,
+    transform_work: usize,
+    output_bytes: usize,
+    metadata_bytes: usize,
+    fields: usize,
+    context_bytes: usize,
+    context_scan: usize,
+    context_steps: usize,
+    exhausted: bool,
+}
+const MAX_COMPILED_WORK: usize = 8 * MAX_OUTPUT;
+const AGGREGATE_BUDGET_ERROR: &str = "Snippet expansion aggregate budget exceeded";
+impl SnippetExpansionBudget {
+    pub fn exhausted(&self) -> bool {
+        self.exhausted
+    }
+    fn refuse<T>(&mut self) -> Result<T, String> {
+        self.exhausted = true;
+        Err(AGGREGATE_BUDGET_ERROR.into())
+    }
+    fn charge(&mut self, current: usize, amount: usize, maximum: usize) -> Result<usize, String> {
+        if self.exhausted {
+            return Err(AGGREGATE_BUDGET_ERROR.into());
+        };
+        match current.checked_add(amount).filter(|n| *n <= maximum) {
+            Some(n) => Ok(n),
+            None => self.refuse(),
+        }
+    }
+    pub fn charge_context_bytes(&mut self, amount: usize) -> Result<(), String> {
+        self.context_bytes = self.charge(self.context_bytes, amount, MAX_OUTPUT)?;
+        Ok(())
+    }
+    pub fn charge_context_scan(&mut self, amount: usize) -> Result<(), String> {
+        self.context_scan = self.charge(self.context_scan, amount, 8 * MAX_OUTPUT)?;
+        Ok(())
+    }
+    pub fn charge_context_steps(&mut self, amount: usize) -> Result<(), String> {
+        self.context_steps = self.charge(self.context_steps, amount, 1_000_000)?;
+        Ok(())
+    }
+    /// Convenience for already materialized values; prefer pre-copy charging in variables_with_budget.
+    pub fn charge_variables(
+        &mut self,
+        values: &BTreeMap<String, Option<String>>,
+    ) -> Result<(), String> {
+        let bytes = values
+            .values()
+            .try_fold(0usize, |sum, value| {
+                sum.checked_add(value.as_ref().map_or(0, String::len))
+            })
+            .ok_or(AGGREGATE_BUDGET_ERROR);
+        match bytes {
+            Ok(bytes) => self.charge_context_bytes(bytes),
+            Err(_) => self.refuse(),
+        }
+    }
+    fn charge_result(
+        &mut self,
+        output: usize,
+        metadata: usize,
+        fields: usize,
+    ) -> Result<(), String> {
+        let output = self.charge(self.output_bytes, output, MAX_OUTPUT)?;
+        let metadata = self.charge(self.metadata_bytes, metadata, MAX_OUTPUT)?;
+        let fields = self.charge(self.fields, fields, MAX_FIELDS)?;
+        self.output_bytes = output;
+        self.metadata_bytes = metadata;
+        self.fields = fields;
+        Ok(())
+    }
+    fn record_render(&mut self, value_work: usize, transform_work: usize, error: Option<&str>) {
+        self.value_work = value_work;
+        self.transform_work = transform_work;
+        if matches!(
+            error,
+            Some(
+                "Snippet transform value work limit exceeded"
+                    | "Transform work limit exceeded"
+                    | "Regex work budget exceeded"
+                    | "Regex format work budget exceeded"
+            )
+        ) {
+            self.exhausted = true
+        }
+    }
+}
+fn parse_budgeted(
+    text: &str,
+    transforms: bool,
+    budget: &mut SnippetExpansionBudget,
+) -> Result<Vec<Node>, String> {
+    budget.syntax_bytes = budget.charge(budget.syntax_bytes, text.len(), MAX_OUTPUT)?;
+    if text.len() > MAX_BYTES {
+        return Err("Snippet input limit exceeded".into());
+    };
+    let mut parser = Parser {
+        text,
+        program_bytes: budget.program_bytes,
+        transforms,
+        at: 0,
+        nodes: 0,
+    };
+    let parsed = parser.sequence(false, 0);
+    budget.program_bytes = parser.program_bytes;
+    budget.parse_nodes = budget.charge(budget.parse_nodes, parser.nodes, 100000)?;
+    match parsed {
+        Ok(nodes) => Ok(nodes),
+        Err(error) => {
+            if error == "Snippet transform compilation metadata budget exceeded" {
+                budget.exhausted = true
+            };
+            Err(error)
+        }
+    }
+}
+/// Retain this object across rows rather than resetting a complete regex budget for every caret.
+pub fn expand_snippet_v2_with_budget(
+    text: &str,
+    variables: &BTreeMap<String, Option<String>>,
+    budget: &mut SnippetExpansionBudget,
+) -> Result<SnippetPlan, String> {
+    expand_with_budget(text, variables, true, budget)
+}
+
 /// Parse provider snippet text or a source-owned live template without editing a document.
 /// Known-but-unset variables use `None`; unknown names become linked editable fields.
 pub fn expand_snippet(
@@ -547,16 +690,16 @@ pub fn expand_snippet_v2(
     expand(text, variables, true)
 }
 pub fn requested_variables(text: &str) -> Result<BTreeSet<String>, String> {
+    requested_variables_with_budget(text, &mut SnippetExpansionBudget::default())
+}
+pub fn requested_variables_with_budget(
+    text: &str,
+    budget: &mut SnippetExpansionBudget,
+) -> Result<BTreeSet<String>, String> {
     if text.len() > MAX_BYTES {
         return Err("Snippet input limit exceeded".into());
     }
-    let nodes = Parser {
-        text,
-        at: 0,
-        nodes: 0,
-        transforms: true,
-    }
-    .sequence(false, 0)?;
+    let nodes = parse_budgeted(text, true, budget)?;
     fn visit(nodes: &[Node], result: &mut BTreeSet<String>) {
         for node in nodes {
             match node {
@@ -584,16 +727,21 @@ pub fn effective_requested_variables(
     text: &str,
     variables: &BTreeMap<String, Option<String>>,
 ) -> Result<BTreeSet<String>, String> {
+    effective_requested_variables_with_budget(
+        text,
+        variables,
+        &mut SnippetExpansionBudget::default(),
+    )
+}
+pub fn effective_requested_variables_with_budget(
+    text: &str,
+    variables: &BTreeMap<String, Option<String>>,
+    budget: &mut SnippetExpansionBudget,
+) -> Result<BTreeSet<String>, String> {
     if text.len() > MAX_BYTES {
         return Err("Snippet input limit exceeded".into());
     }
-    let nodes = Parser {
-        text,
-        at: 0,
-        nodes: 0,
-        transforms: true,
-    }
-    .sequence(false, 0)?;
+    let nodes = parse_budgeted(text, true, budget)?;
     let mut definitions_map = BTreeMap::new();
     let mut max = 0;
     definitions(&nodes, &mut definitions_map, &mut max)?;
@@ -654,9 +802,14 @@ pub fn effective_requested_variables(
         variables,
         active: BTreeSet::new(),
         names: BTreeSet::new(),
-        work: 0,
+        work: budget.demand_work,
     };
-    demand.nodes(&nodes, 0)?;
+    let result = demand.nodes(&nodes, 0);
+    budget.demand_work = demand.work;
+    if demand.work > 100000 {
+        budget.exhausted = true
+    };
+    result?;
     Ok(demand.names)
 }
 impl SnippetPlan {
@@ -669,16 +822,20 @@ fn expand(
     variables: &BTreeMap<String, Option<String>>,
     transforms: bool,
 ) -> Result<SnippetPlan, String> {
-    if text.len() > MAX_BYTES {
-        return Err("Snippet input limit exceeded".into());
-    }
-    let nodes = Parser {
+    expand_with_budget(
         text,
+        variables,
         transforms,
-        at: 0,
-        nodes: 0,
-    }
-    .sequence(false, 0)?;
+        &mut SnippetExpansionBudget::default(),
+    )
+}
+fn expand_with_budget(
+    text: &str,
+    variables: &BTreeMap<String, Option<String>>,
+    transforms: bool,
+    budget: &mut SnippetExpansionBudget,
+) -> Result<SnippetPlan, String> {
+    let nodes = parse_budgeted(text, transforms, budget)?;
     let mut definitions_map = BTreeMap::new();
     let mut max = 0;
     definitions(&nodes, &mut definitions_map, &mut max)?;
@@ -701,8 +858,8 @@ fn expand(
     let mut renderer = Renderer {
         ordinary: indices,
         value_active: BTreeSet::new(),
-        value_work: 0,
-        transform_work: 0,
+        value_work: budget.value_work,
+        transform_work: budget.transform_work,
         definitions: definitions_map,
         variables,
         unknown: BTreeMap::new(),
@@ -715,7 +872,13 @@ fn expand(
         next_occurrence: 0,
         metadata_bytes: 0,
     };
-    renderer.render(&nodes, 0)?;
+    let rendered = renderer.render(&nodes, 0);
+    budget.record_render(
+        renderer.value_work,
+        renderer.transform_work,
+        rendered.as_ref().err().map(String::as_str),
+    );
+    rendered?;
     // A known variable can hide a default containing the only editable source
     // occurrence. Keep its transformed text, but do not publish an orphan link.
     let rendered_sources = renderer
@@ -727,7 +890,8 @@ fn expand(
     renderer
         .fields
         .retain(|field| field.transform.is_none() || rendered_sources.contains(&field.index));
-    if !renderer.fields.iter().any(|field| field.index == 0) {
+    let implicit_exit = !renderer.fields.iter().any(|field| field.index == 0);
+    if implicit_exit {
         if renderer.next_occurrence >= MAX_FIELDS || renderer.metadata_bytes + 64 > MAX_OUTPUT {
             return Err("Snippet expansion field limit exceeded".into());
         }
@@ -760,6 +924,13 @@ fn expand(
         .into_iter()
         .collect();
     order.push(0);
+    budget.charge_result(
+        renderer.text.len(),
+        renderer
+            .metadata_bytes
+            .saturating_add(if implicit_exit { 64 } else { 0 }),
+        renderer.fields.len(),
+    )?;
     Ok(SnippetPlan {
         text: renderer.text,
         fields: renderer.fields,
@@ -773,6 +944,67 @@ fn expand(
 Focused cases assert forward mirrors, nested Unicode selections, choices and escapes, literal variables, unknown linked names and empty fields. Malformed syntax, conflicting defaults, cycles, multiple exits, unsupported transforms and excessive input refuse without producing partial text.
 
 <ui:copy id="snippet-plan-witnesses">
+#[cfg(test)]
+mod shared_budget_witnesses {
+    use super::*;
+    #[test]
+    fn preserves_individual_results_and_retains_failed_work() {
+        let variables = BTreeMap::new();
+        let syntax = r"${1:old} $1 ${1/(.*)/${1:/upcase}/}$0";
+        let expected = expand_snippet_v2(syntax, &variables).unwrap();
+        let mut budget = SnippetExpansionBudget::default();
+        for _ in 0..3 {
+            assert_eq!(
+                expand_snippet_v2_with_budget(syntax, &variables, &mut budget).unwrap(),
+                expected
+            )
+        }
+        assert!(!budget.exhausted());
+        assert!(budget.transform_work > 0);
+        let mut limited = SnippetExpansionBudget::default();
+        limited.transform_work = 99_999;
+        assert!(expand_snippet_v2_with_budget(syntax, &variables, &mut limited).is_err());
+        assert!(limited.exhausted());
+        let spent = limited.syntax_bytes;
+        assert!(expand_snippet_v2_with_budget("safe", &variables, &mut limited).is_err());
+        assert_eq!(limited.syntax_bytes, spent)
+    }
+    #[test]
+    fn aggregate_boundaries_are_sticky_but_semantic_refusals_are_independent() {
+        let variables = BTreeMap::new();
+        for kind in 0..5 {
+            let mut budget = SnippetExpansionBudget::default();
+            match kind {
+                0 => budget.syntax_bytes = MAX_OUTPUT,
+                1 => budget.program_bytes = MAX_COMPILED_WORK - 1,
+                2 => budget.output_bytes = MAX_OUTPUT,
+                3 => budget.metadata_bytes = MAX_OUTPUT,
+                4 => budget.fields = MAX_FIELDS,
+                _ => unreachable!(),
+            };
+            let syntax = if kind == 1 {
+                r"${1:x}${1/(.*)/$1/}$0"
+            } else {
+                "x"
+            };
+            assert!(
+                expand_snippet_v2_with_budget(syntax, &variables, &mut budget).is_err(),
+                "{kind}"
+            );
+            assert!(budget.exhausted(), "{kind}")
+        }
+        let mut budget = SnippetExpansionBudget::default();
+        assert!(expand_snippet_v2_with_budget("${1:unclosed", &variables, &mut budget).is_err());
+        assert!(!budget.exhausted());
+        assert_eq!(
+            expand_snippet_v2_with_budget("safe", &variables, &mut budget)
+                .unwrap()
+                .text,
+            "safe"
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

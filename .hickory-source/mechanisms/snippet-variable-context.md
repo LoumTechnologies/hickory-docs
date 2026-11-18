@@ -19,6 +19,8 @@ use std::{
 };
 const MAX_VALUE: usize = 1_048_576;
 const KNOWN: &[&str] = &[
+    "CURSOR_INDEX",
+    "CURSOR_NUMBER",
     "TM_SELECTED_TEXT",
     "TM_CURRENT_LINE",
     "TM_CURRENT_WORD",
@@ -261,30 +263,116 @@ fn comments(
 /// Query availability without cloning values from unused defaults.
 </ui:copy>
 
+## Bind each ordered cursor without recapturing context
+
+`CURSOR_INDEX` is zero-based and `CURSOR_NUMBER` is one-based. A single selection uses 0 and 1. Batched callers override these two requested values in both presence and materialization passes using their frozen row order. The helper bounds the index before mutation and leaves the captured clock, seed, clipboard and other values untouched. Unrequested cursor variables remain recognized but unset. The focused witness checks defaults, later rows, the last allowed row and refusal without partial mutation.
+
 ## Inspect presence before materializing reachable values
 
 The presence pass reports whether a value exists without allocating its full text. The parser uses it to follow only rendered defaults and field dependencies; only then materialize the reachable values and enforce byte/work limits. An unused oversized selection cannot prevent an unrelated filename expansion.
 
 <ui:copy id="snippet-context-reachable-values">
+/// Bind an ordered selection row without recapturing its shared host snapshot.
+/// Validate before changing any value so an excessive row never partially binds.
+pub fn bind_cursor_variables(
+    values: &mut BTreeMap<String, Option<String>>,
+    requested: &BTreeSet<String>,
+    index: usize,
+) -> Result<(), String> {
+    if index >= 4096 {
+        return Err("Snippet cursor index exceeds the selection limit".into());
+    }
+    for (name, number) in [("CURSOR_INDEX", index), ("CURSOR_NUMBER", index + 1)] {
+        values.insert(
+            name.into(),
+            requested.contains(name).then(|| number.to_string()),
+        );
+    }
+    Ok(())
+}
+#[cfg(test)]
+mod cursor_variable_witnesses {
+    use super::*;
+    #[test]
+    fn single_selection_defaults_and_ordered_rows_keep_the_same_snapshot() {
+        let requested = ["CURSOR_INDEX", "CURSOR_NUMBER", "CLIPBOARD"]
+            .into_iter()
+            .map(String::from)
+            .collect();
+        let context = SnippetVariableContext {
+            source: "old",
+            from: 0,
+            to: 3,
+            path: Path::new("/work/main.py"),
+            workspace: Some(Path::new("/work")),
+            language: Some("python"),
+        };
+        let snapshot = SnippetVariableSnapshot {
+            date: None,
+            random: None,
+            clipboard: Some(Some("captured once".into())),
+        };
+        let presence = variable_presence(&context, &snapshot, &requested).unwrap();
+        assert_eq!(presence["CURSOR_INDEX"].as_deref(), Some("0"));
+        assert_eq!(presence["CURSOR_NUMBER"].as_deref(), Some("1"));
+        let mut values = variables(&context, &snapshot, &requested).unwrap();
+        assert_eq!(values["CURSOR_INDEX"].as_deref(), Some("0"));
+        assert_eq!(values["CURSOR_NUMBER"].as_deref(), Some("1"));
+        for index in [1, 17, 4095] {
+            bind_cursor_variables(&mut values, &requested, index).unwrap();
+            assert_eq!(values["CURSOR_INDEX"], Some(index.to_string()));
+            assert_eq!(values["CURSOR_NUMBER"], Some((index + 1).to_string()));
+            assert_eq!(values["CLIPBOARD"].as_deref(), Some("captured once"));
+        }
+        let before = values.clone();
+        for index in [4096, usize::MAX] {
+            assert!(bind_cursor_variables(&mut values, &requested, index).is_err());
+            assert_eq!(values, before)
+        }
+        bind_cursor_variables(&mut values, &BTreeSet::new(), 0).unwrap();
+        assert_eq!(values["CURSOR_INDEX"], None);
+        assert_eq!(values["CURSOR_NUMBER"], None);
+        assert_eq!(values["CLIPBOARD"].as_deref(), Some("captured once"));
+    }
+}
+
 pub fn variable_presence(
     context: &SnippetVariableContext<'_>,
     snapshot: &SnippetVariableSnapshot,
     requested: &BTreeSet<String>,
 ) -> Result<BTreeMap<String, Option<String>>, String> {
-    read_variables(context, snapshot, requested, true)
+    read_variables(context, snapshot, requested, true, None)
 }
 pub fn variables(
     context: &SnippetVariableContext<'_>,
     snapshot: &SnippetVariableSnapshot,
     requested: &BTreeSet<String>,
 ) -> Result<BTreeMap<String, Option<String>>, String> {
-    read_variables(context, snapshot, requested, false)
+    read_variables(context, snapshot, requested, false, None)
+}
+/// Share requested-value allocation and source scanning across the complete reading.
+pub fn variable_presence_with_budget(
+    context: &SnippetVariableContext<'_>,
+    snapshot: &SnippetVariableSnapshot,
+    requested: &BTreeSet<String>,
+    budget: &mut crate::snippet::SnippetExpansionBudget,
+) -> Result<BTreeMap<String, Option<String>>, String> {
+    read_variables(context, snapshot, requested, true, Some(budget))
+}
+pub fn variables_with_budget(
+    context: &SnippetVariableContext<'_>,
+    snapshot: &SnippetVariableSnapshot,
+    requested: &BTreeSet<String>,
+    budget: &mut crate::snippet::SnippetExpansionBudget,
+) -> Result<BTreeMap<String, Option<String>>, String> {
+    read_variables(context, snapshot, requested, false, Some(budget))
 }
 fn read_variables(
     context: &SnippetVariableContext<'_>,
     snapshot: &SnippetVariableSnapshot,
     requested: &BTreeSet<String>,
     presence_only: bool,
+    budget: Option<&mut crate::snippet::SnippetExpansionBudget>,
 ) -> Result<BTreeMap<String, Option<String>>, String> {
     let source = context.source;
     let scalar = |at: usize| {
@@ -298,6 +386,16 @@ fn read_variables(
     if context.from > context.to || !scalar(context.from) || !scalar(context.to) {
         return Err("Snippet context selection is stale or splits a source scalar/CRLF".into());
     }
+    let budget = std::cell::RefCell::new(budget);
+    if let Some(budget) = budget.borrow_mut().as_deref_mut() {
+        budget.charge_context_steps(KNOWN.len() + requested.len())?;
+    }
+    let scan = |bytes: usize| -> Result<(), String> {
+        if let Some(budget) = budget.borrow_mut().as_deref_mut() {
+            budget.charge_context_scan(bytes)?
+        };
+        Ok(())
+    };
     let mut values: BTreeMap<String, Option<String>> =
         KNOWN.iter().map(|name| ((*name).into(), None)).collect();
     let mut insert = |name: &str, value: Option<&str>| -> Result<(), String> {
@@ -306,6 +404,11 @@ fn read_variables(
                 return Err(format!(
                     "Snippet context {name} exceeds the expansion limit"
                 ));
+            }
+            if !presence_only {
+                if let (Some(value), Some(budget)) = (value, budget.borrow_mut().as_deref_mut()) {
+                    budget.charge_context_bytes(value.len())?;
+                }
             }
             values.insert(
                 name.into(),
@@ -322,42 +425,91 @@ fn read_variables(
     };
     insert("TM_SELECTED_TEXT", Some(&source[context.from..context.to]))?;
     if requested.contains("TM_CURRENT_LINE") {
-        let start = source[..context.from]
-            .rfind(|ch| ch == '\n' || ch == '\r')
-            .map_or(0, |at| at + 1);
-        let end = source[context.from..]
-            .find(|ch| ch == '\n' || ch == '\r')
-            .map_or(source.len(), |at| context.from + at);
-        insert(
-            "TM_CURRENT_LINE",
-            Some(source[start..end].trim_end_matches('\r')),
-        )?;
+        if presence_only {
+            insert("TM_CURRENT_LINE", Some(""))?;
+        } else {
+            let mut start = context.from;
+            let mut end = context.from;
+            for (at, ch) in source[..context.from].char_indices().rev() {
+                scan(ch.len_utf8())?;
+                if ch == '\r' || ch == '\n' {
+                    start = at + ch.len_utf8();
+                    break;
+                };
+                start = at;
+                if context.from - start > MAX_VALUE {
+                    return Err(
+                        "Snippet context TM_CURRENT_LINE exceeds the expansion limit".into(),
+                    );
+                }
+            }
+            for (at, ch) in source[context.from..].char_indices() {
+                scan(ch.len_utf8())?;
+                if ch == '\r' || ch == '\n' {
+                    break;
+                };
+                end = context.from + at + ch.len_utf8();
+                if end - start > MAX_VALUE {
+                    return Err(
+                        "Snippet context TM_CURRENT_LINE exceeds the expansion limit".into(),
+                    );
+                }
+            }
+            insert("TM_CURRENT_LINE", Some(&source[start..end]))?;
+        }
     }
     if requested.contains("TM_CURRENT_WORD") {
-        let word = |ch: char| crate::snippet_case::contains("identifier", ch as u32);
-        let start = source[..context.from]
-            .char_indices()
-            .rev()
-            .take_while(|(_, ch)| word(*ch))
-            .last()
-            .map_or(context.from, |(at, _)| at);
-        let end = source[context.from..]
-            .char_indices()
-            .take_while(|(_, ch)| word(*ch))
-            .last()
-            .map_or(context.from, |(at, ch)| context.from + at + ch.len_utf8());
-        insert("TM_CURRENT_WORD", Some(&source[start..end]))?;
+        if presence_only {
+            insert("TM_CURRENT_WORD", Some(""))?;
+        } else {
+            let word = |ch: char| crate::snippet_case::contains("identifier", ch as u32);
+            let mut start = context.from;
+            let mut end = context.from;
+            for (at, ch) in source[..context.from].char_indices().rev() {
+                scan(ch.len_utf8())?;
+                if !word(ch) {
+                    break;
+                };
+                start = at;
+                if context.from - start > MAX_VALUE {
+                    return Err(
+                        "Snippet context TM_CURRENT_WORD exceeds the expansion limit".into(),
+                    );
+                }
+            }
+            for (at, ch) in source[context.from..].char_indices() {
+                scan(ch.len_utf8())?;
+                if !word(ch) {
+                    break;
+                };
+                end = context.from + at + ch.len_utf8();
+                if end - start > MAX_VALUE {
+                    return Err(
+                        "Snippet context TM_CURRENT_WORD exceeds the expansion limit".into(),
+                    );
+                }
+            }
+            insert("TM_CURRENT_WORD", Some(&source[start..end]))?;
+        }
     }
-    let line = source[..context.from]
-        .bytes()
-        .enumerate()
-        .filter(|(index, byte)| {
-            *byte == b'\r'
-                || *byte == b'\n' && (*index == 0 || source.as_bytes()[*index - 1] != b'\r')
-        })
-        .count();
-    insert("TM_LINE_INDEX", Some(&line.to_string()))?;
-    insert("TM_LINE_NUMBER", Some(&(line + 1).to_string()))?;
+    if requested.contains("TM_LINE_INDEX") || requested.contains("TM_LINE_NUMBER") {
+        if presence_only {
+            insert("TM_LINE_INDEX", Some(""))?;
+            insert("TM_LINE_NUMBER", Some(""))?;
+        } else {
+            scan(context.from)?;
+            let line = source[..context.from]
+                .bytes()
+                .enumerate()
+                .filter(|(index, byte)| {
+                    *byte == b'\r'
+                        || *byte == b'\n' && (*index == 0 || source.as_bytes()[*index - 1] != b'\r')
+                })
+                .count();
+            insert("TM_LINE_INDEX", Some(&line.to_string()))?;
+            insert("TM_LINE_NUMBER", Some(&(line + 1).to_string()))?;
+        }
+    }
     for (name, path) in [
         (
             "TM_FILENAME",
@@ -450,9 +602,9 @@ fn read_variables(
     insert("LINE_COMMENT", line)?;
     insert("BLOCK_COMMENT_START", start)?;
     insert("BLOCK_COMMENT_END", end)?;
+    bind_cursor_variables(&mut values, requested, 0)?;
     Ok(values)
 }
-
 </ui:copy>
 
 ## Exercise values, source refusal and unused-value budgets
@@ -460,6 +612,109 @@ fn read_variables(
 These focused cases compare fixed host clock/offset and seed values, refuse malformed source boundaries and excessive requested values, and prove that presence-only analysis does not allocate or reject unused data. They establish this mechanism separately from host permission and editor acceptance.
 
 <ui:copy id="snippet-context-rust-witnesses">
+#[cfg(test)]
+mod context_budget_witnesses {
+    use super::*;
+    use crate::snippet::SnippetExpansionBudget;
+    fn requested(names: &[&str]) -> BTreeSet<String> {
+        names.iter().map(|s| s.to_string()).collect()
+    }
+    fn snapshot() -> SnippetVariableSnapshot {
+        SnippetVariableSnapshot {
+            date: None,
+            random: None,
+            clipboard: None,
+        }
+    }
+    #[test]
+    fn unused_large_prefix_and_presence_do_not_scan_or_copy_values() {
+        let source = format!("{}\nname", "x".repeat(8 * MAX_VALUE + 2));
+        let context = SnippetVariableContext {
+            source: &source,
+            from: 8 * MAX_VALUE + 2,
+            to: 8 * MAX_VALUE + 2,
+            path: Path::new("/work/main.py"),
+            workspace: Some(Path::new("/work")),
+            language: Some("python"),
+        };
+        let mut budget = SnippetExpansionBudget::default();
+        let names = requested(&["TM_FILENAME"]);
+        assert_eq!(variables_with_budget(&context,&snapshot(),&names,&mut budget).unwrap()["TM_FILENAME"].as_deref(),Some("main.py"));
+        assert!(!budget.exhausted());
+        let names = requested(&["TM_CURRENT_WORD", "TM_CURRENT_LINE", "TM_LINE_INDEX"]);
+        let values =
+            variable_presence_with_budget(&context, &snapshot(), &names, &mut budget).unwrap();
+        for name in &names {
+            assert!(values[name].is_some())
+        }
+        assert!(!budget.exhausted());
+        let mut line_budget = SnippetExpansionBudget::default();
+        assert!(
+            variables_with_budget(
+                &context,
+                &snapshot(),
+                &requested(&["TM_LINE_INDEX"]),
+                &mut line_budget
+            )
+            .is_err()
+        );
+        assert!(line_budget.exhausted());
+        let mut word_budget = SnippetExpansionBudget::default();
+        assert!(
+            variables_with_budget(
+                &context,
+                &snapshot(),
+                &requested(&["TM_CURRENT_WORD"]),
+                &mut word_budget
+            )
+            .is_err()
+        );
+        assert!(!word_budget.exhausted());
+    }
+    #[test]
+    fn requested_values_charge_before_copy_and_line_boundaries_are_preserved() {
+        let source = "pre\r\nname\rnext\n";
+        let mut context = SnippetVariableContext {
+            source,
+            from: 7,
+            to: 8,
+            path: Path::new("/work/main.py"),
+            workspace: None,
+            language: Some("python"),
+        };
+        let names = requested(&[
+            "TM_CURRENT_LINE",
+            "TM_CURRENT_WORD",
+            "TM_LINE_INDEX",
+            "TM_LINE_NUMBER",
+        ]);
+        let mut budget = SnippetExpansionBudget::default();
+        let values = variables_with_budget(&context, &snapshot(), &names, &mut budget).unwrap();
+        assert_eq!(values["TM_CURRENT_LINE"].as_deref(), Some("name"));
+        assert_eq!(values["TM_CURRENT_WORD"].as_deref(), Some("name"));
+        assert_eq!(values["TM_LINE_INDEX"].as_deref(), Some("1"));
+        assert_eq!(values["TM_LINE_NUMBER"].as_deref(), Some("2"));
+        context.from = 12;
+        context.to = 12;
+        let values = variables_with_budget(&context, &snapshot(), &names, &mut budget).unwrap();
+        assert_eq!(values["TM_CURRENT_LINE"].as_deref(), Some("next"));
+        assert_eq!(values["TM_LINE_INDEX"].as_deref(), Some("2"));
+        let mut limited = SnippetExpansionBudget::default();
+        limited.charge_context_bytes(MAX_VALUE - 1).unwrap();
+        assert!(
+            variables_with_budget(
+                &context,
+                &snapshot(),
+                &requested(&["TM_CURRENT_WORD"]),
+                &mut limited
+            )
+            .is_err()
+        );
+        assert!(limited.exhausted());
+        assert_eq!(context.source, source)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
