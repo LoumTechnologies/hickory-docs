@@ -84248,6 +84248,13 @@ The entry below owns this output. Its metadata is separate from semantic verific
       ]
     },
     {
+      "id": "f-c936496a03c1-static-diagnostics",
+      "output": "crates/hick-lsp/src/backend.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-lsp/src/backend.rs.md",
+      "symbol": "Acquire a static document diagnostic report after source synchronization",
+      "basis": "explained-behavior"
+    },
+    {
       "id": "f-c936496a03c1-impl-LanguageServer-for-HickBackend",
       "output": "crates/hick-lsp/src/backend.rs",
       "page": ".hickory-source/mechanisms/crates/hick-lsp/src/backend.rs.md",

@@ -129,7 +129,7 @@ fn bound_project_edit(original:Value,index:&HashMap<String,(Url,PositionMap)>,ro
 mod bound_edit_tests {
  use super::*;
  fn expected(uri:&Url,entry:&DocEntry)->ExpectedSourceCapture{ExpectedSourceCapture{source_hash:entry.source_hash.clone().unwrap(),source_revision:crate::source_identity::source_graph_fingerprint(std::iter::once((uri.as_str(),entry.source_revision)))}}
- fn mapping(uri:&Url,text:&str)->VFileMapping{VFileMapping{source_revision:crate::source_identity::SourceRevision::fresh(),hick_uri:uri.clone(),language_id:"python".into(),root_uri:"file:///workspace/".into(),position_map:PositionMap::identity(10),provider_diagnostics:vec![],provider_source:text.into(),provider_version:Some(1),primary_source_hash:diagnostic_source_digest(text)}}
+ fn mapping(uri:&Url,text:&str)->VFileMapping{VFileMapping{source_revision:crate::source_identity::SourceRevision::fresh(),hick_uri:uri.clone(),language_id:"python".into(),root_uri:"file:///workspace/".into(),position_map:PositionMap::identity(10),provider_diagnostics:vec![], provider_diagnostics_from_pull: false,provider_source:text.into(),provider_version:Some(1),primary_source_hash:diagnostic_source_digest(text)}}
  #[tokio::test]
  async fn exact_origin_capture_rejects_equal_byte_aba_and_preparing_without_dispatch(){
   let (service,_)=tower_lsp::LspService::new(HickBackend::new);let backend=service.inner();let uri=Url::parse("file:///workspace/a.py").unwrap();

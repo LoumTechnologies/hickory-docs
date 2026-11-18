@@ -217,24 +217,54 @@ impl ChildLspHandle {
 
     /// Send an LSP request and wait for the matching response.
     pub async fn request(&self, method: &str, params: Value) -> Result<Value, ChildLspError> {
+        self.request_inner(method, params, None).await
+    }
+
+    /// Background diagnostics wait a bounded time after the complete frame is
+    /// sent. Do not interrupt framing, and release the response slot on timeout.
+    pub(crate) async fn request_with_reply_timeout(
+        &self,
+        method: &str,
+        params: Value,
+        wait: std::time::Duration,
+    ) -> Result<Value, ChildLspError> {
+        self.request_inner(method, params, Some(wait)).await
+    }
+
+    pub(crate) fn same_connection(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.next_id, &other.next_id)
+    }
+
+    async fn request_inner(
+        &self,
+        method: &str,
+        params: Value,
+        wait: Option<std::time::Duration>,
+    ) -> Result<Value, ChildLspError> {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
-
         let (tx, rx) = oneshot::channel();
-        {
-            let mut pending = self.pending.lock().await;
-            pending.insert(id, tx);
-        }
-
+        self.pending.lock().await.insert(id, tx);
         let message = serde_json::json!({
             "jsonrpc": "2.0",
             "id": id,
             "method": method,
             "params": params,
         });
-
-        send_message(&self.stdin, &message).await?;
-
-        let response = rx.await.map_err(|_| ChildLspError::ProcessExited)?;
+        if let Err(error) = send_message(&self.stdin, &message).await {
+            self.pending.lock().await.remove(&id);
+            return Err(error);
+        }
+        let response = if let Some(wait) = wait {
+            match tokio::time::timeout(wait, rx).await {
+                Ok(response) => response,
+                Err(_) => {
+                    self.pending.lock().await.remove(&id);
+                    return Err(ChildLspError::ReplyTimeout);
+                }
+            }
+        } else {
+            rx.await
+        }.map_err(|_| ChildLspError::ProcessExited)?;
 
         if let Some(error) = response.get("error") {
             let code = error.get("code").and_then(|c| c.as_i64()).unwrap_or(-1);
@@ -262,6 +292,14 @@ impl ChildLspHandle {
 
     /// Initialize the child LSP server with the given workspace root.
     pub async fn initialize(&self, root_uri: &str) -> Result<Value, ChildLspError> {
+        self.initialize_with_document_diagnostics(root_uri, false).await
+    }
+
+    pub(crate) async fn initialize_with_document_diagnostics(
+        &self,
+        root_uri: &str,
+        document_diagnostics: bool,
+    ) -> Result<Value, ChildLspError> {
         let mut params = serde_json::json!({
             "processId": std::process::id(),
             "rootUri": root_uri,
@@ -327,6 +365,13 @@ impl ChildLspHandle {
                 }
             }
         });
+
+        if document_diagnostics {
+            params["capabilities"]["textDocument"]["diagnostic"] = serde_json::json!({
+                "dynamicRegistration": false,
+                "relatedDocumentSupport": false
+            });
+        }
 
         // Whatever discovery worked out this server needs to find its own
         // back end. Added here rather than baked into the literal above
@@ -499,6 +544,10 @@ pub enum ChildLspError {
     /// Failed to serialize or deserialize JSON-RPC messages.
     #[error("failed to parse JSON-RPC message: {0}")]
     Json(#[from] serde_json::Error),
+
+    /// A complete request frame did not receive a reply in time.
+    #[error("child LSP did not reply within its diagnostic read budget")]
+    ReplyTimeout,
 
     /// The child process exited before sending a complete response.
     #[error(

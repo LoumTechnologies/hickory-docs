@@ -178,6 +178,7 @@ pub struct HickBackend {
     /// the merged set for the hick document, avoiding later children
     /// overwriting earlier children's diagnostics.
     child_diagnostics: ChildDiagnosticsStore,
+    static_diagnostics: static_diagnostics::Queue,
     prepared_completions: Arc<Mutex<completions::PreparedCompletions>>,
     /// Hierarchy items this server handed the client, in the child's OWN
     /// coordinates, keyed by the id planted in each item's `data`.
@@ -245,6 +246,9 @@ struct VFileMapping {
     /// Exact provider payloads in child coordinates, never editor-supplied
     /// diagnostics. Retained only across byte-identical source syncs.
     provider_diagnostics: Vec<serde_json::Value>,
+    /// A successful pull may include zero diagnostics. An unversioned push
+    /// cannot replace that bound report while this mapping is current.
+    provider_diagnostics_from_pull: bool,
     /// Child source bytes these provider diagnostics describe.
     provider_source: String,
     /// Child counters belong to the bridge, not to any one editor connection.
@@ -339,6 +343,7 @@ impl HickBackend {
             notification_rx: Arc::new(Mutex::new(notification_rx)),
             vfile_index: Arc::new(RwLock::new(HashMap::new())),
             child_diagnostics: Arc::new(RwLock::new(HashMap::new())),
+            static_diagnostics: static_diagnostics::Queue::default(),
             prepared_completions: Arc::new(Mutex::new(completions::PreparedCompletions::default())),
             prepared_hierarchy: Arc::new(RwLock::new(HashMap::new())),
             prepared_actions: Arc::new(Mutex::new(actions::PreparedActions::default())),
@@ -600,7 +605,7 @@ impl HickBackend {
                         language_id: lang_id.to_string(),
                         root_uri: root_uri.clone(),
                         position_map,
-                        provider_diagnostics: Vec::new(),
+                        provider_diagnostics: Vec::new(), provider_diagnostics_from_pull: false,
                         provider_source: content.clone(),
                         provider_version: Some(vfile_version),
                         primary_source_hash: primary_source_hash.clone(),
@@ -704,6 +709,7 @@ impl HickBackend {
                 None => (1, false),
             }
         };
+        let mapping_revision = crate::source_identity::SourceRevision::fresh();
         {
             let mut index = self.vfile_index.write().await;
             // clangd suppresses identical diagnostic publications. A pane
@@ -712,7 +718,8 @@ impl HickBackend {
             let diagnostics = index
                 .get(child_uri)
                 .filter(|previous| {
-                    previous.hick_uri == *uri
+                    !previous.provider_diagnostics_from_pull
+                        && previous.hick_uri == *uri
                         && previous.language_id == language_id
                         && previous.root_uri == root_uri
                         && previous.provider_source == source
@@ -722,12 +729,12 @@ impl HickBackend {
             index.insert(
                 child_uri.clone(),
                 VFileMapping {
-                    source_revision: crate::source_identity::SourceRevision::fresh(),
+                    source_revision: mapping_revision,
                     hick_uri: uri.clone(),
                     language_id: language_id.to_string(),
                     root_uri: root_uri.clone(),
                     position_map: PositionMap::identity(lines),
-                    provider_diagnostics: diagnostics,
+                    provider_diagnostics: diagnostics, provider_diagnostics_from_pull: false,
                     provider_source: source.to_string(),
                     provider_version: Some(version),
                     primary_source_hash: diagnostic_source_digest(source),
@@ -735,9 +742,10 @@ impl HickBackend {
             );
         }
 
+        let direct = uri == child_uri && uri.scheme() == "file";
         let mut dispatcher = self.dispatcher.lock().await;
-        let handle = match dispatcher.get_or_spawn(language_id, &root_uri).await {
-            Ok(handle) => handle,
+        let handle = match dispatcher.get_or_spawn_with_diagnostics(language_id, &root_uri, direct).await {
+            Ok(handle) => handle.clone(),
             Err(e) => {
                 tracing::warn!(language_id, error = %e, "failed to spawn child LSP for plain file");
                 return;
@@ -768,9 +776,16 @@ impl HickBackend {
                 )
                 .await
         };
-        if let Err(e) = result {
-            tracing::warn!(language_id, %uri, error = %e, "failed to sync plain file to child LSP");
-        }
+        let pull = match result {
+            Ok(()) if direct => static_diagnostics::identifier(
+                dispatcher.server_capabilities(language_id, &root_uri), language_id, uri,
+            ),
+            Ok(()) => None,
+            Err(e) => {
+                tracing::warn!(language_id, %uri, error = %e, "failed to sync plain file to child LSP");
+                None
+            }
+        };
         drop(dispatcher);
 
         let mut docs = self.documents.write().await;
@@ -778,6 +793,22 @@ impl HickBackend {
         entry.state = None;
         entry.open_vfiles = vec![child_uri.clone()];
         entry.vfile_version = version;
+        let gate = entry.preparation.clone();
+        drop(docs);
+        if let Some(identifier) = pull {
+            self.static_diagnostics.schedule(self, static_diagnostics::Pull {
+                target: static_diagnostics::Target {
+                    uri: uri.clone(),
+                    language: language_id.into(),
+                    root: root_uri,
+                    mapping_revision,
+                    version,
+                    gate,
+                },
+                handle,
+                identifier,
+            });
+        }
     }
 
     /// Python selects its owning uv workspace when known; other files keep
@@ -1317,6 +1348,7 @@ impl HickBackend {
         let notification_rx = Arc::clone(&self.notification_rx);
         let vfile_index = Arc::clone(&self.vfile_index);
         let child_diagnostics = Arc::clone(&self.child_diagnostics);
+        let diagnostic_publication = self.static_diagnostics.publication.clone();
 
         tokio::spawn(async move {
             tracing::debug!("notification handler started");
@@ -1327,15 +1359,14 @@ impl HickBackend {
                     language_id = %notif.language_id,
                     "received child LSP notification"
                 );
-                if notif.method == "textDocument/publishDiagnostics"
-                    && let Err(e) =
+                if notif.method == "textDocument/publishDiagnostics" {
+                    let _order = diagnostic_publication.lock().await;
+                    if let Err(e) =
                         handle_child_diagnostics(&client, &vfile_index, &child_diagnostics, &notif)
                             .await
-                {
-                    tracing::debug!(
-                        error = %e,
-                        "failed to process child diagnostics"
-                    );
+                    {
+                        tracing::debug!(error = %e, "failed to process child diagnostics");
+                    }
                 }
             }
             tracing::debug!("notification handler exited");
@@ -2044,17 +2075,32 @@ async fn handle_child_diagnostics(
     }
     let current_revision =
         incoming_version.is_some() && incoming_version == mapping.provider_version;
+    if !current_revision && mapping.provider_diagnostics_from_pull {
+        return Ok(());
+    }
     mapping.provider_diagnostics = if current_revision {
         child_diagnostics.clone()
     } else {
         Vec::new()
     };
+    let translated = translate_child_diagnostics(mapping, &child_diagnostics, current_revision);
+    let updates = store_child_diagnostics(accumulated, &vf_uri, translated).await;
+    drop(index);
+    publish_child_diagnostics(client, updates).await;
+    Ok(())
+}
+
+fn translate_child_diagnostics(
+    mapping: &VFileMapping,
+    child_diagnostics: &[serde_json::Value],
+    current_revision: bool,
+) -> HashMap<Url, Vec<Diagnostic>> {
     let hick_uri = mapping.hick_uri.clone();
     let position_map = &mapping.position_map;
 
     let mut translated: HashMap<Url, Vec<Diagnostic>> = HashMap::new();
     let mut source_hashes: HashMap<Url, String> = HashMap::new();
-    for diag_val in &child_diagnostics {
+    for diag_val in child_diagnostics {
         let range = match diag_val.get("range") {
             Some(r) => r,
             None => continue,
@@ -2154,15 +2200,22 @@ async fn handle_child_diagnostics(
             ));
     }
 
-    drop(index);
+    translated
+}
 
-    // Replace this virtual file's contribution on every affected source,
-    // including sources whose old diagnostics disappeared after an edit.
-    let updates = {
+// Replace only this producer's contribution, including sources whose old
+// reports disappeared. The version/instance check and this update share the
+// installed mapping lock, while publication happens without that lock.
+async fn store_child_diagnostics(
+    accumulated: &ChildDiagnosticsStore,
+    vf_uri: &Url,
+    translated: HashMap<Url, Vec<Diagnostic>>,
+) -> Vec<(Url, Vec<Diagnostic>)> {
+    {
         let mut store = accumulated.write().await;
         let mut affected: std::collections::HashSet<Url> = translated.keys().cloned().collect();
         for (uri, per_file) in store.iter_mut() {
-            if per_file.remove(&vf_uri).is_some() {
+            if per_file.remove(vf_uri).is_some() {
                 affected.insert(uri.clone());
             }
         }
@@ -2179,14 +2232,424 @@ async fn handle_child_diagnostics(
                 (uri, diagnostics)
             })
             .collect::<Vec<_>>()
-    };
+    }
+}
+
+async fn publish_child_diagnostics(client: &Client, updates: Vec<(Url, Vec<Diagnostic>)>) {
     for (uri, diagnostics) in updates {
         client.publish_diagnostics(uri, diagnostics, None).await;
     }
+}
 
-    Ok(())
+</storycode:copy>
+
+A pull report is tied to one synchronized authored file and its existing child
+connection. Queue the newest observation for each path while an earlier request
+finishes. Before asking and again before attaching, compare the opaque document
+and mapping lifetimes. A report can establish current diagnostic context for
+quick fixes even if that provider sends unversioned push messages. A complete
+empty report can clear the file's own contribution.
+Push and pull share one ordering gate through publication so an older push
+cannot overtake a newly attached pull. Provider requests and source preparation
+stay outside that gate.
+
+<storycode:copy id="f-c936496a03c1-static-diagnostics">
+mod static_diagnostics {
+    use super::*;
+    use crate::child_lsp::ChildLspHandle;
+    use crate::source_identity::SourceRevision;
+    use serde_json::{Value, json};
+    use std::{collections::{BTreeMap, BTreeSet, VecDeque}, time::Duration};
+
+    const MAX_PENDING: usize = 128;
+    const MAX_ITEMS: usize = 2048;
+    const MAX_BYTES: usize = 2 * 1024 * 1024;
+    const MAX_SOURCE_BYTES: usize = 8 * 1024 * 1024;
+    const REPLY_WAIT: Duration = Duration::from_secs(12);
+
+    #[derive(Clone, Default)]
+    pub(super) struct Queue {
+        pending: Arc<std::sync::Mutex<Pending>>,
+        pub(super) publication: Arc<Mutex<()>>,
+    }
+    #[derive(Default)]
+    struct Pending {
+        running: bool,
+        jobs: VecDeque<Pull>,
+    }
+
+    pub(super) struct Target {
+        pub uri: Url,
+        pub language: String,
+        pub root: String,
+        pub mapping_revision: SourceRevision,
+        pub version: i32,
+        pub gate: Arc<Mutex<()>>,
+    }
+
+    pub(super) struct Pull {
+        pub target: Target,
+        pub handle: ChildLspHandle,
+        pub identifier: Option<String>,
+    }
+    struct Worker {
+        client: Client,
+        documents: Arc<RwLock<HashMap<Url, DocEntry>>>,
+        dispatcher: Arc<Mutex<Dispatcher>>,
+        index: Arc<RwLock<HashMap<Url, VFileMapping>>>,
+        diagnostics: ChildDiagnosticsStore,
+        publication: Arc<Mutex<()>>,
+    }
+
+    pub(super) fn identifier(
+        capabilities: Option<&Value>,
+        language: &str,
+        uri: &Url,
+    ) -> Option<Option<String>> {
+        let options = capabilities?.get("diagnosticProvider")?.as_object()?;
+        if let Some(selector) = options.get("documentSelector").filter(|value| !value.is_null()) {
+            let filters = selector.as_array()?;
+            if filters.len() > 32 || !filters.iter().any(|filter| matches_filter(filter, language, uri)) {
+                return None;
+            }
+        }
+        match options.get("identifier") {
+            None | Some(Value::Null) => Some(None),
+            Some(value) => value.as_str().filter(|id| !id.is_empty() && id.len() <= 1024)
+                .map(|id| Some(id.to_owned())),
+        }
+    }
+
+    fn matches_filter(value: &Value, language: &str, uri: &Url) -> bool {
+        let Some(filter) = value.as_object() else { return false; };
+        if filter.is_empty() || filter.keys().any(|key| !matches!(key.as_str(), "language" | "scheme" | "pattern"))
+            || filter.get("language").is_some_and(|value| value.as_str() != Some(language))
+            || filter.get("scheme").is_some_and(|value| value.as_str() != Some(uri.scheme()))
+        {
+            return false;
+        }
+        let Some(pattern) = filter.get("pattern") else { return true; };
+        let Some(pattern) = pattern.as_str().filter(|value| !value.is_empty() && value.len() <= 256)
+            else { return false; };
+        let Ok(path) = uri.to_file_path() else { return false; };
+        // A common static filter is Roslyn's **/*.cs. Support an exact path or
+        // a literal suffix on the final filename, and refuse other glob syntax.
+        if let Some(suffix) = pattern.strip_prefix("**/*") {
+            return suffix.starts_with('.')
+                && suffix.len() > 1
+                && suffix.bytes().all(|byte| byte.is_ascii_alphanumeric() || b"._-".contains(&byte))
+                && path.file_name().and_then(|name| name.to_str()).is_some_and(|name| name.ends_with(suffix));
+        }
+        !pattern.contains(['*', '?', '[', ']', '{', '}']) && path.to_str() == Some(pattern)
+    }
+
+    impl Queue {
+        pub(super) fn schedule(&self, backend: &HickBackend, job: Pull) {
+            let mut pending = self.pending.lock().unwrap();
+            if let Some(slot) = pending.jobs.iter_mut().find(|old| old.target.uri == job.target.uri) {
+                *slot = job;
+            } else if pending.jobs.len() < MAX_PENDING {
+                pending.jobs.push_back(job);
+            } else {
+                tracing::debug!(uri = %job.target.uri, "static diagnostic queue is full");
+                return;
+            }
+            if pending.running {
+                return;
+            }
+            pending.running = true;
+            let worker = Worker {
+                client: backend.client.clone(),
+                documents: backend.documents.clone(),
+                dispatcher: backend.dispatcher.clone(),
+                index: backend.vfile_index.clone(),
+                diagnostics: backend.child_diagnostics.clone(),
+                publication: self.publication.clone(),
+            };
+            let queue = self.clone();
+            tokio::spawn(async move {
+                while let Some(job) = queue.take() {
+                    worker.pull(job).await;
+                }
+            });
+        }
+
+        fn take(&self) -> Option<Pull> {
+            let mut pending = self.pending.lock().unwrap();
+            let next = pending.jobs.pop_front();
+            if next.is_none() {
+                pending.running = false;
+            }
+            next
+        }
+    }
+
+    fn current_revision(
+        job: &Target,
+        entry: Option<&DocEntry>,
+        mapping: Option<&VFileMapping>,
+    ) -> Option<SourceRevision> {
+        let (entry, mapping) = (entry?, mapping?);
+        (!entry.preparing
+            && Arc::ptr_eq(&entry.preparation, &job.gate)
+            && entry.open_vfiles.as_slice() == std::slice::from_ref(&job.uri)
+            && entry.vfile_version == job.version
+            && mapping.source_revision == job.mapping_revision
+            && mapping.provider_version == Some(job.version)
+            && mapping.hick_uri == job.uri
+            && mapping.language_id == job.language
+            && mapping.root_uri == job.root
+            && entry.source_hash.as_deref() == Some(mapping.primary_source_hash.as_str()))
+            .then_some(entry.source_revision)
+    }
+
+    fn full_report(result: Value, source: &str) -> Option<Vec<Value>> {
+        if result.get("kind")?.as_str()? != "full" ||
+            result.get("relatedDocuments").is_some_and(|related| {
+                !related.is_null() && !related.as_object().is_some_and(|rows| rows.is_empty())
+            })
+        {
+            return None;
+        }
+        let items = result.get("items")?.as_array()?;
+        if items.len() > MAX_ITEMS || serde_json::to_vec(items).ok()?.len() > MAX_BYTES {
+            return None;
+        }
+        let mut coordinates = BTreeMap::<u32, BTreeSet<u32>>::new();
+        for item in items {
+            let range = serde_json::from_value::<Diagnostic>(item.clone()).ok()?.range;
+            if range.start > range.end {
+                return None;
+            }
+            for position in [range.start, range.end] {
+                coordinates.entry(position.line).or_default().insert(position.character);
+            }
+        }
+        let mut lines = source.split('\n').enumerate();
+        for (line, columns) in coordinates {
+            let (_, text) = lines.find(|(number, _)| *number == line as usize)?;
+            let text = text.strip_suffix('\r').unwrap_or(text);
+            let mut positions = std::iter::once(0).chain(text.chars().scan(0, |units, ch| {
+                *units += ch.len_utf16() as u32;
+                Some(*units)
+            }));
+            for column in columns {
+                if positions.find(|position| *position >= column) != Some(column) {
+                    return None;
+                }
+            }
+        }
+        Some(items.clone())
+    }
+
+    impl Worker {
+        fn same_child(dispatcher: &Dispatcher, job: &Pull) -> bool {
+            dispatcher.get_child(&job.target.language, &job.target.root)
+                .is_ok_and(|current| job.handle.same_connection(current))
+        }
+
+        async fn pull(&self, job: Pull) {
+            let target = &job.target;
+            let admitted = {
+                let _preparation = target.gate.lock().await;
+                if !Self::same_child(&*self.dispatcher.lock().await, &job) {
+                    return;
+                }
+                let documents = self.documents.read().await;
+                let index = self.index.read().await;
+                let mapping = index.get(&target.uri);
+                current_revision(target, documents.get(&target.uri), mapping).and_then(|revision| {
+                    let source = &mapping?.provider_source;
+                    (source.len() <= MAX_SOURCE_BYTES).then(|| (revision, source.clone()))
+                })
+            };
+            let Some((admitted, source)) = admitted else { return; };
+            let mut params = json!({"textDocument":{"uri":target.uri}});
+            if let Some(identifier) = &job.identifier {
+                params["identifier"] = json!(identifier);
+            }
+            let report = match job.handle.request_with_reply_timeout(
+                "textDocument/diagnostic", params, REPLY_WAIT,
+            ).await {
+                Ok(report) => report,
+                Err(error) => {
+                    tracing::debug!(%error, uri = %target.uri, "static diagnostic read unavailable");
+                    return;
+                }
+            };
+            let Some(items) = full_report(report, &source) else { return; };
+            let _order = self.publication.lock().await;
+            let updates = {
+                let dispatcher = self.dispatcher.lock().await;
+                if !Self::same_child(&dispatcher, &job) {
+                    return;
+                }
+                let documents = self.documents.read().await;
+                let mut index = self.index.write().await;
+                let Some(mapping) = index.get_mut(&target.uri) else { return; };
+                if current_revision(target, documents.get(&target.uri), Some(mapping)) != Some(admitted) {
+                    return;
+                }
+                let mut translated = translate_child_diagnostics(mapping, &items, true);
+                translated.entry(target.uri.clone()).or_default();
+                mapping.provider_diagnostics = items;
+                mapping.provider_diagnostics_from_pull = true;
+                store_child_diagnostics(&self.diagnostics, &target.uri, translated).await
+            };
+            publish_child_diagnostics(&self.client, updates).await;
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn static_document_diagnostics_need_positively_advertised_options() {
+            let path = Url::parse("file:///workspace/subdir/Owned.cs").unwrap();
+            let query = |caps: &Value| identifier(Some(caps), "csharp", &path);
+            assert_eq!(identifier(None, "csharp", &path), None);
+            assert_eq!(query(&json!({"diagnosticProvider":true})), None);
+            assert_eq!(query(&json!({"diagnosticProvider":{}})), Some(None));
+            assert_eq!(query(&json!({"diagnosticProvider":{"identifier":"roslyn"}})),Some(Some("roslyn".into())));
+            assert_eq!(query(&json!({"diagnosticProvider":{"identifier":7}})), None);
+            let roslyn = json!({"diagnosticProvider":{
+                "documentSelector":[{"language":"csharp","scheme":"file","pattern":"**/*.cs"}],
+                "interFileDependencies":false,"workspaceDiagnostics":true
+            }});
+            assert_eq!(query(&roslyn), Some(None));
+            assert_eq!(identifier(Some(&roslyn), "python", &path), None);
+            let other = Url::parse("file:///workspace/subdir/Owned.csx").unwrap();
+            assert_eq!(identifier(Some(&roslyn), "csharp", &other), None);
+            let other_scheme = Url::parse("hick:///workspace/subdir/Owned.cs").unwrap();
+            assert_eq!(identifier(Some(&roslyn), "csharp", &other_scheme), None);
+            let unsupported = json!({"diagnosticProvider":{"documentSelector":[{"pattern":"**/[a-z]*.cs"}]}});
+            assert_eq!(query(&unsupported), None);
+        }
+
+        #[test]
+        fn static_report_requires_full_local_items_at_exact_utf16_boundaries() {
+            let item = json!({"message":"compiler report","range":{
+                "start":{"line":0,"character":1},"end":{"line":0,"character":3}
+            },"data":{"opaque":"provider choice"}});
+            let full = json!({"kind":"full","items":[item.clone()]});
+            assert_eq!(full_report(full.clone(), "xλx"), Some(vec![item.clone()]));
+            assert_eq!(full_report(full.clone(), "x😀x"), Some(vec![item]));
+            let mut midpoint = full;
+            midpoint["items"][0]["range"]["end"]["character"] = json!(2);
+            assert!(full_report(midpoint, "x😀x").is_none());
+            assert_eq!(full_report(json!({"kind":"full","items":[]}), ""), Some(vec![]));
+            assert!(full_report(json!({"kind":"unchanged","resultId":"prior"}), "").is_none());
+            assert!(full_report(json!({"kind":"full","items":[],"relatedDocuments":{
+                "file:///other.cs":{"kind":"full","items":[]}
+            }}), "").is_none());
+        }
+
+        #[test]
+        fn held_static_report_cannot_cross_same_byte_edit_or_reopen() {
+            let uri = Url::parse("file:///workspace/sample.cs").unwrap();
+            let source = "class Test {}";
+            let mut entry = DocEntry::empty();
+            entry.open_vfiles = vec![uri.clone()];
+            entry.source_hash = Some(diagnostic_source_digest(source));
+            entry.vfile_version = 7;
+            entry.preparing = false;
+            let mut mapping = VFileMapping {
+                source_revision: SourceRevision::fresh(),
+                hick_uri: uri.clone(),
+                language_id: "csharp".into(),
+                root_uri: "file:///workspace/".into(),
+                position_map: PositionMap::identity(1),
+                provider_diagnostics: vec![],
+                provider_diagnostics_from_pull: false,
+                provider_source: source.into(),
+                provider_version: Some(7),
+                primary_source_hash: diagnostic_source_digest(source),
+            };
+            let target = Target {
+                uri,
+                language: mapping.language_id.clone(),
+                root: mapping.root_uri.clone(),
+                mapping_revision: mapping.source_revision,
+                version: 7,
+                gate: entry.preparation.clone(),
+            };
+            let held = current_revision(&target, Some(&entry), Some(&mapping)).unwrap();
+            entry.source_revision = SourceRevision::fresh();
+            assert_ne!(current_revision(&target, Some(&entry), Some(&mapping)), Some(held));
+            entry.preparing = true;
+            assert!(current_revision(&target, Some(&entry), Some(&mapping)).is_none());
+            entry.preparing = false;
+            assert!(current_revision(&target, None, Some(&mapping)).is_none());
+            entry.preparation = Arc::new(Mutex::new(()));
+            assert!(current_revision(&target, Some(&entry), Some(&mapping)).is_none());
+            entry.preparation = target.gate.clone();
+            mapping.root_uri = "file:///foreign/".into();
+            assert!(current_revision(&target, Some(&entry), Some(&mapping)).is_none());
+        }
+
+        #[tokio::test]
+        async fn complete_pull_has_precedence_over_unversioned_push_and_can_clear_one_owner() {
+            let (service, _) = tower_lsp::LspService::new(HickBackend::new);
+            let backend = service.inner();
+            let uri = Url::parse("file:///workspace/sample.cs").unwrap();
+            let other = Url::parse("file:///workspace/other.cs").unwrap();
+            let source = "Sample";
+            let raw = json!({"message":"confirmed report","range":{
+                "start":{"line":0,"character":0},"end":{"line":0,"character":1}
+            },"data":{"opaque":"original"}});
+            let mapping = VFileMapping {
+                source_revision: SourceRevision::fresh(),
+                hick_uri: uri.clone(),
+                language_id: "csharp".into(),
+                root_uri: "file:///workspace/".into(),
+                position_map: PositionMap::identity(1),
+                provider_diagnostics: vec![raw.clone()],
+                provider_diagnostics_from_pull: true,
+                provider_source: source.into(),
+                provider_version: Some(8),
+                primary_source_hash: diagnostic_source_digest(source),
+            };
+            let mut reports = translate_child_diagnostics(&mapping, std::slice::from_ref(&raw), true);
+            reports.insert(other.clone(), reports[&uri].clone());
+            store_child_diagnostics(&backend.child_diagnostics, &uri, reports).await;
+            let unrelated = Diagnostic { message: "separate child".into(),..Default::default() };
+            store_child_diagnostics(&backend.child_diagnostics, &other,
+                HashMap::from([(other.clone(),vec![unrelated])])).await;
+            backend.vfile_index.write().await.insert(uri.clone(),mapping);
+
+            let unversioned = ChildNotification {
+                language_id: "csharp".into(), method: "textDocument/publishDiagnostics".into(),
+                params: json!({"uri":uri,"diagnostics":[]}),
+            };
+            handle_child_diagnostics(&backend.client,&backend.vfile_index,
+                &backend.child_diagnostics,&unversioned).await.unwrap();
+            assert_eq!(backend.vfile_index.read().await[&uri].provider_diagnostics,vec![raw]);
+            assert_eq!(backend.child_diagnostics.read().await[&uri][&uri][0].message,"confirmed report");
+
+            let mut pushed = unversioned;
+            pushed.params["version"] = json!(8);
+            pushed.params["diagnostics"] = json!([{"message":"versioned report","range":{
+                "start":{"line":0,"character":0},"end":{"line":0,"character":1}
+            }}]);
+            handle_child_diagnostics(&backend.client,&backend.vfile_index,
+                &backend.child_diagnostics,&pushed).await.unwrap();
+            assert_eq!(backend.child_diagnostics.read().await[&uri][&uri][0].message,"versioned report");
+
+            let empty = full_report(json!({"kind":"full","items":[]}),source).unwrap();
+            let mapping = backend.vfile_index.read().await[&uri].clone();
+            let mut reports = translate_child_diagnostics(&mapping,&empty,true);
+            reports.entry(uri.clone()).or_default();
+            store_child_diagnostics(&backend.child_diagnostics,&uri,reports).await;
+            let store = backend.child_diagnostics.read().await;
+            assert!(store[&uri][&uri].is_empty());
+            assert_eq!(store[&other][&other][0].message,"separate child");
+        }
+    }
+
 }
 </storycode:copy>
+
 <a id="f-c936496a03c1-impl-LanguageServer-for-HickBackend"></a>
 ### `impl-LanguageServer for HickBackend`
 
@@ -3373,7 +3836,7 @@ impl HickBackend {
             };
             self.vfile_index.write().await.insert(child_uri.clone(),VFileMapping{
                 source_revision:crate::source_identity::SourceRevision::fresh(),hick_uri:uri.clone(),language_id:reading.language,
-                root_uri:root.clone(),position_map,provider_diagnostics:vec![],provider_source:reading.content,
+                root_uri:root.clone(),position_map,provider_diagnostics:vec![], provider_diagnostics_from_pull: false,provider_source:reading.content,
                 provider_version:Some(version),primary_source_hash:diagnostic_source_digest(source),
             });
             if !already_open {entry.open_vfiles.push(child_uri);}
@@ -3422,7 +3885,7 @@ mod fenced_reading_lifetime_tests {
                 language_id: "python".into(),
                 root_uri: "file:///owned".into(),
                 position_map: map,
-                provider_diagnostics: vec![],
+                provider_diagnostics: vec![], provider_diagnostics_from_pull: false,
                 provider_source: reading.content.clone(),
                 provider_version: Some(1),
                 primary_source_hash: diagnostic_source_digest(source),
@@ -3430,7 +3893,7 @@ mod fenced_reading_lifetime_tests {
         );
         backend.vfile_index.write().await.insert(owner.clone(),VFileMapping{
             source_revision:crate::source_identity::SourceRevision::fresh(),hick_uri:owner.clone(),language_id:"markdown".into(),root_uri:"file:///owned".into(),position_map:PositionMap::identity(5),
-            provider_diagnostics:vec![],provider_source:source.into(),provider_version:Some(1),primary_source_hash:diagnostic_source_digest(source),
+            provider_diagnostics:vec![], provider_diagnostics_from_pull: false,provider_source:source.into(),provider_version:Some(1),primary_source_hash:diagnostic_source_digest(source),
         });
         assert_eq!(backend.virtual_target(&owner,Position::new(2,1)).await.unwrap().0,owner,"mutation routing never selects an inspection");
         assert!(backend.virtual_files_of(&owner).await.iter().all(|(_,_,map)|!map.is_inspection()));
@@ -3466,6 +3929,6 @@ mod fenced_reading_lifetime_tests {
     }
 }
 </storycode:copy>
-<storycode:file path="crates/hick-lsp/src/backend.rs"><storycode:paste select="#f-c936496a03c1-diagnostic_context"/><storycode:paste select="#f-c936496a03c1-use_declaration"/><storycode:paste select="#f-c936496a03c1-captured"/><storycode:paste select="#f-c936496a03c1-use_declaration-2"/><storycode:paste select="#f-c936496a03c1-use_declaration-3"/><storycode:paste select="#f-c936496a03c1-use_declaration-4"/><storycode:paste select="#f-c936496a03c1-use_declaration-5"/><storycode:paste select="#f-c936496a03c1-use_declaration-6"/><storycode:paste select="#f-c936496a03c1-use_declaration-7"/><storycode:paste select="#f-c936496a03c1-use_declaration-8"/><storycode:paste select="#f-c936496a03c1-use_declaration-9"/><storycode:paste select="#f-c936496a03c1-use_declaration-10"/><storycode:paste select="#f-c936496a03c1-use_declaration-11"/><storycode:paste select="#f-c936496a03c1-use_declaration-12"/><storycode:paste select="#f-c936496a03c1-use_declaration-13"/><storycode:paste select="#f-c936496a03c1-use_declaration-14"/><storycode:paste select="#f-c936496a03c1-ChildDiagnosticsStore"/><storycode:paste select="#f-c936496a03c1-PreparedHierarchyItem"/><storycode:paste select="#f-c936496a03c1-uuid_ish"/><storycode:paste select="#f-c936496a03c1-HickBackend"/><storycode:paste select="#f-c936496a03c1-DocEntry"/><storycode:paste select="#provider-document-source-lifetime"/><storycode:paste select="#project-overlay-root-refresh"/><storycode:paste select="#project-overlay-backend-witness"/><storycode:paste select="#f-c936496a03c1-VFileMapping"/><storycode:paste select="#yaml-frontmatter-projection"/><storycode:paste select="#f-c936496a03c1-impl-HickBackend"/><storycode:paste select="#static-language-capture-readiness"/><storycode:paste select="#f-c936496a03c1-StructuralKind"/><storycode:paste select="#f-c936496a03c1-drive_lowercased"/><storycode:paste select="#f-c936496a03c1-uri_key"/><storycode:paste select="#f-c936496a03c1-translate_edit_uris"/><storycode:paste select="#f-c936496a03c1-translate_bare_ranges"/><storycode:paste select="#f-c936496a03c1-MANIFESTS"/><storycode:paste select="#f-c936496a03c1-copy_manifests"/><storycode:paste select="#f-c936496a03c1-child_request_error"/><storycode:paste select="#f-c936496a03c1-handle_child_diagnostics"/><storycode:paste select="#f-c936496a03c1-impl-LanguageServer-for-HickBackend"/><storycode:paste select="#f-c936496a03c1-translate_edits"/><storycode:paste select="#f-c936496a03c1-reindent"/><storycode:paste select="#f-c936496a03c1-is_hick_document"/><storycode:paste select="#f-c936496a03c1-plain_language"/><storycode:paste select="#f-c936496a03c1-parse_error_location"/><storycode:paste select="#f-c936496a03c1-tests"/><storycode:paste select="#diagnostic-source-revision-envelope"/><storycode:paste select="#provider-action-module"/><storycode:paste select="#fenced-backend-readings"/></storycode:file>
+<storycode:file path="crates/hick-lsp/src/backend.rs"><storycode:paste select="#f-c936496a03c1-diagnostic_context"/><storycode:paste select="#f-c936496a03c1-use_declaration"/><storycode:paste select="#f-c936496a03c1-captured"/><storycode:paste select="#f-c936496a03c1-use_declaration-2"/><storycode:paste select="#f-c936496a03c1-use_declaration-3"/><storycode:paste select="#f-c936496a03c1-use_declaration-4"/><storycode:paste select="#f-c936496a03c1-use_declaration-5"/><storycode:paste select="#f-c936496a03c1-use_declaration-6"/><storycode:paste select="#f-c936496a03c1-use_declaration-7"/><storycode:paste select="#f-c936496a03c1-use_declaration-8"/><storycode:paste select="#f-c936496a03c1-use_declaration-9"/><storycode:paste select="#f-c936496a03c1-use_declaration-10"/><storycode:paste select="#f-c936496a03c1-use_declaration-11"/><storycode:paste select="#f-c936496a03c1-use_declaration-12"/><storycode:paste select="#f-c936496a03c1-use_declaration-13"/><storycode:paste select="#f-c936496a03c1-use_declaration-14"/><storycode:paste select="#f-c936496a03c1-ChildDiagnosticsStore"/><storycode:paste select="#f-c936496a03c1-PreparedHierarchyItem"/><storycode:paste select="#f-c936496a03c1-uuid_ish"/><storycode:paste select="#f-c936496a03c1-HickBackend"/><storycode:paste select="#f-c936496a03c1-DocEntry"/><storycode:paste select="#provider-document-source-lifetime"/><storycode:paste select="#project-overlay-root-refresh"/><storycode:paste select="#project-overlay-backend-witness"/><storycode:paste select="#f-c936496a03c1-VFileMapping"/><storycode:paste select="#yaml-frontmatter-projection"/><storycode:paste select="#f-c936496a03c1-impl-HickBackend"/><storycode:paste select="#static-language-capture-readiness"/><storycode:paste select="#f-c936496a03c1-StructuralKind"/><storycode:paste select="#f-c936496a03c1-drive_lowercased"/><storycode:paste select="#f-c936496a03c1-uri_key"/><storycode:paste select="#f-c936496a03c1-translate_edit_uris"/><storycode:paste select="#f-c936496a03c1-translate_bare_ranges"/><storycode:paste select="#f-c936496a03c1-MANIFESTS"/><storycode:paste select="#f-c936496a03c1-copy_manifests"/><storycode:paste select="#f-c936496a03c1-child_request_error"/><storycode:paste select="#f-c936496a03c1-handle_child_diagnostics"/><storycode:paste select="#f-c936496a03c1-static-diagnostics"/><storycode:paste select="#f-c936496a03c1-impl-LanguageServer-for-HickBackend"/><storycode:paste select="#f-c936496a03c1-translate_edits"/><storycode:paste select="#f-c936496a03c1-reindent"/><storycode:paste select="#f-c936496a03c1-is_hick_document"/><storycode:paste select="#f-c936496a03c1-plain_language"/><storycode:paste select="#f-c936496a03c1-parse_error_location"/><storycode:paste select="#f-c936496a03c1-tests"/><storycode:paste select="#diagnostic-source-revision-envelope"/><storycode:paste select="#provider-action-module"/><storycode:paste select="#fenced-backend-readings"/></storycode:file>
 
 </storycode:doc>

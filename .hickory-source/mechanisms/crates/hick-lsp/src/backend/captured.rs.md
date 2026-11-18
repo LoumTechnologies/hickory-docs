@@ -60,7 +60,7 @@ impl HickBackend {
                 physical,
                 VFileMapping {
                     source_revision: crate::source_identity::SourceRevision::fresh(),
-                    provider_diagnostics: Vec::new(),
+                    provider_diagnostics: Vec::new(), provider_diagnostics_from_pull: false,
                     provider_source: text.to_string(),
                     provider_version: None,
                     primary_source_hash: diagnostic_source_digest(text),

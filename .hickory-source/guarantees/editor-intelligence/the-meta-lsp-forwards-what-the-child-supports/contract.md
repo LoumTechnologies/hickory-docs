@@ -124,11 +124,24 @@ impl Dispatcher {
         language_id: &str,
         root_uri: &str,
     ) -> Result<&ChildLspHandle, ChildLspError> {
+        self.get_or_spawn_with_diagnostics(language_id, root_uri, false).await
+    }
+
+    pub(crate) async fn get_or_spawn_with_diagnostics(
+        &mut self,
+        language_id: &str,
+        root_uri: &str,
+        document_diagnostics: bool,
+    ) -> Result<&ChildLspHandle, ChildLspError> {
         let k = key(language_id, root_uri);
         if !self.children.contains_key(&k) {
             let handle =
                 ChildLspHandle::spawn(language_id, root_uri, self.notification_tx.clone()).await?;
-            let result = handle.initialize(root_uri).await?;
+            let result = if document_diagnostics {
+                handle.initialize_with_document_diagnostics(root_uri, true).await?
+            } else {
+                handle.initialize(root_uri).await?
+            };
             self.capabilities.insert(
                 k.clone(),
                 result
