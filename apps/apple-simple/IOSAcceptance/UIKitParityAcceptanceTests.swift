@@ -742,4 +742,128 @@ extension UIKitParityAcceptanceTests {
         XCTAssertEqual(saved.content, source)
         NSLog("HickoryUIKitParity historical-proposal-passed")
     }
+
+    func testMountedManagedProposalAppliesBothReviewedDrafts() async throws {
+        let mounted = try await MountedIOSWorkspace(marker: ".hickory-native-agent-proposal-fixture", expected: "owned-native-agent-proposal-v1\n", path: "note.py")
+        defer { mounted.close() }
+        let workspace = mounted.workspace, engine = try XCTUnwrap(workspace.engine)
+        let note = try XCTUnwrap(workspace.currentBuffer)
+        let noteEditor = try await mounted.editor(note)
+        let constructionFile = try XCTUnwrap(MountedIOSWorkspace.file("construction.md", in: workspace.rootFiles))
+        let construction = try await workspace.loadBuffer(constructionFile)
+        workspace.showSource(construction.file.path)
+        let constructionEditor = try await mounted.editor(construction)
+        let savedNote = note.text, savedConstruction = construction.text
+        let closing = (savedConstruction as NSString).range(of: "Retained author context")
+        guard closing.location != NSNotFound else { throw EngineError(message: "Owned construction viewport fixture is unavailable.") }
+        constructionEditor.selectedRange = NSRange(location: closing.location, length: 3)
+        let constructionSelection = constructionEditor.selectedRange
+        let shiftedConstructionSelection = NSRange(location: constructionSelection.location + 1, length: constructionSelection.length)
+        constructionEditor.layoutIfNeeded()
+        constructionEditor.setContentOffset(CGPoint(x: 0, y: 90), animated: false)
+        let constructionViewport = constructionEditor.contentOffset
+        XCTAssertGreaterThan(constructionViewport.y, 0)
+        workspace.showSource(note.file.path)
+        let originalNote = try await mounted.editor(note)
+        XCTAssertTrue(originalNote === noteEditor)
+        noteEditor.selectedRange = NSRange(location: 2, length: 0)
+        let noteSelection = noteEditor.selectedRange
+        let noteFrame = noteEditor.convert(noteEditor.bounds, to: mounted.window)
+        let identities = try [note, construction].map { try XCTUnwrap($0.sourceEditorState?()).identity }
+        XCTAssertEqual(savedNote, "value=1\n")
+        XCTAssertTrue(savedConstruction.contains("generated = 1"))
+        let afterNote = "value=41\n"
+        let afterConstruction = savedConstruction.replacingOccurrences(of: "generated = 1", with: "generated = 41")
+
+        // The owned ACP child submits the two-file intention through the real
+        // managed tool using this sender snapshot and original loaded guards.
+        let _: ResourceJSON = try await engine.request("POST", "/api/docs/workspace/agent/acp", body: ["backend": "owned-proposal"])
+        let _: ResourceJSON = try await engine.request("POST", "/api/docs/workspace/agent", body: [
+            "backend": "owned-proposal",
+            "prompt": "Prepare the owned two-source intention for review. Do not apply, save or execute it.",
+            "context": try nativeAgentContext(workspace),
+        ])
+        struct Catalogue: Decodable { let reviews: [AgentProposalEntry] }
+        var discovered: AgentProposalEntry?
+        for _ in 0..<150 {
+            let reply: Catalogue = try await engine.request("GET", "/api/agent-proposals")
+            if let first = reply.reviews.first { discovered = first; break }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        let entry = try XCTUnwrap(discovered, "Managed ACP tool did not prepare a proposal")
+        let review = workspace.agentProposals
+        try mounted.command("agent.proposals")
+        try await mounted.wait("Managed proposal review did not present") {
+            !review.busy && review.entries.contains(entry) && mounted.host.presentedViewController != nil
+        }
+        await review.read(workspace, entry)
+        let sealed = try XCTUnwrap(review.value, review.notice)
+        XCTAssertTrue(sealed.material.origin_authority.hasPrefix("engine-managed agent tool"))
+        XCTAssertEqual(nativeSourceHash(sealed.envelope.material), entry.fingerprint)
+        XCTAssertTrue(sealed.textOnly)
+        XCTAssertFalse(sealed.envelope.source_effects)
+        XCTAssertFalse(sealed.envelope.checks_executed)
+        let patches = Dictionary(uniqueKeysWithValues: sealed.patches.map { ($0.path, $0) })
+        XCTAssertEqual(Set(patches.keys), Set(["note.py", "construction.md"]))
+        XCTAssertEqual(patches["note.py"]?.before?.text, savedNote)
+        XCTAssertEqual(patches["note.py"]?.after?.text, afterNote)
+        XCTAssertEqual(patches["construction.md"]?.before?.text, savedConstruction)
+        XCTAssertEqual(patches["construction.md"]?.after?.text, afterConstruction)
+        let consequences = try XCTUnwrap(sealed.sections.first { $0.title.hasPrefix("Saved and draft generated consequences") })
+        XCTAssertTrue(consequences.text.contains("generated.py"))
+        XCTAssertTrue(sealed.sections.contains { $0.title.hasPrefix("Explanation") })
+        XCTAssertTrue(sealed.sections.contains { $0.title.hasPrefix("Claims · unverified") })
+        XCTAssertTrue(sealed.sections.contains { $0.title.hasPrefix("Requested checks") })
+        XCTAssertEqual(note.text, savedNote)
+        XCTAssertEqual(construction.text, savedConstruction)
+        XCTAssertTrue(review.canApply, review.notice)
+        NSLog("HickoryUIKitParity managed-proposal-preview-passed")
+
+        await review.applyDraft(workspace)
+        try await mounted.wait("Reviewed two-source batch did not apply") {
+            note.text == afterNote && construction.text == afterConstruction
+        }
+        XCTAssertEqual(noteEditor.selectedRange, noteSelection)
+        XCTAssertEqual(constructionEditor.selectedRange, shiftedConstructionSelection)
+        XCTAssertEqual(constructionEditor.contentOffset, constructionViewport)
+        XCTAssertFalse(review.canApply)
+        XCTAssertFalse(review.hasReport, review.notice)
+        review.close()
+        try await mounted.wait("Proposal review did not dismiss") { mounted.host.presentedViewController == nil }
+        workspace.changes.open("undo", workspace: workspace)
+        try await mounted.wait("One coordinated Undo did not restore both source drafts") {
+            note.text == savedNote && construction.text == savedConstruction
+        }
+        XCTAssertEqual(noteEditor.selectedRange, noteSelection)
+        XCTAssertEqual(constructionEditor.selectedRange, constructionSelection)
+        XCTAssertEqual(constructionEditor.contentOffset, constructionViewport)
+        workspace.changes.open("redo", workspace: workspace)
+        try await mounted.wait("One coordinated Redo did not replay both source drafts") {
+            note.text == afterNote && construction.text == afterConstruction
+        }
+        workspace.changes.close(workspace)
+        mounted.window.endEditing(true)
+        try await mounted.wait("History review did not return to the original editor frame") {
+            mounted.host.presentedViewController == nil && !noteEditor.isFirstResponder &&
+            noteEditor.convert(noteEditor.bounds, to: mounted.window) == noteFrame
+        }
+
+        let reflectedNote = try await mounted.editor(note)
+        XCTAssertTrue(reflectedNote === noteEditor)
+        XCTAssertEqual(reflectedNote.selectedRange, noteSelection)
+        XCTAssertEqual(reflectedNote.convert(reflectedNote.bounds, to: mounted.window), noteFrame)
+        XCTAssertEqual(reflectedNote.text, afterNote)
+        workspace.showSource(construction.file.path)
+        let reflectedConstruction = try await mounted.editor(construction)
+        XCTAssertTrue(reflectedConstruction === constructionEditor)
+        XCTAssertEqual(reflectedConstruction.selectedRange, shiftedConstructionSelection)
+        XCTAssertEqual(reflectedConstruction.contentOffset, constructionViewport)
+        XCTAssertEqual(reflectedConstruction.text, afterConstruction)
+        XCTAssertEqual(try [note, construction].map { try XCTUnwrap($0.sourceEditorState?()).identity }, identities)
+        let originalNoteOnDisk = try await engine.file(note.file)
+        let originalConstructionOnDisk = try await engine.file(construction.file)
+        XCTAssertEqual(originalNoteOnDisk.content, savedNote)
+        XCTAssertEqual(originalConstructionOnDisk.content, savedConstruction)
+        NSLog("HickoryUIKitParity managed-proposal-history-passed")
+    }
 }

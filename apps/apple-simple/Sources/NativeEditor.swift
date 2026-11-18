@@ -60,7 +60,7 @@ func tableSourceEditHitsGrid(_ range: NSRange, selection: NSRange, tables: [NSRa
         NSIntersectionRange($0, range).length > 0 || range.length == 0 && range.location >= $0.location && range.location <= NSMaxRange($0)
     }
 }
-func tableEditSelection(_ selection: NSRange, edit: NativeSourceEdit) -> NSRange {
+func selectionAfterSourceEdit(_ selection: NSRange, edit: NativeSourceEdit) -> NSRange {
     let delta = edit.text.utf16.count - edit.range.length
     func map(_ offset: Int) -> Int {
         if offset <= edit.range.location { return offset }
@@ -957,7 +957,7 @@ private struct EquationLayout: Equatable {
         guard exactUTF8(buffer.text,source), !buffer.readOnly else { return false }
         let selection = text.selectedRange(), viewport = scroll.contentView.bounds.origin
         guard applySourceEdits([edit], source: source) else { return false }
-        text.setSelectedRange(tableEditSelection(selection, edit: edit))
+        text.setSelectedRange(selectionAfterSourceEdit(selection, edit: edit))
         tableViewport = viewport
         scroll.contentView.scroll(to: viewport); scroll.reflectScrolledClipView(scroll.contentView)
         return true
@@ -1576,7 +1576,7 @@ import UIKit
         guard exactUTF8(buffer.text,source), !buffer.readOnly else { return false }
         let selection = text.selectedRange, viewport = text.contentOffset
         guard applySourceEdits([edit], source: source) else { return false }
-        text.selectedRange = tableEditSelection(selection, edit: edit)
+        text.selectedRange = selectionAfterSourceEdit(selection, edit: edit)
         tableViewport = viewport; text.setContentOffset(viewport, animated: false)
         return true
     }
@@ -1652,9 +1652,15 @@ import UIKit
     func applySourceEdits(_ edits: [NativeSourceEdit], source: String, expectedModelSource: String? = nil,resultSelection:NSRange?=nil,manageUndo:Bool=true,userInput:Bool=false) -> Bool {
         guard !buffer.readOnly, (!buffer.saving || userInput || text.undoManager?.isUndoing==true || text.undoManager?.isRedoing==true), text.isEditable, exactUTF8(text.text,source), exactUTF8(buffer.text,expectedModelSource ?? source), text.markedTextRange == nil,
               (edits.isEmpty && resultSelection != nil || validSourceEdits(edits, length: (source as NSString).length)) else { return false }
-        let resultLength=source.utf16.count+edits.reduce(0){$0+$1.text.utf16.count-$1.range.length}
-        if let selected=resultSelection,!validSourceEdits([NativeSourceEdit(range:selected,text:"")],length:resultLength){return false}
         let ordered = edits.sorted { $0.range.location > $1.range.location }
+        var resultingSelection = resultSelection
+        if expectedModelSource != nil {
+            let initial = text.selectedRange
+            guard validSourceEdits([NativeSourceEdit(range: initial, text: "")], length: source.utf16.count) else { return false }
+            resultingSelection = ordered.reduce(initial) { selectionAfterSourceEdit($0, edit: $1) }
+        }
+        let resultLength=source.utf16.count+edits.reduce(0){$0+$1.text.utf16.count-$1.range.length}
+        if let selected=resultingSelection,!validSourceEdits([NativeSourceEdit(range:selected,text:"")],length:resultLength){return false}
         let replacements: [(UITextRange, String)]
         if userInput {
             func scalarBoundary(_ offset: Int) -> Bool {
@@ -1687,7 +1693,11 @@ import UIKit
         } else {
             for (target, replacement) in replacements { text.replace(target, withText: replacement) }
         }
-        if let selected=resultSelection{text.selectedRange=selected;text.setContentOffset(viewport,animated:false);text.scrollRangeToVisible(selected)}
+        if let selected = resultingSelection {
+            text.selectedRange = selected
+            text.setContentOffset(viewport, animated: false)
+            if expectedModelSource == nil { text.scrollRangeToVisible(selected) }
+        }
         textViewDidChange(text); return true
     }
     func toggleFold(_ line: Int) {

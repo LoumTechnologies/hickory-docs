@@ -8,6 +8,7 @@ WORKFLOWS = {
     'workspace': ('testMountedSearchProblemsAndCollectedTests', ['workspace-navigation-problems-passed', 'workspace-tests-coverage-passed']),
     'recovery': ('testMountedConnectedReadingAndPrivateRecovery', ['connected-impact-passed', 'private-recovery-passed']),
     'proposal': ('testMountedHistoricalProposalRefusesApplication', ['historical-proposal-passed']),
+    'proposal-apply': ('testMountedManagedProposalAppliesBothReviewedDrafts', ['managed-proposal-preview-passed', 'managed-proposal-history-passed']),
 }
 
 def load_script(name):
@@ -46,6 +47,12 @@ def prepare_workflow(workflow, workspace, python_env, slow_debug):
         (workspace/'.venv').symlink_to(python_env.resolve(), target_is_directory=True)
         files = {name: (workspace/name).read_text() for name in ['project.md', 'source.md', 'behavior.md', 'a.py', 'test_a.py', 'test_undeclared.py', 'hickory-dogfood/behavior-map.json', 'hickory-dogfood/narrative-map.json']}
         sentinel = Path(details['sibling'])
+    elif workflow == 'proposal-apply':
+        load_script('test-agent-proposals-browser').prepare(workspace)
+        files = {name: (workspace/name).read_text() for name in ['project.md', 'construction.md', 'note.py', 'generated.py', 'behavior.md']}
+        close = '\x3c/h:doc>\n'
+        files['construction.md'] = files['construction.md'].removesuffix(close) + 'Retained author context for the mounted viewport.\n' * 100 + close
+        sentinel = None
     else:
         archive = load_script('test-agent-proposal-persistence')
         files = {**archive.FILES, '.hickory-proposal-archive-fixture': 'owned-proposal-archive-v1\n'}
@@ -63,6 +70,17 @@ def run_workflow(workflow, device, seed, temporary_device, candidate, derived, d
         workspace, state = folder/'workspace', folder/'state'
         files, sentinel = prepare_workflow(workflow, workspace, python_env, slow_debug)
         environment = {**os.environ, 'HICKORY_STATE_DIR': str(state)}
+        managed = load_script('test-agent-proposals-browser') if workflow == 'proposal-apply' else None
+        if managed:
+            settings, calls, tool_result = managed.provider_fixture(folder)
+            environment['HICKORY_AGENT_TEST_UI_SETTINGS'] = str(settings)
+            def replacement(line, start, end):
+                return {'range': {'start': {'line': line, 'character': start}, 'end': {'line': line, 'character': end}}, 'newText': '41'}
+            edit = {'changes': {
+                'hick:///note.py': [replacement(0, 6, 7)],
+                'hick:///construction.md': [replacement(2, 12, 13)],
+            }}
+            calls.write_text(json.dumps({'intention': managed.intention(edit)}))
         with socket.socket() as reserve:
             reserve.bind(('127.0.0.1', 0))
             port = reserve.getsockname()[1]
@@ -112,6 +130,19 @@ def run_workflow(workflow, device, seed, temporary_device, candidate, derived, d
                 if workflow == 'workspace':
                     events = (workspace/'.hick-cache/executions').read_text().splitlines()
                     assert sorted(events) == ['negative', 'positive', 'positive'], events
+                if managed:
+                    response = json.loads(tool_result.read_text())['result']
+                    assert not response['isError'], response
+                    prepared = json.loads(response['content'][0]['text'])
+                    assert prepared['pending_review'] and not any(prepared[key] for key in ['applied', 'saved', 'checks_executed'])
+                    retained = managed.api(origin, 'GET', '/api/agent-proposals/'+prepared['token'])
+                    assert retained['fingerprint'] == prepared['fingerprint']
+                    report = retained['host_application']
+                    assert report['status'] == 'host-reported draft application' and not report['saved'] and not report['checks_executed']
+                    assert report['after_hashes'] == {
+                        'note.py': hashlib.sha256(b'value=41\n').hexdigest(),
+                        'construction.md': hashlib.sha256(files['construction.md'].replace('generated = 1', 'generated = 41').encode()).hexdigest(),
+                    }
                 observed = log.read_text()
                 for marker in markers:
                     assert observed.count('HickoryUIKitParity '+marker) == 1, marker
