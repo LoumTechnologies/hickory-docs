@@ -22,7 +22,7 @@ import Darwin
    let identity=try XCTUnwrap(buffer.sourceEditorState?()).identity,geometry=editor.scroll.frame
    let command=try XCTUnwrap(space.commands().first{$0.id=="source.templates"});XCTAssertNil(command.reason);command.run();let model=space.sourceTemplates
    for _ in 0..<400{if model.catalog?.path==path && model.current() && !model.reading{break};try await Task.sleep(for:.milliseconds(25))}
-   let catalog=try XCTUnwrap(model.catalog,model.notice),entry=try XCTUnwrap(catalog.entries.first{$0.id=="workspace.embedded"},model.notice);XCTAssertEqual(catalog.language,"python");XCTAssertEqual(catalog.source_context?.source_hashes["project.md"],nativeSourceHash(project.text))
+   let catalog=try XCTUnwrap(model.catalog,model.notice),entry=try XCTUnwrap(catalog.entries.first{$0.id=="workspace.embedded"},model.notice);XCTAssertEqual(catalog.language,"python");XCTAssertEqual(catalog.source_context?.source_hashes["project.md"],nativeSourceHash(project.text));if path=="part.md"{XCTAssertTrue(catalog.source_context?.targets.contains("guide.md")==true)}
    await model.choose(entry);let expanded="#\(path)|old|old|OLD",preview=try XCTUnwrap(model.preview,model.notice);XCTAssertEqual(preview.snippet.text,expanded,model.notice);XCTAssertEqual(buffer.text,source)
    let accepted=await model.apply();XCTAssertTrue(accepted,model.notice);let after=(source as NSString).replacingCharacters(in:range,with:expanded);XCTAssertEqual(buffer.text,after)
    native.insertText("ßa",replacementRange:native.selectedRange());let typed=(source as NSString).replacingCharacters(in:range,with:"#\(path)|ßa|ßa|SSA");XCTAssertEqual(buffer.text,typed)
@@ -34,7 +34,7 @@ import Darwin
   let original=project.text;project.text=original+"\n";project.text=original;let applied=await space.sourceTemplates.apply();XCTAssertFalse(applied);XCTAssertEqual(buffer.text,source)
   project.text=original.replacingOccurrences(of:"</h:doc>",with:"<h:file path=\"mixed.js\"><h:paste select=\"#body\"/></h:file></h:doc>");await space.sourceTemplates.open(space);XCTAssertEqual(space.sourceTemplates.catalog?.available,false,space.sourceTemplates.notice);XCTAssertTrue(space.sourceTemplates.catalog?.entries.isEmpty==true);XCTAssertEqual(buffer.text,source)
   buffer.file.generated_by="fixture.md";await space.sourceTemplates.open(space);XCTAssertNil(space.sourceTemplates.catalog);XCTAssertEqual(buffer.text,source)
-  XCTAssertEqual(try String(contentsOf:root.appendingPathComponent("project.md"),encoding:.utf8),savedProject);for path in ["saved.py","draft.py","second.py","mixed.js"]{XCTAssertFalse(FileManager.default.fileExists(atPath:root.appendingPathComponent(path).path))}
+  XCTAssertEqual(try String(contentsOf:root.appendingPathComponent("project.md"),encoding:.utf8),savedProject);for path in ["saved.py","draft.py","second.py","mixed.js","guide.md"]{XCTAssertFalse(FileManager.default.fileExists(atPath:root.appendingPathComponent(path).path))}
  }
  #endif
 }

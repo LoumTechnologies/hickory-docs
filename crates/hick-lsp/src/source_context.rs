@@ -1,5 +1,8 @@
 //! Language observations over canonical parser regions and captured compiler origins.
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::{
+    collections::{BTreeMap, BTreeSet, VecDeque},
+    sync::Mutex,
+};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourceLanguageContext {
     pub language: Option<String>,
@@ -83,6 +86,7 @@ pub struct PreparedSourceLanguageContext {
     project: Option<(hick_lang::ProjectTree, String)>,
     regions: Vec<hick_lang::source_context::SourceCodeRegion>,
     parsed: Option<hick_lang::HickDocument>,
+    output_contexts: Mutex<BTreeMap<String, Result<Box<PreparedSourceLanguageContext>, String>>>,
 }
 impl PreparedSourceLanguageContext {
     pub fn new(
@@ -108,6 +112,7 @@ impl PreparedSourceLanguageContext {
             project: project.map(|(tree, document)| (tree.clone(), document.into())),
             regions,
             parsed,
+            output_contexts: Mutex::default(),
         })
     }
     pub fn declares_project(&self) -> bool {
@@ -117,6 +122,7 @@ impl PreparedSourceLanguageContext {
     }
     pub fn with_project(mut self, project: Option<(&hick_lang::ProjectTree, &str)>) -> Self {
         self.project = project.map(|(tree, document)| (tree.clone(), document.into()));
+        self.output_contexts = Mutex::default();
         self
     }
     pub fn requires_construction_scope(&self, from: usize, to: usize) -> bool {
@@ -199,7 +205,8 @@ impl PreparedSourceLanguageContext {
             }
             if region.kind == "file" {
                 if let Some((tree, document)) = project {
-                    let mut observed = project_language(tree, document, source, from, to)?;
+                    let mut observed =
+                        project_language(tree, document, source, from, to, &self.output_contexts)?;
                     observed.scope = "project-file";
                     if let (Some(hint), Some(actual)) =
                         (region.language.as_deref(), observed.language.as_deref())
@@ -235,7 +242,7 @@ impl PreparedSourceLanguageContext {
                 return Ok(refused("dynamic", "The fragment is conditional"));
             }
             if let Some((tree, document)) = project {
-                return project_language(tree, document, source, from, to);
+                return project_language(tree, document, source, from, to, &self.output_contexts);
             }
             return local_fragment_language(source, regions, fragment, parsed);
         }
@@ -283,19 +290,65 @@ fn covers(mut spans: Vec<(usize, usize)>, from: usize, to: usize) -> bool {
     }
     false
 }
+fn occurrence_language(
+    path: &str,
+    entry: &hick_lang::ProjectEntry,
+    selected: (usize, usize),
+    contexts: &Mutex<BTreeMap<String, Result<Box<PreparedSourceLanguageContext>, String>>>,
+) -> Result<SourceLanguageContext, String> {
+    if entry.kind != hick_lang::EntryKind::File {
+        return Ok(refused(
+            "metadata",
+            "This occurrence produces link metadata rather than source code",
+        ));
+    }
+    match crate::lang_detect::language_id(path) {
+        Some("markdown") => {
+            // Parse only touched Markdown outputs, once in this frozen graph.
+            // The cache contains captured compiler bytes, never a later disk read.
+            let mut cached = contexts
+                .lock()
+                .map_err(|_| "Captured output language cache is unavailable")?;
+            if !cached.contains_key(path) {
+                if cached.len() >= 10000 {
+                    return Err("Too many captured output language readings".into());
+                }
+                let parsed = std::str::from_utf8(&entry.bytes)
+                    .map_err(|_| "The consuming Markdown output is not UTF-8".to_string())
+                    .and_then(|source| PreparedSourceLanguageContext::new(path, source, None))
+                    .map(Box::new);
+                cached.insert(path.into(), parsed);
+            }
+            match &cached[path] {
+                Ok(reader) => reader.language(selected.0, selected.1),
+                Err(error) => Err(error.clone()),
+            }
+        }
+        Some(language) => Ok(reading(
+            "plain",
+            BTreeSet::from([language.into()]),
+            BTreeSet::new(),
+            None,
+        )),
+        None => Ok(refused(
+            "unknown",
+            &format!("An occurrence has unknown target language: {path}"),
+        )),
+    }
+}
 fn project_language(
     tree: &hick_lang::ProjectTree,
     document: &str,
     source: &str,
     from: usize,
     to: usize,
+    contexts: &Mutex<BTreeMap<String, Result<Box<PreparedSourceLanguageContext>, String>>>,
 ) -> Result<SourceLanguageContext, String> {
     let mut languages = BTreeSet::new();
     let mut targets = BTreeSet::new();
     let mut reason = None;
     let mut work = 0;
     for (path, entry) in tree.entries() {
-        let content = std::str::from_utf8(&entry.bytes).ok();
         let mut spans = Vec::new();
         for origin in &entry.origins {
             work += 1;
@@ -308,25 +361,31 @@ fn project_language(
             {
                 continue;
             }
-            if !matches!((source.get(origin.source.0..origin.source.1), content.and_then(|text| text.get(origin.output.0..origin.output.1))), (Some(left),Some(right)) if left==right)
+            spans.push(origin.source);
+            if !matches!((source.as_bytes().get(origin.source.0..origin.source.1), entry.bytes.get(origin.output.0..origin.output.1)), (Some(left),Some(right)) if left==right)
             {
                 reason =
-                    Some("Compiler occurrence is not an exact literal source projection".into())
+                    Some("Compiler occurrence is not an exact literal source projection".into());
+                continue;
             }
-            spans.push(origin.source);
+            let start = from.max(origin.source.0);
+            let end = to.min(origin.source.1);
+            let selected = (
+                origin.output.0 + start - origin.source.0,
+                origin.output.0 + end - origin.source.0,
+            );
+            let actual = occurrence_language(path, entry, selected, contexts)?;
+            languages.extend(actual.languages);
+            if let Some(error) = actual.reason {
+                reason = Some(error);
+            }
         }
         if spans.is_empty() {
             continue;
         }
         targets.insert(path.clone());
         if !covers(spans, from, to) {
-            reason = Some("An occurrence maps only part of the selected source".into())
-        }
-        match crate::lang_detect::language_id(path) {
-            Some(language) => {
-                languages.insert(language.into());
-            }
-            None => reason = Some(format!("An occurrence has unknown target language: {path}")),
+            reason = Some("An occurrence maps only part of the selected source".into());
         }
     }
     if targets.is_empty() {
@@ -528,12 +587,10 @@ mod tests {
         );
         assert_eq!(selected("notes.md", &source, "old").scope, "dynamic");
         let source = doc("\x3ch:file path=\"a.py\" language=\"javascript\">old\x3c/h:file>");
-        assert!(
-            selected("notes.md", &source, "old")
-                .reason
-                .unwrap()
-                .contains("conflicts")
-        );
+        assert!(selected("notes.md", &source, "old")
+            .reason
+            .unwrap()
+            .contains("conflicts"));
         let source = "Prose\n```python\nold\n```\n";
         assert_eq!(
             selected("notes.md", source, "Prose\n```python\nold").scope,
@@ -546,6 +603,70 @@ mod tests {
         assert!(source_language("notes.md", "😀", 1, 2, None).is_err());
         let tag = doc("\x3ch:file path=\"a.py\">old\x3c/h:file>");
         assert_eq!(selected("notes.md", &tag, "path").scope, "markup");
+    }
+    #[test]
+    fn external_fragment_uses_cached_inner_fence_context_in_every_output_occurrence() {
+        let part = doc("\x3ch:copy id=\"body\">old\x3c/h:copy>");
+        // A literal source fence protects Hick tags. Build its delimiter
+        // from ordinary fragment pastes so the body paste really executes.
+        let fence = "\x3ch:paste select=\"#fence_tick\"/>".repeat(3);
+        let entry = doc(&format!("\x3ch:project sources=\"part.md\"/>\x3ch:copy id=\"fence_tick\">`\x3c/h:copy>\x3ch:file path=\"guide.md\">{fence}python\n\x3ch:paste select=\"#body\"/>\n{fence}\n{fence}python\n\x3ch:paste select=\"#body\"/>\n{fence}\n\x3c/h:file>"));
+        let sources = BTreeMap::from([
+            ("entry.md".into(), entry.clone()),
+            ("part.md".into(), part.clone()),
+        ]);
+        let evaluated =
+            hick_lang::evaluate_project("entry.md", &sources, &hick_lang::ProjectTree::default())
+                .unwrap();
+        assert_eq!(
+            evaluated.new.get("guide.md").unwrap().bytes.as_ref(),
+            b"```python\nold\n```\n```python\nold\n```\n"
+        );
+        let from = part.find("old").unwrap();
+        let prepared =
+            PreparedSourceLanguageContext::new("part.md", &part, Some((&evaluated.new, "part.md")))
+                .unwrap();
+        let first = prepared.language(from, from + 3).unwrap();
+        assert_eq!(first.language.as_deref(), Some("python"));
+        assert_eq!(first.targets, vec!["guide.md"]);
+        assert_eq!(prepared.language(from, from + 3).unwrap(), first);
+        assert_eq!(prepared.output_contexts.lock().unwrap().len(), 1);
+        let mut mixed = sources;
+        mixed.insert(
+            "entry.md".into(),
+            entry.replacen("python\n", "javascript\n", 1),
+        );
+        let evaluated =
+            hick_lang::evaluate_project("entry.md", &mixed, &hick_lang::ProjectTree::default())
+                .unwrap();
+        let actual = source_language(
+            "part.md",
+            &part,
+            from,
+            from + 3,
+            Some((&evaluated.new, "part.md")),
+        )
+        .unwrap();
+        assert!(actual.language.is_none());
+        assert_eq!(actual.languages, vec!["javascript", "python"]);
+    }
+    #[test]
+    fn link_metadata_cannot_inherit_a_source_language_from_its_filename() {
+        let source = doc("\x3ch:copy id=\"body\">old\x3c/h:copy>");
+        let from = source.find("old").unwrap();
+        let mut entry = hick_lang::ProjectEntry::file("old".as_bytes());
+        entry.kind = hick_lang::EntryKind::Symlink;
+        entry.origins.push(hick_lang::ByteOrigin {
+            document: "part.md".into(),
+            source: (from, from + 3),
+            output: (0, 3),
+        });
+        let mut tree = hick_lang::ProjectTree::default();
+        tree.insert("generated.py", entry).unwrap();
+        let actual =
+            source_language("part.md", &source, from, from + 3, Some((&tree, "part.md"))).unwrap();
+        assert!(actual.language.is_none());
+        assert!(actual.reason.unwrap().contains("metadata"));
     }
     #[test]
     fn external_fragment_languages_come_from_complete_selected_compiler_endpoint() {
@@ -582,30 +703,26 @@ mod tests {
         let mixed =
             hick_lang::evaluate_project("entry.md", &sources, &hick_lang::ProjectTree::default())
                 .unwrap();
-        assert!(
-            source_language(
-                "part.md",
-                &part,
-                from,
-                from + 3,
-                Some((&mixed.new, "part.md"))
-            )
-            .unwrap()
-            .language
-            .is_none()
-        );
-        assert!(
-            source_language(
-                "part.md",
-                &part,
-                from,
-                from + 3,
-                Some((&hick_lang::ProjectTree::default(), "part.md"))
-            )
-            .unwrap()
-            .language
-            .is_none()
-        );
+        assert!(source_language(
+            "part.md",
+            &part,
+            from,
+            from + 3,
+            Some((&mixed.new, "part.md"))
+        )
+        .unwrap()
+        .language
+        .is_none());
+        assert!(source_language(
+            "part.md",
+            &part,
+            from,
+            from + 3,
+            Some((&hick_lang::ProjectTree::default(), "part.md"))
+        )
+        .unwrap()
+        .language
+        .is_none());
     }
 }
 #[cfg(test)]

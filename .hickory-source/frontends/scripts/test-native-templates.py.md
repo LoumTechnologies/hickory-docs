@@ -49,7 +49,8 @@ def prepare(root, provider_context=False, embedded=False):
     if embedded:
         ns = 'http://www.hickorydocs.com/1.0'
         def doc(body): return '<h:doc xmlns:h="'+ns+'">'+body+'</h:doc>'
-        (root / "project.md").write_text(doc('<h:project sources="part.md"/><h:file path="saved.py"><h:paste select="#body"/></h:file><h:file path="second.py"><h:paste select="#body"/></h:file>'))
+        fence = '<h:paste select="#fence_tick"/>' * 3
+        (root / "project.md").write_text(doc('<h:project sources="part.md"/><h:copy id="fence_tick">`</h:copy><h:file path="saved.py"><h:paste select="#body"/></h:file><h:file path="second.py"><h:paste select="#body"/></h:file><h:file path="guide.md">'+fence+'python\n<h:paste select="#body"/>\n'+fence+'\n</h:file>'))
         (root / "part.md").write_text(doc('<h:copy id="body">saved</h:copy>'))
         (root / "notes.md").write_text("Narrative\n\n```python\nold\n```\n")
     entries = [

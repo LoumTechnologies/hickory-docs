@@ -68,6 +68,15 @@ contributor changes, mixed languages and read-only source. The iOS simulator
 product build is build evidence. UIKit, Android rendering, physical input and
 assistive technology remain unverified.
 
+Embedded language follows each fragment's actual compiler occurrence. When an
+authored fragment contributes to a generated Markdown code fence, the resolver
+uses that fence's language and preserves direct output coverage. Link metadata
+adds no language authority. Seven focused resolver checks passed, including
+incompatible languages inside one output. The real browser, mounted macOS and
+Android controller replay included the generated Markdown occurrence alongside
+the two saved-output candidates. Preview and Apply still changed only the
+authored draft. The guide was never materialized.
+
 ## Multi-caret template editing evidence
 
 The browser editor passed grouped typing, coincident empty logical carets,

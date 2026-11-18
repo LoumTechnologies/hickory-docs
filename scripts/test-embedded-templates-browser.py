@@ -6,7 +6,8 @@ spec=importlib.util.spec_from_file_location('simple_fixture',ROOT/'scripts/test-
 NS='http://www.hickorydocs.com/1.0'
 def doc(body):return '<h:doc xmlns:h="'+NS+'">'+body+'</h:doc>'
 def project(target='saved.py',mixed=False):
- body='<h:project sources="part.md"/><h:file path="'+target+'"><h:paste select="#body"/></h:file><h:file path="second.py"><h:paste select="#body"/></h:file>'
+ fence='<h:paste select="#fence_tick"/>'*3
+ body='<h:project sources="part.md"/><h:copy id="fence_tick">`</h:copy><h:file path="'+target+'"><h:paste select="#body"/></h:file><h:file path="second.py"><h:paste select="#body"/></h:file><h:file path="guide.md">'+fence+'python\n<h:paste select="#body"/>\n'+fence+'\n</h:file>'
  if mixed:body+='<h:file path="mixed.js"><h:paste select="#body"/></h:file>'
  return doc(body)
 def exercise(driver,root,path,source):
@@ -51,7 +52,7 @@ def main():
     refused=driver.act('templates-open',path='part.md');assert 'Preview Embedded context' not in refused,refused;assert any(word in refused.lower() for word in ['generat','ownership','output']),refused;driver.act('templates-close')
    assert driver.act('construction-source',path='part.md')==typed
    for path,source in [('project.md',original),('part.md',part),('notes.md',code)]:assert (root/path).read_bytes()==source.encode(),path
-   assert all(not(root/name).exists() for name in ['saved.py','draft.py','second.py','mixed.js'])
+   assert all(not(root/name).exists() for name in ['saved.py','draft.py','second.py','mixed.js','guide.md'])
    print('PASS: real code-fence and twice-reused external fragment catalog/Preview/Apply, dirty original compiler graph, Python comments/authored filenames, Unicode transform mirrors, atomic UndoRedo, retained editors/geometry, old entry proof/ambiguous reuse/new generated location refusal, unchanged source disks and no generated outputs')
   finally:
    if driver:driver.close()

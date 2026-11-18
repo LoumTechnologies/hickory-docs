@@ -14,7 +14,8 @@ spec=importlib.util.spec_from_file_location('simple_fixture',ROOT/'scripts/test-
 NS='http://www.hickorydocs.com/1.0'
 def doc(body):return '<h:doc xmlns:h="'+NS+'">'+body+'</h:doc>'
 def project(target='saved.py',mixed=False):
- body='<h:project sources="part.md"/><h:file path="'+target+'"><h:paste select="#body"/></h:file><h:file path="second.py"><h:paste select="#body"/></h:file>'
+ fence='<h:paste select="#fence_tick"/>'*3
+ body='<h:project sources="part.md"/><h:copy id="fence_tick">`</h:copy><h:file path="'+target+'"><h:paste select="#body"/></h:file><h:file path="second.py"><h:paste select="#body"/></h:file><h:file path="guide.md">'+fence+'python\n<h:paste select="#body"/>\n'+fence+'\n</h:file>'
  if mixed:body+='<h:file path="mixed.js"><h:paste select="#body"/></h:file>'
  return doc(body)
 def exercise(driver,root,path,source):
@@ -59,7 +60,7 @@ def main():
     refused=driver.act('templates-open',path='part.md');assert 'Preview Embedded context' not in refused,refused;assert any(word in refused.lower() for word in ['generat','ownership','output']),refused;driver.act('templates-close')
    assert driver.act('construction-source',path='part.md')==typed
    for path,source in [('project.md',original),('part.md',part),('notes.md',code)]:assert (root/path).read_bytes()==source.encode(),path
-   assert all(not(root/name).exists() for name in ['saved.py','draft.py','second.py','mixed.js'])
+   assert all(not(root/name).exists() for name in ['saved.py','draft.py','second.py','mixed.js','guide.md'])
    print('PASS: real code-fence and twice-reused external fragment catalog/Preview/Apply, dirty original compiler graph, Python comments/authored filenames, Unicode transform mirrors, atomic UndoRedo, retained editors/geometry, old entry proof/ambiguous reuse/new generated location refusal, unchanged source disks and no generated outputs')
   finally:
    if driver:driver.close()
@@ -97,7 +98,7 @@ import Darwin
    let identity=try XCTUnwrap(buffer.sourceEditorState?()).identity,geometry=editor.scroll.frame
    let command=try XCTUnwrap(space.commands().first{$0.id=="source.templates"});XCTAssertNil(command.reason);command.run();let model=space.sourceTemplates
    for _ in 0..<400{if model.catalog?.path==path && model.current() && !model.reading{break};try await Task.sleep(for:.milliseconds(25))}
-   let catalog=try XCTUnwrap(model.catalog,model.notice),entry=try XCTUnwrap(catalog.entries.first{$0.id=="workspace.embedded"},model.notice);XCTAssertEqual(catalog.language,"python");XCTAssertEqual(catalog.source_context?.source_hashes["project.md"],nativeSourceHash(project.text))
+   let catalog=try XCTUnwrap(model.catalog,model.notice),entry=try XCTUnwrap(catalog.entries.first{$0.id=="workspace.embedded"},model.notice);XCTAssertEqual(catalog.language,"python");XCTAssertEqual(catalog.source_context?.source_hashes["project.md"],nativeSourceHash(project.text));if path=="part.md"{XCTAssertTrue(catalog.source_context?.targets.contains("guide.md")==true)}
    await model.choose(entry);let expanded="#\(path)|old|old|OLD",preview=try XCTUnwrap(model.preview,model.notice);XCTAssertEqual(preview.snippet.text,expanded,model.notice);XCTAssertEqual(buffer.text,source)
    let accepted=await model.apply();XCTAssertTrue(accepted,model.notice);let after=(source as NSString).replacingCharacters(in:range,with:expanded);XCTAssertEqual(buffer.text,after)
    native.insertText("ßa",replacementRange:native.selectedRange());let typed=(source as NSString).replacingCharacters(in:range,with:"#\(path)|ßa|ßa|SSA");XCTAssertEqual(buffer.text,typed)
@@ -109,7 +110,7 @@ import Darwin
   let original=project.text;project.text=original+"\n";project.text=original;let applied=await space.sourceTemplates.apply();XCTAssertFalse(applied);XCTAssertEqual(buffer.text,source)
   project.text=original.replacingOccurrences(of:"</h:doc>",with:"<h:file path=\"mixed.js\"><h:paste select=\"#body\"/></h:file></h:doc>");await space.sourceTemplates.open(space);XCTAssertEqual(space.sourceTemplates.catalog?.available,false,space.sourceTemplates.notice);XCTAssertTrue(space.sourceTemplates.catalog?.entries.isEmpty==true);XCTAssertEqual(buffer.text,source)
   buffer.file.generated_by="fixture.md";await space.sourceTemplates.open(space);XCTAssertNil(space.sourceTemplates.catalog);XCTAssertEqual(buffer.text,source)
-  XCTAssertEqual(try String(contentsOf:root.appendingPathComponent("project.md"),encoding:.utf8),savedProject);for path in ["saved.py","draft.py","second.py","mixed.js"]{XCTAssertFalse(FileManager.default.fileExists(atPath:root.appendingPathComponent(path).path))}
+  XCTAssertEqual(try String(contentsOf:root.appendingPathComponent("project.md"),encoding:.utf8),savedProject);for path in ["saved.py","draft.py","second.py","mixed.js","guide.md"]{XCTAssertFalse(FileManager.default.fileExists(atPath:root.appendingPathComponent(path).path))}
  }
  #endif
 }
@@ -135,7 +136,7 @@ class EmbeddedTemplateTest {
    for(path in listOf("notes.md","part.md")){
     val buffer=load(path);val saved=buffer.text;if(path=="part.md")replace(buffer,saved.replace("saved","old"));val source=buffer.text;workspace.show(path);val state=buffer.state;val scroll=buffer.sourceScroll.value;val from=source.indexOf("old");check(from>=0);buffer.selectSourceRange(from,from+3,source)
     val action=command("source.templates");assertNull(action.reason);action.run();kotlinx.coroutines.yield();val model=workspace.sourceTemplates;repeat(500){if(model.catalog==null&&(model.busy||model.notice.isEmpty()))kotlinx.coroutines.delay(20)}
-    val catalog=model.catalog ?: error(model.notice);assertEquals("python",catalog.language);val binding=org.json.JSONObject(catalog.sourceContext!!);assertEquals(debugHash(project.text),binding.getJSONObject("source_hashes").getString("project.md"));val entry=catalog.entries.single{it.id=="workspace.embedded"}
+    val catalog=model.catalog ?: error(model.notice);assertEquals("python",catalog.language);val binding=org.json.JSONObject(catalog.sourceContext!!);assertEquals(debugHash(project.text),binding.getJSONObject("source_hashes").getString("project.md"));if(path=="part.md"){val targets=binding.getJSONArray("targets");assertTrue((0 until targets.length()).any{targets.getString(it)=="guide.md"})};val entry=catalog.entries.single{it.id=="workspace.embedded"}
     model.prepare(workspace,entry);val expanded="#$path|old|old|OLD";assertEquals(model.notice,expanded,model.reviewed?.draft?.primary?.text);assertEquals(source,buffer.text);assertTrue(model.notice,model.apply(workspace));val after=source.replaceRange(from,from+3,expanded);assertEquals(after,buffer.text)
     val selected=state.selection;assertTrue(buffer.snippets.applyInput(buffer.text,selected.min,selected.max,"ßa"));val typed=source.replaceRange(from,from+3,"#$path|ßa|ßa|SSA");assertEquals(typed,buffer.text)
     command("editor.undo").run();assertEquals(after,buffer.text);command("editor.undo").run();assertEquals(source,buffer.text);command("editor.redo").run();assertEquals(after,buffer.text);command("editor.redo").run();assertEquals(typed,buffer.text)
@@ -144,7 +145,7 @@ class EmbeddedTemplateTest {
    val buffer=last!!;val source=buffer.text;buffer.snippets.finish();val from=source.indexOf("ßa");buffer.selectSourceRange(from,from+2,source);workspace.showTemplates=true;val model=workspace.sourceTemplates;model.refresh(workspace);model.prepare(workspace,model.catalog!!.entries.single{it.id=="workspace.embedded"});assertNotNull(model.notice,model.reviewed)
    val original=project.text;replace(project,original+"\n");replace(project,original);assertFalse(model.apply(workspace));assertEquals(source,buffer.text)
    replace(project,original.replace("</h:doc>","<h:file path=\"mixed.js\"><h:paste select=\"#body\"/></h:file></h:doc>"));workspace.showTemplates=true;model.refresh(workspace);assertEquals(model.notice,false,model.catalog?.available);assertTrue(model.catalog?.entries?.isEmpty()==true);assertEquals(source,buffer.text)
-   buffer.file=buffer.file.copy(generatedBy="fixture.md");model.refresh(workspace);assertNull(model.catalog);assertEquals(source,buffer.text);assertEquals(savedProject,root.resolve("project.md").readText());for(path in listOf("saved.py","draft.py","second.py","mixed.js"))assertFalse(root.resolve(path).exists())
+   buffer.file=buffer.file.copy(generatedBy="fixture.md");model.refresh(workspace);assertNull(model.catalog);assertEquals(source,buffer.text);assertEquals(savedProject,root.resolve("project.md").readText());for(path in listOf("saved.py","draft.py","second.py","mixed.js","guide.md"))assertFalse(root.resolve(path).exists())
   }finally{workspace.sourceTemplates.close();workspace.showTemplates=false;workspace.buffers.values.forEach{it.language?.close()}}
  }
 }
