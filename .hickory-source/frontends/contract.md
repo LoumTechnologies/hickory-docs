@@ -221,6 +221,12 @@ technology remain unverified.
 
 ## Canonical entry reading evidence
 
+Explicit construction selection reaches the compiler independently of the
+filename language. A fresh engine returned authored test candidates and an
+unmaterialized compiler context for both a literal `.spec` address and a `.py`
+address. The exact same `.spec` request without entry selection refused as an
+unknown plain language. All saved source bytes stayed unchanged.
+
 Six focused engine cases and the actual workspace-entry HTTP flow passed. The
 flow retained the entry identity across a fresh engine process, issued a new
 process-bound proof, and observed new source proofs after an edit and after

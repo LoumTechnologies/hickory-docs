@@ -327,7 +327,7 @@ fn project_state(
 
 Plain files use their routed source detector immediately. Literate documents use the existing compiler position maps, with generated runtime line numbering kept separate from authored source coordinates. Project mappings retain foreign contributor identities. Local document scope is stated explicitly and can be expanded with a chosen project entry. One unsupported output does not erase facts from unrelated outputs.
 
-Compiler-fact readers may retain the exact consumed source set without changing the test endpoint's wire payload or ordinary memory lifetime. A second analysis can pin those captured inputs: explicit draft overrides win, then pinned source, then newly needed saved source. This prevents unrelated external disk edits from entering a before/after comparison halfway through. Construction entries retain the compiler’s existing Markdown source requirement.
+Compiler-fact readers may retain the exact consumed source set without changing the test endpoint's wire payload or ordinary memory lifetime. A second analysis can pin those captured inputs: explicit draft overrides win, then pinned source, then newly needed saved source. This prevents unrelated external disk edits from entering a before/after comparison halfway through. An explicitly selected construction entry is parsed by content even after a reviewed move changes its suffix. Filename routing applies only when no entry was selected; an unknown plain suffix still refuses. Recursively declared contributors keep the compiler’s Markdown requirement. This distinction preserves the selected compiler scope without granting construction authority from an arbitrary filename.
 
 <ui:copy id="source-test-service-analysis">
 /// Collect source facts only. No test planner, runner or materializer is called.
@@ -374,7 +374,15 @@ fn scan_captured(
                 .into(),
         );
     }
-    let language=hick_plugins::routing::language_id(&path).ok_or_else(||format!("No source language for {path}. Save with a supported extension or use project runner discovery."))?;
+    // An explicit construction entry is compiler authority, not a filename
+    // language hint. Resource reviews retain that choice through a rename.
+    let language = if request.project_entry.is_some() {
+        "markdown"
+    } else {
+        hick_plugins::routing::language_id(&path).ok_or_else(|| {
+            format!("No source language for {path}. Save with a supported extension or use project runner discovery.")
+        })?
+    };
     let mut result = base_scan(request, &path, &root)?;
     if language != "markdown" && request.project_entry.is_none() {
         let found = candidates::detect(language, &request.source)?;
@@ -1413,6 +1421,25 @@ mod namespace_tests {
             sources,
             capture: false,
         }
+    }
+    #[test]
+    fn explicit_entry_compiles_independently_of_its_filename_language() {
+        let temp = tempfile::tempdir().unwrap();
+        let source = "<h:doc xmlns:h=\"http://www.hickorydocs.com/1.0\"><h:project/><h:file path=\"output.txt\">retained</h:file></h:doc>";
+        for name in ["literal #main.spec", "entry.py"] {
+            std::fs::write(temp.path().join(name), source).unwrap();
+            let explicit = request(name, source, BTreeMap::new());
+            let scan = scan_with_namespace(temp.path(), &explicit, None, &BTreeSet::new()).unwrap();
+            assert_eq!(scan.scope, "project");
+            assert_eq!(scan.project_entry.as_deref(), Some(name));
+            assert_eq!(scan.source_hashes.get(name), Some(&digest(source.as_bytes())));
+            assert!(scan.tree.is_some());
+            assert!(!temp.path().join("output.txt").exists());
+        }
+        let mut plain = request("unknown.spec", source, BTreeMap::new());
+        plain.project_entry = None;
+        assert!(scan_with_namespace(temp.path(), &plain, None, &BTreeSet::new())
+            .err().expect("Unknown unselected source must refuse").contains("No source language"));
     }
     #[test]
     fn deleted_sources_never_fall_back_to_saved_or_pinned_bytes() {
