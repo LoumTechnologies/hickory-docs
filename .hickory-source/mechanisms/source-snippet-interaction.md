@@ -575,7 +575,7 @@ func snippetHistoryCost(_ value:SourceSnippetHistoryContext?)->Int {
         guard buffer.selectSourceRange?(NSRange(location:next.selection.from,length:next.selection.to-next.selection.from),current.source)==true else{session=old;return false}
         intent+=1;buffer.focusSource?();report();return true
     }
-    private func reportInputRefusal(){reportFailure("Linked template edit could not be prepared. Current draft is retained.")}
+    fileprivate func reportInputRefusal(){reportFailure("Linked template edit could not be prepared. Current draft is retained.")}
 
     // nil hands the event to the editor. A Bool records whether linked input committed.
     func input(source:String,range:NSRange,text:String,caret:Int?=nil)->Bool? {
@@ -630,6 +630,7 @@ struct MarkedSnippetResult {
     let edits: [NativeSourceEdit]
     let selection: NSRange
     let context: SourceSnippetHistoryContext?
+    var refused = false
 }
 
 @MainActor struct CapturedMarkedSnippet {
@@ -675,13 +676,16 @@ struct MarkedSnippetResult {
         let prefix = raw.substring(to: originalRange.location)
         let suffix = raw.substring(from: NSMaxRange(originalRange))
         guard let inserted = markedSourceReplacement(observed, prefix: prefix, suffix: suffix),
-              inserted.utf8.count <= 1024 * 1024, selected.location >= originalRange.location,
-              selected.length >= 0, NSMaxRange(selected) <= originalRange.location + inserted.utf16.count else { return nil }
+              selected.location >= originalRange.location, selected.length >= 0,
+              NSMaxRange(selected) <= originalRange.location + inserted.utf16.count else { return nil }
+        let refusal = MarkedSnippetResult(source: source, edits: [], selection: selection,
+                                          context: history, refused: true)
+        guard inserted.utf8.count <= 1024 * 1024 else { return refusal }
         let offset = selected.location - originalRange.location - inserted.utf16.count
         switch group {
         case .single(let current):
             guard let plan = editSnippet(current, source: source, from: originalRange.location,
-                                         to: NSMaxRange(originalRange), text: inserted) else { return nil }
+                                         to: NSMaxRange(originalRange), text: inserted) else { return refusal }
             let target = NSRange(location: plan.selection.from + offset, length: selected.length)
             let session = plan.session
             return MarkedSnippetResult(source: session.source, edits: plan.edits, selection: target,
@@ -689,12 +693,12 @@ struct MarkedSnippetResult {
                                                      current: session.current, scopes: session.scopes))
         case .parallel(let current):
             let edits = current.selections.map { NativeSourceEdit(range: $0, text: inserted) }
-            guard let plan = current.editing(source, input: edits) else { return nil }
+            guard let plan = current.editing(source, input: edits) else { return refusal }
             let primary = plan.state.primaryIndex
             var ranges = plan.state.selections
             ranges[primary].location += offset
             ranges[primary].length = selected.length
-            guard let next = plan.state.selecting(plan.state.source, ranges: ranges, primary: primary) else { return nil }
+            guard let next = plan.state.selecting(plan.state.source, ranges: ranges, primary: primary) else { return refusal }
             return MarkedSnippetResult(source: next.source, edits: plan.edits, selection: ranges[primary],
                 context: SourceSnippetHistoryContext(fields: [], active: 0, current: 0, parallel: next))
         }
@@ -748,6 +752,7 @@ func markedSourceEdit(from before: String, to after: String) -> NativeSourceEdit
     var finalSelection = selected
     var finalEdits: [NativeSourceEdit]?
     var context: SourceSnippetHistoryContext?
+    var refused = false
     if admitted, let next = capture.finish(buffer: buffer, observed: observed, selected: selected) {
         let delta = markedSourceEdit(from: observed, to: next.source)
         manager?.disableUndoRegistration()
@@ -758,6 +763,7 @@ func markedSourceEdit(from before: String, to after: String) -> NativeSourceEdit
             finalSelection = next.selection
             finalEdits = next.edits
             context = next.context
+            refused = next.refused
         }
     }
     guard exactUTF8(buffer.text, finalSource) else { return }
@@ -767,7 +773,7 @@ func markedSourceEdit(from before: String, to after: String) -> NativeSourceEdit
                     edits: edits.map { SourceReplacement(from: $0.range.location, to: NSMaxRange($0.range), text: $0.text) })
     ]
     let plan = ChangePlan(title: "Compose template field", patches: patches)
-    _ = history.commit(plan, path: capture.path, before: capture.source,
+    let restored = history.commit(plan, path: capture.path, before: capture.source,
         selectionBefore: capture.selection, selectionAfter: finalSelection,
         contextBefore: capture.history, contextAfter: context, manager: manager,
         read: { [weak buffer] in buffer?.text ?? "" }, apply: apply,
@@ -776,6 +782,7 @@ func markedSourceEdit(from before: String, to after: String) -> NativeSourceEdit
         contextCost: snippetHistoryCost,
         discardContext: { [weak buffer] in _ = buffer?.snippets.finish() },
         alreadyObserved: true)
+    if restored && refused { buffer.snippets.reportInputRefusal() }
 }
 </ui:copy>
 
@@ -839,6 +846,8 @@ class SourceSnippetController(private val buffer:DocumentBuffer) {
  private var markedInput: MarkedSnippetInput? = null
  private var markedConnection: Any? = null
  private var markedCommitRequested = false
+ private data class RefusedMarkedRedo(val source:String,var earlierSteps:Int=0)
+ private var refusedMarkedRedo:RefusedMarkedRedo?=null
 
  private var nativeMarkingDepth = 0
  internal val retainsMarkedInput: Boolean get() = markedInput != null
@@ -897,7 +906,11 @@ class SourceSnippetController(private val buffer:DocumentBuffer) {
   var follow: AndroidSnippetHistory? = null
   if (!closing && capture.intent == intent && !buffer.readOnly && !buffer.saving) {
    val next = capture.finish(source, observed)
-   if (next != null) {
+   if (next?.refused == true) {
+    if (restoreRefusedMarked(capture,source)) return
+    notice="Native composition history changed during refusal. Current draft is retained."
+    buffer.language?.completionNotice=notice
+   } else if (next != null) {
     val delta = changedMarkedSource(source, next.source)
     if (reflectMarkedInput(delta, source, next.selection) && buffer.text == next.source) {
      val ranges = next.parallel?.let(::parallelRanges).orEmpty()
@@ -906,10 +919,23 @@ class SourceSnippetController(private val buffer:DocumentBuffer) {
     }
    }
   }
+  if (buffer.text != capture.source) refusedMarkedRedo=null
   val finalSelection = buffer.state.selection
   val history = SourceUndoSnapshot<AndroidSnippetHistory?>(buffer.text, finalSelection.start, finalSelection.end, follow)
   val replay = capture.replay(buffer.text, mirrored = follow != null)
   if (replay != null) contexts.recordMarked(capture.history, history, replay)
+ }
+
+ private fun restoreRefusedMarked(capture:MarkedSnippetInput,observed:String):Boolean {
+  val replay=capture.replay(observed,mirrored=false) ?: return false
+  if(replay.run(true,{buffer.text},::moveNativeHistory)!=MarkedSourceReplay.Result.Finished||buffer.text!=capture.source)return false
+  refusedMarkedRedo=RefusedMarkedRedo(capture.source)
+  buffer.state.edit {selection=TextRange(capture.history.anchor,capture.history.head)}
+  buffer.advanceSourceRevision()
+  buffer.clearFolds()
+  restoreHistory(capture.history.context)
+  reportInputRefusal()
+  return true
  }
 
  // The native text state records the supplemental edit. Its observed trail is
@@ -931,11 +957,11 @@ class SourceSnippetController(private val buffer:DocumentBuffer) {
 
  val recordSerial get()=contexts.serial
  val canUndo get()=buffer.state.undoState.canUndo
- val canRedo get()=buffer.state.undoState.canRedo
+ val canRedo get()=buffer.state.undoState.canRedo&&(refusedMarkedRedo?.let{it.earlierSteps>0||it.source!=buffer.text}!=false)
  internal fun captureBefore(source:CharSequence,selection:TextRange,force:Boolean=false):SourceUndoSnapshot<AndroidSnippetHistory?>? {
   val text=value?.source ?: group?.source ?: source.toString()
   val context=historyContext(text)
-  if(context==null&&!contexts.retained&&!force)return null
+  if(context==null&&!contexts.retained&&refusedMarkedRedo==null&&!force)return null
   return SourceUndoSnapshot(text,selection.start,selection.end,context)
  }
  private fun historyContext(source:String):AndroidSnippetHistory? {
@@ -953,6 +979,7 @@ class SourceSnippetController(private val buffer:DocumentBuffer) {
  internal fun finishTextChange(before:SourceUndoSnapshot<AndroidSnippetHistory?>?,source:CharSequence,selected:TextRange){
   if(before==null)return
   val text=source.toString()
+  if(before.source!=text)refusedMarkedRedo=null
   val retained=historyContext(text)
   contexts.record(before,SourceUndoSnapshot(text,selected.start,selected.end,retained))
   stage(retained?.session,retained?.group)
@@ -964,14 +991,19 @@ class SourceSnippetController(private val buffer:DocumentBuffer) {
   restore(after)
  }
 
+ private fun moveNativeHistory(backwards:Boolean):Boolean {
+  val native=buffer.state.undoState
+  if(backwards&&native.canUndo){native.undo();return true}
+  if(!backwards&&native.canRedo){native.redo();return true}
+  return false
+ }
+ private fun moveBeforeRefusedRedo(backwards:Boolean) {
+  refusedMarkedRedo?.let{it.earlierSteps=(it.earlierSteps+if(backwards)1 else -1).coerceAtLeast(0)}
+ }
  private fun replayMarked(backwards: Boolean): Boolean? {
   val before = buffer.text
   val replay = contexts.currentMarked(before, backwards) ?: return null
-  val outcome = replay.run(backwards, { buffer.text }) { undo ->
-   if (undo && canUndo) { buffer.state.undoState.undo(); true }
-   else if (!undo && canRedo) { buffer.state.undoState.redo(); true }
-   else false
-  }
+  val outcome = replay.run(backwards, { buffer.text }, ::moveNativeHistory)
   if (outcome == MarkedSourceReplay.Result.Ordinary) return null
   buffer.advanceSourceRevision()
   if (outcome == MarkedSourceReplay.Result.Interrupted) {
@@ -989,16 +1021,18 @@ class SourceSnippetController(private val buffer:DocumentBuffer) {
  }
  fun undoSource():Boolean {
   if(buffer.readOnly||buffer.state.composition!=null||inMarkedInput||!canUndo)return false
-  replayMarked(true)?.let { return it }
+  replayMarked(true)?.let { if(it)moveBeforeRefusedRedo(true);return it }
   val before=buffer.text;val oldSelection=buffer.state.selection;buffer.state.undoState.undo();val selected=buffer.state.selection
+  moveBeforeRefusedRedo(true)
   if(before!=buffer.text||selected!=oldSelection)buffer.advanceSourceRevision()
   val target=contexts.undo(before,buffer.text,selected.start,selected.end);restoreHistory(target?.context)
   if(target?.context==null){notice="Text edit undone · draft";buffer.language?.completionNotice=notice};return true
  }
  fun redoSource():Boolean {
   if(buffer.readOnly||buffer.state.composition!=null||inMarkedInput||!canRedo)return false
-  replayMarked(false)?.let { return it }
+  replayMarked(false)?.let { if(it)moveBeforeRefusedRedo(false);return it }
   val before=buffer.text;val oldSelection=buffer.state.selection;buffer.state.undoState.redo();val selected=buffer.state.selection
+  moveBeforeRefusedRedo(false)
   if(before!=buffer.text||selected!=oldSelection)buffer.advanceSourceRevision()
   val target=contexts.redo(before,buffer.text,selected.start,selected.end);restoreHistory(target?.context)
   if(target?.context==null){notice="Text edit redone · draft";buffer.language?.completionNotice=notice};return true
@@ -1460,9 +1494,16 @@ import AppKit
 #endif
 @testable import HickorySimple
 @MainActor final class SourceSnippetInteractionTests:XCTestCase {
+    private func uppercaseTransform() throws -> SnippetTransform {
+        let url=URL(fileURLWithPath:#filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().appendingPathComponent("simple-contract/snippet-derived-cases.json")
+        let vectors=try XCTUnwrap(JSONSerialization.jsonObject(with:Data(contentsOf:url)) as? [String:Any])
+        let programs=try XCTUnwrap(vectors["programs"] as? [String:Any])
+        return try readSnippetTransform(XCTUnwrap(programs["upper"]))
+    }
     func testComputedInputAndNativeHistoryAreOneAction()throws {
         #if os(macOS)
-        let url=URL(fileURLWithPath:#filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("simple-contract/snippet-derived-cases.json"),vectors=try JSONSerialization.jsonObject(with:Data(contentsOf:url)) as! [String:Any],programs=vectors["programs"] as! [String:Any],transform=try readSnippetTransform(programs["upper"]!)
+        let transform=try uppercaseTransform()
         let source="foo FOO",values=[SnippetField(index:1,from:0,to:3,choices:[],id:0),SnippetField(index:1,from:4,to:7,choices:[],id:1,transform:transform),SnippetField(index:0,from:7,to:7,choices:[],id:2)]
         XCTAssertEqual(snippetHistoryCost(SourceSnippetHistoryContext(fields:values,active:1,current:0)),3*64+transform.bytes)
         let buffer=DocumentBuffer(file:FileNode(name:"a.py",path:"a.py",dir:false),text:FileText(path:"a.py",content:source,hash:"base")),editor=MacEditor(buffer),window=NSWindow(contentRect:NSRect(x:0,y:0,width:500,height:300),styleMask:[.titled],backing:.buffered,defer:false);window.contentView=editor.scroll;defer{window.contentView=nil}
@@ -1477,6 +1518,39 @@ import AppKit
         editor.text.insertText("λ😀",replacementRange:editor.text.selectedRange());XCTAssertEqual(Array(buffer.text.utf8),Array("λ😀 Λ😀".utf8));XCTAssertEqual(editor.text.selectedRange(),NSRange(location:3,length:0));XCTAssertNotNil(buffer.snippets.active)
         editor.text.undoManager?.undo();XCTAssertEqual(buffer.text,source);XCTAssertNotNil(buffer.snippets.active);editor.text.undoManager?.redo();XCTAssertEqual(Array(buffer.text.utf8),Array("λ😀 Λ😀".utf8));XCTAssertEqual(editor.text.selectedRange(),NSRange(location:3,length:0));XCTAssertNotNil(buffer.snippets.active)
         editor.text.setSelectedRange(NSRange(location:4,length:3));buffer.selection=editor.text.selectedRange();editor.text.insertText("bar",replacementRange:editor.text.selectedRange());XCTAssertEqual(Array(buffer.text.utf8),Array("λ😀 bar".utf8));XCTAssertNil(buffer.snippets.active)
+        #endif
+    }
+    func testActualMacRefusedMarkedCandidateKeepsEarlierUndoAndRedo() throws {
+        #if os(macOS)
+        let saved="foo FOO"
+        let buffer=DocumentBuffer(file:FileNode(name:"a.py",path:"a.py",dir:false),text:FileText(path:"a.py",content:saved,hash:"base"))
+        let editor=MacEditor(buffer)
+        let window=NSWindow(contentRect:NSRect(x:0,y:0,width:500,height:300),styleMask:[.titled],backing:.buffered,defer:false)
+        window.contentView=editor.scroll
+        window.makeFirstResponder(editor.text)
+        defer { window.contentView=nil }
+        XCTAssertTrue(editor.applySourceEdits([NativeSourceEdit(range:NSRange(location:0,length:0),text:"!")],source:saved))
+        let source="!foo FOO",selected=NSRange(location:1,length:3)
+        XCTAssertTrue(editor.selectSourceRange(selected,source:source))
+        let fields=[SnippetField(index:1,from:1,to:4,choices:[],id:0),
+                    SnippetField(index:1,from:5,to:8,choices:[],id:1,transform:try uppercaseTransform()),
+                    SnippetField(index:0,from:8,to:8,choices:[],id:2)]
+        buffer.snippets.restore(beginSnippet(source,fields:fields))
+        let mark=NSRange(location:NSNotFound,length:0)
+        editor.text.setMarkedText("に",selectedRange:NSRange(location:1,length:0),replacementRange:mark)
+        XCTAssertEqual(buffer.text,"!に FOO")
+        editor.text.insertText(String(repeating:"x",count:65537),replacementRange:mark)
+        XCTAssertFalse(editor.text.hasMarkedText())
+        XCTAssertEqual(buffer.text,source)
+        XCTAssertEqual(editor.text.selectedRange(),selected)
+        XCTAssertNotNil(buffer.snippets.active)
+        XCTAssertTrue(buffer.snippets.notice.contains("Current draft is retained"))
+        let manager=try XCTUnwrap(editor.text.undoManager)
+        manager.undo()
+        XCTAssertEqual(buffer.text,saved)
+        manager.redo()
+        XCTAssertEqual(buffer.text,source)
+        XCTAssertFalse(manager.canRedo)
         #endif
     }
     func fields()->[SnippetField]{[SnippetField(index:1,from:0,to:1,choices:["a","long"],id:0),SnippetField(index:1,from:4,to:5,choices:["a","long"],id:1),SnippetField(index:0,from:5,to:5,choices:[],id:2)]}
@@ -1726,6 +1800,50 @@ import org.junit.Assert.*
 import androidx.compose.ui.text.TextRange
 import kotlinx.coroutines.async
 class SourceSnippetInteractionTest {
+ private fun uppercaseTransform():SnippetTransform {
+  val root=generateSequence(java.io.File(System.getProperty("user.dir")).absoluteFile){it.parentFile}
+   .first{it.resolve("apps/simple-contract/snippet-derived-cases.json").isFile}
+  val fixture=org.json.JSONObject(root.resolve("apps/simple-contract/snippet-derived-cases.json").readText())
+  return readSnippetTransform(fixture.getJSONObject("programs").getJSONObject("upper"))
+ }
+ @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+ @Test fun refusedMarkedCandidateRestoresPriorUndoAndBlocksOnlyItsOwnRedo() {
+  val saved="foo FOO"
+  val buffer=DocumentBuffer(FileNode("a.py","a.py",false,emptyList(),null,null),FileText(saved,"base"))
+  val controller=buffer.snippets
+  val selected=TextRange(1,4)
+  assertTrue(buffer.applySourceEdits(listOf(NativeSourceEdit(0,0,"!")),saved,selected))
+  val source="!foo FOO"
+  val fields=listOf(SnippetField(1,1,4,emptyList(),0),SnippetField(1,5,8,emptyList(),1,transform=uppercaseTransform()),
+   SnippetField(0,8,8,emptyList(),2))
+  controller.restore(beginSnippet(source,fields))
+  val connection=Any()
+  controller.beginMarkedInput(connection)
+  assertTrue(controller.retainsMarkedInput)
+  buffer.state.edit {replace(1,4,"に");selection=TextRange(2)}
+  controller.observeMarkedInput(buffer.text)
+  assertEquals("!に FOO",buffer.text)
+  val overflow="x".repeat(65_537)
+  buffer.state.edit {replace(1,2,overflow);selection=TextRange(1+overflow.length)}
+  controller.observeMarkedInput(buffer.text)
+  controller.markCommitRequested(connection)
+  controller.settleMarkedInput(connection)
+  assertEquals(source,buffer.text)
+  assertEquals(selected,buffer.state.selection)
+  assertNotNull(controller.active)
+  assertTrue(controller.notice.contains("Current draft is retained"))
+  assertFalse(controller.redoSource())
+  assertTrue(controller.undoSource())
+  assertEquals(saved,buffer.text)
+  assertTrue(controller.redoSource())
+  assertEquals(source,buffer.text)
+  assertFalse(controller.canRedo)
+  assertTrue(buffer.applySourceEdits(listOf(NativeSourceEdit(0,1,"?")),source))
+  assertTrue(controller.undoSource())
+  assertEquals(source,buffer.text)
+  assertTrue(controller.redoSource())
+  assertEquals("?foo FOO",buffer.text)
+ }
  @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
  @Test fun markedTemplateCandidatesStayNativeThenUndoAsOneSourceAction() {
   val buffer=buffer()
@@ -1836,7 +1954,7 @@ class SourceSnippetInteractionTest {
  }
  @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
  @Test fun computedInputAndNativeHistoryAreOneAction(){
-  val root=generateSequence(java.io.File(System.getProperty("user.dir")).absoluteFile){it.parentFile}.first{it.resolve("apps/simple-contract/snippet-derived-cases.json").isFile};val transform=readSnippetTransform(org.json.JSONObject(root.resolve("apps/simple-contract/snippet-derived-cases.json").readText()).getJSONObject("programs").getJSONObject("upper"));val source="foo FOO";val values=listOf(SnippetField(1,0,3,emptyList(),0),SnippetField(1,4,7,emptyList(),1,transform=transform),SnippetField(0,7,7,emptyList(),2));val buffer=DocumentBuffer(FileNode("a.py","a.py",false,emptyList(),null,null),FileText(source,"base"));buffer.state.edit{selection=TextRange(0,3)};buffer.snippets.restore(beginSnippet(source,values));assertEquals(3*64L+transform.bytes,snippetHistoryCost(buffer.snippets.active))
+  val transform=uppercaseTransform();val source="foo FOO";val values=listOf(SnippetField(1,0,3,emptyList(),0),SnippetField(1,4,7,emptyList(),1,transform=transform),SnippetField(0,7,7,emptyList(),2));val buffer=DocumentBuffer(FileNode("a.py","a.py",false,emptyList(),null,null),FileText(source,"base"));buffer.state.edit{selection=TextRange(0,3)};buffer.snippets.restore(beginSnippet(source,values));assertEquals(3*64L+transform.bytes,snippetHistoryCost(buffer.snippets.active))
   val intent=buffer.snippets.intent;val canUndo=buffer.snippets.canUndo
   val overflow="x".repeat(65_537)
   buffer.state.edit {

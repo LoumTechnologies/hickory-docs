@@ -7,6 +7,7 @@ internal data class MarkedSnippetResult(
     val selection: CompletionSelection,
     val session: SnippetSession? = null,
     val parallel: ParallelSnippet? = null,
+    val refused: Boolean = false,
 )
 
 /** Owned by one native input connection. Native marked text remains authoritative until commit. */
@@ -56,24 +57,25 @@ internal class MarkedSnippetInput(
         if (overflow || splitSource || !confined(observed)) return null
         val end = observed.length - suffix.length
         val inserted = observed.substring(prefix.length, end)
-        if (inserted.length > 1024 * 1024 || inserted.toByteArray(Charsets.UTF_8).size > 1024 * 1024 ||
-            selected.from < range.from || selected.to > end || selected.from > selected.to) return null
+        if (selected.from < range.from || selected.to > end || selected.from > selected.to) return null
+        val refusal = MarkedSnippetResult(source, selection, refused = true)
+        if (inserted.length > 1024 * 1024 || inserted.toByteArray(Charsets.UTF_8).size > 1024 * 1024) return refusal
         val offset = selected.from - end
         val length = selected.to - selected.from
         val context = history.context ?: return null
         val multiple = context.group
         if (multiple != null) {
             if (multiple.selections[multiple.primaryIndex] != range) return null
-            val plan = multiple.editing(source, multiple.selections.map { NativeSourceEdit(it.from, it.to, inserted) }) ?: return null
+            val plan = multiple.editing(source, multiple.selections.map { NativeSourceEdit(it.from, it.to, inserted) }) ?: return refusal
             val primary = plan.state.primaryIndex
             val ranges = plan.state.selections.toMutableList()
             val start = ranges[primary].from + offset
             ranges[primary] = CompletionSelection(start, start + length)
-            val next = plan.state.selecting(plan.state.source, ranges, primary) ?: return null
+            val next = plan.state.selecting(plan.state.source, ranges, primary) ?: return refusal
             return MarkedSnippetResult(next.source, ranges[primary], parallel = next)
         }
         val current = context.session ?: return null
-        val plan = editSnippet(current, source, range.from, range.to, inserted) ?: return null
+        val plan = editSnippet(current, source, range.from, range.to, inserted) ?: return refusal
         val start = plan.selection.from + offset
         return MarkedSnippetResult(plan.session.source, CompletionSelection(start, start + length), session = plan.session)
     }

@@ -51,6 +51,8 @@ class SourceSnippetController(private val buffer:DocumentBuffer) {
  private var markedInput: MarkedSnippetInput? = null
  private var markedConnection: Any? = null
  private var markedCommitRequested = false
+ private data class RefusedMarkedRedo(val source:String,var earlierSteps:Int=0)
+ private var refusedMarkedRedo:RefusedMarkedRedo?=null
 
  private var nativeMarkingDepth = 0
  internal val retainsMarkedInput: Boolean get() = markedInput != null
@@ -109,7 +111,11 @@ class SourceSnippetController(private val buffer:DocumentBuffer) {
   var follow: AndroidSnippetHistory? = null
   if (!closing && capture.intent == intent && !buffer.readOnly && !buffer.saving) {
    val next = capture.finish(source, observed)
-   if (next != null) {
+   if (next?.refused == true) {
+    if (restoreRefusedMarked(capture,source)) return
+    notice="Native composition history changed during refusal. Current draft is retained."
+    buffer.language?.completionNotice=notice
+   } else if (next != null) {
     val delta = changedMarkedSource(source, next.source)
     if (reflectMarkedInput(delta, source, next.selection) && buffer.text == next.source) {
      val ranges = next.parallel?.let(::parallelRanges).orEmpty()
@@ -118,10 +124,23 @@ class SourceSnippetController(private val buffer:DocumentBuffer) {
     }
    }
   }
+  if (buffer.text != capture.source) refusedMarkedRedo=null
   val finalSelection = buffer.state.selection
   val history = SourceUndoSnapshot<AndroidSnippetHistory?>(buffer.text, finalSelection.start, finalSelection.end, follow)
   val replay = capture.replay(buffer.text, mirrored = follow != null)
   if (replay != null) contexts.recordMarked(capture.history, history, replay)
+ }
+
+ private fun restoreRefusedMarked(capture:MarkedSnippetInput,observed:String):Boolean {
+  val replay=capture.replay(observed,mirrored=false) ?: return false
+  if(replay.run(true,{buffer.text},::moveNativeHistory)!=MarkedSourceReplay.Result.Finished||buffer.text!=capture.source)return false
+  refusedMarkedRedo=RefusedMarkedRedo(capture.source)
+  buffer.state.edit {selection=TextRange(capture.history.anchor,capture.history.head)}
+  buffer.advanceSourceRevision()
+  buffer.clearFolds()
+  restoreHistory(capture.history.context)
+  reportInputRefusal()
+  return true
  }
 
  // The native text state records the supplemental edit. Its observed trail is
@@ -143,11 +162,11 @@ class SourceSnippetController(private val buffer:DocumentBuffer) {
 
  val recordSerial get()=contexts.serial
  val canUndo get()=buffer.state.undoState.canUndo
- val canRedo get()=buffer.state.undoState.canRedo
+ val canRedo get()=buffer.state.undoState.canRedo&&(refusedMarkedRedo?.let{it.earlierSteps>0||it.source!=buffer.text}!=false)
  internal fun captureBefore(source:CharSequence,selection:TextRange,force:Boolean=false):SourceUndoSnapshot<AndroidSnippetHistory?>? {
   val text=value?.source ?: group?.source ?: source.toString()
   val context=historyContext(text)
-  if(context==null&&!contexts.retained&&!force)return null
+  if(context==null&&!contexts.retained&&refusedMarkedRedo==null&&!force)return null
   return SourceUndoSnapshot(text,selection.start,selection.end,context)
  }
  private fun historyContext(source:String):AndroidSnippetHistory? {
@@ -165,6 +184,7 @@ class SourceSnippetController(private val buffer:DocumentBuffer) {
  internal fun finishTextChange(before:SourceUndoSnapshot<AndroidSnippetHistory?>?,source:CharSequence,selected:TextRange){
   if(before==null)return
   val text=source.toString()
+  if(before.source!=text)refusedMarkedRedo=null
   val retained=historyContext(text)
   contexts.record(before,SourceUndoSnapshot(text,selected.start,selected.end,retained))
   stage(retained?.session,retained?.group)
@@ -176,14 +196,19 @@ class SourceSnippetController(private val buffer:DocumentBuffer) {
   restore(after)
  }
 
+ private fun moveNativeHistory(backwards:Boolean):Boolean {
+  val native=buffer.state.undoState
+  if(backwards&&native.canUndo){native.undo();return true}
+  if(!backwards&&native.canRedo){native.redo();return true}
+  return false
+ }
+ private fun moveBeforeRefusedRedo(backwards:Boolean) {
+  refusedMarkedRedo?.let{it.earlierSteps=(it.earlierSteps+if(backwards)1 else -1).coerceAtLeast(0)}
+ }
  private fun replayMarked(backwards: Boolean): Boolean? {
   val before = buffer.text
   val replay = contexts.currentMarked(before, backwards) ?: return null
-  val outcome = replay.run(backwards, { buffer.text }) { undo ->
-   if (undo && canUndo) { buffer.state.undoState.undo(); true }
-   else if (!undo && canRedo) { buffer.state.undoState.redo(); true }
-   else false
-  }
+  val outcome = replay.run(backwards, { buffer.text }, ::moveNativeHistory)
   if (outcome == MarkedSourceReplay.Result.Ordinary) return null
   buffer.advanceSourceRevision()
   if (outcome == MarkedSourceReplay.Result.Interrupted) {
@@ -201,16 +226,18 @@ class SourceSnippetController(private val buffer:DocumentBuffer) {
  }
  fun undoSource():Boolean {
   if(buffer.readOnly||buffer.state.composition!=null||inMarkedInput||!canUndo)return false
-  replayMarked(true)?.let { return it }
+  replayMarked(true)?.let { if(it)moveBeforeRefusedRedo(true);return it }
   val before=buffer.text;val oldSelection=buffer.state.selection;buffer.state.undoState.undo();val selected=buffer.state.selection
+  moveBeforeRefusedRedo(true)
   if(before!=buffer.text||selected!=oldSelection)buffer.advanceSourceRevision()
   val target=contexts.undo(before,buffer.text,selected.start,selected.end);restoreHistory(target?.context)
   if(target?.context==null){notice="Text edit undone · draft";buffer.language?.completionNotice=notice};return true
  }
  fun redoSource():Boolean {
   if(buffer.readOnly||buffer.state.composition!=null||inMarkedInput||!canRedo)return false
-  replayMarked(false)?.let { return it }
+  replayMarked(false)?.let { if(it)moveBeforeRefusedRedo(false);return it }
   val before=buffer.text;val oldSelection=buffer.state.selection;buffer.state.undoState.redo();val selected=buffer.state.selection
+  moveBeforeRefusedRedo(false)
   if(before!=buffer.text||selected!=oldSelection)buffer.advanceSourceRevision()
   val target=contexts.redo(before,buffer.text,selected.start,selected.end);restoreHistory(target?.context)
   if(target?.context==null){notice="Text edit redone · draft";buffer.language?.completionNotice=notice};return true

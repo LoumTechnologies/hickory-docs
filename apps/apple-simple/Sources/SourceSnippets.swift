@@ -163,7 +163,7 @@ func snippetHistoryCost(_ value:SourceSnippetHistoryContext?)->Int {
         guard buffer.selectSourceRange?(NSRange(location:next.selection.from,length:next.selection.to-next.selection.from),current.source)==true else{session=old;return false}
         intent+=1;buffer.focusSource?();report();return true
     }
-    private func reportInputRefusal(){reportFailure("Linked template edit could not be prepared. Current draft is retained.")}
+    fileprivate func reportInputRefusal(){reportFailure("Linked template edit could not be prepared. Current draft is retained.")}
 
     // nil hands the event to the editor. A Bool records whether linked input committed.
     func input(source:String,range:NSRange,text:String,caret:Int?=nil)->Bool? {
@@ -218,6 +218,7 @@ struct MarkedSnippetResult {
     let edits: [NativeSourceEdit]
     let selection: NSRange
     let context: SourceSnippetHistoryContext?
+    var refused = false
 }
 
 @MainActor struct CapturedMarkedSnippet {
@@ -263,13 +264,16 @@ struct MarkedSnippetResult {
         let prefix = raw.substring(to: originalRange.location)
         let suffix = raw.substring(from: NSMaxRange(originalRange))
         guard let inserted = markedSourceReplacement(observed, prefix: prefix, suffix: suffix),
-              inserted.utf8.count <= 1024 * 1024, selected.location >= originalRange.location,
-              selected.length >= 0, NSMaxRange(selected) <= originalRange.location + inserted.utf16.count else { return nil }
+              selected.location >= originalRange.location, selected.length >= 0,
+              NSMaxRange(selected) <= originalRange.location + inserted.utf16.count else { return nil }
+        let refusal = MarkedSnippetResult(source: source, edits: [], selection: selection,
+                                          context: history, refused: true)
+        guard inserted.utf8.count <= 1024 * 1024 else { return refusal }
         let offset = selected.location - originalRange.location - inserted.utf16.count
         switch group {
         case .single(let current):
             guard let plan = editSnippet(current, source: source, from: originalRange.location,
-                                         to: NSMaxRange(originalRange), text: inserted) else { return nil }
+                                         to: NSMaxRange(originalRange), text: inserted) else { return refusal }
             let target = NSRange(location: plan.selection.from + offset, length: selected.length)
             let session = plan.session
             return MarkedSnippetResult(source: session.source, edits: plan.edits, selection: target,
@@ -277,12 +281,12 @@ struct MarkedSnippetResult {
                                                      current: session.current, scopes: session.scopes))
         case .parallel(let current):
             let edits = current.selections.map { NativeSourceEdit(range: $0, text: inserted) }
-            guard let plan = current.editing(source, input: edits) else { return nil }
+            guard let plan = current.editing(source, input: edits) else { return refusal }
             let primary = plan.state.primaryIndex
             var ranges = plan.state.selections
             ranges[primary].location += offset
             ranges[primary].length = selected.length
-            guard let next = plan.state.selecting(plan.state.source, ranges: ranges, primary: primary) else { return nil }
+            guard let next = plan.state.selecting(plan.state.source, ranges: ranges, primary: primary) else { return refusal }
             return MarkedSnippetResult(source: next.source, edits: plan.edits, selection: ranges[primary],
                 context: SourceSnippetHistoryContext(fields: [], active: 0, current: 0, parallel: next))
         }
@@ -336,6 +340,7 @@ func markedSourceEdit(from before: String, to after: String) -> NativeSourceEdit
     var finalSelection = selected
     var finalEdits: [NativeSourceEdit]?
     var context: SourceSnippetHistoryContext?
+    var refused = false
     if admitted, let next = capture.finish(buffer: buffer, observed: observed, selected: selected) {
         let delta = markedSourceEdit(from: observed, to: next.source)
         manager?.disableUndoRegistration()
@@ -346,6 +351,7 @@ func markedSourceEdit(from before: String, to after: String) -> NativeSourceEdit
             finalSelection = next.selection
             finalEdits = next.edits
             context = next.context
+            refused = next.refused
         }
     }
     guard exactUTF8(buffer.text, finalSource) else { return }
@@ -355,7 +361,7 @@ func markedSourceEdit(from before: String, to after: String) -> NativeSourceEdit
                     edits: edits.map { SourceReplacement(from: $0.range.location, to: NSMaxRange($0.range), text: $0.text) })
     ]
     let plan = ChangePlan(title: "Compose template field", patches: patches)
-    _ = history.commit(plan, path: capture.path, before: capture.source,
+    let restored = history.commit(plan, path: capture.path, before: capture.source,
         selectionBefore: capture.selection, selectionAfter: finalSelection,
         contextBefore: capture.history, contextAfter: context, manager: manager,
         read: { [weak buffer] in buffer?.text ?? "" }, apply: apply,
@@ -364,4 +370,5 @@ func markedSourceEdit(from before: String, to after: String) -> NativeSourceEdit
         contextCost: snippetHistoryCost,
         discardContext: { [weak buffer] in _ = buffer?.snippets.finish() },
         alreadyObserved: true)
+    if restored && refused { buffer.snippets.reportInputRefusal() }
 }

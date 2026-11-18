@@ -119,6 +119,16 @@ five source undo checks passed. The Android input connection compiled with the
 installed SDK. Physical IME input, actual UIKit interaction, Android device
 interaction and assistive technology remain unverified.
 
+The refusal witness adds an oversized committed candidate after a provisional
+Japanese character. macOS restores the original AppKit text, selection and
+field context without adding an Undo step. Android replays only its observed
+native candidate revisions to the original state. The earlier edit still has
+Undo and Redo, the rejected candidate cannot return through Redo, and the next
+ordinary edit gets its own history. The focused runs passed 25 macOS and 19
+Android cases, including adjacent source-identity and history checks. The iOS
+simulator product builds. Hardware keyboards, device IMEs and assistive
+technology remain unverified.
+
 ## Canonical entry reading evidence
 
 Six focused engine cases and the actual workspace-entry HTTP flow passed. The

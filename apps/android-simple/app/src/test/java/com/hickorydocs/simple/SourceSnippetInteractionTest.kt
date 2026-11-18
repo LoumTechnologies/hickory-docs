@@ -4,6 +4,50 @@ import org.junit.Assert.*
 import androidx.compose.ui.text.TextRange
 import kotlinx.coroutines.async
 class SourceSnippetInteractionTest {
+ private fun uppercaseTransform():SnippetTransform {
+  val root=generateSequence(java.io.File(System.getProperty("user.dir")).absoluteFile){it.parentFile}
+   .first{it.resolve("apps/simple-contract/snippet-derived-cases.json").isFile}
+  val fixture=org.json.JSONObject(root.resolve("apps/simple-contract/snippet-derived-cases.json").readText())
+  return readSnippetTransform(fixture.getJSONObject("programs").getJSONObject("upper"))
+ }
+ @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+ @Test fun refusedMarkedCandidateRestoresPriorUndoAndBlocksOnlyItsOwnRedo() {
+  val saved="foo FOO"
+  val buffer=DocumentBuffer(FileNode("a.py","a.py",false,emptyList(),null,null),FileText(saved,"base"))
+  val controller=buffer.snippets
+  val selected=TextRange(1,4)
+  assertTrue(buffer.applySourceEdits(listOf(NativeSourceEdit(0,0,"!")),saved,selected))
+  val source="!foo FOO"
+  val fields=listOf(SnippetField(1,1,4,emptyList(),0),SnippetField(1,5,8,emptyList(),1,transform=uppercaseTransform()),
+   SnippetField(0,8,8,emptyList(),2))
+  controller.restore(beginSnippet(source,fields))
+  val connection=Any()
+  controller.beginMarkedInput(connection)
+  assertTrue(controller.retainsMarkedInput)
+  buffer.state.edit {replace(1,4,"に");selection=TextRange(2)}
+  controller.observeMarkedInput(buffer.text)
+  assertEquals("!に FOO",buffer.text)
+  val overflow="x".repeat(65_537)
+  buffer.state.edit {replace(1,2,overflow);selection=TextRange(1+overflow.length)}
+  controller.observeMarkedInput(buffer.text)
+  controller.markCommitRequested(connection)
+  controller.settleMarkedInput(connection)
+  assertEquals(source,buffer.text)
+  assertEquals(selected,buffer.state.selection)
+  assertNotNull(controller.active)
+  assertTrue(controller.notice.contains("Current draft is retained"))
+  assertFalse(controller.redoSource())
+  assertTrue(controller.undoSource())
+  assertEquals(saved,buffer.text)
+  assertTrue(controller.redoSource())
+  assertEquals(source,buffer.text)
+  assertFalse(controller.canRedo)
+  assertTrue(buffer.applySourceEdits(listOf(NativeSourceEdit(0,1,"?")),source))
+  assertTrue(controller.undoSource())
+  assertEquals(source,buffer.text)
+  assertTrue(controller.redoSource())
+  assertEquals("?foo FOO",buffer.text)
+ }
  @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
  @Test fun markedTemplateCandidatesStayNativeThenUndoAsOneSourceAction() {
   val buffer=buffer()
@@ -114,7 +158,7 @@ class SourceSnippetInteractionTest {
  }
  @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
  @Test fun computedInputAndNativeHistoryAreOneAction(){
-  val root=generateSequence(java.io.File(System.getProperty("user.dir")).absoluteFile){it.parentFile}.first{it.resolve("apps/simple-contract/snippet-derived-cases.json").isFile};val transform=readSnippetTransform(org.json.JSONObject(root.resolve("apps/simple-contract/snippet-derived-cases.json").readText()).getJSONObject("programs").getJSONObject("upper"));val source="foo FOO";val values=listOf(SnippetField(1,0,3,emptyList(),0),SnippetField(1,4,7,emptyList(),1,transform=transform),SnippetField(0,7,7,emptyList(),2));val buffer=DocumentBuffer(FileNode("a.py","a.py",false,emptyList(),null,null),FileText(source,"base"));buffer.state.edit{selection=TextRange(0,3)};buffer.snippets.restore(beginSnippet(source,values));assertEquals(3*64L+transform.bytes,snippetHistoryCost(buffer.snippets.active))
+  val transform=uppercaseTransform();val source="foo FOO";val values=listOf(SnippetField(1,0,3,emptyList(),0),SnippetField(1,4,7,emptyList(),1,transform=transform),SnippetField(0,7,7,emptyList(),2));val buffer=DocumentBuffer(FileNode("a.py","a.py",false,emptyList(),null,null),FileText(source,"base"));buffer.state.edit{selection=TextRange(0,3)};buffer.snippets.restore(beginSnippet(source,values));assertEquals(3*64L+transform.bytes,snippetHistoryCost(buffer.snippets.active))
   val intent=buffer.snippets.intent;val canUndo=buffer.snippets.canUndo
   val overflow="x".repeat(65_537)
   buffer.state.edit {

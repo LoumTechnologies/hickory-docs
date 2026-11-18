@@ -4,9 +4,16 @@ import AppKit
 #endif
 @testable import HickorySimple
 @MainActor final class SourceSnippetInteractionTests:XCTestCase {
+    private func uppercaseTransform() throws -> SnippetTransform {
+        let url=URL(fileURLWithPath:#filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().appendingPathComponent("simple-contract/snippet-derived-cases.json")
+        let vectors=try XCTUnwrap(JSONSerialization.jsonObject(with:Data(contentsOf:url)) as? [String:Any])
+        let programs=try XCTUnwrap(vectors["programs"] as? [String:Any])
+        return try readSnippetTransform(XCTUnwrap(programs["upper"]))
+    }
     func testComputedInputAndNativeHistoryAreOneAction()throws {
         #if os(macOS)
-        let url=URL(fileURLWithPath:#filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("simple-contract/snippet-derived-cases.json"),vectors=try JSONSerialization.jsonObject(with:Data(contentsOf:url)) as! [String:Any],programs=vectors["programs"] as! [String:Any],transform=try readSnippetTransform(programs["upper"]!)
+        let transform=try uppercaseTransform()
         let source="foo FOO",values=[SnippetField(index:1,from:0,to:3,choices:[],id:0),SnippetField(index:1,from:4,to:7,choices:[],id:1,transform:transform),SnippetField(index:0,from:7,to:7,choices:[],id:2)]
         XCTAssertEqual(snippetHistoryCost(SourceSnippetHistoryContext(fields:values,active:1,current:0)),3*64+transform.bytes)
         let buffer=DocumentBuffer(file:FileNode(name:"a.py",path:"a.py",dir:false),text:FileText(path:"a.py",content:source,hash:"base")),editor=MacEditor(buffer),window=NSWindow(contentRect:NSRect(x:0,y:0,width:500,height:300),styleMask:[.titled],backing:.buffered,defer:false);window.contentView=editor.scroll;defer{window.contentView=nil}
@@ -21,6 +28,39 @@ import AppKit
         editor.text.insertText("λ😀",replacementRange:editor.text.selectedRange());XCTAssertEqual(Array(buffer.text.utf8),Array("λ😀 Λ😀".utf8));XCTAssertEqual(editor.text.selectedRange(),NSRange(location:3,length:0));XCTAssertNotNil(buffer.snippets.active)
         editor.text.undoManager?.undo();XCTAssertEqual(buffer.text,source);XCTAssertNotNil(buffer.snippets.active);editor.text.undoManager?.redo();XCTAssertEqual(Array(buffer.text.utf8),Array("λ😀 Λ😀".utf8));XCTAssertEqual(editor.text.selectedRange(),NSRange(location:3,length:0));XCTAssertNotNil(buffer.snippets.active)
         editor.text.setSelectedRange(NSRange(location:4,length:3));buffer.selection=editor.text.selectedRange();editor.text.insertText("bar",replacementRange:editor.text.selectedRange());XCTAssertEqual(Array(buffer.text.utf8),Array("λ😀 bar".utf8));XCTAssertNil(buffer.snippets.active)
+        #endif
+    }
+    func testActualMacRefusedMarkedCandidateKeepsEarlierUndoAndRedo() throws {
+        #if os(macOS)
+        let saved="foo FOO"
+        let buffer=DocumentBuffer(file:FileNode(name:"a.py",path:"a.py",dir:false),text:FileText(path:"a.py",content:saved,hash:"base"))
+        let editor=MacEditor(buffer)
+        let window=NSWindow(contentRect:NSRect(x:0,y:0,width:500,height:300),styleMask:[.titled],backing:.buffered,defer:false)
+        window.contentView=editor.scroll
+        window.makeFirstResponder(editor.text)
+        defer { window.contentView=nil }
+        XCTAssertTrue(editor.applySourceEdits([NativeSourceEdit(range:NSRange(location:0,length:0),text:"!")],source:saved))
+        let source="!foo FOO",selected=NSRange(location:1,length:3)
+        XCTAssertTrue(editor.selectSourceRange(selected,source:source))
+        let fields=[SnippetField(index:1,from:1,to:4,choices:[],id:0),
+                    SnippetField(index:1,from:5,to:8,choices:[],id:1,transform:try uppercaseTransform()),
+                    SnippetField(index:0,from:8,to:8,choices:[],id:2)]
+        buffer.snippets.restore(beginSnippet(source,fields:fields))
+        let mark=NSRange(location:NSNotFound,length:0)
+        editor.text.setMarkedText("に",selectedRange:NSRange(location:1,length:0),replacementRange:mark)
+        XCTAssertEqual(buffer.text,"!に FOO")
+        editor.text.insertText(String(repeating:"x",count:65537),replacementRange:mark)
+        XCTAssertFalse(editor.text.hasMarkedText())
+        XCTAssertEqual(buffer.text,source)
+        XCTAssertEqual(editor.text.selectedRange(),selected)
+        XCTAssertNotNil(buffer.snippets.active)
+        XCTAssertTrue(buffer.snippets.notice.contains("Current draft is retained"))
+        let manager=try XCTUnwrap(editor.text.undoManager)
+        manager.undo()
+        XCTAssertEqual(buffer.text,saved)
+        manager.redo()
+        XCTAssertEqual(buffer.text,source)
+        XCTAssertFalse(manager.canRedo)
         #endif
     }
     func fields()->[SnippetField]{[SnippetField(index:1,from:0,to:1,choices:["a","long"],id:0),SnippetField(index:1,from:4,to:5,choices:["a","long"],id:1),SnippetField(index:0,from:5,to:5,choices:[],id:2)]}
