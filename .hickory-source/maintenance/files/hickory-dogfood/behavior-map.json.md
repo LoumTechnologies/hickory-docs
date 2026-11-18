@@ -73270,6 +73270,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "workspace-entry-reading",
         "workspace-entry-coordination-provider",
         "workspace-entry-read-lease-admission",
+        "workspace-entry-source-coordination",
         "workspace-entry-read-lease-witness",
         "workspace-entry-reading-witness"
       ]

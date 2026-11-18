@@ -192,6 +192,25 @@ default-reading proof still rejected identical-byte replacement. Move, its
 inverse and exclusion against ordinary source writes still require their own
 integration evidence.
 
+### Coordinate ordinary Save with a retained reading
+
+Save and guarded source creation now acquire the same root publication lock
+before they begin history or write source. A shared generation or verification
+reader can continue holding the root while the Save returns a retryable
+refusal. Unrelated reads remain available. The initial rule coordinates every
+workspace source write through this Save path because even tag-free source can
+contribute to construction. Other writer paths and inventory-based narrowing
+still need integration.
+
+Fourteen lease and twelve source-history checks passed. The owned engine
+fixture held one shared descriptor, read the original file, received Save
+refusal before a new history entry, and then published the exact same guarded
+request once after release. The existing strict save, creation and deleted
+source fixtures also passed. Both native connected-reading fixtures passed
+selected and manual-profile verification against the preceding leased watcher
+engine. The ordinary Save compatibility branch covers engines without this
+retained-role provider. The executed checks used the Unix engine.
+
 ## Checkpoint requested during implementation
 
 The requested checkpoint was committed as `4a612978`. Its focused receipts include

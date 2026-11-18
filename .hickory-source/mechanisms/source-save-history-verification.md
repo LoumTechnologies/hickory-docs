@@ -17,10 +17,15 @@ path, never turns Missing-before into empty File text and refuses a stale absenc
 after an independent creation/deletion. This proves the service boundary; host
 menus and unmaterialized editor adoption remain separately unverified.
 
+On Unix the coordination witness holds one shared publication descriptor inside
+the fixture's private state. The workbench still reads the file. Save refuses
+before producing a history record. Releasing the descriptor permits the original
+request and its exact source proof to publish once.
+
 <ui:copy id="source-history-service-witness">
 #!/usr/bin/env python3
 """Owned-engine strict source-save and draft-history authority checks."""
-import hashlib, importlib.util, json, os, tempfile, time, urllib.error, urllib.parse, urllib.request, uuid
+import argparse, hashlib, importlib.util, json, os, tempfile, time, urllib.error, urllib.parse, urllib.request, uuid
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 def digest(value):return hashlib.sha256(value.encode()).hexdigest()
@@ -108,7 +113,42 @@ def missing_suite(origin,root):
     absent={'version':1,'namespace':value['namespace'],'workspace':value['workspace'],'path':created,'id':entry['id'],'fingerprint':entry['fingerprint'],'current_identity':value['current_identity'],'current_hash':'missing','draft_hash':digest('retained created draft'),'side':'before'}
     refused(lambda:request(origin,'POST','/api/source-history/restore-draft',absent));assert not created_file.exists();restored=request(origin,'POST','/api/source-history/restore-draft',{**absent,'side':'after'});assert restored['source']==entry['after']['text'] and restored['source_effects'] is False and not created_file.exists()
     print('PASS deleted-source history: Missing distinct from empty File, confirmed text becomes only unmaterialized draft, no retry/identity promotion or file creation, independent replacement and absence-ABA refusal, Missing-before side never coerced to empty text',flush=True)
+def coordination_suite(origin, root, state):
+    import fcntl
+
+    # The deleted-source witness intentionally removed the other literal path.
+    path = 'source λ%2F?#.txt'
+    loaded = guard_file(origin, path)
+    body = save_body(path, loaded, 'saved after releasing the publication lease\n')
+    route = '/api/source-history?path=' + urllib.parse.quote(path, safe='')
+    previous = request(origin, 'GET', route)
+    locks = list((state / 'workspace-source-publication-v1').glob('*/publication.lock'))
+    assert len(locks) == 1 and not locks[0].is_symlink(), locks
+    with locks[0].open('rb') as held:
+        fcntl.flock(held.fileno(), fcntl.LOCK_SH | fcntl.LOCK_NB)
+        try:
+            request(origin, 'PUT', '/api/source-history/file', body)
+        except urllib.error.HTTPError as error:
+            detail = error.read().decode()
+            assert error.code == 409 and 'publication' in detail.lower(), (error.code, detail)
+        else:
+            raise AssertionError('Save crossed the held publication descriptor')
+        assert (root / path).read_text() == loaded['content']
+        assert get_file(origin, path)['content'] == loaded['content']
+        assert request(origin, 'GET', route)['entries'] == previous['entries']
+
+    saved = request(origin, 'PUT', '/api/source-history/file', body)
+    check_saved(saved, body, path, body['content'])
+    assert (root / path).read_text() == body['content']
+    assert sum(entry['id'] == body['request_id'] for entry in request(origin, 'GET', route)['entries']) == 1
+    print('PASS held publication descriptor keeps source readable and refuses Save before history; exact request publishes after release')
+
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--coordination', action='store_true', help='Also exercise the Unix source publication interlock')
+    args = parser.parse_args()
+    if args.coordination and os.name != 'posix':
+        parser.error('The source publication coordination witness requires Unix')
     spec=importlib.util.spec_from_file_location('fixture',ROOT/'scripts/test-simple-browser.py');fixture=importlib.util.module_from_spec(spec);spec.loader.exec_module(fixture)
     with tempfile.TemporaryDirectory(prefix='hickory-history-service-') as folder:
         temporary=Path(folder);root=temporary/'workspace';root.mkdir();root=root.resolve()
@@ -116,6 +156,7 @@ def main():
         process=fixture.start([os.environ.get('HICKORY_SIMPLE_TEST_ENGINE',str(ROOT/'target/source-edit-focus/debug/examples/engine_client')),str(root),'window','http://127.0.0.1:1'],env={**os.environ,'HICKORY_STATE_DIR':str(temporary/'state')})
         try:
             origin=fixture.origin(process);suite(origin,root);creation_suite(origin,root);missing_suite(origin,root)
+            if args.coordination:coordination_suite(origin,root,temporary/'state')
         finally:fixture.stop(process)
 if __name__=='__main__':main()
 </ui:copy>

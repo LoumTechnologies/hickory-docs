@@ -140,6 +140,8 @@ pub(super) fn guard_for_result(state:&LocalState,path:&Path,declared:&str,source
 
 The caller retains its existing revision, room, scaffold and ownership checks. This wrapper serializes cooperating ordinary writers, captures the exact current saved side and invokes that writer once. A repeated persisted request identity refuses before effects. Errors after possible effects are uncertain; a lost outcome receipt never becomes a successful save merely because disk happens to match later.
 
+A history write first acquires the workspace's nonblocking source publication lease, then the history writer mutex. It checks that same original lease immediately before the writer and after it returns. A failed postcondition records a failed or uncertain outcome according to observed physical effects; equal output text cannot turn that failure into a confirmed save. This protects reader capture/publication against ordinary Save and Create; namespace transactions must independently join the same provider before they claim exclusion.
+
 <ui:copy id="source-save-history-publication">
 pub(super) fn replay(root:&Path,path:&Path,source:&str,request:Option<&str>,intent:Option<&str>)->Result<bool,String>{
  if request.is_some()!=intent.is_some(){return Err("Save request identity and canonical body fingerprint must be supplied together.".into())}
@@ -156,7 +158,9 @@ pub(super) fn write(root:&Path,path:&Path,source:&str,request:Option<&str>,inten
 pub(super) fn write_observed(root:&Path,path:&Path,source:&str,request:Option<&str>,intent:Option<&str>,writer:impl FnOnce()->Result<String,String>)->Result<(),String>{write_inner(root,path,source,request,intent,||writer().map(Some))}
 fn write_inner(root:&Path,path:&Path,source:&str,request:Option<&str>,intent:Option<&str>,writer:impl FnOnce()->Result<Option<String>,String>)->Result<(),String>{
  if request.is_some()!=intent.is_some(){return Err("Save request identity and canonical body fingerprint must be supplied together.".into())}
+ let publication=super::workspace_entry_authority::acquire_source_coordination(root,path,source)?;
  let _guard=WRITERS.lock().map_err(|_|"Source save history is unavailable.".to_string())?;
+ publication.check()?;
  let relative=source_address(root,path)?;
  let binding=RootIdentity::bind(root);binding.check(root)?;let workspace=workspace(root)?;
  let before=observe(root,&relative)?;
@@ -178,7 +182,10 @@ fn write_inner(root:&Path,path:&Path,source:&str,request:Option<&str>,intent:Opt
  let batch=Batch::begin(&storage(root)?,&manifest).map_err(|error|format!("{error} Save request {request} was not retried; inspect its retained history."))?;
  binding.check(root)?;
  if observe(root,&relative)?!=before||(!missing&&stamp(path)?!=before_identity){return Err(format!("Source changed before publication. Request {request} remains prepared; no save was authorized."))}
+ publication.check()?;
  let result=writer();
+ // A failed postcondition cannot confirm publication, even if text matches.
+ let result=match publication.check(){Ok(())=>result,Err(error)=>Err(format!("{error} Source publication coordination changed; inspect retained history before retrying."))};
  let observed=observe(root,&relative).and_then(|saved|{let identity=if matches!(saved,SavedSource::Missing){None}else{Some(stamp(path)?)};Ok((saved,identity))});
  let (outcome,identity,observed_after,error)=match (&result,observed){
   (Ok(proven),Ok((saved,identity))) if (proven.is_none()||proven.as_deref()==identity.as_deref())&&(saved==after || (missing&&text(&saved).ok()==Some(source)))=>("published",identity,Some(saved),None),
@@ -524,6 +531,18 @@ The focused filesystem witnesses count writer invocations, keep failed and uncer
 mod tests {
  use super::*;
  fn save(root:&Path,id:&str,source:&str)->Result<(),String>{let path=root.join("a.txt");write_observed(root,&path,source,Some(id),Some(&super::super::workspace_fs::view::hash(source.as_bytes())),||super::super::store::write_atomic_observed(&path,source.as_bytes()).map_err(|e|e.to_string()))}
+
+ #[cfg(unix)]
+ #[test]fn coordinated_source_write_refuses_before_history_or_writer_and_releases_for_retry(){
+  let root=tempfile::tempdir().unwrap();let path=root.path().join("a.txt");std::fs::write(&path,"old").unwrap();let lease=super::super::workspace_entry_authority::acquire_source_coordination(root.path(),&path,"first").unwrap();
+  assert!(write(root.path(),&path,"new",None,None,||panic!("a contended source writer must not run")).is_err());assert_eq!(std::fs::read_to_string(&path).unwrap(),"old");assert!(!root.path().join(".history-state").exists());drop(lease);
+  save(root.path(),"dddddddddddddddddddddddddddddddd","new").unwrap();assert_eq!(std::fs::read_to_string(&path).unwrap(),"new");
+ }
+ #[cfg(unix)]
+ #[test]fn writer_keeps_coordination_until_observed_history_is_confirmed(){
+  let root=tempfile::tempdir().unwrap();let path=root.path().join("a.txt");std::fs::write(&path,"old").unwrap();let id="eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";let intent=super::super::workspace_fs::view::hash(b"new");
+  write_observed(root.path(),&path,"new",Some(id),Some(&intent),||{assert!(super::super::workspace_entry_authority::acquire_source_coordination(root.path(),&path,"racing").is_err());super::super::store::write_atomic_observed(&path,b"new").map_err(|error|error.to_string())}).unwrap();assert_eq!(read_entry(root.path(),id).unwrap().evidence.unwrap().outcome,"published");super::super::workspace_entry_authority::acquire_source_coordination(root.path(),&path,"after").unwrap();
+ }
  #[test]fn deleted_source_absence_is_not_an_empty_file_and_parent_epoch_retires_old_preview(){
   let root=tempfile::tempdir().unwrap();let path=root.path().join("a.txt");std::fs::write(&path,"saved source").unwrap();std::fs::remove_file(&path).unwrap();let(current,identity)=history_current(root.path(),&path,"a.txt").unwrap();assert!(matches!(current,SavedSource::Missing));assert_eq!(current_history_hash(&current).unwrap(),"missing");assert!(text(&current).is_err());
   std::fs::write(&path,"").unwrap();let(empty,file_identity)=history_current(root.path(),&path,"a.txt").unwrap();assert_ne!(file_identity,identity);assert!(matches!(empty,SavedSource::File{..}));assert_ne!(current_history_hash(&empty).unwrap(),"missing");std::fs::remove_file(&path).unwrap();assert_ne!(history_current(root.path(),&path,"a.txt").unwrap().1,identity);

@@ -73262,6 +73262,7 @@
         "workspace-entry-reading",
         "workspace-entry-coordination-provider",
         "workspace-entry-read-lease-admission",
+        "workspace-entry-source-coordination",
         "workspace-entry-read-lease-witness",
         "workspace-entry-reading-witness"
       ]
