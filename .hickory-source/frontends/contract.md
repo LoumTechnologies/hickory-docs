@@ -31,15 +31,15 @@ an earlier open item only for the behavior it actually exercises.
 
 | Required outcome | Current usable evidence and remaining acceptance |
 | --- | --- |
-| Navigation and code intelligence | Search Everywhere, file and saved-text search, outlines, semantic locations and back/forward have focused receipts. The genuine Python browser witness covers cross-file definitions/usages and caller/callee queries. A controlled child covers standard LSP type hierarchy, with browser rendering and native protocol/model checks. Installed basedpyright and TypeScript Language Server read ordinary Markdown fences on browser, mounted macOS and the Android controller. An Android controller can navigate into a literal source tab while Agent is open. Index breadth depends on the installed provider. Unavailable capabilities and unsupported fence actions leave the authored text readable. |
-| Refactoring, cleanup, generation, templates and history | Installed basedpyright covers cross-file rename in the browser. Genuine TypeScript Language Server 6.1.0 with TypeScript 6.0.3 covers extraction, accessor generation, cleanup and Move to a new file on browser, mounted macOS and the Android controller. Guarded native action and formatting receipts include controlled providers. Preview holds the complete edit. Missing preimages, commands without supported effects and changed owner revisions refuse the group. Later template receipts close the earlier embedded and multi-caret catalog gaps. Expanded regex and source-bound variable programs retain their explicit syntax and work bounds. The previous mounted iOS witness covered reviewed Cleanup and coordinated Undo/Redo. |
-| Diagnostics and contextual fixes | Genuine Python browser Problems covers exact source-hash navigation, editor geometry and saved-source preservation. Real clangd engine coverage includes the missing-semicolon quick fix. Controlled-child host receipts cover complete-file `source.fixAll` acquisition, review, draft Apply and Undo/Redo on browser, mounted macOS and the Android controller. The later host receipts include a prose-origin action that acquires its copy contributor. Stale and unversioned diagnostics stay readable, with precise navigation and application subject to matching authority. Provider workspace completeness and additional source mappings remain open. |
-| Testing and coverage | Collected discovery, failure results, coverage and failed-only reruns have genuine pytest, Jest, Vitest, Cargo with cargo-llvm-cov, and C# with .NET and Coverlet receipts. The connected pytest path runs on browser, macOS and the Android controller. Eleven Vitest flows follow the shared terminal-result visibility correction. Source-adjacent run and debug distinguish process exit from provider verdicts. Unsupported runners and stale, missing or ambiguous test identities refuse selection. Coverage navigation requires matching captured source hashes. |
-| Review, staging, attribution, conflicts and recovery | Browser, macOS and Android controller receipts cover Git status/diffs, history, attribution, shared conflict composition including deletion/rename, staging, local source history and guarded Save As. Later complete 32-session recovery management and three exact revisions supersede the earlier private-session capacity gap. Browser reload and native restart receipts cover retained drafts, layout and view state. Canonical entry reads and grouped writes retain a shared namespace exclusion. Reviewed main Move and its immediate Undo/Redo have browser, mounted macOS and Android controller acceptance. |
-| Debugging | Genuine debugpy launch/loopback attach and installed LLDB canonical C launch/PID attach pass on browser, macOS and the Android controller. Scoped receipts cover profiles, conditional breakpoints, threads, frames including a deep stack, evaluation, source navigation, Continue and retained exits. Saved source-test Debug has verified pytest/debugpy and Cargo/LLDB adapters. Rust binds the selected declaration to the compiled inline or external-module function before exact harness selection, with engine and host acceptance for physical and compiler-authored source. Other discovered adapters still need accepted workflows. |
-| Connected behavior readings | Browser, mounted macOS and Android controller have guarded contract/explanation/implementation/generated/test/evidence readings through the captured construction graph, including dirty contributors. Default entry reads carry their original proof through execution admission. Missing mappings and stale captures retain their own status. |
-| Change impact and relevant verification | The same hosts have scoped compiler consequences, bounded declared relationships, selected checks/profiles and retained process-only results. Undeclared dependencies remain unknown. A command exit supplies process evidence and independent verification requires its own source-bound receipt. |
-| Agent proposal review and guarded application | Owned managed-provider flows on browser, macOS and Android cover a sealed complete review, original-context application, coordinated draft history and separate resource publication. The later restart receipts cover historical reading without restoring application authority. External provider breadth and platform acceptance remain open. |
+| Navigation and code intelligence | Search Everywhere, file and saved-text search, outlines, semantic locations and back/forward have focused receipts. The genuine Python browser witness covers cross-file definitions/usages and caller/callee queries. Configured csharp-ls adds browser definitions, usages and history. A controlled child covers standard LSP type hierarchy, including browser rendering and native protocol/model checks. Installed basedpyright and TypeScript Language Server read ordinary Markdown fences on browser, mounted macOS and the Android controller. Mounted iOS reached saved search and caret history. An Android controller navigated into a literal source tab while Agent was open. Index breadth depends on the installed provider. Unavailable capabilities and unsupported fence actions leave authored text readable. |
+| Refactoring, cleanup, generation, templates and history | Genuine basedpyright and configured csharp-ls cover cross-file rename in the browser. TypeScript Language Server 6.1.0 with TypeScript 6.0.3 covers extraction, accessor generation, cleanup and Move to a new file on browser, mounted macOS and the Android controller. Guarded native action and formatting receipts include controlled providers. Preview holds the complete edit. Missing preimages, commands without supported effects and changed owner revisions refuse the group. Later template receipts close the earlier embedded and multi-caret catalog gaps. Expanded regex and source-bound variable programs retain their syntax and work bounds. Mounted iOS and rendered Android covered reviewed Cleanup. Mounted iOS also replayed native Paste and coordinated Cleanup Undo/Redo. |
+| Diagnostics and contextual fixes | Genuine basedpyright browser and rendered Android Problems, configured csharp-ls browser Problems, and clangd mounted iOS Problems exercised exact source navigation. Real clangd engine coverage includes the missing-semicolon quick fix. Controlled-child receipts cover complete-file `source.fixAll` acquisition, review, draft Apply and Undo/Redo on browser, mounted macOS and the Android controller, including a prose-origin action that acquires its copy contributor. Stale and unversioned diagnostics stay readable. Precise navigation and application require matching authority. Provider workspace completeness, additional source mappings and mounted iOS provider Quick Fix still need acceptance. |
+| Testing and coverage | Discovery, failed results, coverage and failed-only reruns have provider receipts for pytest, Jest, Vitest, Cargo with cargo-llvm-cov, and .NET with Coverlet. Connected pytest runs on browser, macOS and the Android controller. Mounted iOS executed selected pytest and rendered a collected failure and coverage. Rendered Android ran the saved Rust case and retained exit 0. Android rendered coverage remains unexecuted. Source-adjacent Run and Debug distinguish process exit from a provider verdict. Unsupported runners and stale, missing or ambiguous test identities refuse selection. Coverage navigation requires matching source hashes. |
+| Review, staging, attribution, conflicts and recovery | Browser, macOS and Android controller receipts cover Git status/diffs, history, attribution, shared conflict composition including deletion/rename, staging, local source history and guarded Save As. Later complete 32-session recovery management and three exact revisions supersede the earlier capacity gap. Browser reload, native restart and mounted iOS compact recovery cover retained drafts, layout and view state. Shared publisher Move and interruption have rendered browser, mounted macOS and Android controller receipts. Mounted iOS and the Android renderer still need shared-publisher cold recovery and the older Move chain. |
+| Debugging | Genuine debugpy launch/loopback attach and LLDB canonical C launch/PID attach pass on browser, macOS and the Android controller. Scoped receipts cover profiles, conditional breakpoints, threads, deep frames, evaluation, source navigation, Continue and retained outcomes. Browser application launches also passed with netcoredbg for .NET and js-debug for Node.js. Saved source-test Debug has verified pytest/debugpy and Cargo/LLDB adapters. Rust binds the selected declaration to the compiled inline or external-module function before exact harness selection, with engine and host acceptance for plain and compiler-authored source. Mounted iOS reached the real selected Rust breakpoint after a build exceeded 30 seconds. Rendered Android Debug and additional adapter/host combinations still need acceptance. |
+| Connected behavior readings | Browser, mounted macOS and Android controller have guarded contract, explanation, implementation, generated, test and evidence readings through the captured construction graph, including dirty contributors. Mounted iOS opened the connected reading and exercised its source-staleness boundary. Default entry reads carry their original proof through execution admission. Missing mappings and stale captures retain their own status. |
+| Change impact and relevant verification | Browser, mounted macOS and Android controller have scoped compiler consequences, bounded declared relationships, selected checks/profiles and retained process-only results. Mounted iOS reached the selected process-only receipt from its connected reading. Undeclared dependencies remain unknown. A command exit supplies process evidence. Independent verification requires a source-bound receipt. |
+| Agent proposal review and guarded application | Owned managed-provider flows on browser, macOS and the Android controller cover a sealed complete review, original-context application, coordinated draft history and separate resource publication. Mounted iOS also passed managed two-draft Apply and coordinated Undo/Redo. Rendered Android and mounted iOS read sealed historical material without restoring application authority. Positive rendered Android application, mounted iOS resource publication and external provider breadth remain open. |
 
 Across all rows, the evidence distinguishes engine protocols, native controllers,
 mounted AppKit/UIKit, rendered browser and rendered Android. Physical input,
@@ -59,11 +59,62 @@ selection, scroll, history, pixel geometry after keyboard settling and saved
 bytes were checked. The XCTest result was one pass with zero skips, and the
 four fixture safety cases passed separately. The owned simulator was deleted.
 
-The earlier 30-second admission failure did not recur. The cause of that
-incident remains unknown. The native deadline can still expire while a slower
-valid Cargo preparation is in progress. The client reports the timeout, avoids
-resubmission and stops a late owned session. The [mounted acceptance reading](../mechanisms/ios-mounted-parity-acceptance.md)
-records the exact fixture and event sequence.
+The original timeout was not reproduced with that fast fixture. A separate
+fixture with a 32-second Cargo build step crossed the former deadline on a
+fresh engine. The engine acknowledged the exact saved test at 5.77 seconds
+and admitted the debugger at 43.10 seconds. The direct protocol then reached
+one verified breakpoint, continued, and retained exit 0. A mismatched source
+hash received only a refusal. The six ordinary physical and authored Rust
+protocol cases also passed, including two inactive declarations refused before
+any session. This isolates the valid preparation path that the former native
+deadline could retire. Apple and Android now allow one bounded preparation wait
+after an exact request, document and saved-selection receipt. Only the later
+Started can create a retained session. Cancel and timeout avoid resubmission
+and clean up a late owned session. The owned iOS 27 replay exercised the actual
+UIKit editor with the slow fixture. Preparation arrived at 0.09 seconds and
+Started arrived at 42.05 seconds. Paste and Cleanup Undo/Redo, the selected
+breakpoint, Continue, retained exit 0 and original source and editor state
+passed together in one XCTest with zero skips.
+[Mounted iOS acceptance](../mechanisms/ios-mounted-parity-acceptance.md)
+
+After the compact recovery and Paste replay fixes below, the same slow mounted
+editing case passed again. Preparation arrived at 0.22 seconds and Started
+at 40.98 seconds. The strict preparation parser was in this build. The ten
+focused Apple source-test cases and nine Android Debug model cases passed
+separately, including foreign, malformed and timed-out admission handling.
+
+A separate mounted UIKit workspace test passed saved search into the exact
+caret, Back and Forward, and clangd 21.0.0 Problems navigation with stale
+location refusal. A source-adjacent pytest 9.2.0 Run reached its terminal
+exit. The mounted WKWebView discovered the two intended tests, retained a
+deliberate failure and pytest-cov 7.1.0 coverage, opened its exact source
+location and retired the coverage marks when the source changed. The fixture
+confirmed saved bytes and the executed test names. An independent UIKit test
+reopened a sealed historical agent proposal after a verified engine restart.
+It exposed the original explanation and material, withheld Apply and Save,
+and preserved the live dirty editor, its selection and Undo. Each XCTest ran
+once with zero skips.
+
+The mounted private recovery replay read the connected behavior, observed its
+source becoming stale and reached a selected process-only check. On compact
+iOS, draft copies open as tabs in the existing code pane. Restoring and then
+reopening the original preserved its widget, pane and layout identities, its
+181.67-point width, its 90-point vertical offset and original selection. The
+copy separately retained selection, scroll, draft and saved baseline without
+write authority. Undo restored the original Paste's preimage and Redo restored
+the dirty draft. The focused XCTest passed once with zero skips.
+
+A live mounted managed-agent proposal reviewed exact `note.py` and
+`construction.md` changes, the `generated.py` consequence and claims marked
+unverified. Apply created one draft batch and one coordinated Undo and Redo
+acted on both drafts. UIKit initially moved existing selections to the edits.
+The corrected reflection maps the retained selections through the exact
+replacements and restores the viewport. The replay kept the caret before an
+edit, shifted the noncollapsed later selection by one UTF-16 unit on Apply
+and Redo, and restored its original position on Undo. Both editor identities,
+the nonzero viewport and all saved files were retained. The managed tool and
+host report carried their own receipts. The focused XCTest passed once with
+zero skips.
 
 ### Reviewed entry recovery and older Move lineage
 
@@ -153,14 +204,28 @@ A separate rendered Move with clean source published `project.md` to the
 extensionless `b`, preserving its logical identity, exact saved bytes and code
 frame bounds. The old address and generated output remained absent. The older
 Undo/Redo sequence and interrupted recovery ran on the Android controller.
-The rendered Rust panel found the exact test candidate and exposed Run and Debug.
-The attempted Run left zero retained sessions after 45 seconds, with no visible
-refusal. Rendered test execution, coverage, agent application and the older Move
-chain remain open. The owned emulator was stopped and its data removed.
+The first rendered Rust Run attempt tapped the keyboard over the Run button.
+A replay confirmed the window's keyboard was closed and captured exactly one
+saved-source Run request with HTTP 200. The native panel retained
+`rendered_android_case · name filter · finished · exit 0`, displayed the Cargo
+case output, and preserved the exact saved bytes. Coverage and agent application
+still need rendered Android acceptance.
 
-The rendered recovery panel exposed a narrow-screen wrap in Close. Close now
-shares the title row. The revised header still needs a rendered replay. The
-emulator receipts are in `target/parity-rendered-android.sgYIt7/rendered-receipts`.
+The rendered recovery panel exposed a narrow-screen wrap in Close. A later
+720 × 1600 replay confirmed that Close fits on one line beside Source recovery.
+The older Move attempts read the exact dirty Cleanup draft and stopped before
+dispatch while the keyboard or emulator was unavailable. A separate replay
+prepared the cold producer fixture, then the emulator failed to launch the
+app. Its Activity Manager service disappeared and its crash buffer recorded
+`DeadSystemException`. No Move or completion request was dispatched by that
+replay. The final isolated API 36 retry stopped before boot because userdata
+needed 7,372.80 MB and 6,437.74 MB was available. The explicit smaller partition
+option reached the same admission floor. After releasing reproducible focused
+build intermediates, the last immediate preflight measured 7,364.54 MiB and
+stopped before creating another AVD. The disposable data was removed after
+each retry. Rendered cold recovery, the older Move chain and rendered Debug
+still need a healthy Android runtime. The renderer and framework receipts are
+under `target/parity-rendered-android.sgYIt7`.
 
 ### Provider admission
 
@@ -173,12 +238,39 @@ until its complete source effects and original target versions can be reviewed.
 [C# provider declarations](../mechanisms/crates/hick-plugins/src/csharp.rs.md)
 
 The saved test Debug providers exercised here are pytest with debugpy and Cargo
-with LLDB. C# collects tests through the .NET runner and registers netcoredbg
-for application debugging. Its source test Debug request refuses because the
-test runner supplies no debug recipe. CodeLLDB, js-debug, Delve, Java's LSP-hosted
-adapter and netcoredbg have their own installation and workflow requirements.
-Their complete simple-host launch, attach and source navigation workflows were
-unexecuted in this pass.
+with LLDB. C# collects tests through the .NET runner. A recognized xUnit
+candidate returned an unavailable C# Debug plan. A direct guarded Start on
+that exact saved candidate returned only Failed, without preparation or a
+session. The runner supplies no test debug recipe.
+The separately installed netcoredbg 3.2.0-1092 passed a rendered browser .NET
+10.0.401 application launch. The actual adapter stopped at line 7 of
+`Program.cs`, evaluated `value=41`, continued and retained output `42` and exit
+0. Saved bytes, editor identity and geometry stayed exact. Installed js-debug
+1.117.0 with Node.js 24.22.0 also reached the rendered browser's breakpoint at
+line 2, evaluated `value=41`, continued and retained output `42` and one
+finished result. The adapter supplied no exit code and the UI reported none.
+The confined CodeLLDB 1.12.3 install and direct DAP initialize passed. Its
+simple-host Rust launch did not reach Started in the focused attempt. Go
+installation reported that Hickory has no Delve installer. The Go provider
+discovers an independently installed `dlv`. The Java LSP-hosted adapter and
+additional attach combinations remain unexecuted.
+
+Configured csharp-ls 0.28.0 on .NET 10.0.401 supplied rendered browser
+definitions, usages, back navigation and a two-file rename. Review applied the
+rename to drafts and coordinated Undo restored both original texts. Its plain
+saved C# diagnostic reported the string-to-int compiler error as current and
+Next Problem reached its exact UTF-16 location. The original editor, its
+geometry and all saved files were retained. This provider advertises a static
+document diagnostic selector and sends unversioned pushes. A bounded document
+pull can establish current source-bound context using the exact child connection
+and authored revision. Four focused Rust cases and a controlled-child replay on
+the final engine exercised same-byte revision retirement, coalescing, timeout,
+child exit and ordering against unversioned pushes. Other document mappings
+and workspace diagnostic pulls remain outside this receipt. The confined .NET
+tool installer could not load the NuGet service index and reported an arithmetic
+overflow with a local feed. The live witness used an explicit `.hick-lsp.json`
+workspace command to launch the package from the public NuGet release.
+OmniSharp has no live receipt here.
 [Debugger adapter declarations](../mechanisms/crates/hick-plugins/src/languages/dap.rs.md)
 
 ## Inspect authored code in ordinary Markdown fences
