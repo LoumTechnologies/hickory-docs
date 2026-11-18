@@ -23,11 +23,7 @@ policy. Dynamic, absolute or escaping output scopes remain unknown here and refu
 guarded resource work; readable source remains independent of this capability.
 
 <ui:copy id="resource-declared-volume-claims">
-pub(crate) fn declared_volume_targets(
-    root: &Path,
-    sources: &BTreeMap<String, String>,
-    targets: &[String],
-) -> Result<BTreeSet<String>, String> {
+pub(crate) fn declared_volume_folders(root:&Path,sources:&BTreeMap<String,String>)->Result<BTreeSet<String>,String>{
     let mut folders = BTreeSet::new();
     for (path, source) in sources {
         let document = hick_lang::parse(source).map_err(|error| {
@@ -83,6 +79,14 @@ pub(crate) fn declared_volume_targets(
             confined(root, folder, &mut names)?;
         }
     }
+    Ok(folders)
+}
+pub(crate) fn declared_volume_targets(
+    root: &Path,
+    sources: &BTreeMap<String, String>,
+    targets: &[String],
+) -> Result<BTreeSet<String>, String> {
+    let folders=declared_volume_folders(root,sources)?;
     let mut protected = BTreeSet::new();
     for target in targets {
         let mut current = target.as_str();

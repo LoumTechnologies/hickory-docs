@@ -124,10 +124,10 @@ async fn publish(
     // A generated file is an edit destination only through lineage. Never
     // bypass that boundary with a plain worktree write.
     let index = super::store::DocIndex::scan(root)?;
-    if let Some(owner) = super::api::generated_outputs(root, &index).get(path) {
+    if let Some(owner) = super::api::generated_by(&super::api::generated_outputs(root, &index),path) {
         anyhow::bail!(
             "Generated output {path}; edit contributing source {} through its output comparison",
-            index.path_of(owner).unwrap_or_else(|| owner.clone())
+            index.path_of(&owner).unwrap_or_else(|| owner.clone())
         );
     }
     if path.ends_with(".md") {

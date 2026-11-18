@@ -927,7 +927,7 @@ Output path → the id of the document that writes it.
 
 <storycode:copy id="f-51c37beeedd8-generated_map">
 /// Output path → the id of the document that writes it.
-fn generated_map(state: &LocalState) -> HashMap<String, String> {
+fn generated_map(state: &LocalState) -> super::api::GeneratedOutputs {
     super::api::generated_outputs(state.index.root(), &state.index)
 }
 </storycode:copy>

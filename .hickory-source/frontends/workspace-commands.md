@@ -134,6 +134,12 @@ Menus and action search need one vocabulary and one availability decision. The s
     "requires": "writable"
   },
   {
+    "id": "workspace.moveEntry",
+    "label": "Move main construction…",
+    "group": "Edit",
+    "requires": "always"
+  },
+  {
     "id": "workspace.undo",
     "label": "Undo workspace change",
     "group": "Edit",

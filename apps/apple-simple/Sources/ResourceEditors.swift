@@ -33,7 +33,7 @@ struct ResourceSaved:Codable {
 struct ResourcePublication<File:Decodable>:Decodable {
  struct Outcome:Decodable {var complete:Bool;var recovery:String;var applied:[String]}
  struct Entry:Decodable {var file:File;var saved:ResourceSaved;var hash:String;var save_guard:String? = nil}
- var version:Int;var request_id:String;var workspace:String;var context:String;var outcome:Outcome;var saved_sources:[String:ResourceSaved]?;var source_files:[Entry];var adoption_current:Bool=false;var adoption_reason:String?=nil
+ var version:Int;var request_id:String;var workspace:String;var context:String;var outcome:Outcome;var saved_sources:[String:ResourceSaved]?;var source_files:[Entry];var adoption_current:Bool=false;var adoption_reason:String?=nil;var entry_outcome:WorkspaceEntryPublication?=nil
 }
 func confirmedResourceFiles<File>(_ patches:[ResourceEditorPatch],receipt:ResourcePublication<File>,request:String,workspace:String,context:String,expected:[String:ResourceSaved],address:(File)->(path:String,authored:Bool)) throws->[Data:ResourcePublication<File>.Entry] {
  func key(_ value:String)->Data {Data(value.utf8)}

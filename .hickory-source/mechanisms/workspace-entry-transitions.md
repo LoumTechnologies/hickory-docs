@@ -1,0 +1,1330 @@
+<ui:doc xmlns:ui="http://www.hickorydocs.com/1.0">
+# Move the retained main through the shared resource publisher
+
+For maintainers following an explicit main-construction address change from its original reading to durable source evidence. The intent is a live server object, not a capability flag or a deserialized historical row. The existing resource acquisition, compiler consequences, source publisher and editor receipts remain the path of execution. Focused real-engine and host acceptance must be recorded separately; constructors or pure models alone do not establish usable Move.
+
+## Describe the original reading and exact operation
+
+Keep request decoding strict. A Move names one vacant relative construction address; restoration names one retained record and fingerprint. Both use the original EntrySelection and a single engine-issued context. Resource URIs escape literal filenames rather than treating a percent or hash as metadata.
+
+<ui:copy id="workspace-entry-transition-wire">
+//! Explicit retained-main transitions use the existing resource review/publisher.
+use super::{EntryChange, EntrySelection, EntryStamp, TransitionKind};
+use crate::serve::{
+    LocalState,
+    api::{ApiError, ApiResult},
+    resource_changes::{ResourcePlan, SourceState},
+    resource_inputs::{Inputs, Request as Capture},
+};
+use axum::{Json, extract::State};
+use serde::{Deserialize, Serialize};
+use serde_json::{Value, json};
+use std::{collections::BTreeMap, path::Path};
+#[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct IntentRequest {
+    version: u32,
+    entry_selection: EntrySelection,
+    operation: Operation,
+}
+#[derive(Clone, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+enum Operation {
+    Move {
+        destination: String,
+    },
+    Restoration {
+        recovery_id: String,
+        recovery_fingerprint: String,
+    },
+}
+#[derive(Clone, Serialize)]
+pub(crate) struct IntentResponse {
+    version: u32,
+    workspace: String,
+    namespace: String,
+    token: String,
+    context: String,
+    kind: String,
+    title: String,
+    before_entry: EntryStamp,
+    after_entry: EntryStamp,
+    edit: Value,
+    source_files_modified: bool,
+}
+#[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct InputRequest {
+    version: u32,
+    token: String,
+    capture: Capture,
+}
+fn hash(value: &impl Serialize) -> Result<String, String> {
+    Ok(crate::serve::workspace_fs::view::hash(
+        &serde_json::to_vec(value).map_err(|error| error.to_string())?,
+    ))
+}
+fn uri(path: &str) -> Result<String, String> {
+    let mut value =
+        tower_lsp::lsp_types::Url::parse("hick:///").map_err(|error| error.to_string())?;
+    {
+        let mut segments = value
+            .path_segments_mut()
+            .map_err(|_| "Workspace URI cannot hold source segments")?;
+        segments.clear();
+        for segment in path.split('/') {
+            segments.push(segment);
+        }
+    }
+    Ok(value.to_string())
+}
+</ui:copy>
+
+## Preserve original source material while acquisition expands
+
+The bounded live catalogue retains immutable selection and parent identities. Initial source observations may gain newly discovered context, but already captured text, versions, writable state and physical guards cannot drift. Signed context names remain recognizable after cache expiry or restart only so the engine can refuse them: recognizing a historical name never recreates a live intent. Source reads remain available when this capability refuses.
+
+<ui:copy id="workspace-entry-transition-intent">
+#[cfg(unix)]
+mod unix {
+    use super::super::{Binding, leases, storage};
+    use super::*;
+    use std::{
+        sync::{Arc, LazyLock, Mutex},
+        time::{Duration, Instant},
+    };
+    const MAX_INTENTS: usize = 32;
+    const MAX_KEYS: usize = 16384;
+    const LIFETIME: Duration = Duration::from_secs(15 * 60);
+    #[derive(Clone)]
+    struct Parent {
+        path: String,
+        identity: String,
+    }
+    #[derive(Clone, Default)]
+    struct Originals {
+        drafts: BTreeMap<String, String>,
+        ownership: BTreeMap<String, String>,
+        unaddressed: BTreeMap<String, String>,
+        guards: BTreeMap<String, String>,
+    }
+    impl Originals {
+        fn extend_map<T: Serialize>(
+            original: &mut BTreeMap<String, String>,
+            current: &BTreeMap<String, T>,
+        ) -> Result<(), String> {
+            for (key, expected) in original.iter() {
+                if current.get(key).map(hash).transpose()?.as_ref() != Some(expected) {
+                    return Err(format!(
+                        "Original retained source material changed or disappeared: {key}. Prepare a new entry review."
+                    ));
+                }
+            }
+            for (key, value) in current {
+                original.insert(key.clone(), hash(value)?);
+            }
+            Ok(())
+        }
+        fn extend(&mut self, capture: &Capture) -> Result<(), String> {
+            Self::extend_map(&mut self.drafts, &capture.drafts)?;
+            Self::extend_map(&mut self.ownership, &capture.ownership_sources)?;
+            Self::extend_map(&mut self.unaddressed, &capture.unaddressed_sources)?;
+            Self::extend_map(&mut self.guards, &capture.saved_guards)?;
+            if self.drafts.len() + self.ownership.len() + self.unaddressed.len() + self.guards.len()
+                > MAX_KEYS
+            {
+                return Err("Entry review exceeds its retained source identity budget.".into());
+            }
+            Ok(())
+        }
+    }
+    #[derive(Clone)]
+    struct LiveIntent {
+        response: IntentResponse,
+        proof: EntrySelection,
+        parents: Vec<Parent>,
+        operation: Operation,
+        created: Instant,
+        originals: Originals,
+        plan: Option<String>,
+        saved: Option<String>,
+    }
+    static INTENTS: LazyLock<Mutex<BTreeMap<String, Arc<Mutex<LiveIntent>>>>> =
+        LazyLock::new(|| Mutex::new(BTreeMap::new()));
+    const INTENT_DOMAIN: &[u8] = b"hickory.workspace-entry.live-intent-name.v1";
+    fn intent_mac(key: &[u8], nonce: &[u8]) -> Result<hmac::Hmac<sha2::Sha256>, String> {
+        use hmac::Mac;
+        let mut mac = hmac::Hmac::<sha2::Sha256>::new_from_slice(key)
+            .map_err(|_| "Entry intent seal unavailable")?;
+        mac.update(&(INTENT_DOMAIN.len() as u64).to_be_bytes());
+        mac.update(INTENT_DOMAIN);
+        mac.update(nonce);
+        Ok(mac)
+    }
+    fn token(key: &[u8]) -> Result<String, String> {
+        use hmac::Mac;
+        let mut nonce = [0u8; 16];
+        getrandom::fill(&mut nonce).map_err(|error| error.to_string())?;
+        let tag = intent_mac(key, &nonce)?.finalize().into_bytes();
+        Ok(format!("{}{}", hex::encode(nonce), hex::encode(&tag[..16])))
+    }
+    fn reserved_context(key: &[u8], context: &str) -> Result<bool, String> {
+        use hmac::Mac;
+        if context.len() != 64 {
+            return Ok(false);
+        }
+        let Ok(bytes) = hex::decode(context) else {
+            return Ok(false);
+        };
+        Ok(intent_mac(key, &bytes[..16])?
+            .verify_truncated_left(&bytes[16..])
+            .is_ok())
+    }
+    fn obtain(token: &str) -> Result<Arc<Mutex<LiveIntent>>, String> {
+        if !crate::serve::resource_saves::hex(token, 64) {
+            return Err("Entry review token is invalid.".into());
+        }
+        let mut values = INTENTS
+            .lock()
+            .map_err(|_| "Entry reviews are unavailable")?;
+        values.retain(|_, value| {
+            value
+                .lock()
+                .map(|value| value.created.elapsed() < LIFETIME)
+                .unwrap_or(false)
+        });
+        values.get(token).cloned().ok_or("This entry review expired or belongs to another engine. Prepare again; no historical token was applied.".into())
+    }
+    fn retain(value: LiveIntent) -> Result<(), String> {
+        let mut values = INTENTS
+            .lock()
+            .map_err(|_| "Entry reviews are unavailable")?;
+        values.retain(|_, value| {
+            value
+                .lock()
+                .map(|value| value.created.elapsed() < LIFETIME)
+                .unwrap_or(false)
+        });
+        if values.len() >= MAX_INTENTS {
+            let oldest = values
+                .iter()
+                .filter_map(|(key, value)| {
+                    value.lock().ok().map(|value| (key.clone(), value.created))
+                })
+                .min_by_key(|(_, created)| *created)
+                .map(|(key, _)| key)
+                .ok_or("Entry review retention is unavailable")?;
+            values.remove(&oldest);
+        }
+        values.insert(value.response.token.clone(), Arc::new(Mutex::new(value)));
+        Ok(())
+    }
+    fn parents(
+        root: &Path,
+        paths: impl IntoIterator<Item = String>,
+    ) -> Result<Vec<Parent>, String> {
+        let mut result = BTreeMap::new();
+        for path in paths {
+            crate::serve::resource_changes::validate_path(&path)?;
+            let directory = path
+                .rsplit_once('/')
+                .map(|(directory, _)| directory)
+                .unwrap_or("");
+            let identity =
+                crate::serve::resource_inputs::RootIdentity::fingerprint(&root.join(directory))?;
+            result.insert(directory.to_owned(), identity);
+        }
+        Ok(result
+            .into_iter()
+            .map(|(path, identity)| Parent { path, identity })
+            .collect())
+    }
+    fn check(state: &LocalState, value: &LiveIntent, bound: &storage::Bound) -> Result<(), String> {
+        if value.created.elapsed() >= LIFETIME {
+            return Err(
+                "Entry review expired. Prepare the complete move or restoration again.".into(),
+            );
+        }
+        super::super::validate_selection_snapshot(
+            state.index.root(),
+            &state.resource_root,
+            &value.proof,
+            bound,
+        )?;
+        for parent in &value.parents {
+            if crate::serve::resource_inputs::RootIdentity::fingerprint(
+                &state.index.root().join(&parent.path),
+            )? != parent.identity
+            {
+                return Err("An original entry source/destination folder was replaced. No new parent was selected.".into());
+            }
+        }
+        Ok(())
+    }
+    pub(super) fn intent(
+        state: LocalState,
+        request: IntentRequest,
+    ) -> Result<IntentResponse, String> {
+        if request.version != 1 {
+            return Err("Workspace-entry transitions require protocol 1.".into());
+        }
+        super::super::ordinary(&state)?;
+        let read = super::super::acquire_entry_read_lease(
+            state.index.root(),
+            request
+                .entry_selection
+                .entry
+                .path
+                .as_ref()
+                .map(|_| &request.entry_selection.entry),
+        )?;
+        let bound = storage::Bound::open(state.index.root(), false)?;
+        super::super::validate_selection_snapshot(
+            state.index.root(),
+            &state.resource_root,
+            &request.entry_selection,
+            &bound,
+        )?;
+        if bound.payload.history.len() >= 256 {
+            return Err("The bounded main-transition journal has reached 256 records. Source and retained evidence remain readable; no prior identity was discarded.".into());
+        }
+        let before = request.entry_selection.entry.clone();
+        let (root, workspace, namespace) = (
+            state.index.root(),
+            request.entry_selection.workspace.clone(),
+            request.entry_selection.namespace.clone(),
+        );
+        let (kind, title, after, edit, affected) = match &request.operation {
+            Operation::Move { destination } => {
+                let path = before.path.as_ref().ok_or(
+                    "No retained main construction is configured; there is no entry to move.",
+                )?;
+                if !request.entry_selection.movable {
+                    return Err("The retained main is incomplete or read-only. Repair its authored source before moving its role.".into());
+                }
+                crate::serve::resource_changes::validate_path(destination)?;
+                hick_lang::validate_project_path(destination).map_err(|error| {
+                    format!("Shared compiler rejected this construction address: {error}")
+                })?;
+                if destination == path {
+                    return Err("Choose a different main construction address.".into());
+                }
+                let (_, saved) = crate::serve::resource_inputs::saved_target(root, destination)?;
+                if !matches!(saved, crate::serve::resource_inputs::SavedSource::Missing) {
+                    return Err("Main construction destination already exists. Choose a vacant exact source path; no existing source was adopted.".into());
+                }
+                let after = before.advance(Some(destination.clone()))?;
+                (
+                    "move".to_owned(),
+                    format!("Move main construction to {destination}"),
+                    after,
+                    json!({"documentChanges":[{"kind":"rename","oldUri":uri(path)?,"newUri":uri(destination)?}]}),
+                    vec![path.clone(), destination.clone()],
+                )
+            }
+            Operation::Restoration {
+                recovery_id,
+                recovery_fingerprint,
+            } => {
+                if !crate::serve::resource_saves::hex(recovery_id, 32)
+                    || !crate::serve::resource_saves::hex(recovery_fingerprint, 64)
+                {
+                    return Err("Choose an exact retained entry recovery identity.".into());
+                }
+                let record = crate::serve::resource_journal::read_recovery(root, recovery_id)?;
+                check_retained_namespace(root, &bound.payload, &record)?;
+                if record.fingerprint != *recovery_fingerprint {
+                    return Err("Entry recovery evidence changed. Read it again; no old fingerprint was applied.".into());
+                }
+                let lineage = crate::serve::source_history::prove_resource_after(root, &record)?;
+                let change = super::super::history_transition_after_lineage(
+                    root,
+                    &bound.payload,
+                    &record,
+                    &lineage,
+                )?;
+                let affected: Vec<_> = record.manifest.after.keys().cloned().collect();
+                let changes = affected
+                    .iter()
+                    .map(|path| Ok((uri(path)?, json!([]))))
+                    .collect::<Result<serde_json::Map<String, Value>, String>>()?;
+                (
+                    "restoration".to_owned(),
+                    format!("Restore retained main construction transition {recovery_id}"),
+                    change.after,
+                    json!({"changes":changes}),
+                    affected,
+                )
+            }
+        };
+        let parents = parents(root, affected)?;
+        let token = token(&bound.held.key)?;
+        let response = IntentResponse {
+            version: 1,
+            workspace,
+            namespace,
+            token: token.clone(),
+            context: token,
+            kind,
+            title,
+            before_entry: before,
+            after_entry: after,
+            edit,
+            source_files_modified: false,
+        };
+        let value = LiveIntent {
+            response: response.clone(),
+            proof: request.entry_selection,
+            parents,
+            operation: request.operation,
+            created: Instant::now(),
+            originals: Originals::default(),
+            plan: None,
+            saved: None,
+        };
+        check(&state, &value, &bound)?;
+        read.check()?;
+        retain(value)?;
+        Ok(response)
+    }
+    pub(super) async fn inputs(state: LocalState, request: InputRequest) -> Result<Inputs, String> {
+        super::super::ordinary(&state)?;
+        if request.version != 1 {
+            return Err("Workspace-entry source acquisition requires protocol 1.".into());
+        }
+        let live = obtain(&request.token)?;
+        let original = live
+            .lock()
+            .map_err(|_| "Entry review is unavailable")?
+            .clone();
+        if request.capture.context != original.response.context
+            || request.capture.edit != original.response.edit
+            || request
+                .capture
+                .project_entry
+                .as_ref()
+                .is_some_and(|entry| Some(entry) != original.proof.entry.path.as_ref())
+        {
+            return Err("Entry acquisition changed its original operation or construction context. Prepare a new review.".into());
+        }
+        let reading = super::super::acquire_entry_read_lease(
+            state.index.root(),
+            original
+                .proof
+                .entry
+                .path
+                .as_ref()
+                .map(|_| &original.proof.entry),
+        )?;
+        {
+            let bound = storage::Bound::open(state.index.root(), false)?;
+            check(&state, &original, &bound)?;
+        }
+        let result = crate::serve::resource_inputs::inspect(
+            State(state.clone()),
+            Json(request.capture.clone()),
+        )
+        .await
+        .map_err(|error| error.detail().to_string())?
+        .0;
+        {
+            let bound = storage::Bound::open(state.index.root(), false)?;
+            check(&state, &original, &bound)?;
+        }
+        reading.check()?;
+        let plan =
+            if matches!(original.operation, Operation::Move { .. }) && result.refusals.is_empty() {
+                Some(hash(&crate::serve::resource_changes::prepare(
+                    crate::serve::resource_changes::Request {
+                        context: result.context.clone(),
+                        title: original.response.title.clone(),
+                        edit: original.response.edit.clone(),
+                        sources: result.sources.clone(),
+                    },
+                )?)?)
+            } else {
+                None
+            };
+        let mut value = live.lock().map_err(|_| "Entry review is unavailable")?;
+        // Another acquisition cannot erase already frozen source material.
+        let mut coherent = value.originals.clone();
+        coherent.extend(&request.capture)?;
+        value.originals = coherent;
+        if let Some(plan) = plan {
+            value.saved = Some(hash(&(
+                &result.saved_sources,
+                &result.saved_guards,
+                &result.workspace,
+            ))?);
+            value.plan = Some(plan);
+        }
+        Ok(result)
+    }
+</ui:copy>
+
+## Persist pending authority before the first source byte changes
+
+The shared publisher owns the exclusive physical-root provider. Stable ordinary resource operations keep their existing source rules; retiring the known main requires the live engine intent and exact prepared plan. The pending record precedes every source mutation. Only complete producer observations can seal the namespace and advance the logical generation. Incomplete effects retain the old role and readable recovery, without publishing a guessed inverse. The finite record/evidence budget refuses before mutation rather than discarding identities needed to classify old history safely.
+
+<ui:copy id="workspace-entry-transition-publisher">
+    /// A live Move keeps saved bytes separate from its retained dirty editor.
+    /// Fields remain private so ordinary resource callers cannot mint this proof.
+    pub(crate) struct SavedMoveProjection {
+        states: BTreeMap<String, crate::serve::resource_inputs::SavedSource>,
+    }
+    impl SavedMoveProjection {
+        pub(crate) fn states(
+            &self,
+        ) -> &BTreeMap<String, crate::serve::resource_inputs::SavedSource> {
+            &self.states
+        }
+        pub(crate) fn apply(self, manifest: &mut crate::serve::resource_journal::Manifest) {
+            manifest.after = self.states;
+        }
+    }
+    pub(crate) fn saved_move_projection(
+        state: &LocalState,
+        inputs: &crate::serve::resource_inputs::Inputs,
+        plan: &crate::serve::resource_changes::ResourcePlan,
+    ) -> Result<Option<SavedMoveProjection>, String> {
+        let base = hickory_workspace::data_root().map_err(|error| error.to_string())?;
+        let Some(bound) = storage::Bound::optional_under(&base, state.index.root())? else {
+            return Ok(None);
+        };
+        let live = match obtain(&inputs.context) {
+            Ok(live) => live,
+            Err(error) if reserved_context(&bound.held.key, &inputs.context)? => return Err(error),
+            Err(_) => return Ok(None),
+        };
+        let intent = live
+            .lock()
+            .map_err(|_| "Entry review is unavailable")?
+            .clone();
+        check(state, &intent, &bound)?;
+        if !matches!(intent.operation, Operation::Move { .. }) {
+            return Ok(None);
+        }
+        if intent.plan.as_deref() != Some(hash(plan)?.as_str())
+            || intent.saved.as_deref()
+                != Some(
+                    hash(&(
+                        &inputs.saved_sources,
+                        &inputs.saved_guards,
+                        &inputs.workspace,
+                    ))?
+                    .as_str(),
+                )
+        {
+            return Err(
+                "Saved Move baseline differs from the original acquired review. Prepare again."
+                    .into(),
+            );
+        }
+        let after = plan.apply(&inputs.context, &inputs.sources)?;
+        let mut states = BTreeMap::new();
+        for patch in &plan.patches {
+            let saved = match &after[&patch.path] {
+                crate::serve::resource_changes::SourceState::Missing { .. } => {
+                    crate::serve::resource_inputs::SavedSource::Missing
+                }
+                crate::serve::resource_changes::SourceState::File { identity, .. } => {
+                    let original = inputs
+                        .sources
+                        .iter()
+                        .find_map(|(path, source)| match source {
+                            crate::serve::resource_changes::SourceState::File {
+                                identity: before,
+                                ..
+                            } if before == identity => Some(path),
+                            _ => None,
+                        })
+                        .ok_or("Move introduced an unknown source identity")?;
+                    inputs
+                        .saved_sources
+                        .get(original)
+                        .ok_or("Move lost its saved baseline")?
+                        .clone()
+                }
+            };
+            states.insert(patch.path.clone(), saved);
+        }
+        Ok(Some(SavedMoveProjection { states }))
+    }
+    pub(crate) struct Publication {
+        root: std::path::PathBuf,
+        coordination: leases::Coordination,
+        bound: storage::Bound,
+        intent: Option<LiveIntent>,
+        change: Option<EntryChange>,
+        request: String,
+        manifest: String,
+        begun: bool,
+        confirmed: bool,
+        _ordinary: crate::engine::private_policy::Ordinary,
+    }
+    impl Publication {
+        pub(crate) fn admit(
+            state: &LocalState,
+            manifest: &crate::serve::resource_journal::Manifest,
+            transactional: bool,
+        ) -> Result<Self, String> {
+            super::super::ordinary(state)?;
+            let ordinary = crate::engine::private_policy::ordinary();
+            leases::ordinary_root(state.index.root())?;
+            let root = state.index.root().to_owned();
+            let coordination = leases::coordination(&root, true)?;
+            coordination.check_exclusive_for(&root)?;
+            let base = hickory_workspace::data_root().map_err(|error| error.to_string())?;
+            let bound = storage::Bound::resolve_coordinated(&base, &root, &coordination)?;
+            if bound.payload.pending.is_some() {
+                return Err("Another entry publication remains unconfirmed. Read its recovery; no source was republished.".into());
+            }
+            let reserved = reserved_context(&bound.held.key, &manifest.context)?;
+            let live = match obtain(&manifest.context) {
+                Ok(value) => Some(
+                    value
+                        .lock()
+                        .map_err(|_| "Entry review is unavailable")?
+                        .clone(),
+                ),
+                Err(error) if reserved => return Err(error),
+                Err(_) => None,
+            };
+            if live.is_none()
+                && manifest.restore_of.as_ref().is_some_and(|origin| {
+                    bound
+                        .payload
+                        .history
+                        .iter()
+                        .any(|row| row.request_id == origin.recovery_id)
+                })
+            {
+                return Err("Retained entry restoration requires a fresh live entry intent. Historical metadata is not application authority.".into());
+            }
+            let mut change = None;
+            if let Some(intent) = &live {
+                check(state, intent, &bound)?;
+                match &intent.operation {
+                    Operation::Move { .. } => {
+                        if manifest.restore_of.is_some()
+                            || intent.plan.as_deref()
+                                != Some(hash(&manifest.reviewed_plan)?.as_str())
+                        {
+                            return Err("Entry publication differs from its exact engine-prepared move. Prepare a fresh review.".into());
+                        }
+                    }
+                    Operation::Restoration {
+                        recovery_id,
+                        recovery_fingerprint,
+                    } => {
+                        let origin = manifest
+                            .restore_of
+                            .as_ref()
+                            .ok_or("Entry restoration has no retained original")?;
+                        if &origin.recovery_id != recovery_id
+                            || &origin.fingerprint != recovery_fingerprint
+                        {
+                            return Err(
+                                "Entry restoration changed its original sealed recovery record."
+                                    .into(),
+                            );
+                        }
+                        let record =
+                            crate::serve::resource_journal::read_recovery(&root, recovery_id)?;
+                        check_retained_namespace(&root, &bound.payload, &record)?;
+                        let proof =
+                            crate::serve::source_history::prove_resource_after(&root, &record)?;
+                        let expected = super::super::history_transition_after_lineage(
+                            &root,
+                            &bound.payload,
+                            &record,
+                            &proof,
+                        )?;
+                        if expected.after != intent.response.after_entry {
+                            return Err("Entry restoration no longer matches its original selected generation.".into());
+                        }
+                    }
+                }
+                let source_identity = bound
+                    .payload
+                    .current
+                    .path
+                    .as_ref()
+                    .and_then(|path| {
+                        manifest
+                            .reviewed_plan
+                            .patches
+                            .iter()
+                            .find(|patch| &patch.path == path)
+                    })
+                    .and_then(|patch| match &patch.before {
+                        SourceState::File { identity, .. } => Some(identity.clone()),
+                        _ => None,
+                    })
+                    .or_else(|| match &intent.operation {
+                        Operation::Restoration { recovery_id, .. } => bound
+                            .payload
+                            .history
+                            .iter()
+                            .find(|row| &row.request_id == recovery_id)
+                            .and_then(|row| row.change.source_identity.clone()),
+                        _ => None,
+                    });
+                let candidate = EntryChange {
+                    version: 1,
+                    kind: if matches!(intent.operation, Operation::Move { .. }) {
+                        TransitionKind::Move
+                    } else {
+                        TransitionKind::Restoration
+                    },
+                    before: bound.payload.current.clone(),
+                    after: intent.response.after_entry.clone(),
+                    source_identity,
+                };
+                candidate.validate(&manifest.reviewed_plan)?;
+                change = Some(candidate);
+            } else if let Some(main) = &bound.payload.current.path {
+                for patch in &manifest.reviewed_plan.patches {
+                    if matches!(patch.after, SourceState::Missing { .. })
+                        && leases::protects_main_namespace(&root, main, &patch.path)?
+                    {
+                        return Err("Moving or deleting the retained main requires an explicit reviewed workspace-entry intent. Neither provider artifacts nor missing files grant that transition.".into());
+                    }
+                }
+            } else if bound.payload.bootstrap_default {
+                if let Some(patch) = manifest
+                    .reviewed_plan
+                    .patches
+                    .iter()
+                    .find(|patch| patch.path == "project.md")
+                {
+                    if let SourceState::File { identity, text, .. } = &patch.after {
+                        if hick_lang::parse(text)
+                            .is_ok_and(|document| !document.find_tags("project").is_empty())
+                        {
+                            let candidate = EntryChange {
+                                version: 1,
+                                kind: TransitionKind::Create,
+                                before: bound.payload.current.clone(),
+                                after: bound.payload.current.advance(Some(patch.path.clone()))?,
+                                source_identity: Some(identity.clone()),
+                            };
+                            candidate.validate(&manifest.reviewed_plan)?;
+                            change = Some(candidate);
+                        }
+                    }
+                }
+            }
+            if change.is_some() && bound.payload.history.len() >= 256 {
+                return Err("The bounded main-transition journal is full; no original identity or evidence was discarded.".into());
+            }
+            if change.is_some() {
+                let files = manifest
+                    .after
+                    .values()
+                    .filter(|state| {
+                        matches!(
+                            state,
+                            crate::serve::resource_inputs::SavedSource::File { .. }
+                        )
+                    })
+                    .count();
+                let retained = serde_json::to_vec(&bound.payload)
+                    .map_err(|error| error.to_string())?
+                    .len();
+                if retained
+                    .saturating_add(files.saturating_mul(20 * 1024))
+                    .saturating_add(64 * 1024)
+                    > 32 * 1024 * 1024
+                {
+                    return Err("Entry transition exceeds its bounded producer-evidence capacity. No prior identity was discarded and no source was written.".into());
+                }
+            }
+            if change.is_some() && transactional {
+                return Err("Entry transitions do not use automatic conflict rollback. Review the explicit inverse from retained source evidence.".into());
+            }
+            let request = manifest
+                .request_id
+                .clone()
+                .ok_or("Resource publication lacks its retained request identity")?;
+            let fingerprint = hash(manifest)?;
+            let result = Self {
+                root,
+                coordination,
+                bound,
+                intent: live,
+                change,
+                request,
+                manifest: fingerprint,
+                begun: false,
+                confirmed: false,
+                _ordinary: ordinary,
+            };
+            result.check(state, &std::collections::BTreeSet::new())?;
+            Ok(result)
+        }
+        pub(crate) fn check(
+            &self,
+            state: &LocalState,
+            published: &std::collections::BTreeSet<String>,
+        ) -> Result<(), String> {
+            self.coordination.check_exclusive_for(&self.root)?;
+            self.bound.unchanged()?;
+            leases::ordinary_root(&self.root)?;
+            state.resource_root.check(&self.root)?;
+            if let Some(intent) = &self.intent {
+                if intent.created.elapsed() >= LIFETIME {
+                    return Err("Original entry review expired during publication. Retained source evidence was not retried.".into());
+                }
+                for parent in &intent.parents {
+                    if crate::serve::resource_inputs::RootIdentity::fingerprint(
+                        &self.root.join(&parent.path),
+                    )? != parent.identity
+                    {
+                        return Err("An original entry source/destination parent changed during publication.".into());
+                    }
+                }
+                let expected = &intent.proof.entry;
+                if &self.bound.payload.current != expected {
+                    return Err(
+                        "Entry generation changed during its reviewed source publication.".into(),
+                    );
+                }
+                if !self.begun {
+                    check(state, intent, &self.bound)?;
+                } else if self.bound.payload.pending.as_ref().is_none_or(|pending| {
+                    pending.request_id != self.request || pending.manifest_sha256 != self.manifest
+                }) {
+                    return Err(
+                        "Entry pending record no longer belongs to this exact source publication."
+                            .into(),
+                    );
+                }
+                if let Some(path) = &expected.path {
+                    if !published.contains(path) {
+                        let guard = intent
+                            .proof
+                            .source_guard
+                            .as_ref()
+                            .ok_or("Entry intent lost its original source guard")?;
+                        crate::serve::source_history::validate_observed_guard(
+                            &self.root,
+                            &self.root.join(path),
+                            path,
+                            guard,
+                        )?;
+                    }
+                }
+            }
+            Ok(())
+        }
+        pub(crate) fn begin(&mut self) -> Result<(), String> {
+            if self.begun {
+                return Ok(());
+            }
+            self.coordination.check_exclusive_for(&self.root)?;
+            if let Some(change) = &self.change {
+                self.bound.payload.pending = Some(super::super::Pending {
+                    request_id: self.request.clone(),
+                    manifest_sha256: self.manifest.clone(),
+                    change: change.clone(),
+                    after_guard: None,
+                    namespace_guards: None,
+                    before_guard: self
+                        .intent
+                        .as_ref()
+                        .and_then(|intent| intent.proof.source_guard.clone()),
+                });
+                self.bound.persist()?;
+                write_hint(&self.root, &change.before.identity, change.after.generation)?;
+            }
+            self.begun = true;
+            Ok(())
+        }
+        pub(crate) fn is_document_source(&self, path: &str) -> bool {
+            path.ends_with(".md")
+                || self.bound.payload.current.path.as_deref() == Some(path)
+                || self.change.as_ref().is_some_and(|change| {
+                    change.before.path.as_deref() == Some(path)
+                        || change.after.path.as_deref() == Some(path)
+                })
+        }
+        pub(crate) fn document_entry(&self) -> Option<&str> {
+            self.change
+                .as_ref()
+                .map(|change| &change.after)
+                .unwrap_or(&self.bound.payload.current)
+                .path
+                .as_deref()
+        }
+        pub(crate) fn finish(
+            &mut self,
+            state: &LocalState,
+            manifest: &crate::serve::resource_journal::Manifest,
+            outcome: &crate::serve::resource_publish::Outcome,
+            files: &[Value],
+        ) -> Result<(), String> {
+            self.coordination.check_exclusive_for(&self.root)?;
+            self.bound.unchanged()?;
+            if !outcome.complete {
+                return Ok(());
+            }
+            if let Some(change) = &self.change {
+                if !self.begun {
+                    return Err("Entry transition has no durable pending publication. No new main generation was confirmed.".into());
+                }
+                let mut guards = BTreeMap::new();
+                for file in files {
+                    let path = file
+                        .get("file")
+                        .and_then(|file| file.get("path"))
+                        .and_then(Value::as_str)
+                        .ok_or("Entry receipt source path is unavailable")?;
+                    let guard = file
+                        .get("save_guard")
+                        .and_then(Value::as_str)
+                        .ok_or("Entry receipt has no observed source guard")?;
+                    guards.insert(path.to_owned(), guard.to_owned());
+                }
+                validate_namespace_guards(&self.root, manifest, &guards)?;
+                let record =
+                    crate::serve::resource_journal::read_recovery(&self.root, &self.request)?;
+                if record.manifest_sha256 != self.manifest || !record.all_paths_recorded_applied {
+                    return Err(
+                        "Entry completion is missing its exact retained source publication.".into(),
+                    );
+                }
+                let after_guard = change
+                    .after
+                    .path
+                    .as_ref()
+                    .and_then(|path| guards.get(path))
+                    .cloned();
+                let guards_for_history = guards.clone();
+                {
+                    let pending = self
+                        .bound
+                        .payload
+                        .pending
+                        .as_mut()
+                        .ok_or("Entry pending publication disappeared")?;
+                    pending.after_guard = after_guard.clone();
+                    pending.namespace_guards = Some(guards);
+                }
+                self.bound.persist()?;
+                let before_guard = self
+                    .intent
+                    .as_ref()
+                    .and_then(|intent| intent.proof.source_guard.clone());
+                self.bound
+                    .payload
+                    .history
+                    .push(super::super::RetainedTransition {
+                        request_id: self.request.clone(),
+                        manifest_sha256: self.manifest.clone(),
+                        change: change.clone(),
+                        after_guard,
+                        before_guard,
+                        namespace_guards: Some(guards_for_history),
+                    });
+                self.bound.payload.ownership = if change.after.path.is_some() {
+                    match super::super::claims::inventory(&self.root, &change.after) {
+                        Ok(inventory) => Some(inventory),
+                        Err(_) => self.bound.payload.ownership.clone(),
+                    }
+                } else {
+                    None
+                };
+                self.bound.payload.current = change.after.clone();
+                self.bound.payload.bootstrap_default = false;
+                self.bound.payload.pending = None;
+                self.bound.persist()?;
+                self.confirmed = true;
+                // Positive registration follows the declared role, not filename extension.
+                if let Some(path) = &change.after.path {
+                    state.index.add(path);
+                }
+            }
+            Ok(())
+        }
+        pub(crate) fn outcome(&self) -> Option<Value> {
+            self.change.as_ref().map(|change|json!({"version":1,"state":if self.confirmed{"confirmed"}else{"pending"},"request_id":self.request,"before_entry":change.before,"after_entry":change.after,"current_entry":if self.confirmed{&change.after}else{&change.before}}))
+        }
+    }
+    fn validate_namespace_guards(
+        root: &Path,
+        manifest: &crate::serve::resource_journal::Manifest,
+        guards: &BTreeMap<String, String>,
+    ) -> Result<(), String> {
+        let files: std::collections::BTreeSet<_> = manifest
+            .after
+            .iter()
+            .filter_map(|(path, state)| {
+                matches!(
+                    state,
+                    crate::serve::resource_inputs::SavedSource::File { .. }
+                )
+                .then_some(path)
+            })
+            .collect();
+        if files != guards.keys().collect() {
+            return Err(
+                "Entry completion requires the exact observed after-source namespace.".into(),
+            );
+        }
+        for (path, expected) in &manifest.after {
+            let (full, actual) = crate::serve::resource_inputs::saved_target(root, path)?;
+            if &actual != expected {
+                return Err(format!(
+                    "Entry saved namespace changed before confirmation: {path}"
+                ));
+            }
+            if let Some(guard) = guards.get(path) {
+                crate::serve::source_history::validate_observed_guard(root, &full, path, guard)?;
+            }
+        }
+        Ok(())
+    }
+    fn write_hint(root: &Path, identity: &str, generation: u32) -> Result<(), String> {
+        use std::io::Write;
+        let directory = root.join(".hick-cache");
+        crate::serve::resource_journal::regular_directory(&directory)?;
+        let path = directory.join("workspace-entry-role.json");
+        let original = match std::fs::symlink_metadata(&path) {
+            Ok(_) => Some(crate::serve::resource_journal::read_regular(&path, 4096)?),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+            Err(error) => return Err(error.to_string()),
+        };
+        if let Some(bytes) = &original {
+            let value: Value =
+                serde_json::from_slice(bytes).map_err(|_| "Entry recovery hint is damaged")?;
+            if value.get("identity").and_then(Value::as_str) != Some(identity)
+                || value
+                    .get("generation_floor")
+                    .and_then(Value::as_u64)
+                    .is_some_and(|before| before > generation as u64)
+            {
+                return Err(
+                    "Entry recovery hint belongs to another identity or newer generation.".into(),
+                );
+            }
+        }
+        let bytes = serde_json::to_vec(
+            &json!({"version":1,"identity":identity,"generation_floor":generation}),
+        )
+        .map_err(|error| error.to_string())?;
+        let mut temporary =
+            tempfile::NamedTempFile::new_in(&directory).map_err(|error| error.to_string())?;
+        temporary
+            .write_all(&bytes)
+            .map_err(|error| error.to_string())?;
+        temporary
+            .as_file()
+            .sync_all()
+            .map_err(|error| error.to_string())?;
+        if original.is_some() {
+            if crate::serve::resource_journal::read_regular(&path, 4096)? != original.unwrap() {
+                return Err("Entry recovery hint changed before retention.".into());
+            }
+            temporary
+                .persist(&path)
+                .map_err(|error| error.to_string())?;
+        } else {
+            temporary
+                .persist_noclobber(&path)
+                .map_err(|error| error.to_string())?;
+        }
+        std::fs::File::open(&directory)
+            .and_then(|file| file.sync_all())
+            .map_err(|error| error.to_string())?;
+        if crate::serve::resource_journal::read_regular(&path, 4096)? != bytes {
+            return Err("Entry recovery hint changed after retention.".into());
+        }
+        Ok(())
+    }
+</ui:copy>
+
+## Recover metadata without replaying source publication
+
+A retained transition is read-only evidence. Restoration needs a fresh original reading and the same producer namespace; equal bytes from a replaced inode cannot recreate authority. Restart recovery may only finish a pending metadata commit whose complete record and sealed after guards still match. It never invokes the source writer. The focused models exercise material drift, expired live authority and literal URI routing; integration evidence must also drive the real source path.
+
+<ui:copy id="workspace-entry-transition-recovery">
+    fn check_retained_namespace(
+        root: &Path,
+        binding: &Binding,
+        record: &crate::serve::resource_journal::Recovery,
+    ) -> Result<(), String> {
+        let row = binding
+            .history
+            .iter()
+            .find(|row| {
+                row.request_id == record.id && row.manifest_sha256 == record.manifest_sha256
+            })
+            .ok_or("This record has no sealed retained entry transition")?;
+        let guards=row.namespace_guards.as_ref().ok_or("This historical entry record has no sealed producer namespace; it remains evidence only")?;
+        validate_namespace_guards(root, &record.manifest, guards)
+    }
+    pub(crate) fn recovery_metadata(
+        root: &Path,
+        record: &crate::serve::resource_journal::Recovery,
+    ) -> Value {
+        let read = (|| -> Result<Value, String> {
+            let base = hickory_workspace::data_root().map_err(|error| error.to_string())?;
+            let Some(bound) = storage::Bound::optional_under(&base, root)? else {
+                return Ok(Value::Null);
+            };
+            if bound
+                .payload
+                .pending
+                .as_ref()
+                .is_some_and(|pending| pending.request_id == record.id)
+            {
+                return Err("This retained main transition remains pending; inspect its source receipts without applying historical authority.".into());
+            }
+            let Some(row) = bound
+                .payload
+                .history
+                .iter()
+                .find(|row| row.request_id == record.id)
+            else {
+                return Ok(Value::Null);
+            };
+            if row.manifest_sha256 != record.manifest_sha256 {
+                return Err(
+                    "Retained entry transition does not match this recovery manifest.".into(),
+                );
+            }
+            Ok(
+                json!({"version":1,"state":"retained","request_id":row.request_id,"manifest_sha256":row.manifest_sha256,"kind":row.change.kind,"before_entry":row.change.before,"after_entry":row.change.after}),
+            )
+        })();
+        match read {
+            Ok(value) => value,
+            Err(notice) => json!({"version":1,"state":"unavailable","notice":notice}),
+        }
+    }
+    pub(crate) fn recover_completed_under(base: &Path, root: &Path) -> Result<bool, String> {
+        let Some(snapshot) = storage::Bound::optional_under(base, root)? else {
+            return Ok(false);
+        };
+        let Some(pending) = snapshot.payload.pending.clone() else {
+            return Ok(false);
+        };
+        if pending.namespace_guards.is_none() {
+            return Ok(false);
+        }
+        drop(snapshot);
+        let coordination = leases::coordination_under(base, root, true)?;
+        coordination.check_exclusive_for(root)?;
+        let mut bound = storage::Bound::open_under(base, root, true)?;
+        let Some(current) = bound.payload.pending.clone() else {
+            return Ok(false);
+        };
+        if current.request_id != pending.request_id
+            || current.manifest_sha256 != pending.manifest_sha256
+        {
+            return Err("Pending entry recovery changed before confirmation. No different transition was selected.".into());
+        }
+        let guards = current
+            .namespace_guards
+            .as_ref()
+            .ok_or("Pending entry recovery has no sealed producer namespace")?;
+        let record = crate::serve::resource_journal::read_recovery(root, &current.request_id)?;
+        if !record.all_paths_recorded_applied || record.manifest_sha256 != current.manifest_sha256 {
+            return Err("Entry recovery has no exact complete source publication. No source was republished.".into());
+        }
+        current.change.validate(&record.manifest.reviewed_plan)?;
+        validate_namespace_guards(root, &record.manifest, guards)?;
+        crate::serve::source_history::validate_resource_after(root, &record)?;
+        write_hint(
+            root,
+            &current.change.before.identity,
+            current.change.after.generation,
+        )?;
+        bound
+            .payload
+            .history
+            .push(super::super::RetainedTransition {
+                request_id: current.request_id,
+                manifest_sha256: current.manifest_sha256,
+                change: current.change.clone(),
+                after_guard: current.after_guard,
+                before_guard: current.before_guard,
+                namespace_guards: Some(guards.clone()),
+            });
+        bound.payload.ownership = if current.change.after.path.is_some() {
+            match super::super::claims::inventory(root, &current.change.after) {
+                Ok(inventory) => Some(inventory),
+                Err(_) => bound.payload.ownership.clone(),
+            }
+        } else {
+            None
+        };
+        bound.payload.current = current.change.after;
+        bound.payload.bootstrap_default = false;
+        bound.payload.pending = None;
+        bound.persist()?;
+        coordination.check_exclusive_for(root)?;
+        Ok(true)
+    }
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        fn capture() -> Capture {
+            serde_json::from_value(json!({"context":"original","edit":{},"drafts":{"main.spec":{"text":"draft\r\n","base_sha256":"a".repeat(64),"version":1,"writable":true}},"project_entry":null,"ownership_sources":{},"unaddressed_sources":{},"saved_guards":{}})).unwrap()
+        }
+        #[test]
+        fn retained_material_may_expand_but_never_rebind_original_text_version_or_writability() {
+            let initial = capture();
+            let mut original = Originals::default();
+            original.extend(&initial).unwrap();
+            for kind in ["text", "version", "writable", "removed"] {
+                let mut changed = initial.clone();
+                match kind {
+                    "text" => changed.drafts.get_mut("main.spec").unwrap().text.push('x'),
+                    "version" => changed.drafts.get_mut("main.spec").unwrap().version = Some(2),
+                    "writable" => changed.drafts.get_mut("main.spec").unwrap().writable = false,
+                    _ => {
+                        changed.drafts.clear();
+                    }
+                }
+                assert!(original.clone().extend(&changed).is_err(), "{kind}")
+            }
+            let mut expanded = initial.clone();
+            expanded
+                .ownership_sources
+                .insert("part.md".into(), "context".into());
+            original.extend(&expanded).unwrap();
+            expanded.ownership_sources.remove("part.md");
+            assert!(original.extend(&expanded).is_err());
+        }
+        #[test]
+        fn signed_intent_context_is_recognizable_but_never_rehydrates_live_authority() {
+            let key = [7u8; 32];
+            let value = token(&key).unwrap();
+            assert_eq!(value.len(), 64);
+            assert!(reserved_context(&key, &value).unwrap());
+            assert!(!reserved_context(&[8u8; 32], &value).unwrap());
+            assert!(obtain(&value).is_err());
+            assert!(!reserved_context(&key, &"a".repeat(64)).unwrap());
+        }
+        #[test]
+        fn literal_reserved_source_characters_keep_exact_resource_addresses() {
+            let old = uri("literal%#main.spec").unwrap();
+            assert!(old.contains("%25%23"));
+            let edit = json!({"documentChanges":[{"kind":"rename","oldUri":old,"newUri":uri("next/main.spec").unwrap()}]});
+            assert_eq!(
+                crate::serve::resource_changes::targets(&edit).unwrap(),
+                vec!["literal%#main.spec", "next/main.spec"]
+            );
+        }
+    }
+</ui:copy>
+
+## Keep unsupported providers truthful
+
+Unix engines expose the checked service through the existing HTTP adapter. Engines without the durable role provider refuse entry operations while preserving their ordinary source paths. No host-specific renderer grants an entry transition.
+
+<ui:copy id="workspace-entry-transition-http">
+}
+pub(crate) async fn intent(
+    State(state): State<LocalState>,
+    Json(request): Json<IntentRequest>,
+) -> ApiResult<Json<IntentResponse>> {
+    #[cfg(unix)]
+    {
+        state
+            .resource_root
+            .ready()
+            .await
+            .map_err(ApiError::conflict)?;
+        tokio::task::spawn_blocking(move || unix::intent(state, request))
+            .await
+            .map_err(|error| ApiError::internal(error.to_string()))?
+            .map(Json)
+            .map_err(ApiError::conflict)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (state, request);
+        Err(ApiError::conflict(
+            "This engine cannot hold durable workspace-entry transitions. Source remains readable.",
+        ))
+    }
+}
+pub(crate) async fn inputs(
+    State(state): State<LocalState>,
+    Json(request): Json<InputRequest>,
+) -> ApiResult<Json<Inputs>> {
+    #[cfg(unix)]
+    {
+        unix::inputs(state, request)
+            .await
+            .map(Json)
+            .map_err(ApiError::conflict)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (state, request);
+        Err(ApiError::conflict(
+            "This engine cannot hold durable workspace-entry transitions. Source remains readable.",
+        ))
+    }
+}
+
+#[cfg(unix)]
+pub(crate) use unix::{
+    Publication, recover_completed_under, recovery_metadata, saved_move_projection,
+};
+#[cfg(not(unix))]
+pub(crate) struct Publication;
+#[cfg(not(unix))]
+impl Publication {
+    pub(crate) fn admit(
+        _state: &LocalState,
+        _manifest: &crate::serve::resource_journal::Manifest,
+        _transactional: bool,
+    ) -> Result<Self, String> {
+        Ok(Self)
+    }
+    pub(crate) fn check(
+        &self,
+        _state: &LocalState,
+        _published: &std::collections::BTreeSet<String>,
+    ) -> Result<(), String> {
+        Ok(())
+    }
+    pub(crate) fn begin(&mut self) -> Result<(), String> {
+        Ok(())
+    }
+    pub(crate) fn is_document_source(&self, path: &str) -> bool {
+        path.ends_with(".md")
+    }
+    pub(crate) fn document_entry(&self) -> Option<&str> {
+        None
+    }
+    pub(crate) fn finish(
+        &mut self,
+        _state: &LocalState,
+        _manifest: &crate::serve::resource_journal::Manifest,
+        _outcome: &crate::serve::resource_publish::Outcome,
+        _files: &[Value],
+    ) -> Result<(), String> {
+        Ok(())
+    }
+    pub(crate) fn outcome(&self) -> Option<Value> {
+        None
+    }
+}
+#[cfg(not(unix))]
+pub(crate) fn recovery_metadata(
+    _root: &Path,
+    _record: &crate::serve::resource_journal::Recovery,
+) -> Value {
+    Value::Null
+}
+</ui:copy>
+
+<ui:file path="crates/hickory-cli/src/serve/workspace_entry_transitions.rs"><ui:paste select="#workspace-entry-transition-wire"/><ui:paste select="#workspace-entry-transition-intent"/><ui:paste select="#workspace-entry-transition-publisher"/><ui:paste select="#workspace-entry-transition-recovery"/><ui:paste select="#workspace-entry-transition-http"/></ui:file>
+
+</ui:doc>

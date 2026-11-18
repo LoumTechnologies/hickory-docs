@@ -151412,7 +151412,7 @@
     },
     {
       "id": "simple-workspace-command-descriptors",
-      "output": "apps/simple-contract/commands.json",
+      "output": "apps/apple-simple/Sources/Resources/commands.json",
       "page": ".hickory-source/frontends/workspace-commands.md",
       "symbol": "simple-workspace-command-descriptors",
       "basis": "explained-behavior"
@@ -157414,6 +157414,76 @@
       "output": "apps/android-simple/app/src/test/java/com/hickorydocs/simple/RustSelectedTestDebugTest.kt",
       "page": ".hickory-source/mechanisms/rust-selected-test-debug.md",
       "symbol": "rust selected test debug android",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "workspace-entry-owned-claims",
+      "output": "crates/hickory-cli/src/serve/workspace_entry_authority.rs",
+      "page": ".hickory-source/mechanisms/workspace-entry-owned-claims.md",
+      "symbol": "retain canonical construction output ownership after a move",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "workspace-entry-move-host-runner",
+      "output": "scripts/test-workspace-entry-move-hosts.py",
+      "page": ".hickory-source/frontends/workspace-entry-move-acceptance.md",
+      "symbol": "workspace entry move host runner",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "workspace-entry-move-apple-witness",
+      "output": "apps/apple-simple/Tests/WorkspaceEntryMoveTests.swift",
+      "page": ".hickory-source/frontends/workspace-entry-move-acceptance.md",
+      "symbol": "workspace entry move apple witness",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "workspace-entry-move-android-witness",
+      "output": "apps/android-simple/app/src/test/java/com/hickorydocs/simple/WorkspaceEntryMoveTest.kt",
+      "page": ".hickory-source/frontends/workspace-entry-move-acceptance.md",
+      "symbol": "workspace entry move android witness",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "workspace-entry-transition-wire",
+      "output": "crates/hickory-cli/src/serve/workspace_entry_transitions.rs",
+      "page": ".hickory-source/mechanisms/workspace-entry-transitions.md",
+      "symbol": "workspace entry transition wire",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "workspace-entry-transition-intent",
+      "output": "crates/hickory-cli/src/serve/workspace_entry_transitions.rs",
+      "page": ".hickory-source/mechanisms/workspace-entry-transitions.md",
+      "symbol": "workspace entry transition intent",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "workspace-entry-transition-publisher",
+      "output": "crates/hickory-cli/src/serve/workspace_entry_transitions.rs",
+      "page": ".hickory-source/mechanisms/workspace-entry-transitions.md",
+      "symbol": "workspace entry transition publisher",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "workspace-entry-transition-recovery",
+      "output": "crates/hickory-cli/src/serve/workspace_entry_transitions.rs",
+      "page": ".hickory-source/mechanisms/workspace-entry-transitions.md",
+      "symbol": "workspace entry transition recovery",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "workspace-entry-transition-http",
+      "output": "crates/hickory-cli/src/serve/workspace_entry_transitions.rs",
+      "page": ".hickory-source/mechanisms/workspace-entry-transitions.md",
+      "symbol": "workspace entry transition http",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "workspace-entry-transition-protocol-driver",
+      "output": "scripts/test-workspace-entry-transitions.py",
+      "page": ".hickory-source/mechanisms/workspace-entry-transition-protocol-witness.md",
+      "symbol": "workspace entry transition protocol driver",
       "basis": "explained-behavior"
     }
   ],

@@ -5,6 +5,12 @@ For maintainers integrating entry-dependent capabilities with the existing simpl
 
 These adapters validate the versioned shape and expected runtime/namespace, retain immutable original material, and keep the caller's original current-context predicate. That predicate reports local editor/source ownership; it is not a remote-entry freshness claim. The backend must validate the original entry proof before and after compiler work, including Apply preparation. Neither a callback nor a menu command grants source publication authority.
 
+Move and its inverse use the same entry reading. The server returns an exact
+intent for the current generation and destination. The host carries its token
+through the resource preview and accepts the save only when the receipt confirms
+that same transition. A recovery record supplies the historical identity and
+addresses. Its inverse still needs a fresh entry proof and complete review.
+
 ## Browser: retain exact typed proof material
 
 Retain the exact original scope. Reject unsupported fields, literal-type mismatches, invalid generations and incomplete configured-source observations. Returning JSON must not expose mutable storage that can retarget the retained selection; a late response cannot borrow a newer source lease.
@@ -16,14 +22,21 @@ export type FrozenEntrySelection=Readonly<{entryPath:string|null;proof:EntrySele
 export type EntryReadingLease={workspace:string;namespace:string;current:()=>boolean};
 function object(value:unknown):Record<string,unknown>{if(!value||typeof value!=="object"||Array.isArray(value))throw new Error("Workspace entry response is malformed.");return value as Record<string,unknown>;}
 function hex(value:unknown,size:number):value is string{return typeof value==="string"&&value.length===size&&/^[0-9a-f]+$/.test(value);}
-export function parseEntrySelection(value:unknown):EntrySelection{
- const body=object(value),entry=object(body.entry),path=entry.path;
- if(Object.keys(body).some(key=>!["version","entry_protocol","workspace","namespace","entry","guard","source_guard","source_hash","movable","source_effects"].includes(key))||Object.keys(entry).some(key=>!["version","identity","generation","path"].includes(key)))throw new Error("Workspace entry response has unsupported fields.");
- if(body.version!==1||body.entry_protocol!==1||!hex(body.workspace,32)||typeof body.namespace!=="string"||!body.namespace||!hex(body.guard,64)||body.source_effects!==false||typeof body.movable!=="boolean"||entry.version!==1||!hex(entry.identity,32)||typeof entry.generation!=="number"||!Number.isInteger(entry.generation)||entry.generation<0||entry.generation>0xffffffff)throw new Error("Workspace entry response has no supported exact authority.");
+function entryStamp(value:unknown):EntryStamp {
+ const entry=object(value),path=entry.path;
+ if(Object.keys(entry).some(key=>!["version","identity","generation","path"].includes(key))||entry.version!==1||!hex(entry.identity,32)||typeof entry.generation!=="number"||!Number.isInteger(entry.generation)||entry.generation<0||entry.generation>0xffffffff)throw new Error('Workspace entry stamp is malformed.');
  if(path!==null&&(typeof path!=="string"||!path||path.includes('\\')||path.includes(':')||path.split('/').some(part=>!part||part==='.'||part==='..')||/[\u0000-\u001f\u007f]/.test(path)))throw new Error("Workspace entry path is outside the supported source namespace.");
+ return Object.freeze({version:1,identity:entry.identity,generation:entry.generation,path});
+}
+function sameEntry(left:EntryStamp,right:EntryStamp):boolean {
+ return left.identity===right.identity&&left.generation===right.generation&&left.path===right.path;
+}
+export function parseEntrySelection(value:unknown):EntrySelection{
+ const body=object(value),stamp=entryStamp(body.entry),path=stamp.path;
+ if(Object.keys(body).some(key=>!["version","entry_protocol","workspace","namespace","entry","guard","source_guard","source_hash","movable","source_effects"].includes(key)))throw new Error("Workspace entry response has unsupported fields.");
+ if(body.version!==1||body.entry_protocol!==1||!hex(body.workspace,32)||typeof body.namespace!=="string"||!body.namespace||!hex(body.guard,64)||body.source_effects!==false||typeof body.movable!=="boolean")throw new Error("Workspace entry response has no supported exact authority.");
  if(path===null){if(body.source_guard!==undefined||body.source_hash!==undefined||body.movable)throw new Error("An absent entry cannot carry source authority.");}
  else if(typeof body.source_guard!=="string"||!body.source_guard||new TextEncoder().encode(body.source_guard).length>16384||typeof body.source_hash!=="string"||!/^sha256:[0-9a-f]{64}$/.test(body.source_hash))throw new Error("Workspace entry lacks an original physical source proof.");
- const stamp=Object.freeze({version:1 as const,identity:entry.identity,generation:entry.generation,path:path as string|null});
  return Object.freeze({version:1 as const,entry_protocol:1 as const,workspace:body.workspace,namespace:body.namespace,entry:stamp,guard:body.guard,...(path===null?{}:{source_guard:body.source_guard as string,source_hash:body.source_hash as string}),movable:body.movable,source_effects:false as const});
 }
 export async function readFrozenEntrySelection(load:()=>Promise<unknown>,lease:EntryReadingLease):Promise<FrozenEntrySelection>{
@@ -31,6 +44,53 @@ export async function readFrozenEntrySelection(load:()=>Promise<unknown>,lease:E
  const proof=parseEntrySelection(await load());
  if(!lease.current()||proof.workspace!==lease.workspace||proof.namespace!==lease.namespace)throw new Error("Workspace entry response belongs to an obsolete source context.");
  return Object.freeze({entryPath:proof.entry.path,proof,current:()=>lease.current()});
+}
+
+export type EntryOperation =
+ | {kind:'move';destination:string}
+ | {kind:'restoration';recovery_id:string;recovery_fingerprint:string};
+export type EntryIntent = Readonly<{context:string;token:string;title:string;edit:unknown;before:EntryStamp;after:EntryStamp}>;
+
+function parseEntryIntent(value:unknown,proof:EntrySelection,operation:EntryOperation,expectedPath:string|null):EntryIntent {
+ const body=object(value),before=entryStamp(body.before_entry),after=entryStamp(body.after_entry);
+ if(body.version!==1||body.workspace!==proof.workspace||body.namespace!==proof.namespace||
+    body.kind!==operation.kind||body.source_files_modified!==false||!hex(body.token,64)||body.context!==body.token||
+    !sameEntry(before,proof.entry)||after.identity!==before.identity||after.generation!==before.generation+1||
+    typeof body.title!=='string'||!body.title||after.path!==expectedPath) {
+  throw new Error('The entry review did not retain the requested construction and address.');
+ }
+ const edit=JSON.stringify(object(body.edit));
+ return Object.freeze({context:body.token,token:body.token,title:body.title,before,after,get edit(){return JSON.parse(edit);}});
+}
+
+export async function prepareEntryIntent(selection:FrozenEntrySelection,operation:EntryOperation,load:(body:unknown)=>Promise<unknown>,expectedPath:string|null,current:()=>boolean):Promise<EntryIntent> {
+ const check=()=>{if(!selection.current()||!current())throw new Error('The original workspace entry or source review changed. Open the move again.');};
+ check();
+ const reply=await load({version:1,entry_selection:selection.proof,operation});
+ check();
+ return parseEntryIntent(reply,selection.proof,operation,expectedPath);
+}
+
+export function readEntryTransition(value:unknown,recovery:string):{before:EntryStamp;after:EntryStamp}|null {
+ if(value===null||value===undefined)return null;
+ const body=object(value);
+ if(body.version===1&&body.state==='unavailable'&&typeof body.notice==='string'&&body.notice)throw new Error(body.notice);
+ if(body.version!==1||body.state!=='retained'||body.request_id!==recovery||!hex(body.manifest_sha256,64)||
+    typeof body.kind!=='string'||!['move','restoration','create','repair'].includes(body.kind))throw new Error('This recovery record lacks a supported entry transition.');
+ const before=entryStamp(body.before_entry),after=entryStamp(body.after_entry);
+ if(before.identity!==after.identity||before.generation+1!==after.generation)throw new Error('The retained entry transition is inconsistent.');
+ return {before,after};
+}
+
+export function requireEntryTransitionCurrent(selection:FrozenEntrySelection,after:EntryStamp):void {
+ if(!sameEntry(selection.proof.entry,after))throw new Error('This recovery belongs to an earlier main construction generation. Restore the latest transition first.');
+}
+
+export function confirmEntryOutcome(value:unknown,request:string,intent:EntryIntent|undefined):void {
+ if(!intent){if(value!==undefined)throw new Error('Unexpected main construction publication.');return;}
+ const body=object(value);
+ if(body.version!==1||body.state!=='confirmed'||body.request_id!==request||!sameEntry(entryStamp(body.before_entry),intent.before)||
+    !sameEntry(entryStamp(body.after_entry),intent.after)||!sameEntry(entryStamp(body.current_entry),intent.after))throw new Error('The original main construction publication is unconfirmed.');
 }
 </ui:copy>
 
@@ -40,13 +100,36 @@ The witness checks mutation isolation, strict wire types, positive no-main versu
 
 <ui:copy id="workspace-entry-reading-browser-witness">
 import {describe,it,expect} from "vitest";
-import {parseEntrySelection,readFrozenEntrySelection} from "./WorkspaceEntrySelection";
+import {confirmEntryOutcome,parseEntrySelection,prepareEntryIntent,readEntryTransition,readFrozenEntrySelection,requireEntryTransitionCurrent} from "./WorkspaceEntrySelection";
 function original(){return {version:1,entry_protocol:1,workspace:"a".repeat(32),namespace:"/workspace",entry:{version:1,identity:"b".repeat(32),generation:7,path:"project.md"},guard:"c".repeat(64),source_guard:"opaque physical observation",source_hash:"sha256:"+"d".repeat(64),movable:true,source_effects:false};}
 describe("workspace entry reading selection",()=>{
  it("retains an immutable exact original rather than a caller-owned response",()=>{const response=original(),proof=parseEntrySelection(response);response.entry.path="replacement.md";response.namespace="/other";expect(proof.entry.path).toBe("project.md");expect(proof.namespace).toBe("/workspace");expect(Object.isFrozen(proof)).toBe(true);expect(Object.isFrozen(proof.entry)).toBe(true);});
  it("rejects coerced booleans, incomplete source proofs and invalid generations",()=>{const proof=original();for(const change of [{unexpected:true},{source_effects:"false"},{source_effects:0},{movable:1},{workspace:"A".repeat(32)},{guard:"C".repeat(64)},{source_guard:null},{source_hash:"d".repeat(64)},{entry:{...proof.entry,generation:0x100000000}},{entry:{...proof.entry,generation:-1}},{entry:{...proof.entry,generation:1.5}},{entry:{...proof.entry,path:"../project.md"}},{entry:{...proof.entry,path:undefined}}])expect(()=>parseEntrySelection({...proof,...change})).toThrow();});
  it("distinguishes a positive no-main reading from a missing source proof",()=>{const proof=original();expect(()=>parseEntrySelection({...proof,entry:{...proof.entry,path:null}})).toThrow();const withoutSource:Record<string,unknown>={...proof};delete withoutSource.source_guard;delete withoutSource.source_hash;expect(parseEntrySelection({...withoutSource,entry:{...proof.entry,path:null},movable:false}).entry.path).toBeNull();});
  it("rejects stale asynchronous acquisition and keeps the original lease afterward",async()=>{const proof=original();let live=false,reads=0;const lease={workspace:proof.workspace,namespace:proof.namespace,current:()=>live};await expect(readFrozenEntrySelection(async()=>{reads++;return proof},lease)).rejects.toThrow();expect(reads).toBe(0);live=true;await expect(readFrozenEntrySelection(async()=>{live=false;return proof},lease)).rejects.toThrow();live=true;await expect(readFrozenEntrySelection(async()=>({...proof,namespace:"/other"}),lease)).rejects.toThrow();const frozen=await readFrozenEntrySelection(async()=>proof,lease);expect(frozen.entryPath).toBe("project.md");live=false;expect(frozen.current()).toBe(false);});
+ it('retains the original intent and rejects pending or foreign publication receipts',async()=>{
+  const proof=original(),path='docs/literal #.spec',token='e'.repeat(64),request='a'.repeat(32);
+  const selection=await readFrozenEntrySelection(async()=>proof,{workspace:proof.workspace,namespace:proof.namespace,current:()=>true});
+  const after={...proof.entry,generation:8,path},edit={documentChanges:[{kind:'rename'}]};
+  const reply={version:1,workspace:proof.workspace,namespace:proof.namespace,source_files_modified:false,kind:'move',token,context:token,title:'Move main construction',before_entry:proof.entry,after_entry:after,edit};
+  const intent=await prepareEntryIntent(selection,{kind:'move',destination:path},async()=>reply,path,()=>true);
+  reply.edit.documentChanges.length=0;
+  expect(intent.edit).toEqual({documentChanges:[{kind:'rename'}]});
+  const confirmed={version:1,state:'confirmed',request_id:request,before_entry:proof.entry,after_entry:after,current_entry:after};
+  confirmEntryOutcome(confirmed,request,intent);
+  for(const receipt of [undefined,{...confirmed,state:'pending'},{...confirmed,current_entry:proof.entry},{...confirmed,request_id:'b'.repeat(32)}])expect(()=>confirmEntryOutcome(receipt,request,intent)).toThrow();
+  await expect(prepareEntryIntent(selection,{kind:'move',destination:path},async()=>({...reply,after_entry:{...after,generation:proof.entry.generation}}),path,()=>true)).rejects.toThrow();
+ });
+ it('keeps retained history evidence separate from current entry permission',async()=>{
+  const proof=original(),id='a'.repeat(32),after={...proof.entry,generation:8,path:'renamed.spec'};
+  expect(readEntryTransition(null,id)).toBeNull();
+  expect(()=>readEntryTransition({version:1,state:'unavailable',notice:'The original role proof was lost.'},id)).toThrow('role proof');
+  const record={version:1,state:'retained',request_id:id,manifest_sha256:'b'.repeat(64),kind:'move',before_entry:proof.entry,after_entry:after};
+  const transition=readEntryTransition(record,id)!;
+  const selection=await readFrozenEntrySelection(async()=>proof,{workspace:proof.workspace,namespace:proof.namespace,current:()=>true});
+  expect(()=>requireEntryTransitionCurrent(selection,transition.after)).toThrow('earlier');
+  expect(()=>readEntryTransition({...record,kind:['move']},id)).toThrow();
+ });
 });
 </ui:copy>
 
@@ -61,7 +144,20 @@ struct WorkspaceEntryStamp: Decodable, Equatable {
  let identity: String
  let generation: UInt32
  let path: String?
+ enum CodingKeys:String,CodingKey {case version,identity,generation,path}
+ init(from decoder:Decoder)throws {
+  let values=try decoder.container(keyedBy:CodingKeys.self)
+  version=try values.decode(UInt32.self,forKey:.version)
+  identity=try values.decode(String.self,forKey:.identity)
+  generation=try values.decode(UInt32.self,forKey:.generation)
+  path=try values.decode(String?.self,forKey:.path)
+  guard version==1,workspaceEntryHex(identity,32) else{throw EntrySelectionFailure("Workspace entry stamp is malformed.")}
+ }
+ static func ==(left:Self,right:Self)->Bool {
+  left.version==right.version&&left.identity==right.identity&&left.generation==right.generation&&exactUTF8(left.path,right.path)
+ }
 }
+private func workspaceEntryHex(_ text:String,_ count:Int)->Bool {text.utf8.count==count&&text.utf8.allSatisfy{(48...57).contains($0)||(97...102).contains($0)}}
 struct WorkspaceEntrySelectionProof {
  private struct Wire: Decodable {
   let version: UInt32
@@ -80,16 +176,17 @@ struct WorkspaceEntrySelectionProof {
  let workspace: String
  let namespace: String
  let entry: WorkspaceEntryStamp
+ let movable: Bool
  init(_ value:Any)throws {
   guard let object=value as? [String:Any],JSONSerialization.isValidJSONObject(object) else {throw EntrySelectionFailure("Workspace entry response is malformed.")}
   guard let entryBody=object["entry"] as? [String:Any],entryBody.keys.contains("path"),object.keys.allSatisfy({["version","entry_protocol","workspace","namespace","entry","guard","source_guard","source_hash","movable","source_effects"].contains($0)}),entryBody.keys.allSatisfy({["version","identity","generation","path"].contains($0)}) else {throw EntrySelectionFailure("Workspace entry path field is missing.")}
   let data=try JSONSerialization.data(withJSONObject:object,options:[.sortedKeys]),wire=try JSONDecoder().decode(Wire.self,from:data)
-  func hex(_ text:String,_ count:Int)->Bool {text.utf8.count==count && text.utf8.allSatisfy{(48...57).contains($0)||(97...102).contains($0)}}
+  let hex=workspaceEntryHex
   guard wire.version==1,wire.entry_protocol==1,hex(wire.workspace,32),!wire.namespace.isEmpty,hex(wire.guardValue,64),!wire.source_effects,wire.entry.version==1,hex(wire.entry.identity,32) else {throw EntrySelectionFailure("Workspace entry response has no supported exact authority.")}
   if let path=wire.entry.path {
    guard !path.isEmpty,!path.contains(":"),!path.contains("\\"),!path.unicodeScalars.contains(where:{$0.value<32||$0.value==127}),!path.components(separatedBy:"/").contains(where:{$0.isEmpty||$0=="."||$0==".."}),let physical=wire.source_guard,!physical.isEmpty,physical.utf8.count<=16384,let hash=wire.source_hash,hash.hasPrefix("sha256:"),hex(String(hash.dropFirst(7)),64) else {throw EntrySelectionFailure("Workspace entry lacks a confined path and original physical source proof.")}
   } else if object.keys.contains("source_guard") || object.keys.contains("source_hash") || wire.movable {throw EntrySelectionFailure("An absent entry cannot carry source or move authority.")}
-  material=data;workspace=wire.workspace;namespace=wire.namespace;entry=wire.entry
+  material=data;workspace=wire.workspace;namespace=wire.namespace;entry=wire.entry;movable=wire.movable
  }
  func body()throws->Any {try JSONSerialization.jsonObject(with:material)}
 }
@@ -105,6 +202,71 @@ struct EntrySelectionFailure: LocalizedError {let message:String;init(_ message:
   let proof=try WorkspaceEntrySelectionProof(await load())
   guard current(),proof.workspace==workspace,proof.namespace==namespace else {throw EntrySelectionFailure("Workspace entry response belongs to an obsolete source context.")}
   return FrozenWorkspaceEntrySelection(entryPath:proof.entry.path,proof:proof,current:current)
+ }
+}
+
+struct WorkspaceEntryIntent:Decodable {
+ let version:Int
+ let workspace:String
+ let namespace:String
+ let token:String
+ let context:String
+ let kind:String
+ let title:String
+ let before_entry:WorkspaceEntryStamp
+ let after_entry:WorkspaceEntryStamp
+ let edit:ResourceJSON
+ let source_files_modified:Bool
+
+ func admit(_ proof:WorkspaceEntrySelectionProof,kind expected:String,path:String?)throws {
+  guard version==1,workspace==proof.workspace,exactUTF8(namespace,proof.namespace),kind==expected,!source_files_modified,
+   workspaceEntryHex(token,64),context==token,before_entry==proof.entry,after_entry.identity==before_entry.identity,
+   UInt64(after_entry.generation)==UInt64(before_entry.generation)+1,exactUTF8(after_entry.path,path),!title.isEmpty else {
+   throw EntrySelectionFailure("The entry review did not retain the requested construction and address.")
+  }
+ }
+}
+
+struct WorkspaceEntryRetainedTransition:Decodable {
+ let version:Int
+ let state:String
+ let request_id:String?
+ let manifest_sha256:String?
+ let kind:String?
+ let before_entry:WorkspaceEntryStamp?
+ let after_entry:WorkspaceEntryStamp?
+ let notice:String?
+
+ static func read(_ value:ResourceJSON?,record:String)throws->(before:WorkspaceEntryStamp,after:WorkspaceEntryStamp)? {
+  guard let value else{return nil}
+  if case .null=value{return nil}
+  let transition=try JSONDecoder().decode(Self.self,from:JSONEncoder().encode(value))
+  if transition.version==1,transition.state=="unavailable",let notice=transition.notice,!notice.isEmpty{throw EntrySelectionFailure(notice)}
+  guard transition.version==1,transition.state=="retained",transition.request_id==record,
+   let manifest=transition.manifest_sha256,workspaceEntryHex(manifest,64),let kind=transition.kind,["move","restoration","create","repair"].contains(kind),
+   let before=transition.before_entry,let after=transition.after_entry,before.identity==after.identity,
+   UInt64(after.generation)==UInt64(before.generation)+1 else {throw EntrySelectionFailure("This recovery record lacks a supported entry transition.")}
+  return (before,after)
+ }
+}
+
+struct WorkspaceEntryPublication:Decodable {
+ let version:Int
+ let state:String
+ let request_id:String
+ let before_entry:WorkspaceEntryStamp
+ let after_entry:WorkspaceEntryStamp
+ let current_entry:WorkspaceEntryStamp
+
+ static func confirm(_ outcome:Self?,request:String,intent:WorkspaceEntryIntent?)throws {
+  guard let intent else{
+   if outcome != nil{throw EntrySelectionFailure("Unexpected main construction publication.")}
+   return
+  }
+  guard let outcome,outcome.version==1,outcome.state=="confirmed",outcome.request_id==request,
+   outcome.before_entry==intent.before_entry,outcome.after_entry==intent.after_entry,outcome.current_entry==intent.after_entry else {
+   throw EntrySelectionFailure("The original main construction publication is unconfirmed.")
+  }
  }
 }
 </ui:copy>
@@ -134,34 +296,42 @@ package com.hickorydocs.simple
 import org.json.JSONObject
 
 data class WorkspaceEntryStamp(val version:Long,val identity:String,val generation:Long,val path:String?)
+private fun entryText(value:JSONObject,key:String)=value.opt(key) as? String ?: error("Workspace entry $key must be an exact string.")
+private fun entryInteger(value:JSONObject,key:String):Long {
+ val raw=value.opt(key)
+ require(raw is Int||raw is Long){"Workspace entry $key must be an exact integer."}
+ return (raw as Number).toLong()
+}
+private fun entryHex(value:String,count:Int)=value.length==count&&value.all{it in '0'..'9'||it in 'a'..'f'}
+private fun entryStamp(source:JSONObject):WorkspaceEntryStamp {
+ require(source.keys().asSequence().all{it in setOf("version","identity","generation","path")})
+ val generation=entryInteger(source,"generation");val identity=entryText(source,"identity")
+ require(entryInteger(source,"version")==1L&&entryHex(identity,32)&&generation in 0L..0xffffffffL&&source.has("path"))
+ val rawPath=source.get("path")
+ val path=if(rawPath===JSONObject.NULL)null else rawPath as? String ?: error("Workspace entry path is malformed.")
+ if(path!=null)require(path.isNotEmpty()&&!path.contains(':')&&!path.contains('\\')&&path.none{it.code<32||it.code==127}&&path.split('/').none{it.isEmpty()||it=="."||it==".."})
+ return WorkspaceEntryStamp(1,identity,generation,path)
+}
 class WorkspaceEntrySelectionProof(value:JSONObject) {
  private val material=value.toString()
  val workspace:String
  val namespace:String
  val entry:WorkspaceEntryStamp
+ val movable:Boolean
  init {
   val body=JSONObject(material)
   require(body.keys().asSequence().all{it in setOf("version","entry_protocol","workspace","namespace","entry","guard","source_guard","source_hash","movable","source_effects")})
-  fun text(value:JSONObject,key:String)=value.opt(key) as? String ?: error("Workspace entry $key must be an exact string.")
-  fun integer(value:JSONObject,key:String):Long {val raw=value.opt(key);require(raw is Int||raw is Long){"Workspace entry $key must be an exact integer."};return (raw as Number).toLong()}
-  fun hex(value:String,count:Int)=value.length==count&&value.all{it in '0'..'9'||it in 'a'..'f'}
-  require(integer(body,"version")==1L&&integer(body,"entry_protocol")==1L)
-  workspace=text(body,"workspace");namespace=text(body,"namespace")
-  require(hex(workspace,32)&&namespace.isNotEmpty()&&hex(text(body,"guard"),64))
+  require(entryInteger(body,"version")==1L&&entryInteger(body,"entry_protocol")==1L)
+  workspace=entryText(body,"workspace");namespace=entryText(body,"namespace")
+  require(entryHex(workspace,32)&&namespace.isNotEmpty()&&entryHex(entryText(body,"guard"),64))
   require(body.opt("source_effects") is Boolean&&body.get("source_effects")==false)
-  require(body.opt("movable") is Boolean)
-  val source=body.opt("entry") as? JSONObject ?: error("Workspace entry stamp is malformed.")
-  require(source.keys().asSequence().all{it in setOf("version","identity","generation","path")})
-  val generation=integer(source,"generation");val identity=text(source,"identity")
-  require(integer(source,"version")==1L&&hex(identity,32)&&generation in 0L..0xffffffffL&&source.has("path"))
-  val rawPath=source.get("path");val path=if(rawPath===JSONObject.NULL)null else rawPath as? String ?: error("Workspace entry path is malformed.")
-  if(path==null){require(!body.has("source_guard")&&!body.has("source_hash")&&body.get("movable")==false)}
+  movable=body.opt("movable") as? Boolean ?: error("Workspace entry move capability is malformed.")
+  entry=entryStamp(body.getJSONObject("entry"))
+  if(entry.path==null){require(!body.has("source_guard")&&!body.has("source_hash")&&!movable)}
   else {
-   require(path.isNotEmpty()&&!path.contains(':')&&!path.contains('\\')&&path.none{it.code<32||it.code==127}&&path.split('/').none{it.isEmpty()||it=="."||it==".."})
-   val guard=text(body,"source_guard");val hash=text(body,"source_hash")
-   require(guard.isNotEmpty()&&guard.toByteArray(Charsets.UTF_8).size<=16384&&hash.startsWith("sha256:")&&hex(hash.removePrefix("sha256:"),64))
+   val guard=entryText(body,"source_guard");val hash=entryText(body,"source_hash")
+   require(guard.isNotEmpty()&&guard.toByteArray(Charsets.UTF_8).size<=16384&&hash.startsWith("sha256:")&&entryHex(hash.removePrefix("sha256:"),64))
   }
-  entry=WorkspaceEntryStamp(1,identity,generation,path)
  }
  fun body()=JSONObject(material)
 }
@@ -173,6 +343,49 @@ object WorkspaceEntrySelections {
   check(current()&&proof.workspace==workspace&&proof.namespace==namespace){"Workspace entry response belongs to an obsolete source context."}
   return FrozenWorkspaceEntrySelection(proof.entry.path,proof,current)
  }
+}
+
+class WorkspaceEntryIntent(value:JSONObject,proof:WorkspaceEntrySelectionProof,kind:String,path:String?) {
+ val token=entryText(value,"token")
+ val context=entryText(value,"context")
+ val title=entryText(value,"title")
+ val before=entryStamp(value.getJSONObject("before_entry"))
+ val after=entryStamp(value.getJSONObject("after_entry"))
+ private val material=value.getJSONObject("edit").toString()
+ init {
+  check(entryInteger(value,"version")==1L&&value.opt("workspace")==proof.workspace&&value.opt("namespace")==proof.namespace&&
+   value.opt("kind")==kind&&value.opt("source_files_modified")==false&&entryHex(token,64)&&context==token&&title.isNotEmpty()&&
+   before==proof.entry&&after.identity==before.identity&&after.generation==before.generation+1&&after.path==path){
+   "The entry review did not retain the requested construction and address."
+  }
+ }
+ fun edit()=JSONObject(material)
+}
+
+data class WorkspaceEntryTransition(val before:WorkspaceEntryStamp,val after:WorkspaceEntryStamp) {
+ companion object {
+  fun read(raw:Any?,record:String):WorkspaceEntryTransition? {
+   if(raw==null||raw===JSONObject.NULL)return null
+   val value=raw as? JSONObject ?: error("This recovery record lacks a supported entry transition.")
+   if(entryInteger(value,"version")==1L&&value.opt("state")=="unavailable")error(entryText(value,"notice"))
+   check(entryInteger(value,"version")==1L&&value.opt("state")=="retained"&&value.opt("request_id")==record&&
+    entryHex(entryText(value,"manifest_sha256"),64)&&value.opt("kind") in listOf("move","restoration","create","repair")){
+    "This recovery record lacks a supported entry transition."
+   }
+   val before=entryStamp(value.getJSONObject("before_entry"))
+   val after=entryStamp(value.getJSONObject("after_entry"))
+   check(before.identity==after.identity&&before.generation+1==after.generation){"The retained entry transition is inconsistent."}
+   return WorkspaceEntryTransition(before,after)
+  }
+ }
+}
+
+fun confirmWorkspaceEntryPublication(raw:Any?,request:String,intent:WorkspaceEntryIntent?) {
+ if(intent==null){check(raw==null){"Unexpected main construction publication."};return}
+ val value=raw as? JSONObject ?: error("The original main construction publication is unconfirmed.")
+ check(entryInteger(value,"version")==1L&&value.opt("state")=="confirmed"&&value.opt("request_id")==request&&
+  entryStamp(value.getJSONObject("before_entry"))==intent.before&&entryStamp(value.getJSONObject("after_entry"))==intent.after&&
+  entryStamp(value.getJSONObject("current_entry"))==intent.after){"The original main construction publication is unconfirmed."}
 }
 </ui:copy>
 

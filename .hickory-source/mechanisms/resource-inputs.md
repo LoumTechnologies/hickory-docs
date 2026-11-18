@@ -321,7 +321,8 @@ pub(super) fn saved_target(root: &Path, path: &str) -> Result<(PathBuf, SavedSou
     Ok((full, saved))
 }
 fn default_project_entry(root: &Path) -> Result<Option<String>, String> {
-    Ok(match read_saved(&root.join("project.md"))? {
+    #[cfg(unix)]{return super::workspace_entry_authority::configured_entry(root);}
+    #[cfg(not(unix))]Ok(match read_saved(&root.join("project.md"))? {
         SavedSource::Missing => None,
         SavedSource::File { text, .. } => {
             let document=hick_lang::parse(&text).map_err(|error|format!("Construction entry cannot be parsed: {error}. Correct it before resource changes."))?;

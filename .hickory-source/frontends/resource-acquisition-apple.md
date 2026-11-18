@@ -32,9 +32,9 @@ struct ResourceAcquisition {var capture:ResourceWireCapture;var inputs:ResourceW
 The first resource-input reading establishes the closed source's saved bytes and guard. A loaded editor must still have that exact baseline, no source intent since construction and no dirty text. Reacquiring inputs uses the original owner lease and newly admitted targets; it never silently recaptures changed unrelated drafts. The caller may requery a provider under this same lease before using its final edit.
 
 <ui:copy id="resource-acquisition-apple-inputs">
-@MainActor func acquireResourceInputs(_ w:Workspace,paths:[String],edit:ResourceJSON,current:@escaping()->Bool,load:((FileNode)async throws->DocumentBuffer)?=nil,readInputs:(ResourceWireCapture)async throws->ResourceWireInputs)async throws->ResourceAcquisition {
+@MainActor func acquireResourceInputs(_ w:Workspace,paths:[String],edit:ResourceJSON,context suppliedContext:String?=nil,current:@escaping()->Bool,load:((FileNode)async throws->DocumentBuffer)?=nil,readInputs:(ResourceWireCapture)async throws->ResourceWireInputs)async throws->ResourceAcquisition {
  guard !paths.isEmpty,paths.count<=1000,Set(paths).count==paths.count else{throw EngineError(message:"Choose bounded resource paths distinguishable by the native wire format.")}
- let lease=ResourceAcquisitionLease(w,current:current),context=UUID().uuidString.replacingOccurrences(of:"-",with:"").lowercased()
+ let lease=ResourceAcquisitionLease(w,current:current),context=suppliedContext ?? UUID().uuidString.replacingOccurrences(of:"-",with:"").lowercased()
  func capture()throws->ResourceWireCapture {
   guard lease.current() else{throw EngineError(message:"Original source owners changed. Prepare the complete intention again.")};var drafts:[String:ResourceWireDraft]=[:]
   for path in paths {if let b=w.buffers[path]{drafts[path]=ResourceWireDraft(text:b.text,base_sha256:nativeSourceHash(b.base),version:nil,writable:!b.readOnly && !b.saving,save_guard:b.savedGuard)}}

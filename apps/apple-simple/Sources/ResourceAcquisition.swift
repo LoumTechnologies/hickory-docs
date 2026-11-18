@@ -13,9 +13,9 @@ struct ResourceAcquisition {var capture:ResourceWireCapture;var inputs:ResourceW
  }
  func retain(_ path:String,_ b:DocumentBuffer){addresses[path]=b;owners.append(ResourceAcquisitionOwner(b))}
 }
-@MainActor func acquireResourceInputs(_ w:Workspace,paths:[String],edit:ResourceJSON,current:@escaping()->Bool,load:((FileNode)async throws->DocumentBuffer)?=nil,readInputs:(ResourceWireCapture)async throws->ResourceWireInputs)async throws->ResourceAcquisition {
+@MainActor func acquireResourceInputs(_ w:Workspace,paths:[String],edit:ResourceJSON,context suppliedContext:String?=nil,current:@escaping()->Bool,load:((FileNode)async throws->DocumentBuffer)?=nil,readInputs:(ResourceWireCapture)async throws->ResourceWireInputs)async throws->ResourceAcquisition {
  guard !paths.isEmpty,paths.count<=1000,Set(paths).count==paths.count else{throw EngineError(message:"Choose bounded resource paths distinguishable by the native wire format.")}
- let lease=ResourceAcquisitionLease(w,current:current),context=UUID().uuidString.replacingOccurrences(of:"-",with:"").lowercased()
+ let lease=ResourceAcquisitionLease(w,current:current),context=suppliedContext ?? UUID().uuidString.replacingOccurrences(of:"-",with:"").lowercased()
  func capture()throws->ResourceWireCapture {
   guard lease.current() else{throw EngineError(message:"Original source owners changed. Prepare the complete intention again.")};var drafts:[String:ResourceWireDraft]=[:]
   for path in paths {if let b=w.buffers[path]{drafts[path]=ResourceWireDraft(text:b.text,base_sha256:nativeSourceHash(b.base),version:nil,writable:!b.readOnly && !b.saving,save_guard:b.savedGuard)}}

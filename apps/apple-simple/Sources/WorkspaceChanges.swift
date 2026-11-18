@@ -20,6 +20,8 @@ private enum WorkspaceHistoryStep {case drafts(WorkspaceDraftHistory);case resou
  })
 }
 @MainActor @Observable final class WorkspaceChanges {
+    private(set) var entrySelection:FrozenWorkspaceEntrySelection?
+    private var entryScope=UUID()
     var mode: String?
     var name = "" { didSet { if !exactUTF8(name,oldValue) { revision = UUID(); plan = nil; choices = []; notice = "" } } }
     var notice = ""
@@ -52,10 +54,18 @@ private enum WorkspaceHistoryStep {case drafts(WorkspaceDraftHistory);case resou
         }else {undo=Array(undo.suffix(31))+[.resource(record)];redo=[]}
         historySnapshot=UUID()
     }
-    func reset() { revision = UUID(); mode = nil; captured = nil; plan = nil; choices = []; undo = []; redo = []; historySnapshot=UUID(); notice = "" }
-    func close(_ workspace: Workspace) { revision = UUID(); mode = nil; workspace.resourceRestoration.cancel();workspace.currentBuffer?.focusSource?() }
+    func reset() { revision = UUID(); retireEntryMove(); mode = nil; captured = nil; plan = nil; choices = []; undo = []; redo = []; historySnapshot=UUID(); notice = "" }
+    func close(_ workspace: Workspace) { revision = UUID();retireEntryMove();mode = nil;workspace.resourceRestoration.cancel();workspace.currentBuffer?.focusSource?() }
+    func retireEntryMove() {entryScope=UUID();entrySelection=nil}
     func open(_ kind: String, workspace: Workspace) {
-        revision = UUID(); mode = kind; name = ""; plan = nil; choices = []; notice = ""; actionPage = 0
+        revision = UUID();retireEntryMove();mode = kind; name = ""; plan = nil; choices = []; notice = ""; actionPage = 0
+        if kind == "entryMove" {
+            workspace.resourceRestoration.cancel()
+            let scope=entryScope
+            notice="Reading the current main construction…"
+            Task { await openEntryMove(workspace,scope:scope) }
+            return
+        }
         guard kind == "undo" || kind == "redo" else { return }
         let target = kind == "undo" ? undo.last : redo.last
         guard let target else { notice = "No workspace change to \(kind)."; return }
@@ -74,7 +84,23 @@ private enum WorkspaceHistoryStep {case drafts(WorkspaceDraftHistory);case resou
             }catch{notice=error.localizedDescription}
         }
     }
+    private func openEntryMove(_ workspace:Workspace,scope:UUID)async {
+        let current={ [weak self] in self?.entryScope==scope }
+        do {
+            let selection=try await workspace.resourceRestoration.readEntry(workspace,current:current)
+            guard selection.entryPath != nil else{throw EntrySelectionFailure("This workspace has no configured main construction.")}
+            guard selection.proof.movable else{throw EntrySelectionFailure("The current main construction cannot be moved. Check its saved source.")}
+            entrySelection=selection
+            notice=""
+        }catch{if current(){notice=error.localizedDescription}}
+    }
     func prepare(_ workspace: Workspace,proposal:((String,String) async throws->Any)?=nil,resolution:(([String:Any]) async throws->[String:Any])?=nil,acquisition:((String) async throws->SourceSnapshot)?=nil,enforceProviderProofs:Bool=false) async {
+        if mode == "entryMove" {
+            guard let selection=entrySelection,!name.isEmpty,!exactUTF8(name,selection.entryPath) else{return}
+            revision=UUID();let id=revision
+            await workspace.resourceRestoration.prepareEntryMove(workspace,selection:selection,destination:name,current:{ [weak self] in self?.revision==id })
+            return
+        }
         if mode == "cleanup" { await prepareCleanup(workspace,proposal:proposal); return }
         guard let origin = workspace.currentBuffer, let language = origin.language, !origin.readOnly else { notice = "Choose writable source with a connected language provider."; return }
         requiresProviderProofs=proposal==nil || enforceProviderProofs
@@ -304,7 +330,15 @@ struct WorkspaceChangesView: View {
             HStack { Text("Workspace change preview").font(.headline); Spacer(); Button("Close") { changes.close(workspace) } }
             Text(workspace.resourceRestoration.review==nil ? "Source drafts · not saved or verified":"Saved baselines and separate dirty drafts · review before publication").font(.caption)
             if changes.mode == "rename" { TextField("New symbol name",text:$changes.name).textFieldStyle(.roundedBorder) }
-            if changes.mode != "undo", changes.mode != "redo", changes.mode != "proposal" { Button(changes.mode == "fixAll" ? "Prepare file-wide diagnostic fixes" : changes.mode == "sourceActions" ? "Prepare source actions" : changes.mode == "actions" ? "Prepare provider actions" : changes.mode == "format" ? "Prepare formatting" : changes.mode == "cleanup" ? "Prepare cleanup" : "Prepare rename") { Task { await changes.prepare(workspace) } }.disabled(changes.mode == "rename" && changes.name.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty) }
+            if changes.mode == "entryMove",let path=changes.entrySelection?.entryPath {
+                LabeledContent("Current main construction",value:path)
+                TextField("New workspace-relative path",text:$changes.name).textFieldStyle(.roundedBorder)
+                    .onChange(of:changes.name){_,_ in workspace.resourceRestoration.cancel()}
+                    .disabled(workspace.resourceRestoration.hasPending)
+                Button("Prepare move"){Task{await changes.prepare(workspace)}}
+                    .disabled(changes.name.isEmpty||exactUTF8(changes.name,path)||workspace.resourceRestoration.busy||workspace.resourceRestoration.hasPending)
+            }
+            if changes.mode != "undo", changes.mode != "redo", changes.mode != "proposal", changes.mode != "entryMove" { Button(changes.mode == "fixAll" ? "Prepare file-wide diagnostic fixes" : changes.mode == "sourceActions" ? "Prepare source actions" : changes.mode == "actions" ? "Prepare provider actions" : changes.mode == "format" ? "Prepare formatting" : changes.mode == "cleanup" ? "Prepare cleanup" : "Prepare rename") { Task { await changes.prepare(workspace) } }.disabled(changes.mode == "rename" && changes.name.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty) }
             if !changes.notice.isEmpty { Text(changes.notice).font(.caption) }
             ResourceRestorationPreview(workspace:workspace,model:workspace.resourceRestoration)
             ScrollView { VStack(alignment:.leading,spacing:6) {

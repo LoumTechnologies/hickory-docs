@@ -79,7 +79,7 @@ fn a_volume_output_directory_claims_the_files_under_it() {
     let generated = HashMap::from([
         ("src/Api/Generated/".to_string(), "d1".to_string()),
         ("src/Api/".to_string(), "d0".to_string()),
-    ]);
+    ]).into();
     // Under the directory: generated, and by the NARROWEST volume that
     // claims it.
     assert_eq!(
@@ -123,11 +123,11 @@ fn markdown_source_and_weave_none_claim_no_rendered_output() {
 fn marking_skips_documents_and_directories() {
     // A `.md` file is a document, never somebody else's output, and a
     // directory is not a file at all.
-    let generated = HashMap::from([
+    let generated = GeneratedOutputs::from(HashMap::from([
         ("cards.md".to_string(), "d1".to_string()),
         ("src".to_string(), "d1".to_string()),
         ("other.md".to_string(), "d1".to_string()),
-    ]);
+    ]));
     let mut tree = vec![
         TreeNode {
             language: None,

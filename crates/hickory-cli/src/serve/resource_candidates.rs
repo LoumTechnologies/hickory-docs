@@ -213,8 +213,8 @@ pub(crate) fn analyze(
 ) -> Result<Facts, String> {
     analyze_with_saved(root, inputs, fresh, capture, plan, None)
 }
-/// Internal restoration seam: the caller must bind saved states to retained recovery.
-/// Ordinary resource saves always use the reviewed final draft as their saved state.
+/// Internal saved-layer seam: callers bind states to retained recovery or a live
+/// engine-issued entry Move. Ordinary resource saves publish reviewed drafts.
 pub(crate) fn analyze_with_saved(
     root: &Path,
     inputs: &Inputs,
@@ -378,12 +378,21 @@ pub async fn inspect(
         if identity.check(&root)? != workspace {
             return Err("Workspace changed. Prepare again.".into());
         }
-        let facts = analyze(
+        #[cfg(unix)]
+        let projection = super::workspace_entry_authority::transitions::saved_move_projection(
+            &state, &request.inputs, &request.plan,
+        )?;
+        #[cfg(unix)]
+        let saved_after = projection.as_ref().map(|projection| projection.states());
+        #[cfg(not(unix))]
+        let saved_after = None;
+        let facts = analyze_with_saved(
             &root,
             &request.inputs,
             &fresh,
             &request.capture,
             &request.plan,
+            saved_after,
         )?;
         if identity.check(&root)? != workspace {
             return Err("Workspace changed during resource analysis. Prepare again.".into());

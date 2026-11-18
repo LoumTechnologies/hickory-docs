@@ -5,7 +5,7 @@ import type {Buffer,Buffers} from './buffers';
 import {prepareResourceRestore,publishResourceRestore,type ResourceRestoreReview,type ResourceEditorRoute} from './ResourceEditors';
 export interface RecoveryPage {version:number;workspace:string;ids:string[];next:string|null;ignored:number}
 export interface RecoverySummary {kind:'file'|'missing';bytes?:number;sha256?:string}
-export interface RecoveryReading {version:number;workspace:string;id:string;fingerprint:string;title:string;title_truncated:boolean;paths:{path:string;saved_before:RecoverySummary;saved_after:RecoverySummary;draft_before:RecoverySummary;draft_after:RecoverySummary}[];all_paths_recorded_applied:boolean;unrecognized_files:string[];draft_text:string|null;saved_text:string|null}
+export interface RecoveryReading {version:number;workspace:string;id:string;fingerprint:string;title:string;title_truncated:boolean;paths:{path:string;saved_before:RecoverySummary;saved_after:RecoverySummary;draft_before:RecoverySummary;draft_after:RecoverySummary}[];all_paths_recorded_applied:boolean;unrecognized_files:string[];draft_text:string|null;saved_text:string|null;entry_transition?:unknown}
 export type RecoverySnapshot='saved_before'|'saved_after'|'draft_before'|'draft_after';
 export class RecoveryReader {
  page:RecoveryPage|null=null;value:RecoveryReading|null=null;notice='';loading=false;private ticket=0;
@@ -36,7 +36,9 @@ export function SourceRecoveryView({close,buffers,acquire,adopt,alive,epoch,edit
  const lifetime=useRef(true);
  async function prepare(record=model.value){
   if(!record||busy)return;const stamp=epoch();setBusy(true);setReview(null);setMessage('Preparing current saved and draft restoration…');
-  try{const next=await prepareResourceRestore(buffers,record,acquire,(route,body)=>request('POST',route,body),()=>lifetime.current&&alive()&&epoch()===stamp&&model.value?.id===record.id&&model.value.fingerprint===record.fingerprint);setReview(next);setReviewPage(0);setPath(next.patches[0].path);setMessage('Review every saved baseline and source draft before restoring.');}
+  try{const next=await prepareResourceRestore(buffers,record,acquire,(route,body)=>request('POST',route,body),
+    ()=>lifetime.current&&alive()&&epoch()===stamp&&model.value?.id===record.id&&model.value.fingerprint===record.fingerprint,
+    undefined,()=>request('GET','/api/workspace/entry'));setReview(next);setReviewPage(0);setPath(next.patches[0].path);setMessage('Review every saved baseline and source draft before restoring.');}
   catch(error){setMessage(String(error));}finally{setBusy(false);}
  }
  async function publish(){if(!review||busy)return;const selected=review;setReview(null);setBusy(true);setMessage('Publishing reviewed source restoration…');

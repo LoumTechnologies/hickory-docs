@@ -965,6 +965,7 @@ impl LocalState {
             }
             let publication=workspace_entry_authority::acquire_source_coordination(self.index.root(),&path,source).map_err(ApiError::conflict)?;
             publication.check().map_err(ApiError::conflict)?;
+            workspace_entry_authority::protect_source_body(self.index.root(),&path,source).map_err(ApiError::conflict)?;
             let result=writer();
             publication.check().map_err(ApiError::conflict)?;
             result.map(|_| ()).map_err(ApiError::internal)
@@ -1490,6 +1491,8 @@ pub(crate) fn router(state: LocalState) -> Router {
         .route("/workspace/recovery", get(editor_recovery::list))
         .route("/workspace/recovery/forget", post(editor_recovery::forget))
         .route("/workspace/entry", get(workspace_entry_authority::get))
+        .route("/workspace/entry/intent", post(workspace_entry_authority::transitions::intent))
+        .route("/workspace/entry/inputs", post(workspace_entry_authority::transitions::inputs))
         .route("/workspace/recovery/{client}", get(editor_recovery::read))
         .route("/workspace/recovery/checkpoint", post(editor_recovery::checkpoint).layer(axum::extract::DefaultBodyLimit::max(72 * 1024 * 1024)))
         .route("/agent-proposals", get(agent_proposals::list))

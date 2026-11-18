@@ -55,6 +55,8 @@ private fun captureDraftHistory(plan:ChangePlan,workspace:Workspace):WorkspaceDr
  }
 }
 class WorkspaceChanges {
+    var entrySelection by mutableStateOf<FrozenWorkspaceEntrySelection?>(null);private set
+    private var entryScope=0L
     var mode by mutableStateOf<String?>(null)
     var name by mutableStateOf(""); private set
     var notice by mutableStateOf("")
@@ -81,11 +83,23 @@ class WorkspaceChanges {
         undo.add(History.Draft(captureDraftHistory(invertChangePlan(plan),workspace)));while(undo.size>32)undo.removeAt(0);redo.clear();historyRevision++
     }
     fun recordResource(record:String,workspace:String){undo.add(History.Resource(record,workspace));while(undo.size>32)undo.removeAt(0);redo.clear();historyRevision++}
-    fun reset() { revision++;historyRevision++; mode=null; plan=null; choices=emptyList(); sources=emptyMap(); current={false}; undo.clear(); redo.clear(); notice="" }
-    fun close(workspace: Workspace) { revision++; mode=null; workspace.currentBuffer?.focusSource?.invoke() }
+    fun reset() { revision++;retireEntryMove();historyRevision++; mode=null; plan=null; choices=emptyList(); sources=emptyMap(); current={false}; undo.clear(); redo.clear(); notice="" }
+    fun close(workspace: Workspace) {
+        revision++
+        if(mode=="entryMove")workspace.resourceChanges.dismiss()
+        retireEntryMove();mode=null;workspace.currentBuffer?.focusSource?.invoke()
+    }
+    private fun retireEntryMove(){entryScope++;entrySelection=null}
     fun updateName(value: String) { revision++; name=value; plan=null; choices=emptyList(); notice="" }
     fun open(kind: String, workspace: Workspace) {
-        revision++; mode=kind; name=""; plan=null; choices=emptyList(); notice=""; actionPage=0
+        revision++;retireEntryMove();mode=kind;name="";plan=null;choices=emptyList();notice="";actionPage=0
+        if(kind=="entryMove"){
+            workspace.resourceChanges.dismiss()
+            val scope=entryScope
+            notice="Reading the current main construction…"
+            workspace.runCommand{openEntryMove(workspace,scope)}
+            return
+        }
         if (kind != "undo" && kind != "redo") return
         val history = if (kind == "undo") undo else redo
         val target = history.lastOrNull() ?: run { notice="No workspace change to $kind."; return }
@@ -103,7 +117,31 @@ class WorkspaceChanges {
             notice="Workspace $kind applied to ${current.patches.size} drafts. Not saved or verified."
         }.onFailure { notice=it.message.orEmpty() }
     }
+    private suspend fun openEntryMove(workspace:Workspace,scope:Long) {
+        val current={entryScope==scope}
+        try {
+            val selection=workspace.resourceChanges.readEntry(workspace,current)
+            check(selection.entryPath!=null){"This workspace has no configured main construction."}
+            check(selection.proof.movable){"The current main construction cannot be moved. Check its saved source."}
+            entrySelection=selection
+            notice=""
+        }catch(cancelled:CancellationException){throw cancelled}catch(error:Exception){if(current())notice=error.message.orEmpty()}
+    }
     suspend fun prepare(workspace: Workspace,proposal:(suspend (String,String)->Any)?=null,resolution:(suspend (JSONObject)->JSONObject)?=null,acquisition:(suspend (String)->SourceSnapshot)?=null,enforceProviderProofs:Boolean=false) {
+        if(mode=="entryMove"){
+            val selection=entrySelection ?: return
+            val destination=name
+            if(destination.isEmpty()||destination==selection.entryPath)return
+            val request=++revision
+            val valid={revision==request&&selection.current()}
+            notice="Preparing the main construction move…"
+            workspace.resourceChanges.prepareEntryMove(workspace,selection,destination,valid)
+            if(valid()){
+                if(workspace.resourceChanges.review!=null)mode=null
+                else notice=workspace.resourceChanges.notice
+            }
+            return
+        }
         if(mode=="cleanup"){prepareCleanup(workspace,proposal);return}
         val origin = workspace.currentBuffer; val language = origin?.language
         if (origin == null || language == null || origin.readOnly) { notice="Choose writable source with a connected language provider."; return }
@@ -292,7 +330,12 @@ The existing Edit menu presents this bounded floating dialog. Every affected sou
         Text("Workspace change preview",fontSize=16.sp); Text("Source drafts · not saved or verified",fontSize=11.sp)
         TextButton(onClick={changes.close(workspace)}) { Text("Close") }
         if (changes.mode=="rename") OutlinedTextField(changes.name,{changes.updateName(it)},label={Text("New symbol name")},singleLine=true)
-        if (changes.mode!="undo" && changes.mode!="redo" && changes.mode!="proposal") TextButton(enabled=changes.mode!="rename" || changes.name.isNotBlank(),onClick={scope.launch {changes.prepare(workspace)}}) { Text(if(changes.mode=="fixAll") "Prepare file-wide diagnostic fixes" else if(changes.mode=="sourceActions") "Prepare source actions" else if(changes.mode=="actions") "Prepare provider actions" else if(changes.mode=="format") "Prepare formatting" else if(changes.mode=="cleanup") "Prepare cleanup" else "Prepare rename") }
+        if(changes.mode=="entryMove")changes.entrySelection?.entryPath?.let{path->
+            Text("Current main construction $path")
+            OutlinedTextField(changes.name,{changes.updateName(it)},label={Text("New workspace-relative path")},singleLine=true,enabled=!workspace.resourceChanges.hasPending)
+            TextButton(enabled=changes.name.isNotEmpty()&&changes.name!=path&&!workspace.resourceChanges.busy&&!workspace.resourceChanges.hasPending,onClick={scope.launch{changes.prepare(workspace)}}){Text("Prepare move")}
+        }
+        if (changes.mode!="undo" && changes.mode!="redo" && changes.mode!="proposal" && changes.mode!="entryMove") TextButton(enabled=changes.mode!="rename" || changes.name.isNotBlank(),onClick={scope.launch {changes.prepare(workspace)}}) { Text(if(changes.mode=="fixAll") "Prepare file-wide diagnostic fixes" else if(changes.mode=="sourceActions") "Prepare source actions" else if(changes.mode=="actions") "Prepare provider actions" else if(changes.mode=="format") "Prepare formatting" else if(changes.mode=="cleanup") "Prepare cleanup" else "Prepare rename") }
         if (changes.notice.isNotEmpty()) Text(changes.notice,fontSize=12.sp)
         for(index in changes.choices.indices.drop(changes.actionPage*100).take(100)) {
             val action=changes.choices[index]

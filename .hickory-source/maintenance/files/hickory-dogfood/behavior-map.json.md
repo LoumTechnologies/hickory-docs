@@ -73268,6 +73268,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "construction": "fragments",
       "fragments": [
         "workspace-entry-model",
+        "workspace-entry-owned-claims",
         "workspace-entry-storage",
         "workspace-entry-selection",
         "workspace-entry-reading",
@@ -73760,6 +73761,65 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "construction": "fragments",
       "fragments": [
         "rust-selected-test-debug-android"
+      ]
+    },
+    "scripts/test-workspace-entry-move-hosts.py": {
+      "source": ".hickory-source/frontends/workspace-entry-move-acceptance.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "695c92ae22b0496d21ddf512ce2f9584e1feced3b668f88214e37e27841b01f4",
+      "construction": "fragments",
+      "fragments": [
+        "workspace-entry-move-host-runner"
+      ]
+    },
+    "apps/apple-simple/Tests/WorkspaceEntryMoveTests.swift": {
+      "source": ".hickory-source/frontends/workspace-entry-move-acceptance.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "81dfa88c8f3f277ee050a0676162f4596f6ad68927a93b8e24b628d1f99633bc",
+      "construction": "fragments",
+      "fragments": [
+        "workspace-entry-move-apple-witness"
+      ]
+    },
+    "apps/android-simple/app/src/test/java/com/hickorydocs/simple/WorkspaceEntryMoveTest.kt": {
+      "source": ".hickory-source/frontends/workspace-entry-move-acceptance.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "99ad8d5620d4502e5276e702d7d0933e83a9d137fb18e545cf7ff9c66e9051f0",
+      "construction": "fragments",
+      "fragments": [
+        "workspace-entry-move-android-witness"
+      ]
+    },
+    "crates/hickory-cli/src/serve/workspace_entry_transitions.rs": {
+      "source": ".hickory-source/mechanisms/workspace-entry-transitions.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "2cd5d3a7ea76cd99bf122bc039b6d7bfa1b7006bdb44d2db03186f516f091731",
+      "construction": "fragments",
+      "fragments": [
+        "workspace-entry-transition-wire",
+        "workspace-entry-transition-intent",
+        "workspace-entry-transition-publisher",
+        "workspace-entry-transition-recovery",
+        "workspace-entry-transition-http"
+      ]
+    },
+    "scripts/test-workspace-entry-transitions.py": {
+      "source": ".hickory-source/mechanisms/workspace-entry-transition-protocol-witness.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "test",
+      "sha256": "9322b4af8cd21cf629534f663bfce5583885815ab045ddd269b6af40382e12a5",
+      "construction": "fragments",
+      "fragments": [
+        "workspace-entry-transition-protocol-driver"
       ]
     }
   },

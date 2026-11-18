@@ -339,6 +339,6 @@ pub async fn replace(
 }
 
 /// Output path → the id of the document that writes it.
-fn generated_map(state: &LocalState) -> HashMap<String, String> {
+fn generated_map(state: &LocalState) -> super::api::GeneratedOutputs {
     super::api::generated_outputs(state.index.root(), &state.index)
 }

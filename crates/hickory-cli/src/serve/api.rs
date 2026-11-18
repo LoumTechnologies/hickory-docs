@@ -613,11 +613,16 @@ fn file_tree(root: &std::path::Path, index: &super::store::DocIndex) -> (Vec<Tre
 
 /// Output path → the id of the document that writes it, for a set of
 /// documents already located.
+/// Typed output protection: an arbitrary map cannot mint a root-volume claim.
+#[derive(Default)]pub struct GeneratedOutputs{paths:HashMap<String,String>,root_volume:Option<String>}
+impl From<HashMap<String,String>> for GeneratedOutputs{fn from(paths:HashMap<String,String>)->Self{Self{paths,root_volume:None}}}
+impl std::ops::Deref for GeneratedOutputs{type Target=HashMap<String,String>;fn deref(&self)->&Self::Target{&self.paths}}
 fn outputs_of(
     documents: &[(String, std::path::PathBuf)],
     index: &super::store::DocIndex,
-) -> HashMap<String, String> {
+) -> GeneratedOutputs {
     let mut generated = HashMap::new();
+    let mut root_volume=None;
     for (rel, absolute) in documents {
         let Ok(source) = std::fs::read_to_string(absolute) else {
             continue;
@@ -625,6 +630,7 @@ fn outputs_of(
         let Some(id) = index.discover(rel) else {
             continue;
         };
+        if super::resource_inputs::declared_volume_folders(index.root(),&std::collections::BTreeMap::from([(rel.clone(),source.clone())])).is_ok_and(|folders|folders.contains("")){root_volume=Some(id.clone());}
         for output in declared_outputs(rel, &source) {
             // First document wins. Two documents writing one file is a
             // conflict the weaver reports; a caller asking "is this
@@ -632,7 +638,10 @@ fn outputs_of(
             generated.entry(output).or_insert_with(|| id.clone());
         }
     }
-    generated
+    if let Ok(Some(claims))=super::workspace_entry_authority::positive_entry_claims(index.root()){
+        let id=index.add(claims.entry());for path in claims.outputs(){generated.entry(path.clone()).or_insert_with(||id.clone());}for folder in claims.volumes(){generated.entry(format!("{folder}/")).or_insert_with(||id.clone());}if claims.root_volume(){root_volume=Some(id);}
+    }
+    GeneratedOutputs{paths:generated,root_volume}
 }
 
 /// Every generated file under `root`, and which document writes it.
@@ -642,7 +651,7 @@ fn outputs_of(
 pub fn generated_outputs(
     root: &std::path::Path,
     index: &super::store::DocIndex,
-) -> HashMap<String, String> {
+) -> GeneratedOutputs {
     let mut documents = Vec::new();
     let walker = ignore::WalkBuilder::new(root)
         .hidden(true)
@@ -790,12 +799,12 @@ pub(crate) fn declared_outputs(doc_rel: &str, source: &str) -> Vec<String> {
 /// falls back to walking the path's ancestors. Longest prefix wins, so a
 /// narrow volume nested inside a wider one is reported as the one that
 /// actually wrote the file.
-pub fn generated_by(generated: &HashMap<String, String>, path: &str) -> Option<String> {
+pub fn generated_by(generated: &GeneratedOutputs, path: &str) -> Option<String> {
     if let Some(doc) = generated.get(path) {
         return Some(doc.clone());
     }
     let mut best: Option<(usize, &String)> = None;
-    for (key, doc) in generated {
+    for (key, doc) in &generated.paths {
         let Some(dir) = key.strip_suffix('/') else {
             continue;
         };
@@ -806,7 +815,7 @@ pub fn generated_by(generated: &HashMap<String, String>, path: &str) -> Option<S
             best = Some((dir.len(), doc));
         }
     }
-    best.map(|(_, doc)| doc.clone())
+    best.map(|(_, doc)| doc.clone()).or_else(||if super::resource_changes::validate_path(path).is_ok(){generated.root_volume.clone()}else{None})
 }
 
 /// Stamp `diverged` onto every node whose disk bytes are not the document's.
@@ -834,7 +843,7 @@ pub async fn diverged_outputs(State(state): State<LocalState>) -> Json<Value> {
 pub use super::output_resolution::{regenerate_output, resolve_output};
 
 /// Stamp `generated_by` onto every node whose path a document writes.
-fn mark_generated(nodes: &mut [TreeNode], generated: &HashMap<String, String>) {
+fn mark_generated(nodes: &mut [TreeNode], generated: &GeneratedOutputs) {
     for node in nodes {
         if !node.dir && node.doc_id.is_none() {
             node.generated_by = generated_by(generated, &node.path);

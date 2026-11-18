@@ -6,7 +6,7 @@ struct RecoverySummary:Decodable {var kind:String;var bytes:Int?;var sha256:Stri
 struct RecoveryPath:Decodable {var path:String;var saved_before:RecoverySummary;var saved_after:RecoverySummary;var draft_before:RecoverySummary;var draft_after:RecoverySummary
  func summary(_ snapshot:String)->RecoverySummary {switch snapshot {case "saved_before":return saved_before;case "saved_after":return saved_after;case "draft_after":return draft_after;default:return draft_before}}
 }
-struct RecoveryReading:Decodable {var version:Int;var workspace:String;var id:String;var fingerprint:String;var title:String;var title_truncated:Bool;var paths:[RecoveryPath];var all_paths_recorded_applied:Bool;var unrecognized_files:[String];var draft_text:String?;var saved_text:String?}
+struct RecoveryReading:Decodable {var version:Int;var workspace:String;var id:String;var fingerprint:String;var title:String;var title_truncated:Bool;var paths:[RecoveryPath];var all_paths_recorded_applied:Bool;var unrecognized_files:[String];var draft_text:String?;var saved_text:String?;var entry_transition:ResourceJSON?=nil}
 @MainActor @Observable final class RecoveryReader {
  var page:RecoveryPage?;var value:RecoveryReading?;var notice="";var loading=false;private var ticket=UUID()
  func close(){ticket=UUID();page=nil;value=nil;loading=false}
@@ -87,7 +87,7 @@ struct ResourceWireRestoration:Decodable {var version:Int;var recovery_id:String
 struct ResourceWirePrepared:Decodable {var version:Int;var restoration:ResourceWireRestoration;var consequences:ResourceWireFacts}
 struct ResourceRestorationReview {
  let identity=UUID();var preflight:(()async throws->Void)?=nil;var published:((String)->Void)?=nil
- var request:ResourceWireRestoreRequest;var result:ResourceWirePrepared;var patches:[ResourceEditorPatch];var retained:[String:DocumentBuffer];var current:()->Bool;var save:ResourceWireProposal?=nil;var history:ResourceHistoryIntent?=nil
+ var request:ResourceWireRestoreRequest;var result:ResourceWirePrepared;var patches:[ResourceEditorPatch];var retained:[String:DocumentBuffer];var current:()->Bool;var save:ResourceWireProposal?=nil;var history:ResourceHistoryIntent?=nil;var entryIntent:WorkspaceEntryIntent?=nil
 }
 
 // A pending write outlives the popover. Never replay it automatically: status is
@@ -109,6 +109,40 @@ struct ResourceRestorationReview {
  }
  func cancel(){guard !hasPending else{return};ticket=UUID();review=nil;busy=false;notice=""}
  private func currentWorkspace(_ workspace:Workspace)->()->Bool {captureRetainedSourceNamespace(workspace)}
+ func readEntry(_ workspace:Workspace,current:@escaping()->Bool)async throws->FrozenWorkspaceEntrySelection {
+  guard let runtime=workspace.sourceWorkspaceID,let namespace=workspace.sourceRootAddress else{throw EntrySelectionFailure("Refresh Files to identify the current workspace.")}
+  let engine=workspace.engine,epoch=workspace.sourceNavigationEpoch
+  let valid={ [weak workspace] in
+   guard let workspace else{return false}
+   return current() && workspace.sourceNavigationEpoch==epoch && workspace.engine?.session === engine?.session &&
+    workspace.sourceWorkspaceID==runtime&&exactUTF8(workspace.sourceRootAddress,namespace)
+  }
+  return try await WorkspaceEntrySelections.read(load:{
+   let reply:ResourceJSON=try await self.call(workspace,"GET","/api/workspace/entry")
+   return try resourceBody(reply)
+  },workspace:runtime,namespace:namespace,current:valid)
+ }
+ private func entryIntent(_ workspace:Workspace,selection:FrozenWorkspaceEntrySelection,kind:String,operation:[String:Any],path:String?,current:()->Bool)async throws->WorkspaceEntryIntent {
+  guard selection.current(),current() else{throw EntrySelectionFailure("The original entry review changed. Prepare again.")}
+  let reply:WorkspaceEntryIntent=try await call(workspace,"POST","/api/workspace/entry/intent",["version":1,"entry_selection":try selection.proof.body(),"operation":operation.merging(["kind":kind]){_, value in value}])
+  guard selection.current(),current() else{throw EntrySelectionFailure("The original entry review changed. Prepare again.")}
+  try reply.admit(selection.proof,kind:kind,path:path)
+  return reply
+ }
+ private func readInputs(_ workspace:Workspace,capture:ResourceWireCapture,entry:WorkspaceEntryIntent?)async throws->ResourceWireInputs {
+  let body=try resourceBody(capture)
+  if let entry{return try await call(workspace,"POST","/api/workspace/entry/inputs",["version":1,"token":entry.token,"capture":body])}
+  return try await call(workspace,"POST","/api/changes/resource-inputs",body)
+ }
+ func prepareEntryMove(_ workspace:Workspace,selection:FrozenWorkspaceEntrySelection,destination:String,current:@escaping()->Bool)async {
+  guard !busy,!hasPending else{notice="Inspect the pending publication before preparing another resource proposal.";return}
+  let original=currentWorkspace(workspace)
+  do {
+   let intent=try await entryIntent(workspace,selection:selection,kind:"move",operation:["destination":destination],path:destination,current:{current()&&original()})
+   let edit=try resourceBody(intent.edit)
+   await prepareEdit(workspace,title:intent.title,edit:edit,current:{selection.current()&&current()},entry:intent)
+  }catch{if current(){notice=error.localizedDescription}}
+ }
  func prepare(_ workspace:Workspace,record:RecoveryReading,history:ResourceHistoryIntent?=nil)async {
   guard !busy,!hasPending else{notice="Inspect the pending publication before preparing another restoration.";return}
   let id=UUID();ticket=id;busy=true;review=nil;notice="Acquiring current sources and construction ownership…";defer{if ticket==id{busy=false}}
@@ -116,21 +150,34 @@ struct ResourceRestorationReview {
   let historyCurrent:()->Bool={history.map{workspace.changes.historySnapshot==$0.token && workspace.changes.resourceHistoryRecord($0.direction)==$0.record} ?? true}
   do {
    guard historyCurrent(),record.paths.count>0,record.paths.count<=1000 else{throw EngineError(message:"Choose a bounded recovery record.")}
-   func node(_ path:String,_ nodes:[FileNode])->FileNode? {for item in nodes {if exactUTF8(item.path,path){return item};if let child=node(path,item.children ?? []){return child}};return nil}
-   for item in record.paths where item.saved_after.kind=="file" && workspace.buffers[item.path]==nil {
-    let file=node(item.path,workspace.rootFiles) ?? FileNode(name:(item.path as NSString).lastPathComponent,path:item.path,dir:false)
-    _ = try await workspace.loadBuffer(file)
-    guard ticket==id,workspace.sourceNavigationEpoch==initial else{throw EngineError(message:"Workspace changed while acquiring recovery sources.")}
+   let capture:ResourceWireCapture,inputs:ResourceWireInputs,captured:()->Bool,entry:WorkspaceEntryIntent?
+   if let transition=try WorkspaceEntryRetainedTransition.read(record.entry_transition,record:record.id) {
+    let original=currentWorkspace(workspace)
+    let valid={self.ticket==id&&historyCurrent()&&workspace.sourceNavigationEpoch==initial}
+    let selection=try await readEntry(workspace,current:valid)
+    guard original(),selection.proof.entry==transition.after else{throw EntrySelectionFailure("This recovery belongs to an earlier construction generation or a changed source roster.")}
+    let intent=try await entryIntent(workspace,selection:selection,kind:"restoration",operation:["recovery_id":record.id,"recovery_fingerprint":record.fingerprint],path:transition.before.path,current:{valid()&&original()})
+    let acquired=try await acquireResourceInputs(workspace,paths:record.paths.map(\.path),edit:intent.edit,context:intent.context,current:{valid()&&selection.current()},readInputs:{capture in try await self.readInputs(workspace,capture:capture,entry:intent)})
+    capture=acquired.capture;inputs=acquired.inputs;captured=acquired.current;entry=intent
+   } else {
+    func node(_ path:String,_ nodes:[FileNode])->FileNode? {for item in nodes {if exactUTF8(item.path,path){return item};if let child=node(path,item.children ?? []){return child}};return nil}
+    for item in record.paths where item.saved_after.kind=="file" && workspace.buffers[item.path]==nil {
+     let file=node(item.path,workspace.rootFiles) ?? FileNode(name:(item.path as NSString).lastPathComponent,path:item.path,dir:false)
+     _ = try await workspace.loadBuffer(file)
+     guard ticket==id,workspace.sourceNavigationEpoch==initial else{throw EngineError(message:"Workspace changed while acquiring recovery sources.")}
+    }
+    captured=currentWorkspace(workspace)
+    let context=UUID().uuidString.replacingOccurrences(of:"-",with:"").lowercased()
+    var edits:[String:ResourceJSON]=[:],drafts:[String:ResourceWireDraft]=[:]
+    for item in record.paths {
+     edits[languageURI(item.path)] = .array([])
+     if let buffer=workspace.buffers[item.path] {drafts[item.path]=ResourceWireDraft(text:buffer.text,base_sha256:nativeSourceHash(buffer.base),version:nil,writable:!buffer.readOnly && !buffer.saving,save_guard:buffer.savedGuard)}
+    }
+    let ownership=try resourceOwnershipSnapshot(workspace)
+    capture=ResourceWireCapture(context:context,edit:.object(["changes":.object(edits)]),drafts:drafts,project_entry:nil,ownership_sources:ownership.named,unaddressed_sources:ownership.unaddressed,saved_guards:ownership.guards)
+    inputs=try await readInputs(workspace,capture:capture,entry:nil);entry=nil
    }
-   let captured=currentWorkspace(workspace),context=UUID().uuidString.replacingOccurrences(of:"-",with:"").lowercased()
-   var edits:[String:ResourceJSON]=[:],drafts:[String:ResourceWireDraft]=[:]
-   for item in record.paths {
-    edits[languageURI(item.path)] = .array([])
-    if let buffer=workspace.buffers[item.path] {drafts[item.path]=ResourceWireDraft(text:buffer.text,base_sha256:nativeSourceHash(buffer.base),version:nil,writable:!buffer.readOnly && !buffer.saving,save_guard:buffer.savedGuard)}
-   }
-   let ownership=try resourceOwnershipSnapshot(workspace)
-   let capture=ResourceWireCapture(context:context,edit:.object(["changes":.object(edits)]),drafts:drafts,project_entry:nil,ownership_sources:ownership.named,unaddressed_sources:ownership.unaddressed,saved_guards:ownership.guards)
-   let inputs:ResourceWireInputs=try await call(workspace,"POST","/api/changes/resource-inputs",resourceBody(capture))
+   let context=capture.context
    guard ticket==id,captured(),inputs.version==1,inputs.saved_guards != nil,inputs.context==context,inputs.workspace==record.workspace,inputs.refusals.isEmpty else{throw EngineError(message:"Current source, ownership or workspace changed. Refresh and prepare restoration again.")}
    let request=ResourceWireRestoreRequest(recovery_id:record.id,inputs:inputs,capture:capture)
    let result:ResourceWirePrepared=try await call(workspace,"POST","/api/changes/prepare-restoration",resourceBody(request))
@@ -140,19 +187,20 @@ struct ResourceRestorationReview {
    var retained:[String:DocumentBuffer]=[:]
    for patch in patches {if let after=patch.after,let buffer=workspace.retainedResourceEditors[after.identity] {retained[after.identity]=buffer}}
    let local=workspace.captureResourceEditors(patches,restoring:retained)
-   review=ResourceRestorationReview(request:request,result:result,patches:patches,retained:retained,current:{captured() && local() && historyCurrent()},history:history);selectedPath=0
+   review=ResourceRestorationReview(request:request,result:result,patches:patches,retained:retained,current:{captured() && local() && historyCurrent()},history:history,entryIntent:entry);selectedPath=0
    notice="Review saved baselines and dirty drafts separately. Publication changes saved source; generated files are only analyzed."
   }catch{if ticket==id{notice=error.localizedDescription}}
  }
- func prepareEdit(_ workspace:Workspace,title:String,edit:Any,current:@escaping()->Bool={true},requery:(() async throws->Any)?=nil)async {
+ func prepareEdit(_ workspace:Workspace,title:String,edit:Any,current:@escaping()->Bool={true},requery:(() async throws->Any)?=nil,entry:WorkspaceEntryIntent?=nil)async {
   guard !busy,!hasPending else{notice="Inspect the pending publication before preparing another resource proposal.";return}
   let id=UUID();ticket=id;busy=true;review=nil;notice="Acquiring the complete resource proposal…";defer{if ticket==id{busy=false}}
   do {
    var selectedEdit=edit
    var raw=try JSONDecoder().decode(ResourceJSON.self,from:JSONSerialization.data(withJSONObject:edit))
+   let original=currentWorkspace(workspace)
    let discovered:ResourceWireTargets=try await call(workspace,"POST","/api/changes/resource-targets",["edit":edit])
-   guard ticket==id,current(),discovered.version==1,!discovered.paths.isEmpty,discovered.paths.count<=1000,Set(discovered.paths).count==discovered.paths.count else{throw EngineError(message:"Resource targets or provider changed. Prepare the complete proposal again.")}
-   let acquisition=try await acquireResourceInputs(workspace,paths:discovered.paths,edit:raw,current:{self.ticket==id&&current()},readInputs:{capture in try await self.call(workspace,"POST","/api/changes/resource-inputs",resourceBody(capture))})
+   guard ticket==id,current(),entry==nil||original(),discovered.version==1,!discovered.paths.isEmpty,discovered.paths.count<=1000,Set(discovered.paths).count==discovered.paths.count else{throw EngineError(message:"Resource targets or provider changed. Prepare the complete proposal again.")}
+   let acquisition=try await acquireResourceInputs(workspace,paths:discovered.paths,edit:raw,context:entry?.context,current:{self.ticket==id&&current()},readInputs:{capture in try await self.readInputs(workspace,capture:capture,entry:entry)})
    var sourceCapture=acquisition.capture,inputs=acquisition.inputs;let captured=acquisition.current,context=sourceCapture.context
    if acquisition.acquired,let requery {
     for path in discovered.paths {if let buffer=workspace.buffers[path],let service=buffer.language {let source=buffer.text;_ = try await service.readOutline(source:source);guard exactUTF8(buffer.text,source),ticket==id,current(),captured() else{throw EngineError(message:"Original source changed while synchronizing the resource proposal.")}}}
@@ -171,7 +219,7 @@ struct ResourceRestorationReview {
    guard patches.allSatisfy({patch in patch.before.map{exactUTF8(workspace.buffers[patch.path]?.text,$0.text)} ?? (workspace.buffers[patch.path]==nil)}) else{throw EngineError(message:"Every current source must match the complete resource plan.")}
    let local=workspace.captureResourceEditors(patches)
    let restoration=ResourceWireRestoration(version:1,recovery_id:"",recovery_fingerprint:"",workspace:inputs.workspace,context:context,plan:planned.plan,saved_before:inputs.saved_sources,saved_after:saved)
-   review=ResourceRestorationReview(request:ResourceWireRestoreRequest(recovery_id:"",inputs:inputs,capture:sourceCapture),result:ResourceWirePrepared(version:1,restoration:restoration,consequences:facts),patches:patches,retained:[:],current:{captured() && local() && current()},save:proposal);selectedPath=0
+   review=ResourceRestorationReview(request:ResourceWireRestoreRequest(recovery_id:"",inputs:inputs,capture:sourceCapture),result:ResourceWirePrepared(version:1,restoration:restoration,consequences:facts),patches:patches,retained:[:],current:{captured() && local() && current()},save:proposal,entryIntent:entry);selectedPath=0
    notice="Review every text and namespace consequence together. Publish explicitly after reviewing saved source and generated consequences."
   }catch{if ticket==id{notice=error.localizedDescription}}
  }
@@ -219,11 +267,13 @@ struct ResourceRestorationReview {
  }
  private func adopt(_ workspace:Workspace,id:String,value:ResourceRestorationReview,receipt:ResourcePublication<FileNode>)throws {
   guard publishingWorkspace === workspace else{throw EngineError(message:"Workspace changed during publication. Inspect recovery in its original workspace.")}
+  try WorkspaceEntryPublication.confirm(receipt.entry_outcome,request:id,intent:value.entryIntent)
   _ = try confirmedResourceFiles(value.patches,receipt:receipt,request:id,workspace:value.result.restoration.workspace,context:value.request.capture.context,expected:value.result.restoration.saved_after){($0.path,!$0.dir && $0.generated_by==nil)}
   confirmedReceipt=receipt
   let recovery=try resourceRecoveryIdentity(receipt.outcome.recovery)
   _ = try workspace.adoptResourceReceipt(value.patches,receipt:receipt,request:id,workspace:value.result.restoration.workspace,context:value.request.capture.context,expected:value.result.restoration.saved_after,current:value.current,restoring:value.retained)
   workspace.changes.recordResourcePublication(recovery,intent:value.history)
+  if value.entryIntent?.kind == "move" {workspace.changes.retireEntryMove()}
   pending=nil;lastRecovery=recovery;value.published?(recovery);notice=value.save==nil ? "Restored confirmed saved baselines and retained dirty drafts. Prepare the inverse restoration to redo this operation.":"Saved the reviewed resource namespace. Use Undo workspace change to review its inverse. No tests were executed by this save."
   Task {await workspace.refresh()}
  }

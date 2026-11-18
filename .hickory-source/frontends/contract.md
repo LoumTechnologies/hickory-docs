@@ -35,7 +35,7 @@ an earlier open item only for the behavior it actually exercises.
 | Refactoring, cleanup, generation, templates and history | Rename, formatting, genuine TypeScript extraction/accessor generation/cleanup and coordinated history have focused host receipts. Genuine TypeScript move-to-new-file review, publication and inverse/redo have browser, macOS and Android receipts. Source-bound variables and expanded regex transforms in completion and reusable templates have live browser, macOS and Android-controller receipts. Embedded and multi-caret template review retains source, selections, mirrors and grouped history, including native secondary-caret round-trip invalidation. |
 | Diagnostics and contextual fixes | Existing source-bound Problems/fix receipts remain scoped to their stated providers and paths. A command or backend implementation alone is not further acceptance. |
 | Testing and coverage | Retained sessions, results and coverage retain their provider receipts. Exact JavaScript collection/rerun has 31 focused collector cases and 11 fresh-engine Vitest flows. Rust test Debug has browser, mounted macOS and Android-controller receipts for qualified name filters in ordinary and compiler-authored source. A compiler-proven declaration-to-artifact match remains open. |
-| Review, staging, attribution, conflicts and recovery | Existing Git/native conflict receipts remain in force. Complete 32-session recovery management and three exact revisions have service, browser, macOS and Android-controller receipts. The canonical entry has a retained read identity and guarded source proof. Grouped text replacement and selected-worktree writes share that exclusion. Move publication and its inverse remain open. |
+| Review, staging, attribution, conflicts and recovery | Existing Git/native conflict receipts remain in force. Complete 32-session recovery management and three exact revisions have service, browser, macOS and Android-controller receipts. The canonical entry has a retained read identity and guarded source proof. Grouped text replacement and selected-worktree writes share that exclusion. A single reviewed main Move and its immediate Undo/Redo pass on browser, mounted macOS and the Android controller. Older inverse chains and interrupted publication recovery remain open. |
 | Debugging | Existing debugpy and installed LLDB launch/attach, thread/frame and breakpoint receipts remain scoped evidence. Installed Cargo and LLDB also passed the saved Rust test Debug flows described below. Unsupported adapters and unexecuted device acceptance remain visible. |
 | Connected behavior readings | Guarded contract/explanation/source/generated/test/evidence readings and dirty construction graphs have host receipts. Default construction and connected readings retain the bound entry proof through execution admission. Declared, observed, stale and unknown relationships remain distinct. |
 | Change impact and relevant verification | Existing compiler/relationship-based impact and selected verification receipts remain scoped evidence. Unknown relationships and missing execution evidence do not become verified through graph reachability. |
@@ -226,6 +226,27 @@ filename language. A fresh engine returned authored test candidates and an
 unmaterialized compiler context for both a literal `.spec` address and a `.py`
 address. The exact same `.spec` request without entry selection refused as an
 unknown plain language. All saved source bytes stayed unchanged.
+
+### Move and reverse the current construction without saving its draft
+
+The existing Edit command captures the current main and prepares the exact
+destination through the shared resource review. Saved compilation follows the
+original disk bytes. Draft compilation and editor history follow the retained
+dirty text. A live intent, the complete review and the original physical
+namespace guard publication. Each confirmed Undo or Redo requires a new review
+and advances the same logical entry generation.
+
+The real browser, mounted macOS editor and Android controller each completed
+Move to a literal `.spec` path, reviewed Undo and Redo, and local editor Undo
+and Redo with the original dirty draft and saved baseline. The browser refused
+a foreign destination created after Preview, preserved editor geometry and
+followed the relocated entry in connected readings. The actual engine protocol
+also retained the role after restart, refused the old live token and an
+equal-byte inode substitution, and kept a recreated old spelling independent.
+Neither compiler layer materialized generated outputs during review or Move.
+The shared Apple host code built for the arm64 iOS simulator. Chained older
+inverses, interrupted publication recovery, iOS feature runtime, Android
+rendering, physical input and assistive technology still require acceptance.
 
 Six focused engine cases and the actual workspace-entry HTTP flow passed. The
 flow retained the entry identity across a fresh engine process, issued a new

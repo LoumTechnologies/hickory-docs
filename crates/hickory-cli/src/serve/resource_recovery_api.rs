@@ -260,7 +260,8 @@ pub async fn inspect(
         let _permit = permit;
         let workspace = identity.check(&root)?.to_string();
         let recovery = super::resource_journal::read_recovery(&root, &query.id)?;
-        let value = summary(recovery, query, &workspace)?;
+        let entry_transition=super::workspace_entry_authority::transitions::recovery_metadata(&root,&recovery);
+        let mut value = summary(recovery, query, &workspace)?;value["entry_transition"]=entry_transition;
         if identity.check(&root)? != workspace {
             return Err(
                 "Workspace changed while reading recovery. Reconnect before using this evidence."

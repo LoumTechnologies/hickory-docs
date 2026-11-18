@@ -32,6 +32,8 @@ with unchanged saved files and retained evidence fingerprints. These checks do
 not recover a request that stopped before its manifest was retained, and never
 infer a successful save from a historical receipt.
 
+A document-preserving Move may retain different saved and dirty bytes. Recovery accepts that distinction only when the entire after namespace is an exact permutation of original source states and their complete saved records, including modes. This representation does not authorize publication; the live entry intent still admits the Move under the shared publisher lease. Mutating draft content or saved permissions invalidates this special case.
+
 <ui:copy id="resource-save-recovery-record">
 //! Explicit resource saves retain their before/after states before publishing source.
 use super::{
@@ -140,6 +142,35 @@ fn same_saved_draft(saved: &SavedSource, draft: &SourceState) -> bool {
         _ => false,
     }
 }
+// A document-preserving namespace move may retain dirty drafts independently
+// of saved bytes. This recognizes only an exact permutation of original source
+// states and their complete saved records; it grants no publication authority.
+fn preserves_saved_namespace(
+    manifest: &Manifest,
+    drafts: &BTreeMap<String, SourceState>,
+    after: &BTreeMap<String, SourceState>,
+) -> bool {
+    let originals: BTreeMap<_, _> = drafts.iter().filter_map(|(path, source)| match source {
+        SourceState::File { identity, .. } => Some((identity, (path, source))),
+        _ => None,
+    }).collect();
+    let mut seen = std::collections::BTreeSet::new();
+    for (path, source) in after {
+        match source {
+            SourceState::Missing { .. } => {
+                if manifest.after.get(path) != Some(&SavedSource::Missing) { return false; }
+            }
+            SourceState::File { identity, .. } => {
+                let Some((original_path, original)) = originals.get(identity) else { return false; };
+                if !seen.insert(identity) || source != *original
+                    || manifest.after.get(path) != manifest.before.get(*original_path) {
+                    return false;
+                }
+            }
+        }
+    }
+    seen.len() == originals.len()
+}
 fn manifest_bytes(manifest: &Manifest) -> Result<Vec<u8>, String> {
     if manifest.request_id.as_ref().is_some_and(|id| {
         id.len() != 32 || !id.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
@@ -191,11 +222,12 @@ fn manifest_bytes(manifest: &Manifest) -> Result<Vec<u8>, String> {
         return Err("Resource recovery must retain every reviewed source path.".into());
     }
     let after = manifest.reviewed_plan.apply(&manifest.context, &drafts)?;
+    let preserved_namespace = preserves_saved_namespace(manifest, &drafts, &after);
     for (path, saved) in &manifest.before {
         validate_saved(saved)?;
         validate_saved(&manifest.after[path])?;
         if !same_kind(saved, &drafts[path])
-            || if manifest.restore_of.is_some() {
+            || if manifest.restore_of.is_some() || preserved_namespace {
                 !same_kind(&manifest.after[path], &after[path])
             } else {
                 !same_saved_draft(&manifest.after[path], &after[path])
@@ -629,6 +661,27 @@ impl Manifest {
     }
 }
 
+#[cfg(test)]
+#[test]
+fn document_preserving_move_keeps_saved_bytes_and_dirty_draft_separate() {
+    let mut record = tests::manifest();
+    let original = record.reviewed_plan.patches.iter()
+        .find(|patch| patch.path == "a.py").unwrap().before.clone();
+    record.reviewed_plan.patches.iter_mut()
+        .find(|patch| patch.path == "b.py").unwrap().after = original;
+    record.after.insert("b.py".into(), record.before["a.py"].clone());
+    assert!(manifest_bytes(&record).is_ok());
+    let mut wrong = record.clone();
+    if let SavedSource::File { mode, .. } = wrong.after.get_mut("b.py").unwrap() {
+        *mode = Some(0o600);
+    }
+    assert!(manifest_bytes(&wrong).is_err());
+    if let SourceState::File { text, .. } = &mut record.reviewed_plan.patches.iter_mut()
+        .find(|patch| patch.path == "b.py").unwrap().after {
+        *text = "unreviewed dirty edit".into();
+    }
+    assert!(manifest_bytes(&record).is_err());
+}
 #[cfg(test)]
 #[test]
 fn reviewed_resource_record_follows_identity_permissions_and_keeps_dirty_baseline() {

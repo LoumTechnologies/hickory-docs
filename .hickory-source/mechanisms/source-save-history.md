@@ -116,6 +116,14 @@ pub(super) fn writable_source(state:&LocalState,path:&Path,declared:&str)->Resul
  if !Path::new(declared).is_absolute(){let(full,_)=super::resource_inputs::saved_target(state.index.root(),declared)?;if !same_file::is_same_file(&full,path).map_err(|e|e.to_string())?{return Err("The declared source address no longer names the read file.".into())}}
  Ok(())
 }
+/// Trusted compiler cache only; untrusted write requests still use the complete
+/// original physical guard reader and body comparison below.
+pub(crate) fn cached_source_guard_current(root:&Path,path:&str,raw:&str)->Result<bool,String>{
+ if raw.len()>16*1024{return Ok(false)}let guard:SaveGuard=serde_json::from_str(raw).map_err(|_|"Cached source identity is malformed")?;
+ if guard.version!=1||guard.workspace!=workspace(root)?||guard.path!=path{return Ok(false)}
+ match stamp(&root.join(path)){Ok(identity)=>Ok(identity==guard.identity),Err(_)=>Ok(false)}
+}
+
 pub(super) fn validate_observed_guard(root:&Path,path:&Path,declared:&str,raw:&str)->Result<(),String>{
  if raw.len()>16*1024{return Err("Physical save guard exceeds its bounded size.".into())}
  let guard:SaveGuard=serde_json::from_str(raw).map_err(|_|"Physical save guard is invalid or unsupported.")?;
@@ -159,6 +167,7 @@ pub(super) fn write_observed(root:&Path,path:&Path,source:&str,request:Option<&s
 fn write_inner(root:&Path,path:&Path,source:&str,request:Option<&str>,intent:Option<&str>,writer:impl FnOnce()->Result<Option<String>,String>)->Result<(),String>{
  if request.is_some()!=intent.is_some(){return Err("Save request identity and canonical body fingerprint must be supplied together.".into())}
  let publication=super::workspace_entry_authority::acquire_source_coordination(root,path,source)?;
+ super::workspace_entry_authority::protect_source_body(root,path,source)?;
  let _guard=WRITERS.lock().map_err(|_|"Source save history is unavailable.".to_string())?;
  publication.check()?;
  let relative=source_address(root,path)?;
@@ -332,6 +341,12 @@ pub(super) fn validate_resource_after(root:&Path,recovery:&super::resource_journ
  let identities=found.ok_or("This historical resource has no retained producer source proof. Its inverse is unavailable; inspect its text without applying it.")?;
  validate_physical_namespace(root,&recovery.manifest.after,&identities)
 }
+
+/// Engine-only evidence marker. It is never deserialized from a historical row
+/// or accepted from a host; each use repeats current producer-lineage validation.
+pub(crate) struct ResourceAfterProof{root:String,record:String,manifest:String}
+impl ResourceAfterProof{pub(crate) fn check(&self,root:&Path,recovery:&super::resource_journal::Recovery)->Result<(),String>{if self.root!=workspace(root)?||self.record!=recovery.id||self.manifest!=recovery.manifest_sha256{return Err("Resource producer proof belongs to another root or retained record.".into())}validate_resource_after(root,recovery)}}
+pub(crate) fn prove_resource_after(root:&Path,recovery:&super::resource_journal::Recovery)->Result<ResourceAfterProof,String>{validate_resource_after(root,recovery)?;Ok(ResourceAfterProof{root:workspace(root)?,record:recovery.id.clone(),manifest:recovery.manifest_sha256.clone()})}
 
 pub(super) fn prepare_resource_lineage(root:&Path,resource_id:&str,manifest:&Manifest,before_identities:&BTreeMap<String,String>)->Result<ResourceLineageCapture,String>{
  let original=super::resource_journal::read_recovery(root,resource_id)?;

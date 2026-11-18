@@ -2529,15 +2529,15 @@ async fn cmd_index(command: IndexCommand) -> Result<ExitCode> {
             let mut outputs: Vec<String> = raw
                 .iter()
                 .map(|hit| hit.path.clone())
-                .filter(|path| generated.contains_key(path))
+                .filter(|path| hickory_cli::serve::api::generated_by(&generated,path).is_some())
                 .collect();
             outputs.sort();
             outputs.dedup();
             for output in outputs {
-                let Some(doc) = generated.get(&output) else {
+                let Some(doc) = hickory_cli::serve::api::generated_by(&generated,&output) else {
                     continue;
                 };
-                let Some(doc_path) = doc_index.absolute(doc) else {
+                let Some(doc_path) = doc_index.absolute(&doc) else {
                     continue;
                 };
                 let Ok(run) =

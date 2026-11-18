@@ -258,11 +258,7 @@ fn read_saved(path: &Path) -> Result<SavedSource, String> {
         mode,
     })
 }
-pub(crate) fn declared_volume_targets(
-    root: &Path,
-    sources: &BTreeMap<String, String>,
-    targets: &[String],
-) -> Result<BTreeSet<String>, String> {
+pub(crate) fn declared_volume_folders(root:&Path,sources:&BTreeMap<String,String>)->Result<BTreeSet<String>,String>{
     let mut folders = BTreeSet::new();
     for (path, source) in sources {
         let document = hick_lang::parse(source).map_err(|error| {
@@ -318,6 +314,14 @@ pub(crate) fn declared_volume_targets(
             confined(root, folder, &mut names)?;
         }
     }
+    Ok(folders)
+}
+pub(crate) fn declared_volume_targets(
+    root: &Path,
+    sources: &BTreeMap<String, String>,
+    targets: &[String],
+) -> Result<BTreeSet<String>, String> {
+    let folders=declared_volume_folders(root,sources)?;
     let mut protected = BTreeSet::new();
     for target in targets {
         let mut current = target.as_str();
@@ -419,7 +423,8 @@ pub(super) fn saved_target(root: &Path, path: &str) -> Result<(PathBuf, SavedSou
     Ok((full, saved))
 }
 fn default_project_entry(root: &Path) -> Result<Option<String>, String> {
-    Ok(match read_saved(&root.join("project.md"))? {
+    #[cfg(unix)]{return super::workspace_entry_authority::configured_entry(root);}
+    #[cfg(not(unix))]Ok(match read_saved(&root.join("project.md"))? {
         SavedSource::Missing => None,
         SavedSource::File { text, .. } => {
             let document=hick_lang::parse(&text).map_err(|error|format!("Construction entry cannot be parsed: {error}. Correct it before resource changes."))?;

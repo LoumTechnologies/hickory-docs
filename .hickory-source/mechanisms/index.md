@@ -417,4 +417,8 @@ is included with that control; opening a document is not generation authority.
 
 <storycode:include file="rust-selected-test-debug.md" />
 
+<storycode:include file="workspace-entry-transitions.md" />
+<storycode:include file="workspace-entry-transition-protocol-witness.md" />
+<storycode:include file="workspace-entry-owned-claims.md" />
+
 </storycode:doc>

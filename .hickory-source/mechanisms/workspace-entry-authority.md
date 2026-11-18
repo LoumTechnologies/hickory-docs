@@ -7,6 +7,8 @@ For maintainers binding optional compiler readings to the workspace main role wi
 
 A stable identity and checked generation distinguish the main construction from a same-named replacement. Initial no-main discovery is explicitly different from absence after a known role: only the first may discover a newly authored default. Transition declarations below are internal policy models; this reading endpoint does not yet admit source moves or publish inverse transactions.
 
+A pending record distinguishes an unobserved publication from a producer-confirmed namespace: `namespace_guards: None` grants no restart confirmation, while `Some(empty)` can describe an explicitly completed all-missing namespace. Retained rows keep the original before/after source guard for later lineage checks; these records are evidence, never live intent tokens. Optional fields remain omitted in old material so existing seals keep their byte meaning.
+
 <ui:copy id="workspace-entry-model">
 use serde::{Serialize,Deserialize};
 use std::collections::BTreeMap;
@@ -43,13 +45,13 @@ impl EntryChange {
 }
 #[derive(Clone,Debug,Serialize,Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Pending {request_id:String,manifest_sha256:String,change:EntryChange,after_guard:Option<String>}
+struct Pending {request_id:String,manifest_sha256:String,change:EntryChange,after_guard:Option<String>,#[serde(default,skip_serializing_if="Option::is_none")] namespace_guards:Option<BTreeMap<String,String>>,#[serde(default,skip_serializing_if="Option::is_none")] before_guard:Option<String>}
 #[derive(Clone,Debug,Serialize,Deserialize)]
 #[serde(deny_unknown_fields)]
-struct RetainedTransition {request_id:String,manifest_sha256:String,change:EntryChange,after_guard:Option<String>}
+struct RetainedTransition {request_id:String,manifest_sha256:String,change:EntryChange,after_guard:Option<String>,#[serde(default,skip_serializing_if="Option::is_none")] before_guard:Option<String>,#[serde(default,skip_serializing_if="Option::is_none")] namespace_guards:Option<BTreeMap<String,String>>}
 #[derive(Clone,Debug,Serialize,Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Binding {version:u32,physical_root:String,namespace:String,physical_store:String,current:EntryStamp,bootstrap_default:bool,pending:Option<Pending>,history:Vec<RetainedTransition>}
+struct Binding {version:u32,physical_root:String,namespace:String,physical_store:String,current:EntryStamp,bootstrap_default:bool,pending:Option<Pending>,history:Vec<RetainedTransition>,#[serde(default,skip_serializing_if="Option::is_none")] ownership:Option<claims::Inventory>}
 #[derive(Serialize,Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SealedBinding {payload:Binding,seal:String}
@@ -77,11 +79,17 @@ fn history_transition(binding:&Binding,record:&super::resource_journal::Recovery
 Use a distinct private namespace and HMAC domain. Finding the physical bucket after a folder rename must produce a namespace refusal, not a fresh project.md default. Missing metadata with an existing key refuses; damaged or substituted storage cannot create a new role. Opening a readonly snapshot never promotes the initial default.
 
 <ui:copy id="workspace-entry-storage">
+fn history_transition_after_lineage(root:&std::path::Path,binding:&Binding,record:&super::resource_journal::Recovery,proof:&super::source_history::ResourceAfterProof)->Result<EntryChange,String>{
+ proof.check(root,record)?;
+ let known=binding.history.iter().find(|old|old.request_id==record.id&&old.manifest_sha256==record.manifest_sha256).ok_or("This retained record has no sealed workspace-entry transition authority")?;
+ if binding.current.identity!=known.change.after.identity||binding.current.path!=known.change.after.path{return Err("Retained entry restoration no longer follows the same construction identity and address.".into())}
+ let mut rebased=binding.clone();rebased.current=known.change.after.clone();let mut change=history_transition(&rebased,record)?;change.before=binding.current.clone();change.after=binding.current.advance(change.after.path)?;change.validate(&record.manifest.reviewed_plan.inverse())?;Ok(change)
+}
 #[cfg(unix)]
 mod storage {
  use super::*;
  use super::super::private_record::{HeldRecord,Spec};
- const SPEC:Spec=Spec{namespace:"workspace-entry-v1",key:"entry.key",lock:"entry.lock",record:"entry.json",limit:1024*1024,physical_bucket:true};
+ const SPEC:Spec=Spec{namespace:"workspace-entry-v1",key:"entry.key",lock:"entry.lock",record:"entry.json",limit:32*1024*1024,physical_bucket:true};
  const DOMAIN:&[u8]=b"hickory.workspace-entry.binding.v1";
  pub(super) struct Bound {pub held:HeldRecord,pub payload:Binding,original:Option<Vec<u8>>}
  impl Bound {
@@ -101,7 +109,7 @@ mod storage {
    super::super::private_record::verify(&held.key,Some(DOMAIN),&signed,&record.seal)?;
    let payload=record.payload;
    if payload.version!=1||payload.physical_root!=held.root_id||payload.physical_store!=held.store_id||payload.namespace!=root.canonicalize().map_err(|error|error.to_string())?.to_str().ok_or("Workspace namespace is not exact UTF-8")?{return Err("Original workspace entry belongs to another physical root or namespace; no project.md fallback was selected.".into())}
-   payload.current.validate()?;
+   if let Some(inventory)=&payload.ownership{inventory.validate()?;}payload.current.validate()?;super::leases::validate_role_hint(root,&payload)?;
    if payload.history.len()>256{return Err("Workspace-entry retained transition bound is invalid.".into())}
    let mut ids=std::collections::BTreeSet::new();
    for row in &payload.history{row.change.validate_shape()?;if !ids.insert(&row.request_id)||!super::super::resource_saves::hex(&row.request_id,32)||!super::super::resource_saves::hex(&row.manifest_sha256,64){return Err("Workspace-entry retained transition identities are malformed or repeated.".into())}}
@@ -112,21 +120,24 @@ mod storage {
    let base=hickory_workspace::data_root().map_err(|error|error.to_string())?;Self::resolve_under(&base,root)
   }
   pub(super) fn resolve_under(base:&std::path::Path,root:&std::path::Path)->Result<Self,String>{
-   let _coordination=super::leases::coordination_under(base,root,true)?;
+   let coordination=super::leases::coordination_under(base,root,true)?;Self::resolve_coordinated(base,root,&coordination)
+  }
+  pub(super) fn resolve_coordinated(base:&std::path::Path,root:&std::path::Path,coordination:&super::leases::Coordination)->Result<Self,String>{
+   coordination.check_exclusive_for(root)?;
    let existing=HeldRecord::try_snapshot(base,root,SPEC)?;let absent=existing.is_none();drop(existing);
    if absent&&super::leases::role_loss_hint(root)?{return Err("Retained workspace-entry history has lost its original private binding. Restore that binding; no default entry was inferred.".into())}
    let held=HeldRecord::under(base,root,SPEC)?;let original=held.read()?;
    let mut bound=if original.is_some(){Self::decode(root,held,original)?}else{
     if !held.created_key{return Err("Workspace-entry binding is missing from its existing private store; missing metadata does not restore project.md authority.".into())}
     let path=legacy_main(root)?;let namespace=root.canonicalize().map_err(|error|error.to_string())?.to_str().ok_or("Workspace namespace is not exact UTF-8")?.to_owned();
-    let payload=Binding{version:1,physical_root:held.root_id.clone(),namespace,physical_store:held.store_id.clone(),bootstrap_default:path.is_none(),current:initial_stamp(path)?,pending:None,history:vec![]};
+    let payload=Binding{version:1,physical_root:held.root_id.clone(),namespace,physical_store:held.store_id.clone(),bootstrap_default:path.is_none(),current:initial_stamp(path)?,pending:None,history:vec![],ownership:None};
     let mut bound=Self{held,payload,original};bound.persist()?;bound
    };
    if bound.payload.bootstrap_default&&bound.payload.pending.is_none(){if let Some(path)=legacy_main(root)?{bound.payload.current=bound.payload.current.advance(Some(path))?;bound.payload.bootstrap_default=false;bound.persist()?;}}
    Ok(bound)
   }
   pub(super) fn optional_under(base:&std::path::Path,root:&std::path::Path)->Result<Option<Self>,String>{match HeldRecord::try_snapshot(base,root,SPEC)?{Some(held)=>{let original=held.read()?;Self::decode(root,held,original).map(Some)},None=>{if super::leases::role_loss_hint(root)?{Err("Original workspace-entry binding is unavailable while its retained transition hint remains. No missing-entry permission was granted.".into())}else{Ok(None)}}}}
-  pub(super) fn snapshot_or_initialize(root:&std::path::Path)->Result<Self,String>{let base=hickory_workspace::data_root().map_err(|error|error.to_string())?;Self::snapshot_or_initialize_under(&base,root)}
+  pub(super) fn snapshot_or_initialize(root:&std::path::Path)->Result<Self,String>{let base=hickory_workspace::data_root().map_err(|error|error.to_string())?;let bound=Self::snapshot_or_initialize_under(&base,root)?;if bound.payload.pending.as_ref().is_some_and(|pending|pending.namespace_guards.is_some()){drop(bound);super::transitions::recover_completed_under(&base,root)?;return Self::optional_under(&base,root)?.ok_or("Completed entry recovery lost its original binding".into())}Ok(bound)}
   pub(super) fn snapshot_or_initialize_under(base:&std::path::Path,root:&std::path::Path)->Result<Self,String>{
    if let Some(bound)=Self::optional_under(base,root)?{if !bound.payload.bootstrap_default||bound.payload.pending.is_some()||super::legacy_main(root)?.is_none(){return Ok(bound)}drop(bound);}
    drop(Self::resolve_under(base,root)?);Self::optional_under(base,root)?.ok_or("Workspace-entry initialization did not produce its original binding.".into())
@@ -195,6 +206,9 @@ pub(crate) fn validate_entry_selection(_state:&super::LocalState,_proof:&EntrySe
 Only this optional endpoint waits for root readiness. Ordinary file opening remains independent. A malformed main retains its role and exact readable bytes but offers no move capability. An unconfirmed transition refuses a new reading scope; it never selects an arbitrary fallback entry.
 
 <ui:copy id="workspace-entry-reading">
+#[path="workspace_entry_transitions.rs"]pub(crate) mod transitions;
+#[cfg(unix)]pub(crate) fn configured_entry(root:&std::path::Path)->Result<Option<String>,String>{let bound=storage::Bound::snapshot_or_initialize(root)?;if bound.payload.pending.is_some(){return Err("The retained main transition is unconfirmed. Read its recovery; no project.md fallback was selected.".into())}Ok(bound.payload.current.path.clone())}
+
 fn legacy_main(root:&std::path::Path)->Result<Option<String>,String>{
  let(_,source)=super::resource_inputs::saved_target(root,"project.md")?;
  match source{super::resource_inputs::SavedSource::Missing=>Ok(None),super::resource_inputs::SavedSource::File{text,..}=>match hick_lang::parse(&text){Ok(document)=>Ok((!document.find_tags("project").is_empty()).then(||"project.md".to_owned())),Err(_)=>Ok(Some("project.md".to_owned()))}}
@@ -251,9 +265,9 @@ mod tests {
  #[test]
  fn malformed_main_is_retained_as_readable_role_without_move_authority(){let(_temporary,root,base)=fixture(true);drop(storage::Bound::resolve_under(&base,&root).unwrap());std::fs::write(root.join("project.md"),"<h:doc").unwrap();let identity=super::super::resource_inputs::RootIdentity::bind(&root);let proof=issue(&base,&root,&identity);assert_eq!(proof.entry.path.as_deref(),Some("project.md"));assert!(!proof.movable);validate(&base,&root,&identity,&proof).unwrap();assert_eq!(std::fs::read_to_string(root.join("project.md")).unwrap(),"<h:doc");}
  #[test]
- fn forged_selection_fields_and_unconfirmed_publication_refuse_whole_reading_scope(){let(_temporary,root,base)=fixture(true);let identity=super::super::resource_inputs::RootIdentity::bind(&root);let proof=issue(&base,&root,&identity);for mutation in ["namespace","source","generation","effects"]{let mut forged=proof.clone();match mutation{"namespace"=>forged.namespace.push_str("/other"),"source"=>forged.source_hash=Some(format!("sha256:{}","0".repeat(64))),"generation"=>forged.entry.generation+=1,_=>forged.source_effects=true};assert!(validate(&base,&root,&identity,&forged).is_err());}let mut bound=storage::Bound::open_under(&base,&root,true).unwrap();bound.payload.pending=Some(Pending{request_id:"1".repeat(32),manifest_sha256:"2".repeat(64),change:EntryChange{version:1,kind:TransitionKind::Move,before:proof.entry.clone(),after:proof.entry.advance(Some("next.md".into())).unwrap(),source_identity:Some("original".into())},after_guard:None});bound.persist().unwrap();assert!(issue_selection(&root,&identity,&bound).is_err());drop(bound);assert!(validate(&base,&root,&identity,&proof).is_err());}
+ fn forged_selection_fields_and_unconfirmed_publication_refuse_whole_reading_scope(){let(_temporary,root,base)=fixture(true);let identity=super::super::resource_inputs::RootIdentity::bind(&root);let proof=issue(&base,&root,&identity);for mutation in ["namespace","source","generation","effects"]{let mut forged=proof.clone();match mutation{"namespace"=>forged.namespace.push_str("/other"),"source"=>forged.source_hash=Some(format!("sha256:{}","0".repeat(64))),"generation"=>forged.entry.generation+=1,_=>forged.source_effects=true};assert!(validate(&base,&root,&identity,&forged).is_err());}let mut bound=storage::Bound::open_under(&base,&root,true).unwrap();bound.payload.pending=Some(Pending{request_id:"1".repeat(32),manifest_sha256:"2".repeat(64),change:EntryChange{version:1,kind:TransitionKind::Move,before:proof.entry.clone(),after:proof.entry.advance(Some("next.md".into())).unwrap(),source_identity:Some("original".into())},after_guard:None,namespace_guards:None,before_guard:None});bound.persist().unwrap();assert!(issue_selection(&root,&identity,&bound).is_err());drop(bound);assert!(validate(&base,&root,&identity,&proof).is_err());}
 }
 </ui:copy>
 
-<ui:file path="crates/hickory-cli/src/serve/workspace_entry_authority.rs"><ui:paste select="#workspace-entry-model"/><ui:paste select="#workspace-entry-storage"/><ui:paste select="#workspace-entry-selection"/><ui:paste select="#workspace-entry-reading"/><ui:paste select="#workspace-entry-coordination-provider"/><ui:paste select="#workspace-entry-read-lease-admission"/><ui:paste select="#workspace-entry-source-coordination"/><ui:paste select="#workspace-entry-source-batch-coordination"/><ui:paste select="#workspace-entry-direct-namespace-coordination"/><ui:paste select="#workspace-entry-read-lease-witness"/><ui:paste select="#workspace-entry-reading-witness"/></ui:file>
+<ui:file path="crates/hickory-cli/src/serve/workspace_entry_authority.rs"><ui:paste select="#workspace-entry-model"/><ui:paste select="#workspace-entry-owned-claims"/><ui:paste select="#workspace-entry-storage"/><ui:paste select="#workspace-entry-selection"/><ui:paste select="#workspace-entry-reading"/><ui:paste select="#workspace-entry-coordination-provider"/><ui:paste select="#workspace-entry-read-lease-admission"/><ui:paste select="#workspace-entry-source-coordination"/><ui:paste select="#workspace-entry-source-batch-coordination"/><ui:paste select="#workspace-entry-direct-namespace-coordination"/><ui:paste select="#workspace-entry-read-lease-witness"/><ui:paste select="#workspace-entry-reading-witness"/></ui:file>
 </ui:doc>
