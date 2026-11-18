@@ -1,14 +1,18 @@
 """Owned mounted UIKit parity witness. Requires an explicitly selected simulator."""
-import argparse,hashlib,importlib.util,json,os,plistlib,shutil,socket,subprocess,tempfile,uuid
+import argparse,hashlib,importlib.util,json,os,plistlib,shutil,socket,subprocess,tempfile,urllib.parse,uuid
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 TARGET = 'HickorySimpleMobileParityTests'
+PROPOSAL_DESTINATION = 'moved λ%2F?#.py'
 WORKFLOWS = {
     'editing': ('testMountedUIKitEditingAndSelectedRustDebug', ['native-paste-history-passed', 'coordinated-cleanup-history-passed', 'debug-paused', 'completed']),
     'workspace': ('testMountedSearchProblemsAndCollectedTests', ['workspace-navigation-problems-passed', 'workspace-tests-coverage-passed']),
+    'quickfix': ('testMountedClangdQuickFixReviewsAndReplaysDraft', ['clangd-quickfix-preview-passed', 'clangd-quickfix-history-passed']),
+    'typescript-extraction': ('testMountedTypeScriptExtractionReplaysExactDraft', ['typescript-extraction-exact-history-passed']),
     'recovery': ('testMountedConnectedReadingAndPrivateRecovery', ['connected-impact-passed', 'private-recovery-passed']),
     'proposal': ('testMountedHistoricalProposalRefusesApplication', ['historical-proposal-passed']),
     'proposal-apply': ('testMountedManagedProposalAppliesBothReviewedDrafts', ['managed-proposal-preview-passed', 'managed-proposal-history-passed']),
+    'proposal-save': ('testMountedManagedProposalPublishesReviewedResource', ['managed-resource-publication-passed', 'managed-resource-inverse-passed']),
 }
 
 def load_script(name):
@@ -41,13 +45,35 @@ def prepare_workflow(workflow, workspace, python_env, slow_debug):
             'diagnostics.c': 'int first(void) {return owned_problem_one;}\nint second(void) {return owned_problem_two;}\n',
             'pyproject.toml': '[project]\nname="ios-collector-fixture"\nversion="0.0.0"\n[tool.uv]\n[tool.pytest.ini_options]\njunit_family="xunit1"\n',
         }
+    elif workflow == 'quickfix':
+        files = {
+            'main.cpp': 'int square(int value) { return value * value; }\nint main() { return square(3) }\n',
+            '.hickory-ios-quickfix': 'owned-quickfix-v1\n',
+        }
+        sentinel = None
+    elif workflow == 'typescript-extraction':
+        tools = ROOT/'target/refactor-provider/node_modules'
+        server = tools/'typescript-language-server/lib/cli.mjs'
+        for name, version in [('typescript-language-server', '6.1.0'), ('typescript', '6.0.3')]:
+            assert json.loads((tools/name/'package.json').read_text())['version'] == version
+        (workspace/'node_modules').mkdir()
+        (workspace/'node_modules/typescript').symlink_to(tools/'typescript', target_is_directory=True)
+        case = load_script('test-provider-refactor-host').CASES[0]
+        files = {
+            case['path']: case['source'],
+            '.hickory-refactor-fixture': 'owned-refactor-v1\n',
+            '.hick-lsp.json': json.dumps({'servers': {'typescript': {'command': ['node', str(server), '--stdio']}}}),
+            'package.json': '{"type":"module"}',
+            'tsconfig.json': '{"compilerOptions":{"strict":true,"target":"ES2022","ignoreDeprecations":"6.0"}}',
+        }
+        sentinel = None
     elif workflow == 'recovery':
         details = load_script('test-behavior-readings-browser').prepare(workspace)
         (workspace/'.venv').unlink()
         (workspace/'.venv').symlink_to(python_env.resolve(), target_is_directory=True)
         files = {name: (workspace/name).read_text() for name in ['project.md', 'source.md', 'behavior.md', 'a.py', 'test_a.py', 'test_undeclared.py', 'hickory-dogfood/behavior-map.json', 'hickory-dogfood/narrative-map.json']}
         sentinel = Path(details['sibling'])
-    elif workflow == 'proposal-apply':
+    elif workflow in {'proposal-apply', 'proposal-save'}:
         load_script('test-agent-proposals-browser').prepare(workspace)
         files = {name: (workspace/name).read_text() for name in ['project.md', 'construction.md', 'note.py', 'generated.py', 'behavior.md']}
         close = '\x3c/h:doc>\n'
@@ -61,7 +87,7 @@ def prepare_workflow(workflow, workspace, python_env, slow_debug):
         (workspace/name).write_text(text)
     return files, sentinel
 
-def run_workflow(workflow, device, seed, temporary_device, candidate, derived, destination, python_env, slow_debug):
+def run_workflow(workflow, device, seed, temporary_device, candidate, derived, destination, python_env, slow_debug, receipt):
     fixture = load_script('test-simple-browser')
     method, markers = WORKFLOWS[workflow]
     name = TARGET+'/UIKitParityAcceptanceTests/'+method
@@ -70,16 +96,22 @@ def run_workflow(workflow, device, seed, temporary_device, candidate, derived, d
         workspace, state = folder/'workspace', folder/'state'
         files, sentinel = prepare_workflow(workflow, workspace, python_env, slow_debug)
         environment = {**os.environ, 'HICKORY_STATE_DIR': str(state)}
-        managed = load_script('test-agent-proposals-browser') if workflow == 'proposal-apply' else None
+        managed = load_script('test-agent-proposals-browser') if workflow in {'proposal-apply', 'proposal-save'} else None
         if managed:
             settings, calls, tool_result = managed.provider_fixture(folder)
             environment['HICKORY_AGENT_TEST_UI_SETTINGS'] = str(settings)
-            def replacement(line, start, end):
-                return {'range': {'start': {'line': line, 'character': start}, 'end': {'line': line, 'character': end}}, 'newText': '41'}
-            edit = {'changes': {
-                'hick:///note.py': [replacement(0, 6, 7)],
-                'hick:///construction.md': [replacement(2, 12, 13)],
-            }}
+            if workflow == 'proposal-save':
+                edit = {'documentChanges': [{
+                    'kind': 'rename', 'oldUri': 'hick:///note.py',
+                    'newUri': 'hick:///' + urllib.parse.quote(PROPOSAL_DESTINATION, safe=''),
+                }]}
+            else:
+                def replacement(line, start, end):
+                    return {'range': {'start': {'line': line, 'character': start}, 'end': {'line': line, 'character': end}}, 'newText': '41'}
+                edit = {'changes': {
+                    'hick:///note.py': [replacement(0, 6, 7)],
+                    'hick:///construction.md': [replacement(2, 12, 13)],
+                }}
             calls.write_text(json.dumps({'intention': managed.intention(edit)}))
         with socket.socket() as reserve:
             reserve.bind(('127.0.0.1', 0))
@@ -108,8 +140,6 @@ def run_workflow(workflow, device, seed, temporary_device, candidate, derived, d
             target, = test_targets(value)
             for key in ['EnvironmentVariables', 'TestHostEnvironmentVariables']:
                 target.setdefault(key, {}).update(HICKORY_IOS_PARITY_ORIGIN=origin, HICKORY_API_ORIGIN=origin, **metadata)
-            receipt = ROOT/'target/ios-parity'
-            receipt.mkdir(parents=True, exist_ok=True)
             prefix = 'last' if workflow == 'editing' else workflow
             result = receipt/f'{prefix}.xcresult'
             if result.exists():
@@ -139,19 +169,30 @@ def run_workflow(workflow, device, seed, temporary_device, candidate, derived, d
                     assert retained['fingerprint'] == prepared['fingerprint']
                     report = retained['host_application']
                     assert report['status'] == 'host-reported draft application' and not report['saved'] and not report['checks_executed']
-                    assert report['after_hashes'] == {
-                        'note.py': hashlib.sha256(b'value=41\n').hexdigest(),
-                        'construction.md': hashlib.sha256(files['construction.md'].replace('generated = 1', 'generated = 41').encode()).hexdigest(),
-                    }
+                    if workflow == 'proposal-save':
+                        assert not (workspace/PROPOSAL_DESTINATION).exists()
+                        assert report['after_hashes'] == {
+                            'note.py': 'missing',
+                            PROPOSAL_DESTINATION: hashlib.sha256(files['note.py'].encode()).hexdigest(),
+                        }
+                    else:
+                        assert report['after_hashes'] == {
+                            'note.py': hashlib.sha256(b'value=41\n').hexdigest(),
+                            'construction.md': hashlib.sha256(files['construction.md'].replace('generated = 1', 'generated = 41').encode()).hexdigest(),
+                        }
                 observed = log.read_text()
                 for marker in markers:
                     assert observed.count('HickoryUIKitParity '+marker) == 1, marker
                 payload = {
                     'workflow': workflow, 'device': device, 'seed_device': seed, 'temporary_device': temporary_device,
                     'test': name, 'summary': summary, 'log_sha256': hashlib.sha256(log.read_bytes()).hexdigest(),
-                    'source_unchanged': True, 'asserted_milestones': markers, 'keyboard_input_verified': False,
+                    'asserted_milestones': markers, 'keyboard_input_verified': False,
                     'physical_input_verified': False, 'accessibility_verified': False,
                 }
+                if workflow == 'proposal-save':
+                    payload['saved_namespace_restored'] = True
+                else:
+                    payload['source_unchanged'] = True
                 if sentinel:
                     payload['sibling_excluded'] = True
                 if workflow == 'editing':
@@ -182,6 +223,7 @@ def main():
  parser=argparse.ArgumentParser();parser.add_argument('--device',required=True);parser.add_argument('--build',action='store_true');parser.add_argument('--boot',action='store_true');parser.add_argument('--temporary-device',action='store_true');parser.add_argument('--minimum-free-mib',type=int,default=2048)
  parser.add_argument('--workflow', choices=WORKFLOWS, action='append', help='Repeat to use one simulator for several focused cases')
  parser.add_argument('--python-env', type=Path, default=ROOT/'target/thread-debug-env')
+ parser.add_argument('--receipt-dir', type=Path, help='Create a new directory for this run and its lifecycle receipt')
  parser.add_argument('--slow-debug', action='store_true', help='Delay the owned Rust fixture to exercise staged admission')
  args=parser.parse_args()
  if args.slow_debug and args.workflow and 'editing' not in args.workflow:
@@ -195,6 +237,8 @@ def main():
  runtime,seed=selected[0]
  if not runtime.startswith('com.apple.CoreSimulator.SimRuntime.iOS-'):raise RuntimeError('Choose an installed iOS simulator')
  if args.temporary_device and not args.boot:parser.error('--temporary-device requires explicit --boot after resource coordination')
+ receipt=args.receipt_dir or ROOT/'target/ios-parity'
+ receipt.mkdir(parents=True,exist_ok=args.receipt_dir is None)
  device=args.device;owned_device=None;booted_here=False;failures=[]
  try:
   state=seed['state']
@@ -219,7 +263,7 @@ def main():
   for workflow in dict.fromkeys(args.workflow or ['editing']):
    try:
     require_space(args.minimum_free_mib)
-    run_workflow(workflow, device, args.device, owned_device is not None, candidates[0], derived, destination, args.python_env, args.slow_debug)
+    run_workflow(workflow, device, args.device, owned_device is not None, candidates[0], derived, destination, args.python_env, args.slow_debug, receipt)
    except (AssertionError, OSError, RuntimeError, subprocess.CalledProcessError) as error:
     print(f'FAIL mounted UIKit {workflow}: {error}', flush=True)
     failures.append(workflow)
@@ -232,7 +276,7 @@ def main():
   elif booted_here:
    shutdown=subprocess.run(['xcrun','simctl','shutdown',device],capture_output=True,text=True)
    lifecycle.update({'shutdown_exit':shutdown.returncode})
-  receipt=ROOT/'target/ios-parity';receipt.mkdir(parents=True,exist_ok=True);(receipt/'last-device-lifecycle.json').write_text(json.dumps(lifecycle,indent=2))
+  (receipt/'last-device-lifecycle.json').write_text(json.dumps(lifecycle,indent=2))
   if owned_device is not None and lifecycle['delete_exit']!=0:raise RuntimeError('Owned simulator cleanup failed; inspect last-device-lifecycle.json and delete only its recorded owned UDID')
   if owned_device is None and booted_here and lifecycle['shutdown_exit']!=0:raise RuntimeError('Selected simulator did not return to Shutdown')
  if failures:raise RuntimeError('Unaccepted iOS workflows: '+', '.join(failures))

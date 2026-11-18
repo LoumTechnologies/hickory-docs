@@ -39,4 +39,14 @@ class SimulatorOwnershipTests(unittest.TestCase):
   with patch.object(runner,'require_space'),patch.object(runner.subprocess,'check_output',return_value=json.dumps(devices).encode())as read,patch.object(runner.subprocess,'run')as mutate,patch.object(sys,'argv',['runner','--device',SEED,'--temporary-device']),patch('sys.stderr',new=io.StringIO()):
    with self.assertRaises(SystemExit)as error:runner.main()
    self.assertEqual(error.exception.code,2);self.assertEqual(read.call_count,1);mutate.assert_not_called()
+ def test_explicit_receipt_directory_cannot_replace_existing_evidence(self):
+  runner=self.load();devices={'devices':{RUNTIME:[{'udid':SEED,'state':'Shutdown','isAvailable':True}]}}
+  with tempfile.TemporaryDirectory() as folder:
+   receipt=Path(folder)/'passed.xcresult'
+   receipt.write_bytes(b'retained evidence')
+   with patch.object(runner,'require_space'),patch.object(runner.subprocess,'check_output',return_value=json.dumps(devices).encode()) as read,patch.object(runner.subprocess,'run') as mutate,patch.object(sys,'argv',['runner','--device',SEED,'--boot','--receipt-dir',folder]):
+    with self.assertRaises(FileExistsError):runner.main()
+    self.assertEqual(receipt.read_bytes(),b'retained evidence')
+    self.assertEqual(read.call_count,1)
+    mutate.assert_not_called()
 if __name__=='__main__':unittest.main()

@@ -775,34 +775,9 @@ extension UIKitParityAcceptanceTests {
         let afterNote = "value=41\n"
         let afterConstruction = savedConstruction.replacingOccurrences(of: "generated = 1", with: "generated = 41")
 
-        // The owned ACP child submits the two-file intention through the real
-        // managed tool using this sender snapshot and original loaded guards.
-        let _: ResourceJSON = try await engine.request("POST", "/api/docs/workspace/agent/acp", body: ["backend": "owned-proposal"])
-        let _: ResourceJSON = try await engine.request("POST", "/api/docs/workspace/agent", body: [
-            "backend": "owned-proposal",
-            "prompt": "Prepare the owned two-source intention for review. Do not apply, save or execute it.",
-            "context": try nativeAgentContext(workspace),
-        ])
-        struct Catalogue: Decodable { let reviews: [AgentProposalEntry] }
-        var discovered: AgentProposalEntry?
-        for _ in 0..<150 {
-            let reply: Catalogue = try await engine.request("GET", "/api/agent-proposals")
-            if let first = reply.reviews.first { discovered = first; break }
-            try await Task.sleep(for: .milliseconds(100))
-        }
-        let entry = try XCTUnwrap(discovered, "Managed ACP tool did not prepare a proposal")
+        let sealed = try await readManagedProposal(in: mounted)
         let review = workspace.agentProposals
-        try mounted.command("agent.proposals")
-        try await mounted.wait("Managed proposal review did not present") {
-            !review.busy && review.entries.contains(entry) && mounted.host.presentedViewController != nil
-        }
-        await review.read(workspace, entry)
-        let sealed = try XCTUnwrap(review.value, review.notice)
-        XCTAssertTrue(sealed.material.origin_authority.hasPrefix("engine-managed agent tool"))
-        XCTAssertEqual(nativeSourceHash(sealed.envelope.material), entry.fingerprint)
         XCTAssertTrue(sealed.textOnly)
-        XCTAssertFalse(sealed.envelope.source_effects)
-        XCTAssertFalse(sealed.envelope.checks_executed)
         let patches = Dictionary(uniqueKeysWithValues: sealed.patches.map { ($0.path, $0) })
         XCTAssertEqual(Set(patches.keys), Set(["note.py", "construction.md"]))
         XCTAssertEqual(patches["note.py"]?.before?.text, savedNote)
@@ -865,5 +840,216 @@ extension UIKitParityAcceptanceTests {
         XCTAssertEqual(originalNoteOnDisk.content, savedNote)
         XCTAssertEqual(originalConstructionOnDisk.content, savedConstruction)
         NSLog("HickoryUIKitParity managed-proposal-history-passed")
+    }
+
+    private func readManagedProposal(in mounted: MountedIOSWorkspace) async throws -> SealedAgentProposal {
+        let workspace = mounted.workspace, engine = try XCTUnwrap(workspace.engine)
+        let _: ResourceJSON = try await engine.request("POST", "/api/docs/workspace/agent/acp", body: ["backend": "owned-proposal"])
+        let _: ResourceJSON = try await engine.request("POST", "/api/docs/workspace/agent", body: [
+            "backend": "owned-proposal",
+            "prompt": "Prepare the owned intention for review. Do not apply, save or execute it.",
+            "context": try nativeAgentContext(workspace),
+        ])
+        struct Catalogue: Decodable { let reviews: [AgentProposalEntry] }
+        var discovered: AgentProposalEntry?
+        for _ in 0..<150 {
+            let reply: Catalogue = try await engine.request("GET", "/api/agent-proposals")
+            if let first = reply.reviews.first { discovered = first; break }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        let entry = try XCTUnwrap(discovered, "Managed ACP tool did not prepare a proposal")
+        let review = workspace.agentProposals
+        try mounted.command("agent.proposals")
+        try await mounted.wait("Managed proposal review did not present") {
+            !review.busy && review.entries.contains(entry) && mounted.host.presentedViewController != nil
+        }
+        await review.read(workspace, entry)
+        let sealed = try XCTUnwrap(review.value, review.notice)
+        XCTAssertTrue(sealed.material.origin_authority.hasPrefix("engine-managed agent tool"))
+        XCTAssertEqual(nativeSourceHash(sealed.envelope.material), entry.fingerprint)
+        XCTAssertFalse(sealed.envelope.source_effects)
+        XCTAssertFalse(sealed.envelope.checks_executed)
+        return sealed
+    }
+
+    func testMountedManagedProposalPublishesReviewedResource() async throws {
+        let original = "note.py", destination = "moved λ%2F?#.py"
+        let mounted = try await MountedIOSWorkspace(marker: ".hickory-native-agent-proposal-fixture", expected: "owned-native-agent-proposal-v1\n", path: original)
+        defer { mounted.close() }
+        let workspace = mounted.workspace, engine = try XCTUnwrap(workspace.engine)
+        let buffer = try XCTUnwrap(workspace.currentBuffer), source = buffer.text
+        let editor = try await mounted.editor(buffer)
+        editor.selectedRange = NSRange(location: 2, length: 2)
+        let selection = editor.selectedRange, frame = editor.convert(editor.bounds, to: mounted.window)
+        let identity = try XCTUnwrap(buffer.sourceEditorState?()).identity
+        let history = try XCTUnwrap(editor.undoManager)
+        let review = workspace.agentProposals, restoration = workspace.resourceRestoration
+
+        func checkSaved(_ path: String, absent: String) async throws {
+            let tree = try await engine.files()
+            XCTAssertNil(MountedIOSWorkspace.file(absent, in: tree.tree))
+            let file = try XCTUnwrap(MountedIOSWorkspace.file(path, in: tree.tree))
+            let saved = try await engine.file(file)
+            XCTAssertEqual(saved.content, source)
+        }
+        func checkEditor(_ path: String) async throws {
+            let retained = try await mounted.editor(buffer)
+            XCTAssertTrue(workspace.buffers[path] === buffer)
+            XCTAssertTrue(retained === editor)
+            XCTAssertTrue(retained.undoManager === history)
+            XCTAssertEqual(buffer.sourceEditorState?()?.identity, identity)
+            XCTAssertEqual(retained.selectedRange, selection)
+            XCTAssertEqual(retained.convert(retained.bounds, to: mounted.window), frame)
+            XCTAssertEqual(buffer.text, source)
+        }
+
+        let sealed = try await readManagedProposal(in: mounted)
+        XCTAssertFalse(sealed.textOnly)
+        XCTAssertEqual(Set(sealed.patches.map(\.path)), Set([original, destination]))
+        XCTAssertTrue(review.canApply, review.notice)
+        XCTAssertFalse(review.canSave)
+        await review.prepareSave(workspace)
+        XCTAssertTrue(review.canSave, review.notice)
+        try await checkSaved(original, absent: destination)
+        await review.save(workspace)
+        XCTAssertEqual(restoration.confirmedReceipt?.adoption_current, true, restoration.notice)
+        XCTAssertTrue(review.phase.hasPrefix("Saved confirmed namespace"), review.notice)
+        XCTAssertFalse(review.hasReport, review.notice)
+        try await checkSaved(destination, absent: original)
+        review.close()
+        try await mounted.wait("Proposal review did not dismiss") { mounted.host.presentedViewController == nil }
+        try await checkEditor(destination)
+        NSLog("HickoryUIKitParity managed-resource-publication-passed")
+
+        try mounted.command("workspace.undo")
+        try await mounted.wait("Workspace Undo did not prepare a resource review") { restoration.review != nil }
+        try await checkSaved(destination, absent: original)
+        await restoration.publish(workspace)
+        XCTAssertEqual(restoration.confirmedReceipt?.adoption_current, true, restoration.notice)
+        try await checkSaved(original, absent: destination)
+        try await checkEditor(original)
+        NSLog("HickoryUIKitParity managed-resource-inverse-passed")
+    }
+}
+
+extension UIKitParityAcceptanceTests {
+    func testMountedClangdQuickFixReviewsAndReplaysDraft() async throws {
+        let path = "main.cpp"
+        let mounted = try await MountedIOSWorkspace(marker: ".hickory-ios-quickfix", expected: "owned-quickfix-v1\n", path: path)
+        defer { mounted.close() }
+        let workspace = mounted.workspace
+        let engine = try XCTUnwrap(workspace.engine)
+        let buffer = try XCTUnwrap(workspace.currentBuffer)
+        let editor = try await mounted.editor(buffer)
+        let original = buffer.text
+        let fixed = original.replacingOccurrences(of: "square(3) }", with: "square(3); }")
+        XCTAssertNotEqual(original, fixed)
+        let identity = try XCTUnwrap(buffer.sourceEditorState?()).identity
+        try await mounted.wait("clangd missing-semicolon diagnostic unavailable") {
+            workspace.problems.contains { $0.current && $0.path == path && $0.location?.line == 1 }
+        }
+        let problem = try XCTUnwrap(workspace.problems.first { $0.current && $0.path == path && $0.location?.line == 1 })
+        await workspace.openProblem(problem)
+        let location = try XCTUnwrap(problem.location)
+        let diagnosticOffset = try XCTUnwrap(languageOffset(original, ["line": location.line, "character": location.character]))
+        try await mounted.wait("Diagnostic did not navigate to the mounted editor") { editor.selectedRange.location == diagnosticOffset }
+        // The known clangd quick fix accepts the point inside the diagnostic range.
+        let actionOffset = try XCTUnwrap(languageOffset(original, ["line": 1, "character": 27]))
+        let selection = NSRange(location: actionOffset, length: 0)
+        _ = buffer.selectSourceRange?(selection, original)
+        try await mounted.wait("Diagnostic action selection did not attach") { buffer.selection == selection && editor.selectedRange == selection }
+        try mounted.command("symbol.actions")
+        await workspace.changes.prepare(workspace)
+        let index = try XCTUnwrap(workspace.changes.choices.firstIndex {
+            ($0["kind"] as? String)?.hasPrefix("quickfix") == true && ($0["title"] as? String)?.contains("insert ';'") == true
+        }, workspace.changes.notice + " " + String(describing: workspace.changes.choices.map { $0["title"] }))
+        await workspace.changes.choose(index, workspace: workspace, expectedSnapshot: workspace.changes.actionSnapshot)
+        let plan = try XCTUnwrap(workspace.changes.plan, workspace.changes.notice)
+        XCTAssertEqual(plan.patches.count, 1)
+        XCTAssertEqual(plan.patches.first?.path, path)
+        XCTAssertEqual(plan.patches.first?.before, original)
+        XCTAssertEqual(plan.patches.first?.after, fixed)
+        XCTAssertEqual(editor.text, original)
+        XCTAssertEqual(buffer.selection, selection)
+        let before = try await engine.file(buffer.file)
+        XCTAssertEqual(before.content, original)
+        NSLog("HickoryUIKitParity clangd-quickfix-preview-passed")
+
+        workspace.changes.apply(workspace)
+        try await mounted.wait("Quick Fix did not apply to mounted draft") { buffer.text == fixed && editor.text == fixed && buffer.dirty }
+        workspace.changes.open("undo", workspace: workspace)
+        try await mounted.wait("Quick Fix Undo did not restore original draft") { buffer.text == original && editor.text == original && !buffer.dirty }
+        XCTAssertEqual(editor.selectedRange, selection)
+        workspace.changes.open("redo", workspace: workspace)
+        try await mounted.wait("Quick Fix Redo did not restore corrected draft") { buffer.text == fixed && editor.text == fixed && buffer.dirty }
+        XCTAssertEqual(buffer.sourceEditorState?()?.identity, identity)
+        XCTAssertTrue(workspace.currentBuffer === buffer)
+        let after = try await engine.file(buffer.file)
+        XCTAssertEqual(after.content, before.content)
+        XCTAssertEqual(after.hash, before.hash)
+        NSLog("HickoryUIKitParity clangd-quickfix-history-passed")
+    }
+}
+
+extension UIKitParityAcceptanceTests {
+    func testMountedTypeScriptExtractionReplaysExactDraft() async throws {
+        let path = "crlf-extract.ts"
+        let mounted = try await MountedIOSWorkspace(marker: ".hickory-refactor-fixture", expected: "owned-refactor-v1\n", path: path)
+        defer { mounted.close() }
+        let workspace = mounted.workspace, engine = try XCTUnwrap(workspace.engine)
+        let buffer = try XCTUnwrap(workspace.currentBuffer)
+        let editor = try await mounted.editor(buffer)
+        let identity = try XCTUnwrap(buffer.sourceEditorState?()).identity
+        let saved = buffer.text
+        XCTAssertTrue(saved.contains("\r\n"))
+        XCTAssertTrue(saved.contains("😀"))
+
+        let suffix = "// retained dirty\n"
+        let draft = saved + suffix
+        mounted.paste(suffix, into: editor)
+        try await mounted.wait("Native Paste did not reach the CRLF editor") {
+            exactUTF8(buffer.text, draft) && exactUTF8(editor.text, draft)
+        }
+        mounted.window.endEditing(true)
+        try await mounted.wait("Source did not release keyboard") { !editor.isFirstResponder }
+        let selection = (draft as NSString).range(of: #""Hello " + name"#)
+        XCTAssertNotEqual(selection.location, NSNotFound)
+        XCTAssertTrue(buffer.selectSourceRange?(selection, draft) == true)
+        try await mounted.wait("Extraction range did not reach the editor") { editor.selectedRange == selection }
+
+        try mounted.command("symbol.actions")
+        let changes = workspace.changes
+        let title = "Extract to inner function in function 'greetCR'"
+        for _ in 0..<100 {
+            await changes.prepare(workspace)
+            if changes.choices.contains(where: { $0["title"] as? String == title }) { break }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        let index = try XCTUnwrap(changes.choices.firstIndex { $0["title"] as? String == title }, changes.notice)
+        await changes.choose(index, workspace: workspace, expectedSnapshot: changes.actionSnapshot)
+        let plan = try XCTUnwrap(changes.plan, changes.notice)
+        XCTAssertEqual(plan.patches.count, 1)
+        let patch = try XCTUnwrap(plan.patches.first)
+        XCTAssertEqual(patch.path, path)
+        XCTAssertGreaterThan(patch.edits.count, 1)
+        XCTAssertTrue(exactUTF8(patch.before, draft))
+        XCTAssertTrue(patch.after.contains("function newFunction"))
+        XCTAssertTrue(exactUTF8(editor.text, draft))
+
+        changes.apply(workspace)
+        XCTAssertTrue(exactUTF8(buffer.text, patch.after), changes.notice)
+        XCTAssertTrue(exactUTF8(editor.text, patch.after), changes.notice)
+        changes.open("undo", workspace: workspace)
+        XCTAssertTrue(exactUTF8(buffer.text, draft), changes.notice)
+        XCTAssertTrue(exactUTF8(editor.text, draft), changes.notice)
+        changes.open("redo", workspace: workspace)
+        XCTAssertTrue(exactUTF8(buffer.text, patch.after), changes.notice)
+        XCTAssertTrue(exactUTF8(editor.text, patch.after), changes.notice)
+        let retained = try await mounted.editor(buffer)
+        XCTAssertTrue(retained === editor)
+        XCTAssertEqual(buffer.sourceEditorState?()?.identity, identity)
+        let disk = try await engine.file(buffer.file)
+        XCTAssertTrue(exactUTF8(disk.content, saved))
+        NSLog("HickoryUIKitParity typescript-extraction-exact-history-passed")
     }
 }

@@ -804,34 +804,9 @@ extension UIKitParityAcceptanceTests {
         let afterNote = "value=41\n"
         let afterConstruction = savedConstruction.replacingOccurrences(of: "generated = 1", with: "generated = 41")
 
-        // The owned ACP child submits the two-file intention through the real
-        // managed tool using this sender snapshot and original loaded guards.
-        let _: ResourceJSON = try await engine.request("POST", "/api/docs/workspace/agent/acp", body: ["backend": "owned-proposal"])
-        let _: ResourceJSON = try await engine.request("POST", "/api/docs/workspace/agent", body: [
-            "backend": "owned-proposal",
-            "prompt": "Prepare the owned two-source intention for review. Do not apply, save or execute it.",
-            "context": try nativeAgentContext(workspace),
-        ])
-        struct Catalogue: Decodable { let reviews: [AgentProposalEntry] }
-        var discovered: AgentProposalEntry?
-        for _ in 0..<150 {
-            let reply: Catalogue = try await engine.request("GET", "/api/agent-proposals")
-            if let first = reply.reviews.first { discovered = first; break }
-            try await Task.sleep(for: .milliseconds(100))
-        }
-        let entry = try XCTUnwrap(discovered, "Managed ACP tool did not prepare a proposal")
+        let sealed = try await readManagedProposal(in: mounted)
         let review = workspace.agentProposals
-        try mounted.command("agent.proposals")
-        try await mounted.wait("Managed proposal review did not present") {
-            !review.busy && review.entries.contains(entry) && mounted.host.presentedViewController != nil
-        }
-        await review.read(workspace, entry)
-        let sealed = try XCTUnwrap(review.value, review.notice)
-        XCTAssertTrue(sealed.material.origin_authority.hasPrefix("engine-managed agent tool"))
-        XCTAssertEqual(nativeSourceHash(sealed.envelope.material), entry.fingerprint)
         XCTAssertTrue(sealed.textOnly)
-        XCTAssertFalse(sealed.envelope.source_effects)
-        XCTAssertFalse(sealed.envelope.checks_executed)
         let patches = Dictionary(uniqueKeysWithValues: sealed.patches.map { ($0.path, $0) })
         XCTAssertEqual(Set(patches.keys), Set(["note.py", "construction.md"]))
         XCTAssertEqual(patches["note.py"]?.before?.text, savedNote)
@@ -895,9 +870,253 @@ extension UIKitParityAcceptanceTests {
         XCTAssertEqual(originalConstructionOnDisk.content, savedConstruction)
         NSLog("HickoryUIKitParity managed-proposal-history-passed")
     }
+</ui:copy>
+
+## Publish a managed proposal through the shared resource review
+
+Both managed cases submit the mounted editor's original context to the owned
+ACP tool and wait for its sealed review. For a rename, preparing the guarded
+Save must leave the old path readable and the destination absent. The confirmed
+publication must retarget the same UIKit editor. Workspace Undo reviews and
+publishes the inverse before the old address becomes available again.
+
+<ui:copy id="ios-mounted-agent-resource-publication">
+
+    private func readManagedProposal(in mounted: MountedIOSWorkspace) async throws -> SealedAgentProposal {
+        let workspace = mounted.workspace, engine = try XCTUnwrap(workspace.engine)
+        let _: ResourceJSON = try await engine.request("POST", "/api/docs/workspace/agent/acp", body: ["backend": "owned-proposal"])
+        let _: ResourceJSON = try await engine.request("POST", "/api/docs/workspace/agent", body: [
+            "backend": "owned-proposal",
+            "prompt": "Prepare the owned intention for review. Do not apply, save or execute it.",
+            "context": try nativeAgentContext(workspace),
+        ])
+        struct Catalogue: Decodable { let reviews: [AgentProposalEntry] }
+        var discovered: AgentProposalEntry?
+        for _ in 0..<150 {
+            let reply: Catalogue = try await engine.request("GET", "/api/agent-proposals")
+            if let first = reply.reviews.first { discovered = first; break }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        let entry = try XCTUnwrap(discovered, "Managed ACP tool did not prepare a proposal")
+        let review = workspace.agentProposals
+        try mounted.command("agent.proposals")
+        try await mounted.wait("Managed proposal review did not present") {
+            !review.busy && review.entries.contains(entry) && mounted.host.presentedViewController != nil
+        }
+        await review.read(workspace, entry)
+        let sealed = try XCTUnwrap(review.value, review.notice)
+        XCTAssertTrue(sealed.material.origin_authority.hasPrefix("engine-managed agent tool"))
+        XCTAssertEqual(nativeSourceHash(sealed.envelope.material), entry.fingerprint)
+        XCTAssertFalse(sealed.envelope.source_effects)
+        XCTAssertFalse(sealed.envelope.checks_executed)
+        return sealed
+    }
+
+    func testMountedManagedProposalPublishesReviewedResource() async throws {
+        let original = "note.py", destination = "moved λ%2F?#.py"
+        let mounted = try await MountedIOSWorkspace(marker: ".hickory-native-agent-proposal-fixture", expected: "owned-native-agent-proposal-v1\n", path: original)
+        defer { mounted.close() }
+        let workspace = mounted.workspace, engine = try XCTUnwrap(workspace.engine)
+        let buffer = try XCTUnwrap(workspace.currentBuffer), source = buffer.text
+        let editor = try await mounted.editor(buffer)
+        editor.selectedRange = NSRange(location: 2, length: 2)
+        let selection = editor.selectedRange, frame = editor.convert(editor.bounds, to: mounted.window)
+        let identity = try XCTUnwrap(buffer.sourceEditorState?()).identity
+        let history = try XCTUnwrap(editor.undoManager)
+        let review = workspace.agentProposals, restoration = workspace.resourceRestoration
+
+        func checkSaved(_ path: String, absent: String) async throws {
+            let tree = try await engine.files()
+            XCTAssertNil(MountedIOSWorkspace.file(absent, in: tree.tree))
+            let file = try XCTUnwrap(MountedIOSWorkspace.file(path, in: tree.tree))
+            let saved = try await engine.file(file)
+            XCTAssertEqual(saved.content, source)
+        }
+        func checkEditor(_ path: String) async throws {
+            let retained = try await mounted.editor(buffer)
+            XCTAssertTrue(workspace.buffers[path] === buffer)
+            XCTAssertTrue(retained === editor)
+            XCTAssertTrue(retained.undoManager === history)
+            XCTAssertEqual(buffer.sourceEditorState?()?.identity, identity)
+            XCTAssertEqual(retained.selectedRange, selection)
+            XCTAssertEqual(retained.convert(retained.bounds, to: mounted.window), frame)
+            XCTAssertEqual(buffer.text, source)
+        }
+
+        let sealed = try await readManagedProposal(in: mounted)
+        XCTAssertFalse(sealed.textOnly)
+        XCTAssertEqual(Set(sealed.patches.map(\.path)), Set([original, destination]))
+        XCTAssertTrue(review.canApply, review.notice)
+        XCTAssertFalse(review.canSave)
+        await review.prepareSave(workspace)
+        XCTAssertTrue(review.canSave, review.notice)
+        try await checkSaved(original, absent: destination)
+        await review.save(workspace)
+        XCTAssertEqual(restoration.confirmedReceipt?.adoption_current, true, restoration.notice)
+        XCTAssertTrue(review.phase.hasPrefix("Saved confirmed namespace"), review.notice)
+        XCTAssertFalse(review.hasReport, review.notice)
+        try await checkSaved(destination, absent: original)
+        review.close()
+        try await mounted.wait("Proposal review did not dismiss") { mounted.host.presentedViewController == nil }
+        try await checkEditor(destination)
+        NSLog("HickoryUIKitParity managed-resource-publication-passed")
+
+        try mounted.command("workspace.undo")
+        try await mounted.wait("Workspace Undo did not prepare a resource review") { restoration.review != nil }
+        try await checkSaved(destination, absent: original)
+        await restoration.publish(workspace)
+        XCTAssertEqual(restoration.confirmedReceipt?.adoption_current, true, restoration.notice)
+        try await checkSaved(original, absent: destination)
+        try await checkEditor(original)
+        NSLog("HickoryUIKitParity managed-resource-inverse-passed")
+    }
 }
 </ui:copy>
-<ui:file path="apps/apple-simple/IOSAcceptance/UIKitParityAcceptanceTests.swift"><ui:paste select="#ios-mounted-parity-test"/></ui:file>
+
+## Review a genuine clangd Quick Fix before editing the draft
+
+The fixture starts with a missing semicolon. Open the exact authored Problem,
+then select the provider's Quick Fix. Review must expose the full source change
+while leaving the current draft and disk alone. Verify that Apply and
+coordinated Undo and Redo update the same mounted editor. The saved text and
+hash must agree before and after the draft history.
+
+<ui:copy id="ios-mounted-clangd-quickfix">
+
+extension UIKitParityAcceptanceTests {
+    func testMountedClangdQuickFixReviewsAndReplaysDraft() async throws {
+        let path = "main.cpp"
+        let mounted = try await MountedIOSWorkspace(marker: ".hickory-ios-quickfix", expected: "owned-quickfix-v1\n", path: path)
+        defer { mounted.close() }
+        let workspace = mounted.workspace
+        let engine = try XCTUnwrap(workspace.engine)
+        let buffer = try XCTUnwrap(workspace.currentBuffer)
+        let editor = try await mounted.editor(buffer)
+        let original = buffer.text
+        let fixed = original.replacingOccurrences(of: "square(3) }", with: "square(3); }")
+        XCTAssertNotEqual(original, fixed)
+        let identity = try XCTUnwrap(buffer.sourceEditorState?()).identity
+        try await mounted.wait("clangd missing-semicolon diagnostic unavailable") {
+            workspace.problems.contains { $0.current && $0.path == path && $0.location?.line == 1 }
+        }
+        let problem = try XCTUnwrap(workspace.problems.first { $0.current && $0.path == path && $0.location?.line == 1 })
+        await workspace.openProblem(problem)
+        let location = try XCTUnwrap(problem.location)
+        let diagnosticOffset = try XCTUnwrap(languageOffset(original, ["line": location.line, "character": location.character]))
+        try await mounted.wait("Diagnostic did not navigate to the mounted editor") { editor.selectedRange.location == diagnosticOffset }
+        // The known clangd quick fix accepts the point inside the diagnostic range.
+        let actionOffset = try XCTUnwrap(languageOffset(original, ["line": 1, "character": 27]))
+        let selection = NSRange(location: actionOffset, length: 0)
+        _ = buffer.selectSourceRange?(selection, original)
+        try await mounted.wait("Diagnostic action selection did not attach") { buffer.selection == selection && editor.selectedRange == selection }
+        try mounted.command("symbol.actions")
+        await workspace.changes.prepare(workspace)
+        let index = try XCTUnwrap(workspace.changes.choices.firstIndex {
+            ($0["kind"] as? String)?.hasPrefix("quickfix") == true && ($0["title"] as? String)?.contains("insert ';'") == true
+        }, workspace.changes.notice + " " + String(describing: workspace.changes.choices.map { $0["title"] }))
+        await workspace.changes.choose(index, workspace: workspace, expectedSnapshot: workspace.changes.actionSnapshot)
+        let plan = try XCTUnwrap(workspace.changes.plan, workspace.changes.notice)
+        XCTAssertEqual(plan.patches.count, 1)
+        XCTAssertEqual(plan.patches.first?.path, path)
+        XCTAssertEqual(plan.patches.first?.before, original)
+        XCTAssertEqual(plan.patches.first?.after, fixed)
+        XCTAssertEqual(editor.text, original)
+        XCTAssertEqual(buffer.selection, selection)
+        let before = try await engine.file(buffer.file)
+        XCTAssertEqual(before.content, original)
+        NSLog("HickoryUIKitParity clangd-quickfix-preview-passed")
+
+        workspace.changes.apply(workspace)
+        try await mounted.wait("Quick Fix did not apply to mounted draft") { buffer.text == fixed && editor.text == fixed && buffer.dirty }
+        workspace.changes.open("undo", workspace: workspace)
+        try await mounted.wait("Quick Fix Undo did not restore original draft") { buffer.text == original && editor.text == original && !buffer.dirty }
+        XCTAssertEqual(editor.selectedRange, selection)
+        workspace.changes.open("redo", workspace: workspace)
+        try await mounted.wait("Quick Fix Redo did not restore corrected draft") { buffer.text == fixed && editor.text == fixed && buffer.dirty }
+        XCTAssertEqual(buffer.sourceEditorState?()?.identity, identity)
+        XCTAssertTrue(workspace.currentBuffer === buffer)
+        let after = try await engine.file(buffer.file)
+        XCTAssertEqual(after.content, before.content)
+        XCTAssertEqual(after.hash, before.hash)
+        NSLog("HickoryUIKitParity clangd-quickfix-history-passed")
+    }
+}
+</ui:copy>
+
+## Replay the exact draft from a multi-edit TypeScript refactoring
+
+Use the shared TypeScript refactoring fixture with CRLF and supplementary
+Unicode. Retain a dirty Paste before resolving the provider's extraction.
+After Apply, compare the native editor and model byte for byte against the
+reviewed patch. Undo must reach the original dirty draft so the workspace
+history can still authorize Redo. Compare the saved source independently.
+
+<ui:copy id="ios-mounted-typescript-history">
+
+extension UIKitParityAcceptanceTests {
+    func testMountedTypeScriptExtractionReplaysExactDraft() async throws {
+        let path = "crlf-extract.ts"
+        let mounted = try await MountedIOSWorkspace(marker: ".hickory-refactor-fixture", expected: "owned-refactor-v1\n", path: path)
+        defer { mounted.close() }
+        let workspace = mounted.workspace, engine = try XCTUnwrap(workspace.engine)
+        let buffer = try XCTUnwrap(workspace.currentBuffer)
+        let editor = try await mounted.editor(buffer)
+        let identity = try XCTUnwrap(buffer.sourceEditorState?()).identity
+        let saved = buffer.text
+        XCTAssertTrue(saved.contains("\r\n"))
+        XCTAssertTrue(saved.contains("😀"))
+
+        let suffix = "// retained dirty\n"
+        let draft = saved + suffix
+        mounted.paste(suffix, into: editor)
+        try await mounted.wait("Native Paste did not reach the CRLF editor") {
+            exactUTF8(buffer.text, draft) && exactUTF8(editor.text, draft)
+        }
+        mounted.window.endEditing(true)
+        try await mounted.wait("Source did not release keyboard") { !editor.isFirstResponder }
+        let selection = (draft as NSString).range(of: #""Hello " + name"#)
+        XCTAssertNotEqual(selection.location, NSNotFound)
+        XCTAssertTrue(buffer.selectSourceRange?(selection, draft) == true)
+        try await mounted.wait("Extraction range did not reach the editor") { editor.selectedRange == selection }
+
+        try mounted.command("symbol.actions")
+        let changes = workspace.changes
+        let title = "Extract to inner function in function 'greetCR'"
+        for _ in 0..<100 {
+            await changes.prepare(workspace)
+            if changes.choices.contains(where: { $0["title"] as? String == title }) { break }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        let index = try XCTUnwrap(changes.choices.firstIndex { $0["title"] as? String == title }, changes.notice)
+        await changes.choose(index, workspace: workspace, expectedSnapshot: changes.actionSnapshot)
+        let plan = try XCTUnwrap(changes.plan, changes.notice)
+        XCTAssertEqual(plan.patches.count, 1)
+        let patch = try XCTUnwrap(plan.patches.first)
+        XCTAssertEqual(patch.path, path)
+        XCTAssertGreaterThan(patch.edits.count, 1)
+        XCTAssertTrue(exactUTF8(patch.before, draft))
+        XCTAssertTrue(patch.after.contains("function newFunction"))
+        XCTAssertTrue(exactUTF8(editor.text, draft))
+
+        changes.apply(workspace)
+        XCTAssertTrue(exactUTF8(buffer.text, patch.after), changes.notice)
+        XCTAssertTrue(exactUTF8(editor.text, patch.after), changes.notice)
+        changes.open("undo", workspace: workspace)
+        XCTAssertTrue(exactUTF8(buffer.text, draft), changes.notice)
+        XCTAssertTrue(exactUTF8(editor.text, draft), changes.notice)
+        changes.open("redo", workspace: workspace)
+        XCTAssertTrue(exactUTF8(buffer.text, patch.after), changes.notice)
+        XCTAssertTrue(exactUTF8(editor.text, patch.after), changes.notice)
+        let retained = try await mounted.editor(buffer)
+        XCTAssertTrue(retained === editor)
+        XCTAssertEqual(buffer.sourceEditorState?()?.identity, identity)
+        let disk = try await engine.file(buffer.file)
+        XCTAssertTrue(exactUTF8(disk.content, saved))
+        NSLog("HickoryUIKitParity typescript-extraction-exact-history-passed")
+    }
+}
+</ui:copy>
+<ui:file path="apps/apple-simple/IOSAcceptance/UIKitParityAcceptanceTests.swift"><ui:paste select="#ios-mounted-parity-test"/><ui:paste select="#ios-mounted-agent-resource-publication"/><ui:paste select="#ios-mounted-clangd-quickfix"/><ui:paste select="#ios-mounted-typescript-history"/></ui:file>
 
 ## Run only on a deliberately selected simulator
 
@@ -908,7 +1127,10 @@ After generation and resource coordination, use `DEVELOPER_DIR=/Applications/Xco
 By default the runner selects `editing`. Use repeated `--workflow` flags to
 reuse one owned simulator while giving each case its own workspace and exact
 XCTest result. The `workspace` case requires clangd and uses the existing pytest
-and pytest-cov collector fixture. Both `workspace` and `recovery` use the
+and pytest-cov collector fixture. The `quickfix` case uses clangd through the
+production source-action adapter. The `typescript-extraction` case requires the
+TypeScript fixture tools under `target/refactor-provider/node_modules`.
+Both `workspace` and `recovery` use the
 installed environment from `--python-env`. The `proposal` case checks engine
 lifetime turnover before mounting its saved historical review. The optional
 `--slow-debug` fixture deliberately delays Cargo longer than 30 seconds and
@@ -919,19 +1141,27 @@ native proposal review. Supply the sender's actual editors to the managed
 tool, read the sealed proposal before applying its ordinary and authored
 changes together, and retain a separate generated-output consequence.
 One coordinated Undo and Redo must reach both drafts.
+The `proposal-save` case supplies a resource rename through the same provider.
+It verifies the publication and inverse inside the mounted test and checks the
+restored authored namespace on the host. Pass a new `--receipt-dir` to retain
+this run without replacing an earlier result.
 
 <ui:copy id="ios-mounted-parity-runner">
 """Owned mounted UIKit parity witness. Requires an explicitly selected simulator."""
-import argparse,hashlib,importlib.util,json,os,plistlib,shutil,socket,subprocess,tempfile,uuid
+import argparse,hashlib,importlib.util,json,os,plistlib,shutil,socket,subprocess,tempfile,urllib.parse,uuid
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 TARGET = 'HickorySimpleMobileParityTests'
+PROPOSAL_DESTINATION = 'moved λ%2F?#.py'
 WORKFLOWS = {
     'editing': ('testMountedUIKitEditingAndSelectedRustDebug', ['native-paste-history-passed', 'coordinated-cleanup-history-passed', 'debug-paused', 'completed']),
     'workspace': ('testMountedSearchProblemsAndCollectedTests', ['workspace-navigation-problems-passed', 'workspace-tests-coverage-passed']),
+    'quickfix': ('testMountedClangdQuickFixReviewsAndReplaysDraft', ['clangd-quickfix-preview-passed', 'clangd-quickfix-history-passed']),
+    'typescript-extraction': ('testMountedTypeScriptExtractionReplaysExactDraft', ['typescript-extraction-exact-history-passed']),
     'recovery': ('testMountedConnectedReadingAndPrivateRecovery', ['connected-impact-passed', 'private-recovery-passed']),
     'proposal': ('testMountedHistoricalProposalRefusesApplication', ['historical-proposal-passed']),
     'proposal-apply': ('testMountedManagedProposalAppliesBothReviewedDrafts', ['managed-proposal-preview-passed', 'managed-proposal-history-passed']),
+    'proposal-save': ('testMountedManagedProposalPublishesReviewedResource', ['managed-resource-publication-passed', 'managed-resource-inverse-passed']),
 }
 
 def load_script(name):
@@ -964,13 +1194,35 @@ def prepare_workflow(workflow, workspace, python_env, slow_debug):
             'diagnostics.c': 'int first(void) {return owned_problem_one;}\nint second(void) {return owned_problem_two;}\n',
             'pyproject.toml': '[project]\nname="ios-collector-fixture"\nversion="0.0.0"\n[tool.uv]\n[tool.pytest.ini_options]\njunit_family="xunit1"\n',
         }
+    elif workflow == 'quickfix':
+        files = {
+            'main.cpp': 'int square(int value) { return value * value; }\nint main() { return square(3) }\n',
+            '.hickory-ios-quickfix': 'owned-quickfix-v1\n',
+        }
+        sentinel = None
+    elif workflow == 'typescript-extraction':
+        tools = ROOT/'target/refactor-provider/node_modules'
+        server = tools/'typescript-language-server/lib/cli.mjs'
+        for name, version in [('typescript-language-server', '6.1.0'), ('typescript', '6.0.3')]:
+            assert json.loads((tools/name/'package.json').read_text())['version'] == version
+        (workspace/'node_modules').mkdir()
+        (workspace/'node_modules/typescript').symlink_to(tools/'typescript', target_is_directory=True)
+        case = load_script('test-provider-refactor-host').CASES[0]
+        files = {
+            case['path']: case['source'],
+            '.hickory-refactor-fixture': 'owned-refactor-v1\n',
+            '.hick-lsp.json': json.dumps({'servers': {'typescript': {'command': ['node', str(server), '--stdio']}}}),
+            'package.json': '{"type":"module"}',
+            'tsconfig.json': '{"compilerOptions":{"strict":true,"target":"ES2022","ignoreDeprecations":"6.0"}}',
+        }
+        sentinel = None
     elif workflow == 'recovery':
         details = load_script('test-behavior-readings-browser').prepare(workspace)
         (workspace/'.venv').unlink()
         (workspace/'.venv').symlink_to(python_env.resolve(), target_is_directory=True)
         files = {name: (workspace/name).read_text() for name in ['project.md', 'source.md', 'behavior.md', 'a.py', 'test_a.py', 'test_undeclared.py', 'hickory-dogfood/behavior-map.json', 'hickory-dogfood/narrative-map.json']}
         sentinel = Path(details['sibling'])
-    elif workflow == 'proposal-apply':
+    elif workflow in {'proposal-apply', 'proposal-save'}:
         load_script('test-agent-proposals-browser').prepare(workspace)
         files = {name: (workspace/name).read_text() for name in ['project.md', 'construction.md', 'note.py', 'generated.py', 'behavior.md']}
         close = '\x3c/h:doc>\n'
@@ -984,7 +1236,7 @@ def prepare_workflow(workflow, workspace, python_env, slow_debug):
         (workspace/name).write_text(text)
     return files, sentinel
 
-def run_workflow(workflow, device, seed, temporary_device, candidate, derived, destination, python_env, slow_debug):
+def run_workflow(workflow, device, seed, temporary_device, candidate, derived, destination, python_env, slow_debug, receipt):
     fixture = load_script('test-simple-browser')
     method, markers = WORKFLOWS[workflow]
     name = TARGET+'/UIKitParityAcceptanceTests/'+method
@@ -993,16 +1245,22 @@ def run_workflow(workflow, device, seed, temporary_device, candidate, derived, d
         workspace, state = folder/'workspace', folder/'state'
         files, sentinel = prepare_workflow(workflow, workspace, python_env, slow_debug)
         environment = {**os.environ, 'HICKORY_STATE_DIR': str(state)}
-        managed = load_script('test-agent-proposals-browser') if workflow == 'proposal-apply' else None
+        managed = load_script('test-agent-proposals-browser') if workflow in {'proposal-apply', 'proposal-save'} else None
         if managed:
             settings, calls, tool_result = managed.provider_fixture(folder)
             environment['HICKORY_AGENT_TEST_UI_SETTINGS'] = str(settings)
-            def replacement(line, start, end):
-                return {'range': {'start': {'line': line, 'character': start}, 'end': {'line': line, 'character': end}}, 'newText': '41'}
-            edit = {'changes': {
-                'hick:///note.py': [replacement(0, 6, 7)],
-                'hick:///construction.md': [replacement(2, 12, 13)],
-            }}
+            if workflow == 'proposal-save':
+                edit = {'documentChanges': [{
+                    'kind': 'rename', 'oldUri': 'hick:///note.py',
+                    'newUri': 'hick:///' + urllib.parse.quote(PROPOSAL_DESTINATION, safe=''),
+                }]}
+            else:
+                def replacement(line, start, end):
+                    return {'range': {'start': {'line': line, 'character': start}, 'end': {'line': line, 'character': end}}, 'newText': '41'}
+                edit = {'changes': {
+                    'hick:///note.py': [replacement(0, 6, 7)],
+                    'hick:///construction.md': [replacement(2, 12, 13)],
+                }}
             calls.write_text(json.dumps({'intention': managed.intention(edit)}))
         with socket.socket() as reserve:
             reserve.bind(('127.0.0.1', 0))
@@ -1031,8 +1289,6 @@ def run_workflow(workflow, device, seed, temporary_device, candidate, derived, d
             target, = test_targets(value)
             for key in ['EnvironmentVariables', 'TestHostEnvironmentVariables']:
                 target.setdefault(key, {}).update(HICKORY_IOS_PARITY_ORIGIN=origin, HICKORY_API_ORIGIN=origin, **metadata)
-            receipt = ROOT/'target/ios-parity'
-            receipt.mkdir(parents=True, exist_ok=True)
             prefix = 'last' if workflow == 'editing' else workflow
             result = receipt/f'{prefix}.xcresult'
             if result.exists():
@@ -1062,19 +1318,30 @@ def run_workflow(workflow, device, seed, temporary_device, candidate, derived, d
                     assert retained['fingerprint'] == prepared['fingerprint']
                     report = retained['host_application']
                     assert report['status'] == 'host-reported draft application' and not report['saved'] and not report['checks_executed']
-                    assert report['after_hashes'] == {
-                        'note.py': hashlib.sha256(b'value=41\n').hexdigest(),
-                        'construction.md': hashlib.sha256(files['construction.md'].replace('generated = 1', 'generated = 41').encode()).hexdigest(),
-                    }
+                    if workflow == 'proposal-save':
+                        assert not (workspace/PROPOSAL_DESTINATION).exists()
+                        assert report['after_hashes'] == {
+                            'note.py': 'missing',
+                            PROPOSAL_DESTINATION: hashlib.sha256(files['note.py'].encode()).hexdigest(),
+                        }
+                    else:
+                        assert report['after_hashes'] == {
+                            'note.py': hashlib.sha256(b'value=41\n').hexdigest(),
+                            'construction.md': hashlib.sha256(files['construction.md'].replace('generated = 1', 'generated = 41').encode()).hexdigest(),
+                        }
                 observed = log.read_text()
                 for marker in markers:
                     assert observed.count('HickoryUIKitParity '+marker) == 1, marker
                 payload = {
                     'workflow': workflow, 'device': device, 'seed_device': seed, 'temporary_device': temporary_device,
                     'test': name, 'summary': summary, 'log_sha256': hashlib.sha256(log.read_bytes()).hexdigest(),
-                    'source_unchanged': True, 'asserted_milestones': markers, 'keyboard_input_verified': False,
+                    'asserted_milestones': markers, 'keyboard_input_verified': False,
                     'physical_input_verified': False, 'accessibility_verified': False,
                 }
+                if workflow == 'proposal-save':
+                    payload['saved_namespace_restored'] = True
+                else:
+                    payload['source_unchanged'] = True
                 if sentinel:
                     payload['sibling_excluded'] = True
                 if workflow == 'editing':
@@ -1105,6 +1372,7 @@ def main():
  parser=argparse.ArgumentParser();parser.add_argument('--device',required=True);parser.add_argument('--build',action='store_true');parser.add_argument('--boot',action='store_true');parser.add_argument('--temporary-device',action='store_true');parser.add_argument('--minimum-free-mib',type=int,default=2048)
  parser.add_argument('--workflow', choices=WORKFLOWS, action='append', help='Repeat to use one simulator for several focused cases')
  parser.add_argument('--python-env', type=Path, default=ROOT/'target/thread-debug-env')
+ parser.add_argument('--receipt-dir', type=Path, help='Create a new directory for this run and its lifecycle receipt')
  parser.add_argument('--slow-debug', action='store_true', help='Delay the owned Rust fixture to exercise staged admission')
  args=parser.parse_args()
  if args.slow_debug and args.workflow and 'editing' not in args.workflow:
@@ -1118,6 +1386,8 @@ def main():
  runtime,seed=selected[0]
  if not runtime.startswith('com.apple.CoreSimulator.SimRuntime.iOS-'):raise RuntimeError('Choose an installed iOS simulator')
  if args.temporary_device and not args.boot:parser.error('--temporary-device requires explicit --boot after resource coordination')
+ receipt=args.receipt_dir or ROOT/'target/ios-parity'
+ receipt.mkdir(parents=True,exist_ok=args.receipt_dir is None)
  device=args.device;owned_device=None;booted_here=False;failures=[]
  try:
   state=seed['state']
@@ -1142,7 +1412,7 @@ def main():
   for workflow in dict.fromkeys(args.workflow or ['editing']):
    try:
     require_space(args.minimum_free_mib)
-    run_workflow(workflow, device, args.device, owned_device is not None, candidates[0], derived, destination, args.python_env, args.slow_debug)
+    run_workflow(workflow, device, args.device, owned_device is not None, candidates[0], derived, destination, args.python_env, args.slow_debug, receipt)
    except (AssertionError, OSError, RuntimeError, subprocess.CalledProcessError) as error:
     print(f'FAIL mounted UIKit {workflow}: {error}', flush=True)
     failures.append(workflow)
@@ -1155,7 +1425,7 @@ def main():
   elif booted_here:
    shutdown=subprocess.run(['xcrun','simctl','shutdown',device],capture_output=True,text=True)
    lifecycle.update({'shutdown_exit':shutdown.returncode})
-  receipt=ROOT/'target/ios-parity';receipt.mkdir(parents=True,exist_ok=True);(receipt/'last-device-lifecycle.json').write_text(json.dumps(lifecycle,indent=2))
+  (receipt/'last-device-lifecycle.json').write_text(json.dumps(lifecycle,indent=2))
   if owned_device is not None and lifecycle['delete_exit']!=0:raise RuntimeError('Owned simulator cleanup failed; inspect last-device-lifecycle.json and delete only its recorded owned UDID')
   if owned_device is None and booted_here and lifecycle['shutdown_exit']!=0:raise RuntimeError('Selected simulator did not return to Shutdown')
  if failures:raise RuntimeError('Unaccepted iOS workflows: '+', '.join(failures))
@@ -1289,7 +1559,7 @@ The runner shut down and deleted its owned simulator after both cases.
 
 ## Refuse unsafe simulator ownership during failures
 
-These focused control-policy checks replace the tool boundary and deliberately fail before building. They establish that a disposable device is deleted using only its returned UUID, an existing seed is restored without deletion, and missing explicit boot authority cannot create a device, and a create result that names any preexisting device never grants boot/delete authority. They do not establish UIKit or simulator acceptance. Run `python3 scripts/test-ios-parity-runner.py` independently of the real hosted witness.
+These focused control-policy checks replace the tool boundary and deliberately fail before building. They establish that a disposable device is deleted using only its returned UUID, an existing seed is restored without deletion, and a create result that names any preexisting device never grants boot/delete authority. They also check that a new run cannot reuse an explicit receipt directory or create a simulator without explicit boot authority. Run `python3 scripts/test-ios-parity-runner.py` independently of the real hosted witness.
 
 <ui:copy id="ios-mounted-parity-runner-safety">
 """Focused ownership checks; substitutes tool calls and never operates a simulator."""
@@ -1333,6 +1603,16 @@ class SimulatorOwnershipTests(unittest.TestCase):
   with patch.object(runner,'require_space'),patch.object(runner.subprocess,'check_output',return_value=json.dumps(devices).encode())as read,patch.object(runner.subprocess,'run')as mutate,patch.object(sys,'argv',['runner','--device',SEED,'--temporary-device']),patch('sys.stderr',new=io.StringIO()):
    with self.assertRaises(SystemExit)as error:runner.main()
    self.assertEqual(error.exception.code,2);self.assertEqual(read.call_count,1);mutate.assert_not_called()
+ def test_explicit_receipt_directory_cannot_replace_existing_evidence(self):
+  runner=self.load();devices={'devices':{RUNTIME:[{'udid':SEED,'state':'Shutdown','isAvailable':True}]}}
+  with tempfile.TemporaryDirectory() as folder:
+   receipt=Path(folder)/'passed.xcresult'
+   receipt.write_bytes(b'retained evidence')
+   with patch.object(runner,'require_space'),patch.object(runner.subprocess,'check_output',return_value=json.dumps(devices).encode()) as read,patch.object(runner.subprocess,'run') as mutate,patch.object(sys,'argv',['runner','--device',SEED,'--boot','--receipt-dir',folder]):
+    with self.assertRaises(FileExistsError):runner.main()
+    self.assertEqual(receipt.read_bytes(),b'retained evidence')
+    self.assertEqual(read.call_count,1)
+    mutate.assert_not_called()
 if __name__=='__main__':unittest.main()
 </ui:copy>
 <ui:file path="scripts/test-ios-parity-runner.py"><ui:paste select="#ios-mounted-parity-runner-safety"/></ui:file>

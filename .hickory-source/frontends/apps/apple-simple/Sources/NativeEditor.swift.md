@@ -620,6 +620,17 @@ remain outside the animation scope. Gutter popovers keep native presentation.
 
 Saved resource adoption uses the same guarded native draft history as completion and snippet actions. Clamp the forward selection to the new source, but retain the exact prior selection and snippet context for Undo; saved disk and index authority remain outside native text history.
 
+When a resource publication retargets a mounted UIKit editor, reflect the
+adopted path in its accessibility label independently of text updates. Move
+and its inverse can keep the same text and widget, so the text comparison
+alone cannot refresh the path exposed to assistive technology.
+
+Applying multiple reviewed replacements through UIKit text ranges produced
+different bytes from the workspace plan. Confirm the plan against the mounted
+storage, then reflect it using exact UTF-16 storage coordinates. Keep
+coordinated Undo bound to the same draft the user reviewed.
+[Mounted TypeScript witness](../../../../mechanisms/ios-mounted-parity-acceptance.md#replay-the-exact-draft-from-a-multi-edit-typescript-refactoring)
+
 <ui:copy id="simple-7fad175521-0">
 // Only inspect the current logical line. Identifier movement never waits for parsing.
 private let simpleWholeWord = try! NSRegularExpression(pattern: #"[\p{L}\p{N}_][\p{L}\p{M}\p{N}_\u200C\u200D]*"#)
@@ -1884,14 +1895,20 @@ import UIKit
         }
         let resultLength=source.utf16.count+edits.reduce(0){$0+$1.text.utf16.count-$1.range.length}
         if let selected=resultingSelection,!validSourceEdits([NativeSourceEdit(range:selected,text:"")],length:resultLength){return false}
+        let exactStorage = userInput || expectedModelSource != nil
         let replacements: [(UITextRange, String)]
-        if userInput {
+        if exactStorage {
             func scalarBoundary(_ offset: Int) -> Bool {
                 String.Index(utf16Offset: offset, in: source).samePosition(in: source.unicodeScalars) != nil
             }
             guard exactUTF8(sourceTextStorage.string, source), ordered.allSatisfy({
                 scalarBoundary($0.range.location) && scalarBoundary(NSMaxRange($0.range))
             }) else { return false }
+            if let expectedModelSource {
+                let reconstructed = NSMutableString(string: source)
+                for edit in ordered { reconstructed.replaceCharacters(in: edit.range, with: edit.text) }
+                guard exactUTF8(reconstructed as String, expectedModelSource) else { return false }
+            }
             replacements = []
         } else {
             replacements = ordered.compactMap { edit in
@@ -1907,9 +1924,9 @@ import UIKit
         defer { buffer.applyingMulti = wasMulti }
         let viewport=text.contentOffset
         unfoldAll()
-        let undo = manageUndo ? text.undoManager:nil; undo?.beginUndoGrouping()
+        let undo = manageUndo && expectedModelSource == nil ? text.undoManager:nil; undo?.beginUndoGrouping()
         defer { undo?.endUndoGrouping() }
-        if userInput {
+        if exactStorage {
             sourceTextStorage.beginEditing()
             for edit in ordered { sourceTextStorage.replaceCharacters(in: edit.range, with: edit.text) }
             sourceTextStorage.endEditing()
@@ -1921,6 +1938,7 @@ import UIKit
             text.setContentOffset(viewport, animated: false)
             if expectedModelSource == nil { text.scrollRangeToVisible(selected) }
         }
+        if let expectedModelSource, !exactUTF8(text.text, expectedModelSource) { return false }
         textViewDidChange(text); return true
     }
     func toggleFold(_ line: Int) {
@@ -2324,9 +2342,14 @@ struct NativeEditor: UIViewRepresentable {
         return MobileEditorHost(editor.text) { [weak editor] in editor?.measureDebugLines() }
     }
     func updateUIView(_ view: UIView, context: Context) {
-        if let editor = EditorCache.views[buffer.id], !exactUTF8(editor.text.text,buffer.text) {
-            editor.text.text = buffer.text
-            editor.text.undoManager?.removeAllActions()
+        if let editor = EditorCache.views[buffer.id] {
+            if !exactUTF8(editor.text.accessibilityLabel, buffer.file.path) {
+                editor.text.accessibilityLabel = buffer.file.path
+            }
+            if !exactUTF8(editor.text.text, buffer.text) {
+                editor.text.text = buffer.text
+                editor.text.undoManager?.removeAllActions()
+            }
         }
         (view as? MobileEditorHost)?.attach(); view.setNeedsLayout()
         if let pending=buffer.recoveryViewport,let editor=EditorCache.views[buffer.id]{let revision=buffer.sourceEditIdentity,selection=editor.text.selectedRange;Task { @MainActor in

@@ -32,14 +32,14 @@ an earlier open item only for the behavior it actually exercises.
 | Required outcome | Current usable evidence and remaining acceptance |
 | --- | --- |
 | Navigation and code intelligence | Search Everywhere, file and saved-text search, outlines, semantic locations and back/forward have focused receipts. The genuine Python browser witness covers cross-file definitions/usages and caller/callee queries. Configured csharp-ls adds browser definitions, usages and history. A controlled child covers standard LSP type hierarchy, including browser rendering and native protocol/model checks. Installed basedpyright and TypeScript Language Server read ordinary Markdown fences on browser, mounted macOS and the Android controller. Mounted iOS reached saved search and caret history. An Android controller navigated into a literal source tab while Agent was open. Index breadth depends on the installed provider. Unavailable capabilities and unsupported fence actions leave authored text readable. |
-| Refactoring, cleanup, generation, templates and history | Genuine basedpyright and configured csharp-ls cover cross-file rename in the browser. TypeScript Language Server 6.1.0 with TypeScript 6.0.3 covers extraction, accessor generation, cleanup and Move to a new file on browser, mounted macOS and the Android controller. Guarded native action and formatting receipts include controlled providers. Preview holds the complete edit. Missing preimages, commands without supported effects and changed owner revisions refuse the group. Later template receipts close the earlier embedded and multi-caret catalog gaps. Expanded regex and source-bound variable programs retain their syntax and work bounds. Mounted iOS and rendered Android covered reviewed Cleanup. Mounted iOS also replayed native Paste and coordinated Cleanup Undo/Redo. |
-| Diagnostics and contextual fixes | Genuine basedpyright browser and rendered Android Problems, configured csharp-ls browser Problems, and clangd mounted iOS Problems exercised exact source navigation. Real clangd engine coverage includes the missing-semicolon quick fix. Controlled-child receipts cover complete-file `source.fixAll` acquisition, review, draft Apply and Undo/Redo on browser, mounted macOS and the Android controller, including a prose-origin action that acquires its copy contributor. Stale and unversioned diagnostics stay readable. Precise navigation and application require matching authority. Provider workspace completeness, additional source mappings and mounted iOS provider Quick Fix still need acceptance. |
-| Testing and coverage | Discovery, failed results, coverage and failed-only reruns have provider receipts for pytest, Jest, Vitest, Cargo with cargo-llvm-cov, and .NET with Coverlet. Connected pytest runs on browser, macOS and the Android controller. Mounted iOS executed selected pytest and rendered a collected failure and coverage. Rendered Android ran the saved Rust case and retained exit 0. Android rendered coverage remains unexecuted. Source-adjacent Run and Debug distinguish process exit from a provider verdict. Unsupported runners and stale, missing or ambiguous test identities refuse selection. Coverage navigation requires matching source hashes. |
-| Review, staging, attribution, conflicts and recovery | Browser, macOS and Android controller receipts cover Git status/diffs, history, attribution, shared conflict composition including deletion/rename, staging, local source history and guarded Save As. Later complete 32-session recovery management and three exact revisions supersede the earlier capacity gap. Browser reload, native restart and mounted iOS compact recovery cover retained drafts, layout and view state. Shared publisher Move and interruption have rendered browser, mounted macOS and Android controller receipts. Mounted iOS and the Android renderer still need shared-publisher cold recovery and the older Move chain. |
-| Debugging | Genuine debugpy launch/loopback attach and LLDB canonical C launch/PID attach pass on browser, macOS and the Android controller. Scoped receipts cover profiles, conditional breakpoints, threads, deep frames, evaluation, source navigation, Continue and retained outcomes. Browser application launches also passed with netcoredbg for .NET and js-debug for Node.js. Saved source-test Debug has verified pytest/debugpy and Cargo/LLDB adapters. Rust binds the selected declaration to the compiled inline or external-module function before exact harness selection, with engine and host acceptance for plain and compiler-authored source. Mounted iOS reached the real selected Rust breakpoint after a build exceeded 30 seconds. Rendered Android Debug and additional adapter/host combinations still need acceptance. |
+| Refactoring, cleanup, generation, templates and history | Genuine basedpyright and configured csharp-ls cover cross-file rename in the browser. TypeScript Language Server 6.1.0 with TypeScript 6.0.3 covers extraction, accessor generation, cleanup and Move to a new file on browser, mounted macOS and the Android controller. Guarded native action and formatting receipts include controlled providers. Preview holds the complete edit. Missing preimages, commands without supported effects and changed owner revisions refuse the group. Later template receipts close the earlier embedded and multi-caret catalog gaps. Expanded regex and source-bound variable programs retain their syntax and work bounds. Mounted iOS and rendered Android covered reviewed Cleanup. Mounted iOS also replayed native Paste, coordinated Cleanup Undo/Redo and the genuine CRLF TypeScript extraction. |
+| Diagnostics and contextual fixes | Genuine basedpyright browser and rendered Android Problems, configured csharp-ls browser Problems, and clangd mounted iOS Problems exercised exact source navigation. Real clangd engine coverage includes the missing-semicolon quick fix. Controlled-child receipts cover complete-file `source.fixAll` acquisition, review, draft Apply and Undo/Redo on browser, mounted macOS and the Android controller, including a prose-origin action that acquires its copy contributor. Stale and unversioned diagnostics stay readable. Precise navigation and application require matching authority. Mounted iOS exercised the genuine clangd missing-semicolon Quick Fix through review, draft Apply and coordinated Undo/Redo. Provider workspace completeness and additional source mappings remain open. |
+| Testing and coverage | Discovery, failed results, coverage and failed-only reruns have provider receipts for pytest, Jest, Vitest, Cargo with cargo-llvm-cov, and .NET with Coverlet. Connected pytest runs on browser, macOS and the Android controller. Mounted iOS executed selected pytest and rendered a collected failure and coverage. Rendered Android ran the saved Rust case and retained exit 0. Rendered Android discovered both pytest cases, retained a coverage run and reran only the deliberate failure. Source-adjacent Run and Debug distinguish process exit from a provider verdict. Unsupported runners and stale, missing or ambiguous test identities refuse selection. Coverage navigation requires matching source hashes. |
+| Review, staging, attribution, conflicts and recovery | Browser, macOS and Android controller receipts cover Git status/diffs, history, attribution, shared conflict composition including deletion/rename, staging, local source history and guarded Save As. Later complete 32-session recovery management and three exact revisions supersede the earlier capacity gap. Browser reload, native restart and mounted iOS compact recovery cover retained drafts, layout and view state. Shared publisher Move and interruption have rendered browser, mounted macOS and Android controller receipts. Mounted iOS completed cold recovery with the original path present and deleted, plus the six-publication older Move chain. Rendered Android completed cold recovery for the copied-destination fixture. The first dirty Move passed on the Android renderer. The second destination input and remaining Undo/Redo publications still need acceptance. |
+| Debugging | Genuine debugpy launch/loopback attach and LLDB canonical C launch/PID attach pass on browser, macOS and the Android controller. Scoped receipts cover profiles, conditional breakpoints, threads, deep frames, evaluation, source navigation, Continue and retained outcomes. Browser and mounted iOS application launches also passed with netcoredbg for .NET and js-debug for Node.js. Saved source-test Debug has verified pytest/debugpy and Cargo/LLDB adapters. Rust binds the selected declaration to the compiled inline or external-module function before exact harness selection, with engine and host acceptance for plain and compiler-authored source. Mounted iOS reached the real selected Rust breakpoint after a build exceeded 30 seconds. Rendered Android paused the selected pytest test at its saved body line, continued and retained exit 0. Additional adapter/host combinations still need acceptance. |
 | Connected behavior readings | Browser, mounted macOS and Android controller have guarded contract, explanation, implementation, generated, test and evidence readings through the captured construction graph, including dirty contributors. Mounted iOS opened the connected reading and exercised its source-staleness boundary. Default entry reads carry their original proof through execution admission. Missing mappings and stale captures retain their own status. |
 | Change impact and relevant verification | Browser, mounted macOS and Android controller have scoped compiler consequences, bounded declared relationships, selected checks/profiles and retained process-only results. Mounted iOS reached the selected process-only receipt from its connected reading. Undeclared dependencies remain unknown. A command exit supplies process evidence. Independent verification requires a source-bound receipt. |
-| Agent proposal review and guarded application | Owned managed-provider flows on browser, macOS and the Android controller cover a sealed complete review, original-context application, coordinated draft history and separate resource publication. Mounted iOS also passed managed two-draft Apply and coordinated Undo/Redo. Rendered Android and mounted iOS read sealed historical material without restoring application authority. Positive rendered Android application, mounted iOS resource publication and external provider breadth remain open. |
+| Agent proposal review and guarded application | Owned managed-provider flows on browser, macOS and the Android controller cover a sealed complete review, original-context application, coordinated draft history and separate resource publication. Mounted iOS also passed managed two-draft Apply and coordinated Undo/Redo. Rendered Android and mounted iOS read sealed historical material without restoring application authority. Mounted iOS also completed a guarded resource rename and its reviewed inverse. Rendered Android applied a live caller-prepared proposal to two drafts. Rendered managed-provider Apply and external provider breadth remain open. |
 
 Across all rows, the evidence distinguishes engine protocols, native controllers,
 mounted AppKit/UIKit, rendered browser and rendered Android. Physical input,
@@ -160,6 +160,68 @@ the actual publisher at the selected boundary.
 [Older Move acceptance](workspace-entry-lineage-acceptance.md)
 [Interrupted Move acceptance](workspace-entry-interrupted-acceptance.md)
 
+### Mounted iOS shared publication and Quick Fix
+
+The iOS 27 simulator completed the copied-destination and old-deleted cold
+fixtures using the real shared publisher. Each replay recovered the sealed
+dirty draft separately from the exact saved bytes and confirmed the original
+entry identity and its new generation. The copied fixture retained the existing
+UIKit editor. The old-deleted fixture mounted the recovered draft at the
+destination. Both completed without generating outputs or adding ordinary
+workspace Undo for the repaired partial namespace.
+
+The mounted older Move replay completed A → B → C → B → A → B → C.
+It kept the same role, editor, selection, 60-point viewport, geometry and
+native Undo manager, and found the original saved-source history. A held Undo
+review refused an equal-byte inode replacement. Reading the original request
+status issued no second publication. The native widget now reflects the
+adopted path in its accessibility label while preserving text and history.
+
+The managed proposal replay separately prepared a literal-path rename, saved
+it explicitly and published the reviewed inverse. Both steps adopted into the
+same editor with its selection, frame and Undo manager. A fresh two-draft Apply
+also passed. The clangd 21.0.0 Quick Fix reached its exact authored diagnostic,
+reviewed the missing-semicolon edit, and applied and replayed it in the original
+draft while preserving saved bytes.
+
+The selected pytest/debugpy replay stopped at its exact authored test line,
+evaluated the local value, continued and retained the filtered run. The sibling
+stayed excluded and the saved bytes, UIKit editor and caret stayed exact.
+Mounted application Debug used the configured Node/js-debug and .NET/netcoredbg
+profiles. Both stopped at the saved source line, evaluated the local value 41,
+continued, produced 42 and retained the original editor, pane and geometry.
+The .NET adapter returned exit 0. The Node adapter finished without an exit
+code. Their receipts are `mounted-node-application-debug-d54dlbbk` and
+`mounted-dotnet-application-debug-ces9svoi`.
+
+Each case passed one selected XCTest with zero skips. The result bundles and
+receipts are under `target/ios-parity` in `publisher-copied-jduekzx0`,
+`publisher-old_deleted-wv9_wsox`, `publisher-lineage-f4g49jzc`,
+`mounted-managed-dujlatg4`, `mounted-quickfix-rl5lq716` and
+`mounted-pytest-debug-r0p455_c`.
+[Mounted iOS acceptance](../mechanisms/ios-mounted-parity-acceptance.md)
+
+TypeScript Language Server's CRLF and LF extraction attempts reached Apply,
+then coordinated Undo refused the altered preimage. UIKit had reflected
+different bytes from the reviewed multi-edit patch. After the exact storage
+fix, the CRLF and supplementary-Unicode replay preserved the planned text in
+both the mounted editor and model. Undo recovered the exact dirty draft and
+Redo restored the reviewed result with the original editor and saved bytes.
+The focused receipt is `mounted-typescript-uvpaqkz1`. The LF case awaits a
+separate replay on that build.
+The maintained hosted suite repeated the CRLF extraction and two-draft
+managed Apply after the fix. Both passed one case with zero skips, with
+receipts under `target/ios-parity/maintained-exact-reflection`.
+
+The first scripted UIKit composition attempt failed its earlier history assertion.
+The revised UIKit witness started from an independent native Paste. It kept
+the provisional Japanese candidates in the primary field, mirrored on commit,
+replayed composition Undo/Redo and then successfully undid the earlier Paste.
+The retained result bundles are `mounted-typescript-fhnbwuu7`,
+`mounted-uikit-composition-c3itk45s` and `mounted-uikit-composition-bends7zx`.
+The paired physical iPhone was offline, leaving physical input, device IME
+and VoiceOver without device acceptance.
+
 ### Other fresh focused flows
 
 Rendered browser replays covered basedpyright and TypeScript Language Server
@@ -226,6 +288,62 @@ stopped before creating another AVD. The disposable data was removed after
 each retry. Rendered cold recovery, the older Move chain and rendered Debug
 still need a healthy Android runtime. The renderer and framework receipts are
 under `target/parity-rendered-android.sgYIt7`.
+
+### Rendered Android cold recovery, proposal Apply, coverage and Debug
+
+With stable headroom and two successful framework readiness probes, the
+rendered app opened the copied-destination interruption and reviewed its
+sealed evidence. Preview left the saved namespace alone. One explicit
+Complete returned HTTP 200, advanced the original entry identity, removed the
+old address and kept the exact saved bytes at the destination. The reopened
+editor held the separate dirty draft. The producer's existing private
+`.history-state` files and other unaffected fixture bytes were unchanged.
+The successful receipt is under
+`target/parity-rendered-android.sgYIt7/continuation-receipts/final-android-n88la8ql/cold`.
+
+The rendered app also applied a current engine-sealed, caller-prepared
+proposal to two draft editors. One validation and one host report returned
+HTTP 200. The report recorded the exact draft hashes. The saved files were
+unchanged, no resource-save request was sent and no checks were reported.
+The rendered review, wire trace and host report are under
+`target/parity-rendered-android.sgYIt7/continuation-receipts/final-android-lkerhb9u/proposal`.
+
+The later Move replay reached the rendered form with Gboard open. Text
+injection left the destination empty and the replay dispatched no Move.
+Selected Debug was admitted and rendered pytest output, but the gutter tap
+set the declaration breakpoint and the intended body-line pause was not
+verified. The initial coverage panel exposed the intended pytest file in its
+accessibility tree. The rendered WebView was largely blank, and only its
+initial history read reached the engine. Those attempts are retained in
+`target/parity-rendered-android.sgYIt7/continuation-receipts/final-android-tnas0o30`.
+
+The embedded coverage page now scrolls in the WebView itself. Removing the
+nested panel's dynamic viewport cap restored the visible controls. Rendered
+Android Discover found both pytest cases in `test_app.py`. Run retained
+one pass, one deliberate failure and 14 of 14 executable lines covered.
+The `app.py` coverage matched its saved source hash. Failed-only rerun
+executed exactly the negative test and rendered a separately retained result.
+The rebuilt APK digest, screenshots, UI trees, engine trace and collected
+runs are under
+`target/parity-rendered-android.sgYIt7/continuation-receipts/final-android-o6ite4sk`.
+Mounted iOS also passed its workspace acceptance with the revised embedded
+layout, including the failed pytest result, coverage and exact source
+navigation. Its one-case, zero-skip receipt is in
+`target/ios-parity/embedded-coverage-layout`.
+The same AVD selected a saved pytest test, stopped at its body breakpoint on
+line 2, continued and retained exit 0. The saved source stayed exact and the
+sibling did not execute. The paused and retained-process screens are in the
+same receipt directory under `debug`.
+
+The final rendered lineage replay published the first dirty Move from
+`project.md` to `b`. One resource-save request returned HTTP 200. The
+editor retained the exact draft and frame without fetching a new baseline,
+while the destination held the saved bytes. The logical entry kept its
+identity at generation +1, and the old and generated paths remained absent.
+The second destination field had focus but stayed empty after text
+injection, and Gboard stayed hidden. The replay stopped before a second
+publication. The confirmed first transition and the blocked second form
+are in `final-android-5ug201y6/lineage` under the same receipts directory.
 
 ### Provider admission
 
