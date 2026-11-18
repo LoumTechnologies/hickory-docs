@@ -5,6 +5,8 @@ For maintainers joining compiler-backed template plans to the existing multiple-
 
 The fixture also retains a dirty canonical graph and reuses an original fragment in Python files and a generated Markdown code fence. Every replacement stays in its original authored source; no generated file is materialized. Apple mounts the actual editor and uses its input and undo manager. Android exercises the production controller and TextFieldState. Both exact cases passed on 2026-11-17 with zero skips or failures: mounted Mac 1.207 seconds and Android controller 0.856 seconds (suite 0.858). These receipts are not evidence of physical input, accessibility, device IME or iOS runtime behavior. Run exactly one through `scripts/test-native-templates.py <host> --batch --engine <current-built-engine>`; the shared runner retains an exact one-case producer receipt and refuses skips or zero executed cases.
 
+The new program-3 mode retains all complete-group and returned-roster assertions, adds exact negotiated-list and computed-field program checks, and requires lookbehind/Unicode-property edits through both native adapters. Its receipt label is distinct from earlier batch evidence. Both new program-3 actual paths and ordinary compatibility replays passed on the activated snapshot.
+
 <ui:copy id="batch-template-apple-witness">
 import XCTest
 #if os(macOS)
@@ -15,6 +17,7 @@ import AppKit
  #if os(macOS)
  func testLiveCompleteTemplateGroupAndHistory()async throws {
   guard let origin=ProcessInfo.processInfo.environment["HICKORY_NATIVE_TEMPLATE_ORIGIN"],let directory=ProcessInfo.processInfo.environment["HICKORY_NATIVE_TEMPLATE_WORKSPACE"] else{throw XCTSkip("Use the owned native-template --batch fixture.")}
+  let program3=ProcessInfo.processInfo.environment["HICKORY_NATIVE_TEMPLATE_PROGRAM3"]=="1"
   let root=URL(fileURLWithPath:directory);XCTAssertEqual(try String(contentsOf:root.appendingPathComponent(".hickory-native-template-fixture"),encoding:.utf8),"owned-native-templates-v1\n")
   let engine=try Engine(address:origin),tree=try await engine.files(),space=Workspace();space.engine=engine;space.rootFiles=tree.tree;space.sourceRootAddress=tree.root_path;space.sourceWorkspaceID=tree.workspace_id
   func find(_ path:String,_ nodes:[FileNode])->FileNode?{for node in nodes{if exactUTF8(node.path,path){return node};if let child=find(path,node.children ?? []){return child}};return nil}
@@ -35,13 +38,13 @@ import AppKit
     let a="#0:1:2024:012345:"+value+"|"+value+"|"+uppercase,b="#1:2:2024:012345:"+value+"|"+value+"|"+uppercase
     let original=source as NSString;return original.substring(to:first.location)+a+" "+b+original.substring(from:NSMaxRange(second))
    }
-   try await open();let catalog=try XCTUnwrap(model.catalog,model.notice);XCTAssertEqual(catalog.carets?.selections,ranges.map(SourceTemplateRange.init));XCTAssertEqual(catalog.language,"python");XCTAssertEqual(catalog.source_context?.source_hashes["project.md"],nativeSourceHash(project.text))
-   try await choose("workspace.batch-context");let originalPreview=try XCTUnwrap(model.batchPreviewSource,model.notice);XCTAssertEqual(buffer.text,source);let accepted=await model.apply();XCTAssertTrue(accepted,model.notice);XCTAssertEqual(buffer.text,originalPreview)
-   XCTAssertTrue(buffer.text.contains("#0:1:2024:012345:old|old|OLD #1:2:2024:012345:two|two|TWO"));XCTAssertNotNil(buffer.snippets.parallel)
-   native.insertText("ßa",replacementRange:native.selectedRange());let typed=complete("ßa","SSA");XCTAssertEqual(buffer.text,typed)
+   try await open();let catalog=try XCTUnwrap(model.catalog,model.notice);XCTAssertEqual(catalog.carets?.selections,ranges.map(SourceTemplateRange.init));XCTAssertEqual(catalog.language,"python");XCTAssertEqual(catalog.transform_program_versions,[2,3]);XCTAssertEqual(catalog.source_context?.source_hashes["project.md"],nativeSourceHash(project.text))
+   try await choose("workspace.batch-context");let originalPreview=try XCTUnwrap(model.batchPreviewSource,model.notice);let proposed=try XCTUnwrap(model.batchPreview,model.notice);var programs=0;for row in proposed.expansions ?? []{for field in row.snippet.fields{if let transform=field.transform{guard case .object(let raw)=transform,case .integer(let version)?=raw["version"] else{XCTFail("Malformed returned template program");continue};XCTAssertEqual(version,3);programs+=1}}};XCTAssertEqual(programs,2);XCTAssertEqual(buffer.text,source);let accepted=await model.apply();XCTAssertTrue(accepted,model.notice);XCTAssertEqual(buffer.text,originalPreview)
+   XCTAssertTrue(buffer.text.contains(program3 ? "#0:1:2024:012345:old|old|oXX #1:2:2024:012345:two|two|tXX":"#0:1:2024:012345:old|old|OLD #1:2:2024:012345:two|two|TWO"));XCTAssertNotNil(buffer.snippets.parallel)
+   native.insertText("ßa",replacementRange:native.selectedRange());let typed=complete("ßa",program3 ? "ßX":"SSA");XCTAssertEqual(buffer.text,typed)
    let beforeMove=buffer.multiRanges;try command("editor.snippetNext").run();XCTAssertNotEqual(buffer.multiRanges,beforeMove);try command("editor.snippetPrevious").run();XCTAssertEqual(buffer.multiRanges.map(\.length),[2,2])
-   try await open();try await choose("workspace.batch-nested");XCTAssertEqual(model.batchPreview?.carets.continuing,true);let nestedAccepted=await model.apply();XCTAssertTrue(nestedAccepted,model.notice);let nested=complete("kid-kid","KID-KID");XCTAssertEqual(buffer.text,nested)
-   native.insertText("ßa",replacementRange:native.selectedRange());let nestedTyped=complete("ßa-ßa","SSA-SSA");XCTAssertEqual(buffer.text,nestedTyped)
+   try await open();try await choose("workspace.batch-nested");XCTAssertEqual(model.batchPreview?.carets.continuing,true);let nestedAccepted=await model.apply();XCTAssertTrue(nestedAccepted,model.notice);let nested=complete("kid-kid",program3 ? "kXX-kXX":"KID-KID");XCTAssertEqual(buffer.text,nested)
+   native.insertText("ßa",replacementRange:native.selectedRange());let nestedTyped=complete("ßa-ßa",program3 ? "ßX-ßX":"SSA-SSA");XCTAssertEqual(buffer.text,nestedTyped)
    for expected in [nested,typed,originalPreview,source]{manager.undo();XCTAssertEqual(buffer.text,expected)}
    for expected in [originalPreview,typed,nested,nestedTyped]{manager.redo();XCTAssertEqual(buffer.text,expected)}
    for _ in 0..<4{manager.undo()};XCTAssertEqual(buffer.text,source)
@@ -72,6 +75,7 @@ import org.junit.Test
 class BatchTemplateTest {
  @Test(timeout=90000) fun liveCompleteTemplateGroupAndHistory()=kotlinx.coroutines.runBlocking {
   val origin=System.getenv("HICKORY_NATIVE_TEMPLATE_ORIGIN");org.junit.Assume.assumeNotNull(origin)
+  val program3=System.getenv("HICKORY_NATIVE_TEMPLATE_PROGRAM3")=="1"
   val root=java.io.File(System.getenv("HICKORY_NATIVE_TEMPLATE_WORKSPACE") ?: error("Use the owned --batch fixture")).canonicalFile;check(root.resolve(".hickory-native-template-fixture").readText()=="owned-native-templates-v1\n")
   val engine=Engine(origin!!);val (_,tree)=engine.files();val workspace=Workspace(this);workspace.engine=engine;workspace.rootFiles=tree
   fun find(path:String,nodes:List<FileNode> = tree):FileNode?{for(node in nodes){if(node.path==path)return node;find(path,node.children)?.let{return it}};return null}
@@ -87,16 +91,16 @@ class BatchTemplateTest {
     suspend fun open(){val action=command("source.templates");assertNull(action.reason);action.run();kotlinx.coroutines.yield();repeat(500){if(model.catalog?.capture?.path==path&&model.current(workspace,model.catalog!!.capture)&&!model.busy)return;kotlinx.coroutines.delay(20)};error(model.notice)}
     suspend fun choose(id:String){model.prepare(workspace,model.catalog!!.entries.single{it.id==id})}
     fun complete(value:String,uppercase:String)=source.substring(0,first)+"#0:1:2024:012345:$value|$value|$uppercase #1:2:2024:012345:$value|$value|$uppercase"+source.substring(second+3)
-    open();val catalog=model.catalog ?: error(model.notice);assertNotNull(catalog.capture.carets);assertEquals("python",catalog.language);assertEquals(debugHash(project.text),org.json.JSONObject(catalog.sourceContext!!).getJSONObject("source_hashes").getString("project.md"))
-    choose("workspace.batch-context");val originalPreview=model.reviewed?.plan?.completeSource ?: error(model.notice);assertEquals(source,buffer.text);assertTrue(model.notice,model.apply(workspace));assertEquals(originalPreview,buffer.text);assertTrue(buffer.text.contains("#0:1:2024:012345:old|old|OLD #1:2:2024:012345:two|two|TWO"));assertNotNull(buffer.snippets.parallel)
-    assertTrue(buffer.snippets.inputParallel("ßa"));val typed=complete("ßa","SSA");assertEquals(typed,buffer.text)
+    open();val catalog=model.catalog ?: error(model.notice);assertNotNull(catalog.capture.carets);assertEquals("python",catalog.language);assertEquals(listOf(2,3),catalog.capture.supportedPrograms);assertEquals(debugHash(project.text),org.json.JSONObject(catalog.sourceContext!!).getJSONObject("source_hashes").getString("project.md"))
+    choose("workspace.batch-context");val originalPreview=model.reviewed?.plan?.completeSource ?: error(model.notice);assertEquals(2,model.reviewed!!.plan.batch!!.expansions.flatMap{it.fields}.count{it.transform?.v3!=null});assertEquals(source,buffer.text);val accepted=model.apply(workspace);assertTrue(model.notice,accepted);assertEquals(originalPreview,buffer.text);assertTrue(buffer.text.contains(if(program3)"#0:1:2024:012345:old|old|oXX #1:2:2024:012345:two|two|tXX" else "#0:1:2024:012345:old|old|OLD #1:2:2024:012345:two|two|TWO"));assertNotNull(buffer.snippets.parallel)
+    assertTrue(buffer.snippets.inputParallel("ßa"));val typed=complete("ßa",if(program3)"ßX" else "SSA");assertEquals(typed,buffer.text)
     val beforeMove=buffer.multiRanges;command("editor.snippetNext").run();assertNotEquals(beforeMove,buffer.multiRanges);command("editor.snippetPrevious").run();assertEquals(listOf(2,2),buffer.multiRanges.map{it.to-it.from})
-    open();choose("workspace.batch-nested");assertNotNull(model.notice,model.reviewed?.plan?.batch);assertTrue(model.notice,model.apply(workspace));val nested=complete("kid-kid","KID-KID");assertEquals(nested,buffer.text)
-    assertTrue(buffer.snippets.inputParallel("ßa"));val nestedTyped=complete("ßa-ßa","SSA-SSA");assertEquals(nestedTyped,buffer.text)
+    open();choose("workspace.batch-nested");assertNotNull(model.notice,model.reviewed?.plan?.batch);val nestedAccepted=model.apply(workspace);assertTrue(model.notice,nestedAccepted);val nested=complete("kid-kid",if(program3)"kXX-kXX" else "KID-KID");assertEquals(nested,buffer.text)
+    assertTrue(buffer.snippets.inputParallel("ßa"));val nestedTyped=complete("ßa-ßa",if(program3)"ßX-ßX" else "SSA-SSA");assertEquals(nestedTyped,buffer.text)
     for(expected in listOf(nested,typed,originalPreview,source)){command("editor.undo").run();assertEquals(expected,buffer.text)}
     for(expected in listOf(originalPreview,typed,nested,nestedTyped)){command("editor.redo").run();assertEquals(expected,buffer.text)}
     repeat(4){command("editor.undo").run()};assertEquals(source,buffer.text)
-    assertTrue(buffer.selectMultiple(ranges,source));val beforeClipboard=reads;open();choose("workspace.clipboard");assertEquals(beforeClipboard+1,reads);assertNotNull(model.notice,model.reviewed?.plan?.batch);assertTrue(model.notice,model.apply(workspace));assertEquals(beforeClipboard+1,reads);assertEquals(source.replaceRange(second,second+3,"fallback").replaceRange(first,first+3,"fallback"),buffer.text);command("editor.undo").run();assertEquals(source,buffer.text)
+    assertTrue(buffer.selectMultiple(ranges,source));val beforeClipboard=reads;open();choose("workspace.clipboard");assertEquals(beforeClipboard+1,reads);assertNotNull(model.notice,model.reviewed?.plan?.batch);val deniedAccepted=model.apply(workspace);assertTrue(model.notice,deniedAccepted);assertEquals(beforeClipboard+1,reads);assertEquals(source.replaceRange(second,second+3,"fallback").replaceRange(first,first+3,"fallback"),buffer.text);command("editor.undo").run();assertEquals(source,buffer.text)
     assertTrue(buffer.selectMultiple(ranges,source));open();choose("workspace.batch-context");assertNotNull(model.notice,model.reviewed);assertTrue(buffer.selectMultiple(listOf(ranges[0],NativeSourceEdit(second+3,second+3,"")),source));assertFalse(model.apply(workspace));assertEquals(source,buffer.text)
     assertTrue(buffer.selectMultiple(ranges,source));open();choose("workspace.batch-context");assertNotNull(model.notice,model.reviewed)
     val heldMultiRevision=buffer.multiSelectionRevision;val heldSourceRevision=buffer.sourceRevision;val heldPrimary=state.selection
@@ -116,5 +120,12 @@ class BatchTemplateTest {
 The generated browser policy/view/entry-reader selection passed 34 checks, and the full generated web typecheck passed. The separate rendered `scripts/test-embedded-templates-browser.py --batch` then passed through the real visible catalog/Preview/Apply paths for both code fence and dirty reused fragment, including nested Unicode mirrors, field menu navigation, complete group Undo/Redo and a held Apply refused after only the secondary selection moved. Its final log is `target/template-batch-browser-actual.log`. Earlier bounded fixture failures are retained separately; the final path uses the attached editor selection constructor and explicitly selects fields before nested replacement.
 
 Swift focused template checks ran 11 passes plus one expected opt-in skip; Android focused template XML ran 12 passes plus one expected opt-in skip. The exact actual receipts are `target/native-template-smoke/apple-batch-last.json` (truthful XCTest console producer/log hash) and `target/native-template-smoke/android-batch-last.xml` (producer XML), each exactly one case with zero skips/failures. The final native receipts also cover return-to-equal secondary-roster refusal without changing source identity/revision; the separate multi-selection stamp is captured by the Android template adapter.
+
+
+## Executed negotiated program modes
+
+On 2026-11-18 both `--program3` exact cases passed with zero skips or failures: mounted Mac 3.223 seconds and Android controller 1.250 seconds (suite 1.253). They assert the captured list and returned program version, then require actual lookbehind/Unicode-property edits, complete nested history, denied clipboard reuse and returned-roster refusal. Ordinary `--batch` compatibility replays also passed under the new default policy: Mac 1.019 seconds and Android case 0.922 seconds (suite 0.924).
+
+Distinct `apple-template3-last.json` and `android-template3-last.xml` receipts and matching logs live in `target/native-template-smoke/`; the ordinary replays were copied to `apple-template3-compatibility.json` and `android-template3-compatibility.xml`. The Mac receipts truthfully identify XCTest console and its log hash. Android producer XML shows exactly one executed case per mode, zero skips/errors/failures. The earlier Android failure is retained separately; structural opcode value equality fixed the production refusal without removing freshness checks. Physical input, accessibility, device IME and iOS runtime acceptance remain unverified.
 
 </ui:doc>

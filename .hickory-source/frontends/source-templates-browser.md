@@ -20,6 +20,8 @@ A template snapshot captures the exact authored source and converts the visible 
 
 A multiple-selection reading captures the complete ordered authored roster and primary selection. If a live template group has coincident logical carets, read its immutable peer selections instead of the widget's merged display selection. Retain that exact group and editor intent through every asynchronous read. The shared engine prepares all rows against one compiler graph; the adapter never splits one choice into independent provider requests.
 
+Capture the immutable supported program list beside the source lease, then require the same echo and reject each unnegotiated field before reader conversion. Whole-batch raw metadata is metered before a v3 reader can adopt another VM; replay support alone never widens a proposal. The generated focused checks and actual negotiated program paths below have passed.
+
 <ui:copy id="source-templates-browser-capture">
 import {EditorView} from '@codemirror/view';
 import {EditorState} from '@codemirror/state';
@@ -30,10 +32,9 @@ import {utf16ToPosition} from '../lsp/positions';
 import type {CompletionItem} from '../lsp/client';
 import {readCompletionAcceptance} from '../lsp/completionAcceptance';
 import {planCompletion,type CompletionDraft} from './CompletionPlan';
-import {completionExpansion,type SnippetField} from './SnippetExpansion';
-import {snippetMetadataCost} from './SnippetSession';
+import {completionExpansion} from './SnippetExpansion';
 import {parallelSelections,planParallelSnippet,type ParallelSnippet,type ParallelExpansion,type ParallelSnippetChange} from './ParallelSnippet';
-import type {SnippetTransformBudget} from './SnippetTransform';
+import {supportedSnippetTransformPrograms,type SnippetTransformBudget} from './SnippetTransform';
 import {captureSnippetVariables,captureSnippetClipboard,type SnippetVariableSnapshot} from './SnippetContext';
 import {readFrozenEntrySelection} from './WorkspaceEntrySelection';
 import {acceptSourceCompletion} from './SourceCompletion';
@@ -102,7 +103,7 @@ async function resolveTemplateCatalog(snapshot:TemplateSnapshot,provider:Templat
 
 export function captureTemplateEditor(editor:TemplateEditor):TemplateSnapshot {
  const {buffer,buffers,view}=editor,file=buffer.file,path=file.path,namespace=buffers.workspace,revision=buffer.sourceRevision,doc=view.state.doc,selection=view.state.selection,interactionNow=editor.interaction,mounted=editor.mounted,interaction=interactionNow(),snippet=readSourceSnippet(view),source=authoredSource(view.state),intent=readSourceEditorIntent(view.state),parallel=readParallelSourceSnippet(view.state),carets=capturedTemplateCarets(view,source,parallel),contributors=captureTemplateContributors(editor);
- const context=Object.freeze({version:2 as const,path,source,selection:Object.freeze({from:authoredOffset(view.state,selection.main.from),to:authoredOffset(view.state,selection.main.to)}),variable_context:captureSnippetVariables(),reading_context:contributors.context,transform_program_versions:Object.freeze([2]),...(carets?{carets}:{})});
+ const context=Object.freeze({version:2 as const,path,source,selection:Object.freeze({from:authoredOffset(view.state,selection.main.from),to:authoredOffset(view.state,selection.main.to)}),variable_context:captureSnippetVariables(),reading_context:contributors.context,transform_program_versions:Object.freeze([...supportedSnippetTransformPrograms]),...(carets?{carets}:{})});
  const current=(writable=false)=>contributors.current()&&!!namespace&&buffers.workspace===namespace&&buffer.namespace===namespace&&buffers.values.get(path)===buffer&&buffer.file===file&&file.path===path&&buffer.sourceRevision===revision&&buffer.text===source&&mounted()&&view.dom.isConnected&&view.state.doc===doc&&view.state.selection.eq(selection)&&interactionNow()===interaction&&readSourceSnippet(view)===snippet&&readParallelSourceSnippet(view.state)===parallel&&readSourceEditorIntent(view.state)===intent&&(!writable||!buffer.readonly&&!buffer.saving&&!buffer.resourceDeleted&&!view.composing&&!view.state.readOnly&&view.state.facet(EditorView.editable)&&(carets?!!intent&&view.state.facet(EditorState.allowMultipleSelections):selection.ranges.length===1));
  if(!current())throw Error('The original source editor is unavailable. Reopen templates from its current editor.');
  const entrySelection=editor.entrySelection??(()=>readFrozenEntrySelection(()=>request('GET','/api/workspace/entry'),{workspace:buffers.workspaceId,namespace:namespace!,current:()=>current()}));
@@ -138,7 +139,7 @@ are never copied. The existing completion planner checks UTF-16 ranges and field
 ancestry. Applying then reuses the editor's snippet transactions, mirrors, nesting
 and undo history. An obsolete read produces no partial insertion.
 
-The preview model distinguishes one insertion from a complete caret group. Preflight aggregate text, field and metadata capacity before defensively copying any row; share transform validation work across all rows. Use the pure nested parallel planner before showing the preview, retain its complete source and typed edits, and require fresh reviewed equality before the existing one-transaction source reflection. A partial or foreign roster, unsupported continuation or retired intent refuses the whole action. The new focused cases below await execution; native batch adapters and real host flows remain separate acceptance.
+The preview model distinguishes one insertion from a complete caret group. Preflight aggregate text, field and metadata capacity before defensively copying any row; share transform validation work across all rows. Use the pure nested parallel planner before showing the preview, retain its complete source and typed edits, and require fresh reviewed equality before the existing one-transaction source reflection. A partial or foreign roster, unsupported continuation or retired intent refuses the whole action. The focused cases below passed on the generated snapshot; the separate actual flows verify the adapters rather than treating these model checks as UI evidence.
 
 <ui:copy id="source-templates-browser-apply">
 function freezeTemplateData<T>(value:T):T{const pending:object[]=[];if(value&&typeof value==='object')pending.push(value);const seen=new WeakSet<object>();while(pending.length){const next=pending.pop()!;if(seen.has(next))continue;seen.add(next);for(const child of Object.values(next))if(child&&typeof child==='object')pending.push(child);Object.freeze(next);}return value;}
@@ -146,15 +147,34 @@ interface TemplatePreviewBase {provider:TemplateProvider;snapshot:TemplateSnapsh
 export interface SingleTemplatePreview extends TemplatePreviewBase {kind:'single';item:CompletionItem;draft:CompletionDraft}
 export interface BatchTemplatePreview extends TemplatePreviewBase {kind:'batch';items:readonly CompletionItem[];expansions:readonly ParallelExpansion[];plan:Readonly<ParallelSnippetChange>}
 export type TemplatePreview=SingleTemplatePreview|BatchTemplatePreview;
+interface TemplateMetadataMeter {bytes:number;nodes:number}
+function templateMetadataCharge(meter:TemplateMetadataMeter,bytes:number):void {
+ if(!Number.isSafeInteger(bytes)||bytes<0||bytes>1048576-meter.bytes)throw Error('The complete template metadata is too large to preview safely.');meter.bytes+=bytes;
+}
+function templateProgramJSONCost(value:unknown,meter:TemplateMetadataMeter,depth=0):void {
+ if(++meter.nodes>1048576||depth>256)throw Error('The complete template program exceeds its interactive metadata budget.');
+ const string=(text:string)=>{templateMetadataCharge(meter,2);for(let at=0;at<text.length;at++){const unit=text.charCodeAt(at);if(unit<32)templateMetadataCharge(meter,[8,9,10,12,13].includes(unit)?2:6);else if(unit===34||unit===92)templateMetadataCharge(meter,2);else if(unit<128)templateMetadataCharge(meter,1);else if(unit<2048)templateMetadataCharge(meter,2);else if(unit>=0xd800&&unit<=0xdbff){const low=text.charCodeAt(++at);if(!(low>=0xdc00&&low<=0xdfff))throw Error('Malformed template program text.');templateMetadataCharge(meter,4);}else{if(unit>=0xdc00&&unit<=0xdfff)throw Error('Malformed template program text.');templateMetadataCharge(meter,3);}}};
+ if(value===null){templateMetadataCharge(meter,4);return;}
+ if(typeof value==='string'){string(value);return;}
+ if(typeof value==='boolean'){templateMetadataCharge(meter,value?4:5);return;}
+ if(typeof value==='number'&&Number.isFinite(value)){templateMetadataCharge(meter,String(value).length);return;}
+ if(Array.isArray(value)){if(value.length>1048576-meter.nodes)throw Error('The complete template program contains too many metadata values.');templateMetadataCharge(meter,2+Math.max(0,value.length-1));for(const item of value)templateProgramJSONCost(item,meter,depth+1);return;}
+ if(value&&typeof value==='object'){const keys=Object.keys(value);if(keys.length>16)throw Error('Malformed template program fields.');templateMetadataCharge(meter,2+Math.max(0,keys.length-1));for(const key of keys){string(key);templateMetadataCharge(meter,1);templateProgramJSONCost((value as Record<string,unknown>)[key],meter,depth+1);}return;}
+ throw Error('Malformed template program metadata.');
+}
+function templateBatchMetadataCost(fields:unknown[],meter:TemplateMetadataMeter):void {
+ for(const raw of fields){if(!raw||typeof raw!=='object'||Array.isArray(raw))throw Error('Malformed template field metadata.');const field=raw as {choices?:unknown;transform?:unknown};if(!Array.isArray(field.choices)||field.choices.length>4096)throw Error('Malformed or excessive template choice metadata.');templateMetadataCharge(meter,64+32*field.choices.length);for(const choice of field.choices){if(typeof choice!=='string'||choice.length>1048576-meter.bytes)throw Error('The complete template choice metadata is too large to preview safely.');templateMetadataCharge(meter,choice.length?new TextEncoder().encode(choice).length:0);}if(field.transform!=null)templateProgramJSONCost(field.transform,meter);}
+}
+
 function templateTransformConsumers(fields:unknown,programs:readonly number[]):void {
  if(!Array.isArray(fields))throw Error('Malformed template fields.');for(const field of fields){if(!field||typeof field!=='object')throw Error('Malformed template field.');const transform=(field as {transform?:unknown}).transform;if(transform==null)continue;if(typeof transform!=='object'||Array.isArray(transform)||!programs.includes((transform as {version?:unknown}).version as number))throw Error('A template transform was not accepted by this source snapshot.');}
 }
 function batchTemplateExpansion(row:Record<string,unknown>,snapshot:TemplateSnapshot,entry:TemplateEntry):{items:readonly CompletionItem[];expansions:readonly ParallelExpansion[];plan:Readonly<ParallelSnippetChange>}{
  const carets=snapshot.context.carets;if(!carets||Object.hasOwn(row,'snippet')||Object.hasOwn(row,'replacement')||!Array.isArray(row.expansions)||row.expansions.length!==carets.selections.length)throw Error('The provider did not return one complete template expansion roster.');
- let textBytes=0,syntaxBytes=0,metadata=0,fieldCount=0;const encoder=new TextEncoder(),programs=snapshot.context.transform_program_versions??[2];
+ let textBytes=0,syntaxBytes=0,fieldCount=0;const metadata:TemplateMetadataMeter={bytes:0,nodes:0};const encoder=new TextEncoder(),programs=snapshot.context.transform_program_versions??[2];
  const observed=row.expansions.map((raw,index)=>{if(!raw||typeof raw!=='object'||Array.isArray(raw)||Object.keys(raw).length!==3||!Object.hasOwn(raw,'selection')||!Object.hasOwn(raw,'replacement')||!Object.hasOwn(raw,'snippet'))throw Error('Malformed template caret expansion.');const value=raw as Record<string,unknown>,selection=carets.selections[index];if(!exactSelection(value.selection,selection)||!exactSelection(value.replacement,selection))throw Error('A template expansion targets another original caret.');
   const snippet=value.snippet as {version?:unknown;syntax?:unknown;text?:unknown;fields?:unknown}|null;if(!snippet||![1,2].includes(snippet.version as number)||typeof snippet.syntax!=='string'||typeof snippet.text!=='string'||!Array.isArray(snippet.fields)||!snippet.fields.length||snippet.fields.length>4096)throw Error('Template expansion is unavailable.');
-  if(snippet.syntax.length>262144||snippet.text.length>1048576-textBytes)throw Error('The complete template expansion is too large to preview.');syntaxBytes+=encoder.encode(snippet.syntax).length;textBytes+=encoder.encode(snippet.text).length;fieldCount+=snippet.fields.length;if(fieldCount>4096)throw Error('The complete template has too many fields to preview.');templateTransformConsumers(snippet.fields,programs);const cost=snippetMetadataCost(snippet.fields as SnippetField[]);if(cost===null)throw Error('Malformed or excessive template metadata.');metadata+=cost;if(textBytes>1048576||syntaxBytes>8*1048576||fieldCount>4096||metadata>1048576)throw Error('The complete template expansion is too large to preview.');return {selection,snippet:{version:snippet.version as 1|2,syntax:snippet.syntax,text:snippet.text,fields:snippet.fields}};});
+  if(snippet.syntax.length>262144||snippet.text.length>1048576-textBytes)throw Error('The complete template expansion is too large to preview.');syntaxBytes+=encoder.encode(snippet.syntax).length;textBytes+=encoder.encode(snippet.text).length;fieldCount+=snippet.fields.length;if(fieldCount>4096)throw Error('The complete template has too many fields to preview.');templateTransformConsumers(snippet.fields,programs);templateBatchMetadataCost(snippet.fields,metadata);if(textBytes>1048576||syntaxBytes>8*1048576||fieldCount>4096||metadata.bytes>1048576)throw Error('The complete template expansion is too large to preview.');return {selection,snippet:{version:snippet.version as 1|2,syntax:snippet.syntax,text:snippet.text,fields:snippet.fields}};});
  const budget:SnippetTransformBudget={work:0};const items:CompletionItem[]=[],expansions:ParallelExpansion[]=[];
  for(const {selection,snippet}of observed){const item:CompletionItem={label:entry.label,insertTextFormat:2,insertText:snippet.syntax,data:{hickory_snippet:snippet}};const decoded=completionExpansion(item,budget);if(!decoded?.fields)throw Error('A template caret has no validated field expansion.');const fields=decoded.fields.map(field=>({...field,choices:[...field.choices]}));item.data={hickory_snippet:{version:snippet.version,syntax:snippet.syntax,text:decoded.text,fields}};items.push(freezeTemplateData(item));expansions.push(freezeTemplateData({from:selection.from,to:selection.to,text:decoded.text,fields}));}
  const plan=planParallelSnippet(snapshot.context.source,expansions,carets.primary,snapshot.parallel??null);if(!plan)throw Error('The complete template group cannot continue these original selections. No code changed.');return freezeTemplateData({items,expansions,plan});
@@ -257,6 +277,8 @@ focused editor tests; a catalog menu and actual shared engine still need their
 own connected acceptance before this feature is complete.
 
 <ui:copy id="source-templates-browser-witness">
+import formats3 from '../../../simple-contract/snippet-regex-format-cases.json';
+import * as regex3 from './SnippetTransformV3';
 import {afterEach,beforeAll,expect,it,vi} from 'vitest';
 import {waitFor} from '@testing-library/react';
 import {EditorState,EditorSelection,StateEffect} from '@codemirror/state';
@@ -353,8 +375,23 @@ it('keeps one clipboard reading and original clock seed for the whole caret requ
  const catalog=(await readTemplateCatalog(f.snapshot,f.provider)).catalog;expect(read).not.toHaveBeenCalled();const preview=await prepareTemplate(f.snapshot,catalog,'assign',f.provider);expect(read).toHaveBeenCalledTimes(1);await applyTemplate(preview,()=>true,()=>{});expect(read).toHaveBeenCalledTimes(1);expect(f.buffer.text).toBe('fallback fallback');expect((contexts[0] as {clock:unknown}).clock).toEqual((contexts[1] as {clock:unknown}).clock);expect((contexts[0] as {random_hex:unknown}).random_hex).toEqual((contexts[1] as {random_hex:unknown}).random_hex);expect(contexts[1]).toEqual(contexts[2]);expect(undo(f.view)).toBe(true);expect(f.buffer.text).toBe('old ');
 });
 it('refuses foreign or partial caret arrays and same-selection stale intents without source edits',async()=>{
- for(const mode of['partial','primary','reading','program','intent'] as const){const f=await batchFixture(),catalog=(await readTemplateCatalog(f.snapshot,f.provider)).catalog;if(mode==='intent'){const preview=await prepareTemplate(f.snapshot,catalog,'assign',f.provider),selected=f.view.state.selection;f.view.dispatch({selection:selected});await expect(applyTemplate(preview,()=>true,()=>{})).rejects.toThrow('obsolete');}else{const original=await f.provider.plan({...f.snapshot.context,catalog_fingerprint:catalog.catalog_fingerprint,template_id:'assign'}) as Record<string,any>;if(mode==='partial')original.expansions.pop();if(mode==='primary')original.carets={...original.carets,primary:0};if(mode==='reading')original.readings[1].context.fingerprint='f'.repeat(64);if(mode==='program')original.expansions[1].snippet.fields[0].transform={version:3};vi.mocked(f.provider.plan).mockResolvedValue(original);await expect(prepareTemplate(f.snapshot,catalog,'assign',f.provider)).rejects.toThrow();}expect(f.buffer.text).toBe('left right');}
+ for(const mode of['partial','primary','reading','program','intent'] as const){const f=await batchFixture(),catalog=(await readTemplateCatalog(f.snapshot,f.provider)).catalog;if(mode==='intent'){const preview=await prepareTemplate(f.snapshot,catalog,'assign',f.provider),selected=f.view.state.selection;f.view.dispatch({selection:selected});await expect(applyTemplate(preview,()=>true,()=>{})).rejects.toThrow('obsolete');}else{const original=await f.provider.plan({...f.snapshot.context,catalog_fingerprint:catalog.catalog_fingerprint,template_id:'assign'}) as Record<string,any>;if(mode==='partial')original.expansions.pop();if(mode==='primary')original.carets={...original.carets,primary:0};if(mode==='reading')original.readings[1].context.fingerprint='f'.repeat(64);if(mode==='program')original.expansions[1].snippet.fields[0].transform={version:99};vi.mocked(f.provider.plan).mockResolvedValue(original);await expect(prepareTemplate(f.snapshot,catalog,'assign',f.provider)).rejects.toThrow();}expect(f.buffer.text).toBe('left right');}
 });
+it('pins template program policy and refuses unnegotiated v3 before reader conversion',async()=>{
+ const f=await batchFixture();expect(f.snapshot.context.transform_program_versions).toEqual([2,3]);
+ const legacy={...f.snapshot,context:{...f.snapshot.context,transform_program_versions:Object.freeze([2])}};
+ const reading=await readTemplateCatalog(legacy,f.provider),raw=await f.provider.plan({...legacy.context,catalog_fingerprint:reading.catalog.catalog_fingerprint,template_id:'assign'}) as Record<string,any>;
+ raw.expansions[1].snippet.fields[0].transform={version:3};vi.mocked(f.provider.plan).mockResolvedValue(raw);const clone=vi.spyOn(globalThis,'structuredClone');try{await expect(prepareTemplate(legacy,reading.catalog,'assign',f.provider)).rejects.toThrow('not accepted');expect(clone).not.toHaveBeenCalled();}finally{clone.mockRestore();}
+ expect(f.buffer.text).toBe('left right');
+ const normal=await batchFixture();vi.mocked(normal.provider.catalog).mockImplementationOnce(async context=>({...await f.provider.catalog(context) as Record<string,unknown>,transform_program_versions:[2]}));await expect(readTemplateCatalog(normal.snapshot,normal.provider)).rejects.toThrow('versions changed');
+});
+
+it('admits aggregate raw program metadata before constructing any v3 VM',async()=>{
+ const f=await batchFixture(),catalog=(await readTemplateCatalog(f.snapshot,f.provider)).catalog,raw=await f.provider.plan({...f.snapshot.context,catalog_fingerprint:catalog.catalog_fingerprint,template_id:'assign'}) as Record<string,any>;
+ for(const row of raw.expansions){row.snippet.fields[0].choices=[row.snippet.text.slice(row.snippet.fields[0].from,row.snippet.fields[0].to),...Array(3999).fill('x'.repeat(128))];row.snippet.fields[1].transform=structuredClone(formats3[0].program);}
+ vi.mocked(f.provider.plan).mockResolvedValue(raw);const reader=vi.spyOn(regex3,'readRegexV3'),clone=vi.spyOn(globalThis,'structuredClone');try{await expect(prepareTemplate(f.snapshot,catalog,'assign',f.provider)).rejects.toThrow('metadata');expect(reader).not.toHaveBeenCalled();expect(clone).not.toHaveBeenCalled();expect(f.buffer.text).toBe('left right');}finally{reader.mockRestore();clone.mockRestore();}
+});
+
 it('preflights the complete expansion metadata before copying any row',async()=>{
  const f=await batchFixture(),catalog=(await readTemplateCatalog(f.snapshot,f.provider)).catalog,original=await f.provider.plan({...f.snapshot.context,catalog_fingerprint:catalog.catalog_fingerprint,template_id:'assign'}) as Record<string,any>;original.expansions[1].snippet.fields[0].choices=Array(4097).fill('x');vi.mocked(f.provider.plan).mockResolvedValue(original);const clone=vi.spyOn(globalThis,'structuredClone');await expect(prepareTemplate(f.snapshot,catalog,'assign',f.provider)).rejects.toThrow();expect(clone).not.toHaveBeenCalled();clone.mockRestore();expect(f.buffer.text).toBe('left right');
 });
@@ -510,5 +547,12 @@ establish human hardware input, assistive-technology acceptance, other browser
 engines, full transforms, multiple-caret templates or mirrored native IME.
 Templates remain data-only draft edits; they do not establish semantic generation
 correctness or authorize saving or executing code.
+
+
+## Verified negotiated program paths
+
+On 2026-11-18 the generated focused selection passed 38 checks: 28 template policy checks, four floating-view checks and six current shared entry-reader checks. Full generated web typechecking passed with zero diagnostics. The captured-policy, intentional legacy `[2]` refusal and aggregate raw metadata-before-VM checks executed; logs are `target/template-program3-browser-focused.log` and `target/template-program3-browser-tsc.log`.
+
+The fresh-engine rendered `scripts/test-embedded-templates-browser.py --program3` passed for a code fence and a dirty reused fragment, including lookbehind/Unicode letter properties, nested computed mirrors, distinct cursor variables under one graph/clock/seed, source Undo/Redo and held secondary-selection refusal. The ordinary `--batch` uppercase/variable path also passed under the new default policy. Final logs are `target/template-program3-browser-actual.log` and `target/template-program3-browser-compatibility.log`. Saved bytes and editor geometry/identity remained unchanged; no generated output was materialized. Physical input and accessibility acceptance remain unverified.
 
 </ui:doc>

@@ -5,6 +5,8 @@ For maintainers connecting captured compiler language contexts to the source edi
 
 The script checks source bytes, linked typing, Undo/Redo, editor identity and geometry. Its opt-in `--batch` path establishes two native selections, then uses the same visible catalog, Preview and Apply controls. It requires distinct cursor variables under one clock and seed, nested continuation of both original mirror groups and refusal after only the secondary selection changes; it does not apply through the selection adapter. The shared service and controller model checks separately cover mixed-language ambiguity, stale contributor leases, readonly contributors, missing inputs and newly generated ownership. Those checks do not establish physical input or accessibility acceptance. Native embedded-context paths and iOS runtime remain separate acceptance until executed.
 
+The separate --program3 browser mode uses lookbehind and Unicode letter properties through the same visible Preview/Apply, linked typing and history paths. Correct initial and edited text must establish usable version-3 behavior; a capability echo alone cannot pass. This mode and the ordinary batch compatibility replay both passed on the fresh negotiated engine; earlier receipts retain their original program-policy scope.
+
 <ui:copy id="embedded-template-browser-runner">
 """Drive embedded templates through the real source editor and shared compiler."""
 import importlib.util,json,os,socket,sys,tempfile
@@ -31,7 +33,7 @@ def exercise(driver,root,path,source):
  assert driver.act('editor-is-retained',path=path);assert driver.act('editor-size',path=path)==size
  return typed
 
-def exercise_batch(driver,root,path,source):
+def exercise_batch(driver,root,path,source,program3=False):
  import re
  driver.act('open',path=path);driver.act('remember-editor',path=path);size=driver.act('editor-size',path=path)
  first=source.index('old');second=source.index('two',first+3);ranges=[{'from':first,'to':first+3},{'from':second,'to':second+3}]
@@ -40,16 +42,16 @@ def exercise_batch(driver,root,path,source):
  preview=driver.act('templates-preview',label='Batch context');assert '2 captured selections' in preview,preview;assert driver.act('construction-source',path=path)==source
  driver.act('templates-apply',path=path);after=driver.act('construction-source',path=path)
  selected=after[first:len(after)-(len(source)-second-3)]
- match=re.fullmatch(r'#0:1:(\d{4}):([0-9a-f]{6}):old\|old\|OLD #1:2:\1:\2:two\|two\|TWO',selected);assert match,selected
+ match=re.fullmatch(r'#0:1:(\d{4}):([0-9a-f]{6}):old\|old\|'+('oXX' if program3 else 'OLD')+r' #1:2:\1:\2:two\|two\|'+('tXX' if program3 else 'TWO'),selected);assert match,selected
  year,seed=match.groups();prefix=lambda i:f'#{i}:{i+1}:{year}:{seed}:'
  def complete(value,upper):return source[:first]+prefix(0)+value+'|'+value+'|'+upper+' '+prefix(1)+value+'|'+value+'|'+upper+source[second+3:]
- driver.act('type-source-selection',path=path,text='ßa');typed=complete('ßa','SSA');assert driver.act('construction-source',path=path)==typed
+ driver.act('type-source-selection',path=path,text='ßa');typed=complete('ßa','ßX' if program3 else 'SSA');assert driver.act('construction-source',path=path)==typed
  # Typing leaves collapsed carets. The existing field commands explicitly select both current fields before replacing them.
  driver.act('template-next');driver.act('template-previous');assert [row['to']-row['from'] for row in driver.act('editor-selections',path=path)['ranges']]==[2,2]
  # A second invocation must preserve the first group's mirrors and computed fields.
  driver.act('templates-open',path=path);nested_preview=driver.act('templates-preview',label='Batch nested');assert '2 captured selections' in nested_preview,nested_preview
- driver.act('templates-apply',path=path);nested=complete('kid-kid','KID-KID');assert driver.act('construction-source',path=path)==nested,driver.act('construction-source',path=path)
- driver.act('type-source-selection',path=path,text='ßa');nested_typed=complete('ßa-ßa','SSA-SSA');assert driver.act('construction-source',path=path)==nested_typed
+ driver.act('templates-apply',path=path);nested=complete('kid-kid','kXX-kXX' if program3 else 'KID-KID');assert driver.act('construction-source',path=path)==nested,driver.act('construction-source',path=path)
+ driver.act('type-source-selection',path=path,text='ßa');nested_typed=complete('ßa-ßa','ßX-ßX' if program3 else 'SSA-SSA');assert driver.act('construction-source',path=path)==nested_typed
  for expected in [nested,typed,after,source]:driver.act('undo',path=path);assert driver.act('construction-source',path=path)==expected
  for expected in [after,typed,nested,nested_typed]:driver.act('redo',path=path);assert driver.act('construction-source',path=path)==expected
  for _ in range(4):driver.act('undo',path=path)
@@ -62,22 +64,23 @@ def exercise_batch(driver,root,path,source):
  return source
 
 def main():
- batch='--batch' in sys.argv
+ program3='--program3' in sys.argv
+ batch='--batch' in sys.argv or program3
  with tempfile.TemporaryDirectory(prefix='embedded-template-browser-',dir=ROOT/'target') as temporary:
   folder=Path(temporary);root=folder/'workspace';root.mkdir();original=project();part=doc('<h:copy id="body">saved</h:copy>');code='Narrative\n\n```python\n'+('old two' if batch else 'old')+'\n```\n';(root/'project.md').write_text(original);(root/'part.md').write_text(part);(root/'notes.md').write_text(code)
-  (root/'.hickory').mkdir();(root/'.hickory/templates.json').write_text(json.dumps({'version':1,'templates':[{'id':'embedded.context','label':'Embedded context','description':'Compiler-bound comments and linked Unicode transforms','language':'python','syntax':'${LINE_COMMENT}${TM_FILENAME}|${1:${TM_SELECTED_TEXT}}|$1|${1/(.*)/${1:/upcase}/}$0'}, {'id':'batch.context','label':'Batch context','description':'One captured graph and clock for the complete caret roster','language':'python','syntax':'${LINE_COMMENT}${CURSOR_INDEX}:${CURSOR_NUMBER}:${CURRENT_YEAR}:${RANDOM_HEX}:${1:${TM_SELECTED_TEXT}}|$1|${1/(.*)/${1:/upcase}/}$0'}, {'id':'batch.nested','label':'Batch nested','description':'Continue each original outer mirror group','language':'python','syntax':'${1:kid}-$1$0'}]}))
+  (root/'.hickory').mkdir();(root/'.hickory/templates.json').write_text(json.dumps({'version':1,'templates':[{'id':'embedded.context','label':'Embedded context','description':'Compiler-bound comments and linked Unicode transforms','language':'python','syntax':'${LINE_COMMENT}${TM_FILENAME}|${1:${TM_SELECTED_TEXT}}|$1|${1/(.*)/${1:/upcase}/}$0'}, {'id':'batch.context','label':'Batch context','description':'One captured graph and clock for the complete caret roster','language':'python','syntax':(r'${LINE_COMMENT}${CURSOR_INDEX}:${CURSOR_NUMBER}:${CURRENT_YEAR}:${RANDOM_HEX}:${1:${TM_SELECTED_TEXT}}|$1|${1/(?<=\p{L})\p{L}/X/gu}$0' if program3 else '${LINE_COMMENT}${CURSOR_INDEX}:${CURSOR_NUMBER}:${CURRENT_YEAR}:${RANDOM_HEX}:${1:${TM_SELECTED_TEXT}}|$1|${1/(.*)/${1:/upcase}/}$0')}, {'id':'batch.nested','label':'Batch nested','description':'Continue each original outer mirror group','language':'python','syntax':'${1:kid}-$1$0'}]}))
   processes=[];driver=None
   try:
    with socket.socket() as reservation:reservation.bind(('127.0.0.1',0));port=reservation.getsockname()[1]
    env={**os.environ,'HICKORY_STATE_DIR':str(folder/'state')};ui=f'http://127.0.0.1:{port}';engine=fixture.start([os.environ.get('HICKORY_SIMPLE_TEST_ENGINE',str(ROOT/'target/source-edit-focus/debug/examples/engine_client')),str(root),'window',ui],env=env);processes.append(engine);backend=fixture.origin(engine)
    vite=fixture.start(['node','node_modules/vite/bin/vite.js','--config','vite.simple.config.ts','--host','127.0.0.1','--port',str(port),'--strictPort'],cwd=ROOT/'apps/web',env={**env,'HICKORY_API_ORIGIN':backend});processes.append(vite);driver=fixture.BrowserDriver(fixture.origin(vite)+'/simple.html')
    if batch:
-    exercise_batch(driver,root,'notes.md',code)
+    exercise_batch(driver,root,'notes.md',code,program3)
     driver.act('open',path='project.md');driver.act('construction-set-source',path='project.md',source=project('draft.py'))
-    driver.act('open',path='part.md');dirty_part=doc('<h:copy id="body">old two</h:copy>');driver.act('construction-set-source',path='part.md',source=dirty_part);exercise_batch(driver,root,'part.md',dirty_part)
+    driver.act('open',path='part.md');dirty_part=doc('<h:copy id="body">old two</h:copy>');driver.act('construction-set-source',path='part.md',source=dirty_part);exercise_batch(driver,root,'part.md',dirty_part,program3)
     for path,source in [('project.md',original),('part.md',part),('notes.md',code)]:assert (root/path).read_bytes()==source.encode(),path
     assert all(not(root/name).exists() for name in ['saved.py','draft.py','second.py','mixed.js','guide.md'])
-    print('PASS: real batch code-fence and dirty reused-fragment catalogs, complete visible Preview/Apply, distinct caret indices/values under one clock/seed/graph, nested Unicode computed mirrors, atomic group UndoRedo, stale secondary selection refusal, retained editor/geometry and unchanged source disks')
+    print('PASS '+('template3 lookbehind/Unicode-property' if program3 else 'batch')+': real batch code-fence and dirty reused-fragment catalogs, complete visible Preview/Apply, distinct caret indices/values under one clock/seed/graph, nested Unicode computed mirrors, atomic group UndoRedo, stale secondary selection refusal, retained editor/geometry and unchanged source disks')
     return
    exercise(driver,root,'notes.md',code)
    driver.act('open',path='project.md');dirty=project('draft.py');driver.act('construction-set-source',path='project.md',source=dirty);assert driver.act('construction-source',path='project.md')==dirty
@@ -190,4 +193,9 @@ class EmbeddedTemplateTest {
 }
 </ui:copy>
 <ui:file path="apps/android-simple/app/src/test/java/com/hickorydocs/simple/EmbeddedTemplateTest.kt"><ui:paste select="#embedded-template-android-witness"/></ui:file>
+
+## Executed negotiated browser reading
+
+On 2026-11-18 `scripts/test-embedded-templates-browser.py --program3` passed on the fresh engine, exercising real lookbehind and Unicode letter properties through both source contexts. The ordinary `--batch` mode also passed under the newly captured `[2,3]` policy, preserving uppercase transforms and existing variable behavior. The final logs are `target/template-program3-browser-actual.log` and `target/template-program3-browser-compatibility.log`; these complement the 38 generated browser policy/view/entry-reader passes and full web typecheck, rather than replacing the usable-path evidence with a capability echo.
+
 </ui:doc>

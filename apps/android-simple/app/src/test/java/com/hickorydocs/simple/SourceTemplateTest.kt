@@ -8,7 +8,7 @@ import kotlinx.coroutines.async
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 class SourceTemplateTest {
     private fun field(id:Int,index:Int,from:Int,to:Int)=JSONObject().put("id",id).put("parent",JSONObject.NULL).put("index",index).put("from",from).put("to",to).put("choices",JSONArray())
-    private fun observation(request:JSONObject)=JSONObject().put("version",1).put("template_protocol",request.optInt("version",1)).put("variable_context",request.opt("variable_context")?:JSONObject.NULL).put("source_files_modified",false).put("path",request.getString("path")).put("selection",JSONObject(request.getJSONObject("selection").toString())).put("source_hash",debugHash(request.getString("source"))).put("workspace_id","workspace").put("language","python").put("catalog_fingerprint","catalog").put("available",true).put("notices",JSONArray()).apply{if(request.has("reading_context")){put("transform_program_versions",JSONArray().put(2));put("source_context",JSONObject().put("version",1).put("scope","authored-source").put("language","python").put("languages",JSONArray().put("python")).put("targets",JSONArray().put(request.getString("path"))).put("reason",JSONObject.NULL).put("project_entry",request.getJSONObject("reading_context").opt("project_entry")?:JSONObject.NULL).put("source_hashes",JSONObject().put(request.getString("path"),debugHash(request.getString("source")))).put("graph_fingerprint","a".repeat(64)).put("fingerprint","b".repeat(64)))}}
+    private fun observation(request:JSONObject)=JSONObject().put("version",1).put("template_protocol",request.optInt("version",1)).put("variable_context",request.opt("variable_context")?:JSONObject.NULL).put("source_files_modified",false).put("path",request.getString("path")).put("selection",JSONObject(request.getJSONObject("selection").toString())).put("source_hash",debugHash(request.getString("source"))).put("workspace_id","workspace").put("language","python").put("catalog_fingerprint","catalog").put("available",true).put("notices",JSONArray()).apply{if(request.has("reading_context")){put("transform_program_versions",request.optJSONArray("transform_program_versions")?.let{JSONArray(it.toString())} ?: JSONArray().put(2));put("source_context",JSONObject().put("version",1).put("scope","authored-source").put("language","python").put("languages",JSONArray().put("python")).put("targets",JSONArray().put(request.getString("path"))).put("reason",JSONObject.NULL).put("project_entry",request.getJSONObject("reading_context").opt("project_entry")?:JSONObject.NULL).put("source_hashes",JSONObject().put(request.getString("path"),debugHash(request.getString("source")))).put("graph_fingerprint","a".repeat(64)).put("fingerprint","b".repeat(64)))}}
     private fun catalog(request:JSONObject)=observation(request).put("entries",JSONArray().put(JSONObject().put("id","pair").put("label","Pair").put("description","Two linked names").put("language","python").put("origin","workspace").put("available",true)))
     private fun plan(request:JSONObject,changed:Boolean=false)=observation(request).put("template_id","pair").put("origin","workspace").put("replacement",JSONObject(request.getJSONObject("selection").toString())).put("snippet",JSONObject().put("version",1).put("syntax",if(changed)"\${1:name} + \${1}\$0" else "\${1:name} + \$1\$0").put("text","name + name").put("fields",JSONArray().put(field(0,1,0,4)).put(field(1,1,7,11)).put(field(2,0,11,11))))
     private class Fixture(val workspace:Workspace,val buffer:DocumentBuffer,val model:SourceTemplatesModel,val calls:java.util.concurrent.atomic.AtomicInteger,val mode:java.util.concurrent.atomic.AtomicReference<String>,val entered:java.util.concurrent.CountDownLatch,val release:java.util.concurrent.CountDownLatch)
@@ -69,6 +69,20 @@ class SourceTemplateTest {
         }
         assertFalse(capture.matches(capture.copy(carets=JSONObject(capture.carets!!).put("primary",1).toString())))
     }
+    @Test fun immutableProgramPolicySurvivesCallerMutationAndRetiresForeignReplies(){
+        val input=mutableListOf(2,3);val capture=batchCapture().copy(programs=SourceTemplatePrograms.capture(input));input.clear()
+        assertEquals(listOf(2,3),capture.supportedPrograms);assertEquals(listOf(2,3),capture.copy().supportedPrograms)
+        val body=capture.body();assertTrue(templateArray(body.getJSONArray("transform_program_versions"))==listOf(2,3))
+        val raw=batchCatalog(capture);val reading=SourceTemplateCatalog.decode(raw,capture)
+        val substituted=JSONObject(raw.toString()).put("transform_program_versions",JSONArray().put(2));assertTrue(runCatching{SourceTemplateCatalog.decode(substituted,capture)}.isFailure)
+        val legacy=capture.copy(programs=SourceTemplatePrograms.legacy);assertFalse(capture.matches(legacy));val legacyCatalog=SourceTemplateCatalog.decode(batchCatalog(legacy),legacy);val bad=batchPlan(legacy)
+        bad.getJSONArray("expansions").getJSONObject(1).getJSONObject("snippet").getJSONArray("fields").getJSONObject(0).put("transform",JSONObject().put("version",3))
+        val failure=runCatching{SourceTemplatePlan.decode(bad,legacyCatalog,"pair")}.exceptionOrNull();assertNotNull(failure);assertTrue(failure!!.message.orEmpty().contains("not negotiated"))
+        for(versions in listOf(emptyList(),listOf(2,2),listOf(3,3),listOf(2,99)))assertTrue(runCatching{SourceTemplatePrograms.capture(versions)}.isFailure)
+        assertEquals("old two",reading.capture.source)
+    }
+    private fun templateArray(value:JSONArray)=(0 until value.length()).map{value.getInt(it)}
+
     @Test fun completeBatchPreflightRejectsAggregateOutputAndMetadataBeforeReaderMaterialization(){
         val capture=batchCapture();val reading=SourceTemplateCatalog.decode(batchCatalog(capture),capture)
         val output=batchPlan(capture);for(index in 0..1)output.getJSONArray("expansions").getJSONObject(index).getJSONObject("snippet").put("text","x".repeat(600000))

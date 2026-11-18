@@ -7,6 +7,8 @@ Normal mode verifies protocol 2 reusable templates; `--provider-context` selects
 
 A separate focused native protocol fixture can reuse `run_host(..., acceptance=(test_class, method, label))`. The explicit identifiers choose exactly one method, and the bounded label gives its retained log/report a separate address. This does not widen the native test filter or weaken the executed-case and producer-report checks; omitted overrides keep the existing template, embedded and provider modes unchanged.
 
+The separate --program3 mode declares a valid lookbehind/Unicode-property template and retains its exact native receipt under a distinct template3 label. The deliberately unavailable declaration now uses genuinely malformed syntax, preserving that negative case as valid lookbehind becomes supported. Existing fixture modes and the producer-report admission rules remain intact.
+
 <ui:copy id="native-template-fixture-prepare">
 #!/usr/bin/env python3
 """Focused actual-engine native source-template fixture and witnesses."""
@@ -35,7 +37,7 @@ def fixture_api():
     spec.loader.exec_module(module)
     return module
 
-def prepare(root, provider_context=False, embedded=False):
+def prepare(root, provider_context=False, embedded=False, program3=False):
     root.mkdir()
     (root / ".git").mkdir()
     (root / ".hickory").mkdir()
@@ -60,11 +62,11 @@ def prepare(root, provider_context=False, embedded=False):
         {"id": "workspace.context", "label": "Captured context and transform", "description": "Filename, frozen time/random and linked uppercase transform", "language": "python", "syntax": "${TM_FILENAME}|${CURRENT_YEAR}|${RANDOM_HEX}|${1:${TM_SELECTED_TEXT}}|$1|${1/(.*)/${1:/upcase}/}$0"},
         {"id": "workspace.clipboard", "label": "Demand clipboard", "description": "Clipboard is requested only while preparing this explicit choice", "language": "python", "syntax": "${CLIPBOARD:fallback}$0"},
         {"id": "workspace.unused-clipboard", "label": "Selected text before clipboard default", "description": "A used selected-text variable never reads its unused clipboard default", "language": "python", "syntax": "${TM_SELECTED_TEXT:${CLIPBOARD}}$0"},
-        {"id": "workspace.unsupported", "label": "Unsupported transform", "description": "An explicit unavailable transform", "language": "python", "syntax": "${1:old}${1/(?<=o)ld/x/}$0"},
+        {"id": "workspace.unsupported", "label": "Unsupported transform", "description": "An explicit unavailable transform", "language": "python", "syntax": "${1:old}${1/(?<=/x/}$0"},
     ]
     if embedded: entries.append({"id":"workspace.embedded","label":"Embedded context","description":"Compiler-bound language and linked transforms","language":"python","syntax":"${LINE_COMMENT}${TM_FILENAME}|${1:${TM_SELECTED_TEXT}}|$1|${1/(.*)/${1:/upcase}/}$0"})
     if embedded: entries.extend([
-        {"id":"workspace.batch-context","label":"Batch context","description":"One complete graph/clock snapshot with distinct cursor variables","language":"python","syntax":"${LINE_COMMENT}${CURSOR_INDEX}:${CURSOR_NUMBER}:${CURRENT_YEAR}:${RANDOM_HEX}:${1:${TM_SELECTED_TEXT}}|$1|${1/(.*)/${1:/upcase}/}$0"},
+        {"id":"workspace.batch-context","label":"Batch context","description":"One complete graph/clock snapshot with distinct cursor variables","language":"python","syntax":(r"${LINE_COMMENT}${CURSOR_INDEX}:${CURSOR_NUMBER}:${CURRENT_YEAR}:${RANDOM_HEX}:${1:${TM_SELECTED_TEXT}}|$1|${1/(?<=\p{L})\p{L}/X/gu}$0" if program3 else "${LINE_COMMENT}${CURSOR_INDEX}:${CURSOR_NUMBER}:${CURRENT_YEAR}:${RANDOM_HEX}:${1:${TM_SELECTED_TEXT}}|$1|${1/(.*)/${1:/upcase}/}$0")},
         {"id":"workspace.batch-nested","label":"Batch nested","description":"Continue every original outer mirror group","language":"python","syntax":"${1:kid}-$1$0"},
     ])
     (root / ".hickory/templates.json").write_text(json.dumps({"version": 1, "templates": entries}))
@@ -179,7 +181,9 @@ def main():
     parser.add_argument("--provider-context", action="store_true", help="Execute the exact native provider-completion context/transform/clipboard witness.")
     parser.add_argument("--embedded", action="store_true", help="Execute exact native code-fence/reused-fragment template acceptance.")
     parser.add_argument("--batch", action="store_true", help="Execute the exact complete multi-selection template group witness.")
+    parser.add_argument("--program3", action="store_true", help="Execute the exact multi-selection lookbehind/Unicode-property template witness.")
     args = parser.parse_args()
+    if args.program3: args.batch = True
     if args.batch and args.provider_context: parser.error("Choose one exact template or provider acceptance mode.")
     def interrupted(number, _frame):
         raise SystemExit(128 + number)
@@ -191,7 +195,8 @@ def main():
     with tempfile.TemporaryDirectory(prefix=f"hickory-native-{args.host}-templates-") as folder:
         temporary = Path(folder)
         workspace = temporary / "workspace"
-        prepare(workspace, args.provider_context, args.embedded or args.batch)
+        prepare(workspace, args.provider_context, args.embedded or args.batch, args.program3)
+        if args.program3: os.environ["HICKORY_NATIVE_TEMPLATE_PROGRAM3"] = "1"
         process = fixture.start([str(engine), str(workspace), "window", "http://127.0.0.1:1"], env={**os.environ, "HICKORY_STATE_DIR": str(temporary / "state")})
         try:
             origin = fixture.origin(process)
@@ -200,7 +205,7 @@ def main():
             if args.serve_only:
                 threading.Event().wait()
             else:
-                run_host(args.host, origin, workspace, temporary, fixture, args.provider_context, args.embedded or args.batch, acceptance=(("BatchTemplateTests", "testLiveCompleteTemplateGroupAndHistory", "batch") if args.host=="apple" else ("BatchTemplateTest", "liveCompleteTemplateGroupAndHistory", "batch")) if args.batch else None)
+                run_host(args.host, origin, workspace, temporary, fixture, args.provider_context, args.embedded or args.batch, acceptance=(("BatchTemplateTests", "testLiveCompleteTemplateGroupAndHistory", "template3" if args.program3 else "batch") if args.host=="apple" else ("BatchTemplateTest", "liveCompleteTemplateGroupAndHistory", "template3" if args.program3 else "batch")) if args.batch else None)
         finally:
             fixture.stop(process)
 
@@ -213,4 +218,7 @@ if __name__ == "__main__":
 On 2026-11-16 the maintained runner parsed, prepared an isolated workspace with the exact source/selection/catalog and distinct generated target, and required no Python project environment. Its canonical Android invocation passed exactly one real `SourceTemplateTest.liveNativeSourceTemplateCatalogAndHistory` receipt with zero skips, failures or errors (0.294 seconds of native test execution). That path included actual catalog/plan startup checks and the command/preview/Apply/history/refusal acceptance described in the [Android owning reading](../source-templates-android.md). A failed early fixture-root assertion was corrected to use the canonical workspace fingerprint; a display label never authorizes catalog mutation. Native failure output remained available, and the final successful run cleaned the owned service and workspace. Apple execution is tracked separately by its owner. Serving alone, geometry, physical input, device IME and accessibility are not certified by this fixture.
 
 <ui:file path="scripts/test-native-templates.py"><ui:paste select="#native-template-fixture-prepare"/><ui:paste select="#native-template-fixture-runtime"/></ui:file>
+
+The negotiated `--program3` mode and ordinary `--batch` compatibility replay both passed on 2026-11-18 through each native host with exact one-case, zero-skip receipts. Their distinct `template3-last` and `template3-compatibility` artifacts retain the producer evidence under `target/native-template-smoke/`; the [batch witness reading](../batch-template-host-acceptance.md) records the exact scope and times. Serving alone remains preparation, and physical input/accessibility/device IME are not certified by these controller/mounted tests.
+
 </ui:doc>

@@ -9,7 +9,7 @@ import Darwin
     func reply(_ source:String="value = 'old'\n")->([String:Any],[String:Any]) {
         let entry:[String:Any]=["id":"workspace.wrap","label":"Wrap selection","description":"Mirrored selected text","language":"python","origin":"workspace","available":true]
         var catalog:[String:Any]=["version":1,"template_protocol":1,"path":"main.py","selection":["from":9,"to":12],"source_hash":nativeSourceHash(source),"workspace_id":"fixture-workspace","language":"python","catalog_fingerprint":"catalog","available":true,"notices":[],"entries":[entry]]
-        catalog["transform_program_versions"]=[2];catalog["source_context"]=["version":1,"scope":"authored-source","language":"python","languages":["python"],"targets":["main.py"],"reason":NSNull(),"project_entry":NSNull(),"source_hashes":["main.py":nativeSourceHash(source)],"graph_fingerprint":String(repeating:"a",count:64),"fingerprint":String(repeating:"b",count:64)]
+        catalog["transform_program_versions"]=supportedSnippetTransformPrograms;catalog["source_context"]=["version":1,"scope":"authored-source","language":"python","languages":["python"],"targets":["main.py"],"reason":NSNull(),"project_entry":NSNull(),"source_hashes":["main.py":nativeSourceHash(source)],"graph_fingerprint":String(repeating:"a",count:64),"fingerprint":String(repeating:"b",count:64)]
         var plan=catalog;plan.removeValue(forKey:"entries");plan["template_id"]="workspace.wrap";plan["origin"]="workspace";plan["replacement"]=["from":9,"to":12]
         plan["snippet"]=["version":1,"syntax":"${1:${TM_SELECTED_TEXT}} + $1$0","text":"old + old","fields":[["id":0,"parent":NSNull(),"index":1,"from":0,"to":3,"choices":[]],["id":1,"parent":NSNull(),"index":1,"from":6,"to":9,"choices":[]],["id":2,"parent":NSNull(),"index":0,"from":9,"to":9,"choices":[]]]]
         return(catalog,plan)
@@ -60,6 +60,17 @@ import Darwin
             do {let candidate=try decode(changed,as:SourceTemplateBatchReply.self);if candidate.matches(catalog,entry:catalog.entries[0]){XCTAssertThrowsError(try candidate.prepared(source:"old two",continuing:nil),mode)}}catch{}
         }
     }
+    func testTemplateProgramPolicyIsCapturedAndLegacyRejectsUnnegotiatedMetadata()throws {
+        let (raw,body)=batchReply();XCTAssertEqual(raw["transform_program_versions"] as? [Int],[2,3])
+        var legacyCatalog=raw,legacyBody=body;legacyCatalog["transform_program_versions"]=[2];legacyBody["transform_program_versions"]=[2]
+        let catalog=try decode(legacyCatalog,as:SourceTemplateCatalog.self),fresh=try decode(body,as:SourceTemplateBatchReply.self);XCTAssertFalse(fresh.matches(catalog,entry:catalog.entries[0]))
+        var rows=legacyBody["expansions"] as! [[String:Any]],snippet=rows[1]["snippet"] as! [String:Any],fields=snippet["fields"] as! [[String:Any]];fields[0]["transform"]=["version":3];snippet["fields"]=fields;rows[1]["snippet"]=snippet;legacyBody["expansions"]=rows
+        let unnegotiated=try decode(legacyBody,as:SourceTemplateBatchReply.self)
+        XCTAssertTrue(unnegotiated.matches(catalog,entry:catalog.entries[0]))
+        XCTAssertThrowsError(try unnegotiated.prepared(source:"old two",continuing:nil)){error in XCTAssertTrue(error.localizedDescription.contains("not negotiated"),error.localizedDescription)}
+        var invalid=body;invalid["transform_program_versions"]=[2,99];let foreign=try decode(invalid,as:SourceTemplateBatchReply.self);XCTAssertFalse(foreign.matches(catalog,entry:catalog.entries[0]))
+    }
+
     func testCompleteBatchPreflightRejectsAggregateOutputAndChoiceMetadata()throws {
         let (_,body)=batchReply()
         for kind in ["output","choices"] {

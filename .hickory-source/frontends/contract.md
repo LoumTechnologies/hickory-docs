@@ -32,7 +32,7 @@ an earlier open item only for the behavior it actually exercises.
 | Required outcome | Current usable evidence and remaining acceptance |
 | --- | --- |
 | Navigation and code intelligence | Existing source-bound navigation and provider receipts remain in force. Browser mixed-line-ending source/view coordination now has rendered provider and history acceptance; source-bound completion variables now have live host receipts. Android controller acceptance covers exact navigation into a literal source tab with an Agent utility still open. Embedded-language breadth remains open. |
-| Refactoring, cleanup, generation, templates and history | Rename, formatting, genuine TypeScript extraction/accessor generation/cleanup and coordinated history have focused host receipts. Genuine TypeScript move-to-new-file review, publication and inverse/redo have browser, macOS and Android receipts. Source-bound variables and bounded transforms work in completion and template paths. Expanded regex transforms have live completion receipts on those three hosts. Multi-caret editing and marked input retain their editor and text-state receipts. Embedded and multi-caret reusable templates have live browser, macOS and Android controller evidence, including native secondary-caret round-trip invalidation. Expanded transforms in reusable templates remain open. |
+| Refactoring, cleanup, generation, templates and history | Rename, formatting, genuine TypeScript extraction/accessor generation/cleanup and coordinated history have focused host receipts. Genuine TypeScript move-to-new-file review, publication and inverse/redo have browser, macOS and Android receipts. Source-bound variables and expanded regex transforms in completion and reusable templates have live browser, macOS and Android-controller receipts. Embedded and multi-caret template review retains source, selections, mirrors and grouped history, including native secondary-caret round-trip invalidation. |
 | Diagnostics and contextual fixes | Existing source-bound Problems/fix receipts remain scoped to their stated providers and paths. A command or backend implementation alone is not further acceptance. |
 | Testing and coverage | Retained sessions, results and coverage retain their provider receipts. Exact JavaScript collection/rerun has 31 focused collector cases and 11 fresh-engine Vitest flows. Rust test Debug has browser, mounted macOS and Android-controller receipts for qualified name filters in ordinary and compiler-authored source. A compiler-proven declaration-to-artifact match remains open. |
 | Review, staging, attribution, conflicts and recovery | Existing Git/native conflict receipts remain in force. Complete 32-session recovery management and three exact revisions have service, browser, macOS and Android-controller receipts. The canonical entry has a retained read identity and guarded source proof. Grouped text replacement and selected-worktree writes share that exclusion. Move publication and its inverse remain open. |
@@ -106,6 +106,26 @@ away and back while the primary and source stayed fixed. Both hosts rejected the
 old preview and retained the draft and history. The iOS simulator product built
 with the selection-identity change. A preceding iOS build was installed and
 launched separately in an owned simulator.
+
+## Use expanded transforms in reusable templates
+
+Catalog, Preview and Apply retain the original supported program list with the
+complete source, caret and context capture. Explicit program 3 enables the
+expanded transform syntax. Existing callers can retain program 2, including the
+earlier single-caret request shape. Variable demand and expansion use the same
+parser and shared work budget. Android compares independently decoded program
+values structurally so a freshly acquired identical plan can apply. A changed
+program or original selection still retires the complete preview.
+
+Nineteen focused engine template cases passed. Browser template and view cases
+and TypeScript checking passed. The focused native runs passed twelve Apple and
+thirteen Android template cases, plus three Android transform cases. Rendered
+browser, mounted macOS and the Android controller each passed the new
+lookbehind and Unicode-property flow and the ordinary compatibility replay.
+The replays retained embedded and dirty reused source, nested mirrors, editor
+identity, unchanged saved bytes, and exact Undo and Redo. The arm64 iOS
+simulator product built. iOS feature runtime, Android rendering, physical input
+and assistive technology remain unverified for this extension.
 
 ## Embedded source template evidence
 

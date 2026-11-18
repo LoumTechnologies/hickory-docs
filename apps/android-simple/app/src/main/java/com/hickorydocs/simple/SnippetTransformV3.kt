@@ -7,7 +7,23 @@ private fun number(raw:Any?,max:Int)=integer(raw,max.toLong()).toInt()
 private fun truth(raw:Any?):Boolean=raw as? Boolean?:bad("Malformed regex boolean")
 private fun array(raw:Any?,maximum:Int=65536):List<Any?> {val a=raw as? JSONArray?:bad("Malformed regex array");if(a.length()>maximum)bad("Regex array budget exceeded");return (0 until a.length()).map{a.opt(it).takeUnless{v->v===JSONObject.NULL}}}
 private fun keys(raw:JSONObject):Set<String>{if(raw.length()>8)bad("Regex object field budget exceeded");val names=raw.keys().asSequence().toList();if(names.any{it.length>32})bad("Regex object field budget exceeded");return names.toSet()}
-data class RegexV3Code(val direction:Int,val ops:List<List<Any?>>)
+private fun regexV3ValueEquals(left: Any?, right: Any?): Boolean = when (left) {
+    is IntArray -> right is IntArray && left.contentEquals(right)
+    is List<*> -> right is List<*> && left.size == right.size &&
+        left.indices.all { regexV3ValueEquals(left[it], right[it]) }
+    else -> left == right
+}
+private fun regexV3ValueHash(value: Any?): Int = when (value) {
+    is IntArray -> value.contentHashCode()
+    is List<*> -> value.fold(1) { hash, item -> 31 * hash + regexV3ValueHash(item) }
+    else -> value?.hashCode() ?: 0
+}
+data class RegexV3Code(val direction: Int, val ops: List<List<Any?>>) {
+    override fun equals(other: Any?): Boolean = other is RegexV3Code &&
+        direction == other.direction && regexV3ValueEquals(ops, other.ops)
+
+    override fun hashCode(): Int = 31 * direction + regexV3ValueHash(ops)
+}
 data class RegexV3Program(val groups:Int,val flags:String,val format:List<Any?>,val codes:List<RegexV3Code>,val bytes:Int)
 private class Metadata {var nodes=0;var instructions=0;fun tick(n:Int){if(n<0||nodes>262144-n)bad("Regex metadata budget exceeded");nodes+=n}}
 private fun indices(raw:Any?,groups:Int):List<Int>{val list=array(raw,groups);if(list.size>groups)bad("Malformed regex captures");val result=list.map{number(it,groups)};if(result.any{it==0}||result.distinct().size!=result.size)bad("Malformed regex captures");return result}

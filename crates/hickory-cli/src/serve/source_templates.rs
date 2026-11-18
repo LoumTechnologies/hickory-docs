@@ -246,13 +246,16 @@ fn template_row_variables(
         workspace: Some(root),
         language: Some(language),
     };
-    let requested = hick_lsp::snippet::requested_variables_with_budget(syntax, budget)?;
+    let programs = template_programs(context)?;
+    let requested =
+        hick_lsp::snippet::requested_variables_with_programs_and_budget(syntax, &programs, budget)?;
     let mut presence = hick_lsp::snippet_context::variable_presence_with_budget(
         &origin, &snapshot, &requested, budget,
     )?;
     bind_template_cursor(&mut presence, &requested, cursor, budget)?;
-    let effective =
-        hick_lsp::snippet::effective_requested_variables_with_budget(syntax, &presence, budget)?;
+    let effective = hick_lsp::snippet::effective_requested_variables_with_programs_and_budget(
+        syntax, &presence, &programs, budget,
+    )?;
     let mut values =
         hick_lsp::snippet_context::variables_with_budget(&origin, &snapshot, &effective, budget)?;
     bind_template_cursor(&mut values, &effective, cursor, budget)?;
@@ -293,10 +296,11 @@ fn template_expansion_rows(
 }
 fn materialize_template_rows(
     rows: &[TemplateRowExpansion],
+    programs: &[u32],
     budget: &mut hick_lsp::snippet::SnippetExpansionBudget,
 ) -> Result<Vec<Value>, String> {
     rows.iter().map(|row| {
-        let plan = hick_lsp::snippet::expand_snippet_v2_with_budget(&row.syntax, &row.values, budget)?;
+        let plan = hick_lsp::snippet::expand_snippet_with_programs_and_budget(&row.syntax, &row.values, programs, budget)?;
         Ok(json!({"selection":row.selection,"replacement":row.selection,"snippet":plan.metadata(&row.syntax)}))
     }).collect()
 }
@@ -713,16 +717,7 @@ fn template_programs(context: &Context) -> Result<Vec<u32>, String> {
         .transform_program_versions
         .clone()
         .unwrap_or_else(|| vec![2]);
-    if programs.is_empty()
-        || programs.len() > 8
-        || programs.iter().any(|version| *version == 0)
-        || programs.iter().copied().collect::<BTreeSet<_>>().len() != programs.len()
-    {
-        return Err("Malformed supported transform program versions".into());
-    }
-    if !programs.contains(&2) {
-        return Err("This template provider currently requires transform program version2".into());
-    }
+    hick_lsp::snippet_transform::validate_program_versions(&programs)?;
     Ok(programs)
 }
 fn builtin() -> Vec<Template> {
@@ -981,7 +976,8 @@ fn template_variables(
     to: usize,
 ) -> Result<BTreeMap<String, Option<String>>, String> {
     let snapshot = variable_snapshot(context)?;
-    let requested = hick_lsp::snippet::requested_variables(syntax)?;
+    let programs = template_programs(context)?;
+    let requested = hick_lsp::snippet::requested_variables_with_programs(syntax, &programs)?;
     let path = root.join(&context.path);
     let origin = hick_lsp::snippet_context::SnippetVariableContext {
         source: &context.source,
@@ -992,7 +988,9 @@ fn template_variables(
         language: Some(language),
     };
     let presence = hick_lsp::snippet_context::variable_presence(&origin, &snapshot, &requested)?;
-    let requested = hick_lsp::snippet::effective_requested_variables(syntax, &presence)?;
+    let requested = hick_lsp::snippet::effective_requested_variables_with_programs(
+        syntax, &presence, &programs,
+    )?;
     hick_lsp::snippet_context::variables(&origin, &snapshot, &requested)
 }
 fn expanded_template(
@@ -1004,10 +1002,17 @@ fn expanded_template(
     to: usize,
 ) -> Result<hick_lsp::snippet::SnippetPlan, String> {
     if context.version == 1 {
-        return hick_lsp::snippet::expand_snippet(syntax, &variables(root, context, from, to));
+        let values = variables(root, context, from, to);
+        let programs = template_programs(context)?;
+        return if programs.contains(&3) {
+            hick_lsp::snippet::expand_snippet_with_programs(syntax, &values, &programs)
+        } else {
+            // Omission and explicit [2] retain protocol 1's original grammar.
+            hick_lsp::snippet::expand_snippet(syntax, &values)
+        };
     }
     let values = template_variables(root, context, syntax, language, from, to)?;
-    hick_lsp::snippet::expand_snippet_v2(syntax, &values)
+    hick_lsp::snippet::expand_snippet_with_programs(syntax, &values, &template_programs(context)?)
 }
 fn prepare(
     root: &Path,
@@ -1119,7 +1124,9 @@ fn prepare_for_scope(
         if context.version == 2 {
             let snapshot = variable_snapshot(context)?;
             let values = template_variables(&root, context, &syntax, language, from, to)?;
-            let requested = hick_lsp::snippet::effective_requested_variables(&syntax, &values)?;
+            let requested = hick_lsp::snippet::effective_requested_variables_with_programs(
+                &syntax, &values, &programs,
+            )?;
             if requested.contains("CLIPBOARD") && snapshot.clipboard.is_none() {
                 value["available"] = json!(false);
                 value["context_request"] = json!({"version":1,"variables":["CLIPBOARD"]});
@@ -1273,7 +1280,7 @@ fn prepare_caret_templates(
             value["reason"]=json!("At least one captured caret needs the clipboard before the whole batch can be previewed.");
             return Ok(value);
         }
-        let expansions = materialize_template_rows(&rows, &mut budget)?;
+        let expansions = materialize_template_rows(&rows, &programs, &mut budget)?;
         if clipboard && snapshot.clipboard == Some(None) {
             value["context_unavailable"] = json!(["CLIPBOARD"]);
             value["notices"].as_array_mut().unwrap().push(json!(
@@ -1297,7 +1304,7 @@ fn prepare_caret_templates(
                 &graph,
                 &mut budget,
             )
-            .and_then(|rows| materialize_template_rows(&rows, &mut budget));
+            .and_then(|rows| materialize_template_rows(&rows, &programs, &mut budget));
             if budget.exhausted() {
                 return Err("The complete template caret catalog exceeds its aggregate work or expansion budget. Choose fewer carets or a smaller catalog.".into());
             }
@@ -1855,7 +1862,7 @@ mod embedded_template_tests {
             .unwrap()
             .unaddressed_sources
             .clear();
-        context.transform_program_versions = Some(vec![3]);
+        context.transform_program_versions = Some(vec![99]);
         assert!(prepare(root.path(), &context, None).is_err());
         context.transform_program_versions = Some(vec![2, 2]);
         assert!(prepare(root.path(), &context, None).is_err());
@@ -1899,6 +1906,109 @@ mod caret_template_tests {
             )),
         )
     }
+    #[test]
+    fn programs_are_bound_to_single_and_whole_roster_without_legacy_fallback() {
+        let syntax = r"${CURSOR_INDEX}:${1:${TM_SELECTED_TEXT}}|${1/(?<=\p{L})\p{L}/X/gu}$0";
+        let (root, mut context) = fixture(syntax);
+        let legacy = prepare(root.path(), &context, None).unwrap();
+        assert_eq!(legacy["transform_program_versions"], json!([2]));
+        assert_eq!(
+            legacy["entries"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|entry| entry["id"] == "workspace.carets")
+                .unwrap()["available"],
+            false
+        );
+        assert!(planned(root.path(), &context, &legacy).is_err());
+        context.transform_program_versions = Some(vec![2, 3]);
+        let catalog = prepare(root.path(), &context, None).unwrap();
+        assert!(planned(root.path(), &context, &legacy).is_err());
+        let batch = planned(root.path(), &context, &catalog).unwrap();
+        assert_eq!(batch["transform_program_versions"], json!([2, 3]));
+        assert_eq!(batch["expansions"][0]["snippet"]["text"], "0:right|rXXXX");
+        assert_eq!(batch["expansions"][1]["snippet"]["text"], "1:left|lXXX");
+        for row in batch["expansions"].as_array().unwrap() {
+            assert!(row["snippet"]["fields"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|field| field["transform"]["version"] == 3));
+        }
+        context.transform_program_versions = Some(vec![3]);
+        assert!(planned(root.path(), &context, &catalog).is_err());
+        let only3 = prepare(root.path(), &context, None).unwrap();
+        assert!(planned(root.path(), &context, &only3).is_ok());
+        context.carets = None;
+        let single_catalog = prepare(root.path(), &context, None).unwrap();
+        let single = planned(root.path(), &context, &single_catalog).unwrap();
+        assert_eq!(single["snippet"]["text"], "0:left|lXXX");
+        assert!(single["snippet"]["fields"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|field| field["transform"]["version"] == 3));
+        context.transform_program_versions = None;
+        let omitted = prepare(root.path(), &context, None).unwrap();
+        assert!(omitted.get("transform_program_versions").is_none());
+        assert_eq!(
+            omitted["entries"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|entry| entry["id"] == "workspace.carets")
+                .unwrap()["available"],
+            false
+        );
+        for programs in [
+            vec![],
+            vec![2, 2],
+            vec![3, 3],
+            vec![2, 99],
+            vec![1],
+            vec![2, 3, 99],
+        ] {
+            context.transform_program_versions = Some(programs);
+            assert!(prepare(root.path(), &context, None).is_err());
+        }
+        // Explicit v3 also enables computed fields for a v1 caller, using
+        // only that protocol's existing source/file variable values.
+        let v1_syntax = r"${TM_FILENAME}|${1:${TM_SELECTED_TEXT}}|${1/(?<=\p{L})\p{L}/X/gu}$0";
+        std::fs::write(root.path().join(".hickory/templates.json"),serde_json::to_vec(&json!({"version":1,"templates":[{"id":"workspace.carets","label":"Explicit v1 opt-in","description":"","language":"python","syntax":v1_syntax}]})).unwrap()).unwrap();
+        context.version = 1;
+        context.variable_context = None;
+        context.transform_program_versions = Some(vec![3]);
+        let v1_catalog = prepare(root.path(), &context, None).unwrap();
+        let v1 = planned(root.path(), &context, &v1_catalog).unwrap();
+        assert_eq!(v1["template_protocol"], 1);
+        assert_eq!(v1["transform_program_versions"], json!([3]));
+        assert_eq!(v1["snippet"]["text"], "main.py|left|lXXX");
+        assert!(v1["snippet"]["fields"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|field| field["transform"]["version"] == 3));
+        for policy in [None, Some(vec![2])] {
+            context.transform_program_versions = policy;
+            let legacy_v1 = prepare(root.path(), &context, None).unwrap();
+            assert_eq!(
+                legacy_v1["entries"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .find(|entry| entry["id"] == "workspace.carets")
+                    .unwrap()["available"],
+                false
+            );
+            assert!(planned(root.path(), &context, &legacy_v1).is_err());
+        }
+        assert_eq!(
+            std::fs::read_to_string(root.path().join("main.py")).unwrap(),
+            context.source
+        );
+    }
+
     #[test]
     fn ordered_carets_share_clock_seed_graph_and_keep_distinct_source_values() {
         let (root,context)=fixture("${CURSOR_INDEX}|${CURSOR_NUMBER}|${CURRENT_YEAR}|${RANDOM_HEX}|${1:${TM_SELECTED_TEXT}}|$1|${1/(.*)/${1:/upcase}/}$0");

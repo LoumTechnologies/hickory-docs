@@ -10,6 +10,8 @@ Capture local time and random seed once when this reading opens, and send protoc
 
 The embedded reading also freezes all retained contributor text before awaiting any capability. A compiler-produced source-language binding controls catalog eligibility and comment variables, while filename and selection remain authored source coordinates. A demanded canonical entry is acquired once through the shared readonly entry reader; its original proof and contributor lease survive Preview, clipboard retry and Apply. Mixed or unknown occurrences remain unavailable. The new embedded focused witnesses are implementation checks awaiting execution; they do not establish mounted or physical-input acceptance.
 
+Keep transform policy in an opaque immutable value so a caller cannot mutate a retained list, including across a clipboard retry or data-class copy. Production captures the current supported versions; legacy captures retain version 2. Each returned field is checked against that original value before conversion. The new policy and actual program-3 acceptance passed, including fresh Apply after independent program decoding.
+
 <ui:copy id="source-templates-android-policy">
 package com.hickorydocs.simple
 
@@ -24,6 +26,18 @@ private fun templateNumber(value:Any?):Int = (value as? Number)?.toString()?.toI
 private fun templateText(value:JSONObject,key:String)=value.opt(key) as? String ?: error("Missing template $key")
 private fun templateStrings(value:JSONObject,key:String):List<String> {val array=value.optJSONArray(key) ?: error("Missing template $key");return (0 until array.length()).map{array.opt(it) as? String ?: error("Malformed template $key")}}
 
+class SourceTemplatePrograms private constructor(internal val values:List<Int>) {
+    override fun equals(other:Any?)=other is SourceTemplatePrograms&&values==other.values
+    override fun hashCode()=values.hashCode()
+    companion object {
+        internal fun capture(programs:List<Int>):SourceTemplatePrograms {
+            val frozen=programs.toList();check(frozen.isNotEmpty()&&frozen.size<=2&&frozen.all{it in listOf(2,3)}&&frozen.distinct().size==frozen.size){"Unsupported template transform programs"}
+            return SourceTemplatePrograms(java.util.Collections.unmodifiableList(frozen))
+        }
+        val legacy=capture(listOf(2))
+    }
+}
+
 class SourceTemplateContinuation internal constructor(internal val group:ParallelSnippet)
 
 data class SourceTemplateCapture(
@@ -31,17 +45,19 @@ data class SourceTemplateCapture(
     val path:String,val source:String,val anchor:Int,val head:Int,val snippetIntent:Int,
     val variables:SnippetVariableSnapshot?=null,
     val readingContext:String?=null,val contributorsCurrent:()->Boolean={true},val entryCurrent:()->Boolean={true},
-    val carets:String?=null,val continuation:SourceTemplateContinuation?=null,val multiSelectionRevision:Long=0,
+    val carets:String?=null,val continuation:SourceTemplateContinuation?=null,val multiSelectionRevision:Long=0,val programs:SourceTemplatePrograms = SourceTemplatePrograms.legacy,
 ) {
+    internal val supportedPrograms:List<Int> get()=programs.values
     init {
+        check(supportedPrograms.isNotEmpty()&&supportedPrograms.size<=2&&supportedPrograms.all{it in listOf(2,3)}&&supportedPrograms.distinct().size==supportedPrograms.size){"Unsupported template transform programs"}
         check(anchor in 0..source.length&&head in 0..source.length){"Template selection is outside the source."}
         sourceChangeOffset(source,languagePosition(source,anchor));sourceChangeOffset(source,languagePosition(source,head))
     }
     val from get()=minOf(anchor,head)
     val to get()=maxOf(anchor,head)
     val protocol get()=if(variables==null)1 else 2
-    fun body()=JSONObject().put("version",protocol).put("path",path).put("source",source).put("selection",JSONObject().put("from",from).put("to",to)).apply{variables?.let{put("variable_context",it.body())};readingContext?.let{put("reading_context",JSONObject(it));put("transform_program_versions",org.json.JSONArray(listOf(2)))};carets?.let{put("carets",JSONObject(it))}}
-    fun matches(now:SourceTemplateCapture)=workspace===now.workspace&&engine===now.engine&&editor===now.editor&&namespace==now.namespace&&revision==now.revision&&path==now.path&&source==now.source&&anchor==now.anchor&&head==now.head&&snippetIntent==now.snippetIntent&&carets==now.carets&&continuation?.group===now.continuation?.group&&multiSelectionRevision==now.multiSelectionRevision
+    fun body()=JSONObject().put("version",protocol).put("path",path).put("source",source).put("selection",JSONObject().put("from",from).put("to",to)).apply{variables?.let{put("variable_context",it.body())};readingContext?.let{put("reading_context",JSONObject(it));put("transform_program_versions",org.json.JSONArray(supportedPrograms))};carets?.let{put("carets",JSONObject(it))}}
+    fun matches(now:SourceTemplateCapture)=workspace===now.workspace&&engine===now.engine&&editor===now.editor&&namespace==now.namespace&&revision==now.revision&&path==now.path&&source==now.source&&anchor==now.anchor&&head==now.head&&snippetIntent==now.snippetIntent&&carets==now.carets&&continuation?.group===now.continuation?.group&&multiSelectionRevision==now.multiSelectionRevision&&supportedPrograms==now.supportedPrograms
 }
 private fun templateJSONMatches(value:Any?,expected:Any?):Boolean {
  if(value==null||value===JSONObject.NULL)return expected==null||expected===JSONObject.NULL
@@ -62,7 +78,7 @@ private fun templateSnapshotMatches(value:JSONObject?,expected:SnippetVariableSn
 private fun templateVariableIdentity(value:JSONObject,capture:SourceTemplateCapture){
  if(capture.carets!=null)check(templateNumber(value.opt("template_batch_protocol"))==1&&templateJSONMatches(value.opt("carets"),JSONObject(capture.carets))){"The original complete template selection roster changed."}
  else check(listOf("template_batch_protocol","carets","expansions","readings").none{value.has(it)}){"Unexpected multiple-selection template reply."}
- if(capture.readingContext!=null)check(templateJSONMatches(value.opt("transform_program_versions"),org.json.JSONArray(listOf(2)))){"Template transform consumer versions changed."}
+ if(capture.readingContext!=null)check(templateJSONMatches(value.opt("transform_program_versions"),org.json.JSONArray(capture.supportedPrograms))){"Template transform consumer versions changed."}
  check(listOf("command","additionalTextEdits","workspaceEdit","edit").none{value.has(it)}){"Template contains unsupported additional effects. No edits were applied."}
  check(templateNumber(value.opt("version"))==1&&templateNumber(value.opt("template_protocol"))==capture.protocol){"This engine does not support the captured template protocol."}
  if(capture.protocol==2)check(value.opt("source_files_modified")==false&&templateSnapshotMatches(value.optJSONObject("variable_context"),capture.variables!!)){"Template variable context changed. Refresh before applying."}else check(value.opt("source_files_modified")!=true&&value.isNull("variable_context")){"Legacy template response carries unsupported context/effects"}
@@ -154,7 +170,7 @@ class SourceTemplatePlan internal constructor(val catalog:SourceTemplateCatalog,
             val entry=templatePlanIdentity(value,catalog,id);val context=catalog.capture;check(value.opt("available")==true){"Template is unavailable for this captured context."}
             if(context.carets!=null)return decodeTemplateBatch(value,catalog,entry)
             val snippet=value.optJSONObject("snippet") ?: error("Missing template snippet")
-            templateTransformPrograms(snippet)
+            templateTransformPrograms(snippet,context.supportedPrograms)
             val syntax=templateText(snippet,"syntax")
             val item=JSONObject().put("label",entry.label).put("insertText",syntax).put("insertTextFormat",2).put("data",JSONObject().put("hickory_snippet",snippet))
             val expansion=completionExpansion(item) ?: error("Template expansion unavailable")
@@ -166,9 +182,9 @@ class SourceTemplatePlan internal constructor(val catalog:SourceTemplateCatalog,
     }
 }
 internal data class SourceTemplateBatch(val expansions:List<ParallelSnippetExpansion>,val plan:ParallelSnippetChange)
-private fun templateTransformPrograms(snippet:JSONObject) {
+private fun templateTransformPrograms(snippet:JSONObject,programs:List<Int>) {
  val fields=snippet.optJSONArray("fields") ?: error("Missing template fields")
- for(index in 0 until fields.length()){val field=fields.optJSONObject(index) ?: error("Malformed template field");if(field.has("transform")&&!field.isNull("transform"))check(templateNumber(field.getJSONObject("transform").opt("version"))==2){"Template transform was not negotiated by this captured consumer"}}
+ for(index in 0 until fields.length()){val field=fields.optJSONObject(index) ?: error("Malformed template field");if(field.has("transform")&&!field.isNull("transform"))check(templateNumber(field.getJSONObject("transform").opt("version")) in programs){"Template transform was not negotiated by this captured consumer"}}
 }
 private fun templateBatchSnippets(value:JSONObject,capture:SourceTemplateCapture):List<JSONObject>{
  val ranges=JSONObject(capture.carets!!).getJSONArray("selections");val rows=value.optJSONArray("expansions") ?: error("Missing complete template expansions")
@@ -177,7 +193,7 @@ private fun templateBatchSnippets(value:JSONObject,capture:SourceTemplateCapture
  for(index in 0 until rows.length()){
   val row=rows.optJSONObject(index) ?: error("Malformed template expansion")
   check(row.keys().asSequence().toSet()==setOf("selection","replacement","snippet")&&templateJSONMatches(row.opt("selection"),ranges.opt(index))&&templateJSONMatches(row.opt("replacement"),ranges.opt(index))){"A template expansion belongs to another source selection"}
-  val snippet=row.optJSONObject("snippet") ?: error("Missing template expansion");templateTransformPrograms(snippet)
+  val snippet=row.optJSONObject("snippet") ?: error("Missing template expansion");templateTransformPrograms(snippet,capture.supportedPrograms)
   output+=templateText(snippet,"text").toByteArray(Charsets.UTF_8).size;syntax+=templateText(snippet,"syntax").toByteArray(Charsets.UTF_8).size
   val raw=snippet.getJSONArray("fields");fields+=raw.length();check(output<=1024*1024&&syntax<=8*1024*1024&&fields<=4096){"The complete template expansion exceeds its interactive budget"}
   for(at in 0 until raw.length()){
@@ -221,7 +237,7 @@ import kotlinx.coroutines.async
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 class SourceTemplateTest {
     private fun field(id:Int,index:Int,from:Int,to:Int)=JSONObject().put("id",id).put("parent",JSONObject.NULL).put("index",index).put("from",from).put("to",to).put("choices",JSONArray())
-    private fun observation(request:JSONObject)=JSONObject().put("version",1).put("template_protocol",request.optInt("version",1)).put("variable_context",request.opt("variable_context")?:JSONObject.NULL).put("source_files_modified",false).put("path",request.getString("path")).put("selection",JSONObject(request.getJSONObject("selection").toString())).put("source_hash",debugHash(request.getString("source"))).put("workspace_id","workspace").put("language","python").put("catalog_fingerprint","catalog").put("available",true).put("notices",JSONArray()).apply{if(request.has("reading_context")){put("transform_program_versions",JSONArray().put(2));put("source_context",JSONObject().put("version",1).put("scope","authored-source").put("language","python").put("languages",JSONArray().put("python")).put("targets",JSONArray().put(request.getString("path"))).put("reason",JSONObject.NULL).put("project_entry",request.getJSONObject("reading_context").opt("project_entry")?:JSONObject.NULL).put("source_hashes",JSONObject().put(request.getString("path"),debugHash(request.getString("source")))).put("graph_fingerprint","a".repeat(64)).put("fingerprint","b".repeat(64)))}}
+    private fun observation(request:JSONObject)=JSONObject().put("version",1).put("template_protocol",request.optInt("version",1)).put("variable_context",request.opt("variable_context")?:JSONObject.NULL).put("source_files_modified",false).put("path",request.getString("path")).put("selection",JSONObject(request.getJSONObject("selection").toString())).put("source_hash",debugHash(request.getString("source"))).put("workspace_id","workspace").put("language","python").put("catalog_fingerprint","catalog").put("available",true).put("notices",JSONArray()).apply{if(request.has("reading_context")){put("transform_program_versions",request.optJSONArray("transform_program_versions")?.let{JSONArray(it.toString())} ?: JSONArray().put(2));put("source_context",JSONObject().put("version",1).put("scope","authored-source").put("language","python").put("languages",JSONArray().put("python")).put("targets",JSONArray().put(request.getString("path"))).put("reason",JSONObject.NULL).put("project_entry",request.getJSONObject("reading_context").opt("project_entry")?:JSONObject.NULL).put("source_hashes",JSONObject().put(request.getString("path"),debugHash(request.getString("source")))).put("graph_fingerprint","a".repeat(64)).put("fingerprint","b".repeat(64)))}}
     private fun catalog(request:JSONObject)=observation(request).put("entries",JSONArray().put(JSONObject().put("id","pair").put("label","Pair").put("description","Two linked names").put("language","python").put("origin","workspace").put("available",true)))
     private fun plan(request:JSONObject,changed:Boolean=false)=observation(request).put("template_id","pair").put("origin","workspace").put("replacement",JSONObject(request.getJSONObject("selection").toString())).put("snippet",JSONObject().put("version",1).put("syntax",if(changed)"\${1:name} + \${1}\$0" else "\${1:name} + \$1\$0").put("text","name + name").put("fields",JSONArray().put(field(0,1,0,4)).put(field(1,1,7,11)).put(field(2,0,11,11))))
     private class Fixture(val workspace:Workspace,val buffer:DocumentBuffer,val model:SourceTemplatesModel,val calls:java.util.concurrent.atomic.AtomicInteger,val mode:java.util.concurrent.atomic.AtomicReference<String>,val entered:java.util.concurrent.CountDownLatch,val release:java.util.concurrent.CountDownLatch)
@@ -282,6 +298,20 @@ class SourceTemplateTest {
         }
         assertFalse(capture.matches(capture.copy(carets=JSONObject(capture.carets!!).put("primary",1).toString())))
     }
+    @Test fun immutableProgramPolicySurvivesCallerMutationAndRetiresForeignReplies(){
+        val input=mutableListOf(2,3);val capture=batchCapture().copy(programs=SourceTemplatePrograms.capture(input));input.clear()
+        assertEquals(listOf(2,3),capture.supportedPrograms);assertEquals(listOf(2,3),capture.copy().supportedPrograms)
+        val body=capture.body();assertTrue(templateArray(body.getJSONArray("transform_program_versions"))==listOf(2,3))
+        val raw=batchCatalog(capture);val reading=SourceTemplateCatalog.decode(raw,capture)
+        val substituted=JSONObject(raw.toString()).put("transform_program_versions",JSONArray().put(2));assertTrue(runCatching{SourceTemplateCatalog.decode(substituted,capture)}.isFailure)
+        val legacy=capture.copy(programs=SourceTemplatePrograms.legacy);assertFalse(capture.matches(legacy));val legacyCatalog=SourceTemplateCatalog.decode(batchCatalog(legacy),legacy);val bad=batchPlan(legacy)
+        bad.getJSONArray("expansions").getJSONObject(1).getJSONObject("snippet").getJSONArray("fields").getJSONObject(0).put("transform",JSONObject().put("version",3))
+        val failure=runCatching{SourceTemplatePlan.decode(bad,legacyCatalog,"pair")}.exceptionOrNull();assertNotNull(failure);assertTrue(failure!!.message.orEmpty().contains("not negotiated"))
+        for(versions in listOf(emptyList(),listOf(2,2),listOf(3,3),listOf(2,99)))assertTrue(runCatching{SourceTemplatePrograms.capture(versions)}.isFailure)
+        assertEquals("old two",reading.capture.source)
+    }
+    private fun templateArray(value:JSONArray)=(0 until value.length()).map{value.getInt(it)}
+
     @Test fun completeBatchPreflightRejectsAggregateOutputAndMetadataBeforeReaderMaterialization(){
         val capture=batchCapture();val reading=SourceTemplateCatalog.decode(batchCatalog(capture),capture)
         val output=batchPlan(capture);for(index in 0..1)output.getJSONArray("expansions").getJSONObject(index).getJSONObject("snippet").put("text","x".repeat(600000))
@@ -444,7 +474,7 @@ class SourceTemplatesModel {
         val logical=parallel?.selections?.map{NativeSourceEdit(it.from,it.to,"")} ?: buffer.multiRanges.takeIf{buffer.multiSource==buffer.text}.orEmpty()
         val carets=if(logical.size<2)null else {check(logical.size<=256){"Choose at most 256 source selections"};JSONObject().put("version",1).put("selections",org.json.JSONArray(logical.map{JSONObject().put("from",it.from).put("to",it.to)})).put("primary",parallel?.primaryIndex ?: 0).put("continuing",parallel!=null).toString()}
         val selected=buffer.state.selection
-        return SourceTemplateCapture(workspace,engine,buffer,workspace.sourceNavigationEpoch,buffer.sourceRevision,buffer.file.path,buffer.text,selected.start,selected.end,buffer.snippets.intent,variables,carets=carets,continuation=parallel?.let(::SourceTemplateContinuation),multiSelectionRevision=buffer.multiSelectionRevision)
+        return SourceTemplateCapture(workspace,engine,buffer,workspace.sourceNavigationEpoch,buffer.sourceRevision,buffer.file.path,buffer.text,selected.start,selected.end,buffer.snippets.intent,variables,carets=carets,continuation=parallel?.let(::SourceTemplateContinuation),multiSelectionRevision=buffer.multiSelectionRevision,programs=SourceTemplatePrograms.capture(supportedSnippetTransformPrograms))
     }
     fun current(workspace:Workspace,context:SourceTemplateCapture)=workspace.sourceTemplates===this&&workspace.showTemplates&&runCatching{context.contributorsCurrent()&&context.entryCurrent()&&context.matches(capture(workspace))}.getOrDefault(false)
     suspend fun refresh(workspace:Workspace){
@@ -585,5 +615,12 @@ This is native host/controller and TextFieldState acceptance. A rendered Compose
 On 2026-11-17 the generated production and test Kotlin compiled, and the focused `SourceTemplateTest` XML recorded 13 total cases: 12 executed passes and one expected opt-in skip, zero failures/errors. The separate exact `BatchTemplateTest.liveCompleteTemplateGroupAndHistory` passed with zero skips, failures or errors through `scripts/test-native-templates.py android --batch` (case 0.856 seconds; suite 0.858). Both source contexts used the production catalog/Preview/Apply and source history: a Python code fence and a dirty original fragment reused through one dirty canonical graph, distinct cursor values under one clock/seed, nested Unicode mirrors, field navigation, one denied clipboard attempt retained through Apply, whole-group Undo/Redo and secondary-caret movement refusal.
 
 The exact producer XML and log are retained at `target/native-template-smoke/android-batch-last.xml` and `.log`; the focused report is copied to `target/template-batch-aba-android-focused.xml`. Saved source bytes, TextFieldState, editor identity and scroll were preserved and no generated output was materialized. The final exact replay also moved a secondary selection away and back while leaving the primary and source revision unchanged; the separately captured monotonic multi-selection revision refused the old preview. Physical input, accessibility and device IME acceptance remain unverified.
+
+
+## Verified negotiated program paths
+
+On 2026-11-18 generated production/test Kotlin compiled, and `SourceTemplateTest` recorded 13 executed passes plus one expected opt-in skip (14 total, zero failures/errors). The caller-mutation/copy policy and explicit legacy refusal checks executed. The final shared `SnippetTransformV3Test` selection also passed all three cases, including independent decoded-program structural equality/hash behavior. Producer reports were retained in `target/template-program3-android-final-models/` before the actual runners replaced Gradle reports.
+
+The first actual fresh Apply exposed identity comparison of normalized `IntArray` values inside shared v3 opcode data. The decoder now compares those values structurally; the template equality guards remain intact. With that fix, `--program3` passed exactly one real case with zero skips/failures/errors (case 1.250 seconds; suite 1.253), and the ordinary uppercase/variable `--batch` replay passed (case 0.922; suite 0.924). Receipts/logs are retained at `target/native-template-smoke/android-template3-last.xml` and `android-template3-compatibility.xml`; the original failure report remains `android-template3-failure.xml`. Both final modes prove complete Preview/Apply, nested mirrors/history, one denied clipboard reading, returned-roster refusal and unchanged saved sources/editor state. Physical input, accessibility and device IME remain unverified.
 
 </ui:doc>

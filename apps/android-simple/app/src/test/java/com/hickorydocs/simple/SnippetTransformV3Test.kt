@@ -10,6 +10,21 @@ private fun regexJSONEqual(a:Any?,b:Any?):Boolean = when {
  else -> a==b
 }
 class SnippetTransformV3Test {
+    @Test fun independentlyDecodedProgramsHaveStableStructuralValueSemantics() {
+        val payload = """{
+          "version":3, "case_map":"hickory-ucd-17.0.0-v1", "unicode_map":"hickory-regex-ucd-17.0.0-v1",
+          "groups":0, "flags":"v", "code":[["set",[[65,90]],[[88,89]],false,true],["accept"]],
+          "subprograms":[], "format":["ok"]
+        }"""
+        val first = readRegexV3(JSONObject(payload))
+        val second = readRegexV3(JSONObject(payload))
+        val changed = readRegexV3(JSONObject(payload.replace("[65,90]", "[66,90]")))
+        assertEquals(first, second)
+        assertEquals(first.hashCode(), second.hashCode())
+        org.junit.Assert.assertTrue(hashSetOf(first).contains(second))
+        org.junit.Assert.assertNotEquals(first, changed)
+    }
+
 @Test fun independentPatternsFormatsAndBudgetRefusals(){val dir=generateSequence(File(System.getProperty("user.dir")).absoluteFile){it.parentFile}.map{File(it,"apps/simple-contract")}.firstOrNull{it.isDirectory}?:error("Shared contract missing");val policy=RegexV3CaseData(JSONObject(File(dir,"snippet-regex-case17.json").readText()));val rows=JSONArray(File(dir,"snippet-regex-pattern-cases.json").readText());var passed=0;var failed=0;for(i in 0 until rows.length()){val row=rows.getJSONObject(i);val test=row.getJSONObject("case");try{if(test.optBoolean("error")){check(row.has("compile_error"));passed++;continue};val program=readRegexV3(row.get("program"));val machine=RegexV3Machine(test.getString("input"),program,policy);val result=JSONArray();for(value in machine.find()){val indices=JSONArray();val units=JSONArray();for(range in value.captures){indices.put(range?.let{JSONArray(listOf(machine.offsets[it.first],machine.offsets[it.second]))}?:JSONObject.NULL);units.put(range?.let{JSONArray(machine.units(it))}?:JSONObject.NULL)};result.put(JSONObject().put("from",machine.offsets[value.from]).put("to",machine.offsets[value.to]).put("indices",indices).put("capture_units",units))};val expected=test.getJSONArray("matches");for(n in 0 until expected.length())expected.getJSONObject(n).remove("name_units");check(regexJSONEqual(result,expected)){"Mismatch $result"};passed++}catch(e:Exception){failed++;println("FAIL ${test.opt("name")} $e")}};println("Kotlin v3 patterns $passed PASS $failed FAIL");check(failed==0)
 val formats=JSONArray(File(dir,"snippet-regex-format-cases.json").readText());var formatPassed=0;for(i in 0 until formats.length()){val row=formats.getJSONObject(i);val test=row.getJSONObject("case");try{val actual=applyRegexV3(readRegexV3(row.get("program")),test.getString("input"),policy);check(actual==test.getString("output")){"Expected ${test.getString("output")}, got $actual"};formatPassed++}catch(e:Exception){failed++;println("FORMAT FAIL ${test.opt("source")} $e")}};println("Kotlin v3 formats $formatPassed PASS $failed FAIL");check(failed==0);val budgets=JSONObject(File(dir,"snippet-regex-budget-cases.json").readText()).getJSONArray("cases");var budgetPassed=0;for(i in 0 until budgets.length()){val row=budgets.getJSONObject(i);try{val program=readRegexV3(row.get("program"));if(row.getString("phase")=="run")applyRegexV3(program,row.getString("input"),policy,intArrayOf(row.getInt("work")));failed++;println("BUDGET FAIL ${row.getString("name")} accepted")}catch(e:Exception){budgetPassed++}};println("Kotlin v3 budget/refusal $budgetPassed PASS $failed FAIL");check(failed==0)}
 

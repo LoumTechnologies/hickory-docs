@@ -14,6 +14,8 @@ For a multiple-selection request, retain the original ordered logical caret rost
 
 The embedded reading also freezes all retained contributor text before awaiting any capability. A compiler-produced source-language binding controls catalog eligibility and comment variables, while filename and selection remain authored source coordinates. A demanded canonical entry is acquired once through the shared readonly entry reader; its original proof and contributor lease survive Preview, clipboard retry and Apply. Mixed or unknown occurrences remain unavailable. The mounted batch witness below exercises both a code fence and a reused external fragment; this does not certify physical input or accessibility.
 
+Swift retains the supported program array as a value in the original source context. Catalog, clipboard retry and Apply must echo that same array, and every field must belong to it before the completion bridge reads a program. The explicit legacy-policy witness and lookbehind/Unicode-property actual mode passed separately from the earlier batch receipts.
+
 <ui:copy id="source-templates-apple-values">
 import Foundation
 import Observation
@@ -93,6 +95,7 @@ struct SourceTemplatePlan:Decodable {
     }
 }
 // Freeze ordered logical selections, including a continuing group's coincident exits.
+private func sourceTemplateProgramsValid(_ programs:[Int])->Bool{!programs.isEmpty && programs.count<=2 && programs.allSatisfy{[2,3].contains($0)} && Set(programs).count==programs.count}
 struct SourceTemplateCarets:Codable,Equatable {
  var version:Int;var selections:[SourceTemplateRange];var primary:Int;var continuing:Bool
  var body:[String:Any]{["version":version,"selections":selections.map(\.body),"primary":primary,"continuing":continuing]}
@@ -142,7 +145,7 @@ struct SourceTemplateBatchReply:Decodable {
   var notices:[String]?;var context_unavailable:[String]?;var expansions:[SourceTemplateBatchExpansion]?;var context_request:Requirement?
  }
  func matches(_ catalog:SourceTemplateCatalog,entry:SourceTemplateEntry)->Bool{
-  version==1 && template_protocol==2 && template_batch_protocol==1 && catalog.template_batch_protocol==1 && carets==catalog.carets && carets.valid(primary:NSRange(location:catalog.selection.from,length:catalog.selection.to-catalog.selection.from)) && selection==catalog.selection && !source_files_modified && variable_context==catalog.variable_context && transform_program_versions==catalog.transform_program_versions && transform_program_versions==[2] && source_context.same(catalog.source_context ?? source_context) && catalog.source_context != nil && sourceTemplateReadingsSame(readings,catalog.readings) && sourceTemplateBatchReadingValid(readings,carets:carets,binding:source_context) && zip([path,source_hash,workspace_id,language,catalog_fingerprint,template_id,origin],[catalog.path,catalog.source_hash,catalog.workspace_id,catalog.language,catalog.catalog_fingerprint,entry.id,entry.origin]).allSatisfy{exactUTF8($0.0,$0.1)} && entry.available && catalog.available
+  version==1 && template_protocol==2 && template_batch_protocol==1 && catalog.template_batch_protocol==1 && carets==catalog.carets && carets.valid(primary:NSRange(location:catalog.selection.from,length:catalog.selection.to-catalog.selection.from)) && selection==catalog.selection && !source_files_modified && variable_context==catalog.variable_context && transform_program_versions==catalog.transform_program_versions && sourceTemplateProgramsValid(transform_program_versions) && source_context.same(catalog.source_context ?? source_context) && catalog.source_context != nil && sourceTemplateReadingsSame(readings,catalog.readings) && sourceTemplateBatchReadingValid(readings,carets:carets,binding:source_context) && zip([path,source_hash,workspace_id,language,catalog_fingerprint,template_id,origin],[catalog.path,catalog.source_hash,catalog.workspace_id,catalog.language,catalog.catalog_fingerprint,entry.id,entry.origin]).allSatisfy{exactUTF8($0.0,$0.1)} && entry.available && catalog.available
  }
  func same(_ other:Self)->Bool {
   guard context_request==nil,other.context_request==nil,let left=expansions,let right=other.expansions,left.count==right.count else{return false}
@@ -220,8 +223,8 @@ Catalog and preview are read-only. A newer choice or closed popover retires held
     private(set) var batchPreview:SourceTemplateBatchReply?;private(set) var batchPreviewSource:String?
     private var ticket=UUID()
     private struct Context {
-        weak var workspace:Workspace?;weak var buffer:DocumentBuffer?;weak var model:SourceTemplatesModel?;var engine:Engine;var namespace:UUID;var bufferID:UUID;var editorID:UUID;var sourceID:UUID;var source:String;var path:String;var selection:NSRange;var selectionID:UUID;var snippetIntent:Int;var variables:SnippetVariableSnapshot;var readingContext:[String:Any]?=nil;var contributorsCurrent:()->Bool={true};var entryCurrent:()->Bool={true};var carets:SourceTemplateCarets?=nil;var parallel:ParallelSnippet?=nil
-        var body:[String:Any]{var value:[String:Any]=["version":2,"path":path,"source":source,"selection":SourceTemplateRange(selection).body,"variable_context":variables.body];if let readingContext{value["reading_context"]=readingContext;value["transform_program_versions"]=[2]};if let carets{value["carets"]=carets.body};return value}
+        weak var workspace:Workspace?;weak var buffer:DocumentBuffer?;weak var model:SourceTemplatesModel?;var engine:Engine;var namespace:UUID;var bufferID:UUID;var editorID:UUID;var sourceID:UUID;var source:String;var path:String;var selection:NSRange;var selectionID:UUID;var snippetIntent:Int;var variables:SnippetVariableSnapshot;var readingContext:[String:Any]?=nil;var contributorsCurrent:()->Bool={true};var entryCurrent:()->Bool={true};var carets:SourceTemplateCarets?=nil;var parallel:ParallelSnippet?=nil;var programs:[Int]=supportedSnippetTransformPrograms
+        var body:[String:Any]{var value:[String:Any]=["version":2,"path":path,"source":source,"selection":SourceTemplateRange(selection).body,"variable_context":variables.body];if let readingContext{value["reading_context"]=readingContext;value["transform_program_versions"]=programs};if let carets{value["carets"]=carets.body};return value}
         @MainActor func current()->Bool {
             guard contributorsCurrent(),entryCurrent(),let workspace,let buffer,workspace.sourceTemplates === model,!workspace.connecting,workspace.currentBuffer === buffer,workspace.sourceNavigationEpoch==namespace,workspace.engine?.origin==engine.origin,workspace.engine?.session === engine.session,buffer.id==bufferID,buffer.sourceEditIdentity==sourceID,buffer.selectionIdentity==selectionID,!buffer.resourceDeleted,!buffer.readOnly,!buffer.saving,exactUTF8(buffer.file.path,path),exactUTF8(buffer.text,source),buffer.selection==selection,buffer.snippets.intent==snippetIntent,let editor=buffer.sourceEditorState?() else{return false}
             guard editor.identity==editorID,editor.attached,editor.editable,!editor.composing,exactUTF8(editor.source,source),editor.selection==selection else{return false}
@@ -250,7 +253,7 @@ Catalog and preview are read-only. A newer choice or closed popover retires held
                 let value:SourceTemplateCatalog=try await engine.request("POST","/api/templates/catalog",body:held.body)
                 guard ticket==id,showing else{return};guard held.current() else{throw EngineError(message:"Source editor, selection or contributors changed. Read templates again.")}
                 let project=held.readingContext?["project_entry"] as? String
-                guard sourceTemplateCatalogMatches(value,path:held.path,source:held.source,selection:held.selection,variables:held.variables),value.transform_program_versions==[2],value.carets==held.carets,(held.carets==nil ? value.template_batch_protocol==nil:value.template_batch_protocol==1),sourceTemplateBatchReadingValid(value.readings,carets:held.carets,binding:value.source_context),value.source_context?.valid(path:held.path,source:held.source,project:project,language:value.language)==true else{throw EngineError(message:"Template catalog language context did not match this source selection.")}
+                guard sourceTemplateCatalogMatches(value,path:held.path,source:held.source,selection:held.selection,variables:held.variables),value.transform_program_versions==held.programs,value.carets==held.carets,(held.carets==nil ? value.template_batch_protocol==nil:value.template_batch_protocol==1),sourceTemplateBatchReadingValid(value.readings,carets:held.carets,binding:value.source_context),value.source_context?.valid(path:held.path,source:held.source,project:project,language:value.language)==true else{throw EngineError(message:"Template catalog language context did not match this source selection.")}
                 if let request=value.reading_context_request {
                     guard attempt==0,request.version==1,request.kind=="construction_entry",!value.available,value.entries.isEmpty,held.readingContext?["entry_selection"]==nil,let runtime=workspace.sourceWorkspaceID,let namespace=workspace.sourceRootAddress else{throw EngineError(message:"Original construction entry is unavailable. Source remains readable.")}
                     let original=held
@@ -379,7 +382,7 @@ import Darwin
     func reply(_ source:String="value = 'old'\n")->([String:Any],[String:Any]) {
         let entry:[String:Any]=["id":"workspace.wrap","label":"Wrap selection","description":"Mirrored selected text","language":"python","origin":"workspace","available":true]
         var catalog:[String:Any]=["version":1,"template_protocol":1,"path":"main.py","selection":["from":9,"to":12],"source_hash":nativeSourceHash(source),"workspace_id":"fixture-workspace","language":"python","catalog_fingerprint":"catalog","available":true,"notices":[],"entries":[entry]]
-        catalog["transform_program_versions"]=[2];catalog["source_context"]=["version":1,"scope":"authored-source","language":"python","languages":["python"],"targets":["main.py"],"reason":NSNull(),"project_entry":NSNull(),"source_hashes":["main.py":nativeSourceHash(source)],"graph_fingerprint":String(repeating:"a",count:64),"fingerprint":String(repeating:"b",count:64)]
+        catalog["transform_program_versions"]=supportedSnippetTransformPrograms;catalog["source_context"]=["version":1,"scope":"authored-source","language":"python","languages":["python"],"targets":["main.py"],"reason":NSNull(),"project_entry":NSNull(),"source_hashes":["main.py":nativeSourceHash(source)],"graph_fingerprint":String(repeating:"a",count:64),"fingerprint":String(repeating:"b",count:64)]
         var plan=catalog;plan.removeValue(forKey:"entries");plan["template_id"]="workspace.wrap";plan["origin"]="workspace";plan["replacement"]=["from":9,"to":12]
         plan["snippet"]=["version":1,"syntax":"${1:${TM_SELECTED_TEXT}} + $1$0","text":"old + old","fields":[["id":0,"parent":NSNull(),"index":1,"from":0,"to":3,"choices":[]],["id":1,"parent":NSNull(),"index":1,"from":6,"to":9,"choices":[]],["id":2,"parent":NSNull(),"index":0,"from":9,"to":9,"choices":[]]]]
         return(catalog,plan)
@@ -430,6 +433,17 @@ import Darwin
             do {let candidate=try decode(changed,as:SourceTemplateBatchReply.self);if candidate.matches(catalog,entry:catalog.entries[0]){XCTAssertThrowsError(try candidate.prepared(source:"old two",continuing:nil),mode)}}catch{}
         }
     }
+    func testTemplateProgramPolicyIsCapturedAndLegacyRejectsUnnegotiatedMetadata()throws {
+        let (raw,body)=batchReply();XCTAssertEqual(raw["transform_program_versions"] as? [Int],[2,3])
+        var legacyCatalog=raw,legacyBody=body;legacyCatalog["transform_program_versions"]=[2];legacyBody["transform_program_versions"]=[2]
+        let catalog=try decode(legacyCatalog,as:SourceTemplateCatalog.self),fresh=try decode(body,as:SourceTemplateBatchReply.self);XCTAssertFalse(fresh.matches(catalog,entry:catalog.entries[0]))
+        var rows=legacyBody["expansions"] as! [[String:Any]],snippet=rows[1]["snippet"] as! [String:Any],fields=snippet["fields"] as! [[String:Any]];fields[0]["transform"]=["version":3];snippet["fields"]=fields;rows[1]["snippet"]=snippet;legacyBody["expansions"]=rows
+        let unnegotiated=try decode(legacyBody,as:SourceTemplateBatchReply.self)
+        XCTAssertTrue(unnegotiated.matches(catalog,entry:catalog.entries[0]))
+        XCTAssertThrowsError(try unnegotiated.prepared(source:"old two",continuing:nil)){error in XCTAssertTrue(error.localizedDescription.contains("not negotiated"),error.localizedDescription)}
+        var invalid=body;invalid["transform_program_versions"]=[2,99];let foreign=try decode(invalid,as:SourceTemplateBatchReply.self);XCTAssertFalse(foreign.matches(catalog,entry:catalog.entries[0]))
+    }
+
     func testCompleteBatchPreflightRejectsAggregateOutputAndChoiceMetadata()throws {
         let (_,body)=batchReply()
         for kind in ["output","choices"] {
@@ -626,5 +640,12 @@ import Darwin
 On 2026-11-17 the generated app and all test sources compiled, and the focused `SourceTemplateTests` selection ran 11 passing policy checks with one expected opt-in live skip (12 total, zero failures). The separate exact `BatchTemplateTests.testLiveCompleteTemplateGroupAndHistory` then passed with zero skips or failures in 1.207 seconds through `scripts/test-native-templates.py apple --batch`. It mounted the native editor for a code fence and a dirty reused fragment, applied complete nested groups with different original values and cursor variables under one clock/seed, edited Unicode computed mirrors, navigated fields, retained one denied clipboard attempt through Apply and exercised atomic group Undo/Redo and secondary-caret movement refusal.
 
 The durable `target/native-template-smoke/apple-batch-last.json` truthfully identifies its producer as XCTest console and binds the exact one-case log hash; this run did not produce framework XML. `target/template-batch-apple-focused.log` retains the focused build/run. Saved source bytes, editor identity, geometry and undo manager were preserved. The final exact replay also moved a secondary selection away and back without changing the primary or source identity, and refused the old preview through the monotonic selection identity. Physical input, accessibility, device IME and iOS runtime acceptance remain unverified.
+
+
+## Verified negotiated program paths
+
+On 2026-11-18 complete generated Swift app/test compilation passed, and `SourceTemplateTests` ran 12 passing policy checks plus one expected opt-in skip (13 total, zero failures). The explicit legacy-policy mismatch and unnegotiated-field refusal case executed; log `target/template-program3-apple-focused.log`.
+
+The mounted `--program3` exact case passed with zero skips/failures in 3.223 seconds, requiring returned program-3 metadata and actual lookbehind/Unicode-property edits through the complete batch, nested mirror, denied clipboard, history and returned-roster paths. The ordinary uppercase/variable `--batch` compatibility case also passed under the new policy in 1.019 seconds. Truthful XCTest console receipts and log hashes are retained at `target/native-template-smoke/apple-template3-last.json` and `apple-template3-compatibility.json`, with their matching logs. These are separate from physical input, accessibility, device IME and iOS runtime acceptance.
 
 </ui:doc>

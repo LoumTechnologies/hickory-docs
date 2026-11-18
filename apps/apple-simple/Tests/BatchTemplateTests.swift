@@ -7,6 +7,7 @@ import AppKit
  #if os(macOS)
  func testLiveCompleteTemplateGroupAndHistory()async throws {
   guard let origin=ProcessInfo.processInfo.environment["HICKORY_NATIVE_TEMPLATE_ORIGIN"],let directory=ProcessInfo.processInfo.environment["HICKORY_NATIVE_TEMPLATE_WORKSPACE"] else{throw XCTSkip("Use the owned native-template --batch fixture.")}
+  let program3=ProcessInfo.processInfo.environment["HICKORY_NATIVE_TEMPLATE_PROGRAM3"]=="1"
   let root=URL(fileURLWithPath:directory);XCTAssertEqual(try String(contentsOf:root.appendingPathComponent(".hickory-native-template-fixture"),encoding:.utf8),"owned-native-templates-v1\n")
   let engine=try Engine(address:origin),tree=try await engine.files(),space=Workspace();space.engine=engine;space.rootFiles=tree.tree;space.sourceRootAddress=tree.root_path;space.sourceWorkspaceID=tree.workspace_id
   func find(_ path:String,_ nodes:[FileNode])->FileNode?{for node in nodes{if exactUTF8(node.path,path){return node};if let child=find(path,node.children ?? []){return child}};return nil}
@@ -27,13 +28,13 @@ import AppKit
     let a="#0:1:2024:012345:"+value+"|"+value+"|"+uppercase,b="#1:2:2024:012345:"+value+"|"+value+"|"+uppercase
     let original=source as NSString;return original.substring(to:first.location)+a+" "+b+original.substring(from:NSMaxRange(second))
    }
-   try await open();let catalog=try XCTUnwrap(model.catalog,model.notice);XCTAssertEqual(catalog.carets?.selections,ranges.map(SourceTemplateRange.init));XCTAssertEqual(catalog.language,"python");XCTAssertEqual(catalog.source_context?.source_hashes["project.md"],nativeSourceHash(project.text))
-   try await choose("workspace.batch-context");let originalPreview=try XCTUnwrap(model.batchPreviewSource,model.notice);XCTAssertEqual(buffer.text,source);let accepted=await model.apply();XCTAssertTrue(accepted,model.notice);XCTAssertEqual(buffer.text,originalPreview)
-   XCTAssertTrue(buffer.text.contains("#0:1:2024:012345:old|old|OLD #1:2:2024:012345:two|two|TWO"));XCTAssertNotNil(buffer.snippets.parallel)
-   native.insertText("ßa",replacementRange:native.selectedRange());let typed=complete("ßa","SSA");XCTAssertEqual(buffer.text,typed)
+   try await open();let catalog=try XCTUnwrap(model.catalog,model.notice);XCTAssertEqual(catalog.carets?.selections,ranges.map(SourceTemplateRange.init));XCTAssertEqual(catalog.language,"python");XCTAssertEqual(catalog.transform_program_versions,[2,3]);XCTAssertEqual(catalog.source_context?.source_hashes["project.md"],nativeSourceHash(project.text))
+   try await choose("workspace.batch-context");let originalPreview=try XCTUnwrap(model.batchPreviewSource,model.notice);let proposed=try XCTUnwrap(model.batchPreview,model.notice);var programs=0;for row in proposed.expansions ?? []{for field in row.snippet.fields{if let transform=field.transform{guard case .object(let raw)=transform,case .integer(let version)?=raw["version"] else{XCTFail("Malformed returned template program");continue};XCTAssertEqual(version,3);programs+=1}}};XCTAssertEqual(programs,2);XCTAssertEqual(buffer.text,source);let accepted=await model.apply();XCTAssertTrue(accepted,model.notice);XCTAssertEqual(buffer.text,originalPreview)
+   XCTAssertTrue(buffer.text.contains(program3 ? "#0:1:2024:012345:old|old|oXX #1:2:2024:012345:two|two|tXX":"#0:1:2024:012345:old|old|OLD #1:2:2024:012345:two|two|TWO"));XCTAssertNotNil(buffer.snippets.parallel)
+   native.insertText("ßa",replacementRange:native.selectedRange());let typed=complete("ßa",program3 ? "ßX":"SSA");XCTAssertEqual(buffer.text,typed)
    let beforeMove=buffer.multiRanges;try command("editor.snippetNext").run();XCTAssertNotEqual(buffer.multiRanges,beforeMove);try command("editor.snippetPrevious").run();XCTAssertEqual(buffer.multiRanges.map(\.length),[2,2])
-   try await open();try await choose("workspace.batch-nested");XCTAssertEqual(model.batchPreview?.carets.continuing,true);let nestedAccepted=await model.apply();XCTAssertTrue(nestedAccepted,model.notice);let nested=complete("kid-kid","KID-KID");XCTAssertEqual(buffer.text,nested)
-   native.insertText("ßa",replacementRange:native.selectedRange());let nestedTyped=complete("ßa-ßa","SSA-SSA");XCTAssertEqual(buffer.text,nestedTyped)
+   try await open();try await choose("workspace.batch-nested");XCTAssertEqual(model.batchPreview?.carets.continuing,true);let nestedAccepted=await model.apply();XCTAssertTrue(nestedAccepted,model.notice);let nested=complete("kid-kid",program3 ? "kXX-kXX":"KID-KID");XCTAssertEqual(buffer.text,nested)
+   native.insertText("ßa",replacementRange:native.selectedRange());let nestedTyped=complete("ßa-ßa",program3 ? "ßX-ßX":"SSA-SSA");XCTAssertEqual(buffer.text,nestedTyped)
    for expected in [nested,typed,originalPreview,source]{manager.undo();XCTAssertEqual(buffer.text,expected)}
    for expected in [originalPreview,typed,nested,nestedTyped]{manager.redo();XCTAssertEqual(buffer.text,expected)}
    for _ in 0..<4{manager.undo()};XCTAssertEqual(buffer.text,source)

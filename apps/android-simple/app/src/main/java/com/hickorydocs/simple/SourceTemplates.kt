@@ -11,6 +11,18 @@ private fun templateNumber(value:Any?):Int = (value as? Number)?.toString()?.toI
 private fun templateText(value:JSONObject,key:String)=value.opt(key) as? String ?: error("Missing template $key")
 private fun templateStrings(value:JSONObject,key:String):List<String> {val array=value.optJSONArray(key) ?: error("Missing template $key");return (0 until array.length()).map{array.opt(it) as? String ?: error("Malformed template $key")}}
 
+class SourceTemplatePrograms private constructor(internal val values:List<Int>) {
+    override fun equals(other:Any?)=other is SourceTemplatePrograms&&values==other.values
+    override fun hashCode()=values.hashCode()
+    companion object {
+        internal fun capture(programs:List<Int>):SourceTemplatePrograms {
+            val frozen=programs.toList();check(frozen.isNotEmpty()&&frozen.size<=2&&frozen.all{it in listOf(2,3)}&&frozen.distinct().size==frozen.size){"Unsupported template transform programs"}
+            return SourceTemplatePrograms(java.util.Collections.unmodifiableList(frozen))
+        }
+        val legacy=capture(listOf(2))
+    }
+}
+
 class SourceTemplateContinuation internal constructor(internal val group:ParallelSnippet)
 
 data class SourceTemplateCapture(
@@ -18,17 +30,19 @@ data class SourceTemplateCapture(
     val path:String,val source:String,val anchor:Int,val head:Int,val snippetIntent:Int,
     val variables:SnippetVariableSnapshot?=null,
     val readingContext:String?=null,val contributorsCurrent:()->Boolean={true},val entryCurrent:()->Boolean={true},
-    val carets:String?=null,val continuation:SourceTemplateContinuation?=null,val multiSelectionRevision:Long=0,
+    val carets:String?=null,val continuation:SourceTemplateContinuation?=null,val multiSelectionRevision:Long=0,val programs:SourceTemplatePrograms = SourceTemplatePrograms.legacy,
 ) {
+    internal val supportedPrograms:List<Int> get()=programs.values
     init {
+        check(supportedPrograms.isNotEmpty()&&supportedPrograms.size<=2&&supportedPrograms.all{it in listOf(2,3)}&&supportedPrograms.distinct().size==supportedPrograms.size){"Unsupported template transform programs"}
         check(anchor in 0..source.length&&head in 0..source.length){"Template selection is outside the source."}
         sourceChangeOffset(source,languagePosition(source,anchor));sourceChangeOffset(source,languagePosition(source,head))
     }
     val from get()=minOf(anchor,head)
     val to get()=maxOf(anchor,head)
     val protocol get()=if(variables==null)1 else 2
-    fun body()=JSONObject().put("version",protocol).put("path",path).put("source",source).put("selection",JSONObject().put("from",from).put("to",to)).apply{variables?.let{put("variable_context",it.body())};readingContext?.let{put("reading_context",JSONObject(it));put("transform_program_versions",org.json.JSONArray(listOf(2)))};carets?.let{put("carets",JSONObject(it))}}
-    fun matches(now:SourceTemplateCapture)=workspace===now.workspace&&engine===now.engine&&editor===now.editor&&namespace==now.namespace&&revision==now.revision&&path==now.path&&source==now.source&&anchor==now.anchor&&head==now.head&&snippetIntent==now.snippetIntent&&carets==now.carets&&continuation?.group===now.continuation?.group&&multiSelectionRevision==now.multiSelectionRevision
+    fun body()=JSONObject().put("version",protocol).put("path",path).put("source",source).put("selection",JSONObject().put("from",from).put("to",to)).apply{variables?.let{put("variable_context",it.body())};readingContext?.let{put("reading_context",JSONObject(it));put("transform_program_versions",org.json.JSONArray(supportedPrograms))};carets?.let{put("carets",JSONObject(it))}}
+    fun matches(now:SourceTemplateCapture)=workspace===now.workspace&&engine===now.engine&&editor===now.editor&&namespace==now.namespace&&revision==now.revision&&path==now.path&&source==now.source&&anchor==now.anchor&&head==now.head&&snippetIntent==now.snippetIntent&&carets==now.carets&&continuation?.group===now.continuation?.group&&multiSelectionRevision==now.multiSelectionRevision&&supportedPrograms==now.supportedPrograms
 }
 private fun templateJSONMatches(value:Any?,expected:Any?):Boolean {
  if(value==null||value===JSONObject.NULL)return expected==null||expected===JSONObject.NULL
@@ -49,7 +63,7 @@ private fun templateSnapshotMatches(value:JSONObject?,expected:SnippetVariableSn
 private fun templateVariableIdentity(value:JSONObject,capture:SourceTemplateCapture){
  if(capture.carets!=null)check(templateNumber(value.opt("template_batch_protocol"))==1&&templateJSONMatches(value.opt("carets"),JSONObject(capture.carets))){"The original complete template selection roster changed."}
  else check(listOf("template_batch_protocol","carets","expansions","readings").none{value.has(it)}){"Unexpected multiple-selection template reply."}
- if(capture.readingContext!=null)check(templateJSONMatches(value.opt("transform_program_versions"),org.json.JSONArray(listOf(2)))){"Template transform consumer versions changed."}
+ if(capture.readingContext!=null)check(templateJSONMatches(value.opt("transform_program_versions"),org.json.JSONArray(capture.supportedPrograms))){"Template transform consumer versions changed."}
  check(listOf("command","additionalTextEdits","workspaceEdit","edit").none{value.has(it)}){"Template contains unsupported additional effects. No edits were applied."}
  check(templateNumber(value.opt("version"))==1&&templateNumber(value.opt("template_protocol"))==capture.protocol){"This engine does not support the captured template protocol."}
  if(capture.protocol==2)check(value.opt("source_files_modified")==false&&templateSnapshotMatches(value.optJSONObject("variable_context"),capture.variables!!)){"Template variable context changed. Refresh before applying."}else check(value.opt("source_files_modified")!=true&&value.isNull("variable_context")){"Legacy template response carries unsupported context/effects"}
@@ -134,7 +148,7 @@ class SourceTemplatePlan internal constructor(val catalog:SourceTemplateCatalog,
             val entry=templatePlanIdentity(value,catalog,id);val context=catalog.capture;check(value.opt("available")==true){"Template is unavailable for this captured context."}
             if(context.carets!=null)return decodeTemplateBatch(value,catalog,entry)
             val snippet=value.optJSONObject("snippet") ?: error("Missing template snippet")
-            templateTransformPrograms(snippet)
+            templateTransformPrograms(snippet,context.supportedPrograms)
             val syntax=templateText(snippet,"syntax")
             val item=JSONObject().put("label",entry.label).put("insertText",syntax).put("insertTextFormat",2).put("data",JSONObject().put("hickory_snippet",snippet))
             val expansion=completionExpansion(item) ?: error("Template expansion unavailable")
@@ -146,9 +160,9 @@ class SourceTemplatePlan internal constructor(val catalog:SourceTemplateCatalog,
     }
 }
 internal data class SourceTemplateBatch(val expansions:List<ParallelSnippetExpansion>,val plan:ParallelSnippetChange)
-private fun templateTransformPrograms(snippet:JSONObject) {
+private fun templateTransformPrograms(snippet:JSONObject,programs:List<Int>) {
  val fields=snippet.optJSONArray("fields") ?: error("Missing template fields")
- for(index in 0 until fields.length()){val field=fields.optJSONObject(index) ?: error("Malformed template field");if(field.has("transform")&&!field.isNull("transform"))check(templateNumber(field.getJSONObject("transform").opt("version"))==2){"Template transform was not negotiated by this captured consumer"}}
+ for(index in 0 until fields.length()){val field=fields.optJSONObject(index) ?: error("Malformed template field");if(field.has("transform")&&!field.isNull("transform"))check(templateNumber(field.getJSONObject("transform").opt("version")) in programs){"Template transform was not negotiated by this captured consumer"}}
 }
 private fun templateBatchSnippets(value:JSONObject,capture:SourceTemplateCapture):List<JSONObject>{
  val ranges=JSONObject(capture.carets!!).getJSONArray("selections");val rows=value.optJSONArray("expansions") ?: error("Missing complete template expansions")
@@ -157,7 +171,7 @@ private fun templateBatchSnippets(value:JSONObject,capture:SourceTemplateCapture
  for(index in 0 until rows.length()){
   val row=rows.optJSONObject(index) ?: error("Malformed template expansion")
   check(row.keys().asSequence().toSet()==setOf("selection","replacement","snippet")&&templateJSONMatches(row.opt("selection"),ranges.opt(index))&&templateJSONMatches(row.opt("replacement"),ranges.opt(index))){"A template expansion belongs to another source selection"}
-  val snippet=row.optJSONObject("snippet") ?: error("Missing template expansion");templateTransformPrograms(snippet)
+  val snippet=row.optJSONObject("snippet") ?: error("Missing template expansion");templateTransformPrograms(snippet,capture.supportedPrograms)
   output+=templateText(snippet,"text").toByteArray(Charsets.UTF_8).size;syntax+=templateText(snippet,"syntax").toByteArray(Charsets.UTF_8).size
   val raw=snippet.getJSONArray("fields");fields+=raw.length();check(output<=1024*1024&&syntax<=8*1024*1024&&fields<=4096){"The complete template expansion exceeds its interactive budget"}
   for(at in 0 until raw.length()){
@@ -210,7 +224,7 @@ class SourceTemplatesModel {
         val logical=parallel?.selections?.map{NativeSourceEdit(it.from,it.to,"")} ?: buffer.multiRanges.takeIf{buffer.multiSource==buffer.text}.orEmpty()
         val carets=if(logical.size<2)null else {check(logical.size<=256){"Choose at most 256 source selections"};JSONObject().put("version",1).put("selections",org.json.JSONArray(logical.map{JSONObject().put("from",it.from).put("to",it.to)})).put("primary",parallel?.primaryIndex ?: 0).put("continuing",parallel!=null).toString()}
         val selected=buffer.state.selection
-        return SourceTemplateCapture(workspace,engine,buffer,workspace.sourceNavigationEpoch,buffer.sourceRevision,buffer.file.path,buffer.text,selected.start,selected.end,buffer.snippets.intent,variables,carets=carets,continuation=parallel?.let(::SourceTemplateContinuation),multiSelectionRevision=buffer.multiSelectionRevision)
+        return SourceTemplateCapture(workspace,engine,buffer,workspace.sourceNavigationEpoch,buffer.sourceRevision,buffer.file.path,buffer.text,selected.start,selected.end,buffer.snippets.intent,variables,carets=carets,continuation=parallel?.let(::SourceTemplateContinuation),multiSelectionRevision=buffer.multiSelectionRevision,programs=SourceTemplatePrograms.capture(supportedSnippetTransformPrograms))
     }
     fun current(workspace:Workspace,context:SourceTemplateCapture)=workspace.sourceTemplates===this&&workspace.showTemplates&&runCatching{context.contributorsCurrent()&&context.entryCurrent()&&context.matches(capture(workspace))}.getOrDefault(false)
     suspend fun refresh(workspace:Workspace){
