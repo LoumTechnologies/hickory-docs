@@ -88,7 +88,58 @@ def missing_suite(origin,root):
     absent={'version':1,'namespace':value['namespace'],'workspace':value['workspace'],'path':created,'id':entry['id'],'fingerprint':entry['fingerprint'],'current_identity':value['current_identity'],'current_hash':'missing','draft_hash':digest('retained created draft'),'side':'before'}
     refused(lambda:request(origin,'POST','/api/source-history/restore-draft',absent));assert not created_file.exists();restored=request(origin,'POST','/api/source-history/restore-draft',{**absent,'side':'after'});assert restored['source']==entry['after']['text'] and restored['source_effects'] is False and not created_file.exists()
     print('PASS deleted-source history: Missing distinct from empty File, confirmed text becomes only unmaterialized draft, no retry/identity promotion or file creation, independent replacement and absence-ABA refusal, Missing-before side never coerced to empty text',flush=True)
-def coordination_suite(origin, root, state, check_find=False):
+def files_operation(origin, op, path, to=None):
+    body = {'op': op, 'path': path}
+    if to is not None:
+        body['to'] = to
+    return request(origin, 'POST', '/api/files/op', body)
+
+
+def files_refuses(origin, op, path, to=None, *, status, notice):
+    try:
+        files_operation(origin, op, path, to)
+    except urllib.error.HTTPError as error:
+        detail = error.read().decode()
+        assert error.code == status and notice in detail.lower(), (error.code, detail)
+    else:
+        raise AssertionError((op, path, 'Unexpected raw Files publication'))
+
+
+def namespace_alias_suite(origin, root):
+    entry = request(origin, 'GET', '/api/workspace/entry')['entry']
+    assert entry['path'] == 'project.md', entry
+    main = root / entry['path']
+    original = main.read_bytes()
+    alias = root / 'main-alias.txt'
+    os.link(main, alias)
+    files_refuses(origin, 'rename', alias.name, 'retired.txt', status=409, notice='main construction')
+    files_refuses(origin, 'delete', 'project.md', status=409, notice='main construction')
+    assert alias.read_bytes() == original and main.read_bytes() == original
+    assert not (root / 'retired.txt').exists()
+    assert request(origin, 'GET', '/api/workspace/entry')['entry'] == entry
+
+    staging_source = root / 'ordinary-copy'
+    staging_source.mkdir()
+    (staging_source / 'first.txt').write_text('ordinary source\n')
+    with tempfile.TemporaryDirectory(prefix='hickory-outside-files-') as external:
+        outside = Path(external)
+        (outside / 'external.txt').write_text('outside owner\n')
+        (root / 'external-link').symlink_to(outside, target_is_directory=True)
+        (staging_source / 'later-link').symlink_to(outside / 'external.txt')
+        files_refuses(origin, 'delete', 'external-link/external.txt', status=400, notice='symbolic links')
+        files_refuses(origin, 'copy', staging_source.name, 'new folder', status=422, notice='ordinary files')
+        assert (outside / 'external.txt').read_text() == 'outside owner\n'
+        assert not (root / 'new folder' / staging_source.name).exists()
+        assert not list((root / 'new folder').glob('.hick-copy-*'))
+        (staging_source / 'later-link').unlink()
+    copied = files_operation(origin, 'copy', staging_source.name, 'new folder')
+    assert copied['to'] == 'new folder/ordinary-copy', copied
+    assert (root / copied['to'] / 'first.txt').read_text() == 'ordinary source\n'
+    assert (staging_source / 'first.txt').exists()
+    print('PASS raw Files preserves the canonical role, confines aliases, and stages a whole copy before publication')
+
+
+def coordination_suite(origin, root, state, check_find=False, check_files=False):
     import fcntl
 
     # The deleted-source witness intentionally removed the other literal path.
@@ -129,6 +180,9 @@ def coordination_suite(origin, root, state, check_find=False):
         assert (root / path).read_text() == loaded['content']
         assert get_file(origin, path)['content'] == loaded['content']
         assert request(origin, 'GET', route)['entries'] == previous['entries']
+        if check_files:
+            files_refuses(origin, 'mkdir', 'new folder', status=409, notice='publication')
+            assert not (root / 'new folder').exists()
         if check_find:
             result = request(origin, 'POST', '/api/find/replace', replace)
             assert result['changed'] == [] and result['replacements'] == 0, result
@@ -143,6 +197,10 @@ def coordination_suite(origin, root, state, check_find=False):
     assert (root / path).read_text() == body['content']
     assert sum(entry['id'] == body['request_id'] for entry in request(origin, 'GET', route)['entries']) == 1
     print('PASS held publication descriptor keeps source readable and refuses Save before history; exact request publishes after release')
+    if check_files:
+        result = files_operation(origin, 'mkdir', 'new folder')
+        assert result['path'] == 'new folder' and (root / 'new folder').is_dir(), result
+        namespace_alias_suite(origin, root)
     if check_find:
         result = request(origin, 'POST', '/api/find/replace', replace)
         assert result['replacements'] == 1 and result['skipped'] == [], result
@@ -157,8 +215,9 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--coordination', action='store_true', help='Also exercise the Unix source publication interlock')
     parser.add_argument('--find-coordination', action='store_true', help='Also exercise guarded Find against the same Unix interlock')
+    parser.add_argument('--files-coordination', action='store_true', help='Also exercise raw Files namespace publication and alias refusals')
     args = parser.parse_args()
-    if (args.coordination or args.find_coordination) and os.name != 'posix':
+    if (args.coordination or args.find_coordination or args.files_coordination) and os.name != 'posix':
         parser.error('The source publication coordination witness requires Unix')
     spec=importlib.util.spec_from_file_location('fixture',ROOT/'scripts/test-simple-browser.py');fixture=importlib.util.module_from_spec(spec);spec.loader.exec_module(fixture)
     with tempfile.TemporaryDirectory(prefix='hickory-history-service-') as folder:
@@ -169,7 +228,7 @@ def main():
         process=fixture.start([os.environ.get('HICKORY_SIMPLE_TEST_ENGINE',str(ROOT/'target/source-edit-focus/debug/examples/engine_client')),str(root),'window','http://127.0.0.1:1'],env={**os.environ,'HICKORY_STATE_DIR':str(temporary/'state')})
         try:
             origin=fixture.origin(process);suite(origin,root);creation_suite(origin,root);missing_suite(origin,root)
-            if args.coordination or args.find_coordination:
-                coordination_suite(origin, root, temporary/'state', check_find=args.find_coordination)
+            if args.coordination or args.find_coordination or args.files_coordination:
+                coordination_suite(origin, root, temporary/'state', check_find=args.find_coordination, check_files=args.files_coordination)
         finally:fixture.stop(process)
 if __name__=='__main__':main()

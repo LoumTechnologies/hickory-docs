@@ -18,6 +18,7 @@ use serde_json::{Value, json};
 
 use super::LocalState;
 use super::api::{ApiError, ApiResult};
+use super::workspace_entry_authority::acquire_namespace_coordination;
 
 #[derive(Deserialize)]
 pub struct FileOp {
@@ -54,17 +55,18 @@ fn resolve(root: &Path, rel: &str) -> Result<PathBuf, ApiError> {
             "{rel} is inside .git, which this app never edits by hand — the Git pane is the way in"
         )));
     }
-    Ok(root.join(rel))
+    super::workspace_fs::view::confined(root,rel).map_err(|error|ApiError::bad_request(error.to_string()))
 }
 
 /// A destination that must not already exist.
 fn vacant(target: &Path, rel: &str) -> Result<(), ApiError> {
-    if target.exists() {
-        return Err(ApiError::conflict(format!(
+    match std::fs::symlink_metadata(target) {
+        Ok(_) => Err(ApiError::conflict(format!(
             "{rel} already exists — nothing here overwrites; choose another name or delete it first"
-        )));
+        ))),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(ApiError::unprocessable(format!("could not inspect {rel}: {error}"))),
     }
-    Ok(())
 }
 
 fn rel_of(root: &Path, abs: &Path) -> String {
@@ -74,17 +76,91 @@ fn rel_of(root: &Path, abs: &Path) -> String {
         .replace('\\', "/")
 }
 
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn rename_exclusive(from: &Path, to: &Path) -> std::io::Result<()> {
+    use std::{ffi::CString, os::unix::ffi::OsStrExt};
+    let from = CString::new(from.as_os_str().as_bytes())?;
+    let to = CString::new(to.as_os_str().as_bytes())?;
+    // These system calls reject a competing destination atomically.
+    #[cfg(target_os = "macos")]
+    let status = unsafe { libc::renamex_np(from.as_ptr(), to.as_ptr(), libc::RENAME_EXCL) as libc::c_long };
+    #[cfg(target_os = "linux")]
+    let status = unsafe { libc::syscall(libc::SYS_renameat2, libc::AT_FDCWD, from.as_ptr(), libc::AT_FDCWD, to.as_ptr(), libc::RENAME_NOREPLACE) };
+    if status == 0 { Ok(()) } else { Err(std::io::Error::last_os_error()) }
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+fn rename_exclusive(from: &Path, to: &Path) -> std::io::Result<()> {
+    match std::fs::symlink_metadata(to) {
+        Ok(_) => Err(std::io::Error::from(std::io::ErrorKind::AlreadyExists)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => std::fs::rename(from, to),
+        Err(error) => Err(error),
+    }
+}
+
+fn publish_copy(from: &Path, to: &Path) -> std::io::Result<()> {
+    let parent = to.parent().ok_or_else(|| std::io::Error::other("Copy destination has no parent"))?;
+    let temporary = tempfile::Builder::new().prefix(".hick-copy-").tempdir_in(parent)?;
+    let staged = temporary.path().join("content");
+    copy_tree(from, &staged)?;
+    rename_exclusive(&staged, to)
+}
+
 fn copy_tree(from: &Path, to: &Path) -> std::io::Result<()> {
-    if from.is_dir() {
-        std::fs::create_dir_all(to)?;
+    let metadata = std::fs::symlink_metadata(from)?;
+    if metadata.file_type().is_symlink() || !metadata.is_file() && !metadata.is_dir() {
+        return Err(std::io::Error::other("copy requires ordinary files and directories"));
+    }
+    if metadata.is_dir() {
+        std::fs::create_dir(to)?;
         for entry in std::fs::read_dir(from)? {
             let entry = entry?;
             copy_tree(&entry.path(), &to.join(entry.file_name()))?;
         }
         Ok(())
     } else {
-        std::fs::copy(from, to).map(|_| ())
+        let mut source = std::fs::File::open(from)?;
+        let mut target = std::fs::OpenOptions::new().write(true).create_new(true).open(to)?;
+        std::io::copy(&mut source, &mut target)?;
+        target.set_permissions(metadata.permissions())
     }
+}
+
+#[cfg(all(test, any(target_os = "macos", target_os = "linux")))]
+mod namespace_publication_tests {
+    use super::*;
+
+    #[test]
+    fn exclusive_rename_keeps_both_original_files_when_a_destination_exists() {
+        let root = tempfile::tempdir().unwrap();
+        let from = root.path().join("source");
+        let to = root.path().join("target");
+        std::fs::write(&from, "source bytes").unwrap();
+        std::fs::write(&to, "independent destination bytes").unwrap();
+        let error = rename_exclusive(&from, &to).unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::AlreadyExists);
+        assert_eq!(std::fs::read_to_string(from).unwrap(), "source bytes");
+        assert_eq!(std::fs::read_to_string(to).unwrap(), "independent destination bytes");
+    }
+}
+
+fn publish_namespace(
+    state: &LocalState,
+    root: &Path,
+    affected: &[&Path],
+    perform: impl FnOnce() -> ApiResult<Value>,
+) -> ApiResult<Value> {
+    state.resource_root.check(root).map_err(ApiError::conflict)?;
+    let names: Vec<String> = affected.iter().map(|path| rel_of(root, path)).collect();
+    let paths: Vec<&str> = names.iter().map(String::as_str).collect();
+    let lease = acquire_namespace_coordination(root, &paths).map_err(ApiError::conflict)?;
+    lease.check().map_err(ApiError::conflict)?;
+    for path in paths { resolve(root, path)?; }
+    let result = perform();
+    if let Err(reason) = lease.check().and_then(|()| state.resource_root.check(root).map(|_| ())) {
+        return Err(ApiError::conflict(format!("File operation result is unconfirmed: {reason}. Refresh Files before trying again.")));
+    }
+    result
 }
 
 /// `POST /api/files/op` — one dired verb.
@@ -122,10 +198,12 @@ pub async fn file_op(
                 }
             };
             let target = resolve(&root, &target_rel)?;
-            vacant(&target, &target_rel)?;
-            std::fs::rename(&source, &target)
-                .map_err(|e| ApiError::unprocessable(format!("rename failed: {e}")))?;
-            json!({ "op": "rename", "from": body.path, "to": rel_of(&root, &target) })
+            publish_namespace(&state, &root, &[&source, &target], || {
+                vacant(&target, &target_rel)?;
+                rename_exclusive(&source, &target)
+                    .map_err(|e| ApiError::unprocessable(format!("rename failed: {e}")))?;
+                Ok(json!({ "op": "rename", "from": body.path, "to": rel_of(&root, &target) }))
+            })?
         }
         "move" | "copy" => {
             let dir_rel = to.ok_or_else(|| {
@@ -152,51 +230,55 @@ pub async fn file_op(
                     body.path, op
                 )));
             }
-            vacant(&target, &target_rel)?;
-            if op == "move" {
-                std::fs::rename(&source, &target)
-            } else {
-                copy_tree(&source, &target)
-            }
-            .map_err(|e| ApiError::unprocessable(format!("{op} failed: {e}")))?;
-            json!({ "op": op, "from": body.path, "to": target_rel })
+            let affected: &[&Path] = if op == "move" { &[&source, &target] } else { &[&target] };
+            publish_namespace(&state, &root, affected, || {
+                resolve(&root, &rel_of(&root, &source))?;
+                vacant(&target, &target_rel)?;
+                if op == "move" {
+                    rename_exclusive(&source, &target)
+                } else {
+                    publish_copy(&source, &target)
+                }
+                .map_err(|e| ApiError::unprocessable(format!("{op} failed: {e}")))?;
+                Ok(json!({ "op": op, "from": body.path, "to": target_rel }))
+            })?
         }
-        "delete" => {
+        "delete" => publish_namespace(&state, &root, &[&source], || {
             if source.is_dir() {
                 std::fs::remove_dir_all(&source)
             } else {
                 std::fs::remove_file(&source)
             }
             .map_err(|e| ApiError::unprocessable(format!("delete failed: {e}")))?;
-            json!({ "op": "delete", "path": body.path })
-        }
-        "mkdir" => {
+            Ok(json!({ "op": "delete", "path": body.path }))
+        })?,
+        "mkdir" => publish_namespace(&state, &root, &[&source], || {
             vacant(&source, &body.path)?;
             std::fs::create_dir_all(&source).map_err(|e| {
                 ApiError::unprocessable(format!("could not create the folder: {e}"))
             })?;
-            json!({ "op": "mkdir", "path": body.path })
-        }
+            Ok(json!({ "op": "mkdir", "path": body.path }))
+        })?,
         "create" => {
             if body.path.ends_with(".md") {
                 return Err(ApiError::bad_request(
                     "a `.md` file is a document — File → New Document makes one, with a room to edit it in",
                 ));
             }
-            vacant(&source, &body.path)?;
-            if let Some(parent) = source.parent() {
-                std::fs::create_dir_all(parent).map_err(|e| {
-                    ApiError::unprocessable(format!("could not create the folder: {e}"))
-                })?;
-            }
-            // Save As also uses this verb: another writer winning after vacant()
-            // must fail creation rather than truncate its newly created file.
-            std::fs::OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(&source)
-                .map_err(|e| ApiError::unprocessable(format!("could not create the file: {e}")))?;
-            json!({ "op": "create", "path": body.path })
+            publish_namespace(&state, &root, &[&source], || {
+                vacant(&source, &body.path)?;
+                if let Some(parent) = source.parent() {
+                    std::fs::create_dir_all(parent).map_err(|e| {
+                        ApiError::unprocessable(format!("could not create the folder: {e}"))
+                    })?;
+                }
+                std::fs::OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .open(&source)
+                    .map_err(|e| ApiError::unprocessable(format!("could not create the file: {e}")))?;
+                Ok(json!({ "op": "create", "path": body.path }))
+            })?
         }
         other => {
             return Err(ApiError::bad_request(format!(

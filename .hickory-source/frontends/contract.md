@@ -274,9 +274,22 @@ entry and lease checks covered pending-role races and alias refusals. Twelve
 source history and nine agent checks passed, along with three focused browser
 checks and TypeScript checking. The earlier Find preview carries a content hash.
 The physical guard begins when the server plans the replacement.
-External filesystem and Git writers, the legacy history revert command and
-the raw Files API have separate publication paths. Entry Move and its inverse
-still require guarded publication and host acceptance.
+External filesystem and Git writers and the legacy history revert command have
+separate publication paths. Entry Move and its inverse still require guarded
+publication and host acceptance.
+
+### Guard publication through the raw Files verbs
+
+The raw Files API now shares the same publication lease. Its held path checks
+protect the retained main and its aliases. Copies publish from a complete staged
+tree. A refused child leaves the visible destination absent. macOS and Linux
+rename through an exclusive destination operation.
+
+The real engine refused folder creation under a held reader and accepted the
+same request after release. It refused direct removal of the main, retirement
+through a hardlink, and a symlink out of the workspace. A refused nested copy
+left no partial destination, and an ordinary copy then succeeded. The focused
+macOS kernel check confirmed that an occupied destination preserves both files.
 
 ## Checkpoint requested during implementation
 
