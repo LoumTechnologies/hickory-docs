@@ -212,8 +212,12 @@ mod provider_refactors;
 
 The source-context mechanism combines canonical body/fence facts with compiler byte provenance. Export its read-only selection model independently from template transport and rendering; ambiguous occurrences remain explicit refusals.
 
+Keep pathless fence inspection private to language reading and its exact source
+mapping. Only the backend registers these temporary provider documents.
+
 <storycode:copy id="source-language-context-public-module">
 pub mod source_context;
+mod fenced_source;
 </storycode:copy>
 
 <storycode:file path="crates/hick-lsp/src/lib.rs"><storycode:paste select="#f-e8bff405197e-backend"/><storycode:paste select="#f-e8bff405197e-child_lsp"/><storycode:paste select="#f-e8bff405197e-discovery"/><storycode:paste select="#f-e8bff405197e-dispatcher"/><storycode:paste select="#f-e8bff405197e-document"/><storycode:paste select="#f-e8bff405197e-element_lint"/><storycode:paste select="#f-e8bff405197e-lang_detect"/><storycode:paste select="#f-e8bff405197e-location_map"/><storycode:paste select="#f-e8bff405197e-project_contexts"/><storycode:paste select="#f-e8bff405197e-use_declaration"/><storycode:paste select="#f-e8bff405197e-position_map"/><storycode:paste select="#f-e8bff405197e-project"/><storycode:paste select="#f-e8bff405197e-project_environment"/><storycode:paste select="#f-e8bff405197e-project_positions"/><storycode:paste select="#f-e8bff405197e-semantic"/><storycode:paste select="#f-e8bff405197e-server_config"/><storycode:paste select="#f-e8bff405197e-session_lint"/><storycode:paste select="#f-e8bff405197e-staging"/><storycode:paste select="#f-e8bff405197e-structural"/><storycode:paste select="#f-e8bff405197e-virtual_file"/><storycode:paste select="#f-e8bff405197e-use_declaration-2"/><storycode:paste select="#f-e8bff405197e-use_declaration-3"/><storycode:paste select="#f-e8bff405197e-use_declaration-4"/><storycode:paste select="#provider-artifact-mechanism-modules"/><storycode:paste select="#type-hierarchy-service-module"/><storycode:paste select="#snippet-plan-public-module"/><storycode:paste select="#source-language-context-public-module"/></storycode:file>

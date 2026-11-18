@@ -321,4 +321,6 @@ Each client reads text before requesting optional capabilities. A save uses the 
 
 <ui:include file="workspace-entry-move-acceptance.md" />
 
+<ui:include file="fenced-source-reading-host-acceptance.md" />
+
 </ui:doc>

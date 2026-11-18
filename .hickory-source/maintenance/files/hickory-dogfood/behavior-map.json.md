@@ -45455,7 +45455,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "f-c936496a03c1-parse_error_location",
         "f-c936496a03c1-tests",
         "diagnostic-source-revision-envelope",
-        "provider-action-module"
+        "provider-action-module",
+        "fenced-backend-readings"
       ],
       "anchor": "output-c936496a03c1",
       "narrative_owner": "mechanism:crates/hick-lsp"
@@ -73889,6 +73890,62 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "construction": "fragments",
       "fragments": [
         "rust-selected-test-source-proof-protocol"
+      ]
+    },
+    "crates/hick-lsp/src/fenced_source.rs": {
+      "source": ".hickory-source/mechanisms/fenced-source-readings.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "4ce43ef288d320df8f41db2fe70233a41404d4097bf28e5afec5e876460e5bb2",
+      "construction": "fragments",
+      "fragments": [
+        "fenced-source-preparation",
+        "fenced-source-tests"
+      ]
+    },
+    "scripts/test-fenced-source-readings.py": {
+      "source": ".hickory-source/frontends/fenced-source-reading-host-acceptance.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "a582618949690d54379b9df2e179410092bb0085d8ffae5c436e474901eabbe3",
+      "construction": "fragments",
+      "fragments": [
+        "fenced-provider-acceptance-runner"
+      ]
+    },
+    "scripts/fenced-source-reading-driver.mjs": {
+      "source": ".hickory-source/frontends/fenced-source-reading-host-acceptance.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "caa7273ff32ed2524e47beffb2dc461dde639a575c145917c0e6e68b221cedef",
+      "construction": "fragments",
+      "fragments": [
+        "fenced-provider-protocol-client"
+      ]
+    },
+    "apps/apple-simple/Tests/FencedSourceReadingTests.swift": {
+      "source": ".hickory-source/frontends/fenced-source-reading-host-acceptance.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "784b20090e1bce48cfac2f844aef91e5758515fa04f707ebfa7ce99f2957bb95",
+      "construction": "fragments",
+      "fragments": [
+        "fenced-provider-apple-witness"
+      ]
+    },
+    "apps/android-simple/app/src/test/java/com/hickorydocs/simple/FencedSourceReadingTest.kt": {
+      "source": ".hickory-source/frontends/fenced-source-reading-host-acceptance.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "904f6f456208016d512567e7c621d46cad7733143366a869725e9699493ac9d1",
+      "construction": "fragments",
+      "fragments": [
+        "fenced-provider-android-witness"
       ]
     }
   },

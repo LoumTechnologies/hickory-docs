@@ -31,8 +31,26 @@ pub(crate) struct ProjectProjection {
 <a id="f-6f96a89d99eb-impl-ProjectProjection"></a>
 ### `impl-ProjectProjection`
 
+Read-only fence projections reuse exact position arithmetic, but their constructor requires contiguous literal bytes rather than claiming a generated project entry. Every removed indentation prefix stays outside the inspection provenance.
+
 <storycode:copy id="f-6f96a89d99eb-impl-ProjectProjection">
 impl ProjectProjection {
+    /// An inspection projection carries only byte-identical authored spans.
+    pub fn literal(output: String, origins: Vec<ByteOrigin>, sources: Arc<BTreeMap<String,String>>, primary: &str) -> Result<Self,String> {
+        let mut end=0;
+        let mut previous_source=0;
+        for origin in &origins {
+            let source=sources.get(&origin.document).ok_or("Missing inspection source")?;
+            if origin.document!=primary || origin.output.0!=end || origin.output.1<=end || origin.source.0<previous_source
+                || output.get(origin.output.0..origin.output.1).is_none()
+                || source.get(origin.source.0..origin.source.1)!=output.get(origin.output.0..origin.output.1) {
+                return Err("Inspection provenance is not contiguous literal source".into());
+            }
+            end=origin.output.1; previous_source=origin.source.1;
+        }
+        if end!=output.len() {return Err("Inspection provenance leaves unowned bytes".into());}
+        Ok(Self{primary:primary.into(),output,origins,sources})
+    }
     pub fn new(
         entry: &ProjectEntry,
         sources: Arc<BTreeMap<String, String>>,

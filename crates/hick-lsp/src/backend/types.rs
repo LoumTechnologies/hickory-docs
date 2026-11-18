@@ -120,7 +120,7 @@ impl HickBackend {
             tower_lsp::jsonrpc::Error::invalid_params("Malformed type hierarchy source position")
         })?;
         let Some((uri, language, position)) = self
-            .virtual_target(&origin.text_document.uri, origin.position)
+            .virtual_read_target(&origin.text_document.uri, origin.position)
             .await
         else {
             return Ok(Value::Null);

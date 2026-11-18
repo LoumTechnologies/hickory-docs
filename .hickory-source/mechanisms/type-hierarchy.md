@@ -142,7 +142,7 @@ impl HickBackend {
 
 ## Prepare and follow the provider protocol
 
-Prepare at a mapped source position, then return only a backend token as client data. Follow-ups use the held original item and child connection; caller modifications to names, URIs, ranges or opaque fields cannot redirect them. Both fresh results and follow-up items pass the same projection and revision checks.
+Prepare at a mapped source position, then return only a backend token as client data. Follow-ups use the held original item and child connection; caller modifications to names, URIs, ranges or opaque fields cannot redirect them. Both fresh results and follow-up items pass the same projection and revision checks. Static fenced inspections join this read route without entering completion, refactoring or runtime ownership; their authored byte map still rejects edit ranges.
 
 <ui:copy id="type-hierarchy-provider-queries">
     pub(super) async fn provider_type_hierarchy(&self, params: Value) -> Result<Value> {
@@ -151,7 +151,7 @@ Prepare at a mapped source position, then return only a backend token as client 
             tower_lsp::jsonrpc::Error::invalid_params("Malformed type hierarchy source position")
         })?;
         let Some((uri, language, position)) = self
-            .virtual_target(&origin.text_document.uri, origin.position)
+            .virtual_read_target(&origin.text_document.uri, origin.position)
             .await
         else {
             return Ok(Value::Null);

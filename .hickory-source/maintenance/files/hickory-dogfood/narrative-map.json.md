@@ -157556,6 +157556,55 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/mechanisms/rust-selected-test-debug.md",
       "symbol": "rust selected test source proof protocol",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "fenced-source-preparation",
+      "output": "crates/hick-lsp/src/fenced_source.rs",
+      "page": ".hickory-source/mechanisms/fenced-source-readings.md",
+      "symbol": "fenced source preparation",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "fenced-source-tests",
+      "output": "crates/hick-lsp/src/fenced_source.rs",
+      "page": ".hickory-source/mechanisms/fenced-source-readings.md",
+      "symbol": "fenced source tests",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "fenced-backend-readings",
+      "output": "crates/hick-lsp/src/backend.rs",
+      "page": ".hickory-source/mechanisms/crates/hick-lsp/src/backend.rs.md",
+      "symbol": "route and retire exact fenced provider readings",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "fenced-provider-acceptance-runner",
+      "output": "scripts/test-fenced-source-readings.py",
+      "page": ".hickory-source/frontends/fenced-source-reading-host-acceptance.md",
+      "symbol": "fenced provider acceptance runner",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "fenced-provider-protocol-client",
+      "output": "scripts/fenced-source-reading-driver.mjs",
+      "page": ".hickory-source/frontends/fenced-source-reading-host-acceptance.md",
+      "symbol": "fenced provider protocol client",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "fenced-provider-apple-witness",
+      "output": "apps/apple-simple/Tests/FencedSourceReadingTests.swift",
+      "page": ".hickory-source/frontends/fenced-source-reading-host-acceptance.md",
+      "symbol": "fenced provider apple witness",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "fenced-provider-android-witness",
+      "output": "apps/android-simple/app/src/test/java/com/hickorydocs/simple/FencedSourceReadingTest.kt",
+      "page": ".hickory-source/frontends/fenced-source-reading-host-acceptance.md",
+      "symbol": "fenced provider android witness",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

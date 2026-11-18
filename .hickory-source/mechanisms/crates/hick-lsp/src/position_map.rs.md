@@ -50,6 +50,7 @@ pub struct PositionMap {
     identity_lines: Option<u32>,
     line_count: u32,
     project: Option<crate::project_positions::ProjectProjection>,
+    inspection: bool,
 }
 
 </storycode:copy>
@@ -58,6 +59,12 @@ pub struct PositionMap {
 
 <storycode:copy id="f-c77393891cd2-impl-PositionMap">
 impl PositionMap {
+    /// Inspection maps provide positions only, never an editable preimage.
+    pub(crate) fn inspection(reading: &crate::fenced_source::FencedReading, sources: std::sync::Arc<std::collections::BTreeMap<String,String>>) -> Result<Self,String> {
+        let project=crate::project_positions::ProjectProjection::literal(reading.content.clone(),reading.origins.clone(),sources,"source")?;
+        Ok(Self{mappings:vec![],identity_lines:None,line_count:reading.content.split('\n').count() as u32,project:Some(project),inspection:true})
+    }
+    pub(crate) fn is_inspection(&self)->bool {self.inspection}
     pub fn for_project(
         entry: &hick_lang::ProjectEntry,
         sources: std::sync::Arc<std::collections::BTreeMap<String, String>>,
@@ -94,14 +101,16 @@ impl PositionMap {
             identity_lines: None,
             line_count,
             project: Some(projection),
+            inspection: false,
         })
     }
     /// Source identity accompanies coordinates; foreign contributors never
     /// masquerade as positions in the primary document.
     pub fn is_project(&self) -> bool {
-        self.project.is_some()
+        self.project.is_some() && !self.inspection
     }
     pub fn source_document(&self, line: u32, column: u32) -> Option<(Option<String>, u32, u32)> {
+        if self.inspection { return self.to_source(line,column).map(|(l,c)|(None,l,c)); }
         if let Some(project) = &self.project {
             return project
                 .source(line, column)
@@ -121,6 +130,7 @@ impl PositionMap {
             identity_lines: Some(lines),
             line_count: lines,
             project: None,
+            inspection: false,
         }
     }
 
@@ -170,6 +180,7 @@ impl PositionMap {
             identity_lines: None,
             line_count: virtual_line,
             project: None,
+            inspection: false,
         }
     }
 
@@ -409,7 +420,7 @@ impl PositionMap {
         range: tower_lsp::lsp_types::Range,
     ) -> Option<(Option<String>, tower_lsp::lsp_types::Range)> {
         use tower_lsp::lsp_types::{Position, Range};
-        if range.end < range.start {
+        if self.inspection || range.end < range.start {
             return None;
         }
         if let Some(project) = &self.project {
@@ -466,6 +477,7 @@ A compiler project map already retains the exact source closure. Borrow the cont
 <storycode:copy id="diagnostic-authored-source-bytes">
 impl PositionMap {
     pub fn project_source(&self, document: &str) -> Option<&str> {
+        if self.inspection { return None; }
         self.project
             .as_ref()?
             .sources
@@ -484,6 +496,7 @@ A document-wide fix cannot use a caret in prose, and a repeated fragment has no 
 impl PositionMap {
     /// Actual byte-origin contributors, not every source loaded for the project.
     pub fn contributing_documents(&self) -> Vec<&str> {
+        if self.inspection { return vec![]; }
         self.project
             .as_ref()
             .map(|project| {

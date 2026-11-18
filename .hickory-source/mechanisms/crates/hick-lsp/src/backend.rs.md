@@ -189,6 +189,7 @@ pub struct HickBackend {
     prepared_types: Arc<Mutex<types::TypeHierarchyArtifacts>>,
     workspace_root: Arc<RwLock<Option<Url>>>,
     staging: StagingArea,
+    inspection_space: Option<tempfile::TempDir>,
     projects: Arc<crate::ProjectContexts>,
     /// Whether the user has already been shown a staging failure.
     ///
@@ -343,6 +344,7 @@ impl HickBackend {
             prepared_actions: Arc::new(Mutex::new(actions::PreparedActions::default())),
             prepared_types: Arc::new(Mutex::new(types::TypeHierarchyArtifacts::default())),
             staging: StagingArea::new(),
+            inspection_space: tempfile::Builder::new().prefix("hick-inspection-").tempdir().ok(),
             projects: Arc::new(crate::ProjectContexts::default()),
             staging_failure_shown: Arc::new(RwLock::new(false)),
             workspace_root: Arc::new(RwLock::new(None)),
@@ -889,10 +891,30 @@ impl HickBackend {
         hick_uri: &Url,
         pos: Position,
     ) -> Option<(Url, String, Position)> {
+        self.virtual_target_mode(hick_uri,pos,false).await
+    }
+    async fn virtual_read_target(&self,hick_uri:&Url,pos:Position)->Option<(Url,String,Position)> {
+        self.virtual_target_mode(hick_uri,pos,true).await
+    }
+    async fn virtual_target_mode(&self,hick_uri:&Url,pos:Position,inspection:bool)->Option<(Url,String,Position)> {
+        let inspected_hash=if inspection {self.documents.read().await.get(hick_uri).filter(|entry|!entry.preparing).and_then(|entry|entry.source_hash.clone())} else {None};
         let index = self.vfile_index.read().await;
+        // Exact embedded syntax outranks a whole-document Markdown reading.
+        // Never let HashMap iteration choose between those independent roles.
+        if inspection {
+            let mut exact=None;
+            for (vf_uri,mapping) in index.iter().filter(|(_,mapping)|&mapping.hick_uri==hick_uri && mapping.position_map.is_inspection() && inspected_hash.as_ref()==Some(&mapping.primary_source_hash)) {
+                if let Some((line,column))=mapping.position_map.to_virtual(pos.line,pos.character) {
+                    if exact.is_some(){return None;}
+                    exact=Some((vf_uri.clone(),mapping.language_id.clone(),Position::new(line,column)));
+                }
+            }
+            if exact.is_some(){return exact;}
+        }
         let mut target = None;
         for (vf_uri, mapping) in index.iter() {
             if &mapping.hick_uri == hick_uri
+                && !mapping.position_map.is_inspection()
                 && let Some((vl, vc)) = mapping.position_map.to_virtual(pos.line, pos.character)
             {
                 if mapping.position_map.is_project() && target.is_some() {
@@ -918,10 +940,17 @@ impl HickBackend {
     /// position to route by, so they go to every child that owns part of the
     /// document and the answers are merged.
     async fn virtual_files_of(&self, hick_uri: &Url) -> Vec<(Url, String, PositionMap)> {
+        self.virtual_files_mode(hick_uri,false).await
+    }
+    async fn virtual_read_files_of(&self,hick_uri:&Url)->Vec<(Url,String,PositionMap)> {
+        self.virtual_files_mode(hick_uri,true).await
+    }
+    async fn virtual_files_mode(&self,hick_uri:&Url,inspection:bool)->Vec<(Url,String,PositionMap)> {
+        let inspected_hash=if inspection {self.documents.read().await.get(hick_uri).filter(|entry|!entry.preparing).and_then(|entry|entry.source_hash.clone())} else {None};
         let index = self.vfile_index.read().await;
         index
             .iter()
-            .filter(|(_, mapping)| &mapping.hick_uri == hick_uri)
+            .filter(|(_, mapping)| &mapping.hick_uri == hick_uri && (!mapping.position_map.is_inspection() || (inspection && inspected_hash.as_ref()==Some(&mapping.primary_source_hash))))
             .map(|(vf_uri, mapping)| {
                 (
                     vf_uri.clone(),
@@ -941,6 +970,9 @@ impl HickBackend {
         extra: Option<serde_json::Value>,
     ) -> Option<serde_json::Value> {
         let root_uri = self.root_of(vf_uri).await?;
+        let inspection=self.vfile_index.read().await.get(vf_uri).is_some_and(|mapping|mapping.position_map.is_inspection());
+        let lease=if inspection {self.inspection_request_lease(vf_uri).await} else {None};
+        if inspection && lease.is_none() {return None;}
         let handle = {
             let dispatcher = self.dispatcher.lock().await;
             dispatcher.get_child(language_id, &root_uri).ok()?.clone()
@@ -953,7 +985,9 @@ impl HickBackend {
                 obj.insert(k, v);
             }
         }
-        match handle.request(method, params).await {
+        let reply=handle.request(method,params).await;
+        if let Some(lease)=lease {if !self.inspection_request_current(vf_uri,&lease).await {return None;}}
+        match reply {
             Ok(v) if !v.is_null() => Some(v),
             _ => None,
         }
@@ -968,7 +1002,7 @@ impl HickBackend {
         extra: Option<serde_json::Value>,
     ) -> Vec<serde_json::Value> {
         let mut out = Vec::new();
-        for (vf_uri, language, map) in self.virtual_files_of(hick_uri).await {
+        for (vf_uri, language, map) in self.virtual_read_files_of(hick_uri).await {
             let Some(result) = self
                 .child_document_request(method, &vf_uri, &language, extra.clone())
                 .await
@@ -1005,7 +1039,7 @@ impl HickBackend {
         pos: Position,
         extra: Option<serde_json::Value>,
     ) -> Result<Option<serde_json::Value>> {
-        let Some((vf_uri, lang, vpos)) = self.virtual_target(uri, pos).await else {
+        let Some((vf_uri, lang, vpos)) = self.virtual_read_target(uri, pos).await else {
             return Ok(None);
         };
         let Some(result) = self
@@ -1032,7 +1066,7 @@ impl HickBackend {
         uri: &Url,
         pos: Position,
     ) -> Option<serde_json::Value> {
-        let (vf_uri, lang, vpos) = self.virtual_target(uri, pos).await?;
+        let (vf_uri, lang, vpos) = self.virtual_read_target(uri, pos).await?;
         let result = self
             .child_request(method, &vf_uri, &lang, vpos, None)
             .await?;
@@ -1183,6 +1217,9 @@ impl HickBackend {
         let Some(root_uri) = self.root_of(vf_uri).await else {
             return Ok(None);
         };
+        let inspection=self.vfile_index.read().await.get(vf_uri).is_some_and(|mapping|mapping.position_map.is_inspection());
+        let lease=if inspection {self.inspection_request_lease(vf_uri).await} else {None};
+        if inspection && lease.is_none() {return Ok(None);}
         let handle = {
             let dispatcher = self.dispatcher.lock().await;
             let Ok(handle) = dispatcher.get_child(language_id, &root_uri) else {
@@ -1201,7 +1238,9 @@ impl HickBackend {
                 obj.insert(k, v);
             }
         }
-        match handle.request(method, params).await {
+        let reply=handle.request(method,params).await;
+        if let Some(lease)=lease {if !self.inspection_request_current(vf_uri,&lease).await {return Ok(None);}}
+        match reply {
             Ok(v) if !v.is_null() => Ok(Some(v)),
             Ok(_) => Ok(None),
             Err(e) => {
@@ -2339,7 +2378,7 @@ impl LanguageServer for HickBackend {
     async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
         let uri = params.text_document_position_params.text_document.uri;
         let pos = params.text_document_position_params.position;
-        let Some((vf_uri, lang, vpos)) = self.virtual_target(&uri, pos).await else {
+        let Some((vf_uri, lang, vpos)) = self.virtual_read_target(&uri, pos).await else {
             return Ok(None);
         };
         let Some(result) = self
@@ -2398,7 +2437,7 @@ impl LanguageServer for HickBackend {
     ) -> Result<Option<Vec<CallHierarchyItem>>> {
         let uri = params.text_document_position_params.text_document.uri;
         let pos = params.text_document_position_params.position;
-        let Some((vf_uri, lang, vpos)) = self.virtual_target(&uri, pos).await else {
+        let Some((vf_uri, lang, vpos)) = self.virtual_read_target(&uri, pos).await else {
             return Ok(None);
         };
         let Some(result) = self
@@ -2460,7 +2499,7 @@ impl LanguageServer for HickBackend {
             return Ok(Some(GotoDefinitionResponse::Scalar(loc)));
         }
 
-        let Some((vf_uri, lang, vpos)) = self.virtual_target(&uri, pos).await else {
+        let Some((vf_uri, lang, vpos)) = self.virtual_read_target(&uri, pos).await else {
             return Ok(None);
         };
         let Some(result) = self
@@ -2491,7 +2530,7 @@ impl LanguageServer for HickBackend {
             .await;
 
         // Child references, translated back to .md coordinates, merged in.
-        if let Some((vf_uri, lang, vpos)) = self.virtual_target(&uri, pos).await
+        if let Some((vf_uri, lang, vpos)) = self.virtual_read_target(&uri, pos).await
             && let Some(result) = self
                 .child_request(
                     "textDocument/references",
@@ -2569,7 +2608,7 @@ impl LanguageServer for HickBackend {
         // Colouring: decode each child's deltas, map to the document, sort,
         // re-encode against one legend. See `crate::semantic`.
         let mut tokens = Vec::new();
-        for (vf_uri, language, map) in self.virtual_files_of(&params.text_document.uri).await {
+        for (vf_uri, language, map) in self.virtual_read_files_of(&params.text_document.uri).await {
             let (child_types, child_modifiers) = {
                 let root_uri = self.root_of(&vf_uri).await.unwrap_or_default();
                 let dispatcher = self.dispatcher.lock().await;
@@ -2711,7 +2750,7 @@ impl LanguageServer for HickBackend {
         // document's requested range is applied afterwards, once the hints
         // are back in document coordinates.
         let mut out: Vec<serde_json::Value> = Vec::new();
-        for (vf_uri, language, map) in self.virtual_files_of(&params.text_document.uri).await {
+        for (vf_uri, language, map) in self.virtual_read_files_of(&params.text_document.uri).await {
             let whole_file = serde_json::json!({
                 "range": {
                     "start": { "line": 0, "character": 0 },
@@ -2754,7 +2793,7 @@ impl LanguageServer for HickBackend {
         // Folding ranges carry line numbers, not ranges, so they need their
         // own mapping rather than `translate_bare_ranges`.
         let mut out: Vec<FoldingRange> = Vec::new();
-        for (vf_uri, language, map) in self.virtual_files_of(&params.text_document.uri).await {
+        for (vf_uri, language, map) in self.virtual_read_files_of(&params.text_document.uri).await {
             let Some(result) = self
                 .child_document_request("textDocument/foldingRange", &vf_uri, &language, None)
                 .await
@@ -3256,6 +3295,7 @@ impl HickBackend {
             }
         };
         self.process_document_source(uri, source).await;
+        self.sync_fenced_readings(uri,source,installed).await;
         let mut documents = self.documents.write().await;
         if let Some(entry) = documents.get_mut(uri) {
             if Arc::ptr_eq(&entry.preparation, &gate) && entry.source_revision == installed {
@@ -3281,6 +3321,151 @@ impl HickBackend {
 }
 </storycode:copy>
 
-<storycode:file path="crates/hick-lsp/src/backend.rs"><storycode:paste select="#f-c936496a03c1-diagnostic_context"/><storycode:paste select="#f-c936496a03c1-use_declaration"/><storycode:paste select="#f-c936496a03c1-captured"/><storycode:paste select="#f-c936496a03c1-use_declaration-2"/><storycode:paste select="#f-c936496a03c1-use_declaration-3"/><storycode:paste select="#f-c936496a03c1-use_declaration-4"/><storycode:paste select="#f-c936496a03c1-use_declaration-5"/><storycode:paste select="#f-c936496a03c1-use_declaration-6"/><storycode:paste select="#f-c936496a03c1-use_declaration-7"/><storycode:paste select="#f-c936496a03c1-use_declaration-8"/><storycode:paste select="#f-c936496a03c1-use_declaration-9"/><storycode:paste select="#f-c936496a03c1-use_declaration-10"/><storycode:paste select="#f-c936496a03c1-use_declaration-11"/><storycode:paste select="#f-c936496a03c1-use_declaration-12"/><storycode:paste select="#f-c936496a03c1-use_declaration-13"/><storycode:paste select="#f-c936496a03c1-use_declaration-14"/><storycode:paste select="#f-c936496a03c1-ChildDiagnosticsStore"/><storycode:paste select="#f-c936496a03c1-PreparedHierarchyItem"/><storycode:paste select="#f-c936496a03c1-uuid_ish"/><storycode:paste select="#f-c936496a03c1-HickBackend"/><storycode:paste select="#f-c936496a03c1-DocEntry"/><storycode:paste select="#provider-document-source-lifetime"/><storycode:paste select="#project-overlay-root-refresh"/><storycode:paste select="#project-overlay-backend-witness"/><storycode:paste select="#f-c936496a03c1-VFileMapping"/><storycode:paste select="#yaml-frontmatter-projection"/><storycode:paste select="#f-c936496a03c1-impl-HickBackend"/><storycode:paste select="#static-language-capture-readiness"/><storycode:paste select="#f-c936496a03c1-StructuralKind"/><storycode:paste select="#f-c936496a03c1-drive_lowercased"/><storycode:paste select="#f-c936496a03c1-uri_key"/><storycode:paste select="#f-c936496a03c1-translate_edit_uris"/><storycode:paste select="#f-c936496a03c1-translate_bare_ranges"/><storycode:paste select="#f-c936496a03c1-MANIFESTS"/><storycode:paste select="#f-c936496a03c1-copy_manifests"/><storycode:paste select="#f-c936496a03c1-child_request_error"/><storycode:paste select="#f-c936496a03c1-handle_child_diagnostics"/><storycode:paste select="#f-c936496a03c1-impl-LanguageServer-for-HickBackend"/><storycode:paste select="#f-c936496a03c1-translate_edits"/><storycode:paste select="#f-c936496a03c1-reindent"/><storycode:paste select="#f-c936496a03c1-is_hick_document"/><storycode:paste select="#f-c936496a03c1-plain_language"/><storycode:paste select="#f-c936496a03c1-parse_error_location"/><storycode:paste select="#f-c936496a03c1-tests"/><storycode:paste select="#diagnostic-source-revision-envelope"/><storycode:paste select="#provider-action-module"/></storycode:file>
+
+## Attach inspection without creating output ownership
+
+After normal source preparation, pathless static fences join only the read routing index. A per-backend private URI scope isolates them from runtime files and other editors. No code file is written. Installed providers receive the original workspace root and in-memory body; failed providers leave readable source untouched. Existing close lifecycle removes these addresses. The source lease is checked before installation, and read replies are rejected after any newer preparation or close. Mutation callers retain their original routing and inspection maps refuse edit ranges independently. Exact embedded readings take precedence over a whole-document Markdown map: hash-table order cannot select an unavailable Markdown child instead of the fence provider. The regression below also retires source leases during preparation, equal-byte edit/Undo and close.
+
+<storycode:copy id="fenced-backend-readings">
+impl HickBackend {
+    /// Inspection ownership is local to this backend and never names an output.
+    async fn sync_fenced_readings(&self, uri:&Url, source:&str, expected:crate::source_identity::SourceRevision) {
+        let path=uri.path().to_ascii_lowercase();
+        if !path.ends_with(".md") && !path.ends_with(".markdown") {return;}
+        let prepared=match crate::fenced_source::FencedReadings::prepare(source) {
+            Ok(value)=>value,
+            Err(error)=>{self.client.log_message(MessageType::WARNING,error).await;return;}
+        };
+        if prepared.readings.is_empty(){return;}
+        let Some(space)=&self.inspection_space else {
+            self.client.log_message(MessageType::WARNING,"Fenced language readings are unavailable: no private inspection URI scope").await;return;
+        };
+        let root=self.plain_root_uri(uri).await;
+        let digest=diagnostic_source_digest(uri.as_str()).replace(':',"-");
+        for reading in prepared.readings {
+            if lsp_command(&reading.language).is_err(){continue;}
+            let Some((suffix,_,_))=crate::lang_detect::extensions().iter().find(|(_,language,_)|*language==reading.language) else {continue;};
+            let Ok(child_uri)=Url::from_file_path(space.path().join(&digest).join(format!("{}.{}",reading.ordinal,suffix))) else {continue;};
+            let Ok(position_map)=PositionMap::inspection(&reading,prepared.sources.clone()) else {continue;};
+            let mut dispatcher=self.dispatcher.lock().await;
+            let handle=match dispatcher.get_or_spawn(&reading.language,&root).await {
+                Ok(handle)=>handle,
+                Err(error)=>{tracing::debug!(%error,"fenced language provider unavailable");continue;}
+            };
+            // Provider pipe backpressure must not lock unrelated documents.
+            let (already_open,version)={
+                let documents=self.documents.read().await;
+                let Some(entry)=documents.get(uri).filter(|entry|entry.source_revision==expected && entry.source_text==source) else {return;};
+                let Some(version)=entry.vfile_version.checked_add(1) else {return;};
+                (entry.open_vfiles.contains(&child_uri),version)
+            };
+            let result=if already_open {
+                handle.notify("textDocument/didChange",serde_json::json!({"textDocument":{"uri":child_uri,"version":version},"contentChanges":[{"text":reading.content}]})).await
+            } else {
+                handle.notify("textDocument/didOpen",serde_json::json!({"textDocument":{"uri":child_uri,"version":version,"languageId":reading.language,"text":reading.content}})).await
+            };
+            if result.is_err(){continue;}
+            let mut documents=self.documents.write().await;
+            let Some(entry)=documents.get_mut(uri).filter(|entry|entry.source_revision==expected && entry.source_text==source) else {
+                drop(documents);
+                let _=handle.notify("textDocument/didClose",serde_json::json!({"textDocument":{"uri":child_uri}})).await;
+                return;
+            };
+            self.vfile_index.write().await.insert(child_uri.clone(),VFileMapping{
+                source_revision:crate::source_identity::SourceRevision::fresh(),hick_uri:uri.clone(),language_id:reading.language,
+                root_uri:root.clone(),position_map,provider_diagnostics:vec![],provider_source:reading.content,
+                provider_version:Some(version),primary_source_hash:diagnostic_source_digest(source),
+            });
+            if !already_open {entry.open_vfiles.push(child_uri);}
+            entry.vfile_version=version;
+        }
+    }
+    async fn inspection_request_lease(&self, child:&Url)->Option<(Url,crate::source_identity::SourceRevision,crate::source_identity::SourceRevision)> {
+        let mapping=self.vfile_index.read().await.get(child).cloned()?;
+        if !mapping.position_map.is_inspection(){return None;}
+        let documents=self.documents.read().await;
+        let source=documents.get(&mapping.hick_uri)?;
+        if source.preparing || source.source_hash.as_deref()!=Some(mapping.primary_source_hash.as_str()){return None;}
+        Some((mapping.hick_uri,mapping.source_revision,source.source_revision))
+    }
+    async fn inspection_request_current(&self,child:&Url,lease:&(Url,crate::source_identity::SourceRevision,crate::source_identity::SourceRevision))->bool {
+        self.inspection_request_lease(child).await.as_ref()==Some(lease)
+    }
+}
+#[cfg(test)]
+mod fenced_reading_lifetime_tests {
+    use super::*;
+    #[tokio::test]
+    async fn fenced_reading_requires_current_source_and_never_becomes_an_edit_target() {
+        let (service, _) = tower_lsp::LspService::new(HickBackend::new);
+        let backend = service.inner();
+        let source = "```python\ndef greet(): return 1\ngreet()\n```\n";
+        let prepared = crate::fenced_source::FencedReadings::prepare(source).unwrap();
+        let reading = &prepared.readings[0];
+        let map = PositionMap::inspection(reading, prepared.sources.clone()).unwrap();
+        let owner = Url::parse("file:///owned/notes.md").unwrap();
+        let child = Url::parse("file:///private/inspection.py").unwrap();
+        let mut document = DocEntry::empty();
+        document.source_text = source.into();
+        document.source_hash = Some(diagnostic_source_digest(source));
+        document.open_vfiles.push(child.clone());
+        backend
+            .documents
+            .write()
+            .await
+            .insert(owner.clone(), document);
+        backend.vfile_index.write().await.insert(
+            child.clone(),
+            VFileMapping {
+                source_revision: crate::source_identity::SourceRevision::fresh(),
+                hick_uri: owner.clone(),
+                language_id: "python".into(),
+                root_uri: "file:///owned".into(),
+                position_map: map,
+                provider_diagnostics: vec![],
+                provider_source: reading.content.clone(),
+                provider_version: Some(1),
+                primary_source_hash: diagnostic_source_digest(source),
+            },
+        );
+        backend.vfile_index.write().await.insert(owner.clone(),VFileMapping{
+            source_revision:crate::source_identity::SourceRevision::fresh(),hick_uri:owner.clone(),language_id:"markdown".into(),root_uri:"file:///owned".into(),position_map:PositionMap::identity(5),
+            provider_diagnostics:vec![],provider_source:source.into(),provider_version:Some(1),primary_source_hash:diagnostic_source_digest(source),
+        });
+        assert_eq!(backend.virtual_target(&owner,Position::new(2,1)).await.unwrap().0,owner,"mutation routing never selects an inspection");
+        assert!(backend.virtual_files_of(&owner).await.iter().all(|(_,_,map)|!map.is_inspection()));
+        assert_eq!(backend.virtual_read_target(&owner,Position::new(2,1)).await.unwrap().0,child,"the exact fence must beat a whole-Markdown identity map regardless of HashMap order");
+        assert_eq!(backend.virtual_read_files_of(&owner).await.len(),2);
+        let lease = backend.inspection_request_lease(&child).await.unwrap();
+        backend
+            .documents
+            .write()
+            .await
+            .get_mut(&owner)
+            .unwrap()
+            .preparing = true;
+        assert_ne!(backend.virtual_read_target(&owner,Position::new(2,1)).await.map(|target|target.0),Some(child.clone()));
+        assert!(backend.virtual_read_files_of(&owner).await.iter().all(|(_,_,map)|!map.is_inspection()));
+        assert!(!backend.inspection_request_current(&child, &lease).await);
+        let mut documents = backend.documents.write().await;
+        let document = documents.get_mut(&owner).unwrap();
+        document.preparing = false;
+        document.source_revision = crate::source_identity::SourceRevision::fresh();
+        drop(documents);
+        assert!(
+            !backend.inspection_request_current(&child, &lease).await,
+            "equal-byte edit/Undo is a new reading lifetime"
+        );
+        let lease = backend.inspection_request_lease(&child).await.unwrap();
+        backend.documents.write().await.remove(&owner);
+        assert!(
+            !backend.inspection_request_current(&child, &lease).await,
+            "close retires an in-flight read"
+        );
+        assert_ne!(backend.virtual_read_target(&owner,Position::new(2,1)).await.map(|target|target.0),Some(child.clone()));
+    }
+}
+</storycode:copy>
+<storycode:file path="crates/hick-lsp/src/backend.rs"><storycode:paste select="#f-c936496a03c1-diagnostic_context"/><storycode:paste select="#f-c936496a03c1-use_declaration"/><storycode:paste select="#f-c936496a03c1-captured"/><storycode:paste select="#f-c936496a03c1-use_declaration-2"/><storycode:paste select="#f-c936496a03c1-use_declaration-3"/><storycode:paste select="#f-c936496a03c1-use_declaration-4"/><storycode:paste select="#f-c936496a03c1-use_declaration-5"/><storycode:paste select="#f-c936496a03c1-use_declaration-6"/><storycode:paste select="#f-c936496a03c1-use_declaration-7"/><storycode:paste select="#f-c936496a03c1-use_declaration-8"/><storycode:paste select="#f-c936496a03c1-use_declaration-9"/><storycode:paste select="#f-c936496a03c1-use_declaration-10"/><storycode:paste select="#f-c936496a03c1-use_declaration-11"/><storycode:paste select="#f-c936496a03c1-use_declaration-12"/><storycode:paste select="#f-c936496a03c1-use_declaration-13"/><storycode:paste select="#f-c936496a03c1-use_declaration-14"/><storycode:paste select="#f-c936496a03c1-ChildDiagnosticsStore"/><storycode:paste select="#f-c936496a03c1-PreparedHierarchyItem"/><storycode:paste select="#f-c936496a03c1-uuid_ish"/><storycode:paste select="#f-c936496a03c1-HickBackend"/><storycode:paste select="#f-c936496a03c1-DocEntry"/><storycode:paste select="#provider-document-source-lifetime"/><storycode:paste select="#project-overlay-root-refresh"/><storycode:paste select="#project-overlay-backend-witness"/><storycode:paste select="#f-c936496a03c1-VFileMapping"/><storycode:paste select="#yaml-frontmatter-projection"/><storycode:paste select="#f-c936496a03c1-impl-HickBackend"/><storycode:paste select="#static-language-capture-readiness"/><storycode:paste select="#f-c936496a03c1-StructuralKind"/><storycode:paste select="#f-c936496a03c1-drive_lowercased"/><storycode:paste select="#f-c936496a03c1-uri_key"/><storycode:paste select="#f-c936496a03c1-translate_edit_uris"/><storycode:paste select="#f-c936496a03c1-translate_bare_ranges"/><storycode:paste select="#f-c936496a03c1-MANIFESTS"/><storycode:paste select="#f-c936496a03c1-copy_manifests"/><storycode:paste select="#f-c936496a03c1-child_request_error"/><storycode:paste select="#f-c936496a03c1-handle_child_diagnostics"/><storycode:paste select="#f-c936496a03c1-impl-LanguageServer-for-HickBackend"/><storycode:paste select="#f-c936496a03c1-translate_edits"/><storycode:paste select="#f-c936496a03c1-reindent"/><storycode:paste select="#f-c936496a03c1-is_hick_document"/><storycode:paste select="#f-c936496a03c1-plain_language"/><storycode:paste select="#f-c936496a03c1-parse_error_location"/><storycode:paste select="#f-c936496a03c1-tests"/><storycode:paste select="#diagnostic-source-revision-envelope"/><storycode:paste select="#provider-action-module"/><storycode:paste select="#fenced-backend-readings"/></storycode:file>
 
 </storycode:doc>

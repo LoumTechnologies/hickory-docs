@@ -26,7 +26,7 @@ fn known(hint: &str) -> Option<String> {
     };
     crate::lang_detect::language_id(&format!("source.{hint}")).map(str::to_owned)
 }
-fn region_language(region: &hick_lang::source_context::SourceCodeRegion) -> Result<String, String> {
+pub(crate) fn region_language(region: &hick_lang::source_context::SourceCodeRegion) -> Result<String, String> {
     let hint = region
         .language
         .as_deref()

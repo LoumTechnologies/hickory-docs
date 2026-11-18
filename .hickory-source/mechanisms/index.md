@@ -426,4 +426,6 @@ is included with that control; opening a document is not generation authority.
 
 <storycode:include file="rust-test-source-proof.md" />
 
+<storycode:include file="fenced-source-readings.md" />
+
 </storycode:doc>

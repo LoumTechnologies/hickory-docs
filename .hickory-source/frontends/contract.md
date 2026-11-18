@@ -31,7 +31,7 @@ an earlier open item only for the behavior it actually exercises.
 
 | Required outcome | Current usable evidence and remaining acceptance |
 | --- | --- |
-| Navigation and code intelligence | Existing source-bound navigation and provider receipts remain in force. Browser mixed-line-ending source/view coordination now has rendered provider and history acceptance; source-bound completion variables now have live host receipts. Android controller acceptance covers exact navigation into a literal source tab with an Agent utility still open. Embedded-language breadth remains open. |
+| Navigation and code intelligence | Existing source-bound navigation and provider receipts remain in force. Browser mixed-line-ending source/view coordination has rendered provider and history acceptance. Android controller acceptance covers exact navigation into a literal source tab with an Agent utility still open. Ordinary Markdown fences now have genuine Python and TypeScript inspection and navigation receipts in the browser, mounted macOS editor and Android controller. Other embedded provider shapes retain their stated limits. |
 | Refactoring, cleanup, generation, templates and history | Rename, formatting, genuine TypeScript extraction/accessor generation/cleanup and coordinated history have focused host receipts. Genuine TypeScript move-to-new-file review, publication and inverse/redo have browser, macOS and Android receipts. Source-bound variables and expanded regex transforms in completion and reusable templates have live browser, macOS and Android-controller receipts. Embedded and multi-caret template review retains source, selections, mirrors and grouped history, including native secondary-caret round-trip invalidation. |
 | Diagnostics and contextual fixes | Existing source-bound Problems/fix receipts remain scoped to their stated providers and paths. A command or backend implementation alone is not further acceptance. |
 | Testing and coverage | Retained sessions, results and coverage retain their provider receipts. Exact JavaScript collection/rerun has 31 focused collector cases and 11 fresh-engine Vitest flows. Rust test Debug matches the saved declaration to a compiled inline or external module and its qualified harness name. The direct engine, rendered browser, mounted macOS and Android controller verified that path in physical and compiler-authored source. |
@@ -45,6 +45,25 @@ Across all rows, physical input and assistive-technology acceptance remain
 unexecuted where stated. Android controller/state acceptance and iOS builds are
 reported separately from rendered/device runtime acceptance. No full parity
 claim is made while the integration work in this ledger remains open.
+
+## Inspect authored code in ordinary Markdown fences
+
+An installed language provider receives the exact fenced source in a private
+inspection document. Each reading maps through the current fence to the
+authored editor. The engine retires inspection documents when their source
+revision or rooted workspace changes, and the provider gets no edit or
+execution authority from a pathless fence. A distinct fence has its own
+document identity. Shared imports or inferred relations between different
+fences remain unknown.
+
+Five focused fence and routing cases and eleven position-mapping cases passed.
+Actual Python and TypeScript children returned hover and definitions with
+indented Unicode and CRLF source. The protocol also exercised dirty changes,
+Undo, close and unsupported edit requests. Rendered browser navigation and
+mounted macOS and Android controller inspections reached the authored
+locations and preserved the original editor, saved bytes and workspace files.
+iOS feature runtime, rendered Android, physical input and assistive technology
+remain unverified for this flow.
 
 ## Debug a saved Rust test selection through Cargo and LLDB
 

@@ -47,3 +47,4 @@ pub mod snippet_case;
 pub mod snippet_context;
 mod provider_refactors;
 pub mod source_context;
+mod fenced_source;
