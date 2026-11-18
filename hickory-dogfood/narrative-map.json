@@ -156911,6 +156911,48 @@
       "page": ".hickory-source/mechanisms/workspace-entry-reading-protocol-witness.md",
       "symbol": "workspace entry reading protocol driver",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "workspace-entry-reading-browser-helper",
+      "output": "apps/web/src/simple/WorkspaceEntrySelection.ts",
+      "page": ".hickory-source/mechanisms/workspace-entry-reading-hosts.md",
+      "symbol": "workspace entry reading browser helper",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "workspace-entry-reading-browser-witness",
+      "output": "apps/web/src/simple/WorkspaceEntrySelection.test.ts",
+      "page": ".hickory-source/mechanisms/workspace-entry-reading-hosts.md",
+      "symbol": "workspace entry reading browser witness",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "workspace-entry-reading-apple-helper",
+      "output": "apps/apple-simple/Sources/WorkspaceEntrySelection.swift",
+      "page": ".hickory-source/mechanisms/workspace-entry-reading-hosts.md",
+      "symbol": "workspace entry reading apple helper",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "workspace-entry-reading-apple-witness",
+      "output": "apps/apple-simple/Tests/WorkspaceEntrySelectionTests.swift",
+      "page": ".hickory-source/mechanisms/workspace-entry-reading-hosts.md",
+      "symbol": "workspace entry reading apple witness",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "workspace-entry-reading-android-helper",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/WorkspaceEntrySelection.kt",
+      "page": ".hickory-source/mechanisms/workspace-entry-reading-hosts.md",
+      "symbol": "workspace entry reading android helper",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "workspace-entry-reading-android-witness",
+      "output": "apps/android-simple/app/src/test/java/com/hickorydocs/simple/WorkspaceEntrySelectionTest.kt",
+      "page": ".hickory-source/mechanisms/workspace-entry-reading-hosts.md",
+      "symbol": "workspace entry reading android witness",
+      "basis": "explained-behavior"
     }
   ],
   "explanation_gaps": {

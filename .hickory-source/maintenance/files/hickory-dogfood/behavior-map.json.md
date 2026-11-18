@@ -73273,6 +73273,72 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "fragments": [
         "workspace-entry-reading-protocol-driver"
       ]
+    },
+    "apps/web/src/simple/WorkspaceEntrySelection.ts": {
+      "source": ".hickory-source/mechanisms/workspace-entry-reading-hosts.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "3a37fc1ee2b95ab01538fac35fc55e7f87c045fdb0aaabacacd961fc1c85ec43",
+      "construction": "fragments",
+      "fragments": [
+        "workspace-entry-reading-browser-helper"
+      ]
+    },
+    "apps/web/src/simple/WorkspaceEntrySelection.test.ts": {
+      "source": ".hickory-source/mechanisms/workspace-entry-reading-hosts.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "test",
+      "sha256": "241cb15d479ab794c1e544f855c953f4a5ad9af2d800d46a798e1a7485209c7d",
+      "construction": "fragments",
+      "fragments": [
+        "workspace-entry-reading-browser-witness"
+      ]
+    },
+    "apps/apple-simple/Sources/WorkspaceEntrySelection.swift": {
+      "source": ".hickory-source/mechanisms/workspace-entry-reading-hosts.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "b6196609f8ad33ee44be170f1b5a39525747461a6aab0ac0d7a08df3be1e057c",
+      "construction": "fragments",
+      "fragments": [
+        "workspace-entry-reading-apple-helper"
+      ]
+    },
+    "apps/apple-simple/Tests/WorkspaceEntrySelectionTests.swift": {
+      "source": ".hickory-source/mechanisms/workspace-entry-reading-hosts.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "test",
+      "sha256": "caf98319773d0f68b66eae2bea1bfd83f9b4e76da4fff735a7ca1b21e3623293",
+      "construction": "fragments",
+      "fragments": [
+        "workspace-entry-reading-apple-witness"
+      ]
+    },
+    "apps/android-simple/app/src/main/java/com/hickorydocs/simple/WorkspaceEntrySelection.kt": {
+      "source": ".hickory-source/mechanisms/workspace-entry-reading-hosts.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "7fbb88eb244ca15efbacad9a36fd407914beb6e8036dcf092eda6c2c9ace4f98",
+      "construction": "fragments",
+      "fragments": [
+        "workspace-entry-reading-android-helper"
+      ]
+    },
+    "apps/android-simple/app/src/test/java/com/hickorydocs/simple/WorkspaceEntrySelectionTest.kt": {
+      "source": ".hickory-source/mechanisms/workspace-entry-reading-hosts.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "test",
+      "sha256": "be05d0a7773acc12626769bcf0a491cfe3749aa715cd1232c5abdfa5acb3e81b",
+      "construction": "fragments",
+      "fragments": [
+        "workspace-entry-reading-android-witness"
+      ]
     }
   },
   "evidence_records": [

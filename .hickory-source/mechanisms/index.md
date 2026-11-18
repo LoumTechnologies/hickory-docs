@@ -401,4 +401,6 @@ is included with that control; opening a document is not generation authority.
 <storycode:include file="workspace-entry-authority.md" />
 <storycode:include file="workspace-entry-reading-protocol-witness.md" />
 
+<storycode:include file="workspace-entry-reading-hosts.md" />
+
 </storycode:doc>
