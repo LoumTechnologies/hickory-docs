@@ -121,6 +121,16 @@ working file and index stayed exact. A dispatched request keeps its original
 status control across a selection change or repository refresh. See
 `target/simple-git-conflict-selection-v10/browser.json`.
 
+The current rendered Android replay opened the literal-path Git conflict
+and selected Stage 1. The visible Git object and `base` bytes matched
+the repository. A retry installed the current app and rendered Files,
+then the owned emulator showed the Android system-UI ANR dialog over it.
+Rendered Stages 2 and 3, guarded Save, and separate Stage still need a
+successful replay. The controller and HTTP evidence below retain their
+original scope. See
+`target/parity-rendered-android.sgYIt7/continuation-receipts/final-android-xk4yntp6/git-conflict/`
+and `target/parity-rendered-android.sgYIt7/continuation-receipts/final-android-i2e_rlbo/git-conflict/last-screen.png`.
+
 ### Requested files and capability arrival
 
 The shared Simple launcher now passes the exact workspace-relative requested
@@ -436,6 +446,13 @@ focused Expression field. The non-key popover did not dispatch Watch via
 mouse or local accessibility activation, so the rendered value still needs
 foreground verification. See
 `target/appkit-recorded-inspect-watch.kqo0rebk/receipt.json`.
+The unlocked AppKit replay queued clicks to the owned native window and
+completed Watch on both records. The user expression `value + 1` returned
+`42` and the assistant expression `1 + value` returned `53`. Both evaluations
+used the current mapped stop and frame, and native Continue finished the
+same selected fence with its archive and editor intact. The controller
+supplied the initial breakpoint in this replay. See
+`target/appkit-recorded-inspect-watch.4hgq2f4x/receipt.json`.
 The rebuilt engine also rejected stale message hashes on both sides, withheld
 execution after preparation, and refused escaped or non-UTF-8 startup reads.
 The main Chromium window and Simple Browser also ran both selected Python
@@ -506,6 +523,12 @@ The follow-up scrolled the reviewer and placed Apply inside the visible
 popover. Native activation still sent no validation or application request
 on the locked console. See
 `target/appkit-recorded-apply-focus-patch.cnv_y0zf/receipt.json`.
+After the console unlocked, the rendered AppKit gutter and Apply clicks
+passed for both unwrapped records. Each scrolled reviewer dispatched its
+exact captured path and side through validation and the application report.
+Native Close and the workspace Undo command restored both drafts. The
+saved files and recorded messages retained their exact bytes. See
+`target/appkit-recorded-apply-focus-patch.7z4r4n62/receipt.json`.
 Rendered Android passed the user-side review, generated consequence, Apply and
 Undo. Its compact assistant fixture passed the exact recorded `patch` review
 and draft Apply with unchanged physical files. The assistant body matches the
