@@ -157,6 +157,22 @@ it("retains captured source and interaction authority until the final position c
  revealLine("a.py",2,0,{source:"a\nb",current:()=>current});expect(claimReveal("a.py")).toBeNull();
  revealLine("a.py",2,0,{source:"a\nb",current:()=>current});expect(claimRevealPosition("a.py","a\nb")).toEqual({line:2,character:0});expect(claimRevealPosition("a.py","a\nb")).toBeNull();
 });
+
+it("leaves a guarded position for its active editor and waits for the caret to move", () => {
+  const active = document.createElement("div"), other = document.createElement("div");
+  let acknowledged = false;
+  revealLine("a.py", 1, 1, {
+    source: "ab", current: () => true, accepts: editor => editor === active,
+    onRevealed: () => { acknowledged = true; },
+  });
+  expect(claimRevealPosition("a.py", "ab", other)).toBeNull();
+  const request = claimRevealPosition("a.py", "ab", active);
+  expect(request).toMatchObject({line: 1, character: 1});
+  expect(acknowledged).toBe(false);
+  request?.onRevealed?.();
+  expect(acknowledged).toBe(true);
+  expect(claimRevealPosition("a.py", "ab", active)).toBeNull();
+});
 it("never turns an unknown captured mapping identity into a precise source position",()=>{
  const heard=vi.fn(),off=onOpenLocation(heard,true),current=()=>true;openCapturedLocation("helpers.py",99,null,current);expect(heard).toHaveBeenCalledWith(expect.objectContaining({path:"helpers.py",line:99,capture:expect.objectContaining({hash:null,current,positionKnown:true})}));openCapturedLocation("helpers.py",null,"a".repeat(64),current);expect(heard).toHaveBeenLastCalledWith(expect.objectContaining({capture:expect.objectContaining({hash:null,positionKnown:false})}));off();
  const legacy=vi.fn(),retire=onOpenLocation(legacy);openCapturedLocation("helpers.py",99,"a".repeat(64),current,1);expect(legacy).not.toHaveBeenCalled();retire();

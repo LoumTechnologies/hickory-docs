@@ -51,7 +51,9 @@ import { PromptPanel, usePrompt } from "../components/PromptPanel";
 import { bufferEditor, openBufferTarget } from "../lib/editorBufferTargets";
 import { workspaceRibbonSources } from "./workspaceRibbonSources";
 import { matchesRankedSearchHit, matchesWorkspaceSymbol, openPlainSearchFiles, searchWorkspace } from "../lib/workspaceSearch";
-import { searchCharacter, semanticLocations, semanticPath } from "../simple/Intelligence";
+import { NavigationTrail, searchCharacter, semanticLocations, semanticPath, type SemanticLocation } from "../simple/Intelligence";
+import { authoredSource } from "../simple/SourceText";
+import { documentUri } from "../lsp/documentUri";
 import { workspaceLspClient } from "../lsp/useLsp";
 import type { MenuAction } from "../lib/menuBridge";
 import { captureInsertion, insertionCurrent, insertCapturedElement } from "../editor/insertElement";
@@ -170,7 +172,7 @@ import { observeManagedStartup, observePlainStartup, openSelectedFile, useFolder
 import { hickLangReady, useHickLangStatus } from "../editor/hickLang";
 import { activeEditor, focusedEditor } from "../editor/activeEditor";
 import { editorLanguageActions } from "../editor/languageActions";
-import type { RelatedLocationReading } from "../lsp/cmLsp";
+import { offsetToPosition, type RelatedLocationReading } from "../lsp/cmLsp";
 import { useZoom } from "./useZoom";
 import { StatusBar } from "../shell/StatusBar";
 import { WelcomePane, type WelcomeAction } from "./WelcomePane";
@@ -476,6 +478,34 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   const workspaceKey = JSON.stringify(folderRoots.map(root => [root.workspace_id, root.root_path ?? root.root]));
   const sourceWorkspace = useRef({key: workspaceKey});
   if (sourceWorkspace.current.key !== workspaceKey) sourceWorkspace.current = {key: workspaceKey};
+  type HistoryPoint = SemanticLocation & {sourceHash: Promise<string | null>};
+  const historyRef = useRef({workspace: sourceWorkspace.current, trail: new NavigationTrail<HistoryPoint>()});
+  if (historyRef.current.workspace !== sourceWorkspace.current) {
+    historyRef.current = {workspace: sourceWorkspace.current, trail: new NavigationTrail<HistoryPoint>()};
+  }
+  const navigateHistoryRef = useRef<(direction: -1 | 1, current?: () => boolean) => void>(() => {});
+  const activeSourceEditor = useCallback(() => {
+    const tab = focusIntent.current.tab;
+    if (!tab || !["file", "document", "generated"].includes(tab.kind)) return null;
+    const body = [...(shellBox?.querySelectorAll<HTMLElement>("[data-workspace-tab]") ?? [])]
+      .find(element => element.dataset.workspaceTab === tab.id);
+    const focused = focusedEditor();
+    if (focused && body?.contains(focused.dom)) return {tab, view: focused};
+    const node = body?.querySelector<HTMLElement>(".cm-editor");
+    const view = node && EditorView.findFromDOM(node);
+    return view ? {tab, view} : null;
+  }, [shellBox]);
+  const makeHistoryPoint = useCallback((path: string, source: string, line: number, character: number): HistoryPoint => {
+    const start = {line, character};
+    return {uri: documentUri(path), range: {start, end: start}, sourceHash: historySourceHash(source).catch(() => null)};
+  }, []);
+  const readDeparture = useCallback(() => {
+    const editor = activeSourceEditor();
+    if (!editor) return null;
+    const {tab, view: {state}} = editor;
+    const {line, character} = offsetToPosition(state.doc, state.selection.main.head);
+    return makeHistoryPoint(tab.target, authoredSource(state), line, character);
+  }, [activeSourceEditor, makeHistoryPoint]);
   const captureNavigationContext = useCallback(() => {
     const ticket = ++providerNavigation.current;
     const workspace = sourceWorkspace.current, focus = focusIntent.current;
@@ -678,11 +708,8 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       }
       if (mode === "command") {
         const focus = focusIntent.current;
-        const tabBody = [...(shellBox?.querySelectorAll<HTMLElement>("[data-workspace-tab]") ?? [])]
-          .find(body => body.dataset.workspaceTab === focus.tab?.id);
-        const lastView = focusedEditor();
-        const editorNode = tabBody?.querySelector<HTMLElement>(".cm-editor");
-        const view = lastView && tabBody?.contains(lastView.dom) ? lastView : editorNode && EditorView.findFromDOM(editorNode);
+        const history = historyRef.current;
+        const view = activeSourceEditor()?.view;
         const editorCommands: CommandItem[] = [];
         if (view) {
           for (const action of view.state.facet(editorLanguageActions)) {
@@ -700,6 +727,14 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         }
         const all: CommandItem[] = [...documentCommands(registry.get(focusedDocId(layoutRef.current))),
           ...editorCommands,
+          ...([[history.trail.canBack, -1, "back", "Navigate Back"], [history.trail.canForward, 1, "forward", "Navigate Forward"]] as const)
+            .flatMap(([available, direction, id, label]): CommandItem[] => available ? [{
+              id: `navigation.${id}`, label, agentAllowed: true, run: current => {
+                if (current?.() && historyRef.current === history && focusIntent.current === focus) {
+                  navigateHistoryRef.current(direction, current);
+                }
+              },
+            }] : []),
           {id: "workspace-symbols", label: "Search workspace symbols", detail: "Type @ in search", agentAllowed: true, run: () => openCommandBar("symbols")},
           ...([ ["connections", "Connection display"], ["execution", "Tests and execution"], ["review", "Review this file"], ["import", "Import meeting"], ["export", "Export document snapshot"], ["help", "Workflow help"] ] as const).map(([id, label]) => ({ id: `tool-${id}`, label, detail: "Open a temporary panel", run: () => setTool(id) })),
           ...(projectId ? [{ id: "document-connections-graph", label: "Show document connections graph", detail: "Workspace lineage", run: () => navigate(`/projects/${encodeURIComponent(projectId)}/lineage`) }] : []),
@@ -752,7 +787,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         run: () => openHitRef.current(node.path, 1),
       }));
     },
-    [welcomeActions, registry, projectId, shellBox],
+    [welcomeActions, registry, projectId, activeSourceEditor],
   );
   /**
    * Open a path and put the caret on a line.
@@ -817,15 +852,19 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   // activating a tab. Coverage can yield while hashing the text as well as
   // during the read. Recheck the report, the foreground and the live text at
   // the last point before activation. A source-only link leaves the caret alone.
-  const visitSource = useCallback(async ({path, line, character, expectedSource, originCurrent, report, searchHit, findHit, provider}: {
+  const visitSource = useCallback(async ({path, line, character, expectedSource, originCurrent, report, searchHit, findHit, provider, recordHistory = true, historyMove}: {
     path: string; line: number | null; character?: number; expectedSource?: string;
     originCurrent?: () => boolean; report?: {sourceHash: string | null}; searchHit?: SearchHit;
     findHit?: {sourceHash: string; text: string};
     provider?: {savedOnly: boolean; symbol?: string};
+    recordHistory?: boolean;
+    historyMove?: {sourceHash: Promise<string | null>; current: () => boolean; accept: () => boolean};
   }) => {
     const request = beginSourceOpen(originCurrent);
     const {current, beforeOpen} = request;
     if (!beforeOpen()) return false;
+    const history = historyRef.current;
+    const departure = recordHistory && line !== null ? readDeparture() : null;
 
     const retained = () => {
       const session = registry.all().find(item => item.doc?.path === path);
@@ -840,7 +879,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       const firstNode = findNodeByPath(folderRootsRef.current, path);
       const documentId = (node: FileNode | undefined | null, target: ReturnType<typeof retained>) =>
         node?.doc_id ?? target.session?.docId ?? (target.tab?.kind === "document" ? target.tab.docId : undefined);
-      const needsListedSource = !!(report || searchHit || findHit || provider);
+      const needsListedSource = !!(report || searchHit || findHit || provider || historyMove);
       if (needsListedSource && !listed(firstNode, first)) {
         throw Error("Source no longer listed. Refresh the workspace.");
       }
@@ -860,8 +899,12 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       if (provider?.savedOnly && source !== saved) {
         throw Error("The target editor differs from the saved source. Save it and repeat the search.");
       }
-      const hash = (report || findHit) && line !== null ? await historySourceHash(source) : undefined;
+      const hash = (report || findHit || historyMove) && line !== null ? await historySourceHash(source) : undefined;
+      const rememberedHash = historyMove ? await historyMove.sourceHash : undefined;
       if (!beforeOpen()) return false;
+      if (historyMove && (!rememberedHash || hash !== rememberedHash)) {
+        throw Error("Source changed since this visit. Navigate from a current location to update history.");
+      }
       const latest = retained();
       const node = findNodeByPath(folderRootsRef.current, path);
       if (needsListedSource && !listed(node, latest)) throw Error("Source no longer listed. Refresh the workspace.");
@@ -894,14 +937,26 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         }
         onSourceActivation(target, current, stillFocused => {
           if (target.kind === "document") navigate(`/docs/${target.docId}`);
-          if (line !== null) revealLine(target.target, line, character, {source, current: stillFocused});
+          if (line !== null) {
+            const tabId = focusIntent.current.tab?.id;
+            const revealCurrent = () => stillFocused() && (!historyMove || historyMove.current());
+            const onRevealed = recordHistory || historyMove ? () => {
+              if (historyRef.current !== history || !revealCurrent()) return;
+              if (historyMove) historyMove.accept();
+              else history.trail.record(departure, makeHistoryPoint(path, source, line - 1, column));
+            } : undefined;
+            revealLine(target.target, line, character, {
+              source, current: revealCurrent, onRevealed,
+              accepts: editor => !!tabId && editor.closest<HTMLElement>("[data-workspace-tab]")?.dataset.workspaceTab === tabId,
+            });
+          }
         });
       }) === true;
     } catch (error) {
       if (!beforeOpen()) return false;
       throw error;
     }
-  }, [beginSourceOpen, onSourceActivation, prepareDocument, registry]);
+  }, [beginSourceOpen, onSourceActivation, prepareDocument, registry, readDeparture, makeHistoryPoint]);
   const openProviderResult = useCallback(async (reading: Pick<ReferenceReading, "current" | "originUri">,
     location: LspLocation, symbol?: string) => {
     if (!reading.current()) {
@@ -946,6 +1001,35 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     const document = editor?.state.doc, selection = editor?.state.selection;
     return () => !editor || (focusedEditor() === editor &&
       editor.state.doc === document && editor.state.selection === selection);
+  }, []);
+  navigateHistoryRef.current = (direction, paletteCurrent) => {
+    const history = historyRef.current;
+    const move = history.trail.prepareStep(direction, readDeparture());
+    if (!move) return;
+    const path = semanticPath(move.location.uri);
+    if (!path) return;
+    const {line, character} = move.location.range.start;
+    const readingCurrent = captureReadingPosition();
+    const historyCurrent = () => historyRef.current === history && move.current() && (!paletteCurrent || paletteCurrent());
+    const originCurrent = () => historyCurrent() && readingCurrent();
+    void visitSource({path, line: line + 1, character, recordHistory: false, originCurrent,
+      historyMove: {sourceHash: move.location.sourceHash, current: historyCurrent, accept: move.accept}})
+      .catch(error => setInsertNotice(error instanceof Error ? error.message : String(error)));
+  };
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (!workspaceIsVisible() || event.defaultPrevented || event.isComposing) return;
+      const {trail} = historyRef.current;
+      if (trail.canBack && isAction(event, "navigation.back")) {
+        event.preventDefault();
+        navigateHistoryRef.current(-1);
+      } else if (trail.canForward && isAction(event, "navigation.forward")) {
+        event.preventDefault();
+        navigateHistoryRef.current(1);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
   }, []);
   readSymbolCandidates.current = async term => {
     const client = workspaceLspClient();

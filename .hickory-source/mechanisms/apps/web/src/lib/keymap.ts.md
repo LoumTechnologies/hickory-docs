@@ -138,6 +138,8 @@ export const ACTIONS: readonly ActionSpec[] = [
   // The workspace.
   { id: "search.quickOpen", label: "Search open files and folder", scope: "workspace", keys: { hickory: "Mod+P" } },
   { id: "search.commands", label: "Command palette", scope: "workspace", keys: { hickory: "Mod+Shift+P" } },
+  { id: "navigation.back", label: "Navigate Back", scope: "workspace", keys: { hickory: "Mod+Alt+Left", jetbrains: "Mod+Alt+Left" } },
+  { id: "navigation.forward", label: "Navigate Forward", scope: "workspace", keys: { hickory: "Mod+Alt+Right", jetbrains: "Mod+Alt+Right" } },
   { id: "search.inFolder", label: "Find in folder", scope: "workspace", keys: { hickory: "Mod+Shift+F" } },
   { id: "view.problems", label: "Problems list", scope: "workspace", keys: { hickory: "F8", jetbrains: "Alt+6", visualstudio: "Mod+\\ E" } },
   { id: "debug.continue", label: "Debug: start or continue", scope: "workspace", keys: { hickory: "F5", jetbrains: "F9" } },

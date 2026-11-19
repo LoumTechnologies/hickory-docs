@@ -13,10 +13,16 @@ export const REVEAL_LINE_EVENT = "hickory:reveal-line";
 
 /** Outstanding requests, by path. At most one per file: the newest wins,
  * because it is the one somebody just clicked. */
-const pending = new Map<string, { line: number; character?: number;guard?:{source:string;current:()=>boolean} }>();
+type RevealGuard = {
+  source: string;
+  current: () => boolean;
+  accepts?: (editor: HTMLElement) => boolean;
+  onRevealed?: () => void;
+};
+const pending = new Map<string, {line: number; character?: number; guard?: RevealGuard}>();
 
 /** Ask for `path` to be shown with the caret on `line` (1-based). */
-export function revealLine(path: string, line: number, character?: number,guard?:{source:string;current:()=>boolean}): void {
+export function revealLine(path: string, line: number, character?: number, guard?: RevealGuard): void {
   if(guard&&(!guard.current()||!Number.isInteger(line)||line<1||character!==undefined&&(!Number.isInteger(character)||character<0)))return;
   pending.set(path, { line: Math.max(1, Math.floor(line)), ...(character === undefined ? {} : { character: Math.max(0, Math.floor(character)) }),...(guard?{guard}:{}) });
   window.dispatchEvent(new CustomEvent(REVEAL_LINE_EVENT, { detail: path }));
@@ -72,10 +78,16 @@ export function claimReveal(path: string): number | null {
   return line.line;
 }
 /** Consume the same one-shot request while retaining its optional UTF-16 column. */
-export function claimRevealPosition(path: string,source?:string): { line: number; character?: number } | null {
+export function claimRevealPosition(path: string, source?: string, editor?: HTMLElement): {line: number; character?: number; onRevealed?: () => void} | null {
   const location = pending.get(path);
   if (!location) return null;
-  pending.delete(path);if(location.guard&&(source!==location.guard.source||!location.guard.current()))return null;return {line:location.line,...(location.character===undefined?{}:{character:location.character})};
+  const {line, character, guard} = location;
+  if (guard && !guard.current()) { pending.delete(path); return null; }
+  if (guard?.accepts && (!editor || !guard.accepts(editor))) return null;
+  pending.delete(path);
+  if (guard && source !== guard.source) return null;
+  const onRevealed = guard?.onRevealed;
+  return {line, ...(character === undefined ? {} : {character}), ...(onRevealed ? {onRevealed} : {})};
 }
 
 /** Listen for requests. The handler is called with the path asked for; it

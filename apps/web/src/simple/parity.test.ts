@@ -880,6 +880,25 @@ describe("simple semantic navigation", () => {
     for (let i = 0; i < 300; i++) trail.record(null, point(String(i)));
     expect(trail.entries).toHaveLength(256); expect(trail.step(1, null)).toBeNull();
   });
+  it("keeps history stationary until the prepared editor reveal is accepted", () => {
+    const point = (file: string, character: number, hash: string) => {
+      const start = {line: 0, character};
+      return {uri: `hick:///${file}`, range: {start, end: start}, hash};
+    };
+    const a = point("a.py", 2, "origin"), b = point("b.py", 3, "destination");
+    const trail = new NavigationTrail<typeof a>();
+    trail.record(a, b);
+    const departure = point("b.py", 6, "latest");
+    const abandoned = trail.prepareStep(-1, departure)!;
+    expect(abandoned.location).toEqual(a);
+    expect(trail.index).toBe(1);
+    expect(trail.canForward).toBe(false);
+    const retry = trail.prepareStep(-1, departure)!;
+    expect(retry.accept()).toBe(true);
+    expect(abandoned.accept()).toBe(false);
+    expect(trail.step(1, null)).toEqual(departure);
+    expect(abandoned.current()).toBe(false);
+  });
   it("normalizes symbol trees, flat symbols and incoming/outgoing call items", () => {
     // Contract: .hickory-source/frontends/contract.md
     const range = { start: { line: 2, character: 4 }, end: { line: 2, character: 8 } };

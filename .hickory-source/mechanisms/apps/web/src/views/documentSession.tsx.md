@@ -1437,11 +1437,12 @@ function useDocumentSession(
     let readable = (!!startup && !previewConfirmed.current) || !realtime.serverAuthoritative;
     const jump = (target: string) => {
       if (!readable || target !== path) return;
-      const position = claimRevealPosition(path, authoredSource(docEditor.state));
+      const position = claimRevealPosition(path, authoredSource(docEditor.state), docEditor.dom);
       if (!position) return;
       const row = docEditor.state.doc.line(Math.min(position.line, docEditor.state.doc.lines));
       const offset = Math.min(row.to, row.from + (position.character ?? 0));
       revealRange(docEditor, [offset, offset]);
+      position.onRevealed?.();
     };
     const stop = onRevealLine(jump);
     if (readable) jump(path);

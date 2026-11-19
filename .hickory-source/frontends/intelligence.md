@@ -238,25 +238,47 @@ fun semanticLocations(result: Any, defaultURI: String? = null): List<SemanticLoc
 
 Retain a bounded trail of actual source positions. A visit records departure and arrival, deduplicates identical positions, and discards the forward branch after a new visit. Back/forward updates the departure caret without changing document bytes. The workspace resolves each position against its current buffer; the trail neither opens files nor grants write authority.
 
+Main prepares a move without changing the history cursor. It accepts the
+move after the exact-position reveal. The preparation retains the entry
+array it observed, so a later navigation retires outstanding preparations
+even if the history cursor returns to the same index.
+
 <ui:copy id="simple-intelligence-browser-trail">
-export class NavigationTrail {
-  entries: SemanticLocation[] = [];
+export class NavigationTrail<T extends SemanticLocation = SemanticLocation> {
+  entries: T[] = [];
   index = -1;
   get canBack() { return this.index > 0; }
   get canForward() { return this.index >= 0 && this.index + 1 < this.entries.length; }
   private same(a: SemanticLocation | undefined, b: SemanticLocation) { return !!a && a.uri === b.uri && a.range.start.line === b.range.start.line && a.range.start.character === b.range.start.character; }
-  private point(value: SemanticLocation): SemanticLocation { const start = { ...value.range.start }; return { uri: value.uri, range: { start, end: { ...start } } }; }
-  record(from: SemanticLocation | null, to: SemanticLocation) {
+  private point(value: T): T { const start = { ...value.range.start }; return { ...value, range: { start, end: { ...start } } }; }
+  record(from: T | null, to: T) {
     this.entries = this.entries.slice(0, this.index + 1);
-    if (from && !this.same(this.entries.at(-1), from)) this.entries.push(this.point(from));
-    if (!this.same(this.entries.at(-1), to)) this.entries.push(this.point(to));
+    for (const value of from ? [from, to] : [to]) {
+      if (this.same(this.entries.at(-1), value)) this.entries[this.entries.length - 1] = this.point(value);
+      else this.entries.push(this.point(value));
+    }
     this.entries = this.entries.slice(-256); this.index = this.entries.length - 1;
   }
-  step(direction: -1 | 1, current: SemanticLocation | null): SemanticLocation | null {
-    const next = this.index + direction;
-    if (next < 0 || next >= this.entries.length) return null;
-    if (current && this.entries[this.index]?.uri === current.uri) this.entries[this.index] = this.point(current);
-    this.index = next; return this.entries[next];
+  prepareStep(direction: -1 | 1, departure: T | null) {
+    const {entries, index} = this;
+    const next = index + direction;
+    if (index < 0 || next < 0 || next >= entries.length) return null;
+    const current = () => this.entries === entries && this.index === index;
+    return {
+      location: entries[next],
+      current,
+      accept: () => {
+        if (!current()) return false;
+        this.entries = entries.slice();
+        if (departure && entries[index].uri === departure.uri) this.entries[index] = this.point(departure);
+        this.index = next;
+        return true;
+      },
+    };
+  }
+  step(direction: -1 | 1, departure: T | null): T | null {
+    const move = this.prepareStep(direction, departure);
+    return move?.accept() ? move.location : null;
   }
 }
 </ui:copy>

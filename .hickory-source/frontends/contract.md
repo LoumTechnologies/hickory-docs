@@ -2840,6 +2840,23 @@ replays kept the fixture source unchanged. See
 One concurrent Python replay timed out waiting for the origin to become
 editable before it sent a hierarchy request. The isolated replay passed.
 
+Main records completed guarded source jumps in a bounded workspace history.
+Navigate Back and Navigate Forward appear in Commands when available.
+Their keyboard bindings use the primary modifier with Alt and the left or
+right arrow. History compares exact source digests before reopening a file
+and advances when the selected editor confirms the caret move. A real
+basedpyright definition replay verified both commands and shortcuts.
+Back reached the saved origin carets at offsets 41 and 42, and Forward
+restored the destination's updated offset 13. Switching tabs during a held
+Back read left the newer editor active and the same entry available.
+Appending a line to the closed origin blocked Back until the original
+bytes were restored. The browser made no source writes. See
+`target/main-caret-trail-commit-v1/browser.json`.
+The same active-editor guard passed a managed document reveal at offset 31
+and a generated disk preview reveal at offset 3017 before provenance became
+available. See `target/main-caret-trail-managed-guard-v1/browser.json` and
+`target/main-caret-trail-output-provenance-v1/browser.json`.
+
 Focused rebuilt-engine replays also passed for Python definition and
 Back/Forward, workspace search, delayed first-open authority and capabilities,
 and Debug and guarded patch review on both recorded Agent message sides.

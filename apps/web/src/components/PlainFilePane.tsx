@@ -783,7 +783,7 @@ export function PlainFilePane({
     const jump = () => {
       const view = viewRef.current;
       if (!view) return;
-      const position = claimRevealPosition(path, authoredSource(view.state));
+      const position = claimRevealPosition(path, authoredSource(view.state), view.dom);
       if (!position) return;
       const target = view.state.doc.line(Math.min(position.line, view.state.doc.lines));
       const anchor = Math.min(target.to, target.from + (position.character ?? 0));
@@ -793,6 +793,7 @@ export function PlainFilePane({
         // is technically shown and practically missed.
         effects: EditorView.scrollIntoView(anchor, { y: "center" }),
       });
+      position.onRevealed?.();
       view.focus();
     };
     jump();
