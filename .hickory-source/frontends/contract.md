@@ -519,6 +519,14 @@ fence's breakpoint and exact recorded hash. Native Step over and Continue
 reached the next authored line and produced `42` or `53`. The archive,
 editor identity, selection, and frame stayed exact. See
 `target/appkit-recorded-native-breakpoint.vo3cw2jj/receipt.json`.
+The rebuilt iPhone simulator used the same executable-line button on both
+records. Each line 4 action moved from `No breakpoint` to `pending` and
+the fence opener offered no breakpoint action. The exact single marker
+was present on Debug Start. Both sessions stepped through authored lines
+4 and 5, returned `42` or `53` through Watch, and continued to exit 0.
+Each recorded editor kept its text and frame. The maintained simulator
+workflow now checks the named action and pending state. See
+`target/ios-recorded-debug-buttons-v10-36716d8c-current/`.
 The rebuilt engine also rejected stale message hashes on both sides, withheld
 execution after preparation, and refused escaped or non-UTF-8 startup reads.
 The main Chromium window and Simple Browser also ran both selected Python

@@ -2228,8 +2228,9 @@ extension RecordedRunUITests {
     }
 }
 </ui:copy>
-The recorded debugger test uses the authored line rail and both mapped stop
-positions before opening the inspector. Tapping Expression must produce a
+The recorded debugger test presses the executable line's named breakpoint
+button, checks its pending state, and verifies that the opening fence has no
+breakpoint button. Both mapped stop positions precede the inspection. Tapping Expression must produce a
 software keyboard and admit a typed Watch. Continue and dismissal return to
 the original recorded text and frame. The same test selects each side through
 the runner, which checks the saved fixture bytes after execution.
@@ -2279,17 +2280,17 @@ extension RecordedRunUITests {
         XCTAssertTrue(archived.contains(side == "user" ? "value = 41" : "value = 52"))
         XCTAssertTrue(archived.contains("print(value + 1)"))
         let originalFrame = editor.frame.integral
-        let first = firstAction(3).frame.midY, sibling = firstAction(8).frame.midY
-        let linePitch = (sibling - first) / 5
-        XCTAssertGreaterThan(linePitch, 8)
-        XCTAssertLessThan(linePitch, 38)
-        let gutter = card.descendants(matching: .any)["Line numbers; click code to toggle breakpoint"].firstMatch
-        let breakpoint = CGPoint(x: gutter.exists ? gutter.frame.midX : editor.frame.minX - 16, y: first + linePitch)
-        XCTAssertTrue(app.frame.contains(breakpoint))
-        XCTAssertGreaterThan(breakpoint.y, editor.frame.minY)
-        XCTAssertLessThan(breakpoint.y, editor.frame.maxY)
-        app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: breakpoint.x - app.frame.minX, dy: breakpoint.y - app.frame.minY)).tap()
+        let breakpoint = card.buttons["Toggle breakpoint on line 4"].firstMatch
+        XCTAssertTrue(breakpoint.waitForExistence(timeout: 10) && breakpoint.isHittable && breakpoint.isEnabled)
+        XCTAssertEqual(breakpoint.value as? String, "No breakpoint")
+        XCTAssertFalse(card.buttons["Toggle breakpoint on line 3"].exists)
+        breakpoint.tap()
+        let pending = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", "pending"), object: breakpoint)
+        XCTAssertEqual(XCTWaiter.wait(for: [pending], timeout: 7), .completed)
+        XCTAssertEqual(editor.value as? String, archived)
+        XCTAssertEqual(editor.frame.integral, originalFrame)
         NSLog("HickoryUIKitParity recorded-debug-ui-\(side)-breakpoint-tap")
+        NSLog("HickoryUIKitParity recorded-debug-ui-\(side)-native-line-button-4-pending")
         screenshot("authored breakpoint")
 
         func tapGutter(_ label: String, line: Int) {
@@ -2569,7 +2570,7 @@ for workflow, side in RECORDED_DEBUG_UI_SIDES.items():
     value = {'user': '42', 'assistant': '53'}[side]
     WORKFLOWS[workflow] = ('testRecordedFenceDebugThroughNativeGutter', [
         f'recorded-debug-ui-{side}-{phase}' for phase in
-        ('breakpoint-tap', 'launch-tap', 'paused-4', 'stepped-5', f'watched-{value}', 'finished-immutable')
+        ('breakpoint-tap', 'native-line-button-4-pending', 'launch-tap', 'paused-4', 'stepped-5', f'watched-{value}', 'finished-immutable')
     ])
     RECORDED_FILES[workflow] = RECORDED_FILES['recorded-debug']
 

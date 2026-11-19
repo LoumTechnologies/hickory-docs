@@ -86,7 +86,7 @@ for workflow, side in RECORDED_DEBUG_UI_SIDES.items():
     value = {'user': '42', 'assistant': '53'}[side]
     WORKFLOWS[workflow] = ('testRecordedFenceDebugThroughNativeGutter', [
         f'recorded-debug-ui-{side}-{phase}' for phase in
-        ('breakpoint-tap', 'launch-tap', 'paused-4', 'stepped-5', f'watched-{value}', 'finished-immutable')
+        ('breakpoint-tap', 'native-line-button-4-pending', 'launch-tap', 'paused-4', 'stepped-5', f'watched-{value}', 'finished-immutable')
     ])
     RECORDED_FILES[workflow] = RECORDED_FILES['recorded-debug']
 
