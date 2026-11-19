@@ -39,9 +39,14 @@ extension DocumentBuffer {
         let server=engine,epoch=sourceNavigationEpoch
         let alive={isCurrent() && self.coverage === state && coverageEngineMatches(self.engine,server) && self.sourceNavigationEpoch==epoch}
         guard alive(),let path=value["path"] as? String else {throw EngineError(message:"Workspace or coverage reader changed. Reopen coverage.")}
+        let prepared = beginSourceNavigationPreparation()
         func find(_ files:[FileNode])->FileNode? {for file in files {if exactUTF8(file.path,path) {return file};if let child=find(file.children ?? []) {return child}};return nil}
         guard let file=buffers[path]?.file ?? find(rootFiles),!file.dir else {throw EngineError(message:"Source no longer listed. Refresh the workspace.")}
-        let buffer=try await loadBuffer(file),source=buffer.text,identity=buffer.sourceEditIdentity,selection=buffer.selection
+        let buffer: DocumentBuffer
+        do { buffer = try await loadBuffer(file) }
+        catch { if prepared() { throw error }; return }
+        guard prepared() else { return }
+        let source=buffer.text,identity=buffer.sourceEditIdentity,selection=buffer.selection
         guard alive(),buffers[path] === buffer else {throw EngineError(message:"Workspace or source editor changed. Reopen coverage.")}
         let sourceCurrent={alive() && self.buffers[path] === buffer && buffer.sourceEditIdentity==identity && exactUTF8(buffer.text,source) && buffer.selection==selection}
         if value["line"]==nil || value["line"] is NSNull || value["sourceHash"]==nil || value["sourceHash"] is NSNull {
@@ -50,6 +55,7 @@ extension DocumentBuffer {
         }
         guard let line=sourceChangeInteger(value["line"]),let hash=value["sourceHash"] as? String else{throw EngineError(message:"Malformed coverage source position. Reopen the report.")}
         let actual=await Task.detached {nativeSourceHash(source)}.value
+        guard prepared() else { return }
         guard sourceCurrent(),actual==hash.lowercased(),line>0,line<=source.components(separatedBy:"\n").count else {throw EngineError(message:"Source changed or report position is unavailable. Refresh coverage before navigating.")}
         var revealed=false
         await openSemanticLocation(SemanticLocation(uri:languageURI(path),line:line-1,character:0),allowDirty:true,expectedSource:source,isCurrent:sourceCurrent,onRevealed:{revealed=true})

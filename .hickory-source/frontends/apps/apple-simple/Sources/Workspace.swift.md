@@ -254,7 +254,8 @@ struct StartupSourceObservation {
     @ObservationIgnored private var searchOpening = UUID()
     func openSearchHit(_ hit: WorkspaceSearchHit) async {
         guard engine != nil else { return }
-        let current = generation, request = search.revision, interaction = paneInteraction, choice = UUID()
+        let prepared = beginSourceNavigationPreparation()
+        let current = generation, request = search.revision, choice = UUID()
         searchOpening = choice
         let stillSearching = { self.generation == current && self.search.revision == request && self.searchOpening == choice }
         func find(_ nodes: [FileNode]) -> FileNode? { for node in nodes { if exactUTF8(node.path,hit.path) { return node }; if let child = find(node.children ?? []) { return child } }; return nil }
@@ -263,12 +264,12 @@ struct StartupSourceObservation {
             let source = try await loadBuffer(file).text
             let observedHash = await Task.detached { nativeSourceHash(source) }.value
             let rows = source.components(separatedBy: "\n")
-            guard stillSearching(), paneInteraction == interaction else { return }
+            guard stillSearching(), prepared() else { return }
             guard let hash = hit.sourceHash, observedHash == hash.replacingOccurrences(of: "sha256:", with: "").lowercased(), let character = hit.character,
                   hit.line > 0, rows.indices.contains(hit.line - 1), rows[hit.line - 1].trimmingCharacters(in: .newlines) == hit.text.trimmingCharacters(in: .newlines) else { search.notice = "Search source changed or its revision is unknown. Save edits and search again."; return }
             await openSemanticLocation(SemanticLocation(uri: languageURI(hit.path), line: hit.line - 1, character: character),
                 allowDirty: true, expectedSource: source, isCurrent: stillSearching, onRevealed: { showWorkspaceSearch = false })
-        } catch { if stillSearching(), paneInteraction == interaction { search.notice = error.localizedDescription } }
+        } catch { if stillSearching(), prepared() { search.notice = error.localizedDescription } }
     }
     var analysis = WorkspaceAnalysis()
     var sourceTestIndex:SourceTestIndex?
@@ -280,7 +281,13 @@ struct StartupSourceObservation {
     var sourceWorkspaceID:String?
     var testSources=TestSourcesModel()
     var coverage=SimpleCoverageState();var showCoverage=false
-    var showTests=false {didSet{if !showTests{testSources.closeDebugPreparation(self)}}}
+    var showTests = false {
+        didSet {
+            if oldValue != showTests { testSourcesPresentation = UUID() }
+            if !showTests { testSources.closeDebugPreparation(self) }
+        }
+    }
+    @ObservationIgnored private(set) var testSourcesPresentation = UUID()
     var showReview=false
     var gitReview=GitReviewModel()
     var gitResolution=GitResolutionModel()
@@ -572,6 +579,12 @@ own source, even if it offers the same file path.
 
 Opening and saving retain request identity. A server switch rejects stale reads. Selecting a tab or changing the active tab in its pane retires that pane's pending open. The read can still populate the cache for a later visit. When focus moves to another pane, the first pane can finish opening its file without taking focus back. Navigation from a source result also checks the caller's lease before opening the file. Once the tab opens, a delayed position reveal belongs to that editor, its caret and viewport, and the current pane interaction.
 
+Coverage, construction readings, saved search and test results may need the
+destination bytes before they can validate a location. Capture the originating
+editor and pane before reading, then hand off to the normal reveal only while
+that choice is current. The handoff has its own editor identity because a
+successful reveal deliberately changes tabs and selection.
+
 ## Retain source before choosing a pane
 
 Foreground file opening and background intelligence share one acquisition path. A pending read is keyed by workspace generation and path; after it returns, prefer any already available buffer so unsaved text cannot be overwritten. Retaining text attaches capabilities without activating a pane. Only the foreground request changes layout and records navigation. Reconnecting cancels old acquisitions and prevents late results from entering the new workspace.
@@ -685,8 +698,26 @@ Foreground file opening and background intelligence share one acquisition path. 
         await openSemanticLocation(location, recordHistory: false, allowDirty: true)
     }
     @ObservationIgnored private var semanticReveal = UUID()
+    @ObservationIgnored private var sourcePreparation = UUID()
+    func beginSourceNavigationPreparation() -> () -> Bool {
+        let choice = UUID(), scope = generation, interaction = paneInteraction
+        let origin = currentBuffer, address = activeTab
+        let owner = origin?.id, revision = origin?.sourceEditIdentity, selection = origin?.selection
+        let viewport = origin?.sourceEditorState?()?.attached == true ? origin?.captureRecoveryViewport?() : nil
+        sourcePreparation = choice
+        semanticReveal = UUID()
+        return { [weak self] in
+            guard let self, !Task.isCancelled, self.generation == scope,
+                  self.sourcePreparation == choice, self.paneInteraction == interaction else { return false }
+            let visible = self.currentBuffer
+            return exactUTF8(self.activeTab, address) && visible?.id == owner
+                && visible?.sourceEditIdentity == revision && visible?.selection == selection
+                && (viewport == nil || visible?.captureRecoveryViewport?() == viewport)
+        }
+    }
     func openSemanticLocation(_ location: SemanticLocation, recordHistory: Bool = true, allowDirty: Bool = false, expectedSource: String? = nil, isCurrent: @escaping () -> Bool = {true}, onRevealed: () -> Void = {}) async {
         guard isCurrent(), !Task.isCancelled else { return }
+        sourcePreparation = UUID()
         let departed = currentSemanticLocation()
         guard let path = location.path else { return }
         func find(_ nodes: [FileNode]) -> FileNode? {

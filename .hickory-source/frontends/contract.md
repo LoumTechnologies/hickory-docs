@@ -2572,6 +2572,16 @@ Seven focused Swift cases passed and the arm64 iPhone app and UI test bundle
 compiled. See `target/apple-semantic-navigation-leases-final.log` and
 `target/ios-semantic-navigation-leases-arm64.log`.
 
+Source links from native reports now carry the originating editor choice
+through destination loading and hash checks. Swift held reads for precise
+coverage, unbound coverage and a test result, then verified that a newer
+draft stayed active and a fresh choice opened the cached target. Android
+Test Sources also retired the held read after dismissal and reopening or
+after a round trip through another tab. A fresh choice revealed the exact
+position and closed Tests. Nine focused Swift cases and four focused Android
+cases passed. See `target/apple-bound-report-navigation-final.log` and
+`target/android-test-source-navigation-focused-receipt/`.
+
 Simple Browser binds opening, history, source reveal and follow-up inspectors
 to the same request for the pane. Selecting a retained tab retires an older
 request for that pane. Work in another pane can still complete its read

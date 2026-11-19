@@ -86,14 +86,21 @@ import Observation
 }
 extension Workspace {
     func navigateTestPoint(_ point:TestSourcePoint) async {
+        guard showTests else { return }
+        let model = testSources, presentation = testSourcesPresentation
+        let alive = { self.showTests && self.testSources === model && self.testSourcesPresentation == presentation }
+        let prepared = beginSourceNavigationPreparation()
         func find(_ files:[FileNode])->FileNode? {for file in files {if file.path==point.path {return file};if let child=find(file.children ?? []) {return child}};return nil}
         guard let file=buffers[point.path]?.file ?? find(rootFiles),!file.dir else {testSources.notice="Source no longer listed. Refresh files and candidates.";return}
-        let model=testSources
-        do {let buffer=try await loadBuffer(file);let source=buffer.text
-            guard testSources === model,nativeSourceHash(source)==point.hash.lowercased() else {model.notice="Source changed. Refresh candidates before navigating.";return}
-            await openSemanticLocation(SemanticLocation(uri:languageURI(point.path),line:point.line-1,character:point.character),allowDirty:true,expectedSource:source)
-            if testSources === model {showTests=false}
-        }catch {model.notice=error.localizedDescription}
+        do {
+            let buffer = try await loadBuffer(file), source = buffer.text, revision = buffer.sourceEditIdentity
+            let hash = await Task.detached { nativeSourceHash(source) }.value
+            guard alive(), prepared() else { return }
+            let sourceCurrent = { alive() && self.buffers[point.path] === buffer && buffer.sourceEditIdentity == revision }
+            guard sourceCurrent(), hash == point.hash.lowercased() else { model.notice = "Source changed. Refresh candidates before navigating."; return }
+            await openSemanticLocation(SemanticLocation(uri:languageURI(point.path),line:point.line-1,character:point.character),
+                allowDirty:true,expectedSource:source,isCurrent:sourceCurrent,onRevealed:{showTests=false})
+        }catch {if alive(), prepared(){model.notice=error.localizedDescription}}
     }
 }
 struct TestSourcesView:View {

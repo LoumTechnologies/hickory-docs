@@ -77,15 +77,18 @@ struct ConstructionReadingView:View {
  private func openPoint(_ point:TestSourcePoint)async {
   let current=model.sourceLink(),epoch=workspace.sourceNavigationEpoch
   let valid={current()&&workspace.showConstruction&&workspace.sourceNavigationEpoch==epoch}
+  guard valid() else { return }
+  let prepared = workspace.beginSourceNavigationPreparation()
   func find(_ files:[FileNode])->FileNode?{for file in files{if exactUTF8(file.path,point.path){return file};if let child=find(file.children ?? []){return child}};return nil}
   do{
    guard let file=workspace.buffers.values.first(where:{exactUTF8($0.file.path,point.path)})?.file ?? find(workspace.rootFiles),!file.dir else{throw EngineError(message:"Source no longer listed. Refresh the construction reading.")}
-   let buffer=try await workspace.loadBuffer(file),source=buffer.text
+   let buffer=try await workspace.loadBuffer(file),source=buffer.text,revision=buffer.sourceEditIdentity
    let hash=await Task.detached(priority:.userInitiated){nativeSourceHash(source)}.value
-   guard valid() else{return}
-   guard exactUTF8(buffer.file.path,point.path),exactUTF8(buffer.text,source),constructionPointOffset(source,point,actualHash:hash) != nil else{throw EngineError(message:"Source changed or position is unavailable. Refresh the construction reading.")}
-   await workspace.openSemanticLocation(SemanticLocation(uri:languageURI(point.path),line:point.line-1,character:point.character),allowDirty:true,expectedSource:source,isCurrent:valid,onRevealed:{if valid(){workspace.showConstruction=false}})
-  }catch{if valid(){model.notice=error.localizedDescription}}
+   guard valid(), prepared() else{return}
+   let sourceCurrent = { valid() && workspace.buffers[point.path] === buffer && buffer.sourceEditIdentity == revision }
+   guard sourceCurrent(),exactUTF8(buffer.file.path,point.path),constructionPointOffset(source,point,actualHash:hash) != nil else{throw EngineError(message:"Source changed or position is unavailable. Refresh the construction reading.")}
+   await workspace.openSemanticLocation(SemanticLocation(uri:languageURI(point.path),line:point.line-1,character:point.character),allowDirty:true,expectedSource:source,isCurrent:sourceCurrent,onRevealed:{if valid(){workspace.showConstruction=false}})
+  }catch{if valid(), prepared(){model.notice=error.localizedDescription}}
  }
  var body:some View {VStack(alignment:.leading,spacing:8){
   HStack{Text("Construction reading").font(.headline);Spacer();Button("Close"){workspace.showConstruction=false;workspace.currentBuffer?.focusSource?()}}

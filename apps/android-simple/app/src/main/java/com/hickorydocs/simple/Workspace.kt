@@ -243,7 +243,10 @@ class Workspace(private val backgroundScope: kotlinx.coroutines.CoroutineScope? 
     // Reopening a floating reading cannot resurrect its earlier launch choice.
     var showTests:Boolean
         get()=testsVisible
-        set(value){if(!value&&testsVisible)testSources.closeDebugPreparation();testsVisible=value}
+        set(value){
+            if(!value&&testsVisible){testSources.closeDebugPreparation();testSources.retirePointNavigation()}
+            testsVisible=value
+        }
     var showReview by mutableStateOf(false)
     var gitReview by mutableStateOf(GitReviewModel())
     var showHistory by mutableStateOf(false)
@@ -291,7 +294,18 @@ class Workspace(private val backgroundScope: kotlinx.coroutines.CoroutineScope? 
     }
     var navigationTrail by mutableStateOf(NavigationTrail())
     var layout by mutableStateOf(PaneLayout())
-    var focused by mutableStateOf("document-group")
+    private var foregroundNavigation = 0L
+    private var focusedGroup by mutableStateOf("document-group")
+    var focused: String
+        get() = focusedGroup
+        set(value) {
+            if (focusedGroup != value) foregroundNavigation++
+            focusedGroup = value
+        }
+    internal fun captureForegroundNavigation(): () -> Boolean {
+        val intent = foregroundNavigation
+        return { foregroundNavigation == intent }
+    }
     var rootFiles by mutableStateOf<List<FileNode>>(emptyList())
     var files by mutableStateOf<List<FileNode>>(emptyList())
     var directoryScope by mutableStateOf("")
@@ -597,6 +611,7 @@ class Workspace(private val backgroundScope: kotlinx.coroutines.CoroutineScope? 
             ?: layout.groups().firstOrNull {"files" !in it.tabs}?.id ?: focused
         val request = Any()
         newestOpen[target] = request
+        foregroundNavigation++
         val startingPane = focused
         if (isCurrent == null) focused = target
         fun ownsGroup() = generation == current && newestOpen[target] === request && layout.groups().any { it.id == target } &&
@@ -674,12 +689,14 @@ class Workspace(private val backgroundScope: kotlinx.coroutines.CoroutineScope? 
     fun show(tab: String, group: String? = null) {
         val target = group ?: layout.groups().firstOrNull { tab in it.tabs }?.id ?: (if (tab != "files") layout.groups().firstOrNull { it.id == focused && "files" !in it.tabs }?.id ?: layout.groups().firstOrNull { "files" !in it.tabs }?.id else null) ?: focused
         newestOpen.remove(target)
+        foregroundNavigation++
         layout = layout.activate(tab, target); focused = target
     }
     internal fun adoptTabLayout(next: PaneLayout, group: String? = null): Boolean {
         if (layout === next) return false
         val groups = next.groups().associateBy { it.id }
         newestOpen.keys.removeAll { id -> id == group || id !in groups || groups[id]?.active != layout.nodes[id]?.active }
+        if (group != null || groups[focused]?.active != active) foregroundNavigation++
         layout = next
         focused = group ?: focused.takeIf { it in groups } ?: groups.keys.first()
         return true

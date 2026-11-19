@@ -7,7 +7,7 @@ The existing menu opens a floating, replaceable tool surface. The editor remains
 
 Selected records are read back by identity through the engine. A latest-selection ticket rejects obsolete replies, projection preserves mixed consequences and missing quantities, and the independent digest service binds only matching available text. Source edits retire marks synchronously at lookup; background hashing cannot rewrite the buffer. Both gutter and menu borrow this retained state.
 
-A renderer and every selected report stay bound to their original engine session. Source navigation also retains the reader lifetime, exact editor object and edit intent across loading and hashing. Closing the reader, swapping the engine or returning edited text to equal bytes cannot authorize a delayed position. A positive navigation reply requires the existing editor to accept the reveal; unbound file opens make no coordinate claim.
+A renderer and every selected report stay bound to their original engine session. Source navigation also retains the reader lifetime, the originating editor interaction, and the exact destination editor and edit intent across loading and hashing. A newer tab choice retires the opening while the destination bytes can still enter the cache. Closing the reader, swapping the engine or returning edited text to equal bytes cannot authorize a delayed position. A report closes after its current position is revealed or its explicitly unbound file opens.
 
 <ui:copy id="simple-coverage-apple">
 import SwiftUI
@@ -51,9 +51,14 @@ extension DocumentBuffer {
         let server=engine,epoch=sourceNavigationEpoch
         let alive={isCurrent() && self.coverage === state && coverageEngineMatches(self.engine,server) && self.sourceNavigationEpoch==epoch}
         guard alive(),let path=value["path"] as? String else {throw EngineError(message:"Workspace or coverage reader changed. Reopen coverage.")}
+        let prepared = beginSourceNavigationPreparation()
         func find(_ files:[FileNode])->FileNode? {for file in files {if exactUTF8(file.path,path) {return file};if let child=find(file.children ?? []) {return child}};return nil}
         guard let file=buffers[path]?.file ?? find(rootFiles),!file.dir else {throw EngineError(message:"Source no longer listed. Refresh the workspace.")}
-        let buffer=try await loadBuffer(file),source=buffer.text,identity=buffer.sourceEditIdentity,selection=buffer.selection
+        let buffer: DocumentBuffer
+        do { buffer = try await loadBuffer(file) }
+        catch { if prepared() { throw error }; return }
+        guard prepared() else { return }
+        let source=buffer.text,identity=buffer.sourceEditIdentity,selection=buffer.selection
         guard alive(),buffers[path] === buffer else {throw EngineError(message:"Workspace or source editor changed. Reopen coverage.")}
         let sourceCurrent={alive() && self.buffers[path] === buffer && buffer.sourceEditIdentity==identity && exactUTF8(buffer.text,source) && buffer.selection==selection}
         if value["line"]==nil || value["line"] is NSNull || value["sourceHash"]==nil || value["sourceHash"] is NSNull {
@@ -62,6 +67,7 @@ extension DocumentBuffer {
         }
         guard let line=sourceChangeInteger(value["line"]),let hash=value["sourceHash"] as? String else{throw EngineError(message:"Malformed coverage source position. Reopen the report.")}
         let actual=await Task.detached {nativeSourceHash(source)}.value
+        guard prepared() else { return }
         guard sourceCurrent(),actual==hash.lowercased(),line>0,line<=source.components(separatedBy:"\n").count else {throw EngineError(message:"Source changed or report position is unavailable. Refresh coverage before navigating.")}
         var revealed=false
         await openSemanticLocation(SemanticLocation(uri:languageURI(path),line:line-1,character:0),allowDirty:true,expectedSource:source,isCurrent:sourceCurrent,onRevealed:{revealed=true})
@@ -141,6 +147,77 @@ import AppKit
 #endif
 @testable import HickorySimple
 @MainActor final class CoverageViewTests:XCTestCase {
+    func testLateReportSourceReadKeepsNewerEditorAndCanBeRetried() async throws {
+        for kind in ["coverage", "unbound", "test"] {
+            let arrived = expectation(description: "\(kind) destination read")
+            let gate = DispatchSemaphore(value: 0)
+            ResponseProtocol.status = 200
+            ResponseProtocol.responsesByPath = [:]
+            ResponseProtocol.response = Data(#"{"path":"target.txt","content":"first\nsecond\n","hash":"target"}"#.utf8)
+            ResponseProtocol.beforeResponse = { request in
+                guard request.url?.path == "/api/file" else { return }
+                arrived.fulfill()
+                _ = gate.wait(timeout: .now() + 5)
+            }
+            let config = URLSessionConfiguration.ephemeral
+            config.protocolClasses = [ResponseProtocol.self]
+            let session = URLSession(configuration: config)
+            let workspace = Workspace()
+            workspace.engine = try Engine(address: "http://fixture.invalid", session: session)
+            defer {
+                gate.signal()
+                ResponseProtocol.beforeResponse = nil
+                workspace.buffers.values.forEach { $0.language?.close() }
+                session.invalidateAndCancel()
+            }
+
+            let draft = FileNode(name: "draft.txt", path: "draft.txt", dir: false)
+            let target = FileNode(name: "target.txt", path: "target.txt", dir: false)
+            let retained = DocumentBuffer(file: draft, text: FileText(path: draft.path, content: "saved", hash: "saved"))
+            retained.text = "unsaved draft"
+            retained.selection = NSRange(location: 2, length: 3)
+            workspace.buffers[draft.path] = retained
+            workspace.rootFiles = [draft, target]
+            workspace.showUtility(.agent)
+            workspace.showTests = kind == "test"
+            workspace.showCoverage = kind != "test"
+
+            let hash = nativeSourceHash("first\nsecond\n")
+            func navigate() async throws {
+                if kind == "test" {
+                    await workspace.navigateTestPoint(TestSourcePoint(path: target.path, line: 2, character: 0, hash: hash))
+                } else {
+                    let point: [String: Any] = kind == "unbound" ? ["path": target.path] : ["path": target.path, "line": 2, "sourceHash": hash]
+                    try await workspace.navigateCoverage(point, state: workspace.coverage)
+                }
+            }
+            let pending = Task { try await navigate() }
+            await fulfillment(of: [arrived], timeout: 3)
+            workspace.showSource(draft.path)
+            if kind == "test" {
+                workspace.showTests = false
+                workspace.showTests = true
+            }
+            gate.signal()
+            try await pending.value
+
+            XCTAssertTrue(workspace.currentBuffer === retained, kind)
+            XCTAssertEqual(retained.text, "unsaved draft", kind)
+            XCTAssertEqual(retained.selection, NSRange(location: 2, length: 3), kind)
+            XCTAssertFalse(workspace.layout.groups().contains { $0.tabs.containsTab(nativeSourceTab(target.path)) }, kind)
+            XCTAssertEqual(workspace.showTests, kind == "test", kind)
+            XCTAssertEqual(workspace.showCoverage, kind != "test", kind)
+            let cached = try XCTUnwrap(workspace.buffers[target.path])
+            var selected: NSRange?
+            cached.selectSourceRange = { range, _ in selected = range; return true }
+            try await navigate()
+            XCTAssertTrue(workspace.currentBuffer === cached, kind)
+            XCTAssertEqual(selected, kind == "unbound" ? nil : NSRange(location: 6, length: 0), kind)
+            XCTAssertFalse(workspace.showTests, kind)
+            XCTAssertFalse(workspace.showCoverage, kind)
+        }
+    }
+
     func testCoverageNavigationRetiresClosedForeignAndEqualByteReplies()async throws {
         for mode in ["closed","engine","owner","undo","selection","fraction","boolean","success","unbound"] {
             let w=Workspace(),engine=try Engine(address:"http://127.0.0.1:1"),f=FileNode(name:"literal %?#.py",path:"literal %?#.py",dir:false),source="first\nsecond\n",b=DocumentBuffer(file:FileNode(name:"literal %?#.py",path:"literal %?#.py",dir:false),text:FileText(path:"literal %?#.py",content:"first\nsecond\n",hash:"base"))

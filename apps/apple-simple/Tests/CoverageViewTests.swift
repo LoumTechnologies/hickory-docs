@@ -6,6 +6,77 @@ import AppKit
 #endif
 @testable import HickorySimple
 @MainActor final class CoverageViewTests:XCTestCase {
+    func testLateReportSourceReadKeepsNewerEditorAndCanBeRetried() async throws {
+        for kind in ["coverage", "unbound", "test"] {
+            let arrived = expectation(description: "\(kind) destination read")
+            let gate = DispatchSemaphore(value: 0)
+            ResponseProtocol.status = 200
+            ResponseProtocol.responsesByPath = [:]
+            ResponseProtocol.response = Data(#"{"path":"target.txt","content":"first\nsecond\n","hash":"target"}"#.utf8)
+            ResponseProtocol.beforeResponse = { request in
+                guard request.url?.path == "/api/file" else { return }
+                arrived.fulfill()
+                _ = gate.wait(timeout: .now() + 5)
+            }
+            let config = URLSessionConfiguration.ephemeral
+            config.protocolClasses = [ResponseProtocol.self]
+            let session = URLSession(configuration: config)
+            let workspace = Workspace()
+            workspace.engine = try Engine(address: "http://fixture.invalid", session: session)
+            defer {
+                gate.signal()
+                ResponseProtocol.beforeResponse = nil
+                workspace.buffers.values.forEach { $0.language?.close() }
+                session.invalidateAndCancel()
+            }
+
+            let draft = FileNode(name: "draft.txt", path: "draft.txt", dir: false)
+            let target = FileNode(name: "target.txt", path: "target.txt", dir: false)
+            let retained = DocumentBuffer(file: draft, text: FileText(path: draft.path, content: "saved", hash: "saved"))
+            retained.text = "unsaved draft"
+            retained.selection = NSRange(location: 2, length: 3)
+            workspace.buffers[draft.path] = retained
+            workspace.rootFiles = [draft, target]
+            workspace.showUtility(.agent)
+            workspace.showTests = kind == "test"
+            workspace.showCoverage = kind != "test"
+
+            let hash = nativeSourceHash("first\nsecond\n")
+            func navigate() async throws {
+                if kind == "test" {
+                    await workspace.navigateTestPoint(TestSourcePoint(path: target.path, line: 2, character: 0, hash: hash))
+                } else {
+                    let point: [String: Any] = kind == "unbound" ? ["path": target.path] : ["path": target.path, "line": 2, "sourceHash": hash]
+                    try await workspace.navigateCoverage(point, state: workspace.coverage)
+                }
+            }
+            let pending = Task { try await navigate() }
+            await fulfillment(of: [arrived], timeout: 3)
+            workspace.showSource(draft.path)
+            if kind == "test" {
+                workspace.showTests = false
+                workspace.showTests = true
+            }
+            gate.signal()
+            try await pending.value
+
+            XCTAssertTrue(workspace.currentBuffer === retained, kind)
+            XCTAssertEqual(retained.text, "unsaved draft", kind)
+            XCTAssertEqual(retained.selection, NSRange(location: 2, length: 3), kind)
+            XCTAssertFalse(workspace.layout.groups().contains { $0.tabs.containsTab(nativeSourceTab(target.path)) }, kind)
+            XCTAssertEqual(workspace.showTests, kind == "test", kind)
+            XCTAssertEqual(workspace.showCoverage, kind != "test", kind)
+            let cached = try XCTUnwrap(workspace.buffers[target.path])
+            var selected: NSRange?
+            cached.selectSourceRange = { range, _ in selected = range; return true }
+            try await navigate()
+            XCTAssertTrue(workspace.currentBuffer === cached, kind)
+            XCTAssertEqual(selected, kind == "unbound" ? nil : NSRange(location: 6, length: 0), kind)
+            XCTAssertFalse(workspace.showTests, kind)
+            XCTAssertFalse(workspace.showCoverage, kind)
+        }
+    }
+
     func testCoverageNavigationRetiresClosedForeignAndEqualByteReplies()async throws {
         for mode in ["closed","engine","owner","undo","selection","fraction","boolean","success","unbound"] {
             let w=Workspace(),engine=try Engine(address:"http://127.0.0.1:1"),f=FileNode(name:"literal %?#.py",path:"literal %?#.py",dir:false),source="first\nsecond\n",b=DocumentBuffer(file:FileNode(name:"literal %?#.py",path:"literal %?#.py",dir:false),text:FileText(path:"literal %?#.py",content:"first\nsecond\n",hash:"base"))

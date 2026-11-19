@@ -18,6 +18,12 @@ class TestSourcesModel {
     var runs by mutableStateOf<List<Run>>(emptyList());var selected by mutableStateOf<String?>(null)
     private val debugChoices=TestDebugChoices()
     private var debugTicket=UUID.randomUUID()
+    private var pointNavigation = 0L
+    internal fun retirePointNavigation() { pointNavigation++ }
+    internal fun beginPointNavigation(): () -> Boolean {
+        val intent = ++pointNavigation
+        return { pointNavigation == intent }
+    }
     var debugging by mutableStateOf(false);private set
     data class DebugRun(val id:String,val name:String,val candidateID:String,val inputPath:String,val inputHash:String,val framework:String,val selection:String,val fingerprint:String,val contributors:Map<String,String>,val state:String="running",val exit:Int?=null,val output:String="")
     var debugRuns by mutableStateOf<List<DebugRun>>(emptyList());private set
@@ -87,16 +93,47 @@ class TestSourcesModel {
         }catch(error:Exception){if(outputTickets[id]==read&&workspace.testSources===this)notice=error.message.orEmpty()}
     }
 }
-suspend fun Workspace.navigateTestPoint(point:TestSourcePoint) {
-    fun find(files:List<FileNode>):FileNode? {for(file in files){if(file.path==point.path)return file;find(file.children)?.let {return it}};return null}
-    val file=(buffers[point.path]?.file ?: find(rootFiles))?.takeUnless {it.dir} ?: run {testSources.notice="Source no longer listed. Refresh files and candidates.";return}
-    val model=testSources
-    try {val buffer=loadBuffer(file);val source=buffer.text
-        val hash=kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default){java.security.MessageDigest.getInstance("SHA-256").digest(source.toByteArray(Charsets.UTF_8)).joinToString(""){"%02x".format(it)}}
-        if(testSources!==model||buffer.text!=source||hash!=point.hash.lowercase()){model.notice="Source changed. Refresh candidates before navigating.";return}
-        openSemanticLocation(SemanticLocation(languageURI(point.path),point.line-1,point.character),allowDirty=true,expectedSource=source)
-        if(testSources===model)showTests=false
-    }catch(error:Exception){model.notice=error.message.orEmpty()}
+internal fun Workspace.testPointNavigation(point: TestSourcePoint): suspend () -> Unit {
+    val model = testSources
+    val reading = model.observation
+    val entry = model.entry
+    val workspace = sourceNavigationEpoch
+    val navigation = model.beginPointNavigation()
+    val foreground = captureForegroundNavigation()
+    fun current() = showTests && testSources === model && model.observation === reading && model.entry == entry &&
+        sourceNavigationEpoch == workspace && navigation()
+    return navigate@{
+        if (!current() || !foreground()) return@navigate
+        fun find(files: List<FileNode>): FileNode? {
+            for (file in files) {
+                if (file.path == point.path) return file
+                find(file.children)?.let { return it }
+            }
+            return null
+        }
+        val file = (buffers[point.path]?.file ?: find(rootFiles))?.takeUnless { it.dir }
+        if (file == null) {
+            model.notice = "Source no longer listed. Refresh files and candidates."
+            return@navigate
+        }
+        try {
+            val buffer = loadBuffer(file)
+            val source = buffer.text
+            val revision = buffer.sourceRevision
+            val hash = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { debugHash(source) }
+            if (!current() || !foreground()) return@navigate
+            fun sourceCurrent() = current() && buffers[point.path] === buffer && buffer.sourceRevision == revision && buffer.text == source
+            val position = JSONObject().put("line", point.line - 1).put("character", point.character)
+            check(sourceCurrent() && hash == point.hash.lowercase() && languageOffset(source, position) != null) {
+                "Source changed or the position is unavailable. Refresh candidates before navigating."
+            }
+            // The cached file opens synchronously. Its own activation advances
+            // foreground intent, while source and reading guards remain current.
+            openSemanticLocation(SemanticLocation(languageURI(point.path), point.line - 1, point.character),
+                allowDirty = true, expectedSource = source, isCurrent = ::sourceCurrent, onRevealed = { showTests = false })
+        } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+        catch (error: Exception) { if (current() && foreground()) model.notice = error.message.orEmpty() }
+    }
 }
 @Composable fun TestSourcesView(workspace:Workspace) {
     val model=workspace.testSources;val valid=model.current(workspace)
@@ -116,7 +153,7 @@ suspend fun Workspace.navigateTestPoint(point:TestSourcePoint) {
         OutlinedTextField(model.query,{model.query=it;model.page=0},label={Text("Filter source tests")},singleLine=true)
         candidates.drop(page*100).take(100).forEach {item->
             Text(item.name);Text("${item.confidence} · ${item.target.path}:${item.target.line}",fontSize=12.sp)
-            TextButton(enabled=valid,onClick={workspace.runCommand {workspace.navigateTestPoint(item.point)}}){Text("${if(item.source==null) "Open runtime source" else "Open authored source"} ${item.point.line}")}
+            TextButton(enabled=valid,onClick={workspace.runCommand(workspace.testPointNavigation(item.point))}){Text("${if(item.source==null) "Open runtime source" else "Open authored source"} ${item.point.line}")}
             TextButton(enabled=valid&&!model.running&&item.nameFilter!=null,onClick={workspace.runCommand {model.run(item,TestSourceSelection.NAME_FILTER,workspace)}}){Text("Run name filter")}
             TextButton(enabled=valid&&!model.running,onClick={workspace.runCommand {model.run(item,TestSourceSelection.CONTAINING_SCOPE,workspace)}}){Text("Run ${item.runScope.replace('_',' ')} scope")}
             TextButton(enabled=valid&&!model.debugging&&item.nameFilter!=null,onClick={workspace.runCommand {model.debug(item,TestSourceSelection.NAME_FILTER,workspace)}}){Text("Debug name filter")}
