@@ -325,6 +325,13 @@ gutter. It showed the owning document and the selected `old` to `middle`
 transition. Closing the reading preserved the same card text and frame.
 The saved bytes stayed unchanged and the disposable simulator was deleted.
 See `target/apple-recorded-construction-both-sides.5j8K0C/`.
+Mounted AppKit repeated both cases with native clicks on the original gutter
+and the comparison disclosure. The user reading identified `request.md` and
+the assistant reading identified `response.md`. Each showed Before `old` and
+After `middle` while preserving the original editor, selection, frame and
+saved bytes. The exact engine receipts are in
+`target/main-macos-packaged-startup.to8jhtpo/apple-declared-rendered-oedft7lt/`
+and `target/main-macos-packaged-startup.to8jhtpo/apple-declared-rendered-09y_8o9x/`.
 
 ### Mounted iOS Paste, Cleanup and selected Rust Debug
 

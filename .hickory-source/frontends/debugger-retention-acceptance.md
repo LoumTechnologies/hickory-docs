@@ -9,6 +9,10 @@ An edit does not authorize the adapter to reuse a line number. Retain its old so
 
 These tests exercise the actual native setters and browser source model. Missing, duplicated, foreign and malformed rows must not promote a partial setter response into source binding. A later complete response can still confirm the same request; earlier wishes and current drafts survive refusal.
 
+The AppKit comparison also reads either archived side from an isolated fixture.
+The selected card must show its exact owning document and the local operation's
+Before and After, with the same editor, selection, frame and saved bytes.
+
 <ui:copy id="debugger-retention-apple-tests">
 import XCTest
 import SwiftUI
@@ -468,9 +472,13 @@ extension DebuggerRetentionTests {
  }
 
  func testMountedRecordedConstructionShowsOnlySelectedStage() async throws {
-  guard let origin = ProcessInfo.processInfo.environment["HICKORY_RECORDED_CONSTRUCTION_ORIGIN"] else {
+  let environment = ProcessInfo.processInfo.environment
+  guard let origin = environment["HICKORY_RECORDED_CONSTRUCTION_ORIGIN"] else {
    throw XCTSkip("Use the owned recorded construction fixture.")
   }
+  let side = environment["HICKORY_RECORDED_CONSTRUCTION_SIDE"] ?? "assistant"
+  guard side == "user" || side == "assistant" else { throw EngineError(message: "Choose an exact recorded message side.") }
+  let document = side == "user" ? "request.md" : "response.md"
   _ = NSApplication.shared
   NSApp.setActivationPolicy(.regular)
   let workspace = Workspace()
@@ -547,9 +555,9 @@ extension DebuggerRetentionTests {
   let id = "declared-construction", agent = workspace.agent, opener = 2
   try await wait("The persisted declared turn did not mount") { agent.turns.contains { $0.id == id } }
   let turn = try XCTUnwrap(agent.turns.first { $0.id == id })
-  let source = try XCTUnwrap(turn.answer)
+  let source = try XCTUnwrap(side == "user" ? turn.prompt : turn.answer)
   XCTAssertTrue(source.contains("+final"))
-  let buffer = agent.document("\(id)-agent", source)
+  let buffer = agent.document("\(id)-\(side == "user" ? "user" : "agent")", source)
   try await wait("The declared gutter did not mount. Scanned \(buffer.inlineMarkup.debug.recordedConstructions.sorted()), visible \(buffer.visibleDebugLines.map(\.line)), editor \(editor(in: host, source: source) != nil)") {
    editor(in: host, source: source) != nil && buffer.inlineMarkup.debug.recordedConstructions.contains(opener)
      && buffer.visibleDebugLines.contains { $0.line == opener }
@@ -573,7 +581,9 @@ extension DebuggerRetentionTests {
     let rendered = renderedText(content, phase: "closed")
     let labels = rendered.map(\.text)
     currentLabels += ["Window \(candidate.windowNumber) · \(content.bounds.size)"] + labels
+    // Vision can render the interpunct as a bullet. The wire receipt checks the exact document.
     if labels.contains("Recorded construction patch"),
+       labels.contains(where: { $0.hasPrefix("\(document) ") && $0.hasSuffix(" selected") }),
        let label = rendered.first(where: { $0.text.hasSuffix("materialized.txt") }) {
      comparison = content; outputLabel = label
      return true
