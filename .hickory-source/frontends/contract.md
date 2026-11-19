@@ -3287,6 +3287,18 @@ provider during that run. See
 `target/ios-saved-import-refresh-v8-2026-11-19/receipt.json` and
 `target/ios-saved-import-refresh-v8-2026-11-19/mounted-refresh.log`.
 
+An obsolete completion transport failure now returns an empty response
+when both its source capture and producing connection have been retired.
+A mounted UIKit replay withheld the old provider's completion until
+replacement. The actual client received JSON-RPC `result: null`, the
+first Definition opened the shifted leaf, and a new completion produced
+two visible suggestions. Back preserved the original editor and caret.
+The replay used the prior native bundle with the new engine. The fresh
+Swift test separately verifies the neutral completion status, retained
+rows, discarded obsolete errors, and visible current transport failures.
+See `target/ios-retired-completion-v9-2026-11-19/receipt.json` and
+`target/apple-retired-completion-focused.log`.
+
 Go to Declaration tries the provider's dedicated method. When it
 returns method-not-found, the engine asks for Definition at the same
 captured position and applies the same revision and saved-target checks.

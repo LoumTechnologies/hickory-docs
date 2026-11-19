@@ -593,23 +593,49 @@ Resolution synchronizes the originating document and retains its exact source, s
     }
 </ui:copy>
 
-Continue the independent completion service after the action-resolution boundary.
+Completion keeps one editor capture across the debounce and provider reply.
+Success, failure and empty replies all use that same capture. A null reply
+ends the waiting notice and leaves the last readable rows in place. If
+another capability has already updated the shared status, keep its notice.
 
 <ui:copy id="native-language-after-action-resolution-apple">
-    func complete() async {
+    func complete(fetch: (([String:Any]) async throws -> Any)? = nil) async {
         showingSuggestions = true
         guard let buffer, !buffer.readOnly else { return }
-        sync(); let source = buffer.text, selection = buffer.selection, current = epoch, revision=buffer.sourceEditIdentity,selectionRevision=buffer.selectionIdentity, id = UUID()
+        sync()
+        let source = buffer.text, selection = buffer.selection, connectionEpoch = epoch
+        let revision = buffer.sourceEditIdentity, selectionRevision = buffer.selectionIdentity, id = UUID()
+        func current() -> Bool {
+            self.buffer === buffer && buffer.language === self && !buffer.readOnly && !buffer.resourceDeleted
+                && exactUTF8(languageURI(buffer.file.path), uri) && exactUTF8(buffer.text, source)
+                && buffer.sourceEditIdentity == revision && buffer.selectionIdentity == selectionRevision
+                && buffer.selection == selection && epoch == connectionEpoch && completionID == id
+        }
         completionID = id
-        status = "Updating completions; showing last received results…"
+        let waiting = "Updating completions; showing last received results…"
+        status = waiting
         do {
             // The bridge prepares virtual files asynchronously after full-text sync.
             // Keep the popup responsive while typing settles; never use an obsolete position.
             try await Task.sleep(for: .milliseconds(350))
-            guard self.buffer === buffer,buffer.sourceEditIdentity==revision,buffer.selectionIdentity==selectionRevision,!buffer.resourceDeleted,exactUTF8(languageURI(buffer.file.path),uri),exactUTF8(self.buffer?.text,source), self.buffer?.selection == selection, epoch == current, completionID == id else { return }
-            let result = try await request("hick/completion", ["textDocument": ["uri": uri], "position": languagePosition(source, selection.location),"transform_program_versions":supportedSnippetTransformPrograms])
-            guard self.buffer === buffer,buffer.sourceEditIdentity==revision,buffer.selectionIdentity==selectionRevision,!buffer.resourceDeleted,exactUTF8(languageURI(buffer.file.path),uri),exactUTF8(self.buffer?.text,source), self.buffer?.selection == selection, epoch == current, completionID == id else { return }
-            guard !(result is NSNull) else { return }
+            guard current() else { return }
+            let params: [String:Any] = ["textDocument": ["uri": uri],
+                "position": languagePosition(source, selection.location),
+                "transform_program_versions": supportedSnippetTransformPrograms]
+            let result: Any
+            if let fetch {
+                result = try await fetch(params)
+            } else {
+                result = try await request("hick/completion", params)
+            }
+            guard current() else { return }
+            if result is NSNull {
+                if status == waiting {
+                    status = suggestions.isEmpty ? "No completions received. Request completions again."
+                        : "Showing last received completions. Request completions again."
+                }
+                return
+            }
             let items = result as? [[String: Any]] ?? (result as? [String: Any])?["items"] as? [[String: Any]] ?? []
             let ns = source as NSString
             var prefix = min(selection.location, ns.length)
@@ -624,7 +650,11 @@ Continue the independent completion service after the action-resolution boundary
             }
             suggestions = fresh
             status = suggestions.isEmpty ? "No supported completions at this position. Open Language tools for setup or retry." : "LSP · \(suggestions.count) completions"
-        } catch { if epoch == current,completionID==id,buffer.sourceEditIdentity==revision,buffer.selectionIdentity==selectionRevision,exactUTF8(buffer.text,source),buffer.selection==selection { status = "Completion unavailable: \(error.localizedDescription)" } }
+        } catch is CancellationError {
+            return
+        } catch {
+            if current() { status = "Completion unavailable: \(error.localizedDescription)" }
+        }
     }
 </ui:copy>
 

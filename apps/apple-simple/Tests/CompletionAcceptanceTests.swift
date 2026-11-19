@@ -6,6 +6,41 @@ import AppKit
 @MainActor final class CompletionAcceptanceTests:XCTestCase {
     func settle(_ condition:@escaping ()->Bool)async{let end=Date().addingTimeInterval(2);while !condition()&&Date()<end{try? await Task.sleep(for:.milliseconds(1))}}
     func edit(_ line:Int,_ from:Int,_ to:Int,_ text:String)->[String:Any]{["range":["start":["line":line,"character":from],"end":["line":line,"character":to]],"newText":text]}
+    func testBackgroundCompletionKeepsRetainedRowsAndIgnoresObsoleteErrors() async throws {
+        let file = FileNode(name: "a.py", path: "a.py", dir: false)
+        let buffer = DocumentBuffer(file: file, text: FileText(path: file.path, content: "va", hash: "base"))
+        let language = NativeLanguage(engine: try Engine(address: "http://fixture.invalid"), buffer: buffer)
+        buffer.language = language
+        buffer.selection = NSRange(location: 2, length: 0)
+        defer { language.close() }
+
+        await language.complete(fetch: { _ in [["label": "value"]] })
+        XCTAssertEqual(language.suggestions.map(\.label), ["value"])
+        await language.complete(fetch: { _ in NSNull() })
+        XCTAssertEqual(language.suggestions.map(\.label), ["value"])
+        XCTAssertEqual(language.status, "Showing last received completions. Request completions again.")
+
+        var held: CheckedContinuation<Any, Error>?
+        let obsolete = Task {
+            await language.complete(fetch: { _ in
+                try await withCheckedThrowingContinuation { held = $0 }
+            })
+        }
+        await settle { held != nil }
+        let reply = try XCTUnwrap(held)
+        buffer.resourceDeleted = true
+        language.status = "Source is now read-only."
+        reply.resume(throwing: EngineError(message: "obsolete completion transport"))
+        await obsolete.value
+        XCTAssertEqual(language.status, "Source is now read-only.")
+
+        buffer.resourceDeleted = false
+        await language.complete(fetch: { _ in throw EngineError(message: "fixture provider failure") })
+        XCTAssertEqual(language.status, "Completion unavailable: fixture provider failure")
+        XCTAssertEqual(buffer.text, "va")
+        XCTAssertEqual(buffer.selection, NSRange(location: 2, length: 0))
+    }
+
     func testActualMacEditorAcceptsImportsAndCaretInOneUndo()async throws {
         #if os(macOS)
         let source="header\nva\n",file=FileNode(name:"a.py",path:"a.py",dir:false)

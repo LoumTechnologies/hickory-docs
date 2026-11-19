@@ -9,7 +9,7 @@ A completion popup can outlive another request or another language. Hold its sem
 
 <ui:copy id="completion-provider-context">
 use super::*;
-use crate::{child_lsp::ChildLspHandle, provider_artifacts::ProviderArtifacts};
+use crate::{child_lsp::{ChildLspError, ChildLspHandle}, provider_artifacts::ProviderArtifacts};
 use serde_json::{Value, json};
 use std::time::{Duration, Instant};
 #[derive(Clone)]
@@ -424,9 +424,19 @@ fn map_completion_item(
 
 Forward the actual completion context and capture that child's resolution capability. Normalize and project every item before publishing the response, bound each response to 2,048 items and retain up to 4,096 items for 120 seconds. Source/ownership changes across asynchronous work retire the answer.
 
+A saved import refresh can retire a child while its completion read is pending.
+Check the captured origin and producing connection before reporting a transport
+failure. When both have been replaced, the obsolete read has no result. A
+failure from the current connection still reaches the editor, and successful
+responses and explicit completion resolution still need their source proofs.
+
 The workspace language bridge is shared by hosts, so initialize cannot establish each querying editor's transform policy. The additive `hick/completion` request captures supported program versions beside the held original item. Standard completion stays on program 2; known inline snippets outside that policy are withheld. Resolve checks the held policy and exact source proof before contacting the child, then shares one expansion budget across variable demand and rendering. [Owned live witnesses](snippet-regex-acceptance.md) exercise negotiated and legacy queries separately.
 
 <ui:copy id="completion-provider-query">
+fn superseded_completion_transport(error: &ChildLspError, source_current: bool, child_current: bool) -> bool {
+    !source_current && !child_current && matches!(error, ChildLspError::ProcessExited | ChildLspError::Io(_))
+}
+
 impl HickBackend {
     pub(super) async fn provider_completion(
         &self,
@@ -487,10 +497,18 @@ impl HickBackend {
         if let Some(context) = completion_query_context(params.context, &triggers)? {
             request["context"] = context;
         }
-        let mut result = handle
-            .request("textDocument/completion", request)
-            .await
-            .map_err(child_request_error)?;
+        let mut result = match handle.request("textDocument/completion", request).await {
+            Ok(result) => result,
+            Err(error) => {
+                let source_current = self.require_completion_source(&origin, &source_capture).await.is_ok();
+                let child_current = self.dispatcher.lock().await.get_child(&language, &root)
+                    .is_ok_and(|current| current.same_connection(&handle));
+                if superseded_completion_transport(&error, source_current, child_current) {
+                    return Ok(None);
+                }
+                return Err(child_request_error(error));
+            }
+        };
         self.require_provider_revision(&revision).await?;
         if result.is_null() {
             return Ok(None);
@@ -687,6 +705,19 @@ Focused cases exercise default data overrides and snippet/edit defaults, dedente
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn retired_completion_transport_is_quiet_only_for_the_obsolete_capture() {
+        let exit = ChildLspError::ProcessExited;
+        let broken_pipe = ChildLspError::Io(std::io::Error::from(std::io::ErrorKind::BrokenPipe));
+        let provider_error = ChildLspError::JsonRpc { code: -32000, message: "bad completion".into() };
+        assert!(superseded_completion_transport(&exit, false, false));
+        assert!(superseded_completion_transport(&broken_pipe, false, false));
+        assert!(!superseded_completion_transport(&exit, true, true));
+        assert!(!superseded_completion_transport(&exit, false, true));
+        assert!(!superseded_completion_transport(&exit, true, false));
+        assert!(!superseded_completion_transport(&provider_error, false, false));
+    }
+
     #[test]
     fn trigger_context_is_bound_to_the_actual_producing_child_capabilities() {
         let declared = completion_triggers(Some(
