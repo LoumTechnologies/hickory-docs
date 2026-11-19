@@ -333,6 +333,14 @@ Undo. Its compact assistant fixture passed the exact recorded `patch` review
 and draft Apply with unchanged physical files. The assistant body matches the
 original fixture byte for byte. The receipt is in
 `target/parity-rendered-android.sgYIt7/continuation-receipts/final-android-dbsv87hb/patch-assistant/`.
+Rendered Android also reviewed a separate assistant patch that changed a
+managed author and a plain file together. The review showed the generated
+Before and After. Apply, Undo, and Redo each changed both drafts together
+while the saved sources, generated file, and archived message stayed exact.
+Explicit Save All published each draft through its own source guard. The
+generated file and archive remained unchanged. See the history and Save All
+receipts in
+`target/parity-rendered-android.sgYIt7/continuation-receipts/final-android-yzrqs76i/patch-assistant-history/`.
 The main Hickory Docs Agent pane passed live sealed reviews for both sides
 with its mounted file's original guard, generated consequences, retained
 composer and unchanged source files. Closing the dialog returned focus to
@@ -3135,8 +3143,20 @@ positions are screen observations. Navigation sent no saves and kept the
 published source bytes unchanged. See the result and caret observation
 in `target/parity-rendered-android.sgYIt7/continuation-receipts/final-android-zgzov7vp/managed-ts-definition/`.
 
-Staged imports refresh when the authored document is prepared. Independent
-dependency changes retire stale locations until the next preparation.
+Staged imports refresh when the authored document is prepared. Before
+revealing a staged location, the engine checks the full bounded import
+projection. A changed or missing intermediary can retire a location in
+an unchanged leaf. Chromium verified this with genuine TypeScript after
+rewriting and deleting a saved re-export in separate runs. In both cases
+the provider still returned the old leaf, Definition left the caller and
+its caret in place, and Find References retained the authored locations.
+The replay sent no source writes or caller updates. Closing and reopening
+the unchanged caller rebuilt the projection. Its first Definition then
+opened the new saved `alternate.ts` declaration. That replay used the
+same child and private root, with no source writes or text updates. See
+`target/main-staged-barrel-navigation-fixed-v4-rewritten/browser.json`,
+`target/main-staged-barrel-navigation-fixed-v4-deleted/browser.json`,
+and `target/main-staged-barrel-navigation-v4-reopen/browser.json`.
 Go to Declaration tries the provider's dedicated method. When it
 returns method-not-found, the engine asks for Definition at the same
 captured position and applies the same revision and saved-target checks.
