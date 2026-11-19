@@ -2,16 +2,18 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { api } from "../api/client";
 import type { FileNode, FindOptions, FindResponse } from "../api/types";
-import type { Buffers } from "./buffers";
+import type { Buffer, Buffers } from "./buffers";
 import { sha256 } from "../lib/reviews";
-import { openLocation } from "../lib/revealLine";
 import { searchCharacter } from "./Intelligence";
-export function WorkspaceSearch({ visible, close, buffers, files }: { visible: boolean; close: () => void; buffers: Buffers; files: FileNode[] }) {
+export function WorkspaceSearch({visible, close, buffers, files, navigate}: {
+  visible: boolean; close: (restoreFocus: boolean) => void; buffers: Buffers; files: FileNode[];
+  navigate: (file: FileNode, line: number, character: number, current: () => boolean, verify: (buffer: Buffer) => Promise<void>) => Promise<boolean>;
+}) {
   const [query, setQuery] = useState(""), [options, setOptions] = useState<FindOptions>({});
   const [result, setResult] = useState<FindResponse | null>(null), [notice, setNotice] = useState(""), [page, setPage] = useState(0);
   const ticket = useRef(0), input = useRef<HTMLInputElement>(null);
   const invalidate = () => { ticket.current++; setResult(null); setNotice(""); setPage(0); };
-  useEffect(() => { ticket.current++; if (visible) input.current?.focus(); }, [visible]);
+  useEffect(() => { if (visible) { ticket.current++; input.current?.focus(); } }, [visible]);
   useEffect(() => () => { ticket.current++; }, []);
   const hits = result?.files.flatMap(file => file.matches.flatMap(match => match.at.map(at => ({ file, match, at })))) ?? [];
   async function run() {
@@ -25,17 +27,21 @@ export function WorkspaceSearch({ visible, close, buffers, files }: { visible: b
       function find(nodes: FileNode[]): FileNode | undefined { for (const node of nodes) { if (node.path === hit.file.path) return node; const child = find(node.children ?? []); if (child) return child; } }
       const file = buffers.values.get(hit.file.path)?.file ?? find(files);
       if (!file || file.dir) throw new Error("File no longer listed. Refresh files and search again.");
-      const buffer = await buffers.open(file), source = buffer.text;
-      const hash = await sha256(source), character = searchCharacter(hit.match.text, hit.at.column);
-      if (current !== ticket.current) return;
-      if (!hit.file.source_hash || hash !== hit.file.source_hash.replace(/^sha256:/, "").toLowerCase() || buffer.text !== source || character === null || source.split("\n")[hit.match.line - 1]?.replace(/\r$/, "") !== hit.match.text.replace(/\r$/, "")) throw new Error("Search source changed or its revision is unknown. Save edits and search again.");
-      openLocation(file.path, hit.match.line, character, true, source); close();
+      const character = searchCharacter(hit.match.text, hit.at.column);
+      const stale = () => new Error("Search source changed or its revision is unknown. Save edits and search again.");
+      if (character === null) throw stale();
+      if (await navigate(file, hit.match.line, character, () => current === ticket.current, async buffer => {
+        const source = buffer.text, hash = await sha256(source);
+        if (!hit.file.source_hash || hash !== hit.file.source_hash.replace(/^sha256:/, "").toLowerCase()
+          || buffer.text !== source || source.split("\n")[hit.match.line - 1]?.replace(/\r$/, "") !== hit.match.text.replace(/\r$/, "")) throw stale();
+      })) close(false);
     } catch (error) { if (current === ticket.current) setNotice(String(error)); }
   }
   if (!visible) return null;
+  const dismiss = () => { ticket.current++; close(true); };
   const last = Math.max(0, Math.ceil(hits.length / 100) - 1), selected = Math.min(page, last);
-  return createPortal(<div className="simple-workspace-problems" role="dialog" aria-label="Find in workspace" onKeyDown={event => { if (event.key === "Escape") { event.preventDefault(); close(); } }}>
-    <button aria-label="Close workspace search" onClick={close}>×</button><strong>Find in workspace</strong>
+  return createPortal(<div className="simple-workspace-problems" role="dialog" aria-label="Find in workspace" onKeyDown={event => { if (event.key === "Escape") { event.preventDefault(); dismiss(); } }}>
+    <button aria-label="Close workspace search" onClick={dismiss}>×</button><strong>Find in workspace</strong>
     <p>Saved workspace text · unsaved edits are preserved</p>
     <form onSubmit={event => { event.preventDefault(); void run(); }}><input ref={input} aria-label="Workspace search query" value={query} onChange={event => { invalidate(); setQuery(event.target.value); }} />
       {([['regex', 'Regular expression'], ['case', 'Match case'], ['whole_word', 'Whole word']] as const).map(([key, label]) => <label key={key}><input type="checkbox" checked={!!options[key]} onChange={event => { invalidate(); setOptions({ ...options, [key]: event.target.checked }); }} />{label}</label>)}

@@ -777,9 +777,16 @@ describe("simple workspace search", () => {
     const hash = vi.spyOn(reviews, "sha256").mockResolvedValue("abc");
     let resolve!: (value: Awaited<ReturnType<typeof api.find>>) => void;
     vi.mocked(api.find).mockImplementationOnce(() => new Promise(done => { resolve = done; }));
-    const close = vi.fn(), location = vi.fn(), listener = (event: Event) => location((event as CustomEvent).detail);
-    window.addEventListener("hickory:open-location", listener);
-    const screen = render(createElement(WorkspaceSearch, { visible: true, close, buffers, files: [file] }));
+    const close = vi.fn(), location = vi.fn();
+    const navigate: Parameters<typeof WorkspaceSearch>[0]["navigate"] = async (file, line, character, current, verify) => {
+      const owner = await buffers.open(file);
+      if (!current()) return false;
+      await verify(owner);
+      if (!current()) return false;
+      location({path: file.path, line, character, expectedSource: owner.text});
+      return true;
+    };
+    const screen = render(createElement(WorkspaceSearch, { visible: true, close, buffers, files: [file], navigate }));
     try {
       const input = screen.getByRole("textbox", { name: "Workspace search query" });
       fireEvent.change(input, { target: { value: "old" } }); fireEvent.click(screen.getByRole("button", { name: "Search" }));
@@ -796,7 +803,7 @@ describe("simple workspace search", () => {
       buffer.edit(source); hash.mockResolvedValue("abc"); fireEvent.click(result);
       await waitFor(() => expect(close).toHaveBeenCalledOnce());
       expect(location).toHaveBeenCalledWith(expect.objectContaining({ path: file.path, line: 1, character: 4, expectedSource: source }));
-    } finally { screen.unmount(); hash.mockRestore(); window.removeEventListener("hickory:open-location", listener); }
+    } finally { screen.unmount(); hash.mockRestore(); }
   });
 });
 describe("simple workspace Problems", () => {

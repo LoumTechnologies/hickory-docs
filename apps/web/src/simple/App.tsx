@@ -65,10 +65,16 @@ function EditorSettings() {
     </select>
   </label>)}{error && <p role="status">{error}</p>}</fieldset>;
 }
+type OpenFileOptions = {
+  current?: () => boolean;
+  observed?: Buffer;
+  verify?: (buffer: Buffer) => Promise<void>;
+};
+type OpenedFile = {buffer: Buffer; current: () => boolean};
 export function App() {
   const [layout, setLayout] = useState<Layout>(initialLayout);
   const liveLayout=useRef(layout);liveLayout.current=layout;
-  const [focused, setFocused] = useState("document-group");
+  const [focused, updateFocused] = useState("document-group");
   const [terminal] = useState(() => new TerminalSession());
   const [agent] = useState(() => new AgentSession());
   const [filesFolder, setFilesFolder] = useState("");
@@ -100,12 +106,19 @@ export function App() {
   const [, refresh] = useState(0);
   const [changeHistory]=useState(()=>new WorkspaceChangeHistory());
   const [buffers] = useState(() => new Buffers(() => refresh(value => value + 1)));
-  const requested = useRef(new Map<string, string>());
+  const requested = useRef(new Map<string, {path: string}>());
   const filesGeneration = useRef(0);
   const listingFailure = useRef<string | null>(null);
   const acceptStartupFiles = useRef<((response: Awaited<ReturnType<typeof api.files>>) => void) | null>(null);
   const [retainedTabs]=useState(()=>new RetainedResourceTabs());
-  const recoveryFocus=useRef(focused);recoveryFocus.current=focused;
+  const recoveryFocus=useRef(focused), focusEpoch=useRef(0);
+  function setFocused(group: string) {
+    if (recoveryFocus.current !== group) {
+      recoveryFocus.current = group;
+      focusEpoch.current++;
+    }
+    updateFocused(group);
+  }
   const editorRecovery=useMemo(()=>new EditorRecoveryModel(editorRecoveryTransport),[buffers.workspaceId,buffers.workspace]);
   useEffect(()=>{let living=true;const workspace=buffers.workspaceId,namespace=buffers.workspace;const current=()=>living&&buffers.workspaceId===workspace&&buffers.workspace===namespace;const timer=window.setInterval(()=>{if(!current()||!workspace||!namespace)return;try{const snapshot=captureEditorRecovery(buffers,liveLayout.current,recoveryFocus.current,retainedTabs.buffers.values(),tab=>{const id=tabIdentity(tab);return id.kind==='source'?(retainedTabs.buffers.get(id.key)??buffers.values.get(id.key)):undefined;});void editorRecovery.checkpoint(workspace,namespace,snapshot,current);}catch(e){editorRecovery.notice=String(e);}},1500);return()=>{living=false;window.clearInterval(timer);};},[buffers,editorRecovery,retainedTabs]);
 
@@ -201,7 +214,7 @@ export function App() {
       observed = buffers.observeStartup(snapshot);
       if (observed) {
         showContainingFolder(path);
-        void open(observed.file, current, observed);
+        void open(observed.file, {current, observed});
       }
     }).catch(() => { /* The authoritative tree reader can still open this file. */ });
     // Refresh uses the same lease after an unavailable listing or guarded
@@ -222,7 +235,7 @@ export function App() {
         });
       } else {
         showContainingFolder(file.path);
-        void open(file, current);
+        void open(file, {current});
       }
     };
     void loadFiles();
@@ -248,32 +261,73 @@ export function App() {
     if (current()) openAgentProposals(selection);
   };
   async function openTerminal() { openTab("terminal"); await terminal.open(); }
-  function openTab(tab: string) {
-    const owner = groups(layout).find(group => group.tabs.includes(tab));
-    const target = owner?.id ?? currentGroup.id;
-    setLayout(current => activate(current, target, tab)); setFocused(target);
+  function activateTab(group: string, tab: string) {
+    requested.current.delete(group);
+    setLayout(current => activate(current, group, tab));
+    setFocused(group);
   }
-  async function open(file: FileNode,isCurrent:()=>boolean=()=>true, observed?: Buffer) {
-    if(!isCurrent())return;
-    const target = groups(layout).find(group => group.id === focused && !group.tabs.includes("files"))?.id
-      ?? groups(layout).find(group => !group.tabs.includes("files"))?.id ?? currentGroup.id;
-    requested.current.set(target, file.path);
+  function openTab(tab: string) {
+    const owner = groups(liveLayout.current).find(group => group.tabs.includes(tab));
+    activateTab(owner?.id ?? currentGroup.id, tab);
+  }
+  async function open(file: FileNode, {current: isCurrent = () => true, observed, verify}: OpenFileOptions = {}): Promise<OpenedFile | null> {
+    if (!isCurrent()) return null;
+    const path = file.path, tab = sourceTab(path), panes = groups(liveLayout.current);
+    const target = panes.find(group => group.tabs.includes(tab))?.id
+      ?? panes.find(group => group.id === focused && !group.tabs.includes("files"))?.id
+      ?? panes.find(group => !group.tabs.includes("files"))?.id ?? currentGroup.id;
+    const ticket = {path};
+    const namespace = buffers.workspace, workspace = buffers.workspaceId;
+    const pending = () => {
+      if (requested.current.get(target) !== ticket || !isCurrent()
+        || !observed && (buffers.workspace !== namespace || buffers.workspaceId !== workspace)) return false;
+      const live = groups(liveLayout.current);
+      const owner = live.find(group => group.tabs.includes(tab));
+      return owner ? owner.id === target : live.some(group => group.id === target);
+    };
+    requested.current.set(target, ticket);
     setFocused(target);
+    const focus = focusEpoch.current;
+    const foreground = () => recoveryFocus.current === target && focusEpoch.current === focus;
     try {
-      if (!observed) await buffers.open(file);
-      if (!isCurrent()||requested.current.get(target) !== file.path) return;
-      setLayout(current => {
-        const owner = groups(current).find(group => group.tabs.includes(sourceTab(file.path)));
-        const live = owner?.id ?? groups(current).find(group => group.id === target)?.id ?? groups(current)[0].id;
-        return activate(current, live, sourceTab(file.path));
-      });
-      setStatus(file.generated_by ? "Generated file · read-only" : file.path);
-    } catch (error) { if (isCurrent() && requested.current.get(target) === file.path) setNotice(`${String(error)} Refresh files and try opening ${file.path} again.`); }
+      const owner = observed ?? await buffers.open(file);
+      if (!pending()) return null;
+      const revision = owner.sourceRevision;
+      if (verify) await verify(owner);
+      const admitted = () => pending() && buffers.values.get(path) === owner
+        && owner.file.path === path && (!verify || owner.sourceRevision === revision);
+      if (!admitted()) return null;
+      setLayout(layout => admitted() ? activate(layout, target, tab) : layout);
+      const current = () => admitted() && foreground();
+      if (current()) setStatus(status => current() ? owner.file.generated_by ? "Generated file · read-only" : path : status);
+      return {buffer: owner, current};
+    } catch (error) {
+      if (!pending() || !foreground()) return null;
+      if (verify) throw error;
+      setNotice(notice => pending() && foreground() ? `${String(error)} Refresh files and try opening ${path} again.` : notice);
+      return null;
+    }
   }
   function currentLocation(): SemanticLocation | null {
     const view = buffer && editorForBuffer(buffer)?.view; if (!buffer || !view) return null;
     const start = utf16ToPosition(buffer.text, authoredOffset(view.state,view.state.selection.main.head));
     return { uri: documentUri(buffer.file.path), range: { start, end: start } };
+  }
+  function recordVisit(departed: SemanticLocation | null, path: string, start: {line: number; character: number}) {
+    trail.record(departed, {uri: documentUri(path), range: {start, end: start}});
+    refreshTrail(value => value + 1);
+  }
+  function revealVisit(opened: OpenedFile, departed: SemanticLocation | null, line: number, character?: number, record = true) {
+    if (!opened.current()) return;
+    const {text: source, file: {path}} = opened.buffer;
+    if (record) recordVisit(departed, path, {line: line - 1, character: character ?? 0});
+    revealLine(path, line, character, {source, current: opened.current});
+  }
+  async function openLine(file: FileNode, line: number, character: number, options: OpenFileOptions) {
+    const departed = currentLocation(), opened = await open(file, options);
+    if (!opened?.current()) return false;
+    revealVisit(opened, departed, line, character);
+    return true;
   }
   function navigateHistory(direction: -1 | 1) {
     const location = trail.step(direction, currentLocation()); refreshTrail(value => value + 1);
@@ -288,14 +342,18 @@ export function App() {
       for (const node of nodes) { if (node.path === location.path) return node; const child = find(node.children ?? []); if (child) return child; }
     };
     const file = buffers.values.get(location.path)?.file ?? find(workspaceFiles);
-    if (file) { void open(file,current).then(async() => {
-      const target = buffers.values.get(file.path); if (!target||!current()) return;
+    let accepted: OpenedFile | null = null;
+    if (file) { void open(file, {current}).then(async opened => {
+      if (!opened?.current()) return;
+      accepted = opened;
+      const target = opened.buffer;
       if(location.capture){
         if(!location.capture.hash){setNotice(location.capture.sourceReference&&location.capture.sourceReference>0?"Adapter-owned source bytes have not been read; opened workspace text without a precise position.":location.capture.positionKnown===false?"Frame position is unavailable; opened readable source text only.":"Opened source text only; the debugger has no captured mapping identity for this frame.");return;}
         const source=target.text,interaction=editorForBuffer(target)?.interaction??0;
         for(const character of source)if(character.length===1&&character.charCodeAt(0)>=0xD800&&character.charCodeAt(0)<=0xDFFF){setNotice("Source text has an incomplete Unicode scalar; opened without a debugger position.");return;}
         const digest=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(source)),hash=[...new Uint8Array(digest)].map(byte=>byte.toString(16).padStart(2,"0")).join("");
-        const exact=()=>current()&&[...requested.current.values()].includes(file.path)&&buffers.values.get(file.path)===target&&target.text===source&&(editorForBuffer(target)?.interaction??0)===interaction;
+        if (!opened.current()) return;
+        const exact=()=>opened.current()&&target.text===source&&(editorForBuffer(target)?.interaction??0)===interaction;
         if(!exact()){setNotice("Debugger position or editor interaction changed while checking source. Select the frame again.");return;}
         if(hash!==location.capture.hash){setNotice("Source differs from the captured debugger mapping; opened without a precise position.");return;}
         if(!Number.isInteger(location.line)||location.line<1||location.line>source.split("\n").length){setNotice("Captured debugger line does not fit this source; opened text only.");return;}
@@ -303,35 +361,41 @@ export function App() {
       }
       if (location.expectedSource !== undefined && target.text !== location.expectedSource) { setNotice("Source changed. Refresh the query before navigating."); return; }
       if (location.expectedSource === undefined && location.recordHistory !== false && location.character !== undefined && target.dirty && file.path !== buffer?.file.path) { setNotice(`Save ${file.path} and query again before using a cross-file source position.`); return; }
-      if (location.recordHistory !== false) {
-        const start = { line: location.line - 1, character: location.character ?? 0 };
-        trail.record(departed, { uri: documentUri(file.path), range: { start, end: start } }); refreshTrail(value => value + 1);
-      }
-      revealLine(file.path, location.line, location.character,location.expectedSource===undefined?undefined:{source:location.expectedSource,current:()=>workspaceIdentity.current===workspace&&buffers.values.get(file.path)===target&&target.text===location.expectedSource});
-    }).catch(error=>{if(current())setNotice(String(error)+" Source text remains available; no precise location was applied.");}); } else setNotice(location.capture?.sourceReference&&location.capture.sourceReference>0?"This frame uses adapter-owned source; no matching workspace text is available.":`Location not found: ${location.path}. Refresh files and query again.`);
+      revealVisit(opened, departed, location.line, location.character, location.recordHistory !== false);
+    }).catch(error=>{if(accepted?.current())setNotice(String(error)+" Source text remains available; no precise location was applied.");}); } else setNotice(location.capture?.sourceReference&&location.capture.sourceReference>0?"This frame uses adapter-owned source; no matching workspace text is available.":`Location not found: ${location.path}. Refresh files and query again.`);
   },true), [workspaceFiles, layout, focused]);
-  useEffect(()=>{const inspect=(event:Event)=>{const path=(event as CustomEvent<{path:string}>).detail.path,file=buffers.values.get(path)?.file??findPath(path),identity=workspaceIdentity.current;if(!file)return;void open(file).then(()=>{if(workspaceIdentity.current===identity)setShowCoverage(true);});};window.addEventListener(SOURCE_COVERAGE_INSPECTION,inspect);return()=>window.removeEventListener(SOURCE_COVERAGE_INSPECTION,inspect);},[workspaceFiles,layout,focused]);
-  useEffect(()=>{const inspect=(event:Event)=>{const request=(event as CustomEvent<SourceTestInspection>).detail,owner=request.owner??buffers.values.get(request.path),namespace=buffers.workspace;const current=()=>!!owner&&!owner.resourceDeleted&&buffers.values.get(request.path)===owner&&owner.file.path===request.path&&owner.namespace===namespace&&buffers.workspace===namespace&&(request.revision===undefined||owner.sourceRevision===request.revision);const file=owner?.file;if(!file||!current())return;void open(file,current).then(()=>{if(current()){setTestInspection(request);setShowTests(true);}});};window.addEventListener(SOURCE_TEST_INSPECTION,inspect);return()=>window.removeEventListener(SOURCE_TEST_INSPECTION,inspect);},[workspaceFiles,layout,focused]);
+  useEffect(()=>{const inspect=(event:Event)=>{const path=(event as CustomEvent<{path:string}>).detail.path,file=buffers.values.get(path)?.file??findPath(path),identity=workspaceIdentity.current;if(!file)return;void open(file,{current:()=>workspaceIdentity.current===identity}).then(opened=>{if(opened?.current())setShowCoverage(true);});};window.addEventListener(SOURCE_COVERAGE_INSPECTION,inspect);return()=>window.removeEventListener(SOURCE_COVERAGE_INSPECTION,inspect);},[workspaceFiles,layout,focused]);
+  useEffect(()=>{const inspect=(event:Event)=>{const request=(event as CustomEvent<SourceTestInspection>).detail,owner=request.owner??buffers.values.get(request.path),namespace=buffers.workspace;const current=()=>!!owner&&!owner.resourceDeleted&&buffers.values.get(request.path)===owner&&owner.file.path===request.path&&owner.namespace===namespace&&buffers.workspace===namespace&&(request.revision===undefined||owner.sourceRevision===request.revision);const file=owner?.file;if(!file||!current())return;void open(file,{current}).then(opened=>{if(opened?.current()){setTestInspection(request);setShowTests(true);}});};window.addEventListener(SOURCE_TEST_INSPECTION,inspect);return()=>window.removeEventListener(SOURCE_TEST_INSPECTION,inspect);},[workspaceFiles,layout,focused]);
   async function openFileVisit(file: FileNode) {
-    const departed = currentLocation(); await open(file);
-    const target = buffers.values.get(file.path); if (!target) return;
-    const view = editorForBuffer(target)?.view;
+    const departed = currentLocation(), opened = await open(file);
+    if (!opened?.current()) return false;
+    const target = opened.buffer, view = editorForBuffer(target)?.view;
     const start = view ? utf16ToPosition(target.text, authoredOffset(view.state,view.state.selection.main.head)) : { line: 0, character: 0 };
-    trail.record(departed, { uri: documentUri(file.path), range: { start, end: start } }); refreshTrail(value => value + 1);
+    recordVisit(departed, file.path, start);
+    return true;
   }
   function close(tab: string) {
-    for(const [group,path] of requested.current)if(sourceTab(path)===tab)requested.current.delete(group);
     const candidate = bufferForTab(tab);
     if(candidate?.resourceDeleted&&hasActivePlainDebugSession(candidate)){setNotice("Stop the debugger before closing its retained deleted source. Its existing controls remain available here.");return;}
     if (candidate?.saving || candidate?.dirty&&!retainedTabs.copied(candidate)) { setNotice("Unsaved edits retained. Save this document before closing its tab."); return; }
     if (candidate?.startupWorkspace !== undefined && buffers.values.get(candidate.file.path) === candidate) buffers.values.delete(candidate.file.path);
     if(candidate?.resourceDeleted&&retainedTabs.copied(candidate)&&!hasActivePlainDebugSession(candidate)){retireCopiedBuffer(buffers,candidate,candidate.text);retirePlainDebugIdentity(candidate);retainedTabs.retire(candidate);}
+    const activePane = groups(liveLayout.current).find(pane => pane.active === tab);
+    for (const [group, ticket] of requested.current) {
+      if (sourceTab(ticket.path) === tab || activePane?.id === group) requested.current.delete(group);
+    }
     setLayout(current => remove(current, tab));
+  }
+  function retireTabMove(tab: string, target: string) {
+    requested.current.delete(target);
+    const previous = groups(liveLayout.current).find(group => group.tabs.includes(tab));
+    if (previous) requested.current.delete(previous.id);
   }
   function divide(axis: Axis) { setLayout(current => split(current, currentGroup.id, axis, crypto.randomUUID())); }
   function nextGroup() {
     if (!active) return;
     const leaves = groups(layout), index = leaves.findIndex(group => group.id === focused), target = leaves[(index + 1) % leaves.length].id;
+    retireTabMove(active, target);
     setLayout(current => move(current, active, target)); setFocused(target);
   }
   useEffect(() => {
@@ -416,49 +480,56 @@ export function App() {
       {commandMenu("View")}
     </div></details><span className="app-name">Hickory Simple</span></nav>
     <div className="workspace"><LayoutView node={layout} focused={focused} focus={setFocused} label={label} content={content} close={close}
-      drop={(tab, target, before) => { setLayout(current => move(current, tab, target, before)); setFocused(target); }}
-      activate={(group, tab) => { setLayout(current => activate(current, group, tab)); setFocused(group); }}
+      drop={(tab, target, before) => { retireTabMove(tab, target); setLayout(current => move(current, tab, target, before)); setFocused(target); }}
+      activate={activateTab}
       dock={(tab, target, edge) => {
         const id = crypto.randomUUID(), next = dock(layout, tab, target, edge, id);
-        if (next !== layout) { setLayout(next); setFocused(id); }
+        if (next !== layout) { retireTabMove(tab, target); setLayout(next); setFocused(id); }
       }}
       resize={(id, ratio) => setLayout(current => update(current, id, node => isGroup(node) ? node : { ...node, ratio }))} /></div>
     <SimpleCoverageView key={workspaceRoot} visible={showCoverage} workspace={workspaceRoot} path={buffer?.file.path??null} language={buffer?.file.language??"unsupported"} close={()=>{setShowCoverage(false);if(buffer)editorForBuffer(buffer)?.view.focus();}} navigate={async(location:CoverageSourceNavigation)=>{
-      const before=workspaceIdentity.current,file=buffers.values.get(location.path)?.file??findPath(location.path);if(!file)throw new Error("Source no longer listed. Refresh the workspace.");
-      const target=await buffers.open(file),source=target.text;
-      if(before!==workspaceIdentity.current)throw new Error("Workspace changed. Reopen coverage.");
-      if(location.line===null){await openFileVisit(file);setShowCoverage(false);return;}
-      const digest=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(source)),hash=[...new Uint8Array(digest)].map(byte=>byte.toString(16).padStart(2,"0")).join("");
-      if(before!==workspaceIdentity.current||target.text!==source||hash!==location.sourceHash||location.line<1||location.line>source.split("\n").length)throw new Error("Source changed or report position is unavailable. Refresh coverage before navigating.");
-      openLocation(location.path,location.line,0,true,source);setShowCoverage(false);
+      const file=buffers.values.get(location.path)?.file??findPath(location.path);if(!file)throw new Error("Source no longer listed. Refresh the workspace.");
+      const line=location.line;
+      if (line===null) { if (await openFileVisit(file)) setShowCoverage(false); return; }
+      if (await openLine(file,line,0,{verify:async target=>{
+        const source=target.text,digest=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(source)),hash=[...new Uint8Array(digest)].map(byte=>byte.toString(16).padStart(2,"0")).join("");
+        if(target.text!==source||hash!==location.sourceHash||line<1||line>source.split("\n").length)throw new Error("Source changed or report position is unavailable. Refresh coverage before navigating.");
+      }})) setShowCoverage(false);
     }}/>
     <SourceTemplatesView visible={showTemplates} close={()=>{setShowTemplates(false);if(buffer)editorForBuffer(buffer)?.view.focus();}} editor={()=>{const owner=buffer,held=owner?editorForBuffer(owner):undefined;if(!owner||!held)return null;const mount=held.mount;return {buffer:owner,buffers,view:held.view,mounted:()=>editorForBuffer(owner)===held&&held.mount===mount,interaction:()=>held.interaction};}} />
     <TestSourcesView inspectDebugger={owner=>{if(owner.namespace!==buffers.workspace)throw Error('The original debugger belongs to a different workspace namespace. Its record remains readable.');const tab=[...buffers.values,...retainedTabs.buffers].find(([,held])=>held===owner)?.[0];if(!tab)throw Error('The original debugger editor is no longer retained. No replacement path was opened.');openTab(sourceTab(tab));setShowTests(false);}} inspection={testInspection} buffers={buffers} visible={showTests} close={()=>{setShowTests(false);if(buffer)editorForBuffer(buffer)?.view.focus();}} current={entry=>buffer?{workspace:workspaceRoot,owner:buffer,namespace:buffers.workspace,revision:buffer.sourceRevision,executionCurrent:!buffer.dirty&&!buffer.saving&&!buffer.resourceDeleted&&buffer.namespace===buffers.workspace&&buffers.values.get(buffer.file.path)===buffer,request:{path:buffer.file.path,source:buffer.text,...(entry?{project_entry:entry}:{}),sources:Object.fromEntries([...buffers.values].filter(([,item])=>!item.readonly).map(([path,item])=>[path,item.text]))}}:null} navigate={async(point:TestSourcePoint)=>{
       const file=buffers.values.get(point.path)?.file??findPath(point.path);if(!file)throw new Error("Source no longer listed. Refresh files and candidates.");
-      const target=await buffers.open(file),source=target.text;
-      const bytes=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(source));const hash=[...new Uint8Array(bytes)].map(byte=>byte.toString(16).padStart(2,"0")).join("");
-      if(target.text!==source||hash!==point.hash.toLowerCase())throw new Error("Source changed. Refresh candidates before navigating.");
-      openLocation(point.path,point.line,point.character,true,source);setShowTests(false);
+      if (await openLine(file,point.line,point.character,{verify:async target=>{
+        const source=target.text,bytes=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(source));
+        const hash=[...new Uint8Array(bytes)].map(byte=>byte.toString(16).padStart(2,"0")).join("");
+        if(target.text!==source||hash!==point.hash.toLowerCase())throw new Error("Source changed. Refresh candidates before navigating.");
+      }})) setShowTests(false);
     }} terminal={id=>{terminal.id=id;terminal.error="";terminal.publish();openTab("terminal");setShowTests(false);}} />
     <SearchEverywhereView visible={showEverywhere} setVisible={setShowEverywhere} buffers={buffers} files={workspaceFiles} analysis={analysis} commands={commands} openFile={path=>{const file=buffers.values.get(path)?.file??findPath(path);if(file)void openFileVisit(file);else setNotice("File no longer listed. Refresh the workspace.");}} focusCurrent={()=>{if(buffer)editorForBuffer(buffer)?.view.focus();}} />
     <WorkspaceChanges history={changeHistory} adoptResources={routes=>{requested.current.clear();const next=resourceLayout(liveLayout.current,tabRoutes(routes),resourcePlacements.current);liveLayout.current=next;setLayout(next);void loadFiles();}} files={workspaceFiles} buffers={buffers} current={() => buffer} focus={() => { if (buffer) editorForBuffer(buffer)?.view.focus(); }} />
-    <WorkspaceSearch visible={showWorkspaceSearch} close={() => { setShowWorkspaceSearch(false); if (buffer) editorForBuffer(buffer)?.view.focus(); }} buffers={buffers} files={workspaceFiles} />
+    <WorkspaceSearch visible={showWorkspaceSearch} close={restoreFocus => { setShowWorkspaceSearch(false); if (restoreFocus && buffer) editorForBuffer(buffer)?.view.focus(); }} buffers={buffers} files={workspaceFiles}
+      navigate={(file,line,character,current,verify)=>openLine(file,line,character,{current,verify})} />
     <AgentProposalReview key={"agent-proposals:"+buffers.workspaceId} open={showAgentProposals} initialSelection={proposalSelection} close={()=>{proposalRequest.current++;setShowAgentProposals(false);setProposalSelection(null);if(buffer)editorForBuffer(buffer)?.view.focus();}} buffers={buffers} history={changeHistory} acquire={async path=>{const namespace=buffers.workspace,workspace=buffers.workspaceId,response=await api.files();if(response.root_path!==namespace||response.workspace_id!==workspace||buffers.workspace!==namespace||buffers.workspaceId!==workspace)throw Error('Proposal workspace changed while acquiring a target.');const file=findPath(path,response.tree);if(!file||file.dir)throw Error('Reviewed source is not available in this workspace: '+path);const target=await buffers.open(file);if(buffers.workspace!==namespace||buffers.workspaceId!==workspace)throw Error('Proposal workspace changed.');return target;}} adopt={routes=>{requested.current.clear();const next=resourceLayout(liveLayout.current,tabRoutes(routes),resourcePlacements.current);liveLayout.current=next;setLayout(next);void loadFiles();}} />
     {showSourceHistory&&buffer&&<SourceHistoryView key={buffers.workspace+":"+buffer.file.path} buffer={buffer} buffers={buffers} history={changeHistory} alive={()=>workspaceIdentity.current===workspaceRoot} close={()=>{setShowSourceHistory(false);editorForBuffer(buffer)?.view.focus();}} />}
-    {showEditorRecovery&&<EditorRecoveryView model={editorRecovery} workspace={buffers.workspaceId} namespace={buffers.workspace} lease={()=>editorRecoveryLease(buffers,()=>liveLayout.current,()=>recoveryFocus.current,()=>retainedTabs.buffers.values())} restore={snapshot=>{const next=restoreEditorRecovery(buffers,snapshot,liveLayout.current);liveLayout.current=next.tree;setLayout(next.tree);setFocused(next.focused);}} close={()=>setShowEditorRecovery(false)}/>}
+    {showEditorRecovery&&<EditorRecoveryView model={editorRecovery} workspace={buffers.workspaceId} namespace={buffers.workspace} lease={()=>editorRecoveryLease(buffers,()=>liveLayout.current,()=>recoveryFocus.current,()=>retainedTabs.buffers.values())} restore={snapshot=>{const next=restoreEditorRecovery(buffers,snapshot,liveLayout.current);requested.current.clear();liveLayout.current=next.tree;setLayout(next.tree);setFocused(next.focused);}} close={()=>setShowEditorRecovery(false)}/>}
     {showRecovery&&<SourceRecoveryView editorSessions={()=>{setShowRecovery(false);setShowEditorRecovery(true);}} key={"recovery:"+workspaceRoot} buffers={buffers} epoch={()=>changeHistory.stamp()} alive={()=>workspaceIdentity.current===workspaceRoot} acquire={async path=>{
       const identity=workspaceIdentity.current,response=await api.files();if(workspaceIdentity.current!==identity||response.root!==identity)throw new Error("Workspace changed. Read recovery again.");
       const find=(nodes:FileNode[]):FileNode|undefined=>{for(const file of nodes){if(file.path===path&&!file.dir)return file;const nested=find(file.children??[]);if(nested)return nested;}};
       const file=buffers.values.get(path)?.file??find(response.tree);if(!file)throw new Error("Recovery source is not available in the current workspace: "+path);return await buffers.open(file);
     }} adopt={(routes:ResourceEditorRoute<Buffer>[],inverse:string|null)=>{if(inverse)changeHistory.record({kind:"resource",recovery:inverse});requested.current.clear();const next=resourceLayout(liveLayout.current,tabRoutes(routes),resourcePlacements.current);liveLayout.current=next;setLayout(next);void loadFiles();setNotice("Saved baselines and drafts are retained separately.");}} close={()=>{setShowRecovery(false);if(buffer)editorForBuffer(buffer)?.view.focus();}}/>}
     {showConstruction&&<ConstructionReadingView key={"construction:"+workspaceRoot} workspace={buffers.workspace} engineWorkspace={buffers.workspaceId} capture={()=>{const namespace=buffers.workspace,engine=buffers.workspaceId;try{const roster=captureResourceRoster(buffers);return ()=>!!namespace&&buffers.workspace===namespace&&buffers.workspaceId===engine&&workspaceIdentity.current===workspaceRoot&&roster.current();}catch{return ()=>false;}}} terminal={id=>{terminal.id=id;terminal.error="";terminal.publish();openTab("terminal");setShowConstruction(false);}} retainedSources={()=>{const roster=captureResourceRoster(buffers);return {sources:roster.ownership_sources,unaddressed_sources:roster.unaddressed_sources,saved_guards:Object.fromEntries(roster.captures.filter(row=>Object.hasOwn(roster.ownership_sources,row.path)&&!!row.guard).map(row=>[row.path,row.guard!])),missing_sources:roster.captures.filter(row=>row.deleted&&!row.readonly&&!row.transient&&!row.path.startsWith('/')&&!row.buffer.isUntitledDraft).map(row=>row.path)};}} sources={()=>captureResourceRoster(buffers).ownership_sources} navigate={async(point,current)=>{
-      const identity=workspaceIdentity.current,file=buffers.values.get(point.path)?.file??findPath(point.path);if(!file)throw new Error("Source no longer listed. Refresh the construction reading.");
-      const target=await buffers.open(file),source=target.text;
-      const hash=[...new Uint8Array(await crypto.subtle.digest("SHA-256",new TextEncoder().encode(source)))].map(byte=>byte.toString(16).padStart(2,"0")).join("");
-      const offset=constructionPointOffset(source,point,hash),valid=()=>current()&&workspaceIdentity.current===identity&&target.text===source;
-      if(!valid())return;if(offset===null)throw new Error("Source changed or position is unavailable. Refresh the construction reading.");
-      const departed=currentLocation();await open(file);if(!valid())return;
-      for(let attempt=0;attempt<20;attempt++){if(!valid())return;const view=editorForBuffer(target)?.view;if(view?.dom.isConnected){if(authoredSource(view.state)!==source)throw new Error("Editor source changed. Refresh the construction reading.");view.dispatch({selection:{anchor:editorOffset(view.state,offset)},scrollIntoView:true});view.focus();const start={line:point.line-1,character:point.character};trail.record(departed,{uri:documentUri(point.path),range:{start,end:start}});refreshTrail(value=>value+1);setShowConstruction(false);return;}await new Promise<void>(resolve=>requestAnimationFrame(()=>resolve()));}
+      const file=buffers.values.get(point.path)?.file??findPath(point.path);if(!file)throw new Error("Source no longer listed. Refresh the construction reading.");
+      const departed=currentLocation();
+      const location: {offset: number | null} = {offset: null};
+      const opened=await open(file,{current,verify:async target=>{
+        const source=target.text;
+        const hash=[...new Uint8Array(await crypto.subtle.digest("SHA-256",new TextEncoder().encode(source)))].map(byte=>byte.toString(16).padStart(2,"0")).join("");
+        location.offset=constructionPointOffset(source,point,hash);
+        if(target.text!==source||location.offset===null)throw new Error("Source changed or position is unavailable. Refresh the construction reading.");
+      }});
+      if(!opened?.current()||location.offset===null)return;
+      const offset=location.offset,target=opened.buffer,source=target.text;
+      for(let attempt=0;attempt<20;attempt++){if(!opened.current()||target.text!==source)return;const view=editorForBuffer(target)?.view;if(view?.dom.isConnected){if(authoredSource(view.state)!==source)throw new Error("Editor source changed. Refresh the construction reading.");view.dispatch({selection:{anchor:editorOffset(view.state,offset)},scrollIntoView:true});view.focus();recordVisit(departed,point.path,{line:point.line-1,character:point.character});setShowConstruction(false);return;}await new Promise<void>(resolve=>requestAnimationFrame(()=>resolve()));}
       throw new Error("Source opened but its editor is not ready. Try the source link again.");
     }} close={()=>{setShowConstruction(false);if(buffer)editorForBuffer(buffer)?.view.focus();}} />}
     {attributionPath!==null&&<GitAttributionView key={"attribution:"+workspaceRoot} workspace={workspaceRoot} path={attributionPath} close={()=>{setAttributionPath(null);if(buffer)editorForBuffer(buffer)?.view.focus();}} readCommit={(sha,title)=>{setAttributionPath(null);setShowReview(false);setHistoryRequest({kind:'commit',sha,title});setShowHistory(true);}} />}

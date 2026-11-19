@@ -1340,6 +1340,122 @@ test("keeps the managed startup editor through guarded open and first collaborat
 
 The selections below preserve the original byte order. Narrative reading order does not change the output.
 
-<storycode:file path="apps/web/e2e/literate-editor.spec.ts"><storycode:paste select="#f-648693644a28-expression_statement"/><storycode:paste select="#f-648693644a28-for_in_statement"/><storycode:paste select="#f-648693644a28-expression_statement-2"/><storycode:paste select="#f-648693644a28-expression_statement-3"/><storycode:paste select="#f-648693644a28-expression_statement-4"/><storycode:paste select="#f-648693644a28-expression_statement-5"/><storycode:paste select="#f-648693644a28-expression_statement-6"/><storycode:paste select="#f-648693644a28-expression_statement-7"/><storycode:paste select="#f-648693644a28-expression_statement-8"/><storycode:paste select="#f-648693644a28-for_in_statement-2"/><storycode:paste select="#f-648693644a28-for_in_statement-3"/><storycode:paste select="#f-648693644a28-for_in_statement-4"/><storycode:paste select="#f-648693644a28-expression_statement-9"/><storycode:paste select="#f-648693644a28-recorded-fence-debug"/><storycode:paste select="#f-648693644a28-managed-startup"/></storycode:file>
+### Keep the selected Simple Browser editor during a slow open
+
+The fixture holds the real guarded file read after a file-tree click and after a
+search result. In each case reselect the mounted tab while the request is
+outstanding. The late response can warm the cache. It must leave the selected
+editor, its exact draft, selection and Undo untouched, and never queue its
+obsolete position for the next visit. A fresh cross-file reveal must still work.
+
+<storycode:copy id="f-648693644a28-simple-tab-open">
+test("Simple Browser keeps a newer tab choice during a slow file open and search reveal", async ({page}) => {
+  test.skip(!process.env.HICKORY_E2E_URL, "Run against the isolated literate editor engine.");
+  const listing = await page.request.get("/api/files");
+  expect(listing.ok()).toBe(true);
+  const {tree} = await listing.json() as {tree: {path: string; doc_id?: string}[]};
+  const selectionTarget = "managed startup #é.md";
+  const targetId = tree.find(file => file.path === selectionTarget)?.doc_id;
+  expect(targetId).toBeTruthy();
+
+  await page.goto("/simple.html");
+  const treeView = page.getByLabel("Files", {exact: true});
+  const editor = (path: string) => page.locator(".cm-content").and(page.getByLabel(path, {exact: true}));
+  const original = editor("code.py");
+  const originalTab = page.getByRole("tab", {name: /^code\.py/});
+  const readState = async (path: string) => editor(path).evaluate(async node => {
+    const viewModule = "/node_modules/@codemirror/view/dist/index.js";
+    const sourceModule = "/src/simple/SourceText.ts";
+    const [{EditorView}, {authoredSource, authoredSelection}] = await Promise.all([
+      import(viewModule), import(sourceModule),
+    ]);
+    const view = EditorView.findFromDOM(node);
+    return {source: authoredSource(view.state), selection: authoredSelection(view.state)[0]};
+  });
+
+  await treeView.getByRole("button", {name: "code.py", exact: true}).click();
+  await expect(original).toBeVisible();
+  const originalNode = await original.elementHandle();
+  await original.press("End");
+  await page.keyboard.insertText(" # retained draft");
+  await expect(original).toContainText("retained draft");
+  await original.press("Shift+Home");
+  const before = await readState("code.py");
+  expect(before.selection.anchor).not.toBe(before.selection.head);
+
+  async function reselectDuringRead(pathMatches: (url: URL) => boolean, activate: () => Promise<void>, unopened: string) {
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => {release = resolve;});
+    const read = (url: URL) => pathMatches(url);
+    await page.route(read, async route => {
+      await gate;
+      await route.continue();
+    });
+    try {
+      const requested = page.waitForRequest(request => request.method() === "GET" && read(new URL(request.url())));
+      await activate();
+      await requested;
+      await expect(originalTab).toHaveAttribute("aria-selected", "true");
+      await originalTab.click();
+      const response = page.waitForResponse(reply => reply.request().method() === "GET" && read(new URL(reply.url())));
+      release();
+      const reply = await response;
+      expect(reply.ok()).toBe(true);
+      await reply.finished();
+      await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      await expect(page.getByRole("tab", {name: unopened, exact: true})).toHaveCount(0);
+      await expect(originalTab).toHaveAttribute("aria-selected", "true");
+      expect(await original.evaluate((node, retained) => node === retained, originalNode)).toBe(true);
+      expect(await readState("code.py")).toEqual(before);
+    } finally {
+      release();
+      await page.unroute(read);
+    }
+  }
+
+  await reselectDuringRead(
+    url => url.pathname === "/api/file" && url.searchParams.get("path") === "revision.txt",
+    () => treeView.getByRole("button", {name: "revision.txt", exact: true}).click(), "revision.txt",
+  );
+
+  await page.locator("nav").getByText("Edit", {exact: true}).click();
+  await expect(page.getByRole("button", {name: "Undo text edit", exact: true})).toBeEnabled();
+  await expect(page.getByRole("button", {name: "Navigate back", exact: true})).toBeDisabled();
+  await page.getByRole("button", {name: "Find in workspace", exact: true}).click();
+  const search = page.getByRole("dialog", {name: "Find in workspace"});
+  await search.getByRole("textbox", {name: "Workspace search query"}).fill("Managed startup row 123");
+  await search.getByRole("button", {name: "Search", exact: true}).click();
+  const match = search.getByRole("button", {name: /managed startup #é\.md:\d+ · Managed startup row 123/});
+  await expect(match).toBeVisible();
+  await reselectDuringRead(
+    url => decodeURIComponent(url.pathname) === `/api/docs/${targetId}`,
+    () => match.click(), selectionTarget,
+  );
+  await expect(search).toBeVisible();
+  await search.getByRole("button", {name: "Close workspace search"}).click();
+
+  await treeView.getByRole("button", {name: selectionTarget, exact: true}).click();
+  await expect(editor(selectionTarget)).toBeVisible();
+  const fresh = await readState(selectionTarget);
+  expect(fresh.selection).toMatchObject({anchor: 0, head: 0});
+  await originalTab.click();
+  await page.evaluate(({path, source}) => {
+    window.dispatchEvent(new CustomEvent("hickory:open-location", {
+      detail: {path, line: 124, character: 4, expectedSource: source},
+    }));
+  }, {path: selectionTarget, source: fresh.source});
+  await expect(editor(selectionTarget)).toBeVisible();
+  const expected = fresh.source.indexOf("Managed startup row 123") + 4;
+  expect(expected).toBeGreaterThan(4);
+  await expect.poll(async () => (await readState(selectionTarget)).selection).toMatchObject({anchor: expected, head: expected});
+  await originalTab.click();
+  await original.press("ControlOrMeta+z");
+  await expect(original).not.toContainText("retained draft");
+  const saved = await page.request.get("/api/file?path=code.py");
+  expect((await saved.json()).content).toBe("value = 1\n");
+});
+</storycode:copy>
+
+<storycode:file path="apps/web/e2e/literate-editor.spec.ts"><storycode:paste select="#f-648693644a28-expression_statement"/><storycode:paste select="#f-648693644a28-for_in_statement"/><storycode:paste select="#f-648693644a28-expression_statement-2"/><storycode:paste select="#f-648693644a28-expression_statement-3"/><storycode:paste select="#f-648693644a28-expression_statement-4"/><storycode:paste select="#f-648693644a28-expression_statement-5"/><storycode:paste select="#f-648693644a28-expression_statement-6"/><storycode:paste select="#f-648693644a28-expression_statement-7"/><storycode:paste select="#f-648693644a28-expression_statement-8"/><storycode:paste select="#f-648693644a28-for_in_statement-2"/><storycode:paste select="#f-648693644a28-for_in_statement-3"/><storycode:paste select="#f-648693644a28-for_in_statement-4"/><storycode:paste select="#f-648693644a28-expression_statement-9"/><storycode:paste select="#f-648693644a28-recorded-fence-debug"/><storycode:paste select="#f-648693644a28-managed-startup"/><storycode:paste select="#f-648693644a28-simple-tab-open"/></storycode:file>
 
 </storycode:doc>
