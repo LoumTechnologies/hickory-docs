@@ -47,6 +47,19 @@ device IME and assistive technology need their own acceptance. The emulator
 originally refused userdata allocation. An owned API 36 emulator booted after
 inactive compiler caches were reclaimed, and the checkpoint Android APK built.
 
+### iPhone Python definition and navigation history
+
+The basedpyright fixture resolved the caller in `main.py` to
+`helper.py:4:5` through the real engine. The first mounted replay opened the
+caller and reached the native Edit menu. The definition command was below
+the visible rows, so the replay stopped before sending the request. The
+fixture now scrolls the menu to reveal the commands for definition, Back
+and Forward. The updated arm64 app and UI test bundle compiled. The mounted
+retry needs 3,072 MiB free to boot and dispose of an isolated iPhone simulator.
+The first simulator was deleted. See
+`target/apple-python-definition-uikit-2026-11-19/` and
+`target/ios-native-python-definition-retry-arm64.log`.
+
 ### iPhone Git review with an unsaved draft
 
 The iPhone simulator opened Repository changes from the View menu after
@@ -920,11 +933,12 @@ receipts are under `target/mobile-provider-followup/go-browser-q5oorx5j` and
 A later rendered Go session with Go 1.26.8 and Delve 1.26.3 verified the
 saved breakpoint, showed Watch `41` and finished, while the program's
 `42` appeared in Delve's host output. Hickory now requests Delve's remote
-output mode. A direct Delve 1.26.3 replay with a precompiled Go executable
-confirmed DAP stdout and termination after Continue. The rendered session
-still needs a replay with the updated engine. See
-`target/mobile-provider-followup/go-rendered-v4-delve-trace/` and
-`target/mobile-provider-followup/go-dap-remote-stdout-delv1263-exact/`.
+output mode. A direct Delve 1.26.3 replay confirmed DAP stdout and termination.
+The rendered Simple Browser replay with the rebuilt engine stopped at saved
+line 5, showed Watch `41`, and retained stdout `42` and exit 0 after Continue.
+The same editor, its dimensions and exact saved bytes survived. See
+`target/mobile-provider-followup/go-browser-opnyelru/` and
+`target/mobile-provider-followup/go-rendered-current-remote-output/`.
 
 Java Debug now asks the installed language server for its hosted DAP endpoint.
 The main class must match the selected source file. The adapter receives the
@@ -2525,6 +2539,22 @@ HTTP fixture preserved the selected editor, draft and caret. The focused
 Android HTTP fixture also verified scroll, redo, active-tab close and focus
 across panes. See `target/apple-delayed-tab-open-focused.log` and
 `target/android-delayed-open-focused-receipt/` for the controller replays.
+
+Simple Browser binds opening, history, source reveal and follow-up inspectors
+to the same request for the pane. Selecting a retained tab retires an older
+request for that pane. Work in another pane can still complete its read
+without taking focus. A Chromium replay held a genuine file-tree read and
+then a guarded workspace-search result. After the user reselected the draft,
+both reads completed with HTTP 200. The selected editor, exact draft,
+nonempty selection and working Undo survived. Neither late reply added a
+tab or a history entry. A fresh visit opened the target with its original
+caret, and a fresh location reveal reached the requested authored column.
+See `target/simple-tab-open-focus.IMjINF/`.
+
+Focused rebuilt-engine replays also passed for Python definition and
+Back/Forward, workspace search, delayed first-open authority and capabilities,
+and Debug and guarded patch review on both recorded Agent message sides.
+See `target/browser-tab-open-*-safety.log`.
 
 ## Native source sessions share workspace transport
 

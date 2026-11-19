@@ -1870,7 +1870,93 @@ extension RecordedRunUITests {
     }
 }
 </ui:copy>
-<ui:file path="apps/apple-simple/IOSUIAcceptance/RecordedRunUITests.swift"><ui:paste select="#ios-recorded-run-ui-test"/><ui:paste select="#ios-native-agent-send-ui-test"/><ui:paste select="#ios-native-git-review-ui-test"/><ui:paste select="#ios-native-git-history-ui-test"/></ui:file>
+## Follow a Python definition between two iPhone editors
+
+Place the native caret inside a call to an imported function. Use Go to definition, choose the exact provider location, and walk Back and Forward through the original caller and target tabs. Check the two source contents and editor geometry after navigation. The owned transport records the real provider request and definition so the rendered result can be checked against the provider's UTF-16 coordinates.
+
+<ui:copy id="ios-native-python-definition-ui-test">
+extension RecordedRunUITests {
+    @MainActor func testNativePythonDefinitionAndHistoryAcrossFiles() throws {
+        continueAfterFailure = false
+        let environment = ProcessInfo.processInfo.environment
+        let origin = try XCTUnwrap(environment["HICKORY_IOS_PARITY_ORIGIN"])
+        let mainSource = try XCTUnwrap(environment["HICKORY_IOS_PYTHON_CALLER"])
+        let helperSource = try XCTUnwrap(environment["HICKORY_IOS_PYTHON_DEFINITION"])
+        let app = XCUIApplication()
+        app.launchEnvironment["HICKORY_API_ORIGIN"] = origin
+        app.launchEnvironment["HICKORY_OPEN_FILE"] = "main.py"
+        app.launch()
+
+        func tap(_ button: XCUIElement, _ description: String) {
+            XCTAssertTrue(button.waitForExistence(timeout: 15), description)
+            XCTAssertTrue(button.isHittable && button.isEnabled, description)
+            button.tap()
+        }
+        func command(_ item: String, menu: String = "Edit") {
+            tap(app.buttons[menu].firstMatch, menu)
+            let button = app.buttons[item].firstMatch
+            if menu == "Edit" && !button.isHittable {
+                let list = app.collectionViews.firstMatch
+                XCTAssertTrue(list.waitForExistence(timeout: 5))
+                // The collection extends under the clipped menu. Start the drag inside its visible middle.
+                for _ in 0..<6 where !button.isHittable {
+                    let start = list.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.46))
+                    let end = list.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.21))
+                    start.press(forDuration: 0.05, thenDragTo: end)
+                }
+            }
+            tap(button, item)
+        }
+        func tab(_ path: String) -> XCUIElement {
+            let strip = app.scrollViews.containing(.button, identifier: "Close \(path)").firstMatch
+            return strip.buttons[path].firstMatch
+        }
+        func editor(_ path: String, text: String) -> XCUIElement {
+            let view = app.textViews[path].firstMatch
+            XCTAssertTrue(view.waitForExistence(timeout: 15), path)
+            let matches = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", text), object: view)
+            XCTAssertEqual(XCTWaiter.wait(for: [matches], timeout: 8), .completed, path)
+            return view
+        }
+        func releaseKeyboard(in path: String) {
+            tap(app.buttons["Agent"].firstMatch, "Agent tab")
+            XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 10))
+            tap(tab(path), path)
+        }
+
+        _ = editor("main.py", text: mainSource)
+        command("Agent", menu: "View")
+        tap(tab("main.py"), "main.py tab")
+        let caller = editor("main.py", text: mainSource)
+        let callerFrame = caller.frame.integral
+        // The unwrapped third row starts with the imported name. Aim well inside it.
+        caller.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: 36, dy: 47)).tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 8))
+        releaseKeyboard(in: "main.py")
+
+        command("Go to definition")
+        let target = app.buttons["helper.py:4:5"].firstMatch
+        XCTAssertTrue(target.waitForExistence(timeout: 20), "Expected the real Python declaration at helper.py:4:5")
+        tap(target, "exact Python definition")
+        _ = editor("helper.py", text: helperSource)
+        releaseKeyboard(in: "helper.py")
+        let helperFrame = editor("helper.py", text: helperSource).frame.integral
+        XCTAssertTrue(app.textViews["main.py"].waitForNonExistence(timeout: 8))
+
+        command("Navigate back")
+        _ = editor("main.py", text: mainSource)
+        releaseKeyboard(in: "main.py")
+        XCTAssertEqual(editor("main.py", text: mainSource).frame.integral, callerFrame)
+        XCTAssertTrue(app.textViews["helper.py"].waitForNonExistence(timeout: 8))
+        command("Navigate forward")
+        _ = editor("helper.py", text: helperSource)
+        releaseKeyboard(in: "helper.py")
+        XCTAssertEqual(editor("helper.py", text: helperSource).frame.integral, helperFrame)
+        NSLog("HickoryUIKitParity native-python-definition-and-back-forward")
+    }
+}
+</ui:copy>
+<ui:file path="apps/apple-simple/IOSUIAcceptance/RecordedRunUITests.swift"><ui:paste select="#ios-recorded-run-ui-test"/><ui:paste select="#ios-native-agent-send-ui-test"/><ui:paste select="#ios-native-git-review-ui-test"/><ui:paste select="#ios-native-git-history-ui-test"/><ui:paste select="#ios-native-python-definition-ui-test"/></ui:file>
 
 ## Run only on a deliberately selected simulator
 
@@ -1943,7 +2029,7 @@ workspace path and checks the recorded card that owns the verified declaration.
 
 <ui:copy id="ios-mounted-parity-runner">
 """Owned mounted UIKit parity witness. Requires an explicitly selected simulator."""
-import argparse,hashlib,importlib.util,json,os,plistlib,shutil,socket,subprocess,tempfile,urllib.error,urllib.parse,urllib.request,uuid
+import argparse,hashlib,importlib.util,json,os,plistlib,shutil,socket,subprocess,sys,tempfile,urllib.error,urllib.parse,urllib.request,uuid
 from contextlib import ExitStack, contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -1961,6 +2047,8 @@ GIT_REVIEW_SAVED = 'print("saved working tree")\n'
 GIT_REVIEW_DRAFT_MARKER = '# retained local editor draft'
 GIT_HISTORY_STABLE_LINE = '# stable committed source\n'
 GIT_WORKFLOWS = {'git-review', 'git-history'}
+PYTHON_CALLER = 'from helper import greeting\n\ngreeting("reader")\n'
+PYTHON_DEFINITION = '# The provider should open the declaration below.\n\n\ndef greeting(name: str) -> str:\n    return name.upper()\n'
 STARTUP_AUTHORITY_MODES = {
     'startup-authority': 'confirmed', 'startup-authority-unavailable': 'unavailable', 'startup-authority-retry': 'retry',
     'startup-authority-live': 'confirmed', 'startup-authority-live-retry': 'retry',
@@ -1981,6 +2069,7 @@ WORKFLOWS = {
     'git-review': ('testNativeGitReviewStagesOnlySavedBytesAndRetainsDraft', ['native-git-review-staged-saved-only-and-retained-draft']),
     'git-history': ('testNativeGitAttributionOpensImmutableCommitAndRetainsDraft',
                     ['native-git-history-read-immutable-commit-and-retained-draft']),
+    'python-definition': ('testNativePythonDefinitionAndHistoryAcrossFiles', ['native-python-definition-and-back-forward']),
     'startup': ('testMountedRequestedFileRetainsEditingThroughDelayedDiagnostics', ['requested-source-before-provider', 'delayed-diagnostic-kept-editor-state']),
     'startup-authority': ('testMountedRequestedTextPrecedesTreeAuthority', ['requested-text-before-tree-authority', 'late-tree-authority-kept-editor-state']),
     'startup-authority-unavailable': ('testMountedRequestedTextPrecedesTreeAuthority', ['requested-text-before-tree-authority', 'late-tree-authority-kept-editor-state']),
@@ -2009,7 +2098,73 @@ def recorded_fixture_path(folder, workflow, path):
     return folder/('recorded-debug' if workflow == 'recorded-run' else workflow)/path
 
 def workflow_target(workflow):
-    return RECORDED_RUN_TARGET if workflow in {'recorded-run', 'proposal-native-send'} or workflow in RECORDED_CONSTRUCTION_SIDES or workflow in GIT_WORKFLOWS else TARGET
+    return RECORDED_RUN_TARGET if workflow in {'recorded-run', 'proposal-native-send', 'python-definition'} or workflow in RECORDED_CONSTRUCTION_SIDES or workflow in GIT_WORKFLOWS else TARGET
+
+PYTHON_DEFINITION_TRACE = r'''
+import json, signal, subprocess, sys
+from pathlib import Path
+from threading import Lock, Thread
+
+event_file = Path(sys.argv[1])
+provider = subprocess.Popen(sys.argv[2:], stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+definitions = set()
+guard = Lock()
+
+def terminate(*_):
+    raise SystemExit
+
+signal.signal(signal.SIGTERM, terminate)
+
+def forward(source, target, outgoing):
+    try:
+        while True:
+            headers = []
+            length = None
+            while line := source.readline():
+                headers.append(line)
+                if not line.strip():
+                    break
+                key, value = line.split(b':', 1)
+                if key.strip().lower() == b'content-length':
+                    length = int(value.strip())
+            if length is None:
+                return
+            body = source.read(length)
+            if len(body) != length:
+                return
+            message = json.loads(body)
+            with guard:
+                identifier = message.get('id')
+                if outgoing and message.get('method') == 'textDocument/definition':
+                    definitions.add(identifier)
+                    event = 'request'
+                elif not outgoing and identifier in definitions and 'method' not in message:
+                    definitions.remove(identifier)
+                    event = 'response'
+                else:
+                    event = None
+                if event:
+                    with event_file.open('a') as receipt:
+                        receipt.write(json.dumps({'event': event, 'message': message})+'\n')
+            target.write(b''.join(headers)+body)
+            target.flush()
+    except BrokenPipeError:
+        return
+
+reader = Thread(target=forward, args=(provider.stdout, sys.stdout.buffer, False), daemon=True)
+reader.start()
+try:
+    forward(sys.stdin.buffer, provider.stdin, True)
+finally:
+    provider.stdin.close()
+    if provider.poll() is None:
+        provider.terminate()
+    try:
+        provider.wait(timeout=4)
+    except subprocess.TimeoutExpired:
+        provider.kill()
+        provider.wait()
+'''
 
 STARTUP_PROVIDER = r'''
 import json
@@ -2173,11 +2328,46 @@ def check_git_history(workspace, trace, head, baseline, saved):
     assert not any(row['method'] in {'PUT', 'PATCH', 'DELETE'} or row['path'] in {'/api/git/stage', '/api/git/unstage'} for row in rows), rows
     return sha
 
+def check_python_definition(workspace):
+    trace = workspace.parent/'python-definition-provider.jsonl'
+    rows = [json.loads(line) for line in trace.read_text().splitlines()]
+    request, response = rows
+    assert (request['event'], response['event']) == ('request', 'response'), rows
+    sent, received = request['message'], response['message']
+    assert sent['method'] == 'textDocument/definition' and sent['id'] == received['id'], rows
+    def local(uri):
+        address = urllib.parse.urlsplit(uri)
+        assert address.scheme == 'file' and not address.netloc, uri
+        return Path(urllib.parse.unquote(address.path)).resolve()
+    params = sent['params']
+    assert local(params['textDocument']['uri']) == workspace/'main.py', params
+    position = params['position']
+    assert position['line'] == 2 and 0 <= position['character'] < len('greeting'), position
+    result = received['result']
+    location, = result if isinstance(result, list) else [result]
+    uri = location.get('targetUri', location.get('uri'))
+    target = location.get('targetSelectionRange', location.get('range'))['start']
+    assert local(uri) == workspace/'helper.py' and target == {'line': 3, 'character': 4}, location
+    return position, target
+
 def prepare_workflow(workflow, workspace, python_env, slow_debug, recorded_fixtures=None):
     workspace.mkdir()
     if workflow in RECORDED_CONSTRUCTION_SIDES:
         side = RECORDED_CONSTRUCTION_SIDES[workflow]
         return load_script('test-simple-browser').prepare_recorded_construction(workspace, side), None
+    if workflow == 'python-definition':
+        installed = ROOT/'target/fenced-lsp-tools/basedpyright'
+        provider = installed/'dist/pyright-langserver.js'
+        node = shutil.which('node')
+        assert node and provider.is_file(), 'The installed basedpyright fixture and local Node runtime are required'
+        bridge = workspace.parent/'python-definition-trace.py'
+        trace = workspace.parent/'python-definition-provider.jsonl'
+        bridge.write_text(PYTHON_DEFINITION_TRACE)
+        configuration = {'servers': {'python': {'command': [sys.executable, str(bridge), str(trace), node, str(provider), '--stdio']}}}
+        files = {'main.py': PYTHON_CALLER, 'helper.py': PYTHON_DEFINITION, '.hick-lsp.json': json.dumps(configuration)}
+        for path, source in files.items():
+            (workspace/path).write_text(source)
+        return files, None
     if workflow in GIT_WORKFLOWS:
         stable = GIT_HISTORY_STABLE_LINE if workflow == 'git-history' else ''
         note = workspace/'note.py'
@@ -2294,6 +2484,7 @@ def run_workflow(workflow, device, seed, temporary_device, candidate, derived, d
             environment['PATH'] = str(python_env.resolve()/'bin') + os.pathsep + environment['PATH']
         native_send = workflow == 'proposal-native-send'
         git_workflow = workflow in GIT_WORKFLOWS
+        python_definition = workflow == 'python-definition'
         managed = load_script('test-agent-proposals-browser') if workflow in {'proposal-apply', 'proposal-save', 'proposal-native-send'} else None
         if managed:
             settings, calls, tool_result = managed.provider_fixture(folder)
@@ -2323,6 +2514,8 @@ def run_workflow(workflow, device, seed, temporary_device, candidate, derived, d
         if workflow == 'startup':
             metadata['HICKORY_IOS_STARTUP_PATH'] = STARTUP_PATH
             metadata['HICKORY_STARTUP_DIAGNOSTIC_GATE'] = cleanup.enter_context(startup_gate(folder))
+        if python_definition:
+            metadata.update(HICKORY_IOS_PYTHON_CALLER=PYTHON_CALLER, HICKORY_IOS_PYTHON_DEFINITION=PYTHON_DEFINITION)
         if workflow == 'editing' and slow_debug:
             metadata['HICKORY_IOS_PARITY_SLOW_DEBUG'] = '1'
             markers = [*markers, 'slow-debug-admission-passed']
@@ -2432,6 +2625,8 @@ def run_workflow(workflow, device, seed, temporary_device, candidate, derived, d
                     index_receipts = check_git_review(workspace, git_wire, git_head)
                 if workflow == 'git-history':
                     commit = check_git_history(workspace, git_wire, git_head, baseline, files['note.py'])
+                if python_definition:
+                    call_site, declaration = check_python_definition(workspace.resolve())
                 observed = log.read_text()
                 if live_authority:
                     check_live_startup_authority(workspace.resolve(), authority_wire, observed)
@@ -2463,6 +2658,10 @@ def run_workflow(workflow, device, seed, temporary_device, candidate, derived, d
                     payload['git_index_receipts'] = index_receipts
                 if workflow == 'git-history':
                     payload['git_immutable_commit'] = commit
+                if python_definition:
+                    installed = ROOT/'target/fenced-lsp-tools/basedpyright'
+                    payload['provider'] = {'name': 'basedpyright', 'version': json.loads((installed/'package.json').read_text())['version'],
+                                           'request_position': call_site, 'definition_position': declaration}
                 if workflow == 'recorded-run':
                     payload['rendered_terminal_accessibility_verified'] = True
                 if authority_mode:
@@ -2475,9 +2674,13 @@ def run_workflow(workflow, device, seed, temporary_device, candidate, derived, d
             finally:
                 configured.unlink(missing_ok=True)
         finally:
+            if python_definition:
+                trace = folder/'python-definition-provider.jsonl'
+                if trace.exists():
+                    shutil.copyfile(trace, receipt/'python-definition-provider.jsonl')
             if archive:
                 archive.stop_engine(fixture, engine, state)
-            elif recorded or live_authority or native_send or git_workflow:
+            elif recorded or live_authority or native_send or git_workflow or python_definition:
                 load_script('test-agent-proposal-persistence').stop_engine(fixture, engine, state)
             elif engine:
                 fixture.stop(engine)
@@ -2704,6 +2907,8 @@ def main():
   parser.error('Native proposal Send requires an explicit HICKORY_SIMPLE_TEST_ENGINE')
  if GIT_WORKFLOWS.intersection(args.workflow or []) and not os.environ.get('HICKORY_SIMPLE_TEST_ENGINE'):
   parser.error('Native Git review requires an explicit HICKORY_SIMPLE_TEST_ENGINE')
+ if 'python-definition' in (args.workflow or []) and not os.environ.get('HICKORY_SIMPLE_TEST_ENGINE'):
+  parser.error('Native Python definition requires an explicit HICKORY_SIMPLE_TEST_ENGINE')
  if LIVE_STARTUP_AUTHORITY.intersection(args.workflow or []) and not os.environ.get('HICKORY_SIMPLE_TEST_ENGINE'):
   parser.error('Live startup authority requires an explicit HICKORY_SIMPLE_TEST_ENGINE')
  if recorded_workflows:

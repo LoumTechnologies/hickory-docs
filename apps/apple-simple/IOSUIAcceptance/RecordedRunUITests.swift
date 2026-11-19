@@ -387,3 +387,83 @@ extension RecordedRunUITests {
         NSLog("HickoryUIKitParity native-git-history-read-immutable-commit-and-retained-draft")
     }
 }
+extension RecordedRunUITests {
+    @MainActor func testNativePythonDefinitionAndHistoryAcrossFiles() throws {
+        continueAfterFailure = false
+        let environment = ProcessInfo.processInfo.environment
+        let origin = try XCTUnwrap(environment["HICKORY_IOS_PARITY_ORIGIN"])
+        let mainSource = try XCTUnwrap(environment["HICKORY_IOS_PYTHON_CALLER"])
+        let helperSource = try XCTUnwrap(environment["HICKORY_IOS_PYTHON_DEFINITION"])
+        let app = XCUIApplication()
+        app.launchEnvironment["HICKORY_API_ORIGIN"] = origin
+        app.launchEnvironment["HICKORY_OPEN_FILE"] = "main.py"
+        app.launch()
+
+        func tap(_ button: XCUIElement, _ description: String) {
+            XCTAssertTrue(button.waitForExistence(timeout: 15), description)
+            XCTAssertTrue(button.isHittable && button.isEnabled, description)
+            button.tap()
+        }
+        func command(_ item: String, menu: String = "Edit") {
+            tap(app.buttons[menu].firstMatch, menu)
+            let button = app.buttons[item].firstMatch
+            if menu == "Edit" && !button.isHittable {
+                let list = app.collectionViews.firstMatch
+                XCTAssertTrue(list.waitForExistence(timeout: 5))
+                // The collection extends under the clipped menu. Start the drag inside its visible middle.
+                for _ in 0..<6 where !button.isHittable {
+                    let start = list.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.46))
+                    let end = list.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.21))
+                    start.press(forDuration: 0.05, thenDragTo: end)
+                }
+            }
+            tap(button, item)
+        }
+        func tab(_ path: String) -> XCUIElement {
+            let strip = app.scrollViews.containing(.button, identifier: "Close \(path)").firstMatch
+            return strip.buttons[path].firstMatch
+        }
+        func editor(_ path: String, text: String) -> XCUIElement {
+            let view = app.textViews[path].firstMatch
+            XCTAssertTrue(view.waitForExistence(timeout: 15), path)
+            let matches = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", text), object: view)
+            XCTAssertEqual(XCTWaiter.wait(for: [matches], timeout: 8), .completed, path)
+            return view
+        }
+        func releaseKeyboard(in path: String) {
+            tap(app.buttons["Agent"].firstMatch, "Agent tab")
+            XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 10))
+            tap(tab(path), path)
+        }
+
+        _ = editor("main.py", text: mainSource)
+        command("Agent", menu: "View")
+        tap(tab("main.py"), "main.py tab")
+        let caller = editor("main.py", text: mainSource)
+        let callerFrame = caller.frame.integral
+        // The unwrapped third row starts with the imported name. Aim well inside it.
+        caller.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: 36, dy: 47)).tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 8))
+        releaseKeyboard(in: "main.py")
+
+        command("Go to definition")
+        let target = app.buttons["helper.py:4:5"].firstMatch
+        XCTAssertTrue(target.waitForExistence(timeout: 20), "Expected the real Python declaration at helper.py:4:5")
+        tap(target, "exact Python definition")
+        _ = editor("helper.py", text: helperSource)
+        releaseKeyboard(in: "helper.py")
+        let helperFrame = editor("helper.py", text: helperSource).frame.integral
+        XCTAssertTrue(app.textViews["main.py"].waitForNonExistence(timeout: 8))
+
+        command("Navigate back")
+        _ = editor("main.py", text: mainSource)
+        releaseKeyboard(in: "main.py")
+        XCTAssertEqual(editor("main.py", text: mainSource).frame.integral, callerFrame)
+        XCTAssertTrue(app.textViews["helper.py"].waitForNonExistence(timeout: 8))
+        command("Navigate forward")
+        _ = editor("helper.py", text: helperSource)
+        releaseKeyboard(in: "helper.py")
+        XCTAssertEqual(editor("helper.py", text: helperSource).frame.integral, helperFrame)
+        NSLog("HickoryUIKitParity native-python-definition-and-back-forward")
+    }
+}
