@@ -273,6 +273,24 @@ export function openInBackground(layout: Layout, entries: readonly Tab[]): Layou
   return root ? {...layout, root} : layout;
 }
 
+/** Rename resource tabs by stable editor id, without changing their placement or active index. */
+export function retargetFileTabs(layout: Layout, targets: ReadonlyMap<string, string>): Layout {
+  if (!targets.size) return layout;
+  function visit(node: Node): Node {
+    if (node.type === "split") {
+      const children = node.children.map(visit);
+      return children.every((child, index) => child === node.children[index]) ? node : {...node, children};
+    }
+    const tabs = node.tabs.map(tab => {
+      const target = tab.kind === "file" && targets.get(tab.id);
+      return target ? {...tab, target, title: target.split("/").at(-1)} : tab;
+    });
+    return tabs.every((tab, index) => tab === node.tabs[index]) ? node : {...node, tabs};
+  }
+  const root = visit(layout.root);
+  return root === layout.root ? layout : {...layout, root};
+}
+
 export function activate(layout: Layout, paneId: string, index: number): Layout {
   const root = replace(layout.root, paneId, (pane) => ({
     ...pane,

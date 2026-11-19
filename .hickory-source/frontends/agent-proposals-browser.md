@@ -170,7 +170,7 @@ export type RecordedPatchSource = {
  scope: ProposalScope;
  current: () => boolean;
  prepareDraft?: (after: string) => WorkspaceDraftStage | null;
- prepareResource?: (after: string, saved: string) => ResourceAdoptionStage | null;
+ prepareResource?: (after: string, saved: string, destination?: string) => ResourceAdoptionStage | null;
 };
 type RecordedPatchInputs = Pick<VerifiedProposal['value']['intention']['capture'], 'ownership_sources' | 'unaddressed_sources' | 'saved_guards'> & {drafts: Record<string, unknown>};
 type RecordedPatchEditor = Omit<ProposalEditorSnapshot['buffers'][number], 'source_hash'> & {text: string};

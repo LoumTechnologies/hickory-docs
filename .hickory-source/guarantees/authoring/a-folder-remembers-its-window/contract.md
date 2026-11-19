@@ -535,6 +535,33 @@ export function openInBackground(layout: Layout, entries: readonly Tab[]): Layou
 }
 
 </storycode:copy>
+### Keep renamed file tabs in place
+
+The confirmed move supplies a destination for each affected editor id.
+Changing the tab's path and title keeps its pane, active index and mounted
+editor. History can use the same operation for a reviewed inverse.
+
+<storycode:copy id="retarget-reviewed-resource-tabs">
+/** Rename resource tabs by stable editor id, without changing their placement or active index. */
+export function retargetFileTabs(layout: Layout, targets: ReadonlyMap<string, string>): Layout {
+  if (!targets.size) return layout;
+  function visit(node: Node): Node {
+    if (node.type === "split") {
+      const children = node.children.map(visit);
+      return children.every((child, index) => child === node.children[index]) ? node : {...node, children};
+    }
+    const tabs = node.tabs.map(tab => {
+      const target = tab.kind === "file" && targets.get(tab.id);
+      return target ? {...tab, target, title: target.split("/").at(-1)} : tab;
+    });
+    return tabs.every((tab, index) => tab === node.tabs[index]) ? node : {...node, tabs};
+  }
+  const root = visit(layout.root);
+  return root === layout.root ? layout : {...layout, root};
+}
+
+</storycode:copy>
+
 <a id="f-7c7c598c04b7-activate"></a>
 ### `activate`
 
@@ -900,7 +927,7 @@ export function paneFor(layout: Layout, regions: readonly Region[], path: string
 
 The selections below preserve the original byte order. Narrative reading order does not change the output.
 
-<storycode:file path="apps/web/src/shell/layout.ts"><storycode:paste select="#f-7c7c598c04b7-ViewKind"/><storycode:paste select="#f-7c7c598c04b7-Tab"/><storycode:paste select="#f-7c7c598c04b7-Pane"/><storycode:paste select="#f-7c7c598c04b7-Split"/><storycode:paste select="#f-7c7c598c04b7-Node"/><storycode:paste select="#f-7c7c598c04b7-Layout"/><storycode:paste select="#f-7c7c598c04b7-counter"/><storycode:paste select="#f-7c7c598c04b7-nextId"/><storycode:paste select="#f-7c7c598c04b7-emptyPane"/><storycode:paste select="#f-7c7c598c04b7-freeform"/><storycode:paste select="#f-7c7c598c04b7-tab"/><storycode:paste select="#f-7c7c598c04b7-withTree"/><storycode:paste select="#f-7c7c598c04b7-withRail"/><storycode:paste select="#f-7c7c598c04b7-treePane"/><storycode:paste select="#f-7c7c598c04b7-reid"/><storycode:paste select="#f-7c7c598c04b7-panes"/><storycode:paste select="#f-7c7c598c04b7-paneById"/><storycode:paste select="#f-7c7c598c04b7-focused"/><storycode:paste select="#f-7c7c598c04b7-replace"/><storycode:paste select="#f-7c7c598c04b7-normalize"/><storycode:paste select="#f-7c7c598c04b7-open"/><storycode:paste select="#f-7c7c598c04b7-activate"/><storycode:paste select="#f-7c7c598c04b7-closeTab"/><storycode:paste select="#f-7c7c598c04b7-closePane"/><storycode:paste select="#f-7c7c598c04b7-collapsePane"/><storycode:paste select="#f-7c7c598c04b7-expandPane"/><storycode:paste select="#f-7c7c598c04b7-split"/><storycode:paste select="#f-7c7c598c04b7-resize"/><storycode:paste select="#f-7c7c598c04b7-focus"/><storycode:paste select="#f-7c7c598c04b7-Region"/><storycode:paste select="#f-7c7c598c04b7-regionOf"/><storycode:paste select="#f-7c7c598c04b7-matches"/><storycode:paste select="#f-7c7c598c04b7-fromRegions"/><storycode:paste select="#f-7c7c598c04b7-besides"/><storycode:paste select="#f-7c7c598c04b7-paneFor"/></storycode:file>
+<storycode:file path="apps/web/src/shell/layout.ts"><storycode:paste select="#f-7c7c598c04b7-ViewKind"/><storycode:paste select="#f-7c7c598c04b7-Tab"/><storycode:paste select="#f-7c7c598c04b7-Pane"/><storycode:paste select="#f-7c7c598c04b7-Split"/><storycode:paste select="#f-7c7c598c04b7-Node"/><storycode:paste select="#f-7c7c598c04b7-Layout"/><storycode:paste select="#f-7c7c598c04b7-counter"/><storycode:paste select="#f-7c7c598c04b7-nextId"/><storycode:paste select="#f-7c7c598c04b7-emptyPane"/><storycode:paste select="#f-7c7c598c04b7-freeform"/><storycode:paste select="#f-7c7c598c04b7-tab"/><storycode:paste select="#f-7c7c598c04b7-withTree"/><storycode:paste select="#f-7c7c598c04b7-withRail"/><storycode:paste select="#f-7c7c598c04b7-treePane"/><storycode:paste select="#f-7c7c598c04b7-reid"/><storycode:paste select="#f-7c7c598c04b7-panes"/><storycode:paste select="#f-7c7c598c04b7-paneById"/><storycode:paste select="#f-7c7c598c04b7-focused"/><storycode:paste select="#f-7c7c598c04b7-replace"/><storycode:paste select="#f-7c7c598c04b7-normalize"/><storycode:paste select="#f-7c7c598c04b7-open"/><storycode:paste select="#retarget-reviewed-resource-tabs"/><storycode:paste select="#f-7c7c598c04b7-activate"/><storycode:paste select="#f-7c7c598c04b7-closeTab"/><storycode:paste select="#f-7c7c598c04b7-closePane"/><storycode:paste select="#f-7c7c598c04b7-collapsePane"/><storycode:paste select="#f-7c7c598c04b7-expandPane"/><storycode:paste select="#f-7c7c598c04b7-split"/><storycode:paste select="#f-7c7c598c04b7-resize"/><storycode:paste select="#f-7c7c598c04b7-focus"/><storycode:paste select="#f-7c7c598c04b7-Region"/><storycode:paste select="#f-7c7c598c04b7-regionOf"/><storycode:paste select="#f-7c7c598c04b7-matches"/><storycode:paste select="#f-7c7c598c04b7-fromRegions"/><storycode:paste select="#f-7c7c598c04b7-besides"/><storycode:paste select="#f-7c7c598c04b7-paneFor"/></storycode:file>
 
 <a id="output-7589fbbd1963"></a>
 ## `apps/web/src/views/restoreFolderLayout.test.ts`

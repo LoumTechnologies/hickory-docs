@@ -37,6 +37,12 @@ programmatic edit leaves the mounted editor and its history in place. If
 the reviewed draft differs from the saved result, it stays in the private
 save plane until the reader explicitly saves it.
 
+A confirmed move changes the tab's address while retaining its editor and
+history. Reconfigure only the path-specific language and reading services.
+The saver pauses writes before the move and uses the destination's guard
+after confirmation. If adoption fails after newer typing, keep that text
+private at the held address.
+
 <storycode:copy id="f-2f891a49445f-PlainFilePane">
 import { performanceInline } from "../performance/inline";
 import { coverageGutter } from "../coverage/gutter";
@@ -272,8 +278,14 @@ export function PlainFilePane({
   // only once the file has loaded, so the server never sees an empty file
   // stand in for a real one.
   const [liveText, setLiveTextState] = useState<string | null>(() => startup?.source.content ?? null);
-  const sourceSignal=useMemo(()=>new DebugSourceSignal(),[path]),sourceIdentity=useMemo(()=>({path}),[path]),sourceNamespace=useRef<string|null>(null),sourceWorkspace=useRef<string|null>(null),sourceMounted=useRef(true);
+  const sourceSignal=useMemo(()=>new DebugSourceSignal(),[]),sourceIdentity=useMemo(()=>({path}),[path]),sourceNamespace=useRef<string|null>(null),sourceWorkspace=useRef<string|null>(null),sourceMounted=useRef(true);
   const adoptionPending = useRef(false), recoveryPending = useRef(retainUnsaved), plainOwnership = useRef(false);
+  const addressRef = useRef({path, guarded: false});
+  const startupRef = useRef(startup);
+  startupRef.current = startup;
+  const addressBinding = useMemo(() => new Compartment(), []);
+  const installedAddress = useRef<{path: string; language: string; client: typeof lsp.client} | null>(null);
+
   useEffect(()=>{sourceMounted.current=true;return()=>{sourceMounted.current=false;};},[path]);
   // The buffer's last text, readable after the view is gone. The draft
   // keeper's final flush runs during unmount, AFTER the effect that destroys
@@ -287,9 +299,9 @@ export function PlainFilePane({
   onSourceRef.current = onSource;
   const setLiveText = useCallback((text: string) => {
     lastTextRef.current=text;sourceSignal.changed();
-    onSourceRef.current?.(path, text);
+    onSourceRef.current?.(addressRef.current.path, text);
     setLiveTextState(text);
-  }, [path]);
+  }, [sourceSignal]);
   const lsp = useWorkspaceLsp(file === null ? "" : path, liveText ?? "");
   const lspRef = useRef(lsp);
   lspRef.current = lsp;
@@ -329,14 +341,17 @@ export function PlainFilePane({
     () =>
       createPlainSaver({
         put: (content, baseHash, force, guard) => {
-          if (!startup) return api.saveFile(path, content, baseHash, force);
+          const {path, guarded} = addressRef.current;
+          if (!startupRef.current && !guarded) return api.saveFile(path, content, baseHash, force);
           if (!guard) throw Error("Saved source authority is unavailable. Reload the exact file before saving.");
           return api.saveFile(path, content, baseHash, force, guard);
         },
         publish: async ({content, baseHash, guard, id}, saverCurrent) => {
           const namespace = sourceNamespace.current, workspace = sourceWorkspace.current;
+          const address = addressRef.current, {path} = address;
           const current = () => !!namespace && !!workspace && sourceMounted.current && plainOwnership.current &&
-            sourceNamespace.current === namespace && sourceWorkspace.current === workspace && saverCurrent();
+            sourceNamespace.current === namespace && sourceWorkspace.current === workspace &&
+            addressRef.current === address && saverCurrent();
           const hash = await historySourceHash(content);
           if (!current()) throw Error("The saved source address changed. Keep the draft and refresh Files.");
           const saved = await request<{
@@ -358,7 +373,7 @@ export function PlainFilePane({
           }
         },
       }),
-    [path, startup],
+    [sourceSignal],
   );
   actionsRef.current = {
     revision: () => viewRef.current ? authoredSource(viewRef.current.state) : lastTextRef.current, isDirty: () => saver.hasPendingEdits(),
@@ -386,12 +401,22 @@ export function PlainFilePane({
     const writable = () => current() && plainOwnership.current && !adoptionPending.current && !recoveryPending.current &&
       !view.composing && !view.state.readOnly && view.state.facet(EditorView.editable);
     return { path, text, base, guard, revision, scope: {namespace, workspace}, current,
-      prepareResource(after, saved) {
+      prepareResource(after, saved, destination = path) {
         const plane = saver.prepareDetach(base, guard);
-        const ready = () => writable() && !!plane?.current();
+        let releaseWrites: ((keepPrivate: boolean) => void) | null = null;
+        const ready = () => writable() && (releaseWrites
+          ? saver.baseContent() === base && saver.baseGuard() === guard
+          : !!plane?.current());
         if (!ready()) return null;
+        let adopted = false;
         return {
           current: ready,
+          begin() {
+            if (!ready()) throw Error("The open file changed before resource publication.");
+            releaseWrites = saver.holdWrites();
+            if (!releaseWrites) throw Error("Wait for the current file save before publishing resources.");
+          },
+          release() { releaseWrites?.(!adopted); },
           adopt(authority) {
             if (!ready()) throw Error("The open file changed during resource publication.");
             // Install the confirmed saved baseline before displaying its
@@ -401,14 +426,26 @@ export function PlainFilePane({
               annotations: [isolateHistory.of("full"), Transaction.addToHistory.of(false)],
             });
             if (authoredSource(transaction.state) !== after) throw Error("The open editor cannot adopt the complete resource source.");
+            if (destination !== path) {
+              addressRef.current = {path: destination, guarded: true};
+              installedAddress.current = null;
+            }
             saver.load(saved, authority.hash, authority.guard);
-            if (fileRef.current) setFile({...fileRef.current, content: saved, hash: authority.hash, save_guard: authority.guard});
+            if (fileRef.current) {
+              const next = {...fileRef.current, path: destination, content: saved,
+                language: destination === path ? fileRef.current.language : languageFromPath(destination) ?? "text",
+                hash: authority.hash, save_guard: authority.guard};
+              fileRef.current = next;
+              setFile(next);
+            }
             if (after !== saved) {
               saver.restoreDetached();
               saver.changed(after);
             }
             if (text !== after) view.update([transaction]);
+            if (destination !== path) view.dispatch({effects: addressBinding.reconfigure([])});
             onUnsavedRef.current?.(saver.hasPendingEdits(), actionsRef.current);
+            adopted = true;
           },
         };
       },
@@ -446,7 +483,7 @@ export function PlainFilePane({
         };
       },
     };
-  }) : undefined, [path, proposalOwner, proposalTabId, saver, setLiveText, sourceSignal]);
+  }) : undefined, [path, proposalOwner, proposalTabId, saver, setLiveText, sourceSignal, addressBinding]);
   // File > Save All: this pane owns its saver, so it answers for its own
   // buffer. See lib/flushSaves.ts.
   useEffect(() => onFlushSaves(includeDetached => {
@@ -459,6 +496,7 @@ export function PlainFilePane({
   // place, it just has nothing to edit.
   const preparedRead = useRef<PlainFile | undefined>(undefined);
   useEffect(() => {
+    if (addressRef.current.guarded && addressRef.current.path === path && fileRef.current?.path === path) return;
     let live = true;
     recoveryPending.current = retainUnsaved;
     plainOwnership.current = false;
@@ -474,11 +512,13 @@ export function PlainFilePane({
           setLoadError("The original file request changed. Reopen this read-only preview to check its current source.");
           return;
         }
+        if (addressRef.current.path !== path) addressRef.current = {path, guarded: false};
         setFile(loaded);
         setLoadError(null);
         setLiveText(loaded.content);
         lastTextRef.current = loaded.content;
         saver.load(loaded.content, loaded.hash, loaded.save_guard);
+        if (viewRef.current) syncPlainSource(viewRef.current, loaded.content);
         if (authority) {
           sourceNamespace.current = authority.namespace;
           sourceWorkspace.current = authority.workspace;
@@ -565,13 +605,7 @@ export function PlainFilePane({
   const loaded = !!(file || startup);
   const fileRef = useRef(file);
   fileRef.current = file;
-  useEffect(() => {
-    const host = hostRef.current;
-    const initial = fileRef.current ?? (startup && {
-      path, content: startup.source.content, language: languageFromPath(path) ?? "text",
-    });
-    if (!host || !initial) return;
-
+  const addressExtensions = useCallback((path: string, language: string, lspClient: typeof lsp.client) => {
     // Where a definition landed. This file: select it. Another: the
     // workspace opens that tab, and its pane does the rest.
     const goTo = (target: LspNavigationTarget | LspLocation, current?: () => boolean) => {
@@ -593,8 +627,120 @@ export function PlainFilePane({
       if (current) openProviderLocation(path, line + 1, character, current);
       else openLocation(path, line + 1, character);
     };
-    const lspClient = lspRef.current.client;
     const lspUri = documentUri(path);
+
+    return [
+      coverageGutter(() => path, () => fileRef.current?.content),
+      performanceInline(() => path, () => fileRef.current?.content),
+      wrapGutterMarkers(),
+      // The breakpoint gutter, the paused line, the inline values — the
+      // same layer a document's editor wears, told that every line here
+      // is code. Only for a language hick can debug: a gutter that
+      // accepts a dot it can never bind is a promise it cannot keep.
+      ...(isDebuggable(language)
+        ? debugEditor({
+            language,
+            lineNumbers: false,
+            onToggleBreakpoint: (line) => debugRef.current.toggleBreakpoint(line),
+            onSetBreakpointCondition: (line, patch) =>
+              debugRef.current.setBreakpointCondition(line, patch),
+            onSelectFrame: selectFrameAndReveal,
+            evaluationOwner: () => inlineEvaluationOwner(debugRef.current),
+            onEvaluate: (expression) => debugRef.current.query(expression),
+            onAddWatch: (expression) => debugRef.current.addWatch(expression),
+          })
+        : []),
+      ...languageExtensions(language),
+      // A run mark beside every test the file's language has a shape
+      // for; a click runs that test in a terminal named after it.
+      ...testGutter({
+        language,
+        onError: setNotice,
+        serializedSource: () => saver.baseContent(),
+        onRun: async (mark, expected_source_hash, current) => {
+          const session = await api.runTest({ path, name: mark.name, language, expected_source_hash });
+          if (current() && session.source_checked_at_admission && session.source_hash === expected_source_hash) showTerminalRequest(session.id, session.title);
+          return session;
+        },
+      }),
+      ...(isMarkdownPath(path) ? [markdownStyling(), taskCheckboxes(), renderedMath()] : []),
+      // Both kinds of completion: what is in scope here, from the
+      // language server, and what this project calls things, from its
+      // own text. The popup says which is which.
+      completions({
+        lsp: lspClient
+          ? {
+              client: lspClient,
+              uri: lspUri,
+              positionAt: (offset, state) => offsetToPosition(state.doc, offset),
+            }
+          : undefined,
+        project: (prefix, around) =>
+          api.complete(prefix, around).then((answer) => answer.suggestions),
+      }),
+      // Diagnostics, hover, definition, references — and the rest of the
+      // server: colouring, inlay hints, signature help, folding, rename,
+      // code actions. The same bundle a document's editor wears.
+      ...lspSupport({
+        client: lspClient,
+        uri: lspUri,
+        positionAt: (offset, view) => offsetToPosition(view.state.doc, offset),
+        navigationIntent: true,
+        captureNavigationContext,
+        onRelatedLocations: onRelatedLocationsRef.current ? reading => onRelatedLocationsRef.current?.(reading) : undefined,
+        onLocalNavigation: (view, departure) => onLocalNavigationRef.current?.(view, departure),
+        chooseOutline: askChoiceRef.current ? (options, current) =>
+          askChoiceRef.current?.("Structure", options, {agent: true, filterable: true, onlyWhenIdle: true, currentRevision: current}) ?? Promise.resolve(null) : undefined,
+        onNavigate: goTo,
+        onReferences: (locations, from, current) => {
+          const live = viewRef.current;
+          const at = live ? positionToOffset(live.state.doc, from.range.start) : 0;
+          const query = live ? (identifierAt(live.state.doc.toString(), at) ?? "") : "";
+          onReferencesRef.current?.({ locations, query, originUri: from.uri, current });
+        },
+        // While paused, a hover says what this holds as well as what it
+        // is — the same merged tooltip a document's editor shows.
+        runtimeValue: (word) => debugRef.current.valueAt(word),
+      }),
+      ...lspFeatures({
+        client: lspClient,
+        uri: lspUri,
+        positionAt: (offset, view) => offsetToPosition(view.state.doc, offset),
+        offsetAt: (position, view) => positionToOffset(view.state.doc, position),
+        inlayHints: true,
+        captureChangeContext: captureNavigationContext,
+        onProviderPreview: providerPreviewRef.current ? request => providerPreviewRef.current!(request) : undefined,
+        onRename: (current) =>
+          askTextRef.current
+            ? askTextRef.current(`Rename "${current}" to:`, current, { agent: true, currentRevision: () => viewRef.current?.state.doc })
+            : null,
+        onCodeActions: (actions: CodeAction[]) =>
+          askChoiceRef.current
+            ? askChoiceRef.current(
+                "Code actions",
+                actions.map((action) => ({ label: action.title, value: action })),
+                { agent: true, currentRevision: () => viewRef.current?.state.doc },
+              )
+            : null,
+        onMessage: setNotice,
+      }),
+      // Prose wraps at the measure; a fenced code block keeps its lines
+      // and takes the whole pane. In a non-markdown file EVERY line is
+      // code, which is exactly what `fencedCodeRanges` returning the whole
+      // buffer expresses.
+      proseWrap((state) =>
+        isMarkdownPath(path)
+          ? fencedCodeRanges(state.doc.toString())
+          : [[0, state.doc.length] as [number, number]],
+      ),
+    ];
+  }, [captureNavigationContext, saver, selectFrameAndReveal]);
+  useEffect(() => {
+    const host = hostRef.current;
+    const initial = fileRef.current ?? (startup && {
+      path, content: startup.source.content, language: languageFromPath(path) ?? "text",
+    });
+    if (!host || !initial) return;
 
     const view = new EditorView({
       parent: host,
@@ -615,101 +761,8 @@ export function PlainFilePane({
           // coordinate everything else in this app refers to.
           blameGutter(),
           lineNumbers(),
-          coverageGutter(() => initial.path, () => fileRef.current?.content),
-          performanceInline(() => initial.path, () => fileRef.current?.content),
-          wrapGutterMarkers(),
-          // The breakpoint gutter, the paused line, the inline values — the
-          // same layer a document's editor wears, told that every line here
-          // is code. Only for a language hick can debug: a gutter that
-          // accepts a dot it can never bind is a promise it cannot keep.
-          ...(isDebuggable(initial.language)
-            ? debugEditor({
-                language: initial.language,
-                lineNumbers: false,
-                onToggleBreakpoint: (line) => debugRef.current.toggleBreakpoint(line),
-                onSetBreakpointCondition: (line, patch) =>
-                  debugRef.current.setBreakpointCondition(line, patch),
-                onSelectFrame: selectFrameAndReveal,
-                evaluationOwner: () => inlineEvaluationOwner(debugRef.current),
-                onEvaluate: (expression) => debugRef.current.query(expression),
-                onAddWatch: (expression) => debugRef.current.addWatch(expression),
-              })
-            : []),
-          ...languageExtensions(initial.language),
-          // A run mark beside every test the file's language has a shape
-          // for; a click runs that test in a terminal named after it.
-          ...testGutter({
-            language: initial.language,
-            onError: setNotice,
-            serializedSource: () => saver.baseContent(),
-            onRun: async (mark, expected_source_hash, current) => {
-              const session = await api.runTest({ path: initial.path, name: mark.name, language: initial.language, expected_source_hash });
-              if (current() && session.source_checked_at_admission && session.source_hash === expected_source_hash) showTerminalRequest(session.id, session.title);
-              return session;
-            },
-          }),
-          ...(isMarkdownPath(initial.path) ? [markdownStyling(), taskCheckboxes(), renderedMath()] : []),
           history(),
-          // Both kinds of completion: what is in scope here, from the
-          // language server, and what this project calls things, from its
-          // own text. The popup says which is which.
-          completions({
-            lsp: lspClient
-              ? {
-                  client: lspClient,
-                  uri: lspUri,
-                  positionAt: (offset, state) => offsetToPosition(state.doc, offset),
-                }
-              : undefined,
-            project: (prefix, around) =>
-              api.complete(prefix, around).then((answer) => answer.suggestions),
-          }),
-          // Diagnostics, hover, definition, references — and the rest of the
-          // server: colouring, inlay hints, signature help, folding, rename,
-          // code actions. The same bundle a document's editor wears.
-          ...lspSupport({
-            client: lspClient,
-            uri: lspUri,
-            positionAt: (offset, view) => offsetToPosition(view.state.doc, offset),
-            navigationIntent: true,
-            captureNavigationContext,
-            onRelatedLocations: onRelatedLocationsRef.current ? reading => onRelatedLocationsRef.current?.(reading) : undefined,
-            onLocalNavigation: (view, departure) => onLocalNavigationRef.current?.(view, departure),
-            chooseOutline: askChoiceRef.current ? (options, current) =>
-              askChoiceRef.current?.("Structure", options, {agent: true, filterable: true, onlyWhenIdle: true, currentRevision: current}) ?? Promise.resolve(null) : undefined,
-            onNavigate: goTo,
-            onReferences: (locations, from, current) => {
-              const live = viewRef.current;
-              const at = live ? positionToOffset(live.state.doc, from.range.start) : 0;
-              const query = live ? (identifierAt(live.state.doc.toString(), at) ?? "") : "";
-              onReferencesRef.current?.({ locations, query, originUri: from.uri, current });
-            },
-            // While paused, a hover says what this holds as well as what it
-            // is — the same merged tooltip a document's editor shows.
-            runtimeValue: (word) => debugRef.current.valueAt(word),
-          }),
-          ...lspFeatures({
-            client: lspClient,
-            uri: lspUri,
-            positionAt: (offset, view) => offsetToPosition(view.state.doc, offset),
-            offsetAt: (position, view) => positionToOffset(view.state.doc, position),
-            inlayHints: true,
-            captureChangeContext: captureNavigationContext,
-            onProviderPreview: providerPreviewRef.current ? request => providerPreviewRef.current!(request) : undefined,
-            onRename: (current) =>
-              askTextRef.current
-                ? askTextRef.current(`Rename "${current}" to:`, current, { agent: true, currentRevision: () => viewRef.current?.state.doc })
-                : null,
-            onCodeActions: (actions: CodeAction[]) =>
-              askChoiceRef.current
-                ? askChoiceRef.current(
-                    "Code actions",
-                    actions.map((action) => ({ label: action.title, value: action })),
-                    { agent: true, currentRevision: () => viewRef.current?.state.doc },
-                  )
-                : null,
-            onMessage: setNotice,
-          }),
+          addressBinding.of(addressExtensions(initial.path, initial.language, lspRef.current.client)),
           paneSearch("file"),
           search({ top: true }),
           // Word motion first: bindings for one key run in registration
@@ -722,15 +775,6 @@ export function PlainFilePane({
             ...historyKeymap,
             indentWithTab,
           ]),
-          // Prose wraps at the measure; a fenced code block keeps its lines
-          // and takes the whole pane. In a non-markdown file EVERY line is
-          // code, which is exactly what `fencedCodeRanges` returning the whole
-          // buffer expresses.
-          proseWrap((state) =>
-            isMarkdownPath(initial.path)
-              ? fencedCodeRanges(state.doc.toString())
-              : [[0, state.doc.length] as [number, number]],
-          ),
           // Which buffer Print means. Not `markActiveEditor` — that one
           // answers "where does an Insert go?", and a hick element written
           // into a file this document generates would land in the woven
@@ -767,10 +811,10 @@ export function PlainFilePane({
       }),
     });
     viewRef.current = view;
-    const unregisterSearch = registerSearchEditor(path, view);
+    installedAddress.current = {path: initial.path, language: initial.language, client: lspRef.current.client};
     setRailView(view);
     return () => {
-      unregisterSearch();
+      installedAddress.current = null;
       forgetFocusedEditor(view);
       view.destroy();
       viewRef.current = null;
@@ -779,6 +823,15 @@ export function PlainFilePane({
     // Mounted once per load; the saver is stable per path.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loaded, saver]);
+  useLayoutEffect(() => {
+    if (!railView || addressRef.current.path !== path) return;
+    const language = file?.language ?? languageFromPath(path) ?? "text";
+    const installed = installedAddress.current;
+    if (installed?.path === path && installed.language === language && installed.client === lsp.client) return;
+    railView.dispatch({effects: addressBinding.reconfigure(addressExtensions(path, language, lsp.client))});
+    installedAddress.current = {path, language, client: lsp.client};
+  }, [addressBinding, addressExtensions, file?.language, lsp.client, path, railView]);
+  useLayoutEffect(() => railView ? registerSearchEditor(path, railView) : undefined, [path, railView]);
 
   /** Put text into the buffer and treat it as an unsaved edit — which is
    * exactly what it is: restored work that the file does not have yet. */

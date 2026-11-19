@@ -2979,9 +2979,11 @@ affected open editor that keeps its path and identity. Managed editors
 temporarily suspend source synchronization until the receipt and room
 agree. If a newer draft arrives, Main preserves it and withholds history
 adoption. Review-based workspace Undo and Redo use the retained
-recovery identity and require a separate Save for each inverse. Changes
-that would move or delete an open editor still require Main editor
-adoption support.
+recovery identity and require a separate Save for each inverse. A move
+to an unoccupied editor address retargets the same open plain tab and
+replaces its path-specific services. Later saves use the new path and
+guard. Moving an open managed editor or deleting any open editor still
+requires Main editor adoption support.
 
 A genuine TypeScript Move to a new file replay previewed the import in
 `move.ts` and the proposed `relocate.ts` export. Both saved and draft layers
@@ -3008,7 +3010,19 @@ and Redo entry. See `target/main-managed-resource-late-local-v2/browser.json`.
 The installed TypeScript provider's managed Move proposed a destination
 inside its private staging directory. The engine refused that destination,
 so genuine managed Move remains unverified. See
-`target/main-managed-resource-genuine-projection-v1/browser.json`.
+`target/main-managed-resource-genuine-projection-final-v2/browser.json`.
+
+A controlled provider's RenameFile moved an open plain file through
+Save, Undo, and Redo in Chromium. The tab, mounted editor, selection,
+viewport, and source bytes stayed in place. The Files tree reflected each
+rename. Typing after Redo sent one guarded write to the new path and
+synchronized only the new language-server address. See
+`target/main-resource-renamefile-fixed-held-writes-v2/browser.json`.
+A held successful receipt let the reader type in the original editor
+after the disk move. The new text stayed in the editor and in private
+draft recovery with retention enabled. Main sent no old-path writes
+and withheld its workspace history entry. See
+`target/main-resource-renamefile-late-local-v2/browser.json`.
 
 Focused rebuilt-engine replays also passed for Python definition and
 Back/Forward, workspace search, delayed first-open authority and capabilities,

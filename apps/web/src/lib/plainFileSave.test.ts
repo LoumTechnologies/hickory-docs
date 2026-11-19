@@ -76,6 +76,32 @@ describe("createPlainSaver", () => {
     expect(put).not.toHaveBeenCalled();
   });
 
+  it("suspends old-address writes and preserves typing when resource adoption cannot be confirmed", async () => {
+    const put = vi.fn(async () => ({hash: "unexpected ordinary save"}));
+    const publish = vi.fn(async () => ({hash: "confirmed", save_guard: "new guard"}));
+    const s = createPlainSaver({put, publish, onState: () => {}, debounceMs: 1});
+    s.load("saved", "original hash", "original guard");
+    s.changed("previous edit");
+    const otherDraft = s.prepareDetach("saved", "original guard")!;
+    const release = s.holdWrites()!;
+    expect(otherDraft.current()).toBe(false);
+    s.changed("newer text");
+    expect(await s.saveNow()).toBe(false);
+    await settle();
+    expect(put).not.toHaveBeenCalled();
+    expect(publish).not.toHaveBeenCalled();
+
+    release(true);
+    expect(s.isDetached()).toBe(true);
+    expect(s.hasPendingEdits()).toBe(true);
+    await settle();
+    expect(put).not.toHaveBeenCalled();
+    expect(await s.saveNow()).toBe(true);
+    expect(publish).toHaveBeenCalledWith(expect.objectContaining({
+      content: "newer text", baseHash: "original hash", guard: "original guard",
+    }), expect.any(Function));
+  });
+
   it("restores the ordinary pending debounce when a prepared group aborts", async () => {
     const remote = server("saved");
     const {s} = saver(remote);

@@ -145,7 +145,7 @@ import {
   fileAction,
 } from "../shell/FolderTreePane";
 import {
-  paneById, open as openInLayout, openInBackground, tab as makeTab,
+  paneById, open as openInLayout, openInBackground, retargetFileTabs, tab as makeTab,
   panes as panesOf,
   type Layout,
   type Tab,
@@ -1565,18 +1565,26 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       const token = review.history;
       const current = () => review.current() && (!token || recordedDraftHistory.current(token));
       if (!current()) throw Error("Workspace history or source changed. Open a fresh preview.");
-      // Closed paths need no editor adoption. A live path needs an editor
-      // which can install the new saved baseline in place after confirmation.
+      // Match the before and after addresses of each resource identity.
+      // Closed files need no editor adoption, but any live editor must
+      // remain attached to the same source through the reviewed move.
+      const destinations = new Map(review.patches.flatMap(patch => patch.after ? [[patch.after.identity, {
+        path: patch.path, text: patch.after.text,
+      }] as const] : []));
       const stages = review.patches.flatMap(patch => {
         const {tab, owner} = readChangeOwner(patch.path);
         if (!tab) return [];
-        const saved = review.saved[patch.path];
-        if (!owner || !patch.before || !patch.after || patch.before.identity !== patch.after.identity || saved?.kind !== "file") {
+        const destination = patch.before && destinations.get(patch.before.identity);
+        const saved = destination && review.saved[destination.path];
+        const moved = destination && destination.path !== patch.path;
+        const canRetarget = !moved || (tab.kind === "file" && !destination.path.endsWith(".md") &&
+          !readChangeOwner(destination.path).tab);
+        if (!owner || !patch.before || !destination || !saved || saved.kind !== "file" || !canRetarget) {
           throw Error(`The open editor for ${patch.path} cannot adopt this resource transition in place.`);
         }
-        const stage = owner.text === patch.before.text && owner.prepareResource?.(patch.after.text, saved.text);
+        const stage = owner.text === patch.before.text && owner.prepareResource?.(destination.text, saved.text, destination.path);
         if (!stage || !stage.current()) throw Error(`The open editor for ${patch.path} is unavailable for resource publication.`);
-        return [{path: patch.path, stage}];
+        return [{from: patch.path, to: destination.path, tab, stage}];
       });
       const owned = () => current() && stages.every(({stage}) => stage.current());
       // Retain the same review identity so a dispatched request can't be retried.
@@ -1584,14 +1592,22 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       const {recovery} = await publishReviewedResources(review, load, async (receipt, expected) => {
         const files = confirmedResourceFiles(review.patches, receipt, expected);
         if (!owned()) throw Error("Open editors changed during publication.");
-        const adoptions = stages.map(({path, stage}) => {
-          const file = files.get(path);
-          if (!file?.save_guard) throw Error(`The saved source has no current editor guard: ${path}`);
+        const adoptions = stages.map(({to, tab, stage}) => {
+          const file = files.get(to);
+          if (!file?.save_guard || file.file.doc_id !== tab.docId) {
+            throw Error(`The saved source has no matching editor authority: ${to}`);
+          }
           return {stage, authority: {hash: file.hash, guard: file.save_guard}};
         });
         await Promise.all(adoptions.map(({stage}) => stage.waitForSavedSource?.()));
         if (!owned()) throw Error("Open editors changed while confirming the saved resource sources.");
         for (const {stage, authority} of adoptions) stage.adopt(authority);
+        const moved = new Map(stages.filter(({from, to}) => from !== to).map(({tab, to}) => [tab.id, to]));
+        if (moved.size) {
+          providerNavigation.current++;
+          setFileReferences(null);
+          setLayout(layout => retargetFileTabs(layout, moved));
+        }
       }, () => {
         for (const {stage} of stages) if (stage.begin) {
           held.push(stage);
@@ -2653,7 +2669,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
           key={tab.id}
           path={tab.target}
           proposalTabId={tab.id} proposalOwner={registerPlainPatchOwner}
-          startup={plainStartup?.id === tab.id ? plainStartup.observation : undefined}
+          startup={plainStartup?.id === tab.id && plainStartup.observation.source.path === tab.target ? plainStartup.observation : undefined}
           takePreparedSource={takePreparedSource}
           onSource={(_, source) => plainSources.current.set(tab.id, source)}
           onReferences={setFileReferences}

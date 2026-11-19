@@ -775,7 +775,8 @@ function useDocumentSession(
       && managedDraft.current === draft && !publishing.current;
     return { path: source.path, text, base: source.source, guard: source.save_guard,
       revision, scope, current,
-      prepareResource(after, saved) {
+      prepareResource(after, saved, destination = source.path) {
+        if (destination !== source.path) return null;
         const binding = documentDraftBinding(view);
         if (!binding || binding.roomSource() !== source.source) return null;
         let hold: ReturnType<typeof binding.suspendRoom> | undefined;

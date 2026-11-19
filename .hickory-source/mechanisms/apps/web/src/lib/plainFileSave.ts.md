@@ -97,6 +97,8 @@ export interface PlainSaver {
   /** Explicit Save / Save All may publish a detached draft with its captured guard. */
   saveNow(): Promise<boolean>;
   isDetached(): boolean;
+  /** Suspend writes while the engine owns a resource transition. */
+  holdWrites(): ((keepPrivate: boolean) => void) | null;
   /** Restore the private publication mode before applying retained text. */
   restoreDetached(): void;
   /** Validate and prepare the plane switch without changing the saver. */
@@ -130,6 +132,7 @@ export function createPlainSaver(options: PlainSaverOptions): PlainSaver {
   let latest: string | null = null;
   let conflicted = false;
   let timer: ReturnType<typeof setTimeout> | null = null;
+  let writeHeld = false;
   let detached = false, revision = 0, baseline = 0, queued = 0;
   let attempt: { content: string; baseHash: string; guard: string; id: string } | null = null;
   let state: PlainSaveState = { kind: "idle" };
@@ -143,6 +146,7 @@ export function createPlainSaver(options: PlainSaverOptions): PlainSaver {
   const schedule = () => { timer = setTimeout(() => { timer = null; void flush(); }, debounce); };
 
   const flush = (force = false, explicit = false): Promise<boolean> => {
+    if (writeHeld) return Promise.resolve(false);
     if (detached && (!explicit || force)) return Promise.resolve(!dirty() && !attempt && !conflicted);
     if (detached && queued) return Promise.resolve(false);
     const heldTarget = detached ? attempt?.content ?? latest : null;
@@ -204,9 +208,9 @@ export function createPlainSaver(options: PlainSaverOptions): PlainSaver {
     changed(next: string) {
       revision++;
       latest = next;
-      notify(conflicted ? { kind: "conflict" } : next === baseContent && !attempt ? { kind: detached ? "idle" : "saved" } : { kind: detached ? "draft" : "saving" });
+      notify(conflicted ? { kind: "conflict" } : next === baseContent && !attempt ? { kind: detached ? "idle" : "saved" } : { kind: detached || writeHeld ? "draft" : "saving" });
       clearTimer();
-      if (!detached) schedule();
+      if (!detached && !writeHeld) schedule();
     },
     hasPendingEdits() {
       return dirty() || attempt !== null;
@@ -216,18 +220,35 @@ export function createPlainSaver(options: PlainSaverOptions): PlainSaver {
       return flush();
     },
     saveNow() { clearTimer(); return flush(false, true); },
-    isDetached() { return detached; },
+    isDetached() { return detached || writeHeld; },
+    holdWrites() {
+      if (writeHeld || queued || conflicted || attempt) return null;
+      writeHeld = true;
+      clearTimer();
+      let released = false;
+      return keepPrivate => {
+        if (released) return;
+        released = true;
+        writeHeld = false;
+        if (keepPrivate && !detached) {
+          detached = true;
+          revision++;
+          notify(dirty() ? {kind: "draft"} : {kind: "idle"});
+        }
+        if (!detached && dirty()) schedule();
+      };
+    },
     restoreDetached() {
       if (queued) throw Error("Wait for the current save before restoring this private draft.");
       clearTimer(); detached = true; revision++;
       notify(dirty() ? { kind: "draft" } : { kind: "idle" });
     },
     prepareDetach(base, guard) {
-      if (!guard || !baseHash || guard !== baseGuard || base !== baseContent || conflicted || queued || attempt) return null;
+      if (!guard || !baseHash || guard !== baseGuard || base !== baseContent || writeHeld || conflicted || queued || attempt) return null;
       const captured = revision, previousText = latest, previousState = state, previousDetached = detached;
       const hadTimer = timer !== null;
       let committed = false;
-      const current = () => !committed && revision === captured && !queued;
+      const current = () => !committed && revision === captured && !queued && !writeHeld;
       return {
         current,
         commit() {
@@ -396,6 +417,32 @@ describe("createPlainSaver", () => {
     expect(await s.saveNow()).toBe(true);
     expect(publish.mock.calls[2]?.[0]).toMatchObject({content: "newer typed draft", baseHash: "after hash", guard: "second guard"});
     expect(put).not.toHaveBeenCalled();
+  });
+
+  it("suspends old-address writes and preserves typing when resource adoption cannot be confirmed", async () => {
+    const put = vi.fn(async () => ({hash: "unexpected ordinary save"}));
+    const publish = vi.fn(async () => ({hash: "confirmed", save_guard: "new guard"}));
+    const s = createPlainSaver({put, publish, onState: () => {}, debounceMs: 1});
+    s.load("saved", "original hash", "original guard");
+    s.changed("previous edit");
+    const otherDraft = s.prepareDetach("saved", "original guard")!;
+    const release = s.holdWrites()!;
+    expect(otherDraft.current()).toBe(false);
+    s.changed("newer text");
+    expect(await s.saveNow()).toBe(false);
+    await settle();
+    expect(put).not.toHaveBeenCalled();
+    expect(publish).not.toHaveBeenCalled();
+
+    release(true);
+    expect(s.isDetached()).toBe(true);
+    expect(s.hasPendingEdits()).toBe(true);
+    await settle();
+    expect(put).not.toHaveBeenCalled();
+    expect(await s.saveNow()).toBe(true);
+    expect(publish).toHaveBeenCalledWith(expect.objectContaining({
+      content: "newer text", baseHash: "original hash", guard: "original guard",
+    }), expect.any(Function));
   });
 
   it("restores the ordinary pending debounce when a prepared group aborts", async () => {
