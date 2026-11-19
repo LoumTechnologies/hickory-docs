@@ -248,6 +248,15 @@ the expected text with zero source-history writes. See
 `target/simple-startup-guardless-fixed.json` and
 `target/simple-startup-guardless-vitest.log`.
 
+With the current engine, Simple Browser opened the requested managed file
+read-only while Files and the parser were held. Files release displayed
+only the containing folder. The separate guarded read retained the same
+editor, selection and first visible row. Typing after confirmation created
+a draft before parser release. Parser attachment kept the draft, editor,
+selection and viewport. Keyboard Undo restored the exact original text.
+The replay sent no source writes. See
+`target/simple-startup-authority-v10-owner-held-retry/browser.json`.
+
 Main now also keeps its independent raw read after Open File refuses the
 initial request. In rendered Chromium, a relayed 503 arrived before the
 exact raw text for both a plain file and a managed document. The late text
@@ -360,6 +369,13 @@ Mounted UIKit
 passed both recorded sides with exact first authored stops, Step, Watch and
 Continue. The receipt is in
 `target/apple-recorded-ios-final-2026-11-18/recorded-debug-receipt.json`.
+On the iPhone simulator, native line-number taps set breakpoints on both
+recorded sides. The Debug and Step over gutter actions reached authored
+lines 4 and 5 through real debugpy. Inspect opened on line 5. Tapping the
+Watch expression failed to produce a keyboard, so the native replay could
+not enter an expression or continue from the inspector. See the wire and
+simulator attachments in `target/ios-recorded-debug-ui-v9-first/` and
+`target/ios-recorded-debug-ui-v9-typed-retry/`.
 The rebuilt engine also rejected stale message hashes on both sides, withheld
 execution after preparation, and refused escaped or non-UTF-8 startup reads.
 The main Chromium window and Simple Browser also ran both selected Python
@@ -409,6 +425,16 @@ Simple Browser and AppKit. The receipts are in
 `target/apple-recorded-patch.ofyzmnpr/receipt.json`. Mounted UIKit passed those
 same checks against the exact unwrapped fixture in
 `target/apple-recorded-ios-final-2026-11-18/recorded-patch-receipt.json`.
+Mounted AppKit used native gutter clicks to open the rendered guarded patch
+review for both recorded sides against the current engine. Each request bound
+the selected side, message hash and opening line. Both reviews displayed the
+generated consequence. The same recorded editor, selection and frame survived
+closing the review. Controller Apply and the workspace Undo command replayed
+the exact draft changes with the saved and archived bytes unchanged. The locked
+macOS console left the review popover without keyboard focus. Native Close
+worked, but click and accessibility activation did not dispatch Apply. Applying
+through the rendered button remains unverified. See
+`target/appkit-recorded-gutter-patch.4xypqkm6/receipt.json`.
 Rendered Android passed the user-side review, generated consequence, Apply and
 Undo. Its compact assistant fixture passed the exact recorded `patch` review
 and draft Apply with unchanged physical files. The assistant body matches the
