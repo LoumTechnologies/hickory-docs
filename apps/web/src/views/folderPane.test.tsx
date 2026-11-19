@@ -36,6 +36,28 @@ it("keeps the raw startup bytes readable without granting missing or stale autho
   await expect(unbound?.authority).rejects.toThrow(/no longer matches/);
 });
 
+it("retries a refused open against the same startup bytes and workspace", async () => {
+  const path = "nested/wanted.txt", root = "/workspace", workspace = "a".repeat(32);
+  const content = "Exact late startup text\n";
+  const raw = {version: 1 as const, path, content, root_path: root, workspace_id: workspace};
+  vi.spyOn(api, "startupSource").mockResolvedValue(raw);
+  const tree = vi.spyOn(api, "files").mockResolvedValue({root, root_path: root, workspace_id: workspace,
+    tree: [{name: "wanted.txt", path, dir: false}]});
+  vi.spyOn(api, "file").mockResolvedValue({path, content, language: "text", hash: "base", save_guard: "guard"});
+  vi.spyOn(api, "openFile").mockResolvedValue({path});
+  const selected = Promise.reject(Error("Open File was unavailable"));
+  void selected.catch(() => {});
+  const preview = await observePlainStartup(root + "/" + path, path, selected, () => true);
+  expect(preview?.source).toBe(raw);
+  await expect(preview?.authority).rejects.toThrow("Open File was unavailable");
+  preview?.retry?.();
+  await expect(preview?.authority).resolves.toMatchObject({file: {save_guard: "guard"}});
+  expect(preview?.source).toBe(raw);
+  tree.mockResolvedValue({root, root_path: "/foreign", workspace_id: workspace, tree: []});
+  preview?.retry?.();
+  await expect(preview?.authority).rejects.toThrow(/no longer matches/);
+});
+
 it("rechecks the original managed guard after an equal-byte room wait", async () => {
   const path = "nested/new #é.md", docId = "b".repeat(16), root = "/workspace", workspace = "a".repeat(32);
   const content = "# Readable\n";

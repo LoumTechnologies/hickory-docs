@@ -82,6 +82,7 @@ export type StartupPlainFile = {
   source: StartupSource;
   current: () => boolean;
   authority: Promise<{file: PlainFile; namespace: string; workspace: string; generatedBy: string | null}>;
+  retry?: () => void;
 };
 
 export type ManagedDocumentPreview = {
@@ -92,7 +93,10 @@ export type ManagedDocumentPreview = {
   confirmRoom: () => Promise<void>;
 };
 
-export type StartupManagedDocument = ManagedDocumentPreview & {source: StartupSource};
+export type StartupManagedDocument = ManagedDocumentPreview & {
+  source: StartupSource;
+  retry?: () => void;
+};
 
 // A verified navigation already has a normal document response. Show its
 // source while the editor waits for the same saved authority and room bytes
@@ -141,20 +145,27 @@ export async function observePlainStartup(
   const source = await readStartupSource(requested, hint, current);
   if (!source || source.doc_id) return null;
   const {path} = source;
-  const authority = Promise.all([selected, api.files(), api.file(path)]).then(([opened, files, file]) => {
-    const workspace = files.workspace_id, namespace = files.root_path;
-    const node = findNodeByPath([files], path);
-    if (!current() || opened.doc_id || opened.path !== path || !namespace || !workspace
-      || !ownsStartupSource(files, source) || !node || node.dir || node.doc_id
-      || file.path !== path || file.content !== source.content) {
-      throw Error("The requested file no longer matches the startup observation. Reopen it to check the current source.");
-    }
-    if (!node.generated_by && !file.save_guard) throw Error(file.save_guard_reason || "The file's saved source authority is unavailable. Reopen it to check again.");
-    return {file, namespace, workspace, generatedBy: node.generated_by ?? null};
-  });
-  // The preview may close or be superseded before its pane mounts.
-  void authority.catch(() => {});
-  return {source, current, authority};
+  const authorize = (request: typeof selected) => {
+    const authority = Promise.all([request, api.files(), api.file(path)]).then(([opened, files, file]) => {
+      const workspace = files.workspace_id, namespace = files.root_path;
+      const node = findNodeByPath([files], path);
+      if (!current() || opened.doc_id || opened.path !== path || !namespace || !workspace
+        || !ownsStartupSource(files, source) || !node || node.dir || node.doc_id
+        || file.path !== path || file.content !== source.content) {
+        throw Error("The requested file no longer matches the startup observation. Reopen it to check the current source.");
+      }
+      if (!node.generated_by && !file.save_guard) throw Error(file.save_guard_reason || "The file's saved source authority is unavailable. Reopen it to check again.");
+      return {file, namespace, workspace, generatedBy: node.generated_by ?? null};
+    });
+    // The preview may close or be superseded before its pane mounts.
+    void authority.catch(() => {});
+    return authority;
+  };
+  let authority = authorize(selected);
+  // Refresh permission against the same text and ownership lease. Replacing
+  // the preview would replace the managed editor and its native view state.
+  return {source, current, get authority() { return authority; },
+    retry: () => { if (current()) authority = authorize(api.openFile(requested)); }};
 }
 
 export async function observeManagedStartup(
@@ -166,19 +177,24 @@ export async function observeManagedStartup(
   const docId = source?.doc_id;
   if (!source || !docId || !/^[a-f0-9]{16}$/.test(docId)) return null;
   const {path} = source;
-  const authority = selected.then(async opened => {
-    const refuse = () => Error("The requested document no longer matches its startup observation. Reopen it to check the current source.");
-    if (!current() || opened.path !== path || opened.doc_id !== docId) throw refuse();
-    const [doc, files] = await Promise.all([api.doc(docId), api.files()]);
-    const node = findNodeByPath([files], path);
-    if (!current() || !ownsStartupSource(files, source) || !node || node.dir
-      || node.generated_by || node.doc_id !== docId || doc.id !== docId || doc.path !== path || doc.source !== source.content) throw refuse();
-    if (!doc.save_guard) throw Error(doc.save_guard_reason || "The document's saved source authority is unavailable. Reopen it to check again.");
-    return doc;
-  });
-  const confirmRoom = () => confirmManagedRoom(authority, current);
-  void authority.catch(() => {});
-  return {source, docId, current, authority, confirmRoom};
+  const authorize = (request: typeof selected) => {
+    const authority = request.then(async opened => {
+      const refuse = () => Error("The requested document no longer matches its startup observation. Reopen it to check the current source.");
+      if (!current() || opened.path !== path || opened.doc_id !== docId) throw refuse();
+      const [doc, files] = await Promise.all([api.doc(docId), api.files()]);
+      const node = findNodeByPath([files], path);
+      if (!current() || !ownsStartupSource(files, source) || !node || node.dir
+        || node.generated_by || node.doc_id !== docId || doc.id !== docId || doc.path !== path || doc.source !== source.content) throw refuse();
+      if (!doc.save_guard) throw Error(doc.save_guard_reason || "The document's saved source authority is unavailable. Reopen it to check again.");
+      return doc;
+    });
+    void authority.catch(() => {});
+    return authority;
+  };
+  let authority = authorize(selected);
+  return {source, docId, current, get authority() { return authority; },
+    confirmRoom: () => confirmManagedRoom(authority, current),
+    retry: () => { if (current()) authority = authorize(api.openFile(requested)); }};
 }
 
 export async function openSelectedFile(
@@ -263,6 +279,28 @@ it("keeps the raw startup bytes readable without granting missing or stale autho
   const unbound = await observePlainStartup(namespace + "/" + path, path, open, () => true);
   expect(unbound?.source.content).toBe(content);
   await expect(unbound?.authority).rejects.toThrow(/no longer matches/);
+});
+
+it("retries a refused open against the same startup bytes and workspace", async () => {
+  const path = "nested/wanted.txt", root = "/workspace", workspace = "a".repeat(32);
+  const content = "Exact late startup text\n";
+  const raw = {version: 1 as const, path, content, root_path: root, workspace_id: workspace};
+  vi.spyOn(api, "startupSource").mockResolvedValue(raw);
+  const tree = vi.spyOn(api, "files").mockResolvedValue({root, root_path: root, workspace_id: workspace,
+    tree: [{name: "wanted.txt", path, dir: false}]});
+  vi.spyOn(api, "file").mockResolvedValue({path, content, language: "text", hash: "base", save_guard: "guard"});
+  vi.spyOn(api, "openFile").mockResolvedValue({path});
+  const selected = Promise.reject(Error("Open File was unavailable"));
+  void selected.catch(() => {});
+  const preview = await observePlainStartup(root + "/" + path, path, selected, () => true);
+  expect(preview?.source).toBe(raw);
+  await expect(preview?.authority).rejects.toThrow("Open File was unavailable");
+  preview?.retry?.();
+  await expect(preview?.authority).resolves.toMatchObject({file: {save_guard: "guard"}});
+  expect(preview?.source).toBe(raw);
+  tree.mockResolvedValue({root, root_path: "/foreign", workspace_id: workspace, tree: []});
+  preview?.retry?.();
+  await expect(preview?.authority).rejects.toThrow(/no longer matches/);
 });
 
 it("rechecks the original managed guard after an equal-byte room wait", async () => {

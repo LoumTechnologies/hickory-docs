@@ -1675,13 +1675,22 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     if (!requestedFile) return;
     let current = true;
     let settled = false;
+    let selectionError: string | undefined;
     let observedTab: Tab | null = null;
+    const focusedSource = () => {
+      const tab = focusIntent.current.tab;
+      return tab?.kind === "tree" ? undefined : tab?.id;
+    };
+    const originalFocus = focusedSource();
+    // Refusing explicit Open File does not settle the independent text read.
+    // A late preview can still take the original slot if the user stayed there.
+    const canPresent = () => current && !settled && (!selectionError || focusedSource() === originalFocus);
     const selected = api.openFile(requestedFile);
     if (requestedFile === startupFile) {
       const observe = (startupHint ?? requestedFile).endsWith(".md") ? observeManagedStartup : observePlainStartup;
-      void observe(requestedFile, startupHint, selected, () => current && (!!observedTab || !settled))
+      void observe(requestedFile, startupHint, selected, () => current && (!!observedTab || canPresent()))
         .then(observation => {
-          if (!current || settled || !observation) return;
+          if (!canPresent() || !observation) return;
           const {path} = observation.source;
           if ("docId" in observation) {
             const {docId} = observation;
@@ -1697,6 +1706,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
             setPlainStartup({id: tab.id, observation});
             setLayout(layout => openFileTab(layout, path, undefined, tab));
           }
+          if (selectionError) setInsertNotice(notice => notice === selectionError ? null : notice);
         }, () => { /* The ordinary explicit open owns the fallback. */ });
     }
     void selected.then(({doc_id, path}) => {
@@ -1705,8 +1715,8 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       if (doc_id) setLayout(layout => activateDocTab(layout, doc_id) ?? openDocTab(layout, doc_id, path));
       else openPlainFile(path);
     }, error => {
-      settled = true;
-      if (current && !observedTab) setInsertNotice(error instanceof Error ? error.message : String(error));
+      selectionError = error instanceof Error ? error.message : String(error);
+      if (current && !observedTab) setInsertNotice(selectionError);
     });
     return () => { current = false; };
   }, [requestedFile, startupFile, startupHint, openPlainFile]);
@@ -2527,13 +2537,20 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   }
   const renderTabBody = (tab: Tab): ReactNode => {
     if (tab.kind === "document" && tab.docId) {
+      const startup = managedStartup?.id === tab.id ? managedStartup.observation : undefined;
       return (
         <DocTabBody
           reflowOnOpen={!tab.id.startsWith("untitled-")}
           registry={registry}
           docId={tab.docId}
           slot={documentSlots.current.get(tab.docId)}
-          startup={managedStartup?.id === tab.id ? managedStartup.observation : undefined}
+          startup={startup}
+          onRetryStartup={startup?.retry ? () => {
+            if (startup.current()) {
+              startup.retry?.();
+              setManagedStartup({id: tab.id, observation: startup});
+            }
+          } : undefined}
           wrapColumn={workspaceUi.wrapFor(tab.target)}
           onWrapColumn={(column) => workspaceUi.setWrap(tab.target, column)}
           tableLayouts={workspaceUi.tables}
@@ -2556,13 +2573,21 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     }
     if (tab.kind === "file") {
       // Each tab owns a buffer; another tab's save arrives as an external change.
+      const startup = plainStartup?.id === tab.id && plainStartup.observation.source.path === tab.target
+        ? plainStartup.observation : undefined;
       return (
         <PlainFilePane
           key={tab.id}
           path={tab.retainedResource?.path ?? tab.target}
           retainedResource={!!tab.retainedResource}
           proposalTabId={tab.id} proposalOwner={registerPlainPatchOwner}
-          startup={plainStartup?.id === tab.id && plainStartup.observation.source.path === tab.target ? plainStartup.observation : undefined}
+          startup={startup}
+          onRetryStartup={startup?.retry ? () => {
+            if (startup.current()) {
+              startup.retry?.();
+              setPlainStartup({id: tab.id, observation: startup});
+            }
+          } : undefined}
           takePreparedSource={takePreparedSource}
           onSource={(_, source) => plainSources.current.set(tab.id, source)}
           onReferences={setFileReferences}
@@ -2757,6 +2782,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
               registry={registry}
               docId={docId}
               startup={attachedManagedStartup?.docId === docId ? attachedManagedStartup : undefined}
+              startupAuthority={attachedManagedStartup?.docId === docId ? attachedManagedStartup.authority : undefined}
               initialDocument={admittedDocument?.doc.id === docId && admittedDocument.current() ? admittedDocument : undefined}
               captureNavigationContext={captureNavigationContext}
               onRelatedLocations={showRelatedLocations}

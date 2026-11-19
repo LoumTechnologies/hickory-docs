@@ -691,7 +691,7 @@ describe("simple background source loading", () => {
       expect(view.state.readOnly).toBe(true);
 
       fireEvent.click(screen.getByText("File", { selector: "summary" }));
-      fireEvent.click(screen.getByRole("button", { name: "Refresh", exact: true }));
+      fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
       await waitFor(() => expect(view.state.readOnly).toBe(false));
       expect(api.file).toHaveBeenCalledTimes(2);
       expect(EditorView.findFromDOM(screen.getByLabelText(path))).toBe(view);
@@ -1381,26 +1381,26 @@ describe("simple closed saved source", () => {
       : { path, content: "other", hash: "other-hash", save_guard: "other-guard", language: "text" });
     const screen = render(createElement(App));
     try {
-      fireEvent.click(await screen.findByRole("button", { name: leaf.path, exact: true }));
+      fireEvent.click(await screen.findByRole("button", { name: leaf.path }));
       const view = EditorView.findFromDOM(await screen.findByLabelText(leaf.path))!;
       act(() => {
         view.dispatch({ changes: { from: 0, insert: "// unsaved\n" }, userEvent: "input.type" });
         expect(undo(view)).toBe(true);
         view.dispatch({ selection: { anchor: 5 } });
       });
-      fireEvent.click(screen.getByRole("button", { name: other.path, exact: true }));
+      fireEvent.click(screen.getByRole("button", { name: other.path }));
       await screen.findByLabelText(other.path);
-      fireEvent.click(screen.getByRole("tab", { name: leaf.path, exact: true }));
+      fireEvent.click(screen.getByRole("tab", { name: leaf.path }));
       expect(EditorView.findFromDOM(await screen.findByLabelText(leaf.path))).toBe(view);
       expect(vi.mocked(api.file).mock.calls.filter(([path]) => path === leaf.path)).toHaveLength(1);
 
       vi.mocked(useWorkspaceLsp).mockClear();
-      fireEvent.click(screen.getByRole("button", { name: "Close leaf.ts", exact: true }));
-      expect(screen.queryByRole("tab", { name: leaf.path, exact: true })).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: "Close leaf.ts" }));
+      expect(screen.queryByRole("tab", { name: leaf.path })).toBeNull();
       expect(vi.mocked(useWorkspaceLsp).mock.calls).toContainEqual(["", saved.content]);
       expect(vi.mocked(useWorkspaceLsp).mock.calls.some(([path]) => path === leaf.path)).toBe(false);
 
-      fireEvent.click(screen.getByRole("button", { name: leaf.path, exact: true }));
+      fireEvent.click(screen.getByRole("button", { name: leaf.path }));
       expect(EditorView.findFromDOM(await screen.findByLabelText(leaf.path))).toBe(view);
       expect(vi.mocked(api.file).mock.calls.filter(([path]) => path === leaf.path)).toHaveLength(2);
       expect(view.state.selection.main.head).toBe(5);

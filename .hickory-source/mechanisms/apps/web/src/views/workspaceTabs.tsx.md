@@ -182,11 +182,13 @@ export function DocTabBody({
   tableLayouts,
   onTableLayout,
   startup: startupPreview,
+  onRetryStartup,
 }: {
   registry: SessionRegistry;
   docId: string;
   slot?: string;
   startup?: StartupManagedDocument;
+  onRetryStartup?: () => void;
   reflowOnOpen?: boolean;
   /** Where prose wraps in this tab, restored with the arrangement. */
   wrapColumn?: number;
@@ -292,8 +294,10 @@ export function DocTabBody({
         onRemoveWatch={debug.removeWatch}
       />
       </> : <PaneHeaderContent part="info">
-        <span className="save-state" role="status">{session.fatalError ??
-          (doc ? "Waiting for the document room…" : "Checking saved source authority…")}</span>
+        {session.fatalError && onRetryStartup
+          ? <ActionNotice kind="fail" retry={{label: "Retry source access", run: onRetryStartup}}>{session.fatalError}</ActionNotice>
+          : <span className="save-state" role="status">{session.fatalError ??
+            (doc ? "Waiting for the document room…" : "Checking saved source authority…")}</span>}
       </PaneHeaderContent>}
       {/* A session file opens in the same editor as every other document —
           drawn as the conversation it is (bubbles, the agent's work folded;

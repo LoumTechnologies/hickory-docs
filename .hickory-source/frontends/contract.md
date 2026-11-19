@@ -248,6 +248,21 @@ the expected text with zero source-history writes. See
 `target/simple-startup-guardless-fixed.json` and
 `target/simple-startup-guardless-vitest.log`.
 
+Main now also keeps its independent raw read after Open File refuses the
+initial request. In rendered Chromium, a relayed 503 arrived before the
+exact raw text for both a plain file and a managed document. The late text
+mounted read-only. Retry source access used real engine replies and
+confirmed the same editor with its nonempty selection and deep viewport
+intact. The saved fixture bytes stayed unchanged. See
+`target/main-startup-late-raw-refusal-v8-fixed-retry/browser.json` and
+`target/main-startup-late-raw-refusal-v8-managed-retry/browser.json`.
+
+A separate Main replay let Open File succeed before raw text, then held
+the guarded plain-file read. The raw response completed while the pane
+was loading and appeared only after releasing the guarded read. This
+order still needs independent text presentation. See
+`target/main-startup-success-before-held-guard-v8/browser.json`.
+
 Mounted AppKit repeated both cases against the freshly linked engine. A held
 Files response let the exact startup bytes appear first. Releasing Files and
 the guarded read kept the original editor, its selection and viewport, and
@@ -3235,9 +3250,19 @@ registration. Reopening equal saved bytes retains the editor and its history.
 Reopening changed bytes requires a fresh scoped read. The rendered replay
 opened the shifted leaf on the first Definition and Back restored the same
 caller and caret. Navigation sent no source writes or room updates. See
-`target/simple-staged-barrel-navigation-v8-live-existing/browser.json`,
-`target/simple-staged-barrel-navigation-v8-live-unresolved/browser.json`, and
+`target/simple-staged-barrel-navigation-v8-live-existing-post-close-fix/browser.json`,
+`target/simple-staged-barrel-navigation-v8-live-unresolved-post-close-fix/browser.json`, and
 `target/simple-staged-barrel-navigation-v8-live-shifted-fixed/browser.json`.
+
+Rendered Android loaded the exact saved post-Move fixture in a separate
+session. An independent edit shifted the saved declaration down three
+lines. The first native Definition opened the exact changed source at the
+new result row, and Back restored the unchanged caller bytes and frame.
+The provider restarted with the same staged call location. The caller
+sent no open, close, or change message during refresh, and navigation
+sent no source writes. Numeric caret offsets were unavailable in Android
+accessibility. See
+`target/parity-rendered-android.sgYIt7/continuation-receipts/final-android-39rxc3ez/managed-ts-live-refresh/live-refresh-result.json`.
 
 Go to Declaration tries the provider's dedicated method. When it
 returns method-not-found, the engine asks for Definition at the same

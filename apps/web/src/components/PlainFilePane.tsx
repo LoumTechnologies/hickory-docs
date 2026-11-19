@@ -11,6 +11,7 @@ import { launchWithProfiles } from "../debug/launchProfiles";
 import { DebugLaunchRail } from "../debug/DebugRail";
 import { RightRail } from "../editor/RightRail";
 import { PaneHeaderContent } from "../shell/PaneHeader";
+import { ActionNotice } from "./ActionNotice";
 import { MoreActions } from "./MoreActions";
 import { SurfaceInfo } from "./SurfaceInfo";
 import { registerSearchEditor } from "../lib/workspaceSearch";
@@ -121,7 +122,7 @@ export function PlainFilePane({
   retainUnsaved = false,
   onUnsaved,
   onSource,
-  proposalOwner, proposalTabId, startup, takePreparedSource,
+  proposalOwner, proposalTabId, startup, onRetryStartup, takePreparedSource,
 }: {
   path: string;
   retainedResource?: boolean;
@@ -129,6 +130,7 @@ export function PlainFilePane({
   proposalOwner?: (tabId: string, read: () => RecordedPatchSource | null) => () => void;
   proposalTabId?: string;
   startup?: StartupPlainFile;
+  onRetryStartup?: () => void;
   takePreparedSource?: (path: string) => PlainFile | undefined;
   /** Adoption succeeded: the file now has an owning document. The workspace
    * converts this very tab into a generated tab and opens the document. */
@@ -475,6 +477,7 @@ export function PlainFilePane({
   // missing — as text where the editor would be: the tab is still an honest
   // place, it just has nothing to edit.
   const preparedRead = useRef<PlainFile | undefined>(undefined);
+  const startupAuthority = startup?.authority;
   useEffect(() => {
     if (addressRef.current.guarded && addressRef.current.path === path && fileRef.current?.path === path) return;
     let live = true;
@@ -482,8 +485,9 @@ export function PlainFilePane({
     plainOwnership.current = false;
     if (!startup && preparedRead.current?.path !== path) preparedRead.current = takePreparedSource?.(path);
     const prepared = !startup && preparedRead.current?.path === path ? preparedRead.current : undefined;
-    const read = startup
-      ? startup.authority.then(authority => ({file: authority.file, authority}))
+    if (startupAuthority) setLoadError(null);
+    const read = startupAuthority
+      ? startupAuthority.then(authority => ({file: authority.file, authority}))
       : (prepared ? Promise.resolve(prepared) : api.file(path)).then(file => ({file, authority: null}));
     read.then(
       ({file: loaded, authority}) => {
@@ -577,7 +581,7 @@ export function PlainFilePane({
     return () => {
       live = false;
     };
-  }, [path, saver, retainUnsaved, startup, takePreparedSource]);
+  }, [path, saver, retainUnsaved, startup, startupAuthority, takePreparedSource]);
 
   // The view is created ONCE, when the first load lands. Later content
   // arrives through syncPlainSource below — rebuilding the editor would throw
@@ -1064,7 +1068,8 @@ export function PlainFilePane({
         onRemoveWatch={debug.removeWatch}
       />
       {!file && (startup
-        ? <p className="muted" role="status">{loadError ?? "Checking saved source authority…"}</p>
+        ? loadError ? <ActionNotice kind="fail" retry={onRetryStartup && {label: "Retry source access", run: onRetryStartup}}>{loadError}</ActionNotice>
+          : <p className="muted" role="status">Checking saved source authority…</p>
         : <p className="muted">Loading {path}…</p>)}
       {/* The merge REPLACES the editor rather than floating over it: the two
           sides plus their context need the whole pane to be readable, and a

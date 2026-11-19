@@ -530,6 +530,7 @@ export const DocSessionHost = memo(function DocSessionHost({
   openGenerated,
   retainUnsaved = false,
   startup,
+  startupAuthority,
   initialDocument,
   captureNavigationContext,
   onRelatedLocations,
@@ -540,6 +541,7 @@ export const DocSessionHost = memo(function DocSessionHost({
   docId: string;
   slot?: string;
   startup?: StartupManagedDocument;
+  startupAuthority?: Promise<Doc>;
   initialDocument?: {doc: Doc; workspaceCurrent: () => boolean};
   captureNavigationContext?: () => () => boolean;
   onRelatedLocations?: (reading: RelatedLocationReading) => void;
@@ -557,7 +559,8 @@ export const DocSessionHost = memo(function DocSessionHost({
   const openingPreview = startupAtOpen ?? preview;
   const session = useDocumentSession(docId, openGenerated, retainUnsaved,
     openingPreview?.docId === docId ? openingPreview : undefined, admitted?.doc.id === docId ? admitted.doc : undefined,
-    captureNavigationContext, onRelatedLocations, onLocalNavigation, onProviderPreview);
+    captureNavigationContext, onRelatedLocations, onLocalNavigation, onProviderPreview,
+    startupAuthority ?? openingPreview?.authority);
   useEffect(() => {
     registry.publish(preview && !session.startupRoomReady ? {...session, admittedPreview: preview} : session, slot);
   });
@@ -632,6 +635,7 @@ function useDocumentSession(
   onRelatedLocations?: (reading: RelatedLocationReading) => void,
   onLocalNavigation?: LocalSourceNavigation,
   onProviderPreview?: (request: ProviderPreviewRequest) => Promise<UiOutcome>,
+  startupAuthority?: Promise<Doc>,
 ): DocSession {
   const openGenerated = useCallback(
     (path: string) => openGeneratedFor(docId, path),
@@ -963,16 +967,17 @@ function useDocumentSession(
       void refreshRender(initialDocument.source);
       return;
     }
-    if (!startup) return refresh();
+    if (!startup || !startupAuthority) return refresh();
     let current = true;
-    void startup.authority.then(confirmed => {
+    setFatalError(null);
+    void startupAuthority.then(confirmed => {
       if (!current || !startup.current() || managedDraft.current || debugDoc.current && debugDoc.current.id !== docId) return;
       setDoc(confirmed);
       setFatalError(null);
       void refreshRender(confirmed.source);
     }, error => { if (current) setFatalError(String(error)); });
     return () => { current = false; };
-  }, [docId, refresh, refreshRender, setDoc, startup, initialDocument]);
+  }, [docId, refresh, refreshRender, setDoc, startup, startupAuthority, initialDocument]);
 
   // Recovery drafts are separate from acknowledged file persistence.
   // Previously named files opt into recovery; Untitled has its own policy.
