@@ -175,8 +175,16 @@ detail and displayed the exact mode, object ID, and text of all three Git
 stages. Native review and Save preserved the index byte-for-byte. Separate
 Stage resolved the selected path to the exact incoming blob. The unrelated
 staged and working bytes, HEAD, and the source editor frame were preserved.
-The Working tree control did not open the detail in either attempt. See
-`target/apple-git-conflict-uikit-v10-coordinates/receipt.json`.
+The Working tree control did not open the detail in either attempt. A
+follow-up tested five points within its displayed bounds. The upper-right
+tap opened the exact conflict and returned HTTP 200 from the Working tree
+diff route. Four other points, including the center, opened no detail.
+Source and index bytes stayed exact. The center-hit candidate built, but
+XCTest stopped while loading Accessibility before the test case started.
+Reliable tapping across the side button remains open. See
+`target/apple-git-conflict-uikit-v10-coordinates/receipt.json`,
+`target/apple-git-working-tree-uikit-v10-probe/receipt.json`, and
+`target/apple-git-working-tree-uikit-v10-center-fix/`.
 
 ### Requested files and capability arrival
 
@@ -296,10 +304,13 @@ launch. See
 `target/current-signed-main-9f764d14/package-receipt.json` and
 `target/current-signed-main-9f764d14/packaged-viewport-unlocked-1795115620844905000/receipt.json`.
 
-A separate mounted AppKit minimap probe reached a dirty native text editor.
-Both event delivery routes left the viewport at offset zero. The locked
-console probe leaves native minimap navigation unverified. See
-`target/appkit-minimap-native.x8adaz05/appkit.log`.
+The current AppKit minimap passed a queued mouse drag with its owned
+window active and key. Four intermediate viewport offsets from 1,355.5
+through 3,979.5 points exposed source line 266. The same editor, frame,
+selection, draft and undo manager stayed mounted. Native Undo and Redo
+restored the exact text and left the file's bytes, inode and modification
+time intact. Earlier inactive-window probes left the viewport at zero.
+See `target/appkit-minimap-baseline.8w3fmrv7/receipt.json`.
 
 AppKit and UIKit each passed the transient Files failure and same-server retry.
 Both kept their provisional editor, selection and viewport through confirmation.
