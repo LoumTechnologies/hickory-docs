@@ -132,6 +132,17 @@ Holding all three replies together exposed the requested editor group before
 the observation bridge timed out. The combined-delay viewport and Undo
 receipt is the Chromium replay above.
 
+The signed package also passed a sequential authority replay with Files live.
+The relay held explicit Open File, its guarded read, the first collaboration
+sync and the parser independently. The same native WebKit editor kept its
+exact text and nonempty deep selection across all four releases. It emitted
+no source update on promotion. An edit and Undo then emitted two ordinary
+collaboration updates, and the saved fixture bytes matched after shutdown.
+The native bridge confirmed only the containing folder. This replay checked
+deep selection with the editor's scroll-into-view action. The viewport offset
+and visible row still lack a direct packaged witness. See
+`target/main-macos-packaged-startup.to8jhtpo/packaged-sequential-continuation.vTe50p/`.
+
 AppKit and UIKit each passed the transient Files failure and same-server retry.
 Both kept their provisional editor, selection and viewport through confirmation.
 UIKit also performed native Paste and Undo after the guarded source arrived.
