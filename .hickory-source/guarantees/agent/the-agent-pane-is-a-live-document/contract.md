@@ -10,6 +10,13 @@ including paste, undo and programmatic widget edits. The latest **Your response*
 card is a separate editable buffer with its own undo history. Streaming changes
 preserve the draft and its line breaks; response focus and Send target that buffer.
 
+Code and patch fences in both user and assistant messages offer the same
+applicable literate tools as open files on each supported frontend. A person
+can explicitly launch runnable code, set breakpoints and step in the original
+message coordinates. A patch exposes its authored changes and generated
+consequences for review before guarded application. Run, debug and review use
+the exact message revision and keep recorded messages immutable.
+
 The initial thread invites a request. Assistant messages use a quiet reading
 surface, user messages use a compact bubble, and the editable response stays
 anchored at the bottom while scrolling. Reasoning and the final project review

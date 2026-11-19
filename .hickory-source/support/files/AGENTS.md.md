@@ -59,8 +59,18 @@ display does not authorize unsafe edits or claim a save succeeded.
 
 ## UI feel
 
-Keep the UI compact and spatially stable: revealing controls must not disturb
-the content the user is reading.
+On first open, show the requested file and the file tree for its containing
+folder. Keep these the two main surfaces in Hickory Docs and the simple macOS,
+iOS, Android and browser frontends. Use each platform's native editor, input and
+interaction conventions where available. Build core IDE workflows into Hickory
+so everyday work requires no extension collection.
+
+Add information and actions through file tree styling, inline literate editor
+styling, line numbers, gutters, the right-side minimap, the status bar, menus
+and the existing Agent pane. Use floating controls anchored to those surfaces
+when more room is needed. Keep feature toolbars, extra sidebars, rulers and
+other space-taking UI out of the workspace. Revealing controls must leave the
+content the user is reading in place.
 
 - Keep contextual actions beside the folder or line they belong to, with gutter
   icons arranged in a single vertical column on the right.
@@ -72,6 +82,13 @@ the content the user is reading.
 - Opening that popover must not reflow, resize or move adjacent content or other
   gutter icons. Apply this same overflow behavior to gutter icons everywhere in
   the app, including Files, document actions and debugger controls.
+
+User and assistant messages in the Agent pane are literate documents. Give code
+and patch fences the same applicable tools as in files, including source-mapped
+debugging after an explicit launch and guarded review before applying patches.
+Keep recorded messages immutable. See the [workspace contract](.hickory-source/guarantees/shell/quiet-inline-workspace/contract.md),
+[Agent pane contract](.hickory-source/guarantees/agent/the-agent-pane-is-a-live-document/contract.md)
+and [IDE workflow contract](.hickory-source/frontends/contract.md).
 
 @.instructions/simple-composable-design.md
 @.instructions/config-and-environments.md

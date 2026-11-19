@@ -3,6 +3,18 @@
 
 For: people opening, editing, running and debugging files without learning a new interface first.
 
+On first open, the requested file and the file tree for its containing folder
+are the primary surfaces. This requirement covers Hickory Docs and its simple
+macOS, iOS, Android and browser frontends. Native editing and input conventions
+shape the interaction on each host. The core IDE workflows are built in.
+
+File tree and inline literate styling, line numbers, gutters, the right-side
+minimap, the status bar, menus and the existing Agent pane carry additional
+information and actions. An on-demand control can float over the workspace
+without shifting or resizing the editor or file tree. Fixed space is reserved
+for the existing surfaces. Feature toolbars, extra sidebars and rulers stay
+out of the workspace.
+
 The editor keeps familiar branch, problem and caret status. Connection legends describe only painted connections; display preferences remain reachable from the file and command search. Agent status belongs to the visible conversation. Optional tools load when requested, and panels close without replacing the editor. Environment repairs disclose their commands before execution. Missing account telemetry remains unknown rather than becoming an invented allowance.
 
 This requirement supersedes earlier always-visible provenance toggle and workspace-tool placement requirements. Existing execution, source-revision, permission and write-review boundaries still apply. Visual feel and language-specific installation success require live acceptance; focused witnesses below establish only the behavior they exercise.
