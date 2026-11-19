@@ -3125,6 +3125,16 @@ Both reached Save and the first also reached Undo. See the respective
 and
 `target/apple-managed-typescript-move-definition-uikit-retry-2026-11-19/concurrency-crash-stack.json`.
 
+Rendered Android completed Move, reviewed Save, Definition, Back, and
+Forward in a single session. The genuine provider resolved the moved
+symbol, and the native result row opened saved `relocate.ts:1:17`.
+Screenshots show Definition at the declaration, Back inside the authored
+call, and Forward at the caret moved before `return`. The editor exposed
+no numeric selection offsets through Android accessibility, so the caret
+positions are screen observations. Navigation sent no saves and kept the
+published source bytes unchanged. See the result and caret observation
+in `target/parity-rendered-android.sgYIt7/continuation-receipts/final-android-zgzov7vp/managed-ts-definition/`.
+
 Staged imports refresh when the authored document is prepared. Independent
 dependency changes retire stale locations until the next preparation.
 Go to Declaration tries the provider's dedicated method. When it
