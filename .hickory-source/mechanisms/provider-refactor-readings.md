@@ -34,6 +34,7 @@ follow-up suggestion; this read never starts a second implicit rename or mutatio
 <ui:copy id="provider-refactor-read-only-model">
 use serde_json::{Value, json};
 use std::collections::BTreeSet;
+use std::path::{Component, Path, PathBuf};
 use tower_lsp::lsp_types::Url;
 
 pub(crate) fn query(action: &Value, origin: &Url, advertised: bool) -> Option<Value> {
@@ -86,7 +87,7 @@ fn position(value: &Value) -> Result<Value, String> {
     Ok(json!({"line":line-1,"character":offset-1}))
 }
 
-pub(crate) fn edits(response: &Value) -> Result<Value, String> {
+pub(crate) fn edits(response: &Value, staged: Option<&StagedCreation>) -> Result<Value, String> {
     if response.get("success") != Some(&Value::Bool(true))
         || response.get("command").and_then(Value::as_str) != Some("getEditsForRefactor")
     {
@@ -114,13 +115,7 @@ pub(crate) fn edits(response: &Value) -> Result<Value, String> {
             .and_then(Value::as_str)
             .filter(|s| s.len() <= 16384)
             .ok_or("Malformed refactor filename")?;
-        let uri =
-            Url::from_file_path(path).map_err(|_| "Refactor filename is not an absolute file")?;
-        if !seen.insert(uri.to_string()) {
-            return Err(
-                "Repeated refactor file would require unobserved intermediate source".into(),
-            );
-        }
+        let path = Path::new(path);
         let declared_new = match file.get("isNewFile") {
             None | Some(Value::Bool(false)) => false,
             Some(Value::Bool(true)) => true,
@@ -137,6 +132,17 @@ pub(crate) fn edits(response: &Value) -> Result<Value, String> {
             return Err("Contradictory new-file refactor sentinel".into());
         }
         let new = declared_new || sentinel;
+        let destination = match (new, staged) {
+            (true, Some(scope)) => scope.destination(path)?,
+            _ => path.to_path_buf(),
+        };
+        let uri = Url::from_file_path(destination)
+            .map_err(|_| "Refactor filename is not an absolute file")?;
+        if !seen.insert(uri.to_string()) {
+            return Err(
+                "Repeated refactor file would require unobserved intermediate source".into(),
+            );
+        }
         let mut mapped: Vec<Value> = Vec::new();
         for edit in entries {
             count += 1;
@@ -191,6 +197,56 @@ shared projection. This represents getter/setter generation as one unambiguous
 edit without weakening the shared overlap rule or borrowing an intermediate file.
 Overlapping or out-of-order members still refuse the whole reading.
 
+## Interpret a new sibling in a managed document's staged output
+
+A child sees the generated TypeScript under the document's separate staging
+directory. Its proposed sibling has a workspace address relative to that
+document's output root. The action retains the queried virtual file and the
+bridge derives the scope from its current installed mapping. Only a positively
+new, absent sibling receives this translation. Edits to the existing output keep
+their virtual URI so the ordinary position map translates them back into the
+authored document. The workspace publisher checks absence, ownership, and
+guarded review at the translated destination before any write.
+
+<ui:copy id="provider-refactor-staged-destination">
+pub(crate) struct StagedCreation {
+    stage: PathBuf,
+    parent: PathBuf,
+    workspace: PathBuf,
+}
+
+impl StagedCreation {
+    pub(crate) fn new(stage: PathBuf, origin: &Path, workspace: PathBuf) -> Option<Self> {
+        let relative = origin.strip_prefix(&stage).ok()?;
+        if relative.as_os_str().is_empty() || !relative.components().all(normal_part) {
+            return None;
+        }
+        Some(Self { stage, parent: origin.parent()?.to_path_buf(), workspace })
+    }
+
+    fn destination(&self, path: &Path) -> Result<PathBuf, String> {
+        let relative = path.strip_prefix(&self.stage)
+            .map_err(|_| "A new refactor file is outside the originating staged output.")?;
+        if path.parent() != Some(self.parent.as_path()) || !relative.components().all(normal_part) {
+            return Err("A staged refactor can create only a new sibling of the originating output.".into());
+        }
+        match std::fs::symlink_metadata(path) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(self.workspace.join(relative)),
+            _ => Err("The new refactor file is not absent in the originating staged output.".into()),
+        }
+    }
+}
+
+fn normal_part(part: Component<'_>) -> bool {
+    matches!(part, Component::Normal(_))
+}
+</ui:copy>
+
+The staged creation witness checks a nested output directory, literal path
+escaping, and the original edit's virtual address. An occupied destination,
+a spelling that leaves the output directory, and two edits converging on the
+same workspace address all refuse the whole read.
+
 ## Refuse unsupported authority and partial answers
 
 These checks establish the adapter's request and decoding policy. Genuine provider
@@ -229,7 +285,7 @@ mod tests {
     }
     #[test]
     fn complete_edits_preserve_creation_and_utf16_coordinates() {
-        let value = edits(&response()).unwrap();
+        let value = edits(&response(), None).unwrap();
         assert_eq!(value["documentChanges"].as_array().unwrap().len(), 3);
         assert_eq!(
             value["documentChanges"][0]["edits"][0]["range"]["start"],
@@ -245,7 +301,7 @@ mod tests {
             {"start":{"line":1,"offset":4},"end":{"line":1,"offset":4},"newText":"getter"},
             {"start":{"line":1,"offset":4},"end":{"line":1,"offset":4},"newText":"setter"}
         ]}]);
-        let edit = edits(&value).unwrap();
+        let edit = edits(&value, None).unwrap();
         assert_eq!(
             edit["documentChanges"][0]["edits"]
                 .as_array()
@@ -258,7 +314,7 @@ mod tests {
             "fieldgettersetter"
         );
         value["body"]["edits"][0]["textChanges"][1]["start"]["offset"] = json!(3);
-        assert!(edits(&value).is_err());
+        assert!(edits(&value, None).is_err());
     }
     #[test]
     fn native_zero_position_new_file_is_an_ordered_creation_only() {
@@ -267,38 +323,83 @@ mod tests {
         member.as_object_mut().unwrap().remove("isNewFile");
         member["textChanges"][0]["start"]=json!({"line":0,"offset":0});
         member["textChanges"][0]["end"]=json!({"line":0,"offset":0});
-        let decoded=edits(&reading).unwrap();
+        let decoded=edits(&reading, None).unwrap();
         assert_eq!(decoded["documentChanges"][1],json!({"kind":"create","uri":"file:///workspace/helper.ts"}));
         assert_eq!(decoded["documentChanges"][2]["edits"][0]["range"],json!({"start":{"line":0,"character":0},"end":{"line":0,"character":0}}));
         reading["body"]["edits"][1]["isNewFile"]=json!(false);
-        assert!(edits(&reading).is_err());
+        assert!(edits(&reading, None).is_err());
     }
     #[test]
     fn incomplete_or_multiple_zero_position_members_refuse_whole_reading() {
         for key in ["line","offset"] {
             let mut reading=response();reading["body"]["edits"][1]["textChanges"][0]["start"][key]=json!(0);
-            assert!(edits(&reading).is_err());
+            assert!(edits(&reading, None).is_err());
         }
         let mut reading=response();let member=&mut reading["body"]["edits"][1];
         member["textChanges"]=json!([
           {"start":{"line":0,"offset":0},"end":{"line":0,"offset":0},"newText":"first"},
           {"start":{"line":0,"offset":0},"end":{"line":0,"offset":0},"newText":"second"}
         ]);
-        assert!(edits(&reading).is_err());
+        assert!(edits(&reading, None).is_err());
     }
+    #[test]
+    fn staged_creation_projects_only_the_new_sibling() {
+        let temp = tempfile::tempdir().unwrap();
+        let stage = temp.path().join("stage");
+        let workspace = temp.path().join("workspace");
+        let script = stage.join("src/move.ts");
+        let helper = stage.join("src/λ #.ts");
+        std::fs::create_dir_all(script.parent().unwrap()).unwrap();
+        std::fs::write(&script, "original").unwrap();
+        let scope = StagedCreation::new(stage.clone(), &script, workspace.clone()).unwrap();
+        let mut reading = response();
+        reading["body"]["edits"][0]["fileName"] = json!(script);
+        reading["body"]["edits"][1]["fileName"] = json!(helper);
+        let decoded = edits(&reading, Some(&scope)).unwrap();
+        let rows = decoded["documentChanges"].as_array().unwrap();
+        let original = Url::from_file_path(&script).unwrap();
+        let authored = Url::from_file_path(workspace.join("src/λ #.ts")).unwrap();
+        assert_eq!(rows[0]["textDocument"]["uri"], json!(original));
+        assert_eq!(rows[1]["uri"], json!(authored));
+        assert_eq!(rows[2]["textDocument"]["uri"], json!(authored));
+        assert!(!helper.exists() && !workspace.exists());
+
+        let mut duplicate = reading["body"]["edits"][0].clone();
+        duplicate["fileName"] = json!(workspace.join("src/λ #.ts"));
+        let mut alias = reading.clone();
+        alias["body"]["edits"].as_array_mut().unwrap().push(duplicate);
+        assert!(edits(&alias, Some(&scope)).is_err());
+
+        for path in [
+            script,
+            stage.join("src/nested/new.ts"),
+            stage.join("different/new.ts"),
+            stage.join("src/../new.ts"),
+            temp.path().join("other/src/new.ts"),
+            workspace.join("src/direct.ts"),
+        ] {
+            reading["body"]["edits"][1]["fileName"] = json!(path);
+            assert!(edits(&reading, Some(&scope)).is_err());
+        }
+        reading["body"]["edits"][1]["fileName"] = json!(helper);
+        std::fs::write(&helper, "already staged").unwrap();
+        assert!(edits(&reading, Some(&scope)).is_err());
+        assert_eq!(std::fs::read_to_string(&helper).unwrap(), "already staged");
+    }
+
     #[test]
     fn malformed_later_member_refuses_the_complete_reading() {
         let mut value = response();
         value["body"]["edits"][1]["textChanges"][0]["start"]["offset"] = json!(false);
-        assert!(edits(&value).is_err());
+        assert!(edits(&value, None).is_err());
         let mut value = response();
         value["body"]["edits"][1]["fileName"] = json!("/workspace/a.ts");
-        assert!(edits(&value).is_err());
+        assert!(edits(&value, None).is_err());
         let mut value = response();
         value["success"] = json!(false);
-        assert!(edits(&value).is_err());
+        assert!(edits(&value, None).is_err());
     }
 }
 </ui:copy>
-<ui:file path="crates/hick-lsp/src/provider_refactors.rs"><ui:paste select="#provider-refactor-read-only-model"/><ui:paste select="#provider-refactor-read-only-witness"/></ui:file>
+<ui:file path="crates/hick-lsp/src/provider_refactors.rs"><ui:paste select="#provider-refactor-read-only-model"/><ui:paste select="#provider-refactor-staged-destination"/><ui:paste select="#provider-refactor-read-only-witness"/></ui:file>
 </ui:doc>

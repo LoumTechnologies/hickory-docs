@@ -8,7 +8,7 @@ struct PreparedAction {
     original: Value,
     handle: ChildLspHandle,
     resolve: bool,
-    refactor_query: Option<Value>,
+    refactor_query: Option<(Url, Value)>,
     already_mapped: bool,
     display_title: Option<String>,
     source_proofs: Arc<Vec<ProviderSourceProof>>,
@@ -870,7 +870,8 @@ impl HickBackend {
                     original: original.clone(),
                     handle: handle.clone(),
                     resolve,
-                    refactor_query: crate::provider_refactors::query(original, &vf_uri, refactor_reads),
+                    refactor_query: crate::provider_refactors::query(original, &vf_uri, refactor_reads)
+                        .map(|query| (vf_uri.clone(), query)),
                     already_mapped: false,
                     display_title: display_title.clone(),
                     source_proofs: proofs.clone(),
@@ -931,13 +932,28 @@ impl HickBackend {
         let source_proofs = prepared.source_proofs;
         let display_title = prepared.display_title;
         let mut original = prepared.original;
-        if let Some(query) = prepared.refactor_query {
+        if let Some((origin, query)) = prepared.refactor_query {
             self.require_provider_revision(&revision).await?;
             self.require_action_sources(&source_proofs).await?;
             let reading = prepared.handle.request("workspace/executeCommand", query).await.map_err(child_request_error)?;
             self.require_provider_revision(&revision).await?;
             self.require_action_sources(&source_proofs).await?;
-            let edit = crate::provider_refactors::edits(&reading).map_err(tower_lsp::jsonrpc::Error::invalid_params)?;
+            let workspace = self.workspace_root.read().await.clone().and_then(|uri| uri.to_file_path().ok());
+            let staged = if let Some(workspace) = workspace {
+                let maps = self.vfile_index.read().await;
+                maps.get(&origin).and_then(|map| {
+                    if map.position_map.is_identity() || map.position_map.is_project() {
+                        return None;
+                    }
+                    let stage = self.staging.document_dir(&map.hick_uri).ok()?;
+                    let path = origin.to_file_path().ok()?;
+                    crate::provider_refactors::StagedCreation::new(stage, &path, workspace)
+                })
+            } else {
+                None
+            };
+            let edit = crate::provider_refactors::edits(&reading, staged.as_ref())
+                .map_err(tower_lsp::jsonrpc::Error::invalid_params)?;
             let object = original.as_object_mut().expect("held literal refactor action");
             object.remove("command");
             object.insert("edit".into(), edit);
