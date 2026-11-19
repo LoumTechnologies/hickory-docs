@@ -228,6 +228,14 @@ replace it. Refresh Files confirms permission in the same retained text
 field with its selection and scroll position. A native-model draft then
 round-trips through Undo and Redo with zero source publications. See
 `target/android-tree-first-startup-focused-retry.log`.
+Rendered Android also exercised the guarded 503 through a relay serving the
+real Files, raw, and confirmed source replies. The requested folder appeared
+while text was pending. Refresh kept the native editor frame and viewport
+when late raw text became editable. A native edit, Undo, and Redo preserved
+the expected drafts and left saved bytes unchanged. Android accessibility
+provided no numeric selection offset. The focused model test above checks
+exact nonempty selection retention. See
+`target/parity-rendered-android.sgYIt7/continuation-receipts/final-android-7_i4auql/startup-tree-first/tree-first-result.json`.
 
 Mounted AppKit repeated both cases against the freshly linked engine. A held
 Files response let the exact startup bytes appear first. Releasing Files and
