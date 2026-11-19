@@ -108,10 +108,11 @@ function useLspOver(client: LspClient | null, docPath: string, text: string, pro
       const engineEvidence = params.diagnostics.some(hasDiagnosticRevision);
       if (!engineEvidence && params.version !== undefined && params.version !== versionRef.current) return;
       const ticket = ++diagnosticTicket.current;
-      for (const diagnostic of params.diagnostics) bindDiagnosticSource(diagnostic);
+      const versionSource = !engineEvidence && params.version === versionRef.current ? lastSent.current ?? undefined : undefined;
+      for (const diagnostic of params.diagnostics) bindDiagnosticSource(diagnostic, versionSource);
       // Publish messages immediately; source evidence may arrive independently.
       setDiagnosticSnapshot({ uri, diagnostics: params.diagnostics,
-        ...(!engineEvidence && params.version === versionRef.current && lastSent.current !== null ? { source: lastSent.current } : {}) });
+        ...(versionSource === undefined ? {} : {source: versionSource}) });
       if (engineEvidence) {
         const source = textRef.current;
         const checking = digestCache.current?.source === source ? digestCache.current.digest : sourceDigest(source);

@@ -13,34 +13,37 @@ Present and edit the shared engine state. Browser-side revisions, pending reques
 <a id="f-b7e03171fcb6-nextWorkspaceProblem"></a>
 ### `nextWorkspaceProblem`
 
+F8 reads errors and warnings in the selected editor. A diagnostic must
+name the exact source and a valid coordinate before it can move the caret.
+
 <storycode:copy id="f-b7e03171fcb6-nextWorkspaceProblem">
 import { EditorView } from "@codemirror/view";
-import type { SessionRegistry } from "../views/documentSession";
 import { severityOf } from "../lib/problems";
-import { positionToUtf16 } from "../lsp/positions";
+import type { LspDiagnostic } from "../lsp/client";
+import { diagnosticBoundSource } from "../lsp/diagnosticRevision";
+import type { LspPosition } from "../lsp/positions";
+import { authoredSource } from "../simple/SourceText";
 
-export function nextWorkspaceProblem(registry: SessionRegistry, focusedId: string | null) {
-    const session = registry.get(focusedId);
-    const view = session?.docEditor;
-    const diagnostics = session?.lspDiagnostics ?? [];
-    if (!view || diagnostics.length === 0) return;
-    const ranked = [...diagnostics]
-      .filter((d) => severityOf(d) <= 2)
-      .map((d) => ({
-        d,
-        at: positionToUtf16(view.state.doc.toString(), d.range.start),
-      }))
-      .sort((a, b) => a.at - b.at);
-    if (ranked.length === 0) return;
-    const head = view.state.selection.main.head;
-    // Wraps: pressing it at the last problem takes you back to the first,
-    // which is what "next" means in a list you are working through.
-    const next = ranked.find((r) => r.at > head) ?? ranked[0];
-    view.dispatch({
-      selection: { anchor: next.at },
-      effects: EditorView.scrollIntoView(next.at, { y: "center" }),
-    });
-    view.focus();
+export function validProblemPosition(lines: readonly string[], {line, character}: LspPosition): boolean {
+  if (!Number.isSafeInteger(line) || line < 0 || !Number.isSafeInteger(character) || character < 0) return false;
+  const row = lines[line]?.replace(/\r$/, "");
+  return row !== undefined && character <= row.length &&
+    !/[\uD800-\uDBFF][\uDC00-\uDFFF]/.test(row.slice(character - 1, character + 1));
+}
+
+export function nextWorkspaceProblem(view: EditorView | null | undefined, diagnostics: readonly LspDiagnostic[]) {
+  if (!view || diagnostics.length === 0) return;
+  const source = authoredSource(view.state);
+  const lines = source.split("\n");
+  const ranked = diagnostics
+    .filter(d => severityOf(d) <= 2 && diagnosticBoundSource(d) === source && validProblemPosition(lines, d.range.start))
+    .map(({range: {start}}) => view.state.doc.line(start.line + 1).from + start.character)
+    .sort((a, b) => a - b);
+  if (ranked.length === 0) return;
+  const head = view.state.selection.main.head;
+  const next = ranked.find(at => at > head) ?? ranked[0];
+  view.dispatch({selection: {anchor: next}, effects: EditorView.scrollIntoView(next, {y: "center"})});
+  view.focus();
 }
 </storycode:copy>
 

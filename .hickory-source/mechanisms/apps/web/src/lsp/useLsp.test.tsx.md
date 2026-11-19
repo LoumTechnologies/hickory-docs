@@ -105,9 +105,11 @@ it("binds diagnostic positions to published versions and preserves unversioned m
     uri: "hick:///problem.py", ...(version === undefined ? {} : { version }), diagnostics: [{ message, range: { start: { line: 0, character: 0 }, end: { line: 0, character: 5 } } }],
   } })));
   publish(1, "current"); expect(hook.result.current.diagnosticSource).toBe("value = 1");
+  expect(revisionProof.diagnosticBoundSource(hook.result.current.diagnostics[0])).toBe("value = 1");
   hook.rerender({ text: "value = 2" }); expect(hook.result.current.diagnosticSource).not.toBe("value = 2");
   publish(99, "wrong version"); expect(hook.result.current.diagnostics[0].message).toBe("current");
   publish(undefined, "unknown source"); expect(hook.result.current.diagnostics[0].message).toBe("unknown source"); expect(hook.result.current.diagnosticSource).toBeUndefined();
+  expect(revisionProof.diagnosticBoundSource(hook.result.current.diagnostics[0])).toBeUndefined();
   hook.unmount();
 });
 </storycode:copy>

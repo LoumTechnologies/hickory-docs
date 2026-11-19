@@ -2760,6 +2760,16 @@ identical. A fresh result on line 3 converted byte column 6 after an
 emoji to UTF-16 column 4 and revealed exact offset 20. The browser made
 no source writes. See `target/main-folder-find-held-fixed-v1/browser.json`.
 
+Main Problems now passes the published source and exact UTF-16 column to
+the workspace before jumping. F8 cycles verified errors and warnings in
+the selected plain or managed editor. Real plain-file replays exercised
+both controls with genuine clangd and basedpyright. Their diagnostic hashes
+matched the saved source, and both controls reached offsets 78 and 39
+respectively in the same editor. Saved bytes stayed exact. The focused
+navigation test also skips unknown, stale and scalar-splitting positions.
+See `target/main-problems-clangd-fixed-v1/browser.json` and
+`target/main-problems-basedpyright-fixed-v1/browser.json`.
+
 Focused rebuilt-engine replays also passed for Python definition and
 Back/Forward, workspace search, delayed first-open authority and capabilities,
 and Debug and guarded patch review on both recorded Agent message sides.

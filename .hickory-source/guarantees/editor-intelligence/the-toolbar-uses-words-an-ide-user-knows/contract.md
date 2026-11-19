@@ -36,6 +36,9 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ProblemsPanel, problemRows } from "./ProblemsPanel";
+import { EditorView } from "@codemirror/view";
+import { nextWorkspaceProblem } from "../shell/nextWorkspaceProblem";
+import { bindDiagnosticSource } from "../lsp/diagnosticRevision";
 
 afterEach(cleanup);
 
@@ -111,11 +114,39 @@ describe("the panel", () => {
 });
 </storycode:copy>
 
+### Moving through diagnostic positions
+
+Navigation uses the selected editor's exact source. When it changes, a
+previously bound diagnostic no longer controls the caret.
+
+<storycode:copy id="focused-problems-position-witness">
+it("wraps verified problem positions and skips unknown or stale source", () => {
+  const source = "😀 one\nlast";
+  const first = at(0, 1, "first"), second = at(1, 2, "second"), splitScalar = at(0, 1, "bad column");
+  first.range.start.character = 3;
+  splitScalar.range.start.character = 1;
+  for (const diagnostic of [first, second, splitScalar]) bindDiagnosticSource(diagnostic, source);
+  const observed = [first, second, splitScalar, at(0, 1, "unknown source")];
+  const view = new EditorView({doc: source, parent: document.body});
+  try {
+    nextWorkspaceProblem(view, observed);
+    expect(view.state.selection.main.head).toBe(3);
+    nextWorkspaceProblem(view, observed);
+    expect(view.state.selection.main.head).toBe(7);
+    nextWorkspaceProblem(view, observed);
+    expect(view.state.selection.main.head).toBe(3);
+    view.dispatch({changes: {from: 3, insert: "changed "}, selection: {anchor: 0}});
+    nextWorkspaceProblem(view, observed);
+    expect(view.state.selection.main.head).toBe(0);
+  } finally { view.destroy(); }
+});
+</storycode:copy>
+
 ### Assemble `apps/web/src/components/ProblemsPanel.test.tsx`
 
 The selections below preserve the original byte order. Narrative reading order does not change the output.
 
-<storycode:file path="apps/web/src/components/ProblemsPanel.test.tsx"><storycode:paste select="#f-073ca08e3d2c-expression_statement"/><storycode:paste select="#f-073ca08e3d2c-at"/><storycode:paste select="#f-073ca08e3d2c-expression_statement-2"/><storycode:paste select="#f-073ca08e3d2c-expression_statement-3"/></storycode:file>
+<storycode:file path="apps/web/src/components/ProblemsPanel.test.tsx"><storycode:paste select="#f-073ca08e3d2c-expression_statement"/><storycode:paste select="#f-073ca08e3d2c-at"/><storycode:paste select="#f-073ca08e3d2c-expression_statement-2"/><storycode:paste select="#f-073ca08e3d2c-expression_statement-3"/><storycode:paste select="#focused-problems-position-witness"/></storycode:file>
 
 <a id="output-90498f11be4a"></a>
 ## `apps/web/src/components/ProblemsPanel.tsx`

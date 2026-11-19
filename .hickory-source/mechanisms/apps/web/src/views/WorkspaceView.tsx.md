@@ -61,6 +61,8 @@ import { ScratchpadPane } from "../components/ScratchpadPane";
 import { SearchPanel } from "../components/SearchPanel";
 import { ReferencesPanel } from "../components/ReferencesPanel";
 import { WorkspaceProblems } from "../environments/WorkspaceProblems";
+import type { ProblemRow } from "../components/ProblemsPanel";
+import { diagnosticBoundSource } from "../lsp/diagnosticRevision";
 import { useEnvironments } from "../environments/useEnvironments";
 import { EnvironmentNotice } from "../environments/EnvironmentPanel";
 import { PromptPanel, usePrompt } from "../components/PromptPanel";
@@ -102,7 +104,7 @@ import { plainSearchEditor } from "../lib/workspaceSearch";
 import { ReviewEvents } from "../shell/ReviewEvents";
 import { AgentStatusBar } from "../shell/AgentStatus";
 import { findNodeByPath, joinRel } from "../shell/workspacePaths";
-import { nextWorkspaceProblem } from "../shell/nextWorkspaceProblem";
+import { nextWorkspaceProblem, validProblemPosition } from "../shell/nextWorkspaceProblem";
 import {
   loadProvenanceLayers,
   saveProvenanceLayers,
@@ -577,7 +579,16 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   // the rows are read from the sessions when it draws, so a diagnostic that
   // arrives while it is open appears without a subscription of its own.
   const [problemsOpen, setProblemsOpen] = useState(false);
-  const goToNextProblem = useCallback(() => nextWorkspaceProblem(registry, focusedIdRef.current), [registry]);
+  const goToNextProblem = useCallback(() => {
+    const tab = focusIntent.current.tab;
+    if (tab?.kind === "file") {
+      const diagnostics = allFileProblems().find(file => file.path === tab.target)?.diagnostics ?? [];
+      nextWorkspaceProblem(plainSearchEditor(tab.target), diagnostics);
+    } else if (tab?.kind === "document") {
+      const session = registry.get(tab.docId);
+      nextWorkspaceProblem(session?.docEditor, session?.lspDiagnostics ?? []);
+    }
+  }, [registry]);
   // F8 — "go to the next problem" in every editor that has the idea, and the
   // verb the status-bar click used to be. Keeping it as a key rather than
   // dropping it is the point: the click now answers "what is wrong", and this
@@ -1062,6 +1073,29 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     const originCurrent = () => current() && readingCurrent();
     return visitSource({path: location.path, line: location.line, originCurrent, report: {sourceHash: location.sourceHash}});
   }, [captureReadingPosition, visitSource]);
+  const openProblem = useCallback(async ({docId, path, diagnostic}: ProblemRow) => {
+    const source = diagnosticBoundSource(diagnostic);
+    const {line, character} = diagnostic.range.start;
+    const readingCurrent = captureReadingPosition();
+    const diagnosticCurrent = () => {
+      const session = docId.startsWith("file:") ? undefined : registry.get(docId);
+      const diagnostics = docId.startsWith("file:")
+        ? allFileProblems().find(file => file.path === path)?.diagnostics
+        : session?.doc?.path === path ? session.lspDiagnostics : undefined;
+      return !!diagnostics?.includes(diagnostic) && diagnosticBoundSource(diagnostic) === source;
+    };
+    if (source === undefined || !diagnosticCurrent() || !validProblemPosition(source.split("\n"), {line, character})) {
+      setInsertNotice("This problem has no current source position. Wait for fresh diagnostics before opening it.");
+      return false;
+    }
+    try {
+      return await visitSource({path, line: line + 1, character, expectedSource: source,
+        originCurrent: () => readingCurrent() && diagnosticCurrent()});
+    } catch (error) {
+      setInsertNotice(error instanceof Error ? error.message : String(error));
+      return false;
+    }
+  }, [captureReadingPosition, registry, visitSource]);
   useEffect(() => {
     const stop = onOpenLocation(location => {
       const {path, line, character, expectedSource, originCurrent} = location;
@@ -2282,9 +2316,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         <WorkspaceProblems
           environments={environments}
           registry={registry}
-          openHit={openHit}
-          openDocument={ensureDocOpen}
-          navigate={navigate}
+          onPick={openProblem}
           onClose={() => setProblemsOpen(false)}
         />
       )}

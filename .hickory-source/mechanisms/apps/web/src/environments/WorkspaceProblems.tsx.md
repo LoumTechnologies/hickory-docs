@@ -21,27 +21,19 @@ import type { LspDiagnostic } from "../lsp/client";
 import type { SessionRegistry } from "../views/documentSession";
 import { allFileProblems } from "../lib/fileProblems";
 
-export function WorkspaceProblems({ registry, environments, openHit, openDocument, navigate, onClose }: {
+export function WorkspaceProblems({ registry, environments, onPick, onClose }: {
   registry: SessionRegistry;
   environments: Environments;
-  openHit: (path: string, line: number) => void;
-  openDocument: (id: string) => unknown;
-  navigate: (path: string) => void;
+  onPick: (row: ProblemRow) => Promise<boolean>;
   onClose: () => void;
 }) {
   const documents: { docId: string; path: string; diagnostics: readonly LspDiagnostic[] }[] = [
     ...registry.all().map((open) => ({ docId: open.docId, path: open.doc?.path ?? open.docId, diagnostics: open.lspDiagnostics ?? [] })),
     ...allFileProblems().map((file) => ({ docId: `file:${file.path}`, path: file.path, diagnostics: file.diagnostics })),
   ];
-  const onPick = (row: ProblemRow) => {
-    onClose();
-    if (row.docId.startsWith("file:")) { openHit(row.path, row.diagnostic.range.start.line + 1); return; }
-    openDocument(row.docId);
-    navigate(`/docs/${row.docId}`);
-    // The destination editor mounts after its tab opens.
-    window.setTimeout(() => registry.get(row.docId)?.revealDocLine(row.diagnostic.range.start.line), 0);
-  };
-  return <ProblemsPanel rows={problemRows(documents)} onPick={onPick} onClose={onClose}
+  return <ProblemsPanel rows={problemRows(documents)} onPick={row => {
+    void onPick(row).then(opened => { if (opened) onClose(); });
+  }} onClose={onClose}
     environments={<EnvironmentPanel environments={environments} />} />;
 }
 </storycode:copy>
