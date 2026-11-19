@@ -3111,6 +3111,20 @@ The original Markdown editor was retained and both native carets matched
 their source coordinates. See
 `target/appkit-managed-definition-v2-bundled-2026-11-19/receipt.json`.
 
+A separate mounted UIKit test loaded the exact saved files from the
+earlier Move and Redo fixture. The native command controller followed
+the genuine TypeScript result to `relocate.ts` at offset 16. Back
+restored the authored call at offset 179. Forward restored the updated
+destination caret at offset 41. The saved Markdown, module, and
+generated output stayed byte-identical. See
+`target/apple-managed-typescript-definition-fresh-uikit-2026-11-19/typescript-managed-move-definition-receipt.json`.
+Two attempts to combine the Move history and navigation in one mounted
+test aborted inside XCTest's Swift error observer before Definition.
+Both reached Save and the first also reached Undo. See the respective
+`target/apple-managed-typescript-move-definition-uikit-2026-11-19/concurrency-crash-stack.json`
+and
+`target/apple-managed-typescript-move-definition-uikit-retry-2026-11-19/concurrency-crash-stack.json`.
+
 Staged imports refresh when the authored document is prepared. Independent
 dependency changes retire stale locations until the next preparation.
 Go to Declaration tries the provider's dedicated method. When it

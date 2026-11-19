@@ -1321,6 +1321,10 @@ and check the saved namespace independently at every step. Save and each
 reviewed history action must retain the same native editor, undo manager and
 frame. The selection follows the replaced line between declaration and import,
 while the surrounding Markdown and dirty marker survive in the draft.
+The navigation case opens those exact published bytes in a fresh workspace.
+It queries from the Markdown call, opens the provider's workspace result and
+checks that Back and Forward restore the carets in both native editors,
+including a caret moved inside the destination after opening it.
 
 <ui:copy id="ios-mounted-managed-typescript-move">
 
@@ -1449,6 +1453,80 @@ extension UIKitParityAcceptanceTests {
         try await checkSaved(moved, created: true)
         try await checkEditor(moved, selected: importedSelection, dirty: false)
         NSLog("HickoryUIKitParity managed-typescript-move-redo-passed")
+    }
+
+    func testMountedManagedTypeScriptDefinitionRestoresCarets() async throws {
+        let destination = "relocate.ts"
+        let mounted = try await MountedIOSWorkspace(marker: ".hickory-managed-move-fixture", expected: "owned-managed-move-definition-v1\n", path: "notes.md")
+        defer { mounted.close() }
+        let workspace = mounted.workspace
+        let buffer = try XCTUnwrap(workspace.currentBuffer)
+        let editor = try await mounted.editor(buffer)
+        let source = buffer.text
+        let targetSource = #"export function relocate(name: string) { return "Hello " + name; }"# + "\n"
+        XCTAssertFalse(buffer.dirty)
+        XCTAssertTrue(source.contains(#"import { relocate } from "./relocate";"#))
+        XCTAssertTrue(source.hasSuffix("// retained dirty\n"))
+        let callRange = (source as NSString).range(of: #"relocate("Ada")"#)
+        guard callRange.location != NSNotFound else { throw EngineError(message: "The saved authored call is missing") }
+        let callCaret = NSRange(location: callRange.location + 3, length: 0)
+        XCTAssertEqual(callCaret.location, 179)
+        XCTAssertTrue(buffer.selectSourceRange?(callCaret, source) == true)
+        try await mounted.wait("The call caret did not reach the native editor") {
+            editor.selectedRange == callCaret && buffer.selection == callCaret
+        }
+        let language = try XCTUnwrap(buffer.language)
+        let declarationCaret = NSRange(location: "export function ".utf16.count, length: 0)
+        func destinationResult() -> SemanticLocation? {
+            language.locations.first {
+                $0.path == destination && $0.line == 0 && $0.character == declarationCaret.location
+            }
+        }
+        for _ in 0..<5 {
+            try mounted.command("semantic.definition")
+            try await Task.sleep(for: .milliseconds(150))
+            try await mounted.wait("TypeScript did not finish Go to Definition") {
+                !language.locationStatus.isEmpty && language.locationStatus != "Searching…"
+            }
+            if destinationResult() != nil { break }
+        }
+        let location = try XCTUnwrap(destinationResult(), language.locationStatus)
+        XCTAssertTrue(exactUTF8(language.locationSource, source))
+        XCTAssertEqual(language.locationSelection, callCaret)
+        language.open(location)
+        try await mounted.wait("Definition did not reveal the moved declaration") {
+            workspace.currentBuffer?.file.path == destination
+                && workspace.currentBuffer?.sourceEditorState?()?.selection == declarationCaret
+        }
+        let target = try XCTUnwrap(workspace.currentBuffer)
+        let targetEditor = try await mounted.editor(target)
+        XCTAssertTrue(exactUTF8(targetEditor.text, targetSource))
+        XCTAssertEqual(targetEditor.selectedRange, declarationCaret)
+        XCTAssertFalse(target.dirty)
+
+        let returnRange = (targetSource as NSString).range(of: "return")
+        guard returnRange.location != NSNotFound else { throw EngineError(message: "The moved declaration has no return statement") }
+        let updatedTargetCaret = NSRange(location: returnRange.location, length: 0)
+        XCTAssertEqual(updatedTargetCaret.location, 41)
+        XCTAssertTrue(target.selectSourceRange?(updatedTargetCaret, targetSource) == true)
+        try await mounted.wait("The updated declaration caret did not reach the native editor") {
+            targetEditor.selectedRange == updatedTargetCaret && target.selection == updatedTargetCaret
+        }
+        try mounted.command("navigation.back")
+        try await mounted.wait("Back did not restore the authored call caret") {
+            workspace.currentBuffer === buffer && buffer.sourceEditorState?()?.selection == callCaret
+        }
+        let caller = try await mounted.editor(buffer)
+        XCTAssertTrue(exactUTF8(caller.text, source))
+        XCTAssertEqual(caller.selectedRange, callCaret)
+        try mounted.command("navigation.forward")
+        try await mounted.wait("Forward did not restore the updated declaration caret") {
+            workspace.currentBuffer === target && target.sourceEditorState?()?.selection == updatedTargetCaret
+        }
+        let declarationEditor = try await mounted.editor(target)
+        XCTAssertTrue(exactUTF8(declarationEditor.text, targetSource))
+        XCTAssertEqual(declarationEditor.selectedRange, updatedTargetCaret)
+        NSLog("HickoryUIKitParity managed-typescript-move-definition-history-passed")
     }
 }
 </ui:copy>
@@ -2126,7 +2204,10 @@ production source-action adapter. The `typescript-extraction` and
 `typescript-managed-move` cases require the TypeScript fixture tools under
 `target/refactor-provider/node_modules`. The Move case also requires an explicit
 engine binary. Its host receipt compares the published Markdown and new module
-against exact fixture bytes after the mounted Save, Undo and Redo.
+against exact fixture bytes after the mounted Save, Undo and Redo. Run
+`typescript-managed-move-definition` to load those saved bytes in a separate
+owned workspace. A transparent provider relay records the staged TypeScript
+call position and the result that its mounted navigation commands follow.
 Both `workspace` and `recovery` use the
 installed environment from `--python-env`. The `proposal` case checks engine
 lifetime turnover before mounting its saved historical review. The optional
@@ -2197,6 +2278,8 @@ RECORDED_RUN_TARGET = 'HickorySimpleMobileRecordedRunTests'
 SCHEMES = {TARGET: 'HickorySimpleMobileParity', RECORDED_RUN_TARGET: 'HickorySimpleMobileRecordedRun'}
 PROPOSAL_DESTINATION = 'moved λ%2F?#.py'
 MANAGED_MOVE_WORKFLOW = 'typescript-managed-move'
+MANAGED_MOVE_DEFINITION_WORKFLOW = 'typescript-managed-move-definition'
+MANAGED_MOVE_WORKFLOWS = {MANAGED_MOVE_WORKFLOW, MANAGED_MOVE_DEFINITION_WORKFLOW}
 MANAGED_MOVE_DECLARATION = 'function relocate(name: string) { return "Hello " + name; }\n'
 MANAGED_MOVE_LITERAL = MANAGED_MOVE_DECLARATION + 'console.log(relocate("Ada"));\n'
 MANAGED_MOVE_IMPORT = 'import { relocate } from "./relocate";\n\n'
@@ -2226,6 +2309,9 @@ WORKFLOWS = {
     MANAGED_MOVE_WORKFLOW: ('testMountedManagedTypeScriptMovePublishesExactHistory', [
         'managed-typescript-move-preview-passed', 'managed-typescript-move-save-passed',
         'managed-typescript-move-inverse-passed', 'managed-typescript-move-redo-passed',
+    ]),
+    MANAGED_MOVE_DEFINITION_WORKFLOW: ('testMountedManagedTypeScriptDefinitionRestoresCarets', [
+        'managed-typescript-move-definition-history-passed',
     ]),
     'recovery': ('testMountedConnectedReadingAndPrivateRecovery', ['connected-impact-passed', 'private-recovery-passed']),
     'proposal': ('testMountedHistoricalProposalRefusesApplication', ['historical-proposal-passed']),
@@ -2267,7 +2353,7 @@ def recorded_fixture_path(folder, workflow, path):
 def workflow_target(workflow):
     return RECORDED_RUN_TARGET if workflow in {'recorded-run', 'proposal-native-send', 'python-definition'} or workflow in RECORDED_CONSTRUCTION_SIDES or workflow in GIT_WORKFLOWS else TARGET
 
-PYTHON_DEFINITION_TRACE = r'''
+DEFINITION_TRACE = r'''
 import json, signal, subprocess, sys
 from pathlib import Path
 from threading import Lock, Thread
@@ -2495,6 +2581,16 @@ def check_git_history(workspace, trace, head, baseline, saved):
     assert not any(row['method'] in {'PUT', 'PATCH', 'DELETE'} or row['path'] in {'/api/git/stage', '/api/git/unstage'} for row in rows), rows
     return sha
 
+def traced_definition_command(folder, workflow, command):
+    bridge = folder/f'{workflow}-trace.py'
+    bridge.write_text(DEFINITION_TRACE)
+    return [sys.executable, str(bridge), str(folder/f'{workflow}-provider.jsonl'), *command]
+
+def provider_uri_path(uri):
+    address = urllib.parse.urlsplit(uri)
+    assert address.scheme == 'file' and not address.netloc, uri
+    return Path(urllib.parse.unquote(address.path)).resolve()
+
 def check_python_definition(workspace):
     trace = workspace.parent/'python-definition-provider.jsonl'
     rows = [json.loads(line) for line in trace.read_text().splitlines()]
@@ -2502,20 +2598,39 @@ def check_python_definition(workspace):
     assert (request['event'], response['event']) == ('request', 'response'), rows
     sent, received = request['message'], response['message']
     assert sent['method'] == 'textDocument/definition' and sent['id'] == received['id'], rows
-    def local(uri):
-        address = urllib.parse.urlsplit(uri)
-        assert address.scheme == 'file' and not address.netloc, uri
-        return Path(urllib.parse.unquote(address.path)).resolve()
     params = sent['params']
-    assert local(params['textDocument']['uri']) == workspace/'main.py', params
+    assert provider_uri_path(params['textDocument']['uri']) == workspace/'main.py', params
     position = params['position']
     assert position == {'line': 2, 'character': 0}, position
     result = received['result']
     location, = result if isinstance(result, list) else [result]
     uri = location.get('targetUri', location.get('uri'))
     target = location.get('targetSelectionRange', location.get('range'))['start']
-    assert local(uri) == workspace/'helper.py' and target == {'line': 3, 'character': 4}, location
+    assert provider_uri_path(uri) == workspace/'helper.py' and target == {'line': 3, 'character': 4}, location
     return position, target
+
+def check_managed_move_definition(folder):
+    trace = folder/f'{MANAGED_MOVE_DEFINITION_WORKFLOW}-provider.jsonl'
+    rows = [json.loads(line) for line in trace.read_text().splitlines()]
+    requests = [row['message'] for row in rows if row['event'] == 'request']
+    assert requests, rows
+    for request in requests:
+        params = request['params']
+        assert request['method'] == 'textDocument/definition' and params['position'] == {'line': 2, 'character': 15}, request
+        staged = provider_uri_path(params['textDocument']['uri'])
+        assert staged.name == 'move.ts' and staged.parent.parent.name.startswith('hick-lsp-vfiles-'), request
+    result, = [row['message']['result'] for row in rows
+               if row['event'] == 'response' and row['message']['id'] == requests[-1]['id']]
+    location, = result if isinstance(result, list) else [result]
+    target = provider_uri_path(location.get('targetUri', location.get('uri')))
+    position = location.get('targetSelectionRange', location.get('range'))['start']
+    assert target == staged.with_name('relocate.ts') and position == {'line': 0, 'character': 16}, location
+    return {'staged_source': staged.name, 'request_position': params['position'],
+            'staged_definition': target.name, 'definition_position': position}
+
+def managed_move_publication(files):
+    saved = files['notes.md'].replace(MANAGED_MOVE_DECLARATION, MANAGED_MOVE_IMPORT, 1) + MANAGED_MOVE_MARKER
+    return {**files, 'notes.md': saved, 'relocate.ts': 'export ' + MANAGED_MOVE_DECLARATION}
 
 def prepare_workflow(workflow, workspace, python_env, slow_debug, recorded_fixtures=None):
     workspace.mkdir()
@@ -2527,10 +2642,8 @@ def prepare_workflow(workflow, workspace, python_env, slow_debug, recorded_fixtu
         provider = installed/'dist/pyright-langserver.js'
         node = shutil.which('node')
         assert node and provider.is_file(), 'The installed basedpyright fixture and local Node runtime are required'
-        bridge = workspace.parent/'python-definition-trace.py'
-        trace = workspace.parent/'python-definition-provider.jsonl'
-        bridge.write_text(PYTHON_DEFINITION_TRACE)
-        configuration = {'servers': {'python': {'command': [sys.executable, str(bridge), str(trace), node, str(provider), '--stdio']}}}
+        command = traced_definition_command(workspace.parent, workflow, [node, str(provider), '--stdio'])
+        configuration = {'servers': {'python': {'command': command}}}
         files = {'main.py': PYTHON_CALLER, 'helper.py': PYTHON_DEFINITION, '.hick-lsp.json': json.dumps(configuration)}
         for path, source in files.items():
             (workspace/path).write_text(source)
@@ -2597,19 +2710,22 @@ def prepare_workflow(workflow, workspace, python_env, slow_debug, recorded_fixtu
             '.hickory-ios-quickfix': 'owned-quickfix-v1\n',
         }
         sentinel = None
-    elif workflow in {'typescript-extraction', MANAGED_MOVE_WORKFLOW}:
+    elif workflow in {'typescript-extraction', *MANAGED_MOVE_WORKFLOWS}:
         tools = ROOT/'target/refactor-provider/node_modules'
         server = tools/'typescript-language-server/lib/cli.mjs'
         for name, version in TYPESCRIPT_PROVIDER_VERSIONS.items():
             assert json.loads((tools/name/'package.json').read_text())['version'] == version
         (workspace/'node_modules').mkdir()
         (workspace/'node_modules/typescript').symlink_to(tools/'typescript', target_is_directory=True)
+        command = ['node', str(server), '--stdio']
+        if workflow == MANAGED_MOVE_DEFINITION_WORKFLOW:
+            command = traced_definition_command(workspace.parent, workflow, command)
         files = {
-            '.hick-lsp.json': json.dumps({'servers': {'typescript': {'command': ['node', str(server), '--stdio']}}}),
+            '.hick-lsp.json': json.dumps({'servers': {'typescript': {'command': command}}}),
             'package.json': '{"type":"module"}',
             'tsconfig.json': '{"compilerOptions":{"strict":true,"target":"ES2022","ignoreDeprecations":"6.0"}}',
         }
-        if workflow == MANAGED_MOVE_WORKFLOW:
+        if workflow in MANAGED_MOVE_WORKFLOWS:
             namespace = '\x3chick:doc xmlns:hick="http://www.hickorydocs.com/1.0">\n'
             close = '\x3c/hick:doc>\n'
             files.update({
@@ -2620,6 +2736,9 @@ def prepare_workflow(workflow, workspace, python_env, slow_debug, recorded_fixtu
                             + '\x3c/hick:file>\n\nThe authored prose after the declaration remains.\n\n' + close,
                 'move.ts': MANAGED_MOVE_LITERAL,
             })
+            if workflow == MANAGED_MOVE_DEFINITION_WORKFLOW:
+                files = managed_move_publication(files)
+                files['.hickory-managed-move-fixture'] = 'owned-managed-move-definition-v1\n'
             subprocess.run(['git', '-C', str(workspace), 'init', '-q'], check=True)
         else:
             case = load_script('test-provider-refactor-host').CASES[0]
@@ -2754,11 +2873,7 @@ def run_workflow(workflow, device, seed, temporary_device, candidate, derived, d
                 summary = json.loads(subprocess.check_output(['xcrun', 'xcresulttool', 'get', 'test-results', 'summary', '--path', str(result)]))
                 (receipt/f'{prefix}-summary.json').write_text(json.dumps(summary, indent=2))
                 assert summary['result'] == 'Passed' and summary['totalTestCount'] == 1 and summary['passedTests'] == 1 and summary['failedTests'] == summary['skippedTests'] == 0, summary
-                expected = files
-                if workflow == MANAGED_MOVE_WORKFLOW:
-                    expected = {**files, 'relocate.ts': 'export ' + MANAGED_MOVE_DECLARATION}
-                    expected['notes.md'] = files['notes.md'].replace(
-                        MANAGED_MOVE_DECLARATION, MANAGED_MOVE_IMPORT, 1) + MANAGED_MOVE_MARKER
+                expected = managed_move_publication(files) if workflow == MANAGED_MOVE_WORKFLOW else files
                 for path, text in expected.items():
                     assert (workspace/path).read_bytes() == text.encode(), path
                 if sentinel:
@@ -2824,8 +2939,11 @@ def run_workflow(workflow, device, seed, temporary_device, candidate, derived, d
                 }
                 if workflow == 'proposal-save':
                     payload['saved_namespace_restored'] = True
-                elif workflow == MANAGED_MOVE_WORKFLOW:
+                elif workflow in MANAGED_MOVE_WORKFLOWS:
                     payload['provider_versions'] = TYPESCRIPT_PROVIDER_VERSIONS
+                    if workflow == MANAGED_MOVE_DEFINITION_WORKFLOW:
+                        payload['definition'] = check_managed_move_definition(folder)
+                        payload['source_unchanged'] = True
                     payload['saved_source_sha256'] = {
                         path: hashlib.sha256((workspace/path).read_bytes()).hexdigest()
                         for path in ['notes.md', 'relocate.ts', 'move.ts']
@@ -2866,13 +2984,13 @@ def run_workflow(workflow, device, seed, temporary_device, candidate, derived, d
             finally:
                 configured.unlink(missing_ok=True)
         finally:
-            if python_definition:
-                trace = folder/'python-definition-provider.jsonl'
+            if python_definition or workflow == MANAGED_MOVE_DEFINITION_WORKFLOW:
+                trace = folder/f'{workflow}-provider.jsonl'
                 if trace.exists():
-                    shutil.copyfile(trace, receipt/'python-definition-provider.jsonl')
+                    shutil.copyfile(trace, receipt/trace.name)
             if archive:
                 archive.stop_engine(fixture, engine, state)
-            elif recorded or live_authority or native_send or git_workflow or python_definition or workflow == MANAGED_MOVE_WORKFLOW:
+            elif recorded or live_authority or native_send or git_workflow or python_definition or workflow in MANAGED_MOVE_WORKFLOWS:
                 load_script('test-agent-proposal-persistence').stop_engine(fixture, engine, state)
             elif engine:
                 fixture.stop(engine)
@@ -3101,7 +3219,7 @@ def main():
   parser.error('Native Git review requires an explicit HICKORY_SIMPLE_TEST_ENGINE')
  if 'python-definition' in (args.workflow or []) and not os.environ.get('HICKORY_SIMPLE_TEST_ENGINE'):
   parser.error('Native Python definition requires an explicit HICKORY_SIMPLE_TEST_ENGINE')
- if MANAGED_MOVE_WORKFLOW in (args.workflow or []) and not os.environ.get('HICKORY_SIMPLE_TEST_ENGINE'):
+ if MANAGED_MOVE_WORKFLOWS.intersection(args.workflow or []) and not os.environ.get('HICKORY_SIMPLE_TEST_ENGINE'):
   parser.error('Managed TypeScript Move requires an explicit HICKORY_SIMPLE_TEST_ENGINE')
  if LIVE_STARTUP_AUTHORITY.intersection(args.workflow or []) and not os.environ.get('HICKORY_SIMPLE_TEST_ENGINE'):
   parser.error('Live startup authority requires an explicit HICKORY_SIMPLE_TEST_ENGINE')

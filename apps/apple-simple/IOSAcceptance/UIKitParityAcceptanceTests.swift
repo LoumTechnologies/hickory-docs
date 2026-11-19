@@ -1367,6 +1367,80 @@ extension UIKitParityAcceptanceTests {
         try await checkEditor(moved, selected: importedSelection, dirty: false)
         NSLog("HickoryUIKitParity managed-typescript-move-redo-passed")
     }
+
+    func testMountedManagedTypeScriptDefinitionRestoresCarets() async throws {
+        let destination = "relocate.ts"
+        let mounted = try await MountedIOSWorkspace(marker: ".hickory-managed-move-fixture", expected: "owned-managed-move-definition-v1\n", path: "notes.md")
+        defer { mounted.close() }
+        let workspace = mounted.workspace
+        let buffer = try XCTUnwrap(workspace.currentBuffer)
+        let editor = try await mounted.editor(buffer)
+        let source = buffer.text
+        let targetSource = #"export function relocate(name: string) { return "Hello " + name; }"# + "\n"
+        XCTAssertFalse(buffer.dirty)
+        XCTAssertTrue(source.contains(#"import { relocate } from "./relocate";"#))
+        XCTAssertTrue(source.hasSuffix("// retained dirty\n"))
+        let callRange = (source as NSString).range(of: #"relocate("Ada")"#)
+        guard callRange.location != NSNotFound else { throw EngineError(message: "The saved authored call is missing") }
+        let callCaret = NSRange(location: callRange.location + 3, length: 0)
+        XCTAssertEqual(callCaret.location, 179)
+        XCTAssertTrue(buffer.selectSourceRange?(callCaret, source) == true)
+        try await mounted.wait("The call caret did not reach the native editor") {
+            editor.selectedRange == callCaret && buffer.selection == callCaret
+        }
+        let language = try XCTUnwrap(buffer.language)
+        let declarationCaret = NSRange(location: "export function ".utf16.count, length: 0)
+        func destinationResult() -> SemanticLocation? {
+            language.locations.first {
+                $0.path == destination && $0.line == 0 && $0.character == declarationCaret.location
+            }
+        }
+        for _ in 0..<5 {
+            try mounted.command("semantic.definition")
+            try await Task.sleep(for: .milliseconds(150))
+            try await mounted.wait("TypeScript did not finish Go to Definition") {
+                !language.locationStatus.isEmpty && language.locationStatus != "Searching…"
+            }
+            if destinationResult() != nil { break }
+        }
+        let location = try XCTUnwrap(destinationResult(), language.locationStatus)
+        XCTAssertTrue(exactUTF8(language.locationSource, source))
+        XCTAssertEqual(language.locationSelection, callCaret)
+        language.open(location)
+        try await mounted.wait("Definition did not reveal the moved declaration") {
+            workspace.currentBuffer?.file.path == destination
+                && workspace.currentBuffer?.sourceEditorState?()?.selection == declarationCaret
+        }
+        let target = try XCTUnwrap(workspace.currentBuffer)
+        let targetEditor = try await mounted.editor(target)
+        XCTAssertTrue(exactUTF8(targetEditor.text, targetSource))
+        XCTAssertEqual(targetEditor.selectedRange, declarationCaret)
+        XCTAssertFalse(target.dirty)
+
+        let returnRange = (targetSource as NSString).range(of: "return")
+        guard returnRange.location != NSNotFound else { throw EngineError(message: "The moved declaration has no return statement") }
+        let updatedTargetCaret = NSRange(location: returnRange.location, length: 0)
+        XCTAssertEqual(updatedTargetCaret.location, 41)
+        XCTAssertTrue(target.selectSourceRange?(updatedTargetCaret, targetSource) == true)
+        try await mounted.wait("The updated declaration caret did not reach the native editor") {
+            targetEditor.selectedRange == updatedTargetCaret && target.selection == updatedTargetCaret
+        }
+        try mounted.command("navigation.back")
+        try await mounted.wait("Back did not restore the authored call caret") {
+            workspace.currentBuffer === buffer && buffer.sourceEditorState?()?.selection == callCaret
+        }
+        let caller = try await mounted.editor(buffer)
+        XCTAssertTrue(exactUTF8(caller.text, source))
+        XCTAssertEqual(caller.selectedRange, callCaret)
+        try mounted.command("navigation.forward")
+        try await mounted.wait("Forward did not restore the updated declaration caret") {
+            workspace.currentBuffer === target && target.sourceEditorState?()?.selection == updatedTargetCaret
+        }
+        let declarationEditor = try await mounted.editor(target)
+        XCTAssertTrue(exactUTF8(declarationEditor.text, targetSource))
+        XCTAssertEqual(declarationEditor.selectedRange, updatedTargetCaret)
+        NSLog("HickoryUIKitParity managed-typescript-move-definition-history-passed")
+    }
 }
 
 extension UIKitParityAcceptanceTests {
