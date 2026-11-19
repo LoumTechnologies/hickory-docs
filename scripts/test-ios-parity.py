@@ -12,6 +12,9 @@ PROPOSAL_DESTINATION = 'moved λ%2F?#.py'
 STARTUP_PATH = 'nested/entry # %.py'
 STARTUP_SOURCE = '# owned startup capability fixture\n' + ''.join(f'value_{i} = {i}\n' for i in range(180))
 STARTUP_AUTHORITY_PATH = 'nested/entry # %.md'
+GIT_REVIEW_BASELINE = 'print("committed baseline")\n'
+GIT_REVIEW_SAVED = 'print("saved working tree")\n'
+GIT_REVIEW_DRAFT_MARKER = '# retained local editor draft'
 STARTUP_AUTHORITY_MODES = {
     'startup-authority': 'confirmed', 'startup-authority-unavailable': 'unavailable', 'startup-authority-retry': 'retry',
     'startup-authority-live': 'confirmed', 'startup-authority-live-retry': 'retry',
@@ -29,6 +32,7 @@ WORKFLOWS = {
     'proposal-native-send': ('testNativeAgentSendAppliesBothDraftsAndReplaysHistory',
                              ['native-proposal-send-archived-exact-message', 'native-proposal-send-applied-and-replayed-two-drafts']),
     'proposal-save': ('testMountedManagedProposalPublishesReviewedResource', ['managed-resource-publication-passed', 'managed-resource-inverse-passed']),
+    'git-review': ('testNativeGitReviewStagesOnlySavedBytesAndRetainsDraft', ['native-git-review-staged-saved-only-and-retained-draft']),
     'startup': ('testMountedRequestedFileRetainsEditingThroughDelayedDiagnostics', ['requested-source-before-provider', 'delayed-diagnostic-kept-editor-state']),
     'startup-authority': ('testMountedRequestedTextPrecedesTreeAuthority', ['requested-text-before-tree-authority', 'late-tree-authority-kept-editor-state']),
     'startup-authority-unavailable': ('testMountedRequestedTextPrecedesTreeAuthority', ['requested-text-before-tree-authority', 'late-tree-authority-kept-editor-state']),
@@ -57,7 +61,7 @@ def recorded_fixture_path(folder, workflow, path):
     return folder/('recorded-debug' if workflow == 'recorded-run' else workflow)/path
 
 def workflow_target(workflow):
-    return RECORDED_RUN_TARGET if workflow in {'recorded-run', 'proposal-native-send'} or workflow in RECORDED_CONSTRUCTION_SIDES else TARGET
+    return RECORDED_RUN_TARGET if workflow in {'recorded-run', 'proposal-native-send', 'git-review'} or workflow in RECORDED_CONSTRUCTION_SIDES else TARGET
 
 STARTUP_PROVIDER = r'''
 import json
@@ -155,11 +159,56 @@ def engine_command(workspace):
     binary = os.environ.get('HICKORY_SIMPLE_TEST_ENGINE', str(ROOT/'target/source-edit-focus/debug/examples/engine_client'))
     return [binary, str(workspace), 'window', f'http://127.0.0.1:{port}']
 
+def git_output(workspace, *arguments):
+    return subprocess.check_output(['git', '-C', str(workspace), *arguments])
+
+def observe_git_review(workspace, method, address, request, status, response):
+    path = urllib.parse.urlsplit(address).path
+    if status != 200:
+        return {}
+    if method == 'GET' and path == '/api/git/diff':
+        return {'diff': json.loads(response)['diff']}
+    if method == 'POST' and path in {'/api/git/stage', '/api/git/unstage'}:
+        return {'paths': json.loads(request)['paths'],
+                'index_sha256': hashlib.sha256(git_output(workspace, 'show', ':note.py')).hexdigest()}
+    return {}
+
+def check_git_review(workspace, trace, head):
+    rows = [json.loads(line) for line in trace.read_text().splitlines()]
+    mutations = [row for row in rows if row['method'] == 'POST' and row['path'] in {'/api/git/stage', '/api/git/unstage'}]
+    assert [row['path'] for row in mutations] == ['/api/git/stage', '/api/git/unstage'], mutations
+    for row, expected in zip(mutations, (GIT_REVIEW_SAVED, GIT_REVIEW_BASELINE)):
+        assert row['status'] == 200 and row['paths'] == ['note.py'], row
+        assert row['index_sha256'] == hashlib.sha256(expected.encode()).hexdigest(), row
+    diffs = [row for row in rows if row['method'] == 'GET' and urllib.parse.urlsplit(row['path']).path == '/api/git/diff']
+    sides = set()
+    for row in diffs:
+        query = urllib.parse.parse_qs(urllib.parse.urlsplit(row['path']).query)
+        assert row['status'] == 200 and query['path'] == ['note.py'], row
+        assert '-'+GIT_REVIEW_BASELINE in row['diff'] and '+'+GIT_REVIEW_SAVED in row['diff'], row
+        assert GIT_REVIEW_DRAFT_MARKER not in row['diff'], row
+        sides.update(query['staged'])
+    assert sides == {'false', 'true'}, diffs
+    assert git_output(workspace, 'rev-parse', 'HEAD') == head
+    assert git_output(workspace, 'diff', '--cached', '--', 'note.py') == b''
+    assert (workspace/'note.py').read_bytes() == GIT_REVIEW_SAVED.encode()
+    assert not any(row['method'] in {'PUT', 'PATCH', 'DELETE'} for row in rows), rows
+    return mutations
+
 def prepare_workflow(workflow, workspace, python_env, slow_debug, recorded_fixtures=None):
     workspace.mkdir()
     if workflow in RECORDED_CONSTRUCTION_SIDES:
         side = RECORDED_CONSTRUCTION_SIDES[workflow]
         return load_script('test-simple-browser').prepare_recorded_construction(workspace, side), None
+    if workflow == 'git-review':
+        note = workspace/'note.py'
+        note.write_text(GIT_REVIEW_BASELINE)
+        git_output(workspace, 'init', '-q')
+        git_output(workspace, 'add', '--', 'note.py')
+        git_output(workspace, '-c', 'user.name=Owned fixture', '-c', 'user.email=fixture@example.invalid',
+                   'commit', '-qm', 'Commit owned baseline')
+        note.write_text(GIT_REVIEW_SAVED)
+        return {'note.py': GIT_REVIEW_SAVED}, None
     if workflow == 'editing':
         (workspace/'src').mkdir()
         (workspace/'.git').mkdir()
@@ -264,6 +313,7 @@ def run_workflow(workflow, device, seed, temporary_device, candidate, derived, d
         if workflow in ('recorded-debug', 'recorded-run'):
             environment['PATH'] = str(python_env.resolve()/'bin') + os.pathsep + environment['PATH']
         native_send = workflow == 'proposal-native-send'
+        git_review = workflow == 'git-review'
         managed = load_script('test-agent-proposals-browser') if workflow in {'proposal-apply', 'proposal-save', 'proposal-native-send'} else None
         if managed:
             settings, calls, tool_result = managed.provider_fixture(folder)
@@ -320,6 +370,14 @@ def run_workflow(workflow, device, seed, temporary_device, candidate, derived, d
                 send_wire = receipt/'proposal-native-send-http.jsonl'
                 origin = cleanup.enter_context(managed.trace_appkit_send(upstream, send_wire))
                 metadata['HICKORY_IOS_PROPOSAL_PROMPT'] = managed.PROMPT
+            if git_review:
+                git_head = git_output(workspace, 'rev-parse', 'HEAD')
+                git_wire = receipt/'git-review-http.jsonl'
+                transport = load_script('test-agent-proposals-browser')
+                origin = cleanup.enter_context(transport.trace_appkit_send(
+                    upstream, git_wire, observe=lambda *event: observe_git_review(workspace, *event)))
+                metadata.update(HICKORY_IOS_GIT_BASELINE=GIT_REVIEW_BASELINE, HICKORY_IOS_GIT_SAVED=GIT_REVIEW_SAVED,
+                                HICKORY_IOS_GIT_DRAFT_MARKER=GIT_REVIEW_DRAFT_MARKER)
             if archive:
                 catalogue = archive.call(origin, 'GET', '/api/agent-proposals')
                 assert catalogue['workspace'] != original['workspace'], 'Expected a new owned engine lifetime'
@@ -388,6 +446,8 @@ def run_workflow(workflow, device, seed, temporary_device, candidate, derived, d
                                                workspace, upstream, tool_result, wire=send_wire, log=log,
                                                receipt=receipt/'proposal-native-send-wire-receipt.json',
                                                scope='iOS simulator native keyboard, Send, sealed review, draft Apply and coordinated Edit menu Undo/Redo')
+                if git_review:
+                    index_receipts = check_git_review(workspace, git_wire, git_head)
                 observed = log.read_text()
                 if live_authority:
                     check_live_startup_authority(workspace.resolve(), authority_wire, observed)
@@ -412,6 +472,10 @@ def run_workflow(workflow, device, seed, temporary_device, candidate, derived, d
                 if native_send:
                     payload['keyboard_input_verified'] = True
                     payload['native_send_wire_receipt'] = 'proposal-native-send-wire-receipt.json'
+                if git_review:
+                    payload['keyboard_input_verified'] = True
+                    payload['git_index_receipts'] = index_receipts
+                    payload['fixture_sha256'] = {'note.py': hashlib.sha256(GIT_REVIEW_SAVED.encode()).hexdigest()}
                 if workflow == 'recorded-run':
                     payload['rendered_terminal_accessibility_verified'] = True
                 if authority_mode:
@@ -426,7 +490,7 @@ def run_workflow(workflow, device, seed, temporary_device, candidate, derived, d
         finally:
             if archive:
                 archive.stop_engine(fixture, engine, state)
-            elif recorded or live_authority or native_send:
+            elif recorded or live_authority or native_send or git_review:
                 load_script('test-agent-proposal-persistence').stop_engine(fixture, engine, state)
             elif engine:
                 fixture.stop(engine)
@@ -651,6 +715,8 @@ def main():
   parser.error('Recorded construction requires an explicit HICKORY_SIMPLE_TEST_ENGINE')
  if 'proposal-native-send' in (args.workflow or []) and not os.environ.get('HICKORY_SIMPLE_TEST_ENGINE'):
   parser.error('Native proposal Send requires an explicit HICKORY_SIMPLE_TEST_ENGINE')
+ if 'git-review' in (args.workflow or []) and not os.environ.get('HICKORY_SIMPLE_TEST_ENGINE'):
+  parser.error('Native Git review requires an explicit HICKORY_SIMPLE_TEST_ENGINE')
  if LIVE_STARTUP_AUTHORITY.intersection(args.workflow or []) and not os.environ.get('HICKORY_SIMPLE_TEST_ENGINE'):
   parser.error('Live startup authority requires an explicit HICKORY_SIMPLE_TEST_ENGINE')
  if recorded_workflows:

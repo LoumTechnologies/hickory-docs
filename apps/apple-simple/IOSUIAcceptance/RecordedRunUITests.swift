@@ -238,3 +238,67 @@ extension RecordedRunUITests {
         NSLog("HickoryUIKitParity native-proposal-send-applied-and-replayed-two-drafts")
     }
 }
+extension RecordedRunUITests {
+    @MainActor func testNativeGitReviewStagesOnlySavedBytesAndRetainsDraft() throws {
+        continueAfterFailure = false
+        let environment = ProcessInfo.processInfo.environment
+        let origin = try XCTUnwrap(environment["HICKORY_IOS_PARITY_ORIGIN"])
+        let baseline = try XCTUnwrap(environment["HICKORY_IOS_GIT_BASELINE"])
+        let saved = try XCTUnwrap(environment["HICKORY_IOS_GIT_SAVED"])
+        let draftMarker = try XCTUnwrap(environment["HICKORY_IOS_GIT_DRAFT_MARKER"])
+        let path = "note.py"
+        let app = XCUIApplication()
+        app.launchEnvironment["HICKORY_API_ORIGIN"] = origin
+        app.launchEnvironment["HICKORY_OPEN_FILE"] = path
+        app.launch()
+
+        func tap(_ title: String) {
+            let button = app.buttons[title].firstMatch
+            XCTAssertTrue(button.waitForExistence(timeout: 15), title)
+            XCTAssertTrue(button.isHittable && button.isEnabled, title)
+            button.tap()
+        }
+        func read(_ phrase: String) {
+            let label = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@ OR value CONTAINS %@", phrase, phrase)).firstMatch
+            XCTAssertTrue(label.waitForExistence(timeout: 12), phrase)
+        }
+        func diff(_ side: String) {
+            tap("\(side) \(path)")
+            let removed = "-" + baseline.trimmingCharacters(in: .newlines)
+            let added = "+" + saved.trimmingCharacters(in: .newlines)
+            let exact = app.descendants(matching: .any).matching(NSPredicate(format:
+                "(label CONTAINS %@ AND label CONTAINS %@ AND NOT label CONTAINS %@) OR (value CONTAINS %@ AND value CONTAINS %@ AND NOT value CONTAINS %@)",
+                removed, added, draftMarker, removed, added, draftMarker)).firstMatch
+            XCTAssertTrue(exact.waitForExistence(timeout: 15), "The \(side) diff must show the exact saved hunk")
+        }
+
+        let editor = app.textViews[path].firstMatch
+        XCTAssertTrue(editor.waitForExistence(timeout: 20))
+        tap("View"); tap("Agent")
+        tap(path)
+        let loaded = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", saved), object: editor)
+        XCTAssertEqual(XCTWaiter.wait(for: [loaded], timeout: 10), .completed)
+        let frame = editor.frame.integral
+        editor.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 8))
+        editor.typeText(draftMarker)
+        let draft = try XCTUnwrap(editor.value as? String)
+        XCTAssertTrue(draft.contains(draftMarker)); XCTAssertNotEqual(draft, saved)
+        tap("Agent")
+        XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 10))
+        tap("View"); tap("Repository changes")
+        read("Saved working tree and index. Unsaved editor drafts are not included.")
+        diff("Working tree")
+        tap("Stage saved file")
+        read("Saved paths staged.")
+        diff("Staged")
+        tap("Unstage file")
+        read("Saved paths unstaged.")
+        tap("Close")
+        tap(path)
+        XCTAssertTrue(editor.waitForExistence(timeout: 12))
+        XCTAssertEqual(editor.value as? String, draft)
+        XCTAssertEqual(editor.frame.integral, frame)
+        NSLog("HickoryUIKitParity native-git-review-staged-saved-only-and-retained-draft")
+    }
+}

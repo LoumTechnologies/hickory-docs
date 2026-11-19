@@ -88,7 +88,7 @@ def controlled_tool(origin,calls,result,captured,edit):
   time.sleep(.05)
  raise AssertionError('Controlled ACP tool did not retain a pending coherent proposal')
 @contextmanager
-def trace_appkit_send(origin, evidence):
+def trace_appkit_send(origin, evidence, *, observe=None):
     upstream = urllib.parse.urlsplit(origin)
     lock = threading.Lock()
     hop = {"connection", "host", "transfer-encoding", "content-length", "keep-alive", "upgrade"}
@@ -133,6 +133,8 @@ def trace_appkit_send(origin, evidence):
                     row["response"] = json.loads(body)
                 if selected:
                     row["fixture_backend_translation"] = [original["backend"], forwarded["backend"]]
+                if observe is not None:
+                    row.update(observe(self.command, self.path, data, response.status, body))
                 trace(row)
                 self.send_response(response.status)
                 for name, value in response.getheaders():

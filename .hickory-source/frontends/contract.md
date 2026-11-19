@@ -47,6 +47,16 @@ device IME and assistive technology need their own acceptance. The emulator
 originally refused userdata allocation. An owned API 36 emulator booted after
 inactive compiler caches were reclaimed, and the checkpoint Android APK built.
 
+### iPhone Git review with an unsaved draft
+
+The iPhone simulator opened Repository changes from the View menu after
+typing a distinct unsaved draft. Working Tree and Staged both displayed
+the exact committed-to-saved diff. Stage wrote the saved working file's
+bytes to the index. Unstage restored the committed blob and left an empty
+staged diff. The editor showed the same draft bytes and frame afterward.
+The saved working file and HEAD stayed unchanged. The disposable simulator
+was deleted. See `target/apple-git-review-uikit-retry-2026-11-19/`.
+
 ### Requested files and capability arrival
 
 The shared Simple launcher now passes the exact workspace-relative requested
