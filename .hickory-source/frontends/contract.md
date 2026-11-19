@@ -849,7 +849,7 @@ The browser's Node attach received Started and the target reported
 `Debugger attached`. js-debug then requested a child session with
 `startDebugging`. The host did not answer that request, and the target's
 debugger statement produced no rendered pause in the bounded replay.
-Watch and detach remain open. The adapter and host traces are in
+That replay could not exercise Watch or detach. The adapter and host traces are in
 `target/mobile-provider-followup/js-debug-attach-first`.
 The explicit `pwa-node` attach now follows the adapter's child on the same
 loopback endpoint. Two focused TCP fixtures passed. They checked ordinary
@@ -860,8 +860,14 @@ crate against a consistent cached dependency graph. A separate replay through
 that debugger crate and genuine js-debug paused an owned Node process, evaluated
 Watch as `41` and withheld saved-source authority. Both connections detached
 without terminating the target. It remained alive, then produced `42` and exit
-0 after the fixture released it. A rendered browser rerun is still required.
+0 after the fixture released it.
 See `target/dap-owned-js-attach-2026-11-19/`.
+The rendered Simple Browser replay then passed on the rebuilt `224854bb`
+engine. The real attached frame supported Watch `41`. Stop detached both
+connections with target termination disabled, and the target remained alive
+until release. It then printed `42` and exited 0. Editor identity, dimensions
+and saved source bytes stayed exact. The browser did not claim source authority.
+See `target/node-browser-rendered-224854bb/`.
 The confined CodeLLDB 1.12.3 install and direct DAP initialize passed. Its
 first simple-host Rust attempt stopped before Started. A fresh browser replay
 started the actual adapter, stopped at line 3 and displayed the inline value
