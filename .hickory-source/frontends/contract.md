@@ -2773,7 +2773,7 @@ See `target/main-problems-clangd-fixed-v1/browser.json` and
 Main Find References keeps the result list tied to the originating editor,
 caret, workspace and foreground tab. Selecting a row rechecks that context
 through the destination read and compares saved bytes with any retained
-cross-file editor. The provider supplies a URI and UTF-16 position; the
+cross-file editor. The provider supplies a URI and UTF-16 position. The
 target read has no provider-supplied revision to compare. A genuine
 basedpyright replay used Shift+F12 from a declaration and selected a use
 after an emoji in another file. The caret reached offset 53 at the reported
@@ -2783,6 +2783,28 @@ replay, moving the declaration caret during the held destination read
 kept that editor active after HTTP 200. Dismissing the old list and
 issuing a fresh search reached the same exact offset. See
 `target/main-references-genuine-held-v1/browser.json`.
+
+Main File Structure uses the existing floating prompt on authored editors.
+Ctrl+F12 loads named declarations from the language provider. The filter
+searches all returned names, including qualified child symbols. Selecting a
+row reveals its start in the same editor. A genuine basedpyright Chromium
+replay selected `OwnedStructure.target_method` at UTF-16 offset 84 without
+changing the editor frame or source. An earlier reply held across a real tab
+switch opened no dialog and left the newer editor active. See
+`target/main-document-outline-fixed-held-v1/browser.json`.
+With the same installed provider, mixed-case filtering and Enter reached
+offset 84 in a plain file and offset 204 in a managed document opened from
+Files. The managed result mapped a declaration in the constructed Python
+output back to its authored position. Both editors kept their identity,
+dimensions and text through the interaction. Neither run wrote source.
+See `target/main-document-outline-final-filter-v1/browser.json` and
+`target/main-document-outline-hook-fixed-managed-output-v1/browser.json`.
+An ordinary Python fence in a managed document also reached its declaration
+at authored offset 169 after the provider received its private inspection
+document. A cold query before inspection preparation completed returned an
+empty list. The source editor stayed available and a fresh query worked after
+preparation. See
+`target/main-document-outline-hook-fixed-managed-fence-ready-v1/browser.json`.
 
 Focused rebuilt-engine replays also passed for Python definition and
 Back/Forward, workspace search, delayed first-open authority and capabilities,

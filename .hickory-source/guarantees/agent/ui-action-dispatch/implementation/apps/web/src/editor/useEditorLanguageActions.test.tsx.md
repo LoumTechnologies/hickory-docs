@@ -109,6 +109,10 @@ it("tracks late language providers, shares mapped navigation and retains bounded
 <a id="f-a7aead7d56cd-expression_statement-3"></a>
 ### `expression_statement`
 
+The Structure action tests the normalized declaration location in the
+current editor. A qualified child is selectable, a foreign or split-scalar
+location is skipped, and a valid choice becomes stale when the caret moves.
+
 <storycode:copy id="f-a7aead7d56cd-expression_statement-3">
 it("keeps provider revisions opaque and forwards the actual actor", async () => {
   const { editorLanguageActions } = await import("./languageActions");
@@ -124,6 +128,40 @@ it("keeps provider revisions opaque and forwards the actual actor", async () => 
     await act(async () => { result = await registry.act(registry.scope, { id: "acp:actual", kind: "agent" }, { handle: actions.find(action => action.label === "Read public provider status")!.handle, arguments: {}, request_id: "actor" }); });
     expect(result).toMatchObject({ outcome: { status: "completed", value: { actor: "acp:actual" } } });
   } finally { cleanup(); view.destroy(); host.remove(); }
+});
+
+it("reveals only a current authored Structure position", async () => {
+  const { editorLanguageActions } = await import("./languageActions");
+  const host = document.body.appendChild(document.createElement("div"));
+  const uri = "hick:///source.py";
+  const rangeAt = (character: number) => ({start: {line: 0, character}, end: {line: 0, character}});
+  const client = {documentSymbols: vi.fn().mockResolvedValue([
+    {name: "Outer", selectionRange: rangeAt(0), children: [
+      {name: "member", selectionRange: rangeAt(3)},
+      {name: "split", selectionRange: rangeAt(2)},
+    ]},
+    {name: "foreign", location: {uri: "hick:///other.py", range: rangeAt(4)}},
+  ])} as unknown as LspClient;
+  let choose!: (offset: number) => void;
+  const chooseOutline = vi.fn((_options, _current) => new Promise<number | null>(resolve => { choose = resolve; }));
+  const view = new EditorView({parent: host, state: EditorState.create({doc: "x😀member", extensions: lspSupport({
+    client, uri, navigationIntent: true, chooseOutline, positionAt: () => null, onNavigate: vi.fn(),
+  })})});
+  try {
+    const action = view.state.facet(editorLanguageActions).find(action => action.id.endsWith(":outline"))!;
+    const run = () => action.execute(view, {}, new AbortController().signal);
+    expect(await run()).toMatchObject({status: "completed", value: {total: 2}});
+    expect(chooseOutline.mock.calls[0][0]).toEqual([{label: "Outer  1:1", value: 0}, {label: "Outer.member  1:4", value: 3}]);
+    view.dispatch({selection: {anchor: 1}});
+    choose(3);
+    await Promise.resolve();
+    expect(view.state.selection.main.head).toBe(1);
+    await run();
+    choose(3);
+    await Promise.resolve();
+    expect(view.state.selection.main.head).toBe(3);
+    expect(view.state.doc.toString()).toBe("x😀member");
+  } finally { view.destroy(); host.remove(); }
 });
 </storycode:copy>
 

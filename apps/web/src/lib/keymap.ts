@@ -87,6 +87,7 @@ export const ACTIONS: readonly ActionSpec[] = [
   // The editor.
   { id: "editor.definition", label: "Go to definition", scope: "editor", keys: { hickory: "F12", jetbrains: "Mod+B" } },
   { id: "editor.references", label: "Find references", scope: "editor", keys: { hickory: "Shift+F12", jetbrains: "Alt+F7" } },
+  { id: "editor.structure", label: "File structure", scope: "editor", keys: { hickory: "Ctrl+F12", jetbrains: "Mod+F12" } },
   { id: "editor.find", label: "Find", scope: "editor", keys: { hickory: "Mod+F" } },
   { id: "editor.format", label: "Format document", scope: "editor", keys: { hickory: "Shift+Alt+F", jetbrains: "Mod+Alt+L", visualstudio: "Mod+K Mod+D" } },
   { id: "editor.rename", label: "Rename symbol", scope: "editor", keys: { hickory: "F2", jetbrains: "Shift+F6", visualstudio: "Mod+R Mod+R" } },

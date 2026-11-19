@@ -67,6 +67,8 @@ import { renderHoverMarkdown } from "./hoverMarkdown";
 import type { DecorationSet, Tooltip } from "@codemirror/view";
 import type { LspClient, LspDiagnostic, LspLocation } from "./client";
 import type { LspPosition } from "./positions";
+import { sameDocumentUri } from "./documentUri";
+import { semanticLocations } from "../simple/Intelligence";
 
 export interface LspNavigationTarget {
   uri: string;
@@ -97,6 +99,8 @@ export interface CmLspOptions {
   captureNavigationContext?: () => () => boolean;
   /** Show a reference list (empty array means "none found"). */
   onReferences?: (locations: LspLocation[], from: LspNavigationTarget, current: () => boolean) => void;
+  /** Only install Structure on editors whose text is in the request URI's coordinates. */
+  chooseOutline?: (options: {label: string; value: number}[], current: () => boolean) => Promise<number | null>;
   /**
    * What this identifier currently HOLDS, when a debugger is paused.
    *
@@ -287,41 +291,75 @@ export function identifierAt(text: string, offset: number): string | null {
 <a id="f-0f1f50575dc9-lspSupport"></a>
 ### `lspSupport`
 
+Structure requests symbols for the whole authored source. The result uses
+each named symbol's selection start and rejects foreign URIs or positions
+outside that editor. A request and its later selection share the same
+navigation guard, so choosing a result never reopens a departed editor.
+
 <storycode:copy id="f-0f1f50575dc9-lspSupport">
 export function lspSupport(opts: CmLspOptions): Extension[] {
   const { client, uri, positionAt, targetAt, onNavigate, onReferences, runtimeValue } = opts;
   let navigationRevision = 0;
   const target = (offset: number, view: EditorView) => targetAt ? targetAt(offset, view) : (() => { const position = positionAt(offset, view); return position ? {uri,position} : null; })();
   if (!client) return [lspDiagnosticField];
+  const outlineKey = opts.chooseOutline ? cmKeyOf("editor.structure") : null;
 
+  const captureIntent = (view: EditorView, signal?: AbortSignal) => {
+    const original = view.state.doc, revision = ++navigationRevision;
+    const intent = opts.navigationIntent === true
+      ? () => navigationRevision === revision
+      : opts.navigationIntent?.(view);
+    const contextCurrent = opts.captureNavigationContext?.();
+    return {
+      original,
+      current: () => !signal?.aborted && view.state.doc === original && view.dom.isConnected
+        && (!intent || intent()) && (!contextCurrent || contextCurrent()),
+    };
+  };
   const requestAt = async (
     offset: number,
     view: EditorView,
     what: "definition" | "references",
     signal?: AbortSignal,
   ): Promise<UiOutcome> => {
-    const original = view.state.doc;
     const location = target(offset, view);
     if (!location) return { status: "unavailable", reason: "Position has no mapped language source" };
     const {uri,position} = location;
     const from: LspNavigationTarget = { uri, range: { start: position, end: position } };
-    const revision = ++navigationRevision;
-    const intent = opts.navigationIntent === true
-      ? () => navigationRevision === revision
-      : opts.navigationIntent?.(view);
-    const contextCurrent = opts.captureNavigationContext?.();
-    const current = () => !signal?.aborted && view.state.doc === original
-      && view.dom.isConnected && (!intent || intent()) && (!contextCurrent || contextCurrent());
+    const {current} = captureIntent(view, signal);
     try {
       const locations = await (what === "definition" ? client.definition(uri, position) : client.references(uri, position));
       if (!current()) return { status: "unavailable", reason: "Navigation source changed, editor closed or request cancelled" };
       if (what === "definition" && locations.length) {
-        if (intent) onNavigate(locations[0], current);
+        if (opts.navigationIntent) onNavigate(locations[0], current);
         else onNavigate(locations[0]);
       }
       if (what === "references") onReferences?.(locations, from, current);
       return { status: "completed", value: { kind: what, total: locations.length, navigation_requested: what === "definition" && locations.length > 0, references_requested: what === "references" && !!onReferences, scope: "Actual language-provider response and shared navigation callback; navigation is not an execution witness" } };
     } catch (e) { return { status: "unavailable", reason: e instanceof Error ? e.message : String(e) }; }
+  };
+  const requestOutline = async (view: EditorView, signal?: AbortSignal): Promise<UiOutcome> => {
+    const {chooseOutline} = opts;
+    if (!chooseOutline) return {status: "unavailable", reason: "File Structure is unavailable for this editor"};
+    const {original, current} = captureIntent(view, signal);
+    try {
+      const symbols = semanticLocations(await client.documentSymbols(uri), uri, true);
+      if (!current()) return {status: "unavailable", reason: "The source or foreground editor changed"};
+      const options = symbols.flatMap(({name, uri: targetUri, range: {start: {line, character}}}) => {
+        if (!name || !sameDocumentUri(uri, targetUri) || line >= original.lines) return [];
+        const row = original.line(line + 1);
+        if (character > row.length || /[\uD800-\uDBFF][\uDC00-\uDFFF]/.test(row.text.slice(character - 1, character + 1))) return [];
+        return [{label: `${name}  ${line + 1}:${character + 1}`, value: row.from + character}];
+      });
+      void chooseOutline(options, current).then(offset => {
+        if (offset === null || !current()) return;
+        view.dispatch({selection: {anchor: offset}, effects: EditorView.scrollIntoView(offset, {y: "center"})});
+        view.focus();
+      });
+      return {status: "completed", value: {total: options.length, structure_requested: true}};
+    } catch (error) {
+      return {status: "unavailable", reason: error instanceof Error ? error.message : String(error)};
+    }
   };
   let hoverSnapshot: { source: Text; id: string; bytes: Uint8Array } | undefined;
   const hoverAt = async (view: EditorView, pos: number) => {
@@ -341,6 +379,10 @@ export function lspSupport(opts: CmLspOptions): Extension[] {
 
   return [
     lspDiagnosticField,
+    ...(opts.chooseOutline ? [editorLanguageActions.of({
+      id: `${uri}:outline`, label: `File structure (${uri.slice(0, 200)})`, parameters: {},
+      enabled: () => true, execute: (view, _args, signal) => requestOutline(view, signal),
+    })] : []),
     ...(["definition", "references"] as const).map(what => editorLanguageActions.of({
       id: `${uri}:${what}`, label: `${what === "definition" ? "Go to definition" : "Find references"} at editor cursor (${uri.slice(0, 200)})`, parameters: {},
       enabled: view => !!target(view.state.selection.main.head, view),
@@ -424,6 +466,7 @@ export function lspSupport(opts: CmLspOptions): Extension[] {
       if (update.docChanged || update.selectionSet) navigationRevision++;
     })] : []),
     keymap.of([
+      ...(outlineKey ? [{key: outlineKey, run: (view: EditorView) => { void requestOutline(view); return true; }}] : []),
       ...([ ["editor.definition", "definition"], ["editor.references", "references"] ] as const).flatMap(([action,what]) => {
         const key = cmKeyOf(action);
         return key ? [{key,run:(view:EditorView)=>{void requestAt(view.state.selection.main.head,view,what);return true;}}] : [];

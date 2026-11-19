@@ -591,6 +591,8 @@ export function PlainFilePane({
             positionAt: (offset, view) => offsetToPosition(view.state.doc, offset),
             navigationIntent: true,
             captureNavigationContext,
+            chooseOutline: askChoiceRef.current ? (options, current) =>
+              askChoiceRef.current?.("Structure", options, {agent: true, filterable: true, onlyWhenIdle: true, currentRevision: current}) ?? Promise.resolve(null) : undefined,
             onNavigate: goTo,
             onReferences: (locations, from, current) => {
               const live = viewRef.current;

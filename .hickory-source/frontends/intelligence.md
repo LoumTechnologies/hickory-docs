@@ -30,7 +30,7 @@ export type SemanticQuery = typeof semanticQueries[number]["kind"];
 
 ## Normalize provider identities once
 
-Nested document symbols inherit the queried file. Flat symbols, LocationLinks and call items carry explicit identities. Decode URI path segments once and reject traversal, external authorities and control bytes. Preserve symbol names and valid LSP symbol kinds for reading and type/member filtering, while navigation identity is the URI and UTF-16 position. Invalid or absent kinds remain unknown rather than being guessed from names. Bound nesting and result counts without claiming missing relationships.
+Nested document symbols inherit the queried file. Flat symbols, LocationLinks and call items carry explicit identities. Decode URI path segments once and reject traversal, external authorities and control bytes. Preserve symbol names and valid LSP symbol kinds for reading and type/member filtering, while navigation identity is the URI and UTF-16 position. Main Structure also requests qualified labels so someone can distinguish methods in different containers. Invalid or absent kinds remain unknown rather than being guessed from names. Bound nesting and result counts without claiming missing relationships.
 
 <ui:copy id="simple-intelligence-browser-locations">
 export function semanticPath(uri: string): string | null {
@@ -43,24 +43,26 @@ export function semanticPath(uri: string): string | null {
     return path;
   } catch { return null; }
 }
-export function semanticLocations(result: unknown, defaultUri?: string): SemanticLocation[] {
+export function semanticLocations(result: unknown, defaultUri?: string, qualifyNames = false): SemanticLocation[] {
   const seen = new Set<string>(), locations: SemanticLocation[] = [];
-  const visit = (value: unknown, depth: number) => {
+  const visit = (value: unknown, depth: number, parent?: string) => {
     if (depth > 64) throw new Error("Provider symbol nesting is too deep. Narrow the query.");
-    if (Array.isArray(value)) { for (const child of value) visit(child, depth + 1); return; }
+    if (Array.isArray(value)) { for (const child of value) visit(child, depth + 1, parent); return; }
     if (!value || typeof value !== "object") return;
     const item = value as Record<string, unknown>;
     if (item.from || item.to) { visit(item.from ?? item.to, depth + 1); return; }
+    const container = parent ?? (typeof item.containerName === "string" ? item.containerName : undefined);
+    const name = typeof item.name === "string" ? (qualifyNames && container ? `${container}.${item.name}` : item.name) : undefined;
     const target = (item.location ?? item) as Record<string, unknown>;
     const uri = target.uri ?? target.targetUri ?? (typeof item.name === "string" && !item.location ? defaultUri : undefined);
     const range = (target.selectionRange ?? target.range ?? target.targetSelectionRange ?? target.targetRange) as LspLocation["range"] | undefined;
     const position = range?.start;
     if (typeof uri === "string" && position && Number.isSafeInteger(position.line) && position.line >= 0 && Number.isSafeInteger(position.character) && position.character >= 0) {
       const key = JSON.stringify([uri, position.line, position.character]);
-      if (!seen.has(key)) { seen.add(key); locations.push({ uri, range: range!, ...(typeof item.name === "string" ? { name: item.name } : {}), ...(Number.isInteger(item.kind) && Number(item.kind) >= 1 && Number(item.kind) <= 26 ? { kind: Number(item.kind) } : {}) }); }
+      if (!seen.has(key)) { seen.add(key); locations.push({ uri, range: range!, ...(name === undefined ? {} : { name }), ...(Number.isInteger(item.kind) && Number(item.kind) >= 1 && Number(item.kind) <= 26 ? { kind: Number(item.kind) } : {}) }); }
       if (locations.length > 10000) throw new Error("More than 10,000 locations. Narrow the symbol query.");
     }
-    if (item.children) visit(item.children, depth + 1);
+    if (item.children) visit(item.children, depth + 1, name ?? parent);
   };
   visit(result, 0); return locations;
 }

@@ -1047,6 +1047,8 @@ function useDocumentSession(
         positionAt: (offset, view) => offsetToPosition(view.state.doc, offset),
         navigationIntent: true,
         captureNavigationContext,
+        chooseOutline: (options, current) =>
+          askChoice("Structure", options, {agent: true, filterable: true, onlyWhenIdle: true, currentRevision: current}),
         onNavigate: openTarget,
         onReferences: (locations, from, current) =>
           setReferences({

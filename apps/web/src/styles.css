@@ -3109,6 +3109,12 @@ button.fleet-grant {
   background: var(--bg-raised);
   box-shadow: var(--shadow);
 }
+.prompt-panel--filtered {
+  width: min(26rem, calc(100vw - 2rem));
+  min-width: 0;
+  max-height: 50vh;
+  overflow: auto;
+}
 .prompt-panel__title {
   margin: 0 0 0.5rem;
   font-size: 0.8rem;

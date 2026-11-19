@@ -3,10 +3,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useUiCommands, useUiRevision } from "../lib/uiActionBridge";
 import type { UiCommand, UiOutcome } from "../lib/uiActions";
 
-type PromptPolicy = { signal?: AbortSignal; agent?: boolean; currentRevision?: () => unknown };
+type PromptPolicy = { signal?: AbortSignal; agent?: boolean; currentRevision?: () => unknown; filterable?: boolean; onlyWhenIdle?: boolean };
 type PromptBase = { id: string; title: string; agent: boolean; currentRevision?: () => unknown; baseline: unknown; cleanup?: () => void };
 interface TextPrompt extends PromptBase { kind: "text"; initial: string; resolve: (value: string | null) => void }
-interface ChoicePrompt<T> extends PromptBase { kind: "choice"; options: { label: string; value: T }[]; resolve: (value: T | null) => void }
+interface ChoicePrompt<T> extends PromptBase { kind: "choice"; filterable?: boolean; options: { label: string; value: T }[]; resolve: (value: T | null) => void }
 type Prompt = TextPrompt | ChoicePrompt<unknown>;
 const base = (title: string, policy: PromptPolicy): PromptBase => ({ id: crypto.randomUUID(), title, agent: policy.agent === true, currentRevision: policy.currentRevision, baseline: policy.currentRevision?.() });
 
@@ -25,7 +25,8 @@ export function usePrompt() {
     replace({ ...base(title, policy), kind: "text", initial, resolve }, policy.signal);
   }), [replace]);
   const askChoice = useCallback(<T,>(title: string, options: { label: string; value: T }[], policy: PromptPolicy = {}): Promise<T | null> => new Promise(resolve => {
-    replace({ ...base(title, policy), kind: "choice", options, resolve: resolve as (value: unknown) => void }, policy.signal);
+    if (policy.onlyWhenIdle && pending.current) { resolve(null); return; }
+    replace({ ...base(title, policy), kind: "choice", options, filterable: policy.filterable, resolve: resolve as (value: unknown) => void }, policy.signal);
   }), [replace]);
   const settle = useCallback((value: unknown, expectedId?: string) => {
     const current = pending.current;
@@ -41,6 +42,7 @@ export function PromptPanel({ prompt, onSettle }: { prompt: ReturnType<typeof us
 }
 function ActivePrompt({ prompt, onSettle }: { prompt: Prompt; onSettle: (value: unknown, expectedId?: string) => void }) {
   const [draft, setDraft] = useState(prompt.kind === "text" ? prompt.initial : "");
+  const [filter, setFilter] = useState("");
   const [error, setError] = useState("");
   const parent = `prompt:${prompt.id}`;
   const current = () => !prompt.currentRevision || Object.is(prompt.currentRevision(), prompt.baseline);
@@ -73,13 +75,29 @@ function ActivePrompt({ prompt, onSettle }: { prompt: Prompt; onSettle: (value: 
   });
   const invoke = useUiCommands(commands);
   const click = (key: string, args: Parameters<typeof invoke>[1] = {}) => { void invoke(`${parent}:${key}`, args).catch(reason => setError(String(reason))); };
-  return <div className="prompt-panel" role="dialog" aria-label={prompt.title}>
+  const query = filter.toLowerCase();
+  const choices = prompt.kind === "choice"
+    ? prompt.options.map((option, index) => ({label: option.label, index})).filter(option => option.label.toLowerCase().includes(query))
+    : [];
+  const visibleChoices = prompt.kind === "choice" && prompt.filterable ? choices.slice(0, 200) : choices;
+  return <div className={`prompt-panel${prompt.kind === "choice" && prompt.filterable ? " prompt-panel--filtered" : ""}`} role="dialog" aria-label={prompt.title}
+    onKeyDown={event => { if (event.key === "Escape") { event.preventDefault(); click("cancel"); } }}>
     <p className="prompt-panel__title">{prompt.title}</p>
     {error && <p role="alert">{error}</p>}
     {!current() && <p role="status">Source changed; cancel and request a current action.</p>}
     {prompt.kind === "text" ? <form onSubmit={event => { event.preventDefault(); click("submit"); }}>
-      <input autoFocus value={draft} aria-label={prompt.title} onChange={event => setDraft(event.target.value)} onKeyDown={event => { if (event.key === "Escape") click("cancel"); }} />
+      <input autoFocus value={draft} aria-label={prompt.title} onChange={event => setDraft(event.target.value)} />
       <button type="submit" disabled={!current()}>Apply</button><button type="button" onClick={() => click("cancel")}>Cancel</button>
-    </form> : <ul className="prompt-panel__options">{prompt.options.map((option, index) => <li key={`${option.label}-${index}`}><button type="button" disabled={!current()} onClick={() => click("choice", { index })}>{option.label}</button></li>)}<li><button type="button" onClick={() => click("cancel")}>Cancel</button></li></ul>}
+    </form> : <>
+      {prompt.filterable && <form onSubmit={event => {
+        event.preventDefault();
+        if (visibleChoices[0] && current()) click("choice", {index: visibleChoices[0].index});
+      }}>
+        <input autoFocus aria-label="Filter symbols" value={filter} onChange={event => setFilter(event.target.value)} />
+      </form>}
+      {prompt.filterable && choices.length === 0 && <p role="status">{filter ? "No matching symbols." : "No symbols returned."}</p>}
+      {choices.length > visibleChoices.length && <p role="status">Showing {visibleChoices.length} of {choices.length}. Filter to narrow the list.</p>}
+      <ul className="prompt-panel__options">{visibleChoices.map(({label, index}) => <li key={index}><button type="button" disabled={!current()} onClick={() => click("choice", { index })}>{label}</button></li>)}<li><button type="button" onClick={() => click("cancel")}>Cancel</button></li></ul>
+    </>}
   </div>;
 }

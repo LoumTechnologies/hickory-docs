@@ -77,3 +77,15 @@ it("cancels only the exact abort-owned prompt and leaves a replacement untouched
   act(() => second.abort());
   expect(await current).toBeNull(); expect(app.registry.groups().groups).toEqual([]);
 });
+it("filters beyond the visible page and chooses the original option", async () => {
+  const app = setup();
+  const options = Array.from({length: 230}, (_, index) => ({label: `Module.member${index}`, value: index}));
+  let selected!: Promise<number | null>;
+  act(() => { selected = app.controller.askChoice("Structure", options, {filterable: true}); });
+  expect(screen.queryByRole("button", {name: "Module.member229"})).toBeNull();
+  const filter = screen.getByRole("textbox", {name: "Filter symbols"});
+  fireEvent.change(filter, {target: {value: "MEMBER229"}});
+  expect(screen.getByRole("button", {name: "Module.member229"})).toBeTruthy();
+  await act(async () => { fireEvent.submit(filter.closest("form")!); });
+  expect(await selected).toBe(229);
+});
