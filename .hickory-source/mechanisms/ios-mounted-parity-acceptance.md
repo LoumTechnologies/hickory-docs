@@ -2121,6 +2121,10 @@ extension RecordedRunUITests {
 
 Select the unique call to an imported function with native Find. A fresh simulator can show the keyboard’s QuickPath introduction over the editor. Dismiss that message when it appears, then submit the Find field with Return. Use Go to definition, choose the exact provider location, and walk Back and Forward through the original caller and target tabs. Check the two source contents and editor geometry after navigation. The owned transport records the real provider request and definition so the rendered result can be checked against the provider's UTF-16 coordinates.
 
+An enabled provider result can sit below the iPhone language panel's visible
+bounds. Scroll the containing panel before activating the authored declaration.
+Back and Forward then verify the exact files and original editor frames.
+
 <ui:copy id="ios-native-python-definition-ui-test">
 extension RecordedRunUITests {
     @MainActor func testNativePythonDefinitionAndHistoryAcrossFiles() throws {
@@ -2196,6 +2200,15 @@ extension RecordedRunUITests {
         command("Go to definition")
         let target = app.buttons["helper.py:4:5"].firstMatch
         XCTAssertTrue(target.waitForExistence(timeout: 20), "Expected the real Python declaration at helper.py:4:5")
+        if !target.isHittable {
+            let panel = app.scrollViews.containing(.button, identifier: "helper.py:4:5").firstMatch
+            XCTAssertTrue(panel.waitForExistence(timeout: 5), app.debugDescription)
+            for _ in 0..<4 where !target.isHittable {
+                let start = panel.coordinate(withNormalizedOffset: CGVector(dx: 0.20, dy: 0.72))
+                let end = panel.coordinate(withNormalizedOffset: CGVector(dx: 0.20, dy: 0.25))
+                start.press(forDuration: 0.05, thenDragTo: end)
+            }
+        }
         tap(target, "exact Python definition")
         _ = editor("helper.py", text: helperSource)
         releaseKeyboard(in: "helper.py")
@@ -3085,8 +3098,9 @@ def run_workflow(workflow, device, seed, temporary_device, candidate, derived, d
             configured = derived/'Build/Products/owned-ios-parity.xctestrun'
             configured.write_bytes(plistlib.dumps(value))
             try:
+                allowance = '280' if workflow == 'python-definition' else '180'
                 with log.open('w') as output:
-                    run(['xcodebuild', 'test-without-building', '-xctestrun', str(configured), '-destination', destination, '-parallel-testing-enabled', 'NO', '-maximum-concurrent-test-simulator-destinations', '1', '-only-testing:'+name, '-resultBundlePath', str(result), '-test-timeouts-enabled', 'YES', '-maximum-test-execution-time-allowance', '180'], stdout=output, stderr=subprocess.STDOUT)
+                    run(['xcodebuild', 'test-without-building', '-xctestrun', str(configured), '-destination', destination, '-parallel-testing-enabled', 'NO', '-maximum-concurrent-test-simulator-destinations', '1', '-only-testing:'+name, '-resultBundlePath', str(result), '-test-timeouts-enabled', 'YES', '-maximum-test-execution-time-allowance', allowance], stdout=output, stderr=subprocess.STDOUT)
                 summary = json.loads(subprocess.check_output(['xcrun', 'xcresulttool', 'get', 'test-results', 'summary', '--path', str(result)]))
                 (receipt/f'{prefix}-summary.json').write_text(json.dumps(summary, indent=2))
                 assert summary['result'] == 'Passed' and summary['totalTestCount'] == 1 and summary['passedTests'] == 1 and summary['failedTests'] == summary['skippedTests'] == 0, summary

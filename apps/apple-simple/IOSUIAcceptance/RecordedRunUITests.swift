@@ -461,6 +461,15 @@ extension RecordedRunUITests {
         command("Go to definition")
         let target = app.buttons["helper.py:4:5"].firstMatch
         XCTAssertTrue(target.waitForExistence(timeout: 20), "Expected the real Python declaration at helper.py:4:5")
+        if !target.isHittable {
+            let panel = app.scrollViews.containing(.button, identifier: "helper.py:4:5").firstMatch
+            XCTAssertTrue(panel.waitForExistence(timeout: 5), app.debugDescription)
+            for _ in 0..<4 where !target.isHittable {
+                let start = panel.coordinate(withNormalizedOffset: CGVector(dx: 0.20, dy: 0.72))
+                let end = panel.coordinate(withNormalizedOffset: CGVector(dx: 0.20, dy: 0.25))
+                start.press(forDuration: 0.05, thenDragTo: end)
+            }
+        }
         tap(target, "exact Python definition")
         _ = editor("helper.py", text: helperSource)
         releaseKeyboard(in: "helper.py")

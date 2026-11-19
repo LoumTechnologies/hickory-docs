@@ -31,7 +31,7 @@ an earlier open item only for the behavior it actually exercises.
 
 | Required outcome | Current usable evidence and remaining acceptance |
 | --- | --- |
-| Navigation and code intelligence | Search Everywhere, file and saved-text search, outlines, semantic locations and back/forward have focused receipts. The genuine Python browser witness covers cross-file definitions/usages and caller/callee queries. Configured csharp-ls adds browser definitions, usages and history. A controlled child covers standard LSP type hierarchy, including browser rendering and native protocol/model checks. Installed basedpyright and TypeScript Language Server read ordinary Markdown fences on browser, mounted macOS and the Android controller. Mounted iOS reached saved search and caret history. An Android controller navigated into a literal source tab while Agent was open. Index breadth depends on the installed provider. Unavailable capabilities and unsupported fence actions leave authored text readable. |
+| Navigation and code intelligence | Search Everywhere, file and saved-text search, outlines, semantic locations and back/forward have focused receipts. The genuine Python browser witness covers cross-file definitions/usages and caller/callee queries. Configured csharp-ls adds browser definitions, usages and history. A controlled child covers standard LSP type hierarchy, including browser rendering and native protocol/model checks. Installed basedpyright and TypeScript Language Server read ordinary Markdown fences on browser, mounted macOS and the Android controller. Mounted iOS passed real basedpyright cross-file Definition and native Back and Forward. An Android controller navigated into a literal source tab while Agent was open. Index breadth depends on the installed provider. Unavailable capabilities and unsupported fence actions leave authored text readable. |
 | Refactoring, cleanup, generation, templates and history | Genuine basedpyright and configured csharp-ls cover cross-file rename in the browser. TypeScript Language Server 6.1.0 with TypeScript 6.0.3 covers extraction, accessor generation, cleanup and Move to a new file on browser, mounted macOS and the Android controller. Guarded native action and formatting receipts include controlled providers. Preview holds the complete edit. Missing preimages, commands without supported effects and changed owner revisions refuse the group. Later template receipts close the earlier embedded and multi-caret catalog gaps. Expanded regex and source-bound variable programs retain their syntax and work bounds. Mounted iOS and rendered Android covered reviewed Cleanup. Mounted iOS also replayed native Paste, coordinated Cleanup Undo/Redo and the genuine CRLF and LF TypeScript extraction. |
 | Diagnostics and contextual fixes | Genuine basedpyright browser and rendered Android Problems, configured csharp-ls browser Problems, and clangd mounted iOS Problems exercised exact source navigation. Real clangd engine coverage includes the missing-semicolon quick fix. Controlled-child receipts cover complete-file `source.fixAll` acquisition, review, draft Apply and Undo/Redo on browser, mounted macOS and the Android controller, including a prose-origin action that acquires its copy contributor. Stale and unversioned diagnostics stay readable. Precise navigation and application require matching authority. Mounted iOS exercised the genuine clangd missing-semicolon Quick Fix through review, draft Apply and coordinated Undo/Redo. Provider workspace completeness and additional source mappings remain open. |
 | Testing and coverage | Discovery, failed results, coverage and failed-only reruns have provider receipts for pytest, Jest, Vitest, Cargo with cargo-llvm-cov, and .NET with Coverlet. Connected pytest runs on browser, macOS and the Android controller. Mounted iOS executed selected pytest and rendered a collected failure and coverage. Rendered Android ran the saved Rust case and retained exit 0. Rendered Android discovered both pytest cases, retained a coverage run and reran only the deliberate failure. Source-adjacent Run and Debug distinguish process exit from a provider verdict. Unsupported runners and stale, missing or ambiguous test identities refuse selection. Coverage navigation requires matching source hashes. |
@@ -75,6 +75,14 @@ run, and `target/apple-python-definition-uikit-quickpath-2026-11-19/` for the
 interrupted run. The updated bundle build is in
 `target/ios-python-definition-quickpath-arm64.log`.
 
+The current iPhone simulator sent `main.py:3:1` to basedpyright 1.1.414
+and received `helper.py:4:5`. The enabled result initially lay below the
+visible language panel. A native scroll exposed it and the hit opened
+the exact declaration. Navigate back and Navigate forward restored the
+original frames and full texts of the caller and helper. The saved files
+kept their bytes. See
+`target/apple-python-definition-uikit-v10-scroll/python-definition-receipt.json`.
+
 ### iPhone Git review with an unsaved draft
 
 The iPhone simulator opened Repository changes from the View menu after
@@ -104,6 +112,14 @@ index byte-for-byte. The focused pane tests also exercise an add/add
 conflict and the whole-index action boundary. Main still needs its own
 guarded complete-group preview, draft Apply, Save and separate Stage.
 See `target/main-git-conflict-v10/browser.json`.
+
+The Simple Browser complete-group composer now binds approval to the row
+that opened it. A live Git replay prepared a review, selected an unrelated
+file, and saw neither the composition nor its Save action under that row.
+Returning restored the typed resolution and required a fresh preview. The
+working file and index stayed exact. A dispatched request keeps its original
+status control across a selection change or repository refresh. See
+`target/simple-git-conflict-selection-v10/browser.json`.
 
 ### Requested files and capability arrival
 
@@ -210,6 +226,11 @@ See `target/main-macos-packaged-startup.to8jhtpo/packaged-viewport-layout.Gss7MS
 and `target/main-macos-packaged-startup.to8jhtpo/packaged-viewport-activated.HIW2pd/`.
 The next preflight confirmed that the macOS console session was locked. A
 foreground signed-app replay requires an unlocked console session.
+
+A separate mounted AppKit minimap probe reached a dirty native text editor.
+Both event delivery routes left the viewport at offset zero. The locked
+console probe leaves native minimap navigation unverified. See
+`target/appkit-minimap-native.x8adaz05/appkit.log`.
 
 AppKit and UIKit each passed the transient Files failure and same-server retry.
 Both kept their provisional editor, selection and viewport through confirmation.
@@ -409,6 +430,12 @@ for those actions still needs a separate witness. See
 After extracting the shared inspector, a focused current AppKit build and
 user-side native replay again passed mapped Debug, Step over and Continue.
 See `target/appkit-shared-inspector-compat.lhxb4dyq/receipt.json`.
+A first-line gutter click on the locked console subsequently opened the
+actual user-fence inspector. Native key events entered `value + 1` in its
+focused Expression field. The non-key popover did not dispatch Watch via
+mouse or local accessibility activation, so the rendered value still needs
+foreground verification. See
+`target/appkit-recorded-inspect-watch.kqo0rebk/receipt.json`.
 The rebuilt engine also rejected stale message hashes on both sides, withheld
 execution after preparation, and refused escaped or non-UTF-8 startup reads.
 The main Chromium window and Simple Browser also ran both selected Python
@@ -475,6 +502,10 @@ macOS console left the review popover without keyboard focus. Native Close
 worked, but click and accessibility activation did not dispatch Apply. Applying
 through the rendered button remains unverified. See
 `target/appkit-recorded-gutter-patch.4xypqkm6/receipt.json`.
+The follow-up scrolled the reviewer and placed Apply inside the visible
+popover. Native activation still sent no validation or application request
+on the locked console. See
+`target/appkit-recorded-apply-focus-patch.cnv_y0zf/receipt.json`.
 Rendered Android passed the user-side review, generated consequence, Apply and
 Undo. Its compact assistant fixture passed the exact recorded `patch` review
 and draft Apply with unchanged physical files. The assistant body matches the

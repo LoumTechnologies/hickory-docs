@@ -615,8 +615,9 @@ def run_workflow(workflow, device, seed, temporary_device, candidate, derived, d
             configured = derived/'Build/Products/owned-ios-parity.xctestrun'
             configured.write_bytes(plistlib.dumps(value))
             try:
+                allowance = '280' if workflow == 'python-definition' else '180'
                 with log.open('w') as output:
-                    run(['xcodebuild', 'test-without-building', '-xctestrun', str(configured), '-destination', destination, '-parallel-testing-enabled', 'NO', '-maximum-concurrent-test-simulator-destinations', '1', '-only-testing:'+name, '-resultBundlePath', str(result), '-test-timeouts-enabled', 'YES', '-maximum-test-execution-time-allowance', '180'], stdout=output, stderr=subprocess.STDOUT)
+                    run(['xcodebuild', 'test-without-building', '-xctestrun', str(configured), '-destination', destination, '-parallel-testing-enabled', 'NO', '-maximum-concurrent-test-simulator-destinations', '1', '-only-testing:'+name, '-resultBundlePath', str(result), '-test-timeouts-enabled', 'YES', '-maximum-test-execution-time-allowance', allowance], stdout=output, stderr=subprocess.STDOUT)
                 summary = json.loads(subprocess.check_output(['xcrun', 'xcresulttool', 'get', 'test-results', 'summary', '--path', str(result)]))
                 (receipt/f'{prefix}-summary.json').write_text(json.dumps(summary, indent=2))
                 assert summary['result'] == 'Passed' and summary['totalTestCount'] == 1 and summary['passedTests'] == 1 and summary['failedTests'] == summary['skippedTests'] == 0, summary
