@@ -104,16 +104,37 @@ final class SaveTests: XCTestCase {
 
     @MainActor func testBackgroundSourceAcquisitionSharesReadWithoutActivatingPane() async throws {
         // Contract: .hickory-source/frontends/contract.md
-        ResponseProtocol.status=200;ResponseProtocol.responsesByPath=[:];ResponseProtocol.beforeResponse=nil;ResponseProtocol.resetRequests()
+        ResponseProtocol.status=200;ResponseProtocol.responsesByPath=[:];ResponseProtocol.resetRequests()
         ResponseProtocol.response=Data(#"{"path":"background.py","content":"value = 1","hash":"disk"}"#.utf8)
+        let arrived = expectation(description: "shared read reached the fixture")
+        let joined = expectation(description: "second caller joined the read")
+        let gate = DispatchSemaphore(value: 0)
+        ResponseProtocol.beforeResponse = { request in
+            guard request.url?.query == "path=background.py" else { return }
+            arrived.fulfill()
+            _ = gate.wait(timeout: .now() + 5)
+        }
         let config=URLSessionConfiguration.ephemeral;config.protocolClasses=[ResponseProtocol.self]
         let session=URLSession(configuration:config),workspace=Workspace();workspace.engine=try Engine(address:"http://fixture.invalid",session:session)
         let file=FileNode(name:"background.py",path:"background.py",dir:false,language:"python")
-        defer { workspace.buffers.values.forEach {$0.language?.close()};session.invalidateAndCancel() }
-        async let first=workspace.loadBuffer(file);async let second=workspace.loadBuffer(file)
-        let (a,b)=try await(first,second)
+        defer {
+            gate.signal()
+            ResponseProtocol.beforeResponse = nil
+            workspace.buffers.values.forEach { $0.language?.close() }
+            session.invalidateAndCancel()
+        }
+        let first = Task { try await workspace.loadBuffer(file) }
+        await fulfillment(of: [arrived], timeout: 3)
+        let second = Task {
+            joined.fulfill()
+            return try await workspace.loadBuffer(file)
+        }
+        await fulfillment(of: [joined], timeout: 3)
+        gate.signal()
+        let (a, b) = try await (first.value, second.value)
         XCTAssertTrue(a === b);XCTAssertEqual(ResponseProtocol.requestCount("/api/file"),1)
         XCTAssertEqual(a.text,"value = 1");XCTAssertNil(workspace.active);XCTAssertNotNil(a.language)
+        ResponseProtocol.response=Data(#"{"path":"other.py","content":"value = 2","hash":"other-disk"}"#.utf8)
         let other=try await workspace.loadBuffer(FileNode(name:"other.py",path:"other.py",dir:false,language:"python"))
         XCTAssertTrue(a.language?.connection === other.language?.connection);XCTAssertNil(workspace.active)
     }
