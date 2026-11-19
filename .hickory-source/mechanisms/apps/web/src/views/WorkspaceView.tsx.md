@@ -218,7 +218,7 @@ import { nextInQueue } from "../lib/attentionCursor";
 
 <storycode:copy id="f-47afe3575948-import_statement-3">
 import { DocTabBody, GeneratedTabBody, UntitledTab } from "./workspaceTabs";
-import type { RecordedPatchSource } from "../simple/AgentProposalAdapter";
+import type { RecordedPatchSource, ResourceAdoptionStage } from "../simple/AgentProposalAdapter";
 import { WorkspaceChangeHistory, planWorkspaceEdit, providerActionPaths, validateReferencedTargets, workspaceEditTargets, type ChangePlan, type WorkspaceHistoryToken } from "../simple/ChangePlan";
 import { acquireReferenceSources, acquireSourceProposal } from "../simple/ReferenceSources";
 import { validateProviderSourceProofs, providerSourceProofPaths } from "../simple/ProviderSourceProofs";
@@ -1558,6 +1558,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     changeApplying.current = true;
     setChangePending(true);
     setChangeError(null);
+    const held: ResourceAdoptionStage[] = [];
     const load: ResourceTransport = (route, body) => callApi("POST", route, body);
     try {
       const {confirmedResourceFiles, publishReviewedResources} = await import("../simple/ResourceEditors");
@@ -1580,7 +1581,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       const owned = () => current() && stages.every(({stage}) => stage.current());
       // Retain the same review identity so a dispatched request can't be retried.
       if (!owned()) throw Error("Source changed after review. Prepare the resource change again.");
-      const {recovery} = await publishReviewedResources(review, load, (receipt, expected) => {
+      const {recovery} = await publishReviewedResources(review, load, async (receipt, expected) => {
         const files = confirmedResourceFiles(review.patches, receipt, expected);
         if (!owned()) throw Error("Open editors changed during publication.");
         const adoptions = stages.map(({path, stage}) => {
@@ -1588,7 +1589,15 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
           if (!file?.save_guard) throw Error(`The saved source has no current editor guard: ${path}`);
           return {stage, authority: {hash: file.hash, guard: file.save_guard}};
         });
+        await Promise.all(adoptions.map(({stage}) => stage.waitForSavedSource?.()));
+        if (!owned()) throw Error("Open editors changed while confirming the saved resource sources.");
         for (const {stage, authority} of adoptions) stage.adopt(authority);
+      }, () => {
+        for (const {stage} of stages) if (stage.begin) {
+          held.push(stage);
+          stage.begin();
+        }
+        if (!owned()) throw Error("Open editors changed before resource publication.");
       });
       const entry = {kind: "resource" as const, recovery};
       if (token) recordedDraftHistory.commit(token, entry);
@@ -1599,8 +1608,12 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     } catch (error) {
       setChangeError(error instanceof Error ? error.message : String(error));
     } finally {
-      changeApplying.current = false;
-      setChangePending(false);
+      try {
+        for (const stage of held) stage.release?.();
+      } finally {
+        changeApplying.current = false;
+        setChangePending(false);
+      }
     }
   };
   changeHistoryRef.current = direction => {

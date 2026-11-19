@@ -2975,11 +2975,13 @@ saved baselines, and physical guards, then reads construction consequences.
 Main displays each reviewed path in the existing floating preview. Save
 reviewed source resources submits the exact guarded proposal once. After
 the engine confirms the saved result, Main adopts the new baseline in any
-affected open plain editor that keeps its path and identity. Review-based
-workspace Undo and Redo use the retained recovery identity and require a
-separate Save for each inverse. Changes that would move or delete an open
-editor, and changes to affected open managed editors, still require
-additional Main adoption support.
+affected open editor that keeps its path and identity. Managed editors
+temporarily suspend source synchronization until the receipt and room
+agree. If a newer draft arrives, Main preserves it and withholds history
+adoption. Review-based workspace Undo and Redo use the retained
+recovery identity and require a separate Save for each inverse. Changes
+that would move or delete an open editor still require Main editor
+adoption support.
 
 A genuine TypeScript Move to a new file replay previewed the import in
 `move.ts` and the proposed `relocate.ts` export. Both saved and draft layers
@@ -2993,6 +2995,20 @@ both saved files and the editor stayed intact. See
 `target/main-resource-move-preview-v3/browser.json`,
 `target/main-resource-move-publish-history-v1/browser.json`, and
 `target/main-resource-move-stale-destination-v1/browser.json`.
+
+With a controlled provider and the real engine, Chromium saved a projected
+resource action from an open managed document. Reviewed Undo and Redo
+kept the same editor. Independent room reads matched the saved Markdown
+at each step, and the client sent no ordinary room writes. See
+`target/main-managed-resource-controlled-publication-v2/browser.json`.
+A held successful receipt let the user type after the server committed.
+The newer text stayed in the same editor and in private recovery. The
+room and disk retained the reviewed bytes, and Main withheld its Undo
+and Redo entry. See `target/main-managed-resource-late-local-v2/browser.json`.
+The installed TypeScript provider's managed Move proposed a destination
+inside its private staging directory. The engine refused that destination,
+so genuine managed Move remains unverified. See
+`target/main-managed-resource-genuine-projection-v1/browser.json`.
 
 Focused rebuilt-engine replays also passed for Python definition and
 Back/Forward, workspace search, delayed first-open authority and capabilities,

@@ -273,7 +273,8 @@ rail's never skip. See editor/CardRail.tsx.
  */
 type DocumentDraftBinding = {
   roomSource: () => string;
-  prepare: (before: string, after: string) => {
+  suspendRoom: () => {attached: boolean; resume: (expected: string) => boolean};
+  prepare: (before: string, after: string, options?: {published: boolean}) => {
     current: () => boolean;
     commit: () => void;
     rollback: () => void;
@@ -706,12 +707,30 @@ export function DocumentEditor({
     viewRef.current = view;
     documentDraftBindings.set(view, {
       roomSource: () => ytext.toString(),
-      prepare(before, after) {
+      suspendRoom() {
+        const extension = view.state.facet(ySyncFacet) ? collaboration.get(view.state) : undefined;
+        if (extension) view.dispatch({effects: collaboration.reconfigure([])});
+        return {
+          attached: !!extension,
+          resume(expected) {
+            if (!extension) return true;
+            if (viewRef.current !== view || !view.dom.isConnected || ytext.toString() !== expected ||
+                view.state.doc.toString() !== expected) return false;
+            // Reuse the original sync extension and its undo manager.
+            view.dispatch({effects: collaboration.reconfigure(extension)});
+            return true;
+          },
+        };
+      },
+      prepare(before, after, options) {
         const state = view.state;
         if (state.readOnly || state.doc.toString() !== before || !view.dom.isConnected) return null;
         const detach = state.facet(ySyncFacet) ? state.update({effects: collaboration.reconfigure([])}) : null;
         const changes = computeEdits(before, after).map(edit => ({from: edit.start, to: edit.end, insert: edit.text}));
-        const edit = (detach?.state ?? state).update({changes, userEvent: "input.apply", annotations: isolateHistory.of("full")});
+        const edit = (detach?.state ?? state).update({
+          changes, userEvent: options?.published ? undefined : "input.apply",
+          annotations: isolateHistory.of("full"),
+        });
         if (edit.newDoc.toString() !== after) return null;
         const current = () => viewRef.current === view && view.dom.isConnected && view.state === state;
         let undo: (() => void) | undefined;

@@ -72,7 +72,7 @@ import { computeEdits } from "../lib/diff";
 // flash, never a rebuild, unless this pane's own edits are still unsent.
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Compartment, EditorState } from "@codemirror/state";
+import { Compartment, EditorState, Transaction } from "@codemirror/state";
 import { EditorView, keymap, lineNumbers } from "@codemirror/view";
 import { defaultKeymap, history, historyKeymap, indentWithTab, isolateHistory } from "@codemirror/commands";
 import { search, searchKeymap } from "@codemirror/search";
@@ -397,7 +397,8 @@ export function PlainFilePane({
             // Install the confirmed saved baseline before displaying its
             // draft. Programmatic adoption must never send a regular save.
             const transaction = view.state.update({
-              ...plainSourceChanges(view.state, after), annotations: isolateHistory.of("full"),
+              ...plainSourceChanges(view.state, after),
+              annotations: [isolateHistory.of("full"), Transaction.addToHistory.of(false)],
             });
             if (authoredSource(transaction.state) !== after) throw Error("The open editor cannot adopt the complete resource source.");
             saver.load(saved, authority.hash, authority.guard);

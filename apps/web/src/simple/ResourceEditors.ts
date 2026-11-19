@@ -175,7 +175,7 @@ export class EntryPublicationNoEffect extends Error {
 }
 /** Dispatch once. The host checks the exact receipt before adopting its editor state. */
 export async function publishReviewedResources<T>(review: ResourcePublicationReview, load: ResourceTransport,
-  adopt: (receipt: ResourceReceipt, expected: ResourceExpectation) => T,
+  adopt: (receipt: ResourceReceipt, expected: ResourceExpectation) => T | Promise<T>,
   validateEditors?: () => void): Promise<{result: T; recovery: string}> {
  const earlier=resourceAttempts.get(review);if(earlier)throw new Error('This review already has publication request '+earlier+'. Inspect its retained recovery; it will not be retried.');
  if(!review.current())throw new Error('Source changed after review. Prepare restoration again.');
@@ -197,7 +197,7 @@ export async function publishReviewedResources<T>(review: ResourcePublicationRev
   const match = receipt.outcome.recovery.match(/(?:^|\/)resource-changes\/([0-9a-f]{32})\/[^/]+$/);
   if (!match) throw Error("Source publication has no inverse recovery identity.");
   const expected = {request, workspace: review.workspace, context: review.context, saved: new Map(Object.entries(review.saved))};
-  return {result: adopt(receipt, expected), recovery: match[1]};
+  return {result: await adopt(receipt, expected), recovery: match[1]};
  }catch(error){if(error instanceof EntryPublicationNoEffect)throw error;throw new Error(String(error)+" Publication request "+request+"; retained recovery "+(receipt.outcome?.recovery??"unknown")+". Preserve local drafts while inspecting the result.");}
 }
 

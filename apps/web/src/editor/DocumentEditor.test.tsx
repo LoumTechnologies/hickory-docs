@@ -4,7 +4,7 @@ import { UiActionContext } from "../lib/uiActionBridge";
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { EditorView as EditorViewType } from "@codemirror/view";
-import { DocumentEditor, assertionStates, matchExecBlock } from "./DocumentEditor";
+import { DocumentEditor, assertionStates, documentDraftBinding, matchExecBlock } from "./DocumentEditor";
 import { LocalRealtime, type Realtime } from "../api/realtime";
 import type { Doc as YDoc } from "yjs";
 import type { StartupManagedDocument } from "../views/folderPane";
@@ -78,6 +78,40 @@ describe("DocumentEditor (WYSIWYG over raw source)", () => {
     act(() => { undo(view); });
     expect(room.getText("source").toString()).toBe(remote);
   });
+  it("holds room updates until resource adoption and keeps earlier editor undo history", async () => {
+    const initial = "# Heading\nold body\n", edited = "# Heading title\nold body\n";
+    const published = "# Heading title\nnew body\n";
+    const realtime = new LocalRealtime();
+    let room!: YDoc;
+    vi.spyOn(realtime, "bindDoc").mockImplementation(doc => { room = doc; });
+    render(<DocumentEditor docId="notes" initialSource={initial} realtime={realtime} reflowOnOpen={false}
+      execBlocks={[]} runningCells={new Set()} onRunCell={() => {}} />);
+    const view = (window as unknown as {__hickoryView: EditorViewType}).__hickoryView;
+    const binding = documentDraftBinding(view)!;
+    await waitFor(() => expect(view.state.doc.toString()).toBe(initial));
+    act(() => view.dispatch({changes: {from: 9, insert: " title"}, userEvent: "input.type"}));
+    expect(binding.roomSource()).toBe(edited);
+    const selection = view.state.selection;
+    let hold!: ReturnType<typeof binding.suspendRoom>;
+    act(() => { hold = binding.suspendRoom(); });
+    expect(hold.attached).toBe(true);
+    act(() => room.transact(() => {
+      const text = room.getText("source"), from = edited.indexOf("old");
+      text.delete(from, 3); text.insert(from, "new");
+    }, "server"));
+    expect(binding.roomSource()).toBe(published);
+    expect(view.state.doc.toString()).toBe(edited);
+    expect(view.state.selection).toBe(selection);
+    expect(hold.resume(edited)).toBe(false);
+
+    const stage = binding.prepare(edited, published, {published: true})!;
+    act(() => { stage.commit(); expect(hold.resume(published)).toBe(true); });
+    expect(view.state.doc.toString()).toBe(published);
+    act(() => { expect(undo(view)).toBe(true); });
+    expect(view.state.doc.toString()).toBe("# Heading\nnew body\n");
+    expect(binding.roomSource()).toBe(view.state.doc.toString());
+  });
+
   it("keeps mixed CRLF startup readable and refuses an edit without byte-exact collaboration", async () => {
     const path = "mixed.md", id = "b".repeat(16), source = "# Mixed document\r\nFirst line\nSecond line\r\n";
     let room!: YDoc, finish!: () => void;

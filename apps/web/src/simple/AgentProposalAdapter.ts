@@ -27,6 +27,9 @@ export interface WorkspaceDraftStage {
 }
 export interface ResourceAdoptionStage {
  current: () => boolean;
+ begin?: () => void;
+ waitForSavedSource?: () => Promise<void>;
+ release?: () => void;
  adopt: (authority: {hash: string; guard: string}) => void;
 }
 export type RecordedPatchSource = {
