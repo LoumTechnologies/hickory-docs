@@ -4,6 +4,10 @@ import type { DebugSession } from "../debug/useDebugger";
 import { viewBuffers } from "../lib/viewBuffers";
 import { GeneratedBufferRecovery } from "./GeneratedBufferRecovery";
 import { SurfaceInfo } from "../components/SurfaceInfo";
+import { PaneHeaderContent } from "./PaneHeader";
+import { MoreActions } from "../components/MoreActions";
+import { isDebuggable } from "../debug/languages";
+import { languageFromPath } from "../editor/languages";
 // What goes inside a pane.
 //
 // The shell knows nothing about documents or generated files; these are the
@@ -12,7 +16,7 @@ import { SurfaceInfo } from "../components/SurfaceInfo";
 //
 // See docs/specs/freeform/shell-layouts.md.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { Extension } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 
@@ -21,7 +25,7 @@ import { FILES_CHANGED_EVENT } from "./FolderTreePane";
 import { DivergedBanner } from "../components/DivergedBanner";
 import { MergeView } from "../components/MergeView";
 import type { DivergedOutput } from "../api/types";
-import type { OutputFile, SourceEdit } from "../api/types";
+import type { OutputFile, PlainFile, SourceEdit } from "../api/types";
 import { OutputEditorPane, provToChars, type ProvChar } from "../components/OutputEditorPane";
 import { createOutputSaver, type OutputSaver } from "../lib/outputSave";
 import { SamplePicker, selectedLines, type LineRange } from "./SamplePicker";
@@ -35,6 +39,7 @@ export function GeneratedFileView({
   docId,
   path,
   bufferId = `${docId}:${path}`,
+  initialDiskFile,
   liveFile,
   makeOutputLsp,
   onSourceEdits,
@@ -46,6 +51,7 @@ export function GeneratedFileView({
   path: string;
   debugger?: {debug:DebugSession;source:string;docPath:string;askText:(title:string,initial:string)=>Promise<string|null>};
   bufferId?: string;
+  initialDiskFile?: PlainFile;
   onSource?: (path: string, source: string) => void;
   /**
    * The session's freshest copy of this file, refetched after every run and
@@ -67,9 +73,19 @@ export function GeneratedFileView({
    */
   onReady?: (target: { view: EditorView; file: OutputFile } | null) => void;
 }) {
-  const [file, setFile] = useState<OutputFile | null>(null);
+  const [wovenFile, setFile] = useState<OutputFile | null>(null);
   // Disk is an independent reading, not a substitute for write provenance.
-  const [diskFile, setDiskFile] = useState<OutputFile | null>(null);
+  const admittedDisk = useRef(initialDiskFile?.path === path ? initialDiskFile : undefined).current;
+  const [diskFile, setDiskFile] = useState<OutputFile | null>(() => admittedDisk ? {
+    path: admittedDisk.path, language: admittedDisk.language, content: admittedDisk.content, provenance: [],
+  } : null);
+  const [confirmingDisk, setConfirmingDisk] = useState(!!admittedDisk);
+  const sourceMismatch = confirmingDisk && !!wovenFile &&
+    (wovenFile.path !== admittedDisk?.path || wovenFile.content !== admittedDisk?.content);
+  const file = sourceMismatch ? null : wovenFile;
+  useLayoutEffect(() => {
+    if (confirmingDisk && file) setConfirmingDisk(false);
+  }, [confirmingDisk, file]);
   const [error, setError] = useState<string | null>(null);
   const outputView = useRef<EditorView | null>(null);
   const [debugView,setDebugView] = useState<EditorView|null>(null);
@@ -83,12 +99,13 @@ export function GeneratedFileView({
   onSourceEditsRef.current = onSourceEdits;
 
   useEffect(() => {
+    if (admittedDisk?.path === path) return;
     let live = true;
     void api.file(path).then(loaded => {
       if (live) setDiskFile({ path: loaded.path, language: loaded.language, content: loaded.content, provenance: [] });
     }, () => { /* The provenance request can still supply an output absent on disk. */ });
     return () => { live = false; };
-  }, [path]);
+  }, [path, admittedDisk]);
 
   useEffect(() => {
     let live = true;
@@ -252,14 +269,20 @@ export function GeneratedFileView({
     return () => onReady?.(null);
   }, [debugView, file, pendingKey, onReady]);
 
-  useUiReading("generated file load and save status", { doc_id: docId, path, loading: !displayFile && !error, loaded: !!displayFile, provenance_loaded: !!file, error, save_state: saveState, save_error: saveError, recovery_error: wayError, message: error || (!displayFile ? `Loading ${path}…` : null), source_read: false });
+  const sourceError = error ? `Source information could not load. Reopen this tab to retry. ${error}`
+    : sourceMismatch ? "The generated source changed while source information loaded. Reopen this tab to read the current file." : null;
+  useUiReading("generated file load and save status", { doc_id: docId, path, loading: !displayFile && !sourceError, loaded: !!displayFile, provenance_loaded: !!file, error: error ?? sourceError, save_state: saveState, save_error: saveError, recovery_error: wayError, message: sourceError || (!displayFile ? `Loading ${path}…` : null), source_read: false });
   if (!displayFile) return error ? <p className="error">{error}</p> : <p className="muted">Loading {path}…</p>;
 
   return (
-    <div className="generated-view">
+    <div className={isDebuggable(languageFromPath(path)) ? "generated-view generated-view--debug-rail" : "generated-view"}>
       <SurfaceInfo name={`Generated file · ${path}`} editable={!!file} destination={file ? "Editable regions save automatically into the owning document; generated regions are read-only." : "Reading disk contents; editing becomes available when source information is ready."} />
-      {error && <p className="error" role="status">Source information could not load. Reopen this tab to retry. {error}</p>}
-      {saveState && <span className="save-state" role="status">{saveState === "saving" ? "Saving…" : saveState === "saved" ? "Saved to owning document" : "Unsaved changes"}</span>}
+      {sourceError && <PaneHeaderContent part="info">
+        <span className="save-state save-state-failed" role="status" title={sourceError}>{sourceError}</span>
+      </PaneHeaderContent>}
+      {saveState && <PaneHeaderContent part="info">
+        <span className="save-state" role="status">{saveState === "saving" ? "Saving…" : saveState === "saved" ? "Saved to owning document" : "Unsaved changes"}</span>
+      </PaneHeaderContent>}
       {file && diverged && dismissed !== diverged.reason && !merging && (
         <DivergedBanner
           what={path}
@@ -313,7 +336,11 @@ export function GeneratedFileView({
       }}
       />
       {debuggerContext && file && <GeneratedDebugTools view={debugView} file={file} {...debuggerContext} />}
-      {file && range && <SamplePicker path={path} range={range} contents={outputView.current?.state.doc.toString() ?? file?.content ?? ""} />}
+      {file && range && <PaneHeaderContent part="actions">
+        <MoreActions label="Sample selected lines" glyph="＋" retainOnAction>
+          <SamplePicker path={path} range={range} contents={outputView.current?.state.doc.toString() ?? file.content} />
+        </MoreActions>
+      </PaneHeaderContent>}
       {saveError && <GeneratedBufferRecovery bufferId={bufferId} saver={saver} error={saveError}
         isCurrent={() => bufferOwners.get(bufferId) === saver && !!outputView.current?.dom.isConnected}
         source={() => outputView.current?.state.doc.toString() ?? null} />}

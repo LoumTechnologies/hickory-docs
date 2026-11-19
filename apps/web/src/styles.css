@@ -9068,6 +9068,7 @@ button.status-bar__item:hover { background: var(--bg-sunken); color: var(--fg); 
 .with-right-rail > .cm-card-rail { order: 3; }
 .cm-debug-rail { position: relative; flex: 0 0 24px; width: 24px; min-height: 0; background: var(--bg-sunken); border-left: 1px solid var(--border); z-index: 8; }
 .cm-debug-rail:empty { display: none; }
+.generated-view--debug-rail .cm-debug-rail:empty { display: block; visibility: hidden; }
 .cm-debug-rail__group { position: absolute; left: 0; width: 24px; }
 .cm-debug-rail:has(.is-active) > .cm-debug-rail__group:not(.is-active) { display: none; }
 .cm-debug-rail .debug-strip { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 2px; padding: 0; border: 0; background: transparent; }

@@ -1,9 +1,11 @@
 import { act, cleanup, render, waitFor } from "@testing-library/react";
+import { StrictMode } from "react";
 import { afterEach, expect, it, vi } from "vitest";
 import { EditorView } from "@codemirror/view";
 import { UiActions } from "../lib/uiActions";
 import { UiActionContext } from "../lib/uiActionBridge";
 import { OutputEditorPane } from "./OutputEditorPane";
+import { revealLine } from "../lib/revealLine";
 afterEach(cleanup);
 // Guarantee: docs/guarantees/agent/ui-action-dispatch.md
 it("keeps reading-only output immutable and sends agent edits through an explicit existing edit callback", async () => {
@@ -46,4 +48,14 @@ it("keeps ingested output locked while patch text and refreshed provenance remai
   expect(view.state.doc.toString()).toBe("patch\nfresh");
   act(() => { view.dispatch({ changes: { from: 6, to: 11, insert: "wrong" }, userEvent: "input" }); });
   expect(view.state.doc.toString()).toBe("patch\nfresh"); expect(local).toHaveBeenCalledOnce();
+});
+it("keeps a queued UTF-16 position through a StrictMode editor mount", async () => {
+  const file = {path: "queued.py", language: "python", content: "one\n😀value", provenance: []};
+  const ready = vi.fn();
+  revealLine(file.path, 2, 2, {source: file.content, current: () => true});
+  const mounted = render(<StrictMode><OutputEditorPane file={file} onViewReady={ready} /></StrictMode>);
+  const view = EditorView.findFromDOM(mounted.container.querySelector<HTMLElement>(".cm-editor")!)!;
+  expect(ready.mock.calls.filter(([editor]) => editor)).toHaveLength(2);
+  await waitFor(() => expect(view.state.selection.main.head).toBe(6));
+  expect(view.state.readOnly).toBe(true);
 });

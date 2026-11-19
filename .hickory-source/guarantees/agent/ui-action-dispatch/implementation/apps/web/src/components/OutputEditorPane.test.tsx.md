@@ -17,11 +17,13 @@ Related contracts: [Explicit UI action dispatch checks scope, state, policy and 
 
 <storycode:copy id="f-0c1c6071248d-expression_statement">
 import { act, cleanup, render, waitFor } from "@testing-library/react";
+import { StrictMode } from "react";
 import { afterEach, expect, it, vi } from "vitest";
 import { EditorView } from "@codemirror/view";
 import { UiActions } from "../lib/uiActions";
 import { UiActionContext } from "../lib/uiActionBridge";
 import { OutputEditorPane } from "./OutputEditorPane";
+import { revealLine } from "../lib/revealLine";
 afterEach(cleanup);
 </storycode:copy>
 <a id="f-0c1c6071248d-expression_statement-2"></a>
@@ -79,10 +81,29 @@ it("keeps ingested output locked while patch text and refreshed provenance remai
 });
 </storycode:copy>
 
+### Queued position at editor mount
+
+The one-shot position belongs to the mounted editor that survives React's
+development replay. Both setup passes see the same text and only the live
+editor may consume the jump.
+
+<storycode:copy id="generated-reveal-mount-witness">
+it("keeps a queued UTF-16 position through a StrictMode editor mount", async () => {
+  const file = {path: "queued.py", language: "python", content: "one\n😀value", provenance: []};
+  const ready = vi.fn();
+  revealLine(file.path, 2, 2, {source: file.content, current: () => true});
+  const mounted = render(<StrictMode><OutputEditorPane file={file} onViewReady={ready} /></StrictMode>);
+  const view = EditorView.findFromDOM(mounted.container.querySelector<HTMLElement>(".cm-editor")!)!;
+  expect(ready.mock.calls.filter(([editor]) => editor)).toHaveLength(2);
+  await waitFor(() => expect(view.state.selection.main.head).toBe(6));
+  expect(view.state.readOnly).toBe(true);
+});
+</storycode:copy>
+
 ### Assemble `apps/web/src/components/OutputEditorPane.test.tsx`
 
 The selections below preserve the original byte order. Narrative reading order does not change the output.
 
-<storycode:file path="apps/web/src/components/OutputEditorPane.test.tsx"><storycode:paste select="#f-0c1c6071248d-expression_statement"/><storycode:paste select="#f-0c1c6071248d-expression_statement-2"/><storycode:paste select="#immutable-scaffold-output-component-test"/></storycode:file>
+<storycode:file path="apps/web/src/components/OutputEditorPane.test.tsx"><storycode:paste select="#f-0c1c6071248d-expression_statement"/><storycode:paste select="#f-0c1c6071248d-expression_statement-2"/><storycode:paste select="#immutable-scaffold-output-component-test"/><storycode:paste select="#generated-reveal-mount-witness"/></storycode:file>
 
 </storycode:doc>

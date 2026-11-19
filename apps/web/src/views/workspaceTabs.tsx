@@ -19,6 +19,7 @@ import { openLiterate } from "../lib/openRepresentation";
 import type { EditorView } from "@codemirror/view";
 
 import { api } from "../api/client";
+import type { PlainFile } from "../api/types";
 import { LocalRealtime } from "../api/realtime";
 import { DocumentEditor } from "../editor/DocumentEditor";
 import type { TableLayout } from "../components/TablePanel";
@@ -293,12 +294,14 @@ export function GeneratedTabBody({
   docId,
   path,
   bufferId,
+  initialDiskFile,
   onSource,
 }: {
   registry: SessionRegistry;
   docId: string;
   path: string;
   bufferId?: string;
+  initialDiskFile?: PlainFile;
   onSource?: (path: string, source: string) => void;
 }) {
   const session = useDocSession(registry, docId);
@@ -313,6 +316,7 @@ export function GeneratedTabBody({
       docId={docId}
       path={path}
       bufferId={bufferId}
+      initialDiskFile={initialDiskFile}
       onSource={onSource}
       liveFile={session?.outputs.get(path) ?? null}
       debugger={session?.doc ? {debug:session.debug,source:session.liveSource,docPath:session.doc.path,askText:session.askText} : undefined}

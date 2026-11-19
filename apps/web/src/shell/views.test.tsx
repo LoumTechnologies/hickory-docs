@@ -279,3 +279,27 @@ it("keeps disk contents readable when generated provenance fails", async () => {
   expect(mounted.getByRole("status").textContent).toContain("weave failed");
   expect(mounted.container.querySelector(".cm-content")?.getAttribute("contenteditable")).toBe("false");
 });
+it.each(["x = 1\n", "x = 2\n"])("checks the projection %j against the preloaded source", async woven => {
+  const content = "x = 1\n";
+  let release!: (output: OutputFile) => void;
+  const held = new Promise<OutputFile>(resolve => { release = resolve; });
+  let diskReads = 0;
+  installMockHandler(async (method, path) => {
+    if (method === "GET" && path.startsWith("/api/file?")) { diskReads++; return {...file(content), hash: "disk"}; }
+    if (method === "GET" && path.includes("/outputs/file")) return held;
+    if (method === "GET" && path.endsWith("/diverged")) return {diverged: {}};
+    throw Error(`unexpected ${method} ${path}`);
+  });
+  const mounted = render(<GeneratedFileView docId="preview" path="src/hello.py" initialDiskFile={{...file(content), hash: "disk"}} />);
+  const dom = mounted.container.querySelector<HTMLElement>(".cm-editor")!;
+  const view = (await import("@codemirror/view")).EditorView.findFromDOM(dom)!;
+  expect(view.state.doc.toString()).toBe(content);
+  expect(view.state.readOnly).toBe(true);
+  act(() => view.dispatch({selection: {anchor: 1, head: 4}}));
+  await act(async () => { release(file(woven)); await held; });
+  expect(view.state.readOnly).toBe(woven !== content);
+  expect(view.state.doc.toString()).toBe(content);
+  expect(view.state.selection.main).toMatchObject({anchor: 1, head: 4});
+  expect(mounted.container.querySelector(".cm-editor")).toBe(dom);
+  expect(diskReads).toBe(0);
+});

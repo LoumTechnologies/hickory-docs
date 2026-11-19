@@ -2720,6 +2720,17 @@ save guard during sync. The editor stayed read-only with the same viewport
 and sent no source update. See
 `target/main-managed-room-held-replaced-final-v2/browser.json`.
 
+Main guarded links to generated outputs now reuse the checked disk read.
+Two rendered browser replays opened the complete 4,597-byte file read-only
+at UTF-16 offset 3017 before the real provenance response. Each made one
+disk read. Matching provenance attached editing in the same editor.
+Different provenance left the original source read-only. In both cases
+the nonempty selection, scroll offset, viewport dimensions and first
+visible row's screen position held. See
+`target/main-generated-provenance-matching-layout-v1/browser.json` and
+`target/main-generated-provenance-mismatch-layout-v1/browser.json`.
+Focused tests also preserve a queued position across editor mount replay.
+
 Focused rebuilt-engine replays also passed for Python definition and
 Back/Forward, workspace search, delayed first-open authority and capabilities,
 and Debug and guarded patch review on both recorded Agent message sides.

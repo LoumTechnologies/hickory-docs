@@ -414,6 +414,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   const focusKey = JSON.stringify([layout.focus, activeTab?.id, activeTab?.kind, activeTab?.target, activeTab?.docId]);
   const focusIntent = useRef({key: focusKey, tab: activeTab});
   const preparedFile = useRef<{file: PlainFile; current: ()=>boolean} | undefined>(undefined);
+  const preparedOutput = useRef<{file: PlainFile; owner: string; current: ()=>boolean} | undefined>(undefined);
   const preparedDocument = useRef<{doc: Doc; current: ()=>boolean; workspaceCurrent: ()=>boolean} | undefined>(undefined);
   if (focusIntent.current.key !== focusKey) {
     focusIntent.current = {key: focusKey, tab: activeTab};
@@ -1006,6 +1007,9 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       }
       if (doc) prepareDocument(doc, request);
       return openHitRef.current(path, line ?? 1, undefined, target => {
+        if (file && !latest.tab && target.kind === "generated" && target.docId && target.target === file.path) {
+          preparedOutput.current = {file, owner: target.docId, current};
+        }
         onSourceActivation(target, current, stillFocused => {
           if (target.kind === "document") navigate(`/docs/${target.docId}`);
           if (line !== null) revealLine(target.target, line, character, {source, current: stillFocused});
@@ -1037,6 +1041,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       sourceVisit.current++;
       sourceActivation.current = undefined;
       preparedFile.current = undefined;
+      preparedOutput.current = undefined;
       preparedDocument.current = undefined;
       stop();
     };
@@ -1178,6 +1183,13 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   // ANY of its tabs is open — a generated file outliving its document's own
   // tab still needs the provenance, the saver, and the way back.
   const openDocIds = useMemo(() => docIdsIn(layout), [layout]);
+  const admittedOutput = preparedOutput.current;
+  useLayoutEffect(() => {
+    if (!admittedOutput || preparedOutput.current !== admittedOutput) return;
+    const visible = panesOf(layout.root).some(pane => pane.tabs.some(tab =>
+      tab.kind === "generated" && tab.docId === admittedOutput.owner && tab.target === admittedOutput.file.path));
+    if (visible) preparedOutput.current = undefined;
+  }, [layout, admittedOutput]);
   const admittedDocument = preparedDocument.current;
   useLayoutEffect(() => {
     if (admittedDocument && openDocIds.includes(admittedDocument.doc.id) &&
@@ -1910,6 +1922,8 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     if (tab.kind === "generated" && tab.docId) {
       return (
         <GeneratedTabBody
+          initialDiskFile={admittedOutput?.owner === tab.docId && admittedOutput.file.path === tab.target &&
+            admittedOutput.current() ? admittedOutput.file : undefined}
           bufferId={tab.id}
           registry={registry}
           docId={tab.docId}

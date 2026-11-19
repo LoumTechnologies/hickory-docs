@@ -358,9 +358,10 @@ export function OutputEditorPane({
   // A find hit asked for this file at a line. Claimed on mount as well as on
   // the event, because the request is usually made before this pane exists.
   useEffect(() => {
+    let live = true;
     const jump = () => {
       const view = viewRef.current;
-      if (!view) return;
+      if (!live || !view) return;
       const position = claimRevealPosition(file.path, authoredSource(view.state));
       if (!position) return;
       const target = view.state.doc.line(Math.min(position.line, view.state.doc.lines));
@@ -373,11 +374,14 @@ export function OutputEditorPane({
       });
       view.focus();
     };
-    jump();
-    return onRevealLine((asked) => {
-      if (asked === file.path) jump();
+    // StrictMode tears down the first mounted editor before setting it
+    // up again. Let that replay finish before consuming a one-shot jump.
+    queueMicrotask(jump);
+    const stop = onRevealLine((asked) => {
+      if (asked === file.path) queueMicrotask(jump);
     });
-  });
+    return () => { live = false; stop(); };
+  }, [file.path]);
 
   return (
     <div className="output-pane">
