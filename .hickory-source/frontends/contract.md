@@ -257,11 +257,25 @@ intact. The saved fixture bytes stayed unchanged. See
 `target/main-startup-late-raw-refusal-v8-fixed-retry/browser.json` and
 `target/main-startup-late-raw-refusal-v8-managed-retry/browser.json`.
 
-A separate Main replay let Open File succeed before raw text, then held
-the guarded plain-file read. The raw response completed while the pane
-was loading and appeared only after releasing the guarded read. This
-order still needs independent text presentation. See
-`target/main-startup-success-before-held-guard-v8/browser.json`.
+Main presents the first matching startup text from the raw or scoped
+read. Open File can succeed while the guarded reply is held. Rendered
+plain and managed cases mounted the available raw text read-only and
+kept the same editor, nonempty selection and first visible row through
+guarded promotion. The managed case also held the real room sync.
+Edit and Undo restored the exact bytes after promotion. In reverse
+order, both editors accepted a draft before the raw reply completed.
+The later reply preserved the draft, editor, selection, scroll, and
+Undo history. See
+`target/main-startup-authority-race-fixed-plain-raw-first-retry/browser.json`,
+`target/main-startup-authority-race-fixed-managed-raw-first-retry/browser.json`,
+`target/main-startup-authority-race-fixed-plain-guarded-first/browser.json`,
+and `target/main-startup-authority-race-fixed-managed-guarded-first/browser.json`.
+A guarded reply without a save guard also stayed read-only for both
+kinds. Retry used fresh authority and kept the same editor, selection,
+and visible row. The scoped read was reused for admission. A managed
+document rechecked authority when its room became available. See
+`target/main-startup-authority-race-fixed-plain-guardless-retry/browser.json`
+and `target/main-startup-authority-race-fixed-managed-guardless-retry/browser.json`.
 
 Mounted AppKit repeated both cases against the freshly linked engine. A held
 Files response let the exact startup bytes appear first. Releasing Files and
@@ -3263,6 +3277,15 @@ sent no open, close, or change message during refresh, and navigation
 sent no source writes. Numeric caret offsets were unavailable in Android
 accessibility. See
 `target/parity-rendered-android.sgYIt7/continuation-receipts/final-android-39rxc3ez/managed-ts-live-refresh/live-refresh-result.json`.
+
+Mounted UIKit opened the shifted saved leaf on its first Definition.
+Back returned to UTF-16 offset 178 in the same Markdown buffer and
+native text view. The new provider used the same staged call coordinate,
+and navigation preserved the fixture files and sent no caller update.
+A background completion request displayed an error from the retired
+provider during that run. See
+`target/ios-saved-import-refresh-v8-2026-11-19/receipt.json` and
+`target/ios-saved-import-refresh-v8-2026-11-19/mounted-refresh.log`.
 
 Go to Declaration tries the provider's dedicated method. When it
 returns method-not-found, the engine asks for Definition at the same

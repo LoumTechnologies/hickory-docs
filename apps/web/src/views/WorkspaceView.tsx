@@ -1674,7 +1674,6 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   useEffect(() => {
     if (!requestedFile) return;
     let current = true;
-    let settled = false;
     let selectionError: string | undefined;
     let observedTab: Tab | null = null;
     const focusedSource = () => {
@@ -1682,42 +1681,45 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       return tab?.kind === "tree" ? undefined : tab?.id;
     };
     const originalFocus = focusedSource();
-    // Refusing explicit Open File does not settle the independent text read.
-    // A late preview can still take the original slot if the user stayed there.
-    const canPresent = () => current && !settled && (!selectionError || focusedSource() === originalFocus);
+    // Open File identifies a target. It does not settle either text read.
+    // Keep the first readable preview in the original slot.
+    const canPresent = () => current && focusedSource() === originalFocus;
     const selected = api.openFile(requestedFile);
+    void selected.catch(error => {
+      selectionError = error instanceof Error ? error.message : String(error);
+      if (canPresent() && !observedTab) setInsertNotice(selectionError);
+    });
+    const openNormally = () => {
+      void selected.then(({doc_id, path}) => {
+        if (!canPresent() || observedTab) return;
+        if (doc_id) setLayout(layout => activateDocTab(layout, doc_id) ?? openDocTab(layout, doc_id, path));
+        else openPlainFile(path);
+      }, () => { /* The failed selection already supplied a notice. */ });
+    };
     if (requestedFile === startupFile) {
       const observe = (startupHint ?? requestedFile).endsWith(".md") ? observeManagedStartup : observePlainStartup;
       void observe(requestedFile, startupHint, selected, () => current && (!!observedTab || canPresent()))
         .then(observation => {
-          if (!canPresent() || !observation) return;
+          if (!canPresent()) return;
+          if (!observation) { openNormally(); return; }
           const {path} = observation.source;
           if ("docId" in observation) {
             const {docId} = observation;
-            if (findDocTab(layoutRef.current, docId)) return;
+            if (findDocTab(layoutRef.current, docId)) { openNormally(); return; }
             const tab = makeTab("document", path, path.split("/").pop(), docId);
             observedTab = tab;
             setManagedStartup({id: tab.id, observation});
             setLayout(layout => openDocTab(layout, docId, path, undefined, tab));
           } else {
-            if (findFileTab(layoutRef.current, path)) return;
+            if (findFileTab(layoutRef.current, path)) { openNormally(); return; }
             const tab = makeTab("file", path, path.split("/").pop());
             observedTab = tab;
             setPlainStartup({id: tab.id, observation});
             setLayout(layout => openFileTab(layout, path, undefined, tab));
           }
           if (selectionError) setInsertNotice(notice => notice === selectionError ? null : notice);
-        }, () => { /* The ordinary explicit open owns the fallback. */ });
-    }
-    void selected.then(({doc_id, path}) => {
-      settled = true;
-      if (!current || observedTab) return;
-      if (doc_id) setLayout(layout => activateDocTab(layout, doc_id) ?? openDocTab(layout, doc_id, path));
-      else openPlainFile(path);
-    }, error => {
-      selectionError = error instanceof Error ? error.message : String(error);
-      if (current && !observedTab) setInsertNotice(selectionError);
-    });
+        }, openNormally);
+    } else openNormally();
     return () => { current = false; };
   }, [requestedFile, startupFile, startupHint, openPlainFile]);
   useEffect(() => {

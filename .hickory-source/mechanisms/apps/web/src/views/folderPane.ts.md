@@ -118,17 +118,42 @@ async function confirmManagedRoom(authority: Promise<Doc>, current: () => boolea
   }
 }
 
-async function readStartupSource(requested: string, hint: string | null, current: () => boolean): Promise<StartupSource | null> {
+function startupPath(requested: string, hint: string | null) {
   const path = hint ?? requested;
   const normalizedRequest = requested.replaceAll("\\", "/");
   if (hint && requested !== hint && !normalizedRequest.endsWith("/" + hint)) return null;
   if (path.includes("\\") || path.includes(":")
     || /[\u0000-\u001f\u007f]/.test(path) || path.split("/").some(part => !part || part === "." || part === "..")) return null;
+  return path;
+}
+
+function matchesRequested(requested: string, root: string, path: string) {
+  const absolute = root.replaceAll("\\", "/").replace(/\/$/, "") + "/" + path;
+  return requested === path || requested.replaceAll("\\", "/") === absolute;
+}
+
+async function readStartupSource(requested: string, path: string, current: () => boolean): Promise<StartupSource | null> {
   const source = await api.startupSource(path);
-  const absolute = source?.root_path?.replaceAll("\\", "/").replace(/\/$/, "") + "/" + path;
   if (!current() || source?.version !== 1 || source.path !== path || typeof source.content !== "string"
-    || !source.root_path || (requested !== path && normalizedRequest !== absolute)) return null;
+    || !source.root_path || !matchesRequested(requested, source.root_path, path)) return null;
   return source;
+}
+
+// The scoped file response and raw observation can arrive in either order.
+// Present the first matching text. A failed read leaves its peer active.
+function firstStartupSource(raw: Promise<StartupSource | null>, guarded: Promise<StartupSource | null>) {
+  const rawText = raw.catch(() => null);
+  const guardedText = guarded.catch(() => null);
+  return Promise.race([rawText.then(text => text ?? guardedText), guardedText.then(text => text ?? rawText)]);
+}
+
+function scopedStartupText(requested: string, files: FilesResponse, path: string, content: string, doc_id?: string) {
+  const root = files.root_path, workspace = files.workspace_id;
+  const node = findNodeByPath([files], path);
+  if (files.folder_open === false || !root || !workspace || !/^[a-f0-9]{32}$/.test(workspace)
+    || !matchesRequested(requested, root, path) || !node || node.dir || (node.doc_id ?? undefined) !== doc_id
+    || doc_id && node.generated_by) return null;
+  return {version: 1 as const, path, content, root_path: root, workspace_id: workspace, doc_id};
 }
 
 function ownsStartupSource(files: FilesResponse, source: StartupSource) {
@@ -141,18 +166,28 @@ export async function observePlainStartup(
   requested: string, hint: string | null, selected: ReturnType<typeof api.openFile>,
   current: () => boolean,
 ): Promise<StartupPlainFile | null> {
-  if ((hint ?? requested).endsWith(".md")) return null;
-  const source = await readStartupSource(requested, hint, current);
-  if (!source || source.doc_id) return null;
-  const {path} = source;
-  const authorize = (request: typeof selected) => {
-    const authority = Promise.all([request, api.files(), api.file(path)]).then(([opened, files, file]) => {
+  const path = startupPath(requested, hint);
+  if (!path || path.endsWith(".md")) return null;
+  const refuse = () => Error("The requested file no longer matches the startup observation. Reopen it to check the current source.");
+  const read = (request: typeof selected) => request.then(async opened => {
+    if (!current() || opened.doc_id || opened.path !== path) throw refuse();
+    const [files, file] = await Promise.all([api.files(), api.file(path)]);
+    return {files, file};
+  });
+  const initial = read(selected);
+  const source = await firstStartupSource(
+    readStartupSource(requested, path, current).then(raw => raw?.doc_id ? null : raw),
+    initial.then(({files, file}) => file.path === path ? scopedStartupText(requested, files, path, file.content) : null),
+  );
+  if (!source || !current()) return null;
+  const authorize = (request: typeof initial) => {
+    const authority = request.then(({files, file}) => {
       const workspace = files.workspace_id, namespace = files.root_path;
       const node = findNodeByPath([files], path);
-      if (!current() || opened.doc_id || opened.path !== path || !namespace || !workspace
+      if (!current() || !namespace || !workspace
         || !ownsStartupSource(files, source) || !node || node.dir || node.doc_id
         || file.path !== path || file.content !== source.content) {
-        throw Error("The requested file no longer matches the startup observation. Reopen it to check the current source.");
+        throw refuse();
       }
       if (!node.generated_by && !file.save_guard) throw Error(file.save_guard_reason || "The file's saved source authority is unavailable. Reopen it to check again.");
       return {file, namespace, workspace, generatedBy: node.generated_by ?? null};
@@ -161,29 +196,39 @@ export async function observePlainStartup(
     void authority.catch(() => {});
     return authority;
   };
-  let authority = authorize(selected);
+  let authority = authorize(initial);
   // Refresh permission against the same text and ownership lease. Replacing
   // the preview would replace the managed editor and its native view state.
   return {source, current, get authority() { return authority; },
-    retry: () => { if (current()) authority = authorize(api.openFile(requested)); }};
+    retry: () => { if (current()) authority = authorize(read(api.openFile(requested))); }};
 }
 
 export async function observeManagedStartup(
   requested: string, hint: string | null, selected: ReturnType<typeof api.openFile>,
   current: () => boolean,
 ): Promise<StartupManagedDocument | null> {
-  if (!(hint ?? requested).endsWith(".md")) return null;
-  const source = await readStartupSource(requested, hint, current);
+  const path = startupPath(requested, hint);
+  if (!path || !path.endsWith(".md")) return null;
+  const validDocId = (id?: string) => !!id && /^[a-f0-9]{16}$/.test(id);
+  const read = (request: typeof selected) => request.then(async opened => {
+    const docId = opened.doc_id;
+    if (!current() || opened.path !== path || !docId || !validDocId(docId)) throw Error("The selected document changed.");
+    const [doc, files] = await Promise.all([api.doc(docId), api.files()]);
+    return {doc, files, docId};
+  });
+  const initial = read(selected);
+  const source = await firstStartupSource(
+    readStartupSource(requested, path, current).then(raw => validDocId(raw?.doc_id) ? raw : null),
+    initial.then(({doc, files, docId}) => doc.path === path && doc.id === docId
+      ? scopedStartupText(requested, files, path, doc.source, docId) : null),
+  );
   const docId = source?.doc_id;
-  if (!source || !docId || !/^[a-f0-9]{16}$/.test(docId)) return null;
-  const {path} = source;
-  const authorize = (request: typeof selected) => {
-    const authority = request.then(async opened => {
+  if (!source || !docId || !current()) return null;
+  const authorize = (request: typeof initial) => {
+    const authority = request.then(({doc, files, docId: selectedId}) => {
       const refuse = () => Error("The requested document no longer matches its startup observation. Reopen it to check the current source.");
-      if (!current() || opened.path !== path || opened.doc_id !== docId) throw refuse();
-      const [doc, files] = await Promise.all([api.doc(docId), api.files()]);
       const node = findNodeByPath([files], path);
-      if (!current() || !ownsStartupSource(files, source) || !node || node.dir
+      if (!current() || selectedId !== docId || !ownsStartupSource(files, source) || !node || node.dir
         || node.generated_by || node.doc_id !== docId || doc.id !== docId || doc.path !== path || doc.source !== source.content) throw refuse();
       if (!doc.save_guard) throw Error(doc.save_guard_reason || "The document's saved source authority is unavailable. Reopen it to check again.");
       return doc;
@@ -191,10 +236,10 @@ export async function observeManagedStartup(
     void authority.catch(() => {});
     return authority;
   };
-  let authority = authorize(selected);
+  let authority = authorize(initial);
   return {source, docId, current, get authority() { return authority; },
     confirmRoom: () => confirmManagedRoom(authority, current),
-    retry: () => { if (current()) authority = authorize(api.openFile(requested)); }};
+    retry: () => { if (current()) authority = authorize(read(api.openFile(requested))); }};
 }
 
 export async function openSelectedFile(
@@ -301,6 +346,42 @@ it("retries a refused open against the same startup bytes and workspace", async 
   tree.mockResolvedValue({root, root_path: "/foreign", workspace_id: workspace, tree: []});
   preview?.retry?.();
   await expect(preview?.authority).rejects.toThrow(/no longer matches/);
+});
+
+it("presents raw startup text after selection while the guarded file read is pending", async () => {
+  const path = "nested/wanted.txt", root = "/workspace", workspace = "a".repeat(32);
+  const content = "Exact late startup text\n";
+  const raw = {version: 1 as const, path, content, root_path: root, workspace_id: workspace};
+  vi.spyOn(api, "startupSource").mockResolvedValue(raw);
+  vi.spyOn(api, "files").mockResolvedValue({root, root_path: root, workspace_id: workspace,
+    tree: [{name: "wanted.txt", path, dir: false}]});
+  const saved = {path, content, language: "text", hash: "base", save_guard: "guard"};
+  let release!: (value: typeof saved) => void;
+  const read = vi.spyOn(api, "file").mockReturnValue(new Promise(resolve => { release = resolve; }));
+  const preview = await observePlainStartup(root + "/" + path, path, Promise.resolve({path}), () => true);
+  expect(preview?.source).toBe(raw);
+  expect(read).toHaveBeenCalledTimes(1);
+  release(saved);
+  await expect(preview?.authority).resolves.toEqual({file: saved, namespace: root, workspace, generatedBy: null});
+  expect(read).toHaveBeenCalledTimes(1);
+});
+
+it("keeps the first scoped text when a different raw startup response arrives later", async () => {
+  const path = "nested/wanted.txt", root = "/workspace", workspace = "a".repeat(32);
+  const content = "Current file text\n";
+  const stale = {version: 1 as const, path, content: "Older raw text\n", root_path: root, workspace_id: workspace};
+  let release!: (value: typeof stale) => void;
+  vi.spyOn(api, "startupSource").mockReturnValue(new Promise(resolve => { release = resolve; }));
+  vi.spyOn(api, "files").mockResolvedValue({root, root_path: root, workspace_id: workspace,
+    tree: [{name: "wanted.txt", path, dir: false}]});
+  const saved = {path, content, language: "text", hash: "base", save_guard: "guard"};
+  const read = vi.spyOn(api, "file").mockResolvedValue(saved);
+  const preview = await observePlainStartup(root + "/" + path, path, Promise.resolve({path}), () => true);
+  expect(preview?.source.content).toBe(content);
+  release(stale);
+  await expect(preview?.authority).resolves.toMatchObject({file: saved});
+  expect(preview?.source.content).toBe(content);
+  expect(read).toHaveBeenCalledTimes(1);
 });
 
 it("rechecks the original managed guard after an equal-byte room wait", async () => {

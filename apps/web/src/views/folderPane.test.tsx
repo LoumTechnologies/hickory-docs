@@ -58,6 +58,42 @@ it("retries a refused open against the same startup bytes and workspace", async 
   await expect(preview?.authority).rejects.toThrow(/no longer matches/);
 });
 
+it("presents raw startup text after selection while the guarded file read is pending", async () => {
+  const path = "nested/wanted.txt", root = "/workspace", workspace = "a".repeat(32);
+  const content = "Exact late startup text\n";
+  const raw = {version: 1 as const, path, content, root_path: root, workspace_id: workspace};
+  vi.spyOn(api, "startupSource").mockResolvedValue(raw);
+  vi.spyOn(api, "files").mockResolvedValue({root, root_path: root, workspace_id: workspace,
+    tree: [{name: "wanted.txt", path, dir: false}]});
+  const saved = {path, content, language: "text", hash: "base", save_guard: "guard"};
+  let release!: (value: typeof saved) => void;
+  const read = vi.spyOn(api, "file").mockReturnValue(new Promise(resolve => { release = resolve; }));
+  const preview = await observePlainStartup(root + "/" + path, path, Promise.resolve({path}), () => true);
+  expect(preview?.source).toBe(raw);
+  expect(read).toHaveBeenCalledTimes(1);
+  release(saved);
+  await expect(preview?.authority).resolves.toEqual({file: saved, namespace: root, workspace, generatedBy: null});
+  expect(read).toHaveBeenCalledTimes(1);
+});
+
+it("keeps the first scoped text when a different raw startup response arrives later", async () => {
+  const path = "nested/wanted.txt", root = "/workspace", workspace = "a".repeat(32);
+  const content = "Current file text\n";
+  const stale = {version: 1 as const, path, content: "Older raw text\n", root_path: root, workspace_id: workspace};
+  let release!: (value: typeof stale) => void;
+  vi.spyOn(api, "startupSource").mockReturnValue(new Promise(resolve => { release = resolve; }));
+  vi.spyOn(api, "files").mockResolvedValue({root, root_path: root, workspace_id: workspace,
+    tree: [{name: "wanted.txt", path, dir: false}]});
+  const saved = {path, content, language: "text", hash: "base", save_guard: "guard"};
+  const read = vi.spyOn(api, "file").mockResolvedValue(saved);
+  const preview = await observePlainStartup(root + "/" + path, path, Promise.resolve({path}), () => true);
+  expect(preview?.source.content).toBe(content);
+  release(stale);
+  await expect(preview?.authority).resolves.toMatchObject({file: saved});
+  expect(preview?.source.content).toBe(content);
+  expect(read).toHaveBeenCalledTimes(1);
+});
+
 it("rechecks the original managed guard after an equal-byte room wait", async () => {
   const path = "nested/new #é.md", docId = "b".repeat(16), root = "/workspace", workspace = "a".repeat(32);
   const content = "# Readable\n";
