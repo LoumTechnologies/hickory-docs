@@ -34,6 +34,7 @@ STARTUP_AUTHORITY_MODES = {
 }
 LIVE_STARTUP_AUTHORITY = {'startup-authority-live', 'startup-authority-live-retry'}
 RECORDED_CONSTRUCTION_SIDES = {'recorded-construction': 'assistant', 'recorded-construction-user': 'user'}
+RECORDED_DEBUG_UI_SIDES = {'recorded-debug-ui-user': 'user', 'recorded-debug-ui-assistant': 'assistant'}
 WORKFLOWS = {
     'editing': ('testMountedUIKitEditingAndSelectedRustDebug', ['native-paste-history-passed', 'coordinated-cleanup-history-passed', 'debug-paused', 'completed']),
     'workspace': ('testMountedSearchProblemsAndCollectedTests', ['workspace-navigation-problems-passed', 'workspace-tests-coverage-passed']),
@@ -81,11 +82,21 @@ RECORDED_FILES = {
     'recorded-patch': ('project.md', 'author.md', 'generated.py', 'review.txt', 'sessions/recorded-patch.md'),
 }
 
+for workflow, side in RECORDED_DEBUG_UI_SIDES.items():
+    value = {'user': '42', 'assistant': '53'}[side]
+    WORKFLOWS[workflow] = ('testRecordedFenceDebugThroughNativeGutter', [
+        f'recorded-debug-ui-{side}-{phase}' for phase in
+        ('breakpoint-tap', 'launch-tap', 'paused-4', 'stepped-5', f'watched-{value}', 'finished-immutable')
+    ])
+    RECORDED_FILES[workflow] = RECORDED_FILES['recorded-debug']
+
 def recorded_fixture_path(folder, workflow, path):
-    return folder/('recorded-debug' if workflow == 'recorded-run' else workflow)/path
+    fixture = 'recorded-debug' if workflow == 'recorded-run' or workflow in RECORDED_DEBUG_UI_SIDES else workflow
+    return folder/fixture/path
 
 def workflow_target(workflow):
-    return RECORDED_RUN_TARGET if workflow in {'recorded-run', 'proposal-native-send', 'python-definition'} or workflow in RECORDED_CONSTRUCTION_SIDES or workflow in GIT_WORKFLOWS else TARGET
+    ui_workflows = {'recorded-run', 'proposal-native-send', 'python-definition'} | RECORDED_CONSTRUCTION_SIDES.keys() | RECORDED_DEBUG_UI_SIDES.keys() | GIT_WORKFLOWS
+    return RECORDED_RUN_TARGET if workflow in ui_workflows else TARGET
 
 DEFINITION_TRACE = r'''
 import json, signal, subprocess, sys
@@ -512,7 +523,7 @@ def run_workflow(workflow, device, seed, temporary_device, candidate, derived, d
         files, sentinel = prepare_workflow(workflow, workspace, python_env, slow_debug, recorded_fixtures)
         environment = {**os.environ, 'HICKORY_STATE_DIR': str(state)}
         recorded = workflow in RECORDED_FILES or workflow in RECORDED_CONSTRUCTION_SIDES
-        if workflow in ('recorded-debug', 'recorded-run'):
+        if workflow in ('recorded-debug', 'recorded-run') or workflow in RECORDED_DEBUG_UI_SIDES:
             environment['PATH'] = str(python_env.resolve()/'bin') + os.pathsep + environment['PATH']
         native_send = workflow == 'proposal-native-send'
         git_workflow = workflow in GIT_WORKFLOWS
@@ -541,6 +552,8 @@ def run_workflow(workflow, device, seed, temporary_device, candidate, derived, d
         metadata = {}
         if recorded:
             metadata['HICKORY_IOS_RECORDED_ROOT'] = str(workspace.resolve())
+        if workflow in RECORDED_DEBUG_UI_SIDES:
+            metadata['HICKORY_IOS_RECORDED_DEBUG_SIDE'] = RECORDED_DEBUG_UI_SIDES[workflow]
         if workflow in RECORDED_CONSTRUCTION_SIDES:
             metadata['HICKORY_IOS_CONSTRUCTION_SIDE'] = RECORDED_CONSTRUCTION_SIDES[workflow]
         if workflow == 'startup':
@@ -708,6 +721,9 @@ def run_workflow(workflow, device, seed, temporary_device, candidate, derived, d
                                            'request_position': call_site, 'definition_position': declaration}
                 if workflow == 'recorded-run':
                     payload['rendered_terminal_accessibility_verified'] = True
+                if workflow in RECORDED_DEBUG_UI_SIDES:
+                    payload['simulator_keyboard_input_verified'] = True
+                    payload['recorded_side'] = RECORDED_DEBUG_UI_SIDES[workflow]
                 if authority_mode:
                     payload['authority_responses'] = authority_calls
                 if live_authority:

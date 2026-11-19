@@ -279,6 +279,9 @@ struct AgentPane: View {
     var workspaceID: String? = nil
     var reviewPatch: ((DocumentBuffer, NativeRecordedMessageSource, Int) -> Void)? = nil
     var workspaceCurrent: @MainActor () -> Bool = { true }
+    #if os(iOS)
+    @State private var recordedInspection: NativeDebugInspector?
+    #endif
     var body: some View {
         VStack(spacing: 0) {
             HStack { Text("Workspace agent").bold(); Spacer(); Text("Hickory · Python only").font(.caption).foregroundStyle(.secondary) }.padding(12)
@@ -314,7 +317,15 @@ struct AgentPane: View {
                 }
                 Text("Sign in on the workspace server with \(session.provider == "claude-subscription" ? "claude auth login" : session.provider == "grok-subscription" ? "grok login" : "codex login"). Uses your subscription; no API fallback.").font(.caption2).foregroundStyle(.secondary)
             }.padding(12).background(.quaternary, in: RoundedRectangle(cornerRadius: 14))
-        }.task {
+        }
+        #if os(iOS)
+        .sheet(item: $recordedInspection) { inspection in
+            inspection.onChange(of: inspection.sourceCurrent, initial: true) { _, current in
+                if !current { recordedInspection = nil }
+            }
+        }
+        #endif
+        .task {
             guard let engine else { session.error = "Connect to a workspace server to use the agent."; return }
             while !Task.isCancelled {
                 do { let mutation = session.mutation; let history = try await engine.turns(); guard !Task.isCancelled else { return }; if mutation == session.mutation && !session.sending { session.turns = history.turns } }
@@ -326,6 +337,8 @@ struct AgentPane: View {
 </ui:copy>
 
 Capture the prompt before sending and clear it only if the user has not typed a replacement. An optimistic running record prevents a second send before the next history refresh.
+
+The iPhone inspector is owned by the Agent pane instead of its scrolling message row. When the keyboard takes vertical space, the selected recorded source keeps its inspector. If the recorded source or workspace closes, retire that presentation.
 
 <ui:copy id="simple-42e0887630-1">
     @ViewBuilder private var choices: some View {
@@ -340,6 +353,16 @@ Capture the prompt before sending and clear it only if the user has not typed a 
             ForEach(["low", "medium", "high", "xhigh", "max"], id: \.self) { Text($0).tag($0) }
         }.disabled(session.running || session.provider == "grok-subscription")
     }
+    private var presentRecordedInspection: ((NativeDebugInspector) -> Void)? {
+        #if os(iOS)
+        return { inspection in
+            guard inspection.sourceCurrent else { return }
+            recordedInspection = inspection
+        }
+        #else
+        return nil
+        #endif
+    }
     private func message(_ buffer: DocumentBuffer, turn: String, side: RecordedMessageSide) -> some View {
         let source = NativeRecordedMessageSource(turn: turn, side: side, workspace: workspaceAddress, workspaceID: workspaceID) { [weak session, weak buffer] in
             guard let session, let buffer, workspaceCurrent() else { return false }
@@ -347,7 +370,7 @@ Capture the prompt before sending and clear it only if the user has not typed a 
         }
         return LanguageEditor(buffer: buffer, debugger: debugger, recordedDebug: source, recordedRunEngine: engine, recordedPatchReview: reviewPatch.map { review in
             { line in review(buffer, source, line) }
-        }).id(buffer.id)
+        }, presentRecordedInspection: presentRecordedInspection).id(buffer.id)
             .frame(height: min(420, max(100, CGFloat(buffer.text.components(separatedBy: "\n").count) * 22 + 36)))
             .accessibilityElement(children: .contain)
             .accessibilityLabel(side == .user ? "Recorded user message" : "Recorded assistant message")

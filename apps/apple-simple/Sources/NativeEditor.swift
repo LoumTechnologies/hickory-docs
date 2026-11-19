@@ -2272,6 +2272,7 @@ struct LanguageEditor: View {
     var recordedDebug: NativeRecordedMessageSource? = nil
     var recordedRunEngine: Engine? = nil
     var recordedPatchReview: ((Int) -> Void)? = nil
+    var presentRecordedInspection: ((NativeDebugInspector) -> Void)? = nil
     var body: some View {
         HStack(spacing: 0) {
             GeometryReader { geometry in
@@ -2351,7 +2352,7 @@ struct LanguageEditor: View {
                         railWidth = min(220, max(24, (resizeStart ?? 24) - value.translation.width))
                     }.onEnded { _ in resizeStart = nil })
                     .accessibilityLabel("Resize right gutter").accessibilityAdjustableAction { direction in railWidth = min(220, max(24, railWidth + (direction == .increment ? 22 : -22))) }
-                NativeDebugRail(buffer: buffer, debug: debugger, recordedDebug: recordedDebug, recordedRunEngine: recordedRunEngine, recordedPatchReview: recordedPatchReview).frame(width: railWidth)
+                NativeDebugRail(buffer: buffer, debug: debugger, recordedDebug: recordedDebug, recordedRunEngine: recordedRunEngine, recordedPatchReview: recordedPatchReview, presentRecordedInspection: presentRecordedInspection).frame(width: railWidth)
             } else if buffer.startupObservation != nil {
                 Color.clear.frame(width: railWidth + 4)
             }
@@ -2460,25 +2461,31 @@ struct InlineCellControl: View {
     }
 }
 
+@MainActor private func recordedDebugFences(_ buffer: DocumentBuffer, source: NativeRecordedMessageSource?) -> [Int: RecordedDebugFence] {
+    guard source?.current() == true, exactUTF8(buffer.inlineMarkup.source, buffer.text) else { return [:] }
+    return buffer.inlineMarkup.debug.recorded
+}
+
 struct NativeDebugRail: View {
     var buffer: DocumentBuffer
     var debug: NativeDebugger
     var recordedDebug: NativeRecordedMessageSource? = nil
     var recordedRunEngine: Engine? = nil
     var recordedPatchReview: ((Int) -> Void)? = nil
+    var presentRecordedInspection: ((NativeDebugInspector) -> Void)? = nil
     @State private var recordedRun = NativeRecordedFenceRun()
     @State private var recordedConstruction = NativeRecordedConstruction()
     @State private var opened: Int?
     @State private var details: Int?
-    @State private var adapterInspection:UUID?
-    @State private var expression = ""
-    @State private var condition = ""
-    @State private var breakpointPage = 0
     private var paused: Int? { debug.sourceMatches(buffer) ? debug.line(in: buffer.file.path) : nil }
     private var showsSession: Bool { debug.hasSessionReading && (recordedDebug == nil || exactUTF8(debug.owner, buffer.file.path)) }
-    private var recordedFences: [Int: RecordedDebugFence] {
-        guard recordedDebug?.current() == true, exactUTF8(buffer.inlineMarkup.source, buffer.text) else { return [:] }
-        return buffer.inlineMarkup.debug.recorded
+    private var recordedFences: [Int: RecordedDebugFence] { recordedDebugFences(buffer, source: recordedDebug) }
+    private func inspect(_ line: Int) {
+        if let presentRecordedInspection {
+            presentRecordedInspection(NativeDebugInspector(buffer: buffer, debug: debug, recordedDebug: recordedDebug, line: line))
+        } else {
+            details = line
+        }
     }
     private func canReviewRecordedPatch(_ line: Int) -> Bool {
         recordedPatchReview != nil && recordedDebug?.current() == true && exactUTF8(buffer.inlineMarkup.source, buffer.text)
@@ -2488,21 +2495,6 @@ struct NativeDebugRail: View {
         recordedRunEngine != nil && recordedDebug?.workspaceID?.isEmpty == false && recordedDebug?.current() == true
             && exactUTF8(buffer.inlineMarkup.source, buffer.text) && buffer.inlineMarkup.debug.recordedConstructions.contains(line)
     }
-    @ViewBuilder private var threadControls:some View {
-        let snapshot=debug.threadSnapshot
-        VStack(alignment:.leading,spacing:4) {
-            HStack{Button(debug.threadBusy ? "Reading threads…":"Read threads"){debug.readThreads()}.disabled(!debug.canReadThreads);Button("Refresh paused state"){debug.refreshPausedState()}.disabled(debug.threadBusy || debug.refreshingPause)}
-            if !debug.threadNotice.isEmpty {Text(debug.threadNotice).font(.caption).textSelection(.enabled)}
-            if let selected=debug.selectedThread {Text("Reported thread \(selected)").font(.caption)}
-            ForEach(debug.visibleThreads){thread in
-                Button("\(thread.id==debug.selectedThread ? "●":"○") \(thread.name.isEmpty ? "Thread":thread.name) (\(thread.id))"){debug.selectThread(thread.id,snapshot:snapshot)}
-                    .disabled(!debug.canSelectThreads).accessibilityAddTraits(thread.id==debug.selectedThread ? .isSelected:[])
-                    .accessibilityHint("Requests this reported thread’s stopped stack without changing source.")
-            }
-            if debug.threadPages>1 {HStack{Button("Previous threads"){debug.threadPage=max(0,debug.threadPage-1)}.disabled(debug.threadPage==0 || debug.threadBusy);Text("Page \(debug.threadPage+1) of \(debug.threadPages)").font(.caption);Button("Next threads"){debug.threadPage=min(debug.threadPages-1,debug.threadPage+1)}.disabled(debug.threadPage>=debug.threadPages-1 || debug.threadBusy)}}
-        }
-    }
-
     private func embeddedAnchors(_ line: Int) -> [Int] {
         guard exactUTF8(buffer.inlineMarkup.source,buffer.text) else { return [] }
         return buffer.inlineMarkup.diagrams.filter { $0.line == line }.map(\.id)
@@ -2549,15 +2541,15 @@ struct NativeDebugRail: View {
             switch action {
             case "tests":buffer.inspectTests?(line)
             case "debug":
-                if showsSession {details=line}
-                else {Task {await debug.prepare(buffer,line:line);details=debug.active ? nil:line}}
+                if showsSession {inspect(line)}
+                else {Task {await debug.prepare(buffer,line:line); if !debug.active { inspect(line) }}}
             case "recorded-run":
                 guard let recordedRunEngine, let recordedDebug, let fence = recordedFences[line] else { return }
                 recordedConstruction.close()
                 Task { await recordedRun.start(buffer, source: recordedDebug, fence: fence, engine: recordedRunEngine) }
             case "recorded-debug":
                 guard let recordedDebug, let fence = recordedFences[line] else { return }
-                Task { await debug.prepareRecordedFence(buffer, source: recordedDebug, fence: fence); details = debug.active ? nil : line }
+                Task { await debug.prepareRecordedFence(buffer, source: recordedDebug, fence: fence); if !debug.active { inspect(line) } }
             case "recorded-review":
                 if canReviewRecordedPatch(line) { recordedPatchReview?(line) }
             case "recorded-construction":
@@ -2566,7 +2558,7 @@ struct NativeDebugRail: View {
                 Task { await recordedConstruction.inspect(buffer, source: recordedDebug, line: line, engine: recordedRunEngine) }
             case "continue", "over", "in", "out": debug.step(action)
             case "stop": debug.stop()
-            default: details = line
+            default: inspect(line)
             }
         } label: { Image(systemName: symbol(action)).frame(width: 20, height: 18) }
         .foregroundStyle(action=="coverage:covered" ? Color.green:action=="coverage:uncovered" ? Color.red:action=="coverage:mixed" ? Color.orange:Color.primary)
@@ -2690,15 +2682,60 @@ struct NativeDebugRail: View {
             }
         }.background(.quaternary.opacity(0.2))
         .popover(isPresented: Binding(get: { details != nil }, set: { if !$0 { details = nil } })) {
-            if let details { ScrollView { controls(details).padding(10) }.frame(width: 330).frame(maxHeight: 460).onAppear{adapterInspection=debug.adapterSources.open()}.onDisappear{if let token=adapterInspection{debug.adapterSources.close(token)};adapterInspection=nil} }
-        }.onChange(of:buffer.debugInspection){_,_ in if showsSession{details=0}}
+            if let details {
+                NativeDebugInspector(buffer: buffer, debug: debug, recordedDebug: recordedDebug, line: details)
+            }
+        }.onChange(of:buffer.debugInspection){_,_ in if showsSession{inspect(0)}}
         .onChange(of: recordedDebug?.current() == true) { _, current in
             if !current { recordedRun.close(); recordedConstruction.close(); opened = nil }
         }
         .onDisappear { recordedRun.close(); recordedConstruction.close() }
         .task(id: buffer.base) { await buffer.refreshReceipts() }
     }
-    @ViewBuilder private func controls(_ line: Int) -> some View {
+}
+
+struct NativeDebugInspector: View, Identifiable {
+    let id = UUID()
+    let buffer: DocumentBuffer
+    let debug: NativeDebugger
+    let recordedDebug: NativeRecordedMessageSource?
+    let line: Int
+    @State private var adapterInspection:UUID?
+    @State private var expression = ""
+    @State private var condition = ""
+    @State private var breakpointPage = 0
+
+    var sourceCurrent: Bool { recordedDebug?.current() ?? true }
+    private var paused: Int? { debug.sourceMatches(buffer) ? debug.line(in: buffer.file.path) : nil }
+    private var showsSession: Bool { debug.hasSessionReading && (recordedDebug == nil || exactUTF8(debug.owner, buffer.file.path)) }
+    private var recordedFences: [Int: RecordedDebugFence] { recordedDebugFences(buffer, source: recordedDebug) }
+
+    var body: some View {
+        ScrollView { controls.padding(10) }
+            .frame(width: 330).frame(maxHeight: 460)
+            .onAppear { adapterInspection = debug.adapterSources.open() }
+            .onDisappear {
+                if let token = adapterInspection { debug.adapterSources.close(token) }
+                adapterInspection = nil
+            }
+    }
+
+    @ViewBuilder private var threadControls:some View {
+        let snapshot=debug.threadSnapshot
+        VStack(alignment:.leading,spacing:4) {
+            HStack{Button(debug.threadBusy ? "Reading threads…":"Read threads"){debug.readThreads()}.disabled(!debug.canReadThreads);Button("Refresh paused state"){debug.refreshPausedState()}.disabled(debug.threadBusy || debug.refreshingPause)}
+            if !debug.threadNotice.isEmpty {Text(debug.threadNotice).font(.caption).textSelection(.enabled)}
+            if let selected=debug.selectedThread {Text("Reported thread \(selected)").font(.caption)}
+            ForEach(debug.visibleThreads){thread in
+                Button("\(thread.id==debug.selectedThread ? "●":"○") \(thread.name.isEmpty ? "Thread":thread.name) (\(thread.id))"){debug.selectThread(thread.id,snapshot:snapshot)}
+                    .disabled(!debug.canSelectThreads).accessibilityAddTraits(thread.id==debug.selectedThread ? .isSelected:[])
+                    .accessibilityHint("Requests this reported thread’s stopped stack without changing source.")
+            }
+            if debug.threadPages>1 {HStack{Button("Previous threads"){debug.threadPage=max(0,debug.threadPage-1)}.disabled(debug.threadPage==0 || debug.threadBusy);Text("Page \(debug.threadPage+1) of \(debug.threadPages)").font(.caption);Button("Next threads"){debug.threadPage=min(debug.threadPages-1,debug.threadPage+1)}.disabled(debug.threadPage>=debug.threadPages-1 || debug.threadBusy)}}
+        }
+    }
+
+    @ViewBuilder private var controls: some View {
         let ordinaryLaunch = recordedDebug == nil && inlineDebugPath(buffer.text, path: buffer.file.path, line: line, launch: true) != nil
         let code = recordedDebug == nil ? inlineDebugPath(buffer.text, path: buffer.file.path, line: line) != nil
             : recordedFences.values.contains { $0.contains(line) }
@@ -2742,7 +2779,7 @@ struct NativeDebugRail: View {
             }
             if exactUTF8(debug.owner,buffer.file.path) { ForEach(debug.targets) { target in Button("Debug file \(target.path)") { Task { await debug.prepare(buffer, program: target.path) } } } }
             ForEach(debug.profiles,id: \.exactID) { profile in
-                Button {debug.launch(profile);opened=nil} label:{VStack(alignment:.leading){Text(profile.actionLabel);if let notice=profile.attachNotice{Text(notice).font(.caption).fixedSize(horizontal:false,vertical:true)}}}.accessibilityLabel(profile.actionLabel+" · "+(profile.attachNotice ?? ""))
+                Button {debug.launch(profile)} label:{VStack(alignment:.leading){Text(profile.actionLabel);if let notice=profile.attachNotice{Text(notice).font(.caption).fixedSize(horizontal:false,vertical:true)}}}.accessibilityLabel(profile.actionLabel+" · "+(profile.attachNotice ?? ""))
             }
             if let notice=debug.attachReading{Text(notice).font(.caption).textSelection(.enabled)}
             if debug.offer != nil { Button("Install debugger", systemImage: "arrow.down.to.line") { Task { await debug.install() } } }

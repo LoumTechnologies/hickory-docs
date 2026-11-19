@@ -479,3 +479,158 @@ extension RecordedRunUITests {
         NSLog("HickoryUIKitParity native-python-definition-and-back-forward")
     }
 }
+extension RecordedRunUITests {
+    @MainActor func testRecordedFenceDebugThroughNativeGutter() throws {
+        continueAfterFailure = false
+        let environment = ProcessInfo.processInfo.environment
+        let origin = try XCTUnwrap(environment["HICKORY_IOS_PARITY_ORIGIN"])
+        let side = try XCTUnwrap(environment["HICKORY_IOS_RECORDED_DEBUG_SIDE"])
+        XCTAssertTrue(["user", "assistant"].contains(side))
+        let buffer = side == "user" ? "user" : "agent"
+        let expected = side == "user" ? "42" : "53"
+        let app = XCUIApplication()
+        app.launchEnvironment["HICKORY_API_ORIGIN"] = origin
+        app.launch()
+        let view = app.buttons["View"].firstMatch
+        XCTAssertTrue(view.waitForExistence(timeout: 20))
+        view.tap()
+        app.buttons["Agent"].firstMatch.tap()
+        let conversation = app.scrollViews["Conversation"].firstMatch
+        XCTAssertTrue(conversation.waitForExistence(timeout: 20))
+
+        let card = conversation.descendants(matching: .any)["Recorded \(side) message"].firstMatch
+        let editor = card.textViews["hick-agent-message:///recorded-fence-host-\(buffer).md"].firstMatch
+        func screenshot(_ phase: String) {
+            let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+            attachment.name = "Recorded \(side) Debug \(phase)"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
+        func firstAction(_ line: Int) -> XCUIElement {
+            let overflow = card.buttons["More gutter icons on line \(line)"].firstMatch
+            let run = card.buttons["Run recorded python fence on line \(line)"].firstMatch
+            return overflow.exists ? overflow : run
+        }
+        for _ in 0..<7 where !firstAction(3).isHittable || !firstAction(8).isHittable {
+            let start = conversation.coordinate(withNormalizedOffset: CGVector(dx: 0.02, dy: 0.78))
+            let end = conversation.coordinate(withNormalizedOffset: CGVector(dx: 0.02, dy: 0.37))
+            if firstAction(3).isHittable && firstAction(8).isHittable { break }
+            start.press(forDuration: 0.04, thenDragTo: end)
+        }
+        XCTAssertTrue(editor.exists)
+        XCTAssertTrue(firstAction(3).isHittable && firstAction(8).isHittable, "Both real fence anchors must be on screen before tapping the line-number rail")
+        let archived = try XCTUnwrap(editor.value as? String)
+        XCTAssertTrue(archived.contains(side == "user" ? "value = 41" : "value = 52"))
+        XCTAssertTrue(archived.contains("print(value + 1)"))
+        let originalFrame = editor.frame.integral
+        let first = firstAction(3).frame.midY, sibling = firstAction(8).frame.midY
+        let linePitch = (sibling - first) / 5
+        XCTAssertGreaterThan(linePitch, 8)
+        XCTAssertLessThan(linePitch, 38)
+        let gutter = card.descendants(matching: .any)["Line numbers; click code to toggle breakpoint"].firstMatch
+        let breakpoint = CGPoint(x: gutter.exists ? gutter.frame.midX : editor.frame.minX - 16, y: first + linePitch)
+        XCTAssertTrue(app.frame.contains(breakpoint))
+        XCTAssertGreaterThan(breakpoint.y, editor.frame.minY)
+        XCTAssertLessThan(breakpoint.y, editor.frame.maxY)
+        app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: breakpoint.x - app.frame.minX, dy: breakpoint.y - app.frame.minY)).tap()
+        NSLog("HickoryUIKitParity recorded-debug-ui-\(side)-breakpoint-tap")
+        screenshot("authored breakpoint")
+
+        func tapGutter(_ label: String, line: Int) {
+            let direct = card.buttons[label].firstMatch
+            let more = card.buttons["More gutter icons on line \(line)"].firstMatch
+            if direct.waitForExistence(timeout: 7), direct.isHittable { direct.tap(); return }
+            XCTAssertTrue(more.waitForExistence(timeout: 10) && more.isHittable, "Missing native gutter action \(label)")
+            more.tap()
+            let overflow = app.descendants(matching: .any)["More actions on line \(line)"].firstMatch
+            let revealed = overflow.buttons[label].firstMatch
+            XCTAssertTrue(revealed.waitForExistence(timeout: 9) && revealed.isHittable, "Missing overflow action \(label)")
+            revealed.tap()
+        }
+        func paused(_ line: Int) {
+            let ready = card.buttons["Continue on line \(line)"].firstMatch
+            XCTAssertTrue(ready.waitForExistence(timeout: 24), "No native pause controls on recorded line \(line)")
+            XCTAssertTrue(ready.isHittable)
+            XCTAssertEqual(editor.value as? String, archived)
+            screenshot("paused on source line \(line)")
+        }
+        tapGutter("Debug recorded python fence on line 3", line: 3)
+        NSLog("HickoryUIKitParity recorded-debug-ui-\(side)-launch-tap")
+        paused(4)
+        NSLog("HickoryUIKitParity recorded-debug-ui-\(side)-paused-4")
+        tapGutter("Over on line 4", line: 4)
+        paused(5)
+        NSLog("HickoryUIKitParity recorded-debug-ui-\(side)-stepped-5")
+        tapGutter("Inspect on line 5", line: 5)
+        let atFrame = app.staticTexts["Source line 5 · paused"].firstMatch
+        XCTAssertTrue(atFrame.waitForExistence(timeout: 12))
+        NSLog("HickoryUIKitParity recorded-debug-ui-\(side)-inspect-mapped-5")
+        let expression = app.textFields["Expression"].firstMatch
+        let inspector = app.scrollViews.containing(.staticText, identifier: "Source line 5 · paused").firstMatch
+        XCTAssertTrue(inspector.exists, "The debugger's own scroll container is unavailable")
+        let initialInspectorFrame = inspector.frame
+        let keyboard = app.keyboards.firstMatch
+        func screenPoint(_ point: CGPoint) -> XCUICoordinate {
+            app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: point.x - app.frame.minX, dy: point.y - app.frame.minY))
+        }
+        func reveal(_ element: XCUIElement, upward: Bool) {
+            for _ in 0..<5 where !element.isHittable {
+                let bounds = (inspector.exists ? inspector.frame : initialInspectorFrame).intersection(app.frame)
+                let bottom = keyboard.exists && !keyboard.frame.isEmpty ? min(bounds.maxY, keyboard.frame.minY) : bounds.maxY
+                let height = bottom - bounds.minY
+                XCTAssertGreaterThan(height, 55, "The inspector has no scroll viewport above the keyboard")
+                let low = CGPoint(x: bounds.midX, y: bounds.minY + height * 0.32)
+                let high = CGPoint(x: bounds.midX, y: bounds.minY + height * 0.78)
+                let start = screenPoint(upward ? high : low)
+                let end = screenPoint(upward ? low : high)
+                start.press(forDuration: 0.03, thenDragTo: end)
+            }
+            XCTAssertTrue(element.isHittable, element.exists ? element.debugDescription : "Debugger control is no longer mounted")
+        }
+        reveal(expression, upward: true)
+        let inputFrame = expression.frame
+        XCTAssertTrue(initialInspectorFrame.contains(CGPoint(x: inputFrame.midX, y: inputFrame.midY)))
+        NSLog("HickoryUIKitParity \(side) inspector=\(initialInspectorFrame) expression-before-focus=\(inputFrame)")
+        screenshot("Expression before focus")
+        expression.tap()
+        let keyboardOpened = keyboard.waitForExistence(timeout: 8)
+        if !keyboardOpened { screenshot("Expression after focus without keyboard") }
+        XCTAssertTrue(keyboardOpened, "The expression tap did not open a native keyboard")
+        screenshot("native expression keyboard")
+        // UIKit can retire the placeholder-labelled accessibility element as
+        // the text field gains focus. Send real keys to the focused app.
+        app.typeText("value + 1")
+        let watch = app.buttons["Watch"].firstMatch
+        reveal(watch, upward: true)
+        XCTAssertTrue(watch.isEnabled, "The native expression did not enable Watch")
+        watch.tap()
+        let value = app.staticTexts["value + 1 = \(expected)"].firstMatch
+        XCTAssertTrue(value.waitForExistence(timeout: 12), "The mapped frame did not show the expected Watch")
+        reveal(value, upward: true)
+        screenshot("watch \(expected)")
+        NSLog("HickoryUIKitParity recorded-debug-ui-\(side)-watched-\(expected)")
+        let resume = app.buttons["Continue"].firstMatch
+        reveal(resume, upward: false)
+        resume.tap()
+        let finished = app.staticTexts["Source line 5 · finished"].firstMatch
+        XCTAssertTrue(finished.waitForExistence(timeout: 22))
+        screenshot("continued to finished")
+        // Tap outside a popover or dismiss the iPhone sheet with its ordinary
+        // drag gesture before sampling the underlying recorded editor.
+        if !editor.isHittable {
+            let leftOfInspector = CGPoint(x: app.frame.minX + 10, y: initialInspectorFrame.midY)
+            let aboveInspector = CGPoint(x: app.frame.midX, y: max(app.frame.minY + 35, initialInspectorFrame.minY - 25))
+            let outside = initialInspectorFrame.minX - app.frame.minX > 25 ? leftOfInspector : aboveInspector
+            XCTAssertFalse(initialInspectorFrame.contains(outside))
+            screenPoint(outside).tap()
+            if !editor.isHittable, finished.exists {
+                let top = CGPoint(x: app.frame.midX, y: app.frame.minY + 85)
+                let bottom = CGPoint(x: app.frame.midX, y: app.frame.maxY - 35)
+                screenPoint(top).press(forDuration: 0.03, thenDragTo: screenPoint(bottom))
+            }
+        }
+        XCTAssertEqual(editor.value as? String, archived)
+        XCTAssertEqual(editor.frame.integral, originalFrame)
+        NSLog("HickoryUIKitParity recorded-debug-ui-\(side)-finished-immutable")
+    }
+}

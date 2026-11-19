@@ -2215,7 +2215,171 @@ extension RecordedRunUITests {
     }
 }
 </ui:copy>
-<ui:file path="apps/apple-simple/IOSUIAcceptance/RecordedRunUITests.swift"><ui:paste select="#ios-recorded-run-ui-test"/><ui:paste select="#ios-native-agent-send-ui-test"/><ui:paste select="#ios-native-git-review-ui-test"/><ui:paste select="#ios-native-git-history-ui-test"/><ui:paste select="#ios-native-python-definition-ui-test"/></ui:file>
+The recorded debugger test uses the authored line rail and both mapped stop
+positions before opening the inspector. Tapping Expression must produce a
+software keyboard and admit a typed Watch. Continue and dismissal return to
+the original recorded text and frame. The same test selects each side through
+the runner, which checks the saved fixture bytes after execution.
+
+<ui:copy id="ios-recorded-debug-ui-test">
+extension RecordedRunUITests {
+    @MainActor func testRecordedFenceDebugThroughNativeGutter() throws {
+        continueAfterFailure = false
+        let environment = ProcessInfo.processInfo.environment
+        let origin = try XCTUnwrap(environment["HICKORY_IOS_PARITY_ORIGIN"])
+        let side = try XCTUnwrap(environment["HICKORY_IOS_RECORDED_DEBUG_SIDE"])
+        XCTAssertTrue(["user", "assistant"].contains(side))
+        let buffer = side == "user" ? "user" : "agent"
+        let expected = side == "user" ? "42" : "53"
+        let app = XCUIApplication()
+        app.launchEnvironment["HICKORY_API_ORIGIN"] = origin
+        app.launch()
+        let view = app.buttons["View"].firstMatch
+        XCTAssertTrue(view.waitForExistence(timeout: 20))
+        view.tap()
+        app.buttons["Agent"].firstMatch.tap()
+        let conversation = app.scrollViews["Conversation"].firstMatch
+        XCTAssertTrue(conversation.waitForExistence(timeout: 20))
+
+        let card = conversation.descendants(matching: .any)["Recorded \(side) message"].firstMatch
+        let editor = card.textViews["hick-agent-message:///recorded-fence-host-\(buffer).md"].firstMatch
+        func screenshot(_ phase: String) {
+            let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+            attachment.name = "Recorded \(side) Debug \(phase)"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
+        func firstAction(_ line: Int) -> XCUIElement {
+            let overflow = card.buttons["More gutter icons on line \(line)"].firstMatch
+            let run = card.buttons["Run recorded python fence on line \(line)"].firstMatch
+            return overflow.exists ? overflow : run
+        }
+        for _ in 0..<7 where !firstAction(3).isHittable || !firstAction(8).isHittable {
+            let start = conversation.coordinate(withNormalizedOffset: CGVector(dx: 0.02, dy: 0.78))
+            let end = conversation.coordinate(withNormalizedOffset: CGVector(dx: 0.02, dy: 0.37))
+            if firstAction(3).isHittable && firstAction(8).isHittable { break }
+            start.press(forDuration: 0.04, thenDragTo: end)
+        }
+        XCTAssertTrue(editor.exists)
+        XCTAssertTrue(firstAction(3).isHittable && firstAction(8).isHittable, "Both real fence anchors must be on screen before tapping the line-number rail")
+        let archived = try XCTUnwrap(editor.value as? String)
+        XCTAssertTrue(archived.contains(side == "user" ? "value = 41" : "value = 52"))
+        XCTAssertTrue(archived.contains("print(value + 1)"))
+        let originalFrame = editor.frame.integral
+        let first = firstAction(3).frame.midY, sibling = firstAction(8).frame.midY
+        let linePitch = (sibling - first) / 5
+        XCTAssertGreaterThan(linePitch, 8)
+        XCTAssertLessThan(linePitch, 38)
+        let gutter = card.descendants(matching: .any)["Line numbers; click code to toggle breakpoint"].firstMatch
+        let breakpoint = CGPoint(x: gutter.exists ? gutter.frame.midX : editor.frame.minX - 16, y: first + linePitch)
+        XCTAssertTrue(app.frame.contains(breakpoint))
+        XCTAssertGreaterThan(breakpoint.y, editor.frame.minY)
+        XCTAssertLessThan(breakpoint.y, editor.frame.maxY)
+        app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: breakpoint.x - app.frame.minX, dy: breakpoint.y - app.frame.minY)).tap()
+        NSLog("HickoryUIKitParity recorded-debug-ui-\(side)-breakpoint-tap")
+        screenshot("authored breakpoint")
+
+        func tapGutter(_ label: String, line: Int) {
+            let direct = card.buttons[label].firstMatch
+            let more = card.buttons["More gutter icons on line \(line)"].firstMatch
+            if direct.waitForExistence(timeout: 7), direct.isHittable { direct.tap(); return }
+            XCTAssertTrue(more.waitForExistence(timeout: 10) && more.isHittable, "Missing native gutter action \(label)")
+            more.tap()
+            let overflow = app.descendants(matching: .any)["More actions on line \(line)"].firstMatch
+            let revealed = overflow.buttons[label].firstMatch
+            XCTAssertTrue(revealed.waitForExistence(timeout: 9) && revealed.isHittable, "Missing overflow action \(label)")
+            revealed.tap()
+        }
+        func paused(_ line: Int) {
+            let ready = card.buttons["Continue on line \(line)"].firstMatch
+            XCTAssertTrue(ready.waitForExistence(timeout: 24), "No native pause controls on recorded line \(line)")
+            XCTAssertTrue(ready.isHittable)
+            XCTAssertEqual(editor.value as? String, archived)
+            screenshot("paused on source line \(line)")
+        }
+        tapGutter("Debug recorded python fence on line 3", line: 3)
+        NSLog("HickoryUIKitParity recorded-debug-ui-\(side)-launch-tap")
+        paused(4)
+        NSLog("HickoryUIKitParity recorded-debug-ui-\(side)-paused-4")
+        tapGutter("Over on line 4", line: 4)
+        paused(5)
+        NSLog("HickoryUIKitParity recorded-debug-ui-\(side)-stepped-5")
+        tapGutter("Inspect on line 5", line: 5)
+        let atFrame = app.staticTexts["Source line 5 · paused"].firstMatch
+        XCTAssertTrue(atFrame.waitForExistence(timeout: 12))
+        NSLog("HickoryUIKitParity recorded-debug-ui-\(side)-inspect-mapped-5")
+        let expression = app.textFields["Expression"].firstMatch
+        let inspector = app.scrollViews.containing(.staticText, identifier: "Source line 5 · paused").firstMatch
+        XCTAssertTrue(inspector.exists, "The debugger's own scroll container is unavailable")
+        let initialInspectorFrame = inspector.frame
+        let keyboard = app.keyboards.firstMatch
+        func screenPoint(_ point: CGPoint) -> XCUICoordinate {
+            app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: point.x - app.frame.minX, dy: point.y - app.frame.minY))
+        }
+        func reveal(_ element: XCUIElement, upward: Bool) {
+            for _ in 0..<5 where !element.isHittable {
+                let bounds = (inspector.exists ? inspector.frame : initialInspectorFrame).intersection(app.frame)
+                let bottom = keyboard.exists && !keyboard.frame.isEmpty ? min(bounds.maxY, keyboard.frame.minY) : bounds.maxY
+                let height = bottom - bounds.minY
+                XCTAssertGreaterThan(height, 55, "The inspector has no scroll viewport above the keyboard")
+                let low = CGPoint(x: bounds.midX, y: bounds.minY + height * 0.32)
+                let high = CGPoint(x: bounds.midX, y: bounds.minY + height * 0.78)
+                let start = screenPoint(upward ? high : low)
+                let end = screenPoint(upward ? low : high)
+                start.press(forDuration: 0.03, thenDragTo: end)
+            }
+            XCTAssertTrue(element.isHittable, element.exists ? element.debugDescription : "Debugger control is no longer mounted")
+        }
+        reveal(expression, upward: true)
+        let inputFrame = expression.frame
+        XCTAssertTrue(initialInspectorFrame.contains(CGPoint(x: inputFrame.midX, y: inputFrame.midY)))
+        NSLog("HickoryUIKitParity \(side) inspector=\(initialInspectorFrame) expression-before-focus=\(inputFrame)")
+        screenshot("Expression before focus")
+        expression.tap()
+        let keyboardOpened = keyboard.waitForExistence(timeout: 8)
+        if !keyboardOpened { screenshot("Expression after focus without keyboard") }
+        XCTAssertTrue(keyboardOpened, "The expression tap did not open a native keyboard")
+        screenshot("native expression keyboard")
+        // UIKit can retire the placeholder-labelled accessibility element as
+        // the text field gains focus. Send real keys to the focused app.
+        app.typeText("value + 1")
+        let watch = app.buttons["Watch"].firstMatch
+        reveal(watch, upward: true)
+        XCTAssertTrue(watch.isEnabled, "The native expression did not enable Watch")
+        watch.tap()
+        let value = app.staticTexts["value + 1 = \(expected)"].firstMatch
+        XCTAssertTrue(value.waitForExistence(timeout: 12), "The mapped frame did not show the expected Watch")
+        reveal(value, upward: true)
+        screenshot("watch \(expected)")
+        NSLog("HickoryUIKitParity recorded-debug-ui-\(side)-watched-\(expected)")
+        let resume = app.buttons["Continue"].firstMatch
+        reveal(resume, upward: false)
+        resume.tap()
+        let finished = app.staticTexts["Source line 5 · finished"].firstMatch
+        XCTAssertTrue(finished.waitForExistence(timeout: 22))
+        screenshot("continued to finished")
+        // Tap outside a popover or dismiss the iPhone sheet with its ordinary
+        // drag gesture before sampling the underlying recorded editor.
+        if !editor.isHittable {
+            let leftOfInspector = CGPoint(x: app.frame.minX + 10, y: initialInspectorFrame.midY)
+            let aboveInspector = CGPoint(x: app.frame.midX, y: max(app.frame.minY + 35, initialInspectorFrame.minY - 25))
+            let outside = initialInspectorFrame.minX - app.frame.minX > 25 ? leftOfInspector : aboveInspector
+            XCTAssertFalse(initialInspectorFrame.contains(outside))
+            screenPoint(outside).tap()
+            if !editor.isHittable, finished.exists {
+                let top = CGPoint(x: app.frame.midX, y: app.frame.minY + 85)
+                let bottom = CGPoint(x: app.frame.midX, y: app.frame.maxY - 35)
+                screenPoint(top).press(forDuration: 0.03, thenDragTo: screenPoint(bottom))
+            }
+        }
+        XCTAssertEqual(editor.value as? String, archived)
+        XCTAssertEqual(editor.frame.integral, originalFrame)
+        NSLog("HickoryUIKitParity recorded-debug-ui-\(side)-finished-immutable")
+    }
+}
+</ui:copy>
+
+<ui:file path="apps/apple-simple/IOSUIAcceptance/RecordedRunUITests.swift"><ui:paste select="#ios-recorded-run-ui-test"/><ui:paste select="#ios-native-agent-send-ui-test"/><ui:paste select="#ios-native-git-review-ui-test"/><ui:paste select="#ios-native-git-history-ui-test"/><ui:paste select="#ios-native-python-definition-ui-test"/><ui:paste select="#ios-recorded-debug-ui-test"/></ui:file>
 
 ## Run only on a deliberately selected simulator
 
@@ -2293,7 +2457,11 @@ reports their original source digests. Supply the actual engine with
 select `--workflow recorded-run --workflow recorded-debug --workflow recorded-patch`.
 Run and Debug share the same immutable recorded-code fixture. Run uses the UI
 test scheme on that simulator and saves a screenshot for each completed side.
-The Debug lane uses debugpy from `--python-env`.
+The Debug lane uses debugpy from `--python-env`. Use
+`--workflow recorded-debug-ui-user` or `--workflow recorded-debug-ui-assistant`
+with the recorded Debug fixture to exercise the native inspector and software
+keyboard. The recorded fixture must put the selected fence and its sibling
+anchor within reach in the conversation.
 Use `--workflow recorded-construction` or `--workflow recorded-construction-user`
 with the explicit engine to inspect the captured Before and After in the
 assistant or user message. The runner creates each fixture at its exact
@@ -2336,6 +2504,7 @@ STARTUP_AUTHORITY_MODES = {
 }
 LIVE_STARTUP_AUTHORITY = {'startup-authority-live', 'startup-authority-live-retry'}
 RECORDED_CONSTRUCTION_SIDES = {'recorded-construction': 'assistant', 'recorded-construction-user': 'user'}
+RECORDED_DEBUG_UI_SIDES = {'recorded-debug-ui-user': 'user', 'recorded-debug-ui-assistant': 'assistant'}
 WORKFLOWS = {
     'editing': ('testMountedUIKitEditingAndSelectedRustDebug', ['native-paste-history-passed', 'coordinated-cleanup-history-passed', 'debug-paused', 'completed']),
     'workspace': ('testMountedSearchProblemsAndCollectedTests', ['workspace-navigation-problems-passed', 'workspace-tests-coverage-passed']),
@@ -2383,11 +2552,21 @@ RECORDED_FILES = {
     'recorded-patch': ('project.md', 'author.md', 'generated.py', 'review.txt', 'sessions/recorded-patch.md'),
 }
 
+for workflow, side in RECORDED_DEBUG_UI_SIDES.items():
+    value = {'user': '42', 'assistant': '53'}[side]
+    WORKFLOWS[workflow] = ('testRecordedFenceDebugThroughNativeGutter', [
+        f'recorded-debug-ui-{side}-{phase}' for phase in
+        ('breakpoint-tap', 'launch-tap', 'paused-4', 'stepped-5', f'watched-{value}', 'finished-immutable')
+    ])
+    RECORDED_FILES[workflow] = RECORDED_FILES['recorded-debug']
+
 def recorded_fixture_path(folder, workflow, path):
-    return folder/('recorded-debug' if workflow == 'recorded-run' else workflow)/path
+    fixture = 'recorded-debug' if workflow == 'recorded-run' or workflow in RECORDED_DEBUG_UI_SIDES else workflow
+    return folder/fixture/path
 
 def workflow_target(workflow):
-    return RECORDED_RUN_TARGET if workflow in {'recorded-run', 'proposal-native-send', 'python-definition'} or workflow in RECORDED_CONSTRUCTION_SIDES or workflow in GIT_WORKFLOWS else TARGET
+    ui_workflows = {'recorded-run', 'proposal-native-send', 'python-definition'} | RECORDED_CONSTRUCTION_SIDES.keys() | RECORDED_DEBUG_UI_SIDES.keys() | GIT_WORKFLOWS
+    return RECORDED_RUN_TARGET if workflow in ui_workflows else TARGET
 
 DEFINITION_TRACE = r'''
 import json, signal, subprocess, sys
@@ -2814,7 +2993,7 @@ def run_workflow(workflow, device, seed, temporary_device, candidate, derived, d
         files, sentinel = prepare_workflow(workflow, workspace, python_env, slow_debug, recorded_fixtures)
         environment = {**os.environ, 'HICKORY_STATE_DIR': str(state)}
         recorded = workflow in RECORDED_FILES or workflow in RECORDED_CONSTRUCTION_SIDES
-        if workflow in ('recorded-debug', 'recorded-run'):
+        if workflow in ('recorded-debug', 'recorded-run') or workflow in RECORDED_DEBUG_UI_SIDES:
             environment['PATH'] = str(python_env.resolve()/'bin') + os.pathsep + environment['PATH']
         native_send = workflow == 'proposal-native-send'
         git_workflow = workflow in GIT_WORKFLOWS
@@ -2843,6 +3022,8 @@ def run_workflow(workflow, device, seed, temporary_device, candidate, derived, d
         metadata = {}
         if recorded:
             metadata['HICKORY_IOS_RECORDED_ROOT'] = str(workspace.resolve())
+        if workflow in RECORDED_DEBUG_UI_SIDES:
+            metadata['HICKORY_IOS_RECORDED_DEBUG_SIDE'] = RECORDED_DEBUG_UI_SIDES[workflow]
         if workflow in RECORDED_CONSTRUCTION_SIDES:
             metadata['HICKORY_IOS_CONSTRUCTION_SIDE'] = RECORDED_CONSTRUCTION_SIDES[workflow]
         if workflow == 'startup':
@@ -3010,6 +3191,9 @@ def run_workflow(workflow, device, seed, temporary_device, candidate, derived, d
                                            'request_position': call_site, 'definition_position': declaration}
                 if workflow == 'recorded-run':
                     payload['rendered_terminal_accessibility_verified'] = True
+                if workflow in RECORDED_DEBUG_UI_SIDES:
+                    payload['simulator_keyboard_input_verified'] = True
+                    payload['recorded_side'] = RECORDED_DEBUG_UI_SIDES[workflow]
                 if authority_mode:
                     payload['authority_responses'] = authority_calls
                 if live_authority:

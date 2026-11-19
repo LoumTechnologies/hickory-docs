@@ -376,6 +376,14 @@ Watch expression failed to produce a keyboard, so the native replay could
 not enter an expression or continue from the inspector. See the wire and
 simulator attachments in `target/ios-recorded-debug-ui-v9-first/` and
 `target/ios-recorded-debug-ui-v9-typed-retry/`.
+The iPhone Agent pane now owns the inspector above the scrolling messages.
+The rendered replay set a breakpoint, paused on authored line 4, and stepped to
+line 5 on each recorded side. Tapping Expression kept the inspector open
+with the software keyboard. Watch showed `42` for the user message and `53`
+for the assistant message. Continue finished both debugpy sessions with exit
+0. Dismissal restored the exact recorded text and editor frame. The wire
+confirmed the selected side and scoped Watch, and the saved archive stayed
+byte-identical. See `target/ios-recorded-debug-ui-v9-stable-sheet/`.
 Mounted AppKit used native Debug, Step over and Continue gutter clicks for
 both recorded sides with the current engine and debugpy. Each session paused
 on authored line 4, stepped to line 5 and printed its expected `42` or `53`.
@@ -385,6 +393,9 @@ exact. The locked console did not dispatch the native Inspect action.
 Breakpoint setup and Watch used the production controller, so native input
 for those actions still needs a separate witness. See
 `target/appkit-recorded-debug-rail.9ef6tf33/receipt.json`.
+After extracting the shared inspector, a focused current AppKit build and
+user-side native replay again passed mapped Debug, Step over and Continue.
+See `target/appkit-shared-inspector-compat.lhxb4dyq/receipt.json`.
 The rebuilt engine also rejected stale message hashes on both sides, withheld
 execution after preparation, and refused escaped or non-UTF-8 startup reads.
 The main Chromium window and Simple Browser also ran both selected Python
