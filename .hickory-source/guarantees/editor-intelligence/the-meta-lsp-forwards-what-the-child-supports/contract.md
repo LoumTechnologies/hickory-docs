@@ -61,8 +61,9 @@ get syntax-only answers that read like a forwarding bug.
 //! get syntax-only answers that read like a forwarding bug.
 
 use std::collections::HashMap;
+use std::sync::{Arc, Weak};
 
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
 
 use crate::child_lsp::{ChildLspError, ChildLspHandle, ChildNotification};
 
@@ -84,6 +85,22 @@ pub struct Dispatcher {
     /// tokens with another's legend colours the code wrongly rather than
     /// failing visibly.
     legends: HashMap<(String, String), (Vec<String>, Vec<String>)>,
+    starting: HashMap<(String, String), Weak<()>>,
+    stopped: watch::Sender<bool>,
+}
+
+pub(crate) struct ChildStartup {
+    key: (String, String),
+    token: Arc<()>,
+    notification_tx: mpsc::UnboundedSender<ChildNotification>,
+    stopped: watch::Receiver<bool>,
+    semantic_only: bool,
+}
+
+pub(crate) struct StartedChild {
+    startup: ChildStartup,
+    child: ChildLspHandle,
+    initialized: serde_json::Value,
 }
 
 </storycode:copy>
@@ -99,7 +116,30 @@ fn key(language_id: &str, root_uri: &str) -> (String, String) {
 <a id="f-cd294aeb3b8e-impl-Dispatcher"></a>
 ### `impl-Dispatcher`
 
+A saved-module refresh can replace a single private child. Detach its handle
+and metadata under the dispatcher lock, then retire it without blocking requests
+to other roots. A startup reserves only its own language and root while the child
+initializes outside the lock. Its identity must still match when the dispatcher
+publishes the new handle. A dropped reservation releases the slot, and terminal
+shutdown stops waiting startups as well as retiring published children.
+
 <storycode:copy id="f-cd294aeb3b8e-impl-Dispatcher">
+impl ChildStartup {
+    pub(crate) async fn start(mut self) -> Result<StartedChild, ChildLspError> {
+        let (child, initialized) = tokio::select! {
+            biased;
+            _ = self.stopped.wait_for(|stopped| *stopped) => return Err(ChildLspError::DispatcherStopped),
+            ready = async {
+                let (language, root) = &self.key;
+                let child = ChildLspHandle::spawn(language, root, self.notification_tx.clone()).await?;
+                let initialized = child.initialize_replacement(root, self.semantic_only).await?;
+                Ok::<_, ChildLspError>((child, initialized))
+            } => ready?,
+        };
+        Ok(StartedChild { startup: self, child, initialized })
+    }
+}
+
 impl Dispatcher {
     /// Create a new empty dispatcher.
     ///
@@ -111,6 +151,8 @@ impl Dispatcher {
             capabilities: HashMap::new(),
             notification_tx,
             legends: HashMap::new(),
+            starting: HashMap::new(),
+            stopped: watch::channel(false).0,
         }
     }
 
@@ -133,8 +175,14 @@ impl Dispatcher {
         root_uri: &str,
         document_diagnostics: bool,
     ) -> Result<&ChildLspHandle, ChildLspError> {
+        if *self.stopped.borrow() {
+            return Err(ChildLspError::DispatcherStopped);
+        }
         let k = key(language_id, root_uri);
         if !self.children.contains_key(&k) {
+            if self.starting.get(&k).is_some_and(|token| token.strong_count() > 0) {
+                return Err(ChildLspError::ProviderStarting);
+            }
             let handle =
                 ChildLspHandle::spawn(language_id, root_uri, self.notification_tx.clone()).await?;
             let result = if document_diagnostics {
@@ -142,23 +190,71 @@ impl Dispatcher {
             } else {
                 handle.initialize(root_uri).await?
             };
-            self.capabilities.insert(
-                k.clone(),
-                result
-                    .get("capabilities")
-                    .cloned()
-                    .unwrap_or(serde_json::Value::Null),
-            );
-            if let Some(legend) = semantic_legend(&result) {
-                self.legends.insert(k.clone(), legend);
-            }
-            self.children.insert(k.clone(), handle);
+            self.install_child(k.clone(), handle, &result);
         }
 
         Ok(self
             .children
             .get(&k)
             .expect("just inserted or already present"))
+    }
+
+    pub(crate) fn detach_child(&mut self, language_id: &str, root_uri: &str) -> Option<ChildLspHandle> {
+        let key = key(language_id, root_uri);
+        self.capabilities.remove(&key);
+        self.legends.remove(&key);
+        self.children.remove(&key)
+    }
+
+    pub(crate) fn reserve_child_start(
+        &mut self,
+        language_id: &str,
+        root_uri: &str,
+        semantic_only: bool,
+    ) -> Option<ChildStartup> {
+        if *self.stopped.borrow() {
+            return None;
+        }
+        let key = key(language_id, root_uri);
+        self.starting.retain(|_, token| token.strong_count() > 0);
+        if self.children.contains_key(&key) || self.starting.contains_key(&key) {
+            return None;
+        }
+        let token = Arc::new(());
+        self.starting.insert(key.clone(), Arc::downgrade(&token));
+        Some(ChildStartup {
+            key,
+            token,
+            notification_tx: self.notification_tx.clone(),
+            stopped: self.stopped.subscribe(),
+            semantic_only,
+        })
+    }
+
+    pub(crate) fn publish_child(&mut self, started: StartedChild) -> Option<ChildLspHandle> {
+        let StartedChild { startup, child, initialized } = started;
+        let ChildStartup { key, token, .. } = startup;
+        let current = self.starting.get(&key).and_then(Weak::upgrade);
+        if *self.stopped.borrow()
+            || !current.is_some_and(|expected| Arc::ptr_eq(&token, &expected))
+            || self.children.contains_key(&key)
+        {
+            return None;
+        }
+        self.starting.remove(&key);
+        self.install_child(key, child.clone(), &initialized);
+        Some(child)
+    }
+
+    fn install_child(&mut self, key: (String, String), child: ChildLspHandle, initialized: &serde_json::Value) {
+        self.capabilities.insert(
+            key.clone(),
+            initialized.get("capabilities").cloned().unwrap_or(serde_json::Value::Null),
+        );
+        if let Some(legend) = semantic_legend(initialized) {
+            self.legends.insert(key.clone(), legend);
+        }
+        self.children.insert(key, child);
     }
 
     /// Get an existing child LSP handle without spawning.
@@ -194,6 +290,8 @@ impl Dispatcher {
 
     /// Shut down all child LSP servers.
     pub async fn shutdown_all(&mut self) {
+        self.stopped.send_replace(true);
+        self.starting.clear();
         self.capabilities.clear();
         self.legends.clear();
         for ((language_id, root_uri), handle) in self.children.drain() {
@@ -251,10 +349,34 @@ fn semantic_legend(result: &serde_json::Value) -> Option<(Vec<String>, Vec<Strin
 <a id="f-cd294aeb3b8e-tests"></a>
 ### `tests`
 
+Keep a replacement pending while another root acquires a reservation. The
+abandoned replacement must release its own slot. Shut down before starting the
+next reservation to verify that no late request can launch its process.
+
 <storycode:copy id="f-cd294aeb3b8e-tests">
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn abandoned_start_unblocks_its_slot_and_shutdown_refuses_late_processes() {
+        let (tx, _rx) = mpsc::unbounded_channel();
+        let mut dispatcher = Dispatcher::new(tx);
+        let language = "fixture-never-launch";
+        let root = "file:///private/a/";
+        let pending = dispatcher.reserve_child_start(language, root, false).unwrap();
+        assert!(dispatcher.reserve_child_start(language, root, false).is_none());
+        assert!(matches!(dispatcher.get_or_spawn(language, root).await, Err(ChildLspError::ProviderStarting)));
+        let other = dispatcher.reserve_child_start(language, "file:///private/b/", false).unwrap();
+        drop(pending);
+
+        let replacement = dispatcher.reserve_child_start(language, root, false).unwrap();
+        dispatcher.shutdown_all().await;
+        assert!(dispatcher.reserve_child_start(language, root, false).is_none());
+        assert!(matches!(replacement.start().await, Err(ChildLspError::DispatcherStopped)));
+        assert!(matches!(other.start().await, Err(ChildLspError::DispatcherStopped)));
+        assert!(matches!(dispatcher.get_or_spawn(language, root).await, Err(ChildLspError::DispatcherStopped)));
+    }
 
     #[test]
     fn a_legend_is_read_from_the_initialize_result() {

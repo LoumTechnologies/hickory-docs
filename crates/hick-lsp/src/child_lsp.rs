@@ -38,13 +38,14 @@ pub struct ChildLspHandle {
     language_id: String,
     /// What this server must be told at `initialize` to work here.
     init_options: Option<Value>,
+    is_typescript_language_server: bool,
     environment_kind: Option<&'static str>,
     settings: Arc<Mutex<Value>>,
     stdin: Arc<Mutex<tokio::io::BufWriter<tokio::process::ChildStdin>>>,
     next_id: Arc<AtomicI64>,
-    pending: Arc<Mutex<HashMap<i64, oneshot::Sender<Value>>>>,
+    pending: Arc<Mutex<Option<HashMap<i64, oneshot::Sender<Value>>>>>,
     process: Arc<Mutex<Child>>,
-    _reader_handle: Arc<JoinHandle<()>>,
+    reader_handle: Arc<JoinHandle<()>>,
 }
 
 impl ChildLspHandle {
@@ -90,6 +91,7 @@ impl ChildLspHandle {
 
         let mut child = Command::new(program)
             .args(args)
+            .kill_on_drop(true)
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::inherit())
@@ -108,8 +110,8 @@ impl ChildLspHandle {
             .take()
             .expect("stdout was configured as piped but take() returned None; this is a tokio bug");
 
-        let pending: Arc<Mutex<HashMap<i64, oneshot::Sender<Value>>>> =
-            Arc::new(Mutex::new(HashMap::new()));
+        let pending: Arc<Mutex<Option<HashMap<i64, oneshot::Sender<Value>>>>> =
+            Arc::new(Mutex::new(Some(HashMap::new())));
 
         let lang_id = language_id.to_string();
         let pending_clone = Arc::clone(&pending);
@@ -124,7 +126,7 @@ impl ChildLspHandle {
                     && msg.get("method").is_none()
                 {
                     let mut pending = pending_clone.lock().await;
-                    if let Some(tx) = pending.remove(&id) {
+                    if let Some(tx) = pending.as_mut().and_then(|requests| requests.remove(&id)) {
                         let _ = tx.send(msg);
                     }
                     continue;
@@ -156,22 +158,22 @@ impl ChildLspHandle {
                     });
                 }
             }
-            // Drop all pending response senders so that callers waiting on
-            // rx.await get Err(Canceled) instead of blocking forever.
-            let mut pending = pending_clone.lock().await;
-            pending.clear();
+            // Close admission and drop all pending senders in the same
+            // transition so a late request cannot wait on the closed pipe.
+            drop(pending_clone.lock().await.take());
         });
 
         Ok(Self {
             language_id: language_id.to_string(),
             init_options,
+            is_typescript_language_server: launches_typescript_language_server(&cmd_parts),
             environment_kind,
             settings,
             stdin: child_stdin,
             next_id: Arc::new(AtomicI64::new(1)),
             pending,
             process: Arc::new(Mutex::new(child)),
-            _reader_handle: Arc::new(reader_handle),
+            reader_handle: Arc::new(reader_handle),
         })
     }
 
@@ -203,7 +205,7 @@ impl ChildLspHandle {
     ) -> Result<Value, ChildLspError> {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let (tx, rx) = oneshot::channel();
-        self.pending.lock().await.insert(id, tx);
+        self.pending.lock().await.as_mut().ok_or(ChildLspError::ProcessExited)?.insert(id, tx);
         let message = serde_json::json!({
             "jsonrpc": "2.0",
             "id": id,
@@ -211,14 +213,14 @@ impl ChildLspHandle {
             "params": params,
         });
         if let Err(error) = send_message(&self.stdin, &message).await {
-            self.pending.lock().await.remove(&id);
+            self.remove_pending(id).await;
             return Err(error);
         }
         let response = if let Some(wait) = wait {
             match tokio::time::timeout(wait, rx).await {
                 Ok(response) => response,
                 Err(_) => {
-                    self.pending.lock().await.remove(&id);
+                    self.remove_pending(id).await;
                     return Err(ChildLspError::ReplyTimeout);
                 }
             }
@@ -237,6 +239,12 @@ impl ChildLspHandle {
         }
 
         Ok(response.get("result").cloned().unwrap_or(Value::Null))
+    }
+
+    async fn remove_pending(&self, id: i64) {
+        if let Some(requests) = self.pending.lock().await.as_mut() {
+            requests.remove(&id);
+        }
     }
 
     /// Send an LSP notification (no response expected).
@@ -259,6 +267,26 @@ impl ChildLspHandle {
         &self,
         root_uri: &str,
         document_diagnostics: bool,
+    ) -> Result<Value, ChildLspError> {
+        self.initialize_provider(root_uri, document_diagnostics, false).await
+    }
+
+    pub(crate) async fn initialize_replacement(
+        &self,
+        root_uri: &str,
+        semantic_only: bool,
+    ) -> Result<Value, ChildLspError> {
+        tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            self.initialize_provider(root_uri, false, semantic_only),
+        ).await.map_err(|_| ChildLspError::InitializeTimeout)?
+    }
+
+    async fn initialize_provider(
+        &self,
+        root_uri: &str,
+        document_diagnostics: bool,
+        semantic_only: bool,
     ) -> Result<Value, ChildLspError> {
         let mut params = serde_json::json!({
             "processId": std::process::id(),
@@ -336,10 +364,19 @@ impl ChildLspHandle {
         // Whatever discovery worked out this server needs to find its own
         // back end. Added here rather than baked into the literal above
         // because it is per-server and per-machine.
-        if let Some(options) = &self.init_options
-            && let Some(object) = params.as_object_mut()
-        {
-            object.insert("initializationOptions".to_string(), options.clone());
+        let mut options = self.init_options.clone();
+        if semantic_only && self.is_typescript_language_server {
+            let options = options.get_or_insert_with(|| serde_json::json!({}));
+            if !options.is_object() {
+                *options = serde_json::json!({});
+            }
+            if !options["tsserver"].is_object() {
+                options["tsserver"] = serde_json::json!({});
+            }
+            options["tsserver"]["useSyntaxServer"] = Value::String("never".into());
+        }
+        if let Some(options) = options {
+            params["initializationOptions"] = options;
         }
 
         let result = self.request("initialize", params).await?;
@@ -370,15 +407,60 @@ impl ChildLspHandle {
 
     /// Shut down the child LSP server gracefully.
     pub async fn shutdown(&self) -> Result<(), ChildLspError> {
-        let _ = self.request("shutdown", Value::Null).await;
-        let _ = self.notify("exit", Value::Null).await;
-        let _ = self.process.lock().await.kill().await;
+        self.clone().retire().await;
         Ok(())
+    }
+
+    pub(crate) async fn retire(self) {
+        let cleanup = tokio::spawn(async move {
+            // This pipe will never be reused. Bound the complete handshake,
+            // including writes, before terminating the provider.
+            let _ = tokio::time::timeout(std::time::Duration::from_millis(750), async {
+                let _ = self.request("shutdown", Value::Null).await;
+                let _ = self.notify("exit", Value::Null).await;
+            }).await;
+            self.stop_process().await;
+        });
+        let _ = cleanup.await;
+    }
+
+    /// Stop an unusable connection without writing another frame.
+    pub(crate) async fn abort(self) {
+        let cleanup = tokio::spawn(async move {
+            self.stop_process().await;
+        });
+        let _ = cleanup.await;
+    }
+
+    async fn stop_process(&self) {
+        drop(self.pending.lock().await.take());
+        self.reader_handle.abort();
+        let _ = self.process.lock().await.kill().await;
     }
 
     pub fn language_id(&self) -> &str {
         &self.language_id
     }
+}
+
+// Recognize the normal executable and Node's exact npm entry point, including
+// when a stdio relay passes that entry point as its child command.
+fn launches_typescript_language_server(command: &[String]) -> bool {
+    fn basename(path: &str) -> &str {
+        path.rsplit(['/', '\\']).next().unwrap_or(path)
+    }
+    fn npm_entry(path: &str) -> bool {
+        let path = path.replace('\\', "/");
+        let entry = "typescript-language-server/lib/cli.mjs";
+        path == entry || path.strip_suffix(entry).is_some_and(|parent| parent.ends_with('/'))
+    }
+    command.first().is_some_and(|program| {
+        matches!(basename(program), "typescript-language-server" | "typescript-language-server.cmd" | "typescript-language-server.exe")
+            || (npm_entry(program) && command.iter().any(|arg| arg == "--stdio"))
+    }) || command.windows(3).any(|args| {
+        matches!(basename(&args[0]), "node" | "node.exe")
+            && npm_entry(&args[1]) && args[2] == "--stdio"
+    })
 }
 // ------------------------------------------------------------------
 // Free-standing I/O helpers
@@ -454,6 +536,15 @@ async fn read_content_length(
 /// Errors that can occur when communicating with a child LSP server.
 #[derive(Debug, thiserror::Error)]
 pub enum ChildLspError {
+    #[error("the language dispatcher has shut down")]
+    DispatcherStopped,
+
+    #[error("the child language server is starting")]
+    ProviderStarting,
+
+    #[error("the replacement child language server did not finish initializing in time")]
+    InitializeTimeout,
+
     /// No known LSP server for the requested language.
     #[error(
         "no LSP server known for language '{language_id}'. \
@@ -551,6 +642,25 @@ pub fn lsp_launch(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn replacement_semantic_mode_identifies_only_typescript_language_server() {
+        let identify = |args: &[&str]| launches_typescript_language_server(
+            &args.iter().map(|arg| arg.to_string()).collect::<Vec<_>>(),
+        );
+        assert!(identify(&["/workspace/node_modules/.bin/typescript-language-server", "--stdio"]));
+        assert!(identify(&[
+            "python3", "relay.py", "trace.jsonl", "node",
+            "/workspace/node_modules/typescript-language-server/lib/cli.mjs", "--stdio",
+        ]));
+        assert!(identify(&[
+            "node.exe", "C:\\tools\\typescript-language-server\\lib\\cli.mjs", "--stdio",
+        ]));
+        assert!(!identify(&["typescript-language-server-custom", "--stdio"]));
+        assert!(!identify(&["node", "/workspace/not-typescript-language-server/lib/cli.mjs", "--stdio"]));
+        assert!(!identify(&["node", "/workspace/typescript-language-server/lib/cli.mjs"]));
+        assert!(!identify(&["custom-adapter", "--stdio"]));
+    }
 
     #[test]
     fn known_languages_return_commands() {

@@ -163,6 +163,7 @@ fn uuid_ish() -> String {
 ### `HickBackend`
 
 <storycode:copy id="f-c936496a03c1-HickBackend">
+#[derive(Clone)]
 pub struct HickBackend {
     client: Client,
     /// Open document states, keyed by URI.
@@ -189,8 +190,8 @@ pub struct HickBackend {
     prepared_actions: Arc<Mutex<actions::PreparedActions>>,
     prepared_types: Arc<Mutex<types::TypeHierarchyArtifacts>>,
     workspace_root: Arc<RwLock<Option<Url>>>,
-    staging: StagingArea,
-    inspection_space: Option<tempfile::TempDir>,
+    staging: Arc<StagingArea>,
+    inspection_space: Option<Arc<tempfile::TempDir>>,
     projects: Arc<crate::ProjectContexts>,
     /// Whether the user has already been shown a staging failure.
     ///
@@ -213,7 +214,7 @@ struct DocEntry {
     source_hash: Option<String>,
     source_text: String,
     project_dependencies: std::collections::HashSet<Url>,
-    staged_imports: HashMap<String, StagedImport>,
+    staged_imports: StagedImportProjection,
     preparing: bool,
     preparation: Arc<Mutex<()>>,
     /// The parsed document state (None if parse failed).
@@ -349,8 +350,8 @@ impl HickBackend {
             prepared_hierarchy: Arc::new(RwLock::new(HashMap::new())),
             prepared_actions: Arc::new(Mutex::new(actions::PreparedActions::default())),
             prepared_types: Arc::new(Mutex::new(types::TypeHierarchyArtifacts::default())),
-            staging: StagingArea::new(),
-            inspection_space: tempfile::Builder::new().prefix("hick-inspection-").tempdir().ok(),
+            staging: Arc::new(StagingArea::new()),
+            inspection_space: tempfile::Builder::new().prefix("hick-inspection-").tempdir().ok().map(Arc::new),
             projects: Arc::new(crate::ProjectContexts::default()),
             staging_failure_shown: Arc::new(RwLock::new(false)),
             workspace_root: Arc::new(RwLock::new(None)),
@@ -398,7 +399,7 @@ impl HickBackend {
 
     /// Process a document change: parse, generate virtual files, forward to
     /// child LSPs.
-    async fn process_document_source(&self, hick_uri: &Url, source: &str) {
+    async fn process_document_source(&self, hick_uri: &Url, source: &str, repair_staged_imports: bool) {
         tracing::debug!(%hick_uri, source_len = source.len(), "process_document called");
 
         if hick_uri.scheme() == "hick-project" {
@@ -487,8 +488,45 @@ impl HickBackend {
             .map(|(vf, _)| self.vfile_uri(hick_uri, &vf.path))
             .collect();
 
+        let workspace = self.workspace_root.read().await.clone();
+        let mut projection = StagedImportProjection::default();
+        let mut imports = HashMap::new();
+        if state.evaluated_project.is_none()
+            && let Some(root) = workspace.and_then(|uri| uri.to_file_path().ok())
+            && hick_uri.to_file_path().is_ok_and(|path| path.starts_with(&root))
+        {
+            imports = collect_staged_imports(&root, service_files.iter().map(|(vf, (text, _))|
+                (vf.path.as_str(), vf.language_id, text.as_str())), &mut projection.missing);
+            if !imports.is_empty() || !projection.missing.is_empty() {
+                projection.workspace = Some(root);
+            }
+        }
+        let previous = self.documents.read().await.get(hick_uri)
+            .map(|entry| entry.staged_imports.clone()).unwrap_or_default();
+        let import_bytes_changed = imports.len() != previous.files.len()
+            || imports.iter().any(|(name, (target, _))| previous.files.get(name) != Some(target));
+        let refresh_languages: std::collections::HashSet<_> = service_files.iter()
+            .filter_map(|(vf, _)| vf.language_id)
+            .filter(|language| matches!(*language, "typescript" | "typescriptreact" | "javascript" | "javascriptreact"))
+            .filter(|language| repair_staged_imports || import_bytes_changed || previous.retry.contains(language))
+            .collect();
+        let mut retired = Vec::new();
+        let mut startups = Vec::new();
+        if !refresh_languages.is_empty() && let Ok(root_uri) = self.staging.document_root_uri(hick_uri) {
+            let mut dispatcher = self.dispatcher.lock().await;
+            for &language in &refresh_languages {
+                retired.extend(dispatcher.detach_child(language, &root_uri));
+                if let Some(start) = dispatcher.reserve_child_start(language, &root_uri, true) {
+                    startups.push((language, start));
+                }
+            }
+        }
+
         // 3. Close old virtual files, pruning diagnostics for removed files.
         self.close_vfiles_for(hick_uri, &new_vfile_uris).await;
+        for child in retired {
+            child.retire().await;
+        }
 
         {
             let mut own = crate::element_lint::element_diagnostics(source, &state.doc);
@@ -559,35 +597,25 @@ impl HickBackend {
         } else {
             copy_manifests(&self.staging, hick_uri);
         }
-        let workspace = self.workspace_root.read().await.clone();
-        let mut imports = HashMap::new();
-        if state.evaluated_project.is_none()
-            && let Some(root) = workspace.and_then(|uri| uri.to_file_path().ok())
-            && hick_uri.to_file_path().is_ok_and(|path| path.starts_with(&root))
-        {
-            imports = collect_staged_imports(&root, service_files.iter().map(|(vf, (text, _))|
-                (vf.path.as_str(), vf.language_id, text.as_str())));
-        }
-        let previous_imports = self.documents.read().await.get(hick_uri)
-            .map(|entry| entry.staged_imports.clone()).unwrap_or_default();
-        for name in previous_imports.keys().filter(|name| !imports.contains_key(*name)) {
+        let stage_root = self.staging.document_dir(hick_uri).ok();
+        for name in previous.files.keys().filter(|name| !imports.contains_key(*name)) {
             if let Ok(path) = self.staging.vfile_path(hick_uri, name) {
                 let _ = std::fs::remove_file(path);
             }
         }
-        let mut staged = HashMap::new();
         for (name, (target, text)) in imports {
             let existing = self.staging.vfile_path(hick_uri, &name).ok();
-            let unchanged = previous_imports.get(&name).is_some_and(|old| old.hash == target.hash)
-                && existing.as_ref().is_some_and(|path| path.is_file());
+            let unchanged = previous.files.get(&name).is_some_and(|old| old.hash == target.hash)
+                && stage_root.as_deref().and_then(|root| read_staged_import(root, &name))
+                    .is_some_and(|bytes| diagnostic_source_digest(&bytes) == target.hash);
             if unchanged || self.staging.write_vfile(hick_uri, &name, &text).is_ok() {
-                staged.insert(name, target);
-            } else if let Some(path) = existing {
-                let _ = std::fs::remove_file(path);
+                projection.files.insert(name, target);
+            } else {
+                if let Some(path) = existing {
+                    let _ = std::fs::remove_file(path);
+                }
+                projection.missing.insert(name);
             }
-        }
-        if let Some(entry) = self.documents.write().await.get_mut(hick_uri) {
-            entry.staged_imports = staged;
         }
         for (vf, (content, _)) in &service_files {
             if state.evaluated_project.is_some() && state.project_maps.contains_key(&vf.path) {
@@ -597,6 +625,21 @@ impl HickBackend {
                 self.report_staging_failure(hick_uri, &error).await;
             }
         }
+
+        // Start replacements after all staged bytes are in place. A reservation
+        // cannot publish after shutdown or after it has been superseded.
+        let mut refreshed_children = HashMap::new();
+        for (language, startup) in startups {
+            match startup.start().await {
+                Ok(started) => {
+                    if let Some(child) = self.dispatcher.lock().await.publish_child(started) {
+                        refreshed_children.insert(language, child);
+                    }
+                }
+                Err(error) => tracing::warn!(language, %error, "staged provider restart failed"),
+            }
+        }
+        projection.retry.extend(refresh_languages.iter().filter(|language| !refreshed_children.contains_key(*language)).copied());
 
         // 6. For each virtual file with a known language, forward to child LSP.
         let mut new_open_vfiles = Vec::new();
@@ -609,6 +652,9 @@ impl HickBackend {
                 Some(id) => id,
                 None => continue,
             };
+            if projection.retry.contains(lang_id) {
+                continue;
+            }
 
             // Skip languages where we don't have an LSP command.
             if lsp_command(lang_id).is_err() {
@@ -646,13 +692,15 @@ impl HickBackend {
 
             // Send to child LSP.
             tracing::debug!(lang_id, %root_uri, "acquiring dispatcher lock for child LSP");
-            let mut dispatcher = self.dispatcher.lock().await;
             tracing::debug!(lang_id, "dispatching to child LSP");
-            match dispatcher.get_or_spawn(lang_id, &root_uri).await {
+            let provider = match refreshed_children.get(lang_id) {
+                Some(child) => Ok(child.clone()),
+                None => self.dispatcher.lock().await.get_or_spawn(lang_id, &root_uri).await.cloned(),
+            };
+            match provider {
                 Ok(handle) => {
                     tracing::debug!(lang_id, "child LSP ready, sending didOpen");
-                    let result = handle
-                        .notify(
+                    let open = handle.notify(
                             "textDocument/didOpen",
                             serde_json::json!({
                                 "textDocument": {
@@ -662,10 +710,26 @@ impl HickBackend {
                                     "text": content,
                                 }
                             }),
-                        )
-                        .await;
-
-                    if let Err(e) = result {
+                        );
+                    if refreshed_children.contains_key(lang_id) {
+                        let opened = tokio::time::timeout(std::time::Duration::from_secs(2), open)
+                            .await.is_ok_and(|result| result.is_ok());
+                        if !opened {
+                            projection.retry.insert(lang_id);
+                            {
+                                let mut index = self.vfile_index.write().await;
+                                index.retain(|_, map| &map.hick_uri != hick_uri || map.language_id != lang_id);
+                                new_open_vfiles.retain(|uri| index.contains_key(uri));
+                            }
+                            let mut dispatcher = self.dispatcher.lock().await;
+                            if dispatcher.get_child(lang_id, &root_uri).is_ok_and(|child| child.same_connection(&handle)) {
+                                dispatcher.detach_child(lang_id, &root_uri);
+                            }
+                            drop(dispatcher);
+                            handle.abort().await;
+                            continue;
+                        }
+                    } else if let Err(e) = open.await {
                         tracing::warn!(
                             language_id = lang_id,
                             path = %vf.path,
@@ -687,6 +751,9 @@ impl HickBackend {
         }
 
         // 7. Update stored state.
+        if let Some(entry) = self.documents.write().await.get_mut(hick_uri) {
+            entry.staged_imports = projection;
+        }
         self.store_document(hick_uri, state, new_open_vfiles, vfile_version)
             .await;
     }
@@ -931,18 +998,17 @@ impl HickBackend {
             .publish_diagnostics(hick_uri.clone(), remaining, None)
             .await;
 
-        let dispatcher = self.dispatcher.lock().await;
-        for (vf_uri, language_id, root_uri) in &to_close {
-            if let Ok(handle) = dispatcher.get_child(language_id, root_uri) {
-                let _ = handle
-                    .notify(
-                        "textDocument/didClose",
-                        serde_json::json!({
-                            "textDocument": { "uri": vf_uri.as_str() }
-                        }),
-                    )
-                    .await;
-            }
+        let closing: Vec<_> = {
+            let dispatcher = self.dispatcher.lock().await;
+            to_close.into_iter().filter_map(|(uri, language, root)| {
+                dispatcher.get_child(&language, &root).ok().map(|handle| (uri, handle.clone()))
+            }).collect()
+        };
+        for (uri, handle) in closing {
+            let _ = handle.notify(
+                "textDocument/didClose",
+                serde_json::json!({ "textDocument": { "uri": uri.as_str() } }),
+            ).await;
         }
     }
 
@@ -1120,6 +1186,44 @@ impl HickBackend {
         }))
     }
 
+    async fn location_revision(&self, uri: &Url) -> Option<crate::source_identity::SourceRevision> {
+        let (revision, projection) = {
+            let docs = self.documents.read().await;
+            let entry = docs.get(uri).filter(|entry| !entry.preparing)?;
+            let projection = entry.state.as_ref().map(|_| entry.staged_imports.clone());
+            (entry.source_revision, projection)
+        };
+        let Some(projection) = projection else { return Some(revision); };
+        let needs_retry = !projection.retry.is_empty();
+        let repair = if projection.workspace.is_some() {
+            let stage = self.staging.document_dir(uri).ok()?;
+            !tokio::task::spawn_blocking(move || staged_projection_matches(&stage, &projection))
+                .await.ok()?
+        } else {
+            false
+        };
+        if !repair && !needs_retry {
+            return Some(revision);
+        }
+        let source = {
+            let docs = self.documents.read().await;
+            docs.get(uri).filter(|entry| !entry.preparing && entry.source_revision == revision)?
+                .source_text.clone()
+        };
+        // A cancelled location request must not leave the provider between
+        // didClose and didOpen. Only its waiter belongs to the request.
+        let backend = self.clone();
+        let uri = uri.clone();
+        tokio::spawn(async move {
+            backend.prepare_document_local(&uri, &source, DocumentPreparation::SavedImports { revision, repair }).await
+        }).await.ok().flatten()
+    }
+
+    async fn location_revision_current(&self, uri: &Url, revision: crate::source_identity::SourceRevision) -> bool {
+        self.documents.read().await.get(uri)
+            .is_some_and(|entry| !entry.preparing && entry.source_revision == revision)
+    }
+
     /// Resolve locations against the captured source. A provider that explicitly
     /// declines the Declaration method can still locate the symbol's definition.
     /// An empty reply from a supported method and other errors keep their meaning.
@@ -1130,19 +1234,15 @@ impl HickBackend {
         pos: Position,
         extra: Option<serde_json::Value>,
     ) -> Option<serde_json::Value> {
-        let revision = {
-            let docs = self.documents.read().await;
-            docs.get(uri).filter(|entry| !entry.preparing)?.source_revision
-        };
+        let revision = self.location_revision(uri).await?;
         let (vf_uri, lang, vpos) = self.virtual_read_target(uri, pos).await?;
+        if !self.location_revision_current(uri, revision).await { return None; }
         let reply = self.child_request_result(method, &vf_uri, &lang, vpos, extra).await;
         let mut result = match reply {
             Err(error) if method == "textDocument/declaration"
                 && error.code.code() == tower_lsp::jsonrpc::ErrorCode::MethodNotFound.code() =>
             {
-                let current = self.documents.read().await.get(uri)
-                    .is_some_and(|entry| !entry.preparing && entry.source_revision == revision);
-                if !current { return None; }
+                if !self.location_revision_current(uri, revision).await { return None; }
                 self.child_request("textDocument/definition", &vf_uri, &lang, vpos, None).await?
             }
             other => other.ok().flatten()?,
@@ -1160,10 +1260,11 @@ impl HickBackend {
             serde_json::Value::Array(items) => items.iter().filter_map(location_uri).collect(),
             one => location_uri(one).into_iter().collect(),
         };
-        let aliases: Vec<_> = imports.iter().filter_map(|(name, target)| {
+        let aliases: Vec<_> = imports.files.iter().filter_map(|(name, target)| {
             let key = uri_key(self.staging.vfile_uri(uri, name).as_str());
             wanted.contains(&key).then(|| (key, target.uri.clone()))
         }).collect();
+        let tracks_saved_modules = imports.workspace.is_some();
         if !aliases.is_empty() {
             // The returned leaf can be unchanged while an intermediate re-export
             // redirected it. Check the bounded projection off the async worker
@@ -1174,7 +1275,7 @@ impl HickBackend {
                     .then_some(imports)
             }).await.ok().flatten();
             let docs = self.documents.read().await;
-            let current = checked_imports.is_some_and(|imports| imports.values().all(|target| {
+            let current = checked_imports.is_some_and(|imports| imports.files.values().all(|target| {
                 docs.get(&target.uri).is_none_or(|entry| !entry.preparing
                     && entry.source_hash.as_deref() == Some(target.hash.as_str()))
             }));
@@ -1186,9 +1287,15 @@ impl HickBackend {
                 }
             }
         }
-        let current = self.documents.read().await.get(uri)
-            .is_some_and(|entry| !entry.preparing && entry.source_revision == revision);
-        if !current { return None; }
+        if !self.location_revision_current(uri, revision).await { return None; }
+        if tracks_saved_modules && let Ok(stage_uri) = self.staging.document_root_uri(uri) {
+            // A child may still name a removed private copy. Only generated
+            // mappings and admitted aliases can name this staging tree. Use
+            // the same normalized keys as the child locations on every OS.
+            let stage_key = uri_key(&stage_uri);
+            let prefix = format!("{}/", stage_key.trim_end_matches('/'));
+            retired.extend(wanted.into_iter().filter(|key| key.starts_with(&prefix) && !index.contains_key(key)));
+        }
         let retained = |location: &serde_json::Value| location.get("uri").or_else(|| location.get("targetUri"))
             .and_then(serde_json::Value::as_str).is_none_or(|uri| !retired.contains(&uri_key(uri)));
         if let Some(items) = result.as_array_mut() {
@@ -2058,13 +2165,28 @@ kept outside the editable file index. A changed re-export can invalidate a
 location in a leaf whose bytes are unchanged. Before revealing any saved
 alias, check the complete bounded import projection against its staged
 and saved bytes, held editor snapshots, and originating editor revision.
+Keep missing candidates in the same projection so a newly saved module
+or a higher-priority candidate can be found without changing the caller.
+If a file appears, disappears, or changes bytes, rebuild the relevant
+children in this document's private root. A provider may still have a
+cached offset even after a virtual document closes and reopens. Finish
+staging before startup and publish the replacement after initialization,
+with no dispatcher lock held during either process transition. Retry a
+failed startup on a later location read.
 
 <storycode:copy id="typescript-saved-import-projection">
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq)]
 struct StagedImport {
     uri: Url,
-    workspace: std::path::PathBuf,
     hash: String,
+}
+
+#[derive(Clone, Default)]
+struct StagedImportProjection {
+    workspace: Option<std::path::PathBuf>,
+    files: HashMap<String, StagedImport>,
+    missing: std::collections::HashSet<String>,
+    retry: std::collections::HashSet<&'static str>,
 }
 const STAGED_IMPORT_LIMIT: usize = 512 * 1024;
 
@@ -2116,17 +2238,19 @@ fn read_staged_import(workspace: &std::path::Path, relative: &str) -> Option<Str
     String::from_utf8(raw).ok()
 }
 
-fn staged_projection_matches(stage: &std::path::Path, imports: &HashMap<String, StagedImport>) -> bool {
-    imports.iter().all(|(name, target)| {
+fn staged_projection_matches(stage: &std::path::Path, projection: &StagedImportProjection) -> bool {
+    let Some(workspace) = &projection.workspace else { return true; };
+    projection.files.iter().all(|(name, target)| {
         let matches = |root: &std::path::Path| read_staged_import(root, name)
             .is_some_and(|text| diagnostic_source_digest(&text) == target.hash);
-        matches(&target.workspace) && matches(stage)
-    })
+        matches(workspace) && matches(stage)
+    }) && projection.missing.iter().all(|name| read_staged_import(workspace, name).is_none())
 }
 
 fn collect_staged_imports<'a>(
     workspace: &std::path::Path,
     outputs: impl Iterator<Item = (&'a str, Option<&'a str>, &'a str)>,
+    missing: &mut std::collections::HashSet<String>,
 ) -> HashMap<String, (StagedImport, String)> {
     let outputs: Vec<_> = outputs.collect();
     let generated: std::collections::HashSet<_> = outputs.iter().map(|(path, _, _)|
@@ -2167,7 +2291,10 @@ fn collect_staged_imports<'a>(
         }
         for name in candidates {
             if generated.contains(&name.to_lowercase()) || result.contains_key(&name) { break; }
-            let Some(text) = read_staged_import(workspace, &name) else { continue };
+            let Some(text) = read_staged_import(workspace, &name) else {
+                missing.insert(name);
+                continue;
+            };
             if bytes + text.len() > 2 * 1024 * 1024 { break; }
             let Ok(uri) = Url::from_file_path(workspace.join(&name)) else { break };
             let language = if name.ends_with(".tsx") { "typescriptreact" }
@@ -2175,7 +2302,8 @@ fn collect_staged_imports<'a>(
                 else { "typescript" };
             enqueue(&mut pending, &name, language, &text);
             bytes += text.len();
-            result.insert(name, (StagedImport { uri, workspace: workspace.into(), hash: diagnostic_source_digest(&text) }, text));
+            missing.remove(&name);
+            result.insert(name, (StagedImport { uri, hash: diagnostic_source_digest(&text) }, text));
             break;
         }
     }
@@ -2203,7 +2331,8 @@ mod staged_import_projection_tests {
             export * from '../outside';
         "#;
         let projected = collect_staged_imports(&workspace,
-            [("main.ts", Some("typescript"), origin), ("./shadow.ts", Some("typescript"), "")].into_iter());
+            [("main.ts", Some("typescript"), origin), ("./shadow.ts", Some("typescript"), "")].into_iter(),
+            &mut Default::default());
         assert_eq!(projected.len(), 2);
         assert_eq!(projected["src/leaf.ts"].1, "export const symbol = 1;");
         assert_eq!(projected["src/real.ts"].0.uri, Url::from_file_path(workspace.join("src/real.ts")).unwrap());
@@ -2223,20 +2352,57 @@ mod staged_import_projection_tests {
             std::fs::write(root.join("barrel.ts"), barrel).unwrap();
             std::fs::write(root.join("leaf.ts"), leaf).unwrap();
         }
-        let imports = collect_staged_imports(&workspace, [
+        let mut projection = StagedImportProjection { workspace: Some(workspace.clone()), ..Default::default() };
+        projection.files = collect_staged_imports(&workspace, [
             ("main.ts", Some("typescript"), "import { symbol } from './barrel'; symbol;"),
-        ].into_iter()).into_iter().map(|(name, (target, _))| (name, target)).collect();
-        assert!(staged_projection_matches(&stage, &imports));
+        ].into_iter(), &mut projection.missing).into_iter().map(|(name, (target, _))| (name, target)).collect();
+        assert!(staged_projection_matches(&stage, &projection));
 
         std::fs::write(workspace.join("barrel.ts"), "export { symbol } from './elsewhere';").unwrap();
         assert_eq!(read_staged_import(&workspace, "leaf.ts").as_deref(), Some(leaf));
         assert_eq!(read_staged_import(&stage, "leaf.ts").as_deref(), Some(leaf));
-        assert!(!staged_projection_matches(&stage, &imports));
+        assert!(!staged_projection_matches(&stage, &projection));
 
         std::fs::write(workspace.join("barrel.ts"), barrel).unwrap();
-        assert!(staged_projection_matches(&stage, &imports));
+        assert!(staged_projection_matches(&stage, &projection));
         std::fs::remove_file(stage.join("barrel.ts")).unwrap();
-        assert!(!staged_projection_matches(&stage, &imports));
+        assert!(!staged_projection_matches(&stage, &projection));
+    }
+
+    #[test]
+    fn a_new_saved_candidate_invalidates_an_unresolved_projection() {
+        let workspace = tempfile::tempdir().unwrap();
+        let stage = tempfile::tempdir().unwrap();
+        let workspace = workspace.path().canonicalize().unwrap();
+        let mut projection = StagedImportProjection { workspace: Some(workspace.clone()), ..Default::default() };
+        let files = collect_staged_imports(&workspace, [
+            ("main.ts", Some("typescript"), "import { symbol } from './barrel'; symbol;"),
+        ].into_iter(), &mut projection.missing);
+        assert!(files.is_empty());
+        assert!(projection.missing.contains("barrel.ts"));
+        assert!(staged_projection_matches(stage.path(), &projection));
+        std::fs::write(workspace.join("barrel.ts"), "export const symbol = 2;").unwrap();
+        assert!(!staged_projection_matches(stage.path(), &projection));
+    }
+
+    #[tokio::test]
+    async fn saved_import_refresh_cannot_reopen_a_superseded_document_revision() {
+        let workspace = tempfile::tempdir().unwrap();
+        let uri = Url::from_file_path(workspace.path().join("notes.txt")).unwrap();
+        let source = "The bytes match across both editor lifetimes.\n";
+        let (service, _) = tower_lsp::LspService::new(HickBackend::new);
+        let backend = service.inner();
+        backend.process_document(&uri, source).await;
+        let before = backend.documents.read().await[&uri].source_revision;
+        backend.did_close(DidCloseTextDocumentParams {
+            text_document: TextDocumentIdentifier { uri: uri.clone() },
+        }).await;
+        backend.process_document(&uri, source).await;
+        let reopened = backend.documents.read().await[&uri].source_revision;
+        assert_ne!(before, reopened);
+        assert!(backend.prepare_document_local(&uri, source, DocumentPreparation::SavedImports { revision: before, repair: true })
+            .await.is_none());
+        assert!(backend.location_revision_current(&uri, reopened).await);
     }
 
     #[cfg(unix)]
@@ -2250,7 +2416,7 @@ mod staged_import_projection_tests {
         std::os::unix::fs::symlink(&outside, root.join("alias.ts")).unwrap();
         let result = collect_staged_imports(&root, [
             ("main.ts", Some("typescript"), "import './alias'; import '../outside';"),
-        ].into_iter());
+        ].into_iter(), &mut Default::default());
         assert!(result.is_empty());
         assert!(import_relative_path("../../invalid.ts", "./other").is_none());
         assert!(import_relative_path("/absolute.ts", "./other").is_none());
@@ -3092,7 +3258,7 @@ impl LanguageServer for HickBackend {
         let uri = params.text_document.uri;
 
         if let Some(change) = params.content_changes.into_iter().next() {
-            self.prepare_document(&uri, &change.text,false).await;
+            self.prepare_document(&uri, &change.text, DocumentPreparation::Change).await;
         }
     }
 
@@ -3969,6 +4135,12 @@ mod actions;
 
 A copy-only contributor may install no virtual file, so virtual-file counters alone cannot retire its old provider tokens. Give every arriving document state and every completed installation a fresh server-owned identity. Preserve the source hash while parsing, and refuse provider authority while preparation is incomplete. A per-document gate serializes preparation with close/reopen; queued obsolete states cannot install after newer states. Other document gates remain independent, and no document lock is held while waiting for a child provider or a virtual-file lock. The lifecycle constructor below is shared by ordinary and captured source preparation.
 
+A navigation request can discover changes to saved imports while the authored
+editor remains open. Read the bounded filesystem projection off the async
+worker, then admit a rebuild only against the source revision that requested
+it, including across equal-byte closes and reopens. Finish the rebuild even if
+the navigation request is cancelled so the provider can serve the next read.
+
 <storycode:copy id="provider-document-source-lifetime">
 impl DocEntry {
     fn empty() -> Self {
@@ -3977,7 +4149,7 @@ impl DocEntry {
             source_hash: None,
             source_text: String::new(),
             project_dependencies: Default::default(),
-            staged_imports: HashMap::new(),
+            staged_imports: StagedImportProjection::default(),
             preparing: false,
             preparation: Arc::new(Mutex::new(())),
             state: None,
@@ -3986,24 +4158,42 @@ impl DocEntry {
         }
     }
 }
+#[derive(Clone, Copy)]
+enum DocumentPreparation {
+    Open,
+    Change,
+    Overlay,
+    SavedImports { revision: crate::source_identity::SourceRevision, repair: bool },
+}
+
 impl HickBackend {
     async fn process_document(&self, uri: &Url, source: &str) {
-        self.prepare_document(uri, source, true).await;
+        self.prepare_document(uri, source, DocumentPreparation::Open).await;
     }
-    async fn prepare_document(&self, uri: &Url, source: &str, allow_open: bool) {
-        self.prepare_document_local(uri,source,allow_open,false).await;
+    async fn prepare_document(&self, uri: &Url, source: &str, preparation: DocumentPreparation) {
+        self.prepare_document_local(uri, source, preparation).await;
         self.refresh_project_roots(uri).await;
     }
-    async fn prepare_document_local(&self, uri: &Url, source: &str, allow_open: bool, refresh:bool) {
+    async fn prepare_document_local(
+        &self,
+        uri: &Url,
+        source: &str,
+        preparation: DocumentPreparation,
+    ) -> Option<crate::source_identity::SourceRevision> {
         let initial = crate::source_identity::SourceRevision::fresh();
+        let allow_open = matches!(preparation, DocumentPreparation::Open);
         let gate = {
             let mut documents = self.documents.write().await;
             if !allow_open && !documents.contains_key(uri) {
-                return;
+                return None;
             }
             let entry = documents.entry(uri.clone()).or_insert_with(DocEntry::empty);
-            // Refresh cannot overwrite a newer root draft gathered after this request.
-            if refresh && entry.source_text.as_bytes()!=source.as_bytes(){return;}
+            match preparation {
+                DocumentPreparation::Overlay if entry.source_text.as_bytes() != source.as_bytes() => return None,
+                DocumentPreparation::SavedImports { revision, .. }
+                    if entry.preparing || entry.source_revision != revision => return None,
+                _ => {}
+            }
             entry.source_text=source.into();
             entry.source_revision = initial;
             entry.state=None;
@@ -4021,7 +4211,7 @@ impl HickBackend {
                 {
                     initial
                 }
-                Some(_) => return,
+                Some(_) => return None,
                 None if allow_open => {
                     let mut entry = DocEntry::empty();
                     entry.preparation = gate.clone();
@@ -4032,18 +4222,18 @@ impl HickBackend {
                     documents.insert(uri.clone(), entry);
                     revision
                 }
-                None => return,
+                None => return None,
             }
         };
-        self.process_document_source(uri, source).await;
+        let repair = matches!(preparation, DocumentPreparation::SavedImports { repair: true, .. });
+        self.process_document_source(uri, source, repair).await;
         self.sync_fenced_readings(uri,source,installed).await;
         let mut documents = self.documents.write().await;
-        if let Some(entry) = documents.get_mut(uri) {
-            if Arc::ptr_eq(&entry.preparation, &gate) && entry.source_revision == installed {
-                entry.source_revision = crate::source_identity::SourceRevision::fresh();
-                entry.preparing = false;
-            }
-        }
+        let entry = documents.get_mut(uri).filter(|entry|
+            Arc::ptr_eq(&entry.preparation, &gate) && entry.source_revision == installed)?;
+        entry.source_revision = crate::source_identity::SourceRevision::fresh();
+        entry.preparing = false;
+        Some(entry.source_revision)
     }
 }
 </storycode:copy>
@@ -4057,7 +4247,9 @@ impl HickBackend {
     async fn refresh_project_roots(&self,changed:&Url){
         let mut roots=self.documents.read().await.iter().filter(|(uri,entry)|*uri!=changed&&entry.project_dependencies.contains(changed)).map(|(uri,entry)|(uri.clone(),entry.source_text.clone())).collect::<Vec<_>>();
         roots.sort_by(|a,b|a.0.as_str().cmp(b.0.as_str()));
-        for(uri,source)in roots{self.prepare_document_local(&uri,&source,false,true).await;}
+        for (uri, source) in roots {
+            self.prepare_document_local(&uri, &source, DocumentPreparation::Overlay).await;
+        }
     }
 }
 </storycode:copy>

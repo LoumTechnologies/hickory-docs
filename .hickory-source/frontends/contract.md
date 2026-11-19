@@ -3177,18 +3177,30 @@ same child and private root, with no source writes or text updates. See
 `target/main-staged-barrel-navigation-fixed-v4-deleted/browser.json`,
 and `target/main-staged-barrel-navigation-v4-reopen/browser.json`.
 
-Automatic refresh with the caller still open remains an acceptance gap. An
-experimental refresh rebuilt the private files without editing the caller.
-When a previously missing module appeared, the newly started TypeScript
-provider routed the first Definition to its syntax-only process and returned
-the local import. Its semantic process found the saved declaration after
-loading the project. A fixture-only initialization setting disabled syntax
-routing and made the first lookup reach the saved declaration. The experiment
-also exposed a provider shutdown wait that could stall preparation, so the
-automatic refresh is still pending bounded provider replacement. See
-`target/main-staged-barrel-navigation-v6-unresolved-tsserver-trace/`
-and
-`target/main-staged-barrel-navigation-v6-unresolved-single-server-retry/browser.json`.
+Location commands now recheck the staged imports while the caller stays
+open. Changes to the bounded saved projection replace the ECMAScript
+provider for that private root. Retirement and startup have deadlines and
+release the dispatcher lock during provider I/O. A replacement of a recognized
+TypeScript Language Server starts in semantic mode so its first Definition
+can see the staged modules. The engine still checks source revisions and
+saved and staged bytes before revealing a result.
+
+Rendered Main with genuine TypeScript opened the new declaration on the
+first command after rewriting, restoring, or creating a saved import.
+Deleting the import exposed only authored results. Moving the declaration
+down three lines within an otherwise isolated saved leaf opened its new
+coordinate on the first lookup. The tests kept the same caller editor,
+restored its exact caret with Back, and sent no source writes or room
+updates. See
+`target/main-staged-barrel-navigation-v8-live-existing/browser.json`,
+`target/main-staged-barrel-navigation-v8-live-unresolved/browser.json`,
+and `target/main-staged-barrel-navigation-v8-live-shifted/browser.json`.
+
+A separate replay withheld the old provider's shutdown response. The first
+lookup still opened the shifted declaration. Before the browser closed,
+the old provider process group had exited and an unrelated provider and
+the replacement were still running. See
+`target/main-staged-barrel-navigation-v8-live-shifted-timeout/browser.json`.
 
 Go to Declaration tries the provider's dedicated method. When it
 returns method-not-found, the engine asks for Definition at the same
