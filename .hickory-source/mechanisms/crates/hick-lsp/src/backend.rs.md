@@ -1120,8 +1120,9 @@ impl HickBackend {
         }))
     }
 
-    /// A positional request whose result carries LOCATIONS in other files —
-    /// definitions, implementations, type definitions.
+    /// Resolve locations against the captured source. A provider that explicitly
+    /// declines the Declaration method can still locate the symbol's definition.
+    /// An empty reply from a supported method and other errors keep their meaning.
     async fn positional_locations(
         &self,
         method: &str,
@@ -1134,7 +1135,18 @@ impl HickBackend {
             docs.get(uri).filter(|entry| !entry.preparing)?.source_revision
         };
         let (vf_uri, lang, vpos) = self.virtual_read_target(uri, pos).await?;
-        let mut result = self.child_request(method, &vf_uri, &lang, vpos, extra).await?;
+        let reply = self.child_request_result(method, &vf_uri, &lang, vpos, extra).await;
+        let mut result = match reply {
+            Err(error) if method == "textDocument/declaration"
+                && error.code.code() == tower_lsp::jsonrpc::ErrorCode::MethodNotFound.code() =>
+            {
+                let current = self.documents.read().await.get(uri)
+                    .is_some_and(|entry| !entry.preparing && entry.source_revision == revision);
+                if !current { return None; }
+                self.child_request("textDocument/definition", &vf_uri, &lang, vpos, None).await?
+            }
+            other => other.ok().flatten()?,
+        };
         let imports = {
             let docs = self.documents.read().await;
             let origin = docs.get(uri).filter(|entry| !entry.preparing && entry.source_revision == revision)?;
