@@ -312,7 +312,7 @@ def check_python_definition(workspace):
     params = sent['params']
     assert local(params['textDocument']['uri']) == workspace/'main.py', params
     position = params['position']
-    assert position['line'] == 2 and 0 <= position['character'] < len('greeting'), position
+    assert position == {'line': 2, 'character': 0}, position
     result = received['result']
     location, = result if isinstance(result, list) else [result]
     uri = location.get('targetUri', location.get('uri'))
@@ -629,6 +629,7 @@ def run_workflow(workflow, device, seed, temporary_device, candidate, derived, d
                 if workflow == 'git-history':
                     payload['git_immutable_commit'] = commit
                 if python_definition:
+                    payload['keyboard_input_verified'] = True
                     installed = ROOT/'target/fenced-lsp-tools/basedpyright'
                     payload['provider'] = {'name': 'basedpyright', 'version': json.loads((installed/'package.json').read_text())['version'],
                                            'request_position': call_site, 'definition_position': declaration}

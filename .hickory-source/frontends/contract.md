@@ -54,11 +54,18 @@ The basedpyright fixture resolved the caller in `main.py` to
 caller and reached the native Edit menu. The definition command was below
 the visible rows, so the replay stopped before sending the request. The
 fixture now scrolls the menu to reveal the commands for definition, Back
-and Forward. The updated arm64 app and UI test bundle compiled. The mounted
-retry needs 3,072 MiB free to boot and dispose of an isolated iPhone simulator.
-The first simulator was deleted. See
+and Forward. The next mounted run scrolled that menu and got a real
+basedpyright reply. The native test tap had selected the blank second row,
+so the provider returned an empty definition and the run stopped before
+reveal or history. The fixture now uses native Find to select the unique call
+and checks that the provider saw its exact position. The revised arm64 test
+bundle compiled, and a direct request at the selected call's first character
+resolved the helper declaration through genuine basedpyright. Another mounted
+run needs 3,072 MiB free to boot and dispose of its isolated simulator. Both
+owned simulators were deleted. See
 `target/apple-python-definition-uikit-2026-11-19/` and
-`target/ios-native-python-definition-retry-arm64.log`.
+`target/apple-python-definition-uikit-retry-2026-11-19/`. The updated bundle
+build is in `target/ios-python-definition-find-arm64.log`.
 
 ### iPhone Git review with an unsaved draft
 
@@ -2582,7 +2589,9 @@ was held while only the origin caret moved from UTF-16 offset 41 to 42.
 The HTTP reply completed without adding a tab or a navigation entry. A fresh definition
 reached the exact target position and Back restored the retained origin at
 41. The saved files kept their exact bytes. See
-`target/simple-provider-origin-held.f6SsrA/replay.log`.
+`target/simple-provider-origin-held.f6SsrA/replay.log`. The rendered F12
+route passed the same held-read and fresh-reveal sequence. See
+`target/direct-provider-origin.VjdUUT/receipt/`.
 
 Focused rebuilt-engine replays also passed for Python definition and
 Back/Forward, workspace search, delayed first-open authority and capabilities,

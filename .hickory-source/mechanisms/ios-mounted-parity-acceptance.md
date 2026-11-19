@@ -1872,7 +1872,7 @@ extension RecordedRunUITests {
 </ui:copy>
 ## Follow a Python definition between two iPhone editors
 
-Place the native caret inside a call to an imported function. Use Go to definition, choose the exact provider location, and walk Back and Forward through the original caller and target tabs. Check the two source contents and editor geometry after navigation. The owned transport records the real provider request and definition so the rendered result can be checked against the provider's UTF-16 coordinates.
+Select the unique call to an imported function with native Find. Use Go to definition, choose the exact provider location, and walk Back and Forward through the original caller and target tabs. Check the two source contents and editor geometry after navigation. The owned transport records the real provider request and definition so the rendered result can be checked against the provider's UTF-16 coordinates.
 
 <ui:copy id="ios-native-python-definition-ui-test">
 extension RecordedRunUITests {
@@ -1929,9 +1929,15 @@ extension RecordedRunUITests {
         tap(tab("main.py"), "main.py tab")
         let caller = editor("main.py", text: mainSource)
         let callerFrame = caller.frame.integral
-        // The unwrapped third row starts with the imported name. Aim well inside it.
-        caller.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: 36, dy: 47)).tap()
-        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 8))
+        command("Find and replace")
+        let find = app.textFields["Find"].firstMatch
+        XCTAssertTrue(find.waitForExistence(timeout: 12))
+        find.tap()
+        find.typeText("greeting(")
+        let entered = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", "greeting("), object: find)
+        XCTAssertEqual(XCTWaiter.wait(for: [entered], timeout: 8), .completed)
+        tap(app.buttons["Next"].firstMatch, "Select the single greeting call")
+        tap(app.buttons["Close search"].firstMatch, "Close search with selected call")
         releaseKeyboard(in: "main.py")
 
         command("Go to definition")
@@ -2342,7 +2348,7 @@ def check_python_definition(workspace):
     params = sent['params']
     assert local(params['textDocument']['uri']) == workspace/'main.py', params
     position = params['position']
-    assert position['line'] == 2 and 0 <= position['character'] < len('greeting'), position
+    assert position == {'line': 2, 'character': 0}, position
     result = received['result']
     location, = result if isinstance(result, list) else [result]
     uri = location.get('targetUri', location.get('uri'))
@@ -2659,6 +2665,7 @@ def run_workflow(workflow, device, seed, temporary_device, candidate, derived, d
                 if workflow == 'git-history':
                     payload['git_immutable_commit'] = commit
                 if python_definition:
+                    payload['keyboard_input_verified'] = True
                     installed = ROOT/'target/fenced-lsp-tools/basedpyright'
                     payload['provider'] = {'name': 'basedpyright', 'version': json.loads((installed/'package.json').read_text())['version'],
                                            'request_position': call_site, 'definition_position': declaration}

@@ -441,9 +441,15 @@ extension RecordedRunUITests {
         tap(tab("main.py"), "main.py tab")
         let caller = editor("main.py", text: mainSource)
         let callerFrame = caller.frame.integral
-        // The unwrapped third row starts with the imported name. Aim well inside it.
-        caller.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: 36, dy: 47)).tap()
-        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 8))
+        command("Find and replace")
+        let find = app.textFields["Find"].firstMatch
+        XCTAssertTrue(find.waitForExistence(timeout: 12))
+        find.tap()
+        find.typeText("greeting(")
+        let entered = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", "greeting("), object: find)
+        XCTAssertEqual(XCTWaiter.wait(for: [entered], timeout: 8), .completed)
+        tap(app.buttons["Next"].firstMatch, "Select the single greeting call")
+        tap(app.buttons["Close search"].firstMatch, "Close search with selected call")
         releaseKeyboard(in: "main.py")
 
         command("Go to definition")
