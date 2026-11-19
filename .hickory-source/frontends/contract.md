@@ -445,6 +445,13 @@ Simple Browser and AppKit. The receipts are in
 `target/apple-recorded-patch.ofyzmnpr/receipt.json`. Mounted UIKit passed those
 same checks against the exact unwrapped fixture in
 `target/apple-recorded-ios-final-2026-11-18/recorded-patch-receipt.json`.
+The iPhone simulator opened the ordinary patch review from both recorded
+gutter controls. Each review displayed its source digest, complete seal, and
+generated consequence. Native Apply changed the selected draft in a separate
+source editor. Edit → Undo restored that exact draft, and each recorded card
+retained its immutable text. The engine confirmed both guarded applications.
+All five saved fixture files retained their bytes and metadata. See
+`target/ios-recorded-patch-native-v10-retry-2026-11-19/receipt.json`.
 Mounted AppKit used native gutter clicks to open the rendered guarded patch
 review for both recorded sides against the current engine. Each request bound
 the selected side, message hash and opening line. Both reviews displayed the
