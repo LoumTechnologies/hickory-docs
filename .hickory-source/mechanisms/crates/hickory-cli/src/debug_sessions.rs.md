@@ -276,6 +276,12 @@ mod session_identity_tests {
 <a id="f-24a9413a429b-impl-Registry"></a>
 ### `impl-Registry`
 
+Use the same resolved adapter path for a plain file, a captured fence, a
+constructed document and an explicit launch profile. A discovered Java
+adapter denotes a language-server host. Pass the runtime project root and
+the installation root separately so an authored launch imports its scratch
+project while retaining the real workspace's installed adapter.
+
 <storycode:copy id="f-24a9413a429b-impl-Registry">
 impl Registry {
     pub fn new() -> Self {
@@ -330,10 +336,10 @@ impl Registry {
             let mapping = Mapping::captured(&context.tree, scratch.path(), &id, &path)?;
             (scratch.path().join(&path), mapping)
         };
-        let adapter =
-            hick_dap::adapter_for(&entry, self.host_root.as_deref().unwrap_or(scratch.path()))?;
+        let install_root = self.host_root.as_deref().unwrap_or(scratch.path());
+        let adapter = hick_dap::adapter_for(&entry, install_root)?;
         let program = hick_dap::build(&entry, scratch.path(), scratch.path(), on_build).await?;
-        let (session, statuses) = Session::start_with_sources(
+        let (session, statuses) = Self::start_discovered_session(
             Launch {
                 transport: adapter.transport,
                 multi_session: adapter.multi_session,
@@ -343,9 +349,11 @@ impl Registry {
                 cwd: scratch.path().into(),
                 extra: serde_json::json!({}),
             },
-            Arc::new(mapping),
+            adapter.hosted.then_some((scratch.path(), install_root)),
+            mapping,
             breakpoints,
             sources,
+            on_build,
         )
         .await?;
         self.register(session, Some(scratch), statuses).await
@@ -462,7 +470,7 @@ impl Registry {
         // of "build failed" is the thing this exists to prevent.
         let program = hick_dap::build(&entry, scratch.path(), project, on_build).await?;
 
-        let (session, statuses) = Session::start_with_sources(
+        let (session, statuses) = Self::start_discovered_session(
             Launch {
                 transport: adapter.transport,
                 multi_session: adapter.multi_session,
@@ -472,9 +480,11 @@ impl Registry {
                 cwd: scratch.path().to_path_buf(),
                 extra: serde_json::json!({}),
             },
-            Arc::new(mapping),
+            adapter.hosted.then_some((scratch.path(), project)),
+            mapping,
             breakpoints,
             sources,
+            on_build,
         )
         .await?;
 
@@ -534,7 +544,7 @@ impl Registry {
         } else {
             serde_json::json!({})
         };
-        let (session, statuses) = Session::start_with_sources(
+        let (session, statuses) = Self::start_discovered_session(
             Launch {
                 transport: adapter.transport,
                 multi_session: adapter.multi_session,
@@ -544,12 +554,31 @@ impl Registry {
                 cwd,
                 extra,
             },
-            Arc::new(Mapping::identity(file)),
+            adapter.hosted.then_some((root, root)),
+            Mapping::identity(file),
             breakpoints,
             sources,
+            on_build,
         )
         .await?;
         self.register(session, None, statuses).await
+    }
+
+    async fn start_discovered_session(
+        launch: Launch,
+        java_roots: Option<(&Path, &Path)>,
+        mapping: Mapping,
+        breakpoints: &[Breakpoint],
+        sources: &[hick_dap::SourceBreakpoints],
+        on_build: &mut (dyn FnMut(BuildOutput) + Send),
+    ) -> Result<(Session, Vec<BreakpointStatus>)> {
+        let mapping = Arc::new(mapping);
+        if let Some((project_root, install_root)) = java_roots {
+            return Session::start_java_with_sources(
+                launch, project_root, install_root, mapping, breakpoints, sources, on_build,
+            ).await;
+        }
+        Session::start_with_sources(launch, mapping, breakpoints, sources).await
     }
 
     #[cfg(test)]

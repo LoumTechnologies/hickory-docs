@@ -378,6 +378,8 @@ pub struct Session {
     /// run the program; dropping it would take the server down with the
     /// session still using it. Shut down after the child, never used.
     parent: Option<Adapter>,
+    /// A hosted Java adapter shares this owned language-server process.
+    java_host: tokio::sync::Mutex<Option<hick_plugins::java_debug::Prepared>>,
     capabilities: Capabilities,
     /// Maps the generated file back to the document, and the document to it.
     mapping: Arc<Mapping>,
@@ -543,6 +545,27 @@ impl Session {
         let adapter = Adapter::start(&launch.adapter, launch.transport).await?;
         let extra = launch.extra.clone();
         Self::start_on(adapter, None, &launch, extra, mapping, breakpoints, sources, false).await
+    }
+
+    pub async fn start_java_with_sources(
+        mut launch: Launch,
+        project_root: &std::path::Path,
+        install_root: &std::path::Path,
+        mapping: Arc<Mapping>,
+        breakpoints: &[Breakpoint],
+        sources: &[SourceBreakpoints],
+        on_build: &mut (dyn FnMut(crate::BuildOutput) + Send),
+    ) -> Result<(Self, Vec<BreakpointStatus>)> {
+        let mapping = Self::checked_mapping(mapping, sources)?;
+        let prepared = hick_plugins::java_debug::prepare(
+            &launch.program, project_root, install_root, on_build,
+        ).await?;
+        launch.transport = crate::adapter::Transport::Attached(prepared.port);
+        launch.adapter_extra = prepared.launch.clone();
+        launch.adapter_extra["cwd"] = json!(launch.cwd);
+        let (session, statuses) = Self::start_with_sources(launch, mapping, breakpoints, sources).await?;
+        *session.java_host.lock().await = Some(prepared);
+        Ok((session, statuses))
     }
 
     /// Attach to an explicitly selected loopback DAP endpoint. The external
@@ -768,6 +791,7 @@ impl Session {
             output,
             observation_source,
             parent,
+            java_host: tokio::sync::Mutex::new(None),
             adapter,
             capabilities,
             mapping: mapping.clone(),
@@ -1327,6 +1351,15 @@ impl Session {
     }
 
     pub async fn shutdown(&self) {
+        let java_host = self.java_host.lock().await.take();
+        if let Some(mut host) = java_host {
+            // The owned JVM must stay alive long enough to stop its debuggee.
+            let _ = tokio::time::timeout(Duration::from_secs(3), self.adapter.request(
+                "disconnect", json!({"terminateDebuggee": true}),
+            )).await;
+            host.shutdown().await;
+            return;
+        }
         // The child first, then the connection that owns the server process.
         // The other order kills the server while the session it is running
         // is still being told to stop.

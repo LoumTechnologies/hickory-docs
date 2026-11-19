@@ -948,6 +948,11 @@ impl LaunchContext {
 <a id="f-05e2104e1cc1-impl-Registry"></a>
 ### `impl-Registry`
 
+For Java, retain the selected `.java` file as the launch source. The hosted
+adapter resolves the main class and runtime classpath after importing that
+project. An explicit binary artifact cannot stand in for that source. The
+ordinary source mapping remains the authority for breakpoints and stops.
+
 <storycode:copy id="f-05e2104e1cc1-impl-Registry">
 impl Registry {
     pub fn launch_context(
@@ -1140,9 +1145,13 @@ impl Registry {
                 .as_ref()
                 .context("Profile has no program")?,
         );
-        let adapter =
-            hick_dap::adapter_for(&entry, self.host_root.as_deref().unwrap_or(&context.root))?;
-        let program = if let Some(artifact) = &profile.definition.artifact {
+        let install_root = self.host_root.as_deref().unwrap_or(&context.root);
+        let adapter = hick_dap::adapter_for(&entry, install_root)?;
+        let program = if adapter.hosted {
+            anyhow::ensure!(profile.definition.artifact.is_none(),
+                "Java Debug resolves the main class from the selected source. Remove the binary artifact from this profile.");
+            entry.clone()
+        } else if let Some(artifact) = &profile.definition.artifact {
             let artifact = root.join(artifact).canonicalize().context(
                 "The configured debug artifact does not exist. Fix the build or artifact path.",
             )?;
@@ -1158,6 +1167,9 @@ impl Registry {
         };
         let mut extra =
             serde_json::json!({"args":profile.definition.args,"env":profile.definition.env});
+        if adapter.hosted {
+            extra["args"] = serde_json::json!(crate::java_debug::launch_arguments(&profile.definition.args));
+        }
         if hick_dap::language_of(&entry) == Some("python")
             && let Some(python) = hick_project_env::python_interpreter(&context.root, &context.root)
         {
@@ -1170,7 +1182,7 @@ impl Registry {
             context.fingerprint()
         )));
         let mapping = context.mapping(&root)?;
-        let (session, statuses) = Session::start_with_sources(
+        let (session, statuses) = Self::start_discovered_session(
             Launch {
                 transport: adapter.transport,
                 multi_session: adapter.multi_session,
@@ -1180,9 +1192,11 @@ impl Registry {
                 cwd,
                 extra,
             },
-            Arc::new(mapping),
+            adapter.hosted.then_some((root.as_path(), install_root)),
+            mapping,
             breakpoints,
             sources,
+            on_build,
         )
         .await?;
         self.register(session, scratch, statuses).await
@@ -1509,6 +1523,11 @@ fn text<'a>(tree: &'a dyn SourceInventory, path: &str) -> Option<&'a str> {
 
 Conservative syntax-shaped discovery, not a claim about call-graph reachability.
 
+Offer a Java application when a saved file has a conventional static `main`
+shape. Allow whitespace between tokens, including a line break. Launch
+still requires the hosted debugger to resolve a main class in that exact
+source, so discovery does not authorize a different project candidate.
+
 <storycode:copy id="f-01e001976095-impl-Provider-for-Applications">
 /// Conservative syntax-shaped discovery, not a claim about call-graph reachability.
 impl Provider for Applications {
@@ -1542,6 +1561,11 @@ impl Provider for Applications {
                     && source.contains("fn main(")
             } else if path.ends_with(".go") {
                 source.contains("func main(")
+            } else if path.ends_with(".java") {
+                static MAIN: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+                    regex::Regex::new(r"\bstatic\s+void\s+main\s*\(").expect("valid Java main pattern")
+                });
+                MAIN.is_match(source)
             } else if path.ends_with(".cs") {
                 path.ends_with("Program.cs")
                     || source.contains("static void Main(")
@@ -1831,6 +1855,7 @@ impl Profile {
                 Some("javascript") => vec!["node".into(), absolute.clone()],
                 Some("rust") => vec!["cargo".into(), "run".into(), "--".into()],
                 Some("go") => vec!["go".into(), "run".into(), absolute.clone()],
+                Some("java") => vec!["java".into(), absolute.clone()],
                 Some("csharp") => vec!["dotnet".into(), "run".into(), "--".into()],
                 _ => {
                     return Err(format!(
@@ -2128,6 +2153,23 @@ fn library_discovery_selects_the_calling_application_without_running_project_cod
             .as_deref(),
         Some("app.py")
     );
+}
+
+#[test]
+fn java_source_discovery_offers_the_application_and_preserves_run_arguments() {
+    let tree = tree(&[
+        ("src/Main.java", "class Main { public static\nvoid main (String[] args) {} }"),
+        ("src/Library.java", "class Library { static int value() { return 41; } }"),
+    ]);
+    let mut profiles = launch_profiles::discover(&tree).unwrap();
+    assert_eq!(profiles.len(), 1);
+    let mut profile = profiles.pop().unwrap();
+    assert_eq!(profile.definition.program.as_deref(), Some("src/Main.java"));
+    assert!(profile.can_debug);
+    profile.definition.args = vec!["two words".into(), "".into()];
+    let root = std::path::Path::new("owned workspace");
+    let source = root.join("src/Main.java");
+    assert_eq!(profile.run_argv(root).unwrap(), ["java", source.to_str().unwrap(), "two words", ""]);
 }
 </storycode:copy>
 <a id="f-7149d905428b-manual_profiles_share_discovery_override_by_id_and_keep_argument_boundaries"></a>

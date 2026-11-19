@@ -140,6 +140,11 @@ impl Provider for Applications {
                     && source.contains("fn main(")
             } else if path.ends_with(".go") {
                 source.contains("func main(")
+            } else if path.ends_with(".java") {
+                static MAIN: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+                    regex::Regex::new(r"\bstatic\s+void\s+main\s*\(").expect("valid Java main pattern")
+                });
+                MAIN.is_match(source)
             } else if path.ends_with(".cs") {
                 path.ends_with("Program.cs")
                     || source.contains("static void Main(")
@@ -394,6 +399,7 @@ impl Profile {
                 Some("javascript") => vec!["node".into(), absolute.clone()],
                 Some("rust") => vec!["cargo".into(), "run".into(), "--".into()],
                 Some("go") => vec!["go".into(), "run".into(), absolute.clone()],
+                Some("java") => vec!["java".into(), absolute.clone()],
                 Some("csharp") => vec!["dotnet".into(), "run".into(), "--".into()],
                 _ => {
                     return Err(format!(

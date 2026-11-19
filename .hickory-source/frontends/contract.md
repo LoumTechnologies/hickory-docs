@@ -709,6 +709,15 @@ with zero skips. It checked the same editor state, selection, scroll and
 local history, plus refusal after an equal-byte inode replacement. Its result
 is in `target/native-template-smoke/android-entry-lineage-move-handoff-last.xml`.
 
+An earlier Gboard replay entered `b` on the visible software keyboard and
+verified the first Move. It stopped in the test's menu lookup before entering
+`c`, even though the Move action was present. The strict follow-up now verifies
+Gboard's active destination field and Done action before tapping each visible
+key. It requires all six publications. Its preflight measured less free disk
+than the 7.2 GiB device boot floor, so there is still no two-Move software
+keyboard receipt. See
+`target/parity-rendered-android.sgYIt7/continuation-receipts/final-android-_giengpj/lineage/`.
+
 The Android application Debug follow-ups sent both genuine adapters a saved
 line 2 breakpoint. The Node renderer paused at that line with local value
 41. The Watch expression field failed to take focus on the earlier replay.
@@ -907,6 +916,35 @@ The rendered Java Debug profile failed before adapter startup with
 `a debug adapter command cannot be empty`. The Go and Java browser wire
 receipts are under `target/mobile-provider-followup/go-browser-q5oorx5j` and
 `target/mobile-provider-followup/java-browser-lcvkp401`.
+
+Java Debug now asks the installed language server for its hosted DAP endpoint.
+The main class must match the selected source file. The adapter receives the
+profile's arguments in its string format and the session owns the temporary
+language server. Four focused helper cases passed. The rendered Simple Browser
+profile stopped in `Main.java` at saved line 4, displayed Watch `41` and printed
+`42` after Continue. The program independently confirmed arguments with spaces,
+an empty value, quotes, backslashes and Unicode. The original editor and saved
+source stayed exact, and the hosted language server exited. See
+`target/mobile-provider-followup/java-hosted-current-ua6i1lvj/profile-exact-argv/`.
+
+Java files with a conventional static `main` now produce an application
+profile without workspace configuration. The rendered plain-file replay stopped
+at saved line 4, read Watch `41`, and verified that Stop ended both the
+debuggee and the hosted server. Both editor and saved source stayed intact.
+See `target/mobile-provider-followup/java-hosted-current-ua6i1lvj/discovered-plain-stop/`.
+The browser also refused a stale displayed Java revision before starting a
+hosted server. The Java Run terminal completed through the discovered profile
+with output `42`, exit 0 and exact saved source in a folder with a literal
+`#`, `%`, spaces and Unicode. See the `stale-refusal` receipt beside the
+plain-file Debug case and `target/mobile-provider-followup/java-run-terminal-h875o49g/`.
+
+A separate workspace with `#`, `%`, spaces and Unicode in its folder name
+used symlinks to its installed Java provider. The rendered Debug attempt
+timed out waiting for LSP initialize. A direct provider probe exited before
+replying with those symlink paths, then initialized with the same workspace
+URI and the canonical installation paths. The rendered hosted launch through
+the literal alias remains open.
+See `target/mobile-provider-followup/java-hosted-current-literal # % λ/`.
 
 Configured csharp-ls 0.28.0 on .NET 10.0.401 supplied rendered browser
 definitions, usages, back navigation and a two-file rename. Review applied the

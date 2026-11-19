@@ -134,11 +134,18 @@ pub struct Prepared {
     /// The server, held for the life of the session. Dropping it kills
     /// jdt.ls, and java-debug lives inside jdt.ls.
     server: Child,
+    // jdt.ls exits when its client closes stdin. The adapter shares that JVM.
+    _lsp: Lsp,
 }
 
 </storycode:copy>
 <a id="f-2d734a88c587-impl-Prepared"></a>
 ### `impl-Prepared`
+
+Java Debug takes one argument string. Encode the profile's argument vector
+for the adapter's parser so quotes, backslashes, spaces and empty arguments
+stay within their original boundaries. The adapter launches the process
+directly, using different backslash rules on Windows.
 
 <storycode:copy id="f-2d734a88c587-impl-Prepared">
 impl Prepared {
@@ -146,6 +153,32 @@ impl Prepared {
     pub async fn shutdown(&mut self) {
         let _ = self.server.kill().await;
     }
+}
+
+pub fn launch_arguments(arguments: &[String]) -> String {
+    arguments.iter().map(|argument| quote_argument(argument, cfg!(windows)))
+        .collect::<Vec<_>>().join(" ")
+}
+
+fn quote_argument(argument: &str, windows: bool) -> String {
+    if !windows {
+        return format!("\"{}\"", argument.replace('\\', "\\\\").replace('"', "\\\""));
+    }
+    let mut quoted = String::from("\"");
+    let mut backslashes = 0;
+    for character in argument.chars() {
+        if character == '\\' {
+            backslashes += 1;
+            continue;
+        }
+        let count = if character == '"' { 2 * backslashes + 1 } else { backslashes };
+        quoted.extend(std::iter::repeat_n('\\', count));
+        quoted.push(character);
+        backslashes = 0;
+    }
+    quoted.extend(std::iter::repeat_n('\\', 2 * backslashes));
+    quoted.push('"');
+    quoted
 }
 
 </storycode:copy>
@@ -305,9 +338,37 @@ where
 <a id="f-2d734a88c587-file_uri"></a>
 ### `file_uri`
 
+Encode the path before sending it to JDT. A space, literal percent or hash in
+the selected folder is part of the file's identity. Java receives an encoded
+path and only the intended file can resolve to the main class.
+
 <storycode:copy id="f-2d734a88c587-file_uri">
 fn file_uri(path: &Path) -> String {
-    format!("file://{}", path.display())
+    use std::fmt::Write;
+
+    let path = path.to_string_lossy();
+    #[cfg(windows)]
+    let path = path.replace('\\', "/");
+    #[cfg(windows)]
+    let remote = path.strip_prefix("//?/UNC/").or_else(|| {
+        if path.starts_with("//?/") { None } else { path.strip_prefix("//") }
+    });
+    #[cfg(windows)]
+    let path = path.strip_prefix("//?/").unwrap_or(&path);
+    #[cfg(not(windows))]
+    let remote: Option<&str> = None;
+    let mut uri = String::from("file://");
+    if remote.is_none() && !path.starts_with('/') {
+        uri.push('/');
+    }
+    for byte in remote.unwrap_or(&path).bytes() {
+        if byte.is_ascii_alphanumeric() || b"/:-._~".contains(&byte) {
+            uri.push(char::from(byte));
+        } else {
+            write!(uri, "%{byte:02X}").expect("writing to a String cannot fail");
+        }
+    }
+    uri
 }
 
 </storycode:copy>
@@ -380,6 +441,7 @@ pub async fn prepare(
 
     let mut server = tokio::process::Command::new(&argv[0])
         .args(&argv[1..])
+        .kill_on_drop(true)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
@@ -435,8 +497,9 @@ pub async fn prepare(
         )
         .await?
         .as_u64()
-        .context("the language server did not answer `startDebugSession` with a port")?
-        as u16;
+        .and_then(|port| u16::try_from(port).ok())
+        .filter(|port| *port != 0)
+        .context("the language server did not answer `startDebugSession` with a valid port")?;
 
     on_output(BuildOutput::Exit(0));
     Ok(Prepared {
@@ -451,6 +514,7 @@ pub async fn prepare(
             "console": "internalConsole",
         }),
         server,
+        _lsp: lsp,
     })
 }
 
@@ -465,48 +529,39 @@ document generates one program and ambiguous when it generates two — so a
 class matching this file's name wins over the project's first answer.
 
 <storycode:copy id="f-2d734a88c587-main_class">
-/// The class holding `main`, asked of the server and falling back to the
-/// file's own name.
-///
-/// `resolveMainClass` answers for the whole project, which is right when a
-/// document generates one program and ambiguous when it generates two — so a
-/// class matching this file's name wins over the project's first answer.
+/// Read the project candidates and select a main class from the exact file.
+/// Some inferred projects omit their main class when queried with a file URI.
+/// Match the actual returned source path before the debugger is allowed to run.
 async fn main_class(lsp: &Lsp, source: &Path) -> Result<String> {
-    let stem = source
-        .file_stem()
-        .map(|s| s.to_string_lossy().into_owned())
-        .unwrap_or_default();
+    let uri = file_uri(source);
     let answered = lsp
         .request(
             "workspace/executeCommand",
             json!({ "command": "vscode.java.resolveMainClass", "arguments": [] }),
             COMMAND_TIMEOUT,
         )
-        .await
-        .unwrap_or(Value::Null);
-    let classes: Vec<String> = answered
-        .as_array()
-        .map(|items| {
-            items
-                .iter()
-                .filter_map(|item| item.get("mainClass").and_then(Value::as_str))
-                .map(str::to_string)
-                .collect()
-        })
-        .unwrap_or_default();
-    if let Some(mine) = classes
-        .iter()
-        .find(|class| class.rsplit('.').next() == Some(stem.as_str()))
-    {
-        return Ok(mine.clone());
+        .await?;
+    select_main_class(source, &uri, &answered)
+}
+
+fn select_main_class(source: &Path, uri: &str, candidates: &Value) -> Result<String> {
+    let physical = source.canonicalize()?;
+    let mut classes = candidates.as_array().into_iter().flatten().filter_map(|candidate| {
+        let path = candidate.get("filePath")?.as_str()?;
+        if path != uri && Path::new(path).canonicalize().ok().as_deref() != Some(physical.as_path()) {
+            return None;
+        }
+        candidate.get("mainClass")?.as_str().filter(|class| !class.is_empty())
+    }).collect::<Vec<_>>();
+    classes.sort_unstable();
+    classes.dedup();
+    let stem = source.file_stem().and_then(|name| name.to_str());
+    match classes.as_slice() {
+        [] => bail!("No Java main method was reported for {}. Choose a Java source file with a main method.", source.display()),
+        [only] => Ok((*only).to_owned()),
+        many => many.iter().find(|class| class.rsplit('.').next() == stem).map(|class| (*class).to_owned())
+            .context("The selected Java source has more than one main class. Choose a file with one main class."),
     }
-    if let Some(first) = classes.first() {
-        return Ok(first.clone());
-    }
-    if stem.is_empty() {
-        bail!("no class with a `main` method was found to run");
-    }
-    Ok(stem)
 }
 
 </storycode:copy>
@@ -573,6 +628,35 @@ mod tests {
     fn a_workspace_name_is_stable_for_a_directory() {
         assert_eq!(seahash("/a/b"), seahash("/a/b"));
         assert_ne!(seahash("/a/b"), seahash("/a/c"));
+    }
+
+    #[test]
+    fn java_launch_refuses_a_main_class_reported_for_another_file() {
+        let root = tempfile::tempdir().unwrap();
+        let wanted = root.path().join("Main.java");
+        let other = root.path().join("Other.java");
+        std::fs::write(&wanted, "").unwrap();
+        std::fs::write(&other, "").unwrap();
+        let uri = file_uri(&wanted);
+        let unrelated = json!({"mainClass":"other.Main","filePath":other});
+        assert!(select_main_class(&wanted, &uri, &json!([unrelated])).is_err());
+        assert_eq!(select_main_class(&wanted, &uri, &json!([
+            unrelated, {"mainClass":"owned.Main","filePath":uri}
+        ])).unwrap(), "owned.Main");
+    }
+
+    #[test]
+    fn java_argument_strings_keep_spaces_quotes_and_backslashes() {
+        assert_eq!(quote_argument(r#"some\dir\"#, false), r#""some\\dir\\""#);
+        assert_eq!(quote_argument(r#"some\dir\"#, true), r#""some\dir\\""#);
+        assert_eq!(quote_argument(r#"a\"b"#, true), r#""a\\\"b""#);
+        assert_eq!(quote_argument("", false), "\"\"");
+    }
+
+    #[test]
+    fn java_source_uris_encode_the_literal_path() {
+        assert_eq!(file_uri(Path::new("/owned # % λ/Main.java")),
+            "file:///owned%20%23%20%25%20%CE%BB/Main.java");
     }
 }
 </storycode:copy>

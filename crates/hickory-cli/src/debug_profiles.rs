@@ -309,9 +309,13 @@ impl Registry {
                 .as_ref()
                 .context("Profile has no program")?,
         );
-        let adapter =
-            hick_dap::adapter_for(&entry, self.host_root.as_deref().unwrap_or(&context.root))?;
-        let program = if let Some(artifact) = &profile.definition.artifact {
+        let install_root = self.host_root.as_deref().unwrap_or(&context.root);
+        let adapter = hick_dap::adapter_for(&entry, install_root)?;
+        let program = if adapter.hosted {
+            anyhow::ensure!(profile.definition.artifact.is_none(),
+                "Java Debug resolves the main class from the selected source. Remove the binary artifact from this profile.");
+            entry.clone()
+        } else if let Some(artifact) = &profile.definition.artifact {
             let artifact = root.join(artifact).canonicalize().context(
                 "The configured debug artifact does not exist. Fix the build or artifact path.",
             )?;
@@ -327,6 +331,9 @@ impl Registry {
         };
         let mut extra =
             serde_json::json!({"args":profile.definition.args,"env":profile.definition.env});
+        if adapter.hosted {
+            extra["args"] = serde_json::json!(crate::java_debug::launch_arguments(&profile.definition.args));
+        }
         if hick_dap::language_of(&entry) == Some("python")
             && let Some(python) = hick_project_env::python_interpreter(&context.root, &context.root)
         {
@@ -339,7 +346,7 @@ impl Registry {
             context.fingerprint()
         )));
         let mapping = context.mapping(&root)?;
-        let (session, statuses) = Session::start_with_sources(
+        let (session, statuses) = Self::start_discovered_session(
             Launch {
                 transport: adapter.transport,
                 multi_session: adapter.multi_session,
@@ -349,9 +356,11 @@ impl Registry {
                 cwd,
                 extra,
             },
-            Arc::new(mapping),
+            adapter.hosted.then_some((root.as_path(), install_root)),
+            mapping,
             breakpoints,
             sources,
+            on_build,
         )
         .await?;
         self.register(session, scratch, statuses).await

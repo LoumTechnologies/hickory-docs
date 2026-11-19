@@ -27,6 +27,23 @@ fn library_discovery_selects_the_calling_application_without_running_project_cod
         Some("app.py")
     );
 }
+
+#[test]
+fn java_source_discovery_offers_the_application_and_preserves_run_arguments() {
+    let tree = tree(&[
+        ("src/Main.java", "class Main { public static\nvoid main (String[] args) {} }"),
+        ("src/Library.java", "class Library { static int value() { return 41; } }"),
+    ]);
+    let mut profiles = launch_profiles::discover(&tree).unwrap();
+    assert_eq!(profiles.len(), 1);
+    let mut profile = profiles.pop().unwrap();
+    assert_eq!(profile.definition.program.as_deref(), Some("src/Main.java"));
+    assert!(profile.can_debug);
+    profile.definition.args = vec!["two words".into(), "".into()];
+    let root = std::path::Path::new("owned workspace");
+    let source = root.join("src/Main.java");
+    assert_eq!(profile.run_argv(root).unwrap(), ["java", source.to_str().unwrap(), "two words", ""]);
+}
 // Guarantee: docs/guarantees/debugging/launch-profiles-choose-targets-within-the-viewed-project.md
 #[test]
 fn manual_profiles_share_discovery_override_by_id_and_keep_argument_boundaries() {
