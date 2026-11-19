@@ -4590,6 +4590,13 @@ The entry below owns this output. Its metadata is separate from semantic verific
       ]
     },
     {
+      "id": "f-648693644a28-recorded-fence-debug",
+      "output": "apps/web/e2e/literate-editor.spec.ts",
+      "page": ".hickory-source/mechanisms/apps/web/e2e/literate-editor.spec.ts.md",
+      "symbol": "Step in the recorded user and assistant cards",
+      "basis": "authored-explanation"
+    },
+    {
       "id": "f-3387bba4ed15-expression_statement",
       "output": "apps/web/e2e/liveAgentInvestigation.spec.ts",
       "page": ".hickory-source/mechanisms/apps/web/e2e/liveAgentInvestigation.spec.ts.md",
@@ -151013,6 +151020,13 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "basis": "authored-explanation"
     },
     {
+      "id": "recorded-message-fence-controls",
+      "output": "apps/web/src/simple/Agent.tsx",
+      "page": ".hickory-source/frontends/apps/web/src/simple/Agent.tsx.md",
+      "symbol": "Debug a recorded code fence in its message editor",
+      "basis": "authored-explanation"
+    },
+    {
       "id": "simple-android-agent-pane",
       "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/AgentPane.kt",
       "page": ".hickory-source/frontends/apps/android-simple/app/src/main/java/com/hickorydocs/simple/AgentPane.kt.md",
@@ -155780,6 +155794,13 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "basis": "explained-behavior"
     },
     {
+      "id": "agent-proposals-main-mounted-review",
+      "output": "apps/web/src/simple/AgentProposals.test.tsx",
+      "page": ".hickory-source/frontends/agent-proposals-browser.md",
+      "symbol": "Review both sides of a recorded turn in the main workspace",
+      "basis": "authored-explanation"
+    },
+    {
       "id": "agent-proposals-android-tests",
       "output": "apps/android-simple/app/src/test/java/com/hickorydocs/simple/AgentProposalsTest.kt",
       "page": ".hickory-source/frontends/agent-proposals-android.md",
@@ -157618,6 +157639,13 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "output": "apps/apple-simple/IOSAcceptance/UIKitParityAcceptanceTests.swift",
       "page": ".hickory-source/mechanisms/ios-mounted-parity-acceptance.md",
       "symbol": "ios mounted parity test",
+      "basis": "explained-behavior"
+    },
+    {
+      "id": "ios-recorded-run-ui-test",
+      "output": "apps/apple-simple/IOSUIAcceptance/RecordedRunUITests.swift",
+      "page": ".hickory-source/mechanisms/ios-mounted-parity-acceptance.md",
+      "symbol": "iOS recorded fence Run UI test",
       "basis": "explained-behavior"
     },
     {

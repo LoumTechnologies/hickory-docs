@@ -1258,6 +1258,10 @@ pub(crate) fn router(state: LocalState) -> Router {
         .route("/docs/{id}/agent", post(agent::start_turn))
         .route("/docs/{id}/agent/stop", post(agent::stop_turn))
         .route("/docs/{id}/agent/turns", get(agent::list_turns))
+        .route("/docs/{id}/agent/turns/{turn}/fence-debug", post(agent::prepare_fence_debug))
+        .route("/docs/{id}/agent/turns/{turn}/fence-run", post(agent::run_fence))
+        .route("/docs/{id}/agent/turns/{turn}/fence-construction", post(agent::inspect_fence_construction))
+        .route("/docs/{id}/agent/turns/{turn}/fence-patch", post(agent::prepare_fence_patch))
         .route("/runs/{id}", get(api::get_run))
         .route(
             "/settings/keys",
@@ -1280,6 +1284,7 @@ pub(crate) fn router(state: LocalState) -> Router {
         .route("/reveal", post(reveal::reveal))
         .route("/open-external", post(reveal::open_external))
         .route("/open-file", post(plain_file::open_file))
+        .route("/startup-source", get(plain_file::startup_source))
         .route("/file", get(plain_file::get_file).put(plain_file::put_file))
         .route("/just-recipes", get(plain_file::just_recipes))
         .route("/scratchpad", post(plain_file::post_scratchpad))

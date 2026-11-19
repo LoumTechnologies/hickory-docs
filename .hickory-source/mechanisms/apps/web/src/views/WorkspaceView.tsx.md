@@ -184,6 +184,8 @@ import { nextInQueue } from "../lib/attentionCursor";
 
 <storycode:copy id="f-47afe3575948-import_statement-3">
 import { DocTabBody, GeneratedTabBody, UntitledTab } from "./workspaceTabs";
+import type { RecordedPatchSource } from "../simple/AgentProposalAdapter";
+import { WorkspaceChangeHistory } from "../simple/ChangePlan";
 </storycode:copy>
 <a id="f-47afe3575948-import_statement-4"></a>
 ### `import_statement`
@@ -207,7 +209,8 @@ import { useWorkspaceUi } from "./useWorkspaceUi";
 ### `import_statement`
 
 <storycode:copy id="f-47afe3575948-import_statement-7">
-import { openSelectedFile, useFolderPane } from "./folderPane";
+import { observeManagedStartup, observePlainStartup, openSelectedFile, useFolderPane, type StartupManagedDocument, type StartupPlainFile } from "./folderPane";
+import { hickLangReady, useHickLangStatus } from "../editor/hickLang";
 </storycode:copy>
 <a id="f-47afe3575948-import_statement-8"></a>
 ### `import_statement`
@@ -368,6 +371,13 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   const [toolTarget, setToolTarget] = useState<{ path: string | null; document?: string; source?: string; view?: EditorView | null }>({ path: null });
   const [paintedFamilies, setPaintedFamilies] = useState<ReadonlySet<RibbonFamily>>(new Set());
   const startup = useRef(route.name === "new" && route.introduction === true).current;
+  const requestedFile = route.name === "new" ? route.file : undefined;
+  const explicitFileStartup = useRef(!!requestedFile).current;
+  const startupFile = useRef(requestedFile).current;
+  const startupHint = useRef(new URLSearchParams(window.location.search).get("startupPath")).current;
+  const [plainStartup, setPlainStartup] = useState<{id: string; observation: StartupPlainFile} | null>(null);
+  const [managedStartup, setManagedStartup] = useState<{id: string; observation: StartupManagedDocument} | null>(null);
+  const parserStatus = useHickLangStatus();
   const [layout, setLayout] = useState<Layout>(() =>
     startup ? openUntitledTab(initialWorkspace()) : initialWorkspace(),
   );
@@ -463,6 +473,13 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   const shellPrompt = usePrompt();
   const [untitledSources, setUntitledSources] = useState<Record<string, string>>(() => introductionTab ? { [introductionTab]: STARTUP_INTRODUCTION } : {});
   const plainSources = useRef(new Map<string, string>());
+  const plainPatchOwners = useRef(new Map<string, () => RecordedPatchSource | null>());
+  const [recordedDraftHistory] = useState(() => new WorkspaceChangeHistory());
+  const untitledRevisions = useRef(new Map<string, number>());
+  const registerPlainPatchOwner = useCallback((id: string, read: () => RecordedPatchSource | null) => {
+    plainPatchOwners.current.set(id, read);
+    return () => { if (plainPatchOwners.current.get(id) === read) plainPatchOwners.current.delete(id); };
+  }, []);
   const agentFocusedEditor = useRef<string | null>(null);
   const agentActivePane = paneById(layout, layout.focus);
   const agentActiveTab = agentActivePane?.tabs[agentActivePane.active];
@@ -470,6 +487,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   const untitledSourcesRef = useRef(untitledSources);
   untitledSourcesRef.current = untitledSources;
   const forgetUntitled = useCallback((tabId: string) => {
+    untitledRevisions.current.delete(tabId);
     setUntitledSources((current) => {
       if (!(tabId in current)) return current;
       const next = { ...current };
@@ -578,7 +596,8 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   folderRootsRef.current = folderRoots;
   const workspaceUi = useWorkspaceUi(layout, restored => setLayout(current => restoreFolderLayout(current, restored,
     folderOpen === true, introductionTab && untitledSourcesRef.current[introductionTab] === STARTUP_INTRODUCTION ? introductionTab : undefined)),
-    folderOpen === null ? (folderError ? "window" : null) : folderOpen ? folderRoots[0]?.root_path ?? folderRoots[0]?.root ?? "folder" : "window");
+    folderOpen === null ? (folderError ? "window" : null) : folderOpen ? folderRoots[0]?.root_path ?? folderRoots[0]?.root ?? "folder" : "window",
+    !explicitFileStartup);
   const untitledRecovery = useUntitledRecovery({
     hydrated: workspaceUi.hydrated, layoutRef, setLayout,
     sourcesRef: untitledSourcesRef, setSources: setUntitledSources,
@@ -675,7 +694,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
           flashDocTab(id);
           return;
         }
-        if (!into && isWorkspaceEmpty(current)) {
+        if (!into && isWorkspaceEmpty(current) && hickLangReady()) {
           const declared = regionsOf(doc.source);
           if (declared.length > 0) {
             setRegions(declared);
@@ -848,14 +867,50 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   const routeKey = route.name === "doc" ? `doc:${route.id}` : route.name === "new" && route.file ? `file:${route.file}` : route.name;
   const hydrated = workspaceUi.hydrated;
   useEffect(() => {
+    if (!requestedFile) return;
+    let current = true;
+    let settled = false;
+    let observedTab: Tab | null = null;
+    const selected = api.openFile(requestedFile);
+    if (requestedFile === startupFile) {
+      const observe = (startupHint ?? requestedFile).endsWith(".md") ? observeManagedStartup : observePlainStartup;
+      void observe(requestedFile, startupHint, selected, () => current && (!!observedTab || !settled))
+        .then(observation => {
+          if (!current || settled || !observation) return;
+          const {path} = observation.source;
+          if ("docId" in observation) {
+            const {docId} = observation;
+            if (findDocTab(layoutRef.current, docId)) return;
+            const tab = makeTab("document", path, path.split("/").pop(), docId);
+            observedTab = tab;
+            setManagedStartup({id: tab.id, observation});
+            setLayout(layout => openDocTab(layout, docId, path, undefined, tab));
+          } else {
+            if (findFileTab(layoutRef.current, path)) return;
+            const tab = makeTab("file", path, path.split("/").pop());
+            observedTab = tab;
+            setPlainStartup({id: tab.id, observation});
+            setLayout(layout => openFileTab(layout, path, undefined, tab));
+          }
+        }, () => { /* The ordinary explicit open owns the fallback. */ });
+    }
+    void selected.then(({doc_id, path}) => {
+      settled = true;
+      if (!current || observedTab) return;
+      if (doc_id) setLayout(layout => activateDocTab(layout, doc_id) ?? openDocTab(layout, doc_id, path));
+      else openPlainFile(path);
+    }, error => {
+      settled = true;
+      if (current && !observedTab) setInsertNotice(error instanceof Error ? error.message : String(error));
+    });
+    return () => { current = false; };
+  }, [requestedFile, startupFile, startupHint, openPlainFile]);
+  useEffect(() => {
     // Wait for the stored layout. Opening the routed document first would
     // leave the workspace non-empty when the restore lands, and the restore
     // would be dropped without a word.
     if (!hydrated) return;
-    if (route.name === "new" && route.file) {
-      void openSelectedFile(route.file, ensureDocOpen, openPlainFile, setInsertNotice);
-      return;
-    }
+    if (route.name === "new" && route.file) return;
     if (route.name === "new") {
       if (!(startup && folderOpen && workspaceUi.restored)) setLayout(current => openUntitledTab(current));
       return;
@@ -878,6 +933,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   // Back button should have to chew through.
   useEffect(() => {
     if (!derivedFocus) return;
+    if (requestedFile && managedStartup?.observation.docId === derivedFocus) return;
     if (route.name === "doc" && route.id === derivedFocus) return;
     redirect(`/docs/${derivedFocus}`);
     // Only ever triggered by a real focus change.
@@ -938,6 +994,8 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   // ANY of its tabs is open — a generated file outliving its document's own
   // tab still needs the provenance, the saver, and the way back.
   const openDocIds = useMemo(() => docIdsIn(layout), [layout]);
+  const attachedManagedStartup = managedStartup &&
+    findDocTab(layout, managedStartup.observation.docId)?.tab.id === managedStartup.id ? managedStartup.observation : undefined;
   // ---- ribbons and ports (the focused document's outputs) -----------------
   //
   // The overlay draws the focused document's lineage: its outputs, back to
@@ -1175,7 +1233,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
 
   // Show Files activates its pane and puts keyboard point in its tree.
   const focusTreeRef = useRef<() => void>(() => undefined);
-  const focusTree = useFolderPane(folderOpen, workspaceUi.hydrated, layout, setLayout, setTreeFocusRequest, setInsertNotice, workspaceUi.restored);
+  const focusTree = useFolderPane(folderOpen, explicitFileStartup || workspaceUi.hydrated, layout, setLayout, setTreeFocusRequest, setInsertNotice, workspaceUi.restored);
   focusTreeRef.current = focusTree;
   openTerminalRef.current = () => openTerminal();
   // The "open here" ports: one per file the focused document's ribbons reach
@@ -1457,7 +1515,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     const onOpenPath = (e: Event) => {
       const absolute = (e as CustomEvent<string>).detail;
       if (typeof absolute !== "string" || absolute.length === 0) return;
-      void openSelectedFile(absolute, ensureDocOpen, openPlainFile, setInsertNotice);
+      void openSelectedFile(absolute, id => ensureDocOpen(id), openPlainFile, setInsertNotice);
     };
     window.addEventListener("hickory-doc-command", onCommand);
     window.addEventListener("keydown", onKey);
@@ -1651,6 +1709,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
           reflowOnOpen={!tab.id.startsWith("untitled-")}
           registry={registry}
           docId={tab.docId}
+          startup={managedStartup?.id === tab.id ? managedStartup.observation : undefined}
           wrapColumn={workspaceUi.wrapFor(tab.target)}
           onWrapColumn={(column) => workspaceUi.setWrap(tab.target, column)}
           tableLayouts={workspaceUi.tables}
@@ -1675,6 +1734,8 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         <PlainFilePane
           key={tab.id}
           path={tab.target}
+          proposalTabId={tab.id} proposalOwner={registerPlainPatchOwner}
+          startup={plainStartup?.id === tab.id ? plainStartup.observation : undefined}
           onSource={(_, source) => plainSources.current.set(tab.id, source)}
           onReferences={setFileReferences}
           askText={shellPrompt.askText}
@@ -1717,11 +1778,12 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
           wrapColumn={workspaceUi.wrapFor(tab.target)}
           onWrapColumn={(column) => workspaceUi.setWrap(tab.target, column)}
           initialSource={untitledSources[tab.id] ?? ""}
-          onSource={(tabId, source) =>
+          onSource={(tabId, source) => {
+            untitledRevisions.current.set(tabId, (untitledRevisions.current.get(tabId) ?? 0) + 1);
             setUntitledSources((current) =>
               current[tabId] === source ? current : { ...current, [tabId]: source },
-            )
-          }
+            );
+          }}
         />
       );
     }
@@ -1768,6 +1830,9 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       );
     }
     if (tab.kind === "chat") {
+      if (parserStatus !== "ready") return <p role="status" className="muted">
+        {parserStatus === "loading" ? "Loading the Agent document reader…" : "The Agent document reader is unavailable."}
+      </p>;
       return (
         <WorkspaceChat
           layout={layout}
@@ -1775,8 +1840,12 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
           focusedEditor={agentFocusedEditor.current}
           untitledSources={untitledSourcesRef}
           plainSources={plainSources}
+          plainPatchOwners={plainPatchOwners}
+          untitledRevisions={untitledRevisions}
+          patchRoot={folderOpen && !folderError ? folderRoots[0] : undefined}
           folder={folderOpen ? folderRoots[0]?.root ?? "Open folder" : null}
           onOpenSession={openDocumentByPath}
+          draftHistory={recordedDraftHistory}
         />
       );
     }
@@ -1853,6 +1922,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
               key={docId}
               registry={registry}
               docId={docId}
+              startup={attachedManagedStartup?.docId === docId ? attachedManagedStartup : undefined}
               openGenerated={openGeneratedFor}
               retainUnsaved={retainSavedDrafts}
             />
@@ -1861,7 +1931,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
           <ShellView
             onTabContextMenu={onTabContextMenu}
             sources={ribbonSources} files={ribbonFiles} links={ribbonLinks} folderRoot={folderRoots[0]?.root_path ?? folderRoots[0]?.root} hasFiles={!!folderOpen && folderRoots.some(root => root.tree.length > 0)}
-            layout={layout} spatialState={workspaceUi.spatial} onSpatialState={workspaceUi.setSpatial} spatialHydrated={workspaceUi.hydrated}
+            layout={layout} spatialState={workspaceUi.spatial} onSpatialState={workspaceUi.setSpatial} spatialHydrated={explicitFileStartup || workspaceUi.hydrated}
             onLayout={setLayout}
             onSearch={() => setSearchOpen(true)}
             ports={ports}
@@ -2029,7 +2099,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
           Nothing is waiting on you.
         </p>
       )}
-      {tool && <Suspense fallback={<span role="status">Opening tool…</span>}><WorkspaceTools
+      {tool && parserStatus === "ready" && <Suspense fallback={<span role="status">Opening tool…</span>}><WorkspaceTools
         key={`${tool}:${toolTarget.path}`} tool={tool} {...toolTarget}
         provenance={{ layers, onToggle: toggleProvenance, continuity, onContinuity: setContinuityEnabled }} projectId={projectId ?? null}
         onGraph={() => navigate(`/projects/${encodeURIComponent(projectId ?? "")}/lineage`)}

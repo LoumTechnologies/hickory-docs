@@ -2,6 +2,7 @@ import { chromium } from "../apps/web/node_modules/@playwright/test/index.mjs";
 import { createInterface } from "node:readline";
 let browser, page, nativeTable;
 let templateHeldRoute,templateHoldHandler;
+const capabilityGates = new Map();
 const rememberedEditors = new Map();
 const pageErrors = [];
 const debugWire=[];
@@ -24,9 +25,66 @@ try {
           page.on("pageerror", error => { pageErrors.push(String(error)); if (pageErrors.length > 8) pageErrors.shift(); });
           page.on("websocket",socket=>{for(const direction of ["framesent","framereceived"])socket.on(direction,({payload})=>{try{if(typeof payload==='string'||payload[0]!==3)return;const value=JSON.parse(new TextDecoder().decode(payload.subarray(1)));debugWire.push({direction,op:value.op,event:value.event,session:value.session,doc:value.doc,stop:value.stop,thread:value.thread,frame:value.frame,request_id:value.request_id,reference:value.reference,about:value.about,message:value.message,source_hash:value.source_hash,source_test:value.source_test?{candidate_id:value.source_test.candidate_id,selection:value.source_test.selection}:undefined});if(debugWire.length>512)debugWire.shift();}catch{}});});
           page.on("request",request=>{if(new URL(request.url()).pathname==="/api/agent-proposals/report"&&request.method()==="POST"){try{proposalReports.push(request.postDataJSON());if(proposalReports.length>8)proposalReports.shift();}catch{}}if(new URL(request.url()).pathname!=="/api/behavior/verify"||request.method()!=="POST")return;const body=request.postData();if(body&&body.length<=1048576){try{behaviorRequests.push(JSON.parse(body));if(behaviorRequests.length>16)behaviorRequests.shift();}catch{}}});
-          await page.goto(request.url); break;
+          if (request.url) await page.goto(request.url); break;
         case "browser-surface":
           await page.close(); page = await browser.newPage({ viewport: { width: 1100, height: 750 } }); await page.goto(request.url); break;
+        case "startup-held": {
+          await page.close(); capabilityGates.clear(); rememberedEditors.clear();
+          page = await browser.newPage({ viewport: { width: 1100, height: 750 } });
+          page.setDefaultTimeout(60_000);
+          for (const [name, pattern] of Object.entries(request.gates)) {
+            const gate = { route: null, pattern };
+            gate.handle = route => {
+              if (gate.route || name === "parser" && route.request().resourceType() === "script") return route.continue();
+              gate.route = route;
+            };
+            capabilityGates.set(name, gate);
+            await page.route(pattern, gate.handle);
+          }
+          await page.goto(request.url, { waitUntil: "commit" }); break;
+        }
+        case "startup-state": {
+          await editor(request.path).waitFor();
+          const tree = page.locator('[aria-label="Files"]');
+          value = { tabs: await page.getByRole("tab").allTextContents(),
+            siblingVisible: await tree.locator(`[title=${JSON.stringify(request.sibling)}]`).isVisible(),
+            outsidePresent: await tree.locator(`[title=${JSON.stringify(request.outside)}]`).count() > 0,
+            readonly: await editor(request.path).getAttribute("contenteditable") === "false" };
+          break;
+        }
+        case "capability-held": value = !!capabilityGates.get(request.name)?.route; break;
+        case "capability-release": {
+          const gate = capabilityGates.get(request.name);
+          if (!gate?.route) throw Error(`No held ${request.name} request`);
+          const url = gate.route.request().url();
+          if (request.fail) { await gate.route.abort(); await page.unroute(gate.pattern, gate.handle); }
+          else {
+            const response = page.waitForResponse(reply => reply.url() === url);
+            await gate.route.continue(); await page.unroute(gate.pattern, gate.handle);
+            const reply = await response;
+            value = { status: reply.status(), body: request.read ? await reply.json() : undefined };
+          }
+          break;
+        }
+        case "capability-ui": {
+          const content = editor(request.path);
+          if (request.kind === "markdown") value = await content.locator(".cm-md-h1").count() > 0;
+          else if (request.kind === "test") value = await page.locator(".cm-debug-rail").getByText(`Inspect source tests: ${request.name}`, { exact: true }).count() > 0;
+          else {
+            const button = page.getByRole("button", { name: "Edit table as grid", exact: true });
+            value = { available: await button.isEnabled(), reason: await button.getAttribute("title") };
+          }
+          break;
+        }
+        case "visible-document-line": {
+          const content = editor(request.path);
+          value = await content.evaluate(node => {
+            const viewport = node.closest(".cm-scroller").getBoundingClientRect();
+            const first = [...node.querySelectorAll(".cm-line")].find(line => line.getBoundingClientRect().bottom > viewport.top + 8);
+            return first?.textContent ?? null;
+          });
+          break;
+        }
         case "mermaid-link": {
           const node = page.locator(".diagram-figure g.node");
           await node.waitFor(); await node.dblclick(); await editor("sample.txt").waitFor();
@@ -198,7 +256,7 @@ try {
           await editor(request.path).waitFor(); break;
         case "open":
           await page.getByRole("button", { name: request.path, exact: true }).click();
-          if (/\.csv$/i.test(request.path)) await page.getByTestId("table-panel").waitFor();
+          if (/\.csv$/i.test(request.path)) { await page.getByRole("button", { name: "Edit table as grid", exact: true }).click(); await page.getByTestId("table-panel").waitFor(); }
           else await editor(request.path).waitFor(); break;
         case "dock-tab": {
           const source = page.getByRole("tab", { name: request.path, exact: true }).locator("..");
@@ -343,6 +401,16 @@ try {
         }
         case "source-file-refresh":await menu("File","Refresh");break;
         case "proposal-open":await menu("View","Agent proposal review");await page.waitForFunction(()=>{const notice=document.querySelector('[aria-label="Agent proposal review"] > [role="status"]')?.textContent;return !!notice&&!notice.startsWith("Reading");});break;
+        case "recorded-patch-review": {
+          const card = page.locator(".agent-message").filter({has: editor(request.path)});
+          const review = card.getByRole("button", { name: /^Review patch fence on line [0-9]+$/ });
+          await review.click();
+          const panel = page.getByRole("dialog", {name:"Agent proposal review", exact:true});
+          const refusal = card.getByRole("alert");
+          await panel.or(refusal).waitFor();
+          if (await refusal.isVisible()) throw Error(await refusal.innerText());
+          break;
+        }
         case "proposal-select":{const panel=page.getByRole("dialog",{name:"Agent proposal review",exact:true});await panel.getByLabel("Retained agent proposal",{exact:true}).selectOption(request.token);await page.waitForFunction(()=>{const notice=document.querySelector('[aria-label="Agent proposal review"] > [role="status"]')?.textContent;return !!notice&&!notice.startsWith("Verifying");});value=await panel.innerText();break;}
         case "proposal-lose-report":await page.route("**/api/agent-proposals/report",route=>route.abort("failed"),{times:1});break;
         case "proposal-retry-report":{const panel=page.getByRole("dialog",{name:"Agent proposal review",exact:true}),button=panel.getByRole("button",{name:"Retry acknowledgment of recorded transition",exact:true});await button.click();await button.waitFor({state:"hidden"});value=await panel.innerText();break;}
@@ -681,7 +749,27 @@ try {
         case "debug-breakpoint-reading":{const options=page.getByLabel("Debug options",{exact:true}).last();if(!await options.evaluate(node=>node.parentElement.open))await options.click();const summary=page.getByText('Retained breakpoint intentions',{exact:true});if(!await summary.evaluate(node=>node.parentElement.open))await summary.click();if(request.next)await page.getByRole('button',{name:'Next breakpoint intentions',exact:true}).click();value=await page.getByLabel('Retained breakpoint reading',{exact:true}).innerText();break;}
         case "debug-breakpoint-condition":{const marker=editor(request.path).locator('..').locator('.cm-bp').first();await marker.click({button:'right'});const form=page.getByRole('dialog',{name:`Breakpoint on line ${request.line}`,exact:true});await form.getByLabel('Condition',{exact:true}).fill(request.condition);await form.getByLabel('Condition',{exact:true}).press('Enter');await form.waitFor({state:'hidden'});break;}
         case "debug-frame-select":{const summary=page.getByLabel("Debug options",{exact:true}).last();if(!await summary.evaluate(node=>node.parentElement.open))await summary.click();const stack=page.getByLabel("Call stack",{exact:true});const option=await stack.locator('option').evaluateAll((options,name)=>options.find(item=>item.textContent.startsWith(name+' —'))?.value,request.name);if(!option)throw Error('Requested frame absent: '+request.name+'; '+await stack.textContent());const label=await stack.locator('option').evaluateAll((options,value)=>options.find(item=>item.value===value)?.textContent,option);await stack.selectOption(option);value={label,line:Number(/ — line (\d+)$/.exec(label??'')?.[1]??0)};break;}
-        case "debug-watch":{const summary=page.getByLabel("Debug options",{exact:true}).last();if(!await summary.evaluate(node=>node.parentElement.open))await summary.click();page.once('dialog',dialog=>dialog.accept(request.expression));await summary.locator('..').getByRole('button',{name:'+ watch',exact:true}).click();await page.waitForFunction(({expression,expected})=>{const value=Array.from(document.querySelectorAll('output[aria-label]')).find(node=>node.getAttribute('aria-label')==='Value of watch '+expression);return !!value&&!value.textContent.startsWith('No value reported')&&(expected===undefined||value.textContent===expected);},{expression:request.expression,expected:request.expected});if(!await summary.evaluate(node=>node.parentElement.open))await summary.click();value=await page.getByLabel('Value of watch '+request.expression,{exact:true}).textContent();break;}
+        case "debug-watch": {
+          const surface = request.path ? editor(request.path).locator("xpath=ancestor::section[contains(@class, 'agent-message')][1]") : page;
+          const summary = surface.getByLabel("Debug options", {exact:true}).last();
+          const open = async () => {
+            if (await summary.evaluate(node => node.parentElement.open)) return;
+            if (request.path && !await summary.isVisible()) {
+              await surface.locator(".cm-debug-rail").getByRole("button", {name:/^Show [0-9]+ more gutter icons$/}).click();
+            }
+            await summary.click();
+          };
+          await open();
+          page.once('dialog', dialog => dialog.accept(request.expression));
+          await summary.locator('..').getByRole('button', {name:'+ watch', exact:true}).click();
+          const output = surface.getByLabel('Value of watch ' + request.expression, {exact:true});
+          await output.waitFor({state:'attached'});
+          await page.waitForFunction(({node, expected}) => !node.textContent.startsWith('No value reported')
+            && (expected === undefined || node.textContent === expected), {node: await output.elementHandle(), expected:request.expected});
+          await open();
+          value = await output.textContent();
+          break;
+        }
         case "debug-expand":{
           const options=page.getByLabel("Debug options",{exact:true}).last();if(!await options.evaluate(node=>node.parentElement.open))await options.click();
           const names=[request.name,`'${request.name}'`,`"${request.name}"`];let button=null;for(const name of names){const candidate=page.getByRole('button',{name:`Expand value ${name}`,exact:true}).last();if(await candidate.count()){button=candidate;break;}}if(!button)throw Error('No current expandable value '+request.name);
@@ -762,6 +850,38 @@ try {
         }
         case "terminal-eof": await page.locator(".terminal-screen .xterm-helper-textarea").press("Control+d"); break;
         case "agent": await menu("View", "Agent"); break;
+        case "recorded-fence-run": {
+          const card = editor(request.path).locator("xpath=ancestor::section[contains(@class, 'agent-message')][1]");
+          const menu = card.getByLabel(`Fence actions on line ${request.opening}`, { exact: true });
+          await menu.click();
+          const [response] = await Promise.all([
+            page.waitForResponse(reply => reply.request().method() === "POST" && reply.url().endsWith("/fence-run")),
+            card.getByRole("button", {name: `Run python fence on line ${request.opening}`, exact: true}).click(),
+          ]);
+          if (!response.ok()) throw new Error(await response.text());
+          const output = card.getByRole("region", { name: "Recorded fence run" });
+          await output.getByText("Process exit 0", { exact: true }).waitFor();
+          value = { address: response.request().postDataJSON(), output: await output.locator("pre").textContent() };
+          await menu.click();
+          break;
+        }
+        case "recorded-fence-debug": {
+          const card = editor(request.path).locator("xpath=ancestor::section[contains(@class, 'agent-message')][1]");
+          await card.getByLabel(`Set breakpoint on line ${request.breakpoint}`, { exact: true }).click();
+          await card.getByLabel(`Fence actions on line ${request.opening}`, { exact: true }).click();
+          await card.getByRole("button", {name: `Debug python fence on line ${request.opening}`, exact: true}).click();
+          break;
+        }
+        case "recorded-fence-position": {
+          const card = editor(request.path).locator("xpath=ancestor::section[contains(@class, 'agent-message')][1]");
+          const line = card.locator(".cm-paused-line");
+          value = await line.count() ? await line.evaluate(node => {
+            const code = node.cloneNode(true);
+            code.querySelectorAll('[contenteditable="false"]').forEach(widget => widget.remove());
+            return code.textContent;
+          }) : null;
+          break;
+        }
         case "agent-documents": {
           await menu("View", "Agent");
           const draft = editor("conversation/draft.md");

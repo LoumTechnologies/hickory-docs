@@ -862,6 +862,12 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
       // authored model, unlike unknown persisted path/line preferences.
       if(local&&initialBreakpoints.length&&!breakpointModel.captured(uri))breakpointModel.change(uri,reading,()=>initialBreakpoints.map(line=>({line})));
       if(reading.workspace!==catalog.workspace)throw Error(`Debugger source belongs to another workspace namespace (${JSON.stringify(reading.workspace)}; current ${JSON.stringify(catalog.workspace)}). Reload it before Debug.`);
+      // A recorded fence captures its address only after the launch click.
+      // Adopt marks placed in the editor beforehand using the same binding
+      // check as contributed sources, never by unqualified line number.
+      if (origins[uri] && !breakpointModel.adopt(uri, reading, origins[uri])) {
+        throw Error("The breakpoint intentions refer to different source bytes. Observe the source and retry.");
+      }
       const proof=await stampDebugSource(reading),proofs=new Map<string,DebugSourceProof>([[uri,proof]]),sets:Record<string,import('./client').DebugBreakpoint[]>=Object.create(null),hashes:Record<string,string>=Object.create(null);
       for(const [source,pending] of additional){const current=await pending,captured=origins[source];if(captured&&!breakpointModel.adopt(source,current,captured))continue;const known=breakpointModel.captured(source);if(!known||!current.saved||!known.reading.current()&&!current.provenance)continue;
         const stamped=await stampDebugSource(current);if(stamped.workspace!==reading.workspace)throw Error('An additional breakpoint source belongs to another workspace.');const ticket=breakpointModel.request(source,stamped,null,request_id);if(!ticket)continue;sets[source]=ticket.marks;hashes[source]=stamped.hash;proofs.set(source,stamped);

@@ -1190,6 +1190,7 @@ export function useWorkspaceUi(
   layout: Layout,
   applyLayout: (restored: Layout) => void,
   scope: string | null = "window",
+  restoreArrangement = true,
 ): WorkspaceUiHandle {
   const [ui, setUi] = useState<WorkspaceUi>(emptyUi);
   const [loadedScope, setLoadedScope] = useState<string | null>(null);
@@ -1215,22 +1216,27 @@ export function useWorkspaceUi(
       (response) => {
         if (cancelled) return;
         const stored = normalizeUi(response.state);
-        setUi(stored);
-        if (stored.layout) applyRef.current(stored.layout);
-        setRestored(stored.layout !== null);
+        // An explicit file opens a fresh arrangement. Preserve the Files pin
+        // and any placement made while persisted preferences were loading.
+        setUi(current => restoreArrangement ? stored : { ...stored, spatial: current.spatial });
+        if (restoreArrangement && stored.layout) applyRef.current(stored.layout);
+        setRestored(restoreArrangement && stored.layout !== null);
         setLoadedScope(scope);
       },
       () => {
         // No store, no home directory, a read-only disk: the window opens
         // with default tabs and says nothing. There is nothing here a person
         // could act on, and the route must not stay blocked.
-        if (!cancelled) { setUi(emptyUi()); setLoadedScope(scope); }
+        if (!cancelled) {
+          setUi(current => restoreArrangement ? emptyUi() : { ...emptyUi(), spatial: current.spatial });
+          setLoadedScope(scope);
+        }
       },
     );
     return () => {
       cancelled = true;
     };
-  }, [scope]);
+  }, [scope, restoreArrangement]);
 
   const flush = useCallback(async (keepalive = false) => {
     if (!hydrated) return;

@@ -9,6 +9,8 @@ The build generates its ignored Xcode project beside this spec and the Sources d
 
 The opt-in hosted `HickorySimpleMobileParity` test scheme mounts the production UIKit editor and uses an owned real-engine fixture. Its separate test folder is excluded from application source discovery and the macOS SPM suite. Building the application alone does not run the witness or start a simulator. See the [mounted UIKit acceptance](../../../mechanisms/ios-mounted-parity-acceptance.md) for resource coordination and the exact focused invocation.
 
+`HickorySimpleMobileRecordedRun` drives the installed app through XCUITest so the recorded Run test uses the same SwiftUI controls and WebKit accessibility tree as a person using the app.
+
 <ui:copy id="simple-9203f6a7de-0">
 name: HickorySimple
 options:
@@ -69,6 +71,18 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.hickorydocs.simple.mobile.paritytests
         TEST_HOST: "$(BUILT_PRODUCTS_DIR)/HickorySimpleMobile.app/HickorySimpleMobile"
         BUNDLE_LOADER: "$(TEST_HOST)"
+  HickorySimpleMobileRecordedRunTests:
+    type: bundle.ui-testing
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: IOSUIAcceptance
+    dependencies:
+      - target: HickorySimpleMobile
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.hickorydocs.simple.mobile.recordedruntests
+        TEST_TARGET_NAME: HickorySimpleMobile
 schemes:
   HickorySimpleMobileParity:
     build:
@@ -78,6 +92,14 @@ schemes:
     test:
       targets:
         - HickorySimpleMobileParityTests
+  HickorySimpleMobileRecordedRun:
+    build:
+      targets:
+        HickorySimpleMobile: all
+        HickorySimpleMobileRecordedRunTests: [test]
+    test:
+      targets:
+        - HickorySimpleMobileRecordedRunTests
 </ui:copy>
 
 ## Assemble the maintained output

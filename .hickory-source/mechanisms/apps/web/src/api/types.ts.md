@@ -334,6 +334,7 @@ becomes the next save's `base_hash`.
 export interface PlainFileSaved {
   path: string;
   hash: string;
+  save_guard?: string | null;
 }
 
 </storycode:copy>
@@ -1071,6 +1072,8 @@ export interface WorkspaceDraft {
   base: string;
   /** Milliseconds since the epoch. Advisory: it orders drafts for display. */
   saved_at: number;
+  /** This private draft requires explicit source publication after recovery. */
+  detached?: true;
 }
 
 </storycode:copy>

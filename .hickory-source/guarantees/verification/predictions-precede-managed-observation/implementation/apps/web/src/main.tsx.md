@@ -58,11 +58,13 @@ const stopOpeningNotice = subscribeStartup(() => {
 <a id="f-44decff65943-boot"></a>
 ### `boot`
 
+The private-session decision precedes ordinary workspace readers. After an
+explicit ordinary-policy response, the source shell can mount while the parser
+and saved keymap arrive independently. A parser failure leaves the shell and
+its readable editors mounted.
+
 <storycode:copy id="f-44decff65943-boot">
 async function boot() {
-  // Fetch the application, parser and keymap together. A static App import
-  // would delay these requests until the whole editor bundle had been parsed.
-  // Editors need the parser and their configured bindings before mounting.
   if (!MOCK) {
     try {
       const privateSession = await request<PrivatePredictionState>("GET", "/api/prediction/state");
@@ -81,12 +83,15 @@ async function boot() {
       }
     }
   }
-  const [{ App }] = await Promise.all([import("./App"), loadHickLang(), loadKeymap()]);
+  const application = import("./App");
+  void loadHickLang().catch(() => { /* Parser availability is published to its consumers. */ });
+  const { App } = await application;
   if (MOCK) {
     const { installMockApi, mockRealtime } = await import("./mock/mockApi");
     installMockApi();
     setSharedRealtime(mockRealtime);
   }
+  void loadKeymap();
   stopOpeningNotice();
   createRoot(document.getElementById("root")!).render(
     <StrictMode>

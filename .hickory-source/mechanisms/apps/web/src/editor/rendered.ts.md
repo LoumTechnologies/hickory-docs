@@ -66,7 +66,7 @@ import type { EditorState, Extension, Range } from "@codemirror/state";
 import { Decoration, EditorView, WidgetType } from "@codemirror/view";
 import type { DecorationSet } from "@codemirror/view";
 
-import { SlotRegistry, structureOf } from "./wysiwyg";
+import { SlotRegistry, parserBecameReady, structureOf } from "./wysiwyg";
 import { blocksNamed, codeRangesOf, pictureBlocksOf } from "./hickDoc";
 import type { HickBlock, HickDocStructure } from "./hickDoc";
 import { elementViews, renderableBlocks, slotKindOf } from "../elements";
@@ -517,7 +517,7 @@ export function renderedBlocks(registry: RenderedRegistry): Extension {
       create: (state) => buildRendered(state, registry),
       update(value, tr) {
         const toggled = tr.effects.some(
-          (e) => e.is(renderBlock) || e.is(showBlockSource) || e.is(setRenderedBlocks),
+          (e) => e.is(renderBlock) || e.is(showBlockSource) || e.is(setRenderedBlocks) || e.is(parserBecameReady),
         );
         return tr.docChanged || toggled ? buildRendered(tr.state, registry) : value;
       },

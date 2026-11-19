@@ -1389,6 +1389,7 @@ private final class MacEditorHost: NSView {
 }
 struct NativeEditor: NSViewRepresentable {
     let buffer: DocumentBuffer
+    var readOnly: Bool? = nil
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSView, context: Context) -> CGSize? {
         CGSize(width: proposal.width ?? 600, height: proposal.height ?? 400)
     }
@@ -1398,9 +1399,21 @@ struct NativeEditor: NSViewRepresentable {
         return MacEditorHost(editor.scroll) { [weak editor] in editor?.measureDebugLines() }
     }
     func updateNSView(_ view: NSView, context: Context) {
-        if let editor = EditorCache.views[buffer.id], !exactUTF8(editor.text.string,buffer.text) {
-            editor.text.string = buffer.text
-            editor.text.undoManager?.removeAllActions()
+        if let editor = EditorCache.views[buffer.id] {
+            if !exactUTF8(editor.text.string,buffer.text) {
+                editor.text.string = buffer.text
+                editor.text.undoManager?.removeAllActions()
+            }
+            let editable = !(readOnly ?? buffer.readOnly)
+            if editor.text.isEditable != editable {
+                let selection = editor.text.selectedRanges, viewport = editor.scroll.contentView.bounds.origin
+                editor.text.isEditable = editable
+                if editor.text.selectedRanges != selection { editor.text.selectedRanges = selection }
+                if editor.scroll.contentView.bounds.origin != viewport {
+                    editor.scroll.contentView.scroll(to: viewport)
+                    editor.scroll.reflectScrolledClipView(editor.scroll.contentView)
+                }
+            }
         }
         (view as? MacEditorHost)?.attach(); view.needsLayout = true
         if let pending=buffer.recoveryViewport,let editor=EditorCache.views[buffer.id]{let revision=buffer.sourceEditIdentity,selection=editor.text.selectedRange();Task { @MainActor in
@@ -2099,6 +2112,7 @@ private final class MobileEditorHost: UIView {
 }
 struct NativeEditor: UIViewRepresentable {
     let buffer: DocumentBuffer
+    var readOnly: Bool? = nil
     func sizeThatFits(_ proposal: ProposedViewSize, uiView: UIView, context: Context) -> CGSize? {
         CGSize(width: proposal.width ?? 600, height: proposal.height ?? 400)
     }
@@ -2115,6 +2129,13 @@ struct NativeEditor: UIViewRepresentable {
             if !exactUTF8(editor.text.text, buffer.text) {
                 editor.text.text = buffer.text
                 editor.text.undoManager?.removeAllActions()
+            }
+            let editable = !(readOnly ?? buffer.readOnly)
+            if editor.text.isEditable != editable {
+                let selection = editor.text.selectedRange, viewport = editor.text.contentOffset
+                editor.text.isEditable = editable
+                if editor.text.selectedRange != selection { editor.text.selectedRange = selection }
+                if editor.text.contentOffset != viewport { editor.text.setContentOffset(viewport, animated: false) }
             }
         }
         (view as? MobileEditorHost)?.attach(); view.setNeedsLayout()
@@ -2242,6 +2263,9 @@ struct LanguageEditor: View {
     @State private var resizeStart: CGFloat?
     var buffer: DocumentBuffer
     var debugger: NativeDebugger?
+    var recordedDebug: NativeRecordedMessageSource? = nil
+    var recordedRunEngine: Engine? = nil
+    var recordedPatchReview: ((Int) -> Void)? = nil
     var body: some View {
         HStack(spacing: 0) {
             GeometryReader { geometry in
@@ -2256,7 +2280,7 @@ struct LanguageEditor: View {
                 }.clipped()
             }.frame(width: 24)
             GeometryReader { geometry in
-                let breakpoints = debugger?.breakpointMarkers(buffer) ?? []
+                let breakpoints = debugger?.breakpointMarkers(buffer, recorded: recordedDebug != nil) ?? []
                 Canvas { context, size in
                     for row in buffer.visibleDebugLines where row.y + row.height > 0 && row.y < size.height {
                         if let mark = breakpoints.first(where: { $0["line"] as? Int == row.line }) {
@@ -2267,13 +2291,18 @@ struct LanguageEditor: View {
                             at: CGPoint(x: size.width - 6, y: row.y + row.height / 2), anchor: .trailing)
                     }
                 }.clipped().contentShape(Rectangle()).onTapGesture { point in
-                    if let row = buffer.visibleDebugLines.first(where: { point.y >= $0.y && point.y < $0.y + $0.height }),
-                       inlineDebugPath(buffer.text, path: buffer.file.path, line: row.line) != nil {
+                    guard let row = buffer.visibleDebugLines.first(where: { point.y >= $0.y && point.y < $0.y + $0.height }) else { return }
+                    if let recordedDebug {
+                        if recordedDebug.current(), exactUTF8(buffer.inlineMarkup.source, buffer.text),
+                           buffer.inlineMarkup.debug.recorded.values.contains(where: { $0.contains(row.line) }) {
+                            debugger?.toggle(buffer, line: row.line)
+                        }
+                    } else if inlineDebugPath(buffer.text, path: buffer.file.path, line: row.line) != nil {
                         debugger?.toggle(buffer, line: row.line)
                     }
                 }.accessibilityLabel("Line numbers; click code to toggle breakpoint")
             }.frame(width: CGFloat(max(3, String(buffer.text.filter { $0 == "\n" }.count + 1).count)) * 8 + 12)
-            NativeEditor(buffer: buffer).overlay {
+            NativeEditor(buffer: buffer, readOnly: buffer.readOnly).overlay {
                 // Paint stopped execution independently of selection and text styling.
                 // The source guard retires positional facts as soon as displayed bytes change.
                 Canvas { context, size in
@@ -2316,13 +2345,16 @@ struct LanguageEditor: View {
                         railWidth = min(220, max(24, (resizeStart ?? 24) - value.translation.width))
                     }.onEnded { _ in resizeStart = nil })
                     .accessibilityLabel("Resize right gutter").accessibilityAdjustableAction { direction in railWidth = min(220, max(24, railWidth + (direction == .increment ? 22 : -22))) }
-                NativeDebugRail(buffer: buffer, debug: debugger).frame(width: railWidth)
+                NativeDebugRail(buffer: buffer, debug: debugger, recordedDebug: recordedDebug, recordedRunEngine: recordedRunEngine, recordedPatchReview: recordedPatchReview).frame(width: railWidth)
+            } else if buffer.startupObservation != nil {
+                Color.clear.frame(width: railWidth + 4)
             }
         }.onChange(of:buffer.sourceRevision,initial:true){_,_ in debugger?.sourceChanged(buffer);buffer.readTestSources();buffer.readCoverageSource()}
         .onChange(of: debugger?.output ?? [], initial: true) { _, _ in
             buffer.runOutputSource = buffer.text
             buffer.runOutputs = debugger?.outputPlacements(buffer) ?? [:]
         }.overlay(alignment: .topTrailing) {
+            if recordedDebug == nil || buffer.language != nil {
             Button("⌁") {
                 #if os(macOS)
                 NSApp.activate()
@@ -2379,6 +2411,7 @@ struct LanguageEditor: View {
                         }
                     }.padding() }.frame(width: 350, height: 420)
                 }
+            }
         }.overlay(alignment: .topLeading) {
             if exactUTF8(buffer.multiSource,buffer.text) && buffer.multiRanges.count > 1 {
                 HStack {
@@ -2424,6 +2457,11 @@ struct InlineCellControl: View {
 struct NativeDebugRail: View {
     var buffer: DocumentBuffer
     var debug: NativeDebugger
+    var recordedDebug: NativeRecordedMessageSource? = nil
+    var recordedRunEngine: Engine? = nil
+    var recordedPatchReview: ((Int) -> Void)? = nil
+    @State private var recordedRun = NativeRecordedFenceRun()
+    @State private var recordedConstruction = NativeRecordedConstruction()
     @State private var opened: Int?
     @State private var details: Int?
     @State private var adapterInspection:UUID?
@@ -2431,6 +2469,19 @@ struct NativeDebugRail: View {
     @State private var condition = ""
     @State private var breakpointPage = 0
     private var paused: Int? { debug.sourceMatches(buffer) ? debug.line(in: buffer.file.path) : nil }
+    private var showsSession: Bool { debug.hasSessionReading && (recordedDebug == nil || exactUTF8(debug.owner, buffer.file.path)) }
+    private var recordedFences: [Int: RecordedDebugFence] {
+        guard recordedDebug?.current() == true, exactUTF8(buffer.inlineMarkup.source, buffer.text) else { return [:] }
+        return buffer.inlineMarkup.debug.recorded
+    }
+    private func canReviewRecordedPatch(_ line: Int) -> Bool {
+        recordedPatchReview != nil && recordedDebug?.current() == true && exactUTF8(buffer.inlineMarkup.source, buffer.text)
+            && buffer.inlineMarkup.debug.recordedPatches.contains(line)
+    }
+    private func canInspectRecordedConstruction(_ line: Int) -> Bool {
+        recordedRunEngine != nil && recordedDebug?.workspaceID?.isEmpty == false && recordedDebug?.current() == true
+            && exactUTF8(buffer.inlineMarkup.source, buffer.text) && buffer.inlineMarkup.debug.recordedConstructions.contains(line)
+    }
     @ViewBuilder private var threadControls:some View {
         let snapshot=debug.threadSnapshot
         VStack(alignment:.leading,spacing:4) {
@@ -2457,7 +2508,14 @@ struct NativeDebugRail: View {
         if let row=coverageLines[line]{result.append("coverage:"+row.state)}
         if testLines.contains(line){result.append("tests")}
         result += embeddedAnchors(line).map { "source:\($0)" }
-        if (debug.hasSessionReading && line==0) || (exactUTF8(buffer.inlineMarkup.source,buffer.text) && buffer.inlineMarkup.debug.launch[line] != nil) { result.append("debug") }
+        let fileLaunch = recordedDebug == nil && exactUTF8(buffer.inlineMarkup.source, buffer.text) && buffer.inlineMarkup.debug.launch[line] != nil
+        if (showsSession && line == 0) || fileLaunch { result.append("debug") }
+        if recordedFences[line] != nil {
+            if recordedRunEngine != nil, recordedDebug?.workspace?.isEmpty == false { result.append("recorded-run") }
+            if !debug.active { result.append("recorded-debug") }
+        }
+        if canReviewRecordedPatch(line) { result.append("recorded-review") }
+        if canInspectRecordedConstruction(line) { result.append("recorded-construction") }
         if exactUTF8(buffer.inlineMarkup.source,buffer.text) && buffer.inlineMarkup.equations.contains(where: { $0.line == line }) { result.append("equation") }
         if !buffer.receipts(on: line).isEmpty { result.append("output") }
         if paused == line { result += ["continue", "over", "in", "out", "stop", "inspect"] }
@@ -2466,23 +2524,40 @@ struct NativeDebugRail: View {
     private func symbol(_ action: String) -> String {
         if action.hasPrefix("coverage:"){return action=="coverage:covered" ? "circle.fill":action=="coverage:uncovered" ? "circle":"circle.lefthalf.filled"}
         if action.hasPrefix("source:") { return "chevron.left.forwardslash.chevron.right" }
-        switch action { case "tests":return "checklist";case "debug", "continue": return "play"; case "equation": return "function"; case "output": return "text.alignleft"; case "over": return "arrow.turn.down.right"; case "in": return "arrow.down"; case "out": return "arrow.up"; case "stop": return "stop.fill"; default: return "eye" }
+        switch action { case "tests":return "checklist";case "debug", "recorded-debug", "continue": return "play"; case "recorded-run": return "terminal"; case "recorded-review", "recorded-construction": return "doc.text.magnifyingglass"; case "equation": return "function"; case "output": return "text.alignleft"; case "over": return "arrow.turn.down.right"; case "in": return "arrow.down"; case "out": return "arrow.up"; case "stop": return "stop.fill"; default: return "eye" }
     }
     private func actionLabel(_ action:String,line:Int)->String {
         if action.hasPrefix("coverage:"),let row=buffer.coverageRows().first(where:{$0.line==line}) {return "Coverage \(row.state) · \(row.count.map {"count \($0)"} ?? "count unavailable") · \(row.origins.count) measured location(s)"}
-        if action=="debug",debug.hasSessionReading {return "Inspect debugger"}
+        if action=="debug",showsSession {return "Inspect debugger"}
+        if action == "recorded-run" { return "Run recorded \(recordedFences[line]?.language ?? "code") fence" }
+        if action == "recorded-debug" { return "Debug recorded \(recordedFences[line]?.language ?? "code") fence" }
+        if action == "recorded-review" { return "Review recorded patch" }
+        if action == "recorded-construction" { return "Inspect recorded construction patch" }
         return action == "tests" ? "Inspect source tests" : action.hasPrefix("source:") ? "Toggle source text" : action.capitalized
     }
     @ViewBuilder private func icon(_ action: String, line: Int) -> some View {
         Button {
-            opened = nil
+            if action != "recorded-run" && action != "recorded-construction" { opened = nil }
             if action.hasPrefix("coverage:"){buffer.inspectCoverage?(line);return}
             if action.hasPrefix("source:"), let anchor = Int(action.dropFirst(7)) { buffer.sourceTable = buffer.sourceTable == anchor ? nil : anchor; return }
             switch action {
             case "tests":buffer.inspectTests?(line)
             case "debug":
-                if debug.hasSessionReading {details=line}
+                if showsSession {details=line}
                 else {Task {await debug.prepare(buffer,line:line);details=debug.active ? nil:line}}
+            case "recorded-run":
+                guard let recordedRunEngine, let recordedDebug, let fence = recordedFences[line] else { return }
+                recordedConstruction.close()
+                Task { await recordedRun.start(buffer, source: recordedDebug, fence: fence, engine: recordedRunEngine) }
+            case "recorded-debug":
+                guard let recordedDebug, let fence = recordedFences[line] else { return }
+                Task { await debug.prepareRecordedFence(buffer, source: recordedDebug, fence: fence); details = debug.active ? nil : line }
+            case "recorded-review":
+                if canReviewRecordedPatch(line) { recordedPatchReview?(line) }
+            case "recorded-construction":
+                guard canInspectRecordedConstruction(line), let recordedRunEngine, let recordedDebug else { return }
+                recordedRun.close()
+                Task { await recordedConstruction.inspect(buffer, source: recordedDebug, line: line, engine: recordedRunEngine) }
             case "continue", "over", "in", "out": debug.step(action)
             case "stop": debug.stop()
             default: details = line
@@ -2491,6 +2566,79 @@ struct NativeDebugRail: View {
         .foregroundStyle(action=="coverage:covered" ? Color.green:action=="coverage:uncovered" ? Color.red:action=="coverage:mixed" ? Color.orange:Color.primary)
         .buttonStyle(SimpleChromeButtonStyle()).disabled(action == "debug" && !debug.hasSessionReading && (buffer.dirty || buffer.saving)).help(actionLabel(action,line:line)).accessibilityLabel("\(actionLabel(action,line:line)) on line \(line + 1)")
     }
+    private var runOutput: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("Recorded fence Run").font(.headline)
+                Spacer()
+                Button("Close") { recordedRun.close(); opened = nil }
+            }
+            if let terminal = recordedRun.terminal {
+                Text(terminal.exit_code.map { "Exit code \($0)" } ?? terminal.state).font(.caption)
+            }
+            if !recordedRun.notice.isEmpty {
+                Text(recordedRun.notice).font(.caption).textSelection(.enabled)
+            }
+            if !recordedRun.output.isEmpty {
+                NativeInlineTerminal(text: recordedRun.output).frame(height: 150)
+            }
+        }.padding(10).frame(width: 300)
+            .accessibilityElement(children: .contain).accessibilityLabel("Recorded fence terminal")
+            .task(id: recordedRun.terminal?.id) {
+                guard let recordedRunEngine else { return }
+                while !Task.isCancelled, await recordedRun.refresh(recordedRunEngine) {
+                    do { try await Task.sleep(for: .milliseconds(400)) } catch { return }
+                }
+            }
+    }
+
+    private var constructionReading: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("Recorded construction patch").font(.headline)
+                Spacer()
+                Button("Close") { recordedConstruction.close(); opened = nil }
+            }
+            if !recordedConstruction.notice.isEmpty {
+                Text(recordedConstruction.notice).font(.caption).textSelection(.enabled)
+            }
+            if let receipt = recordedConstruction.receipt {
+                Text("\(receipt.document) · \(receipt.operation_id)").font(.caption).textSelection(.enabled)
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 8) {
+                        ForEach(receipt.changes) { change in
+                            DisclosureGroup(change.path) {
+                                constructionEntry("Before", change.before)
+                                constructionEntry("After", change.after)
+                            }
+                        }
+                    }.frame(maxWidth: .infinity, alignment: .leading)
+                }
+                // AppKit's popover sizes to its content. Give the scroll view
+                // a minimum height so asynchronously loaded rows stay visible.
+                .frame(minHeight: 150, maxHeight: 320)
+            }
+        }.padding(10).frame(width: 330)
+            .accessibilityElement(children: .contain).accessibilityLabel("Recorded construction reading")
+    }
+
+    private func constructionEntry(_ label: String, _ entry: NativeRecordedConstructionEntry?) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label).font(.caption.bold())
+            if let entry {
+                Text("\(entry.kind) · \(entry.bytes) bytes\(entry.executable ? " · executable" : "")").font(.caption)
+                if let text = entry.text {
+                    Text(text).font(.system(.caption, design: .monospaced))
+                } else {
+                    Text(entry.text_status == "non_utf8" ? "Non-UTF-8 output" : "Output exceeds the preview limit").font(.caption)
+                    Text(entry.sha256).font(.caption2)
+                }
+            } else {
+                Text("Absent").font(.caption)
+            }
+        }.frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled)
+    }
+
     var body: some View {
         GeometryReader { geometry in
             let coverageLines=Dictionary(uniqueKeysWithValues:buffer.coverageRows().map {($0.line,$0)})
@@ -2511,25 +2659,47 @@ struct NativeDebugRail: View {
                             .buttonStyle(.bordered).frame(width: 22, height: 18).help("More line actions")
                             .accessibilityLabel("More gutter icons on line \(row.line + 1)")
                             .position(x: CGFloat(visible % columns) * 22 + 11, y: row.y + 9 + CGFloat(visible / columns) * 20)
-                            .popover(isPresented: Binding(get: { opened == row.line }, set: { if !$0 { opened = nil } })) {
-                                LazyVGrid(columns: Array(repeating: GridItem(.fixed(22), spacing: 2), count: min(4, items.count - visible)), spacing: 2) {
+                    }
+                    Color.clear.frame(width: 22, height: 18).allowsHitTesting(false).accessibilityHidden(true)
+                        .popover(isPresented: Binding(get: { opened == row.line || recordedRun.line == row.line || recordedConstruction.line == row.line }, set: { presented in
+                            if !presented {
+                                if opened == row.line { opened = nil }
+                                if recordedRun.line == row.line { recordedRun.close() }
+                                if recordedConstruction.line == row.line { recordedConstruction.close() }
+                            }
+                        })) {
+                            if recordedRun.line == row.line {
+                                runOutput.presentationCompactAdaptation(.popover)
+                            } else if recordedConstruction.line == row.line {
+                                constructionReading.presentationCompactAdaptation(.popover)
+                            } else {
+                                LazyVGrid(columns: Array(repeating: GridItem(.fixed(22), spacing: 2), count: max(1, min(4, items.count - visible))), spacing: 2) {
                                     ForEach(Array(items.dropFirst(visible)), id: \.self) { action in icon(action, line: row.line) }
                                 }.padding(6).frame(width: CGFloat(min(4, items.count - visible)) * 24 + 12, height: CGFloat((items.count - visible + 3) / 4) * 20 + 12)
+                                    .accessibilityElement(children: .contain).accessibilityLabel("More actions on line \(row.line + 1)")
                             }
-                    }
+                        }
+                        .position(x: 11, y: row.y + 9)
                 }
             }
         }.background(.quaternary.opacity(0.2))
         .popover(isPresented: Binding(get: { details != nil }, set: { if !$0 { details = nil } })) {
             if let details { ScrollView { controls(details).padding(10) }.frame(width: 330).frame(maxHeight: 460).onAppear{adapterInspection=debug.adapterSources.open()}.onDisappear{if let token=adapterInspection{debug.adapterSources.close(token)};adapterInspection=nil} }
-        }.onChange(of:buffer.debugInspection){_,_ in if debug.hasSessionReading{details=0}}
+        }.onChange(of:buffer.debugInspection){_,_ in if showsSession{details=0}}
+        .onChange(of: recordedDebug?.current() == true) { _, current in
+            if !current { recordedRun.close(); recordedConstruction.close(); opened = nil }
+        }
+        .onDisappear { recordedRun.close(); recordedConstruction.close() }
         .task(id: buffer.base) { await buffer.refreshReceipts() }
     }
     @ViewBuilder private func controls(_ line: Int) -> some View {
+        let ordinaryLaunch = recordedDebug == nil && inlineDebugPath(buffer.text, path: buffer.file.path, line: line, launch: true) != nil
+        let code = recordedDebug == nil ? inlineDebugPath(buffer.text, path: buffer.file.path, line: line) != nil
+            : recordedFences.values.contains { $0.contains(line) }
         VStack(alignment: .leading, spacing: 8) {
             Text("Source line \(line + 1) · \(debug.status)").font(.caption)
-            if debug.hasSessionReading {Text("Runtime session: \(debug.owner)").font(.caption).textSelection(.enabled)}
-            if debug.status=="paused",paused != line {Text("The selected runtime frame has no current stop marker on this source line. Thread and frame controls still refer to the paused runtime.").font(.caption)}
+            if showsSession {Text("Runtime session: \(debug.owner)").font(.caption).textSelection(.enabled)}
+            if showsSession, debug.status=="paused",paused != line {Text("The selected runtime frame has no current stop marker on this source line. Thread and frame controls still refer to the paused runtime.").font(.caption)}
             if exactUTF8(buffer.inlineMarkup.source,buffer.text) {
                 ForEach(Array(buffer.inlineMarkup.equations.filter { $0.line == line }.prefix(4))) { equation in
                     InlineEquationControl(equation: equation, source: buffer.text, buffer: buffer).id("math:\(equation.id):\(buffer.text)")
@@ -2546,20 +2716,23 @@ struct NativeDebugRail: View {
             }
             if !buffer.receiptNotice.isEmpty { Text(buffer.receiptNotice).font(.caption) }
             if buffer.file.doc_id != nil { Button("Refresh recorded output", systemImage: "arrow.clockwise") { Task { await buffer.refreshReceipts() } } }
-            if debug.hasSessionReading || inlineDebugPath(buffer.text, path: buffer.file.path, line: line, launch: true) != nil || inlineDebugPath(buffer.text, path: buffer.file.path, line: line) != nil {
+            if showsSession || ordinaryLaunch || recordedFences[line] != nil || code {
             if buffer.dirty { Text("Save edited text before launching. Values belong to the source that ran.").font(.caption) }
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 86))], spacing: 5) {
-                if inlineDebugPath(buffer.text,path:buffer.file.path,line:line,launch:true) != nil {
+                if ordinaryLaunch {
                     Button("Debug",systemImage:"play"){Task{await debug.prepare(buffer,line:line)}}.disabled(debug.active || buffer.dirty || buffer.saving)
                     Button("Choose Debug profile",systemImage:"list.bullet"){Task{await debug.prepare(buffer,line:line,chooseProfile:true)}}.disabled(debug.active || buffer.dirty || buffer.saving)
                 }
-                if inlineDebugPath(buffer.text, path: buffer.file.path, line: line) != nil { Button("Breakpoint", systemImage: "circle.fill") { debug.toggle(buffer, line: line) } }
-                if debug.status == "paused" {
+                if let recordedDebug, let fence = recordedFences[line] {
+                    Button("Debug recorded fence", systemImage: "play") { Task { await debug.prepareRecordedFence(buffer, source: recordedDebug, fence: fence) } }.disabled(debug.active)
+                }
+                if code { Button("Breakpoint", systemImage: "circle.fill") { debug.toggle(buffer, line: line) } }
+                if showsSession, debug.status == "paused" {
                     Button("Continue", systemImage: "play.fill") { debug.step("continue") }.disabled(!debug.canResume); Button("Step over", systemImage: "arrow.turn.down.right") { debug.step("over") }.disabled(!debug.canInspectFrame)
                     Button("Step in", systemImage: "arrow.down") { debug.step("in") }.disabled(!debug.canInspectFrame); Button("Step out", systemImage: "arrow.up") { debug.step("out") }.disabled(!debug.canInspectFrame)
                     if debug.capabilities["step_back"] as? Bool == true { Button("Step back", systemImage: "arrow.uturn.backward") { debug.step("back") }.disabled(!debug.canInspectFrame) }
                 }
-                if debug.active { Button("Stop", systemImage: "stop.fill") { debug.stop() } }
+                if showsSession, debug.active { Button("Stop", systemImage: "stop.fill") { debug.stop() } }
             }
             if exactUTF8(debug.owner,buffer.file.path) { ForEach(debug.targets) { target in Button("Debug file \(target.path)") { Task { await debug.prepare(buffer, program: target.path) } } } }
             ForEach(debug.profiles,id: \.exactID) { profile in
@@ -2576,12 +2749,12 @@ struct NativeDebugRail: View {
                 if retained.count>64 {HStack{Button("Previous intentions"){breakpointPage=readingPage-1}.disabled(readingPage==0);Text("\(readingPage+1) / \((retained.count+63)/64)").font(.caption);Button("Next intentions"){breakpointPage=readingPage+1}.disabled((readingPage+1)*64>=retained.count)}}
                 ForEach(Array(retained.dropFirst(readingPage*64).prefix(64).enumerated()),id: \.offset){_,reading in Text(reading).font(.caption).textSelection(.enabled)}
             }
-            if debug.capabilities["conditional_breakpoints"] as? Bool == true {
+            if showsSession, code, debug.capabilities["conditional_breakpoints"] as? Bool == true {
                 TextField("Breakpoint condition", text: $condition)
                 Button("Apply condition", systemImage: "checkmark") { debug.toggle(buffer, line: line, condition: condition) }
             }
             NativeAdapterSourceView(debug:debug,inspection:adapterInspection)
-            if debug.status == "paused" {
+            if showsSession, debug.status == "paused" {
                 threadControls
                 HStack {Button("Run to this source line"){debug.moveToSource(buffer,line:line,how:"run_to")}.disabled(!debug.canMoveToSource(buffer,how:"run_to"));Button("Move instruction pointer here"){debug.moveToSource(buffer,line:line,how:"jump")}.disabled(!debug.canMoveToSource(buffer,how:"jump"))}
                 Text("Position movement requires unchanged captured primary source; instruction-pointer movement also requires adapter goto-target support.").font(.caption)

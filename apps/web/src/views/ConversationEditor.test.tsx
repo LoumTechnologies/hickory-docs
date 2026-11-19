@@ -28,6 +28,24 @@ function Harness({ stream = "Writing", reasoning = "Thinking" }: { stream?: stri
   const [draft, setDraft] = useState("");
   return <ConversationEditor branch={[first, live]} path="sessions/s.md" stamp="a,b" running="b" stream={stream} reasoning={reasoning} draft={draft} onDraft={setDraft} onSend={() => {}} canSend={false} />;
 }
+it("anchors each recorded fence to its exact card line inside the session envelope", async () => {
+  const code = "```python\nprint(42)\n```";
+  const item = { ...first, prompt: `Question\n\n${code}`, answer: `Answer\n\n${code}` };
+  const rendered = render(<ConversationEditor conversationId="workspace" branch={[item]} path={null}
+    stamp="a" running={null} stream="" reasoning="" draft="Retained draft" onDraft={() => {}} onSend={() => {}} canSend={false} />);
+  const controls = await screen.findAllByRole("button", { name: "Debug python fence on line 3" });
+  expect(controls).toHaveLength(2);
+  for (const button of controls) {
+    const card = button.closest(".conversation-card")!;
+    const view = EditorView.findFromDOM(card.querySelector(".cm-editor")!)!;
+    const offset = Number(button.closest<HTMLElement>("[data-source-offset]")!.dataset.sourceOffset);
+    expect(view.state.doc.lineAt(offset).text).toBe("```python");
+    expect(view.state.readOnly).toBe(true);
+  }
+  const composer = EditorView.findFromDOM(rendered.container.querySelector(".conversation-card--composer .cm-editor")!)!;
+  expect(composer.state.doc.toString()).toBe("Retained draft");
+  expect(rendered.container.querySelector(".editor-ruler")).toBeNull();
+});
 it("opens at the editable response and can return there without rewriting the conversation", async () => {
   const props = { branch: [], path: null, running: null, stream: "", reasoning: "", draft: "My draft", onDraft: () => {}, onSend: () => {}, canSend: true, stamp: "" };
   const rendered = render(<ConversationEditor {...props} />);

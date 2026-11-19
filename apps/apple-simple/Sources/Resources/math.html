@@ -84,6 +84,7 @@ globalThis.writeInteractiveTerminal = function (base64) {
 };
 globalThis.renderTerminal = function (source) {
   const node = document.getElementById('formula'), status = document.getElementById('status');
+  node.setAttribute('aria-label', 'Terminal output');
   document.body.classList.add('terminal-mode'); status.textContent = '';
   if (!globalThis.Terminal) { node.textContent = source; status.textContent = 'Terminal renderer unavailable. Prepare resources and rebuild.'; return; }
   try {

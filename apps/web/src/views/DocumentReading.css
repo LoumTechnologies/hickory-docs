@@ -54,7 +54,8 @@
    Project review disclosures keep the full editor furniture. */
 .conversation-card:not(.conversation-card--final) > .editor-ruler { display: none; }
 .conversation-card:not(.conversation-card--final) > .document-editor .cm-right-rail__line { visibility: hidden; }
-.conversation-card:not(.conversation-card--final) > .document-editor .cm-debug-rail { display: none; }
+.conversation-card:not(.conversation-card--final, .conversation-card--user, .conversation-card--assistant) > .document-editor .cm-debug-rail { display: none; }
+.conversation-card:is(.conversation-card--user, .conversation-card--assistant) > .document-editor .cm-debug-rail { display: block; background: transparent; border: 0; }
 .conversation-card:not(.conversation-card--final) > .document-editor .cm-doc-frame-line { display: none; }
 .conversation-card:not(.conversation-card--final) > .document-editor .cm-bubble { background: transparent; max-width: 100%; padding-left: 0; padding-right: 0; }
 .conversation-card:not(.conversation-card--final) > .document-editor .cm-bubble-last::before,

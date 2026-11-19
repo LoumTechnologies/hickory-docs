@@ -97,8 +97,9 @@ export class WsRealtime implements Realtime {
   private queue: Uint8Array[] = [];
   private lspChannel: LspChannel | null = null;
 
-  constructor(private docName: string, private socket: (url: string) => RealtimeSocket = (url) => new WebSocket(url)) {
-    this.connect();
+  constructor(private docName: string, private socket: (url: string) => RealtimeSocket = (url) => new WebSocket(url), deferConnection = false) {
+    this.closed = deferConnection;
+    if (!deferConnection) this.connect();
   }
 
   private connect() {

@@ -86,6 +86,8 @@ pub struct PutDraft {
     pub base: String,
     #[serde(default)]
     pub saved_at: u64,
+    #[serde(default)]
+    pub detached: Option<bool>,
 }
 
 /// `PUT /api/workspace/drafts` — write one buffer down.
@@ -99,6 +101,7 @@ pub async fn put_draft(
             contents: body.contents,
             base: body.base,
             saved_at: body.saved_at,
+            detached: body.detached.filter(|value| *value),
         })
         .map_err(|e| ApiError::unprocessable(format!("{e:#}")))?;
     Ok(Json(json!({ "ok": true })))
@@ -169,6 +172,7 @@ pub async fn put_response(
         contents: serde_json::to_string(&body.state).map_err(anyhow::Error::from)?,
         base: String::new(),
         saved_at: 0,
+        detached: None,
     })?;
     Ok(Json(json!({ "ok": true })))
 }

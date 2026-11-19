@@ -14,9 +14,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 import { PlainFilePane } from "./PlainFilePane";
+import { undo } from "@codemirror/commands";
 import { api } from "../api/client";
 import * as apiClient from "../api/client";
+import type { RecordedPatchSource } from "../simple/AgentProposalAdapter";
+import { authoredSource } from "../simple/SourceText";
+import { historySourceHash } from "../simple/SourceHistory";
 import type { WorkspaceDraft } from "../api/types";
+import type { StartupPlainFile } from "../views/folderPane";
 import { setSharedRealtime, type Realtime } from "../api/realtime";
 import { createLspChannel, encodeLspFrame, type JsonRpcMessage } from "../lsp/channel";
 import { resetWorkspaceLsp } from "../lsp/useLsp";
@@ -65,7 +70,98 @@ afterEach(() => {
   cleanup();
 });
 
+it("promotes the same startup editor and includes its physical guard in later saves", async () => {
+  const path = "startup.py", namespace = "/workspace", workspace = "a".repeat(32), content = "value = 1\n";
+  let confirm!: (value: Awaited<StartupPlainFile["authority"]>) => void;
+  const authority = new Promise<Awaited<StartupPlainFile["authority"]>>(resolve => { confirm = resolve; });
+  const save = vi.spyOn(api, "saveFile").mockRejectedValue(Object.assign(Error("Source file was replaced"), {status: 409}));
+  const startup: StartupPlainFile = {source: {version: 1, path, content, root_path: namespace, workspace_id: workspace},
+    authority, current: () => true};
+  const mounted = render(<PlainFilePane path={path} startup={startup} />);
+  const editor = EditorView.findFromDOM(mounted.container.querySelector<HTMLElement>(".cm-editor")!)!;
+  expect(editor.state.doc.toString()).toBe(content);
+  expect(editor.state.readOnly).toBe(true);
+  act(() => editor.dispatch({changes: {from: 0, insert: "blocked"}, userEvent: "input.type", selection: {anchor: 2}}));
+  expect(editor.state.doc.toString()).toBe(content);
+  expect(save).not.toHaveBeenCalled();
+  act(() => editor.dispatch({selection: {anchor: 2, head: 7}}));
+  const selection = editor.state.selection;
+  expect(selection.main.empty).toBe(false);
+
+  await act(async () => confirm({file: {path, content, language: "python", hash: "base", save_guard: "original-source"},
+    namespace, workspace, generatedBy: null}));
+  expect(EditorView.findFromDOM(mounted.container.querySelector<HTMLElement>(".cm-editor")!)).toBe(editor);
+  expect(editor.state.readOnly).toBe(false);
+  expect(editor.state.selection.eq(selection)).toBe(true);
+  act(() => editor.dispatch({changes: {from: 8, to: 9, insert: "2"}, userEvent: "input.type"}));
+  await waitFor(() => expect(save).toHaveBeenCalledWith(path, "value = 2\n", "base", false, "original-source"));
+  expect(editor.state.doc.toString()).toBe("value = 2\n");
+  expect(save).toHaveBeenCalledTimes(1);
+});
+
 describe("reopening a file that had unsaved changes", () => {
+  it("keeps a private marked recovery draft off the ordinary autosave path", async () => {
+    const recovered = draft({ detached: true });
+    serve({ content: ON_DISK, drafts: [recovered] });
+    const view = render(<PlainFilePane path="notes.md" retainUnsaved />);
+    await screen.findByText("Unsaved draft");
+    const editor = EditorView.findFromDOM(view.container.querySelector<HTMLElement>(".cm-editor")!)!;
+    expect(authoredSource(editor.state)).toBe(recovered.contents);
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 650)); });
+    expect(api.saveFile).not.toHaveBeenCalled();
+    await act(async () => view.unmount());
+    expect(api.saveDraft).toHaveBeenCalledWith(expect.objectContaining({ contents: recovered.contents, base: ON_DISK, detached: true }));
+    expect(api.saveFile).not.toHaveBeenCalled();
+  });
+
+  it("prepares a byte-exact detached transaction and publishes only the explicit guarded Save", async () => {
+    const base = "one\r\ntwo 😀\r\nthree\n", after = "one\r\nchanged 😀\r\nthree\n";
+    const path = "notes.md", workspace = "a".repeat(32);
+    serve({ content: base, drafts: [] });
+    vi.mocked(api.file).mockResolvedValue({path, content: base, language: "markdown", hash: "original-hash", save_guard: "original-guard"});
+    vi.mocked(api.files).mockResolvedValue({root: "notebook", root_path: "/workspace", workspace_id: workspace, tree: [{name: path, path, dir: false}]});
+    const originalRequest = apiClient.request;
+    const publish = vi.fn(async (_method: string, _route: string, raw?: unknown) => {
+      const body = raw as {request_id: string; content: string};
+      return {version: 1, history_protocol: 1, path, hash: "saved-hash", save_guard: "next-guard", request_id: body.request_id,
+        source_hash: await historySourceHash(body.content), history: {available: true, outcome: "published", id: body.request_id}};
+    });
+    vi.spyOn(apiClient, "request").mockImplementation(async <T,>(method: string, route: string, raw?: unknown) =>
+      route === "/api/source-history/file" ? await publish(method, route, raw) as T : originalRequest<T>(method, route, raw));
+    let read = (): RecordedPatchSource | null => null;
+    let save = async () => false;
+    const view = render(<PlainFilePane path={path} proposalTabId="original-tab"
+      proposalOwner={(_tab, owner) => { read = owner; return () => {}; }}
+      onUnsaved={(_dirty, actions) => { save = actions.save; }} />);
+    await waitFor(() => expect(read()?.prepareDraft?.(after)?.current()).toBe(true));
+    const editor = EditorView.findFromDOM(view.container.querySelector<HTMLElement>(".cm-editor")!)!;
+    act(() => editor.dispatch({selection: {anchor: 1, head: 3}}));
+    const originalSelection = editor.state.selection;
+    const aborted = read()!.prepareDraft!(after)!;
+    act(() => { aborted.commit(); aborted.rollback(); });
+    expect(EditorView.findFromDOM(view.container.querySelector<HTMLElement>(".cm-editor")!)).toBe(editor);
+    expect(editor.state.selection.eq(originalSelection)).toBe(true);
+    expect(authoredSource(editor.state)).toBe(base);
+    act(() => { expect(undo(editor)).toBe(false); });
+    act(() => read()!.prepareDraft!(after)!.commit());
+    expect(authoredSource(editor.state)).toBe(after);
+    expect(EditorView.findFromDOM(view.container.querySelector<HTMLElement>(".cm-editor")!)).toBe(editor);
+    act(() => { expect(undo(editor)).toBe(true); });
+    expect(authoredSource(editor.state)).toBe(base);
+    act(() => read()!.prepareDraft!(after)!.commit());
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 650)); });
+    expect(api.saveFile).not.toHaveBeenCalled();
+    expect(publish).not.toHaveBeenCalled();
+    await act(async () => { expect(await save()).toBe(true); });
+    expect(publish).toHaveBeenCalledOnce();
+    expect(publish).toHaveBeenCalledWith("PUT", "/api/source-history/file", expect.objectContaining({
+      version: 1, path, content: after, base_hash: "original-hash", save_guard: "original-guard",
+    }));
+    expect(read()?.base).toBe(after);
+    expect(read()?.guard).toBe("next-guard");
+    expect(api.saveFile).not.toHaveBeenCalled();
+  });
+
   it("puts the unsaved text back, without asking", () => {
     // The common case by a wide margin. A dialog here would train people to
     // dismiss dialogs, and the work is theirs — nothing was lost or decided.

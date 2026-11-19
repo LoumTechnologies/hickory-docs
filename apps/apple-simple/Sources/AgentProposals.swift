@@ -8,6 +8,15 @@ struct AgentProposalSection {let title:String;let text:String;let pages:[NSRange
     func page(_ index:Int)->String{(text as NSString).substring(with:pages[min(max(index,0),pages.count-1)])}
 }
 private func agentHex(_ text:String,_ count:Int)->Bool{text.utf8.count==count&&text.utf8.allSatisfy{(48...57).contains($0)||(97...102).contains($0)}}
+private func recognizedAgentAuthority(_ text: String) -> Bool {
+    if ["caller-provided intention; not an agent attestation", "engine-managed agent tool; live editor capture at preparation; claims remain unverified", "engine-managed agent tool; non-live submitted editor snapshot; claims remain unverified"].contains(text) { return true }
+    let suffix = "; claims remain unverified"
+    guard text.hasSuffix(suffix) else { return false }
+    return [RecordedMessageSide.user, .assistant].contains { side in
+        let prefix = "recorded \(side.rawValue) fence, source SHA-256 "
+        return text.hasPrefix(prefix) && agentHex(String(text.dropFirst(prefix.count).dropLast(suffix.count)), 64)
+    }
+}
 func agentProposalData<T:Encodable>(_ value:T)throws->Data{let encoder=JSONEncoder();encoder.outputFormatting=[.sortedKeys];return try encoder.encode(value)}
 func agentProposalBody<T:Encodable>(_ value:T)throws->[String:Any]{guard let body=try JSONSerialization.jsonObject(with:agentProposalData(value)) as? [String:Any] else{throw EngineError(message:"Proposal request must be an object.")};return body}
 func validateNativeAgentProposalResponse(_ data:Data)throws {
@@ -32,7 +41,7 @@ final class SealedAgentProposal:@unchecked Sendable {
         guard envelope.version==1,envelope.proposal_protocol==1,exactUTF8(envelope.token,expected.token),exactUTF8(envelope.fingerprint,expected.fingerprint),agentHex(envelope.token,32),agentHex(envelope.fingerprint,64),exactUTF8(envelope.workspace,workspace),exactUTF8(envelope.namespace,namespace),!envelope.source_effects,!envelope.checks_executed else{throw EngineError(message:"Foreign or unsupported complete proposal. Nothing was applied.")}
         guard envelope.material.utf8.count<=32*1024*1024 else{throw EngineError(message:"Complete proposal exceeds32MiB.")};guard nativeSourceHash(envelope.material)==envelope.fingerprint else{throw EngineError(message:"Complete proposal SHA256 seal failed; no explanation, patch or evidence was admitted.")};try agentMaterialBudget(envelope.material)
         let data=Data(envelope.material.utf8);try validateNativeJSON(data,canonicalVersionKeys:["version","proposal_protocol","behavior_protocol"]);let value=try JSONDecoder().decode(AgentProposalMaterial.self,from:data);let facts=try JSONDecoder().decode(ResourceWireFacts.self,from:agentProposalData(value.consequences))
-        guard ["caller-provided intention; not an agent attestation","engine-managed agent tool; live editor capture at preparation; claims remain unverified","engine-managed agent tool; non-live submitted editor snapshot; claims remain unverified"].contains(value.origin_authority),value.version==1,value.intention.version==1,agentHex(value.intention.request_id,32),exactUTF8(value.workspace,workspace),exactUTF8(value.namespace,namespace),!value.intention.title.isEmpty,value.intention.title.utf8.count<=512,!value.intention.explanation.isEmpty,value.intention.explanation.utf8.count<=65536,value.intention.claims.count<=128,value.intention.claims.allSatisfy({$0.utf8.count<=8192}),value.intention.check_ids.count<=256,value.plan.version==1,exactUTF8(value.plan.context,value.inputs.context),exactUTF8(value.plan.context,value.intention.capture.context),exactUTF8(facts.context,value.plan.context),exactUTF8(value.inputs.workspace,workspace),exactUTF8(facts.workspace,workspace),facts.protected_targets.isEmpty else{throw EngineError(message:"Complete proposal material is malformed or targets generated output.")}
+        guard recognizedAgentAuthority(value.origin_authority),value.version==1,value.intention.version==1,agentHex(value.intention.request_id,32),exactUTF8(value.workspace,workspace),exactUTF8(value.namespace,namespace),!value.intention.title.isEmpty,value.intention.title.utf8.count<=512,!value.intention.explanation.isEmpty,value.intention.explanation.utf8.count<=65536,value.intention.claims.count<=128,value.intention.claims.allSatisfy({$0.utf8.count<=8192}),value.intention.check_ids.count<=256,value.plan.version==1,exactUTF8(value.plan.context,value.inputs.context),exactUTF8(value.plan.context,value.intention.capture.context),exactUTF8(facts.context,value.plan.context),exactUTF8(value.inputs.workspace,workspace),exactUTF8(facts.workspace,workspace),facts.protected_targets.isEmpty else{throw EngineError(message:"Complete proposal material is malformed or targets generated output.")}
         let patches=try value.plan.editors();guard !patches.isEmpty,patches.count<=1000,Set(patches.map{NativeSourceKey($0.path)}).count==patches.count,let saved=facts.saved_sources,Set(saved.keys.map(NativeSourceKey.init))==Set(patches.map{NativeSourceKey($0.path)}) else{throw EngineError(message:"Complete saved consequences do not cover the bounded source namespace.")}
         for reading in [value.before,value.after]{guard case .object(let object)=reading,case .integer(1)?=object["version"],case .integer(1)?=object["behavior_protocol"],case .string(let address)?=object["namespace"],case .string(let runtime)?=object["engine_workspace_id"],exactUTF8(address,namespace),exactUTF8(runtime,workspace) else{throw EngineError(message:"Connected readings belong to another proposal namespace.")}}
         self.envelope=envelope;material=value;self.facts=facts;self.patches=patches;self.saved=saved;proposal=ResourceWireProposal(inputs:value.inputs,capture:value.intention.capture,plan:value.plan)
@@ -68,6 +77,73 @@ private struct AgentProposalValidation:Decodable {let version:Int;let proposal_p
  func open(_ w:Workspace)async {showing=true;guard !busy,w.resourceRestoration.hasPending==false,let engine=w.engine,let workspace=w.sourceWorkspaceID,let namespace=w.sourceRootAddress else{notice="Connect and refresh Files before reviewing retained intentions.";return};let id=UUID();ticket=id;busy=true;value=nil;current={false};owner=w;server=engine;defer{if ticket==id{busy=false}}
   do{let rows:AgentProposalCatalogue=try await call(engine,"GET","/api/agent-proposals");guard ticket==id,w.engine?.session === engine.session,exactUTF8(w.sourceWorkspaceID,workspace),exactUTF8(w.sourceRootAddress,namespace),rows.version==1,rows.proposal_protocol==1,exactUTF8(rows.workspace,workspace),exactUTF8(rows.namespace,namespace),rows.reviews.count<=32,rows.reviews.allSatisfy({agentHex($0.token,32)&&agentHex($0.fingerprint,64)}),Set(rows.reviews.map{$0.token}).count==rows.reviews.count else{throw EngineError(message:"Unsupported, obsolete or foreign proposal catalogue.")};entries=rows.reviews;notice="Read a complete sealed intention. Catalogue labels are not admitted review material.";if let retention=rows.retention_notice{notice+=" "+String(retention.prefix(4096))}}catch{if ticket==id{notice=error.localizedDescription}}
  }
+ func prepareRecordedPatch(_ w: Workspace, message: DocumentBuffer, source: NativeRecordedMessageSource, openingLine: Int) async {
+  guard !busy, !w.resourceRestoration.hasPending else { return }
+  showing = true
+  guard let engine = w.engine, let runtime = w.sourceWorkspaceID, let namespace = w.sourceRootAddress,
+        let endpoint = source.actionRoot, exactUTF8(source.workspace, namespace), source.current(),
+        message.readOnly, !message.dirty, exactUTF8(message.inlineMarkup.source, message.text),
+        message.inlineMarkup.debug.recordedPatches.contains(openingLine) else {
+   notice = "Open the current recorded patch and refresh Files before preparing its review."
+   return
+  }
+  let id = UUID(), revision = message.sourceRevision, hash = nativeSourceHash(message.text)
+  ticket = id; busy = true; value = nil; staged = nil; current = { false }; owner = w; server = engine
+  phase = "Not applied"; notice = "Preparing the complete recorded patch review…"
+  defer { if ticket == id { busy = false } }
+  let lease = captureRetainedSourceNamespace(w)
+  let stillCurrent = { self.ticket == id && self.showing && source.current() && message.sourceRevision == revision && lease() }
+  do {
+   let selected = try await WorkspaceEntrySelections.read(load: {
+    let reply: ResourceJSON = try await self.call(engine, "GET", "/api/workspace/entry")
+    return try JSONSerialization.jsonObject(with: agentProposalData(reply))
+   }, workspace: runtime, namespace: namespace, current: stillCurrent)
+   let ownership = try resourceOwnershipSnapshot(w)
+   var drafts: [String: ResourceWireDraft] = [:], sender: [[String: Any]] = []
+   var seen: Set<UUID> = []
+   for buffer in Array(w.buffers.values) + Array(w.retainedResourceEditors.values) where buffer.file.generated_by == nil && seen.insert(buffer.id).inserted {
+    guard let revision = buffer.agentSourceRevision else { throw EngineError(message: "A retained editor revision is unavailable. Reopen that source before review.") }
+    let path = buffer.file.path, named = ownership.named[path] != nil && w.buffers[path] === buffer
+    var row: [String: Any] = ["id": buffer.id.uuidString, "path": NSNull(), "source_hash": nativeSourceHash(buffer.text), "source_revision": String(revision)]
+    if named {
+     guard let guardToken = buffer.savedGuard, buffer.startupObservation == nil else {
+      throw EngineError(message: "Source authority is still unavailable for \(path). Reopen that source before review.")
+     }
+     row["path"] = path; row["save_guard"] = guardToken
+     if buffer.dirty {
+      drafts[path] = ResourceWireDraft(text: buffer.text, base_sha256: nativeSourceHash(buffer.base), version: nil,
+                                       writable: !buffer.readOnly && !buffer.saving, save_guard: guardToken)
+     }
+    }
+    sender.append(row)
+   }
+   let context = id.uuidString.replacingOccurrences(of: "-", with: "").lowercased()
+   let capture = ResourceWireCapture(context: context, edit: .object(["changes": .object([:])]), drafts: drafts,
+                                     project_entry: selected.entryPath, ownership_sources: ownership.named,
+                                     unaddressed_sources: ownership.unaddressed, saved_guards: ownership.guards)
+   let reading = try connectedBehaviorRetainedContext(w, entry: selected.entryPath ?? "project.md", focus: nil,
+                                                      entrySelection: selected.entryPath == nil ? nil : selected.proof)
+   let title = "Recorded \(source.side.rawValue) patch"
+   let intention: [String: Any] = ["version": 1, "request_id": context, "origin": title, "title": title,
+     "explanation": "Review the recorded patch against the captured authored workspace and generated consequences.",
+     "capture": try resourceBody(capture), "reading": try agentProposalBody(reading),
+     "editor_snapshot": ["live": false, "buffers": sender]]
+   let envelope: AgentProposalEnvelope = try await call(engine, "POST", endpoint + "/fence-patch", [
+    "fence": ["side": source.side.rawValue, "source_hash": hash, "opening_line": openingLine], "intention": intention,
+   ])
+   guard stillCurrent(), envelope.version == 1, envelope.proposal_protocol == 1,
+         envelope.historical != true, !envelope.source_effects, !envelope.checks_executed,
+         exactUTF8(envelope.workspace, runtime), exactUTF8(envelope.namespace, namespace),
+         agentHex(envelope.token, 32), agentHex(envelope.fingerprint, 64) else {
+    throw EngineError(message: "Recorded patch review or original workspace context changed. Choose Review on the current patch again.")
+   }
+   let entry = AgentProposalEntry(token: envelope.token, fingerprint: envelope.fingerprint, title: title)
+   entries.removeAll { $0.token == entry.token }; entries.insert(entry, at: 0)
+   if entries.count > 32 { entries.removeLast() }
+   busy = false
+   await read(w, entry, expectedOrigin: "recorded \(source.side.rawValue) fence, source SHA-256 \(hash); claims remain unverified")
+  } catch { if ticket == id { notice = error.localizedDescription } }
+ }
  private func matches(_ w:Workspace,_ p:SealedAgentProposal)throws {
   let roster=try resourceOwnershipSnapshot(w),capture=p.material.intention.capture
   func equalMap(_ a:[String:String],_ b:[String:String])->Bool{a.count==b.count&&a.allSatisfy{key,value in b.first{exactUTF8($0.key,key)}.map{exactUTF8($0.value,value)}==true}}
@@ -82,11 +158,11 @@ private struct AgentProposalValidation:Decodable {let version:Int;let proposal_p
   for patch in p.patches {if let before=patch.before{guard let b=w.buffers[patch.path],!b.readOnly,!b.saving,!b.resourceDeleted,exactUTF8(b.text,before.text),let guardToken=capture.drafts[patch.path]?.save_guard ?? p.material.saved_guards[patch.path],exactUTF8(b.savedGuard,guardToken) else{throw EngineError(message:"Reviewed source or original loaded guard changed: "+patch.path)}}}
   for (path,guardToken) in capture.saved_guards{if let b=w.buffers[path]{guard exactUTF8(b.savedGuard,guardToken) else{throw EngineError(message:"Captured ownership baseline changed: "+path)}}}
  }
- func read(_ w:Workspace,_ entry:AgentProposalEntry)async {guard !busy,entries.contains(entry),let engine=w.engine,let workspace=w.sourceWorkspaceID,let namespace=w.sourceRootAddress,!w.resourceRestoration.hasPending else{return};let id=UUID(),epoch=w.sourceNavigationEpoch;ticket=id;busy=true;current={false};value=nil;staged=nil;defer{if ticket==id{busy=false}}
-  do{let envelope:AgentProposalEnvelope=try await call(engine,"GET","/api/agent-proposals/"+entry.token);let input=AgentProposalParseInput(envelope:envelope,entry:entry,workspace:workspace,namespace:namespace);let p=try await Task.detached(priority:.userInitiated){try input.parse()}.value;guard ticket==id,w.sourceNavigationEpoch==epoch,w.engine?.session === engine.session else{throw EngineError(message:"Obsolete proposal reading.")};value=p;owner=w;server=engine
+ func read(_ w:Workspace,_ entry:AgentProposalEntry,expectedOrigin:String?=nil)async {guard !busy,entries.contains(entry),let engine=w.engine,let workspace=w.sourceWorkspaceID,let namespace=w.sourceRootAddress,!w.resourceRestoration.hasPending else{return};let id=UUID(),epoch=w.sourceNavigationEpoch;ticket=id;busy=true;current={false};value=nil;staged=nil;defer{if ticket==id{busy=false}}
+  do{let envelope:AgentProposalEnvelope=try await call(engine,"GET","/api/agent-proposals/"+entry.token);let input=AgentProposalParseInput(envelope:envelope,entry:entry,workspace:workspace,namespace:namespace);let p=try await Task.detached(priority:.userInitiated){try input.parse()}.value;guard ticket==id,w.sourceNavigationEpoch==epoch,w.engine?.session === engine.session,expectedOrigin.map({exactUTF8($0,p.material.origin_authority)}) ?? true else{throw EngineError(message:"Obsolete or foreign proposal reading. Choose its current source again.")};value=p;owner=w;server=engine
    if p.historical{phase="Historical reading · Apply unavailable";notice="This sealed intention has no current live engine admission. Source and host reports are historical readings; request a fresh proposal to change current drafts.";return}
    let original=Array(w.buffers.values)+Array(w.retainedResourceEditors.values);let revisions=original.map{($0,$0.sourceEditIdentity)};let expected=Set(p.patches.filter{$0.before != nil}.map{NativeSourceKey($0.path)})
-   for patch in p.patches where patch.before != nil && w.buffers[patch.path]==nil {_ = try await w.loadBuffer(FileNode(name:(patch.path as NSString).lastPathComponent,path:patch.path,dir:false));guard ticket==id,w.sourceNavigationEpoch==epoch,w.engine?.session === engine.session,revisions.allSatisfy({$0.0.sourceEditIdentity==$0.1}),w.buffers.values.allSatisfy({b in original.contains(where:{$0 === b})||expected.contains(NativeSourceKey(b.file.path))}) else{throw EngineError(message:"Host namespace changed while acquiring exact reviewed targets.")}}
+   for patch in p.patches where patch.before != nil && w.buffers[patch.path]==nil {_ = try await w.loadBuffer(w.workspaceFile(patch.path) ?? FileNode(name:(patch.path as NSString).lastPathComponent,path:patch.path,dir:false));guard ticket==id,w.sourceNavigationEpoch==epoch,w.engine?.session === engine.session,revisions.allSatisfy({$0.0.sourceEditIdentity==$0.1}),w.buffers.values.allSatisfy({b in original.contains(where:{$0 === b})||expected.contains(NativeSourceKey(b.file.path))}) else{throw EngineError(message:"Host namespace changed while acquiring exact reviewed targets.")}}
    try matches(w,p);let held=captureRetainedSourceNamespace(w),senderRevisions=(Array(w.buffers.values)+Array(w.retainedResourceEditors.values)).map{($0,$0.agentSourceRevision)};current={ [weak self,weak w] in guard let self,let w else{return false};return self.ticket==id&&self.value === p&&held()&&senderRevisions.allSatisfy{$0.0.agentSourceRevision==$0.1}};phase="Reviewed only";notice="Complete SHA256 seal verified. Claims remain unverified; no source effects or checks occurred.";if let retention=p.retentionNotice{notice+=" "+retention}
   }catch{if ticket==id{notice=error.localizedDescription}}
  }

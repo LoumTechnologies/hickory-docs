@@ -1,5 +1,5 @@
 //! Source code boundaries from the canonical Hickory/Markdown parser.
-use crate::{HickNode, HickTag};
+use crate::{ByteOrigin, HickNode, HickTag};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourceCodeRegion {
     pub from: usize,
@@ -9,6 +9,49 @@ pub struct SourceCodeRegion {
     pub path: Option<String>,
     pub fragment: Option<String>,
     pub dynamic: bool,
+}
+impl SourceCodeRegion {
+    /// Return a complete static ordinary fence's literal body and byte provenance.
+    pub fn literal_fence(
+        &self,
+        source: &str,
+        document: &str,
+        max_origins: usize,
+    ) -> Result<(String, Vec<ByteOrigin>), String> {
+        if self.kind != "fence" || self.dynamic || self.path.is_some() {
+            return Err("Choose a complete static code fence without an output path".into());
+        }
+        let prefix = source.get(..self.from).ok_or("Invalid canonical fence boundary")?;
+        let opening = prefix.strip_suffix('\n').unwrap_or(prefix);
+        let opening = opening.strip_suffix('\r').unwrap_or(opening);
+        let opening = opening.rsplit('\n').next().unwrap_or("").trim_start_matches('\u{feff}');
+        let indent = opening.bytes().take_while(|byte| *byte == b' ').count();
+        if indent > 3 {
+            return Err("Invalid canonical fence indentation".into());
+        }
+        let body = source.get(self.from..self.to).ok_or("Invalid canonical fence body")?;
+        let mut content = String::with_capacity(body.len());
+        let mut origins = Vec::new();
+        let mut offset = self.from;
+        for line in body.split_inclusive('\n') {
+            let skipped = line.bytes().take(indent).take_while(|byte| *byte == b' ').count();
+            let literal = &line[skipped..];
+            if !literal.is_empty() {
+                if origins.len() == max_origins {
+                    return Err("Literal fence provenance exceeds its limit".into());
+                }
+                let start = content.len();
+                content.push_str(literal);
+                origins.push(ByteOrigin {
+                    output: (start, content.len()),
+                    document: document.into(),
+                    source: (offset + skipped, offset + line.len()),
+                });
+            }
+            offset += line.len();
+        }
+        Ok((content, origins))
+    }
 }
 fn body(tag: &HickTag, shift: usize) -> Option<(usize, usize)> {
     Some((
@@ -32,12 +75,20 @@ pub fn source_code_regions(source: &str) -> Result<Vec<SourceCodeRegion>, String
         for node in nodes {
             match node {
                 HickNode::Tag(tag) => {
+                    let plain_patch = !inside_code && tag.name == "patch" && tag.attributes.is_empty()
+                        && tag.source_span.and_then(|span| {
+                            source.get(span.start.checked_add(shift)?..span.end.checked_add(shift)?)
+                        }).is_some_and(|opening| {
+                            let opening = opening.trim_start_matches(' ');
+                            opening.starts_with("```") || opening.starts_with("~~~")
+                        });
                     let conditional = dynamic
                         || matches!(
                             tag.name.as_str(),
                             "when" | "for" | "foreach" | "agent" | "patch" | "entry"
                         );
                     let kind = match tag.name.as_str() {
+                        "patch" if plain_patch => Some("fence"),
                         "file" => Some("file"),
                         "exec" => Some("cell"),
                         "copy" => Some("fragment"),
@@ -49,10 +100,10 @@ pub fn source_code_regions(source: &str) -> Result<Vec<SourceCodeRegion>, String
                                 from,
                                 to,
                                 kind,
-                                language: tag.get_attribute("language").map(str::to_owned),
+                                language: if plain_patch { Some("patch".into()) } else { tag.get_attribute("language").map(str::to_owned) },
                                 path: tag.get_attribute("path").map(str::to_owned),
                                 fragment: tag.get_attribute("id").map(str::to_owned),
-                                dynamic: conditional,
+                                dynamic: if plain_patch { dynamic } else { conditional },
                             });
                         }
                     }
@@ -161,6 +212,21 @@ pub fn source_code_regions(source: &str) -> Result<Vec<SourceCodeRegion>, String
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn ordinary_markdown_patch_fences_keep_literal_authority_separate_from_constructors() {
+        let source = "Prose 😀\r\n  ~~~patch\r\n  --- a/x\r\n  +++ b/x\r\n  ~~~\r\n```patch id=\"declared\"\nnot a literal review\n```\n";
+        let regions = source_code_regions(source).unwrap();
+        assert_eq!(regions.len(), 1);
+        let fence = &regions[0];
+        assert_eq!(fence.language.as_deref(), Some("patch"));
+        let (diff, origins) = fence.literal_fence(source, "message", 2).unwrap();
+        assert_eq!(diff, "--- a/x\r\n+++ b/x\r\n");
+        assert_eq!(origins.len(), 2);
+        let conditional = "\x3ch:doc xmlns:h=\"http://www.hickorydocs.com/1.0\">\x3ch:when test=\"false\">\n```patch\n--- a/x\n+++ b/x\n```\n\x3c/h:when>\x3c/h:doc>";
+        let regions = source_code_regions(conditional).unwrap();
+        assert!(regions[0].dynamic);
+        assert!(regions[0].literal_fence(conditional, "message", 20).is_err());
+    }
     #[test]
     fn literal_fences_and_nested_file_bodies_keep_exact_authored_bounds() {
         let source = "Prose\r\n```python\r\nold\r\n```\r\n\x3ch:doc xmlns:h=\"http://www.hickorydocs.com/1.0\">\x3ch:copy id=\"nested\">\x3ch:file path=\"a.ts\">value\x3c/h:file>\x3c/h:copy>\x3c/h:doc>";

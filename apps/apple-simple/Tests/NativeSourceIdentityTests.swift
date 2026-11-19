@@ -43,6 +43,219 @@ final class NativeSourceIdentityTests:XCTestCase {
         XCTAssertEqual(round,2);XCTAssertEqual(Set(opened).count,2);XCTAssertEqual(value.sources.count,2);XCTAssertEqual(value.references.count,2)
     }
     #if os(macOS)
+    @MainActor func testMountedRequestedTextPrecedesTreeAuthority() async throws {
+        let environment = ProcessInfo.processInfo.environment
+        guard let origin = environment["HICKORY_APPKIT_STARTUP_AUTHORITY_ORIGIN"],
+              let path = environment["HICKORY_OPEN_FILE"],
+              let release = environment["HICKORY_STARTUP_AUTHORITY_GATE"].flatMap(URL.init(string:)),
+              let mode = environment["HICKORY_STARTUP_AUTHORITY_MODE"] else {
+            throw XCTSkip("Use the owned AppKit startup authority fixture")
+        }
+        _ = NSApplication.shared
+        NSApp.setActivationPolicy(.regular)
+        let workspace = Workspace()
+        workspace.address = origin
+        let host = NSHostingView(rootView: WorkspaceView(workspace: workspace))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 840, height: 560), styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = host
+        window.makeKeyAndOrderFront(nil)
+        defer {
+            workspace.debugger?.close()
+            workspace.editorRecovery.close()
+            workspace.sourceTestIndex?.stop()
+            for buffer in workspace.buffers.values { buffer.language?.close() }
+            window.orderOut(nil)
+        }
+        func editor(in view: NSView) -> NSTextView? {
+            if let text = view as? NSTextView, text.string.hasPrefix("# owned startup capability fixture") { return text }
+            return view.subviews.lazy.compactMap { editor(in: $0) }.first
+        }
+        func wait(_ message: String, ready: () -> Bool) async throws {
+            let clock = ContinuousClock(), deadline = clock.now + .seconds(25)
+            while clock.now < deadline {
+                host.layoutSubtreeIfNeeded()
+                if ready() { return }
+                try await Task.sleep(for: .milliseconds(20))
+            }
+            throw EngineError(message: message + " · " + workspace.status)
+        }
+        try await wait("Requested source did not mount while authority was held") {
+            exactUTF8(workspace.currentBuffer?.file.path, path) && editor(in: host) != nil
+        }
+        let buffer = try XCTUnwrap(workspace.currentBuffer), view = try XCTUnwrap(editor(in: host))
+        let source = buffer.text, identity = try XCTUnwrap(buffer.sourceEditorState?()?.identity)
+        XCTAssertTrue(workspace.connecting)
+        XCTAssertNil(workspace.engine)
+        XCTAssertTrue(buffer.readOnly)
+        XCTAssertFalse(view.isEditable)
+        XCTAssertNil(buffer.savedGuard)
+        let selection = NSRange(location: 42, length: 5)
+        view.setSelectedRange(selection)
+        let scroll = try XCTUnwrap(view.enclosingScrollView)
+        view.layoutSubtreeIfNeeded()
+        scroll.contentView.scroll(to: NSPoint(x: 0, y: 260))
+        scroll.reflectScrolledClipView(scroll.contentView)
+        let manager = try XCTUnwrap(view.layoutManager), container = try XCTUnwrap(view.textContainer)
+        func visibleSourceStart() -> Int {
+            let offset = scroll.contentView.bounds.origin, origin = view.textContainerOrigin
+            let glyph = manager.glyphIndex(for: NSPoint(x: offset.x, y: offset.y - origin.y), in: container)
+            return manager.characterIndexForGlyph(at: min(glyph, manager.numberOfGlyphs - 1))
+        }
+        let top = visibleSourceStart()
+        try await wait("Local markup did not attach independently of tree authority") { exactUTF8(buffer.inlineMarkup.source, source) }
+        XCTAssertEqual(view.selectedRange(), selection)
+        XCTAssertEqual(visibleSourceStart(), top, "The same source text stays at the top when markup changes heading height")
+        let viewport = scroll.contentView.bounds.origin
+        let bounds = scroll.convert(scroll.bounds, to: host)
+        XCTAssertGreaterThan(viewport.y, 0)
+        var request = URLRequest(url: release)
+        request.httpMethod = "POST"
+        let (_, response) = try await URLSession.shared.data(for: request)
+        XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 204)
+        try await wait("Workspace authority reply did not settle") {
+            !workspace.connecting && (mode != "confirmed" || view.isEditable)
+        }
+        XCTAssertTrue(workspace.currentBuffer === buffer)
+        XCTAssertTrue(editor(in: host) === view)
+        XCTAssertEqual(buffer.sourceEditorState?()?.identity, identity)
+        XCTAssertTrue(exactUTF8(view.string, source))
+        XCTAssertEqual(view.selectedRange(), selection)
+        XCTAssertEqual(scroll.contentView.bounds.origin, viewport)
+        XCTAssertEqual(scroll.convert(scroll.bounds, to: host), bounds)
+        if mode != "confirmed" {
+            XCTAssertTrue(buffer.readOnly)
+            XCTAssertFalse(view.isEditable)
+            XCTAssertNil(buffer.savedGuard)
+            XCTAssertTrue(workspace.status.contains("remains readable"))
+        }
+        if mode == "retry" {
+            let connected = await workspace.connect()
+            XCTAssertTrue(connected, workspace.status)
+            try await wait("Retry did not confirm the reading already on screen") { view.isEditable }
+            XCTAssertTrue(workspace.currentBuffer === buffer)
+            XCTAssertTrue(editor(in: host) === view)
+            XCTAssertEqual(buffer.sourceEditorState?()?.identity, identity)
+            XCTAssertEqual(view.selectedRange(), selection)
+            XCTAssertEqual(scroll.contentView.bounds.origin, viewport)
+        }
+        if mode != "unavailable" {
+            XCTAssertFalse(buffer.readOnly)
+            XCTAssertNil(buffer.startupObservation)
+            XCTAssertEqual(buffer.savedGuard, "owned-startup-guard")
+            XCTAssertEqual(Set(workspace.files.map(\.path)), [path, "nested/sibling.txt"])
+            XCTAssertTrue(window.makeFirstResponder(view))
+            view.insertText("draft", replacementRange: view.selectedRange())
+            XCTAssertTrue(buffer.dirty)
+            let history = try XCTUnwrap(view.undoManager)
+            history.undo()
+            XCTAssertTrue(exactUTF8(view.string, source))
+            XCTAssertFalse(buffer.dirty)
+        }
+    }
+
+    @MainActor func testMountedRequestedFileRetainsEditingThroughDelayedDiagnostics() async throws {
+        let environment = ProcessInfo.processInfo.environment
+        guard let origin = environment["HICKORY_APPKIT_STARTUP_ORIGIN"],
+              let path = environment["HICKORY_OPEN_FILE"],
+              let release = environment["HICKORY_STARTUP_DIAGNOSTIC_GATE"].flatMap(URL.init(string:)) else {
+            throw XCTSkip("Use the owned AppKit startup fixture")
+        }
+        _ = NSApplication.shared
+        NSApp.setActivationPolicy(.regular)
+        let workspace = Workspace()
+        workspace.address = origin
+        let host = NSHostingView(rootView: WorkspaceView(workspace: workspace))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 840, height: 560), styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = host
+        window.makeKeyAndOrderFront(nil)
+        defer {
+            workspace.debugger?.close()
+            workspace.editorRecovery.close()
+            workspace.sourceTestIndex?.stop()
+            for buffer in workspace.buffers.values { buffer.language?.close() }
+            window.orderOut(nil)
+        }
+        func nativeEditor(in view: NSView) -> NSTextView? {
+            if let text = view as? NSTextView, text.string.hasPrefix("# owned startup capability fixture") { return text }
+            return view.subviews.lazy.compactMap { nativeEditor(in: $0) }.first
+        }
+        func wait(_ message: String, ready: () -> Bool) async throws {
+            let clock = ContinuousClock(), deadline = clock.now + .seconds(30)
+            while clock.now < deadline {
+                host.layoutSubtreeIfNeeded()
+                if ready() { return }
+                try await Task.sleep(for: .milliseconds(20))
+            }
+            XCTFail(message + " · " + workspace.status)
+            throw EngineError(message: message)
+        }
+        try await wait("AppKit did not mount the requested source") {
+            exactUTF8(workspace.currentBuffer?.file.path, path) && nativeEditor(in: host) != nil
+        }
+        let buffer = try XCTUnwrap(workspace.currentBuffer)
+        let editor = try XCTUnwrap(nativeEditor(in: host))
+        let identity = try XCTUnwrap(buffer.sourceEditorState?()).identity
+        let source = buffer.text
+        XCTAssertEqual(editor.string, source)
+        XCTAssertTrue(editor.isEditable)
+        XCTAssertEqual(Set(workspace.files.map(\.path)), Set([path, "nested/sibling.txt"]))
+        XCTAssertTrue(workspace.rootFiles.contains { $0.path == "outside.txt" })
+        XCTAssertEqual(workspace.layout.groups().map(\.id), ["files-group", "document-group"])
+        XCTAssertTrue(workspace.layout.nodes["files-group"]?.tabs.containsUtility(.files) == true)
+        XCTAssertFalse(workspace.problems.contains { $0.message.contains("startup diagnostic") })
+        XCTAssertTrue(window.makeFirstResponder(editor))
+        let insertion = "# sampled-draft\n"
+        editor.setSelectedRange(NSRange(location: 0, length: 0))
+        editor.insertText(insertion, replacementRange: editor.selectedRange())
+        let draft = insertion + source
+        XCTAssertTrue(exactUTF8(buffer.text, draft))
+        let selected = NSRange(location: draft.utf16.count / 3, length: 5)
+        editor.setSelectedRange(selected)
+        let scroll = try XCTUnwrap(editor.enclosingScrollView)
+        editor.layoutSubtreeIfNeeded()
+        scroll.contentView.scroll(to: NSPoint(x: 0, y: 320))
+        scroll.reflectScrolledClipView(scroll.contentView)
+        let viewport = scroll.contentView.bounds.origin
+        XCTAssertGreaterThan(viewport.y, 0)
+        let history = try XCTUnwrap(editor.undoManager)
+        XCTAssertTrue(history.canUndo)
+        XCTAssertFalse(workspace.problems.contains { $0.message.contains("startup diagnostic") })
+        var request = URLRequest(url: release)
+        request.httpMethod = "POST"
+        let (_, released) = try await URLSession.shared.data(for: request)
+        XCTAssertEqual((released as? HTTPURLResponse)?.statusCode, 204)
+        try await wait("Current diagnostic did not reach the AppKit editor") {
+            workspace.problems.contains { exactUTF8($0.path, path) && $0.current && $0.message == "fresh startup diagnostic" }
+                && exactUTF8(buffer.inlineMarkup.source, draft)
+        }
+        XCTAssertFalse(workspace.problems.contains { $0.message == "stale startup diagnostic" })
+        XCTAssertTrue(workspace.currentBuffer === buffer)
+        XCTAssertEqual(buffer.sourceEditorState?()?.identity, identity)
+        XCTAssertEqual(editor.selectedRange(), selected)
+        XCTAssertEqual(scroll.contentView.bounds.origin.x, viewport.x, accuracy: 1)
+        XCTAssertEqual(scroll.contentView.bounds.origin.y, viewport.y, accuracy: 1)
+        XCTAssertTrue(exactUTF8(editor.string, draft))
+        XCTAssertTrue(buffer.dirty)
+        history.undo()
+        XCTAssertTrue(exactUTF8(editor.string, source))
+        XCTAssertFalse(buffer.dirty)
+        history.redo()
+        XCTAssertTrue(exactUTF8(editor.string, draft))
+        XCTAssertTrue(buffer.dirty)
+        await workspace.refresh()
+        XCTAssertEqual(Set(workspace.files.map(\.path)), Set([path, "nested/sibling.txt"]))
+        XCTAssertTrue(workspace.currentBuffer === buffer)
+        XCTAssertEqual(buffer.sourceEditorState?()?.identity, identity)
+        buffer.openDiagramFile?("../outside.txt")
+        try await wait("Relative diagram link could not leave the displayed folder") {
+            exactUTF8(workspace.currentBuffer?.file.path, "outside.txt")
+        }
+        XCTAssertEqual(Set(workspace.files.map(\.path)), Set([path, "nested/sibling.txt"]))
+        await workspace.open(buffer.file)
+        XCTAssertTrue(workspace.currentBuffer === buffer)
+        XCTAssertTrue(exactUTF8(buffer.text, draft))
+    }
+
     @MainActor func testReservedPhysicalNamesMountCodeAndKeepUtilityTabsReachable()async throws {
         _ = NSApplication.shared;NSApp.setActivationPolicy(.regular);let configuration=URLSessionConfiguration.ephemeral;configuration.protocolClasses=[ResponseProtocol.self]
         let space=Workspace(),engine=try Engine(address:"http://identity.invalid",session:URLSession(configuration:configuration));space.engine=engine

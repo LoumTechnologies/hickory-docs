@@ -4,8 +4,8 @@ import {request} from '../api/client';
 import type {Buffer,Buffers} from './buffers';
 import type {WorkspaceChangeHistory} from './ChangePlan';
 import {resourceWirePatches,type ResourceEditorRoute} from './ResourceEditors';
-import {browserProposalModel} from './AgentProposalAdapter';
-import type {AgentProposalModel,VerifiedProposal} from './AgentProposals';
+import {browserProposalModel,type ProposalSelection} from './AgentProposalAdapter';
+import type {VerifiedProposal} from './AgentProposals';
 import {BehaviorSourceReading} from './BehaviorSourceReading';
 import type {BehaviorReading} from './BehaviorReading';
 const object=(value:unknown):value is Record<string,unknown>=>!!value&&typeof value==='object'&&!Array.isArray(value);
@@ -28,19 +28,62 @@ function ConnectedReading({raw,current}:{raw:unknown;current:()=>boolean}){
  {reading.graph.notices?.map((notice,index)=><p key={index}>{notice}</p>)}{reading.graph.truncated&&<p>Graph truncated; omitted relationships are unknown.</p>}</section>;
 }
 function ProposalConsequences({proposal}:{proposal:VerifiedProposal}){const [layer,setLayer]=useState<'saved'|'draft'>('saved'),[page,setPage]=useState(0),value=proposal.value.consequences[layer],rows=[...value.entries.map(path=>'Construction entry: '+path),...value.removed_entries.map(path=>'Removed entry: '+path),...value.output_paths.map(path=>'Generated output: '+path)],last=Math.max(0,Math.ceil(rows.length/100)-1),selected=Math.min(page,last);return <section aria-label="Saved and draft generated consequences"><label>Construction layer <select aria-label="Proposal construction layer" value={layer} onChange={event=>{setLayer(event.target.value as typeof layer);setPage(0);}}><option value="saved">Saved construction</option><option value="draft">Draft construction</option></select></label><p>{value.output_paths.length} generated output paths. Compiler-reported relationships; no outputs were materialized and no checks were run.</p><pre style={{whiteSpace:'pre-wrap'}}>{rows.slice(selected*100,(selected+1)*100).join('\n')||'No construction entries or outputs reported.'}</pre>{last>0&&<><button disabled={!selected} onClick={()=>setPage(selected-1)}>Previous consequences</button><span>{selected+1}/{last+1}</span><button disabled={selected===last} onClick={()=>setPage(selected+1)}>Next consequences</button></>}</section>;}
-function RetainedMaterial({proposal,model}:{proposal:VerifiedProposal;model:AgentProposalModel}){
+function RetainedMaterial({proposal,current}:{proposal:VerifiedProposal;current:()=>boolean}){
  const value=proposal.value,[side,setSide]=useState<'before'|'after'>('after');
  return <><h3>{value.intention.title}</h3><p>{value.origin_authority} · {value.intention.origin}</p><p>{value.intention.explanation}</p><details open><summary>Agent claims — unverified text</summary>{value.intention.claims.map((claim,index)=><p key={index}>{claim}</p>)}{!value.intention.claims.length&&<p>No agent claims were supplied.</p>}</details><details><summary>Requested check identities — not run</summary>{value.intention.check_ids.map(check=><code key={check}>{check}</code>)}{!value.intention.check_ids.length&&<p>No checks requested.</p>}</details>
  <SourceTransition key={proposal.fingerprint} proposal={proposal}/>
  <ProposalConsequences proposal={proposal}/>
- <label>Connected reading snapshot <select aria-label="Proposal connected snapshot" value={side} onChange={event=>setSide(event.target.value as typeof side)}><option value="before">Before intention</option><option value="after">Proposed intention</option></select></label><ConnectedReading key={proposal.fingerprint+side} raw={value[side]} current={()=>model.value===proposal}/>
+ <label>Connected reading snapshot <select aria-label="Proposal connected snapshot" value={side} onChange={event=>setSide(event.target.value as typeof side)}><option value="before">Before intention</option><option value="after">Proposed intention</option></select></label><ConnectedReading key={proposal.fingerprint+side} raw={value[side]} current={current}/>
  <p>Sealed fingerprint: <code>{proposal.fingerprint}</code>. Apply, Save, Stage and verification are separate outcomes.</p></>;
 }
-export function AgentProposalReview({open,close,buffers,history,acquire,adopt}:{open:boolean;close:()=>void;buffers:Buffers;history:WorkspaceChangeHistory;acquire:(path:string)=>Promise<Buffer>;adopt:(routes:ResourceEditorRoute<Buffer>[])=>void}){
+export function RecordedPatchReview({proposal, anchor, close, model, undo, redo}: {
+ proposal: VerifiedProposal; anchor: HTMLElement; close: () => void;
+ model?: import('./AgentProposals').AgentProposalModel; undo?: () => void; redo?: () => void;
+}) {
+ const panel=useRef<HTMLElement>(null);
+ useEffect(()=>{
+  const dialog = panel.current;
+  dialog?.focus({preventScroll:true});
+  return () => {
+   const currentFocus = document.activeElement;
+   if (anchor.isConnected && (currentFocus === document.body || dialog?.contains(currentFocus))) {
+    anchor.focus({preventScroll:true});
+   }
+  };
+ },[anchor,proposal]);
+ return createPortal(<section ref={panel} tabIndex={-1} role="dialog" aria-label="Recorded patch review"
+  className="refs-panel" style={{width:"min(38rem, calc(100vw - 2.5rem))",maxHeight:"75dvh"}}
+  onKeyDown={event=>{if(event.key==="Escape"){event.preventDefault();close();}}}>
+  <header className="refs-head"><strong>Recorded patch review</strong><button onClick={close}>Close</button></header>
+  <div style={{padding:"0.7rem"}}><p role="status">{model?.notice || "Read-only review of the captured workspace."}</p>
+   {model?.prepared?.proposal === proposal && <button disabled={!model.canApply()} onClick={() => void model.apply()}>Apply complete proposal to drafts</button>}
+   {undo && <button disabled={model?.busy} onClick={undo}>Undo workspace draft Apply</button>}
+   {redo && <button disabled={model?.busy} onClick={redo}>Redo workspace draft Apply</button>}
+   {model?.canReport(proposal.token) && <button onClick={() => void model.report(proposal.token)}>Retry acknowledgment</button>}
+   <RetainedMaterial key={proposal.fingerprint} proposal={proposal} current={()=>!!panel.current?.isConnected}/>
+  </div>
+ </section>,document.body);
+}
+export function AgentProposalReview({open,close,buffers,history,acquire,adopt,initialSelection}:{open:boolean;close:()=>void;buffers:Buffers;history:WorkspaceChangeHistory;acquire:(path:string)=>Promise<Buffer>;adopt:(routes:ResourceEditorRoute<Buffer>[])=>void;initialSelection?:ProposalSelection|null}){
  const [,paint]=useReducer((value:number)=>value+1,0),lifetime=useRef(open),panel=useRef<HTMLElement>(null);lifetime.current=open;
  const model=useMemo(()=>browserProposalModel(buffers,history,acquire,adopt,()=>lifetime.current),[buffers,history,buffers.workspaceId]);model.changed=paint;
- useEffect(()=>{if(open){void model.refresh();panel.current?.focus({preventScroll:true});}else model.close();},[open,model]);useEffect(()=>()=>{model.close();model.changed=()=>{};},[model]);
+ useEffect(() => {
+  if (!open) { model.close(); return; }
+  let current = true;
+  panel.current?.focus({preventScroll:true});
+  void model.refresh().then(() => {
+   if (!current || !initialSelection || model.selection) return;
+   const row = model.rows.find(item => item.token === initialSelection.token && item.fingerprint === initialSelection.fingerprint);
+   if (row) void model.open(row.token);
+   else {
+    model.notice = 'The selected sealed patch reading is unavailable. Reopen the message and review the fence again.';
+    model.changed();
+   }
+  });
+  return () => { current = false; };
+ }, [open, model, initialSelection]);
+ useEffect(()=>()=>{model.close();model.changed=()=>{};},[model]);
  if(!open)return null;const proposal=model.value,attempt=model.lastAttempt?.proposal.token===proposal?.token?model.lastAttempt:null;
  return createPortal(<section ref={panel} tabIndex={-1} role="dialog" aria-label="Agent proposal review" className="simple-workspace-problems simple-source-tests" onKeyDown={event=>{if(event.key==='Escape'){event.preventDefault();close();}}}><header><strong>Agent proposal review</strong><button onClick={close}>Close</button></header><p role="status">{model.notice}</p><button disabled={model.loading||model.busy} onClick={()=>void model.refresh()}>Refresh pending proposals</button><label>Complete intention <select aria-label="Retained agent proposal" value={model.selection} onChange={event=>void model.open(event.target.value)}><option value="">Choose an intention</option>{model.rows.map(row=><option key={row.token} value={row.token}>{row.title} · {row.historical?'historical reading':row.host_application?'host report retained':'pending'}</option>)}</select></label>
- {proposal&&<RetainedMaterial proposal={proposal} model={model}/>}<button disabled={!model.canApply()} onClick={()=>void model.apply()}>{model.prepared?.kind==='namespace'?'Save reviewed resource namespace':'Apply complete proposal to drafts'}</button><p>{model.status}</p>{proposal&&model.reportNotices.has(proposal.token)&&<p>{model.reportNotices.get(proposal.token)}</p>}{proposal&&model.canReport(proposal.token)&&<button onClick={()=>void model.report(proposal.token)}>Retry acknowledgment of recorded transition</button>}{attempt?.publication&&<section aria-label="Retained resource publication response"><p>Received publication response; current editor adoption remains separate. {attempt.publication.adoption_current===false?attempt.publication.adoption_reason:''}</p><code>{attempt.publication.outcome?.recovery??'Recovery identity unavailable'}</code></section>}</section>,document.body);
+ {proposal&&<RetainedMaterial proposal={proposal} current={()=>model.value===proposal}/>}<button disabled={!model.canApply()} onClick={()=>void model.apply()}>{model.prepared?.kind==='namespace'?'Save reviewed resource namespace':'Apply complete proposal to drafts'}</button><p>{model.status}</p>{proposal&&model.reportNotices.has(proposal.token)&&<p>{model.reportNotices.get(proposal.token)}</p>}{proposal&&model.canReport(proposal.token)&&<button onClick={()=>void model.report(proposal.token)}>Retry acknowledgment of recorded transition</button>}{attempt?.publication&&<section aria-label="Retained resource publication response"><p>Received publication response; current editor adoption remains separate. {attempt.publication.adoption_current===false?attempt.publication.adoption_reason:''}</p><code>{attempt.publication.outcome?.recovery??'Recovery identity unavailable'}</code></section>}</section>,document.body);
 }

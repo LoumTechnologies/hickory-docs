@@ -41,6 +41,22 @@ pub async fn list(
     State(state): State<LocalState>,
     Json(query): Json<Query>,
 ) -> ApiResult<Json<Value>> {
+    if query.uri.starts_with("hick-project:///") {
+        let uri = tower_lsp::lsp_types::Url::parse(&query.uri)
+            .map_err(|error| ApiError::bad_request(error.to_string()))?;
+        let (id, path, context) = state.lsp.projects().get(&uri).map_err(ApiError::not_found)?;
+        if let Some(program) = &context.recorded_fence {
+            if path != hick_lsp::ProjectContext::RECORDED_MESSAGE || query.project != "new"
+                || query.program.as_ref().is_some_and(|target| target != program)
+            {
+                return Err(ApiError::conflict("Choose the exact recorded message fence again before Debug."));
+            }
+            // The ordinary profile selection endpoint grants no authority for
+            // this source. Only the recorded-fence Start path can materialize it.
+            return Ok(Json(json!({"debug_protocol":3,"notices":[],"profiles":[],"fingerprint":id,
+                "viewed":query.uri,"workspace":state.index.root(),"configuration":crate::launch_profiles::CONFIG})));
+        }
+    }
     let context = context(&state, &query).map_err(|e| ApiError::unprocessable(format!("{e:#}")))?;
     let profiles = context
         .profiles()

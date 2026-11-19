@@ -7,7 +7,8 @@ import { afterEach, expect, it, vi } from "vitest";
 import { render, screen, fireEvent, waitFor, cleanup, act } from "@testing-library/react";
 import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
-import { editorContext, WorkspaceChat } from "./WorkspaceChat";
+import { captureWorkspacePatch, commitWorkspaceDrafts, editorContext, WorkspaceChat } from "./WorkspaceChat";
+import { proposalHash } from "../simple/AgentProposals";
 import { SessionRegistry } from "./documentSession";
 import { initialWorkspace, openUntitledTab } from "./workspaceState";
 import { panes, tab } from "../shell/layout";
@@ -18,6 +19,59 @@ import { selectObservations, type ObservationReading } from "../debug/observatio
 vi.mock("../api/acp", () => ({ acpApi: { state: vi.fn(async () => ({backend: "python", ready: true, edits: {mode: "review", changes: []}})), agents: vi.fn().mockResolvedValue({ agents: [] }) } }));
 vi.mock("../api/realtime", async importOriginal => ({ ...await importOriginal<typeof import("../api/realtime")>(), getWorkspaceRealtime: () => ({ onRunEvent: () => () => {} }) }));
 vi.stubGlobal("crypto", webcrypto);
+
+it("captures only the original main workspace authored owners for recorded patch review", async () => {
+  const scope = {workspace: "a".repeat(32), namespace: "/workspace"};
+  const file = tab("file", "note.py"), document = tab("document", "project.md");
+  const untitled = tab("untitled", "Unpublished"), generated = tab("generated", "output.py");
+  let revision = 3;
+  const capture = captureWorkspacePatch([file, document, untitled, generated], scope, owner => {
+    if (owner.kind === "generated") throw Error("generated text is never an authored draft");
+    return { path: owner.target, text: "draft", base: "saved", guard: "physical-" + owner.id,
+      revision, scope, current: () => revision === 3 };
+  }, () => ({text: "unnamed draft", revision: 2, current: () => true}), () => true);
+  expect(capture.sources.map(row => [row.id, row.path, row.source_revision])).toEqual([
+    [file.id, file.target, "3"], [document.id, document.target, "3"], [untitled.id, null, "2"],
+  ]);
+  const retained = await capture.retain();
+  expect(retained.ownership_sources).toEqual({"note.py": "draft", "project.md": "draft"});
+  expect(retained.unaddressed_sources).toEqual({[untitled.id]: "unnamed draft"});
+  expect(retained.drafts["note.py"]).toMatchObject({save_guard: "physical-" + file.id, base_sha256: await proposalHash("saved")});
+  expect(capture.current()).toBe(true);
+  revision += 2;
+  expect(capture.current()).toBe(false);
+  expect(() => captureWorkspacePatch([file], scope, () => null, () => null, () => true)).toThrow(/original guarded editor/);
+  const readLineEndings = (text: string) => () => ({
+    path: file.target, base: "unchanged\r\n", text, guard: "guard", revision, scope, current: () => true,
+  });
+  const clean = captureWorkspacePatch([file], scope, readLineEndings("unchanged\n"), () => null, () => true);
+  expect(clean.sources[0].text).toBe("unchanged\r\n");
+  expect(() => captureWorkspacePatch([file], scope, readLineEndings("changed\n"), () => null, () => true))
+    .toThrow(/no exact line ending capture/);
+  const duplicate = tab("file", file.target);
+  expect(() => captureWorkspacePatch([file, duplicate], scope, owner => ({
+    path: owner.target, text: "draft", base: "saved", guard: "guard", revision, scope, current: () => true,
+  }), () => null, () => true)).toThrow(/More than one editor/);
+});
+
+it("checks every original draft before mutation and rolls an interrupted group back", () => {
+  const sources = new Map([["one.py", "first"], ["two.md", "second"]]);
+  const stage = (path: string, before: string, after: string, fail = false) => ({
+    current: () => sources.get(path) === before,
+    commit: () => {
+      sources.set(path, after);
+      if (fail) throw Error("Editor rejected a local transaction");
+    },
+    rollback: () => { sources.set(path, before); },
+  });
+  const one = stage("one.py", "first", "next first");
+  expect(() => commitWorkspaceDrafts([one, stage("two.md", "obsolete", "next second")])).toThrow(/editor changed/);
+  expect([...sources.values()]).toEqual(["first", "second"]);
+  expect(() => commitWorkspaceDrafts([one, stage("two.md", "second", "next second", true)])).toThrow(/rejected/);
+  expect([...sources.values()]).toEqual(["first", "second"]);
+  commitWorkspaceDrafts([one, stage("two.md", "second", "next second")]);
+  expect([...sources.values()]).toEqual(["next first", "next second"]);
+});
 afterEach(() => { cleanup(); vi.clearAllMocks(); localStorage.clear(); });
 // Guarantee: docs/guarantees/agent/the-agent-sees-the-open-editors.md
 it("sends a startup untitled editor without a folder, using fresh text", async () => {

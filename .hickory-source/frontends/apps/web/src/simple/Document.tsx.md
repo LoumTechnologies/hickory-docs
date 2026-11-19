@@ -9,6 +9,10 @@ The minimap reserves forty units beside the text rather than overlaying readable
 
 The parser is an independent background capability. Until it loads, literate debugger controls and rich parsing remain detached from the existing editor; a rejected load leaves readable source available. Each rich owner also awaits parser readiness, so a fast file open cannot invoke synchronous parsing before WebAssembly initialization.
 
+Text from the initial read remains selectable while ownership is pending.
+When the same buffer acquires authoritative edit access, reconfigure the
+mounted editor's permission facet without replacing its document or history.
+
 After text is visible, Markdown files load and attach the existing display-only prose decorations independently of LSP. Headings, bold and italic update with typing without rewriting source or rebuilding the editor. Fenced code stays literal; plain files keep their original appearance.
 
 Search uses CodeMirror’s native search transactions and keymap. The panel is an absolute overlay, so showing it cannot resize the cached editor. Literal search treats backslashes as text; regex mode enables capture replacements. Read-only policy stays in editor state and search navigation reveals folded matches.
@@ -43,6 +47,11 @@ mode affects open editors; the platform retains its own undo transaction.
 
 Standalone CSV uses the same isolated stylesheet as inline rich widgets. Mount its established grid in a stable shadow root so empty cells, resize handles and menus retain their real geometry without importing the full workspace theme into the simple shell. Loading this optional surface never replaces the cached source editor or its undo history.
 
+CSV opens as editable text. Load the grid and its stylesheet together in the
+background, then enable the existing view switch. A completed download only
+enables that switch. Changing views requires a person to invoke it, so a slow
+grid can never take focus from a person already editing the file.
+
 ## Separate semantic questions from their controls
 
 A provider can answer with locations, nested document symbols, flat workspace symbols or call-hierarchy items. Normalize those shapes to named source locations once. Outlines inherit the queried document identity; workspace symbols and calls must carry their own identity. Caller/callee reads prepare provider items before asking for incoming/outgoing calls. Bound ambiguous preparation and nesting, retain explicit limits, and do not infer absent call relationships.
@@ -60,7 +69,7 @@ import {sourceText,authoredSource,authoredOffset,editorOffset,editorOffsetIn,aut
 import {sourceSnippets,moveSourceSnippet,finishSourceSnippet,openSourceSnippetChoices,sourceSnippetMenuState,readSourceEditorIntent,dispatchSourceSnippetTransactions} from './SourceSnippets';
 import {useCoverageLineActions} from "./SourceCoverage";
 import {useSourceTestLineActions} from "./SourceTestGutters";
-import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { semanticPath, semanticLocations, querySemanticLocations, type SemanticQuery, type SemanticLocation } from "./Intelligence";
 export { semanticQueries, semanticPath, semanticLocations, querySemanticLocations } from "./Intelligence";
 export type { SemanticQuery, SemanticLocation } from "./Intelligence";
@@ -106,15 +115,17 @@ import { observationSourceChanged } from "../debug/observations";
 import { api } from "../api/client";
 import { launchWithProfiles } from "../debug/launchProfiles";
 import { claimRevealPosition, onRevealLine, openLocation,openCapturedLocation } from "../lib/revealLine";
-const CsvGrid = lazy(async () => {
+async function loadCsvGrid() {
   const [{ TablePanel }, css] = await Promise.all([import("../components/TablePanel"), import("../styles.css?inline")]);
-  return { default: function CsvSurface(props: TablePanelProps) {
-    const host = useRef<HTMLDivElement>(null);
-    const [root, setRoot] = useState<ShadowRoot | null>(null);
-    useLayoutEffect(() => { if (host.current) setRoot(host.current.shadowRoot ?? host.current.attachShadow({ mode: "open" })); }, []);
-    return <div ref={host} className="simple-csv-grid">{root && createPortal(<><style>{css.default.replaceAll(":root", ":host")}</style><TablePanel {...props} /></>, root)}</div>;
-  } };
-});
+  return { TablePanel, css: css.default.replaceAll(":root", ":host") };
+}
+type CsvGridModules = Awaited<ReturnType<typeof loadCsvGrid>>;
+function CsvGrid({ modules: { TablePanel, css }, ...props }: TablePanelProps & { modules: CsvGridModules }) {
+  const host = useRef<HTMLDivElement>(null);
+  const [root, setRoot] = useState<ShadowRoot | null>(null);
+  useLayoutEffect(() => { if (host.current) setRoot(host.current.shadowRoot ?? host.current.attachShadow({ mode: "open" })); }, []);
+  return <div ref={host} className="simple-csv-grid">{root && createPortal(<><style>{css}</style><TablePanel {...props} /></>, root)}</div>;
+}
 export type WordNavigationMode = "native" | "word" | "pieces";
 export function wordNavigationMode(modifier: "control" | "alt"): WordNavigationMode {
   try { const value = localStorage.getItem(`editor.${modifier}Arrow`); return value === "word" || value === "pieces" ? value : "native"; }
@@ -226,7 +237,7 @@ function localFold(state: EditorState, from: number, markdown: boolean) {
 }
 import {mountRetainedEditor,type RetainedEditorMount} from "./EditorMounts";
 const debugPositions=new WeakMap<Buffer,string>();
-const editors = new WeakMap<Buffer, RetainedEditorMount&{ language: Compartment; prose: Compartment; completion:Compartment; address:Compartment; richAttached?: boolean; toggleBreakpoint?: (line: number) => void }>();
+const editors = new WeakMap<Buffer, RetainedEditorMount&{ language: Compartment; prose: Compartment; completion:Compartment; address:Compartment; permission:Compartment; richAttached?: boolean; toggleBreakpoint?: (line: number) => void }>();
 export const SIMPLE_EDITOR_ATTACHED = "hickory:simple-editor-attached";
 export function editorForBuffer(buffer: Buffer) { return editors.get(buffer); }
 export function openFind(buffer: Buffer) { const view = editors.get(buffer)?.view; if (view) openSearchPanel(view); }
@@ -253,19 +264,23 @@ function usesLiteratePresentation(buffer: Buffer): boolean {
   return Boolean(buffer.file.doc_id) || /\.(md|markdown)$/i.test(buffer.file.path);
 }
 
-export function Document({ buffer,current }: { buffer: Buffer;current?:()=>boolean }) {
+export function Document({ buffer, current, renderTools }: {
+  buffer: Buffer; current?: () => boolean; renderTools?: (view: EditorView) => React.ReactNode;
+}) {
   const host = useRef<HTMLDivElement>(null);
-  const [csvReady, setCsvReady] = useState(false);
+  const [csvGrid, setCsvGrid] = useState<CsvGridModules | null>(null);
+  const [csvFailed, setCsvFailed] = useState(false);
   const [railWidth, setRailWidth] = useState(24);
-  const [csvSource, setCsvSource] = useState(false);
+  const [csvGridSelected, setCsvGridSelected] = useState(false);
   const csv = /\.csv$/i.test(buffer.file.path);
   const tableSource = buffer.text;
   useEffect(() => { if (!csv) return; let cancelled = false;
-    void import("../components/TablePanel").then(() => { if (!cancelled) setCsvReady(true); }).catch(() => { /* Keep readable CSV text if the optional grid cannot load. */ });
+    void loadCsvGrid().then(modules => { if (!cancelled) setCsvGrid(modules); }).catch(() => { if (!cancelled) setCsvFailed(true); });
     return () => { cancelled = true; };
   }, [csv]);
   useSyncExternalStore(buffer.subscribe, buffer.snapshot);
   const [view, setView] = useState<EditorView | null>(null);
+  const showingCsvGrid = csv && csvGridSelected && !!csvGrid && !!view;
   const [parserReady, setParserReady] = useState(hickLangReady);
   useEffect(() => {
     let cancelled = false;
@@ -274,7 +289,7 @@ export function Document({ buffer,current }: { buffer: Buffer;current?:()=>boole
   }, []);
   const language = languageFromPath(buffer.file.path);
   const literate = usesLiteratePresentation(buffer);
-  const debuggable = !buffer.transient && (literate || isDebuggable(language));
+  const debuggable = !buffer.transient && buffer.startupWorkspace === undefined && (literate || isDebuggable(language));
   const debug = useFollowingDebugSession(buffer.file.path,undefined,buffer,()=>!buffer.resourceDeleted&&(current?.()??true),{
     read:()=>{const file=buffer.file,text=buffer.text,namespace=buffer.namespace,revision=buffer.sourceRevision;return {uri:documentUri(file.path),workspace:namespace,namespace,identity:buffer,text,saved:!buffer.dirty&&!buffer.saving&&!buffer.resourceDeleted,current:()=>buffer.file===file&&buffer.sourceRevision===revision&&buffer.text===text&&buffer.namespace===namespace&&!buffer.resourceDeleted&&(current?.()??true)};},subscribe:buffer.subscribe
   }) ?? IDLE_SESSION;
@@ -328,7 +343,7 @@ export function Document({ buffer,current }: { buffer: Buffer;current?:()=>boole
   useLayoutEffect(() => {
     let cached = editors.get(buffer);
     if (!cached) {
-      const language = new Compartment(), prose = new Compartment(), completion=new Compartment(), address=new Compartment();
+      const language = new Compartment(), prose = new Compartment(), completion=new Compartment(), address=new Compartment(), permission=new Compartment();
       const view = new EditorView({ dispatchTransactions:dispatchSourceSnippetTransactions,state: EditorState.create({ doc: buffer.text, ...(buffer.recoveryView?{selection:EditorSelection.single(editorOffsetIn(buffer.text,buffer.recoveryView.selection.anchor),editorOffsetIn(buffer.text,buffer.recoveryView.selection.head))}:{}), extensions: [
         sourceText(buffer.text), history(), EditorView.domEventHandlers({paste:(event,view)=>{const text=event.clipboardData?.getData('text/plain');if(!text||view.state.readOnly||view.composing)return false;event.preventDefault();view.dispatch(authoredInsert(view.state,text));return true;}}), sourceSnippets({writable:()=>!buffer.readonly&&!buffer.saving,notice:value=>buffer.setCompletionNotice(value)}), layoutEditorGutters.of(false), gutterIconLayout, indentUnit.of(simpleIndent(buffer.text)), EditorState.tabSize.of(4), drawSelection(), EditorState.allowMultipleSelections.of(true), rectangularSelection(), crosshairCursor(), lineNumbers({ domEventHandlers: { mousedown: (editor, block, event) => {
           const line = breakpointLine(editor.state, editor.state.doc.lineAt(block.from).number - 1);
@@ -341,7 +356,12 @@ export function Document({ buffer,current }: { buffer: Buffer;current?:()=>boole
         }),
         foldService.of((state, from) => localFold(state, from, usesLiteratePresentation(buffer))), EditorView.lineWrapping, language.of([]), prose.of([]), completion.of(completions({})),
         keymap.of([...wordNavigationKeys, { key: "Enter", run: view => simpleEnter(view, buffer.file.path) }, { key: "Tab", run: simpleTab, shift: indentLess }, { key: "Ctrl-Space", run: startCompletion }, ...searchKeymap, ...foldKeymap, ...completionKeymap, ...defaultKeymap, ...historyKeymap]),
-        EditorState.readOnly.of(buffer.readonly), EditorView.editable.of(!buffer.readonly),
+        permission.of([EditorState.readOnly.of(buffer.readonly), EditorView.editable.of(!buffer.readonly)]),
+        // Rich widgets also dispatch transactions. A recorded or provisional
+        // source can only receive the exact text held by its buffer.
+        EditorState.transactionFilter.of(transaction => transaction.docChanged && buffer.readonly
+          && (buffer.transient || buffer.startupWorkspace !== undefined)
+          && authoredSource(transaction.state) !== buffer.text ? [] : transaction),
         address.of(EditorView.contentAttributes.of({ "aria-label": buffer.file.path })),
         EditorView.updateListener.of(update => {
           if(update.selectionSet){const held=editors.get(buffer);if(held)held.interaction++;}
@@ -349,7 +369,7 @@ export function Document({ buffer,current }: { buffer: Buffer;current?:()=>boole
         }),
         EditorView.theme({ "&": { height: "100%" }, ".cm-scroller": { overflow: "auto", fontFamily: "ui-monospace, monospace", fontSize: "13px" } }),
       ] }) });
-      cached = { view, language, prose, completion, address,interaction:0 }; editors.set(buffer, cached);view.scrollDOM.addEventListener("scroll",()=>{const held=editors.get(buffer);if(held)held.interaction++;}); window.dispatchEvent(new Event(SIMPLE_EDITOR_ATTACHED));
+      cached = { view, language, prose, completion, address,permission,interaction:0 }; editors.set(buffer, cached);view.scrollDOM.addEventListener("scroll",()=>{const held=editors.get(buffer);if(held)held.interaction++;}); window.dispatchEvent(new Event(SIMPLE_EDITOR_ATTACHED));
     }
     cached.view.dispatch({effects:cached.address.reconfigure(EditorView.contentAttributes.of({"aria-label":buffer.file.path}))});
     cached.toggleBreakpoint = line => { if (!buffer.transient) debugRef.current.toggleBreakpoint(line); };
@@ -360,12 +380,17 @@ export function Document({ buffer,current }: { buffer: Buffer;current?:()=>boole
     setView(cached.view);
     return release;
   }, [buffer]);
+  useLayoutEffect(() => {
+    const cached = editors.get(buffer);
+    if (!cached || cached.view.state.readOnly === buffer.readonly) return;
+    cached.view.dispatch({effects:cached.permission.reconfigure([EditorState.readOnly.of(buffer.readonly), EditorView.editable.of(!buffer.readonly)])});
+  }, [buffer, buffer.readonly]);
   useEffect(() => {
     if (!parserReady || !/\.(md|markdown)$/i.test(buffer.file.path) || buffer.text.length > 200_000) return;
     let cancelled = false;
     void import("../editor/markdownStyling").then(({ markdownStyling }) => {
       const cached = editors.get(buffer);
-      if (!cancelled && cached && !cached.richAttached) cached.view.dispatch({ effects: cached.prose.reconfigure(markdownStyling()) });
+      if (!cancelled && cached && !cached.richAttached) cached.view.dispatch({ effects: [cached.prose.reconfigure(markdownStyling()), cached.view.scrollSnapshot()] });
     }).catch(() => { /* Readable source remains available if styling cannot load. */ });
     return () => { cancelled = true; };
   }, [buffer, parserReady]);
@@ -470,10 +495,10 @@ export function Document({ buffer,current }: { buffer: Buffer;current?:()=>boole
         setSemanticResult(null);
       }}>{location.name ? `${location.name} · ` : ""}{path ?? location.uri}:{location.range.start.line + 1}:{location.range.start.character + 1}{!path ? " (unsupported target)" : ""}</button>; })}
     </div>}
-    {csv && <button type="button" className="simple-source-toggle" onClick={() => setCsvSource(value => !value)}>{csvSource ? "Edit table as grid" : "Edit source text"}</button>}
-    {csv && csvReady && !csvSource && view && <Suspense fallback={<span>Loading table…</span>}><CsvGrid source={buffer.text} chooseFormulaLanguage header delimiter="," sourceCurrent={() => !buffer.readonly && authoredSource(view.state) === tableSource && buffer.text === tableSource}
-      onChange={buffer.readonly ? undefined : text => { if (!buffer.readonly && buffer.text === tableSource && authoredSource(view.state) === tableSource) view.dispatch({ ...authoredChanges(view.state,[{from:0,to:authoredSource(view.state).length,insert:text}]), userEvent: "input.table" }); }} /></Suspense>}
-    <div className="editor-row" style={{ ...(csv && csvReady && !csvSource && view ? { display: "none" } : {}), "--simple-rail-width": `${railWidth}px` } as React.CSSProperties}><div ref={host} className="editor-host editor-cm-host" />{!buffer.transient && <Minimap buffer={buffer} />}
+    {csv && <button type="button" className="simple-source-toggle" disabled={!csvGrid || !view} title={csvFailed ? "Table grid unavailable. Keep editing source or reload to retry the grid." : !csvGrid ? "Loading the table grid" : undefined} onClick={() => setCsvGridSelected(value => !value)}>{showingCsvGrid ? "Edit source text" : "Edit table as grid"}</button>}
+    {showingCsvGrid && csvGrid && view && <CsvGrid modules={csvGrid} source={buffer.text} chooseFormulaLanguage header delimiter="," sourceCurrent={() => !buffer.readonly && authoredSource(view.state) === tableSource && buffer.text === tableSource}
+      onChange={buffer.readonly ? undefined : text => { if (!buffer.readonly && buffer.text === tableSource && authoredSource(view.state) === tableSource) view.dispatch({ ...authoredChanges(view.state,[{from:0,to:authoredSource(view.state).length,insert:text}]), userEvent: "input.table" }); }} />}
+    <div className="editor-row" style={{ ...(showingCsvGrid ? { display: "none" } : {}), "--simple-rail-width": `${railWidth}px` } as React.CSSProperties}><div ref={host} className="editor-host editor-cm-host" />{!buffer.transient && <Minimap buffer={buffer} />}
       <div className="simple-rail-resize" role="separator" aria-label="Resize right gutter" tabIndex={0}
         onKeyDown={event => { if (event.key === "ArrowLeft" || event.key === "ArrowRight") { event.preventDefault(); setRailWidth(width => Math.max(24, Math.min(220, width + (event.key === "ArrowLeft" ? 22 : -22)))); } }}
         onPointerDown={event => { event.currentTarget.setPointerCapture(event.pointerId); }}
@@ -492,6 +517,7 @@ export function Document({ buffer,current }: { buffer: Buffer;current?:()=>boole
       onStart={() => start(debug.program ?? undefined)} onStop={debug.stop} onAddWatch={() => { const expression = window.prompt("Expression to watch"); if (expression) debug.addWatch(expression); }}
       exceptionFilters={debug.exceptionFilters} onToggleExceptionFilter={debug.toggleExceptionFilter} onRemoveWatch={debug.removeWatch} />}
     {debugNotice && <div role="alert" className="notice">{debugNotice}</div>}
+    {view && renderTools?.(view)}
     {buffer.error && <div role="alert" className="notice">{buffer.error}</div>}
   </div>;
 }

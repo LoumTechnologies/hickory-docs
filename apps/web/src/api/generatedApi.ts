@@ -31,6 +31,8 @@ export function generatedApi(request: typeof Request) { return {
   openExternal: (path: Parameters<ApiRoutes["openExternal"]>[0]) => request<Response<"openExternal">>("POST", "/api/open-external", { path }),
 /** Any text file in the folder, whole, with the hash a save passes back. */
   openFile: (path: Parameters<ApiRoutes["openFile"]>[0]) => request<Response<"openFile">>("POST", "/api/open-file", { path }),
+  /** Observe an exact workspace file before ownership and guarded editing arrive. */
+  startupSource: (path: Parameters<ApiRoutes["startupSource"]>[0]) => request<Response<"startupSource">>("GET", "/api/startup-source?path=" + encodeURIComponent(path) + ""),
   file: (path: Parameters<ApiRoutes["file"]>[0]) => request<Response<"file">>("GET", "/api/file?path=" + encodeURIComponent(path) + ""),
   /** Parse public recipes without evaluating assignments or starting a recipe. */
   justRecipes: (path: Parameters<ApiRoutes["justRecipes"]>[0]) => request<Response<"justRecipes">>("GET", "/api/just-recipes?path=" + encodeURIComponent(path) + ""),

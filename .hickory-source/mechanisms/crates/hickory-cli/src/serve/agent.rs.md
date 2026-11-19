@@ -923,7 +923,476 @@ ran on. `usd` is `null` when any turn's model has no known price.
 Empty turns for a document nothing has asked about yet, which the dock
 renders as an empty conversation rather than an error.
 
+For recorded fence Debug, the client identifies the turn, message side,
+revision and opening line. The host reads the immutable turn and derives the
+program itself. No caller-supplied code or output path can become the selected
+program. Preparation captures two readings in memory and starts no adapter.
+The debug witness uses the public wire verbs with a real adapter. It steps in
+both message sides and confirms that the second fence and workspace are untouched.
+
+Run validates the same recorded address and writes only the selected program
+to a temporary directory. The normal terminal runner owns the command and
+keeps that directory until the child exits. Compiled languages build there
+before the terminal can launch the resulting program.
+
+Patch review uses the same message admission. The proposal service discovers
+the literal diff's exact targets, replays it against the guarded draft
+preimages, then seals the authored and generated consequences for review.
+
 <storycode:copy id="f-2ce16640df92-list_turns">
+#[derive(Clone, Copy, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum MessageSide {
+    User,
+    Assistant,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RecordedFenceAddress {
+    side: MessageSide,
+    source_hash: String,
+    opening_line: u32,
+}
+
+impl RecordedFenceAddress {
+    fn source<'a>(&self, turn: &'a TurnRecord) -> ApiResult<&'a str> {
+        let source = match self.side {
+            MessageSide::User => turn.prompt.as_str(),
+            MessageSide::Assistant if turn.status != "running" => {
+                turn.answer.as_deref().ok_or_else(|| {
+                    ApiError::conflict(
+                        "This turn has no recorded assistant answer. Open a completed answer.",
+                    )
+                })?
+            }
+            MessageSide::Assistant => {
+                return Err(ApiError::conflict(
+                    "Wait for the assistant message to finish before using its fence tools.",
+                ));
+            }
+        };
+        if source.len() > 1024 * 1024 {
+            return Err(ApiError::unprocessable(
+                "This recorded message exceeds the 1 MiB fence tool limit. Open the code in a file to use its tools.",
+            ));
+        }
+        if super::source_tests::digest(source.as_bytes()) != self.source_hash {
+            return Err(ApiError::conflict(
+                "The recorded message changed. Refresh the conversation and choose the fence again.",
+            ));
+        }
+        Ok(source)
+    }
+
+    fn select<'a>(
+        &self,
+        turn: &'a TurnRecord,
+    ) -> ApiResult<(&'a str, hick_lang::source_context::SourceCodeRegion)> {
+        let source = self.source(turn)?;
+        let body_start = source
+            .match_indices('\n')
+            .nth(self.opening_line as usize)
+            .map(|(offset, _)| offset + 1)
+            .ok_or_else(|| {
+                ApiError::unprocessable(
+                    "The selected opening line has no code fence. Choose a complete code fence.",
+                )
+            })?;
+        let region = hick_lang::source_context::source_code_regions(source)
+            .map_err(ApiError::unprocessable)?
+            .into_iter().find(|region| region.kind == "fence" && region.from == body_start)
+            .ok_or_else(|| ApiError::unprocessable("The selected line has no complete ordinary code fence. Choose its opening line."))?;
+        Ok((source, region))
+    }
+
+    fn prepare(&self, turn: &TurnRecord) -> ApiResult<(hick_lang::ProjectTree, String)> {
+        let (source, region) = self.select(turn)?;
+        let extension = match region
+            .language
+            .as_deref()
+            .map(str::to_ascii_lowercase)
+            .as_deref()
+        {
+            Some("py" | "python" | "python3") => "py",
+            Some("js" | "javascript" | "node") => "js",
+            Some("ts" | "typescript") => "ts",
+            Some("rs" | "rust") => "rs",
+            Some("c") => "c",
+            Some("cpp" | "c++" | "cxx") => "cpp",
+            Some("go" | "golang") => "go",
+            Some("cs" | "csharp" | "c#") => "cs",
+            Some("rb" | "ruby") => "rb",
+            _ => {
+                return Err(ApiError::unprocessable(
+                    "This code fence has no supported standalone program. Choose a fenced program in a supported language.",
+                ));
+            }
+        };
+        let message = hick_lsp::ProjectContext::RECORDED_MESSAGE;
+        let (code, origins) = region
+            .literal_fence(source, message, 20_000)
+            .map_err(ApiError::unprocessable)?;
+        if code.trim().is_empty() {
+            return Err(ApiError::unprocessable(
+                "The selected fence is empty. Choose a fence containing a program.",
+            ));
+        }
+        let name = format!("fence.{extension}");
+        let mut entry = hick_lang::ProjectEntry::file(code.into_bytes());
+        entry.origins = origins;
+        let mut tree = hick_lang::ProjectTree::default();
+        tree.insert(message, hick_lang::ProjectEntry::file(source.as_bytes()))
+            .map_err(ApiError::unprocessable)?;
+        tree.insert(&name, entry).map_err(ApiError::unprocessable)?;
+        Ok((tree, name))
+    }
+}
+
+pub async fn prepare_fence_debug(
+    State(state): State<LocalState>,
+    Path((doc, turn_id)): Path<(String, String)>,
+    Json(request): Json<RecordedFenceAddress>,
+) -> ApiResult<Json<Value>> {
+    let turn = recorded_turn(&state, &doc, &turn_id)?;
+    let (tree, program) = request.prepare(&turn)?;
+    let id = format!("{:016x}", rand_id());
+    let uri = state
+        .lsp
+        .projects()
+        .register_recorded_fence(&id, tree, program.clone())
+        .map_err(ApiError::conflict)?;
+    Ok(Json(
+        json!({"version": 1, "id": id, "uri": uri, "source_hash": request.source_hash,
+        "program": program, "opening_line": request.opening_line, "started": false,
+        "workspace": state.index.root(), "turn": turn_id, "side": request.side}),
+    ))
+}
+
+pub async fn run_fence(
+    State(state): State<LocalState>,
+    Path((doc, turn_id)): Path<(String, String)>,
+    Json(request): Json<RecordedFenceAddress>,
+) -> ApiResult<Json<Value>> {
+    let workspace = state.resource_root.check(state.index.root()).map_err(ApiError::conflict)?;
+    let turn = recorded_turn(&state, &doc, &turn_id)?;
+    let (tree, program) = request.prepare(&turn)?;
+    let source = tree.get(&program).ok_or_else(|| ApiError::internal("The captured fence is unavailable."))?;
+    let scratch = tempfile::tempdir().map_err(|error| ApiError::internal(error.to_string()))?;
+    let root = scratch.path().to_path_buf();
+    let profile = recorded_run_profile(&program, &root)?;
+    std::fs::write(root.join(&program), source.bytes.as_ref())
+        .map_err(|error| ApiError::internal(error.to_string()))?;
+    if state.resource_root.check(state.index.root()).map_err(ApiError::conflict)? != workspace {
+        return Err(ApiError::conflict("The workspace changed before Run. Reopen the recorded fence."));
+    }
+    let terminal = super::launch_profiles::open_run(
+        &state, &profile, state.index.root(), &root, Some(scratch), None,
+    ).map_err(|error| ApiError::unprocessable(error.to_string()))?;
+    Ok(Json(json!({"version": 1, "terminal": terminal, "source_hash": request.source_hash,
+        "opening_line": request.opening_line, "workspace": state.index.root(),
+        "turn": turn_id, "side": request.side})))
+}
+
+fn recorded_run_profile(program: &str, root: &std::path::Path) -> ApiResult<crate::launch_profiles::Profile> {
+    let binary = format!("fence-program{}", std::env::consts::EXE_SUFFIX);
+    let (command, compiler) = match program {
+        "fence.py" => (vec!["python3", program], None),
+        "fence.js" | "fence.ts" => (vec!["node", program], None),
+        "fence.rb" => (vec!["ruby", program], None),
+        "fence.go" => (vec!["go", "run", program], None),
+        "fence.cs" => (vec!["dotnet", "run", "--file", program], None),
+        "fence.rs" => (vec![], Some("rustc")),
+        "fence.c" => (vec![], Some("cc")),
+        "fence.cpp" => (vec![], Some("c++")),
+        _ => return Err(ApiError::unprocessable("This fence language has no standalone runner.")),
+    };
+    let mut profile = crate::launch_profiles::command_profile(
+        "recorded-fence".into(), "recorded fence".into(),
+        command.into_iter().map(str::to_owned).collect(), ".".into(), "recorded fence",
+    );
+    if let Some(compiler) = compiler {
+        profile.definition.build = [compiler, program, "-o", &binary].into_iter().map(str::to_owned).collect();
+        profile.definition.command = vec![root.join(binary).to_string_lossy().into_owned()];
+    }
+    Ok(profile)
+}
+
+/// Read the exact local construction preserved in a completed turn.
+pub async fn inspect_fence_construction(
+    State(state): State<LocalState>,
+    Path((doc, turn_id)): Path<(String, String)>,
+    Json(request): Json<RecordedFenceAddress>,
+) -> ApiResult<Json<Value>> {
+    let workspace_id = state.resource_root.check(state.index.root()).map_err(ApiError::conflict)?;
+    let turn = recorded_turn(&state, &doc, &turn_id)?;
+    let source = request.source(&turn)?.to_owned();
+    if turn.status != "ok" {
+        return Err(ApiError::conflict("Choose a successfully completed turn with a verified construction."));
+    }
+    let capture = super::agent_projects::captured(&state, &doc, &turn_id)?;
+    let session = state.index.root().join(&turn.session);
+    let root = state.index.root().canonicalize().map_err(|error| ApiError::conflict(error.to_string()))?;
+    if capture.session != session || !capture.root.starts_with(&root) {
+        return Err(ApiError::conflict("The retained construction belongs to another turn or workspace."));
+    }
+    let opening_line = request.opening_line;
+    let inspection = tokio::task::spawn_blocking(move || {
+        super::agent_projects::inspect_recorded_patch(&capture, &source, opening_line as usize)
+    })
+    .await
+    .map_err(|error| ApiError::internal(error.to_string()))??;
+
+    let current = recorded_turn(&state, &doc, &turn_id)?;
+    request.source(&current)?;
+    if current.status != "ok" || current.session != turn.session ||
+        state.resource_root.check(state.index.root()).map_err(ApiError::conflict)? != workspace_id
+    {
+        return Err(ApiError::conflict("The recorded turn or workspace changed while reading its construction."));
+    }
+    Ok(Json(json!({
+        "version": 1, "read_only": true, "turn": turn_id, "side": request.side,
+        "source_hash": request.source_hash, "opening_line": opening_line,
+        "workspace": root, "workspace_id": workspace_id,
+        "entry": inspection.entry, "document": inspection.document,
+        "operation_id": inspection.operation_id, "opening_byte": inspection.opening_byte,
+        "completed_fingerprint": inspection.completed_fingerprint, "changes": inspection.changes,
+    })))
+}
+
+fn recorded_turn(state: &LocalState, doc: &str, turn_id: &str) -> ApiResult<TurnRecord> {
+    if state.private_prediction.is_some()
+        || crate::engine::private_policy::active()
+            .map_err(|error| ApiError::conflict(error.to_string()))?
+    {
+        return Err(ApiError::conflict(
+            "Recorded fence tools are unavailable in private prediction. Use its isolated tools.",
+        ));
+    }
+    let subject = super::agent_context::subject(state, doc)?;
+    let root = super::agent_context::session_root(state, doc)?;
+    state.agent.hydrate(&root, doc, &subject);
+    state
+        .agent
+        .turns
+        .lock()
+        .unwrap()
+        .get(doc)
+        .and_then(|turns| turns.iter().find(|turn| turn.id == turn_id))
+        .cloned()
+        .ok_or_else(|| {
+            ApiError::not_found("No recorded turn in this conversation. Refresh its history.")
+        })
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RecordedPatchRequest {
+    fence: RecordedFenceAddress,
+    intention: super::agent_proposals::Intention,
+}
+
+pub async fn prepare_fence_patch(
+    State(state): State<LocalState>,
+    Path((doc, turn_id)): Path<(String, String)>,
+    Json(mut request): Json<RecordedPatchRequest>,
+) -> ApiResult<Json<Value>> {
+    let turn = recorded_turn(&state, &doc, &turn_id)?;
+    let (source, region) = request.fence.select(&turn)?;
+    if !matches!(region.language.as_deref(), Some("diff" | "patch")) {
+        return Err(ApiError::unprocessable(
+            "Choose a recorded diff or patch fence to review.",
+        ));
+    }
+    let (diff, _) = region
+        .literal_fence(source, "recorded-message", 20_000)
+        .map_err(ApiError::unprocessable)?;
+    let side = match request.fence.side {
+        MessageSide::User => "user",
+        MessageSide::Assistant => "assistant",
+    };
+    request.intention.origin = format!(
+        "{side} message in turn {turn_id}, line {}",
+        u64::from(request.fence.opening_line) + 1
+    );
+    let authority = format!(
+        "recorded {side} fence, source SHA-256 {}; claims remain unverified",
+        request.fence.source_hash
+    );
+    super::agent_proposals::prepare_recorded_patch(state, request.intention, &authority, &diff)
+        .await
+}
+
+#[cfg(test)]
+mod recorded_fence_debug_tests {
+    use super::*;
+
+    fn fixture() -> TurnRecord {
+        TurnRecord {
+            backend: "fixture".into(), id: "fixture".into(), parent_id: None,
+            prompt: "Prose 😀\r\n  ```python\r\n  value = 41\r\n  print(value + 1)\r\n  ```\r\n\r\n```python\r\nraise RuntimeError('wrong fence')\r\n```\r\n".into(),
+            answer: Some("Answer\n\n~~~py\nvalue = 41\nprint(value + 1)\n~~~\n".into()),
+            status: "ok".into(), error: None, created_at: String::new(),
+            provider: String::new(), model: String::new(), usage: None, session: String::new(),
+        }
+    }
+
+    fn request(side: MessageSide, source: &str, opening_line: u32) -> RecordedFenceAddress {
+        RecordedFenceAddress {
+            side,
+            opening_line,
+            source_hash: super::super::source_tests::digest(source.as_bytes()),
+        }
+    }
+
+    #[test]
+    fn recorded_fence_preparation_keeps_side_revision_and_source_coordinates_exact() {
+        let mut turn = fixture();
+        let user = request(MessageSide::User, &turn.prompt, 1);
+        let assistant = request(MessageSide::Assistant, turn.answer.as_deref().unwrap(), 2);
+        let scratch = tempfile::tempdir().unwrap();
+        for (request, text, line, output) in [
+            (
+                &user,
+                turn.prompt.as_str(),
+                2,
+                "value = 41\r\nprint(value + 1)\r\n",
+            ),
+            (
+                &assistant,
+                turn.answer.as_deref().unwrap(),
+                3,
+                "value = 41\nprint(value + 1)\n",
+            ),
+        ] {
+            let (tree, program) = request.prepare(&turn).unwrap();
+            assert_eq!(
+                tree.get(hick_lsp::ProjectContext::RECORDED_MESSAGE)
+                    .unwrap()
+                    .bytes
+                    .as_ref(),
+                text.as_bytes()
+            );
+            assert_eq!(
+                tree.get(&program).unwrap().bytes.as_ref(),
+                output.as_bytes()
+            );
+            let mapping = hick_dap::Mapping::recorded_fence(
+                &tree,
+                scratch.path(),
+                "0123456789abcdef",
+                &program,
+            )
+            .unwrap();
+            assert_eq!(
+                mapping.source_hash(mapping.document()).as_deref(),
+                Some(request.source_hash.as_str())
+            );
+            let (path, first) = mapping.to_generated(line).unwrap();
+            assert_eq!(first, 0);
+            assert_eq!(mapping.to_document(&path, 1), Some(line + 1));
+            assert_eq!(
+                mapping.to_generated(line - 1),
+                None,
+                "opening delimiter has no executable bytes"
+            );
+            assert_eq!(
+                mapping.to_generated(line + 2),
+                None,
+                "closing delimiter has no executable bytes"
+            );
+        }
+        assert!(
+            request(MessageSide::Assistant, &turn.prompt, 1)
+                .prepare(&turn)
+                .is_err()
+        );
+        assert!(
+            request(MessageSide::User, &turn.prompt, 2)
+                .prepare(&turn)
+                .is_err()
+        );
+        turn.status = "running".into();
+        assert!(assistant.prepare(&turn).is_err());
+        assert!(user.prepare(&turn).is_ok());
+        turn.prompt.push(' ');
+        assert!(user.prepare(&turn).is_err());
+        assert_eq!(std::fs::read_dir(scratch.path()).unwrap().count(), 0);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test(flavor = "multi_thread")]
+    #[ignore = "requires an installed Python debugpy adapter"]
+    async fn debugpy_steps_inside_each_recorded_message_side() {
+        use crate::{debug_sessions::Registry, serve::debug_bridge};
+
+        async fn ask(
+            registry: &Arc<Registry>,
+            root: &std::path::Path,
+            request: Value,
+        ) -> Vec<Value> {
+            debug_bridge::handle(registry, root, serde_json::from_value(request).unwrap())
+                .await
+                .into_iter()
+                .map(|response| serde_json::to_value(response).unwrap())
+                .collect()
+        }
+
+        fn event<'a>(responses: &'a [Value], kind: &str) -> &'a Value {
+            responses
+                .iter()
+                .find(|response| response["event"] == kind)
+                .unwrap_or_else(|| panic!("Missing {kind}: {responses:?}"))
+        }
+
+        let turn = fixture();
+        let workspace = tempfile::tempdir().unwrap();
+        let projects = Arc::new(hick_lsp::ProjectContexts::default());
+        let registry = Arc::new(Registry::with_projects(
+            projects.clone(),
+            workspace.path().to_path_buf(),
+        ));
+        for (id, request, line) in [
+            (
+                "0123456789abcdef",
+                request(MessageSide::User, &turn.prompt, 1),
+                2,
+            ),
+            (
+                "fedcba9876543210",
+                request(MessageSide::Assistant, turn.answer.as_deref().unwrap(), 2),
+                3,
+            ),
+        ] {
+            let (tree, program) = request.prepare(&turn).unwrap();
+            let doc = projects.register_recorded_fence(id, tree, program).unwrap();
+            let stale = ask(&registry, workspace.path(), json!({"op":"start","doc":doc,"request_id":"stale-record","source_hash":"0".repeat(64),"breakpoints":[{"line":line}]})).await;
+            assert!(
+                event(&stale, "failed")["message"]
+                    .as_str()
+                    .unwrap()
+                    .contains("message revision")
+            );
+            assert!(registry.is_empty().await);
+            let start = ask(&registry, workspace.path(), json!({"op":"start","doc":doc,"request_id":"start-record","source_hash":request.source_hash,"breakpoints":[{"line":line}]})).await;
+            let session = &event(&start, "started")["session"];
+            let stopped = event(&start, "stopped");
+            assert_eq!(stopped["line"], line);
+            assert_eq!(stopped["frames"][0]["source"], doc);
+            assert_eq!(stopped["frames"][0]["source_hash"], request.source_hash);
+            let stepped = ask(&registry, workspace.path(), json!({"op":"step","session":session,"request_id":"step-record","how":"over","stop":stopped["stop"],"thread":stopped["thread"]})).await;
+            let stopped = event(&stepped, "stopped");
+            assert_eq!(stopped["line"], line + 1);
+            let value = ask(&registry, workspace.path(), json!({"op":"eval","session":session,"request_id":"eval-record","expression":"value","stop":stopped["stop"],"thread":stopped["thread"],"frame":stopped["frames"][0]["id"]})).await;
+            assert_eq!(event(&value, "value")["value"], "41");
+            let finished = ask(&registry, workspace.path(), json!({"op":"step","session":session,"request_id":"finish-record","how":"continue","stop":stopped["stop"],"thread":stopped["thread"]})).await;
+            assert_eq!(event(&finished, "finished")["exit_code"], 0);
+            projects.remove(id);
+        }
+        assert_eq!(std::fs::read_dir(workspace.path()).unwrap().count(), 0);
+    }
+}
+
 /// `GET /api/docs/:id/agent/turns` — the document's turn tree, in creation
 /// order, plus what the next turn would run on and the session's spend:
 ///

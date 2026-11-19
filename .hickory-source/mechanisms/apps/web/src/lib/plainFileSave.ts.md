@@ -42,6 +42,7 @@ the disk copy) — instead of re-sending on the next keystroke.
 
 export type PlainSaveState =
   | { kind: "idle" }
+  | { kind: "draft" }
   | { kind: "saving" }
   | { kind: "saved" }
   /** The disk moved underneath the buffer; resolve() is the only way on. */
@@ -56,7 +57,9 @@ export type PlainSaveState =
 export interface PlainSaverOptions {
   /** PUT the whole content under `baseHash`; resolves to the new hash. A
    * rejection whose `status` is 409 is the disk-moved conflict. */
-  put: (content: string, baseHash: string, force: boolean) => Promise<{ hash: string }>;
+  put: (content: string, baseHash: string, force: boolean, guard: string | null) => Promise<{ hash: string; save_guard?: string | null }>;
+  /** The strict, independently acknowledged publication route for a detached draft. */
+  publish?: (request: { content: string; baseHash: string; guard: string; id: string }, current: () => boolean) => Promise<{ hash: string; save_guard: string }>;
   onState: (state: PlainSaveState) => void;
   /** Pause that turns keystrokes into a save. Default 600ms. */
   debounceMs?: number;
@@ -70,7 +73,7 @@ export interface PlainSaverOptions {
 export interface PlainSaver {
   /** The server's copy, freshly loaded — content is only needed to tell "no
    * edits yet" from "edits pending"; the hash is what saves ride on. */
-  load(content: string, hash: string): void;
+  load(content: string, hash: string, guard?: string | null): void;
   /** The buffer changed; schedule a save of its full text. */
   changed(next: string): void;
   /** True while the buffer holds text the server has not confirmed. The
@@ -88,11 +91,16 @@ export interface PlainSaver {
    * a three-way merge. It is also what a draft records, so the same choice is
    * available after a restart. */
   baseContent(): string;
-  /** Write whatever is pending NOW, skipping the debounce — what File >
-   * Save All asks of every pane holding a file. A buffer with nothing
-   * pending, or one parked on a conflict, does nothing: forcing a conflicted
-   * save from a menu item would overwrite somebody's work without asking. */
+  baseGuard(): string | null;
+  /** Flush ordinary autosave for a dependent operation. A dirty detached draft refuses. */
   flushNow(): Promise<boolean>;
+  /** Explicit Save / Save All may publish a detached draft with its captured guard. */
+  saveNow(): Promise<boolean>;
+  isDetached(): boolean;
+  /** Restore the private publication mode before applying retained text. */
+  restoreDetached(): void;
+  /** Validate and prepare the plane switch without changing the saver. */
+  prepareDetach(base: string, guard: string): { current: () => boolean; commit: () => void; rollback: () => void } | null;
   /** Throw away edits that have not reached the file and return its text. */
   discardPending(): string;
   /** Cancel the pending debounce (unmount). In-flight PUTs settle alone. */
@@ -103,101 +111,168 @@ export interface PlainSaver {
 <a id="f-07b4144df7a0-createPlainSaver"></a>
 ### `createPlainSaver`
 
+The ordinary debounce and explicit Save share serialization. A prepared switch
+checks the saved guard and rejects an executing or queued write. Commit cancels
+the old debounce before the editor transaction can notify the saver. If another
+editor refuses the group, rollback restores the old draft plane and its pending
+autosave. A detached Save can retry the same retained request when the strict
+receipt is uncertain, even if subsequent typing has moved the live draft.
+
 <storycode:copy id="f-07b4144df7a0-createPlainSaver">
 export function createPlainSaver(options: PlainSaverOptions): PlainSaver {
   const debounce = options.debounceMs ?? 600;
   // What the server holds, as far as a successful exchange has told us.
   let baseHash = "";
   let baseContent = "";
+  let baseGuard: string | null = null;
   // The newest full buffer text; the debounce and the chain both read it at
   // fire time, so intermediate states are skipped rather than queued.
   let latest: string | null = null;
   let conflicted = false;
   let timer: ReturnType<typeof setTimeout> | null = null;
+  let detached = false, revision = 0, baseline = 0, queued = 0;
+  let attempt: { content: string; baseHash: string; guard: string; id: string } | null = null;
+  let state: PlainSaveState = { kind: "idle" };
   // Saves run strictly one after another, each against the hash the
   // previous exchange established.
   let chain: Promise<void> = Promise.resolve();
 
-  const flush = (force = false): Promise<boolean> => {
+  const notify = (next: PlainSaveState) => { state = next; options.onState(next); };
+  const clearTimer = () => { if (timer !== null) clearTimeout(timer); timer = null; };
+  const dirty = () => latest !== null && latest !== baseContent;
+  const schedule = () => { timer = setTimeout(() => { timer = null; void flush(); }, debounce); };
+
+  const flush = (force = false, explicit = false): Promise<boolean> => {
+    if (detached && (!explicit || force)) return Promise.resolve(!dirty() && !attempt && !conflicted);
+    if (detached && queued) return Promise.resolve(false);
+    const heldTarget = detached ? attempt?.content ?? latest : null;
+    const originalBaseline = baseline;
+    queued++;
     let succeeded = true;
     chain = chain.then(async () => {
-      if (conflicted && !force) return;
-      const target = latest;
-      if (target === null || target === baseContent) return;
-      options.onState({ kind: "saving" });
+      if (baseline !== originalBaseline || conflicted && !force) { succeeded = false; return; }
+      const target = detached ? heldTarget : latest;
+      if (target === null || target === baseContent && !attempt) return;
+      notify({ kind: "saving" });
       try {
-        const saved = await options.put(target, baseHash, force);
+        let saved;
+        if (detached) {
+          if (!options.publish || !baseGuard || !baseHash) throw Error("Saved source authority is unavailable. Keep the draft and review the saved file before retrying.");
+          attempt ??= { content: target, baseHash, guard: baseGuard, id: crypto.randomUUID().replaceAll("-", "") };
+          saved = await options.publish(attempt, () => baseline === originalBaseline);
+          if (baseline !== originalBaseline) { succeeded = false; return; }
+          attempt = null;
+        } else {
+          saved = await options.put(target, baseHash, force, baseGuard);
+          if (baseline !== originalBaseline) { succeeded = false; return; }
+        }
         baseHash = saved.hash;
         baseContent = target;
+        baseGuard = saved.save_guard ?? null;
+        revision++;
         conflicted = false;
-        options.onState(latest === target ? { kind: "saved" } : { kind: "saving" });
+        notify(!dirty() ? { kind: "saved" } : { kind: detached ? "draft" : "saving" });
       } catch (e) {
         succeeded = false;
         if ((e as { status?: number }).status === 409) {
           conflicted = true;
-          options.onState({ kind: "conflict" });
+          notify({ kind: "conflict" });
           return;
         }
-        options.onState({
+        notify({
           kind: "error",
           message: e instanceof Error ? e.message : String(e),
         });
       }
     });
-    return chain.then(() => succeeded && !conflicted && (latest === null || latest === baseContent));
+    return chain.then(() => succeeded && !conflicted && !dirty()).finally(() => { queued--; });
   };
 
   return {
-    load(content: string, hash: string) {
+    load(content: string, hash: string, guard?: string | null) {
+      clearTimer();
+      revision++;
+      baseline++;
       baseHash = hash;
       baseContent = content;
+      baseGuard = guard ?? null;
       latest = null;
       conflicted = false;
-      options.onState({ kind: "idle" });
+      attempt = null;
+      notify({ kind: "idle" });
     },
     changed(next: string) {
+      revision++;
       latest = next;
-      options.onState(conflicted ? { kind: "conflict" } : next === baseContent ? { kind: "saved" } : { kind: "saving" });
-      if (timer !== null) clearTimeout(timer);
-      timer = setTimeout(() => flush(), debounce);
+      notify(conflicted ? { kind: "conflict" } : next === baseContent && !attempt ? { kind: detached ? "idle" : "saved" } : { kind: detached ? "draft" : "saving" });
+      clearTimer();
+      if (!detached) schedule();
     },
     hasPendingEdits() {
-      return latest !== null && latest !== baseContent;
+      return dirty() || attempt !== null;
     },
     flushNow() {
-      if (timer !== null) {
-        clearTimeout(timer);
-        timer = null;
-      }
+      clearTimer();
       return flush();
     },
+    saveNow() { clearTimer(); return flush(false, true); },
+    isDetached() { return detached; },
+    restoreDetached() {
+      if (queued) throw Error("Wait for the current save before restoring this private draft.");
+      clearTimer(); detached = true; revision++;
+      notify(dirty() ? { kind: "draft" } : { kind: "idle" });
+    },
+    prepareDetach(base, guard) {
+      if (!guard || !baseHash || guard !== baseGuard || base !== baseContent || conflicted || queued || attempt) return null;
+      const captured = revision, previousText = latest, previousState = state, previousDetached = detached;
+      const hadTimer = timer !== null;
+      let committed = false;
+      const current = () => !committed && revision === captured && !queued;
+      return {
+        current,
+        commit() {
+          if (!current()) throw Error("The plain file save plane changed. Review the draft again.");
+          clearTimer(); detached = true; committed = true; revision++;
+        },
+        rollback() {
+          if (!committed) return;
+          committed = false; revision++; latest = previousText; detached = previousDetached;
+          clearTimer();
+          if (hadTimer) schedule();
+          notify(previousState);
+        },
+      };
+    },
     discardPending() {
-      if (timer !== null) clearTimeout(timer);
-      timer = null;
+      clearTimer(); revision++; baseline++;
       latest = null;
       conflicted = false;
-      options.onState({ kind: "idle" });
+      attempt = null;
+      notify({ kind: "idle" });
       return baseContent;
     },
     baseContent() {
       return baseContent;
     },
+    baseGuard() {
+      return baseGuard;
+    },
     resolve(how: "overwrite" | "reload") {
       if (!conflicted) return;
       if (how === "overwrite") {
-        flush(true);
+        if (!detached) void flush(true);
       } else {
         // The caller is adopting the disk copy and will load() it; until
         // then nothing must fire against a hash known to be stale.
         conflicted = false;
         latest = null;
-        if (timer !== null) clearTimeout(timer);
-        timer = null;
+        attempt = null;
+        revision++; baseline++;
+        clearTimer();
       }
     },
     dispose() {
-      if (timer !== null) clearTimeout(timer);
-      timer = null;
+      clearTimer(); revision++;
     },
   };
 }
@@ -235,7 +310,7 @@ Protects docs/guarantees/authoring/a-plain-file-opens-and-saves.md.
 // becomes a parked conflict — never a silent overwrite, never a retry loop.
 // Protects docs/guarantees/authoring/a-plain-file-opens-and-saves.md.
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { createPlainSaver, type PlainSaveState } from "./plainFileSave";
 
@@ -294,6 +369,61 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 15));
 
 <storycode:copy id="f-94afcad10b27-expression_statement">
 describe("createPlainSaver", () => {
+  it("holds detached edits and retries the exact explicit save after an uncertain reply", async () => {
+    const put = vi.fn(async () => ({hash: "legacy"}));
+    const publish = vi.fn<NonNullable<Parameters<typeof createPlainSaver>[0]["publish"]>>()
+      .mockRejectedValueOnce(Error("reply lost"))
+      .mockResolvedValueOnce({hash: "after hash", save_guard: "second guard"})
+      .mockResolvedValueOnce({hash: "typed hash", save_guard: "third guard"});
+    const s = createPlainSaver({put, publish, onState: () => {}, debounceMs: 1});
+    s.load("saved", "original hash", "original guard");
+    s.changed("previous edit");
+    const plane = s.prepareDetach("saved", "original guard")!;
+    expect(plane.current()).toBe(true);
+    plane.commit();
+    s.changed("proposed");
+    s.changed("previous edit"); // Native Undo.
+    expect(await s.flushNow()).toBe(false);
+    await settle();
+    expect(put).not.toHaveBeenCalled();
+    expect(publish).not.toHaveBeenCalled();
+    expect(await s.saveNow()).toBe(false);
+    s.changed("newer typed draft");
+    expect(await s.saveNow()).toBe(false);
+    expect(publish.mock.calls[1]?.[0]).toEqual(publish.mock.calls[0]?.[0]);
+    expect(publish.mock.calls[0]?.[0]).toMatchObject({content: "previous edit", baseHash: "original hash", guard: "original guard"});
+    expect(s.hasPendingEdits()).toBe(true);
+    expect(await s.saveNow()).toBe(true);
+    expect(publish.mock.calls[2]?.[0]).toMatchObject({content: "newer typed draft", baseHash: "after hash", guard: "second guard"});
+    expect(put).not.toHaveBeenCalled();
+  });
+
+  it("restores the ordinary pending debounce when a prepared group aborts", async () => {
+    const remote = server("saved");
+    const {s} = saver(remote);
+    s.load(remote.content, remote.hash, "guard");
+    s.changed("earlier typing");
+    const plane = s.prepareDetach("saved", "guard")!;
+    plane.commit();
+    s.changed("proposed");
+    plane.rollback();
+    expect(s.isDetached()).toBe(false);
+    await settle();
+    expect(remote.content).toBe("earlier typing");
+  });
+
+  it("replaces and clears the physical guard with the saved baseline", async () => {
+    const put = async (content: string) => ({hash: content, save_guard: content === "confirmed" ? "new guard" : null});
+    const s = createPlainSaver({put, onState: () => {}});
+    s.load("original", "first hash", "original guard");
+    s.changed("confirmed");
+    expect([s.baseContent(), s.baseGuard()]).toEqual(["original", "original guard"]);
+    await s.flushNow();
+    expect([s.baseContent(), s.baseGuard()]).toEqual(["confirmed", "new guard"]);
+    s.changed("no guard");
+    await s.flushNow();
+    expect([s.baseContent(), s.baseGuard()]).toEqual(["no guard", null]);
+  });
   it("saves the newest text after the pause, and advances the hash it rides on", async () => {
     const remote = server("one\n");
     const { s, states } = saver(remote);

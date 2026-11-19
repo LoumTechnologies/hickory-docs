@@ -5,6 +5,12 @@ For maintainers implementing rich source editing on native platforms.
 
 Compute a line-start index and presentation against immutable UTF-16 text. Visible gutters use binary search into the current snapshot instead of repeatedly copying and counting the entire prefix on every scrolled line. Keep Markdown delimiters and original bytes in the editor, skip fenced and Hickory payload bodies, and expose exact cell/equation ranges for guarded contextual edits. Large documents retain plain source while this optional scanner is bounded to 200,000 UTF-16 units.
 
+Ordinary executable-language fences in a recorded message need an opening-line
+action and breakpoint targets in their body. Unified diff examples need their
+own review action. The scan publishes a candidate only after matching its
+closing delimiter. These positions become usable only when a retained message
+supplies its turn and exact source to the engine.
+
 CSV declarations and standalone CSV files use the same grid as prose tables. Group cells only while the intervening source consists of delimiters and record separators; tags between two declarations keep their grids separate. Preserve each cell’s format and delimiter on commit so commas, quotes and embedded newlines round-trip. Revealing a table records its anchor independently of the other grids.
 
 Markdown prose tables now use those exact cell ranges to form whole-table presentation ranges. Keep the final newline outside the replacement so following prose retains its paragraph. Header separators belong to the replacement, but never become editable data cells. Only cells admitted by the prose or CSV scanner can enter a grid; fenced code and Hickory literal bodies stay source. The Swift and Kotlin range witnesses check CRLF, emoji and escaped pipes.
@@ -224,7 +230,19 @@ func inlineCSVCells(_ body: String, line: Int, offset: Int, delimiter: String) -
 }
 // Candidate discovery runs with the background snapshot, once per source revision.
 // The adapter remains authoritative about binding or refusing a pending stop.
-struct InlineDebugContext: Sendable { var code: [Int: String] = [:]; var launch: [Int: String] = [:] }
+struct RecordedDebugFence: Sendable, Equatable {
+    var opening: Int
+    var closing: Int
+    var language: String
+    func contains(_ line: Int) -> Bool { opening < line && line < closing }
+}
+struct InlineDebugContext: Sendable {
+    var code: [Int: String] = [:]
+    var launch: [Int: String] = [:]
+    var recorded: [Int: RecordedDebugFence] = [:]
+    var recordedPatches: Set<Int> = []
+    var recordedConstructions: Set<Int> = []
+}
 func inlineDebugContext(_ source: String, path: String) -> InlineDebugContext {
     var result = InlineDebugContext()
     guard source.utf16.count <= 200_000 else { return result }
@@ -237,22 +255,55 @@ func inlineDebugContext(_ source: String, path: String) -> InlineDebugContext {
     }
     guard ["md", "markdown"].contains((path as NSString).pathExtension.lowercased()) else { return result }
     var fence = "", mode = "", target: String?, oldLines = 0, newLines = 0
+    var recorded: (opening: Int, language: String)?
+    var declaredPatch: Int?, declaredClose: String?
+    let standalone = Set(["py", "python", "python3", "js", "javascript", "node", "ts", "typescript", "rs", "rust", "c", "cpp", "c++", "cxx", "go", "golang", "cs", "csharp", "c#", "rb", "ruby"])
+    let patchLanguages = Set(["diff", "patch"])
     let opening = try! NSRegularExpression(pattern: #"^ {0,3}<[\w.-]+:(file|patch|copy|cut|exec|entry|diagram|math|table)\b[^>]*>"#)
     let pathHint = try! NSRegularExpression(pattern: #"\bpath\s*=\s*["']([^"']+)["']"#)
     let hunk = try! NSRegularExpression(pattern: #"^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@"#)
     for (index, row) in rows.enumerated() {
         let trimmed = row.trimmingCharacters(in: .whitespacesAndNewlines), text = row as NSString
         if !fence.isEmpty {
-            if trimmed.count >= fence.count, trimmed.allSatisfy({ $0 == fence.first! }) { fence = ""; mode = ""; target = nil; continue }
+            if trimmed.count >= fence.count, trimmed.allSatisfy({ $0 == fence.first! }) {
+                if let recorded, index > recorded.opening + 1,
+                   row.prefix(while: { $0 == " " }).count <= 3,
+                   rows[(recorded.opening + 1)..<index].contains(where: { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) {
+                    if patchLanguages.contains(recorded.language) { result.recordedPatches.insert(recorded.opening) }
+                    else { result.recorded[recorded.opening] = RecordedDebugFence(opening: recorded.opening, closing: index, language: recorded.language) }
+                }
+                if let declaredPatch, index > declaredPatch + 1,
+                   row.prefix(while: { $0 == " " }).count <= 3,
+                   rows[(declaredPatch + 1)..<index].contains(where: { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) {
+                    result.recordedConstructions.insert(declaredPatch)
+                }
+                fence = ""; mode = ""; target = nil; recorded = nil; declaredPatch = nil; continue
+            }
         } else if !mode.isEmpty {
-            if trimmed.contains("</"), trimmed.contains(":" + mode + ">") { mode = ""; target = nil; continue }
+            if trimmed.contains("</"), trimmed.contains(":" + mode + ">") {
+                if let declaredPatch, let declaredClose, trimmed.contains(declaredClose),
+                   index > declaredPatch + 1,
+                   rows[(declaredPatch + 1)..<index].contains(where: { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) {
+                    result.recordedConstructions.insert(declaredPatch)
+                }
+                mode = ""; target = nil; declaredPatch = nil; declaredClose = nil; continue
+            }
         } else {
             var declaration = ""
             if let marker = row.range(of: #"^ {0,3}(`{3,}|~{3,})"#, options: .regularExpression) {
                 fence = String(row[marker]).trimmingCharacters(in: .whitespaces)
                 declaration = String(row[marker.upperBound...]); mode = declaration.trimmingCharacters(in: .whitespaces).components(separatedBy: " ")[0] == "patch" ? "patch" : "file"
+                let language = declaration.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                if standalone.contains(language) || patchLanguages.contains(language) { recorded = (index, language) }
+                let info = declaration.trimmingCharacters(in: .whitespacesAndNewlines)
+                if info != "patch", info.split(whereSeparator: { $0.isWhitespace }).first == "patch" { declaredPatch = index }
             } else if let match = opening.firstMatch(in: row, range: NSRange(location: 0, length: text.length)) {
                 mode = text.substring(with: match.range(at: 1)); declaration = text.substring(with: match.range)
+                if mode == "patch", !declaration.hasSuffix("/>"),
+                   let tag = declaration.trimmingCharacters(in: .whitespaces).dropFirst().split(separator: ":", maxSplits: 1).first {
+                    declaredPatch = index
+                    declaredClose = "</\(tag):patch>"
+                }
             } else { continue }
             oldLines = 0; newLines = 0; target = nil
             if mode == "file", let match = pathHint.firstMatch(in: declaration, range: NSRange(location: 0, length: declaration.utf16.count)) {
@@ -487,6 +538,11 @@ func inlineTableAttribute(_ name: String, table: InlineTable, source: String) ->
 
 The Kotlin scanner returns source-backed styles and cell ranges. Escaped pipes and code-span pipes cannot create extra columns; applying a cell edit escapes literal pipes and retains all untouched bytes.
 
+The Android Agent card suggests ordinary complete fences and declared patches
+by their opening lines. A fenced example can quote a patch tag without offering
+an action for it. The engine rereads the recorded message before supplying launch
+authority or establishing a captured construction.
+
 <ui:copy id="simple-inline-model-1">
 package com.hickorydocs.simple
 
@@ -612,7 +668,66 @@ fun inlineCSVCells(body: String, line: Int, offset: Int, delimiter: String): Lis
     return if (quoted) emptyList() else result
 }
 // Candidate discovery belongs to the background source snapshot, not each draw.
-data class InlineDebugContext(val code: Map<Int, String> = emptyMap(), val launch: Map<Int, String> = emptyMap())
+data class InlineDebugContext(
+    val code: Map<Int, String> = emptyMap(),
+    val launch: Map<Int, String> = emptyMap(),
+    val recordedClosing: Map<Int, Int> = emptyMap(),
+    val recordedPatches: Set<Int> = emptySet(),
+    val declaredPatches: Set<Int> = emptySet(),
+)
+// Recorded cards suggest complete pathless fences and declared patch openers.
+// Only the engine can associate a declaration with a verified construction.
+fun recordedFenceDebugContext(source: String): InlineDebugContext {
+    if (source.length > 200_000) return InlineDebugContext()
+    val marker = Regex("""^ {0,3}(`{3,}|~{3,})(.*)$""")
+    val languages = listOf(
+        "python" to setOf("py", "python", "python3"), "javascript" to setOf("js", "javascript", "node"),
+        "typescript" to setOf("ts", "typescript"), "rust" to setOf("rs", "rust"), "c" to setOf("c"),
+        "cpp" to setOf("cpp", "c++", "cxx"), "go" to setOf("go", "golang"),
+        "csharp" to setOf("cs", "csharp", "c#"), "ruby" to setOf("rb", "ruby"),
+    )
+    val launch = mutableMapOf<Int, String>()
+    val code = mutableMapOf<Int, String>()
+    val closing = mutableMapOf<Int, Int>()
+    val patches = mutableSetOf<Int>()
+    val declared = mutableSetOf<Int>()
+    val patchTag = Regex("""^ {0,3}<hick:patch(?=[\s/>]|$)""")
+    val patchFence = Regex("""^patch\s+.*[\w.-]+\s*=\s*["']""")
+    var opening: MatchResult? = null
+    var first = 0
+    var inPatchTag = false
+    val rows = source.split('\n')
+    for ((line, row) in rows.withIndex()) {
+        val authored = if (line == 0) row.removePrefix("\uFEFF") else row
+        if (inPatchTag) {
+            if ("</hick:patch>" in authored) inPatchTag = false
+            continue
+        }
+        if (opening == null && patchTag.containsMatchIn(authored)) {
+            declared.add(line)
+            inPatchTag = "</hick:patch>" !in authored && !authored.trimEnd().endsWith("/>")
+            continue
+        }
+        val match = marker.matchEntire(authored.removeSuffix("\r")) ?: continue
+        val held = opening
+        if (held == null) { opening = match; first = line; continue }
+        val original = held.groupValues[1]
+        val close = match.groupValues[1]
+        if (original.first() != close.first() || original.length > close.length || match.groupValues[2].isNotBlank()) continue
+        opening = null
+        val info = held.groupValues[2].trim()
+        val hint = info.lowercase()
+        val body = (first + 1 until line).filter { rows[it].isNotBlank() }
+        if (body.isEmpty()) continue
+        if (hint == "diff" || hint == "patch") { patches.add(first); continue }
+        if (patchFence.containsMatchIn(info)) { declared.add(first); continue }
+        val language = languages.firstOrNull { hint in it.second }?.first ?: continue
+        launch[first] = language
+        closing[first] = line
+        for (codeLine in body) code[codeLine] = language
+    }
+    return InlineDebugContext(code, launch, closing, patches, declared)
+}
 fun inlineDebugContext(source: String, path: String): InlineDebugContext {
     if (source.length > 200_000) return InlineDebugContext()
     val supported = listOf("py", "js", "ts", "jsx", "tsx", "rs", "go", "c", "cpp", "java", "cs")
@@ -744,9 +859,9 @@ fun inlineDiagrams(source: String): List<InlineDiagram> {
     }
     return result
 }
-fun computeInlineMarkup(source: String, path: String): InlineSnapshot {
+fun computeInlineMarkup(source: String, path: String, recordedMessage: Boolean = false): InlineSnapshot {
     val starts = mutableListOf(0); source.forEachIndexed { index, char -> if (char == '\n') starts.add(index + 1) }
-    val debug = inlineDebugContext(source, path)
+    val debug = if (recordedMessage) recordedFenceDebugContext(source) else inlineDebugContext(source, path)
     if (path.substringAfterLast('.', "").lowercase() == "csv" && source.length <= 200_000) return InlineSnapshot(source, lineStarts = starts, cells = if (source.isEmpty()) listOf(InlineCell(0, 0, 0, 0, "", "csv")) else inlineCSVCells(source, 0, 0, ","), debug = debug)
     if (path.substringAfterLast('.', "").lowercase() !in listOf("md", "markdown") || source.length > 200_000) return InlineSnapshot(source, lineStarts = starts, debug = debug)
     val rows = source.split('\n'); val marks = mutableListOf<InlineMark>(); val cells = mutableListOf<InlineCell>(); val equations = mutableListOf<InlineEquation>()
@@ -921,6 +1036,7 @@ globalThis.writeInteractiveTerminal = function (base64) {
 };
 globalThis.renderTerminal = function (source) {
   const node = document.getElementById('formula'), status = document.getElementById('status');
+  node.setAttribute('aria-label', 'Terminal output');
   document.body.classList.add('terminal-mode'); status.textContent = '';
   if (!globalThis.Terminal) { node.textContent = source; status.textContent = 'Terminal renderer unavailable. Prepare resources and rebuild.'; return; }
   try {
@@ -1075,6 +1191,8 @@ Apple previews keep the editor’s reserved inline slots stable. Measure rendere
 
 Apple embeds a small typesetter in the line’s floating editor. Navigation is restricted to the local page, and the LaTeX replacement still passes through source, permission, composition and undo checks.
 
+The Swift package installs the preview page and its local terminal renderer next to the test bundle. Resolve that exact resource package when the preview is hosted by XCTest so the same renderer is available there.
+
 <ui:copy id="simple-inline-math-2">
 import SwiftUI
 import WebKit
@@ -1123,7 +1241,14 @@ func nativeMathResource(roots: [URL], bundles: [Bundle] = [.main, Bundle(for: Ma
     let installed = roots.flatMap { root in
         [root, root.appendingPathComponent("HickorySimple_HickorySimple.bundle"), root.appendingPathComponent("HickorySimple_HickorySimple.resources")]
     } + bundles.flatMap { [$0.bundleURL] + [$0.resourceURL].compactMap { $0 } }
-    for root in installed {
+    #if SWIFT_PACKAGE
+    let testResources = bundles.filter { $0.bundleURL.pathExtension == "xctest" }.map {
+        $0.bundleURL.deletingLastPathComponent().appendingPathComponent("HickorySimple_HickorySimple.bundle")
+    }
+    #else
+    let testResources: [URL] = []
+    #endif
+    for root in installed + testResources {
         for relative in ["HickoryAssets/Resources/math.html", "Resources/math.html", "Contents/Resources/Resources/math.html", "Contents/Resources/math.html", "math.html"] {
             let url = root.appendingPathComponent(relative)
             if FileManager.default.isReadableFile(atPath: url.path) { return url }
@@ -1177,7 +1302,8 @@ struct NativeInlineTerminal: View {
                 .font(.system(size: 11, design: .monospaced)).padding(6).background(Color(red: 0.11, green: 0.15, blue: 0.2))
             NativeMathView(source: text, diagramRenderer: text.contains("\u{1e}HICKORY_DISPLAY ") ? "notebook" : "terminal")
         }.foregroundStyle(Color(red: 0.9, green: 0.93, blue: 0.95)).background(Color(red: 0.06, green: 0.08, blue: 0.11))
-            .clipShape(RoundedRectangle(cornerRadius: 6)).overlay(RoundedRectangle(cornerRadius: 6).stroke(.gray.opacity(0.5))).accessibilityLabel("Output terminal")
+            .clipShape(RoundedRectangle(cornerRadius: 6)).overlay(RoundedRectangle(cornerRadius: 6).stroke(.gray.opacity(0.5)))
+            .accessibilityElement(children: .contain).accessibilityLabel("Output terminal")
     }
 }
 struct NativeDiagramPreview: View {
@@ -1276,12 +1402,12 @@ import { request } from "../api/client";
 
 // The owners live above pane layout. Moving a cached editor cannot unmount a
 // table's uncommitted cell editor or lose a rendered widget's own local state.
-export function RichOwners({ buffers }: { buffers: Buffers }) {
+export function RichOwners({ buffers, recorded = false }: { buffers: Buffers; recorded?: boolean }) {
   const [, refresh] = useState(0);
   useEffect(() => { const update = () => refresh(value => value + 1); window.addEventListener(SIMPLE_EDITOR_ATTACHED, update); update(); return () => window.removeEventListener(SIMPLE_EDITOR_ATTACHED, update); }, []);
   return <>{[...buffers.values.values()].map(buffer => {
     const cached = editorForBuffer(buffer);
-    return cached && /\.(md|markdown)$/i.test(buffer.file.path) ? <RichBoundary key={buffer.file.path} buffer={buffer} view={cached.view}><RichOwner buffer={buffer} view={cached.view} /></RichBoundary> : null;
+    return cached && /\.(md|markdown)$/i.test(buffer.file.path) ? <RichBoundary key={buffer.file.path} buffer={buffer} view={cached.view}><RichOwner buffer={buffer} view={cached.view} keepPatchSource={recorded && buffer.readonly} /></RichBoundary> : null;
   })}</>;
 }
 class RichBoundary extends Component<{ buffer: Buffer; view: EditorView; children: React.ReactNode }, { failed: boolean }> {
@@ -1298,7 +1424,7 @@ function SlotPortal({ slot, children, css }: { slot: RenderedSlot; children: Rea
   const [root] = useState(() => slot.el.shadowRoot ?? slot.el.attachShadow({ mode: "open" }));
   return createPortal(<><style>{css.replaceAll(":root", ":host")}</style>{children}</>, root);
 }
-function RichOwner({ buffer, view }: { buffer: Buffer; view: EditorView }) {
+function RichOwner({ buffer, view, keepPatchSource }: { buffer: Buffer; view: EditorView; keepPatchSource: boolean }) {
   useSyncExternalStore(buffer.subscribe, buffer.snapshot);
   const [slots, setSlots] = useState<RenderedSlot[]>([]);
   const [modules, setModules] = useState<Awaited<ReturnType<typeof load>> | null>(null);
@@ -1320,7 +1446,9 @@ function RichOwner({ buffer, view }: { buffer: Buffer; view: EditorView }) {
         EditorView.updateListener.of(update => { if (update.transactions.length) queueMicrotask(() => { if (!disposed) setSlots(registry.list()); }); }),
         libs.math.renderedMath(state => libs.spans.mathSpans(state.doc.toString(), libs.hick.verbatimRanges(libs.prose.structureOf(state).blocks))),
       ]) });
-      const initial = libs.elements.renderableBlocks(libs.prose.structureOf(view.state), view.state.doc.toString()).filter(block => !libs.elements.slotKindOf(block)?.startsWith("session-") && !(buffer.dirty && view.state.selection.ranges.some(range => range.from >= block.from && range.to <= block.to)));
+      const initial = libs.elements.renderableBlocks(libs.prose.structureOf(view.state), view.state.doc.toString()).filter(block =>
+        !(keepPatchSource && block.name === "patch") && !libs.elements.slotKindOf(block)?.startsWith("session-")
+        && !(buffer.dirty && view.state.selection.ranges.some(range => range.from >= block.from && range.to <= block.to)));
       view.dispatch({ effects: [libs.rendered.setRenderedBlocks.of(initial.map(block => block.from)), scroll] });
       setSlots(registry.list()); setModules(libs);
       };
@@ -1332,7 +1460,7 @@ function RichOwner({ buffer, view }: { buffer: Buffer; view: EditorView }) {
       }
     }).catch(error => { buffer.error = "Inline rendering unavailable: " + (error instanceof Error ? error.message : String(error)); buffer.publish(); });
     return () => { disposed = true; stopWaiting?.(); off?.(); const cached = editorForBuffer(buffer); if (cached?.view === view) { cached.richAttached = false; view.dispatch({ effects: cached.prose.reconfigure([]) }); } };
-  }, [buffer, view, buffer.text.length > 200_000]);
+  }, [buffer, view, keepPatchSource, buffer.text.length > 200_000]);
   useEffect(() => {
     if (typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(() => view.requestMeasure()); slots.forEach(slot => observer.observe(slot.el)); return () => observer.disconnect();
@@ -1343,10 +1471,10 @@ function RichOwner({ buffer, view }: { buffer: Buffer; view: EditorView }) {
     void crypto.subtle.digest("SHA-256", new TextEncoder().encode(source)).then(async bytes => {
       const expected = [...new Uint8Array(bytes)].map(byte => byte.toString(16).padStart(2, "0")).join("");
       const result = await request<{ document: string; source_hash: string; blocks: Block[] }>("GET", `/api/docs/${id}/render`);
-      if (!cancelled && buffer.text === source && !buffer.dirty && result.document === id && result.source_hash.replace(/^sha256:/, "") === expected) setBlocks({ source, blocks: result.blocks });
+      if (!cancelled && buffer.file.doc_id === id && buffer.text === source && !buffer.dirty && result.document === id && result.source_hash.replace(/^sha256:/, "") === expected) setBlocks({ source, blocks: result.blocks });
     }).catch(() => { /* Saved receipts are optional, never a reason to hide source. */ });
     return () => { cancelled = true; };
-  }, [buffer, buffer.base, buffer.dirty, receiptRevision]);
+  }, [buffer, buffer.file.doc_id, buffer.base, buffer.dirty, receiptRevision]);
   if (!modules) return null;
   const saved: Block[] = [];
   if (blocks.source === buffer.text && !buffer.dirty) {
@@ -1357,7 +1485,8 @@ function RichOwner({ buffer, view }: { buffer: Buffer; view: EditorView }) {
       catch { /* Invalid UTF-8 boundaries cannot identify a source widget. */ }
     }
   }
-  const controls = modules.elements.renderableBlocks(modules.prose.structureOf(view.state), view.state.doc.toString()).filter(block => !modules.elements.slotKindOf(block)?.startsWith("session-"));
+  const controls = modules.elements.renderableBlocks(modules.prose.structureOf(view.state), view.state.doc.toString()).filter(block =>
+    !(keepPatchSource && block.name === "patch") && !modules.elements.slotKindOf(block)?.startsWith("session-"));
   const math = modules.spans.mathSpans(view.state.doc.toString(), modules.hick.verbatimRanges(modules.prose.structureOf(view.state).blocks));
   const rail = debugRailElement(view);
   return <>{rail && math.map(span => createPortal(<DebugRailGroup key={`math:${span.from}`} view={view} at={span.from}>

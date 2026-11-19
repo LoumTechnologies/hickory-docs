@@ -16,6 +16,9 @@ Reserve a small blank slot at the end of the strip even when tabs overflow, so a
 
 The document rail owns its width even after shared rendering styles load lazily. Scope its width rule to the editor row so a late generic debugger stylesheet cannot shrink the gutter or invalidate overflow placement.
 
+Recorded messages keep a compact action column from first render. The draft
+composer has no recorded fence actions and keeps the whole row for text.
+
 <ui:copy id="simple-35d92a1eac-0">
 * { box-sizing: border-box; }
 :root { color-scheme: light dark; font: 13px system-ui, sans-serif; background: Canvas; color: CanvasText; }
@@ -138,7 +141,8 @@ footer { border-top: 1px solid GrayText; padding: 3px 9px; font-size: 11px; over
 .editor-cm-host { position: relative; }
 .simple-render-tables { position: absolute; right: 4px; top: 0; z-index: 10; border: 1px solid GrayText; border-radius: 3px; background: Canvas; color: CanvasText; cursor: pointer; }
 .cm-debug-rail__group { position: absolute; left: 0; width: 24px; }
-.cm-debug-rail:has(.is-active) > :not(.is-active) { display: none; }
+.cm-debug-rail:has(.is-active) > .cm-debug-rail__group:not(.is-active) { display: none; }
+.cm-debug-rail .cm-gutter-more, .cm-debug-rail .cm-gutter-overflow { --bg-raised: Canvas; --fg: CanvasText; --border: GrayText; }
 .cm-debug-rail .debug-strip { display: flex; flex-direction: column; gap: 2px; }
 .cm-debug-rail .debug-icon, .cm-debug-rail summary { display: grid; place-items: center; width: 24px; height: 22px; padding: 0; cursor: pointer; }
 .cm-debug-rail summary { list-style: none; }
@@ -239,7 +243,8 @@ button:active:not(:disabled), summary:active {
 .agent-empty h2 { color: CanvasText; font-size: 22px; }
 .agent-message { margin-bottom: 24px; }
 .agent-message.user-message { margin-left: 32px; padding: 10px 14px; border-radius: 14px; background: color-mix(in srgb, CanvasText 4%, Canvas); }
-.agent-body .cm-debug-rail { display: none; }
+.agent-composer .cm-debug-rail { display: none; }
+.agent-message .editor-row > .cm-debug-rail { display: block; flex-basis: 24px; width: 24px; border: 0; background: transparent; }
 .agent-message .cm-gutters { background: transparent; border: 0; }
 .agent-message .cm-lineNumbers { opacity: 0; }
 .agent-message:hover .cm-lineNumbers, .agent-message:focus-within .cm-lineNumbers { opacity: .55; }

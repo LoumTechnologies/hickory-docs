@@ -3,7 +3,7 @@
 // becomes a parked conflict — never a silent overwrite, never a retry loop.
 // Protects docs/guarantees/authoring/a-plain-file-opens-and-saves.md.
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { createPlainSaver, type PlainSaveState } from "./plainFileSave";
 
@@ -47,6 +47,61 @@ function saver(remote: ReturnType<typeof server>) {
 const settle = () => new Promise((resolve) => setTimeout(resolve, 15));
 
 describe("createPlainSaver", () => {
+  it("holds detached edits and retries the exact explicit save after an uncertain reply", async () => {
+    const put = vi.fn(async () => ({hash: "legacy"}));
+    const publish = vi.fn<NonNullable<Parameters<typeof createPlainSaver>[0]["publish"]>>()
+      .mockRejectedValueOnce(Error("reply lost"))
+      .mockResolvedValueOnce({hash: "after hash", save_guard: "second guard"})
+      .mockResolvedValueOnce({hash: "typed hash", save_guard: "third guard"});
+    const s = createPlainSaver({put, publish, onState: () => {}, debounceMs: 1});
+    s.load("saved", "original hash", "original guard");
+    s.changed("previous edit");
+    const plane = s.prepareDetach("saved", "original guard")!;
+    expect(plane.current()).toBe(true);
+    plane.commit();
+    s.changed("proposed");
+    s.changed("previous edit"); // Native Undo.
+    expect(await s.flushNow()).toBe(false);
+    await settle();
+    expect(put).not.toHaveBeenCalled();
+    expect(publish).not.toHaveBeenCalled();
+    expect(await s.saveNow()).toBe(false);
+    s.changed("newer typed draft");
+    expect(await s.saveNow()).toBe(false);
+    expect(publish.mock.calls[1]?.[0]).toEqual(publish.mock.calls[0]?.[0]);
+    expect(publish.mock.calls[0]?.[0]).toMatchObject({content: "previous edit", baseHash: "original hash", guard: "original guard"});
+    expect(s.hasPendingEdits()).toBe(true);
+    expect(await s.saveNow()).toBe(true);
+    expect(publish.mock.calls[2]?.[0]).toMatchObject({content: "newer typed draft", baseHash: "after hash", guard: "second guard"});
+    expect(put).not.toHaveBeenCalled();
+  });
+
+  it("restores the ordinary pending debounce when a prepared group aborts", async () => {
+    const remote = server("saved");
+    const {s} = saver(remote);
+    s.load(remote.content, remote.hash, "guard");
+    s.changed("earlier typing");
+    const plane = s.prepareDetach("saved", "guard")!;
+    plane.commit();
+    s.changed("proposed");
+    plane.rollback();
+    expect(s.isDetached()).toBe(false);
+    await settle();
+    expect(remote.content).toBe("earlier typing");
+  });
+
+  it("replaces and clears the physical guard with the saved baseline", async () => {
+    const put = async (content: string) => ({hash: content, save_guard: content === "confirmed" ? "new guard" : null});
+    const s = createPlainSaver({put, onState: () => {}});
+    s.load("original", "first hash", "original guard");
+    s.changed("confirmed");
+    expect([s.baseContent(), s.baseGuard()]).toEqual(["original", "original guard"]);
+    await s.flushNow();
+    expect([s.baseContent(), s.baseGuard()]).toEqual(["confirmed", "new guard"]);
+    s.changed("no guard");
+    await s.flushNow();
+    expect([s.baseContent(), s.baseGuard()]).toEqual(["no guard", null]);
+  });
   it("saves the newest text after the pause, and advances the hash it rides on", async () => {
     const remote = server("one\n");
     const { s, states } = saver(remote);

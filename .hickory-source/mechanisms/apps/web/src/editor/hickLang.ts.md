@@ -24,10 +24,9 @@ one wherever the grammar is more than that: a rebound prefix
 (`<h:doc xmlns:h="…">`), a verbatim element whose content quotes tags, a
 document about hick's own syntax. Now there is one parser, and what the
 editor draws is what the server reads.
-The module must be loaded before anything parses: the parse itself is
-synchronous (CodeMirror computes decorations synchronously), so the entry
-points await `loadHickLang()` once before the first render, and the tests
-load the bytes from disk in `test-setup.ts`.
+Parsing is synchronous after the module loads. The editor can mount source
+before then. Consumers subscribe to parser availability and attach their
+structure-dependent features to the retained editor.
 
 <storycode:copy id="f-1cd2ae06e1c5-RawTag">
 // The hick parser, in the browser.
@@ -41,11 +40,10 @@ load the bytes from disk in `test-setup.ts`.
 // document about hick's own syntax. Now there is one parser, and what the
 // editor draws is what the server reads.
 //
-// The module must be loaded before anything parses: the parse itself is
-// synchronous (CodeMirror computes decorations synchronously), so the entry
-// points await `loadHickLang()` once before the first render, and the tests
-// load the bytes from disk in `test-setup.ts`.
+// Source can mount while the parser loads. Consumers attach their parsed
+// presentation after readiness, and tests can load the same bytes directly.
 
+import { useSyncExternalStore } from "react";
 import init, { browser_prediction, initSync, structure as wasmStructure, literal_files, evaluate_project, latest_debug_project, project_position, project_transition, regenerate_project_patch, reverse_project_edit } from "./generated/hick-lang/hick_lang.js";
 import wasmUrl from "./generated/hick-lang/hick_lang_bg.wasm?url";
 
@@ -96,7 +94,24 @@ export interface RawStructure {
 ### `ready`
 
 <storycode:copy id="f-1cd2ae06e1c5-ready">
-let ready = false;
+type HickLangStatus = "loading" | "ready" | "unavailable";
+let status: HickLangStatus = "loading";
+const listeners = new Set<() => void>();
+
+function publishStatus(next: HickLangStatus) {
+  if (status === next) return;
+  status = next;
+  for (const listener of listeners) listener();
+}
+
+function subscribe(listener: () => void) {
+  listeners.add(listener);
+  return () => { listeners.delete(listener); };
+}
+
+export function useHickLangStatus(): HickLangStatus {
+  return useSyncExternalStore(subscribe, () => status, () => "loading");
+}
 </storycode:copy>
 <a id="f-1cd2ae06e1c5-loading"></a>
 ### `loading`
@@ -113,8 +128,15 @@ Load the parser. Idempotent; resolves at once after the first load.
 <storycode:copy id="f-1cd2ae06e1c5-loadHickLang">
 /** Load the parser. Idempotent; resolves at once after the first load. */
 export async function loadHickLang(): Promise<void> {
-  if (ready) return;
-  loading ??= init({ module_or_path: wasmUrl }).then(() => { ready = true; }).catch((e) => { loading = null; throw e; });
+  if (hickLangReady()) return;
+  if (!loading) {
+    loading = init({ module_or_path: wasmUrl }).then(() => publishStatus("ready")).catch(error => {
+      loading = null;
+      if (!hickLangReady()) publishStatus("unavailable");
+      throw error;
+    });
+    publishStatus("loading");
+  }
   await loading;
 }
 
@@ -129,9 +151,9 @@ filesystem and no fetch.
 /** Load the parser from bytes already in hand — the tests, which have a
  * filesystem and no fetch. */
 export function loadHickLangSync(bytes: BufferSource): void {
-  if (ready) return;
+  if (hickLangReady()) return;
   initSync({ module: bytes });
-  ready = true;
+  publishStatus("ready");
 }
 
 </storycode:copy>
@@ -140,7 +162,7 @@ export function loadHickLangSync(bytes: BufferSource): void {
 
 <storycode:copy id="f-1cd2ae06e1c5-hickLangReady">
 export function hickLangReady(): boolean {
-  return ready;
+  return status === "ready";
 }
 
 </storycode:copy>
@@ -158,7 +180,7 @@ strings and CodeMirror use.
  * strings and CodeMirror use.
  */
 export function rawStructure(text: string): RawStructure {
-  if (!ready) {
+  if (!hickLangReady()) {
     throw new Error(
       "hick-lang is not loaded: await loadHickLang() (or call loadHickLangSync) before parsing a document",
     );
@@ -183,7 +205,7 @@ export interface LiteralFile {
 
 <storycode:copy id="f-1cd2ae06e1c5-materializeLiteralFiles">
 export function materializeLiteralFiles(source: string): LiteralFile[] {
-  if (!ready) throw new Error("Load hick-lang before materializing files");
+  if (!hickLangReady()) throw new Error("Load hick-lang before materializing files");
   const result = JSON.parse(literal_files(source)) as { version: number; files: LiteralFile[]; error: string | null };
   if (result.version !== 1) throw new Error("Unsupported portable document interface version");
   if (result.error) throw new Error(result.error);
@@ -225,7 +247,7 @@ Pure source equivalence substrate; this never invokes native tools or cells.
 <storycode:copy id="f-1cd2ae06e1c5-materializeProject">
 /** Pure source equivalence substrate; this never invokes native tools or cells. */
 export function materializeProject(entry: string, sources: Record<string, string>, input: ProjectEntry[] = []): EvaluatedProject {
-  if (!ready) throw new Error("Load hick-lang before evaluating a project");
+  if (!hickLangReady()) throw new Error("Load hick-lang before evaluating a project");
   const result = JSON.parse(evaluate_project(entry, JSON.stringify(sources), JSON.stringify(input))) as { version: number; project: EvaluatedProject | null; error: string | null };
   if (result.version !== 1) throw new Error("Unsupported portable project interface version");
   if (result.error || !result.project) throw new Error(result.error ?? "Project evaluation failed");
@@ -299,7 +321,7 @@ Private browser-host ledger transition; raw snapshots must never be UI readings.
 <storycode:copy id="f-1cd2ae06e1c5-browserPredictionTransition">
 /** Private browser-host ledger transition; raw snapshots must never be UI readings. */
 export function browserPredictionTransition(snapshot: string, command: unknown): { snapshot: string | null; value: unknown; error: string | null } {
-  if (!ready) throw Error("Load the shared prediction mechanism before use");
+  if (!hickLangReady()) throw Error("Load the shared prediction mechanism before use");
   return JSON.parse(browser_prediction(snapshot, JSON.stringify(command)));
 }
 

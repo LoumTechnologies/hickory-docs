@@ -57,9 +57,11 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.async
 import java.util.UUID
 
-class DocumentBuffer(file: FileNode, loaded: FileText, untitledDraft:Boolean=false,initialScroll:Int=0) {
+class DocumentBuffer(file: FileNode, loaded: FileText, untitledDraft:Boolean=false,initialScroll:Int=0, startupObservation: Boolean = false) {
     // A literal filename never determines whether a source has an address.
     var isUntitledDraft by mutableStateOf(untitledDraft)
+        internal set
+    var startupObservation by mutableStateOf(startupObservation)
         internal set
     val debugIdentity=UUID.randomUUID().toString()
     // This intent token advances synchronously in owned edit/selection/undo
@@ -233,7 +235,7 @@ class DocumentBuffer(file: FileNode, loaded: FileText, untitledDraft:Boolean=fal
     var error by mutableStateOf("")
     val text get() = state.text.toString()
     val dirty by derivedStateOf { text != base }
-    val readOnly get() = (resourceDeleted && !unmaterializedHistoryDraft) || file.generatedBy != null
+    val readOnly get() = startupObservation || (resourceDeleted && !unmaterializedHistoryDraft) || file.generatedBy != null
     suspend fun save(engine: Engine) {
         if (resourceDeleted || !dirty || saving || readOnly) return
         val submitted = text; val previous = base; val previousHash = hash
@@ -368,10 +370,12 @@ Provider acquisition and resource publication share the same retained owner leas
         workspaceScope.launch{resourceChanges.openHistory(this@Workspace,record,workspace,current,published)}
     }
     fun bufferForTab(tab:String?):DocumentBuffer? {if(tab==null)return null;val identity=tabIdentity(tab);return if(identity is SourceTabIdentity.Source)buffers[identity.path] ?: retainedResourceTabs[tab] else null}
+    private fun findFileNode(path: String, tree: List<FileNode>): FileNode? =
+        tree.firstNotNullOfOrNull { if (it.path == path) it else findFileNode(path, it.children) }
+
     private fun scopedFiles(tree:List<FileNode>):List<FileNode>{
         if(directoryScope.isEmpty())return tree
-        fun find(nodes:List<FileNode>):FileNode?=nodes.firstNotNullOfOrNull{if(it.path==directoryScope)it else find(it.children)}
-        return find(tree)?.takeIf{it.dir}?.children ?: emptyList()
+        return findFileNode(directoryScope, tree)?.takeIf { it.dir }?.children ?: emptyList()
     }
     private fun resourceTree(patches:List<ResourceEditorPatch>,published:Collection<ResourcePublishedFile<FileNode>>):List<FileNode>{
         val paths=patches.map{it.path}.toSet()
@@ -453,6 +457,15 @@ Provider acquisition and resource publication share the same retained owner leas
 
 The remaining workspace operations reuse the adopted buffers and current namespace.
 
+Read the requested path and its file tree independently. An early observation
+may mount text before Files lists the destination. Keep that editor read-only
+until the normal source endpoint confirms permission and matching bytes in the
+same workspace. Then attach capabilities to its existing selection, scroll and
+history. A failed Files read leaves the observation visible and offers Refresh
+Files. A changed revision waits for a deliberate reopen. Retain the complete
+confirmed tree for workspace operations while displaying the requested file's
+containing folder.
+
 <ui:copy id="simple-resource-adoption-android-workspace">
 
     var status by mutableStateOf("Connect to a Hickory workspace server")
@@ -460,6 +473,9 @@ The remaining workspace operations reuse the adopted buffers and current namespa
     var engine by mutableStateOf<Engine?>(null)
     var address by mutableStateOf("")
     var connecting by mutableStateOf(false)
+    private var launchFile: Pair<String, String>? = null
+    private data class StartupPreview(val engine: Engine, val source: StartupSource, val editor: DocumentBuffer)
+    private var startupPreview: StartupPreview? = null
     private var generation = UUID.randomUUID()
     val sourceNavigationEpoch:UUID get()=generation
     private val loading = mutableMapOf<String,kotlinx.coroutines.Deferred<DocumentBuffer>>()
@@ -469,28 +485,122 @@ The remaining workspace operations reuse the adopted buffers and current namespa
     val terminal = TerminalSession()
     val active get() = layout.nodes[focused]?.active
     val currentBuffer get() = bufferForTab(active)
-    val hasUnsavedChanges get() = agent.prompt.isNotEmpty() || agent.running || resourceChanges.busy || resourceChanges.hasPending || gitResolution.hasPending || (buffers.values+retainedResourceEditors.values).any { it.dirty || it.saving } || debugger?.active == true
+    val hasUnsavedChanges get() = agent.prompt.isNotEmpty() || agent.running || resourceChanges.busy || resourceChanges.hasPending || gitResolution.hasPending || (buffers.values+retainedResourceEditors.values).any { it.dirty || it.saving } || debugger?.active == true || agent.debugger?.active == true
+    fun connectFromLaunch(origin: String?, path: String?) {
+        if (engine != null || address.isNotEmpty() || origin.isNullOrEmpty()) return
+        address = origin
+        launchFile = path?.takeIf { it.isNotEmpty() }?.let { origin to it }
+        workspaceScope.launch { connect() }
+    }
+
+    private suspend fun confirmStartupPreview(file: FileNode, server: Engine, reopen: Boolean = false) {
+        val held = startupPreview?.takeIf { it.engine === server && it.source.path == file.path } ?: return
+        val identity = server.sourceWorkspaceID
+        val root = server.sourceRootAddress
+        val current = generation
+        fun stillOwnsPreview() = generation == current && engine === server && startupPreview === held &&
+            buffers[file.path] === held.editor && server.sourceWorkspaceID == identity && server.sourceRootAddress == root &&
+            findFileNode(file.path, rootFiles) == file
+        try {
+            check(identity != null && root != null) { "Workspace identity is unconfirmed. Refresh Files and try again." }
+            if (!reopen) check(root == held.source.rootPath && (held.source.workspaceID == null || held.source.workspaceID == identity)) {
+                "The workspace changed while opening ${file.path}. Reopen it from Files to read the current source."
+            }
+            val loaded = server.file(file)
+            if (!stillOwnsPreview()) return
+            check(file.generatedBy != null || loaded.saveGuard != null) {
+                loaded.saveGuardReason ?: "Source permission is unconfirmed. Refresh Files before editing."
+            }
+            val editor = if (held.source.content == loaded.content && held.editor.text == loaded.content) held.editor else {
+                check(reopen) { "${file.path} changed during first open. Reopen it from Files to read the current source." }
+                DocumentBuffer(file, loaded)
+            }
+            editor.file = file
+            editor.base = loaded.content
+            editor.hash = loaded.hash
+            editor.saveGuard = loaded.saveGuard
+            editor.saveGuardReason = loaded.saveGuardReason
+            retainBuffer(file, loaded, server, editor)
+            editor.startupObservation = false
+            startupPreview = null
+            status = file.path
+        } catch (cancelled: CancellationException) { throw cancelled }
+        catch (failure: Exception) { if (stillOwnsPreview()) status = failure.message ?: "Refresh Files to check the current source." }
+    }
+
     suspend fun connect(): Boolean {
         if (connecting) return false
         if (hasUnsavedChanges) { status = "Save documents and send or clear draft messages before changing workspace servers."; return false }
         connecting = true
+        var reading: kotlinx.coroutines.Job? = null
         try {
-            val next = Engine(address); val (root, tree) = next.files()
+            val origin = address
+            val next = Engine(origin)
+            val requested = launchFile?.takeIf { it.first == origin }?.second
+            val before = generation
+            if (requested != null && engine == null) reading = workspaceScope.launch {
+                val observed = try { next.startupSource(requested) }
+                catch (cancelled: CancellationException) { throw cancelled }
+                catch (_: Exception) { return@launch }
+                val initialHost = engine == null && generation == before || engine === next
+                if (initialHost && connecting && address == origin && currentBuffer == null && requested !in buffers) {
+                    val file = FileNode(requested.substringAfterLast('/'), requested, false, emptyList(), null, null)
+                    val editor = DocumentBuffer(file, FileText(observed.content, ""), startupObservation = true)
+                    startupPreview = StartupPreview(next, observed, editor)
+                    buffers[requested] = editor
+                    show(sourceTab(requested))
+                    status = "Reading ${file.name}. Edit access will follow source confirmation."
+                }
+            }
+            var listingUnavailable = false
+            val (root, tree) = try { next.files() }
+            catch (cancelled: CancellationException) { throw cancelled }
+            catch (failure: Exception) {
+                reading?.join()
+                val observed = startupPreview?.takeIf { it.engine === next }?.source ?: throw failure
+                listingUnavailable = true
+                observed.rootPath to emptyList()
+            }
+            val preview = startupPreview?.takeIf { it.engine === next }
+            startupPreview = preview
+            launchFile = null
             directoryScope=""
             resourceChanges.reset();gitResolution.reset();sourceHistory.close();behaviorReading.close();retainedResourceTabs.clear()
             agent.turns = emptyList(); agent.error = ""; terminal.id = null; terminal.error = ""
+            agent.debugger?.close()
+            agent.debugger = NativeDebugger(next, workspaceScope, recordedMessages = true)
             debugger?.close(); debugger = NativeDebugger(next, workspaceScope)
             debugger?.onLocation = { path, line -> workspaceScope.launch { revealDebug(path, line) } }
             buffers.values.forEach { it.language?.close() }; languageConnection?.close();languageConnection=null; analysis.stop();analysis=WorkspaceAnalysis();showAnalysis=false;showEverywhere=false;showTests=false;showTemplates=false;sourceTemplates.close();sourceTemplates=SourceTemplatesModel();showReview=false;showHistory=false;showAttribution=false;showConstruction=false;showRecovery=false;gitAttribution.close();gitAttribution=GitAttributionModel("");gitHistory.close();gitHistory=GitHistoryModel();gitReview.close();gitReview=GitReviewModel();showCoverage=false;coverage.stop();coverage=SimpleCoverageState();testSources=TestSourcesModel();sourceTestIndex?.stop();sourceTestIndex=null;generation = UUID.randomUUID(); changes.reset(); search.invalidate(); showWorkspaceSearch = false; engine = next; files = tree; rootFiles = tree; navigationTrail = NavigationTrail(); retainedResourceEditors.clear(); buffers.clear(); loading.values.forEach {it.cancel()}; loading.clear()
-            layout = PaneLayout(); focused = "document-group"; status = root
+            if (preview == null) { layout = PaneLayout(); focused = "document-group" }
+            else buffers[preview.source.path] = preview.editor
+            status = root
+            if (requested != null) {
+                directoryScope = requested.substringBeforeLast('/', "")
+                files = scopedFiles(tree)
+                val file = findFileNode(requested, tree)?.takeUnless { it.dir }
+                if (listingUnavailable) status = "Read-only source preview. Refresh Files to confirm the workspace and permission."
+                else if (file == null) {
+                    status = "Requested file not found: $requested. Refresh files and open it from the tree."
+                } else {
+                    if (preview == null) open(file, recordNavigation = false)
+                    if (startupPreview?.source?.path == file.path) confirmStartupPreview(file, next)
+                }
+            }
             return true
         } catch (cancelled: CancellationException) { throw cancelled }
         catch (failure: Exception) { status = "${failure.message} Check the workspace address and reconnect."; return false }
-        finally { connecting = false }
+        finally { reading?.cancel(); connecting = false }
     }
     suspend fun refresh() {
         val current = generation; val server = engine ?: return
-        try { val (root, tree) = server.files(); if (generation == current) { rootFiles = tree;files=scopedFiles(tree);status = root } }
+        try {
+            val (root, tree) = server.files()
+            if (generation == current) {
+                rootFiles = tree; files = scopedFiles(tree); status = root
+                startupPreview?.source?.path?.let { findFileNode(it, tree) }?.takeUnless { it.dir }?.let { confirmStartupPreview(it, server) }
+            }
+        }
         catch (cancelled: CancellationException) { throw cancelled }
         catch (failure: Exception) { if (generation == current) status = "${failure.message} Check the server and refresh again." }
     }
@@ -553,6 +663,7 @@ Foreground file opening and background intelligence share one acquisition path. 
     }
     suspend fun open(file: FileNode, recordNavigation: Boolean = true) {
         val departed = currentSemanticLocation()
+        if (file.path == startupPreview?.source?.path) engine?.let { confirmStartupPreview(file, it, reopen = true) }
         if(buffers.containsKey(file.path)) {show(sourceTab(file.path));if(recordNavigation) currentSemanticLocation()?.let {navigationTrail=navigationTrail.record(departed,it)};return}
         val current = generation
         val target = layout.groups().firstOrNull {it.id==focused && "files" !in it.tabs}?.id
@@ -616,7 +727,7 @@ Foreground file opening and background intelligence share one acquisition path. 
         val source=buffer.text;buffer.debugRevealSource=source;buffer.debugRevealCurrent={valid()&&buffer.text==source}
         buffer.debugReveal=line to ((buffer.debugReveal?.second ?: 0)+1)
     }
-    override fun onCleared() { sourceTestIndex?.stop(); buffers.values.forEach { it.language?.close() }; languageConnection?.close(); debugger?.close(); super.onCleared() }
+    override fun onCleared() { sourceTestIndex?.stop(); buffers.values.forEach { it.language?.close() }; languageConnection?.close(); debugger?.close(); agent.debugger?.close(); super.onCleared() }
     suspend fun openTerminal() {
         val server = engine ?: run { status = "Connect to a workspace server before opening Terminal."; return }
         show("terminal"); terminal.open(server)

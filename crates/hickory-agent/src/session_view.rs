@@ -119,6 +119,7 @@ pub enum Step {
 /// session, or does not parse, is an empty view rather than an error — the
 /// caller decides what to say about that.
 pub fn session_view(source: &str) -> SessionView {
+    let source = source.strip_prefix('\u{feff}').unwrap_or(source);
     let Ok(doc) = hick_lang::parse(source) else {
         return SessionView {
             start: None,
@@ -157,10 +158,17 @@ pub fn session_view(source: &str) -> SessionView {
                     .or_else(|| tag.get_attribute("id"))
                     .unwrap_or("turn")
                     .to_string();
+                let mut prompt = String::new();
+                for child in &tag.children {
+                    match child {
+                        hick_lang::HickNode::Text(text, _) => prompt.push_str(text),
+                        hick_lang::HickNode::Tag(child) => append_message_tag(&mut prompt, child, source),
+                    }
+                }
                 turns.push(SessionTurn {
                     id,
                     parent: tag.get_attribute("parent").map(str::to_string),
-                    prompt: tag.text_content().trim().to_string(),
+                    prompt: prompt.trim().to_string(),
                     provider: tag.get_attribute("provider").map(str::to_string),
                     model: tag.get_attribute("model").map(str::to_string),
                     steps: Vec::new(),
@@ -223,7 +231,7 @@ pub fn session_view(source: &str) -> SessionView {
                             }
                             // Anything else inside an assistant turn is part
                             // of what it said.
-                            _ => prose.push_str(&c.text_content()),
+                            _ => append_message_tag(&mut prose, c, source),
                         },
                     }
                 }
@@ -315,6 +323,19 @@ pub fn session_view(source: &str) -> SessionView {
     }
 }
 
+fn append_message_tag(output: &mut String, tag: &hick_lang::HickTag, source: &str) {
+    if let Some((opening, closing)) = tag.source_span.zip(tag.close_span)
+        && let Some(marker) = source.get(opening.start..opening.end)
+        && (marker.trim_start_matches(' ').starts_with("```")
+            || marker.trim_start_matches(' ').starts_with("~~~"))
+        && let Some(fence) = source.get(opening.start..closing.end)
+    {
+        output.push_str(fence);
+    } else {
+        output.push_str(&tag.text_content());
+    }
+}
+
 fn flush_prose(turns: &mut [SessionTurn], prose: &mut String, line: usize) {
     let text = prose.trim().to_string();
     prose.clear();
@@ -385,6 +406,19 @@ fn same_suffix(a: &str, b: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn retains_literal_patch_fences_in_both_recorded_message_sides() {
+        let prompt = "Review this change.\r\n\r\n```patch\r\n--- a/note.txt\r\n+++ b/note.txt\r\n@@ -1 +1 @@\r\n-before\r\n+café\r\n```";
+        let answer = "Proposed change.\n\n~~~patch\n--- a/note.txt\n+++ b/note.txt\n@@ -1 +1 @@\n-before\n+after 😀\n~~~";
+        let source = format!(
+            "\u{feff}<hick:session xmlns:hick=\"http://www.hickorydocs.com/1.0\">\n<hick:user turn=\"t1\">{prompt}\n</hick:user>\n<hick:assistant>{answer}\n</hick:assistant>\n</hick:session>\n"
+        );
+        let view = session_view(&source);
+        let [turn] = view.turns.as_slice() else { panic!("expected one retained turn") };
+        assert_eq!(turn.prompt, prompt);
+        assert_eq!(turn.answer.as_deref(), Some(answer));
+    }
 
     const SESSION: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
 <hick:session xmlns:hick="http://www.hickorydocs.com/1.0" start="2026-08-22T10:00:00Z" doc="notes/plan.md">

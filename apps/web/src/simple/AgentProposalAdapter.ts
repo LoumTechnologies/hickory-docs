@@ -1,24 +1,116 @@
 import {request} from '../api/client';
 import type {AgentEditorContext} from '../api/agentTypes';
-import {captureResourceRoster,resourceBufferId,resourceWirePatches,publishResourceRestore,type ResourceRestoreReview,type ResourceEditorRoute,type ResourceReceipt} from './ResourceEditors';
+import {captureResourceRoster,retainedResourceInputs,resourceBufferId,resourceWirePatches,publishResourceRestore,type ResourceRestoreReview,type ResourceEditorRoute,type ResourceReceipt} from './ResourceEditors';
 import {editorForBuffer} from './Document';
 import type {Buffer,Buffers} from './buffers';
 import {captureDraftHistory,applyWorkspacePlan,workspaceSnapshots} from './WorkspaceChanges';
 import {planWorkspaceEdit,invertChangePlan,type ChangePlan,WorkspaceChangeHistory} from './ChangePlan';
-import {AgentProposalModel,proposalHash,type ProposalPorts,type PreparedProposal,type VerifiedProposal} from './AgentProposals';
+import {AgentProposalModel,proposalHash,verifyProposal,type ProposalPorts,type PreparedProposal,type VerifiedProposal,type ProposalProvider,type ProposalScope,type ProposalEditorSnapshot} from './AgentProposals';
+import {readFrozenEntrySelection} from './WorkspaceEntrySelection';
 interface BrowserProposal extends PreparedProposal {draft?:ChangePlan;resource?:ResourceRestoreReview}
 const equalMap=(left:Record<string,string>,right:Record<string,string>)=>Object.keys(left).length===Object.keys(right).length&&Object.entries(left).every(([path,text])=>Object.hasOwn(right,path)&&right[path]===text);
 export function proposalEditorContext(buffers:Buffers,focused?:Buffer):AgentEditorContext {
  const roster=captureResourceRoster(buffers);if(roster.captures.some(row=>!Number.isSafeInteger(row.revision)||row.revision<0))throw Error('Original editor revision is unavailable. Keep the source readable and reconcile its editor before proposing changes.');
  return {live:false,buffers:roster.captures.filter(row=>!row.readonly&&!row.transient).map(row=>({id:resourceBufferId(row.buffer),kind:'authored',observations:[{kind:'editor_revision' as const,version:1 as const,source_revision:String(row.revision)}],name:row.file.name,path:Object.hasOwn(roster.ownership_sources,row.path)?row.path:null,content:row.text,focused:row.buffer===focused,save_guard:Object.hasOwn(roster.ownership_sources,row.path)?row.guard??null:null,...row.file.doc_id?{document:row.file.doc_id}:{}}))};
 }
+export interface RecordedPatchAddress {
+ side: 'user' | 'assistant';
+ source_hash: string;
+ opening_line: number;
+}
+export type ReviewRecordedPatch = (turn: string, fence: RecordedPatchAddress, current: () => boolean, anchor: HTMLElement) => Promise<void>;
+export type ProposalSelection = Pick<VerifiedProposal, 'token' | 'fingerprint'>;
+export interface WorkspaceDraftStage {
+ current(): boolean;
+ commit(): void;
+ rollback(): void;
+}
+export type RecordedPatchSource = {
+ path: string;
+ text: string;
+ base: string;
+ guard: string;
+ revision: number;
+ scope: ProposalScope;
+ current: () => boolean;
+ prepareDraft?: (after: string) => WorkspaceDraftStage | null;
+};
+type RecordedPatchInputs = Pick<VerifiedProposal['value']['intention']['capture'], 'ownership_sources' | 'unaddressed_sources' | 'saved_guards'> & {drafts: Record<string, unknown>};
+type RecordedPatchEditor = Omit<ProposalEditorSnapshot['buffers'][number], 'source_hash'> & {text: string};
+const recordedFenceAuthority = /^recorded (?:user|assistant) fence, source SHA-256 [0-9a-f]{64}; claims remain unverified$/;
+
+export async function prepareRecordedPatch(
+ buffers: Buffers, turn: string, fence: RecordedPatchAddress, alive: () => boolean, focused?: Buffer,
+ call: ProposalProvider = (method, path, body) => request(method, path, body),
+): Promise<ProposalSelection> {
+ const scope = {namespace: buffers.workspace, workspace: buffers.workspaceId};
+ if (!scope.namespace || !/^[0-9a-f]{32}$/.test(scope.workspace)) {
+  throw Error('Workspace edit authority is unavailable. Refresh Files and try the recorded patch again.');
+ }
+ const roster = captureResourceRoster(buffers), lease = editorLease(buffers);
+ const current = () => alive() && lease();
+ const context = proposalEditorContext(buffers, focused);
+ const paths = roster.captures.filter(row => row.guard && Object.hasOwn(roster.ownership_sources, row.path)).map(row => row.path);
+ const editors = context.buffers.map(row => {
+  const revision = row.observations?.find(value => 'kind' in value && value.kind === 'editor_revision');
+  if (!row.id || !revision || !('source_revision' in revision)) {
+   throw Error('Original editor identity or revision is unavailable. Refresh the captured patch review.');
+  }
+  return {id: row.id, path: row.path ?? null, save_guard: row.save_guard ?? null,
+   source_revision: revision.source_revision, text: row.content};
+ });
+ const focus = focused && Object.hasOwn(roster.ownership_sources, focused.file.path) ? focused.file.path : null;
+ const review = await requestRecordedPatch(scope, turn, fence, current, editors,
+  () => retainedResourceInputs(buffers, roster, paths, current), focus, call);
+ return {token: review.token, fingerprint: review.fingerprint};
+}
+
+export async function requestRecordedPatch(
+ scope: ProposalScope, turn: string, fence: RecordedPatchAddress, current: () => boolean,
+ sources: RecordedPatchEditor[], retain: () => Promise<RecordedPatchInputs>, focus: string | null,
+ call: ProposalProvider = (method, path, body) => request(method, path, body),
+): Promise<VerifiedProposal> {
+ const entry = await readFrozenEntrySelection(() => call('GET', '/api/workspace/entry'), {...scope, current});
+ const retained = await retain();
+ const editors = await Promise.all(sources.map(async ({text, ...row}) => ({...row, source_hash: await proposalHash(text)})));
+ const snapshot = {live: false, buffers: editors};
+ if (!current()) throw Error('Message or editor source changed before patch review. Open the fence again.');
+ const requestId = crypto.randomUUID().replaceAll('-', '');
+ const authority = `recorded ${fence.side} fence, source SHA-256 ${fence.source_hash}; claims remain unverified`;
+ const origin = `${fence.side} message in turn ${turn}, line ${fence.opening_line + 1}`;
+ const raw = await call('POST', `/api/docs/workspace/agent/turns/${encodeURIComponent(turn)}/fence-patch`, {
+  fence,
+  intention: {
+   version: 1, request_id: requestId, origin: 'Recorded message', title: 'Review recorded patch',
+   explanation: 'Review the exact fenced changes and their generated consequences before applying them.',
+   claims: [], check_ids: [], editor_snapshot: snapshot,
+   capture: {context: requestId, edit: {changes: {}}, project_entry: entry.entryPath, ...retained},
+   reading: {version: 1, entry: entry.entryPath ?? 'project.md', sources: {}, missing_sources: [],
+    focus,
+    ...(entry.entryPath ? {entry_selection: entry.proof} : {})},
+  },
+ });
+ const review = await verifyProposal(raw, scope);
+ const sealed = review.value.intention.editor_snapshot;
+ const exactEditors = sealed?.live === false && sealed.buffers.length === editors.length
+  && sealed.buffers.every((row, i) => row.id === editors[i].id && row.path === editors[i].path
+   && row.save_guard === editors[i].save_guard && row.source_revision === editors[i].source_revision
+   && row.source_hash === editors[i].source_hash);
+ if (!current() || !exactEditors || review.historical || review.host_application != null
+   || review.value.intention.request_id !== requestId || review.value.origin_authority !== authority
+   || review.value.intention.origin !== origin) {
+  throw Error('The patch review does not match the current message and workspace. Open the fence again.');
+ }
+ return review;
+}
 /** Optional richer capability never replaces an editor; its lease retires on user interaction. */
 function editorLease(buffers:Buffers){const roster=captureResourceRoster(buffers),views=roster.captures.map(row=>{const view=editorForBuffer(row.buffer)?.view;return {buffer:row.buffer,view,doc:view?.state.doc,selection:view?.state.selection,readonly:view?.state.readOnly,connected:view?.dom.isConnected,parent:view?.dom.parentNode,top:view?.scrollDOM.scrollTop,left:view?.scrollDOM.scrollLeft};});return (acquired:ReadonlyMap<string,Buffer>=new Map())=>roster.current(acquired)&&views.every(row=>{const view=editorForBuffer(row.buffer)?.view;return view===row.view&&(!view||view.dom.isConnected===row.connected&&view.dom.parentNode===row.parent&&!view.composing&&view.state.readOnly===row.readonly&&view.state.doc===row.doc&&!!row.selection&&view.state.selection.eq(row.selection)&&view.scrollDOM.scrollTop===row.top&&view.scrollDOM.scrollLeft===row.left);});}
 /** Managed proposals bind the original handles and edit epochs, not just equal current text. */
 async function originalEditorBinding(buffers:Buffers,proposal:VerifiedProposal,current:()=>boolean){
  const snapshot=proposal.value.intention.editor_snapshot,authority=proposal.value.origin_authority;
- if(!authority.startsWith('engine-managed agent tool')&&!authority.startsWith('caller-provided intention'))throw Error('This proposal origin has no supported host application authority. Its material remains readable.');
- if(!snapshot){if(authority.startsWith('engine-managed agent tool'))throw Error('This managed proposal has no original editor snapshot. Its review remains readable; request a new captured intention before Apply.');return;}
+ const requiresSnapshot=authority.startsWith('engine-managed agent tool')||recordedFenceAuthority.test(authority);
+ if(!requiresSnapshot&&!authority.startsWith('caller-provided intention'))throw Error('This proposal origin has no supported host application authority. Its material remains readable.');
+ if(!snapshot){if(requiresSnapshot)throw Error('This proposal has no original editor snapshot. Its review remains readable; request a new captured intention before Apply.');return;}
  const lease=editorLease(buffers),context=proposalEditorContext(buffers),ids=new Set<string>();
  if(snapshot.buffers.length!==context.buffers.length)throw Error('The complete retained editor roster differs from the original agent snapshot. Request a fresh intention; a new lease cannot absorb unknown owners.');
  for(const original of snapshot.buffers){if(!original.id||ids.has(original.id)||original.source_revision===null)throw Error('Original editor identity/revision is unavailable. Retain the readable proposal and request a new complete snapshot.');ids.add(original.id);const row=context.buffers.find(row=>row.id===original.id);const revisions=row?.observations?.filter(value=>'kind' in value&&value.kind==='editor_revision');const revision=revisions?.length===1&&'source_revision' in revisions[0]?revisions[0].source_revision:null;if(!row||row.path!==original.path||(row.save_guard??null)!==original.save_guard||revision!==original.source_revision||await proposalHash(row.content)!==original.source_hash)throw Error('Original editor identity, revision, text or physical guard changed before review. Edit/Undo and independently reopened handles cannot rebind this intention.');if(!current()||!lease())throw Error('Editor interaction or workspace changed while checking the original snapshot.');}

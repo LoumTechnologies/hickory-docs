@@ -4,9 +4,56 @@ import { afterEach, expect, it, vi } from "vitest";
 import { api } from "../api/client";
 import { panes, tab, withTree } from "../shell/layout";
 import { initialWorkspace, openUntitledTab } from "./workspaceState";
-import { openSelectedFile, useFolderPane } from "./folderPane";
+import { observeManagedStartup, observePlainStartup, openSelectedFile, useFolderPane } from "./folderPane";
 
 afterEach(() => vi.restoreAllMocks());
+
+it("keeps the raw startup bytes readable without granting missing or stale authority", async () => {
+  const path = "nested/code #é.py", namespace = "/workspace", workspace = "a".repeat(32);
+  const content = "value = 1\n";
+  vi.spyOn(api, "startupSource").mockResolvedValue({version: 1, path, content, root_path: namespace, workspace_id: workspace});
+  vi.spyOn(api, "files").mockResolvedValue({root: "workspace", root_path: namespace, workspace_id: workspace,
+    tree: [{name: "code #é.py", path, dir: false}]});
+  const read = vi.spyOn(api, "file").mockResolvedValue({path, content, language: "python", hash: "base"});
+  const open = Promise.resolve({path});
+  const preview = await observePlainStartup(namespace + "/" + path, path, open, () => true);
+  expect(preview?.source.content).toBe(content);
+  await expect(preview?.authority).rejects.toThrow(/saved source authority/);
+
+  read.mockResolvedValue({path, content, language: "python", hash: "base", save_guard: "current"});
+  let current = true;
+  let complete!: (opened: {path: string}) => void;
+  const later = new Promise<{path: string}>(resolve => { complete = resolve; });
+  const stale = await observePlainStartup(namespace + "/" + path, path, later, () => current);
+  current = false;
+  complete({path});
+  await expect(stale?.authority).rejects.toThrow(/no longer matches/);
+  const foreign = await observePlainStartup("/elsewhere/" + path, path, open, () => true);
+  expect(foreign).toBeNull();
+  vi.mocked(api.startupSource).mockResolvedValueOnce({version: 1, path, content, root_path: namespace, workspace_id: null});
+  const unbound = await observePlainStartup(namespace + "/" + path, path, open, () => true);
+  expect(unbound?.source.content).toBe(content);
+  await expect(unbound?.authority).rejects.toThrow(/no longer matches/);
+});
+
+it("rechecks the original managed guard after an equal-byte room wait", async () => {
+  const path = "nested/new #é.md", docId = "b".repeat(16), root = "/workspace", workspace = "a".repeat(32);
+  const content = "# Readable\n";
+  vi.spyOn(api, "startupSource").mockResolvedValue({version: 1, path, doc_id: docId, content, root_path: root, workspace_id: workspace});
+  vi.spyOn(api, "files").mockResolvedValue({root, root_path: root, workspace_id: workspace,
+    tree: [{name: "new #é.md", path, dir: false, doc_id: docId}]});
+  const file = {id: docId, path, source: content, updated_at: "", save_guard: "first physical source"};
+  const read = vi.spyOn(api, "doc").mockResolvedValue(file);
+  let open!: (selected: {path: string; doc_id: string}) => void;
+  const selected = new Promise<{path: string; doc_id: string}>(resolve => { open = resolve; });
+  const preview = await observeManagedStartup(root + "/" + path, path, selected, () => true);
+  expect(preview?.source.content).toBe(content);
+  expect(read).not.toHaveBeenCalled();
+  open({path, doc_id: docId});
+  await expect(preview?.authority).resolves.toEqual(file);
+  read.mockResolvedValue({...file, save_guard: "equal-byte replacement"});
+  await expect(preview?.confirmRoom()).rejects.toThrow(/saved authority changed/);
+});
 
 it("removes restored Files furniture without removing the editor", async () => {
   const notice = vi.fn();
@@ -27,7 +74,21 @@ it("opens the selected document independently of folder visibility", async () =>
   const openPlain = vi.fn();
   const notice = vi.fn();
   await openSelectedFile("/notes/note.md", openDoc, openPlain, notice);
-  expect(openDoc).toHaveBeenCalledWith("note");
+  expect(openDoc).toHaveBeenCalledWith("note", "/notes/note.md");
+  expect(openPlain).not.toHaveBeenCalled();
+  expect(notice).not.toHaveBeenCalled();
+});
+
+it("ignores a selected-file identity that arrives after the route changes", async () => {
+  let deliver!: (value: { path: string; doc_id: string }) => void;
+  vi.spyOn(api, "openFile").mockReturnValueOnce(new Promise(resolve => { deliver = resolve; }));
+  const openDoc = vi.fn(), openPlain = vi.fn(), notice = vi.fn();
+  let current = true;
+  const opening = openSelectedFile("/notes/old.md", openDoc, openPlain, notice, () => current);
+  current = false;
+  deliver({ path: "/notes/old.md", doc_id: "retired" });
+  await opening;
+  expect(openDoc).not.toHaveBeenCalled();
   expect(openPlain).not.toHaveBeenCalled();
   expect(notice).not.toHaveBeenCalled();
 });

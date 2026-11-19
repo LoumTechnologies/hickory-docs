@@ -288,7 +288,7 @@ import WebKit
     let window: UIWindow
     private weak var previous: UIWindow?
 
-    init(marker: String, expected: String, path: String) async throws {
+    convenience init(marker: String, expected: String, path: String) async throws {
         let origin = try XCTUnwrap(ProcessInfo.processInfo.environment["HICKORY_IOS_PARITY_ORIGIN"], "Use the owned iOS fixture")
         let workspace = Workspace()
         workspace.address = origin
@@ -299,10 +299,14 @@ import WebKit
         let file = try XCTUnwrap(Self.file(path, in: workspace.rootFiles))
         _ = try await workspace.loadBuffer(file)
         workspace.showSource(path)
+        try self.init(workspace: workspace)
+    }
+
+    init(workspace: Workspace, launchFile: String? = nil) throws {
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         previous = scene.windows.first { $0.isKeyWindow }
         self.workspace = workspace
-        host = UIHostingController(rootView: WorkspaceView(workspace: workspace))
+        host = UIHostingController(rootView: WorkspaceView(workspace: workspace, launchFile: launchFile))
         window = UIWindow(windowScene: scene)
         window.frame = scene.coordinateSpace.bounds
         window.windowLevel = UIWindow.Level(rawValue: UIWindow.Level.normal.rawValue + 1)
@@ -1051,5 +1055,320 @@ extension UIKitParityAcceptanceTests {
         let disk = try await engine.file(buffer.file)
         XCTAssertTrue(exactUTF8(disk.content, saved))
         NSLog("HickoryUIKitParity typescript-extraction-exact-history-passed")
+    }
+
+    func testMountedRequestedFileRetainsEditingThroughDelayedDiagnostics() async throws {
+        let environment = ProcessInfo.processInfo.environment
+        let origin = try XCTUnwrap(environment["HICKORY_IOS_PARITY_ORIGIN"])
+        let path = try XCTUnwrap(environment["HICKORY_IOS_STARTUP_PATH"])
+        let release = try XCTUnwrap(environment["HICKORY_STARTUP_DIAGNOSTIC_GATE"].flatMap(URL.init(string:)))
+        let keyboard = HostedKeyboardObservation()
+        let notifications = [UIResponder.keyboardWillShowNotification, UIResponder.keyboardDidShowNotification,
+                             UIResponder.keyboardDidHideNotification]
+        let observers = notifications.map { name in
+            NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak keyboard] note in
+                MainActor.assumeIsolated { keyboard?.record(note) }
+            }
+        }
+        defer { observers.forEach { NotificationCenter.default.removeObserver($0) } }
+        let workspace = Workspace()
+        workspace.address = origin
+        let mounted = try MountedIOSWorkspace(workspace: workspace, launchFile: path)
+        defer { mounted.close() }
+        try await mounted.wait("The launch file did not become the active source") {
+            exactUTF8(workspace.currentBuffer?.file.path, path) && !workspace.connecting
+        }
+        let buffer = try XCTUnwrap(workspace.currentBuffer)
+        let editor = try await mounted.editor(buffer)
+        let identity = try XCTUnwrap(buffer.sourceEditorState?()).identity
+        let source = buffer.text
+        XCTAssertTrue(source.hasPrefix("# owned startup capability fixture\n"))
+        XCTAssertEqual(editor.text, source)
+        XCTAssertTrue(editor.isEditable)
+        XCTAssertEqual(Set(workspace.files.map(\.path)), Set([path, "nested/sibling.txt"]))
+        XCTAssertNotNil(MountedIOSWorkspace.file("outside.txt", in: workspace.rootFiles))
+        XCTAssertEqual(workspace.layout.groups().map(\.id), ["files-group", "document-group"])
+        XCTAssertTrue(workspace.layout.nodes["files-group"]?.tabs.containsUtility(.files) == true)
+        XCTAssertEqual(workspace.layout.nodes["document-group"]?.tabs.count, 1)
+        XCTAssertFalse(workspace.problems.contains { $0.message.contains("startup diagnostic") })
+        NSLog("HickoryUIKitParity requested-source-before-provider")
+
+        XCTAssertTrue(editor.becomeFirstResponder())
+        let insertion = "# sampled-draft\n"
+        let destination: UIPasteConfigurationSupporting = editor
+        editor.selectedRange = NSRange(location: 0, length: 0)
+        destination.paste?(itemProviders: [NSItemProvider(object: insertion as NSString)])
+        let draft = insertion + source
+        try await mounted.wait("Native Paste did not stay in the draft") { exactUTF8(buffer.text, draft) }
+        let expectedHide = keyboard.hidden + (keyboard.visible ? 1 : 0)
+        mounted.window.endEditing(true)
+        try await mounted.wait("Keyboard did not settle before sampling scroll") {
+            !editor.isFirstResponder && !keyboard.visible && keyboard.hidden >= expectedHide
+        }
+        let clock = ContinuousClock()
+        let settle = clock.now + .milliseconds(500)
+        try await mounted.wait("Keyboard transition did not retire") {
+            clock.now >= settle && !editor.isFirstResponder && !keyboard.visible
+        }
+        let selected = NSRange(location: draft.utf16.count / 3, length: 5)
+        editor.selectedRange = selected
+        editor.layoutIfNeeded()
+        editor.setContentOffset(CGPoint(x: 0, y: 320), animated: false)
+        let viewport = editor.contentOffset
+        XCTAssertGreaterThan(viewport.y, 0)
+        let history = try XCTUnwrap(editor.undoManager)
+        XCTAssertTrue(history.canUndo)
+
+        XCTAssertFalse(workspace.problems.contains { $0.message.contains("startup diagnostic") })
+        var request = URLRequest(url: release)
+        request.httpMethod = "POST"
+        let (_, released) = try await URLSession.shared.data(for: request)
+        XCTAssertEqual((released as? HTTPURLResponse)?.statusCode, 204)
+        try await mounted.wait("Current diagnostic did not reach the source editor") {
+            workspace.problems.contains { exactUTF8($0.path, path) && $0.current && $0.message == "fresh startup diagnostic" }
+                && exactUTF8(buffer.inlineMarkup.source, draft)
+        }
+        XCTAssertFalse(workspace.problems.contains { $0.message == "stale startup diagnostic" })
+        let retained = try await mounted.editor(buffer)
+        XCTAssertTrue(retained === editor)
+        XCTAssertEqual(buffer.sourceEditorState?()?.identity, identity)
+        XCTAssertEqual(editor.selectedRange, selected)
+        XCTAssertEqual(editor.contentOffset.x, viewport.x, accuracy: 1)
+        XCTAssertEqual(editor.contentOffset.y, viewport.y, accuracy: 1)
+        XCTAssertTrue(exactUTF8(editor.text, draft))
+        XCTAssertTrue(buffer.dirty)
+        history.undo()
+        try await mounted.wait("Undo lost the pre-arrival edit transaction") { exactUTF8(editor.text, source) && !buffer.dirty }
+        history.redo()
+        try await mounted.wait("Redo lost the pre-arrival edit transaction") { exactUTF8(editor.text, draft) && buffer.dirty }
+        await workspace.refresh()
+        XCTAssertEqual(Set(workspace.files.map(\.path)), Set([path, "nested/sibling.txt"]))
+        XCTAssertTrue(workspace.currentBuffer === buffer)
+        NSLog("HickoryUIKitParity delayed-diagnostic-kept-editor-state")
+    }
+
+    func testMountedRequestedTextPrecedesTreeAuthority() async throws {
+        let environment = ProcessInfo.processInfo.environment
+        let origin = try XCTUnwrap(environment["HICKORY_IOS_PARITY_ORIGIN"])
+        let path = try XCTUnwrap(environment["HICKORY_OPEN_FILE"])
+        let release = try XCTUnwrap(environment["HICKORY_STARTUP_AUTHORITY_GATE"].flatMap(URL.init(string:)))
+        let mode = try XCTUnwrap(environment["HICKORY_STARTUP_AUTHORITY_MODE"])
+        let liveRoot = environment["HICKORY_IOS_STARTUP_REAL_ROOT"]
+        let workspace = Workspace()
+        workspace.address = origin
+        let mounted = try MountedIOSWorkspace(workspace: workspace, launchFile: path)
+        defer { mounted.close() }
+        try await mounted.wait("Requested source did not mount while authority was held") {
+            exactUTF8(workspace.currentBuffer?.file.path, path)
+        }
+        let buffer = try XCTUnwrap(workspace.currentBuffer)
+        let editor = try await mounted.editor(buffer)
+        let source = buffer.text, identity = try XCTUnwrap(buffer.sourceEditorState?()?.identity)
+        XCTAssertTrue(workspace.connecting)
+        XCTAssertNil(workspace.engine)
+        XCTAssertTrue(buffer.readOnly)
+        XCTAssertFalse(editor.isEditable)
+        XCTAssertNil(buffer.savedGuard)
+        let selection = NSRange(location: 42, length: 5)
+        editor.selectedRange = selection
+        editor.layoutIfNeeded()
+        try await mounted.wait("Local markup did not attach independently of tree authority") {
+            exactUTF8(buffer.inlineMarkup.source, source)
+        }
+        editor.setContentOffset(CGPoint(x: 0, y: 260), animated: false)
+        let viewport = editor.contentOffset, bounds = editor.convert(editor.bounds, to: mounted.window)
+        XCTAssertGreaterThan(viewport.y, 0)
+        NSLog("HickoryUIKitParity requested-text-before-tree-authority")
+
+        var request = URLRequest(url: release)
+        request.httpMethod = "POST"
+        let (_, response) = try await URLSession.shared.data(for: request)
+        XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 204)
+        try await mounted.wait("Workspace authority reply did not settle") {
+            !workspace.connecting && (mode != "confirmed" || editor.isEditable)
+        }
+        let retained = try await mounted.editor(buffer)
+        XCTAssertTrue(workspace.currentBuffer === buffer)
+        XCTAssertTrue(retained === editor)
+        XCTAssertEqual(buffer.sourceEditorState?()?.identity, identity)
+        XCTAssertTrue(exactUTF8(editor.text, source))
+        XCTAssertEqual(editor.selectedRange, selection)
+        XCTAssertEqual(editor.contentOffset.x, viewport.x, accuracy: 1)
+        XCTAssertEqual(editor.contentOffset.y, viewport.y, accuracy: 1)
+        XCTAssertEqual(editor.convert(editor.bounds, to: mounted.window), bounds)
+        if mode != "confirmed" {
+            XCTAssertTrue(buffer.readOnly)
+            XCTAssertFalse(editor.isEditable)
+            XCTAssertNil(buffer.savedGuard)
+            XCTAssertTrue(workspace.status.contains("remains readable"))
+        }
+        if mode == "retry" {
+            let connected = await workspace.connect()
+            XCTAssertTrue(connected, workspace.status)
+            try await mounted.wait("Retry did not confirm the reading already on screen") { editor.isEditable }
+            let retried = try await mounted.editor(buffer)
+            XCTAssertTrue(workspace.currentBuffer === buffer)
+            XCTAssertTrue(retried === editor)
+            XCTAssertEqual(buffer.sourceEditorState?()?.identity, identity)
+            XCTAssertEqual(editor.selectedRange, selection)
+            XCTAssertEqual(editor.contentOffset.x, viewport.x, accuracy: 1)
+            XCTAssertEqual(editor.contentOffset.y, viewport.y, accuracy: 1)
+            NSLog("HickoryUIKitParity retried-tree-authority-in-existing-editor")
+        }
+        if mode != "unavailable" {
+            XCTAssertFalse(buffer.readOnly)
+            XCTAssertNil(buffer.startupObservation)
+            if let liveRoot {
+                XCTAssertEqual(workspace.sourceRootAddress, liveRoot)
+                let workspaceID = try XCTUnwrap(workspace.sourceWorkspaceID)
+                let guardBytes = try XCTUnwrap(buffer.savedGuard)
+                XCTAssertFalse(guardBytes.isEmpty)
+                NSLog("HickoryUIKitParity live-startup-source-sha256=\(nativeSourceHash(source)) guard-sha256=\(nativeSourceHash(guardBytes)) workspace=\(workspaceID)")
+            } else {
+                XCTAssertEqual(buffer.savedGuard, "owned-startup-guard")
+            }
+            XCTAssertEqual(Set(workspace.files.map(\.path)), [path, "nested/sibling.txt"])
+            XCTAssertTrue(editor.becomeFirstResponder())
+            mounted.paste("draft", into: editor)
+            try await mounted.wait("The confirmed source did not admit native Paste") { buffer.dirty }
+            let history = try XCTUnwrap(editor.undoManager)
+            history.undo()
+            try await mounted.wait("Undo did not restore the identical startup bytes") {
+                exactUTF8(editor.text, source) && !buffer.dirty
+            }
+        }
+        NSLog("HickoryUIKitParity late-tree-authority-kept-editor-state")
+    }
+}
+
+extension UIKitParityAcceptanceTests {
+    private func mountRecordedTurn(_ id: String) async throws -> (MountedIOSWorkspace, AgentTurn) {
+        let environment = ProcessInfo.processInfo.environment
+        let origin = try XCTUnwrap(environment["HICKORY_IOS_PARITY_ORIGIN"])
+        let root = try XCTUnwrap(environment["HICKORY_IOS_RECORDED_ROOT"])
+        let workspace = Workspace()
+        workspace.address = origin
+        guard await workspace.connect(), exactUTF8(workspace.sourceRootAddress, root) else {
+            throw EngineError(message: "Refuse an unrelated recorded-message workspace · " + workspace.status)
+        }
+        workspace.showUtility(.agent)
+        let mounted = try MountedIOSWorkspace(workspace: workspace)
+        do {
+            try await mounted.wait("The retained Agent turn did not mount") {
+                workspace.agent.turns.contains { $0.id == id && $0.status == "ok" && $0.answer != nil }
+            }
+            return (mounted, try XCTUnwrap(workspace.agent.turns.first { $0.id == id }))
+        } catch {
+            mounted.close()
+            throw error
+        }
+    }
+
+    func testMountedRecordedCodeFencesPauseStepWatchAndContinue() async throws {
+        let (mounted, turn) = try await mountRecordedTurn("recorded-fence-host")
+        defer { mounted.close() }
+        let workspace = mounted.workspace, agent = workspace.agent
+        let debug = try XCTUnwrap(workspace.debugger)
+        var sent: [[String: Any]] = []
+        debug.observeRequestForTest = { sent.append($0) }
+        let messages = [(RecordedMessageSide.user, turn.prompt, "42"),
+                        (.assistant, try XCTUnwrap(turn.answer), "53")]
+        for (side, text, expected) in messages {
+            let buffer = agent.document("\(turn.id)-\(side.bufferSuffix)", text)
+            let editor = try await mounted.editor(buffer)
+            let identity = try XCTUnwrap(buffer.sourceEditorState?()?.identity)
+            XCTAssertFalse(editor.isEditable)
+            try await mounted.wait("Recorded code fence did not become available") {
+                buffer.inlineMarkup.debug.recorded[2] != nil
+            }
+            let fence = try XCTUnwrap(buffer.inlineMarkup.debug.recorded[2])
+            let sibling = try XCTUnwrap(buffer.inlineMarkup.debug.recorded[7])
+            let requestStart = sent.count
+            debug.toggle(buffer, line: fence.opening + 1)
+            debug.toggle(buffer, line: sibling.opening + 1)
+            XCTAssertEqual(sent.count, requestStart)
+            let source = NativeRecordedMessageSource(turn: turn.id, side: side, workspace: workspace.sourceRootAddress) {
+                agent.owns(buffer, turn: turn.id, side: side)
+            }
+            await debug.prepareRecordedFence(buffer, source: source, fence: fence)
+            try await mounted.wait("Recorded \(side.rawValue) fence did not pause · " + debug.message) {
+                debug.status == "paused" || debug.status == "failed"
+            }
+            guard debug.status == "paused" else { throw EngineError(message: debug.message) }
+            XCTAssertEqual(debug.line(in: buffer.file.path), 3)
+            XCTAssertTrue(debug.sourceMatches(buffer))
+            let admission = sent.dropFirst(requestStart).first
+            let breakpoints = admission?["breakpoints"] as? [[String: Any]]
+            XCTAssertEqual(breakpoints?.compactMap { $0["line"] as? Int }, [3])
+            debug.step("over")
+            try await mounted.wait("Step did not reach the next authored line") { debug.line(in: buffer.file.path) == 4 }
+            debug.evaluate("value + 1", watch: true)
+            try await mounted.wait("Watch did not read the selected stopped frame") { debug.values["value + 1"] == expected }
+            debug.step("continue")
+            try await mounted.wait("Continue did not finish the selected fence with its output") {
+                debug.status == "finished" && debug.output.map(\.text).joined().contains(expected)
+            }
+            XCTAssertTrue(exactUTF8(editor.text, text))
+            XCTAssertEqual(buffer.sourceEditorState?()?.identity, identity)
+            XCTAssertFalse(buffer.dirty)
+            NSLog("HickoryUIKitParity recorded-code-\(side.rawValue)-pause-step-watch-continue")
+        }
+        XCTAssertEqual(sent.filter { $0["op"] as? String == "start" }.count, 2)
+    }
+
+    func testMountedRecordedPatchesReviewApplyAndUndo() async throws {
+        let (mounted, turn) = try await mountRecordedTurn("recorded-patch")
+        defer { mounted.close() }
+        let workspace = mounted.workspace, agent = workspace.agent, review = workspace.agentProposals
+        let engine = try XCTUnwrap(workspace.engine)
+        let messages = [
+            (RecordedMessageSide.user, turn.prompt, "author.md", "value = 1", "value = 41"),
+            (.assistant, try XCTUnwrap(turn.answer), "review.txt", "saved note", "assistant draft"),
+        ]
+        for (side, text, path, before, after) in messages {
+            let buffer = agent.document("\(turn.id)-\(side.bufferSuffix)", text)
+            let editor = try await mounted.editor(buffer)
+            let identity = try XCTUnwrap(buffer.sourceEditorState?()?.identity)
+            XCTAssertFalse(editor.isEditable)
+            try await mounted.wait("Recorded \(side.rawValue) patch did not become available") {
+                buffer.inlineMarkup.debug.recordedPatches.contains(2)
+            }
+            let source = NativeRecordedMessageSource(turn: turn.id, side: side, workspace: workspace.sourceRootAddress) {
+                agent.owns(buffer, turn: turn.id, side: side)
+            }
+            let file = try XCTUnwrap(workspace.workspaceFile(path))
+            let saved = try await engine.file(file).content
+            XCTAssertTrue(saved.contains(before))
+            let expected = saved.replacingOccurrences(of: before, with: after)
+            await review.prepareRecordedPatch(workspace, message: buffer, source: source, openingLine: 2)
+            let sealed = try XCTUnwrap(review.value, review.notice)
+            XCTAssertTrue(review.showing)
+            XCTAssertEqual(sealed.material.origin_authority, "recorded \(side.rawValue) fence, source SHA-256 \(nativeSourceHash(text)); claims remain unverified")
+            XCTAssertEqual(review.phase, "Reviewed only")
+            XCTAssertTrue(review.canApply, review.notice)
+            let target = try XCTUnwrap(workspace.buffers[path])
+            XCTAssertTrue(exactUTF8(target.text, saved))
+            XCTAssertFalse(target.dirty)
+            if side == .user {
+                XCTAssertTrue(sealed.sections.contains { $0.text.contains("generated.py") })
+            }
+            await review.applyDraft(workspace)
+            XCTAssertTrue(exactUTF8(target.text, expected), review.notice)
+            XCTAssertTrue(target.dirty)
+            XCTAssertFalse(review.canApply)
+            let stillSaved = try await engine.file(file).content
+            XCTAssertTrue(exactUTF8(stillSaved, saved))
+            review.close()
+            workspace.changes.close(workspace)
+            await Task.yield()
+            workspace.changes.open("undo", workspace: workspace)
+            XCTAssertTrue(exactUTF8(target.text, saved), workspace.changes.notice)
+            XCTAssertFalse(target.dirty)
+            workspace.changes.close(workspace)
+            XCTAssertTrue(exactUTF8(editor.text, text))
+            XCTAssertEqual(buffer.sourceEditorState?()?.identity, identity)
+            XCTAssertFalse(buffer.dirty)
+            NSLog("HickoryUIKitParity recorded-patch-\(side.rawValue)-review-apply-undo")
+        }
     }
 }

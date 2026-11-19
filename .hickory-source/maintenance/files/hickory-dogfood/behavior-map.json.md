@@ -67311,7 +67311,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "construction": "fragments",
       "fragments": [
         "simple-981c695688-0",
-        "simple-981c695688-1"
+        "simple-981c695688-1",
+        "recorded-message-fence-controls"
       ]
     },
     "apps/web/src/simple/App.tsx": {
@@ -73958,6 +73959,17 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "construction": "fragments",
       "fragments": [
         "ios-mounted-parity-test"
+      ]
+    },
+    "apps/apple-simple/IOSUIAcceptance/RecordedRunUITests.swift": {
+      "source": ".hickory-source/mechanisms/ios-mounted-parity-acceptance.md",
+      "owner": "shared",
+      "used_by": [],
+      "role": "test",
+      "sha256": "63fd3c8a62317fd67944527dd055a3c1bf954e6e1cd98ba2aa4899b19e7b7e97",
+      "construction": "fragments",
+      "fragments": [
+        "ios-recorded-run-ui-test"
       ]
     },
     "scripts/test-ios-parity.py": {

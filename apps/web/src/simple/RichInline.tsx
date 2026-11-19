@@ -10,12 +10,12 @@ import { request } from "../api/client";
 
 // The owners live above pane layout. Moving a cached editor cannot unmount a
 // table's uncommitted cell editor or lose a rendered widget's own local state.
-export function RichOwners({ buffers }: { buffers: Buffers }) {
+export function RichOwners({ buffers, recorded = false }: { buffers: Buffers; recorded?: boolean }) {
   const [, refresh] = useState(0);
   useEffect(() => { const update = () => refresh(value => value + 1); window.addEventListener(SIMPLE_EDITOR_ATTACHED, update); update(); return () => window.removeEventListener(SIMPLE_EDITOR_ATTACHED, update); }, []);
   return <>{[...buffers.values.values()].map(buffer => {
     const cached = editorForBuffer(buffer);
-    return cached && /\.(md|markdown)$/i.test(buffer.file.path) ? <RichBoundary key={buffer.file.path} buffer={buffer} view={cached.view}><RichOwner buffer={buffer} view={cached.view} /></RichBoundary> : null;
+    return cached && /\.(md|markdown)$/i.test(buffer.file.path) ? <RichBoundary key={buffer.file.path} buffer={buffer} view={cached.view}><RichOwner buffer={buffer} view={cached.view} keepPatchSource={recorded && buffer.readonly} /></RichBoundary> : null;
   })}</>;
 }
 class RichBoundary extends Component<{ buffer: Buffer; view: EditorView; children: React.ReactNode }, { failed: boolean }> {
@@ -32,7 +32,7 @@ function SlotPortal({ slot, children, css }: { slot: RenderedSlot; children: Rea
   const [root] = useState(() => slot.el.shadowRoot ?? slot.el.attachShadow({ mode: "open" }));
   return createPortal(<><style>{css.replaceAll(":root", ":host")}</style>{children}</>, root);
 }
-function RichOwner({ buffer, view }: { buffer: Buffer; view: EditorView }) {
+function RichOwner({ buffer, view, keepPatchSource }: { buffer: Buffer; view: EditorView; keepPatchSource: boolean }) {
   useSyncExternalStore(buffer.subscribe, buffer.snapshot);
   const [slots, setSlots] = useState<RenderedSlot[]>([]);
   const [modules, setModules] = useState<Awaited<ReturnType<typeof load>> | null>(null);
@@ -54,7 +54,9 @@ function RichOwner({ buffer, view }: { buffer: Buffer; view: EditorView }) {
         EditorView.updateListener.of(update => { if (update.transactions.length) queueMicrotask(() => { if (!disposed) setSlots(registry.list()); }); }),
         libs.math.renderedMath(state => libs.spans.mathSpans(state.doc.toString(), libs.hick.verbatimRanges(libs.prose.structureOf(state).blocks))),
       ]) });
-      const initial = libs.elements.renderableBlocks(libs.prose.structureOf(view.state), view.state.doc.toString()).filter(block => !libs.elements.slotKindOf(block)?.startsWith("session-") && !(buffer.dirty && view.state.selection.ranges.some(range => range.from >= block.from && range.to <= block.to)));
+      const initial = libs.elements.renderableBlocks(libs.prose.structureOf(view.state), view.state.doc.toString()).filter(block =>
+        !(keepPatchSource && block.name === "patch") && !libs.elements.slotKindOf(block)?.startsWith("session-")
+        && !(buffer.dirty && view.state.selection.ranges.some(range => range.from >= block.from && range.to <= block.to)));
       view.dispatch({ effects: [libs.rendered.setRenderedBlocks.of(initial.map(block => block.from)), scroll] });
       setSlots(registry.list()); setModules(libs);
       };
@@ -66,7 +68,7 @@ function RichOwner({ buffer, view }: { buffer: Buffer; view: EditorView }) {
       }
     }).catch(error => { buffer.error = "Inline rendering unavailable: " + (error instanceof Error ? error.message : String(error)); buffer.publish(); });
     return () => { disposed = true; stopWaiting?.(); off?.(); const cached = editorForBuffer(buffer); if (cached?.view === view) { cached.richAttached = false; view.dispatch({ effects: cached.prose.reconfigure([]) }); } };
-  }, [buffer, view, buffer.text.length > 200_000]);
+  }, [buffer, view, keepPatchSource, buffer.text.length > 200_000]);
   useEffect(() => {
     if (typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(() => view.requestMeasure()); slots.forEach(slot => observer.observe(slot.el)); return () => observer.disconnect();
@@ -77,10 +79,10 @@ function RichOwner({ buffer, view }: { buffer: Buffer; view: EditorView }) {
     void crypto.subtle.digest("SHA-256", new TextEncoder().encode(source)).then(async bytes => {
       const expected = [...new Uint8Array(bytes)].map(byte => byte.toString(16).padStart(2, "0")).join("");
       const result = await request<{ document: string; source_hash: string; blocks: Block[] }>("GET", `/api/docs/${id}/render`);
-      if (!cancelled && buffer.text === source && !buffer.dirty && result.document === id && result.source_hash.replace(/^sha256:/, "") === expected) setBlocks({ source, blocks: result.blocks });
+      if (!cancelled && buffer.file.doc_id === id && buffer.text === source && !buffer.dirty && result.document === id && result.source_hash.replace(/^sha256:/, "") === expected) setBlocks({ source, blocks: result.blocks });
     }).catch(() => { /* Saved receipts are optional, never a reason to hide source. */ });
     return () => { cancelled = true; };
-  }, [buffer, buffer.base, buffer.dirty, receiptRevision]);
+  }, [buffer, buffer.file.doc_id, buffer.base, buffer.dirty, receiptRevision]);
   if (!modules) return null;
   const saved: Block[] = [];
   if (blocks.source === buffer.text && !buffer.dirty) {
@@ -91,7 +93,8 @@ function RichOwner({ buffer, view }: { buffer: Buffer; view: EditorView }) {
       catch { /* Invalid UTF-8 boundaries cannot identify a source widget. */ }
     }
   }
-  const controls = modules.elements.renderableBlocks(modules.prose.structureOf(view.state), view.state.doc.toString()).filter(block => !modules.elements.slotKindOf(block)?.startsWith("session-"));
+  const controls = modules.elements.renderableBlocks(modules.prose.structureOf(view.state), view.state.doc.toString()).filter(block =>
+    !(keepPatchSource && block.name === "patch") && !modules.elements.slotKindOf(block)?.startsWith("session-"));
   const math = modules.spans.mathSpans(view.state.doc.toString(), modules.hick.verbatimRanges(modules.prose.structureOf(view.state).blocks));
   const rail = debugRailElement(view);
   return <>{rail && math.map(span => createPortal(<DebugRailGroup key={`math:${span.from}`} view={view} at={span.from}>

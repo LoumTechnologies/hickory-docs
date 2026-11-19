@@ -100,6 +100,10 @@ import androidx.compose.ui.semantics.*
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalViewConfiguration
+import androidx.compose.ui.platform.ViewConfiguration
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -786,7 +790,11 @@ Attach the grid only to an inline snapshot that still matches the field. Measure
 
 <ui:copy id="simple-android-table-editor">
 @OptIn(ExperimentalFoundationApi::class)
-@Composable internal fun LanguageEditor(buffer: DocumentBuffer, debug: NativeDebugger?, modifier: Modifier = Modifier) {
+@Composable internal fun LanguageEditor(
+    buffer: DocumentBuffer, debug: NativeDebugger?, modifier: Modifier = Modifier,
+    recorded: AgentFenceReading? = null, reviewPatch: ((Int) -> Unit)? = null,
+    recordedRun: RecordedRunActions? = null, recordedConstruction: RecordedConstructionReader? = null,
+) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val editorPreferences = remember(context) { context.getSharedPreferences("editor", android.content.Context.MODE_PRIVATE) }
     val enterRules = remember(context) { runCatching { SimpleEnterRules(context.assets.open("enter-rules.json").bufferedReader().use { it.readText() }) }.getOrNull() }
@@ -820,8 +828,8 @@ Attach the grid only to an inline snapshot that still matches the field. Measure
     val semantic = service?.let { rebaseNativeTokens(it.tokens, it.tokenSource, source) }.orEmpty()
     val inline = buffer.inlineMarkup
     LaunchedEffect(buffer,source) {buffer.readTestSources();buffer.readCoverageSource()}
-    LaunchedEffect(buffer, source) {
-        val result = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { computeInlineMarkup(source, buffer.file.path) }
+    LaunchedEffect(buffer, source, recorded != null) {
+        val result = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { computeInlineMarkup(source, buffer.file.path, recorded != null) }
         if (buffer.text == source) buffer.inlineMarkup = result
     }
     val selection = buffer.state.selection
@@ -911,14 +919,17 @@ Attach the grid only to an inline snapshot that still matches the field. Measure
                 typeface = Typeface.MONOSPACE; textAlign = Paint.Align.RIGHT
             } }
             Canvas(Modifier.width((maxOf(3, (source.count { it == '\n' } + 1).toString().length) * 8 + 12).dp)
-                .fillMaxHeight().clipToBounds().pointerInput(source, textLayout, replacements) {
+                .fillMaxHeight().clipToBounds().pointerInput(source, textLayout, replacements, debug, recorded != null) {
                     detectTapGestures { point ->
                         val current = textLayout
                         if (current != null && current.layoutInput.text.text == display) {
                             val visual = current.getLineForVerticalPosition(point.y + scroll.value - with(density) { 8.dp.toPx() })
                             val offset = editorSourceOffset(current.getLineStart(visual), replacements)
-                            val line = inlineLineAt(offset, inline.lineStarts)
-                            if (inlineDebugPath(source, buffer.file.path, line) != null) debug?.toggle(buffer, line)
+                            val snapshot = buffer.inlineMarkup
+                            if (buffer.text != source) return@detectTapGestures
+                            val line = if (snapshot.source == source) inlineLineAt(offset, snapshot.lineStarts) else source.take(offset).count { it == '\n' }
+                            val candidate = if (snapshot.source == source) snapshot.debug.code[line] else if (recorded == null) inlineDebugPath(source, buffer.file.path, line) else null
+                            if (candidate != null) debug?.toggle(buffer, line)
                         }
                     }
                 }) {
@@ -1163,9 +1174,10 @@ Attach the grid only to an inline snapshot that still matches the field. Measure
                 val total = scroll.maxValue.toFloat() + scroll.viewportSize
                 if (total > 0) drawRect(color.copy(alpha = .15f), Offset(0f, scroll.value / total * size.height), Size(size.width, maxOf(4f, scroll.viewportSize / total * size.height)))
             }
-            if (debug != null) NativeDebugRail(buffer, debug, textLayout, scroll)
+            if (debug != null) NativeDebugRail(buffer, debug, textLayout, scroll, recorded, reviewPatch, recordedRun, recordedConstruction)
+            else if (buffer.startupObservation) Spacer(Modifier.width(28.dp))
         }
-        Box(Modifier.align(androidx.compose.ui.Alignment.TopEnd).padding(end = if (debug != null) 66.dp else 42.dp)) {
+        Box(Modifier.align(androidx.compose.ui.Alignment.TopEnd).padding(end = if (debug != null || buffer.startupObservation) 66.dp else 42.dp)) {
             Text("⌁", modifier = Modifier.background(MaterialTheme.colorScheme.surface).clickable {
                 menu = true; scope.launch { service?.inspect() }; scope.launch { service?.complete() }
             }.padding(4.dp).semantics { contentDescription = "Language tools" })
@@ -1242,7 +1254,7 @@ Compose text state is owned by the document buffer rather than remembered inside
         null -> Text("Open a file or move a tab here", modifier = Modifier.padding(16.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
         else -> workspace.bufferForTab(tab)?.let { buffer ->
             Column(Modifier.fillMaxSize()) {
-                LanguageEditor(buffer, workspace.debugger, Modifier.weight(1f).fillMaxWidth().onFocusChanged { if (it.isFocused) workspace.focused = group })
+                LanguageEditor(buffer, workspace.debugger.takeUnless { buffer.startupObservation }, Modifier.weight(1f).fillMaxWidth().onFocusChanged { if (it.isFocused) workspace.focused = group })
                 if (buffer.error.isNotEmpty()) Text(buffer.error, color = MaterialTheme.colorScheme.error, fontSize = 12.sp, modifier = Modifier.padding(6.dp))
             }
         }
@@ -1290,6 +1302,21 @@ This keeps Stop and the thread/frame picker reachable when a reported stop has
 no mapped source line or a provider capability failed. The slot remains anchored
 to its original line and uses the existing overflow behavior.
 
+Recorded fence body lines offer accessible breakpoint actions in the same
+floating gutter. Their controls use the card's immutable source positions and
+the usual overflow grid when a live pause adds more actions to that line.
+The next populated row includes both recorded breakpoint and patch actions.
+Run shares the same opening line with Debug. Its terminal opens in a floating
+reading, so output does not insert rows into recorded source or move other actions.
+Declared patch comparisons use that gutter's measured slots and floating menu.
+The menu owns the request until dismissed, so a reply cannot open a closed menu
+or take over another line's comparison.
+Wrapped continuations have no independent action row, and close source lines
+retain separate hit targets even when their vertical spacing is below 18 dp.
+Use the measured slot for tap and accessibility bounds. Compose's default
+expanded touch region otherwise overlaps neighboring anchors and can remove
+the intermediate action from the accessibility tree.
+
 <ui:copy id="simple-android-debug-rail">
 fun debugLineOffset(source: String, line: Int): Int? {
     if (line < 0) return null
@@ -1302,17 +1329,74 @@ fun debugLineOffset(source: String, line: Int): Int? {
 @Composable private fun GutterHint(label: String, modifier: Modifier = Modifier, content: @Composable () -> Unit) {
     TooltipBox(modifier = modifier, positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(), tooltip = { PlainTooltip { Text(label) } }, state = rememberTooltipState(), content = content)
 }
+@Composable private fun GutterRailIcon(glyph: String, description: String, height: Dp, onClick: () -> Unit) {
+    val native = LocalViewConfiguration.current
+    val bounded = remember(native) {
+        object : ViewConfiguration by native {
+            override val minimumTouchTargetSize = DpSize(0.dp, 0.dp)
+        }
+    }
+    CompositionLocalProvider(LocalViewConfiguration provides bounded) {
+        Text(glyph, fontSize = 13.sp, modifier = Modifier.width(22.dp).height(height).clickable(onClick = onClick)
+            .semantics { contentDescription = description })
+    }
+}
+private class ConstructionDisclosure(val line: Int) {
+    var receipt by mutableStateOf<RecordedConstructionReceipt?>(null)
+    var error by mutableStateOf<String?>(null)
+}
+
+@Composable private fun RecordedConstructionComparison(receipt: RecordedConstructionReceipt) {
+    var expanded by remember(receipt) { mutableStateOf(receipt.changes.singleOrNull()?.path) }
+    Text("${receipt.document} · ${receipt.operation}", fontSize = 12.sp)
+    receipt.changes.forEach { change ->
+        TextButton(onClick = { expanded = change.path.takeUnless { expanded == it } }) { Text(change.path) }
+        if (expanded == change.path) {
+            RecordedConstructionSide("Before", change.before)
+            RecordedConstructionSide("After", change.after)
+        }
+    }
+}
+
+@Composable private fun RecordedConstructionSide(label: String, value: RecordedConstructionValue?) {
+    Text(label, style = MaterialTheme.typography.labelMedium)
+    if (value == null) {
+        Text("Absent", fontSize = 12.sp)
+        return
+    }
+    val executable = if (value.executable) " · executable" else ""
+    Text("${value.kind} · ${value.bytes} bytes$executable", fontSize = 12.sp)
+    val preview = when {
+        value.text == "" -> "Empty"
+        value.text != null -> value.text
+        value.status == "non_utf8" -> "Text unavailable (non-UTF-8)"
+        else -> "Text preview exceeds the limit"
+    }
+    Text(preview, fontSize = 12.sp, fontFamily = FontFamily.Monospace)
+}
+
 @OptIn(ExperimentalLayoutApi::class)
-@Composable private fun NativeDebugRail(buffer: DocumentBuffer, debug: NativeDebugger, layout: TextLayoutResult?, scroll: ScrollState) {
+@Composable private fun NativeDebugRail(
+    buffer: DocumentBuffer, debug: NativeDebugger, layout: TextLayoutResult?, scroll: ScrollState,
+    recorded: AgentFenceReading?, reviewPatch: ((Int) -> Unit)?, recordedRun: RecordedRunActions?,
+    recordedConstruction: RecordedConstructionReader?,
+) {
     val density = LocalDensity.current
     val scope = rememberCoroutineScope()
     var overflow by remember(buffer) { mutableStateOf<Int?>(null) }
     var railWidth by remember(buffer) { mutableStateOf(24f) }
     var opened by remember(buffer) { mutableStateOf<Int?>(null) }
+    var runOpened by remember(buffer) { mutableStateOf<Int?>(null) }
+    var construction by remember(buffer, recordedConstruction) { mutableStateOf<ConstructionDisclosure?>(null) }
     var expression by remember(buffer) { mutableStateOf("") }
     var condition by remember(buffer) { mutableStateOf("") }
     val source = buffer.text
     val starts = buffer.inlineMarkup.takeIf { it.source == source }?.lineStarts
+    val debugContext = buffer.inlineMarkup.takeIf { it.source == source }?.debug
+    val ownsInspection = debug.hasInspection && (recorded == null || debug.owner == buffer.file.path)
+    suspend fun launch(line: Int) {
+        if (recorded == null) debug.prepare(buffer, line) else debug.prepareRecordedFence(buffer, recorded, line)
+    }
     val folds = buffer.activeFolds()
     val tables = if (buffer.inlineMarkup.source == source && !buffer.tableSourceVisible) inlineTables(buffer.inlineMarkup).filter { it.from != buffer.sourceTable } else emptyList()
     val diagrams = if (!buffer.tableSourceVisible) tablePresentation(buffer.inlineMarkup, source).diagrams.filter { it.from != buffer.sourceTable } else emptyList()
@@ -1320,7 +1404,14 @@ fun debugLineOffset(source: String, line: Int): Int? {
     val display = editorDisplay(source, replacements)
     val coverageLines=buffer.coverageRows().associateBy {it.line}
     val testLines=buffer.sourceTestRows().map {it.first}.toSet()
+    val breakpointLines = if (recorded == null) emptySet() else debugContext?.code?.keys.orEmpty()
+    val patchLines = if (reviewPatch == null) emptySet() else debugContext?.recordedPatches.orEmpty()
+    val constructionLines = if (recordedConstruction == null) emptySet() else debugContext?.declaredPatches.orEmpty()
+    val launchLines = debugContext?.launch.orEmpty()
+    val equationLines = if (buffer.inlineMarkup.source == source) buffer.inlineMarkup.equations.map { it.line }.toSet() else emptySet()
     val paused = if (debug.positionSourceMatches(buffer)) debug.line(buffer.file.path) else null
+    fun hasGutterAction(line: Int) = line in breakpointLines || line in patchLines || line in constructionLines || line in coverageLines ||
+        line in testLines || line in launchLines || line == paused || line in equationLines || buffer.receiptsOn(line).isNotEmpty()
     Box(Modifier.width(4.dp).fillMaxHeight().background(MaterialTheme.colorScheme.outlineVariant).pointerInput(buffer) {
         detectDragGestures { change, amount -> change.consume(); railWidth = (railWidth - amount.x / density.density).coerceIn(24f, 220f) }
     }.semantics { contentDescription = "Resize right gutter" })
@@ -1328,24 +1419,59 @@ fun debugLineOffset(source: String, line: Int): Int? {
     BoxWithConstraints(Modifier.width(railWidth.dp).fillMaxHeight().background(MaterialTheme.colorScheme.surfaceContainer)) {
         val height = with(density) { maxHeight.toPx() }
         if (layout != null && layout.layoutInput.text.text == display) {
+            fun sourceLineAt(visual: Int): Int? {
+                val displayStart = layout.getLineStart(visual)
+                val offset = editorSourceOffset(displayStart, replacements)
+                if (displayStart != editorDisplayOffset(offset, replacements) || offset > 0 && source.getOrNull(offset - 1) != '\n') return null
+                return starts?.let { inlineLineAt(offset, it) } ?: source.take(offset).count { it == '\n' }
+            }
             val first = layout.getLineForVerticalPosition(scroll.value.toFloat())
             val last = layout.getLineForVerticalPosition(scroll.value + height)
             for (visual in first..last) {
-                val offset = editorSourceOffset(layout.getLineStart(visual), replacements)
-                        if (layout.getLineStart(visual) != editorDisplayOffset(offset, replacements)) continue
-                if (offset > 0 && buffer.text[offset - 1] != '\n') continue
-                val line = starts?.let { inlineLineAt(offset, it) } ?: source.take(offset).count { it == '\n' }
+                val line = sourceLineAt(visual) ?: continue
                 val top = layout.getLineTop(visual) - scroll.value + with(density) { 8.dp.toPx() }
                 if (top < 0 || top > height) continue
                 val held = debug.breakpointRows(buffer).firstOrNull { it.optInt("line", -1) == line }
                 val actions = mutableListOf<Triple<String, String, () -> Unit>>()
+                if (line in breakpointLines) {
+                    actions.add(Triple(if (held == null) "○" else "●", if (held == null) "Set breakpoint" else "Remove breakpoint", { debug.toggle(buffer, line) }))
+                }
+                if (reviewPatch != null && line in patchLines) {
+                    actions.add(Triple("±", "Review recorded patch", { reviewPatch(line) }))
+                }
+                if (recordedConstruction != null && line in constructionLines) {
+                    actions.add(Triple("≋", "Review construction patch", {
+                        if (recordedConstruction.current(line)) {
+                            val pending = ConstructionDisclosure(line)
+                            construction = pending
+                            scope.launch {
+                                fun stillOpen() = construction === pending
+                                try {
+                                    pending.receipt = recordedConstruction.read(line, ::stillOpen)
+                                } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+                                catch (failure: Exception) {
+                                    if (stillOpen() && recordedConstruction.current(line)) {
+                                        pending.error = failure.message ?: "The captured construction is unavailable."
+                                    }
+                                }
+                            }
+                        }
+                    }))
+                }
                 coverageLines[line]?.let {row->actions.add(Triple(if(row.state=="covered")"●" else if(row.state=="uncovered")"○" else "◐","Coverage ${row.state} · ${row.count?.let {"count $it"} ?: "count unavailable"} · ${row.origins.size} measured location(s)",{buffer.inspectCoverage?.invoke(line)}))}
                 if(line in testLines)actions.add(Triple("▷","Inspect source tests",{buffer.inspectTests?.invoke(line)}))
-                if (buffer.inlineMarkup.source == source && buffer.inlineMarkup.debug.launch[line] != null) actions.add(Triple(if(debug.hasInspection)"◎" else "▷",if(debug.hasInspection)"Inspect debugger" else "Debug", {
-                    if(debug.hasInspection)opened=line
-                    else scope.launch { debug.prepare(buffer, line); opened = if (debug.active) null else line }
+                val run = recordedRun?.result?.takeIf { it.line == line }
+                if (recordedRun != null && line in launchLines) {
+                    actions.add(Triple(if (run == null) "▶" else "▤", if (run == null) "Run" else "Run output", {
+                        runOpened = line
+                        if (run == null) recordedRun.start(line)
+                    }))
+                }
+                if (line in launchLines) actions.add(Triple(if(ownsInspection)"◎" else "▷",if(ownsInspection)"Inspect debugger" else "Debug", {
+                    if(ownsInspection)opened=line
+                    else scope.launch { launch(line); opened = if (debug.active) null else line }
                 }))
-                if (buffer.inlineMarkup.source == source && buffer.inlineMarkup.equations.any { it.line == line }) actions.add(Triple("ƒ", "Edit equation", { opened = line }))
+                if (line in equationLines) actions.add(Triple("ƒ", "Edit equation", { opened = line }))
                 if (buffer.receiptsOn(line).isNotEmpty()) actions.add(Triple("▤", "Recorded output", { opened = line }))
                 if (line == paused) {
                     listOf("▷" to "continue", "↳" to "over", "↓" to "in", "↑" to "out").forEach { (glyph, how) -> actions.add(Triple(glyph, how, { debug.step(how) })) }
@@ -1354,27 +1480,60 @@ fun debugLineOffset(source: String, line: Int): Int? {
                 if (actions.isEmpty()) continue
                 val columns = 1
                 // Only another populated action row limits wrapping; prose leaves room.
-                val next = (visual + 1..last).firstOrNull { nextVisual ->
-                    val nextOffset = editorSourceOffset(layout.getLineStart(nextVisual), replacements)
-                    val nextLine = starts?.let { inlineLineAt(nextOffset, it) } ?: source.take(nextOffset).count { it == '\n' }
-                    nextLine in coverageLines || nextLine in testLines || buffer.inlineMarkup.debug.launch[nextLine] != null || nextLine == paused || buffer.inlineMarkup.equations.any { it.line == nextLine } || buffer.receiptsOn(nextLine).isNotEmpty()
-                }
+                val next = (visual + 1..last).firstOrNull { sourceLineAt(it)?.let(::hasGutterAction) == true }
                 val room = if (next != null) layout.getLineTop(next) - layout.getLineTop(visual) else height - top
                 val capacity = maxOf(1, (room / with(density) { 20.dp.toPx() }).toInt()) * columns
                 val visible = if (actions.size <= capacity) actions.size else maxOf(0, capacity - 1)
+                val hitHeight = with(density) { room.toDp().coerceIn(1.dp, 18.dp) }
                 Box(Modifier.offset { IntOffset(0, top.toInt()) }) {
                     actions.take(visible).forEachIndexed { index, (glyph, label, run) ->
                         GutterHint(label, Modifier.offset((index % columns * 22).dp, (index / columns * 20).dp)) {
-                            Text(glyph, fontSize = 13.sp, modifier = Modifier.width(22.dp).height(18.dp).clickable(onClick = run).semantics { contentDescription = "$label on line ${line + 1}" })
+                            GutterRailIcon(glyph, "$label on line ${line + 1}", hitHeight, run)
                         }
                     }
                     if (visible < actions.size) Box(Modifier.offset((visible % columns * 22).dp, (visible / columns * 20).dp)) {
-                        GutterHint("More line actions") { Text("⋯", modifier = Modifier.width(22.dp).height(18.dp).clickable { overflow = line }.semantics { contentDescription = "More gutter icons on line ${line + 1}" }) }
+                        GutterHint("More line actions") { GutterRailIcon("⋯", "More gutter icons on line ${line + 1}", hitHeight) { overflow = line } }
                         DropdownMenu(expanded = overflow == line, onDismissRequest = { overflow = null }) {
                             Column(Modifier.padding(4.dp)) {
                                 actions.drop(visible).chunked(4).forEach { row -> Row { row.forEach { (glyph, label, run) ->
                                     GutterHint(label) { Text(glyph, modifier = Modifier.size(24.dp).clickable { overflow = null; run() }.semantics { contentDescription = label }) }
                                 } } }
+                            }
+                        }
+                    }
+                    val reading = construction?.takeIf { it.line == line && recordedConstruction?.current(line) == true }
+                    if (recordedConstruction != null && line in constructionLines) {
+                        DropdownMenu(
+                            expanded = reading != null, onDismissRequest = { construction = null },
+                            modifier = Modifier.width(300.dp).heightIn(max = 360.dp),
+                        ) {
+                            if (reading != null) Column(Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text("Recorded construction patch", style = MaterialTheme.typography.titleSmall)
+                                val comparison = reading.receipt
+                                val error = reading.error
+                                when {
+                                    comparison != null -> RecordedConstructionComparison(comparison)
+                                    error != null -> Text(error, color = MaterialTheme.colorScheme.error)
+                                    else -> Text("Reading the captured construction…")
+                                }
+                            }
+                        }
+                    }
+                    if (recordedRun != null && line in launchLines) {
+                        DropdownMenu(expanded = runOpened == line, onDismissRequest = { runOpened = null }) {
+                            Column(Modifier.width(300.dp).padding(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text("Run on line ${line + 1}", fontSize = 12.sp)
+                                Text(run?.terminal?.status ?: if (run?.notice.isNullOrEmpty()) "Starting…" else "Run unavailable")
+                                if (run != null) {
+                                    if (run.notice.isNotBlank()) Text(run.notice, fontSize = 12.sp)
+                                    NativeInlineTerminal(run.output, Modifier.fillMaxWidth().height(140.dp))
+                                    if (run.terminal != null && run.notice.isNotBlank()) {
+                                        TextButton(enabled = !run.reading, onClick = { recordedRun.refresh(run) }) { Text("Refresh run output") }
+                                    }
+                                    if (!run.busy && !run.reading) {
+                                        TextButton(onClick = { recordedRun.start(line) }) { Text("Run again") }
+                                    }
+                                }
                             }
                         }
                     }
@@ -1417,7 +1576,9 @@ fun debugLineOffset(source: String, line: Int): Int? {
                             }
                             if (buffer.receiptNotice.isNotEmpty()) Text(buffer.receiptNotice, fontSize = 12.sp)
                             if (buffer.file.docID != null) TextButton(onClick = { scope.launch { buffer.refreshReceipts() } }) { Text("↻ Refresh recorded output") }
-                            if (inlineDebugPath(source, buffer.file.path, line, true) != null || inlineDebugPath(source, buffer.file.path, line) != null) {
+                            val launchesHere = debugContext?.launch?.containsKey(line) == true
+                            val codeHere = debugContext?.code?.containsKey(line) == true
+                            if (launchesHere || codeHere) {
                             if(debug.owner.isNotEmpty())Text("Debugger · ${debug.owner} · ${debug.status}",fontSize=12.sp)
                             if(debug.breakpointNotice(buffer).isNotEmpty())Text(debug.breakpointNotice(buffer),fontSize=12.sp)
                             var retainedPage by remember(buffer.debugIdentity){mutableStateOf(0)}
@@ -1429,9 +1590,9 @@ fun debugLineOffset(source: String, line: Int): Int? {
                             debug.breakpointModel.intents[buffer.debugIdentity]?.let{intent->if(intent.source.text!=buffer.text||intent.source.path!=buffer.file.path){TextButton(enabled=!debug.active,onClick={debug.discardBreakpointIntentions(buffer)}){Text("Archive earlier intentions")}}}
                             if (buffer.dirty) Text("Save edited text before launching. Values belong to the source that ran.", fontSize = 12.sp)
                             FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                TextButton(enabled = !debug.active && !buffer.dirty && !buffer.saving, onClick = { scope.launch { debug.prepare(buffer, line) } }) { Text("▷ Debug") }
-                                TextButton(enabled=!debug.active&&!buffer.dirty&&!buffer.saving,onClick={scope.launch{debug.prepare(buffer,line,chooseProfile=true)}}){Text("Choose debug profile…")}
-                                if (inlineDebugPath(source, buffer.file.path, line) != null) TextButton(onClick = { debug.toggle(buffer, line) }) { Text("● Breakpoint") }
+                                if (recorded == null || launchesHere) TextButton(enabled = !debug.active && !buffer.dirty && !buffer.saving, onClick = { scope.launch { launch(line) } }) { Text("▷ Debug") }
+                                if (recorded == null) TextButton(enabled=!debug.active&&!buffer.dirty&&!buffer.saving,onClick={scope.launch{debug.prepare(buffer,line,chooseProfile=true)}}){Text("Choose debug profile…")}
+                                if (codeHere) TextButton(onClick = { debug.toggle(buffer, line) }) { Text("● Breakpoint") }
                                 if (debug.status == "paused") {
                                     listOf("Continue" to "continue", "Step over" to "over", "Step in" to "in", "Step out" to "out").forEach { (label, how) -> TextButton(onClick = { debug.step(how) }) { Text(label) } }
                                     if (debug.capabilities.optBoolean("step_back")) TextButton(onClick = { debug.step("back") }) { Text("↶ Step back") }
@@ -1457,7 +1618,7 @@ fun debugLineOffset(source: String, line: Int): Int? {
                                 if(debug.frames.size>64)Row{TextButton(enabled=historyPage>0,onClick={historyPage--}){Text("Previous historical frames")};TextButton(enabled=(historyPage+1)*64<debug.frames.size,onClick={historyPage++}){Text("Next historical frames")}}
                                 debug.frames.drop(historyPage*64).take(64).forEach{Text(it.optString("name","Frame"),fontSize=12.sp)}
                             }
-                            if (debug.capabilities.optBoolean("conditional_breakpoints")) {
+                            if (debug.capabilities.optBoolean("conditional_breakpoints") && (recorded == null || codeHere)) {
                                 OutlinedTextField(value = condition, onValueChange = { condition = it }, label = { Text("Breakpoint condition") })
                                 TextButton(onClick = { debug.toggle(buffer, line, condition) }) { Text("✓ Apply condition") }
                             }

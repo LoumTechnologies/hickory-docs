@@ -57,6 +57,18 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.hickorydocs.simple.mobile.paritytests
         TEST_HOST: "$(BUILT_PRODUCTS_DIR)/HickorySimpleMobile.app/HickorySimpleMobile"
         BUNDLE_LOADER: "$(TEST_HOST)"
+  HickorySimpleMobileRecordedRunTests:
+    type: bundle.ui-testing
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: IOSUIAcceptance
+    dependencies:
+      - target: HickorySimpleMobile
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.hickorydocs.simple.mobile.recordedruntests
+        TEST_TARGET_NAME: HickorySimpleMobile
 schemes:
   HickorySimpleMobileParity:
     build:
@@ -66,3 +78,11 @@ schemes:
     test:
       targets:
         - HickorySimpleMobileParityTests
+  HickorySimpleMobileRecordedRun:
+    build:
+      targets:
+        HickorySimpleMobile: all
+        HickorySimpleMobileRecordedRunTests: [test]
+    test:
+      targets:
+        - HickorySimpleMobileRecordedRunTests

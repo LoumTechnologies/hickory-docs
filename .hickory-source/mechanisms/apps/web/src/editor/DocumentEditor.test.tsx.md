@@ -23,7 +23,9 @@ import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { EditorView as EditorViewType } from "@codemirror/view";
 import { DocumentEditor, assertionStates, matchExecBlock } from "./DocumentEditor";
-import { LocalRealtime } from "../api/realtime";
+import { LocalRealtime, type Realtime } from "../api/realtime";
+import type { Doc as YDoc } from "yjs";
+import type { StartupManagedDocument } from "../views/folderPane";
 import { CLI_BLOCKS } from "../mock/mockData";
 import { parseHickDoc } from "./hickDoc";
 import { ICON_SIZE } from "../lib/cardRail";
@@ -71,6 +73,87 @@ The adjacent ordinary-open witness retains the default reflow behavior.
 
 <storycode:copy id="f-71bbcfe029bb-expression_statement-3">
 describe("DocumentEditor (WYSIWYG over raw source)", () => {
+  it("keeps the managed preview editor and selection while the authoritative room starts empty", async () => {
+    const path = "notes.md", id = "b".repeat(16), source = "# Managed startup\n";
+    let room!: YDoc, resolveSync!: () => void;
+    const synced = new Promise<void>(resolve => { resolveSync = resolve; });
+    const bindDoc = vi.fn((doc: YDoc) => { room = doc; expect(doc.getText("source").toString()).toBe(""); });
+    const confirmRoom = vi.fn(async () => {});
+    const realtime: Realtime = {
+      serverAuthoritative: true, bindDoc, whenSynced: () => synced, onRunEvent: () => () => {},
+      lsp: () => null, close() {}, reopen() {},
+    };
+    const startup: StartupManagedDocument = {
+      source: {version: 1, path, content: source, root_path: "/workspace", workspace_id: "a".repeat(32)},
+      docId: id, current: () => true,
+      authority: Promise.resolve({id, path, source, save_guard: "guard", updated_at: ""}), confirmRoom,
+    };
+    const onChange = vi.fn();
+    const remote = source + "Collaborator text\n";
+    const props = {docId: id, initialSource: source, path, realtime, startup, execBlocks: [], reflowOnOpen: false,
+      runningCells: new Set<string>(), onRunCell: vi.fn(), onChange, onStartupRoomReady: vi.fn(() => {
+        expect(onChange).not.toHaveBeenCalled();
+        room.transact(() => room.getText("source").insert(source.length, remote.slice(source.length)), "server");
+      })};
+    const mounted = render(<DocumentEditor {...props} />);
+    const view = (window as unknown as { __hickoryView: EditorViewType }).__hickoryView;
+    expect(view.state.doc.toString()).toBe(source);
+    expect(view.state.readOnly).toBe(true);
+    expect(bindDoc).not.toHaveBeenCalled();
+    act(() => view.dispatch({changes: {from: 0, insert: "blocked"}}));
+    expect(view.state.doc.toString()).toBe(source);
+    act(() => view.dispatch({selection: {anchor: 2, head: 10}}));
+    const held = view.state.selection;
+    mounted.rerender(<DocumentEditor {...props} startupAuthorized />);
+    expect(bindDoc).toHaveBeenCalledTimes(1);
+    expect(confirmRoom).not.toHaveBeenCalled();
+    expect(view.state.readOnly).toBe(true);
+    await act(async () => { room.getText("source").insert(0, source); resolveSync(); });
+    expect(confirmRoom).toHaveBeenCalledTimes(1);
+    expect(props.onStartupRoomReady).toHaveBeenCalledTimes(1);
+    expect((window as unknown as { __hickoryView: EditorViewType }).__hickoryView).toBe(view);
+    expect(view.state.selection.eq(held)).toBe(true);
+    expect(view.state.readOnly).toBe(false);
+    expect(view.state.doc.toString()).toBe(remote);
+    expect(onChange).toHaveBeenCalledExactlyOnceWith(remote);
+    act(() => view.dispatch({changes: {from: view.state.doc.length, insert: "draft"}, userEvent: "input.type"}));
+    expect(room.getText("source").toString()).toBe(remote + "draft");
+    act(() => { undo(view); });
+    expect(room.getText("source").toString()).toBe(remote);
+  });
+  it("keeps mixed CRLF startup readable and refuses an edit without byte-exact collaboration", async () => {
+    const path = "mixed.md", id = "b".repeat(16), source = "# Mixed document\r\nFirst line\nSecond line\r\n";
+    let room!: YDoc, finish!: () => void;
+    const synced = new Promise<void>(resolve => { finish = resolve; });
+    const realtime: Realtime = {
+      serverAuthoritative: true, bindDoc: doc => { room = doc; }, whenSynced: () => synced,
+      onRunEvent: () => () => {}, lsp: () => null, close() {}, reopen() {},
+    };
+    const startup: StartupManagedDocument = {
+      source: {version: 1, path, content: source, root_path: "/workspace", workspace_id: "a".repeat(32)},
+      docId: id, current: () => true,
+      authority: Promise.resolve({id, path, source, save_guard: "guard", updated_at: ""}), confirmRoom: async () => {},
+    };
+    const roomReady = vi.fn(), onChange = vi.fn();
+    const mounted = render(<DocumentEditor docId={id} path={path} initialSource={source} realtime={realtime}
+      startup={startup} startupAuthorized onStartupRoomReady={roomReady} onChange={onChange}
+      execBlocks={[]} runningCells={new Set()} onRunCell={() => {}} />);
+    await act(async () => { room.getText("source").insert(0, source); finish(); });
+    expect(screen.getByText(/cannot preserve the document.s line endings during collaboration/)).toBeTruthy();
+    expect(screen.queryByText(/Reopen the document to read its current source/)).toBeNull();
+    const view = (window as unknown as {__hickoryView: EditorViewType}).__hickoryView;
+    const readable = source.replaceAll("\r\n", "\n");
+    expect(view.state.doc.toString()).toBe(readable);
+    expect(mounted.container.querySelector(".cm-content")?.textContent).toContain("First line");
+    expect(mounted.container.querySelector(".cm-content")?.textContent).toContain("Second line");
+    expect(view.state.readOnly).toBe(true);
+    act(() => view.dispatch({changes: {from: view.state.doc.line(2).from, insert: "rejected"},
+      userEvent: "input.type"}));
+    expect(view.state.doc.toString()).toBe(readable);
+    expect(room.getText("source").toString()).toBe(source);
+    expect(roomReady).not.toHaveBeenCalled();
+    expect(onChange).not.toHaveBeenCalled();
+  });
   // Guarantee: docs/guarantees/authoring/the-editor-keeps-its-space.md
   it("offers Save on an unnamed cell's Run rail without changing source bytes", async () => {
     const source = '<hick:container name="shell" image="alpine:3.20" />\n<hick:exec container="shell">echo hello</hick:exec>\n';

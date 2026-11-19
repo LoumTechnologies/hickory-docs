@@ -396,6 +396,10 @@ export const DRAFT_POLL_MS = 2000;
 <a id="f-74298466496e-useDraftKeeper"></a>
 ### `useDraftKeeper`
 
+Keep the detached publication marker with the private draft and its ancestor.
+An older row has no marker and keeps its established recovery behavior. The
+marker has no effect on the saved project source or its write authority.
+
 Save changed buffers periodically and at `pagehide`, not only at graceful shutdown. An explicit discard waits behind pending writes and suppresses the same buffer, so an unfinished save cannot resurrect discarded recovery data.
 
 <storycode:copy id="f-74298466496e-useDraftKeeper">
@@ -433,7 +437,7 @@ export function useDraftKeeper({
   /** Project-relative path. Nothing is written without one. */
   path: string | null;
   /** The buffer as it stands, and what the file held when this session began. */
-  read: () => { contents: string; base: string };
+  read: () => { contents: string; base: string; detached?: true };
   enabled?: boolean;
 }): () => void {
   const readRef = useRef(read);
@@ -450,7 +454,7 @@ export function useDraftKeeper({
     discardedRef.current = false;
     // What we last put in the store, so an untouched buffer costs a string
     // comparison rather than a request.
-    let written: string | null = null;
+    let written: ReturnType<typeof read> | null = null;
     let pending: Promise<unknown> = Promise.resolve();
     const onDiscarded = (event: Event) => {
       const request = (event as CustomEvent<DiscardRequest>).detail;
@@ -462,7 +466,8 @@ export function useDraftKeeper({
 
     const flush = () => {
       if (activePath.current !== path) return;
-      const { contents, base } = readRef.current();
+      const snapshot = readRef.current();
+      const { contents, base, detached } = snapshot;
       if (discardedRef.current) {
         if (contents === discardedContents.current) return;
         discardedRef.current = false; written = null;
@@ -470,17 +475,19 @@ export function useDraftKeeper({
       if (contents === base) {
         if (written !== null) {
           written = null;
-          pending = pending.catch(() => {}).then(() => api.discardDraft(path)).catch(() => { written = contents; });
+          pending = pending.catch(() => {}).then(() => api.discardDraft(path)).catch(() => { written ??= snapshot; });
         }
         return;
       }
-      if (contents === written) return;
-      written = contents;
-      pending = pending.catch(() => {}).then(() => api.saveDraft({ path, contents, base, saved_at: Date.now() })).catch(() => {
+      if (contents === written?.contents && base === written.base && detached === written.detached) return;
+      written = snapshot;
+      pending = pending.catch(() => {}).then(() => api.saveDraft({
+        path, contents, base, saved_at: Date.now(), ...(detached ? {detached} : {}),
+      })).catch(() => {
         // A draft that cannot be written must not interrupt typing. The route
         // already degrades loudly; here the honest response is to let the
         // editor keep working, and to try again on the next tick.
-        written = null;
+        if (written === snapshot) written = null;
       });
     };
 

@@ -90,7 +90,7 @@ pub(super) fn editor_bootstrap(path: &str, method: &axum::http::Method) -> bool 
         .strip_prefix("/api/docs/")
         .is_some_and(|id| !id.is_empty() && !id.contains('/'));
     super::writes::post_observation(method, path)
-        || (*method == Method::GET && (path == "/api/file" || direct_document))
+        || (*method == Method::GET && (matches!(path, "/api/file" | "/api/startup-source") || direct_document))
         || matches!(
             (method, path),
             (
@@ -168,6 +168,7 @@ mod raw_source_tests {
             assert!(startup.result().is_none_or(|result| result.is_err()));
             for path in [
                 "/api/file",
+                "/api/startup-source",
                 "/api/source-history",
                 "/api/behavior/verification",
                 "/api/git/conflict-resolution/status",
@@ -186,6 +187,7 @@ mod raw_source_tests {
                 "/api/docs/source.md/render",
                 "/api/docs/source.md/run",
                 "/api/file/extra",
+                "/api/startup-source/extra",
                 "/api/room/source.md",
             ] {
                 assert!(!editor_bootstrap(path, &Method::GET), "{path}");

@@ -18,6 +18,10 @@ this presentation change does not establish explanatory coverage of those tools.
 
 Composer icons share a compact 28-pixel hit target with transparent borders, hover feedback and a visible keyboard-focus outline. Their row is inset inside the draft card rather than touching its rounded edge.
 
+Recorded user and assistant cards reserve their debugger gutter with the
+initial text. Showing an action or paused controls leaves the editor's width
+and transcript positions intact.
+
 <storycode:entry path="apps/web/src/views/DocumentReading.css">
 .document-reading { height: 100%; overflow: auto; }
 .document-reading > .doc-tab-toolbar { position: sticky; top: 0; z-index: 4; background: var(--bg); }
@@ -75,7 +79,8 @@ Composer icons share a compact 28-pixel hit target with transparent borders, hov
    Project review disclosures keep the full editor furniture. */
 .conversation-card:not(.conversation-card--final) > .editor-ruler { display: none; }
 .conversation-card:not(.conversation-card--final) > .document-editor .cm-right-rail__line { visibility: hidden; }
-.conversation-card:not(.conversation-card--final) > .document-editor .cm-debug-rail { display: none; }
+.conversation-card:not(.conversation-card--final, .conversation-card--user, .conversation-card--assistant) > .document-editor .cm-debug-rail { display: none; }
+.conversation-card:is(.conversation-card--user, .conversation-card--assistant) > .document-editor .cm-debug-rail { display: block; background: transparent; border: 0; }
 .conversation-card:not(.conversation-card--final) > .document-editor .cm-doc-frame-line { display: none; }
 .conversation-card:not(.conversation-card--final) > .document-editor .cm-bubble { background: transparent; max-width: 100%; padding-left: 0; padding-right: 0; }
 .conversation-card:not(.conversation-card--final) > .document-editor .cm-bubble-last::before,

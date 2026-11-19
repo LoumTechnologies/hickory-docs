@@ -19,6 +19,9 @@ import { foldEffect, unfoldEffect } from "@codemirror/language";
 import { computeEdits } from "../lib/diff";
 import "./DocumentReading.css";
 import { AssumptionAudit, VerificationStanding } from "../components/AssumptionAudit";
+import { RecordedFenceControls } from "../simple/Agent";
+import type { ReviewRecordedPatch } from "../simple/AgentProposalAdapter";
+import { normalizedSource } from "../simple/SourceText";
 const noCells = new Set<string>();
 
 export function focusConversationResponse(host: Element | null) {
@@ -118,7 +121,9 @@ function DictationButton({ disabled, onText, onActive, cancelRef }: { cancelRef?
     <span role="status" aria-label="Dictation status" title={status} style={{ position: "absolute", bottom: "calc(100% + 4px)", left: 0, width: "min(360px, 70vw)", maxHeight: 96, overflow: "auto", zIndex: 10, padding: status ? "4px 6px" : 0, background: "var(--bg-raised)", color: "var(--fg)", boxShadow: status ? "var(--shadow)" : undefined }}>{status}</span></span>;
 }
 
-export function ConversationEditor({ dictationScope = "response", onDictatingChange, cancelDictation, hasAttachments = false, onFiles, composerTools, branch, path, running, stream, reasoning, draft, onDraft, onSend, canSend, sending = false, stamp, showCollapsedLineage = false, renderFinal }: {
+export function ConversationEditor({ conversationId, dictationScope = "response", onDictatingChange, cancelDictation, hasAttachments = false, onFiles, composerTools, branch, path, running, stream, reasoning, draft, onDraft, onSend, canSend, sending = false, stamp, showCollapsedLineage = false, renderFinal, reviewRecordedPatch }: {
+  conversationId?: string;
+  reviewRecordedPatch?: ReviewRecordedPatch;
   cancelDictation?: { current: (() => void) | null }; dictationScope?: string; onDictatingChange?: (active: boolean) => void;
   renderFinal?: (turn: AgentTurn) => ReactNode;
   hasAttachments?: boolean; onFiles?: (files: File[]) => void; composerTools?: ReactNode;
@@ -167,20 +172,33 @@ export function ConversationEditor({ dictationScope = "response", onDictatingCha
       && !structure.blocks.some(parent => parent !== block && parent.name !== "session" && parent.from < block.from && parent.to >= block.to))
       .sort((a, b) => a.from - b.from);
     const end = reading.source.lastIndexOf("</hick:session>");
-    const ranges = messages.map((block, index) => ({
-      from: block.from, to: messages[index + 1]?.from ?? end, role: block.name,
-    }));
-    const cards = ranges.map(range => {
+    const cards = messages.map((block, index) => {
+      const range = { from: block.from, to: messages[index + 1]?.from ?? end, role: block.name };
       const prefix = '<hick:session xmlns:hick="http://www.hickorydocs.com/1.0">\n';
       const lineOffset = 1 - reading.source.slice(0, range.from).split("\n").length + 1;
       const card = { source: prefix + reading.source.slice(range.from, range.to) + "</hick:session>\n", links: reading.links
         .filter(link => link.span[0] >= range.from && link.span[1] <= range.to)
         .map(link => ({ ...link, span: [link.span[0] - range.from + prefix.length, link.span[1] - range.from + prefix.length] as [number, number],
           lines: [link.lines[0] + lineOffset, link.lines[1] + lineOffset] as [number, number] })) };
-      return { role: range.role, reading: card };
+      // The card can also contain a session envelope and recorded context.
+      // Bind only an exact message body and translate its lines into this
+      // editor, leaving receipts and all envelope bytes in place.
+      const text = block.name === "user" ? turn.prompt : block.name === "assistant" && turn.id !== running ? turn.answer : null;
+      const body = reading.source.slice(block.contentFrom, block.contentTo);
+      const at = text ? body.indexOf(text) : -1;
+      // Historic sessions frame messages that quote Hickory syntax as literal
+      // input. Its exact wrapper participates in the display offset only.
+      const before = at < 0 ? "" : body.slice(0, at).trim();
+      const after = at < 0 ? "" : body.slice(at + text!.length).trim();
+      const exactBody = !before && !after || before === "<hick:input>" && after === "</hick:input>";
+      const fence = conversationId && text && at >= 0 && exactBody ? {
+        conversation: conversationId, turn: turn.id, side: block.name === "user" ? "user" as const : "assistant" as const,
+        source: text, lineOffset: normalizedSource(card.source.slice(0, prefix.length + block.contentFrom - block.from + at)).split("\n").length - 1,
+      } : undefined;
+      return { role: range.role, reading: card, fence };
     });
     return { turn, cards };
-  }), [data, branch, running, stream, reasoning]);
+  }), [data, branch, running, stream, reasoning, conversationId]);
   return <div className="conversation-document">
     {branch.length === 0 && <div className="conversation-welcome">
       <span className="conversation-welcome__mark" aria-hidden="true">✳</span>
@@ -191,10 +209,10 @@ export function ConversationEditor({ dictationScope = "response", onDictatingCha
     {path && data && <AssumptionAudit records={data.audit ?? []} path={path} source={data.source} />}
     {messages.map(({ turn, cards }) => {
       return <div className="conversation-turn" key={turn.id} data-turn={turn.id}>
-        {cards.map(({ role, reading: card }, index) => {
+        {cards.map(({ role, reading: card, fence }, index) => {
           const message = <section className={`conversation-card conversation-card--${role}`} key={index} aria-label={`${role === "user" ? "You" : role === "reasoning" ? "Reasoning" : "Agent"} message`}>
             <header>{role === "user" ? "You" : role === "reasoning" ? "Reasoning" : "Agent"}</header>
-            <ConversationBuffer reading={card} path={path} source={data?.source ?? null} id={`${turn.id}:${index}`} readOnly
+            <ConversationBuffer reading={card} path={path} source={data?.source ?? null} id={`${turn.id}:${index}`} readOnly fence={fence} reviewRecordedPatch={reviewRecordedPatch}
               running={running} sending={sending} draft="" onDraft={() => {}} onSend={() => {}} canSend={false} showCollapsedLineage={showCollapsedLineage} />
           </section>;
           return role === "reasoning" ? <details className="conversation-reasoning" key={index}>
@@ -219,11 +237,14 @@ export function ConversationEditor({ dictationScope = "response", onDictatingCha
 }
 
 /** Each card owns its editor and undo history; only the composer reports edits. */
-function ConversationBuffer({ onView, hasAttachments = false, reading, path, source, id, readOnly, running, sending, draft, onDraft, onSend, canSend, showCollapsedLineage }: {
+function ConversationBuffer({ onView, hasAttachments = false, reading, path, source, id, readOnly, running, sending, draft, onDraft, onSend, canSend, showCollapsedLineage, fence, reviewRecordedPatch }: {
+  reviewRecordedPatch?: ReviewRecordedPatch;
+  fence?: { conversation: string; turn: string; side: "user" | "assistant"; source: string; lineOffset: number };
   onView?: (view: EditorView | null) => void; hasAttachments?: boolean; reading: ReturnType<typeof conversationReading>; path: string | null; source: string | null; id: string; readOnly: boolean;
   running: string | null; sending: boolean; draft: string; onDraft: (draft: string) => void; onSend: () => void; canSend: boolean; showCollapsedLineage: boolean;
 }) {
   const [view, setView] = useState<EditorView | null>(null);
+  const [mountedReading, setMountedReading] = useState<string | null>(null);
   const realtime = useMemo(() => new LocalRealtime(), []);
   const following = useRef(true);
   const initialFocus = useRef(false);
@@ -265,6 +286,7 @@ function ConversationBuffer({ onView, hasAttachments = false, reading, path, sou
     const before = view.state.doc.toString();
     view.dispatch({ changes: computeEdits(before, next).map(e => ({ from: e.start, to: e.end, insert: e.text })),
       effects: setResponseStart.of(reading.source.length), annotations: [replaceReading.of(true), Transaction.addToHistory.of(false)] });
+    if (readOnly) setMountedReading(reading.source);
     if (!readOnly && !initialFocus.current && !view.dom.closest("[hidden]")) {
       initialFocus.current = true;
       view.dispatch({ selection: { anchor: view.state.doc.length }, scrollIntoView: true });
@@ -323,7 +345,10 @@ function ConversationBuffer({ onView, hasAttachments = false, reading, path, sou
     return () => { syncLinks.current = () => {}; unregister(); view.dom.removeEventListener("toggle", sync, true); view.dom.removeEventListener("click", sync); };
   }, [view, path, reading, draft, showCollapsedLineage]);
   useEffect(() => () => realtime.close(), [realtime]);
-  return <DocumentEditor docId={`conversation:${id}`} initialSource="" realtime={realtime} readOnly={readOnly}
+  return <><DocumentEditor docId={`conversation:${id}`} initialSource="" realtime={realtime} readOnly={readOnly}
     execBlocks={[]} runningCells={noCells} onRunCell={() => {}} onViewReady={ready}
-    preserveBytes editorExtensions={extensions} />;
+    preserveBytes editorExtensions={extensions} />
+    {view && fence && mountedReading === reading.source && <RecordedFenceControls key={fence.source} {...fence} view={view} reviewRecordedPatch={reviewRecordedPatch}
+      current={() => view.state.doc.toString() === normalizedSource(reading.source)} />}
+  </>;
 }

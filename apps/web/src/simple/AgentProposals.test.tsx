@@ -1,5 +1,5 @@
 import {it,expect,vi} from 'vitest';
-import {AgentProposalModel,verifyProposal,proposalHash,type ProposalMaterial,type ProposalPorts,type ProposalProvider} from './AgentProposals';
+import {AgentProposalModel,verifyProposal,proposalHash,type ProposalMaterial,type ProposalPorts,type ProposalProvider,type VerifiedProposal} from './AgentProposals';
 const scope={workspace:'a'.repeat(32),namespace:'/workspace'},token='b'.repeat(32),request_id='c'.repeat(32),hash='d'.repeat(64);
 function reading(){return {version:1,behavior_protocol:1,workspace_id:'e'.repeat(64),namespace:scope.namespace,engine_workspace_id:scope.workspace,reading_fingerprint:hash,context:{version:1,entry:'project.md',sources:{},missing_sources:[],focus:'note.py',saved_guards:{},unaddressed_sources:{}},graph:{nodes:{source:{id:'source',kind:'implementation',path:'note.py',label:'note.py',status:'canonical',hash,preview:'value=1\n'}},edges:[],notices:[],checks:[],truncated:false},impact:null,evidence:{status:'missing',records:[]}};}
 export function material():ProposalMaterial {const saved={kind:'file',text:'value=1\n',sha256:hash,mode:420,readonly:false};return {version:1,...scope,origin_authority:'engine-managed agent tool; claims remain unverified',intention:{version:1,request_id,origin:'controlled provider',title:'Change source coherently',explanation:'Propose the source and its explanation together.',claims:['Agent claims passed; not evidence.'],check_ids:[],capture:{context:'capture',edit:{changes:{'hick:///note.py':[{range:{start:{line:0,character:6},end:{line:0,character:7}},newText:'41'}]}},ownership_sources:{'note.py':'value=1\n'},unaddressed_sources:{},saved_guards:{'note.py':'original-guard'}},reading:{}},inputs:{source_files_modified:false,workspace:scope.workspace,context:'capture',refusals:{},sources:{'note.py':{kind:'file',identity:'source',text:'value=1\n'}},saved_sources:{'note.py':saved},saved_guards:{'note.py':'original-guard'}},plan:{version:1,context:'capture',title:'Change source coherently',patches:[{path:'note.py',before:{kind:'file',identity:'source',text:'value=1\n'},after:{kind:'file',identity:'source',text:'value=41\n'}}]},consequences:{version:1,workspace:scope.workspace,context:'capture',fingerprint:hash,protected_targets:[],saved:{entries:[],removed_entries:[],output_paths:[]},draft:{entries:[],removed_entries:[],output_paths:[]},saved_sources:{'note.py':{...saved,text:'value=41\n'}}},saved_guards:{'note.py':'original-guard'},before:reading(),after:reading()} as ProposalMaterial;}
@@ -24,7 +24,7 @@ import {EditorView} from '@codemirror/view';
 import {history as editorHistory,undo as nativeUndo,redo as nativeRedo} from '@codemirror/commands';
 import {Buffer,Buffers} from './buffers';
 import {resourceBufferId} from './ResourceEditors';
-import {browserProposalPorts,proposalEditorContext} from './AgentProposalAdapter';
+import {browserProposalPorts,prepareRecordedPatch,proposalEditorContext,type RecordedPatchAddress} from './AgentProposalAdapter';
 import {WorkspaceChangeHistory,invertChangePlan} from './ChangePlan';
 import {captureDraftHistory,applyWorkspacePlan} from './WorkspaceChanges';
 const proposalViews=vi.hoisted(()=>new Map<unknown,{view:EditorView}>());
@@ -33,6 +33,50 @@ afterEach(()=>{for(const {view} of proposalViews.values())view.destroy();proposa
 async function callerProposal(){const value=material();value.origin_authority='caller-provided intention; not an agent attestation';return verifyProposal(await envelope(value),scope);}
 async function managedProposal(buffer:Buffer){const value=material();value.intention.editor_snapshot={live:false,buffers:[{id:resourceBufferId(buffer),path:buffer.file.path,source_hash:await proposalHash(buffer.text),save_guard:buffer.saveGuard??null,source_revision:String(buffer.sourceRevision)}]};return verifyProposal(await envelope(value),scope);}
 function host(){const buffers=new Buffers(()=>{});buffers.workspace=scope.namespace;buffers.workspaceId=scope.workspace;const buffer=new Buffer({path:'note.py',name:'note.py',dir:false},'value=1\n','loaded-fnv',()=>{},false,scope.namespace);buffer.saveGuard='original-guard';buffers.values.set('note.py',buffer);const view=new EditorView({parent:document.body,state:EditorState.create({doc:buffer.text,selection:{anchor:2},extensions:[editorHistory(),EditorView.updateListener.of(update=>{if(update.docChanged)buffer.edit(update.state.doc.toString());})]})});view.scrollDOM.scrollTop=73;proposalViews.set(buffer,{view});const history=new WorkspaceChangeHistory(),acquire=vi.fn(async(_path:string)=>{throw Error('Unexpected acquisition');}),adopt=vi.fn(),ports=browserProposalPorts(buffers,history,acquire,adopt,()=>true);return {buffers,buffer,view,history,ports,acquire,adopt};}
+const absentEntry = {version:1, entry_protocol:1, ...scope, guard:'2'.repeat(64), movable:false,
+ source_effects:false, entry:{version:1,identity:'3'.repeat(32),generation:0,path:null}};
+it('binds a recorded patch to its message and guarded editor before opening review', async () => {
+ const {buffers,buffer,ports} = host();
+ const fence: RecordedPatchAddress = {side:'assistant',source_hash:'4'.repeat(64),opening_line:5};
+ let sealed: VerifiedProposal | undefined;
+ const call = vi.fn(async (method: string, path: string, raw?: unknown) => {
+  if (method === 'GET') { expect(path).toBe('/api/workspace/entry'); return absentEntry; }
+  expect(path).toBe('/api/docs/workspace/agent/turns/turn%20one/fence-patch');
+  const body = raw as { fence: RecordedPatchAddress; intention: ProposalMaterial['intention'] };
+  expect(body.fence).toEqual(fence);
+  expect(body.intention.capture.edit).toEqual({changes:{}});
+  expect(body.intention.capture.drafts).toMatchObject({'note.py':{text:'value=1\n',save_guard:'original-guard'}});
+  const value = material();
+  value.origin_authority = `recorded assistant fence, source SHA-256 ${fence.source_hash}; claims remain unverified`;
+  value.intention.origin = 'assistant message in turn turn one, line 6';
+  value.intention.request_id = body.intention.request_id;
+  value.intention.editor_snapshot = body.intention.editor_snapshot;
+  const reply = await envelope(value);
+  sealed = await verifyProposal(reply,scope);
+  return reply;
+ });
+ const selection = await prepareRecordedPatch(buffers,'turn one',fence,()=>true,buffer,call);
+ expect(selection).toEqual({token: sealed!.token,fingerprint: sealed!.fingerprint});
+ expect(call).toHaveBeenCalledTimes(2);
+ const review = await ports.prepare(sealed!,()=>true);
+ expect(review.current()).toBe(true);
+ expect(buffer.text).toBe('value=1\n');
+ buffer.edit('intervening text'); buffer.edit('value=1\n');
+ expect(review.current()).toBe(false);
+ await expect(ports.prepare(sealed!,()=>true)).rejects.toThrow('Original editor identity');
+ expect(buffer.text).toBe('value=1\n');
+});
+it('retires a recorded patch when its source card closes during entry acquisition', async () => {
+ const {buffers} = host();
+ let alive = true, finish!: (value:unknown)=>void;
+ const call = vi.fn(() => new Promise(resolve => {finish = resolve;}));
+ const pending = prepareRecordedPatch(buffers,'turn',{side:'user',source_hash:'4'.repeat(64),opening_line:0},()=>alive,undefined,call);
+ alive = false;
+ finish(absentEntry);
+ await expect(pending).rejects.toThrow('obsolete source context');
+ expect(call).toHaveBeenCalledTimes(1);
+ expect(call).toHaveBeenCalledWith('GET','/api/workspace/entry');
+});
 it('applies precise sealed edits to the same editor and preserves caret/scroll, coordinated and native undo',async()=>{const {buffers,buffer,view,history,ports}=host(),proposal=await callerProposal(),prepared=await ports.prepare(proposal,()=>true),original=view.dom;expect(prepared.current()).toBe(true);ports.draft(prepared);expect(buffer.text).toBe('value=41\n');expect(buffer.base).toBe('value=1\n');expect(view.dom).toBe(original);expect(view.state.selection.main.anchor).toBe(2);expect(view.scrollDOM.scrollTop).toBe(73);const token=history.preview('undo')!;expect(token.entry.kind).toBe('draft');if(token.entry.kind!=='draft')throw Error('Expected one coordinated draft inverse');const inverse=history.readDraft(token);applyWorkspacePlan(buffers,inverse);history.commit(token,captureDraftHistory(buffers,invertChangePlan(inverse)));expect(buffer.text).toBe('value=1\n');const redo=history.preview('redo')!;if(redo.entry.kind!=='draft')throw Error('Expected one draft redo');const forward=history.readDraft(redo);applyWorkspacePlan(buffers,forward);history.commit(redo,captureDraftHistory(buffers,invertChangePlan(forward)));expect(buffer.text).toBe('value=41\n');nativeUndo(view);expect(buffer.text).toBe('value=1\n');nativeRedo(view);expect(buffer.text).toBe('value=41\n');expect(view.dom).toBe(original);});
 it('preserves a detached cached editor and unrelated unsaved notes while applying another source',async()=>{const value=host(),notes=new Buffer({path:'Untitled-notes',name:'notes',dir:false},'','',()=>{},false,scope.namespace);notes.isUntitledDraft=true;notes.edit('retained unsaved notes');const other=new EditorView({state:EditorState.create({doc:notes.text,extensions:[editorHistory()]})});value.buffers.values.set(notes.file.path,notes);proposalViews.set(notes,{view:other});const materialValue=material();materialValue.origin_authority='caller-provided intention; not an agent attestation';materialValue.intention.capture.unaddressed_sources={[resourceBufferId(notes)]:notes.text};const proposal=await verifyProposal(await envelope(materialValue),scope),prepared=await value.ports.prepare(proposal,()=>true);expect(other.dom.isConnected).toBe(false);expect(prepared.current()).toBe(true);value.ports.draft(prepared);expect(value.buffer.text).toBe('value=41\n');expect(notes.text).toBe('retained unsaved notes');expect(notes.dirty).toBe(true);expect(other.state.doc.toString()).toBe(notes.text);expect(other.dom.isConnected).toBe(false);});
 it('retires actual editor leases on selection, scrolling and replaced mounts',async()=>{for(const change of ['selection','scroll','mount']){const value=host(),proposal=await callerProposal(),prepared=await value.ports.prepare(proposal,()=>true);if(change==='selection')value.view.dispatch({selection:{anchor:3}});else if(change==='scroll')value.view.scrollDOM.scrollTop=74;else value.view.dom.remove();expect(prepared.current()).toBe(false);expect(()=>value.ports.draft(prepared)).toThrow('no longer current');expect(value.buffer.text).toBe('value=1\n');value.view.destroy();proposalViews.delete(value.buffer);}});
@@ -47,3 +91,115 @@ import {api,request as requestProtocol,parseProtocolJson} from '../api/client';
 import {AgentSession} from './Agent';
 it('sends one non-live complete agent snapshot with original guards and stable anonymous identity',async()=>{const {buffers,buffer}=host(),notes=new Buffer({path:'Untitled-note',name:'notes',dir:false},'retained note','',()=>{});notes.isUntitledDraft=true;buffers.values.set(notes.file.path,notes);const started=vi.spyOn(api,'agent').mockResolvedValue({session_id:'owned-turn'});const session=new AgentSession();session.captureContext=()=>proposalEditorContext(buffers,buffer);session.prompt='Prepare one coherent proposal';const pending=session.send();buffer.edit('changed after send');await pending;expect(started).toHaveBeenCalledTimes(1);const context=started.mock.calls[0][6]!;expect(context.live).toBe(false);expect(context.buffers.find(row=>row.path==='note.py')?.content).toBe('value=1\n');expect(context.buffers.find(row=>row.path==='note.py')?.save_guard).toBe('original-guard');expect(context.buffers.find(row=>row.path===null)?.content).toBe('retained note');started.mockRestore();});
 it('rejects raw proposal protocol numeric aliases and duplicates at the HTTP boundary',async()=>{for(const raw of ['{"version":1,"proposal_protocol":1.0}','{"version":1,"proposal_protocol":1,"proposal_protocol":1}']){expect(()=>parseProtocolJson(raw)).toThrow();const previous=globalThis.fetch;try{globalThis.fetch=vi.fn(async()=>new Response(raw,{status:200,headers:{'content-type':'application/json'}})) as typeof fetch;await expect(requestProtocol('GET','/api/agent-proposals')).rejects.toThrow();}finally{globalThis.fetch=previous;}}});
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { installMockHandler } from '../api/client';
+import type { AgentTurn, FilesResponse } from '../api/types';
+import { PlainFilePane } from '../components/PlainFilePane';
+import { freeform, open, tab } from '../shell/layout';
+import { SessionRegistry } from '../views/documentSession';
+import { WorkspaceChat } from '../views/WorkspaceChat';
+import type { RecordedPatchSource } from './AgentProposalAdapter';
+// @ts-expect-error Node runtime crypto is available to Vitest without browser Node typings.
+import { webcrypto } from 'node:crypto';
+
+it('opens a sealed read-only Main Workspace review from either recorded patch fence', async () => {
+ const original = 'value=1\n', guard = 'original-guard';
+ const originalHash = await proposalHash(original);
+ const marker = String.fromCharCode(96).repeat(3);
+ const message = (value: number) => ['Recorded edit', '', marker + 'patch', '--- a/note.py', '+++ b/note.py',
+  '@@ -1 +1 @@', '-value=1', '+value=' + value, marker].join('\n');
+ const turn: AgentTurn = {id:'mounted-review', parent_id:null, prompt:message(41), answer:message(52),
+  status:'ok', error:null, provider:'anthropic', model:'fixture', created_at:'', usage:null};
+ const file = tab('file', 'note.py');
+ const root: FilesResponse = {root:'/workspace', root_path:scope.namespace, workspace_id:scope.workspace,
+  tree:[{path:'note.py', name:'note.py', dir:false}]};
+ const named = {current:new Map<string, () => RecordedPatchSource | null>()};
+ const transitions: string[] = [], proposed = {user:41, assistant:52};
+ const writes: string[] = [];
+ const heldCrypto = globalThis.crypto;
+ Object.defineProperty(globalThis, 'crypto', {configurable:true, value:webcrypto});
+ installMockHandler(async (method, path, raw) => {
+  if (method !== 'GET') writes.push(method + ' ' + path);
+  if (path === '/api/files') return root;
+  if (path === '/api/file?path=note.py') return {path:'note.py', content:original, hash:'original-fnv', save_guard:guard, language:'python'};
+  if (path.endsWith('/agent/turns')) return {turns:[turn], provider:'anthropic', model:'fixture',
+    totals:{usd:0, input:0, output:0, cache_read:0, cache_write:0}};
+  if (path.startsWith('/api/workspace/responses')) return {scope:'fixture', state:null};
+  if (path.endsWith('/agent/python/context')) return {items:[], updates:[], coverage:'Empty fixture context'};
+  if (path === '/api/workspace/entry') return absentEntry;
+  if (path.endsWith('/fence-patch')) {
+   const {fence, intention} = raw as {fence:RecordedPatchAddress; intention:ProposalMaterial['intention']};
+   expect(method).toBe('POST');
+   const side = fence.side, source = side === 'user' ? turn.prompt : turn.answer!;
+   expect(fence).toEqual({side, source_hash:await proposalHash(source), opening_line:2});
+   expect(intention.editor_snapshot).toEqual({live:false, buffers:[{id:file.id, path:'note.py', source_hash:originalHash,
+    save_guard:guard, source_revision:String(named.current.get(file.id)?.()?.revision)}]});
+   expect(intention.capture.drafts).toMatchObject({'note.py':{text:original, base_sha256:originalHash, save_guard:guard}});
+   const value = material(), next = 'value=' + proposed[side] + '\n';
+   const context = intention.capture.context;
+   value.origin_authority = `recorded ${side} fence, source SHA-256 ${fence.source_hash}; claims remain unverified`;
+   value.intention = {...intention, origin:side + ' message in turn ' + turn.id + ', line ' + (fence.opening_line + 1),
+    capture:{...intention.capture, edit:{changes:{'hick:///note.py':[{
+    range:{start:{line:0,character:0}, end:{line:1,character:0}}, newText:next,
+   }]}}}};
+   value.inputs.context = context;
+   value.plan.context = context;
+   value.consequences.context = context;
+   const after = value.plan.patches[0].after, projected = value.consequences.saved_sources['note.py'];
+   if (after.kind !== 'file' || projected.kind !== 'file') throw Error('Fixture needs a file transition.');
+   after.text = next;
+   projected.text = next;
+   value.consequences.draft.output_paths.push('generated.py');
+   transitions.push(side);
+   return envelope(value);
+  }
+  return {backend:'python', ready:true, agents:[], edits:{mode:'review', changes:[]}};
+ });
+ try {
+  const mounted = render(<><PlainFilePane path={file.target} proposalTabId={file.id}
+    proposalOwner={(id, read) => {named.current.set(id, read); return () => {named.current.delete(id);};}} />
+   <WorkspaceChat layout={open(freeform(), file)} registry={new SessionRegistry()}
+    untitledSources={{current:{}}} plainSources={{current:new Map()}} plainPatchOwners={named}
+    patchRoot={root} folder="/workspace" focusedEditor={file.id} onOpenSession={() => {}} /></>);
+  const buttons = await screen.findAllByRole('button', {name:'Review patch fence on line 3'});
+  expect(buttons).toHaveLength(2);
+  await waitFor(() => expect(named.current.get(file.id)?.()?.guard).toBe(guard));
+  const fileView = EditorView.findFromDOM(mounted.container.querySelector('.plain-file-pane .cm-editor') as HTMLElement)!;
+  const transcript = buttons.map(button => EditorView.findFromDOM(button.closest('.conversation-card')!.querySelector('.cm-editor') as HTMLElement)!);
+  const composer = EditorView.findFromDOM(await screen.findByRole('textbox', {name:'Agent conversation and response'}))!;
+  const initialText = [...transcript, composer, fileView].map(view => view.state.doc.toString());
+  act(() => fileView.dispatch({selection:{anchor:2}}));
+  const selection = fileView.state.selection;
+  for (const [index, side] of ['user','assistant'].entries()) {
+   act(() => buttons[index].focus());
+   fireEvent.click(buttons[index]);
+   await waitFor(() => {
+    const card = within(buttons[index].closest('.conversation-card') as HTMLElement);
+    expect(card.queryAllByRole('alert').map(alert => alert.textContent)).toEqual([]);
+    expect(screen.queryByRole('dialog', {name:'Recorded patch review'})).not.toBeNull();
+   });
+   const dialog = within(screen.getByRole('dialog', {name:'Recorded patch review'}));
+   expect(dialog.getByText(new RegExp('^recorded ' + side + ' fence'))).toBeTruthy();
+   expect(dialog.getByText(index === 0 ? 'value=41' : 'value=52', {exact:false})).toBeTruthy();
+   fireEvent.change(dialog.getByRole('combobox', {name:'Proposal construction layer'}), {target:{value:'draft'}});
+   expect(dialog.getByText(/Generated output: generated.py/)).toBeTruthy();
+   expect(dialog.queryByRole('button', {name:/apply|save|stage/i})).toBeNull();
+   fireEvent.click(dialog.getByRole('button', {name:'Close'}));
+   expect(document.activeElement).toBe(buttons[index]);
+  }
+  expect(transitions).toEqual(['user','assistant']);
+  expect(writes.filter(path => /fence-patch|PUT|agent-proposals\/(validate|report)|resource.*(save|publish)/.test(path))).toEqual([
+   'POST /api/docs/workspace/agent/turns/mounted-review/fence-patch',
+   'POST /api/docs/workspace/agent/turns/mounted-review/fence-patch',
+  ]);
+  expect(writes.some(path => path.includes('/api/docs/conversation%3A') && path.endsWith('/project'))).toBe(false);
+  const current = [...transcript, composer, fileView];
+  expect(current.every(view => view.dom.isConnected && EditorView.findFromDOM(view.dom) === view)).toBe(true);
+  expect(current.map(view => view.state.doc.toString())).toEqual(initialText);
+  expect(fileView.state.selection.eq(selection)).toBe(true);
+ } finally {
+  cleanup();
+  installMockHandler(null as never);
+  Object.defineProperty(globalThis, 'crypto', {configurable:true, value:heldCrypto});
+ }
+});

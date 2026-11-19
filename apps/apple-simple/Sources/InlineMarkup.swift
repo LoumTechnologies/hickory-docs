@@ -175,7 +175,19 @@ func inlineCSVCells(_ body: String, line: Int, offset: Int, delimiter: String) -
 }
 // Candidate discovery runs with the background snapshot, once per source revision.
 // The adapter remains authoritative about binding or refusing a pending stop.
-struct InlineDebugContext: Sendable { var code: [Int: String] = [:]; var launch: [Int: String] = [:] }
+struct RecordedDebugFence: Sendable, Equatable {
+    var opening: Int
+    var closing: Int
+    var language: String
+    func contains(_ line: Int) -> Bool { opening < line && line < closing }
+}
+struct InlineDebugContext: Sendable {
+    var code: [Int: String] = [:]
+    var launch: [Int: String] = [:]
+    var recorded: [Int: RecordedDebugFence] = [:]
+    var recordedPatches: Set<Int> = []
+    var recordedConstructions: Set<Int> = []
+}
 func inlineDebugContext(_ source: String, path: String) -> InlineDebugContext {
     var result = InlineDebugContext()
     guard source.utf16.count <= 200_000 else { return result }
@@ -188,22 +200,55 @@ func inlineDebugContext(_ source: String, path: String) -> InlineDebugContext {
     }
     guard ["md", "markdown"].contains((path as NSString).pathExtension.lowercased()) else { return result }
     var fence = "", mode = "", target: String?, oldLines = 0, newLines = 0
+    var recorded: (opening: Int, language: String)?
+    var declaredPatch: Int?, declaredClose: String?
+    let standalone = Set(["py", "python", "python3", "js", "javascript", "node", "ts", "typescript", "rs", "rust", "c", "cpp", "c++", "cxx", "go", "golang", "cs", "csharp", "c#", "rb", "ruby"])
+    let patchLanguages = Set(["diff", "patch"])
     let opening = try! NSRegularExpression(pattern: #"^ {0,3}<[\w.-]+:(file|patch|copy|cut|exec|entry|diagram|math|table)\b[^>]*>"#)
     let pathHint = try! NSRegularExpression(pattern: #"\bpath\s*=\s*["']([^"']+)["']"#)
     let hunk = try! NSRegularExpression(pattern: #"^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@"#)
     for (index, row) in rows.enumerated() {
         let trimmed = row.trimmingCharacters(in: .whitespacesAndNewlines), text = row as NSString
         if !fence.isEmpty {
-            if trimmed.count >= fence.count, trimmed.allSatisfy({ $0 == fence.first! }) { fence = ""; mode = ""; target = nil; continue }
+            if trimmed.count >= fence.count, trimmed.allSatisfy({ $0 == fence.first! }) {
+                if let recorded, index > recorded.opening + 1,
+                   row.prefix(while: { $0 == " " }).count <= 3,
+                   rows[(recorded.opening + 1)..<index].contains(where: { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) {
+                    if patchLanguages.contains(recorded.language) { result.recordedPatches.insert(recorded.opening) }
+                    else { result.recorded[recorded.opening] = RecordedDebugFence(opening: recorded.opening, closing: index, language: recorded.language) }
+                }
+                if let declaredPatch, index > declaredPatch + 1,
+                   row.prefix(while: { $0 == " " }).count <= 3,
+                   rows[(declaredPatch + 1)..<index].contains(where: { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) {
+                    result.recordedConstructions.insert(declaredPatch)
+                }
+                fence = ""; mode = ""; target = nil; recorded = nil; declaredPatch = nil; continue
+            }
         } else if !mode.isEmpty {
-            if trimmed.contains("</"), trimmed.contains(":" + mode + ">") { mode = ""; target = nil; continue }
+            if trimmed.contains("</"), trimmed.contains(":" + mode + ">") {
+                if let declaredPatch, let declaredClose, trimmed.contains(declaredClose),
+                   index > declaredPatch + 1,
+                   rows[(declaredPatch + 1)..<index].contains(where: { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) {
+                    result.recordedConstructions.insert(declaredPatch)
+                }
+                mode = ""; target = nil; declaredPatch = nil; declaredClose = nil; continue
+            }
         } else {
             var declaration = ""
             if let marker = row.range(of: #"^ {0,3}(`{3,}|~{3,})"#, options: .regularExpression) {
                 fence = String(row[marker]).trimmingCharacters(in: .whitespaces)
                 declaration = String(row[marker.upperBound...]); mode = declaration.trimmingCharacters(in: .whitespaces).components(separatedBy: " ")[0] == "patch" ? "patch" : "file"
+                let language = declaration.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                if standalone.contains(language) || patchLanguages.contains(language) { recorded = (index, language) }
+                let info = declaration.trimmingCharacters(in: .whitespacesAndNewlines)
+                if info != "patch", info.split(whereSeparator: { $0.isWhitespace }).first == "patch" { declaredPatch = index }
             } else if let match = opening.firstMatch(in: row, range: NSRange(location: 0, length: text.length)) {
                 mode = text.substring(with: match.range(at: 1)); declaration = text.substring(with: match.range)
+                if mode == "patch", !declaration.hasSuffix("/>"),
+                   let tag = declaration.trimmingCharacters(in: .whitespaces).dropFirst().split(separator: ":", maxSplits: 1).first {
+                    declaredPatch = index
+                    declaredClose = "</\(tag):patch>"
+                }
             } else { continue }
             oldLines = 0; newLines = 0; target = nil
             if mode == "file", let match = pathHint.firstMatch(in: declaration, range: NSRange(location: 0, length: declaration.utf16.count)) {

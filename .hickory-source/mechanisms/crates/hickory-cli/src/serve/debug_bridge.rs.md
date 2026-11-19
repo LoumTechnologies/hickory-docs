@@ -680,7 +680,7 @@ async fn handle_inner(
             } else if doc.starts_with("hick-project:///") {
                 let uri = tower_lsp::lsp_types::Url::parse(&doc).map_err(|e| (None, e.into()))?;
                 registry
-                    .start_captured_with_sources(&uri, &[], &sources, &mut on_build)
+                    .start_captured_with_sources(&uri, program.as_deref(), &[], &sources, &mut on_build)
                     .await
             } else if crate::debug_sessions::is_document(&path) {
                 registry

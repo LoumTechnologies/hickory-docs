@@ -15,13 +15,18 @@ Related contracts: [Patch elements use the shared diff renderer](../../../../../
 <a id="f-d6e75baad108-patchView"></a>
 ### `patchView`
 
+A construction patch needs an identifier to address its evaluated transition.
+Keep an ordinary Markdown patch fence visible as source and let recorded Agent
+messages offer guarded review at the fence. Mounting it as a construction would
+send an unrelated project inspection to the recorded message editor.
+
 <storycode:copy id="f-d6e75baad108-patchView">
 import { PatchEditor } from "./Editor";
 import type { ElementView } from "../types";
 
 export const patchView: ElementView = {
   kind: "patch",
-  draws: block => block.name === "patch",
+  draws: block => block.name === "patch" && !!block.attrs.id,
   render: (slot, cx) => <PatchEditor slot={slot} cx={cx} />,
 };
 </storycode:copy>

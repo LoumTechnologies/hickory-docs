@@ -288,15 +288,20 @@ describe("shared frontend layout contract", () => {
 
 // Contract: .hickory-source/frontends/contract.md — logical line numbers are immediate.
 describe("simple inline rich editing", () => {
-  it("opens CSV as a keyboard-navigable grid and restores source without replacing its editor", async () => {
+  it("opens readable CSV, then explicitly switches to the keyboard-navigable grid", async () => {
     const source = 'Name,Note\nCafé,"a,b"\n';
     const buffer = new Buffer({ path: "stock.csv", name: "stock.csv", dir: false }, source, "hash", () => {});
     const screen = render(createElement(Document, { buffer }));
     try {
       const csvRoot = () => screen.container.querySelector(".simple-csv-grid")?.shadowRoot;
+      const view = EditorView.findFromDOM(screen.container.querySelector(".cm-editor")!)!;
+      expect(view.state.doc.toString()).toBe(source);
+      const switchToGrid = screen.getByRole("button", { name: "Edit table as grid" }) as HTMLButtonElement;
+      await waitFor(() => expect(switchToGrid.disabled).toBe(false));
+      expect(csvRoot()).toBeUndefined();
+      fireEvent.click(switchToGrid);
       await waitFor(() => expect(csvRoot()?.querySelector('[data-testid="table-panel"]')).toBeTruthy());
       const table = csvRoot()!.querySelector('[data-testid="table-panel"]')! as HTMLElement;
-      const view = EditorView.findFromDOM(screen.container.querySelector(".cm-editor")!)!;
       const grid = within(table);
       fireEvent.click(grid.getByRole("gridcell", { name: "Café" }));
       fireEvent.keyDown(grid.getByRole("gridcell", { name: "Café" }), { key: "ArrowRight" });
@@ -678,6 +683,39 @@ describe("tab drop placement", () => {
 });
 
 describe("simple background source loading", () => {
+  it("upgrades only an exact provisional source to its guarded workspace buffer", async () => {
+    const buffers = new Buffers(() => {});
+    const file = {name:"early.txt", path:"docs/early.txt", dir:false};
+    const workspace = "1".repeat(32), root = "/workspace", content = "Readable 😀\r\n";
+    const provisional = buffers.observeStartup({version:1,path:file.path,content,root_path:root,workspace_id:workspace})!;
+    expect(provisional.readonly).toBe(true);
+    expect(provisional.saveGuard).toBeUndefined();
+    provisional.edit("Forbidden");
+    expect(provisional.text).toBe(content);
+    buffers.workspace = root; buffers.workspaceId = workspace;
+    const guarded = {path:file.path,language:"text",hash:"hash",save_guard:"guard",content};
+    vi.mocked(api.file).mockResolvedValueOnce({...guarded,content:"Changed disk text"});
+    await expect(buffers.open(file)).rejects.toThrow("startup observation differs");
+    expect(buffers.values.get(file.path)).toBe(provisional);
+    expect(provisional.readonly).toBe(true);
+    vi.mocked(api.file).mockResolvedValueOnce(guarded);
+    expect(await buffers.open(file)).toBe(provisional);
+    expect(provisional.readonly).toBe(false);
+    expect(provisional.saveGuard).toBe("guard");
+  });
+  it("retires a guarded read when its provisional startup editor closes", async () => {
+    const buffers = new Buffers(() => {});
+    const file = { name: "early.txt", path: "docs/early.txt", dir: false };
+    const root = "/workspace", workspace = "1".repeat(32), content = "Readable early source";
+    buffers.observeStartup({ version: 1, path: file.path, content, root_path: root, workspace_id: workspace });
+    buffers.workspace = root;
+    buffers.workspaceId = workspace;
+    vi.mocked(api.file).mockResolvedValueOnce({ path: file.path, language: "text", hash: "hash", save_guard: "guard", content });
+    const confirming = buffers.open(file);
+    buffers.values.delete(file.path);
+    await expect(confirming).rejects.toThrow("startup editor closed");
+    expect(buffers.values.has(file.path)).toBe(false);
+  });
   it("derives known authored candidates while counting generated and unclassified files explicitly", () => {
     // Contract: .hickory-source/frontends/contract.md
     const a = {name:"a.py",path:"src/a.py",dir:false,language:"python"};
@@ -1169,6 +1207,61 @@ describe("simple literate subscription agent", () => {
     await session.send();
     expect(session.prompt).toBe("Keep my draft"); expect(session.turns).toEqual([]);
     expect(session.error).toContain("not retried"); expect(api.agent).toHaveBeenCalledTimes(before + 1);
+  });
+  it("opens Debug only on an explicit recorded fence click and retires a late capture", async () => {
+    const prompt = "Question 😀\r\n```python\r\nvalue = 41\r\nprint(value + 1)\r\n```";
+    const answer = "Answer\n\n~~~python\nprint(42)\n~~~";
+    const session = new AgentSession();
+    session.setTurns([{ id: "fence-turn", prompt, answer, status: "ok", parent_id: null, error: null, created_at: "", provider: "codex-subscription", model: "test", usage: null }]);
+    vi.mocked(api.agentTurns).mockReturnValueOnce(new Promise(() => {}));
+    const before = vi.mocked(request).mock.calls.length;
+    const screen = render(createElement(Agent, { session }));
+    const user = screen.container.querySelector<HTMLElement>(".user-message")!;
+    const assistant = screen.container.querySelectorAll<HTMLElement>(".agent-message")[1];
+    fireEvent.click(await within(user).findByLabelText("Fence actions on line 2"));
+    const userLaunch = await within(user).findByLabelText("Debug python fence on line 2");
+    expect(await within(assistant).findByLabelText("Fence actions on line 3")).toBeTruthy();
+    expect(vi.mocked(request).mock.calls.slice(before).some(([, path]) => /fence-(debug|run)$/.test(path))).toBe(false);
+    const content = user.querySelector<HTMLElement>(".cm-content")!;
+    const view = EditorView.findFromDOM(content)!;
+    act(() => view.dispatch({ changes: { from: 0, insert: "changed" } }));
+    expect(view.state.doc.toString()).toBe(prompt.replaceAll("\r\n", "\n"));
+    let deliver!: (value: unknown) => void;
+    vi.mocked(request).mockImplementationOnce(() => new Promise(resolve => { deliver = resolve; }));
+    fireEvent.click(userLaunch);
+    const source_hash = await historySourceHash(prompt);
+    await waitFor(() => expect(request).toHaveBeenCalledWith("POST", "/api/docs/workspace/agent/turns/fence-turn/fence-debug", { side: "user", source_hash, opening_line: 1 }));
+    screen.unmount();
+    vi.mocked(request).mockResolvedValueOnce({ removed: true });
+    const id = "0123456789abcdef";
+    await act(async () => { deliver({ id, version: 1, uri: `hick-project:///${id}/message.md`, source_hash, workspace: "workspace", opening_line: 1, started: false }); });
+    expect(request).toHaveBeenCalledWith("DELETE", `/api/project-contexts/${id}`);
+    expect(session.turns[0].prompt).toBe(prompt);
+  });
+  it("reads a declared patch on its exact recorded line and displays compiler output without a write action", async () => {
+    const prompt = 'Inspect this construction.\n\n<hick:patch id="change" after="make">\n--- a/out.txt\n+++ b/out.txt\n</hick:patch>';
+    const session = new AgentSession();
+    session.setTurns([{ id: "declared-turn", prompt, answer: null, status: "ok", parent_id: null, error: null,
+      created_at: "", provider: "codex-subscription", model: "test", usage: null }]);
+    vi.mocked(api.agentTurns).mockReturnValueOnce(new Promise(() => {}));
+    const screen = render(createElement(Agent, { session }));
+    const user = within(screen.container.querySelector<HTMLElement>(".user-message")!);
+    const review = await user.findByLabelText("Review construction patch on line 3");
+    const source_hash = await historySourceHash(prompt);
+    const address = { side: "user", source_hash, opening_line: 2 };
+    const endpoint = "/api/docs/workspace/agent/turns/declared-turn/fence-construction";
+    expect(request).not.toHaveBeenCalledWith("POST", endpoint, address);
+    vi.mocked(request).mockResolvedValueOnce({ version: 1, read_only: true, turn: "declared-turn", ...address, workspace: "workspace",
+      entry: "main.md", document: "recorded.md", operation_id: "change", opening_byte: 28,
+      changes: [{ path: "out.txt", before: { kind: "file", bytes: 4, sha256: "a".repeat(64), executable: false, text: "old\n", text_status: "exact" },
+        after: { kind: "file", bytes: 4, sha256: "b".repeat(64), executable: false, text: "new\n", text_status: "exact" } }] });
+    fireEvent.click(review);
+    const reading = within(await user.findByLabelText("Recorded construction patch"));
+    await reading.findByText("out.txt");
+    expect(request).toHaveBeenCalledWith("POST", endpoint, address);
+    expect(reading.queryByRole("button", { hidden: true })).toBeNull();
+    expect(user.queryByLabelText("Edit source text")).toBeNull();
+    expect(session.turns[0].prompt).toBe(prompt);
   });
   it("uses literate editors for history and draft and keeps the editor while changing provider", async () => {
     const session = new AgentSession(); session.prompt = "# Draft\n\n**Hello**";

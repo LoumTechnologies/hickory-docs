@@ -14,7 +14,7 @@
 //    heading heights are part of the same update (CodeMirror's layout rule).
 
 import { EditorState, StateField } from "@codemirror/state";
-import type { Extension, Range } from "@codemirror/state";
+import type { Extension, Range, Transaction } from "@codemirror/state";
 import { Decoration, EditorView } from "@codemirror/view";
 import type { DecorationSet } from "@codemirror/view";
 import { scanMarkdownProse, yamlFrontmatter } from "./hickDoc";
@@ -156,6 +156,7 @@ export function markdownStyling(): Extension {
 /** Render dash rules except on lines containing a cursor. */
 export function horizontalRuleStyling(
   excluded: (state: EditorState) => readonly (readonly [number, number])[] = () => [],
+  refresh?: (transaction: Transaction) => boolean,
 ): Extension {
   const build = (state: EditorState): DecorationSet => {
     const text = state.doc.toString();
@@ -177,7 +178,7 @@ export function horizontalRuleStyling(
   return [
     StateField.define<DecorationSet>({
       create: build,
-      update: (value, tr) => tr.docChanged || tr.selection ? build(tr.state) : value,
+      update: (value, tr) => tr.docChanged || tr.selection || refresh?.(tr) ? build(tr.state) : value,
       provide: (field) => EditorView.decorations.from(field),
     }),
     EditorView.baseTheme({

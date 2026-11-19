@@ -189,12 +189,13 @@ impl Registry {
         on_build: &mut (dyn FnMut(BuildOutput) + Send),
     ) -> Result<(String, Arc<Live>, Vec<BreakpointStatus>)> {
         self.ensure_session_namespace()?;
-        self.start_captured_with_sources(uri, breakpoints, &[], on_build)
+        self.start_captured_with_sources(uri, None, breakpoints, &[], on_build)
             .await
     }
     pub async fn start_captured_with_sources(
         &self,
         uri: &tower_lsp::lsp_types::Url,
+        requested_program: Option<&str>,
         breakpoints: &[Breakpoint],
         sources: &[hick_dap::SourceBreakpoints],
         on_build: &mut (dyn FnMut(BuildOutput) + Send),
@@ -202,12 +203,30 @@ impl Registry {
         self.ensure_session_namespace()?;
         let (id, path, context) = self.projects.get(uri).map_err(anyhow::Error::msg)?;
         let scratch = tempfile::tempdir()?;
-        hick_lsp::write_tree(scratch.path(), &context.tree).map_err(anyhow::Error::msg)?;
-        let entry = scratch.path().join(&path);
+        let (entry, mapping) = if let Some(program) = &context.recorded_fence {
+            anyhow::ensure!(path == hick_lsp::ProjectContext::RECORDED_MESSAGE,
+                "Debug the original message rather than its isolated program copy.");
+            anyhow::ensure!(requested_program.is_none_or(|target| target == program),
+                "The requested program is not the selected recorded fence. Choose Debug again.");
+            let mapping = Mapping::recorded_fence(&context.tree, scratch.path(), &id, program)?;
+            let [source] = sources else {
+                anyhow::bail!("Recorded fence Debug needs its exact message revision. Reopen the fence and retry.");
+            };
+            anyhow::ensure!(source.source.is_empty() && source.document.as_path() == mapping.document()
+                && source.source_hash.is_some() && source.source_hash == mapping.source_hash(mapping.document()),
+                "The recorded fence does not match this message revision. Reopen the fence and retry.");
+            let entry = scratch.path().join(program);
+            let selected = context.tree.get(program).context("Recorded fence program is unavailable")?;
+            std::fs::write(&entry, selected.bytes.as_ref())?;
+            (entry, mapping)
+        } else {
+            hick_lsp::write_tree(scratch.path(), &context.tree).map_err(anyhow::Error::msg)?;
+            let mapping = Mapping::captured(&context.tree, scratch.path(), &id, &path)?;
+            (scratch.path().join(&path), mapping)
+        };
         let adapter =
             hick_dap::adapter_for(&entry, self.host_root.as_deref().unwrap_or(scratch.path()))?;
         let program = hick_dap::build(&entry, scratch.path(), scratch.path(), on_build).await?;
-        let mapping = Mapping::captured(&context.tree, scratch.path(), &id, &path)?;
         let (session, statuses) = Session::start_with_sources(
             Launch {
                 transport: adapter.transport,

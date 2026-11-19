@@ -36,9 +36,14 @@ pub struct ProjectContexts {
 <a id="f-3058901b5b2e-ProjectContext"></a>
 ### `ProjectContext`
 
+An ordinary snapshot can contain client-supplied origins. A recorded fence
+gets a separate binding from the Agent service, which owns the original
+message bytes. Only that binding asks Debug to use the message as its source.
+
 <storycode:copy id="f-3058901b5b2e-ProjectContext">
 pub struct ProjectContext {
     pub tree: ProjectTree,
+    pub recorded_fence: Option<String>,
     native: Mutex<Option<MaterializedProject>>,
 }
 </storycode:copy>
@@ -48,6 +53,17 @@ pub struct ProjectContext {
 <storycode:copy id="f-3058901b5b2e-impl-ProjectContexts">
 impl ProjectContexts {
     pub fn register(&self, id: &str, tree: ProjectTree) -> Result<String, String> {
+        self.insert(id, tree, None)
+    }
+    pub fn register_recorded_fence(&self, id: &str, tree: ProjectTree, program: String) -> Result<String, String> {
+        let message = ProjectContext::RECORDED_MESSAGE;
+        if program == message || tree.get(message).is_none() || tree.get(&program).is_none() {
+            return Err("Recorded fence needs its source message and selected program".into());
+        }
+        self.insert(id, tree, Some(program))?;
+        Self::source_uri(id, message)
+    }
+    fn insert(&self, id: &str, tree: ProjectTree, recorded_fence: Option<String>) -> Result<String, String> {
         if id.len() != 16 || !id.bytes().all(|b| b.is_ascii_hexdigit()) {
             return Err("Project context requires a captured identity".into());
         }
@@ -58,10 +74,14 @@ impl ProjectContexts {
         if contexts.contains_key(id) {
             return Err("Project context identity already exists".into());
         }
+        if recorded_fence.is_some() && contexts.values().filter(|context| context.recorded_fence.is_some()).count() >= 64 {
+            return Err("Too many recorded fences are open. Close an earlier fence and retry.".into());
+        }
         contexts.insert(
             id.into(),
             Arc::new(ProjectContext {
                 tree,
+                recorded_fence,
                 native: Mutex::new(None),
             }),
         );
@@ -91,6 +111,8 @@ impl ProjectContexts {
 
 <storycode:copy id="f-3058901b5b2e-impl-ProjectContext">
 impl ProjectContext {
+    pub const RECORDED_MESSAGE: &str = "message.md";
+
     pub fn materialize(&self) -> Result<PathBuf, String> {
         let mut native = self.native.lock().unwrap();
         if native.is_none() {

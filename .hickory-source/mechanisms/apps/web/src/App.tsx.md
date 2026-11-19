@@ -30,6 +30,7 @@ import { FILES_CHANGED_EVENT } from "./shell/FolderTreePane";
 import { BlankWelcome } from "./views/BlankWelcome";
 import { SETTINGS_CLOSED } from "./lib/workspaceVisibility";
 import { StartupNotice } from "./components/StartupNotice";
+import { useHickLangStatus } from "./editor/hickLang";
 
 const LineageView = lazy(() => import("./views/LineageView").then((m) => ({ default: m.LineageView })));
 </storycode:copy>
@@ -85,6 +86,7 @@ separate build — see `docs/specs/freeform/local-only.md`.
 /// answers one person: the one whose machine it is. The marketing site is a
 /// separate build — see `docs/specs/freeform/local-only.md`.
 export function App() {
+  const parser = useHickLangStatus();
   const requestedRoute = useRoute();
   const route = requestedRoute.name === "landing"
     ? { name: "new" as const, introduction: true }
@@ -329,7 +331,9 @@ export function App() {
               <nav style={{ padding: ".75rem .75rem 0" }} aria-label="Lineage navigation">
                 <button type="button" className="btn" onClick={returnToWorkspace}>← Back to workspace</button>
               </nav>
-              <LineageView projectId={route.id} />
+              {parser === "ready" ? <LineageView projectId={route.id} /> : (
+                <p role="status">{parser === "unavailable" ? "Project lineage needs the parser. Reload this window to retry." : "Loading the parser for project lineage…"}</p>
+              )}
             </section>
           ) : route.name === "settings" ? (
             <SettingsView onBack={returnToWorkspace} />

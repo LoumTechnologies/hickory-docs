@@ -7,6 +7,32 @@ The Gradle test resource root points at the shared JSON fixture. These witnesses
 
 Opening witnesses serve real loopback HTTP responses and assert the requested endpoint as well as the returned source/hash. This catches a managed document accidentally routed to the intentionally refusing plain-file API.
 
+The first-open witness requests a nested file from a loopback server, then
+checks the visible folder siblings, the full workspace index and the open
+editor. Repeating the launch on the same ViewModel must preserve the mounted
+editor and its draft. A missing request keeps the tree available for recovery.
+
+The provisional startup witness independently holds the Files and guarded
+source endpoints. Neither delay may hide the raw text. Once both answer, the
+exact editor, text state, selection and scroll remain mounted. A differing
+guarded revision stays readable with writes refused until an explicit reopen.
+
+The recorded-fence witness offers the same code in a user and assistant
+message, then checks that each click prepares its own side and exact revision.
+It feeds a captured stack to the ordinary debugger controller so a foreign
+source cannot reveal a message line. Stepping uses the admitted thread and
+frame, while the historical card and current composer stay independent.
+
+A retained Run has three different observations: exact side-bound admission,
+terminal screen and process exit. The loopback test also holds the admission
+until its assistant card changes. The retired reply must not read the terminal
+or attach output to either card.
+
+The construction witness distinguishes declared openings from bare patches and
+quoted examples. It checks the exact request for each recorded side. A receipt
+from another physical workspace and a reply that arrives after dismissal both
+leave the current recorded editor and its draft untouched.
+
 The indentation witness checks four spaces, two spaces, literal tabs, whitespace-only fallback and two successive Tab presses after partial indentation. These assertions protect alignment without needing a language server.
 
 <ui:copy id="simple-de002213e5-0">
@@ -22,6 +48,432 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeout
 
 class ParityTest {
+    @Test(timeout = 16000)
+    fun startupReadIsIndependentAndPromotesOnlySameConfirmedSource() = kotlinx.coroutines.runBlocking {
+        val listener = com.sun.net.httpserver.HttpServer.create(java.net.InetSocketAddress("127.0.0.1", 0), 0)
+        val workers = java.util.concurrent.Executors.newFixedThreadPool(2)
+        listener.executor = workers
+        val filesReady = java.util.concurrent.CountDownLatch(1)
+        val guardReady = java.util.concurrent.CountDownLatch(1)
+        val guardReached = java.util.concurrent.atomic.AtomicBoolean()
+        val confirmed = java.util.concurrent.atomic.AtomicReference("# Raw source\n\nExact café 😀\n")
+        val raw = confirmed.get()
+        val path = "nested/café + #.md"
+        val identity = "a".repeat(32)
+        val reads = java.util.concurrent.CopyOnWriteArrayList<String>()
+        fun respond(exchange: com.sun.net.httpserver.HttpExchange, body: JSONObject) {
+            val bytes = body.toString().toByteArray()
+            exchange.sendResponseHeaders(200, bytes.size.toLong())
+            exchange.responseBody.use { it.write(bytes) }
+        }
+        listener.createContext("/api/startup-source") { exchange ->
+            reads += exchange.requestURI.rawQuery
+            respond(exchange, JSONObject().put("version", 1).put("path", path).put("content", raw)
+                .put("root_path", "/owned").put("workspace_id", JSONObject.NULL))
+        }
+        listener.createContext("/api/files") { exchange ->
+            filesReady.await(8, java.util.concurrent.TimeUnit.SECONDS)
+            val file = JSONObject().put("name", path.substringAfterLast('/')).put("path", path).put("doc_id", "wanted").put("dir", false)
+            val sibling = JSONObject().put("name", "sibling.txt").put("path", "nested/sibling.txt").put("dir", false)
+            val directory = JSONObject().put("name", "nested").put("path", "nested").put("dir", true)
+                .put("children", org.json.JSONArray().put(file).put(sibling))
+            respond(exchange, JSONObject().put("root", "Owned").put("root_path", "/owned").put("workspace_id", identity)
+                .put("tree", org.json.JSONArray().put(directory)))
+        }
+        listener.createContext("/api/docs/wanted") { exchange ->
+            guardReached.set(true)
+            guardReady.await(8, java.util.concurrent.TimeUnit.SECONDS)
+            respond(exchange, JSONObject().put("source", confirmed.get()).put("save_guard", "owned guard"))
+        }
+        listener.start()
+        val origin = "http://127.0.0.1:${listener.address.port}"
+        val workspace = Workspace(this)
+        try {
+            workspace.connectFromLaunch(origin, path)
+            withTimeout(3000) { while (workspace.currentBuffer == null) delay(10) }
+            val early = workspace.currentBuffer!!
+            val state = early.state
+            val scroll = early.sourceScroll
+            early.state.edit { selection = androidx.compose.ui.text.TextRange(2, 5) }
+            scroll.scrollTo(120)
+            assertEquals(raw, early.text)
+            assertTrue(early.readOnly)
+            assertNull(early.saveGuard)
+            assertNull(early.language)
+            assertEquals(1L, filesReady.count)
+            assertEquals(1, reads.size)
+            assertEquals("path=$path", java.net.URLDecoder.decode(reads.single(), "UTF-8"))
+            assertFalse(early.applySourceEdits(listOf(NativeSourceEdit(0, 1, "X")), raw))
+            filesReady.countDown()
+            withTimeout(3000) { while (!guardReached.get()) delay(10) }
+            assertEquals(listOf(path, "nested/sibling.txt"), workspace.files.map { it.path })
+            assertSame(early, workspace.currentBuffer)
+            assertTrue(early.readOnly)
+            val changed = "$raw\nChanged on disk.\n"
+            confirmed.set(changed)
+            guardReady.countDown()
+            withTimeout(3000) { while (workspace.connecting) delay(10) }
+            assertSame(early, workspace.currentBuffer)
+            assertSame(state, early.state)
+            assertSame(scroll, early.sourceScroll)
+            assertTrue(early.readOnly)
+            assertEquals(raw, early.text)
+            assertNull(early.saveGuard)
+            assertTrue(workspace.status.contains("changed during first open"))
+
+            confirmed.set(raw)
+            workspace.refresh()
+            assertSame(early, workspace.currentBuffer)
+            assertSame(state, early.state)
+            assertSame(scroll, early.sourceScroll)
+            assertEquals(120, early.sourceScroll.value)
+            assertEquals(androidx.compose.ui.text.TextRange(2, 5), early.state.selection)
+            assertFalse(early.readOnly)
+            assertEquals("owned guard", early.saveGuard)
+        } finally {
+            filesReady.countDown()
+            guardReady.countDown()
+            workspace.currentBuffer?.language?.close()
+            workspace.debugger?.close()
+            workspace.agent.debugger?.close()
+            listener.stop(0)
+            workers.shutdownNow()
+        }
+    }
+
+    @Test(timeout = 12000)
+    fun recordedFenceRunReadsOnlyItsAdmittedCurrentTerminal() = kotlinx.coroutines.runBlocking {
+        val server = com.sun.net.httpserver.HttpServer.create(java.net.InetSocketAddress("127.0.0.1", 0), 0)
+        val root = "/owned-run"
+        val endpoint = "/api/docs/workspace/agent/turns/owned/fence-run"
+        val received = java.util.concurrent.CopyOnWriteArrayList<JSONObject>()
+        val screens = java.util.concurrent.CopyOnWriteArrayList<String>()
+        val hold = java.util.concurrent.CountDownLatch(1)
+        val assistantId = "term-assistant"
+        val userId = "term-user"
+        fun summary(id: String, exit: Int?) = JSONObject().put("id", id).put("state", if (exit == null) "working" else "finished")
+            .put("exit_code", exit ?: JSONObject.NULL)
+        fun respond(exchange: com.sun.net.httpserver.HttpExchange, reply: JSONObject) {
+            val bytes = reply.toString().toByteArray()
+            exchange.sendResponseHeaders(200, bytes.size.toLong())
+            exchange.responseBody.use { it.write(bytes) }
+        }
+        server.createContext("/api/files") { exchange ->
+            respond(exchange, JSONObject().put("root", "Owned").put("root_path", root).put("tree", org.json.JSONArray()))
+        }
+        server.createContext(endpoint) { exchange ->
+            assertEquals("POST", exchange.requestMethod)
+            val body = JSONObject(exchange.requestBody.bufferedReader().use { it.readText() })
+            received.add(body)
+            if (received.size == 3) hold.await(4, java.util.concurrent.TimeUnit.SECONDS)
+            val id = if (body.getString("side") == "user") userId else assistantId
+            respond(exchange, JSONObject(body.toString()).put("version", 1).put("workspace", root).put("turn", "owned")
+                .put("terminal", summary(id, null)))
+        }
+        server.createContext("/api/terminals") { exchange ->
+            val path = exchange.requestURI.path
+            if (path == "/api/terminals") {
+                respond(exchange, JSONObject().put("sessions", org.json.JSONArray().put(summary(userId, 0)).put(summary(assistantId, 0))))
+            } else {
+                val id = path.removePrefix("/api/terminals/").removeSuffix("/output")
+                assertTrue(id in listOf(userId, assistantId))
+                screens.add(id)
+                val output = if (id == userId) "41\n" else "52\n"
+                respond(exchange, JSONObject().put("bytes", org.json.JSONArray(output.toByteArray().map { it.toInt() }))
+                    .put("revision", "screen-revision").put("next", JSONObject.NULL))
+            }
+        }
+        server.start()
+        val engine = Engine("http://127.0.0.1:${server.address.port}")
+        val session = AgentSession()
+        val turn = AgentTurn("owned", "~~~py\nprint(41)\n~~~", "~~~py\nprint(52)\n~~~", null, "ok")
+        try {
+            engine.files()
+            session.turns = listOf(turn)
+            session.prompt = "Unsent draft"
+            for (assistant in listOf(false, true)) {
+                val reading = session.fenceReading(turn, assistant)!!
+                val buffer = session.document(if (assistant) "owned-agent" else "owned-user", reading.source)
+                buffer.inlineMarkup = computeInlineMarkup(buffer.text, buffer.file.path, true)
+                val state = buffer.state
+                session.runRecordedFence(engine, buffer, reading, 0) { true }
+                assertEquals(reading.side, received.last().getString("side"))
+                assertEquals(debugHash(reading.source), received.last().getString("source_hash"))
+                assertEquals(0, received.last().getInt("opening_line"))
+                assertEquals(setOf("side", "source_hash", "opening_line"), received.last().keys().asSequence().toSet())
+                assertEquals(if (assistant) "52\n" else "41\n", session.recordedRun(buffer)?.output)
+                assertEquals(0, session.recordedRun(buffer)?.terminal?.exit)
+                assertSame(state, buffer.state)
+                assertEquals(reading.source, buffer.text)
+            }
+            val stale = session.fenceReading(turn, true)!!
+            val source = session.document("owned-agent", stale.source)
+            val pending = launch { session.runRecordedFence(engine, source, stale, 0) { true } }
+            withTimeout(3000) { while (received.size < 3) delay(10) }
+            session.turns = listOf(turn.copy(answer = "~~~py\nprint(99)\n~~~"))
+            hold.countDown()
+            pending.join()
+            assertNull(session.recordedRun(source))
+            assertEquals("41\n", session.recordedRun(session.document("owned-user", turn.prompt))?.output)
+            assertEquals(listOf(userId, assistantId), screens)
+            assertEquals("Unsent draft", session.prompt)
+        } finally {
+            hold.countDown()
+            server.stop(0)
+        }
+    }
+
+    @Test(timeout = 12000)
+    fun recordedConstructionReadsExactSidesAndRetiresClosedDisclosures() = kotlinx.coroutines.runBlocking {
+        val server = com.sun.net.httpserver.HttpServer.create(java.net.InetSocketAddress("127.0.0.1", 0), 0)
+        val root = "/owned-construction"
+        val workspace = "a".repeat(32)
+        val endpoint = "/api/docs/workspace/agent/turns/owned/fence-construction"
+        val requests = java.util.concurrent.CopyOnWriteArrayList<JSONObject>()
+        val hold = java.util.concurrent.CountDownLatch(1)
+        fun respond(exchange: com.sun.net.httpserver.HttpExchange, reply: JSONObject) {
+            val bytes = reply.toString().toByteArray()
+            exchange.sendResponseHeaders(200, bytes.size.toLong())
+            exchange.responseBody.use { it.write(bytes) }
+        }
+        fun entry(text: String) = JSONObject().put("kind", "file").put("executable", false)
+            .put("bytes", text.toByteArray(Charsets.UTF_8).size).put("sha256", debugHash(text))
+            .put("text", text).put("text_status", "exact")
+        server.createContext("/api/files") { exchange ->
+            respond(exchange, JSONObject().put("root", "Owned").put("root_path", root)
+                .put("workspace_id", workspace).put("tree", org.json.JSONArray()))
+        }
+        server.createContext(endpoint) { exchange ->
+            assertEquals("POST", exchange.requestMethod)
+            val address = JSONObject(exchange.requestBody.bufferedReader().use { it.readText() })
+            requests.add(address)
+            if (requests.size == 4) hold.await(4, java.util.concurrent.TimeUnit.SECONDS)
+            val changes = org.json.JSONArray().put(JSONObject().put("path", "out.txt")
+                .put("before", JSONObject.NULL).put("after", entry("captured é\r\n")))
+            respond(exchange, JSONObject(address.toString()).put("version", 1).put("read_only", true)
+                .put("turn", "owned").put("workspace", root).put("workspace_id", if (requests.size == 3) "b".repeat(32) else workspace)
+                .put("entry", "entry.md").put("document", "recorded.md").put("operation_id", "exact")
+                .put("opening_byte", 7).put("completed_fingerprint", "c".repeat(64)).put("changes", changes))
+        }
+        server.start()
+        val engine = Engine("http://127.0.0.1:${server.address.port}")
+        val session = AgentSession()
+        val body = "\r\n<hick:patch id=\"exact\">\r\nchange\r\n</hick:patch>\r\n" +
+            "~~~patch\r\nbare\r\n~~~\r\n~~~patch id=\"another\"\r\nchange\r\n~~~\r\n" +
+            "~~~text\r\n<hick:patch id=\"quoted\">\r\n~~~"
+        val turn = AgentTurn("owned", "User$body", "Assistant$body", null, "ok")
+        try {
+            engine.files()
+            session.turns = listOf(turn)
+            session.prompt = "Unsent draft"
+            val readers = listOf(false, true).map { assistant ->
+                val reading = session.fenceReading(turn, assistant)!!
+                val buffer = session.document(if (assistant) "owned-agent" else "owned-user", reading.source)
+                buffer.inlineMarkup = computeInlineMarkup(buffer.text, buffer.file.path, true)
+                assertEquals(setOf(1, 7), buffer.inlineMarkup.debug.declaredPatches)
+                assertEquals(setOf(4), buffer.inlineMarkup.debug.recordedPatches)
+                val state = buffer.state
+                val reader = RecordedConstructionReader(engine, buffer, reading) { true }
+                assertNull(reader.read(4) { true })
+                val receipt = reader.read(if (assistant) 7 else 1) { true }!!
+                assertEquals(setOf("side", "source_hash", "opening_line"), requests.last().keys().asSequence().toSet())
+                assertEquals(reading.side, requests.last().getString("side"))
+                assertEquals(debugHash(reading.source), requests.last().getString("source_hash"))
+                assertEquals(if (assistant) 7 else 1, requests.last().getInt("opening_line"))
+                assertEquals("recorded.md", receipt.document)
+                assertEquals("exact", receipt.operation)
+                val change = receipt.changes.single()
+                assertEquals("out.txt", change.path)
+                assertNull(change.before)
+                assertEquals("captured é\r\n", change.after?.text)
+                assertSame(state, buffer.state)
+                assertEquals(reading.source, buffer.text)
+                reader
+            }
+            val reader = readers.last()
+            assertTrue(runCatching { reader.read(1) { true } }.exceptionOrNull()?.message.orEmpty().contains("different recorded patch or workspace"))
+            var open = true
+            val pending = async { reader.read(1) { open } }
+            withTimeout(3000) { while (requests.size < 4) delay(10) }
+            open = false
+            hold.countDown()
+            assertNull(pending.await())
+            assertEquals("Unsent draft", session.prompt)
+        } finally {
+            hold.countDown()
+            server.stop(0)
+        }
+    }
+
+    @Test(timeout = 12000)
+    fun recordedAgentFencesUseTheExactSideRevisionAndMappedFrames() = kotlinx.coroutines.runBlocking {
+        val listener = com.sun.net.httpserver.HttpServer.create(java.net.InetSocketAddress("127.0.0.1", 0), 0)
+        val path = "/api/docs/workspace/agent/turns/owned/fence-debug"
+        val id = "0123456789abcdef"
+        val uri = "hick-project:///$id/message.md"
+        val workspace = "/owned-workspace"
+        val posts = java.util.concurrent.CopyOnWriteArrayList<JSONObject>()
+        val released = java.util.concurrent.atomic.AtomicInteger()
+        val corrupt = java.util.concurrent.atomic.AtomicBoolean()
+        val heldReceipt = java.util.concurrent.atomic.AtomicReference<java.util.concurrent.CountDownLatch?>()
+        fun respond(exchange: com.sun.net.httpserver.HttpExchange, body: JSONObject) {
+            val bytes = body.toString().toByteArray()
+            exchange.sendResponseHeaders(200, bytes.size.toLong())
+            exchange.responseBody.use { it.write(bytes) }
+        }
+        listener.createContext("/api/files") { exchange ->
+            respond(exchange, JSONObject().put("root", "Owned").put("root_path", workspace).put("tree", org.json.JSONArray()))
+        }
+        listener.createContext(path) { exchange ->
+            val request = JSONObject(exchange.requestBody.bufferedReader().use { it.readText() })
+            val held = heldReceipt.get()
+            posts.add(request)
+            held?.await(3, java.util.concurrent.TimeUnit.SECONDS)
+            respond(exchange, JSONObject(request.toString()).put("id", id).put("uri", uri).put("turn", "owned")
+                .put("version", 1).put("started", false).put("workspace", workspace)
+                .apply { if (corrupt.get()) put("source_hash", "0".repeat(64)) })
+        }
+        listener.createContext("/api/project-contexts/$id") { exchange ->
+            assertEquals("DELETE", exchange.requestMethod)
+            released.incrementAndGet()
+            respond(exchange, JSONObject().put("removed", true))
+        }
+        listener.start()
+        val engine = Engine("http://127.0.0.1:${listener.address.port}")
+        val debug = NativeDebugger(engine, this, recordedMessages = true)
+        val agent = AgentSession()
+        val user = "Prose 😀\r\n\r\n  ```python\r\n  value = 41\r\n  print(value)\r\n  ```\r\n"
+        val answer = "Answer\n\n~~~py\nvalue = 52\nprint(value)\n~~~\n"
+        val turn = AgentTurn("owned", user, answer, null, "ok")
+        val sent = mutableListOf<JSONObject>()
+        debug.emitForTest = { sent.add(it) }
+        try {
+            engine.files()
+            agent.turns = listOf(turn)
+            agent.prompt = "independent unsent draft"
+            assertNull(agent.fenceReading(turn.copy(status = "running"), true))
+            assertTrue(recordedFenceDebugContext("~~~py\nvalue = 1\n").launch.isEmpty())
+            for (assistant in listOf(false, true)) {
+                val reading = agent.fenceReading(turn, assistant)!!
+                val message = agent.document(if (assistant) "owned-agent" else "owned-user", reading.source)
+                message.inlineMarkup = computeInlineMarkup(message.text, message.file.path, true)
+                assertTrue(message.readOnly)
+                assertEquals(mapOf(2 to 5), message.inlineMarkup.debug.recordedClosing)
+                assertEquals(setOf(3, 4), message.inlineMarkup.debug.code.keys)
+                val originalState = message.state
+                debug.toggle(message, 3)
+                val before = sent.size
+                debug.prepareRecordedFence(message, reading, 2)
+                val start = sent[before]
+                val hash = debugHash(reading.source)
+                assertEquals(reading.side, posts.last().getString("side"))
+                assertEquals(hash, posts.last().getString("source_hash"))
+                assertEquals(2, posts.last().getInt("opening_line"))
+                assertEquals("start", start.getString("op"))
+                assertEquals(uri, start.getString("doc"))
+                assertEquals(hash, start.getString("source_hash"))
+                assertFalse(start.has("profile"))
+                assertEquals(3, start.getJSONArray("breakpoints").getJSONObject(0).getInt("line"))
+                val session = "debug-${before}"
+                debug.receive(JSONObject().put("event", "started").put("request_id", start.getString("request_id"))
+                    .put("doc", uri).put("session", session).put("source_hash", hash))
+                fun stop(address: String) = JSONObject().put("event", "stopped").put("stop", 1).put("thread", 0).put("line", 3)
+                    .put("session", session).put("frames", org.json.JSONArray().put(JSONObject().put("id", 0)
+                        .put("line", 3).put("source", address).put("source_hash", hash).put("in_document", true)))
+                debug.receive(stop("hick-project:///fedcba9876543210/message.md"))
+                assertNull(debug.line(message.file.path))
+                debug.receive(stop(uri))
+                assertEquals(3, debug.line(message.file.path))
+                debug.step("over")
+                assertEquals("over", sent.last().getString("how"))
+                assertEquals(0, sent.last().getInt("frame"))
+                debug.receive(JSONObject().put("event", "finished").put("session", session).put("exit_code", 0))
+                assertSame(originalState, message.state)
+                assertEquals(reading.source, message.text)
+                assertEquals("independent unsent draft", agent.prompt)
+            }
+            withTimeout(3000) { while (released.get() != 2) delay(10) }
+            val oldReading = agent.fenceReading(turn, false)!!
+            val message = agent.document("owned-user", oldReading.source)
+            agent.turns = listOf(turn.copy(prompt = "replaced"))
+            val postCount = posts.size
+            debug.prepareRecordedFence(message, oldReading, 2)
+            assertEquals(postCount, posts.size)
+            agent.turns = listOf(turn)
+            val barrier = java.util.concurrent.CountDownLatch(1)
+            heldReceipt.set(barrier)
+            val beforeDelayed = sent.size
+            val delayed = async { debug.prepareRecordedFence(message, oldReading, 2) }
+            withTimeout(3000) { while (posts.size == postCount) delay(10) }
+            agent.turns = listOf(turn.copy(prompt = "changed during admission"))
+            barrier.countDown()
+            delayed.await()
+            heldReceipt.set(null)
+            assertEquals(beforeDelayed, sent.size)
+            withTimeout(3000) { while (released.get() != 3) delay(10) }
+            agent.turns = listOf(turn)
+            corrupt.set(true)
+            val before = sent.size
+            debug.prepareRecordedFence(message, oldReading, 2)
+            assertEquals(before, sent.size)
+            assertEquals("failed", debug.status)
+        } finally {
+            heldReceipt.get()?.countDown()
+            debug.close()
+            listener.stop(0)
+        }
+    }
+
+    @Test(timeout = 12000)
+    fun launchOpensTheRequestedFileBesideItsContainingTreeAndRetainsTheEditor() = kotlinx.coroutines.runBlocking {
+        val listener = com.sun.net.httpserver.HttpServer.create(java.net.InetSocketAddress("127.0.0.1", 0), 0)
+        val reads = java.util.Collections.synchronizedList(mutableListOf<String>())
+        val path = "src/notes.txt"
+        val source = "Exact saved text\n"
+        listener.createContext("/api/files") { exchange ->
+            val tree = """{"root":"Fixture","tree":[{"name":"root.txt","path":"root.txt","dir":false},{"name":"src","path":"src","dir":true,"children":[{"name":"notes.txt","path":"src/notes.txt","dir":false},{"name":"sibling.txt","path":"src/sibling.txt","dir":false}]}]}"""
+            val bytes = tree.toByteArray()
+            exchange.sendResponseHeaders(200, bytes.size.toLong())
+            exchange.responseBody.use { it.write(bytes) }
+        }
+        listener.createContext("/api/file") { exchange ->
+            reads += exchange.requestURI.query
+            val bytes = JSONObject().put("content", source).put("hash", "base").toString().toByteArray()
+            exchange.sendResponseHeaders(200, bytes.size.toLong())
+            exchange.responseBody.use { it.write(bytes) }
+        }
+        listener.start()
+        val origin = "http://127.0.0.1:${listener.address.port}"
+        val workspace = Workspace(this)
+        try {
+            workspace.connectFromLaunch(origin, path)
+            withTimeout(3000) { while (workspace.currentBuffer == null) delay(10) }
+            val buffer = workspace.currentBuffer!!
+            assertEquals(path, buffer.file.path)
+            assertEquals(source, buffer.text)
+            assertEquals("src", workspace.directoryScope)
+            assertEquals(listOf(path, "src/sibling.txt"), workspace.files.map { it.path })
+            assertEquals(listOf("root.txt", "src"), workspace.rootFiles.map { it.path })
+            assertEquals(listOf("files", path), workspace.layout.groups().map { it.active })
+
+            buffer.state.edit { append("draft") }
+            workspace.connectFromLaunch(origin, "root.txt")
+            assertSame(buffer, workspace.currentBuffer)
+            assertEquals(source + "draft", buffer.text)
+
+            val missing = Workspace(this)
+            missing.connectFromLaunch(origin, "outside.txt")
+            withTimeout(3000) { while (missing.connecting || missing.engine == null) delay(10) }
+            assertNull(missing.currentBuffer)
+            assertEquals(listOf("root.txt", "src"), missing.files.map { it.path })
+            assertTrue(missing.status.contains("outside.txt"))
+            assertEquals(listOf("path=$path"), reads.toList())
+        } finally {
+            workspace.buffers.values.forEach { it.language?.close() }
+            listener.stop(0)
+        }
+    }
+
     @Test fun reservedSourceTabsRemainIndependentFromUtilities() {
         val w=Workspace()
         for(path in listOf("files","agent","terminal","Untitled-real.txt","\u0000source:literal")) {

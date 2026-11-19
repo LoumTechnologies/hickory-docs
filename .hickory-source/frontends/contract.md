@@ -35,17 +35,291 @@ an earlier open item only for the behavior it actually exercises.
 | Refactoring, cleanup, generation, templates and history | Genuine basedpyright and configured csharp-ls cover cross-file rename in the browser. TypeScript Language Server 6.1.0 with TypeScript 6.0.3 covers extraction, accessor generation, cleanup and Move to a new file on browser, mounted macOS and the Android controller. Guarded native action and formatting receipts include controlled providers. Preview holds the complete edit. Missing preimages, commands without supported effects and changed owner revisions refuse the group. Later template receipts close the earlier embedded and multi-caret catalog gaps. Expanded regex and source-bound variable programs retain their syntax and work bounds. Mounted iOS and rendered Android covered reviewed Cleanup. Mounted iOS also replayed native Paste, coordinated Cleanup Undo/Redo and the genuine CRLF and LF TypeScript extraction. |
 | Diagnostics and contextual fixes | Genuine basedpyright browser and rendered Android Problems, configured csharp-ls browser Problems, and clangd mounted iOS Problems exercised exact source navigation. Real clangd engine coverage includes the missing-semicolon quick fix. Controlled-child receipts cover complete-file `source.fixAll` acquisition, review, draft Apply and Undo/Redo on browser, mounted macOS and the Android controller, including a prose-origin action that acquires its copy contributor. Stale and unversioned diagnostics stay readable. Precise navigation and application require matching authority. Mounted iOS exercised the genuine clangd missing-semicolon Quick Fix through review, draft Apply and coordinated Undo/Redo. Provider workspace completeness and additional source mappings remain open. |
 | Testing and coverage | Discovery, failed results, coverage and failed-only reruns have provider receipts for pytest, Jest, Vitest, Cargo with cargo-llvm-cov, and .NET with Coverlet. Connected pytest runs on browser, macOS and the Android controller. Mounted iOS executed selected pytest and rendered a collected failure and coverage. Rendered Android ran the saved Rust case and retained exit 0. Rendered Android discovered both pytest cases, retained a coverage run and reran only the deliberate failure. Source-adjacent Run and Debug distinguish process exit from a provider verdict. Unsupported runners and stale, missing or ambiguous test identities refuse selection. Coverage navigation requires matching source hashes. |
-| Review, staging, attribution, conflicts and recovery | Browser, macOS and Android controller receipts cover Git status/diffs, history, attribution, shared conflict composition including deletion/rename, staging, local source history and guarded Save As. Later complete 32-session recovery management and three exact revisions supersede the earlier capacity gap. Browser reload, native restart and mounted iOS compact recovery cover retained drafts, layout and view state. Shared publisher Move and interruption have rendered browser, mounted macOS and Android controller receipts. Mounted iOS completed cold recovery with the original path present and deleted, plus the six-publication older Move chain. Rendered Android completed cold recovery for the copied-destination fixture. Rendered Android completed both dirty Moves and both pairs of workspace Undo and Redo, preserving exact saved bytes, draft text, entry identity and editor frame. Android key events supplied both destinations. Software-keyboard acceptance remains open. |
-| Debugging | Genuine debugpy launch/loopback attach and LLDB canonical C launch/PID attach pass on browser, macOS and the Android controller. Scoped receipts cover profiles, conditional breakpoints, threads, deep frames, evaluation, source navigation, Continue and retained outcomes. Browser, mounted macOS and mounted iOS application launches also passed with netcoredbg for .NET and js-debug for Node.js. Saved source-test Debug has verified pytest/debugpy and Cargo/LLDB adapters. Rust binds the selected declaration to the compiled inline or external-module function before exact harness selection, with engine and host acceptance for plain and compiler-authored source. Mounted iOS reached the real selected Rust breakpoint after a build exceeded 30 seconds. Rendered Android paused the selected pytest test and a netcoredbg .NET application at their saved lines, continued and retained exit 0. Rendered Android reached a genuine saved Node.js breakpoint with its locals. Android Node Continue and expression Watch remain open. |
+| Review, staging, attribution, conflicts and recovery | Browser, macOS and Android controller receipts cover Git status/diffs, history, attribution, shared conflict composition including deletion/rename, staging, local source history and guarded Save As. Later complete 32-session recovery management and three exact revisions supersede the earlier capacity gap. Browser reload, native restart and mounted iOS compact recovery cover retained drafts, layout and view state. Shared publisher Move and interruption have rendered browser, mounted macOS and Android controller receipts. Mounted iOS completed cold recovery with the original path present and deleted, plus the six-publication older Move chain. Rendered Android completed cold recovery with the original path present and already deleted. Rendered Android completed both dirty Moves and both pairs of workspace Undo and Redo, preserving exact saved bytes, draft text, entry identity and editor frame. Android key events supplied both destinations. Software-keyboard acceptance remains open. |
+| Debugging | Genuine debugpy launch/loopback attach and LLDB canonical C launch/PID attach pass on browser, macOS and the Android controller. Scoped receipts cover profiles, conditional breakpoints, threads, deep frames, evaluation, source navigation, Continue and retained outcomes. Browser, mounted macOS and mounted iOS application launches also passed with netcoredbg for .NET and js-debug for Node.js. Saved source-test Debug has verified pytest/debugpy and Cargo/LLDB adapters. Rust binds the selected declaration to the compiled inline or external-module function before exact harness selection, with engine and host acceptance for plain and compiler-authored source. Mounted iOS reached the real selected Rust breakpoint after a build exceeded 30 seconds. Rendered Android paused the selected pytest test and a netcoredbg .NET application at their saved lines, continued and retained exit 0. Rendered Android reached a genuine saved Node.js breakpoint, evaluated a scoped Watch expression and continued to retained Finished. |
 | Connected behavior readings | Browser, mounted macOS and Android controller have guarded contract, explanation, implementation, generated, test and evidence readings through the captured construction graph, including dirty contributors. Mounted iOS opened the connected reading and exercised its source-staleness boundary. Default entry reads carry their original proof through execution admission. Missing mappings and stale captures retain their own status. |
 | Change impact and relevant verification | Browser, mounted macOS and Android controller have scoped compiler consequences, bounded declared relationships, selected checks/profiles and retained process-only results. Mounted iOS reached the selected process-only receipt from its connected reading. Undeclared dependencies remain unknown. A command exit supplies process evidence. Independent verification requires a source-bound receipt. |
-| Agent proposal review and guarded application | Owned managed-provider flows on browser, macOS and the Android controller cover a sealed complete review, original-context application, coordinated draft history and separate resource publication. Mounted iOS also passed managed two-draft Apply and coordinated Undo/Redo. Rendered Android and mounted iOS read sealed historical material without restoring application authority. Mounted iOS also completed a guarded resource rename and its reviewed inverse. Rendered Android applied a live caller-prepared proposal and an owned managed-provider proposal to two drafts in separate replays. Rendered managed Send and coordinated Undo/Redo, plus external provider breadth, remain open. |
+| Agent proposal review and guarded application | Owned managed-provider flows on browser, macOS and the Android controller cover a sealed complete review, original-context application, coordinated draft history and separate resource publication. Mounted iOS also passed managed two-draft Apply and coordinated Undo/Redo. Rendered Android and mounted iOS read sealed historical material without restoring application authority. Mounted iOS also completed a guarded resource rename and its reviewed inverse. Rendered Android applied a live caller-prepared proposal and an owned managed-provider proposal to two drafts in separate replays. Rendered Android completed coordinated Undo/Redo from an owned checkpoint and separately sent an exact native composer request through a local ACP fixture. One replay covering native Send through draft history and external provider breadth remain open. |
 
 Across all rows, the evidence distinguishes engine protocols, native controllers,
 mounted AppKit/UIKit, rendered browser and rendered Android. Physical input,
 device IME and assistive technology need their own acceptance. The emulator
 originally refused userdata allocation. An owned API 36 emulator booted after
 inactive compiler caches were reclaimed, and the checkpoint Android APK built.
+
+### Requested files and capability arrival
+
+The shared Simple launcher now passes the exact workspace-relative requested
+file to each host. The rendered browser witness opened a nested Markdown file
+beside only its containing folder, then held and released the actual parser and
+saved renderer. It exercised stale and current Python test discovery, readable
+protected output after parser failure, and successful and failed CSV grid
+arrival. Editor identity, selection, scroll, Undo and draft bytes survived those
+replays. This receipt used the tree-first path. The independent startup text
+and retry receipts below cover held and failed Files responses.
+
+Android's loopback startup witness passed one focused invocation. On the
+rendered API 36 host, the requested nested Markdown and its containing-only
+Files view were readable while the actual engine capabilities frame was held
+after WebSocket connection. The accessibility text field returned `-1/-1` for
+selection in that fixture, preventing its edit and viewport replay. A later
+rendered replay verified them through native selection and Cut. Mounted AppKit
+and UIKit each passed one focused startup
+replay with zero skips. The provider's current diagnostic arrived after the
+edit and its stale diagnostic was discarded. The replays kept the requested
+file beside its containing tree and preserved editor identity, selection,
+scroll, draft, Undo and Redo with unchanged disk bytes. UIKit sampled geometry
+after the software keyboard settled. These replays use the tree-first path.
+Receipts are `target/apple-startup-appkit-final-2026-11-18/appkit-startup-receipt.json`
+and `target/apple-startup-ios-gated-2026-11-18/startup-receipt.json`.
+
+The independent startup-source path mounts a read-only editor before Files
+and guarded source authority. Mounted AppKit and UIKit each passed held-tree
+confirmation and unavailable-tree replays against controlled endpoint
+responses. The original editor and its selection, source anchor and frame
+survived confirmation. The unavailable branch retained readable source without
+edit authority. Chromium passed the same ownership transition with controlled
+receipts. Android's loopback controller passed independent raw, Files and
+guarded-source gates, including mismatched bytes and exact same-editor
+promotion. Rendered Android reached raw text before Files at nonzero scroll,
+then its controlled host replay timed out before the guarded document read.
+The freshly linked engine then passed rendered Android early source and
+promotion with separate holds for Files, guarded source and the capability
+message. It retained the editor frame, viewport and saved bytes. The receipt
+is in `target/parity-rendered-android.sgYIt7/continuation-receipts/final-android-fg7l56um/startup-raw/`.
+A second real rendered replay inserted an exact draft before the held
+capability arrived. The original frame and nonzero scroll position survived
+release and a fresh semantic query. Native Cut removed only the selected
+draft character. Two ordinary Undo actions restored the draft and then
+the original source. The replay kept saved bytes unchanged and sent no
+resource save. See
+`target/parity-rendered-android.sgYIt7/continuation-receipts/final-android-vfz5deqg/startup-raw/`.
+Hickory Docs' desktop launcher attaches the containing folder and keeps the
+exact requested tab. The main Chromium replay passed against the rebuilt engine
+with ordinary raw text visible before explicit Open File and the guarded read.
+The same editor gained write access, kept the visible Files tree and draft
+through layout restoration, and undid the draft. The raw observation stayed
+readable and read-only until authority arrived. A mounted CodeMirror witness
+also retained a nonempty selection through guarded promotion and checked that
+later writes carried the original authority. The focused Simple launcher test
+passed exact path encoding and workspace confinement.
+The main Chromium window also passed a real parser delay while the ordinary
+file gained write access and retained the same editor, draft, selection and
+Undo. Its managed startup replay displayed raw source through separate holds
+for explicit Open File, guarded source, first collaboration sync and the real
+parser. The same editor kept its nonempty selection and deep viewport, sent
+no source update on promotion, and edited and undid after confirmation. A
+focused mounted test delivered a collaborator edit as the room attached.
+Managed documents with CRLF or mixed line endings stay readable and
+read-only when the room's exact offsets cannot be represented by the editor.
+The focused mixed-ending fixture kept the exact room bytes and refused a user
+edit. The desktop dependency lock now resolves the current engine graph.
+Two native Finder projection checks passed for a punctuated UTF-8 file and a
+directory. The signed package also passed an actual Finder file launch. Its
+native WebKit editor showed the exact bytes of `entry # %.md` beside only the
+containing `nested` folder. The tree included its sibling and excluded the
+outside file. The Documents-hosted fixture stalled during directory discovery.
+The successful isolated replay used an owned temporary folder. See
+`target/main-macos-packaged-startup.to8jhtpo/packaged-finder-receipt/`.
+In a second signed-package replay, WebKit held the actual parser response
+while Files and explicit Open File stayed live. The requested editor displayed
+the exact bytes read-only and accepted a nonempty selection. After the parser
+response returned HTTP 200, the same editor kept those bytes and selection,
+became editable, and showed only the containing folder. The saved fixture
+bytes were unchanged. See
+`target/main-macos-packaged-startup.to8jhtpo/packaged-finder-wasm-receipt/`.
+Holding all three replies together exposed the requested editor group before
+the observation bridge timed out. The combined-delay viewport and Undo
+receipt is the Chromium replay above.
+
+AppKit and UIKit each passed the transient Files failure and same-server retry.
+Both kept their provisional editor, selection and viewport through confirmation.
+UIKit also performed native Paste and Undo after the guarded source arrived.
+Mounted Chromium passed the same recovery through File → Refresh with
+controlled responses and again with the freshly linked engine. It kept the
+original editor, selection and viewport through guarded editing and Undo.
+The Apple receipts are in `target/apple-startup-authority-appkit-retry-2026-11-18/`,
+`target/apple-startup-authority-ios-isolated-2026-11-18/` and
+`target/apple-startup-authority-ios-retry-2026-11-18/`. The Chromium receipt is in
+`target/browser-startup-retry-controlled-7fqqvcuh/`. The real engine browser
+receipt is in `target/recorded-engine-browser.CwVMo5/early-source.log`.
+
+Mounted AppKit repeated both cases against the freshly linked engine. A held
+Files response let the exact startup bytes appear first. Releasing Files and
+the guarded read kept the original editor, its selection and viewport, and
+opened only the containing folder. Native editing and Undo left the file on
+disk unchanged. A separate live replay returned a transient 503 for Files,
+retained the readable source, then confirmed authority after retrying against
+the same engine. See `target/apple-real-startup-confirmed.h738j71s/receipt.json`
+and `target/apple-real-startup-retry.c5i2phsf/receipt.json`.
+
+Mounted UIKit also passed both cases against the current real engine. The held
+Files response left the requested text readable with its selection and viewport
+intact. After immediate confirmation or a temporary 503 and retry, the same
+native editor adopted the exact guard for those bytes in the same workspace.
+Native Paste entered a draft, Undo restored the original text, and the saved
+files stayed byte-identical. The disposable simulator was deleted. See
+`target/apple-startup-uikit-live.fVw2t7/`.
+
+### Rendered Android Node.js Watch and Continue
+
+An owned API 36 emulator ran the genuine js-debug adapter against saved Node.js
+source. The exact saved hash and requested breakpoint on line 2 were confirmed.
+The renderer showed `value` as `41` after an explicit Watch in stop 1, thread 0,
+frame 0. Continue produced `42` and retained Finished with exit code unavailable
+from the adapter. Saved bytes were unchanged. This closes the Node.js Watch and
+Continue gap for that deliberately selected scope in the Debugging row above.
+The wire and renderer receipts are in
+`target/parity-rendered-android.sgYIt7/continuation-receipts/final-android-2ecyyg_2/node-watch/`.
+
+### Recorded Agent message fences
+
+The recorded-fence admission reads the exact stored turn and message side,
+checks its SHA-256 revision, and captures one complete literal fence. Engine
+preparation is memory-only. Explicit Debug uses a scratch program and maps
+stops back to the message. The browser component witness passed for both launch
+affordances, explicit admission, programmatic edit refusal and retiring a late
+capture after its editor closed. AppKit and Android controller witnesses passed
+exact side and revision admission, selected-fence breakpoint filtering and
+mapped frame handling using controlled transports. The main Hickory Docs Agent
+pane's browser witness also passed both fence line anchors within its session
+envelope, separate immutable message editors, and retained composer draft.
+A focused main-window replay now seeds both recorded sides and checks the exact
+admission address, mapped Step, Watch, Continue and preserved conversation. Its
+fixture hydrates both exact sides. A mounted replay found that conversation CSS
+hid the shared rail. Both browser variants now reserve its width with the
+initial message, and the main window replay reached the exact recorded-fence
+request. The fresh engine replay passed Step, Watch and Continue for both
+message sides in the main window. Mounted AppKit also passed both, including
+exact authored stops, sibling exclusion and unchanged recorded bytes. Its
+receipt is in `target/apple-recorded-debug.ndogv_cd/receipt.json`. Simple
+Browser passed the real debugpy replay for both sides after its stylesheet
+stopped hiding the gutter overflow button. The replay used that button to
+reach Watch. Rendered Android reached a real mapped user stop on the second
+executable line. Its first action was visible in pixels but missing from the
+accessibility tree under expanded neighboring hit regions. The Android rail now
+uses measured hit bounds and includes recorded body and patch actions when
+measuring the next occupied row. Its exact user replay now exposes separate
+accessible rows for launch and both breakpoints, stops on the first executable
+line, steps to the next, Watches `value` as `41`, and Continues to `42` with
+the recorded and saved files unchanged. The receipt is in
+`target/parity-rendered-android.sgYIt7/continuation-receipts/final-android-la8wooor/agent-user/`.
+An assistant replay used a separate session with a shorter preceding user
+message and the identical assistant message bytes. It stopped on the first
+executable line, stepped to the next, Watched `value` as `52`, and Continued to
+`53` with saved files unchanged. The receipt is in
+`target/parity-rendered-android.sgYIt7/continuation-receipts/final-android-dbsv87hb/agent-assistant/`.
+Mounted UIKit
+passed both recorded sides with exact first authored stops, Step, Watch and
+Continue. The receipt is in
+`target/apple-recorded-ios-final-2026-11-18/recorded-debug-receipt.json`.
+The rebuilt engine also rejected stale message hashes on both sides, withheld
+execution after preparation, and refused escaped or non-UTF-8 startup reads.
+The main Chromium window and Simple Browser also ran both selected Python
+fences through the ordinary terminal runner. The user fence printed `42`, the
+assistant fence printed `53`, and both returned process exit 0 with their
+recorded bytes unchanged. No sibling fence ran. The main replay also refused
+stale addresses without starting a terminal, then repeated mapped Debug on
+both sides. A direct engine replay compiled and ran the selected C fence and
+interpreted the selected JavaScript fence. It retained the same recorded
+bytes and the workspace received no program files. See
+`target/recorded-run-engine.T0OdmJ/compiled-and-interpreted-receipt.json`.
+Rendered Android passed both sides with their exact opening-line requests.
+Opening the gutter menu started no process. Explicit Run returned `42` and
+`53` with process exit 0 in the native floating terminal. The editor frame,
+recorded bytes and saved files survived both runs. The assistant replay used
+the exact assistant bytes with the earlier user message shortened to fit the
+fixture. See
+`target/parity-rendered-android.sgYIt7/continuation-receipts/final-android-1u31agr8/`.
+Mounted AppKit passed both openings through ordinary native gutter clicks.
+Its actual terminal viewport displayed `42` and `53`, with process exit 0
+for both. The mounted editors retained their identities, frames and selections.
+The Composer draft and archived bytes were unchanged. See
+`target/apple-recorded-run-appkit.qOn7w9/`. A separate UIKit UI test reached both
+SwiftUI gutter controls on a disposable iPhone simulator. Its terminals showed
+`42` and `53` with exit 0, including a screenshot for each. The recorded
+editor texts and frames survived dismissal, and the archived bytes stayed
+unchanged. See `target/apple-recorded-run-uikit.pfP9mH/`.
+
+Patch review admission discovers canonical ordinary unified-diff targets,
+derives ordered edits from guarded preimages and checks the entire proposed
+transition before sealing. The proposal publisher still owns Apply. The
+canonical Rust parser, exact transition comparison and rename planner passed
+focused isolated witnesses. Browser, AppKit and Android controller checks
+passed the sealed review entry for recorded ordinary fences. Real engine
+preparation, generated consequences, Apply and Undo passed for the user-side
+`diff` in Simple Browser and AppKit. Both replays exposed that the archived
+assistant `patch` fence arrived without delimiters. Hydration now recovers
+the original fence span for both sides. The exact unwrapped fixture passed
+both sides, including guarded Apply, Undo and unchanged saved bytes, in
+Simple Browser and AppKit. The receipts are in
+`target/recorded-engine-patch-rerun.wI4g1f/replay.log` and
+`target/apple-recorded-patch.ofyzmnpr/receipt.json`. Mounted UIKit passed those
+same checks against the exact unwrapped fixture in
+`target/apple-recorded-ios-final-2026-11-18/recorded-patch-receipt.json`.
+Rendered Android passed the user-side review, generated consequence, Apply and
+Undo. Its compact assistant fixture passed the exact recorded `patch` review
+and draft Apply with unchanged physical files. The assistant body matches the
+original fixture byte for byte. The receipt is in
+`target/parity-rendered-android.sgYIt7/continuation-receipts/final-android-dbsv87hb/patch-assistant/`.
+The main Hickory Docs Agent pane passed live sealed reviews for both sides
+with its mounted file's original guard, generated consequences, retained
+composer and unchanged source files. Closing the dialog returned focus to
+the original gutter button without replacing the file editor. Focused
+checks also cover capture revocation and receipt guard replacement. The
+ordinary plain-file editor queues a disk write after a local edit, and its
+managed editor sends local edits to the shared room
+that persists source. Reviewed Draft Apply now detaches both edit paths from
+those publishers while retaining their original saved guards. In separate live
+main-window replays, the recorded user patch and the recorded assistant patch
+each changed a plain file and a managed document together. Both preserved the
+same two editors through coordinated Undo and Redo, with no source PUT or
+collaboration write. Saved and generated files and the conversation stayed
+byte-identical. After the focused Save completed, the plain draft stayed
+private until Save All. Each publication used its own guard. Generated files
+and the conversation stayed unchanged. See
+`target/main-recorded-patch-both-sides.WYqm4K/{user,assistant}.log`.
+The private recovery marker round-tripped in
+the focused Rust storage test. The managed recovery test also refused a
+same-byte physical replacement until a fresh explicit comparison.
+
+Declared project patch fences need the compiler's exact owning document and
+operation, the captured source closure and the predecessor tree. The engine
+now binds a uniquely matching recorded document to the exact compiler opening,
+checks that the closure reproduces the complete retained tree, then returns
+the selected operation's local Before and After. The focused Rust cases
+verified the local result even when a later operation and another document
+changed outputs. They refused stale, ambiguous, absent, bare and empty
+captures. The browser component displayed the bounded receipt in the original
+gutter. The main Chromium window and Simple Browser passed the live replay
+against a persisted conversation whose framed assistant message exactly matched
+its captured document. Both showed `old` and `middle` for the selected output. The later
+`final` result stayed outside the comparison. The recording and working file
+were unchanged. The declared inspection is read-only. Focused AppKit and
+Android controller tests bound exact source and workspace identities and
+rejected foreign receipts. On the iPhone simulator a real gutter tap opened the
+selected output comparison. The reading showed `old` and `middle`, preserved
+the recorded editor text and frame, and supplied no Apply, Save or Run action.
+The archive and working file stayed byte-identical. See
+`target/apple-declared-uikit-final.MMaOz1/` for the replay with the final Apple
+comparison view. Mounted AppKit passed both native clicks. The floating comparison showed
+Before `old` and After `middle` in order, with no later result or write action.
+The original editor, selection, frame, archive and working file stayed intact.
+See `target/main-macos-packaged-startup.to8jhtpo/apple-declared-rendered-muueemph/`.
+The current Android APK passed the same comparison on an owned API 36
+emulator. The gutter requested the exact assistant opening and the native
+reading showed Before `old` and After `middle`. Closing it kept the original
+editor frame and exact text. The trace recorded no source write, and the
+archive and working file stayed byte-identical. The owned emulator and its
+temporary disk were removed. See
+`target/parity-rendered-android.sgYIt7/continuation-receipts/final-android-yn39rn6t/declared-assistant/`.
+
+Both browser frontends also inspected the user-side declaration when the
+finalized response included the exact archived request as a contributing
+document. Separate replays bound the assistant declaration to `response.md`
+and the user declaration to `request.md`. Each returned the selected local
+transition, supplied no write action, and left the archive and working file
+byte-identical. See `target/recorded-construction-both-sides.1P3Iop/`.
 
 ### Mounted iOS Paste, Cleanup and selected Rust Debug
 
@@ -307,6 +581,11 @@ editor held the separate dirty draft. The producer's existing private
 `.history-state` files and other unaffected fixture bytes were unchanged.
 The successful receipt is under
 `target/parity-rendered-android.sgYIt7/continuation-receipts/final-android-n88la8ql/cold`.
+The rendered Android replay also completed the cold Move with the predecessor
+already deleted. Its preview kept all saved bytes intact. One guarded Complete
+returned HTTP 200, advanced the same entry identity, and confirmed the exact
+saved destination. Reopening it restored the separate retained draft. See
+`target/parity-rendered-android.sgYIt7/continuation-receipts/final-android-75920z7_/cold-deleted/`.
 
 The rendered app also applied a current engine-sealed, caller-prepared
 proposal to two draft editors. One validation and one host report returned
@@ -391,6 +670,30 @@ The report marked saved and checks-executed false, and the wire retained
 draft-only application. The keyboard overlay stopped the replay before
 coordinated Undo or Redo. The checkpoint binding, tool result, review, Apply
 and boundary receipts are in `final-android-rrq_6ur7/provider-managed`.
+
+The later rendered Android checkpoint replay opened both original editors,
+reviewed the engine-managed proposal, and applied it to two drafts. The live
+host report bound both draft hashes and left resource publication and checks
+untouched. The Android Edit menu then undid and redid the two drafts together.
+Both saved preimages stayed byte-identical. See
+`target/parity-rendered-android.sgYIt7/continuation-receipts/final-android-75920z7_/managed-checkpoint/`.
+The native Android composer also submitted the exact prompt and both mounted
+editor identities, source revisions and saved guards. The owned relay routed
+only the backend selection to the scripted local ACP provider. The engine
+returned HTTP 202 and Android rendered the completed archived turn. The
+composer kept its submitted text. This run made no subscription call. See
+`target/parity-rendered-android.sgYIt7/continuation-receipts/final-android-75920z7_/managed-native/`.
+The unified native Send through coordinated draft history still lacks a single
+completed replay. The follow-up reached the focused composer but neither the
+hardware input command nor the accepted accessibility text action populated
+it. That follow-up sent no request. See
+`target/parity-rendered-android.sgYIt7/continuation-receipts/final-android-4_rv2zul/managed-native/`.
+
+A later replay found that the Android accessibility tree can report an empty
+editor while a fragment of the prompt is visible. The owned relay required the
+exact intended bytes and rejected an incomplete native Send before forwarding
+it. The checkpoint-based Apply and draft history evidence remains current. See
+`target/parity-rendered-android.sgYIt7/continuation-receipts/final-android-tgm6itzy/managed-native/`.
 
 ### Provider admission
 

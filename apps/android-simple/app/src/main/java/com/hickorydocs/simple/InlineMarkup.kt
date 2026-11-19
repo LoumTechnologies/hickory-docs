@@ -122,7 +122,66 @@ fun inlineCSVCells(body: String, line: Int, offset: Int, delimiter: String): Lis
     return if (quoted) emptyList() else result
 }
 // Candidate discovery belongs to the background source snapshot, not each draw.
-data class InlineDebugContext(val code: Map<Int, String> = emptyMap(), val launch: Map<Int, String> = emptyMap())
+data class InlineDebugContext(
+    val code: Map<Int, String> = emptyMap(),
+    val launch: Map<Int, String> = emptyMap(),
+    val recordedClosing: Map<Int, Int> = emptyMap(),
+    val recordedPatches: Set<Int> = emptySet(),
+    val declaredPatches: Set<Int> = emptySet(),
+)
+// Recorded cards suggest complete pathless fences and declared patch openers.
+// Only the engine can associate a declaration with a verified construction.
+fun recordedFenceDebugContext(source: String): InlineDebugContext {
+    if (source.length > 200_000) return InlineDebugContext()
+    val marker = Regex("""^ {0,3}(`{3,}|~{3,})(.*)$""")
+    val languages = listOf(
+        "python" to setOf("py", "python", "python3"), "javascript" to setOf("js", "javascript", "node"),
+        "typescript" to setOf("ts", "typescript"), "rust" to setOf("rs", "rust"), "c" to setOf("c"),
+        "cpp" to setOf("cpp", "c++", "cxx"), "go" to setOf("go", "golang"),
+        "csharp" to setOf("cs", "csharp", "c#"), "ruby" to setOf("rb", "ruby"),
+    )
+    val launch = mutableMapOf<Int, String>()
+    val code = mutableMapOf<Int, String>()
+    val closing = mutableMapOf<Int, Int>()
+    val patches = mutableSetOf<Int>()
+    val declared = mutableSetOf<Int>()
+    val patchTag = Regex("""^ {0,3}<hick:patch(?=[\s/>]|$)""")
+    val patchFence = Regex("""^patch\s+.*[\w.-]+\s*=\s*["']""")
+    var opening: MatchResult? = null
+    var first = 0
+    var inPatchTag = false
+    val rows = source.split('\n')
+    for ((line, row) in rows.withIndex()) {
+        val authored = if (line == 0) row.removePrefix("\uFEFF") else row
+        if (inPatchTag) {
+            if ("</hick:patch>" in authored) inPatchTag = false
+            continue
+        }
+        if (opening == null && patchTag.containsMatchIn(authored)) {
+            declared.add(line)
+            inPatchTag = "</hick:patch>" !in authored && !authored.trimEnd().endsWith("/>")
+            continue
+        }
+        val match = marker.matchEntire(authored.removeSuffix("\r")) ?: continue
+        val held = opening
+        if (held == null) { opening = match; first = line; continue }
+        val original = held.groupValues[1]
+        val close = match.groupValues[1]
+        if (original.first() != close.first() || original.length > close.length || match.groupValues[2].isNotBlank()) continue
+        opening = null
+        val info = held.groupValues[2].trim()
+        val hint = info.lowercase()
+        val body = (first + 1 until line).filter { rows[it].isNotBlank() }
+        if (body.isEmpty()) continue
+        if (hint == "diff" || hint == "patch") { patches.add(first); continue }
+        if (patchFence.containsMatchIn(info)) { declared.add(first); continue }
+        val language = languages.firstOrNull { hint in it.second }?.first ?: continue
+        launch[first] = language
+        closing[first] = line
+        for (codeLine in body) code[codeLine] = language
+    }
+    return InlineDebugContext(code, launch, closing, patches, declared)
+}
 fun inlineDebugContext(source: String, path: String): InlineDebugContext {
     if (source.length > 200_000) return InlineDebugContext()
     val supported = listOf("py", "js", "ts", "jsx", "tsx", "rs", "go", "c", "cpp", "java", "cs")
@@ -254,9 +313,9 @@ fun inlineDiagrams(source: String): List<InlineDiagram> {
     }
     return result
 }
-fun computeInlineMarkup(source: String, path: String): InlineSnapshot {
+fun computeInlineMarkup(source: String, path: String, recordedMessage: Boolean = false): InlineSnapshot {
     val starts = mutableListOf(0); source.forEachIndexed { index, char -> if (char == '\n') starts.add(index + 1) }
-    val debug = inlineDebugContext(source, path)
+    val debug = if (recordedMessage) recordedFenceDebugContext(source) else inlineDebugContext(source, path)
     if (path.substringAfterLast('.', "").lowercase() == "csv" && source.length <= 200_000) return InlineSnapshot(source, lineStarts = starts, cells = if (source.isEmpty()) listOf(InlineCell(0, 0, 0, 0, "", "csv")) else inlineCSVCells(source, 0, 0, ","), debug = debug)
     if (path.substringAfterLast('.', "").lowercase() !in listOf("md", "markdown") || source.length > 200_000) return InlineSnapshot(source, lineStarts = starts, debug = debug)
     val rows = source.split('\n'); val marks = mutableListOf<InlineMark>(); val cells = mutableListOf<InlineCell>(); val equations = mutableListOf<InlineEquation>()

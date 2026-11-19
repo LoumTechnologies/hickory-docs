@@ -197,6 +197,7 @@ export interface PlainFile {
 export interface PlainFileSaved {
   path: string;
   hash: string;
+  save_guard?: string | null;
 }
 
 /** What `POST /api/adopt` answers: the document that now owns the file. */
@@ -623,6 +624,8 @@ export interface WorkspaceDraft {
   base: string;
   /** Milliseconds since the epoch. Advisory: it orders drafts for display. */
   saved_at: number;
+  /** This private draft requires explicit source publication after recovery. */
+  detached?: true;
 }
 
 /** The stored window layout. Opaque on the wire; `lib/uiState.ts` owns its

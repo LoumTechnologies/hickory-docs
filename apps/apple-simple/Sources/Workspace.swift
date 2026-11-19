@@ -1,12 +1,19 @@
 import SwiftUI
 import Observation
 
+struct StartupSourceObservation {
+    var origin: URL
+    var root: String
+    var workspace: String?
+}
+
 @MainActor @Observable final class DocumentBuffer: Identifiable {
     let id = UUID()
     var debugInspection=UUID()
     var showSnippetTools=false
     @ObservationIgnored lazy var snippets=SourceSnippetController(buffer:self)
     var file: FileNode
+    var startupObservation: StartupSourceObservation?
     var resourceDeleted = false
     var unmaterializedHistoryDraft = false
     var recoveryViewport:EditorRecoveryViewport?
@@ -191,9 +198,10 @@ import Observation
     private(set) var dirty = false
     private(set) var isUntitledDraft:Bool
     func confirmSourceAddress(){isUntitledDraft=false}
-    var readOnly: Bool { (resourceDeleted && !unmaterializedHistoryDraft) || file.generated_by != nil }
-    init(file: FileNode, text: FileText,isUntitledDraft:Bool=false) {
+    var readOnly: Bool { startupObservation != nil || (resourceDeleted && !unmaterializedHistoryDraft) || file.generated_by != nil }
+    init(file: FileNode, text: FileText,isUntitledDraft:Bool=false, startupObservation: StartupSourceObservation? = nil) {
         self.isUntitledDraft=isUntitledDraft
+        self.startupObservation = startupObservation
         self.file = file; self.sourceValue = ExactSourceText(text.content); base = text.content; hash = text.hash;savedGuard=text.save_guard;saveGuardReason=text.save_guard_reason; refreshInline()
     }
     func save(using engine: Engine) async {
@@ -294,6 +302,20 @@ import Observation
     var focused = "document-group"
     var rootFiles: [FileNode] = []
     var files: [FileNode] = []
+    private var displayedFolder: NativeSourceKey?
+    private func treeEntry(_ path: String, in nodes: [FileNode], parent: FileNode? = nil) -> (file: FileNode, parent: FileNode?)? {
+        for node in nodes {
+            if exactUTF8(node.path, path) { return (node, parent) }
+            if let children = node.children, let nested = treeEntry(path, in: children, parent: node) { return nested }
+        }
+        return nil
+    }
+    func workspaceFile(_ path: String) -> FileNode? { treeEntry(path, in: rootFiles)?.file }
+    private func displayFolder(_ folder: FileNode?) {
+        displayedFolder = folder?.id
+        if let folder { files = folder.children ?? [] }
+        else { files = rootFiles }
+    }
     var buffers: NativeSourceMap<DocumentBuffer> = [:]
     let resourceRestoration=ResourceRestoration()
     var retainedResourceEditors:[String:DocumentBuffer]=[:]
@@ -388,13 +410,73 @@ import Observation
     var active: String? {activeTab.map{NativeTabIdentity(address:$0).sourcePath ?? $0}}
     var currentBuffer: DocumentBuffer? {activeTab.flatMap{bufferForTab($0)}}
     var hasUnsavedChanges: Bool { gitResolution.hasPending || gitResolution.hasDraft || resourceRestoration.busy || resourceRestoration.hasPending || !agent.prompt.isEmpty || agent.running || (Array(buffers.values)+Array(retainedResourceEditors.values)).contains { $0.dirty || $0.saving } || debugger?.active == true }
-    func connect() async -> Bool {
+    private func startRequestedReading(_ path: String?, engine next: Engine) -> Task<Void, Never>? {
+        guard let path, !path.isEmpty, engine == nil, buffers.isEmpty else { return nil }
+        let scope = generation
+        return Task { [weak self] in
+            guard let reply = try? await next.startupSource(path), !Task.isCancelled,
+                  let self, self.generation == scope, self.connecting, self.engine == nil, self.buffers.isEmpty else { return }
+            let file = FileNode(name: (path as NSString).lastPathComponent, path: path, dir: false)
+            let reading = StartupSourceObservation(origin: next.origin, root: reply.root_path, workspace: reply.workspace_id)
+            self.buffers[path] = DocumentBuffer(file: file, text: FileText(path: path, content: reply.content, hash: ""), startupObservation: reading)
+            self.showSource(path)
+            self.status = "\(path) · waiting for workspace permissions"
+        }
+    }
+    private func bindRequestedReading(_ buffer: DocumentBuffer, file: FileNode, acceptNewerSource: Bool = false) async {
+        guard let reading = buffer.startupObservation, let engine else { return }
+        let scope = generation
+        let root = sourceRootAddress, workspace = sourceWorkspaceID, before = buffer.text
+        let current = {
+            self.generation == scope && exactUTF8(self.sourceRootAddress, root) && exactUTF8(self.sourceWorkspaceID, workspace)
+                && self.buffers[file.path] === buffer && buffer.startupObservation != nil && exactUTF8(buffer.text, before)
+        }
+        guard engine.origin == reading.origin, exactUTF8(root, reading.root),
+              reading.workspace.map({ exactUTF8($0, workspace) }) ?? true else {
+            status = "Workspace identity changed while opening \(file.path). Reconnect to read its current source."
+            return
+        }
+        do {
+            let text = try await engine.file(file)
+            guard current() else { return }
+            guard exactUTF8(text.path, file.path), acceptNewerSource || exactUTF8(text.content, before) else {
+                status = "\(file.path) changed while opening. Open it again in Files to read the current revision."
+                return
+            }
+            buffer.file = file
+            buffer.base = text.content
+            if !exactUTF8(buffer.text, text.content) { buffer.text = text.content }
+            buffer.hash = text.hash
+            buffer.savedGuard = text.save_guard
+            buffer.saveGuardReason = text.save_guard_reason
+            buffer.startupObservation = nil
+            _ = retainBuffer(file, text: text, engine: engine, existing: buffer)
+        } catch {
+            if current() { status = "\(error.localizedDescription) The file remains readable. Open it again in Files to retry permissions." }
+        }
+    }
+    func connect(opening explicitPath: String? = nil) async -> Bool {
         guard !connecting else { return false }
         guard !hasUnsavedChanges else { status = "Save documents and send or clear draft messages before changing workspace servers."; return false }
         connecting = true; defer { connecting = false }
         do {
             let next = try Engine(address: address)
-            let tree = try await next.files()
+            let heldReading = engine == nil ? buffers.values.first(where: { $0.startupObservation?.origin == next.origin }) : nil
+            let requestedPath = explicitPath ?? heldReading?.file.path
+            let startup = startRequestedReading(requestedPath, engine: next)
+            defer { startup?.cancel() }
+            let tree: FileTree
+            do { tree = try await next.files() }
+            catch {
+                await startup?.value
+                if let requestedPath, buffers[requestedPath]?.startupObservation?.origin == next.origin {
+                    status = "\(error.localizedDescription) \(requestedPath) remains readable. Use Workspace Connection to retry the file tree."
+                    return true
+                }
+                throw error
+            }
+            startup?.cancel()
+            let preview = requestedPath.flatMap { buffers[$0] }.flatMap { $0.startupObservation?.origin == next.origin ? $0 : nil }
             // The terminal renderer owns screen contents; reconnect by clearing the session ID.
             agent.turns = []; agent.error = ""; terminal.id = nil; terminal.error = ""
             debugger?.close()
@@ -402,15 +484,35 @@ import Observation
             languageConnection?.close();languageConnection=nil
             sourceHistory.close();sourceRootAddress=nil;sourceWorkspaceID=nil;sourceTemplates.close();analysis.stop(); analysis=WorkspaceAnalysis(); showAnalysis=false; showEverywhere=false;showTests=false;showReview=false;showHistory=false;showAttribution=false;showConstruction=false;showRecovery=false;gitAttribution.close();gitAttribution=GitAttributionModel(path:"");gitHistory.close();gitHistory=GitHistoryModel();gitReview.close();gitReview=GitReviewModel();gitResolution.reset();showCoverage=false;coverage.stop();coverage=SimpleCoverageState();testSources=TestSourcesModel();sourceTestIndex?.stop();sourceTestIndex=nil
             generation = UUID(); changes.reset(); search.invalidate(); showWorkspaceSearch = false; engine = next; debugger = NativeDebugger(engine: next)
-            if let debug=debugger {debug.sourceBuffers={ [weak self] in guard let self else{return []};return Array(self.buffers.values)+Array(self.retainedResourceEditors.values)};debug.onLocation={ [weak self,weak debug] location in guard let self,let debug else{return};let scope=self.generation;Task {[weak self,weak debug] in guard let self,let debug,self.generation==scope else{return};await self.revealDebug(location,debug:debug)}}}; sourceRootAddress=tree.root_path;sourceWorkspaceID=tree.workspace_id;files = tree.tree; rootFiles = tree.tree; navigationTrail = NavigationTrail(); retainedResourceEditors = [:]; buffers = [:]; loading.values.forEach { $0.cancel() }; loading = [:]
-            layout = PaneLayout(); focused = "document-group"; status = tree.root
+            if let debug=debugger {debug.sourceBuffers={ [weak self] in guard let self else{return []};return Array(self.buffers.values)+Array(self.retainedResourceEditors.values)};debug.onLocation={ [weak self,weak debug] location in guard let self,let debug else{return};let scope=self.generation;Task {[weak self,weak debug] in guard let self,let debug,self.generation==scope else{return};await self.revealDebug(location,debug:debug)}}}; sourceRootAddress=tree.root_path;sourceWorkspaceID=tree.workspace_id;rootFiles = tree.tree; navigationTrail = NavigationTrail(); retainedResourceEditors = [:]; loading.values.forEach { $0.cancel() }; loading = [:]
+            if preview == nil { buffers = [:]; layout = PaneLayout(); focused = "document-group" }
+            status = tree.root
+            displayFolder(nil)
+            if let requestedPath, !requestedPath.isEmpty {
+                if let entry = treeEntry(requestedPath, in: rootFiles), !entry.file.dir {
+                    displayFolder(entry.parent)
+                    if let preview { await bindRequestedReading(preview, file: entry.file) }
+                    else { await open(entry.file) }
+                } else {
+                    status = "Requested file not found: \(requestedPath). Choose a file from the workspace tree."
+                }
+            }
             return true
         } catch { status = error.localizedDescription; return false }
     }
     func refresh() async {
         guard let engine else { return }
         let current = generation
-        do { let tree = try await engine.files(); if current == generation { sourceRootAddress=tree.root_path;sourceWorkspaceID=tree.workspace_id;files = tree.tree; rootFiles = tree.tree; status = tree.root } }
+        do {
+            let tree = try await engine.files()
+            guard current == generation else { return }
+            sourceRootAddress = tree.root_path
+            sourceWorkspaceID = tree.workspace_id
+            rootFiles = tree.tree
+            let folder = displayedFolder.flatMap { treeEntry($0.string, in: rootFiles)?.file }
+            displayFolder(folder?.dir == true ? folder : nil)
+            status = tree.root
+        }
         catch { if current == generation { status = error.localizedDescription } }
     }
     func loadBuffer(_ file: FileNode) async throws -> DocumentBuffer {
@@ -435,13 +537,14 @@ import Observation
         buffers[file.path] = buffer
         buffer.openDiagramFile = { [weak self, weak buffer] href in
             guard let self, let buffer, let path = diagramFilePath(href, relativeTo: buffer.file.path) else { return }
+            let scope = self.generation
             Task {
-                func find(_ nodes: [FileNode]) -> FileNode? {
-                    for node in nodes { if exactUTF8(node.path,path) { return node }; if let file = find(node.children ?? []) { return file } }
-                    return nil
+                if self.treeEntry(path, in: self.rootFiles) == nil { await self.refresh() }
+                guard self.generation == scope, self.buffers[buffer.file.path] === buffer else { return }
+                guard let file = self.treeEntry(path, in: self.rootFiles)?.file, !file.dir else {
+                    self.status = "File not found: \(path). Refresh files and check the diagram link."
+                    return
                 }
-                if find(self.files) == nil { await self.refresh() }
-                guard let file = find(self.files), !file.dir else { self.status = "File not found: \(path). Refresh files and check the diagram link."; return }
                 await self.open(file)
             }
         }
@@ -461,8 +564,9 @@ import Observation
     }
     func open(_ file: FileNode, recordNavigation: Bool = true) async {
         let departed = currentSemanticLocation()
-        if buffers[file.path] != nil {
+        if let existing = buffers[file.path] {
             showSource(file.path)
+            if existing.startupObservation != nil { await bindRequestedReading(existing, file: file, acceptNewerSource: true) }
             if recordNavigation, let arrived = currentSemanticLocation() { navigationTrail.record(from:departed,to:arrived) }
             return
         }
@@ -585,9 +689,6 @@ import Observation
     func performFileCommand() async {
         guard let command = fileCommand, let engine else { status = "Connect to a workspace server first."; return }
         let path = filePath; let source = currentBuffer; fileCommand = nil
-        func find(_ nodes: [FileNode]) -> FileNode? {
-            for node in nodes { if exactUTF8(node.path,path) { return node }; if let found = find(node.children ?? []) { return found } }; return nil
-        }
         if command == "Save As" {
             guard let source, !source.saving, !path.isEmpty else { return }
             if exactUTF8(path,source.file.path),!source.resourceDeleted,!source.isUntitledDraft { await source.save(using: engine); return }
@@ -599,9 +700,14 @@ import Observation
                 source.saving = false
                 if savingAll { await saveAll() }
             } catch { status = "\(error.localizedDescription) Original edits are retained. Choose an unused path and retry Save As." }
-        } else if command == "Open Directory" && path.isEmpty { await refresh(); showUtility(.files) }
-        else if let file = find(files), file.dir == (command == "Open Directory") {
-            if file.dir { files = file.children ?? []; showUtility(.files) } else { await open(file) }
+        } else if command == "Open Directory" && path.isEmpty {
+            displayFolder(nil); await refresh(); showUtility(.files)
+        } else if let entry = treeEntry(path, in: rootFiles), entry.file.dir == (command == "Open Directory") {
+            if entry.file.dir { displayFolder(entry.file); showUtility(.files) }
+            else {
+                if currentBuffer == nil { displayFolder(entry.parent) }
+                await open(entry.file)
+            }
         } else { status = "Path not found. Refresh and choose a path in this workspace." }
     }
     func saveAll() async {

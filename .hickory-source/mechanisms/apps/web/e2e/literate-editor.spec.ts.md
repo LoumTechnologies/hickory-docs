@@ -16,10 +16,105 @@ Related contracts: [Read the retained branch of an agent conversation](../../../
 ### `expression_statement`
 
 <storycode:copy id="f-648693644a28-expression_statement">
+import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { expect, test } from "@playwright/test";
 
 // Exercises the real catalog installer in a disposable project. Opt in because
 // a fresh machine needs uv and network access to obtain debugpy.
+test("opens the requested Hickory file and Files before layout restoration", async ({ page }) => {
+  test.skip(!process.env.HICKORY_E2E_URL, "Run against the isolated literate editor engine.");
+  const response = await page.request.get("/api/files");
+  expect(response.ok()).toBe(true);
+  const { root_path } = await response.json() as { root_path: string };
+  expect(root_path).toBeTruthy();
+  let release!: () => void;
+  const layout = new Promise<void>(resolve => { release = resolve; });
+  let layoutRequested = false;
+  let releaseSelected!: () => void, releaseGuarded!: () => void, releaseParser!: () => void;
+  const selected = new Promise<void>(resolve => { releaseSelected = resolve; });
+  const guarded = new Promise<void>(resolve => { releaseGuarded = resolve; });
+  const parser = new Promise<void>(resolve => { releaseParser = resolve; });
+  let selectedRequested = false, guardedRequested = false, parserRequested = false;
+  const parserAsset = (url: URL) => /\/hick_lang_bg[^/]*\.wasm$/.test(url.pathname);
+  const sourceWrites: string[] = [];
+  await page.route(parserAsset, async route => {
+    if (route.request().resourceType() === "script") return route.continue();
+    parserRequested = true;
+    await parser;
+    await route.continue();
+  });
+  await page.route("**/api/open-file", async route => {
+    selectedRequested = true;
+    await selected;
+    await route.continue();
+  });
+  await page.route("**/api/file", async route => {
+    if (route.request().method() === "PUT") sourceWrites.push(route.request().url());
+    await route.continue();
+  });
+  await page.route(url => url.pathname === "/api/file" && url.searchParams.get("path") === "code.py", async route => {
+    guardedRequested = true;
+    await guarded;
+    await route.continue();
+  });
+  await page.route("**/api/workspace/ui", async route => {
+    if (route.request().method() !== "GET") return route.continue();
+    layoutRequested = true;
+    await layout;
+    await route.continue();
+  });
+  try {
+    await page.goto(`/?startupPath=code.py#/file/${encodeURIComponent(`${root_path}/code.py`)}`);
+    const editor = page.locator(".cm-content").filter({ hasText: "value = 1" });
+    await expect(editor).toBeVisible();
+    await expect(editor).toHaveAttribute("contenteditable", "false");
+    await expect.poll(() => selectedRequested && guardedRequested && parserRequested).toBe(true);
+    const earlyEditor = await editor.elementHandle();
+    await editor.press("x");
+    await expect(editor).toHaveText("value = 1");
+    expect(sourceWrites).toEqual([]);
+    releaseSelected();
+    await expect(editor).toHaveAttribute("contenteditable", "false");
+    releaseGuarded();
+    await expect(editor).toHaveAttribute("contenteditable", "true");
+    expect(await editor.evaluate((current, original) => current === original, earlyEditor)).toBe(true);
+    const files = page.locator("[data-spatial-files=left]");
+    await expect(files).toBeVisible();
+    await expect(files.locator("[data-tree-path$='code.py']")).toBeVisible();
+    await expect.poll(() => layoutRequested).toBe(true);
+    const held = await editor.elementHandle();
+    await editor.press("ControlOrMeta+Home");
+    await editor.press("End");
+    await editor.pressSequentially(" # draft");
+    await expect(editor).toContainText("value = 1 # draft");
+    const layoutResponse = page.waitForResponse(reply => reply.url().endsWith("/api/workspace/ui") && reply.request().method() === "GET");
+    release();
+    await (await layoutResponse).finished();
+    await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+    await expect(files).toBeVisible();
+    expect(await editor.evaluate((current, original) => current === original, held)).toBe(true);
+    await expect(editor).toContainText("value = 1 # draft");
+    await editor.press("Shift+Home");
+    const selection = await editor.evaluate(() => window.getSelection()?.toString());
+    expect(selection).toBe("value = 1 # draft");
+    const parserResponse = page.waitForResponse(reply => parserAsset(new URL(reply.url())) && reply.request().resourceType() !== "script");
+    releaseParser();
+    await (await parserResponse).finished();
+    await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+    expect(await editor.evaluate((current, original) => current === original, held)).toBe(true);
+    expect(await editor.evaluate(() => window.getSelection()?.toString())).toBe(selection);
+    await editor.press("ControlOrMeta+z");
+    await expect(editor).toHaveText("value = 1");
+  } finally {
+    releaseSelected();
+    releaseGuarded();
+    releaseParser();
+    release();
+  }
+});
+
 test("unified patch gutter launches and steps the completed captured project", async ({page})=>{
   test.setTimeout(120_000);
   test.skip(!process.env.HICKORY_E2E_DEBUG, "Use just test-unified-debug-ui (requires uv and the Python package index).");
@@ -818,10 +913,433 @@ print(message, sys.argv[2])
 });
 </storycode:copy>
 
+<a id="f-648693644a28-recorded-fence-debug"></a>
+### Step in the recorded user and assistant cards
+
+The engine hydrates a completed fixture before the Agent pane is opened. A
+stale Run address must refuse without starting a terminal. Run each selected
+program to its own terminal, then use the first breakpoint and explicit Debug
+action. Require the engine to
+accept the exact stored message revision and the paused highlight to land in the
+same card. After stepping and inspecting the value, check that both the recorded
+session bytes and the editable composer stayed intact.
+
+The patch replay captures a production plain editor's original guard. It reads
+both sealed transitions, checks the generated consequence, and closes each
+review with the same editor, composer, and saved bytes.
+The mixed-draft replay selects one archived side per isolated workspace. It
+requires that side's exact opening to be admitted before applying both target
+drafts and stepping through coordinated Undo and Redo. Save publishes only the
+active managed document. Save All then publishes the plain draft through its
+own guard. Keep the archive and generated output byte-identical throughout.
+For the declared construction reading, bind the exact recorded message to its
+owning artifact document. Replay each side separately so the adjacent message
+cannot stand in for the requested one. Check that the selected patch stops
+before the later operation and leaves the retained archive and working file alone.
+
+<storycode:copy id="f-648693644a28-recorded-fence-debug">
+
+test("runs and steps inside both recorded message sides in Hickory Docs", async ({ page }) => {
+  test.setTimeout(90_000);
+  const fixture = process.env.HICKORY_RECORDED_E2E_ROOT;
+  test.skip(!fixture || !process.env.HICKORY_E2E_URL, "Use the isolated recorded-fence replay with local debugpy.");
+  const recording = join(fixture!, "sessions", "agent.md");
+  const original = await readFile(recording);
+  const history = await page.request.get("/api/docs/workspace/agent/turns");
+  expect(history.ok()).toBe(true);
+  const { turns: [turn] } = await history.json() as { turns: { id: string; prompt: string; answer: string }[] };
+  expect(turn.id).toBe("main-recorded-debug");
+
+  await page.goto("/");
+  await expect(page.getByRole("tab", { name: "Untitled", exact: true })).toBeVisible();
+  await page.evaluate(() => window.dispatchEvent(new CustomEvent("hickory-menu", { detail: "show-agent" })));
+  const agent = page.getByRole("region", { name: "Agent chat" });
+  const composer = agent.getByRole("textbox", { name: "Agent conversation and response" });
+  await composer.press("ControlOrMeta+End");
+  await composer.pressSequentially("Retained response draft");
+  await expect(composer).toContainText("Retained response draft");
+
+  for (const [role, side, value] of [["user", "prompt", 41], ["assistant", "answer", 52]] as const) {
+    const card = agent.locator(`.conversation-card--${role}`).filter({ hasText: `value = ${value}` });
+    const editor = card.locator(".cm-content");
+    await expect(editor).toBeVisible();
+    const held = await editor.elementHandle();
+    const sha = createHash("sha256").update(turn[side]).digest("hex");
+    const address = { side: role, source_hash: sha, opening_line: 2 };
+    const path = `/api/docs/workspace/agent/turns/${turn.id}/fence-run`;
+    const terminals = async () => (await (await page.request.get("/api/terminals")).json()).sessions.map((session: {id: string}) => session.id);
+    const previous = await terminals();
+    const stale = await page.request.post(path, { data: { ...address, source_hash: "0".repeat(64) } });
+    expect(stale.status()).toBe(409);
+    expect(await terminals()).toEqual(previous);
+    const menu = card.getByLabel("Fence actions on line 3", { exact: true });
+    await menu.click();
+    const [run] = await Promise.all([
+      page.waitForResponse(reply => reply.request().method() === "POST" && reply.url().endsWith(path)),
+      card.getByRole("button", { name: "Run python fence on line 3", exact: true }).click(),
+    ]);
+    expect(run.ok(), await run.text()).toBe(true);
+    expect(run.request().postDataJSON()).toEqual(address);
+    const output = card.getByRole("region", { name: "Recorded fence run" });
+    await expect(output).toContainText("Process exit 0");
+    await expect(output).toContainText(String(value + 1));
+    await expect(output).not.toContainText("wrong");
+    expect(await readFile(recording)).toEqual(original);
+    await menu.click();
+    await card.getByLabel(/^Set breakpoint on line /).first().click();
+    await menu.click();
+    const [response] = await Promise.all([
+      page.waitForResponse(reply => reply.request().method() === "POST" && reply.url().endsWith("/fence-debug"), { timeout: 15_000 }),
+      card.getByRole("button", { name: "Debug python fence on line 3", exact: true }).click({ timeout: 10_000 }),
+    ]);
+    expect(response.ok(), await response.text()).toBe(true);
+    expect(response.request().postDataJSON()).toEqual(address);
+    const paused = card.locator(".cm-paused-line");
+    await expect(paused).toContainText(`value = ${value}`, { timeout: 25_000 });
+    await card.getByRole("button", { name: "Step over", exact: true }).click();
+    await expect(paused).toContainText("print(value + 1)");
+    const options = card.getByLabel("Debug options", { exact: true });
+    await options.click();
+    page.once("dialog", dialog => dialog.accept("value"));
+    await card.getByRole("button", { name: "+ watch", exact: true }).click();
+    await expect(card.getByLabel("Value of watch value", { exact: true })).toHaveText(String(value));
+    await card.getByRole("button", { name: "Continue", exact: true }).click();
+    await expect(card.locator(".debug-strip__status")).toContainText("exit code 0");
+    expect(await editor.evaluate((current, originalEditor) => current === originalEditor, held)).toBe(true);
+    await expect(composer).toContainText("Retained response draft");
+    expect(await readFile(recording)).toEqual(original);
+  }
+});
+
+test("opens both recorded patch reviews with original workspace authority", async ({ page }) => {
+  const fixture = process.env.HICKORY_RECORDED_PATCH_ROOT;
+  test.skip(!fixture || !process.env.HICKORY_E2E_URL, "Use the isolated recorded-patch replay.");
+  const paths = ["author.md", "review.txt", "generated.py", "sessions/agent.md"];
+  const original = await Promise.all(paths.map(path => readFile(join(fixture!, path))));
+  const listing = await page.request.get("/api/files");
+  expect(listing.ok()).toBe(true);
+  const { root_path } = await listing.json() as { root_path: string };
+  const guarded = await page.request.get("/api/file?path=review.txt");
+  expect(guarded.ok()).toBe(true);
+  const { save_guard } = await guarded.json() as { save_guard: string };
+  expect(save_guard).toBeTruthy();
+
+  await page.goto(`/#/file/${encodeURIComponent(`${root_path}/review.txt`)}`);
+  const file = page.locator(".plain-file-pane .cm-content").filter({ hasText: "saved note" });
+  await expect(file).toBeVisible();
+  const held = await file.elementHandle();
+  await page.evaluate(() => window.dispatchEvent(new CustomEvent("hickory-menu", { detail: "show-agent" })));
+  const agent = page.getByRole("region", { name: "Agent chat" });
+  const composer = agent.getByRole("textbox", { name: "Agent conversation and response" });
+  await composer.press("ControlOrMeta+End");
+  await composer.pressSequentially("Retained composer");
+  await expect(composer).toContainText("Retained composer");
+  for (const side of ["user", "assistant"] as const) {
+    const card = agent.locator(`.conversation-card--${side}`);
+    const review = card.getByRole("button", { name: "Review patch fence on line 3", exact: true });
+    const [reply] = await Promise.all([
+      page.waitForResponse(response => response.request().method() === "POST" && response.url().endsWith("/fence-patch")),
+      review.click(),
+    ]);
+    expect(reply.ok(), await reply.text()).toBe(true);
+    const admitted = reply.request().postDataJSON();
+    expect(admitted.fence).toMatchObject({ side, opening_line: 2 });
+    expect(admitted.intention.editor_snapshot.buffers).toContainEqual(expect.objectContaining({
+      path: "review.txt", save_guard, source_hash: createHash("sha256").update(original[1]).digest("hex"),
+    }));
+    const panel = page.getByRole("dialog", { name: "Recorded patch review" });
+    await expect(panel).toBeVisible();
+    await expect(panel).toContainText(`recorded ${side} fence`);
+    await expect(panel).toContainText(side === "user" ? "value = 41" : "assistant draft");
+    if (side === "user") {
+      await panel.getByRole("combobox", { name: "Proposal construction layer" }).selectOption("draft");
+      await expect(panel).toContainText("Generated output: generated.py");
+    }
+    if (side === "user") await expect(panel.getByRole("button", { name: "Apply complete proposal to drafts" })).toHaveCount(0);
+    await panel.getByRole("button", { name: "Close" }).click();
+    await expect(review).toBeFocused();
+    await expect(composer).toContainText("Retained composer");
+    expect(await Promise.all(paths.map(path => readFile(join(fixture!, path))))).toEqual(original);
+  }
+  await page.getByRole("tab", { name: "review.txt", exact: true }).click();
+  await expect(file).toBeVisible();
+  expect(await file.evaluate((current, originalEditor) => current === originalEditor, held)).toBe(true);
+});
+
+for (const side of ["user", "assistant"] as const) test(`applies one reviewed ${side} patch to managed and plain drafts as a group`, async ({ page }) => {
+  const root = process.env.HICKORY_RECORDED_PATCH_ROOT;
+  const fixtureSide = process.env.HICKORY_RECORDED_PATCH_MULTI === "1" ? "user" : process.env.HICKORY_RECORDED_PATCH_MULTI;
+  test.skip(!root || fixtureSide !== side, "Use the isolated two-target recorded patch replay for this message side.");
+  const note = `${side} draft`;
+  const value = `value = ${side === "user" ? 41 : 53}`;
+  const paths = ["author.md", "review.txt", "generated.py", "sessions/agent.md"];
+  const original = await Promise.all(paths.map(path => readFile(join(root!, path))));
+  const response = await page.request.get("/api/files");
+  expect(response.ok()).toBe(true);
+  const { root_path, tree } = await response.json() as {root_path: string; tree: {path: string; doc_id?: string}[]};
+  const documentId = tree.find(file => file.path === "author.md")?.doc_id;
+  expect(documentId).toBeTruthy();
+  const writes: string[] = [];
+  let roomUpdates = 0;
+  page.on("request", request => {
+    const path = new URL(request.url()).pathname;
+    if (request.method() === "PUT" && /^\/api\/(file|docs\/|source-history\/)/.test(path)) writes.push(path);
+  });
+  await page.routeWebSocket(url => url.pathname === "/api/ws" && url.searchParams.get("doc") === `doc:${documentId}`, room => {
+    const server = room.connectToServer();
+    room.onMessage(message => {
+      if (typeof message !== "string" && message[0] === 0 && message[1] === 0 && message[2] === 2) roomUpdates++;
+      server.send(message);
+    });
+    server.onMessage(message => room.send(message));
+  });
+  await page.goto(`/?startupPath=review.txt#/file/${encodeURIComponent(join(root_path, "review.txt"))}`);
+  const plain = page.locator(".plain-file-pane .cm-content");
+  await expect(plain).toContainText("saved note");
+  await expect(plain).toHaveAttribute("contenteditable", "true");
+  const plainEditor = await plain.elementHandle();
+  await page.getByRole("treeitem", { name: "author.md", exact: true }).click();
+  const managed = page.locator('[data-shell-target="author.md"] .cm-content, [data-shell-target$="/author.md"] .cm-content');
+  await expect(managed).toBeVisible();
+  const managedEditor = await managed.elementHandle();
+  await page.evaluate(() => window.dispatchEvent(new CustomEvent("hickory-menu", { detail: "show-agent" })));
+  const review = page.getByRole("region", { name: "Agent chat" }).locator(`.conversation-card--${side}`)
+    .getByRole("button", { name: "Review patch fence on line 3", exact: true });
+  const [reviewed] = await Promise.all([
+    page.waitForResponse(reply => reply.request().method() === "POST" && reply.url().endsWith("/fence-patch")),
+    review.click(),
+  ]);
+  expect(reviewed.ok(), await reviewed.text()).toBe(true);
+  expect(reviewed.request().postDataJSON().fence).toMatchObject({ side, opening_line: 2 });
+  const panel = page.getByRole("dialog", { name: "Recorded patch review" });
+  await panel.getByRole("button", { name: "Apply complete proposal to drafts" }).click();
+  await expect(panel).toContainText("Complete proposal applied to drafts");
+  await expect(plain).toContainText(note);
+  await expect(managed).toContainText(value);
+  await panel.getByRole("button", { name: "Undo workspace draft Apply" }).click();
+  await expect(plain).toContainText("saved note");
+  await expect(managed).toContainText("value = 1");
+  await panel.getByRole("button", { name: "Redo workspace draft Apply" }).click();
+  await expect(plain).toContainText(note);
+  await expect(managed).toContainText(value);
+  expect(await plain.evaluate((current, originalEditor) => current === originalEditor, plainEditor)).toBe(true);
+  expect(await managed.evaluate((current, originalEditor) => current === originalEditor, managedEditor)).toBe(true);
+  // Give the ordinary plain publication debounce time to prove it stayed off.
+  await page.waitForTimeout(800);
+  expect(writes).toEqual([]);
+  expect(roomUpdates).toBe(0);
+  expect(await Promise.all(paths.map(path => readFile(join(root!, path))))).toEqual(original);
+
+  await panel.getByRole("button", { name: "Close" }).click();
+  await page.locator(".spatial-center-tabs").getByRole("tab", { name: "author.md", exact: true }).click();
+  await page.evaluate(() => window.addEventListener("hickory:flush-saves", event => {
+    document.body.dataset.draftSaveBroadcast = String((event as CustomEvent).detail);
+  }));
+  const menu = (action: string) => page.evaluate(detail => window.dispatchEvent(new CustomEvent("hickory-menu", {detail})), action);
+  const [savedDocument, focusedSaveReceipt] = await Promise.all([
+    page.waitForResponse(reply => reply.request().method() === "PUT" && reply.url().endsWith(`/api/source-history/docs/${documentId}`)),
+    page.waitForResponse(reply => {
+      const request = reply.request();
+      if (request.method() !== "POST" || !/\/api\/v1\/ui\/windows\/[^/]+\/receipts$/.test(reply.url())) return false;
+      const receipt = request.postDataJSON();
+      return receipt.stage === "result" && receipt.action?.label === "Save focused buffer";
+    }),
+    menu("save"),
+  ]);
+  expect(savedDocument.ok(), await savedDocument.text()).toBe(true);
+  expect(focusedSaveReceipt.ok(), await focusedSaveReceipt.text()).toBe(true);
+  expect(focusedSaveReceipt.request().postDataJSON().result).toMatchObject({status: "result", outcome: {status: "completed"}});
+  await expect(page.locator("body")).toHaveAttribute("data-draft-save-broadcast", "false");
+  expect(await readFile(join(root!, "review.txt"))).toEqual(original[1]);
+  expect(writes.some(path => path.endsWith("/source-history/file"))).toBe(false);
+  const [savedFile] = await Promise.all([
+    page.waitForResponse(reply => reply.request().method() === "PUT" && reply.url().includes("/api/source-history/file")),
+    menu("save-all"),
+  ]);
+  expect(savedFile.ok(), await savedFile.text()).toBe(true);
+  expect(await readFile(join(root!, "author.md"), "utf8")).toContain(value);
+  expect(await readFile(join(root!, "review.txt"), "utf8")).toBe(`${note}\n`);
+  expect(await readFile(join(root!, "generated.py"))).toEqual(original[2]);
+  expect(await readFile(join(root!, "sessions/agent.md"))).toEqual(original[3]);
+});
+
+for (const simple of [false, true]) test(`inspects the local transition of a recorded declared patch in ${simple ? "Simple Browser" : "Hickory Docs"}`, async ({ page }) => {
+  const root = process.env.HICKORY_RECORDED_CONSTRUCTION_ROOT;
+  test.skip(!root || !process.env.HICKORY_E2E_URL, "Use the isolated recorded construction replay.");
+  const side = process.env.HICKORY_RECORDED_CONSTRUCTION_E2E === "user" ? "user" : "assistant";
+  const document = side === "user" ? "request.md" : "response.md";
+  const kept = [join(root!, "sessions/agent.md"), join(root!, "materialized.txt")];
+  const original = await Promise.all(kept.map(path => readFile(path)));
+  const history = await page.request.get("/api/docs/workspace/agent/turns");
+  expect(history.ok()).toBe(true);
+  const { turns: [turn] } = await history.json() as { turns: { id: string; prompt: string; answer: string }[] };
+  const [source, adjacent] = side === "user" ? [turn.prompt, turn.answer] : [turn.answer, turn.prompt];
+  expect(source).toContain('<hick:patch id="selected">');
+  expect(adjacent).not.toContain('<hick:patch id="selected">');
+
+  await page.goto(simple ? "/simple.html" : "/");
+  if (simple) {
+    await page.locator("nav").getByText("View", { exact: true }).click();
+    await page.getByRole("button", { name: "Agent", exact: true }).click();
+  } else {
+    await expect(page.getByRole("tab", { name: "Untitled", exact: true })).toBeVisible();
+    await page.evaluate(() => window.dispatchEvent(new CustomEvent("hickory-menu", { detail: "show-agent" })));
+  }
+  const messages = page.getByRole("log", { name: "Conversation" }).locator(".agent-message");
+  const card = simple ? messages.nth(side === "user" ? 0 : 1)
+    : page.getByRole("region", { name: "Agent chat" }).locator(`.conversation-card--${side}`);
+  const summary = card.getByLabel("Review construction patch on line 3", { exact: true });
+  const [result] = await Promise.all([
+    page.waitForResponse(response => response.url().endsWith("/fence-construction") && response.request().method() === "POST"),
+    summary.click(),
+  ]);
+  expect(result.ok(), await result.text()).toBe(true);
+  const address = { side, opening_line: 2, source_hash: createHash("sha256").update(source).digest("hex") };
+  expect(result.request().postDataJSON()).toEqual(address);
+  expect(await result.json()).toMatchObject({ ...address, turn: turn.id, document, operation_id: "selected", read_only: true });
+  const reading = card.getByRole("region", { name: "Recorded construction patch" });
+  await reading.getByText("materialized.txt", { exact: true }).click();
+  await expect(reading).toContainText("old");
+  await expect(reading).toContainText("middle");
+  await expect(reading).not.toContainText("final");
+  await expect(reading.getByRole("button", { name: /apply|save|run/i })).toHaveCount(0);
+  expect(await Promise.all(kept.map(path => readFile(path)))).toEqual(original);
+});
+</storycode:copy>
+
+### Keep the managed editor through guarded open and collaboration
+
+The desktop path opens a file with spaces, a fragment marker, and Unicode.
+Hold the normal open, the confirmed file read, the room's first sync, and the
+parser download independently. The provisional editor retains its selection
+and viewport and sends no collaborative source update. Editing and Undo use
+that same view after both the room and the parser are ready.
+
+<storycode:copy id="f-648693644a28-managed-startup">
+test("keeps the managed startup editor through guarded open and first collaboration sync", async ({ page }) => {
+  test.skip(!process.env.HICKORY_E2E_URL, "Run against the isolated literate editor engine.");
+  const path = "managed startup #é.md", text = "Managed startup text";
+  const files = await (await page.request.get("/api/files")).json() as {root_path: string; tree: {path: string; doc_id?: string}[]};
+  const docId = files.tree.find(file => file.path === path)?.doc_id;
+  expect(docId).toBeTruthy();
+
+  let releaseOpen!: () => void, releaseFile!: () => void, releaseParser!: () => void;
+  const waitingOpen = new Promise<void>(resolve => {releaseOpen = resolve;});
+  const waitingFile = new Promise<void>(resolve => {releaseFile = resolve;});
+  const waitingParser = new Promise<void>(resolve => {releaseParser = resolve;});
+  let askedOpen = false, askedFile = false, askedRoom = false, roomSyncHeld = false, askedParser = false, allowSync = false;
+  let clientSourceUpdates = 0;
+  const heldRoom: (() => void)[] = [];
+  await page.addInitScript(() => localStorage.setItem("hickory.debug", "1"));
+  await page.route(url => /\/hick_lang_bg[^/]*\.wasm$/.test(url.pathname), async request => {
+    if (request.request().resourceType() === "script") return request.continue();
+    askedParser = true;
+    await waitingParser;
+    await request.continue();
+  });
+  await page.route("**/api/open-file", async request => {
+    askedOpen = true;
+    await waitingOpen;
+    await request.continue();
+  });
+  await page.route(`**/api/docs/${docId}`, async request => {
+    if (request.request().method() !== "GET") return request.continue();
+    askedFile = true;
+    await waitingFile;
+    await request.continue();
+  });
+  await page.routeWebSocket(url => url.pathname === "/api/ws" && url.searchParams.get("doc") === `doc:${docId}`, ws => {
+    askedRoom = true;
+    const server = ws.connectToServer();
+    ws.onMessage(message => {
+      if (typeof message !== "string" && message[0] === 0 && message[1] === 0 && message[2] === 2) clientSourceUpdates++;
+      server.send(message);
+    });
+    server.onMessage(message => {
+      const isSourceSync = typeof message !== "string" && message[0] === 0 && message[1] === 0;
+      if (!allowSync && isSourceSync) {
+        if (message[2] === 1) roomSyncHeld = true;
+        heldRoom.push(() => ws.send(message));
+      } else ws.send(message);
+    });
+  });
+
+  function releaseRoom() {
+    allowSync = true;
+    for (const send of heldRoom.splice(0)) send();
+  }
+  try {
+    await page.goto(`/?startupPath=${encodeURIComponent(path)}#/file/${encodeURIComponent(join(files.root_path, path))}`);
+    const editor = page.locator(".document-editor .cm-content");
+    await expect(editor).toBeVisible();
+    await expect(editor).toContainText(text);
+    await expect(editor).toHaveAttribute("contenteditable", "false");
+    await expect.poll(() => askedOpen && askedParser).toBe(true);
+    expect(askedFile || askedRoom).toBe(false);
+    const held = await editor.elementHandle();
+    const initialSelection = await page.evaluate(() => {
+      const view = (window as unknown as {__hickoryView: {dispatch: (value: unknown) => void;
+        state: {doc: {line: (line: number) => {from: number}}}; scrollDOM: HTMLElement}}).__hickoryView;
+      const anchor = view.state.doc.line(82).from + 2, head = anchor + 8;
+      view.dispatch({selection: {anchor, head}});
+      view.scrollDOM.scrollTop = 1200;
+      return [anchor, head];
+    });
+    const viewport = () => editor.evaluate(node => {
+      const scroller = node.closest(".cm-scroller")!;
+      const top = scroller.getBoundingClientRect().top;
+      const line = [...node.querySelectorAll(".cm-line")].find(row => row.getBoundingClientRect().bottom > top + 8);
+      return {scroll: scroller.scrollTop, line: line?.textContent};
+    });
+    await expect.poll(async () => (await viewport()).scroll).toBeGreaterThan(500);
+    const initialViewport = await viewport();
+    expect(initialViewport.line).toContain("Managed startup row");
+    releaseOpen();
+    await expect.poll(() => askedFile).toBe(true);
+    await expect(editor).toHaveAttribute("contenteditable", "false");
+    expect(askedRoom).toBe(false);
+    releaseFile();
+    await expect.poll(() => roomSyncHeld).toBe(true);
+    await expect(editor).toHaveAttribute("contenteditable", "false");
+    expect(clientSourceUpdates).toBe(0);
+    releaseRoom();
+    await expect(page.getByText("Waiting for the document room…", {exact: true})).toHaveCount(0);
+    await expect(editor).toHaveAttribute("contenteditable", "false");
+    expect(clientSourceUpdates).toBe(0);
+    releaseParser();
+    await expect(editor).toHaveAttribute("contenteditable", "true");
+    expect(await editor.evaluate((current, original) => current === original, held)).toBe(true);
+    const selection = await page.evaluate(() => {
+      const view = (window as unknown as {__hickoryView: {state: {selection: {main: {anchor: number; head: number}}}}}).__hickoryView;
+      return [view.state.selection.main.anchor, view.state.selection.main.head];
+    });
+    expect(selection).toEqual(initialSelection);
+    await expect.poll(viewport).toEqual(initialViewport);
+    expect(clientSourceUpdates).toBe(0);
+    const editedLine = () => page.evaluate(() => {
+      const view = (window as unknown as {__hickoryView: {state: {doc: {line: (line: number) => {text: string}}}}}).__hickoryView;
+      return view.state.doc.line(82).text;
+    });
+    const before = await editedLine();
+    await editor.press("End");
+    await editor.pressSequentially(" draft");
+    await expect.poll(editedLine).toBe(before + " draft");
+    await expect.poll(() => clientSourceUpdates).toBeGreaterThan(0);
+    await editor.press("ControlOrMeta+z");
+    await expect.poll(editedLine).toBe(before);
+  } finally {
+    releaseOpen();
+    releaseFile();
+    releaseRoom();
+    releaseParser();
+  }
+});
+</storycode:copy>
+
 ### Assemble `apps/web/e2e/literate-editor.spec.ts`
 
 The selections below preserve the original byte order. Narrative reading order does not change the output.
 
-<storycode:file path="apps/web/e2e/literate-editor.spec.ts"><storycode:paste select="#f-648693644a28-expression_statement"/><storycode:paste select="#f-648693644a28-for_in_statement"/><storycode:paste select="#f-648693644a28-expression_statement-2"/><storycode:paste select="#f-648693644a28-expression_statement-3"/><storycode:paste select="#f-648693644a28-expression_statement-4"/><storycode:paste select="#f-648693644a28-expression_statement-5"/><storycode:paste select="#f-648693644a28-expression_statement-6"/><storycode:paste select="#f-648693644a28-expression_statement-7"/><storycode:paste select="#f-648693644a28-expression_statement-8"/><storycode:paste select="#f-648693644a28-for_in_statement-2"/><storycode:paste select="#f-648693644a28-for_in_statement-3"/><storycode:paste select="#f-648693644a28-for_in_statement-4"/><storycode:paste select="#f-648693644a28-expression_statement-9"/></storycode:file>
+<storycode:file path="apps/web/e2e/literate-editor.spec.ts"><storycode:paste select="#f-648693644a28-expression_statement"/><storycode:paste select="#f-648693644a28-for_in_statement"/><storycode:paste select="#f-648693644a28-expression_statement-2"/><storycode:paste select="#f-648693644a28-expression_statement-3"/><storycode:paste select="#f-648693644a28-expression_statement-4"/><storycode:paste select="#f-648693644a28-expression_statement-5"/><storycode:paste select="#f-648693644a28-expression_statement-6"/><storycode:paste select="#f-648693644a28-expression_statement-7"/><storycode:paste select="#f-648693644a28-expression_statement-8"/><storycode:paste select="#f-648693644a28-for_in_statement-2"/><storycode:paste select="#f-648693644a28-for_in_statement-3"/><storycode:paste select="#f-648693644a28-for_in_statement-4"/><storycode:paste select="#f-648693644a28-expression_statement-9"/><storycode:paste select="#f-648693644a28-recorded-fence-debug"/><storycode:paste select="#f-648693644a28-managed-startup"/></storycode:file>
 
 </storycode:doc>

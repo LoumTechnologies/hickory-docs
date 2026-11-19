@@ -57,11 +57,71 @@ class AgentProposalModel(private val transport:(suspend(Engine,String,String,JSO
  var entries by mutableStateOf<List<AgentProposalEntry>>(emptyList());private set
  var value by mutableStateOf<SealedAgentProposal?>(null);private set
  var phase by mutableStateOf("Not applied");private set
+ private var recordedAuthority: Pair<AgentProposalEntry, () -> Boolean>? = null
  private var ticket=0L;private var engine:Engine?=null;private var owner:Workspace?=null;private var current:()->Boolean={false};private val consumed=linkedSetOf<String>();private val reports=linkedMapOf<String,Pair<Engine,String>>();private var resourceReview:ResourceChangeReview.Review?=null;private var resourceStarted=false;private var resourceRequest:String?=null
  private suspend fun call(server:Engine,method:String,path:String,body:JSONObject?=null)=transport?.invoke(server,method,path,body) ?: server.request(method,path,body)
  fun close(){showing=false;if(!resourceStarted){ticket++;current={false};busy=false}}
  val authorityCurrent get()=current()
  val canApply get()=value?.let{!it.historical&&!it.reported&&it.token !in consumed&&current()&&!busy}==true
+ suspend fun prepareRecordedPatch(w: Workspace, reading: AgentFenceReading, opening: Int) {
+  if (resourceStarted || busy || !reading.current()) return
+  showing = true
+  val server = w.engine ?: run { notice = "Connect to the workspace to review the recorded patch."; return }
+  val workspace = server.sourceWorkspaceID
+  val namespace = server.sourceRootAddress
+  if (workspace == null || namespace == null) { notice = "Refresh Files before reviewing the recorded patch."; return }
+  val id = ++ticket
+  val messageCurrent = { reading.current() && w.engine === server && server.sourceWorkspaceID == workspace && server.sourceRootAddress == namespace }
+  val lease = w.sourceAcquisitionLease(external = messageCurrent)
+  busy = true; current = { false }; value = null; entries = emptyList(); phase = "Not applied"; resourceReview = null
+  notice = "Preparing a review of the recorded patch…"
+  try {
+   val entry = "project.md"
+   val context = behaviorRetainedContext(w, entry, null)
+   val sources = context.getJSONObject("sources")
+   val roster = (w.buffers.values + w.retainedResourceEditors.values + w.retainedResourceTabs.values).distinct().filter { it.file.generatedBy == null }
+   check(lease.current() && roster.none { it.startupObservation }) { "Wait for source confirmation before preparing the recorded patch." }
+   data class Held(val id: String, val path: String?, val text: String, val base: String, val guard: String?, val revision: String, val writable: Boolean)
+   val editors = roster.map { editor ->
+    val path = editor.file.path.takeIf { sources.has(it) && w.buffers[it] === editor }
+    Held(editor.debugIdentity, path, editor.text, editor.base, editor.saveGuard.takeIf { path != null }, editor.sourceRevision.toString(), !editor.readOnly)
+   }
+   val sourceHash = withContext(Dispatchers.Default) { debugHash(reading.source) }
+   val (drafts, binding) = withContext(Dispatchers.Default) {
+    val preimages = JSONObject()
+    val owners = JSONArray()
+    for (item in editors) {
+     owners.put(JSONObject().put("id", item.id).put("path", item.path ?: JSONObject.NULL).put("source_hash", debugHash(item.text))
+      .put("save_guard", item.guard ?: JSONObject.NULL).put("source_revision", item.revision))
+     if (item.writable && item.path != null && !item.guard.isNullOrEmpty()) preimages.put(item.path,
+      JSONObject().put("save_guard", item.guard).put("text", item.text).put("base_sha256", debugHash(item.base)).put("version", JSONObject.NULL).put("writable", true))
+    }
+    preimages to JSONObject().put("live", false).put("buffers", owners)
+   }
+   check(id == ticket && lease.current()) { "The message or its source context changed. Choose Review again." }
+   fun nonce() = java.util.UUID.randomUUID().toString().replace("-", "")
+   val capture = JSONObject().put("context", nonce()).put("project_entry", entry).put("edit", JSONObject().put("changes", JSONObject()))
+    .put("drafts", drafts).put("ownership_sources", sources).put("unaddressed_sources", context.getJSONObject("unaddressed_sources"))
+    .put("saved_guards", context.getJSONObject("saved_guards"))
+   val intention = JSONObject().put("version", 1).put("request_id", nonce()).put("origin", "recorded message fence")
+    .put("title", "Recorded patch on line ${opening.toLong()+1}").put("explanation", "Review authored changes and their generated consequences before applying the recorded patch.")
+    .put("claims", JSONArray()).put("check_ids", JSONArray()).put("capture", capture).put("reading", context).put("editor_snapshot", binding)
+   val address = JSONObject().put("side", reading.side).put("source_hash", sourceHash).put("opening_line", opening)
+   val raw = call(server, "POST", reading.endpoint("fence-patch"), JSONObject().put("fence", address).put("intention", intention))
+   check(id == ticket && lease.current()) { "The message or its source context changed while preparing this patch." }
+   val selected = AgentProposalEntry(agentString(raw, "token"), agentString(raw, "fingerprint"), intention.getString("title"))
+   val sealed = sealedAgentProposal(raw, selected, workspace, namespace)
+   check(id == ticket && lease.current() && !sealed.historical && !sealed.reported &&
+    sealed.origin == "recorded ${reading.side} fence, source SHA-256 $sourceHash; claims remain unverified") {
+    "The proposal does not match the exact recorded fence. Choose Review again."
+   }
+   recordedAuthority = selected to messageCurrent
+   entries = listOf(selected)
+   read(w, selected)
+  } catch (cancelled: CancellationException) { throw cancelled }
+  catch (failure: Exception) { if (id == ticket) notice = failure.message ?: "Reopen the message and choose Review again." }
+  finally { if (id == ticket) busy = false }
+ }
  suspend fun open(w:Workspace){showing=true;if(resourceStarted)return;val server=w.engine ?: run{notice="Connect to inspect retained proposals.";return};val workspace=server.sourceWorkspaceID;val namespace=server.sourceRootAddress;if(workspace==null||namespace==null){notice="Refresh Files to bind the proposal workspace lifetime.";return};val id=++ticket;busy=true;current={false};value=null;entries=emptyList();owner=w;engine=server
   try{val raw=call(server,"GET","/api/agent-proposals");check(id==ticket&&w.engine===server&&server.sourceWorkspaceID==workspace&&server.sourceRootAddress==namespace){"Workspace changed while listing proposals."};check(raw.get("version")==1&&raw.get("proposal_protocol")==1&&raw.getString("workspace")==workspace&&raw.getString("namespace")==namespace){"Unsupported or foreign proposal catalogue."};val rows=raw.getJSONArray("reviews");check(rows.length()<=32){"Proposal catalogue exceeds its retained budget."};val next=(0 until rows.length()).map{val row=rows.getJSONObject(it);AgentProposalEntry(row.getString("token"),row.getString("fingerprint"),(row.opt("title") as? String)?.take(512),if(row.has("historical"))row.get("historical") as? Boolean ?: error("Unsupported historical catalogue flag") else false)};check(next.all{agentHex(it.token,32)&&agentHex(it.fingerprint,64)}&&next.map{it.token}.distinct().size==next.size){"Ambiguous retained proposal identities."};entries=next;notice="Read a retained sealed intention. Catalogue labels are not admitted as review material.";if(raw.opt("retention_notice") is String)notice+=" "+raw.getString("retention_notice").take(4096)}catch(e:CancellationException){throw e}catch(e:Exception){if(id==ticket)notice=e.message.orEmpty()}finally{if(id==ticket)busy=false}
  }
@@ -83,7 +143,10 @@ class AgentProposalModel(private val transport:(suspend(Engine,String,String,JSO
  suspend fun read(w:Workspace,entry:AgentProposalEntry){val server=w.engine ?: return;if(entry !in entries||resourceStarted)return;val workspace=server.sourceWorkspaceID ?: return;val namespace=server.sourceRootAddress ?: return;val epoch=w.sourceNavigationEpoch;val id=++ticket;busy=true;current={false};resourceReview=null;value=null;phase="Not applied"
   try{val raw=call(server,"GET","/api/agent-proposals/${entry.token}");val sealed=sealedAgentProposal(raw,entry,workspace,namespace);check(id==ticket&&w.engine===server&&w.sourceNavigationEpoch==epoch){"Proposal reading belongs to an obsolete host."};value=sealed;owner=w;engine=server
    if(sealed.historical){phase="Historical reading · Apply unavailable";notice="This sealed intention has no current live engine admission. Source and host reports are historical readings; request a fresh proposal to change current drafts.";return}
-   val alive={id==ticket&&value===sealed&&w.engine===server&&w.sourceNavigationEpoch==epoch&&server.sourceWorkspaceID==workspace&&server.sourceRootAddress==namespace};val capture=JSONObject(sealed.proposal).getJSONObject("capture");val acquired=w.resourceChanges.acquire(w,sealed.patches.map{it.path},capture.getJSONObject("edit"),alive);check(alive()&&acquired.third()){ "Editor namespace changed while acquiring the proposal." };matchesHost(w,sealed);current=acquired.third;phase=if(sealed.reported)"Host already reported application; no repeat Apply" else if(sealed.token in consumed)"Apply attempt retained; inspect its result" else "Reviewed only";notice="Whole material seal verified. Source patches, generated consequences and check observations are one intention; claims remain unverified.";sealed.retentionNotice?.let{notice+=" "+it}
+   val recorded = sealed.origin.startsWith("recorded ")
+   val readingCurrent = recordedAuthority?.takeIf { it.first == entry }?.second
+   if (recorded && readingCurrent?.invoke() != true) { notice = "The recorded patch can be read. Choose Review in its current message before applying it."; return }
+   val alive={id==ticket&&value===sealed&&w.engine===server&&w.sourceNavigationEpoch==epoch&&server.sourceWorkspaceID==workspace&&server.sourceRootAddress==namespace&&(!recorded||readingCurrent?.invoke()==true)};val capture=JSONObject(sealed.proposal).getJSONObject("capture");val acquired=w.resourceChanges.acquire(w,sealed.patches.map{it.path},capture.getJSONObject("edit"),alive);check(alive()&&acquired.third()){ "Editor namespace changed while acquiring the proposal." };matchesHost(w,sealed);current=acquired.third;phase=if(sealed.reported)"Host already reported application; no repeat Apply" else if(sealed.token in consumed)"Apply attempt retained; inspect its result" else "Reviewed only";notice="Whole material seal verified. Source patches, generated consequences and check observations are one intention; claims remain unverified.";sealed.retentionNotice?.let{notice+=" "+it}
   }catch(e:CancellationException){throw e}catch(e:Exception){if(id==ticket)notice=e.message.orEmpty()}finally{if(id==ticket)busy=false}
  }
  private suspend fun validate(w:Workspace,p:SealedAgentProposal){val server=engine ?: error("Proposal connection unavailable.");check(value===p&&w.engine===server&&current()){"Complete proposal or host editor lease changed."};val raw=call(server,"POST","/api/agent-proposals/validate",JSONObject().put("version",1).put("token",p.token).put("fingerprint",p.fingerprint));check(raw.get("version")==1&&raw.get("proposal_protocol")==1&&raw.get("admitted")==true&&raw.get("source_effects")==false&&raw.get("checks_executed")==false&&raw.getString("token")==p.token&&raw.getString("fingerprint")==p.fingerprint&&raw.getString("workspace")==p.workspace&&raw.getString("namespace")==p.namespace&&value===p&&w.engine===server&&current()){ "Complete proposal validation or editor lease changed. Nothing was applied." }}

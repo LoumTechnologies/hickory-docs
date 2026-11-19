@@ -11,6 +11,11 @@ import { bindProjectDebugView } from "../debug/projectDebugSurface";
 import { completionSource, completionSources } from "../lsp/completion";
 import { usePublishDebugSession } from "../debug/plainDebugHosts";
 import { useDocumentPersistence, type SyncState } from "./useDocumentPersistence";
+import type { RecordedPatchSource } from "../simple/AgentProposalAdapter";
+import { historySourceHash } from "../simple/SourceHistory";
+import { documentDraftBinding } from "../editor/DocumentEditor";
+import type { StartupManagedDocument } from "./folderPane";
+import { useHickLangStatus } from "../editor/hickLang";
 // One document's machinery, alive for as long as the workspace holds any of
 // its tabs.
 //
@@ -31,7 +36,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExterna
 import type { Extension } from "@codemirror/state";
 import type { EditorView } from "@codemirror/view";
 
-import { api, MOCK } from "../api/client";
+import { api, MOCK, request } from "../api/client";
 import { WsRealtime, getSharedRealtime, type Realtime } from "../api/realtime";
 import type { Block, DiagramBlock, Doc, ExecBlock, OutputFile, RunWsMessage, SourceEdit } from "../api/types";
 import { flashSpans } from "../editor/changeFlash";
@@ -103,6 +108,12 @@ export interface DocSession {
   liveSource: string;
   startDebugFile: (path: string, at?: number, choose?: boolean) => void;
   savedSource: string | null;
+  detachedDraft: boolean;
+  diskReviewBase: string | null;
+  needsDraftReconciliation: boolean;
+  recordedPatchSource: () => RecordedPatchSource | null;
+  startupRoomReady: boolean;
+  onStartupRoomReady: () => void;
   runningCells: Set<string>;
   execBlocks: ExecBlock[];
   /** Diagram bodies with pastes resolved server-side — a derived diagram is
@@ -147,7 +158,7 @@ export interface DocSession {
   menuSave: () => Promise<boolean>;
   menuSaveAs: () => void;
   discardUnsaved: () => Promise<void>;
-  adoptDiskSource: (source: string, text: string, expected: string) => Promise<void>;
+  adoptDiskSource: (disk: Doc, text: string, expected: string) => Promise<void>;
 }
 
 // ---------------------------------------------------------------------------
@@ -237,14 +248,17 @@ export const DocSessionHost = memo(function DocSessionHost({
   docId,
   openGenerated,
   retainUnsaved = false,
+  startup,
 }: {
   registry: SessionRegistry;
   docId: string;
+  startup?: StartupManagedDocument;
   /** Open one of THIS document's generated files in the layout. */
   openGenerated: (docId: string, path: string) => void;
   retainUnsaved?: boolean;
 }) {
-  const session = useDocumentSession(docId, openGenerated, retainUnsaved);
+  const startupAtOpen = useRef(startup).current;
+  const session = useDocumentSession(docId, openGenerated, retainUnsaved, startupAtOpen);
   useEffect(() => {
     registry.publish(session);
   });
@@ -256,19 +270,44 @@ export const DocSessionHost = memo(function DocSessionHost({
 // The session itself (moved, near-verbatim, from views/DocumentView.tsx)
 // ---------------------------------------------------------------------------
 
+type ManagedDraft = {
+  view: EditorView;
+  disk: string;
+  recoveryBase: string;
+  authority: { room: string; guard: string; scope: RecordedPatchSource["scope"] } | null;
+  attempt?: { id: string; source: string };
+};
+
+type ManagedDraftReceipt = {
+  version: number;
+  history_protocol: number;
+  id: string;
+  path: string;
+  source: string;
+  source_hash: string;
+  request_id: string;
+  save_guard: string;
+  history: { available: boolean; outcome: string; id: string };
+};
+
 function useDocumentSession(
   docId: string,
   openGeneratedFor: (docId: string, path: string) => void,
   retainUnsaved: boolean,
+  startup?: StartupManagedDocument,
 ): DocSession {
   const openGenerated = useCallback(
     (path: string) => openGeneratedFor(docId, path),
     [openGeneratedFor, docId],
   );
-  const sourceSignal=useMemo(()=>new DebugSourceSignal(),[docId]),debugDoc=useRef<Doc|null>(null),debugNamespace=useRef<string|null>(null),debugDirty=useRef<string|null>(null);
+  const sourceSignal=useMemo(()=>new DebugSourceSignal(),[docId]),debugDoc=useRef<Doc|null>(null),debugNamespace=useRef<string|null>(null),proposalWorkspace=useRef<string|null>(null),debugDirty=useRef<string|null>(null);
   const [doc,setDocState]=useState<Doc|null>(null);
+  const [startupRoomReady, setStartupRoomReady] = useState(false);
+  const onStartupRoomReady = useCallback(() => setStartupRoomReady(true), []);
+  const startRoom = !startup || !!doc;
+  const parserStatus = useHickLangStatus();
   const setDoc=useCallback((next:Doc|null)=>{debugDoc.current=next;sourceSignal.changed();setDocState(next);},[sourceSignal]);
-  useEffect(()=>{let current=true;debugNamespace.current=null;void api.files().then(files=>{if(current){debugNamespace.current=files.root_path??null;sourceSignal.changed();}},()=>{});return()=>{current=false;debugNamespace.current=null;};},[docId,sourceSignal]);
+  useEffect(()=>{let current=true;debugNamespace.current=null;void api.files().then(files=>{if(current){debugNamespace.current=files.root_path??null;proposalWorkspace.current=files.workspace_id??null;sourceSignal.changed();}},()=>{});return()=>{current=false;debugNamespace.current=null;};},[docId,sourceSignal]);
   const [blocks, setBlocks] = useState<Block[] | null>(null);
   const [fatalError, setFatalError] = useState<string | null>(null);
   const [renderError, setRenderError] = useState<string | null>(null);
@@ -277,7 +316,15 @@ function useDocumentSession(
   const [selectSpan, setSelectSpan] = useState<[number, number] | null>(null);
   const [dirtySource,setDirtySourceState]=useState<string|null>(null);
   const setDirtySource=useCallback((next:string|null)=>{debugDirty.current=next;sourceSignal.changed();setDirtySourceState(next);},[sourceSignal]);
-  const { savedSource, setSavedSource, syncState, setSyncState } = useDocumentPersistence(docId, doc, dirtySource, stored => { setDoc(stored); void refreshRender(stored.source); });
+  const managedDraft = useRef<ManagedDraft | null>(null);
+  const publishing = useRef(0);
+  const [detached, setDetached] = useState(false);
+  const [detachedSync, setDetachedSync] = useState<SyncState>("idle");
+  const { savedSource: ordinarySavedSource, setSavedSource, syncState, setSyncState } = useDocumentPersistence(
+    docId, doc, detached ? null : dirtySource, stored => {
+      if (!managedDraft.current) { setDoc(stored); void refreshRender(stored.source); }
+    });
+  const savedSource = managedDraft.current?.disk ?? ordinarySavedSource;
   const [references, setReferences] = useState<{ locations: LspLocation[]; query: string } | null>(
     null,
   );
@@ -301,8 +348,8 @@ function useDocumentSession(
     // events reach this session without a network socket.
     const shared = getSharedRealtime();
     if (MOCK && shared) return shared;
-    return new WsRealtime(`doc:${docId}`);
-  }, [docId]);
+    return new WsRealtime(`doc:${docId}`, undefined, !!startup);
+  }, [docId, startup]);
 
   useEffect(() => {
     // `reopen` before `close`, and both on the same object, because the memo
@@ -312,11 +359,12 @@ function useDocumentSession(
     // first cleanup shut, and the document would never sync. A production
     // bundle never double-mounts, which is why running this app from Vite for
     // the first time is what surfaced it.
+    if (!startRoom) return;
     realtime.reopen();
     return () => {
       if (realtime !== getSharedRealtime()) realtime.close();
     };
-  }, [realtime]);
+  }, [realtime, startRoom]);
 
   // The debugger. It is a READER: nothing it does can change the document,
   // its generated files, or a recorded transcript — the channel carries no
@@ -330,6 +378,57 @@ function useDocumentSession(
   const debugRef = useRef(debug);
   debugRef.current = debug;
   const editorRef = useRef<EditorView | null>(null);
+  const proposalRoom = useRef<Realtime | null>(null);
+  useEffect(() => {
+    let active = true;
+    void realtime.whenSynced().then(() => { if (active) proposalRoom.current = realtime; }, () => {});
+    return () => { active = false; proposalRoom.current = null; };
+  }, [realtime]);
+  const recordedPatchSource = useCallback((): RecordedPatchSource | null => {
+    const source = debugDoc.current, view = editorRef.current, revision = sourceSignal.revision;
+    const namespace = debugNamespace.current, workspace = proposalWorkspace.current;
+    const draft = managedDraft.current;
+    if (!source?.save_guard || !view?.dom.isConnected || view.state.readOnly || !namespace || !workspace
+      || proposalRoom.current !== realtime || publishing.current || (draft && (!draft.authority || draft.attempt))) return null;
+    const document = view.state.doc;
+    const text = document.toString(), scope = {namespace, workspace};
+    const current = () => editorRef.current === view && view.dom.isConnected && view.state.doc === document
+      && sourceSignal.revision === revision && debugDoc.current === source && proposalRoom.current === realtime
+      && debugNamespace.current === namespace && proposalWorkspace.current === workspace
+      && managedDraft.current === draft && !publishing.current;
+    return { path: source.path, text, base: source.source, guard: source.save_guard,
+      revision, scope, current, prepareDraft(after) {
+        const binding = documentDraftBinding(view), room = binding?.roomSource();
+        if (!current() || room === undefined || room !== (draft?.authority?.room ?? text)) return null;
+        const editor = binding?.prepare(text, after);
+        if (!editor) return null;
+        const stageCurrent = () => current() && editor.current() && binding?.roomSource() === room;
+        const previousDirty = debugDirty.current;
+        const next: ManagedDraft = draft ?? {view, disk: source.source, recoveryBase: source.source,
+          authority: {room, guard: source.save_guard!, scope}};
+        let staged = false;
+        return {
+          current: stageCurrent,
+          commit() {
+            if (!stageCurrent()) throw Error("The managed source changed before Apply.");
+            staged = true;
+            managedDraft.current = next;
+            setDetached(true);
+            setDetachedSync(after === next.disk ? "saved" : "editing");
+            editor.commit();
+          },
+          rollback() {
+            if (!staged) return;
+            editor.rollback();
+            managedDraft.current = draft;
+            setDetached(!!draft);
+            setDetachedSync(draft && text !== draft.disk ? "editing" : "idle");
+            setDirtySource(previousDirty);
+            staged = false;
+          },
+        };
+      } };
+  }, [realtime, sourceSignal, setDirtySource]);
   // Selecting a frame — from the strip's combo box or a gutter stack mark —
   // is asking to go there, and a jump with no sign of having moved leaves
   // you hunting for what changed.
@@ -385,32 +484,61 @@ function useDocumentSession(
 
   const loadedDoc = useRef(doc); loadedDoc.current = doc;
   const refresh = useCallback(() => {
-    api.doc(docId).then(d => { setDoc(d); setFatalError(null); }, e => {
+    api.doc(docId).then(d => { if (!managedDraft.current) { setDoc(d); setFatalError(null); } }, e => {
+      if (managedDraft.current) return;
       if (loadedDoc.current) setBanner({ kind: "fail", text: `Could not reload ${loadedDoc.current.path}: ${String(e.message ?? e)}`, retry: { label: "Retry reload", run: refresh } });
       else setFatalError(String(e.message ?? e));
     });
     void refreshRender();
   }, [docId, refreshRender]);
 
-  useEffect(refresh, [refresh]);
+  useEffect(() => {
+    if (!startup) return refresh();
+    let current = true;
+    void startup.authority.then(confirmed => {
+      if (!current || !startup.current() || managedDraft.current) return;
+      setDoc(confirmed);
+      setFatalError(null);
+      void refreshRender(confirmed.source);
+    }, error => { if (current) setFatalError(String(error)); });
+    return () => { current = false; };
+  }, [refresh, refreshRender, setDoc, startup]);
 
   // Recovery drafts are separate from acknowledged file persistence.
   // Previously named files opt into recovery; Untitled has its own policy.
   useDraftKeeper({
     path: doc?.path ?? null,
-    enabled: retainUnsaved && doc !== null && savedSource !== null,
-    read: () => ({
-      contents: dirtySource ?? doc?.source ?? "",
-      base: savedSource ?? doc?.source ?? "",
-    }),
+    enabled: retainUnsaved && doc !== null && savedSource !== null && (!startup || startupRoomReady),
+    read: () => {
+      const draft = managedDraft.current;
+      return draft ? {contents: draft.view.state.doc.toString(), base: draft.recoveryBase, detached: true as const} : {
+        contents: dirtySource ?? doc?.source ?? "", base: savedSource ?? doc?.source ?? "",
+      };
+    },
   });
   const restoredDraft = useRef(false);
   useEffect(() => {
-    if (!retainUnsaved || !doc || !docEditor || restoredDraft.current) return;
+    if (!retainUnsaved || !doc || !docEditor || parserStatus !== "ready" || (startup && !startupRoomReady) || restoredDraft.current) return;
     restoredDraft.current = true;
-    void api.drafts().then(({ drafts }) => {
+    void api.drafts().then(async ({ drafts }) => {
       const draft = drafts.find((candidate) => candidate.path === doc.path);
-      if (!draft || draft.contents === draft.base) return;
+      if (!draft || draft.contents === draft.base || managedDraft.current) return;
+      if (draft.detached === true) {
+        await realtime.whenSynced();
+        if (managedDraft.current || editorRef.current !== docEditor || !docEditor.dom.isConnected || publishing.current) return;
+        const disk = debugDoc.current;
+        if (!disk || disk.path !== draft.path) return;
+        const editor = documentDraftBinding(docEditor)?.prepare(docEditor.state.doc.toString(), draft.contents);
+        if (!editor?.current()) return;
+        // The private archive holds exact draft bytes. A newly opened room
+        // or disk observation does not grant this recovered draft authority.
+        managedDraft.current = {view: docEditor, disk: disk.source, recoveryBase: draft.base, authority: null};
+        setDetached(true);
+        setDetachedSync("editing");
+        editor.commit();
+        setBanner({kind: "fail", text: "Recovered a private draft. Reconcile it against the current saved source before publishing."});
+        return;
+      }
       const current = docEditor.state.doc.toString();
       if (current !== draft.contents) {
         docEditor.dispatch({
@@ -420,7 +548,7 @@ function useDocumentSession(
       setSavedSource(draft.base);
       setDirtySource(draft.contents);
     });
-  }, [retainUnsaved, doc, docEditor]);
+  }, [retainUnsaved, doc, docEditor, parserStatus, realtime, startup, startupRoomReady]);
 
   // Live run events: append to the matching cell's transcript.
   useEffect(() => {
@@ -663,10 +791,66 @@ function useDocumentSession(
   // relative path via the same createDoc the untitled buffer uses.
   const menuStateRef = useRef({ doc, dirtySource });
   menuStateRef.current = { doc, dirtySource };
+  // A detached draft retains its captured write authority independently of
+  // room observations. A retry keeps the submitted bytes and request ID.
   const menuSave = useCallback(async () => {
     const { doc, dirtySource } = menuStateRef.current;
-    if (!doc) return false;
+    if (!doc || editorRef.current?.state.readOnly) return false;
+    const draft = managedDraft.current;
+    if (draft) {
+      if (publishing.current) return false;
+      const authority = draft.authority, view = draft.view;
+      const binding = documentDraftBinding(view);
+      if (!authority || !binding) {
+        setBanner({kind: "fail", text: "This private draft requires reconciliation with the saved source before publication."});
+        return false;
+      }
+      const source = view.state.doc.toString();
+      const prior = draft.attempt;
+      const current = () => managedDraft.current === draft && draft.authority === authority
+        && editorRef.current === view && view.dom.isConnected && debugDoc.current === doc
+        && debugNamespace.current === authority.scope.namespace && proposalWorkspace.current === authority.scope.workspace
+        && proposalRoom.current === realtime && doc.source === draft.disk && doc.save_guard === authority.guard;
+      if (!prior && source === draft.disk) return current() && binding.roomSource() === authority.room;
+      const attempt = prior ?? {id: crypto.randomUUID().replaceAll("-", ""), source};
+      publishing.current++;
+      try {
+        const hash = await historySourceHash(attempt.source);
+        const room = binding.roomSource();
+        if (!current() || (room !== authority.room && (!prior || room !== attempt.source))) {
+          throw Error("Saved source authority or the document room changed. Your local draft is retained.");
+        }
+        draft.attempt = attempt;
+        const receipt = await request<ManagedDraftReceipt>("PUT", `/api/source-history/docs/${encodeURIComponent(doc.id)}`, {
+          version: 1, request_id: attempt.id, save_guard: authority.guard, source: attempt.source,
+          expected: {source: authority.room, disk: draft.disk},
+        });
+        if (!current() || receipt.version !== 1 || receipt.history_protocol !== 1 || receipt.id !== doc.id
+          || receipt.path !== doc.path || receipt.source !== attempt.source || receipt.source_hash !== hash
+          || receipt.request_id !== attempt.id || typeof receipt.save_guard !== "string" || !receipt.save_guard
+          || receipt.history?.available !== true || receipt.history.outcome !== "published" || receipt.history.id !== attempt.id) {
+          throw Error("Guarded save could not confirm this exact source. Your local draft is retained.");
+        }
+        draft.disk = attempt.source;
+        draft.recoveryBase = attempt.source;
+        draft.authority = { ...authority, room: attempt.source, guard: receipt.save_guard };
+        draft.attempt = undefined;
+        setDoc({...doc, source: attempt.source, save_guard: receipt.save_guard});
+        void refreshRender(attempt.source);
+        const unchanged = view.state.doc.toString() === attempt.source;
+        setDetachedSync(unchanged ? "saved" : "editing");
+        setBanner(previous => previous?.retry?.label === "Retry Save" ? null : previous);
+        return unchanged;
+      } catch (error) {
+        if (managedDraft.current === draft) {
+          setDetachedSync("failed");
+          setBanner({kind: "fail", text: String(error), retry: {label: "Retry Save", run: () => { void menuSave(); }}});
+        }
+        return false;
+      } finally { publishing.current--; }
+    }
     const source = dirtySource ?? doc.source;
+    publishing.current++;
     try {
       const saved = await api.saveDoc(doc.id, source);
       setDoc(saved);
@@ -682,17 +866,30 @@ function useDocumentSession(
       setSyncState("failed");
       setBanner({ kind: "fail", text: e instanceof Error ? e.message : String(e), retry: { label: "Retry Save", run: () => { void menuSave(); } } });
       return false;
-    }
-  }, [refreshRender]);
+    } finally { publishing.current--; }
+  }, [realtime, refreshRender, setDoc]);
   const discardUnsaved = useCallback(async () => {
     const current = menuStateRef.current.doc;
-    if (!current || savedSource === null) return;
-    const restored = await api.saveDoc(current.id, savedSource);
-    setDoc(restored);
-    setDirtySource(savedSource);
-    setSyncState("saved");
-    void api.discardDraft(current.path).catch(() => {});
-  }, [savedSource]);
+    if (!current || savedSource === null || editorRef.current?.state.readOnly) return;
+    const draft = managedDraft.current;
+    if (draft) {
+      if (publishing.current) return;
+      const edit = documentDraftBinding(draft.view)?.prepare(draft.view.state.doc.toString(), savedSource);
+      if (!edit?.current()) return;
+      edit.commit();
+      setDetachedSync("saved");
+      void api.discardDraft(current.path).catch(() => {});
+      return;
+    }
+    publishing.current++;
+    try {
+      const restored = await api.saveDoc(current.id, savedSource);
+      setDoc(restored);
+      setDirtySource(savedSource);
+      setSyncState("saved");
+      void api.discardDraft(current.path).catch(() => {});
+    } finally { publishing.current--; }
+  }, [savedSource, setDirtySource, setDoc]);
   const menuSaveAs = useCallback(() => {
     const { doc, dirtySource } = menuStateRef.current;
     if (!doc) return;
@@ -753,6 +950,10 @@ function useDocumentSession(
   const liveSource = dirtySource ?? doc?.source ?? "";
   const startDebugFile = useCallback((path: string, at?: number, choose = false) => {
     if (!doc) return;
+    if (managedDraft.current) {
+      setBanner({kind: "fail", text: "Open the published source to debug a detached draft after saving it explicitly."});
+      return;
+    }
     const source = editorRef.current?.state.doc.toString() ?? liveSource;
     let context: string;
     try { context = documentDebugContext(doc.path, source, at); }
@@ -900,20 +1101,45 @@ function useDocumentSession(
     setDocEditor(view);
   }, [docId]);
 
-  const adoptDiskSource = useCallback(async (source: string, text: string, expected: string) => {
+  const adoptDiskSource = useCallback(async (disk: Doc, text: string, expected: string) => {
     const before = editorRef.current?.state.doc.toString() ?? liveSourceRef.current;
     if (before !== expected) throw new Error("The buffer changed; its newer edits were kept. Choose again.");
-    const restored = await api.saveDoc(docId, text, { source: before, disk: source });
-    setDoc(restored); setSavedSource(text);
-    const view = editorRef.current;
-    const latest = view?.state.doc.toString() ?? liveSourceRef.current;
-    // The guarded room replacement may already have reached this view. Any
-    // other newer text belongs to typing after the request and stays dirty.
-    const next = latest === before || latest === text ? text : latest;
-    setDirtySource(next);
-    if (view && view.state.doc.toString() !== next) view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: next } });
-    void refreshRender(next);
-  }, [docId, refreshRender]);
+    const draft = managedDraft.current;
+    if (draft) {
+      const view = editorRef.current, diskOwner = debugDoc.current;
+      const namespace = debugNamespace.current, workspace = proposalWorkspace.current;
+      if (!view || view !== draft.view || diskOwner?.id !== disk.id || diskOwner.path !== disk.path
+        || publishing.current || draft.attempt || !namespace || !workspace || !disk.save_guard
+        || proposalRoom.current !== realtime) throw Error("The saved document's current guarded source is unavailable.");
+      const binding = documentDraftBinding(view);
+      if (binding?.roomSource() !== disk.source) throw Error("The observed document room differs from the reviewed saved source. Review the source again when they agree.");
+      const edit = binding.prepare(expected, text);
+      if (!edit?.current()) throw Error("The editor could not keep the exact reconciled text. Your private draft is retained.");
+      try { edit.commit(); } catch (error) { edit.rollback(); throw error; }
+      // Reconciliation only admits a replacement baseline. Save remains the
+      // sole route that can publish this text and advance the guard again.
+      draft.disk = disk.source;
+      draft.recoveryBase = disk.source;
+      draft.authority = {room: disk.source, guard: disk.save_guard, scope: {namespace, workspace}};
+      setDoc(disk);
+      setDetachedSync(text === disk.source ? "saved" : "editing");
+      setBanner(null);
+      return;
+    }
+    publishing.current++;
+    try {
+      const restored = await api.saveDoc(docId, text, { source: before, disk: disk.source });
+      setDoc(restored); setSavedSource(text);
+      const view = editorRef.current;
+      const latest = view?.state.doc.toString() ?? liveSourceRef.current;
+      // The guarded room replacement may already have reached this view. Any
+      // other newer text belongs to typing after the request and stays dirty.
+      const next = latest === before || latest === text ? text : latest;
+      setDirtySource(next);
+      if (view && view.state.doc.toString() !== next) view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: next } });
+      void refreshRender(next);
+    } finally { publishing.current--; }
+  }, [docId, realtime, refreshRender, setDirtySource, setDoc]);
 
   const clearReferences = useCallback(() => setReferences(null), []);
 
@@ -933,13 +1159,19 @@ function useDocumentSession(
     fatalError,
     renderError,
     banner,
-    syncState,
+    syncState: detached ? detachedSync === "failed" ? "failed" : dirtySource !== savedSource ? "editing" : "saved" : syncState,
     dirty:
       dirtySource !== null &&
       savedSource !== null &&
       dirtySource !== savedSource,
     liveSource: dirtySource ?? doc?.source ?? "",
     savedSource,
+    detachedDraft: detached,
+    diskReviewBase: managedDraft.current?.recoveryBase ?? savedSource,
+    needsDraftReconciliation: detached && managedDraft.current?.authority === null,
+    recordedPatchSource,
+    startupRoomReady,
+    onStartupRoomReady,
     runningCells,
     execBlocks,
     diagramBlocks,

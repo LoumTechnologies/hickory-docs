@@ -7,6 +7,13 @@ Each buffer owns its text and save baseline. Subscribers to text changes are sep
 
 Managed documents use their document ID to read the current source directly, without rendering or analysis. The plain-file endpoint deliberately refuses them. Their save baseline is that source text; the hash is unused for document saves.
 
+Startup can put an independent text observation in the normal buffer map. Its
+read-only state survives missing or stale ownership. Once the authoritative
+tree and guarded source identify the same path, workspace and bytes, promote
+that same buffer in place. A changed source leaves the observation visible
+until the user closes it and opens the current file again. A guarded read
+already in flight cannot recreate an observation that the user closed.
+
 An ordinary Save uses a guard captured with the original saved bytes, plus a
 retained request identity. It never refreshes that guard from a later history
 read or silently falls back to a legacy route that ignores identity fields.
@@ -33,6 +40,7 @@ export class Buffer {
   private listeners = new Set<() => void>();
   resourceDeleted = false;
   isUntitledDraft = false;
+  startupWorkspace?: string | null;
   // Recovery creates new drafts; these observations never grant a save guard.
   recoveryView?:{selection:{anchor:number;head:number};scroll_x:number;scroll_y:number};
   recoveryBaseline?:{text:string;save_guard:string|null}|null;
@@ -42,7 +50,7 @@ export class Buffer {
     this.text = this.base = content; this.hash = hash;
   }
   get dirty() { return this.text !== this.base; }
-  get readonly() { return !!this.file.generated_by; }
+  get readonly() { return this.startupWorkspace !== undefined || !!this.file.generated_by; }
   subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };
   snapshot = () => this.version;
   publish() { this.version++; this.listeners.forEach(listener => listener()); }
@@ -91,18 +99,48 @@ export class Buffers {
   get hasUnsavedChanges() { return [...this.values.values(),...this.retainedResources.values()].some(buffer=>buffer.dirty||buffer.saving); }
   private pending = new Map<string, Promise<Buffer>>();
   constructor(public changed: () => void) {}
+  observeStartup(source: {version:1;path:string;content:string;root_path:string;workspace_id:string|null}): Buffer | undefined {
+    if (this.values.has(source.path) || this.workspace && this.workspace !== source.root_path
+      || this.workspaceId && source.workspace_id && this.workspaceId !== source.workspace_id) return;
+    const buffer = new Buffer({path:source.path, name:source.path.split("/").at(-1)!, dir:false}, source.content, "", this.changed, false, source.root_path);
+    buffer.startupWorkspace = source.workspace_id;
+    this.values.set(source.path, buffer); this.changed();
+    return buffer;
+  }
   open(file: FileNode): Promise<Buffer> {
     const current = this.values.get(file.path);
-    if (current) return Promise.resolve(current);
+    if (current && current.startupWorkspace === undefined) return Promise.resolve(current);
     const pending = this.pending.get(file.path);
     if (pending) return pending;
-    const revision = this.namespaceRevision;
+    const revision = this.namespaceRevision, workspace = this.workspaceId, namespace = this.workspace;
     const read = file.doc_id
-      ? api.doc(file.doc_id).then(doc => ({ content: doc.source, hash: "",save_guard:doc.save_guard,save_guard_reason:doc.save_guard_reason }))
+      ? api.doc(file.doc_id).then(doc => ({ path: doc.path, content: doc.source, hash: "",save_guard:doc.save_guard,save_guard_reason:doc.save_guard_reason }))
       : api.file(file.path);
     const request = read.then(data => {
       if (revision !== this.namespaceRevision) throw new Error("Source addresses changed while opening. Choose the file again.");
-      const available = this.values.get(file.path); if (available) return available;
+      const available = this.values.get(file.path);
+      if (current?.startupWorkspace !== undefined && available !== current) {
+        throw Error("The startup editor closed while confirming ownership. Open the file again.");
+      }
+      if (available?.startupWorkspace !== undefined) {
+        if (!namespace || !/^[0-9a-f]{32}$/.test(workspace) || this.workspace !== namespace || this.workspaceId !== workspace
+          || available.namespace !== namespace || available.startupWorkspace && available.startupWorkspace !== workspace
+          || data.path !== file.path || data.content !== available.text || available.dirty) {
+          throw Error("The startup observation differs from the current workspace source. Close this read-only tab and open the file again.");
+        }
+        if (!file.generated_by && !data.save_guard) {
+          throw Error(data.save_guard_reason || "Source authority is still unavailable. Refresh files and open this file again.");
+        }
+        available.file = file;
+        available.hash = data.hash;
+        available.saveGuard = data.save_guard;
+        available.saveGuardReason = data.save_guard_reason;
+        available.sourceRevision++;
+        available.startupWorkspace = undefined;
+        available.publish(); this.changed();
+        return available;
+      }
+      if (available) return available;
       const buffer = new Buffer(file, data.content, data.hash, this.changed,false,this.workspace);
       buffer.saveGuard=data.save_guard;buffer.saveGuardReason=data.save_guard_reason;
       this.values.set(file.path, buffer); this.changed(); return buffer;

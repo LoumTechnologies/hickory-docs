@@ -12,6 +12,7 @@ import sys
 import tempfile
 import threading
 import time
+from urllib.parse import urlencode
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -53,10 +54,10 @@ def eventually(read, expected):
     raise AssertionError((actual, expected))
 
 class BrowserDriver:
-    def __init__(self, url):
+    def __init__(self, url, *, navigate=True):
         self.url = url
         self.process = start(["node", "scripts/simple-browser-driver.mjs"])
-        try: self.act("launch", url=url)
+        try: self.act("launch", url=url if navigate else None)
         except Exception:
             stop(self.process); raise
     def act(self, action, **arguments):
@@ -68,6 +69,152 @@ class BrowserDriver:
     def close(self):
         try: self.act("quit")
         finally: stop(self.process)
+
+def early_source_acceptance(driver, folder):
+    path, sibling = "nested/README #é.md", "nested/peer.txt"
+    text = (folder / path).read_text()
+    selection = text.index("Readable paragraph 48")
+    for fail in [False, True]:
+        driver.act("startup-held", url=driver.url + "?" + urlencode({"path": path}),
+                   gates={"owner": "**/api/files", "parser": "**/hick_lang_bg.wasm*"})
+        eventually(lambda: driver.act("capability-held", name="owner"), True)
+        eventually(lambda: driver.act("capability-held", name="parser"), True)
+        def state(): return driver.act("startup-state", path=path, sibling=sibling, outside="notes.txt")
+        early = state()
+        assert early["readonly"] and not early["siblingVisible"], early
+        driver.act("remember-editor", path=path)
+        driver.act("source-text-select", path=path, anchor=selection, head=selection + 8)
+        driver.act("source-text-type", path=path, text="denied")
+        assert driver.act("source-text-state", path=path)["source"] == text
+        before = driver.act("editor-position", path=path, y=1250)
+        assert before["y"] > 0, before
+        reply = driver.act("capability-release", name="owner", fail=fail)
+        if fail:
+            assert reply is None
+            after = state()
+            assert after["readonly"] and not after["siblingVisible"], after
+            assert driver.act("editor-is-retained", path=path)
+            assert driver.act("editor-position", path=path) == before
+            driver.act("source-file-refresh")
+        else:
+            assert reply["status"] == 200, reply
+        eventually(lambda: state()["readonly"], False)
+        after = state()
+        assert after["siblingVisible"] and not after["outsidePresent"], after
+        assert driver.act("editor-is-retained", path=path)
+        assert driver.act("editor-position", path=path) == before
+        driver.act("source-text-type", path=path, text="draft ")
+        assert driver.act("source-text-state", path=path)["source"] != text
+        driver.act("undo", path=path)
+        assert driver.act("source-text-state", path=path)["source"] == text
+        assert (folder / path).read_text() == text
+        driver.act("capability-release", name="parser")
+
+def delayed_capabilities_acceptance(driver, folder):
+    def launch(path, sibling, readonly=False, **gates):
+        driver.act("startup-held", url=driver.url + "?" + urlencode({"path": path}), gates=gates)
+        def startup_state(): return driver.act("startup-state", path=path, sibling=sibling, outside="notes.txt")
+        def authority_ready():
+            result = startup_state()
+            return result["siblingVisible"] and result["readonly"] == readonly
+        eventually(authority_ready, True)
+        state = startup_state()
+        assert state["siblingVisible"] and not state["outsidePresent"] and state["readonly"] == readonly, state
+        assert sorted(state["tabs"]) == sorted(["Files", Path(path).name]), state
+        driver.act("remember-editor", path=path)
+        return state
+
+    def held(name):
+        eventually(lambda: driver.act("capability-held", name=name), True)
+
+    def release(name, **options):
+        reply = driver.act("capability-release", name=name, **options)
+        assert reply is None if options.get("fail") else reply["status"] == 200, reply
+        return reply
+
+    def retain(path, before):
+        assert driver.act("editor-is-retained", path=path)
+        assert driver.act("source-text-state", path=path) == before
+
+    path, sibling = "nested/README #é.md", "nested/peer.txt"
+    source = (folder / path).read_text()
+    launch(path, sibling, parser="**/hick_lang_bg.wasm*", render="**/api/docs/*/render")
+    held("parser")
+    held("render")
+    assert not driver.act("capability-ui", path=path, kind="markdown")
+    assert driver.act("source-text-state", path=path)["source"] == source
+    start = source.index("Readable paragraph 48")
+    driver.act("source-text-select", path=path, anchor=start, head=start)
+    driver.act("source-text-type", path=path, text="draft ")
+    driver.act("source-text-select", path=path, anchor=start + 6, head=start + 14)
+    position = driver.act("editor-position", path=path, y=1260)
+    visible = driver.act("visible-document-line", path=path)
+    draft = driver.act("source-text-state", path=path)
+    geometry = driver.act("editor-size", path=path)
+    assert position["y"] > 0 and visible, (position, visible, geometry)
+    assert draft["source"] == source[:start] + "draft " + source[start:]
+    release("parser")
+    eventually(lambda: driver.act("capability-ui", path=path, kind="markdown"), True)
+    release("render")
+    retain(path, draft)
+    assert driver.act("visible-document-line", path=path).lstrip("# ") == visible.lstrip("# ")
+    assert driver.act("editor-size", path=path) == geometry
+    driver.act("undo", path=path)
+    assert driver.act("source-text-state", path=path)["source"] == source
+    assert (folder / path).read_text() == source
+
+    path, sibling = "nested/test_delay.py", "nested/peer.txt"
+    source = (folder / path).read_text()
+    launch(path, sibling, discovery="**/api/tests/source-candidates")
+    held("discovery")
+    assert not driver.act("capability-ui", path=path, kind="test", name="test_before")
+    start = source.index("before")
+    driver.act("source-text-select", path=path, anchor=start, head=start + len("before"))
+    driver.act("source-text-type", path=path, text="after")
+    draft = driver.act("source-text-state", path=path)
+    reply = release("discovery", read=True)
+    assert any(row["name"] == "test_before" for row in reply["body"]["candidates"]), reply
+    eventually(lambda: driver.act("capability-ui", path=path, kind="test", name="test_after"), True)
+    assert not driver.act("capability-ui", path=path, kind="test", name="test_before")
+    retain(path, draft)
+    driver.act("undo", path=path)
+    assert driver.act("source-text-state", path=path)["source"] == source
+    assert (folder / path).read_text() == source
+
+    path = "nested/generated.txt"
+    source = (folder / path).read_text()
+    launch(path, sibling, readonly=True, parser="**/hick_lang_bg.wasm*")
+    held("parser")
+    assert driver.act("source-text-state", path=path)["source"] == source
+    release("parser", fail=True)
+    driver.act("source-text-type", path=path, text="denied")
+    assert driver.act("source-text-state", path=path)["source"] == source
+    assert (folder / path).read_text() == source
+
+    path = "nested/delay.csv"
+    source = (folder / path).read_text()
+    for fail in [False, True]:
+        launch(path, sibling, grid="**/src/styles.css?inline*")
+        held("grid")
+        assert not driver.act("capability-ui", path=path, kind="csv")["available"]
+        assert driver.act("source-text-state", path=path)["source"] == source
+        start = source.index("product-55")
+        driver.act("source-text-select", path=path, anchor=start, head=start)
+        driver.act("source-text-type", path=path, text="draft-")
+        driver.act("source-text-select", path=path, anchor=start + 6, head=start + 11)
+        position = driver.act("editor-position", path=path, y=1100)
+        draft = driver.act("source-text-state", path=path)
+        assert position["y"] > 0, position
+        release("grid", fail=fail)
+        eventually(lambda: driver.act("capability-ui", path=path, kind="csv"), {
+            "available": not fail,
+            "reason": "Table grid unavailable. Keep editing source or reload to retry the grid." if fail else None,
+        })
+        retain(path, draft)
+        assert driver.act("editor-position", path=path) == position
+        driver.act("undo", path=path)
+        assert driver.act("source-text-state", path=path)["source"] == source
+        assert (folder / path).read_text() == source
 
 def workspace_changes_acceptance(driver, folder):
     # Contract: .hickory-source/frontends/contract.md. Real provider, initially unopened consumer, no disk writes.
@@ -547,6 +694,130 @@ def agent_acceptance(driver, folder):
     assert "# Previous question" in state["history"], state
     driver.act("screenshot", path=str(ROOT / "target/simple-agent.png"))
 
+def recorded_patch_acceptance(driver, folder):
+    paths = [("user", "author.md", "value = 41", "generated.py"),
+             ("agent", "review.txt", "assistant draft", None)]
+    saved = {path: (folder / path).read_bytes() for path in ["author.md", "review.txt", "generated.py", "sessions/recorded-patch.md"]}
+    for side, target, replacement, consequence in paths:
+        driver.act("open", path=target)
+        driver.act("remember-editor", path=target)
+        original = driver.act("source-text-state", path=target)
+        driver.act("agent")
+        message = f"conversation/recorded-patch-{side}.md"
+        before = driver.act("source-text-state", path=message)
+        assert "@@ -" in before["source"], before
+        driver.act("recorded-patch-review", path=message)
+        eventually(lambda: driver.act("proposal-state")["applyEnabled"], True)
+        review = driver.act("proposal-state")["text"]
+        assert replacement in review and f"recorded {'assistant' if side == 'agent' else side} fence" in review, review
+        if consequence:
+            assert f"Generated output: {consequence}" in review, review
+        assert all((folder / path).read_bytes() == data for path, data in saved.items())
+        applied = driver.act("proposal-apply")
+        assert "Complete proposal applied to drafts" in applied, applied
+        driver.act("proposal-close")
+        assert driver.act("source-text-state", path=message) == before
+        driver.act("open", path=target)
+        assert driver.act("editor-is-retained", path=target)
+        assert replacement in driver.act("source-text-state", path=target)["source"]
+        driver.act("undo", path=target)
+        assert driver.act("source-text-state", path=target)["source"] == original["source"]
+        assert all((folder / path).read_bytes() == data for path, data in saved.items())
+
+
+def prepare_recorded_construction(root, side="assistant"):
+    # Use the same selected operation for either message. Keep its owning
+    # document separate from the other archived message, which has no evidence.
+    import hashlib
+    from textwrap import dedent
+    assert side in ("user", "assistant")
+    root = root.resolve()
+    session = root / "sessions" / "agent.md"
+    session.parent.mkdir(parents=True)
+    target = "materialized.txt"
+    root.joinpath(target).write_text("Independent working file\n")
+    source = dedent("""
+    <hick:project/>
+
+    <hick:patch id="selected">
+    --- a/materialized.txt
+    +++ b/materialized.txt
+    @@ -1 +1 @@
+    -old
+    +middle
+    </hick:patch>
+    <hick:patch id="later" after="selected">
+    --- a/materialized.txt
+    +++ b/materialized.txt
+    @@ -1 +1 @@
+    -middle
+    +final
+    </hick:patch>
+    """).strip("\n")
+    if side == "user":
+        source = source.replace("<hick:project/>", "The retained request supplies this patch.", 1)
+
+    def snapshot(value):
+        return {"entries": {target: {"bytes": list(value), "kind": "File", "executable": False, "origins": []}}}
+
+    result = b"final\n"
+    fingerprint = hashlib.sha256(json.dumps({target: [list(result), "File", False]}, separators=(",", ":")).encode()).hexdigest()
+    response = '<hick:project sources="request.md"/>\nThe retained request owns this patch.' if side == "user" else source
+    sources = {"response.md": response}
+    user = "Inspect the retained construction"
+    if side == "user":
+        sources["request.md"] = source
+        user = f"<hick:input>\n{source}\n</hick:input>"
+    assistant = f"<hick:input>\n{response}\n</hick:input>"
+    capture = {"root": str(root), "entry": "response.md", "documents": {},
+        "inventory": {"documents": list(sources), "exclude": []}, "starting": snapshot(b"old\n"),
+        "completed": snapshot(result), "ambiguous": [], "error": None, "response": response,
+        "artifact": {"entry": "response.md", "sources": sources, "expected": fingerprint},
+        "session": str(session)}
+    evidence = json.dumps({"turn": "declared-construction", "capture": capture}).replace("<", "\\u003c")
+    session.write_text('<hick:session xmlns:hick="http://www.hickorydocs.com/1.0" start="2026-11-18T10:00:00Z" doc=".hick-workspace-agent">\n' +
+        '<hick:user id="u1" turn="declared-construction" provider="codex-subscription" model="test">' + user + '</hick:user>\n' +
+        '<hick:assistant>' + assistant + '</hick:assistant>\n' +
+        '<hick:context kind="acp-turn-status">{"turn":"declared-construction","status":"ok"}</hick:context>\n' +
+        '<hick:context kind="literate-project-capture">' + evidence + '</hick:context>\n</hick:session>\n')
+    return {path: (root/path).read_text() for path in (target, 'sessions/agent.md')}
+
+
+def recorded_fence_debug_acceptance(driver, folder, backend):
+    import hashlib
+    from urllib.request import urlopen
+
+    recording = folder / "sessions/agent.md"
+    original = recording.read_bytes()
+    with urlopen(backend + "/api/docs/workspace/agent/turns", timeout=5) as response:
+        [turn] = json.load(response)["turns"]
+    assert turn["id"] == "recorded-fence-host"
+    driver.act("agent")
+    for role, side, result in [("user", "prompt", 41), ("agent", "answer", 52)]:
+        source = turn[side]
+        opening = next(index for index, line in enumerate(source.splitlines(), 1) if line.endswith("python"))
+        path = f"conversation/{turn['id']}-{role}.md"
+        driver.act("remember-editor", path=path)
+        run = driver.act("recorded-fence-run", path=path, opening=opening)
+        assert run["address"] == {"side": "user" if role == "user" else "assistant",
+                                  "source_hash": hashlib.sha256(source.encode()).hexdigest(),
+                                  "opening_line": opening - 1}, run
+        assert str(result + 1) in run["output"].splitlines() and "wrong" not in run["output"], run
+        assert recording.read_bytes() == original
+        driver.act("recorded-fence-debug", path=path, opening=opening, breakpoint=opening+1)
+        eventually(lambda: driver.act("recorded-fence-position", path=path), f"value = {result}")
+        launch = [item for item in driver.act("debug-wire") if item.get("op") == "start"][-1]
+        assert re.fullmatch(r"hick-project:///[0-9a-f]{16}/message.md", launch["doc"]), launch
+        assert launch["source_hash"] == hashlib.sha256(source.encode()).hexdigest(), launch
+        driver.act("debug-step")
+        eventually(lambda: driver.act("recorded-fence-position", path=path), "print(value + 1)")
+        assert driver.act("debug-watch", path=path, expression="value", expected=str(result)) == str(result)
+        driver.act("debug-continue")
+        eventually(lambda: sum("exit code 0" in label for label in driver.act("debug-state")), 1 if role == "user" else 2)
+        assert driver.act("editor-is-retained", path=path)
+        assert recording.read_bytes() == original
+        assert not (folder / "fence.py").exists()
+
 
 def terminal_acceptance(driver):
     # Contract: .hickory-source/frontends/contract.md. Real PTY and real keys.
@@ -702,6 +973,15 @@ if __name__ == "__main__":
             subprocess.run([str(ROOT / "target/debug/hick"), "lsp", "install", "python", "--root", str(folder)], check=True, timeout=180)
         (folder / "cache.py").write_text("counter = 1\nprint(counter)\n")
         (folder / "debug.py").write_text("value = 1\nvalue += 1\nprint(value)\n")
+        if "--delayed-capabilities-only" in sys.argv or "--early-source-only" in sys.argv:
+            nested = folder / "nested"; nested.mkdir()
+            (nested / "README #é.md").write_text('<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">\n' + "\n".join(
+                f"# Section {i}" if i % 9 == 0 else f"Readable paragraph {i}" for i in range(160)) + "\n</hick:doc>\n")
+            (nested / "peer.txt").write_text("Other text in the containing folder\n")
+            (nested / "test_delay.py").write_text("def test_before():\n    assert True\n")
+            (nested / "producer.md").write_text('<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">\n<hick:file path="generated.txt">Generated text\n</hick:file>\n</hick:doc>\n')
+            (nested / "generated.txt").write_text("Generated text\n")
+            (nested / "delay.csv").write_text("Product,Count\n" + "".join(f"product-{i},{i}\n" for i in range(100)))
         if "--debug-threads-only" in sys.argv:
             virtualenv=Path(os.environ.get("HICKORY_THREAD_TEST_VENV",str(ROOT/"target/thread-debug-env"))).resolve()
             if not (virtualenv/"bin/python").exists():raise RuntimeError("Prepare the explicit debugpy test virtualenv first: "+str(virtualenv))
@@ -709,6 +989,37 @@ if __name__ == "__main__":
             debug_path="%2F λ?#.py" if "--debug-literal" in sys.argv else "thread_debug.py"
             (folder/".hick-launch.json").write_text(json.dumps({"version":1,"profiles":[{"id":"thread-test","name":"Thread test","program":debug_path,"default":True}]}))
             (folder/debug_path).write_text("import threading\nimport time\nready = threading.Event()\nfinish = threading.Event()\ndef worker():\n    worker_value = 'worker'\n    ready.set()\n    while not finish.is_set():\n        worker_value = 'worker'\nthread = threading.Thread(target=worker, name='Hickory worker')\nthread.start()\nready.wait()\nmain_value = 'main'\npause_marker = 1\nfinish.set()\nthread.join()\n")
+        if "--recorded-patch-only" in sys.argv:
+            construction = '<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">\n'
+            (folder / "project.md").write_text(construction + '<hick:project sources="author.md"/>\n</hick:doc>\n')
+            (folder / "author.md").write_text(construction + '<hick:file path="generated.py">\nvalue = 1\n</hick:file>\n</hick:doc>\n')
+            (folder / "generated.py").write_text("value = 1\n")
+            (folder / "review.txt").write_text("saved note\n")
+            (folder / "sessions").mkdir()
+            (folder / "sessions/recorded-patch.md").write_text('''<hick:session xmlns:hick="http://www.hickorydocs.com/1.0" start="2026-11-13T10:00:00Z" doc=".hick-workspace-agent">
+<hick:user id="u1" turn="recorded-patch" provider="codex-subscription" model="test">Review this construction.
+
+```diff
+--- a/author.md
++++ b/author.md
+@@ -3 +3 @@
+-value = 1
++value = 41
+```
+</hick:user>
+<hick:assistant>Review this note.
+
+\x60\x60\x60patch
+--- a/review.txt
++++ b/review.txt
+@@ -1 +1 @@
+-saved note
++assistant draft
+\x60\x60\x60
+</hick:assistant>
+<hick:context kind="acp-turn-status">{"turn":"recorded-patch","status":"ok"}</hick:context>
+</hick:session>
+''')
         if "--agent-only" in sys.argv:
             (folder / "sessions").mkdir()
             (folder / "sessions/agent.md").write_text("""<hick:session xmlns:hick="http://www.hickorydocs.com/1.0" start="2026-11-13T10:00:00Z" doc=".hick-workspace-agent">
@@ -718,6 +1029,35 @@ if __name__ == "__main__":
 </hick:session>
 """)
         environment = {**os.environ, "HICKORY_STATE_DIR": str(Path(temporary) / "state")}
+        if "--recorded-fence-debug-only" in sys.argv:
+            (folder / "sessions").mkdir()
+            (folder / "sessions/agent.md").write_text('''<hick:session xmlns:hick="http://www.hickorydocs.com/1.0" start="2026-11-18T10:00:00Z" doc=".hick-workspace-agent">
+<hick:user id="u1" turn="recorded-fence-host" provider="codex-subscription" model="test">Question before code.
+
+```python
+value = 41
+print(value + 1)
+```
+
+```python
+raise RuntimeError('wrong user fence')
+```
+</hick:user>
+<hick:assistant>Recorded answer.
+
+~~~python
+value = 52
+print(value + 1)
+~~~
+
+~~~python
+raise RuntimeError('wrong assistant fence')
+~~~
+</hick:assistant>
+<hick:context kind="acp-turn-status">{"turn":"recorded-fence-host","status":"ok"}</hick:context>
+</hick:session>
+''')
+            environment["PATH"] = str(ROOT / "target/thread-debug-env/bin") + os.pathsep + environment["PATH"]
         try:
             with socket.socket() as reservation:
                 reservation.bind(("127.0.0.1", 0)); ui_port = reservation.getsockname()[1]
@@ -725,10 +1065,22 @@ if __name__ == "__main__":
             engine = start([os.environ.get("HICKORY_SIMPLE_TEST_ENGINE", str(ROOT / "target/debug/examples/engine_client")), str(folder), "window", ui_origin], env=environment); processes.append(engine)
             backend = origin(engine)
             vite = start(["node", "node_modules/vite/bin/vite.js", "--config", "vite.simple.config.ts", "--host", "127.0.0.1", "--port", str(ui_port), "--strictPort"], cwd=ROOT / "apps/web", env={**environment, "HICKORY_API_ORIGIN": backend}); processes.append(vite)
-            driver = BrowserDriver(origin(vite) + "/simple.html")
-            if "--agent-only" in sys.argv:
+            driver = BrowserDriver(origin(vite) + "/simple.html", navigate=not any(flag in sys.argv for flag in ["--delayed-capabilities-only", "--early-source-only"]))
+            if "--early-source-only" in sys.argv:
+                early_source_acceptance(driver, folder)
+                print("Browser: readable first-open source survives delayed and failed ownership; guarded editing attaches to the same editor")
+            elif "--delayed-capabilities-only" in sys.argv:
+                delayed_capabilities_acceptance(driver, folder)
+                print("Browser: requested file and containing tree, slow and failed capabilities, retained source, selection, scroll, Undo, drafts and generated-file protection passed")
+            elif "--recorded-patch-only" in sys.argv:
+                recorded_patch_acceptance(driver, folder)
+                print("Browser: recorded user and assistant patches reached guarded review, draft Apply and Undo")
+            elif "--agent-only" in sys.argv:
                 agent_acceptance(driver, folder)
                 print("Browser: literate history, read-only messages, retained draft, subscription controls and Python-only HTTP request passed")
+            elif "--recorded-fence-debug-only" in sys.argv:
+                recorded_fence_debug_acceptance(driver, folder, backend)
+                print("Browser: selected Run and real debugpy breakpoints, Step, Watch and Continue passed on both recorded message sides")
             elif "--terminal-only" in sys.argv:
                 terminal_acceptance(driver)
                 print("Browser: direct PTY input, cursor editing, raw/alternate screen, resize, pane reattachment, interrupt, EOF and native renderer protocol passed")

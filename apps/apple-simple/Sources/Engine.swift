@@ -12,6 +12,13 @@ struct FileNode: Codable, Identifiable {
     var id: NativeSourceKey { NativeSourceKey(path) }
 }
 struct FileTree: Decodable { var root: String; var root_path: String? = nil; var workspace_id: String? = nil; var tree: [FileNode] }
+struct NativeStartupSource: Decodable {
+    var version: Int
+    var path: String
+    var content: String
+    var root_path: String
+    var workspace_id: String?
+}
 struct FileText: Decodable { var path: String; var content: String; var hash: String; var save_guard: String? = nil; var save_guard_reason: String? = nil }
 struct FileSaved: Decodable { var path: String; var hash: String; var save_guard: String? = nil }
 struct SavedDocument: Decodable { var source: String; var updated_at: String?; var save_guard: String? = nil; var save_guard_reason: String? = nil }
@@ -55,8 +62,16 @@ struct Engine {
             throw EngineError(message: "\(detail) (HTTP \(response.statusCode)). Check the server and retry after reviewing its current state.")
         }
         if path=="/api/launch-profiles"{try validateNativeJSON(data,canonicalVersionKeys:["debug_protocol"])}
+        if path.hasSuffix("/fence-debug"){try validateNativeReviewJSON(data,maxBytes:4096,versionKeys:["version","opening_line"],label:"Recorded fence Debug")}
+        if path.hasSuffix("/fence-construction") {
+            try validateNativeReviewJSON(data, maxBytes: 2 * 1024 * 1024,
+                                         versionKeys: ["version", "opening_line", "opening_byte", "bytes"],
+                                         label: "Recorded construction")
+        }
+        if path.hasSuffix("/fence-run"){try validateNativeReviewJSON(data,maxBytes:32768,versionKeys:["version","opening_line"],label:"Recorded fence Run")}
+        if path == "/api/startup-source" { try validateNativeReviewJSON(data, maxBytes: 64 * 1024 * 1024, versionKeys: ["version"], label: "Startup source") }
         if path.hasPrefix("/api/workspace/recovery"){try validateNativeReviewJSON(data,maxBytes:128*1024*1024,versionKeys:["version","recovery_protocol"],label:"Private recovery")}
-        if path.hasPrefix("/api/agent-proposals"){try validateNativeAgentProposalResponse(data)}
+        if path.hasPrefix("/api/agent-proposals") || path.hasSuffix("/fence-patch"){try validateNativeAgentProposalResponse(data)}
         if path.hasPrefix("/api/tests/") || path.hasPrefix("/api/templates/") || path.hasPrefix("/api/source-history") || path.hasPrefix("/api/behavior/") || path.hasPrefix("/api/changes/") || path.hasPrefix("/api/git/conflict-resolution/"){try validateSourceTestJSON(data)}
         return try JSONDecoder().decode(T.self, from: data)
     }
@@ -69,6 +84,13 @@ struct Engine {
         return WorkspaceSearchResult(hits: result.files.flatMap { file in file.matches.flatMap { row in row.at.map { occurrence in WorkspaceSearchHit(path: file.path, line: row.line, text: row.text, column: occurrence.column, sourceHash: file.source_hash, generatedBy: file.generated_by) } } }, truncated: result.truncated)
     }
     func files() async throws -> FileTree { try await request("GET", "/api/files") }
+    func startupSource(_ path: String) async throws -> NativeStartupSource {
+        let reply: NativeStartupSource = try await request("GET", "/api/startup-source", query: [URLQueryItem(name: "path", value: path)])
+        guard reply.version == 1, exactUTF8(path, reply.path), !reply.root_path.isEmpty else {
+            throw EngineError(message: "The server returned a different startup source. Open its exact path in Files.")
+        }
+        return reply
+    }
     func file(_ file: FileNode) async throws -> FileText {
         if let id = file.doc_id {
             let document: SavedDocument = try await request("GET", "/api/docs/" + id)
@@ -583,6 +605,41 @@ struct NativeDebugRender: Decodable {
     var blocks: [Block]
 }
 struct NativeDebugCatalog: Decodable {var profiles:[NativeDebugProfile];var fingerprint:String;var viewed:String?;var debug_protocol:Int?;var notices:[String]?}
+enum RecordedMessageSide: String {
+    case user, assistant
+    var bufferSuffix: String { self == .user ? "user" : "agent" }
+}
+struct NativeRecordedMessageSource {
+    var turn: String
+    var side: RecordedMessageSide
+    var workspace: String?
+    var workspaceID: String? = nil
+    var current: @MainActor () -> Bool
+    var actionRoot: String? {
+        guard (1...128).contains(turn.utf8.count), turn != ".", turn != "..",
+              !turn.contains("/"), !turn.contains("\\"),
+              !turn.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains) else { return nil }
+        return "/api/docs/workspace/agent/turns/" + turn
+    }
+}
+private struct NativeRecordedDebugReceipt: Decodable {
+    var version: Int
+    var id: String
+    var uri: String
+    var program: String
+    var source_hash: String
+    var opening_line: Int
+    var workspace: String
+    var started: Bool
+    var turn: String
+    var side: String
+}
+private struct NativeRecordedDebugLaunch {
+    var receipt: NativeRecordedDebugReceipt
+    var fence: RecordedDebugFence
+    var current: @MainActor () -> Bool
+    var holdsCapture = true
+}
 struct NativeRunOutput: Equatable {
     var category: String; var text: String; var source: String?; var line: Int?
 }
@@ -735,6 +792,7 @@ private struct NativeDebugFrameVariables:Decodable {
     @ObservationIgnored var emitForTest: (([String: Any]) -> Void)?
     private let engine: Engine
     private weak var launchBuffer: DocumentBuffer?
+    private var recordedLaunch: NativeRecordedDebugLaunch?
     private var socket: URLSessionWebSocketTask?
     private var receiver: Task<Void, Never>?
     private var sender: Task<Void, Never>?
@@ -760,12 +818,12 @@ private struct NativeDebugFrameVariables:Decodable {
     func claimTestPreparation()->UUID? {guard !active else{return nil};epoch=UUID();profiles=[];return epoch}
     func testPreparationCurrent(_ preparation:UUID)->Bool {epoch==preparation}
     func sourceInspectionBuffer()->DocumentBuffer? {launchBuffer}
-    @discardableResult func beginLaunchRequest()->String {
+    @discardableResult func beginLaunchRequest(document: String? = nil)->String {
         retainedSessionID=nil
         launchNamespace=sourceNamespace;sourceIdentities=[:]
         for buffer in (sourceBuffers?() ?? [])+[launchBuffer].compactMap({$0})+breakpointBuffers.values.compactMap({$0.buffer}) where !buffer.resourceDeleted {let key=Data(buffer.file.path.utf8);if sourceIdentities[key]==nil{sourceIdentities[key]=NativeDebugSourceIdentity(buffer:NativeDebugBufferRef(buffer),id:buffer.id,path:buffer.file.path,confirmed:true)}}
         launchBoundHash=nil;boundSources=[:];breakpointRequests=[:];sourceHashes=[Data(owner.utf8):nativeSourceHash(launchSource)];ambiguousSources=[]
-        retireLaunches();let id=UUID().uuidString;pendingLaunch=NativeDebugLaunch(id:id,doc:nativeDebugURI(owner));sessionID=nil;stopPending=false;message="";status="starting";return id
+        retireLaunches();let id=UUID().uuidString;pendingLaunch=NativeDebugLaunch(id:id,doc:document ?? nativeDebugURI(owner));sessionID=nil;stopPending=false;message="";status="starting";return id
     }
     private func stopRetiredLaunch(_ event:[String:Any])->Bool {
         guard event["event"] as? String=="started",let id=event["request_id"] as? String,
@@ -781,12 +839,19 @@ private struct NativeDebugFrameVariables:Decodable {
     func line(in path: String) -> Int? {
         guard status == "paused",stackNotice.isEmpty,let reference=selectedSourceReference,reference<=0 else { return nil }
         let frame = frames.first(where: { nativeDebugID($0["id"]) == selectedFrame }) ?? frames.first
+        if let recordedLaunch {
+            guard exactUTF8(path, owner), let frame else { return nil }
+            return recordedFrameLine(frame, launch: recordedLaunch)
+        }
         if exactUTF8(path,owner), frame?["in_document"] as? Bool == true { return nativeDebugLine(frame?["line"]) }
         if exactUTF8(frame?["source"] as? String,path) { return nativeDebugLine(frame?["source_line"]) }
         return exactUTF8(path,owner) && selectedFrame == nativeDebugID(frames.first?["id"]) ? pausedLine : nil
     }
     func outputPlacements(_ buffer: DocumentBuffer) -> [Int: String] {
         guard sourceMatches(buffer) else { return [:] }
+        if let recordedLaunch, exactUTF8(buffer.file.path, owner), !output.isEmpty {
+            return [recordedLaunch.fence.closing: output.map(\.text).joined()]
+        }
         let context = inlineDebugContext(buffer.text, path: buffer.file.path)
         let last = max(0, buffer.text.components(separatedBy: "\n").count - 1 - (buffer.text.hasSuffix("\n") ? 1 : 0))
         let rows = buffer.text.components(separatedBy: "\n")
@@ -837,6 +902,7 @@ private struct NativeDebugFrameVariables:Decodable {
     }
     func sourceMatches(_ buffer:DocumentBuffer)->Bool {
         guard !buffer.dirty,!buffer.saving,identityMatches(buffer,path:buffer.file.path,confirmed:true),let proof=sourceProof(buffer.file.path) else{return false}
+        if let recordedLaunch, exactUTF8(owner, buffer.file.path), !recordedLaunch.current() { return false }
         return proof==nativeSourceHash(buffer.text)
     }
     func resourceNamespaceChanged(_ routes:[ResourceEditorRoute<DocumentBuffer>]) {
@@ -864,13 +930,103 @@ private struct NativeDebugFrameVariables:Decodable {
         let proof=sourceProof(path)
         return NativeDebugLocation(path:path,line:line,session:sessionID,stop:latestThreadStop,thread:selectedThread,frame:selectedFrame,snapshot:frameSnapshot,sourceHash:proof,sourceReference:selectedSourceReference.map{Int64($0)})
     }
-    private func revealLocation(path:String,line:Int) {if let location=sourceLocation(path:path,line:line){onLocation?(location)}}
+    private func recordedFrameLine(_ frame: [String: Any], launch: NativeRecordedDebugLaunch) -> Int? {
+        guard frame["in_document"] as? Bool == true,
+              exactUTF8(frame["source"] as? String, launch.receipt.uri),
+              exactUTF8(frame["source_hash"] as? String, launch.receipt.source_hash),
+              let reference = sourceReference(frame), reference <= 0,
+              let line = nativeDebugLine(frame["line"]), launch.fence.contains(line) else { return nil }
+        return line
+    }
+    private func revealLocation(path:String,line:Int) {
+        guard recordedLaunch == nil else { return }
+        if let location=sourceLocation(path:path,line:line){onLocation?(location)}
+    }
+    private func revealRecordedFrame(_ frame: [String: Any], launch: NativeRecordedDebugLaunch) {
+        guard let buffer = launchBuffer, sourceMatches(buffer), let line = recordedFrameLine(frame, launch: launch) else { return }
+        _ = buffer.revealDebugLine?(line)
+    }
+    private func releaseRecordedCapture(_ id: String) {
+        guard id.range(of: "^[0-9a-f]{16}$", options: .regularExpression) != nil else { return }
+        let engine = self.engine
+        Task {
+            struct Removed: Decodable { var removed: Bool }
+            let _: Removed? = try? await engine.request("DELETE", "/api/project-contexts/" + id)
+        }
+    }
+    private func releaseOwnedRecordedCapture() {
+        guard let launch = recordedLaunch, launch.holdsCapture else { return }
+        recordedLaunch?.holdsCapture = false
+        releaseRecordedCapture(launch.receipt.id)
+    }
+    private func retireRecordedCapture() {
+        releaseOwnedRecordedCapture()
+        recordedLaunch = nil
+    }
+    func closeRecordedFence() {
+        if recordedLaunch != nil || (active && owner.hasPrefix("hick-agent-message:///")) { close() }
+    }
+    func prepareRecordedFence(_ buffer: DocumentBuffer, source: NativeRecordedMessageSource, fence: RecordedDebugFence) async {
+        guard !active else { message = "Stop the current debugger before launching another program."; return }
+        guard let workspace = source.workspace, let endpoint = source.actionRoot,
+              source.current(), buffer.readOnly, !buffer.dirty, !buffer.saving, !buffer.resourceDeleted,
+              exactUTF8(buffer.inlineMarkup.source, buffer.text), buffer.inlineMarkup.debug.recorded[fence.opening] == fence else {
+            message = "The recorded message is unavailable or changed. Open its current code fence and try Debug again."
+            return
+        }
+        close()
+        let preparation = epoch, text = buffer.text, path = buffer.file.path
+        let hash = nativeSourceHash(text)
+        let namespace = sourceNamespace
+        owner = path
+        status = "starting"
+        message = "Preparing recorded fence…"
+        do {
+            let receipt: NativeRecordedDebugReceipt = try await engine.request("POST", endpoint + "/fence-debug", body: [
+                "side": source.side.rawValue, "source_hash": hash, "opening_line": fence.opening,
+            ])
+            let valid = receipt.version == 1 && !receipt.started && receipt.opening_line == fence.opening
+                && receipt.id.range(of: "^[0-9a-f]{16}$", options: .regularExpression) != nil
+                && exactUTF8(receipt.uri, "hick-project:///\(receipt.id)/message.md")
+                && exactUTF8(receipt.turn, source.turn) && exactUTF8(receipt.side, source.side.rawValue)
+                && exactUTF8(receipt.workspace, workspace) && exactUTF8(receipt.source_hash, hash)
+            guard epoch == preparation else {
+                if valid { releaseRecordedCapture(receipt.id) }
+                return
+            }
+            guard valid else {
+                fail("The engine did not confirm this recorded message and fence. No Start was sent. Refresh the conversation and try Debug again.")
+                return
+            }
+            guard status == "starting", source.current(), sourceNamespace == namespace, exactUTF8(buffer.file.path, path),
+                  exactUTF8(buffer.text, text), !buffer.dirty, !buffer.saving, !buffer.resourceDeleted else {
+                releaseRecordedCapture(receipt.id)
+                fail("The recorded message or launch choice changed. No Start was sent. Open its current code fence to try Debug again.")
+                return
+            }
+            launchBuffer = buffer
+            launchSource = text
+            launchProgram = receipt.program
+            recordedLaunch = NativeRecordedDebugLaunch(receipt: receipt, fence: fence, current: source.current)
+            breakpointBuffers[Data(path.utf8)] = NativeDebugBufferRef(buffer)
+            let launch = beginLaunchRequest(document: receipt.uri)
+            values = [:]; variables = []; frames = []; pausedLine = nil; offer = nil; catalogNotices = []
+            openTransport()
+            var request: [String: Any] = ["op": "start", "doc": receipt.uri, "request_id": launch]
+            appendLaunchBreakpoints(launch, to: &request)
+            send(request)
+        } catch {
+            guard epoch == preparation else { return }
+            fail("\(error.localizedDescription) Check the workspace connection and choose Debug on the current recorded fence.")
+        }
+    }
     private func compatibleDebugger(_ catalog:NativeDebugCatalog)->Bool {
         guard (catalog.debug_protocol ?? 0)>=3 else{self.catalog=nil;profiles=[];status="unavailable";message="Scoped debugging is unavailable from this engine. Update/reconnect an engine with debug protocol 3 before Debug. No Start command was sent.";return false}
         return true
     }
     func prepare(_ buffer: DocumentBuffer, line: Int = 0, program: String? = nil,chooseProfile:Bool=false) async {
         guard !active else { message = "Stop the current debugger before launching another program."; return }
+        guard buffer.startupObservation == nil else { message = "Wait for this file’s workspace authority before Debug, or reopen it in Files."; return }
         guard !buffer.resourceDeleted else{message="Deleted source is retained history. Restore its proven identity or save a copy before a new launch.";return}
         guard !buffer.dirty, !buffer.saving else { message = "Save this file before debugging so the adapter runs the displayed text."; return }
         close(); let current = epoch;preparationNamespace=sourceNamespace;catalogNotices=[]
@@ -926,10 +1082,11 @@ private struct NativeDebugFrameVariables:Decodable {
         if let source=intentSources[primaryKey],!exactUTF8(source,launchSource){breakpointNotice="Earlier source intentions are retained. This launch omitted stale positions; place intentions explicitly on current source."}
         request["source_hash"]=nativeSourceHash(launchSource)
         let primaryOwned=intentOwners[primaryKey]==launchBuffer?.id
-        request["breakpoints"]=primaryOwned && intentSources[primaryKey].map{exactUTF8($0,launchSource)}==true ? breakpointIntents(owner):[]
+        request["breakpoints"]=primaryOwned && intentSources[primaryKey].map{exactUTF8($0,launchSource)}==true ? launchBreakpointIntents(owner):[]
         if (primaryOwned || breakpointIntents(owner).isEmpty) && intentSources[primaryKey].map({exactUTF8($0,launchSource)})==true{breakpointRequests[primaryKey]=NativeDebugBreakpointRequest(id:launch,source:launchSource)}
+        if recordedLaunch != nil { return }
         var sources:[String:[[String:Any]]]=[:],hashes:[String:String]=[:]
-        for (path,_) in breakpoints where !exactUTF8(path,owner) {let key=Data(path.utf8);if let source=intentSources[key],let buffer=breakpointBuffers[key]?.buffer,!buffer.dirty,!buffer.saving,!buffer.resourceDeleted,exactUTF8(buffer.file.path,path),intentOwners[key]==buffer.id,exactUTF8(source,buffer.text){sources[nativeDebugURI(path)]=breakpointIntents(path);hashes[nativeDebugURI(path)]=nativeSourceHash(source);breakpointRequests[key]=NativeDebugBreakpointRequest(id:launch,source:source)}}
+        for (path,_) in breakpoints where !exactUTF8(path,owner) {let key=Data(path.utf8);if let source=intentSources[key],let buffer=breakpointBuffers[key]?.buffer,buffer.file.generated_by != "conversation",!buffer.dirty,!buffer.saving,!buffer.resourceDeleted,exactUTF8(buffer.file.path,path),intentOwners[key]==buffer.id,exactUTF8(source,buffer.text){sources[nativeDebugURI(path)]=breakpointIntents(path);hashes[nativeDebugURI(path)]=nativeSourceHash(source);breakpointRequests[key]=NativeDebugBreakpointRequest(id:launch,source:source)}}
         request["sources"]=sources;request["source_hashes"]=hashes
     }
     // The initial deadline waits for the engine to read the saved choice. One
@@ -1007,8 +1164,9 @@ private struct NativeDebugFrameVariables:Decodable {
         }
     }
     private func retireTestReadings(_ notice:String){let readings=testOutcomes;testOutcomes=[:];for (session,callback) in readings{callback(session,notice,nil)}}
-    private func fail(_ detail: String) { retireTestReadings("debugger reading failed / process outcome unknown");let test=pendingSourceTest;pendingSourceTest=nil;test?.rejected(detail);retireLaunches();resetThreads();status = "failed"; message = detail; sessionID = nil; pausedLine = nil; variables = []; frames = []; values = [:] }
+    private func fail(_ detail: String) { retireRecordedCapture();retireTestReadings("debugger reading failed / process outcome unknown");let test=pendingSourceTest;pendingSourceTest=nil;test?.rejected(detail);retireLaunches();resetThreads();status = "failed"; message = detail; sessionID = nil; pausedLine = nil; variables = []; frames = []; values = [:] }
     func close() {
+        retireRecordedCapture()
         retireTestReadings("debugger reading closed / process outcome unknown")
         pendingSourceTest=nil
         attachReading=nil
@@ -1042,6 +1200,13 @@ private struct NativeDebugFrameVariables:Decodable {
         if kind=="failed",event["about"] as? String=="source" {if let request=event["request_id"] as? String{_ = adapterSources.refuse(request,event["message"] as? String ?? "Adapter source request refused.")};return}
         switch kind {
         case "started":
+            if let recordedLaunch,
+               !recordedLaunch.current() || !exactUTF8(event["source_hash"] as? String, recordedLaunch.receipt.source_hash) {
+                retireLaunches()
+                _ = stopRetiredLaunch(event)
+                fail("The debugger did not confirm the recorded message revision. Its owned session was stopped.")
+                return
+            }
             if let pending=pendingSourceTest {
                 guard pending.current(),admitsSourceTest(event,pending.plan,pending.facts),
                       exactUTF8(event["source_hash"] as? String,pending.plan.source_hash) else {
@@ -1081,7 +1246,8 @@ private struct NativeDebugFrameVariables:Decodable {
             if stackNotice.isEmpty {
                 retainSourceProofs()
                 for frame in frames {if let path=frame["source"] as? String,let hash=frame["source_hash"] as? String{confirmKnownSource(path,hash:hash)}}
-                if let top = frames.first, let path = top["source"] as? String, let line = nativeDebugLine(top["source_line"]) { revealLocation(path:path,line:line) }
+                if let recordedLaunch, let top = frames.first { revealRecordedFrame(top, launch: recordedLaunch) }
+                else if let top = frames.first, let path = top["source"] as? String, let line = nativeDebugLine(top["source_line"]) { revealLocation(path:path,line:line) }
                 else if let pausedLine { revealLocation(path:owner,line:pausedLine) }
             }
             resetVariableTree()
@@ -1104,6 +1270,7 @@ private struct NativeDebugFrameVariables:Decodable {
             if let reference=value.reference,reference>0,reference<=Int64(Int32.max) {let node=variableNode(["name":value.expression,"value":value.value,"variables_reference":reference],depth:0);evaluationRoots[Data(value.expression.utf8)]=node.id;variableNodes[node.id]=node;variableRoots.append(node.id)}
         case "finished", "ended":
             if let session=sessionID{testOutcomes.removeValue(forKey:session)?(session,kind=="finished" ? "process finished":"debugger ended / process verdict uncollected",nativeDebugID(event["exit_code"]))}
+            releaseOwnedRecordedCapture()
             retireLaunches();resetThreads();status = "finished"; sessionID = nil; pausedLine = nil; variables = []; frames = []; values = [:]
         case "failed":
             if let pending=pendingSourceTest,event["request_id"] as? String==pendingLaunch?.id {pendingSourceTest=nil;pending.rejected(event["message"] as? String ?? "Test Debug admission refused.")}
@@ -1201,17 +1368,39 @@ private struct NativeDebugFrameVariables:Decodable {
         send(["op":"select_thread","session":sessionID,"thread":thread,"stop":stop,"request_id":id])
     }
     private func breakpointIntents(_ path:String)->[[String:Any]] {(breakpoints[path] ?? []).map{mark in var clean:[String:Any]=["line":mark["line"] ?? 0];if let condition=mark["condition"] as? String{clean["condition"]=condition};return clean}}
+    private func launchBreakpointIntents(_ path: String) -> [[String: Any]] {
+        let intentions = breakpointIntents(path)
+        guard let recordedLaunch, exactUTF8(path, owner) else { return intentions }
+        return intentions.filter { nativeDebugLine($0["line"]).map(recordedLaunch.fence.contains) == true }
+    }
     func sourceChanged(_ buffer:DocumentBuffer) {let key=Data(buffer.file.path.utf8);breakpointBuffers[key]=NativeDebugBufferRef(buffer);guard !(breakpoints[buffer.file.path] ?? []).isEmpty || breakpointRequests[key] != nil || boundSources[key] != nil else{return};if buffer.dirty || intentSources[key].map({!exactUTF8($0,buffer.text)})==true {breakpointRequests.removeValue(forKey:key);boundSources.removeValue(forKey:key);breakpointNotice="Breakpoint intentions belong to earlier text. Save and explicitly update them before binding new positions."}}
-    func breakpointMarkers(_ buffer:DocumentBuffer)->[[String:Any]] {let key=Data(buffer.file.path.utf8);guard identityMatches(buffer,path:buffer.file.path,confirmed:true),intentOwners[key]==buffer.id,!buffer.dirty,let source=intentSources[key],exactUTF8(source,buffer.text) else{return []};let bound=sessionID != nil && active && boundSources[key].map{exactUTF8($0,buffer.text)}==true;return (breakpoints[buffer.file.path] ?? []).map{mark in var item=mark;if bound {item["line"]=item["display_line"] ?? item["line"]}else{item["state"]="pending"};return item}}
+    func breakpointMarkers(_ buffer: DocumentBuffer, recorded: Bool = false) -> [[String: Any]] {
+        let path = buffer.file.path, key = Data(path.utf8)
+        let confirmed = identityMatches(buffer, path: path, confirmed: true)
+        guard (confirmed || recorded && breakpointBuffers[key]?.buffer === buffer),
+              intentOwners[key] == buffer.id, !buffer.dirty,
+              let source = intentSources[key], exactUTF8(source, buffer.text) else { return [] }
+        let bound = confirmed && sessionID != nil && active && boundSources[key].map { exactUTF8($0, buffer.text) } == true
+        let fence = exactUTF8(path, owner) ? recordedLaunch?.fence : nil
+        return (breakpoints[path] ?? []).map { mark in
+            var item = mark
+            let applicable = fence.map { selected in nativeDebugLine(mark["line"]).map(selected.contains) == true } ?? true
+            if bound && applicable {
+                item["line"] = item["display_line"] ?? item["line"]
+            } else { item["state"] = "pending" }
+            return item
+        }
+    }
     private func receiveBreakpointReceipt(_ event:[String:Any],path:String) {let key=Data(path.utf8);guard let request=breakpointRequests[key],event["request_id"] as? String==request.id else{return};guard event["source_hash"] as? String==nativeSourceHash(request.source),intentSources[key].map({exactUTF8($0,request.source)})==true else{breakpointRequests.removeValue(forKey:key);boundSources.removeValue(forKey:key);breakpointNotice="Breakpoint receipt did not confirm the captured intention source. Positions remain unbound.";return};if let buffer=breakpointBuffers[key]?.buffer {guard identityMatches(buffer,path:path,confirmed:false),intentOwners[key]==buffer.id,!buffer.dirty,!buffer.saving,exactUTF8(buffer.file.path,path),exactUTF8(buffer.text,request.source) else{breakpointRequests.removeValue(forKey:key);boundSources.removeValue(forKey:key);breakpointNotice="Editor ownership/text changed before the breakpoint receipt. Positions remain unbound.";return}}
-        let requestedMarks=breakpoints[path] ?? [],lines=request.source.components(separatedBy:"\n").count
+        let requestedMarks=launchBreakpointIntents(path),lines=request.source.components(separatedBy:"\n").count
+        let fence = exactUTF8(path, owner) ? recordedLaunch?.fence : nil
         guard let statuses=event["breakpoints"] as? [[String:Any]],statuses.count==requestedMarks.count,statuses.count<=4096 else{breakpointNotice="Incomplete breakpoint receipt refused; intentions retained and positions unbound.";return}
         let requested=Set(requestedMarks.compactMap{nativeDebugLine($0["line"])}),reported=statuses.compactMap{nativeDebugLine($0["line"])}
         guard requested.count==requestedMarks.count,reported.count==statuses.count,Set(reported)==requested,Set(reported).count==reported.count,statuses.allSatisfy({status in
             guard let state=status["state"] as? String,["pending","bound","refused"].contains(state) else{return false}
             if let message=status["message"],!(message is NSNull),!(message is String){return false}
-            guard let moved=status["moved_to"],!(moved is NSNull) else{return true};return nativeDebugLine(moved).map{$0<lines}==true
-        }) else{breakpointNotice="Malformed breakpoint receipt refused; intentions retained and positions unbound.";return};var held=requestedMarks
+            guard let moved=status["moved_to"],!(moved is NSNull) else{return true};return nativeDebugLine(moved).map{$0<lines && (fence?.contains($0) ?? true)}==true
+        }) else{breakpointNotice="Malformed breakpoint receipt refused; intentions retained and positions unbound.";return};var held=breakpoints[path] ?? []
         for index in held.indices {if let status=statuses.first(where:{$0["line"] as? Int==held[index]["line"] as? Int}) {held[index]["state"]=status["state"];held[index]["display_line"]=nativeDebugLine(status["moved_to"]) ?? nativeDebugLine(held[index]["line"]);held[index]["message"]=status["message"]}}
         breakpoints[path]=held;if let buffer=breakpointBuffers[key]?.buffer {confirmKnownSource(path,hash:nativeSourceHash(request.source));guard identityMatches(buffer,path:path,confirmed:true) else{return}};boundSources[key]=request.source;if !ambiguousSources.contains(key){sourceHashes[key]=nativeSourceHash(request.source)};breakpointRequests.removeValue(forKey:key);breakpointNotice="Breakpoint statuses confirmed for captured source."
     }
@@ -1230,7 +1419,12 @@ private struct NativeDebugFrameVariables:Decodable {
         if let text,!breakpointIntents(path).isEmpty,intentSources[key].map({!exactUTF8($0,text)}) ?? true {let previous=intentSources[key];retainedBreakpointIntents[key]=Array(((retainedBreakpointIntents[key] ?? [])+breakpointIntents(path).map{mark in var retained=mark;retained["source_hash"]=previous.map(nativeSourceHash) ?? "unknown";return retained}).suffix(4096));breakpoints[path]=[];breakpointNotice="Earlier source breakpoint intentions remain readable; place new intentions explicitly on current text."};if let text{intentSources[key]=text}
         let bound=boundSources[key].flatMap{saved in text.map{exactUTF8(saved,$0)}} ?? false
         let index=(breakpoints[path] ?? []).firstIndex{$0["line"] as? Int==line} ?? (bound ? (breakpoints[path] ?? []).firstIndex{$0["display_line"] as? Int==line}:nil)
-        var held=breakpointIntents(path);if let index {if let condition{held[index]["condition"]=condition}else{held.remove(at:index)}}else{var mark:[String:Any]=["line":line];if let condition{mark["condition"]=condition};held.append(mark)}
+        var held=breakpoints[path] ?? [];if let index {if let condition{held[index]["condition"]=condition}else{held.remove(at:index)}}else{var mark:[String:Any]=["line":line];if let condition{mark["condition"]=condition};held.append(mark)}
+        if let recordedLaunch, exactUTF8(path, owner), active, !recordedLaunch.fence.contains(line) {
+            breakpoints[path] = held
+            breakpointNotice = "Breakpoint retained for another fence in this message. It will bind only if you launch that fence."
+            return
+        }
         breakpoints[path]=held;boundSources.removeValue(forKey:key);breakpointRequests.removeValue(forKey:key)
         guard writable,let text,let sessionID,["running","paused"].contains(status) else{breakpointNotice="Breakpoint intention retained; binding requires saved source and a running compatible session.";return}
         if let buffer=breakpointBuffers[key]?.buffer {guard identityMatches(buffer,path:path,confirmed:false),intentOwners[key]==buffer.id,!buffer.dirty,!buffer.saving,exactUTF8(buffer.file.path,path),exactUTF8(buffer.text,text) else{breakpointNotice="Breakpoint intention retained, but current editor ownership/text is not the captured source. No coordinates were sent.";return}}
@@ -1238,7 +1432,7 @@ private struct NativeDebugFrameVariables:Decodable {
         let captured=exactUTF8(path,owner) ? launchBoundHash:(!ambiguousSources.contains(key) ? sourceHashes[key]:nil)
         guard captured==nativeSourceHash(text) else{breakpointNotice="Breakpoint intention retained for current saved text. This session did not capture those bytes; launch current source before binding positions.";return}
         let id=UUID().uuidString;breakpointRequests[key]=NativeDebugBreakpointRequest(id:id,source:text)
-        var request:[String:Any]=["op":exactUTF8(path,owner) ? "breakpoints":"source_breakpoints","session":sessionID,"breakpoints":held,"source_hash":nativeSourceHash(text),"request_id":id];if !exactUTF8(path,owner){request["source"]=nativeDebugURI(path)};send(request)
+        var request:[String:Any]=["op":exactUTF8(path,owner) ? "breakpoints":"source_breakpoints","session":sessionID,"breakpoints":launchBreakpointIntents(path),"source_hash":nativeSourceHash(text),"request_id":id];if !exactUTF8(path,owner){request["source"]=nativeDebugURI(path)};send(request)
     }
     func step(_ how: String) {
         guard canResume,let sessionID,stackNotice.isEmpty || how=="continue" else { return }
@@ -1249,7 +1443,7 @@ private struct NativeDebugFrameVariables:Decodable {
         retireThreadChoices();status = "running"; pausedLine = nil; variables = []; values = [:]; send(request)
     }
     func canMoveToSource(_ buffer:DocumentBuffer,how:String)->Bool {canInspectFrame && sourceMatches(buffer) && exactUTF8(buffer.file.path,owner) && (capabilities[how=="jump" ? "goto_targets":"run_to"] as? Bool==true)}
-    func moveToSource(_ buffer:DocumentBuffer,line:Int,how:String) {guard ["jump","run_to"].contains(how),line>=0,line<buffer.text.components(separatedBy:"\n").count,canMoveToSource(buffer,how:how),let sessionID,let stop=latestThreadStop,let thread=selectedThread else{message="Runtime target requires the unchanged captured primary source and a supported paused adapter.";return};let ticket=UUID().uuidString;movementRequest=(ticket,stackNotice)
+    func moveToSource(_ buffer:DocumentBuffer,line:Int,how:String) {guard ["jump","run_to"].contains(how),line>=0,line<buffer.text.components(separatedBy:"\n").count,recordedLaunch?.fence.contains(line) ?? true,canMoveToSource(buffer,how:how),let sessionID,let stop=latestThreadStop,let thread=selectedThread else{message="Runtime target requires the unchanged captured primary source and a supported paused adapter.";return};let ticket=UUID().uuidString;movementRequest=(ticket,stackNotice)
         let request:[String:Any]=["op":how,"session":sessionID,"line":line,"stop":stop,"thread":thread,"request_id":ticket,"source_hash":nativeSourceHash(buffer.text)]
         retireThreadChoices();status="running";pausedLine=nil;variables=[];values=[:];send(request)
     }
@@ -1278,7 +1472,8 @@ private struct NativeDebugFrameVariables:Decodable {
         else if frame["in_document"] as? Bool==true,let hash=launchBoundHash{confirmKnownSource(owner,hash:hash)}
         readFrameLocals()
         for expression in watches { evaluate(expression, watch: true) }
-        if let path = frame["source"] as? String, let line = nativeDebugLine(frame["source_line"]) { revealLocation(path:path,line:line) }
+        if let recordedLaunch { revealRecordedFrame(frame, launch: recordedLaunch) }
+        else if let path = frame["source"] as? String, let line = nativeDebugLine(frame["source_line"]) { revealLocation(path:path,line:line) }
         else if let line = nativeDebugLine(frame["line"]) { revealLocation(path:owner,line:line) }
     }
     func install() async {

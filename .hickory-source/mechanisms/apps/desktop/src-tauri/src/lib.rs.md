@@ -933,16 +933,20 @@ fn launch(handle: AppHandle, requested_file: Option<PathBuf>) {
             .and_then(server::last_opened)
             .filter(|path| path.is_dir())
     }) {
+        // The workspace is the file's containing folder. Keep the file
+        // itself as the requested tab and recent item for this new window.
+        let target = dir.canonicalize().unwrap_or(dir);
+        let workspace = if target.is_file() { target.parent().unwrap_or(&target) } else { &target };
         match runtime.block_on(server::start_with_menu(
-            &dir,
+            workspace,
             config_dir.as_deref(),
             Some(server::shell_hooks(&handle, config_dir.as_deref())),
             Some(handle.clone()),
         )) {
-            Ok(session) => open(&handle, runtime, session, config_dir.as_deref(), &dir),
+            Ok(session) => open(&handle, runtime, session, config_dir.as_deref(), &target, workspace),
             Err(e) => fail(
                 &handle,
-                &format!("Could not open {}\n\n{e:#}", dir.display()),
+                &format!("Could not open {}\n\n{e:#}", target.display()),
             ),
         }
         return;
@@ -1013,8 +1017,9 @@ fn open(
     session: server::Session,
     config_dir: Option<&Path>,
     dir: &Path,
+    workspace: &Path,
 ) {
-    *handle.state::<WindowFolder>().0.lock().unwrap() = dir.is_dir().then(|| dir.to_path_buf());
+    *handle.state::<WindowFolder>().0.lock().unwrap() = Some(workspace.to_path_buf());
     recent::record(handle, dir);
     if let Some(config_dir) = config_dir {
         server::remember(config_dir, dir);
@@ -1033,6 +1038,14 @@ fn open(
             .map(|byte| format!("%{byte:02X}"))
             .collect();
         address.set_fragment(Some(&format!("/file/{encoded}")));
+        // The engine is already mounted at this window's containing folder.
+        // A confined startup read can use the exact relative name while the
+        // existing native absolute Open File retains its authority checks.
+        if let Ok(relative) = path.strip_prefix(workspace) {
+            if let Some(relative) = relative.to_str() {
+                address.query_pairs_mut().append_pair("startupPath", &relative.replace('\\', "/"));
+            }
+        }
         url = address.to_string();
     }
     handle.manage(session);

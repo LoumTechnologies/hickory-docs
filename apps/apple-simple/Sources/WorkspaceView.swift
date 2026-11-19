@@ -11,6 +11,7 @@ private struct TabDrag: Codable, Transferable {
 struct WorkspaceView: View {
     @Environment(\.openWindow) private var openWindow
     @Bindable var workspace: Workspace
+    var launchFile = ProcessInfo.processInfo.environment["HICKORY_OPEN_FILE"]
     @State private var connection = false
     private var menuCommands:[WorkspaceCommand] {workspace.commands(ui:["file.window":{openWindow(id:"workspace")},"file.connect":{connection=true}])}
     var body: some View {
@@ -83,9 +84,10 @@ struct WorkspaceView: View {
         .task {
             if workspace.engine == nil {
                 if workspace.address.isEmpty { connection = true }
-                else { connection = !(await workspace.connect()) }
+                else { connection = !(await workspace.connect(opening: launchFile)) }
             }
         }
+        .onDisappear { workspace.debugger?.closeRecordedFence() }
         #if os(macOS)
         .background(WindowGuard(workspace: workspace))
         #endif
@@ -249,7 +251,14 @@ struct PaneView: View {
         } else if tab.flatMap({NativeTabIdentity(address:$0).utility}) == .terminal {
             TerminalPane(engine: workspace.engine, session: workspace.terminal)
         } else if tab.flatMap({NativeTabIdentity(address:$0).utility}) == .agent {
-            AgentPane(engine: workspace.engine, session: workspace.agent).onAppear{workspace.configureAgentContext()}
+            let epoch = workspace.sourceNavigationEpoch, root = workspace.sourceRootAddress, id = workspace.sourceWorkspaceID
+            AgentPane(engine: workspace.engine, session: workspace.agent, debugger: workspace.debugger, workspaceAddress: root, workspaceID: id, reviewPatch: { buffer, source, line in
+                Task { await workspace.agentProposals.prepareRecordedPatch(workspace, message: buffer, source: source, openingLine: line) }
+            }, workspaceCurrent: { [weak workspace] in
+                guard let workspace else { return false }
+                return workspace.sourceNavigationEpoch == epoch && exactUTF8(workspace.sourceRootAddress, root)
+                    && exactUTF8(workspace.sourceWorkspaceID, id)
+            }).onAppear{workspace.configureAgentContext()}
         } else if let tab, let buffer = workspace.bufferForTab(tab) {
             VStack(spacing: 0) {
                 LanguageEditor(buffer: buffer, debugger: workspace.debugger).id(buffer.id)

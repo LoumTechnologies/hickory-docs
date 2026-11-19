@@ -222,6 +222,46 @@ fn project_directory(root: &Path, supplied: Option<PathBuf>) -> Result<(PathBuf,
     Ok((path, prepare))
 }
 
+fn requested_file(project: &Path, supplied: Option<std::ffi::OsString>) -> Result<Option<String>> {
+    let Some(supplied) = supplied else {
+        return Ok(None);
+    };
+    let path = supplied.into_string().map_err(|_| {
+        anyhow::anyhow!(
+            "HICKORY_OPEN_FILE is not UTF-8. Choose a workspace file with a UTF-8 path."
+        )
+    })?;
+    ensure!(
+        !path.contains('\\')
+            && Path::new(&path)
+                .components()
+                .all(|part| matches!(part, std::path::Component::Normal(_)))
+            && path.split('/').all(|part| !matches!(part, "" | "." | "..")),
+        "HICKORY_OPEN_FILE must be a workspace-relative file path: {path:?}. Use its path from the workspace root."
+    );
+    let root = project.canonicalize()?;
+    let target = root.join(&path).canonicalize().with_context(|| {
+        format!(
+            "Cannot open {path:?} in {}. Check its workspace-relative path.",
+            root.display()
+        )
+    })?;
+    ensure!(
+        target.starts_with(&root) && target.is_file(),
+        "Cannot open {path:?} in {}. Choose a regular file within the workspace.",
+        root.display()
+    );
+    Ok(Some(path))
+}
+
+fn browser_page(port: u16, file: Option<&str>) -> Result<reqwest::Url> {
+    let mut url = reqwest::Url::parse(&format!("http://127.0.0.1:{port}/simple.html"))?;
+    if let Some(file) = file {
+        url.query_pairs_mut().append_pair("path", file);
+    }
+    Ok(url)
+}
+
 async fn launch(platform: &str, session: &mut Session) -> Result<()> {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../..")
@@ -248,6 +288,7 @@ async fn launch(platform: &str, session: &mut Session) -> Result<()> {
         "Workspace must be a directory: {}",
         project.display()
     );
+    let file = requested_file(&project, env::var_os("HICKORY_OPEN_FILE"))?;
     if platform == "all" {
         println!(
             "Launching browser, macOS, iOS simulator and Android against {}",
@@ -266,9 +307,12 @@ async fn launch(platform: &str, session: &mut Session) -> Result<()> {
         let first_platform = session.children.len();
         let mut platforms = Vec::new();
         for platform in ["browser", "apple", "ios", "android"] {
-            session.spawn(
-                cmd("just", &["simple-dev", platform]).env("HICKORY_PROJECT_DIR", &project),
-            )?;
+            let mut child = cmd("just", &["simple-dev", platform]);
+            child.env("HICKORY_PROJECT_DIR", &project);
+            if let Some(file) = &file {
+                child.env("HICKORY_OPEN_FILE", file);
+            }
+            session.spawn(&mut child)?;
             platforms.push(platform);
         }
         session.spawn(&mut cmd(
@@ -317,7 +361,7 @@ async fn launch(platform: &str, session: &mut Session) -> Result<()> {
         project.display()
     );
     tokio::select! {
-        result = frontend(platform, &root, session, &api_origin, browser_port) => result,
+        result = frontend(platform, &root, session, &api_origin, browser_port, file.as_deref()) => result,
         result = server => { result??; bail!("Workspace server stopped unexpectedly") },
     }
 }
@@ -328,6 +372,7 @@ async fn frontend(
     session: &mut Session,
     api: &str,
     port: Option<u16>,
+    file: Option<&str>,
 ) -> Result<()> {
     session
         .run(&mut cmd(
@@ -351,8 +396,9 @@ async fn frontend(
                     .await?;
                 std::fs::File::create(installed.join(".simple-dev-installed"))?;
             }
-            let port = port.unwrap().to_string();
-            println!("Browser: http://127.0.0.1:{port}/simple.html");
+            let port = port.context("Browser launch requires its reserved port")?;
+            let page = browser_page(port, file)?;
+            println!("Browser: {page}");
             session
                 .run(
                     cmd(
@@ -364,10 +410,10 @@ async fn frontend(
                             "--host",
                             "127.0.0.1",
                             "--port",
-                            &port,
+                            &port.to_string(),
                             "--strictPort",
                             "--open",
-                            "/simple.html",
+                            page.as_str(),
                         ],
                     )
                     .current_dir(web)
@@ -375,9 +421,9 @@ async fn frontend(
                 )
                 .await
         }
-        "apple" => apple(root, session, api).await,
-        "android" => android(root, session, api).await,
-        "ios" => ios(session, api).await,
+        "apple" => apple(root, session, api, file).await,
+        "android" => android(root, session, api, file).await,
+        "ios" => ios(session, api, file).await,
         _ => unreachable!(),
     }
 }
@@ -409,7 +455,7 @@ fn install_apple_resources(binary_dir: &Path, contents: &Path) -> Result<()> {
     Ok(())
 }
 
-async fn apple(root: &Path, session: &mut Session, api: &str) -> Result<()> {
+async fn apple(root: &Path, session: &mut Session, api: &str, file: Option<&str>) -> Result<()> {
     ensure!(
         cfg!(target_os = "macos"),
         "The Apple frontend requires macOS and Xcode"
@@ -463,13 +509,13 @@ async fn apple(root: &Path, session: &mut Session, api: &str) -> Result<()> {
         .await?;
     println!("Opening {}", bundle.display());
     // Execute the bundled binary directly so Session owns the native app's lifetime.
-    session
-        .run(
-            Command::new(&executable)
-                .env("HICKORY_API_ORIGIN", api)
-                .env("HICKORY_SIMPLE_HOST_PID", std::process::id().to_string()),
-        )
-        .await
+    let mut app = Command::new(&executable);
+    app.env("HICKORY_API_ORIGIN", api)
+        .env("HICKORY_SIMPLE_HOST_PID", std::process::id().to_string());
+    if let Some(file) = file {
+        app.env("HICKORY_OPEN_FILE", file);
+    }
+    session.run(&mut app).await
 }
 fn sdk() -> Result<PathBuf> {
     let mut candidates: Vec<PathBuf> = ["ANDROID_HOME", "ANDROID_SDK_ROOT"]
@@ -597,7 +643,7 @@ async fn android_device(session: &mut Session) -> Result<(PathBuf, String)> {
     Ok((adb_path, serial))
 }
 
-async fn android(root: &Path, session: &mut Session, api: &str) -> Result<()> {
+async fn android(root: &Path, session: &mut Session, api: &str, file: Option<&str>) -> Result<()> {
     let (adb_path, serial) = android_device(session).await?;
     session
         .run(&mut cmd(
@@ -655,23 +701,14 @@ async fn android(root: &Path, session: &mut Session, api: &str) -> Result<()> {
         &serial,
         &["shell", "am", "force-stop", "com.hickorydocs.simple"],
     ));
-    session
-        .run(&mut adb(
-            &adb_path,
-            &serial,
-            &[
-                "shell",
-                "am",
-                "start",
-                "-W",
-                "-n",
-                "com.hickorydocs.simple/.MainActivity",
-                "--es",
-                "hickory_api_origin",
-                api,
-            ],
-        ))
-        .await?;
+    let mut app = adb(&adb_path, &serial, &[
+        "shell", "am", "start", "-W", "-n", "com.hickorydocs.simple/.MainActivity",
+        "--es", "hickory_api_origin", api,
+    ]);
+    if let Some(file) = file {
+        app.args(["--es", "hickory_open_file", &hickory_cli::scaffold::shell_quote(file)]);
+    }
+    session.run(&mut app).await?;
     println!("Android running on {serial}. Ctrl-C stops this test app and its backend.");
     std::future::pending().await
 }
@@ -786,7 +823,7 @@ async fn ios_device(session: &mut Session) -> Result<String> {
     Ok(device)
 }
 
-async fn ios(session: &mut Session, api: &str) -> Result<()> {
+async fn ios(session: &mut Session, api: &str, file: Option<&str>) -> Result<()> {
     let device = ios_device(session).await?;
     session
         .run(&mut cmd("just", &["simple-build", "ios"]))
@@ -801,21 +838,15 @@ async fn ios(session: &mut Session, api: &str) -> Result<()> {
             "com.hickorydocs.simple.mobile",
         ],
     ));
-    session
-        .run(
-            cmd(
-                "xcrun",
-                &[
-                    "simctl",
-                    "launch",
-                    "--terminate-running-process",
-                    &device,
-                    "com.hickorydocs.simple.mobile",
-                ],
-            )
-            .env("SIMCTL_CHILD_HICKORY_API_ORIGIN", api),
-        )
-        .await?;
+    let mut app = cmd("xcrun", &[
+        "simctl", "launch", "--terminate-running-process", &device,
+        "com.hickorydocs.simple.mobile",
+    ]);
+    app.env("SIMCTL_CHILD_HICKORY_API_ORIGIN", api);
+    if let Some(file) = file {
+        app.env("SIMCTL_CHILD_HICKORY_OPEN_FILE", file);
+    }
+    session.run(&mut app).await?;
     println!("iOS running on {device}. Ctrl-C stops this test app and its backend.");
     std::future::pending().await
 }
@@ -885,6 +916,34 @@ mod tests {
         let file = root.path().join("file");
         std::fs::write(&file, "text").unwrap();
         assert!(project_directory(root.path(), Some(file)).is_err());
+    }
+    #[test]
+    fn requested_file_keeps_the_exact_workspace_identity() {
+        let workspace = tempfile::tempdir().unwrap();
+        let root = workspace.path();
+        let file = "nested/café 'draft' #+%.md";
+        std::fs::create_dir(root.join("nested")).unwrap();
+        std::fs::write(root.join(file), "requested text").unwrap();
+        let request = requested_file(root, Some(file.into())).unwrap();
+        assert_eq!(request.as_deref(), Some(file));
+        let page = browser_page(4321, request.as_deref()).unwrap();
+        assert_eq!(page.path(), "/simple.html");
+        let mut query = page.query_pairs();
+        let (key, value) = query.next().unwrap();
+        assert_eq!(key, "path");
+        assert_eq!(value, file);
+        assert!(query.next().is_none());
+        assert_eq!(requested_file(root, None).unwrap(), None);
+        assert_eq!(browser_page(4321, None).unwrap().query(), None);
+        for invalid in ["", "nested", "nested//file.md", "./nested/file.md", "../file.md", "/file.md", "missing.md"] {
+            assert!(requested_file(root, Some(invalid.into())).is_err(), "{invalid:?}");
+        }
+        #[cfg(unix)]
+        {
+            let outside = tempfile::NamedTempFile::new().unwrap();
+            std::os::unix::fs::symlink(outside.path(), root.join("outside.md")).unwrap();
+            assert!(requested_file(root, Some("outside.md".into())).is_err());
+        }
     }
     #[test]
     fn refuses_ambiguous_or_unauthorized_android_targets() {

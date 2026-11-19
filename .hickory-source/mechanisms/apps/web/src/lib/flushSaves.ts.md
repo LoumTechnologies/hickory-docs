@@ -33,12 +33,14 @@ export const FLUSH_SAVES_EVENT = "hickory:flush-saves";
 <a id="f-059a72059161-requestFlushSaves"></a>
 ### `requestFlushSaves`
 
-Ask every self-saving pane to write whatever it is holding, now.
+Flush ordinary self-saving panes immediately. Save All explicitly includes
+private drafts. A single managed Save keeps its existing ordinary flush and
+leaves other detached editors in draft mode.
 
 <storycode:copy id="f-059a72059161-requestFlushSaves">
-/** Ask every self-saving pane to write whatever it is holding, now. */
-export function requestFlushSaves(): void {
-  window.dispatchEvent(new CustomEvent(FLUSH_SAVES_EVENT));
+/** Flush ordinary saves and include detached drafts for explicit Save All. */
+export function requestFlushSaves(includeDetached = false): void {
+  window.dispatchEvent(new CustomEvent(FLUSH_SAVES_EVENT, {detail: includeDetached}));
   viewBuffers.all().filter(buffer => buffer.dirty).forEach(buffer => { void buffer.save(); });
 }
 
@@ -50,9 +52,10 @@ Answer the request. Returns the unsubscribe.
 
 <storycode:copy id="f-059a72059161-onFlushSaves">
 /** Answer the request. Returns the unsubscribe. */
-export function onFlushSaves(handler: () => void): () => void {
-  window.addEventListener(FLUSH_SAVES_EVENT, handler);
-  return () => window.removeEventListener(FLUSH_SAVES_EVENT, handler);
+export function onFlushSaves(handler: (includeDetached: boolean) => void): () => void {
+  const flush = (event: Event) => handler((event as CustomEvent<unknown>).detail === true);
+  window.addEventListener(FLUSH_SAVES_EVENT, flush);
+  return () => window.removeEventListener(FLUSH_SAVES_EVENT, flush);
 }
 </storycode:copy>
 

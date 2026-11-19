@@ -35,28 +35,8 @@ impl FencedReadings {
             if region.kind != "fence" || region.dynamic || region.path.is_some() { continue; }
             let Ok(language) = crate::source_context::region_language(&region) else { continue; };
             if readings.len() == MAX_READINGS { return Err("Too many fenced inspection documents".into()); }
-            let prefix = source.get(..region.from).ok_or("Invalid canonical fence boundary")?;
-            let opening = prefix.strip_suffix('\n').unwrap_or(prefix);
-            let opening = opening.strip_suffix('\r').unwrap_or(opening);
-            let opening = opening.rsplit('\n').next().unwrap_or("").trim_start_matches('\u{feff}');
-            let indent = opening.bytes().take_while(|byte| *byte == b' ').count();
-            if indent > 3 { return Err("Invalid canonical fence indentation".into()); }
-            let body = source.get(region.from..region.to).ok_or("Invalid canonical fence body")?;
-            let mut content = String::with_capacity(body.len());
-            let mut origins = Vec::new();
-            let mut offset = region.from;
-            for line in body.split_inclusive('\n') {
-                let skipped = line.bytes().take(indent).take_while(|byte| *byte == b' ').count();
-                let literal = &line[skipped..];
-                if !literal.is_empty() {
-                    total_origins += 1;
-                    if total_origins > MAX_ORIGINS { return Err("Fenced inspection provenance exceeds its limit".into()); }
-                    let start = content.len();
-                    content.push_str(literal);
-                    origins.push(ByteOrigin { output:(start,content.len()),document:"source".into(),source:(offset+skipped,offset+line.len()) });
-                }
-                offset += line.len();
-            }
+            let (content, origins) = region.literal_fence(source, "source", MAX_ORIGINS - total_origins)?;
+            total_origins += origins.len();
             if !content.is_empty() { readings.push(FencedReading {ordinal,language,content,origins}); }
         }
         Ok(Self {sources:Arc::new(BTreeMap::from([("source".into(),source.into())])),readings})

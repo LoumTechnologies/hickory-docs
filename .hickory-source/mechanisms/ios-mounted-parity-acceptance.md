@@ -317,7 +317,7 @@ import WebKit
     let window: UIWindow
     private weak var previous: UIWindow?
 
-    init(marker: String, expected: String, path: String) async throws {
+    convenience init(marker: String, expected: String, path: String) async throws {
         let origin = try XCTUnwrap(ProcessInfo.processInfo.environment["HICKORY_IOS_PARITY_ORIGIN"], "Use the owned iOS fixture")
         let workspace = Workspace()
         workspace.address = origin
@@ -328,10 +328,14 @@ import WebKit
         let file = try XCTUnwrap(Self.file(path, in: workspace.rootFiles))
         _ = try await workspace.loadBuffer(file)
         workspace.showSource(path)
+        try self.init(workspace: workspace)
+    }
+
+    init(workspace: Workspace, launchFile: String? = nil) throws {
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         previous = scene.windows.first { $0.isKeyWindow }
         self.workspace = workspace
-        host = UIHostingController(rootView: WorkspaceView(workspace: workspace))
+        host = UIHostingController(rootView: WorkspaceView(workspace: workspace, launchFile: launchFile))
         window = UIWindow(windowScene: scene)
         window.frame = scene.coordinateSpace.bounds
         window.windowLevel = UIWindow.Level(rawValue: UIWindow.Level.normal.rawValue + 1)
@@ -1051,6 +1055,14 @@ After Apply, compare the native editor and model byte for byte against the
 reviewed patch. Undo must reach the original dirty draft so the workspace
 history can still authorize Redo. Compare the saved source independently.
 
+Mount the production startup view with a requested file under a nested folder
+before a controlled provider publishes anything. The provider withholds
+diagnostics until it receives the first draft, then sends both its retired
+version and its current version. The first open must show the file in the
+existing editor beside its sibling in Files. Current positional diagnostics
+attach to that same editor while native Paste Undo and Redo retain their
+pre-arrival transaction. The full tree still provides workspace navigation.
+
 <ui:copy id="ios-mounted-typescript-history">
 
 extension UIKitParityAcceptanceTests {
@@ -1114,9 +1126,467 @@ extension UIKitParityAcceptanceTests {
         XCTAssertTrue(exactUTF8(disk.content, saved))
         NSLog("HickoryUIKitParity typescript-extraction-exact-history-passed")
     }
+
+    func testMountedRequestedFileRetainsEditingThroughDelayedDiagnostics() async throws {
+        let environment = ProcessInfo.processInfo.environment
+        let origin = try XCTUnwrap(environment["HICKORY_IOS_PARITY_ORIGIN"])
+        let path = try XCTUnwrap(environment["HICKORY_IOS_STARTUP_PATH"])
+        let release = try XCTUnwrap(environment["HICKORY_STARTUP_DIAGNOSTIC_GATE"].flatMap(URL.init(string:)))
+        let keyboard = HostedKeyboardObservation()
+        let notifications = [UIResponder.keyboardWillShowNotification, UIResponder.keyboardDidShowNotification,
+                             UIResponder.keyboardDidHideNotification]
+        let observers = notifications.map { name in
+            NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak keyboard] note in
+                MainActor.assumeIsolated { keyboard?.record(note) }
+            }
+        }
+        defer { observers.forEach { NotificationCenter.default.removeObserver($0) } }
+        let workspace = Workspace()
+        workspace.address = origin
+        let mounted = try MountedIOSWorkspace(workspace: workspace, launchFile: path)
+        defer { mounted.close() }
+        try await mounted.wait("The launch file did not become the active source") {
+            exactUTF8(workspace.currentBuffer?.file.path, path) && !workspace.connecting
+        }
+        let buffer = try XCTUnwrap(workspace.currentBuffer)
+        let editor = try await mounted.editor(buffer)
+        let identity = try XCTUnwrap(buffer.sourceEditorState?()).identity
+        let source = buffer.text
+        XCTAssertTrue(source.hasPrefix("# owned startup capability fixture\n"))
+        XCTAssertEqual(editor.text, source)
+        XCTAssertTrue(editor.isEditable)
+        XCTAssertEqual(Set(workspace.files.map(\.path)), Set([path, "nested/sibling.txt"]))
+        XCTAssertNotNil(MountedIOSWorkspace.file("outside.txt", in: workspace.rootFiles))
+        XCTAssertEqual(workspace.layout.groups().map(\.id), ["files-group", "document-group"])
+        XCTAssertTrue(workspace.layout.nodes["files-group"]?.tabs.containsUtility(.files) == true)
+        XCTAssertEqual(workspace.layout.nodes["document-group"]?.tabs.count, 1)
+        XCTAssertFalse(workspace.problems.contains { $0.message.contains("startup diagnostic") })
+        NSLog("HickoryUIKitParity requested-source-before-provider")
+
+        XCTAssertTrue(editor.becomeFirstResponder())
+        let insertion = "# sampled-draft\n"
+        let destination: UIPasteConfigurationSupporting = editor
+        editor.selectedRange = NSRange(location: 0, length: 0)
+        destination.paste?(itemProviders: [NSItemProvider(object: insertion as NSString)])
+        let draft = insertion + source
+        try await mounted.wait("Native Paste did not stay in the draft") { exactUTF8(buffer.text, draft) }
+        let expectedHide = keyboard.hidden + (keyboard.visible ? 1 : 0)
+        mounted.window.endEditing(true)
+        try await mounted.wait("Keyboard did not settle before sampling scroll") {
+            !editor.isFirstResponder && !keyboard.visible && keyboard.hidden >= expectedHide
+        }
+        let clock = ContinuousClock()
+        let settle = clock.now + .milliseconds(500)
+        try await mounted.wait("Keyboard transition did not retire") {
+            clock.now >= settle && !editor.isFirstResponder && !keyboard.visible
+        }
+        let selected = NSRange(location: draft.utf16.count / 3, length: 5)
+        editor.selectedRange = selected
+        editor.layoutIfNeeded()
+        editor.setContentOffset(CGPoint(x: 0, y: 320), animated: false)
+        let viewport = editor.contentOffset
+        XCTAssertGreaterThan(viewport.y, 0)
+        let history = try XCTUnwrap(editor.undoManager)
+        XCTAssertTrue(history.canUndo)
+
+        XCTAssertFalse(workspace.problems.contains { $0.message.contains("startup diagnostic") })
+        var request = URLRequest(url: release)
+        request.httpMethod = "POST"
+        let (_, released) = try await URLSession.shared.data(for: request)
+        XCTAssertEqual((released as? HTTPURLResponse)?.statusCode, 204)
+        try await mounted.wait("Current diagnostic did not reach the source editor") {
+            workspace.problems.contains { exactUTF8($0.path, path) && $0.current && $0.message == "fresh startup diagnostic" }
+                && exactUTF8(buffer.inlineMarkup.source, draft)
+        }
+        XCTAssertFalse(workspace.problems.contains { $0.message == "stale startup diagnostic" })
+        let retained = try await mounted.editor(buffer)
+        XCTAssertTrue(retained === editor)
+        XCTAssertEqual(buffer.sourceEditorState?()?.identity, identity)
+        XCTAssertEqual(editor.selectedRange, selected)
+        XCTAssertEqual(editor.contentOffset.x, viewport.x, accuracy: 1)
+        XCTAssertEqual(editor.contentOffset.y, viewport.y, accuracy: 1)
+        XCTAssertTrue(exactUTF8(editor.text, draft))
+        XCTAssertTrue(buffer.dirty)
+        history.undo()
+        try await mounted.wait("Undo lost the pre-arrival edit transaction") { exactUTF8(editor.text, source) && !buffer.dirty }
+        history.redo()
+        try await mounted.wait("Redo lost the pre-arrival edit transaction") { exactUTF8(editor.text, draft) && buffer.dirty }
+        await workspace.refresh()
+        XCTAssertEqual(Set(workspace.files.map(\.path)), Set([path, "nested/sibling.txt"]))
+        XCTAssertTrue(workspace.currentBuffer === buffer)
+        NSLog("HickoryUIKitParity delayed-diagnostic-kept-editor-state")
+    }
+
+    func testMountedRequestedTextPrecedesTreeAuthority() async throws {
+        let environment = ProcessInfo.processInfo.environment
+        let origin = try XCTUnwrap(environment["HICKORY_IOS_PARITY_ORIGIN"])
+        let path = try XCTUnwrap(environment["HICKORY_OPEN_FILE"])
+        let release = try XCTUnwrap(environment["HICKORY_STARTUP_AUTHORITY_GATE"].flatMap(URL.init(string:)))
+        let mode = try XCTUnwrap(environment["HICKORY_STARTUP_AUTHORITY_MODE"])
+        let liveRoot = environment["HICKORY_IOS_STARTUP_REAL_ROOT"]
+        let workspace = Workspace()
+        workspace.address = origin
+        let mounted = try MountedIOSWorkspace(workspace: workspace, launchFile: path)
+        defer { mounted.close() }
+        try await mounted.wait("Requested source did not mount while authority was held") {
+            exactUTF8(workspace.currentBuffer?.file.path, path)
+        }
+        let buffer = try XCTUnwrap(workspace.currentBuffer)
+        let editor = try await mounted.editor(buffer)
+        let source = buffer.text, identity = try XCTUnwrap(buffer.sourceEditorState?()?.identity)
+        XCTAssertTrue(workspace.connecting)
+        XCTAssertNil(workspace.engine)
+        XCTAssertTrue(buffer.readOnly)
+        XCTAssertFalse(editor.isEditable)
+        XCTAssertNil(buffer.savedGuard)
+        let selection = NSRange(location: 42, length: 5)
+        editor.selectedRange = selection
+        editor.layoutIfNeeded()
+        try await mounted.wait("Local markup did not attach independently of tree authority") {
+            exactUTF8(buffer.inlineMarkup.source, source)
+        }
+        editor.setContentOffset(CGPoint(x: 0, y: 260), animated: false)
+        let viewport = editor.contentOffset, bounds = editor.convert(editor.bounds, to: mounted.window)
+        XCTAssertGreaterThan(viewport.y, 0)
+        NSLog("HickoryUIKitParity requested-text-before-tree-authority")
+
+        var request = URLRequest(url: release)
+        request.httpMethod = "POST"
+        let (_, response) = try await URLSession.shared.data(for: request)
+        XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 204)
+        try await mounted.wait("Workspace authority reply did not settle") {
+            !workspace.connecting && (mode != "confirmed" || editor.isEditable)
+        }
+        let retained = try await mounted.editor(buffer)
+        XCTAssertTrue(workspace.currentBuffer === buffer)
+        XCTAssertTrue(retained === editor)
+        XCTAssertEqual(buffer.sourceEditorState?()?.identity, identity)
+        XCTAssertTrue(exactUTF8(editor.text, source))
+        XCTAssertEqual(editor.selectedRange, selection)
+        XCTAssertEqual(editor.contentOffset.x, viewport.x, accuracy: 1)
+        XCTAssertEqual(editor.contentOffset.y, viewport.y, accuracy: 1)
+        XCTAssertEqual(editor.convert(editor.bounds, to: mounted.window), bounds)
+        if mode != "confirmed" {
+            XCTAssertTrue(buffer.readOnly)
+            XCTAssertFalse(editor.isEditable)
+            XCTAssertNil(buffer.savedGuard)
+            XCTAssertTrue(workspace.status.contains("remains readable"))
+        }
+        if mode == "retry" {
+            let connected = await workspace.connect()
+            XCTAssertTrue(connected, workspace.status)
+            try await mounted.wait("Retry did not confirm the reading already on screen") { editor.isEditable }
+            let retried = try await mounted.editor(buffer)
+            XCTAssertTrue(workspace.currentBuffer === buffer)
+            XCTAssertTrue(retried === editor)
+            XCTAssertEqual(buffer.sourceEditorState?()?.identity, identity)
+            XCTAssertEqual(editor.selectedRange, selection)
+            XCTAssertEqual(editor.contentOffset.x, viewport.x, accuracy: 1)
+            XCTAssertEqual(editor.contentOffset.y, viewport.y, accuracy: 1)
+            NSLog("HickoryUIKitParity retried-tree-authority-in-existing-editor")
+        }
+        if mode != "unavailable" {
+            XCTAssertFalse(buffer.readOnly)
+            XCTAssertNil(buffer.startupObservation)
+            if let liveRoot {
+                XCTAssertEqual(workspace.sourceRootAddress, liveRoot)
+                let workspaceID = try XCTUnwrap(workspace.sourceWorkspaceID)
+                let guardBytes = try XCTUnwrap(buffer.savedGuard)
+                XCTAssertFalse(guardBytes.isEmpty)
+                NSLog("HickoryUIKitParity live-startup-source-sha256=\(nativeSourceHash(source)) guard-sha256=\(nativeSourceHash(guardBytes)) workspace=\(workspaceID)")
+            } else {
+                XCTAssertEqual(buffer.savedGuard, "owned-startup-guard")
+            }
+            XCTAssertEqual(Set(workspace.files.map(\.path)), [path, "nested/sibling.txt"])
+            XCTAssertTrue(editor.becomeFirstResponder())
+            mounted.paste("draft", into: editor)
+            try await mounted.wait("The confirmed source did not admit native Paste") { buffer.dirty }
+            let history = try XCTUnwrap(editor.undoManager)
+            history.undo()
+            try await mounted.wait("Undo did not restore the identical startup bytes") {
+                exactUTF8(editor.text, source) && !buffer.dirty
+            }
+        }
+        NSLog("HickoryUIKitParity late-tree-authority-kept-editor-state")
+    }
 }
 </ui:copy>
-<ui:file path="apps/apple-simple/IOSAcceptance/UIKitParityAcceptanceTests.swift"><ui:paste select="#ios-mounted-parity-test"/><ui:paste select="#ios-mounted-agent-resource-publication"/><ui:paste select="#ios-mounted-clangd-quickfix"/><ui:paste select="#ios-mounted-typescript-history"/></ui:file>
+## Follow an immutable Agent message into Debug or patch review
+
+Each report starts with the durable turn loaded by the real workspace engine and
+waits for the production card's native editor. Debug gives the selected fence
+and its sibling different breakpoint intentions. Only the selected fence may
+start, pause and produce output. The patch case reads the complete seal before
+applying, checks the generated consequence of the authored change, and undoes
+the resulting draft batch. The host separately compares every fixture file
+against its original bytes.
+
+<ui:copy id="ios-recorded-agent-fences">
+
+extension UIKitParityAcceptanceTests {
+    private func mountRecordedTurn(_ id: String) async throws -> (MountedIOSWorkspace, AgentTurn) {
+        let environment = ProcessInfo.processInfo.environment
+        let origin = try XCTUnwrap(environment["HICKORY_IOS_PARITY_ORIGIN"])
+        let root = try XCTUnwrap(environment["HICKORY_IOS_RECORDED_ROOT"])
+        let workspace = Workspace()
+        workspace.address = origin
+        guard await workspace.connect(), exactUTF8(workspace.sourceRootAddress, root) else {
+            throw EngineError(message: "Refuse an unrelated recorded-message workspace · " + workspace.status)
+        }
+        workspace.showUtility(.agent)
+        let mounted = try MountedIOSWorkspace(workspace: workspace)
+        do {
+            try await mounted.wait("The retained Agent turn did not mount") {
+                workspace.agent.turns.contains { $0.id == id && $0.status == "ok" && $0.answer != nil }
+            }
+            return (mounted, try XCTUnwrap(workspace.agent.turns.first { $0.id == id }))
+        } catch {
+            mounted.close()
+            throw error
+        }
+    }
+
+    func testMountedRecordedCodeFencesPauseStepWatchAndContinue() async throws {
+        let (mounted, turn) = try await mountRecordedTurn("recorded-fence-host")
+        defer { mounted.close() }
+        let workspace = mounted.workspace, agent = workspace.agent
+        let debug = try XCTUnwrap(workspace.debugger)
+        var sent: [[String: Any]] = []
+        debug.observeRequestForTest = { sent.append($0) }
+        let messages = [(RecordedMessageSide.user, turn.prompt, "42"),
+                        (.assistant, try XCTUnwrap(turn.answer), "53")]
+        for (side, text, expected) in messages {
+            let buffer = agent.document("\(turn.id)-\(side.bufferSuffix)", text)
+            let editor = try await mounted.editor(buffer)
+            let identity = try XCTUnwrap(buffer.sourceEditorState?()?.identity)
+            XCTAssertFalse(editor.isEditable)
+            try await mounted.wait("Recorded code fence did not become available") {
+                buffer.inlineMarkup.debug.recorded[2] != nil
+            }
+            let fence = try XCTUnwrap(buffer.inlineMarkup.debug.recorded[2])
+            let sibling = try XCTUnwrap(buffer.inlineMarkup.debug.recorded[7])
+            let requestStart = sent.count
+            debug.toggle(buffer, line: fence.opening + 1)
+            debug.toggle(buffer, line: sibling.opening + 1)
+            XCTAssertEqual(sent.count, requestStart)
+            let source = NativeRecordedMessageSource(turn: turn.id, side: side, workspace: workspace.sourceRootAddress) {
+                agent.owns(buffer, turn: turn.id, side: side)
+            }
+            await debug.prepareRecordedFence(buffer, source: source, fence: fence)
+            try await mounted.wait("Recorded \(side.rawValue) fence did not pause · " + debug.message) {
+                debug.status == "paused" || debug.status == "failed"
+            }
+            guard debug.status == "paused" else { throw EngineError(message: debug.message) }
+            XCTAssertEqual(debug.line(in: buffer.file.path), 3)
+            XCTAssertTrue(debug.sourceMatches(buffer))
+            let admission = sent.dropFirst(requestStart).first
+            let breakpoints = admission?["breakpoints"] as? [[String: Any]]
+            XCTAssertEqual(breakpoints?.compactMap { $0["line"] as? Int }, [3])
+            debug.step("over")
+            try await mounted.wait("Step did not reach the next authored line") { debug.line(in: buffer.file.path) == 4 }
+            debug.evaluate("value + 1", watch: true)
+            try await mounted.wait("Watch did not read the selected stopped frame") { debug.values["value + 1"] == expected }
+            debug.step("continue")
+            try await mounted.wait("Continue did not finish the selected fence with its output") {
+                debug.status == "finished" && debug.output.map(\.text).joined().contains(expected)
+            }
+            XCTAssertTrue(exactUTF8(editor.text, text))
+            XCTAssertEqual(buffer.sourceEditorState?()?.identity, identity)
+            XCTAssertFalse(buffer.dirty)
+            NSLog("HickoryUIKitParity recorded-code-\(side.rawValue)-pause-step-watch-continue")
+        }
+        XCTAssertEqual(sent.filter { $0["op"] as? String == "start" }.count, 2)
+    }
+
+    func testMountedRecordedPatchesReviewApplyAndUndo() async throws {
+        let (mounted, turn) = try await mountRecordedTurn("recorded-patch")
+        defer { mounted.close() }
+        let workspace = mounted.workspace, agent = workspace.agent, review = workspace.agentProposals
+        let engine = try XCTUnwrap(workspace.engine)
+        let messages = [
+            (RecordedMessageSide.user, turn.prompt, "author.md", "value = 1", "value = 41"),
+            (.assistant, try XCTUnwrap(turn.answer), "review.txt", "saved note", "assistant draft"),
+        ]
+        for (side, text, path, before, after) in messages {
+            let buffer = agent.document("\(turn.id)-\(side.bufferSuffix)", text)
+            let editor = try await mounted.editor(buffer)
+            let identity = try XCTUnwrap(buffer.sourceEditorState?()?.identity)
+            XCTAssertFalse(editor.isEditable)
+            try await mounted.wait("Recorded \(side.rawValue) patch did not become available") {
+                buffer.inlineMarkup.debug.recordedPatches.contains(2)
+            }
+            let source = NativeRecordedMessageSource(turn: turn.id, side: side, workspace: workspace.sourceRootAddress) {
+                agent.owns(buffer, turn: turn.id, side: side)
+            }
+            let file = try XCTUnwrap(workspace.workspaceFile(path))
+            let saved = try await engine.file(file).content
+            XCTAssertTrue(saved.contains(before))
+            let expected = saved.replacingOccurrences(of: before, with: after)
+            await review.prepareRecordedPatch(workspace, message: buffer, source: source, openingLine: 2)
+            let sealed = try XCTUnwrap(review.value, review.notice)
+            XCTAssertTrue(review.showing)
+            XCTAssertEqual(sealed.material.origin_authority, "recorded \(side.rawValue) fence, source SHA-256 \(nativeSourceHash(text)); claims remain unverified")
+            XCTAssertEqual(review.phase, "Reviewed only")
+            XCTAssertTrue(review.canApply, review.notice)
+            let target = try XCTUnwrap(workspace.buffers[path])
+            XCTAssertTrue(exactUTF8(target.text, saved))
+            XCTAssertFalse(target.dirty)
+            if side == .user {
+                XCTAssertTrue(sealed.sections.contains { $0.text.contains("generated.py") })
+            }
+            await review.applyDraft(workspace)
+            XCTAssertTrue(exactUTF8(target.text, expected), review.notice)
+            XCTAssertTrue(target.dirty)
+            XCTAssertFalse(review.canApply)
+            let stillSaved = try await engine.file(file).content
+            XCTAssertTrue(exactUTF8(stillSaved, saved))
+            review.close()
+            workspace.changes.close(workspace)
+            await Task.yield()
+            workspace.changes.open("undo", workspace: workspace)
+            XCTAssertTrue(exactUTF8(target.text, saved), workspace.changes.notice)
+            XCTAssertFalse(target.dirty)
+            workspace.changes.close(workspace)
+            XCTAssertTrue(exactUTF8(editor.text, text))
+            XCTAssertEqual(buffer.sourceEditorState?()?.identity, identity)
+            XCTAssertFalse(buffer.dirty)
+            NSLog("HickoryUIKitParity recorded-patch-\(side.rawValue)-review-apply-undo")
+        }
+    }
+}
+</ui:copy>
+<ui:file path="apps/apple-simple/IOSAcceptance/UIKitParityAcceptanceTests.swift"><ui:paste select="#ios-mounted-parity-test"/><ui:paste select="#ios-mounted-agent-resource-publication"/><ui:paste select="#ios-mounted-clangd-quickfix"/><ui:paste select="#ios-mounted-typescript-history"/><ui:paste select="#ios-recorded-agent-fences"/></ui:file>
+
+## Run each saved fence through the installed app
+
+The UI test opens Agent from the View menu and taps Run within each recorded message. It checks the completed terminal through WebKit accessibility and compares the text and frame of the same recorded editor after dismissal. The runner independently checks terminal results and the original archive bytes.
+
+<ui:copy id="ios-recorded-run-ui-test">
+import XCTest
+
+final class RecordedRunUITests: XCTestCase {
+    @MainActor func testRecordedUserAndAssistantRunsShowTerminalWithoutChangingSource() throws {
+        continueAfterFailure = false
+        let origin = try XCTUnwrap(ProcessInfo.processInfo.environment["HICKORY_IOS_PARITY_ORIGIN"])
+        let app = XCUIApplication()
+        app.launchEnvironment["HICKORY_API_ORIGIN"] = origin
+        app.launch()
+
+        let view = app.buttons["View"].firstMatch
+        XCTAssertTrue(view.waitForExistence(timeout: 20))
+        view.tap()
+        app.buttons["Agent"].firstMatch.tap()
+        let conversation = app.scrollViews["Conversation"].firstMatch
+        XCTAssertTrue(conversation.waitForExistence(timeout: 20))
+
+        let cases = [("user", "user", "print(value + 1)", "value = 41", "42"),
+                     ("assistant", "agent", "print(value + 1)", "value = 52", "53")]
+        for (side, buffer, statement, input, expected) in cases {
+            let card = conversation.descendants(matching: .any)["Recorded \(side) message"].firstMatch
+            let editor = card.textViews["hick-agent-message:///recorded-fence-host-\(buffer).md"].firstMatch
+            let title = "Run recorded python fence on line 3"
+            let run = card.buttons[title].firstMatch
+            let overflow = card.buttons["More gutter icons on line 3"].firstMatch
+            for _ in 0..<5 where !run.isHittable && !overflow.isHittable {
+                if !editor.exists { _ = editor.waitForExistence(timeout: 3) }
+                if run.isHittable || overflow.isHittable { break }
+                let start = conversation.coordinate(withNormalizedOffset: CGVector(dx: 0.02, dy: 0.78))
+                let end = conversation.coordinate(withNormalizedOffset: CGVector(dx: 0.02, dy: 0.28))
+                start.press(forDuration: 0.04, thenDragTo: end)
+            }
+            XCTAssertTrue(editor.exists, "Recorded \(side) source is unavailable")
+            let before = try XCTUnwrap(editor.value as? String)
+            XCTAssertTrue(before.contains(statement) && before.contains(input))
+            let frame = editor.frame
+            if run.isHittable {
+                run.tap()
+            } else {
+                XCTAssertTrue(overflow.isHittable, "Recorded \(side) Run gutter is unavailable")
+                overflow.tap()
+                let more = app.descendants(matching: .any)["More actions on line 3"].firstMatch
+                let revealed = more.buttons[title].firstMatch
+                XCTAssertTrue(revealed.waitForExistence(timeout: 10))
+                revealed.tap()
+            }
+
+            let terminal = app.descendants(matching: .any)["Recorded fence terminal"].firstMatch
+            XCTAssertTrue(terminal.waitForExistence(timeout: 20))
+            let web = terminal.webViews.firstMatch
+            XCTAssertTrue(web.waitForExistence(timeout: 15))
+            XCTAssertFalse(web.frame.isEmpty)
+            let line = "\\s*\(expected)\\s*"
+            let output = web.descendants(matching: .any).matching(NSPredicate(format: "label MATCHES %@ OR value MATCHES %@", line, line)).firstMatch
+            XCTAssertTrue(output.waitForExistence(timeout: 15), "The \(side) terminal did not expose output \(expected)")
+            XCTAssertTrue(terminal.staticTexts["Exit code 0"].waitForExistence(timeout: 15))
+            let screenshot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+            screenshot.name = "Recorded \(side) Run output \(expected)"
+            screenshot.lifetime = .keepAlways
+            add(screenshot)
+            terminal.buttons["Close"].tap()
+            XCTAssertTrue(terminal.waitForNonExistence(timeout: 10))
+            XCTAssertEqual(editor.value as? String, before)
+            XCTAssertEqual(editor.frame.integral, frame.integral)
+            NSLog("HickoryUIKitParity recorded-run-\(side)-terminal-kept-editor")
+        }
+    }
+
+    @MainActor func testRecordedConstructionShowsOnlyTheSelectedLocalTransition() throws {
+        continueAfterFailure = false
+        let environment = ProcessInfo.processInfo.environment
+        let origin = try XCTUnwrap(environment["HICKORY_IOS_PARITY_ORIGIN"])
+        let side = try XCTUnwrap(environment["HICKORY_IOS_CONSTRUCTION_SIDE"])
+        XCTAssertTrue(side == "user" || side == "assistant")
+        let buffer = side == "user" ? "user" : "agent"
+        let document = side == "user" ? "request.md" : "response.md"
+        let app = XCUIApplication()
+        app.launchEnvironment["HICKORY_API_ORIGIN"] = origin
+        app.launch()
+        let view = app.buttons["View"].firstMatch
+        XCTAssertTrue(view.waitForExistence(timeout: 20))
+        view.tap()
+        app.buttons["Agent"].firstMatch.tap()
+        let conversation = app.scrollViews["Conversation"].firstMatch
+        XCTAssertTrue(conversation.waitForExistence(timeout: 20))
+        let card = conversation.descendants(matching: .any)["Recorded \(side) message"].firstMatch
+        let editor = card.textViews["hick-agent-message:///declared-construction-\(buffer).md"].firstMatch
+        XCTAssertTrue(editor.waitForExistence(timeout: 15))
+        let source = try XCTUnwrap(editor.value as? String)
+        XCTAssertTrue(source.contains("<hick:patch id=\"selected\">"))
+        let frame = editor.frame
+        let action = "Inspect recorded construction patch on line 3"
+        let inspect = card.buttons[action].firstMatch
+        if inspect.isHittable {
+            inspect.tap()
+        } else {
+            let overflow = card.buttons["More gutter icons on line 3"].firstMatch
+            XCTAssertTrue(overflow.waitForExistence(timeout: 15))
+            overflow.tap()
+            app.buttons[action].firstMatch.tap()
+        }
+        let reading = app.descendants(matching: .any)["Recorded construction reading"].firstMatch
+        XCTAssertTrue(reading.waitForExistence(timeout: 20))
+        XCTAssertTrue(reading.staticTexts["\(document) · selected"].waitForExistence(timeout: 10))
+        let output = reading.descendants(matching: .any)["materialized.txt"].firstMatch
+        XCTAssertTrue(output.waitForExistence(timeout: 15))
+        output.tap()
+        let row = { (text: String) in reading.staticTexts.matching(NSPredicate(format: "label MATCHES %@", "\\s*\(text)\\s*")).firstMatch }
+        XCTAssertTrue(row("old").waitForExistence(timeout: 10))
+        XCTAssertTrue(row("middle").waitForExistence(timeout: 10))
+        XCTAssertFalse(row("final").exists)
+        XCTAssertFalse(reading.buttons.matching(NSPredicate(format: "label MATCHES %@", "(?i).*(Apply|Save|Run).*")).firstMatch.exists)
+        let screenshot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        screenshot.name = "Recorded construction patch Before and After"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+        reading.buttons["Close"].tap()
+        XCTAssertTrue(reading.waitForNonExistence(timeout: 10))
+        XCTAssertEqual(editor.value as? String, source)
+        XCTAssertEqual(editor.frame.integral, frame.integral)
+        NSLog("HickoryUIKitParity recorded-construction-\(side)-read-immutable-local-transition")
+    }
+}
+</ui:copy>
+<ui:file path="apps/apple-simple/IOSUIAcceptance/RecordedRunUITests.swift"><ui:paste select="#ios-recorded-run-ui-test"/></ui:file>
 
 ## Run only on a deliberately selected simulator
 
@@ -1146,13 +1616,68 @@ It verifies the publication and inverse inside the mounted test and checks the
 restored authored namespace on the host. Pass a new `--receipt-dir` to retain
 this run without replacing an earlier result.
 
+The `startup` case starts a controlled Python LSP child in the private fixture.
+It waits for an explicit test-only loopback gate after the editor has recorded
+its selection and scroll with UIKit's keyboard dismissed, then pairs the current
+version with the retired one so the test can distinguish delivery from a
+timeout. The host also checks that both reports were emitted and the saved
+bytes remain exact.
+Use `--appkit-startup --receipt-dir <new-directory>` to drive the same fixture
+through the mounted macOS test without operating a simulator.
+
+Use `--appkit-startup-authority --receipt-dir <new-directory>` for the earlier
+boundary. A controlled loopback protects the Markdown source and holds the file
+tree. It lets the production AppKit editor select and scroll the provisional
+text before sending confirmed or failed authority. A transient failure then lets
+the same connection retry and confirm the reading already on screen. AppKit and
+UIKit share these HTTP responses and compare each mounted editor before and after
+its authority response. Select the relevant UIKit case with
+`--workflow startup-authority`, `--workflow startup-authority-unavailable`
+or `--workflow startup-authority-retry`.
+
+For the same UIKit editor check with real engine reads, supply
+`HICKORY_SIMPLE_TEST_ENGINE` and select `--workflow startup-authority-live`
+or `--workflow startup-authority-live-retry`. The relay delays Files and can
+return one temporary failure. The runner compares the editor's source and
+adopted guard fingerprints with the successful engine responses before it
+accepts the mounted Paste and Undo receipt.
+
+The recorded cases accept an explicit fixture containing `recorded-debug` and
+`recorded-patch` directories. Each directory holds the corresponding files
+from the shared browser replay, including the unwrapped durable turn. The
+runner copies only those expected files into a disposable workspace and
+reports their original source digests. Supply the actual engine with
+`HICKORY_SIMPLE_TEST_ENGINE`, pass `--recorded-fixtures <directory>` and
+select `--workflow recorded-run --workflow recorded-debug --workflow recorded-patch`.
+Run and Debug share the same immutable recorded-code fixture. Run uses the UI
+test scheme on that simulator and saves a screenshot for each completed side.
+The Debug lane uses debugpy from `--python-env`.
+Use `--workflow recorded-construction` or `--workflow recorded-construction-user`
+with the explicit engine to inspect the captured Before and After in the
+assistant or user message. The runner creates each fixture at its exact
+workspace path and checks the recorded card that owns the verified declaration.
+
 <ui:copy id="ios-mounted-parity-runner">
 """Owned mounted UIKit parity witness. Requires an explicitly selected simulator."""
-import argparse,hashlib,importlib.util,json,os,plistlib,shutil,socket,subprocess,tempfile,urllib.parse,uuid
+import argparse,hashlib,importlib.util,json,os,plistlib,shutil,socket,subprocess,tempfile,urllib.error,urllib.parse,urllib.request,uuid
+from contextlib import ExitStack, contextmanager
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from threading import Event, Lock, Thread
 ROOT=Path(__file__).resolve().parents[1]
 TARGET = 'HickorySimpleMobileParityTests'
+RECORDED_RUN_TARGET = 'HickorySimpleMobileRecordedRunTests'
+SCHEMES = {TARGET: 'HickorySimpleMobileParity', RECORDED_RUN_TARGET: 'HickorySimpleMobileRecordedRun'}
 PROPOSAL_DESTINATION = 'moved λ%2F?#.py'
+STARTUP_PATH = 'nested/entry # %.py'
+STARTUP_SOURCE = '# owned startup capability fixture\n' + ''.join(f'value_{i} = {i}\n' for i in range(180))
+STARTUP_AUTHORITY_PATH = 'nested/entry # %.md'
+STARTUP_AUTHORITY_MODES = {
+    'startup-authority': 'confirmed', 'startup-authority-unavailable': 'unavailable', 'startup-authority-retry': 'retry',
+    'startup-authority-live': 'confirmed', 'startup-authority-live-retry': 'retry',
+}
+LIVE_STARTUP_AUTHORITY = {'startup-authority-live', 'startup-authority-live-retry'}
+RECORDED_CONSTRUCTION_SIDES = {'recorded-construction': 'assistant', 'recorded-construction-user': 'user'}
 WORKFLOWS = {
     'editing': ('testMountedUIKitEditingAndSelectedRustDebug', ['native-paste-history-passed', 'coordinated-cleanup-history-passed', 'debug-paused', 'completed']),
     'workspace': ('testMountedSearchProblemsAndCollectedTests', ['workspace-navigation-problems-passed', 'workspace-tests-coverage-passed']),
@@ -1162,7 +1687,118 @@ WORKFLOWS = {
     'proposal': ('testMountedHistoricalProposalRefusesApplication', ['historical-proposal-passed']),
     'proposal-apply': ('testMountedManagedProposalAppliesBothReviewedDrafts', ['managed-proposal-preview-passed', 'managed-proposal-history-passed']),
     'proposal-save': ('testMountedManagedProposalPublishesReviewedResource', ['managed-resource-publication-passed', 'managed-resource-inverse-passed']),
+    'startup': ('testMountedRequestedFileRetainsEditingThroughDelayedDiagnostics', ['requested-source-before-provider', 'delayed-diagnostic-kept-editor-state']),
+    'startup-authority': ('testMountedRequestedTextPrecedesTreeAuthority', ['requested-text-before-tree-authority', 'late-tree-authority-kept-editor-state']),
+    'startup-authority-unavailable': ('testMountedRequestedTextPrecedesTreeAuthority', ['requested-text-before-tree-authority', 'late-tree-authority-kept-editor-state']),
+    'startup-authority-retry': ('testMountedRequestedTextPrecedesTreeAuthority', ['requested-text-before-tree-authority', 'retried-tree-authority-in-existing-editor', 'late-tree-authority-kept-editor-state']),
+    'startup-authority-live': ('testMountedRequestedTextPrecedesTreeAuthority', ['requested-text-before-tree-authority', 'late-tree-authority-kept-editor-state']),
+    'startup-authority-live-retry': ('testMountedRequestedTextPrecedesTreeAuthority', ['requested-text-before-tree-authority', 'retried-tree-authority-in-existing-editor', 'late-tree-authority-kept-editor-state']),
+    'recorded-debug': ('testMountedRecordedCodeFencesPauseStepWatchAndContinue',
+                       ['recorded-code-user-pause-step-watch-continue', 'recorded-code-assistant-pause-step-watch-continue']),
+    'recorded-run': ('testRecordedUserAndAssistantRunsShowTerminalWithoutChangingSource',
+                     ['recorded-run-user-terminal-kept-editor', 'recorded-run-assistant-terminal-kept-editor']),
+    'recorded-construction': ('testRecordedConstructionShowsOnlyTheSelectedLocalTransition',
+                              ['recorded-construction-assistant-read-immutable-local-transition']),
+    'recorded-construction-user': ('testRecordedConstructionShowsOnlyTheSelectedLocalTransition',
+                                   ['recorded-construction-user-read-immutable-local-transition']),
+    'recorded-patch': ('testMountedRecordedPatchesReviewApplyAndUndo',
+                       ['recorded-patch-user-review-apply-undo', 'recorded-patch-assistant-review-apply-undo']),
 }
+
+RECORDED_FILES = {
+    'recorded-debug': ('sessions/agent.md',),
+    'recorded-run': ('sessions/agent.md',),
+    'recorded-patch': ('project.md', 'author.md', 'generated.py', 'review.txt', 'sessions/recorded-patch.md'),
+}
+
+def recorded_fixture_path(folder, workflow, path):
+    return folder/('recorded-debug' if workflow == 'recorded-run' else workflow)/path
+
+def workflow_target(workflow):
+    return RECORDED_RUN_TARGET if workflow == 'recorded-run' or workflow in RECORDED_CONSTRUCTION_SIDES else TARGET
+
+STARTUP_PROVIDER = r'''
+import json
+from pathlib import Path
+import sys
+import time
+
+def receive():
+    headers = {}
+    while True:
+        line = sys.stdin.buffer.readline()
+        if not line:
+            return None
+        if not line.strip():
+            break
+        key, value = line.decode().split(':', 1)
+        headers[key.lower()] = value.strip()
+    return json.loads(sys.stdin.buffer.read(int(headers['content-length'])))
+
+def send(**message):
+    body = json.dumps({'jsonrpc': '2.0', **message}).encode()
+    sys.stdout.buffer.write(f'Content-Length: {len(body)}\r\n\r\n'.encode() + body)
+    sys.stdout.buffer.flush()
+
+def diagnostic(uri, version, report):
+    send(method='textDocument/publishDiagnostics', params={
+        'uri': uri, 'version': version, 'diagnostics': [{
+            'message': report + ' startup diagnostic', 'severity': 2,
+            'range': {'start': {'line': 1, 'character': 0}, 'end': {'line': 1, 'character': 4}},
+        }],
+    })
+
+versions = {}
+while message := receive():
+    method, params = message.get('method'), message.get('params', {})
+    if method == 'textDocument/didOpen':
+        document = params['textDocument']
+        versions[document['uri']] = document['version']
+    if method == 'textDocument/didChange':
+        document = params['textDocument']
+        uri, version = document['uri'], document['version']
+        if uri in versions and params['contentChanges'][-1]['text'].startswith('# sampled-draft'):
+            old = versions.pop(uri)
+            gate = Path(sys.argv[2])
+            deadline = time.monotonic() + 45
+            while not gate.exists():
+                if time.monotonic() >= deadline:
+                    raise TimeoutError('Startup test did not release diagnostics')
+                time.sleep(0.025)
+            diagnostic(uri, old, 'stale')
+            diagnostic(uri, version, 'fresh')
+            Path(sys.argv[1]).write_text(json.dumps({'old': old, 'current': version}))
+    if method == 'exit':
+        break
+    if 'id' in message:
+        send(id=message['id'], result={'capabilities': {'textDocumentSync': 1}} if method == 'initialize' else None)
+'''
+
+@contextmanager
+def startup_gate(folder):
+    release_path = '/' + uuid.uuid4().hex
+    marker = folder/'startup-diagnostic-release'
+
+    class Release(BaseHTTPRequestHandler):
+        def do_POST(self):
+            if self.path == release_path:
+                marker.touch()
+                self.send_response(204)
+                self.end_headers()
+            else:
+                self.send_error(404)
+
+        def log_message(self, *_detail):
+            pass
+
+    with ThreadingHTTPServer(('127.0.0.1', 0), Release) as server:
+        thread = Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            yield f'http://127.0.0.1:{server.server_port}{release_path}'
+        finally:
+            server.shutdown()
+            thread.join()
 
 def load_script(name):
     spec = importlib.util.spec_from_file_location(name, ROOT/'scripts'/f'{name}.py')
@@ -1170,8 +1806,18 @@ def load_script(name):
     spec.loader.exec_module(module)
     return module
 
-def prepare_workflow(workflow, workspace, python_env, slow_debug):
+def engine_command(workspace):
+    with socket.socket() as reserve:
+        reserve.bind(('127.0.0.1', 0))
+        port = reserve.getsockname()[1]
+    binary = os.environ.get('HICKORY_SIMPLE_TEST_ENGINE', str(ROOT/'target/source-edit-focus/debug/examples/engine_client'))
+    return [binary, str(workspace), 'window', f'http://127.0.0.1:{port}']
+
+def prepare_workflow(workflow, workspace, python_env, slow_debug, recorded_fixtures=None):
     workspace.mkdir()
+    if workflow in RECORDED_CONSTRUCTION_SIDES:
+        side = RECORDED_CONSTRUCTION_SIDES[workflow]
+        return load_script('test-simple-browser').prepare_recorded_construction(workspace, side), None
     if workflow == 'editing':
         (workspace/'src').mkdir()
         (workspace/'.git').mkdir()
@@ -1182,6 +1828,29 @@ def prepare_workflow(workflow, workspace, python_env, slow_debug):
         }
         if slow_debug:
             files['build.rs'] = 'fn main() { std::thread::sleep(std::time::Duration::from_secs(33)); }\n'
+    elif workflow in RECORDED_FILES:
+        files = {path: recorded_fixture_path(recorded_fixtures, workflow, path).read_bytes().decode('utf-8')
+                 for path in RECORDED_FILES[workflow]}
+        (workspace/'sessions').mkdir()
+        sentinel = None
+    elif workflow in STARTUP_AUTHORITY_MODES:
+        (workspace/'nested').mkdir()
+        files = {STARTUP_AUTHORITY_PATH: STARTUP_SOURCE, 'nested/sibling.txt': 'sibling source\n'}
+        if workflow in LIVE_STARTUP_AUTHORITY:
+            files['outside.txt'] = 'source outside the containing folder\n'
+        sentinel = None
+    elif workflow == 'startup':
+        (workspace/'nested').mkdir()
+        provider = workspace.parent/'startup-provider.py'
+        provider.write_text(STARTUP_PROVIDER)
+        events = workspace.parent/'startup-provider-events.json'
+        files = {
+            STARTUP_PATH: STARTUP_SOURCE,
+            'nested/sibling.txt': 'sibling source\n',
+            'outside.txt': 'outside the containing folder\n',
+            '.hick-lsp.json': json.dumps({'servers': {'python': {'command': ['python3', str(provider), str(events), str(workspace.parent/'startup-diagnostic-release')]}}}),
+        }
+        sentinel = None
     elif workflow == 'workspace':
         collector = load_script('test-collector-hosts')
         (workspace/'.hick-cache').mkdir()
@@ -1233,18 +1902,24 @@ def prepare_workflow(workflow, workspace, python_env, slow_debug):
         files = {**archive.FILES, '.hickory-proposal-archive-fixture': 'owned-proposal-archive-v1\n'}
         sentinel = None
     for name, text in files.items():
-        (workspace/name).write_text(text)
+        (workspace/name).write_text(text, encoding='utf-8')
     return files, sentinel
 
-def run_workflow(workflow, device, seed, temporary_device, candidate, derived, destination, python_env, slow_debug, receipt):
+def run_workflow(workflow, device, seed, temporary_device, candidate, derived, destination,
+                 python_env, slow_debug, receipt, recorded_fixtures=None):
     fixture = load_script('test-simple-browser')
     method, markers = WORKFLOWS[workflow]
-    name = TARGET+'/UIKitParityAcceptanceTests/'+method
-    with tempfile.TemporaryDirectory(prefix='ios-parity-') as temporary:
+    taps = workflow_target(workflow) == RECORDED_RUN_TARGET
+    test_class = 'RecordedRunUITests' if taps else 'UIKitParityAcceptanceTests'
+    name = workflow_target(workflow)+'/'+test_class+'/'+method
+    with tempfile.TemporaryDirectory(prefix='ios-parity-') as temporary, ExitStack() as cleanup:
         folder = Path(temporary)
         workspace, state = folder/'workspace', folder/'state'
-        files, sentinel = prepare_workflow(workflow, workspace, python_env, slow_debug)
+        files, sentinel = prepare_workflow(workflow, workspace, python_env, slow_debug, recorded_fixtures)
         environment = {**os.environ, 'HICKORY_STATE_DIR': str(state)}
+        recorded = workflow in RECORDED_FILES or workflow in RECORDED_CONSTRUCTION_SIDES
+        if workflow in ('recorded-debug', 'recorded-run'):
+            environment['PATH'] = str(python_env.resolve()/'bin') + os.pathsep + environment['PATH']
         managed = load_script('test-agent-proposals-browser') if workflow in {'proposal-apply', 'proposal-save'} else None
         if managed:
             settings, calls, tool_result = managed.provider_fixture(folder)
@@ -1262,12 +1937,16 @@ def run_workflow(workflow, device, seed, temporary_device, candidate, derived, d
                     'hick:///construction.md': [replacement(2, 12, 13)],
                 }}
             calls.write_text(json.dumps({'intention': managed.intention(edit)}))
-        with socket.socket() as reserve:
-            reserve.bind(('127.0.0.1', 0))
-            port = reserve.getsockname()[1]
-        command = [os.environ.get('HICKORY_SIMPLE_TEST_ENGINE', str(ROOT/'target/source-edit-focus/debug/examples/engine_client')), str(workspace), 'window', f'http://127.0.0.1:{port}']
+        command = engine_command(workspace)
         archive = load_script('test-agent-proposal-persistence') if workflow == 'proposal' else None
         metadata = {}
+        if recorded:
+            metadata['HICKORY_IOS_RECORDED_ROOT'] = str(workspace.resolve())
+        if workflow in RECORDED_CONSTRUCTION_SIDES:
+            metadata['HICKORY_IOS_CONSTRUCTION_SIDE'] = RECORDED_CONSTRUCTION_SIDES[workflow]
+        if workflow == 'startup':
+            metadata['HICKORY_IOS_STARTUP_PATH'] = STARTUP_PATH
+            metadata['HICKORY_STARTUP_DIAGNOSTIC_GATE'] = cleanup.enter_context(startup_gate(folder))
         if workflow == 'editing' and slow_debug:
             metadata['HICKORY_IOS_PARITY_SLOW_DEBUG'] = '1'
             markers = [*markers, 'slow-debug-admission-passed']
@@ -1279,16 +1958,26 @@ def run_workflow(workflow, device, seed, temporary_device, candidate, derived, d
             finally:
                 archive.stop_engine(fixture, first, state)
             metadata = {'HICKORY_IOS_PROPOSAL_TOKEN': original['token'], 'HICKORY_IOS_PROPOSAL_FINGERPRINT': original['fingerprint']}
-        engine = fixture.start(command, env=environment)
+        authority_mode = STARTUP_AUTHORITY_MODES.get(workflow)
+        live_authority = workflow in LIVE_STARTUP_AUTHORITY
+        engine = fixture.start(command, env=environment) if live_authority or not authority_mode else None
         try:
-            origin = fixture.origin(engine)
+            upstream = fixture.origin(engine) if engine else None
+            if authority_mode:
+                origin, controls, authority_calls, authority_wire = cleanup.enter_context(
+                    startup_authority_fixture(workspace.resolve(), authority_mode, upstream))
+                metadata.update(controls)
+            else:
+                origin = upstream
             if archive:
                 catalogue = archive.call(origin, 'GET', '/api/agent-proposals')
                 assert catalogue['workspace'] != original['workspace'], 'Expected a new owned engine lifetime'
             value = plistlib.loads(candidate.read_bytes())
-            target, = test_targets(value)
+            target, = test_targets(value, workflow_target(workflow))
+            # The controlled startup and recorded cases mount an explicit workspace.
+            host_origin = '' if authority_mode or recorded else origin
             for key in ['EnvironmentVariables', 'TestHostEnvironmentVariables']:
-                target.setdefault(key, {}).update(HICKORY_IOS_PARITY_ORIGIN=origin, HICKORY_API_ORIGIN=origin, **metadata)
+                target.setdefault(key, {}).update(HICKORY_IOS_PARITY_ORIGIN=origin, HICKORY_API_ORIGIN=host_origin, **metadata)
             prefix = 'last' if workflow == 'editing' else workflow
             result = receipt/f'{prefix}.xcresult'
             if result.exists():
@@ -1309,6 +1998,17 @@ def run_workflow(workflow, device, seed, temporary_device, candidate, derived, d
                 if workflow == 'workspace':
                     events = (workspace/'.hick-cache/executions').read_text().splitlines()
                     assert sorted(events) == ['negative', 'positive', 'positive'], events
+                if workflow == 'startup':
+                    events = json.loads((folder/'startup-provider-events.json').read_text())
+                    assert events['old'] < events['current'], events
+                if authority_mode:
+                    check_startup_authority_calls(authority_mode, authority_calls)
+                if workflow == 'recorded-run':
+                    sessions = load_script('test-agent-proposals-browser').api(origin, 'GET', '/api/terminals')['sessions']
+                    assert len(sessions) == len({item['id'] for item in sessions}) == 2
+                    assert all(item['state'] == 'finished' and item['exit_code'] == 0
+                               and item['title'] == 'Run recorded fence' for item in sessions), sessions
+                    assert sorted(item['preview'] for item in sessions) == ['42', '53'], sessions
                 if managed:
                     response = json.loads(tool_result.read_text())['result']
                     assert not response['isError'], response
@@ -1330,6 +2030,8 @@ def run_workflow(workflow, device, seed, temporary_device, candidate, derived, d
                             'construction.md': hashlib.sha256(files['construction.md'].replace('generated = 1', 'generated = 41').encode()).hexdigest(),
                         }
                 observed = log.read_text()
+                if live_authority:
+                    check_live_startup_authority(workspace.resolve(), authority_wire, observed)
                 for marker in markers:
                     assert observed.count('HickoryUIKitParity '+marker) == 1, marker
                 payload = {
@@ -1346,35 +2048,253 @@ def run_workflow(workflow, device, seed, temporary_device, candidate, derived, d
                     payload['sibling_excluded'] = True
                 if workflow == 'editing':
                     payload.update(native_paste_undo_redo_verified=True, coordinated_cleanup_undo_redo_verified=True)
+                if taps:
+                    payload['simulator_ui_taps_verified'] = True
+                if workflow == 'recorded-run':
+                    payload['rendered_terminal_accessibility_verified'] = True
+                if authority_mode:
+                    payload['authority_responses'] = authority_calls
+                if live_authority:
+                    payload['engine_authority'] = authority_wire
+                if recorded:
+                    payload['fixture_sha256'] = {path: hashlib.sha256(text.encode()).hexdigest() for path, text in files.items()}
                 (receipt/f'{prefix}-receipt.json').write_text(json.dumps(payload, indent=2))
             finally:
                 configured.unlink(missing_ok=True)
         finally:
             if archive:
                 archive.stop_engine(fixture, engine, state)
-            else:
+            elif recorded or live_authority:
+                load_script('test-agent-proposal-persistence').stop_engine(fixture, engine, state)
+            elif engine:
                 fixture.stop(engine)
     print(f'PASS mounted UIKit {workflow}', flush=True)
+
+def appkit_startup(receipt):
+    fixture = load_script('test-simple-browser')
+    name = 'NativeSourceIdentityTests/testMountedRequestedFileRetainsEditingThroughDelayedDiagnostics'
+    receipt.mkdir(parents=True)
+    with tempfile.TemporaryDirectory(prefix='appkit-startup-') as temporary, ExitStack() as cleanup:
+        folder = Path(temporary)
+        workspace = folder/'workspace'
+        files, _ = prepare_workflow('startup', workspace, None, False)
+        environment = {**os.environ, 'HICKORY_STATE_DIR': str(folder/'state')}
+        engine = fixture.start(engine_command(workspace), env=environment)
+        try:
+            environment.update(HICKORY_APPKIT_STARTUP_ORIGIN=fixture.origin(engine), HICKORY_OPEN_FILE=STARTUP_PATH)
+            environment['HICKORY_STARTUP_DIAGNOSTIC_GATE'] = cleanup.enter_context(startup_gate(folder))
+            log = receipt/'appkit-startup.log'
+            with log.open('w') as output:
+                run(['swift', 'test', '--package-path', 'apps/apple-simple', '--scratch-path',
+                     'target/apple-simple-spm', '--jobs', '2', '--filter', name],
+                    env=environment, stdout=output, stderr=subprocess.STDOUT, timeout=600)
+            observed = log.read_text()
+            assert " testMountedRequestedFileRetainsEditingThroughDelayedDiagnostics]' passed" in observed
+            assert 'Executed 1 test, with 0 failures' in observed
+            for path, text in files.items():
+                assert (workspace/path).read_bytes() == text.encode(), path
+            events = json.loads((folder/'startup-provider-events.json').read_text())
+            assert events['old'] < events['current'], events
+            (receipt/'appkit-startup-receipt.json').write_text(json.dumps({
+                'test': name, 'log_sha256': hashlib.sha256(log.read_bytes()).hexdigest(),
+                'provider_versions': events, 'source_unchanged': True,
+            }, indent=2))
+        finally:
+            fixture.stop(engine)
+    print('PASS mounted AppKit startup', flush=True)
+
+@contextmanager
+def startup_authority_fixture(root, mode, engine=None):
+    path = STARTUP_AUTHORITY_PATH
+    released, lock, calls, wire = Event(), Lock(), [], []
+    gate = '/' + uuid.uuid4().hex
+    class Authority(BaseHTTPRequestHandler):
+        def bytes_reply(self, status, body, content_type='application/json'):
+            self.send_response(status)
+            self.send_header('Content-Type', content_type)
+            self.send_header('Content-Length', str(len(body)))
+            self.end_headers()
+            if body:
+                self.wfile.write(body)
+
+        def reply(self, status, value=None):
+            self.bytes_reply(status, json.dumps(value).encode() if value is not None else b'')
+
+        def forward(self, request_path):
+            if self.headers.get('Upgrade'):
+                self.reply(426)
+                return
+            try:
+                incoming = urllib.request.urlopen(engine + self.path, timeout=28)
+            except urllib.error.HTTPError as error:
+                incoming = error
+            except urllib.error.URLError:
+                self.reply(502, {'error': 'Owned authority relay could not reach its engine'})
+                return
+            with incoming:
+                body, status = incoming.read(), incoming.status
+                content_type = incoming.headers.get('Content-Type', 'application/octet-stream')
+            event = None
+            if status == 200 and content_type.startswith('application/json'):
+                reading = json.loads(body)
+                if request_path == '/api/startup-source':
+                    event = {'event': 'startup-source', 'path': reading['path'], 'root_path': reading['root_path'],
+                             'workspace': reading['workspace_id'], 'source_sha256': hashlib.sha256(reading['content'].encode()).hexdigest()}
+                elif request_path == '/api/files':
+                    event = {'event': 'tree-confirmed', 'root_path': reading['root_path'], 'workspace': reading['workspace_id']}
+                elif request_path.startswith('/api/docs/') and isinstance(reading, dict) and reading.get('path') == path and reading.get('save_guard'):
+                    event = {'event': 'guarded-source', 'route': request_path, 'path': reading['path'],
+                             'source_sha256': hashlib.sha256(reading['source'].encode()).hexdigest(),
+                             'guard_sha256': hashlib.sha256(reading['save_guard'].encode()).hexdigest()}
+            if event:
+                with lock:
+                    wire.append({**event, 'status': status, 'engine': True})
+                    calls.append(event['event'])
+            self.bytes_reply(status, body, content_type)
+
+        def do_GET(self):
+            request = urllib.parse.urlsplit(self.path)
+            if request.path == '/api/files':
+                if not released.wait(20):
+                    self.reply(504, {'error': 'Owned authority fixture timed out'})
+                    return
+                with lock:
+                    unavailable = mode == 'unavailable' or (mode == 'retry' and 'tree-unavailable' not in calls)
+                    if unavailable:
+                        calls.append('tree-unavailable')
+                        if engine:
+                            wire.append({'event': 'tree-unavailable', 'status': 503, 'engine': False})
+                if unavailable:
+                    self.reply(503, {'error': 'Owned file authority unavailable'})
+                    return
+            if engine:
+                self.forward(request.path)
+            elif request.path == '/api/startup-source' and urllib.parse.parse_qs(request.query) == {'path': [path]}:
+                calls.append('startup-source')
+                self.reply(200, {'version': 1, 'path': path, 'content': STARTUP_SOURCE,
+                                 'root_path': str(root), 'workspace_id': 'owned-workspace'})
+            elif request.path == '/api/files':
+                calls.append('tree-confirmed')
+                self.reply(200, {'root': str(root), 'root_path': str(root), 'workspace_id': 'owned-workspace', 'tree': [
+                    {'name': 'nested', 'path': 'nested', 'dir': True, 'children': [
+                        {'name': path.split('/')[-1], 'path': path, 'dir': False, 'doc_id': 'owned-md'},
+                        {'name': 'sibling.txt', 'path': 'nested/sibling.txt', 'dir': False},
+                    ]},
+                ]})
+            elif request.path == '/api/docs/owned-md':
+                calls.append('guarded-source')
+                self.reply(200, {'source': STARTUP_SOURCE, 'save_guard': 'owned-startup-guard'})
+            else:
+                self.reply(404, {'error': 'Optional capabilities are unavailable in this fixture'})
+
+        def do_POST(self):
+            if self.path == gate:
+                released.set()
+                self.reply(204)
+            else:
+                self.reply(404, {'error': 'Unexpected mutation'})
+
+        def log_message(self, *_detail):
+            pass
+
+    with ThreadingHTTPServer(('127.0.0.1', 0), Authority) as server:
+        thread = Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        origin = f'http://127.0.0.1:{server.server_port}'
+        try:
+            controls = {
+                'HICKORY_STARTUP_AUTHORITY_GATE': origin + gate,
+                'HICKORY_STARTUP_AUTHORITY_MODE': mode,
+                'HICKORY_OPEN_FILE': path,
+            }
+            if engine:
+                controls['HICKORY_IOS_STARTUP_REAL_ROOT'] = str(root)
+            yield origin, controls, calls, wire
+        finally:
+            released.set()
+            server.shutdown()
+            thread.join()
+
+def appkit_startup_authority(receipt):
+    receipt.mkdir(parents=True)
+    name = 'NativeSourceIdentityTests/testMountedRequestedTextPrecedesTreeAuthority'
+    with tempfile.TemporaryDirectory(prefix='appkit-authority-') as temporary:
+        root = Path(temporary).resolve()
+        for mode in ('confirmed', 'unavailable', 'retry'):
+            with startup_authority_fixture(root, mode) as (origin, controls, calls, _):
+                env = {**os.environ, **controls, 'HICKORY_APPKIT_STARTUP_AUTHORITY_ORIGIN': origin}
+                log = receipt/f'{mode}.log'
+                with log.open('w') as output:
+                    run(['swift', 'test', '--package-path', 'apps/apple-simple', '--scratch-path',
+                         'target/apple-simple-spm', '--jobs', '2', '--filter', name],
+                        env=env, stdout=output, stderr=subprocess.STDOUT, timeout=600)
+                assert " testMountedRequestedTextPrecedesTreeAuthority]' passed" in log.read_text()
+                check_startup_authority_calls(mode, calls)
+                (receipt/f'{mode}-receipt.json').write_text(json.dumps({
+                    'test': name, 'log_sha256': hashlib.sha256(log.read_bytes()).hexdigest(), 'responses': calls,
+                }, indent=2))
+    print('PASS mounted AppKit provisional source and later authority', flush=True)
+
+def check_startup_authority_calls(mode, calls):
+    expected = {
+        'confirmed': ['startup-source', 'tree-confirmed', 'guarded-source'],
+        'unavailable': ['startup-source', 'tree-unavailable'],
+        'retry': ['startup-source', 'tree-unavailable', 'tree-confirmed', 'guarded-source'],
+    }[mode]
+    assert calls == expected, calls
+
+def check_live_startup_authority(root, wire, log):
+    raw, tree, guarded = [row for row in wire if row['engine']]
+    source = hashlib.sha256(STARTUP_SOURCE.encode()).hexdigest()
+    assert raw['path'] == guarded['path'] == STARTUP_AUTHORITY_PATH
+    assert raw['root_path'] == tree['root_path'] == str(root)
+    assert raw['workspace'] == tree['workspace'] and raw['workspace']
+    assert raw['source_sha256'] == guarded['source_sha256'] == source
+    assert guarded['route'].startswith('/api/docs/')
+    mounted = f"live-startup-source-sha256={source} guard-sha256={guarded['guard_sha256']} workspace={raw['workspace']}"
+    assert log.count(mounted) == 1, 'The mounted editor did not adopt the engine guard for these exact startup bytes'
 
 def run(args,**kwargs):
  return subprocess.run(args,check=True,text=True,**kwargs)
 def require_space(minimum):
  available=shutil.disk_usage(ROOT).free
  if available<minimum*1024*1024:raise RuntimeError(f'Need {minimum}MiB free before simulator/build work; available {available//(1024*1024)}MiB')
-def test_targets(value):
+def test_targets(value, name=TARGET):
  if isinstance(value,dict):
-  if value.get('BlueprintName')==TARGET or value.get('TestableName')==TARGET:yield value
+  if value.get('BlueprintName')==name or value.get('TestableName')==name:yield value
   else:
-   for child in value.values():yield from test_targets(child)
+   for child in value.values():yield from test_targets(child,name)
  elif isinstance(value,list):
-  for child in value:yield from test_targets(child)
+  for child in value:yield from test_targets(child,name)
 def main():
- parser=argparse.ArgumentParser();parser.add_argument('--device',required=True);parser.add_argument('--build',action='store_true');parser.add_argument('--boot',action='store_true');parser.add_argument('--temporary-device',action='store_true');parser.add_argument('--minimum-free-mib',type=int,default=2048)
+ parser=argparse.ArgumentParser();parser.add_argument('--device');parser.add_argument('--build',action='store_true');parser.add_argument('--boot',action='store_true');parser.add_argument('--temporary-device',action='store_true');parser.add_argument('--minimum-free-mib',type=int,default=2048)
+ parser.add_argument('--appkit-startup', action='store_true', help='Run only the mounted macOS startup workflow')
+ parser.add_argument('--appkit-startup-authority', action='store_true', help='Hold file tree authority while mounting macOS source')
  parser.add_argument('--workflow', choices=WORKFLOWS, action='append', help='Repeat to use one simulator for several focused cases')
  parser.add_argument('--python-env', type=Path, default=ROOT/'target/thread-debug-env')
+ parser.add_argument('--recorded-fixtures', type=Path, help='Explicit shared fixture directory for recorded Agent journeys')
  parser.add_argument('--receipt-dir', type=Path, help='Create a new directory for this run and its lifecycle receipt')
  parser.add_argument('--slow-debug', action='store_true', help='Delay the owned Rust fixture to exercise staged admission')
  args=parser.parse_args()
+ if args.appkit_startup or args.appkit_startup_authority:
+  if args.device or args.build or args.boot or args.temporary_device or args.workflow or args.slow_debug or not args.receipt_dir:
+   parser.error('AppKit startup cases require --receipt-dir and no simulator options')
+  if args.appkit_startup and args.appkit_startup_authority:
+   parser.error('Choose one AppKit startup case')
+  (appkit_startup if args.appkit_startup else appkit_startup_authority)(args.receipt_dir)
+  return
+ if not args.device:parser.error('--device selects the simulator for the hosted iOS workflow')
+ recorded_workflows = RECORDED_FILES.keys() & set(args.workflow or [])
+ if RECORDED_CONSTRUCTION_SIDES.keys() & set(args.workflow or []) and not os.environ.get('HICKORY_SIMPLE_TEST_ENGINE'):
+  parser.error('Recorded construction requires an explicit HICKORY_SIMPLE_TEST_ENGINE')
+ if LIVE_STARTUP_AUTHORITY.intersection(args.workflow or []) and not os.environ.get('HICKORY_SIMPLE_TEST_ENGINE'):
+  parser.error('Live startup authority requires an explicit HICKORY_SIMPLE_TEST_ENGINE')
+ if recorded_workflows:
+  if not args.recorded_fixtures or not os.environ.get('HICKORY_SIMPLE_TEST_ENGINE'):
+   parser.error('Recorded workflows require --recorded-fixtures and an explicit HICKORY_SIMPLE_TEST_ENGINE')
+  if any(not recorded_fixture_path(args.recorded_fixtures, workflow, path).is_file()
+         for workflow in recorded_workflows for path in RECORDED_FILES[workflow]):
+   parser.error('The recorded fixture directory is missing an expected source')
  if args.slow_debug and args.workflow and 'editing' not in args.workflow:
   parser.error('--slow-debug requires the editing workflow')
  if args.minimum_free_mib<128:parser.error('Minimum free space must remain at least128MiB')
@@ -1401,18 +2321,23 @@ def main():
    run(['xcrun','simctl','boot',device]);booted_here=True
   run(['xcrun','simctl','bootstatus',device,'-b'])
   derived=ROOT/'target/apple-simple-derived';destination='platform=iOS Simulator,id='+device
+  workflows=list(dict.fromkeys(args.workflow or ['editing']))
+  names=list(dict.fromkeys(workflow_target(workflow) for workflow in workflows))
   if args.build:
    require_space(args.minimum_free_mib);run(['xcodegen','generate','--spec',str(ROOT/'apps/apple-simple/project.yml')])
-   run(['xcodebuild','-project',str(ROOT/'apps/apple-simple/HickorySimple.xcodeproj'),'-scheme','HickorySimpleMobileParity','-configuration','Debug','-destination',destination,'-derivedDataPath',str(derived),'-jobs','2','build-for-testing','CODE_SIGNING_ALLOWED=NO'])
-  candidates=[]
+   for name in names:
+    run(['xcodebuild','-project',str(ROOT/'apps/apple-simple/HickorySimple.xcodeproj'),'-scheme',SCHEMES[name],'-configuration','Debug','-destination',destination,'-derivedDataPath',str(derived),'-jobs','2','build-for-testing','CODE_SIGNING_ALLOWED=NO'])
+  candidates={name:[] for name in names}
   for path in (derived/'Build/Products').glob('*.xctestrun'):
-   value=plistlib.loads(path.read_bytes());targets=list(test_targets(value))
-   if len(targets)==1:candidates.append(path)
-  if len(candidates)!=1:raise RuntimeError('Build exactly one hosted parity test configuration with --build; no launch-only acceptance is inferred')
-  for workflow in dict.fromkeys(args.workflow or ['editing']):
+   value=plistlib.loads(path.read_bytes())
+   for name in names:
+    if len(list(test_targets(value,name)))==1:candidates[name].append(path)
+  if any(len(paths)!=1 for paths in candidates.values()):raise RuntimeError('Build one configuration per selected test scheme with --build')
+  for workflow in workflows:
    try:
     require_space(args.minimum_free_mib)
-    run_workflow(workflow, device, args.device, owned_device is not None, candidates[0], derived, destination, args.python_env, args.slow_debug, receipt)
+    run_workflow(workflow, device, args.device, owned_device is not None, candidates[workflow_target(workflow)][0], derived,
+                 destination, args.python_env, args.slow_debug, receipt, args.recorded_fixtures)
    except (AssertionError, OSError, RuntimeError, subprocess.CalledProcessError) as error:
     print(f'FAIL mounted UIKit {workflow}: {error}', flush=True)
     failures.append(workflow)

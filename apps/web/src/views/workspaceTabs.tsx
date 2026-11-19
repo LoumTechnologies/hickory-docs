@@ -29,6 +29,7 @@ import { RefactorBadge, useBaseline } from "../components/RefactorBadge";
 import type { Baseline } from "../components/RefactorBadge";
 import { GeneratedFileView } from "../shell/views";
 import { registerBufferEditor } from "../lib/editorBufferTargets";
+import type { StartupManagedDocument } from "./folderPane";
 import { markUntitledEditor } from "../editor/activeEditor";
 import { focusWhenShown } from "../lib/focusWhenShown";
 import { useDocSession, type SessionRegistry } from "./documentSession";
@@ -145,9 +146,11 @@ export function DocTabBody({
   onWrapColumn,
   tableLayouts,
   onTableLayout,
+  startup,
 }: {
   registry: SessionRegistry;
   docId: string;
+  startup?: StartupManagedDocument;
   reflowOnOpen?: boolean;
   /** Where prose wraps in this tab, restored with the arrangement. */
   wrapColumn?: number;
@@ -164,14 +167,20 @@ export function DocTabBody({
   const loadMessage = session?.fatalError || (!session?.doc ? "Loading document…" : null);
   useUiReading("document tab load state", { doc_id: docId, phase: session?.fatalError ? "failed" : loadMessage ? "loading" : "loaded", message: loadMessage });
   if (!session) return <p className="muted">Loading document…</p>;
-  if (session.fatalError) return <p className="error">{session.fatalError}</p>;
+  if (!startup && session.fatalError) return <p className="error">{session.fatalError}</p>;
   const { doc, debug } = session;
-  if (!doc) return <p className="muted">Loading document…</p>;
+  if (!doc && !startup) return <p className="muted">Loading document…</p>;
+  const initialSource = startup?.source.content ?? doc?.source ?? "";
+  const path = doc?.path ?? startup?.source.path;
+  const connected = !startup || session.startupRoomReady;
   const running = session.runningCells.size > 0;
 
   return (
     <div className="debug-block">
-      <SurfaceInfo name={`Document · ${doc.path}`} editable destination="Edits save automatically to this document on disk." />
+      <SurfaceInfo name={`Document · ${path}`} editable={connected} destination={connected
+        ? session.detachedDraft ? "Changes stay in this draft until Save is confirmed." : "Edits save automatically to this document on disk."
+        : "Read-only source preview."} />
+      {doc && connected ? <>
       <DocToolbar
         docId={docId}
         path={doc.path}
@@ -181,8 +190,10 @@ export function DocTabBody({
         baseline={baseline}
         syncState={session.syncState}
       />
-      <DiskChangeNotice key={docId} path={doc.path} base={session.savedSource ?? doc.source} source={session.liveSource}
-        read={() => api.doc(docId)} apply={(disk, text) => session.adoptDiskSource(disk.source, text, session.liveSource)} />
+      <DiskChangeNotice key={docId} path={doc.path} base={session.diskReviewBase ?? doc.source} source={session.liveSource}
+        reviewRequired={session.needsDraftReconciliation}
+        reviewGuard={session.detachedDraft ? disk => disk.save_guard : undefined}
+        read={() => api.doc(docId)} apply={(disk, text) => session.adoptDiskSource(disk, text, session.liveSource)} />
       {session.banner && <ActionNotice kind={session.banner.kind} retry={session.banner.retry}>{session.banner.text}</ActionNotice>}
       {session.renderError && <ActionNotice kind="fail" retry={{ label: "Retry rendering", run: session.refresh }}>Could not render {doc.path}. Editing and saving remain available. {session.renderError}</ActionNotice>}
       {session.syncState === "failed" && session.banner?.retry?.label !== "Retry Save" && <ActionNotice kind="fail" retry={{ label: "Retry Save", run: () => { void session.menuSave(); } }}>Saving could not be confirmed. Your text is still in this editor.</ActionNotice>}
@@ -229,6 +240,8 @@ export function DocTabBody({
         onToggleExceptionFilter={debug.toggleExceptionFilter}
         onRemoveWatch={debug.removeWatch}
       />
+      </> : <p className="muted" role="status">{session.fatalError ??
+        (doc ? "Waiting for the document room…" : "Checking saved source authority…")}</p>}
       {/* A session file opens in the same editor as every other document —
           drawn as the conversation it is (bubbles, the agent's work folded;
           see editor/wysiwyg.ts and editor/folding.ts) with every byte on
@@ -237,8 +250,11 @@ export function DocTabBody({
       <DocumentEditor
         key={docId}
         docId={docId}
-        initialSource={doc.source}
-        reflowOnOpen={reflowOnOpen}
+        initialSource={initialSource}
+        reflowOnOpen={reflowOnOpen && !startup}
+        startup={startup}
+        startupAuthorized={!!doc}
+        onStartupRoomReady={session.onStartupRoomReady}
         realtime={session.realtime}
         onChange={session.setDirtySource}
         selectSpan={session.selectSpan}
@@ -255,7 +271,7 @@ export function DocTabBody({
         onWrapColumn={onWrapColumn}
         tableLayouts={tableLayouts}
         onTableLayout={onTableLayout}
-        path={doc.path}
+        path={path}
       />
     </div>
   );

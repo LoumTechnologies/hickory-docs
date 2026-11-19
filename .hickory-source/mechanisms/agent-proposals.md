@@ -64,6 +64,7 @@ fn bounded(value:&Intention)->Result<(),String>{
 struct Review {
  token:String,fingerprint:String,material:String,origin_authority:String,
  intention:Intention,workspace:String,namespace:String,plan:resource_changes::ResourcePlan,
+ #[serde(skip)] recorded_diff: Option<String>,
 }
 #[derive(Default)]
 struct Retained {order:VecDeque<String>,records:BTreeMap<String,(Arc<Review>,usize)>,applications:BTreeMap<String,Value>,durability:BTreeMap<String,Value>,bytes:usize}
@@ -119,16 +120,146 @@ fn carry_context(reading:&mut behavior_readings::ReadingRequest,capture:&resourc
  Ok(())
 }
 static ANALYSES:tokio::sync::Semaphore=tokio::sync::Semaphore::const_new(1);
-async fn analyze(state:&LocalState,intention:&Intention,origin_authority:&str)->ApiResult<Review>{
+fn recorded_patch_input(
+    sources: &BTreeMap<String, resource_changes::SourceState>,
+) -> Result<hick_lang::ProjectTree, String> {
+    use resource_changes::SourceState;
+    let mut starting = hick_lang::ProjectTree::default();
+    for (path, source) in sources {
+        if let SourceState::File { text, .. } = source {
+            starting.insert(path, hick_lang::ProjectEntry::file(text.as_bytes()))?;
+        }
+    }
+    Ok(starting)
+}
+// A fence can describe an edit, but it cannot grant authority over any path.
+// Compare the exact replay with the complete guarded transition before sealing.
+fn verify_recorded_patch(
+    diff: &str,
+    plan: &resource_changes::ResourcePlan,
+    sources: &BTreeMap<String, resource_changes::SourceState>,
+) -> Result<(), String> {
+    use resource_changes::SourceState;
+    let starting = recorded_patch_input(sources)?;
+    let replay = hick_lang::apply_project_patch(&starting, diff, "recorded-message", 0)?;
+    let targets: BTreeSet<_> = plan
+        .patches
+        .iter()
+        .map(|patch| patch.path.clone())
+        .collect();
+    if replay
+        .before
+        .compare(&replay.after)
+        .into_iter()
+        .map(|difference| difference.path)
+        .collect::<BTreeSet<_>>()
+        != targets
+    {
+        return Err("The proposed source set differs from the recorded patch. Review all its targets together.".into());
+    }
+    for patch in &plan.patches {
+        if sources.get(&patch.path) != Some(&patch.before) {
+            return Err(format!(
+                "The draft preimage changed at {:?}. Prepare the whole patch again.",
+                patch.path
+            ));
+        }
+        let expected = replay
+            .after
+            .get(&patch.path)
+            .map(|entry| entry.bytes.as_ref());
+        let proposed = match &patch.after {
+            SourceState::File { text, .. } => Some(text.as_bytes()),
+            SourceState::Missing { .. } => None,
+        };
+        if expected != proposed {
+            return Err(format!(
+                "The proposed source differs from the recorded patch at {:?}. Refresh the patch and try again.",
+                patch.path
+            ));
+        }
+    }
+    Ok(())
+}
+fn recorded_path_uri(path: &str) -> String {
+    let mut uri = reqwest::Url::parse("hick:///").expect("static workspace URI");
+    uri.path_segments_mut()
+        .expect("workspace URI has path segments")
+        .pop_if_empty()
+        .extend(path.split('/'));
+    uri.into()
+}
+fn recorded_patch_edit(
+    diff: &str,
+    targets: &[hick_lang::PatchTarget],
+    sources: &BTreeMap<String, resource_changes::SourceState>,
+) -> Result<Value, String> {
+    use resource_changes::SourceState;
+    let starting = recorded_patch_input(sources)?;
+    let replay = hick_lang::apply_project_patch(&starting, diff, "recorded-message", 0)?;
+    let mut operations = Vec::new();
+    for target in targets {
+        let before = target.before.as_deref();
+        let after = target.after.as_deref();
+        match (before, after) {
+            (Some(from), Some(to)) if from != to => operations.push(json!({"kind":"rename","oldUri":recorded_path_uri(from),"newUri":recorded_path_uri(to)})),
+            (None, Some(to)) => operations.push(json!({"kind":"create","uri":recorded_path_uri(to)})),
+            (Some(from), None) => operations.push(json!({"kind":"delete","uri":recorded_path_uri(from)})),
+            _ => (),
+        }
+        if let Some(path) = after {
+            let previous = match before.and_then(|name| sources.get(name)) {
+                Some(SourceState::File { text, .. }) => text.as_str(),
+                _ => "",
+            };
+            let entry = replay
+                .after
+                .get(path)
+                .ok_or("No recorded output for the proposed source")?;
+            let next = std::str::from_utf8(&entry.bytes).map_err(|error| error.to_string())?;
+            if previous != next {
+                let (line, tail) =
+                    previous
+                        .rsplit_once('\n')
+                        .map_or((0, previous), |(prefix, tail)| {
+                            (
+                                prefix.bytes().filter(|byte| *byte == b'\n').count() + 1,
+                                tail,
+                            )
+                        });
+                operations.push(json!({"textDocument":{"uri":recorded_path_uri(path),"version":null},"edits":[{
+                    "range":{"start":{"line":0,"character":0},"end":{"line":line,"character":tail.encode_utf16().count()}},"newText":next
+                }]}));
+            }
+        }
+    }
+    Ok(json!({"documentChanges":operations}))
+}
+
+async fn analyze(state:&LocalState,intention:&Intention,origin_authority:&str,diff:Option<&str>)->ApiResult<Review>{
  ordinary(state)?;
  let _permit=ANALYSES.try_acquire().map_err(|_|ApiError::conflict("A complete proposal analysis is already running. Keep the current review and retry after it finishes."))?;
  bounded(intention).map_err(ApiError::conflict)?;
+ let mut intention = intention.clone();
+ let targets = diff.map(hick_lang::project_patch_targets).transpose().map_err(ApiError::conflict)?;
+ if let Some(targets) = &targets {
+    let paths: BTreeSet<_> = targets.iter().flat_map(|target| [&target.before, &target.after])
+        .filter_map(Option::as_deref).collect();
+    intention.capture.drafts.retain(|path, _| paths.contains(path.as_str()));
+    let uris: serde_json::Map<String, Value> = paths.into_iter().map(|path| (recorded_path_uri(path), json!([]))).collect();
+    intention.capture.edit = json!({"changes":uris});
+ }
  let mut inputs=resource_inputs::inspect(State(state.clone()),Json(intention.capture.clone())).await?.0;
  if !inputs.refusals.is_empty(){return Err(ApiError::conflict("A complete proposal source namespace is unavailable. No partial proposal was applied."))}
+ if let (Some(diff), Some(targets)) = (diff, &targets) {
+    intention.capture.edit = recorded_patch_edit(diff, targets, &inputs.sources).map_err(ApiError::conflict)?;
+    bounded(&intention).map_err(ApiError::conflict)?;
+ }
  let saved_guards=guards(state,&inputs).map_err(ApiError::conflict)?;
  for(path,source)in &mut inputs.sources{if let resource_changes::SourceState::File{identity,..}=source{*identity=hash(&(&inputs.workspace,path,saved_guards.get(path))).map_err(ApiError::internal)?;}}
  let plan=resource_changes::prepare(resource_changes::Request{context:inputs.context.clone(),title:intention.title.clone(),edit:intention.capture.edit.clone(),sources:inputs.sources.clone()}).map_err(ApiError::conflict)?;
  if plan.patches.is_empty(){return Err(ApiError::conflict("Proposal has no implementation changes to review."))}
+ if let Some(diff) = diff { verify_recorded_patch(diff, &plan, &inputs.sources).map_err(ApiError::conflict)?; }
  let facts=resource_candidates::inspect(State(state.clone()),Json(resource_candidates::Request{inputs:inputs.clone(),capture:intention.capture.clone(),plan:plan.clone()})).await?.0;
  if !facts.protected_targets.is_empty(){return Err(ApiError::conflict("Proposal targets generated output; revise its authored construction instead."))}
  let mut before_context=intention.reading.clone();carry_context(&mut before_context,&intention.capture)?;for(path,text)in &intention.capture.ownership_sources{before_context.sources.insert(path.clone(),text.clone());}
@@ -141,9 +272,9 @@ async fn analyze(state:&LocalState,intention:&Intention,origin_authority:&str)->
  let namespace=state.index.root().canonicalize().map_err(|e|ApiError::conflict(e.to_string()))?.to_string_lossy().into_owned();
  let consequences=serde_json::to_value(facts).map_err(|e|ApiError::internal(e.to_string()))?;
  ordinary(state)?;
- let material=serde_json::to_string(&Material{version:1,intention,origin_authority,workspace:&inputs.workspace,namespace:&namespace,inputs:&inputs,plan:&plan,consequences:&consequences,before:&before,after:&after,saved_guards:&saved_guards}).map_err(|error|ApiError::internal(error.to_string()))?;
+ let material=serde_json::to_string(&Material{version:1,intention:&intention,origin_authority,workspace:&inputs.workspace,namespace:&namespace,inputs:&inputs,plan:&plan,consequences:&consequences,before:&before,after:&after,saved_guards:&saved_guards}).map_err(|error|ApiError::internal(error.to_string()))?;
  let fingerprint=super::workspace_fs::view::hash(material.as_bytes());
- Ok(Review{token:String::new(),fingerprint,material,origin_authority:origin_authority.into(),intention:intention.clone(),workspace:inputs.workspace.clone(),namespace,plan})
+ Ok(Review{token:String::new(),fingerprint,material,origin_authority:origin_authority.into(),intention,workspace:inputs.workspace.clone(),namespace,plan,recorded_diff:diff.map(str::to_owned)})
 }
 </ui:copy>
 
@@ -161,9 +292,12 @@ apply the complete plan through their existing coordinated undo path. A lost or
 evicted review fails closed; refreshing a review never silently applies it.
 
 <ui:copy id="agent-proposal-routes">
-pub async fn prepare(State(state):State<LocalState>,Json(intention):Json<Intention>)->ApiResult<Json<Value>>{prepare_with_origin(state,intention,"caller-provided intention; not an agent attestation").await}
-async fn prepare_with_origin(state:LocalState,intention:Intention,origin_authority:&str)->ApiResult<Json<Value>>{
- let mut review=analyze(&state,&intention,origin_authority).await?;review.token=nonce().map_err(ApiError::internal)?;
+pub async fn prepare(State(state):State<LocalState>,Json(intention):Json<Intention>)->ApiResult<Json<Value>>{prepare_with_origin(state,intention,"caller-provided intention; not an agent attestation",None).await}
+pub(super) async fn prepare_recorded_patch(state:LocalState,intention:Intention,origin_authority:&str,diff:&str)->ApiResult<Json<Value>>{
+ prepare_with_origin(state,intention,origin_authority,Some(diff)).await
+}
+async fn prepare_with_origin(state:LocalState,intention:Intention,origin_authority:&str,diff:Option<&str>)->ApiResult<Json<Value>>{
+ let mut review=analyze(&state,&intention,origin_authority,diff).await?;review.token=nonce().map_err(ApiError::internal)?;
  let held=retain(review).map_err(ApiError::conflict)?;
  let durability=archive_review(&state,held.clone(),None).await;
  {let mut retention=REVIEWS.lock().map_err(|_|ApiError::conflict("Proposal retention unavailable"))?;if retention.records.contains_key(&held.token){retention.durability.insert(held.token.clone(),durability.clone());}}
@@ -180,7 +314,7 @@ pub async fn validate(State(state):State<LocalState>,Json(body):Json<Admission>)
  let namespace=state.index.root().canonicalize().map_err(|e|ApiError::conflict(e.to_string()))?.to_string_lossy().into_owned();
  if held.workspace!=workspace||held.namespace!=namespace{return Err(ApiError::conflict("Historical proposal readings cannot admit application. Prepare a new live intention in the current workspace."))}
  if held.fingerprint!=body.fingerprint{return Err(ApiError::conflict("The complete proposal intention changed. Review it again."))}
- let fresh=analyze(&state,&held.intention,&held.origin_authority).await?;if fresh.fingerprint!=held.fingerprint{return Err(ApiError::conflict("Proposal source, ownership, generated consequences or evidence changed. No partial Apply was admitted."))}
+ let fresh=analyze(&state,&held.intention,&held.origin_authority,held.recorded_diff.as_deref()).await?;if fresh.fingerprint!=held.fingerprint{return Err(ApiError::conflict("Proposal source, ownership, generated consequences or evidence changed. No partial Apply was admitted."))}
  Ok(Json(json!({"version":1,"proposal_protocol":1,"token":body.token,"fingerprint":body.fingerprint,"workspace":fresh.workspace,"namespace":fresh.namespace,"admitted":true,"source_effects":false,"checks_executed":false,"authority":"current engine observation; host editor lease still required"})))
 }
 </ui:copy>
@@ -248,7 +382,7 @@ pub async fn from_agent(state:LocalState,edits:&super::acp::edits::Edits,origin:
  ordinary(&worker)?;
  Ok(intention)
  }).await.map_err(|error|ApiError::internal(error.to_string()))??;
- prepare_with_origin(state,intention,if live{"engine-managed agent tool; live editor capture at preparation; claims remain unverified"}else{"engine-managed agent tool; non-live submitted editor snapshot; claims remain unverified"}).await
+ prepare_with_origin(state,intention,if live{"engine-managed agent tool; live editor capture at preparation; claims remain unverified"}else{"engine-managed agent tool; non-live submitted editor snapshot; claims remain unverified"},None).await
 }
 pub async fn list(State(state):State<LocalState>)->ApiResult<Json<Value>>{
  ordinary(&state)?;
@@ -314,6 +448,42 @@ and bounded claims; they do not establish a usable host Apply path.
 mod tests {
  use super::*;
  pub(super) fn intention()->Intention{serde_json::from_value(json!({"version":1,"request_id":"0123456789abcdef0123456789abcdef","origin":"owned provider fixture","title":"Change note","explanation":"Keep the change and its reasoning together.","claims":["Expected behavior; not an observed verdict"],"check_ids":[],"capture":{"context":"context","edit":{"changes":{}},"drafts":{},"ownership_sources":{},"project_entry":null},"reading":{"version":1,"entry":"project.md","sources":{},"missing_sources":[],"focus":null}})).unwrap()}
+ #[test]
+ fn recorded_diff_requires_every_exact_draft_transition_before_review() {
+    let fixture = |identity: &str, text: &str| resource_changes::SourceState::File {
+        identity: identity.into(), text: text.into(), writable: true, removable: true, version: None,
+    };
+    let mut plan = resource_changes::ResourcePlan { version: 1, context: "context".into(), title: "Review".into(),
+        annotations: Vec::new(), patches: vec![
+            resource_changes::ResourcePatch { path: "a.py".into(), before: fixture("1", "old\r\n"), after: fixture("1", "new\r\n") },
+            resource_changes::ResourcePatch { path: "b.py".into(), before: fixture("2", "before\n"), after: fixture("2", "after\n") },
+        ] };
+    let diff = "--- a/a.py\n+++ b/a.py\n@@ -1 +1 @@\n-old\r\n+new\r\n--- a/b.py\n+++ b/b.py\n@@ -1 +1 @@\n-before\n+after\n";
+    let before = plan.patches.iter().map(|patch| (patch.path.clone(), patch.before.clone())).collect();
+    verify_recorded_patch(diff, &plan, &before).unwrap();
+    plan.patches[0].before = fixture("1", "old\n");
+    assert!(verify_recorded_patch(diff, &plan, &before).is_err());
+    plan.patches[0].before = fixture("1", "old\r\n");
+    plan.patches[0].after = fixture("1", "forged addition\r\n");
+    assert!(verify_recorded_patch(diff, &plan, &before).is_err());
+    plan.patches.pop();
+    assert!(verify_recorded_patch(diff, &plan, &before).is_err());
+ }
+ #[test]
+ fn recorded_patch_derives_guarded_edit_and_rename_from_exact_preimages() {
+    use resource_changes::SourceState;
+    let sources = BTreeMap::from([
+        ("from #%.py".into(), SourceState::File { identity: "stable".into(), text: "😀=1\r\n".into(), writable: true, removable: true, version: Some(17) }),
+        ("to #%.py".into(), SourceState::Missing { creatable: true }),
+    ]);
+    let diff = "--- a/from #%.py\n+++ b/to #%.py\n@@ -1 +1 @@\n-😀=1\r\n+😀=2\r\n";
+    let targets = hick_lang::project_patch_targets(diff).unwrap();
+    let edit = recorded_patch_edit(diff, &targets, &sources).unwrap();
+    let plan = resource_changes::prepare(resource_changes::Request { context: "fixture".into(), title: "Move and edit".into(), edit, sources: sources.clone() }).unwrap();
+    verify_recorded_patch(diff, &plan, &sources).unwrap();
+    let destination = plan.patches.iter().find(|patch| patch.path == "to #%.py").unwrap();
+    assert!(matches!(&destination.after, SourceState::File { identity, text, .. } if identity == "stable" && text == "😀=2\r\n"));
+ }
  #[test] fn derived_readings_keep_original_named_and_anonymous_capture_authority(){
   let mut value=intention();value.capture.saved_guards.insert("a.txt".into(),"original saved guard".into());value.capture.unaddressed_sources.insert("retained-note".into(),"ordinary retained note".into());
   value.capture.drafts.insert("b.txt".into(),serde_json::from_value(json!({"text":"draft","base_sha256":"a".repeat(64),"version":null,"writable":true,"save_guard":"original target guard"})).unwrap());

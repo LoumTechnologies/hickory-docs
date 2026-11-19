@@ -5,7 +5,7 @@ For maintainers iterating on the equivalent Apple, Android and browser editor fr
 
 The same recursive split model works on Mac, iPhone and iPad. On narrow screens groups retain their commands; proportions and split directions remain user-controlled. Draggable tab identities and a menu alternative both move the existing buffer.
 
-The first view task connects to a launcher-supplied address. With no address, or if that connection fails, show the existing connection sheet; do not reconnect an already attached workspace when views reappear.
+The first view task connects to the launcher-supplied address and forwards its optional requested file to the same workspace opening path as native menu commands. With no address, or if that connection fails, show the existing connection sheet. An already attached workspace keeps its drafts and layout when the view reappears.
 
 A DropDelegate reads pane-local hover and drop positions while the native text view stays mounted. Its pointer-transparent half-pane overlay does not steal normal editing input. The custom tab payload is loaded asynchronously; docking validates the current source and target again before changing the layout, so an obsolete reply cannot remove a tab. A custom tab type keeps the drag distinct from text insertion; plain text never reaches the docking decoder. A decoded payload that does not name a live tab is ignored.
 
@@ -31,6 +31,7 @@ private struct TabDrag: Codable, Transferable {
 struct WorkspaceView: View {
     @Environment(\.openWindow) private var openWindow
     @Bindable var workspace: Workspace
+    var launchFile = ProcessInfo.processInfo.environment["HICKORY_OPEN_FILE"]
     @State private var connection = false
     private var menuCommands:[WorkspaceCommand] {workspace.commands(ui:["file.window":{openWindow(id:"workspace")},"file.connect":{connection=true}])}
     var body: some View {
@@ -103,9 +104,10 @@ struct WorkspaceView: View {
         .task {
             if workspace.engine == nil {
                 if workspace.address.isEmpty { connection = true }
-                else { connection = !(await workspace.connect()) }
+                else { connection = !(await workspace.connect(opening: launchFile)) }
             }
         }
+        .onDisappear { workspace.debugger?.closeRecordedFence() }
         #if os(macOS)
         .background(WindowGuard(workspace: workspace))
         #endif
@@ -274,7 +276,14 @@ struct PaneView: View {
         } else if tab.flatMap({NativeTabIdentity(address:$0).utility}) == .terminal {
             TerminalPane(engine: workspace.engine, session: workspace.terminal)
         } else if tab.flatMap({NativeTabIdentity(address:$0).utility}) == .agent {
-            AgentPane(engine: workspace.engine, session: workspace.agent).onAppear{workspace.configureAgentContext()}
+            let epoch = workspace.sourceNavigationEpoch, root = workspace.sourceRootAddress, id = workspace.sourceWorkspaceID
+            AgentPane(engine: workspace.engine, session: workspace.agent, debugger: workspace.debugger, workspaceAddress: root, workspaceID: id, reviewPatch: { buffer, source, line in
+                Task { await workspace.agentProposals.prepareRecordedPatch(workspace, message: buffer, source: source, openingLine: line) }
+            }, workspaceCurrent: { [weak workspace] in
+                guard let workspace else { return false }
+                return workspace.sourceNavigationEpoch == epoch && exactUTF8(workspace.sourceRootAddress, root)
+                    && exactUTF8(workspace.sourceWorkspaceID, id)
+            }).onAppear{workspace.configureAgentContext()}
         } else if let tab, let buffer = workspace.bufferForTab(tab) {
             VStack(spacing: 0) {
                 LanguageEditor(buffer: buffer, debugger: workspace.debugger).id(buffer.id)

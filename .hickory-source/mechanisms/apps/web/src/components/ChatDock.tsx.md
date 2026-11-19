@@ -63,6 +63,7 @@ import type {
 } from "../api/types";
 import type { Realtime } from "../api/realtime";
 import { ConversationEditor } from "../views/ConversationEditor";
+import type { ReviewRecordedPatch } from "../simple/AgentProposalAdapter";
 import { ChatTree } from "./ChatTree";
 import { StopMark } from "./icons";
 import { useResponseRecovery } from "../lib/responseRecovery";
@@ -211,6 +212,7 @@ export interface ChatDockProps {
   recoveryWorkspace?: string;
   getContext?: () => Promise<AgentEditorContext>;
   applyAgentChange?: (change: AgentChange) => void | Promise<void>;
+  reviewRecordedPatch?: ReviewRecordedPatch;
   contextLabel?: string;
   contextControls?: import("react").ReactNode;
   realtime: Realtime;
@@ -548,6 +550,7 @@ export function ChatDock({
   recoveryWorkspace = "window",
   getContext,
   applyAgentChange,
+  reviewRecordedPatch,
   contextLabel,
   contextControls,
   realtime,
@@ -925,7 +928,7 @@ export function ChatDock({
             />
           ) : (
             <>
-              <ConversationEditor cancelDictation={cancelDictation} dictationScope={`${docId}:${tip ?? "root"}:${dictationGeneration}`} onDictatingChange={dictatingChanged} hasAttachments={attachments.length > 0} onFiles={files => void addFiles(files)} composerTools={<>
+              <ConversationEditor conversationId={docId} reviewRecordedPatch={reviewRecordedPatch} cancelDictation={cancelDictation} dictationScope={`${docId}:${tip ?? "root"}:${dictationGeneration}`} onDictatingChange={dictatingChanged} hasAttachments={attachments.length > 0} onFiles={files => void addFiles(files)} composerTools={<>
                 <button type="button" aria-label="Attach files" title="Attach files" disabled={preparingAttachments || sending || !!running} onClick={() => attachmentPicker.current?.click()}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="m8 12 7-7a4 4 0 0 1 6 6L10 22a6 6 0 0 1-8-8L13 3M5 17l11-11"/></svg></button><input ref={attachmentPicker} aria-label="Attach files" type="file" multiple hidden disabled={preparingAttachments || sending || !!running} onChange={event => { void addFiles(Array.from(event.target.files ?? [])); event.target.value = ""; }} />
                 <CameraCapture key={docId} disabled={preparingAttachments || sending || !!running} onFile={file => void addFiles([file])} onError={setError} />
                 {preparingAttachments && <span role="status">Preparing attachments…</span>}

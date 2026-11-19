@@ -287,7 +287,13 @@ export function patchDebugTargets(state: EditorState): { path: string; at: numbe
   }
   return targets;
 }
+// Read-only message editors supply their literal fence boundaries. They have
+// no generated file declaration for the ordinary project mapper to inspect.
+export const debugBreakpointLine = Facet.define<(line: number) => number | null>();
+
 export function breakpointLine(state: EditorState, line: number): number | null {
+  const [literalLine] = state.facet(debugBreakpointLine);
+  if (literalLine) return literalLine(line);
   const doc = state.doc;
   if (line < 0 || line >= doc.lines) return null;
 

@@ -517,3 +517,321 @@ mod capture_lifetime_tests {
         );
     }
 }
+pub(super) struct RecordedPatchInspection {
+    pub entry: String,
+    pub document: String,
+    pub operation_id: String,
+    pub opening_byte: usize,
+    pub completed_fingerprint: String,
+    pub changes: Vec<Value>,
+}
+
+pub(super) fn inspect_recorded_patch(
+    capture: &CapturedTurn,
+    source: &str,
+    opening_line: usize,
+) -> ApiResult<RecordedPatchInspection> {
+    const MAX_ROWS: usize = 128;
+    const MAX_PATH: usize = 1024;
+    const MAX_INLINE_ENTRY: usize = 16 * 1024;
+    const MAX_INLINE_TOTAL: usize = 64 * 1024;
+    if capture.error.is_some() || !capture.ambiguous.is_empty() || source.is_empty() {
+        return Err(ApiError::conflict("Finalize the original capture and resolve attribution before inspecting a declared patch."));
+    }
+    let artifact = capture.artifact.as_ref()
+        .ok_or_else(|| ApiError::conflict("This turn has no verified captured construction."))?;
+    if capture.response.as_ref() != artifact.sources.get(&artifact.entry) || capture.response.is_none() {
+        return Err(ApiError::conflict("This turn has no finalized captured construction."));
+    }
+    let completed = capture.completed.as_ref()
+        .ok_or_else(|| ApiError::conflict("The completed tree for this construction is unavailable."))?;
+    let source_bytes = artifact.sources.values().try_fold(0_u64, |total, text| total.checked_add(text.len() as u64));
+    if artifact.sources.len() > CAPTURE_ENTRIES || !source_bytes.is_some_and(|bytes| bytes <= CAPTURE_BYTES) {
+        return Err(ApiError::unprocessable("The captured Markdown closure exceeds the inspection limit."));
+    }
+    let mut owners = artifact.sources.iter().filter(|(_, text)| text.as_str() == source);
+    let (document, _) = owners.next()
+        .ok_or_else(|| ApiError::conflict("This message is not an exact document in the captured construction."))?;
+    if owners.next().is_some() {
+        return Err(ApiError::conflict("The message matches more than one captured document."));
+    }
+    let starting = capture.starting.restore().map_err(ApiError::unprocessable)?;
+    let completed = completed.restore().map_err(ApiError::unprocessable)?;
+    let fingerprint = crate::changeset::fingerprint(&completed);
+    if fingerprint != artifact.expected {
+        return Err(ApiError::conflict("The captured construction fingerprint differs from its completed tree."));
+    }
+    let (project, patch) = hick_lang::inspect_project_patch(
+        &artifact.entry, &artifact.sources, &starting, document, opening_line,
+    ).map_err(ApiError::unprocessable)?;
+    if !artifact.sources.keys().all(|path| project.inventory.documents.contains(path)) ||
+        !project.new.compare(&completed).is_empty()
+    {
+        return Err(ApiError::conflict("The captured construction does not reproduce its complete recorded result."));
+    }
+    let differences = patch.before.compare(&patch.after);
+    if differences.is_empty() {
+        return Err(ApiError::unprocessable("The selected declared patch has no output changes."));
+    }
+    if differences.len() > MAX_ROWS || differences.iter().any(|row| row.path.len() > MAX_PATH)
+        || artifact.entry.len() > MAX_PATH || document.len() > MAX_PATH || patch.id.len() > MAX_PATH
+    {
+        return Err(ApiError::unprocessable("The declared patch exceeds the bounded comparison size."));
+    }
+    let mut inline_remaining = MAX_INLINE_TOTAL;
+    let mut describe = |entry: Option<&std::sync::Arc<hick_lang::ProjectEntry>>| {
+        let Some(entry) = entry else { return Value::Null };
+        let (text, text_status) = match std::str::from_utf8(&entry.bytes) {
+            Ok(text) if text.len() <= MAX_INLINE_ENTRY && text.len() <= inline_remaining => {
+                inline_remaining -= text.len();
+                (Some(text), "exact")
+            }
+            Ok(_) => (None, "over_limit"),
+            Err(_) => (None, "non_utf8"),
+        };
+        let kind = match entry.kind { hick_lang::EntryKind::File => "file", hick_lang::EntryKind::Symlink => "symlink" };
+        json!({
+            "kind": kind, "executable": entry.executable, "bytes": entry.bytes.len(),
+            "sha256": super::source_tests::digest(&entry.bytes), "text": text, "text_status": text_status,
+        })
+    };
+    let changes = differences.into_iter().map(|row| {
+        let before = describe(patch.before.get(&row.path));
+        let after = describe(patch.after.get(&row.path));
+        json!({"path": row.path, "before": before, "after": after})
+    }).collect();
+    Ok(RecordedPatchInspection {
+        entry: artifact.entry.clone(), document: document.clone(), operation_id: patch.id,
+        opening_byte: patch.opening_byte, completed_fingerprint: fingerprint, changes,
+    })
+}
+#[cfg(test)]
+mod recorded_declared_patch_tests {
+    use super::*;
+
+    fn capture(
+        root: &std::path::Path,
+        session: PathBuf,
+        sources: BTreeMap<String, String>,
+        starting: &ProjectTree,
+    ) -> CapturedTurn {
+        let entry = "response.md";
+        let evaluated = hick_lang::evaluate_project(entry, &sources, starting).unwrap();
+        CapturedTurn {
+            persisted: true,
+            workspace: None,
+            live_editors: None,
+            root: root.to_path_buf(),
+            entry: entry.into(),
+            documents: BTreeMap::new(),
+            inventory: evaluated.inventory,
+            starting: ProjectSnapshot::capture(starting),
+            completed: Some(ProjectSnapshot::capture(&evaluated.new)),
+            ambiguous: BTreeSet::new(),
+            error: None,
+            response: Some(sources[entry].clone()),
+            artifact: Some(crate::changeset::Artifact {
+                entry: entry.into(),
+                sources,
+                expected: crate::changeset::fingerprint(&evaluated.new),
+            }),
+            session,
+            rooms: BTreeMap::new(),
+        }
+    }
+
+    fn inputs() -> ProjectTree {
+        let mut tree = ProjectTree::default();
+        tree.insert("alpha.txt", hick_lang::ProjectEntry::file(&b"old\n"[..]))
+            .unwrap();
+        tree.insert("beta.txt", hick_lang::ProjectEntry::file(&b"other\n"[..]))
+            .unwrap();
+        tree
+    }
+
+    fn declarations() -> BTreeMap<String, String> {
+        BTreeMap::from([
+            (
+                "response.md".into(),
+                concat!(
+                    "<hick:project sources=\"other.md\"/>\n",
+                    "Explanation.\n",
+                    "<hick:patch id=\"selected\">\n",
+                    "--- a/alpha.txt\n+++ b/alpha.txt\n@@ -1 +1 @@\n-old\n+middle\n",
+                    "</hick:patch>\n",
+                    "<hick:patch id=\"later\" after=\"selected\">\n",
+                    "--- a/alpha.txt\n+++ b/alpha.txt\n@@ -1 +1 @@\n-middle\n+final\n",
+                    "</hick:patch>\n",
+                )
+                .into(),
+            ),
+            (
+                "other.md".into(),
+                concat!(
+                    "Separate document.\n",
+                    "Different patch on the same line.\n",
+                    "<hick:patch id=\"unrelated\">\n",
+                    "--- a/beta.txt\n+++ b/beta.txt\n@@ -1 +1 @@\n-other\n+changed\n",
+                    "</hick:patch>\n",
+                )
+                .into(),
+            ),
+        ])
+    }
+
+    #[tokio::test]
+    async fn recorded_declared_patch_binds_its_owning_document_and_local_transition() {
+        let temporary = tempfile::tempdir().unwrap();
+        let source = temporary.path().join("alpha.txt");
+        std::fs::write(&source, "independent working bytes\n").unwrap();
+        let prepared = super::super::prepare(super::super::ServeOptions {
+            target: temporary.path().to_path_buf(),
+            port: 0,
+            params: vec![],
+            executor: crate::ExecutorChoice::Local,
+            key_store_path: None,
+            ui_settings_path: None,
+        })
+        .await
+        .unwrap();
+        let state = prepared.state;
+        let root = state.index.root().canonicalize().unwrap();
+        let session_address = "sessions/owned.md";
+        let session = state.index.root().join(session_address);
+        std::fs::create_dir_all(session.parent().unwrap()).unwrap();
+        std::fs::write(&session, "retained conversation fixture\n").unwrap();
+
+        let sources = declarations();
+        let selected = sources["response.md"].clone();
+        let captured = capture(&root, session.clone(), sources, &inputs());
+        let turn = super::super::agent::TurnRecord {
+            backend: "fixture".into(),
+            id: "owned".into(),
+            parent_id: None,
+            prompt: "Different recorded user message".into(),
+            answer: Some(selected.clone()),
+            status: "ok".into(),
+            error: None,
+            created_at: String::new(),
+            provider: String::new(),
+            model: String::new(),
+            usage: None,
+            session: session_address.into(),
+        };
+        state
+            .agent
+            .turns
+            .lock()
+            .unwrap()
+            .insert("workspace".into(), vec![turn]);
+        state
+            .agent
+            .projects
+            .lock()
+            .unwrap()
+            .insert("owned".into(), captured.clone());
+        let request = |source: &str| {
+            serde_json::from_value(json!({
+                "side": "assistant", "opening_line": 2,
+                "source_hash": super::super::source_tests::digest(source.as_bytes()),
+            }))
+            .unwrap()
+        };
+        let (doc, turn) = ("workspace".to_owned(), "owned".to_owned());
+        let read = super::super::agent::inspect_fence_construction(
+            State(state.clone()),
+            Path((doc.clone(), turn.clone())),
+            Json(request(&selected)),
+        )
+        .await
+        .unwrap()
+        .0;
+        assert_eq!(read["read_only"], true);
+        assert_eq!(read["side"], "assistant");
+        assert_eq!(read["entry"], "response.md");
+        assert_eq!(read["document"], "response.md");
+        assert_eq!(read["operation_id"], "selected");
+        assert_eq!(read["opening_byte"], selected.find("<hick:patch").unwrap());
+        let changes = read["changes"].as_array().unwrap();
+        assert_eq!(changes.len(), 1);
+        assert_eq!(changes[0]["path"], "alpha.txt");
+        assert_eq!(changes[0]["before"]["text"], "old\n");
+        assert_eq!(changes[0]["after"]["text"], "middle\n");
+        assert_eq!(changes[0]["after"]["text_status"], "exact");
+        assert!(read.get("token").is_none());
+
+        let stale = super::super::agent::inspect_fence_construction(
+            State(state.clone()),
+            Path((doc.clone(), turn.clone())),
+            Json(request("stale bytes")),
+        )
+        .await;
+        assert!(stale.unwrap_err().detail().contains("message changed"));
+        state.agent.projects.lock().unwrap().remove("owned");
+        let absent = super::super::agent::inspect_fence_construction(
+            State(state),
+            Path((doc, turn)),
+            Json(request(&selected)),
+        )
+        .await;
+        assert!(absent.is_err());
+        assert_eq!(
+            std::fs::read_to_string(source).unwrap(),
+            "independent working bytes\n"
+        );
+        assert_eq!(
+            std::fs::read_to_string(session).unwrap(),
+            "retained conversation fixture\n"
+        );
+        assert!(!root.join("beta.txt").exists());
+    }
+
+    #[test]
+    fn recorded_declared_patch_rejects_ambiguous_stale_bare_and_empty_transitions() {
+        let root = std::path::Path::new("/owned");
+        let start = inputs();
+        let mut sources = declarations();
+        let selected = sources["response.md"]
+            .replacen(
+                "<hick:patch id=\"selected\">",
+                "```patch id=\"selected\"",
+                1,
+            )
+            .replacen("</hick:patch>", "```", 1);
+        sources.insert("response.md".into(), selected.clone());
+        let captured = capture(root, root.join("sessions/owned.md"), sources, &start);
+        let exact = inspect_recorded_patch(&captured, &selected, 2).unwrap();
+        assert_eq!(exact.operation_id, "selected");
+        assert_eq!(exact.changes[0]["after"]["text"], "middle\n");
+        assert!(inspect_recorded_patch(&captured, &format!("Changed.\n{selected}"), 2).is_err());
+        assert!(inspect_recorded_patch(&captured, &selected, 3).is_err());
+
+        let mut duplicate = captured.clone();
+        duplicate
+            .artifact
+            .as_mut()
+            .unwrap()
+            .sources
+            .insert("duplicate.md".into(), selected.clone());
+        assert!(inspect_recorded_patch(&duplicate, &selected, 2).is_err());
+        let mut stale = captured;
+        stale.completed = Some(ProjectSnapshot::capture(&start));
+        stale.artifact.as_mut().unwrap().expected = crate::changeset::fingerprint(&start);
+        assert!(inspect_recorded_patch(&stale, &selected, 2).is_err());
+
+        let patch = "--- a/alpha.txt\n+++ b/alpha.txt\n";
+        let bare = format!("<hick:project/>\n```patch\n{patch}@@ -1 +1 @@\n-old\n+changed\n```\n");
+        let empty = format!(
+            "<hick:project/>\n<hick:patch id=\"empty\">\n{patch}@@ -0,0 +0,0 @@\n</hick:patch>\n"
+        );
+        for message in [bare, empty] {
+            let fixture = capture(
+                root,
+                root.join("sessions/owned.md"),
+                BTreeMap::from([("response.md".into(), message.clone())]),
+                &start,
+            );
+            assert!(inspect_recorded_patch(&fixture, &message, 1).is_err());
+        }
+    }
+}

@@ -38,7 +38,8 @@ import {
 } from "@codemirror/language";
 import type { EditorState, Extension } from "@codemirror/state";
 import { ViewPlugin, keymap, type EditorView } from "@codemirror/view";
-import { structureOf } from "./wysiwyg";
+import { parserBecameReady, structureOf } from "./wysiwyg";
+import { hickLangReady } from "./hickLang";
 import { blocksNamed, type HickBlock, type HickDocStructure } from "./hickDoc";
 
 export interface FoldRange {
@@ -290,6 +291,7 @@ export function foldRangeForLine(
 const foldCache = new WeakMap<object, FoldRange[]>();
 
 export function foldRangesOf(state: EditorState): FoldRange[] {
+  if (!hickLangReady()) return [];
   const key = state.doc as unknown as object;
   let ranges = foldCache.get(key);
   if (!ranges) {
@@ -331,6 +333,7 @@ export function hickoryFolding(): Extension {
       foldRangeForLine(foldRangesOf(state), lineFrom, lineTo),
     ),
     foldGutter({
+      foldingChanged: update => update.transactions.some(tr => tr.effects.some(effect => effect.is(parserBecameReady))),
       markerDOM(open) {
         const el = document.createElement("span");
         el.className = `cm-fold-marker${open ? " cm-fold-open" : ""}`;
@@ -381,7 +384,8 @@ export function ingestedFileFolds(
  */
 export function ingestedFolds(): Extension {
   return ViewPlugin.define((view: EditorView) => {
-    let done = false;
+    // A late parse adds fold controls while leaving the visible source open.
+    let done = !hickLangReady();
     const attempt = (state: EditorState) => {
       if (done || state.doc.length === 0) return;
       done = true;
@@ -410,7 +414,7 @@ export function ingestedFolds(): Extension {
  */
 export function sessionWorkFolds(): Extension {
   return ViewPlugin.define((view: EditorView) => {
-    let done = false;
+    let done = !hickLangReady();
     const attempt = (state: EditorState) => {
       if (done || state.doc.length === 0) return;
       done = true;

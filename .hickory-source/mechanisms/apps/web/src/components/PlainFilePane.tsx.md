@@ -23,6 +23,14 @@ requires a choice unless safe automatic reload is enabled.
 
 Plain and generated file search uses the same header icon and modal as document search. Replacement still passes through the existing read-only, region ownership and source-revision checks.
 
+The window can prepare a private draft at an exact mounted plain editor. The
+prepared transaction retains its authored line endings, native history and saved
+guard. It switches off autosave before dispatch. The same owner publishes only
+through an explicit guarded Save and rejects a receipt for a different source.
+Pending group rollback restores the original editor state and the original save
+plane. A marked recovery draft reenters the private plane when the window has
+enabled draft recovery.
+
 <storycode:copy id="f-2f891a49445f-PlainFilePane">
 import { performanceInline } from "../performance/inline";
 import { coverageGutter } from "../coverage/gutter";
@@ -40,6 +48,11 @@ import { PaneHeaderContent } from "../shell/PaneHeader";
 import { MoreActions } from "./MoreActions";
 import { SurfaceInfo } from "./SurfaceInfo";
 import { registerSearchEditor } from "../lib/workspaceSearch";
+import type { RecordedPatchSource, WorkspaceDraftStage } from "../simple/AgentProposalAdapter";
+import type { StartupPlainFile } from "../views/folderPane";
+import { authoredChanges, authoredSource, normalizedSource, sourceText } from "../simple/SourceText";
+import { historySourceHash } from "../simple/SourceHistory";
+import { computeEdits } from "../lib/diff";
 // A plain file, in a pane: any text file in the folder that is neither a
 // document nor a woven output. CodeMirror over `GET /api/file`, saved whole
 // as you type through lib/plainFileSave.ts — debounced, serialized, and
@@ -52,17 +65,17 @@ import { registerSearchEditor } from "../lib/workspaceSearch";
 // folder pane refreshes on — and reconciled into the live buffer with a
 // flash, never a rebuild, unless this pane's own edits are still unsent.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { EditorState } from "@codemirror/state";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Compartment, EditorState } from "@codemirror/state";
 import { EditorView, keymap, lineNumbers } from "@codemirror/view";
-import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
+import { defaultKeymap, history, historyKeymap, indentWithTab, isolateHistory } from "@codemirror/commands";
 import { search, searchKeymap } from "@codemirror/search";
 import { wordMotionBindings } from "../editor/wordMotion";
 
-import { api } from "../api/client";
+import { api, request } from "../api/client";
 import type { AdoptResponse, PlainFile } from "../api/types";
-import { changeFlashField, syncAndFlash } from "../editor/changeFlash";
-import { languageExtensions } from "../editor/languages";
+import { changeFlashField, flashSpans } from "../editor/changeFlash";
+import { languageExtensions, languageFromPath } from "../editor/languages";
 import { forgetFocusedEditor, markFocusedEditor } from "../editor/activeEditor";
 import { fencedCodeRanges, isMarkdownPath, markdownStyling } from "../editor/markdownStyling";
 import { taskCheckboxes } from "../editor/taskList";
@@ -104,6 +117,26 @@ import { isWorkspaceSource, useFollowingDebugSession } from "../debug/plainDebug
 import {DebugSourceSignal,type DebugSourceCapability} from "../debug/SourceGuards";
 import {documentUri} from "../lsp/documentUri";
 
+function plainSourceChanges(state: EditorState, text: string) {
+  const before = authoredSource(state);
+  try {
+    return authoredChanges(state, computeEdits(before, text).map(edit => ({ from: edit.start, to: edit.end, insert: edit.text })));
+  } catch {
+    // The diff may split a CRLF or a supplementary character. The complete
+    // replacement still carries the exact authored bytes and is undoable.
+    return authoredChanges(state, [{from: 0, to: before.length, insert: text}]);
+  }
+}
+
+function syncPlainSource(view: EditorView, text: string) {
+  if (authoredSource(view.state) === text) return;
+  const transaction = view.state.update(plainSourceChanges(view.state, text));
+  view.update([transaction]);
+  const ranges: {from: number; to: number}[] = [];
+  transaction.changes.iterChanges((_from, _to, from, to) => ranges.push({from, to}));
+  flashSpans(view, ranges);
+}
+
 export function PlainFilePane({
   path,
   onAdopted,
@@ -113,9 +146,13 @@ export function PlainFilePane({
   retainUnsaved = false,
   onUnsaved,
   onSource,
+  proposalOwner, proposalTabId, startup,
 }: {
   path: string;
   onSource?: (path: string, source: string) => void;
+  proposalOwner?: (tabId: string, read: () => RecordedPatchSource | null) => () => void;
+  proposalTabId?: string;
+  startup?: StartupPlainFile;
   /** Adoption succeeded: the file now has an owning document. The workspace
    * converts this very tab into a generated tab and opens the document. */
   onAdopted?: (adopted: AdoptResponse) => void;
@@ -155,10 +192,21 @@ export function PlainFilePane({
   // already is, is worse than an extra request: the reader is told their
   // document is not what it plainly is.
   const [generatedBy, setGeneratedBy] = useState<string | null>(null);
+  const startupReadOnly = !!startup && (!file || !!generatedBy);
+  const startupAccess = useMemo(() => new Compartment(), []);
+  const protectStartupSource = useMemo(() => [
+    EditorState.readOnly.of(true), EditorView.editable.of(false),
+    EditorState.transactionFilter.of(transaction => transaction.docChanged ? [] : transaction),
+  ], []);
+  useLayoutEffect(() => {
+    if (railView && startup) {
+      railView.dispatch({effects: startupAccess.reconfigure(startupReadOnly ? protectStartupSource : [])});
+    }
+  }, [railView, startup, startupReadOnly, startupAccess, protectStartupSource]);
   // A draft to put back into the buffer once the view exists. Held as state
   // rather than applied immediately because the load lands before the editor
   // is built.
-  const [restored, setRestored] = useState<string | null>(null);
+  const [restored, setRestored] = useState<{ contents: string; detached: boolean; current: () => boolean } | null>(null);
   // Two versions of this file that both have changes worth keeping. Set when
   // a save conflicts, and when a restored draft finds the file has moved on.
   const [merge, setMerge] = useState<{
@@ -168,10 +216,11 @@ export function PlainFilePane({
     oursLabel: string;
     theirsLabel: string;
     bufferAtOpen: string;
+    detached?: boolean;
   } | null>(null);
   const mergeRef = useRef(merge); mergeRef.current = merge;
   useEditorActions(merge ? null : railView, `file:${path}`);
-  useEditorEditing(merge ? null : railView, { source: `file:${path}`, label: "file editor", current: () => !merge, identity: () => [path, file?.hash, generatedBy] });
+  useEditorEditing(merge ? null : railView, { source: `file:${path}`, label: "file editor", current: () => !merge && !startupReadOnly, identity: () => [path, file?.hash, generatedBy] });
   const onAdoptedRef = useRef(onAdopted);
   onAdoptedRef.current = onAdopted;
   const onReferencesRef = useRef(onReferences);
@@ -197,8 +246,9 @@ export function PlainFilePane({
   // its own path. Fed the LIVE text so positions match the screen; opened
   // only once the file has loaded, so the server never sees an empty file
   // stand in for a real one.
-  const [liveText, setLiveTextState] = useState<string | null>(null);
-  const sourceSignal=useMemo(()=>new DebugSourceSignal(),[path]),sourceIdentity=useMemo(()=>({path}),[path]),sourceNamespace=useRef<string|null>(null),sourceMounted=useRef(true);
+  const [liveText, setLiveTextState] = useState<string | null>(() => startup?.source.content ?? null);
+  const sourceSignal=useMemo(()=>new DebugSourceSignal(),[path]),sourceIdentity=useMemo(()=>({path}),[path]),sourceNamespace=useRef<string|null>(null),sourceWorkspace=useRef<string|null>(null),sourceMounted=useRef(true);
+  const adoptionPending = useRef(false), recoveryPending = useRef(retainUnsaved), plainOwnership = useRef(false);
   useEffect(()=>{sourceMounted.current=true;return()=>{sourceMounted.current=false;};},[path]);
   // The buffer's last text, readable after the view is gone. The draft
   // keeper's final flush runs during unmount, AFTER the effect that destroys
@@ -207,7 +257,7 @@ export function PlainFilePane({
   // mount restored "silently" and then saved: a file emptied on disk by
   // switching tabs. Found by dogfooding on this repository, on a file with
   // 159 lines. Never read the buffer through the view alone.
-  const lastTextRef = useRef<string>("");
+  const lastTextRef = useRef(startup?.source.content ?? "");
   const onSourceRef = useRef(onSource);
   onSourceRef.current = onSource;
   const setLiveText = useCallback((text: string) => {
@@ -215,7 +265,7 @@ export function PlainFilePane({
     onSourceRef.current?.(path, text);
     setLiveTextState(text);
   }, [path]);
-  const lsp = useWorkspaceLsp(liveText === null ? "" : path, liveText ?? "");
+  const lsp = useWorkspaceLsp(file === null ? "" : path, liveText ?? "");
   const lspRef = useRef(lsp);
   lspRef.current = lsp;
 
@@ -253,7 +303,29 @@ export function PlainFilePane({
   const saver = useMemo(
     () =>
       createPlainSaver({
-        put: (content, baseHash, force) => api.saveFile(path, content, baseHash, force),
+        put: (content, baseHash, force, guard) => {
+          if (!startup) return api.saveFile(path, content, baseHash, force);
+          if (!guard) throw Error("Saved source authority is unavailable. Reload the exact file before saving.");
+          return api.saveFile(path, content, baseHash, force, guard);
+        },
+        publish: async ({content, baseHash, guard, id}, saverCurrent) => {
+          const namespace = sourceNamespace.current, workspace = sourceWorkspace.current;
+          const current = () => !!namespace && !!workspace && sourceMounted.current && plainOwnership.current &&
+            sourceNamespace.current === namespace && sourceWorkspace.current === workspace && saverCurrent();
+          const hash = await historySourceHash(content);
+          if (!current()) throw Error("The saved source address changed. Keep the draft and refresh Files.");
+          const saved = await request<{
+            version: number; history_protocol: number; path: string; hash: string; save_guard: string;
+            source_hash: string; request_id: string; history: {available: boolean; outcome: string; id: string};
+          }>("PUT", "/api/source-history/file", {version: 1, path, content, base_hash: baseHash, save_guard: guard, request_id: id});
+          if (!current() || saved.version !== 1 || saved.history_protocol !== 1 || saved.path !== path ||
+            saved.request_id !== id || saved.source_hash !== hash || typeof saved.hash !== "string" || !saved.hash ||
+            typeof saved.save_guard !== "string" || !saved.save_guard || saved.history?.available !== true ||
+            saved.history.outcome !== "published" || saved.history.id !== id) {
+            throw Error("The guarded save receipt was not confirmed. The draft is still retained.");
+          }
+          return saved;
+        },
         onState: (state) => {
           setSaveState(state);sourceSignal.changed();
           if (state.kind === "idle" || state.kind === "saved") {
@@ -261,58 +333,124 @@ export function PlainFilePane({
           }
         },
       }),
-    [path],
+    [path, startup],
   );
   actionsRef.current = {
-    revision: () => viewRef.current?.state.doc.toString() ?? lastTextRef.current, isDirty: () => saver.hasPendingEdits(),
-    save: () => saver.flushNow(),
+    revision: () => viewRef.current ? authoredSource(viewRef.current.state) : lastTextRef.current, isDirty: () => saver.hasPendingEdits(),
+    save: () => sourceMounted.current && viewRef.current?.dom.isConnected ? saver.saveNow() : Promise.resolve(!saver.hasPendingEdits()),
     discard: () => {
       const base = saver.discardPending();
       const view = viewRef.current;
-      if (view && view.state.doc.toString() !== base) syncAndFlash(view, base);
+      if (view) syncPlainSource(view, base);
     },
     retain: async () => {
-      const contents = viewRef.current?.state.doc.toString() ?? lastTextRef.current;
-      await api.saveDraft({ path, contents, base: saver.baseContent(), saved_at: Date.now() });
+      const contents = viewRef.current ? authoredSource(viewRef.current.state) : lastTextRef.current;
+      if (startupReadOnly) return;
+      await api.saveDraft({ path, contents, base: saver.baseContent(), saved_at: Date.now(), ...(saver.isDetached() ? {detached: true as const} : {}) });
     },
   };
   useEffect(() => () => saver.dispose(), [saver]);
+  useEffect(() => proposalTabId && proposalOwner ? proposalOwner(proposalTabId, () => {
+    const view = viewRef.current, namespace = sourceNamespace.current, workspace = sourceWorkspace.current;
+    const guard = saver.baseGuard(), base = saver.baseContent(), revision = sourceSignal.revision;
+    if (!view?.dom.isConnected || view.state.readOnly || !namespace || !workspace || !guard || mergeRef.current) return null;
+    const document = view.state.doc, text = authoredSource(view.state);
+    const current = () => sourceMounted.current && viewRef.current === view && view.dom.isConnected
+      && !mergeRef.current && view.state.doc === document && authoredSource(view.state) === text && sourceSignal.revision === revision
+      && sourceNamespace.current === namespace && sourceWorkspace.current === workspace;
+    return { path, text, base, guard, revision, scope: {namespace, workspace}, current,
+      prepareDraft(after): WorkspaceDraftStage | null {
+        const writable = () => current() && plainOwnership.current && !adoptionPending.current && !recoveryPending.current &&
+          !view.composing && !view.state.readOnly && view.state.facet(EditorView.editable);
+        if (!writable() || text === after) return null;
+        const plane = saver.prepareDetach(base, guard);
+        if (!plane) return null;
+        const before = view.state, top = view.scrollDOM.scrollTop, left = view.scrollDOM.scrollLeft;
+        const transaction = before.update({
+          ...plainSourceChanges(before, after), annotations: isolateHistory.of("full"), userEvent: "input.workspace",
+        });
+        if (authoredSource(transaction.state) !== after) return null;
+        let committed = false;
+        const ready = () => writable() && view.state === before && plane.current();
+        return {current: ready,
+          commit() {
+            if (!ready()) throw Error("The named plain editor changed. Review the draft again.");
+            plane.commit(); committed = true;
+            view.update([transaction]);
+            if (view.state !== transaction.state) throw Error("The plain editor did not install its staged draft.");
+          },
+          rollback() {
+            if (!committed) return;
+            committed = false;
+            try {
+              if (view.state !== before) view.setState(before);
+              view.scrollDOM.scrollTop = top;
+              view.scrollDOM.scrollLeft = left;
+              setLiveText(text);
+            } finally {
+              plane.rollback();
+              onUnsavedRef.current?.(saver.hasPendingEdits(), actionsRef.current);
+            }
+          },
+        };
+      },
+    };
+  }) : undefined, [path, proposalOwner, proposalTabId, saver, setLiveText, sourceSignal]);
   // File > Save All: this pane owns its saver, so it answers for its own
   // buffer. See lib/flushSaves.ts.
-  useEffect(() => onFlushSaves(() => saver.flushNow()), [saver]);
+  useEffect(() => onFlushSaves(includeDetached => {
+    if (includeDetached) void saver.saveNow();
+    else void saver.flushNow();
+  }), [saver]);
 
   // The initial read. The pane renders its refusals — binary, too large,
   // missing — as text where the editor would be: the tab is still an honest
   // place, it just has nothing to edit.
   useEffect(() => {
     let live = true;
-    api.file(path).then(
-      (loaded) => {
+    recoveryPending.current = retainUnsaved;
+    plainOwnership.current = false;
+    const read = startup
+      ? startup.authority.then(authority => ({file: authority.file, authority}))
+      : api.file(path).then(file => ({file, authority: null}));
+    read.then(
+      ({file: loaded, authority}) => {
         if (!live) return;
+        if (startup && (!startup.current() || loaded.path !== path)) {
+          setLoadError("The original file request changed. Reopen this read-only preview to check its current source.");
+          return;
+        }
         setFile(loaded);
         setLoadError(null);
         setLiveText(loaded.content);
         lastTextRef.current = loaded.content;
-        saver.load(loaded.content, loaded.hash);
-        void api.files().then(
+        saver.load(loaded.content, loaded.hash, loaded.save_guard);
+        if (authority) {
+          sourceNamespace.current = authority.namespace;
+          sourceWorkspace.current = authority.workspace;
+          plainOwnership.current = !authority.generatedBy;
+          setGeneratedBy(authority.generatedBy);
+          sourceSignal.changed();
+        } else void api.files().then(
           (files) => {
-            if (!live) return;sourceNamespace.current=files.root_path??null;sourceSignal.changed();
-            const find = (nodes: typeof files.tree): string | null => {
+            if (!live) return;sourceNamespace.current=files.root_path??null;sourceWorkspace.current=files.workspace_id??null;sourceSignal.changed();
+            const find = (nodes: typeof files.tree): (typeof files.tree)[number] | undefined => {
               for (const node of nodes) {
-                if (node.path === path) return node.generated_by ?? null;
-                const found = node.children ? find(node.children) : null;
+                if (node.path === path) return node;
+                const found = node.children ? find(node.children) : undefined;
                 if (found) return found;
               }
-              return null;
             };
-            setGeneratedBy(find(files.tree));
+            const node = find(files.tree);
+            plainOwnership.current = loaded.path === path && !!node && !node.dir && !node.doc_id && !node.generated_by;
+            setGeneratedBy(node?.generated_by ?? null);
           },
           () => {
             // The listing is unavailable: the button stays, and the adopt
             // route's own refusal is the backstop.
           },
         );
-        if (!retainUnsaved) return;
+        if (!retainUnsaved || authority?.generatedBy) { recoveryPending.current = false; return; }
         // Was this buffer holding unsaved work when the app last closed?
         //
         // Three answers, and only one of them interrupts anybody. The file is
@@ -321,18 +459,21 @@ export function PlainFilePane({
         // people to dismiss dialogs. The file already says the same thing:
         // the draft is stale, drop it. The file moved on and so did we: that
         // is a merge, and it is worth someone's attention.
+        const recoveryCurrent = () => live && lastTextRef.current === loaded.content &&
+          saver.baseContent() === loaded.content && saver.baseGuard() === (loaded.save_guard ?? null) && !saver.hasPendingEdits();
         void api.drafts().then(
           ({ drafts }) => {
             if (!live) return;
             const draft = drafts.find((d) => d.path === path);
-            if (!draft) return;
+            if (!draft || !recoveryCurrent()) { recoveryPending.current = false; return; }
             const next = draftDisposition(draft, loaded.content);
             if (next.kind === "clean") {
+              recoveryPending.current = false;
               void api.discardDraft(path).catch(() => {});
               return;
             }
             if (next.kind === "restore") {
-              setRestored(next.contents);
+              setRestored({contents: next.contents, detached: draft.detached === true, current: recoveryCurrent});
               return;
             }
             setMerge({
@@ -342,30 +483,38 @@ export function PlainFilePane({
               theirs: next.theirs,
               oursLabel: "Your unsaved changes",
               theirsLabel: "The file on disk",
+              detached: draft.detached === true,
             });
           },
           () => {
+            if (live) recoveryPending.current = false;
             // No draft store on this machine: the file opens as it is on
             // disk, which is what would have happened anyway.
           },
         );
       },
-      (e) => live && setLoadError(e instanceof Error ? e.message : String(e)),
+      (e) => {
+        if (!live) return;
+        recoveryPending.current = false;
+        setLoadError(e instanceof Error ? e.message : String(e));
+      },
     );
     return () => {
       live = false;
     };
-  }, [path, saver, retainUnsaved]);
+  }, [path, saver, retainUnsaved, startup]);
 
   // The view is created ONCE, when the first load lands. Later content
-  // arrives through syncAndFlash below — rebuilding the editor would throw
+  // arrives through syncPlainSource below — rebuilding the editor would throw
   // away the cursor and undo history mid-edit.
-  const loaded = file !== null;
+  const loaded = !!(file || startup);
   const fileRef = useRef(file);
   fileRef.current = file;
   useEffect(() => {
     const host = hostRef.current;
-    const initial = fileRef.current;
+    const initial = fileRef.current ?? (startup && {
+      path, content: startup.source.content, language: languageFromPath(path) ?? "text",
+    });
     if (!host || !initial) return;
 
     // Where a definition landed. This file: select it. Another: the
@@ -386,13 +535,15 @@ export function PlainFilePane({
       openLocation(other, target.range.start.line + 1);
     };
     const lspClient = lspRef.current.client;
-    const lspUri = lspRef.current.uri;
+    const lspUri = documentUri(path);
 
     const view = new EditorView({
       parent: host,
       state: EditorState.create({
-        doc: initial.content,
+        doc: normalizedSource(initial.content),
         extensions: [
+          sourceText(initial.content),
+          startupAccess.of(startup && !fileRef.current ? protectStartupSource : []),
           // The same chrome every editor wears; `code` is the look a
           // `hick:file` body has inside a document, so opening the file and
           // reading the block that writes it are not two different programs.
@@ -525,16 +676,13 @@ export function PlainFilePane({
           EditorView.updateListener.of((u) => {
             // Every change reaches the language server — a reload from disk
             // included, since the server should see what the screen shows.
-            if (u.docChanged) {
-              const text = u.state.doc.toString();
-              lastTextRef.current = text;
-              setLiveText(text);
-            }
+            const text = authoredSource(u.state), edited = text !== authoredSource(u.startState);
+            if (edited) setLiveText(text);
             // Only edits a person made: a programmatic reload is this pane
             // catching up with the disk, and saving it back would write
             // bytes nobody typed.
             if (
-              u.docChanged &&
+              edited &&
               u.transactions.some(
                 (t) =>
                   t.isUserEvent("input") ||
@@ -544,8 +692,8 @@ export function PlainFilePane({
                   t.isUserEvent("redo"),
               )
             ) {
-              onUnsavedRef.current?.(true, actionsRef.current);
-              saver.changed(u.state.doc.toString());
+              saver.changed(text);
+              onUnsavedRef.current?.(saver.hasPendingEdits(), actionsRef.current);
             }
           }),
         ],
@@ -571,8 +719,9 @@ export function PlainFilePane({
     (text: string) => {
       const view = viewRef.current;
       if (!view) return;
-      if (view.state.doc.toString() !== text) syncAndFlash(view, text);
+      syncPlainSource(view, text);
       saver.changed(text);
+      onUnsavedRef.current?.(saver.hasPendingEdits(), actionsRef.current);
     },
     [saver],
   );
@@ -581,20 +730,29 @@ export function PlainFilePane({
   // lands before the editor is built.
   useEffect(() => {
     if (restored === null || !loaded) return;
-    putInBuffer(restored);
+    try {
+      if (restored.current()) {
+        if (restored.detached) saver.restoreDetached();
+        putInBuffer(restored.contents);
+      }
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : String(error));
+    }
+    recoveryPending.current = false;
     setRestored(null);
-  }, [restored, loaded, putInBuffer]);
+  }, [restored, loaded, putInBuffer, saver]);
 
   // Write the buffer down while it differs from the file. Read through a
   // callback so this costs nothing on the typing path — see lib/drafts.ts.
   useDraftKeeper({
     path,
-    enabled: loaded && retainUnsaved,
+    enabled: file !== null && !startupReadOnly && retainUnsaved,
     read: () => ({
       // The view when it exists; what it last held when it does not. An
       // absent view is not an empty buffer.
-      contents: viewRef.current ? viewRef.current.state.doc.toString() : lastTextRef.current,
+      contents: viewRef.current ? authoredSource(viewRef.current.state) : lastTextRef.current,
       base: saver.baseContent(),
+      detached: saver.isDetached() ? true : undefined,
     }),
   });
 
@@ -659,11 +817,9 @@ export function PlainFilePane({
   const adoptDiskCopy = useCallback(
     (fresh: PlainFile) => {
       setFile(fresh);
-      saver.load(fresh.content, fresh.hash);
+      saver.load(fresh.content, fresh.hash, fresh.save_guard);
       const view = viewRef.current;
-      if (view && view.state.doc.toString() !== fresh.content) {
-        syncAndFlash(view, fresh.content);
-      }
+      if (view) syncPlainSource(view, fresh.content);
     },
     [saver],
   );
@@ -673,46 +829,51 @@ export function PlainFilePane({
   // changes ownership and not one byte of content; a refusal (binary,
   // hick:-looking text, a taken document name) lands in the banner.
   const adopt = useCallback(async () => {
+    if (adoptionPending.current || saver.isDetached() && saver.hasPendingEdits()) throw Error("Save or discard the private draft before changing this file's ownership.");
+    adoptionPending.current = true;
     setAdopting(true); setAdoptError(null);
     try {
       const adopted = await api.adopt(path);
+      plainOwnership.current = false;
       setGeneratedBy(adopted.doc_id);
       try { onAdoptedRef.current?.(adopted); return adopted; }
       catch (e) { const navigation_error = e instanceof Error ? e.message : String(e); setNotice(`Created ${adopted.doc_path}, but could not open it: ${navigation_error}`); return { ...adopted, navigation_error }; }
     } catch (e) { setAdoptError(e instanceof Error ? e.message : String(e)); throw e; }
-    finally { setAdopting(false); }
-  }, [path]);
+    finally { adoptionPending.current = false; setAdopting(false); }
+  }, [path, saver]);
 
   /** The merged text becomes the buffer, and the file is reloaded first so
    * the save that follows rides on the hash the disk actually has. */
   const acceptMerge = useCallback(
     async (text: string) => {
       const pending = mergeRef.current, view = viewRef.current;
-      if (!pending || !view?.dom.isConnected || view.state.doc.toString() !== pending.bufferAtOpen) throw new Error("The merge buffer changed. Reopen the merge before accepting.");
-      const captured = view.state.doc;
+      if (!pending || !view?.dom.isConnected || authoredSource(view.state) !== pending.bufferAtOpen) throw new Error("The merge buffer changed. Reopen the merge before accepting.");
+      const captured = authoredSource(view.state);
       const fresh = await api.file(path);
-      if (mergeRef.current !== pending || viewRef.current !== view || !view.dom.isConnected || view.state.doc !== captured) throw new Error("The merge owner changed while checking the disk. No merge was applied.");
+      if (mergeRef.current !== pending || viewRef.current !== view || !view.dom.isConnected || authoredSource(view.state) !== captured) throw new Error("The merge owner changed while checking the disk. No merge was applied.");
       if (fresh.content !== pending.theirs) {
         setMerge({ ...pending, theirs: fresh.content });
         throw new Error("The file changed again on disk. Review the new merge before accepting.");
       }
       saver.resolve("reload");
       adoptDiskCopy(fresh);
+      if (pending.detached) saver.restoreDetached();
       putInBuffer(text);
+      recoveryPending.current = false;
       setMerge(null);
       return { buffer_applied: true, path, saved: false };
     },
     [saver, path, adoptDiskCopy, putInBuffer],
   );
   const launchProfile = async (choose=false) => {
-    const source=viewRef.current?.state.doc.toString();
-    if(source===undefined || !await saver.flushNow())return;
-    if(viewRef.current?.state.doc.toString()!==source)return;
+    const source=viewRef.current && authoredSource(viewRef.current.state);
+    if(source===null || !await saver.flushNow())return;
+    if(!viewRef.current || authoredSource(viewRef.current.state)!==source)return;
     await launchWithProfiles({uri:`hick:///${path}`,expected_source:source},
-      profile=>debug.start(undefined,{},undefined,profile),{choose,isCurrent:()=>viewRef.current?.state.doc.toString()===source});
+      profile=>debug.start(undefined,{},undefined,profile),{choose,isCurrent:()=>!!viewRef.current&&authoredSource(viewRef.current.state)===source});
   };
   useUiReading("plain file status", { path, loaded: !!file, loaded_hash: file?.hash ?? null, generated_by: generatedBy, save: saveState, adopting, adoption_error: adoptError, notice, merge_open: !!merge, error: loadError, scope: "Last loaded file metadata plus current UI/save state; loaded_hash may predate later saves. Read editor source separately. Not an edit approval or verification." }, path);
-  if (loadError) {
+  if (loadError && !startup) {
     return (
       <div className="plain-file-pane">
       <SurfaceInfo name={`File · ${path}`} editable destination="Edits save automatically to this file on disk." />
@@ -723,10 +884,11 @@ export function PlainFilePane({
 
   return (
     <div className="plain-file-pane">
-      <SurfaceInfo name={`File · ${path}`} editable destination="Edits save automatically to this file on disk." />
+      <SurfaceInfo name={`File · ${path}`} editable={!startupReadOnly} destination={startupReadOnly
+        ? "Read-only source preview." : saver.isDetached() ? "Use Save All to publish this private draft." : "Edits save automatically to this file on disk."} />
       <PaneHeaderContent part="actions"><div className="doc-tab-toolbar" role="toolbar" aria-label={`Actions for ${path}`}>
         <MoreActions label={`More actions for ${path}`}>
-        <PlainFileActions path={path} loaded={!!file} generatedBy={generatedBy} saveKind={saveState.kind} adopting={adopting}
+        <PlainFileActions path={path} loaded={!!file && !startupReadOnly} generatedBy={generatedBy} saveKind={saveState.kind} adopting={adopting}
           sourceRevision={() => [fileRef.current?.hash, viewRef.current?.state.doc.toString()]} adopt={adopt} onError={setNotice} />
         </MoreActions>
         {notice && (
@@ -734,6 +896,7 @@ export function PlainFilePane({
             {notice}
           </span>
         )}
+        {saveState.kind === "draft" && <span className="save-state" role="status">Unsaved draft</span>}
         {(saveState.kind === "saving" || saveState.kind === "saved") && (
           <span
             className={`save-state save-state-${saveState.kind === "saving" ? "editing" : "saved"}`}
@@ -748,7 +911,7 @@ export function PlainFilePane({
           Could not adopt {path}: {adoptError}
         </div>
       )}
-      {file && <DiskChangeNotice key={path} path={path} base={saver.baseContent()} source={liveText ?? file.content}
+      {file && !startupReadOnly && <DiskChangeNotice key={path} path={path} base={saver.baseContent()} source={liveText ?? file.content}
         read={async () => { const disk = await api.file(path); return { ...disk, source: disk.content }; }}
         apply={(disk, text) => {
           saver.resolve("reload"); adoptDiskCopy(disk);
@@ -794,7 +957,9 @@ export function PlainFilePane({
         onToggleExceptionFilter={debug.toggleExceptionFilter}
         onRemoveWatch={debug.removeWatch}
       />
-      {!file && <p className="muted">Loading {path}…</p>}
+      {!file && (startup
+        ? <p className="muted" role="status">{loadError ?? "Checking saved source authority…"}</p>
+        : <p className="muted">Loading {path}…</p>)}
       {/* The merge REPLACES the editor rather than floating over it: the two
           sides plus their context need the whole pane to be readable, and a
           modal over the buffer would hide the very text being merged. The
@@ -807,15 +972,15 @@ export function PlainFilePane({
           theirs={merge.theirs}
           oursLabel={merge.oursLabel}
           theirsLabel={merge.theirsLabel}
-          sourceCurrent={() => !!viewRef.current?.dom.isConnected && viewRef.current.state.doc.toString() === merge.bufferAtOpen}
+          sourceCurrent={() => !!viewRef.current?.dom.isConnected && authoredSource(viewRef.current.state) === merge.bufferAtOpen}
           onAccept={acceptMerge}
-          onCancel={() => setMerge(null)}
+          onCancel={() => { recoveryPending.current = false; setMerge(null); }}
         />
       ) : null}
       <div className="output-editor with-right-rail" hidden={merge !== null}>
         <div ref={hostRef} className="editor-cm-host" />
         <RightRail view={railView} />
-        <DebugLaunchRail view={railView} plainPath={path} enabled={!!file && isDebuggable(file.language)} onStart={()=>{void launchProfile();}} onProfiles={()=>{void launchProfile(true);}} />
+        <DebugLaunchRail view={railView} plainPath={path} enabled={!!file && !startupReadOnly && isDebuggable(file.language)} onStart={()=>{void launchProfile();}} onProfiles={()=>{void launchProfile(true);}} />
       </div>
     </div>
   );
@@ -860,9 +1025,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 import { PlainFilePane } from "./PlainFilePane";
+import { undo } from "@codemirror/commands";
 import { api } from "../api/client";
 import * as apiClient from "../api/client";
+import type { RecordedPatchSource } from "../simple/AgentProposalAdapter";
+import { authoredSource } from "../simple/SourceText";
+import { historySourceHash } from "../simple/SourceHistory";
 import type { WorkspaceDraft } from "../api/types";
+import type { StartupPlainFile } from "../views/folderPane";
 import { setSharedRealtime, type Realtime } from "../api/realtime";
 import { createLspChannel, encodeLspFrame, type JsonRpcMessage } from "../lsp/channel";
 import { resetWorkspaceLsp } from "../lsp/useLsp";
@@ -936,7 +1106,98 @@ afterEach(() => {
 ### `expression_statement`
 
 <storycode:copy id="f-d923b2fdae48-expression_statement-3">
+it("promotes the same startup editor and includes its physical guard in later saves", async () => {
+  const path = "startup.py", namespace = "/workspace", workspace = "a".repeat(32), content = "value = 1\n";
+  let confirm!: (value: Awaited<StartupPlainFile["authority"]>) => void;
+  const authority = new Promise<Awaited<StartupPlainFile["authority"]>>(resolve => { confirm = resolve; });
+  const save = vi.spyOn(api, "saveFile").mockRejectedValue(Object.assign(Error("Source file was replaced"), {status: 409}));
+  const startup: StartupPlainFile = {source: {version: 1, path, content, root_path: namespace, workspace_id: workspace},
+    authority, current: () => true};
+  const mounted = render(<PlainFilePane path={path} startup={startup} />);
+  const editor = EditorView.findFromDOM(mounted.container.querySelector<HTMLElement>(".cm-editor")!)!;
+  expect(editor.state.doc.toString()).toBe(content);
+  expect(editor.state.readOnly).toBe(true);
+  act(() => editor.dispatch({changes: {from: 0, insert: "blocked"}, userEvent: "input.type", selection: {anchor: 2}}));
+  expect(editor.state.doc.toString()).toBe(content);
+  expect(save).not.toHaveBeenCalled();
+  act(() => editor.dispatch({selection: {anchor: 2, head: 7}}));
+  const selection = editor.state.selection;
+  expect(selection.main.empty).toBe(false);
+
+  await act(async () => confirm({file: {path, content, language: "python", hash: "base", save_guard: "original-source"},
+    namespace, workspace, generatedBy: null}));
+  expect(EditorView.findFromDOM(mounted.container.querySelector<HTMLElement>(".cm-editor")!)).toBe(editor);
+  expect(editor.state.readOnly).toBe(false);
+  expect(editor.state.selection.eq(selection)).toBe(true);
+  act(() => editor.dispatch({changes: {from: 8, to: 9, insert: "2"}, userEvent: "input.type"}));
+  await waitFor(() => expect(save).toHaveBeenCalledWith(path, "value = 2\n", "base", false, "original-source"));
+  expect(editor.state.doc.toString()).toBe("value = 2\n");
+  expect(save).toHaveBeenCalledTimes(1);
+});
+
 describe("reopening a file that had unsaved changes", () => {
+  it("keeps a private marked recovery draft off the ordinary autosave path", async () => {
+    const recovered = draft({ detached: true });
+    serve({ content: ON_DISK, drafts: [recovered] });
+    const view = render(<PlainFilePane path="notes.md" retainUnsaved />);
+    await screen.findByText("Unsaved draft");
+    const editor = EditorView.findFromDOM(view.container.querySelector<HTMLElement>(".cm-editor")!)!;
+    expect(authoredSource(editor.state)).toBe(recovered.contents);
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 650)); });
+    expect(api.saveFile).not.toHaveBeenCalled();
+    await act(async () => view.unmount());
+    expect(api.saveDraft).toHaveBeenCalledWith(expect.objectContaining({ contents: recovered.contents, base: ON_DISK, detached: true }));
+    expect(api.saveFile).not.toHaveBeenCalled();
+  });
+
+  it("prepares a byte-exact detached transaction and publishes only the explicit guarded Save", async () => {
+    const base = "one\r\ntwo 😀\r\nthree\n", after = "one\r\nchanged 😀\r\nthree\n";
+    const path = "notes.md", workspace = "a".repeat(32);
+    serve({ content: base, drafts: [] });
+    vi.mocked(api.file).mockResolvedValue({path, content: base, language: "markdown", hash: "original-hash", save_guard: "original-guard"});
+    vi.mocked(api.files).mockResolvedValue({root: "notebook", root_path: "/workspace", workspace_id: workspace, tree: [{name: path, path, dir: false}]});
+    const originalRequest = apiClient.request;
+    const publish = vi.fn(async (_method: string, _route: string, raw?: unknown) => {
+      const body = raw as {request_id: string; content: string};
+      return {version: 1, history_protocol: 1, path, hash: "saved-hash", save_guard: "next-guard", request_id: body.request_id,
+        source_hash: await historySourceHash(body.content), history: {available: true, outcome: "published", id: body.request_id}};
+    });
+    vi.spyOn(apiClient, "request").mockImplementation(async <T,>(method: string, route: string, raw?: unknown) =>
+      route === "/api/source-history/file" ? await publish(method, route, raw) as T : originalRequest<T>(method, route, raw));
+    let read = (): RecordedPatchSource | null => null;
+    let save = async () => false;
+    const view = render(<PlainFilePane path={path} proposalTabId="original-tab"
+      proposalOwner={(_tab, owner) => { read = owner; return () => {}; }}
+      onUnsaved={(_dirty, actions) => { save = actions.save; }} />);
+    await waitFor(() => expect(read()?.prepareDraft?.(after)?.current()).toBe(true));
+    const editor = EditorView.findFromDOM(view.container.querySelector<HTMLElement>(".cm-editor")!)!;
+    act(() => editor.dispatch({selection: {anchor: 1, head: 3}}));
+    const originalSelection = editor.state.selection;
+    const aborted = read()!.prepareDraft!(after)!;
+    act(() => { aborted.commit(); aborted.rollback(); });
+    expect(EditorView.findFromDOM(view.container.querySelector<HTMLElement>(".cm-editor")!)).toBe(editor);
+    expect(editor.state.selection.eq(originalSelection)).toBe(true);
+    expect(authoredSource(editor.state)).toBe(base);
+    act(() => { expect(undo(editor)).toBe(false); });
+    act(() => read()!.prepareDraft!(after)!.commit());
+    expect(authoredSource(editor.state)).toBe(after);
+    expect(EditorView.findFromDOM(view.container.querySelector<HTMLElement>(".cm-editor")!)).toBe(editor);
+    act(() => { expect(undo(editor)).toBe(true); });
+    expect(authoredSource(editor.state)).toBe(base);
+    act(() => read()!.prepareDraft!(after)!.commit());
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 650)); });
+    expect(api.saveFile).not.toHaveBeenCalled();
+    expect(publish).not.toHaveBeenCalled();
+    await act(async () => { expect(await save()).toBe(true); });
+    expect(publish).toHaveBeenCalledOnce();
+    expect(publish).toHaveBeenCalledWith("PUT", "/api/source-history/file", expect.objectContaining({
+      version: 1, path, content: after, base_hash: "original-hash", save_guard: "original-guard",
+    }));
+    expect(read()?.base).toBe(after);
+    expect(read()?.guard).toBe("next-guard");
+    expect(api.saveFile).not.toHaveBeenCalled();
+  });
+
   it("puts the unsaved text back, without asking", () => {
     // The common case by a wide margin. A dialog here would train people to
     // dismiss dialogs, and the work is theirs — nothing was lost or decided.

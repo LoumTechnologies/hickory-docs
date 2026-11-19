@@ -343,11 +343,11 @@ tab, size and collapse survives exactly as it was.
  * the focused pane. The rest of the layout is untouched — every other pane,
  * tab, size and collapse survives exactly as it was.
  */
-export function openDocTab(layout: Layout, docId: string, path: string, preferred?: string): Layout {
+export function openDocTab(layout: Layout, docId: string, path: string, preferred?: string, observed?: Tab): Layout {
   const existing = findDocTab(layout, docId);
   if (existing) return activate(layout, existing.pane.id, existing.index);
   const into = preferred && panes(layout.root).some(pane => pane.id === preferred) ? preferred : openablePane(layout);
-  const entry = makeTab("document", path, path.split("/").pop(), docId);
+  const entry = observed ?? makeTab("document", path, path.split("/").pop(), docId);
   if (into) return openInLayout(layout, entry, into);
   // Every pane is the tree's (or there are none): give the document a pane
   // of its own beside the tree rather than burying the folder under it.
@@ -506,11 +506,11 @@ docId because no document owns it.
  * in the focused pane — the same "ensure open" a document gets, with no
  * docId because no document owns it.
  */
-export function openFileTab(layout: Layout, path: string, preferred?: string): Layout {
+export function openFileTab(layout: Layout, path: string, preferred?: string, observed?: Tab): Layout {
   const existing = findFileTab(layout, path);
   if (existing) return activate(layout, existing.pane.id, existing.index);
   const into = preferred && panes(layout.root).some(pane => pane.id === preferred) ? preferred : openablePane(layout);
-  const entry = makeTab("file", path, path.split("/").pop());
+  const entry = observed ?? makeTab("file", path, path.split("/").pop());
   if (into) return openInLayout(layout, entry, into);
   const grown = split(layout, layout.focus, "row");
   return openInLayout(grown, entry, grown.focus);

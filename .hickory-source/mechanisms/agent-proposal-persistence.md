@@ -82,7 +82,7 @@ mod tests {
  fn review()->Review{
   let intention=super::super::super::tests::intention();let workspace="original-live-runtime".to_string();let namespace="/original/source/address".to_string();let origin_authority="caller claim, not an observed verdict".to_string();
   let material=serde_json::to_string(&json!({"version":1,"intention":intention,"workspace":workspace,"namespace":namespace,"origin_authority":origin_authority})).unwrap();
-  Review{token:nonce().unwrap(),fingerprint:digest(material.as_bytes()),material,origin_authority,intention,workspace,namespace,plan:resource_changes::ResourcePlan{version:1,context:"archive-witness".into(),title:"historical reading".into(),patches:vec![],annotations:vec![]}}
+  Review{token:nonce().unwrap(),fingerprint:digest(material.as_bytes()),material,origin_authority,intention,workspace,namespace,recorded_diff:None,plan:resource_changes::ResourcePlan{version:1,context:"archive-witness".into(),title:"historical reading".into(),patches:vec![],annotations:vec![]}}
  }
  #[test]
  fn standard_keyed_seal_matches_rfc4231_and_refuses_modified_material(){

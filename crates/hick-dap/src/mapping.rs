@@ -116,6 +116,45 @@ impl Mapping {
             captured: Some((id.into(), root)),
         })
     }
+    /// A selected fence reads and debugs in the original recorded message coordinates.
+    pub fn recorded_fence(
+        tree: &hick_lang::ProjectTree,
+        workdir: &Path,
+        id: &str,
+        program: &str,
+    ) -> Result<Self> {
+        let message = hick_lsp::ProjectContext::RECORDED_MESSAGE;
+        let document = PathBuf::from(
+            hick_lsp::ProjectContexts::source_uri(id, message).map_err(anyhow::Error::msg)?,
+        );
+        let source = std::str::from_utf8(
+            &tree.get(message).ok_or_else(|| anyhow::anyhow!("Recorded message expired"))?.bytes,
+        )?;
+        let program_entry = tree.get(program).ok_or_else(|| anyhow::anyhow!("Selected recorded fence expired"))?;
+        let mut covered = 0;
+        for origin in &program_entry.origins {
+            let output = program_entry.bytes.get(origin.output.0..origin.output.1);
+            let recorded = source.as_bytes().get(origin.source.0..origin.source.1);
+            anyhow::ensure!(origin.document == message && origin.output.0 == covered && output.is_some() && output == recorded,
+                "Selected fence bytes do not match the recorded message. Refresh the conversation and choose the fence again.");
+            covered = origin.output.1;
+        }
+        anyhow::ensure!(covered == program_entry.bytes.len(), "Selected fence contains unmapped bytes. Choose the fence again.");
+        let sources = std::sync::Arc::new(
+            std::collections::BTreeMap::from([(message.into(), source.into())]),
+        );
+        let positions = hick_lsp::position_map::PositionMap::for_project(program_entry, sources, message)
+            .map_err(anyhow::Error::msg)?;
+        Ok(Self {
+            observation_document: Some(document.clone()),
+            observation_source: Some(source.as_bytes().to_vec()),
+            source_hashes: HashMap::from([(document.clone(), Self::source_digest(source.as_bytes()))]),
+            files: HashMap::from([(workdir.canonicalize()?.join(program), positions)]),
+            document,
+            plain: false,
+            captured: None,
+        })
+    }
     /// The mapping for a file that is not a document — `src/main.rs`,
     /// `app.py` — debugged as itself, at its own path.
     ///
@@ -264,6 +303,11 @@ impl Mapping {
         }
         let map = self.file_map(path)?;
         let (document, line, _) = map.source_document(line, 0)?;
+        if document.as_deref() == Some(hick_lsp::ProjectContext::RECORDED_MESSAGE)
+            && self.document.to_string_lossy().starts_with("hick-project:///")
+        {
+            return Some((self.document.clone(), line));
+        }
         Some((
             document
                 .map(|name| self.document.parent().unwrap_or(Path::new(".")).join(name))

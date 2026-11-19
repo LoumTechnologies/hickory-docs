@@ -358,6 +358,11 @@ merged result. Region choices supply its initial result; free edits remain a
 preview until Accept. Changing a region choice rebuilds that result, so choices
 should precede free editing. No exec action runs from this preview.
 
+A recovered managed draft can require this review even when the saved bytes
+match its base. Compare the reviewed physical guard with a fresh read and
+require an explicit choice. Acceptance gives the editor a new local baseline
+for a later Save.
+
 <storycode:copy id="disk-change-choice">
 function LiterateMergePreview({ path, source, onChange, readOnly }: {
   path: string; source: string; onChange: (text: string) => void; readOnly: boolean;
@@ -376,13 +381,17 @@ function LiterateMergePreview({ path, source, onChange, readOnly }: {
   </section>;
 }
 
-export function DiskChangeNotice<T extends { source: string }>({ path, base, source, read, apply }: {
+export function DiskChangeNotice<T extends { source: string }>({ path, base, source, read, apply, reviewGuard, reviewRequired = false }: {
   path: string; base: string; source: string;
   read: () => Promise<T>;
   apply: (disk: T, text: string) => void | Promise<void>;
+  /** Compare the physical identities from the reviewed and fresh reads. */
+  reviewGuard?: (disk: T) => string | undefined;
+  /** Keep the review available when the text agrees with the saved source. */
+  reviewRequired?: boolean;
 }) {
-  const current = useRef({ base, source, read, apply });
-  current.current = { base, source, read, apply };
+  const current = useRef({ base, source, read, apply, reviewGuard, reviewRequired });
+  current.current = { base, source, read, apply, reviewGuard, reviewRequired };
   const [pending, setPending] = useState<T | null>(null);
   const [merge, setMerge] = useState<{ base: string; ours: string; disk: T } | null>(null);
   const [error, setError] = useState("");
@@ -396,11 +405,17 @@ export function DiskChangeNotice<T extends { source: string }>({ path, base, sou
   const applying = useRef(false);
   const accept = async (disk: T, text: string, expected: string) => {
     if (applying.current) return false;
+    const guard = current.current.reviewGuard;
     applying.current = true; setBusy(true); setError("");
     try {
       const fresh = await current.current.read();
       if (!mounted.current) return false;
       if (fresh.source !== disk.source) { setPending(fresh); setMerge(null); throw new Error("The file changed again. Review its latest version."); }
+      if (!!guard !== !!current.current.reviewGuard) throw new Error("The editor's source review changed. Choose again.");
+      if (guard && (!guard(disk) || guard(disk) !== guard(fresh))) {
+        setPending(fresh); setMerge(null);
+        throw new Error("Saved source identity changed or could not be verified. Review the saved source again.");
+      }
       if (current.current.source !== expected) throw new Error("Your buffer changed. Its newer edits were kept; choose again.");
       await current.current.apply(fresh, text);
       ignored.current = null; setPending(null); setMerge(null);
@@ -418,12 +433,12 @@ export function DiskChangeNotice<T extends { source: string }>({ path, base, sou
         const disk = await current.current.read();
         if (!live) return;
         const now = current.current;
-        if (disk.source === now.base || disk.source === now.source) { setPending(null); return; }
+        if (!now.reviewRequired && (disk.source === now.base || disk.source === now.source)) { setPending(null); return; }
         if (disk.source === ignored.current) return;
         setPending(disk);
         let auto = automatic;
         try { auto = localStorage.getItem("hickory.reload-unmodified") === "true"; } catch { /* Per-view fallback. */ }
-        if (auto && now.source === now.base) void acceptRef.current(disk, disk.source, now.source);
+        if (auto && !now.reviewGuard && now.source === now.base) void acceptRef.current(disk, disk.source, now.source);
       } catch { /* Unreadable files never replace a surviving buffer. */ }
       finally { reading = false; }
     };
@@ -433,9 +448,10 @@ export function DiskChangeNotice<T extends { source: string }>({ path, base, sou
     window.addEventListener("hickory:files-changed", run);
     run();
     return () => { live = false; clearInterval(timer); window.removeEventListener("focus", run); window.removeEventListener("hickory:files-changed", run); };
-  }, [path, automatic]);
+  }, [path, automatic, reviewRequired]);
   const parent = `disk-change:${useId()}`;
-  const revision = useUiRevision(() => [path, current.current.base, current.current.source, pending?.source, ignored.current, busy, automatic, !!merge]);
+  const revision = useUiRevision(() => [path, current.current.base, current.current.source, pending?.source,
+    pending && current.current.reviewGuard?.(pending), ignored.current, busy, automatic, !!merge]);
   const invoke = useUiCommands((["reload", "ignore", "merge", "automatic", "review"] as const).map((operation): { key: string; command: UiCommand } => ({ key: `${parent}:${operation}`, command: {
     parent, subject: path,
     label: ({ reload: "Reload disk version and discard unsaved buffer", ignore: "Ignore disk changes without writing", merge: "Open literate merge editor", automatic: "Set safe automatic reload preference", review: "Review ignored disk changes" })[operation],
@@ -460,10 +476,10 @@ export function DiskChangeNotice<T extends { source: string }>({ path, base, sou
   } })));
   const human = (operation: string, args: Parameters<typeof invoke>[1] = {}) => { void invoke(`${parent}:${operation}`, args).catch(e => setError(e instanceof Error ? e.message : String(e))); };
   const preference = <label><input type="checkbox" checked={automatic} onChange={event => human("automatic", { enabled: event.target.checked })} />Always reload when no unsaved changes would be lost</label>;
-  if (!pending) return ignored.current === null ? (automatic ? preference : null) : <p role="status">Disk changes ignored. Your buffer was kept. <button type="button" className="btn" onClick={() => human("review")}>Review disk changes</button></p>;
+  if (!pending) return ignored.current === null ? (automatic && !reviewGuard ? preference : null) : <p role="status">Disk changes ignored. Your buffer was kept. <button type="button" className="btn" onClick={() => human("review")}>Review disk changes</button></p>;
   const dirty = source !== base;
   return <section className="banner" aria-label={`Disk changes for ${path}`}>
-    <p role="status">{path} changed on disk.{dirty ? " Reloading will discard your unsaved changes." : " You can reload without losing changes."}</p>
+    <p role="status">{reviewRequired ? "Review the saved source before publishing this recovered draft." : `${path} changed on disk.`}{dirty ? " Reloading will discard your unsaved changes." : " You can reload without losing changes."}</p>
     {error && <p role="alert">{error}</p>}
     {merge ? <MergeView literate path={path} base={merge.base} ours={merge.ours} theirs={merge.disk.source}
       sourceCurrent={() => current.current.source === merge.ours && !applying.current}
@@ -471,7 +487,7 @@ export function DiskChangeNotice<T extends { source: string }>({ path, base, sou
       <button type="button" className="btn" disabled={busy} onClick={() => human("ignore")}>Ignore disk changes</button>
       <button type="button" className="btn" disabled={busy} onClick={() => human("reload")}>{dirty ? "Reload and discard unsaved changes" : "Reload from disk"}</button>
       {dirty ? <button type="button" className="btn" disabled={busy} onClick={() => human("merge")}>Merge changes</button> :
-        preference}
+        !reviewGuard && preference}
     </>}
   </section>;
 }

@@ -5,6 +5,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.viewModels
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
@@ -16,17 +17,23 @@ import androidx.compose.ui.input.key.*
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
+    private val workspace: Workspace by viewModels()
+
     override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState); enableEdgeToEdge()
-        setContent { MaterialTheme { Surface { SimpleWorkspace(viewModel(), intent.getStringExtra("hickory_api_origin")) } } }
+        super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
+        workspace.connectFromLaunch(
+            intent.getStringExtra("hickory_api_origin"),
+            intent.getStringExtra("hickory_open_file"),
+        )
+        setContent { MaterialTheme { Surface { SimpleWorkspace(workspace) } } }
     }
 }
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
-@Composable fun SimpleWorkspace(workspace: Workspace, initialAddress: String? = null) {
+@Composable fun SimpleWorkspace(workspace: Workspace) {
     var connection by remember { mutableStateOf(workspace.engine == null) }
     val scope = rememberCoroutineScope()
     val workspaceFocus = LocalFocusManager.current
@@ -38,11 +45,8 @@ class MainActivity : ComponentActivity() {
     val context = androidx.compose.ui.platform.LocalContext.current
     val descriptors=remember {runCatching {context.assets.open("commands.json").bufferedReader().use {commandDescriptors(it.readText())}}.getOrDefault(emptyList())}
     val commands=workspace.commands(descriptors,mapOf("file.connect" to {connection=true},"file.window" to {context.startActivity(android.content.Intent(context,MainActivity::class.java).putExtra("hickory_api_origin",workspace.address).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_DOCUMENT or android.content.Intent.FLAG_ACTIVITY_MULTIPLE_TASK));Unit}))
-    LaunchedEffect(initialAddress) {
-        if (workspace.engine == null && workspace.address.isEmpty() && !initialAddress.isNullOrEmpty()) {
-            workspace.address = initialAddress
-            connection = !workspace.connect()
-        }
+    LaunchedEffect(workspace.engine) {
+        if (workspace.engine != null) connection = false
     }
     BackHandler(workspace.hasUnsavedChanges) { workspace.status = "Save your documents before leaving this workspace." }
     Column(Modifier.fillMaxSize().safeDrawingPadding().imePadding().onPreviewKeyEvent {
@@ -95,7 +99,7 @@ class MainActivity : ComponentActivity() {
     if(workspace.showEverywhere) androidx.compose.ui.window.Dialog(onDismissRequest={workspace.showEverywhere=false;workspace.currentBuffer?.focusSource?.invoke()}) {Surface {SearchEverywhereView(workspace,commands)}}
     if (workspace.changes.mode != null) androidx.compose.ui.window.Dialog(onDismissRequest={workspace.changes.close(workspace)}) { Surface { WorkspaceChangesView(workspace) } }
     if (workspace.showWorkspaceSearch) androidx.compose.ui.window.Dialog(onDismissRequest = { workspace.showWorkspaceSearch = false; workspace.search.revision = java.util.UUID.randomUUID(); workspace.currentBuffer?.focusSource?.invoke() }) { Surface { WorkspaceSearchView(workspace) } }
-    if (connection) AlertDialog(onDismissRequest = { connection = false }, title = { Text("Workspace server") }, text = {
+    if (connection && (workspace.engine != null || !workspace.connecting)) AlertDialog(onDismissRequest = { connection = false }, title = { Text("Workspace server") }, text = {
         Column {
             OutlinedTextField(workspace.address, { workspace.address = it }, label = { Text("Workspace server") }, singleLine = true)
             Text("Use a host reachable from this device. For an emulator, adb reverse can forward the backend port.", fontSize = 12.sp)

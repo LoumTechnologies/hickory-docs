@@ -131,6 +131,8 @@ impl Registry {
                 .projects
                 .get(&tower_lsp::lsp_types::Url::parse(uri)?)
                 .map_err(anyhow::Error::msg)?;
+            anyhow::ensure!(capture.recorded_fence.is_none(),
+                "A recorded message uses its own pinned fence Debug action. Return to the message to launch it.");
             return Ok(LaunchContext {
                 inputs: LaunchInputs::Constructed(capture.tree.clone()),
                 root: root.into(),

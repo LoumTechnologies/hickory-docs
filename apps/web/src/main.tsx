@@ -24,9 +24,6 @@ const stopOpeningNotice = subscribeStartup(() => {
   if (status) status.textContent = startupNotice() ?? "Opening Hickory Docs…";
 });
 async function boot() {
-  // Fetch the application, parser and keymap together. A static App import
-  // would delay these requests until the whole editor bundle had been parsed.
-  // Editors need the parser and their configured bindings before mounting.
   if (!MOCK) {
     try {
       const privateSession = await request<PrivatePredictionState>("GET", "/api/prediction/state");
@@ -45,12 +42,15 @@ async function boot() {
       }
     }
   }
-  const [{ App }] = await Promise.all([import("./App"), loadHickLang(), loadKeymap()]);
+  const application = import("./App");
+  void loadHickLang().catch(() => { /* Parser availability is published to its consumers. */ });
+  const { App } = await application;
   if (MOCK) {
     const { installMockApi, mockRealtime } = await import("./mock/mockApi");
     installMockApi();
     setSharedRealtime(mockRealtime);
   }
+  void loadKeymap();
   stopOpeningNotice();
   createRoot(document.getElementById("root")!).render(
     <StrictMode>

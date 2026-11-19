@@ -106,6 +106,85 @@ fn editing_root(state: &LocalState, target: &str) -> ApiResult<(PathBuf, String)
     ))
 }
 
+pub async fn startup_source(
+    State(state): State<LocalState>,
+    Query(q): Query<PlainFileQuery>,
+) -> ApiResult<Json<Value>> {
+    if !state.folder_open {
+        return Err(ApiError::not_found("Open a workspace before requesting a source file."));
+    }
+    tokio::task::spawn_blocking(move || {
+        let root = state.index.root().canonicalize().map_err(|error| {
+            ApiError::not_found(format!("Cannot open the workspace folder: {error}. Reopen it and retry."))
+        })?;
+        let content = observe_startup_source(&root, &q.path)?;
+        let workspace_id = state.resource_root.check(state.index.root()).ok();
+        // A managed preview can mount the eventual editor identity without
+        // registering a room or claiming that this observation authorizes edits.
+        let doc_id = FsPath::new(&q.path).extension().is_some_and(|ext| ext == "md")
+            .then(|| state.index.id_for_path(&q.path));
+        let mut response = json!({"version":1,"path":q.path,"content":content,
+            "root_path":root.to_string_lossy(),"workspace_id":workspace_id});
+        if let Some(doc_id) = doc_id {
+            response["doc_id"] = json!(doc_id);
+        }
+        Ok(Json(response))
+    }).await.map_err(|error| ApiError::internal(format!("Startup source read failed: {error}. Reopen the workspace.")))?
+}
+
+fn observe_startup_source(root: &FsPath, relative: &str) -> ApiResult<String> {
+    use std::io::Read;
+    super::resource_changes::validate_path(relative).map_err(ApiError::bad_request)?;
+    let path = super::workspace_fs::view::confined(root, relative)
+        .map_err(|error| ApiError::forbidden(format!("Cannot open {relative:?}: {error}. Choose the exact workspace file.")))?;
+    let unavailable = |error| ApiError::not_found(format!(
+        "Cannot read {relative:?}: {error}. Check the path and open the file again."
+    ));
+    let file = open_startup_file(root, relative, &path).map_err(unavailable)?;
+    let identity = same_file::Handle::from_file(file).map_err(unavailable)?;
+    if !identity.as_file().metadata().map_err(unavailable)?.is_file() {
+        return Err(ApiError::unprocessable("Choose an ordinary text file in the workspace."));
+    }
+    let mut bytes = Vec::new();
+    identity.as_file().take(MAX_PLAIN_FILE_BYTES + 1).read_to_end(&mut bytes).map_err(unavailable)?;
+    if bytes.len() as u64 > MAX_PLAIN_FILE_BYTES {
+        return Err(ApiError::unprocessable("Choose a text file smaller than 10 MiB."));
+    }
+    if !path.canonicalize().map_err(unavailable)?.starts_with(root)
+        || same_file::Handle::from_path(&path).map_err(unavailable)? != identity {
+        return Err(ApiError::conflict("Source moved while opening it. Choose its current path."));
+    }
+    String::from_utf8(bytes).map_err(|_| ApiError::unprocessable("This startup file is not UTF-8 text. Choose a text file."))
+}
+
+// A symlink substituted after the initial path check cannot redirect a read.
+#[cfg(unix)]
+fn open_startup_file(root: &FsPath, relative: &str, _path: &FsPath) -> std::io::Result<std::fs::File> {
+    use std::{ffi::CString, os::fd::{AsRawFd, FromRawFd}, os::unix::fs::OpenOptionsExt};
+    let mut directory = std::fs::OpenOptions::new().read(true)
+        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC).open(root)?;
+    let mut parts = relative.split('/').peekable();
+    while let Some(part) = parts.next() {
+        let part = CString::new(part)?;
+        let flags = libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK;
+        let flags = if parts.peek().is_some() { flags | libc::O_DIRECTORY } else { flags };
+        // `directory` owns the parent FD and `part` is NUL-terminated.
+        let descriptor = unsafe { libc::openat(directory.as_raw_fd(), part.as_ptr(), flags) };
+        if descriptor < 0 { return Err(std::io::Error::last_os_error()); }
+        // A successful openat yields a newly owned FD.
+        directory = unsafe { std::fs::File::from_raw_fd(descriptor) };
+    }
+    Ok(directory)
+}
+
+#[cfg(not(unix))]
+fn open_startup_file(root: &FsPath, _relative: &str, path: &FsPath) -> std::io::Result<std::fs::File> {
+    if !path.canonicalize()?.starts_with(root) {
+        return Err(std::io::Error::new(std::io::ErrorKind::PermissionDenied, "path leaves the workspace"));
+    }
+    std::fs::File::open(path)
+}
+
 /// `GET /api/file?path=…` — the file's text, its language tag, and the
 /// content hash a later save passes back as `base_hash`.
 pub async fn get_file(
@@ -405,6 +484,27 @@ mod tests {
         assert_eq!(found[0]["parameters"][2]["variadic"], true);
         assert_eq!(found[0]["parameters"][2]["required"], false);
         assert_eq!(found[1]["name"], "tools::test");
+    }
+
+    #[test]
+    fn startup_read_observes_text_without_crossing_the_workspace() {
+        let source = "A literal café 😀\r\n";
+        let fixture = root_with(&[("nested/README #é.md", source.as_bytes()),
+            ("nested/binary", &[0xff]), ("sessions/private.md", b"history")]);
+        let root = fixture.path().canonicalize().unwrap();
+        assert_eq!(observe_startup_source(&root, "nested/README #é.md").unwrap(), source);
+        for path in ["", "nested", "nested//README #é.md", "nested/../nested/README #é.md",
+            "nested/binary", "sessions/private.md", "/etc/passwd"] {
+            assert!(observe_startup_source(&root, path).is_err(), "{path}");
+        }
+        #[cfg(unix)] {
+            let outside = root_with(&[("private.md", b"outside")]);
+            use std::os::unix::fs::symlink;
+            symlink(outside.path(), root.join("alias")).unwrap();
+            symlink(outside.path().join("private.md"), root.join("alias.md")).unwrap();
+            assert!(observe_startup_source(&root, "alias/private.md").is_err());
+            assert!(observe_startup_source(&root, "alias.md").is_err());
+        }
     }
 
     fn root_with(files: &[(&str, &[u8])]) -> tempfile::TempDir {

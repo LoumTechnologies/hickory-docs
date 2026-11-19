@@ -45,7 +45,14 @@ func nativeMathResource(roots: [URL], bundles: [Bundle] = [.main, Bundle(for: Ma
     let installed = roots.flatMap { root in
         [root, root.appendingPathComponent("HickorySimple_HickorySimple.bundle"), root.appendingPathComponent("HickorySimple_HickorySimple.resources")]
     } + bundles.flatMap { [$0.bundleURL] + [$0.resourceURL].compactMap { $0 } }
-    for root in installed {
+    #if SWIFT_PACKAGE
+    let testResources = bundles.filter { $0.bundleURL.pathExtension == "xctest" }.map {
+        $0.bundleURL.deletingLastPathComponent().appendingPathComponent("HickorySimple_HickorySimple.bundle")
+    }
+    #else
+    let testResources: [URL] = []
+    #endif
+    for root in installed + testResources {
         for relative in ["HickoryAssets/Resources/math.html", "Resources/math.html", "Contents/Resources/Resources/math.html", "Contents/Resources/math.html", "math.html"] {
             let url = root.appendingPathComponent(relative)
             if FileManager.default.isReadableFile(atPath: url.path) { return url }
@@ -99,7 +106,8 @@ struct NativeInlineTerminal: View {
                 .font(.system(size: 11, design: .monospaced)).padding(6).background(Color(red: 0.11, green: 0.15, blue: 0.2))
             NativeMathView(source: text, diagramRenderer: text.contains("\u{1e}HICKORY_DISPLAY ") ? "notebook" : "terminal")
         }.foregroundStyle(Color(red: 0.9, green: 0.93, blue: 0.95)).background(Color(red: 0.06, green: 0.08, blue: 0.11))
-            .clipShape(RoundedRectangle(cornerRadius: 6)).overlay(RoundedRectangle(cornerRadius: 6).stroke(.gray.opacity(0.5))).accessibilityLabel("Output terminal")
+            .clipShape(RoundedRectangle(cornerRadius: 6)).overlay(RoundedRectangle(cornerRadius: 6).stroke(.gray.opacity(0.5)))
+            .accessibilityElement(children: .contain).accessibilityLabel("Output terminal")
     }
 }
 struct NativeDiagramPreview: View {

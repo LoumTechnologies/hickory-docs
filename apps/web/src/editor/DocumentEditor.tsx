@@ -15,7 +15,9 @@ import {
   history,
   historyKeymap,
   indentWithTab,
+  isolateHistory,
 } from "@codemirror/commands";
+import { computeEdits } from "../lib/diff";
 import { persistentSearchHighlights } from "../lib/workspaceSearch";
 import { search, searchKeymap } from "@codemirror/search";
 import { wordMotionBindings } from "./wordMotion";
@@ -23,14 +25,16 @@ import { requestMenuAction } from "../lib/menuBridge";
 import { unwrapParagraphs } from "./unwrapParagraphs";
 import * as Y from "yjs";
 import { Awareness } from "y-protocols/awareness";
-import { yCollab } from "y-codemirror.next";
+import { yCollab, ySyncFacet } from "y-codemirror.next";
 import type { Extension } from "@codemirror/state";
-import { EnvRegistry, setVerifiedExpects, structureOf, wysiwyg } from "./wysiwyg";
+import { EnvRegistry, parserBecameReady, setVerifiedExpects, structureOf, wysiwyg } from "./wysiwyg";
+import { hickLangReady, useHickLangStatus } from "./hickLang";
+import type { StartupManagedDocument } from "../views/folderPane";
 import { taskCheckboxes } from "./taskList";
 import { renderedMath } from "./mathRender";
 import { completions } from "../lsp/completion";
-import { EditorRuler } from "./EditorRuler";
-import { WRAP_DEFAULT, proseWrap } from "./wrapColumn";
+import { useUiCommands, useUiRevision } from "../lib/uiActionBridge";
+import { WRAP_DEFAULT, WRAP_MIN, WRAP_MAX, proseWrap } from "./wrapColumn";
 import { editorChrome, paneSearch } from "./chrome";
 import { blameGutter } from "./blameGutter";
 import { useBlame } from "./useBlame";
@@ -100,6 +104,9 @@ export interface DocumentEditorProps {
   docId: string;
   /** Initial .md source, used to seed the Y.Doc when it is empty. */
   initialSource: string;
+  startup?: StartupManagedDocument;
+  startupAuthorized?: boolean;
+  onStartupRoomReady?: () => void;
   realtime: Realtime;
   onChange?: (source: string) => void;
   /** Byte span to select (provenance click-through from the Output view). */
@@ -199,15 +206,31 @@ export function continueList(view: EditorView): boolean {
  * action rail beside the editor, so the left gutter's numbers and the right
  * rail's never skip. See editor/CardRail.tsx.
  */
+type DocumentDraftBinding = {
+  roomSource: () => string;
+  prepare: (before: string, after: string) => {
+    current: () => boolean;
+    commit: () => void;
+    rollback: () => void;
+  } | null;
+};
+const documentDraftBindings = new WeakMap<EditorView, DocumentDraftBinding>();
+export function documentDraftBinding(view: EditorView) {
+  return documentDraftBindings.get(view);
+}
+
 export function DocumentEditor({
   capturedProject,
   editorExtensions = [],
   preserveBytes = false,
   comparisonBase = null,
-  readOnly = false,
+  readOnly: explicitReadOnly = false,
   docId,
   reflowOnOpen = docId !== "untitled",
   initialSource,
+  startup,
+  startupAuthorized = false,
+  onStartupRoomReady,
   realtime,
   onChange,
   selectSpan,
@@ -230,6 +253,41 @@ export function DocumentEditor({
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
   const access = useMemo(() => new Compartment(), []);
+  const parserProtection = useMemo(() => new Compartment(), []);
+  const collaboration = useMemo(() => new Compartment(), []);
+  const languageServices = useMemo(() => new Compartment(), []);
+  const completionServices = useMemo(() => new Compartment(), []);
+  const parserStatus = useHickLangStatus();
+  const parserInstalled = useRef<EditorView | null>(null);
+  const startStartupRoom = useRef<(() => void) | null>(null);
+  const [startupRoomReady, setStartupRoomReady] = useState(false);
+  const [startupRoomError, setStartupRoomError] = useState<string | null>(null);
+  const restoringDraft = useRef(0);
+  const readOnly = explicitReadOnly || parserStatus !== "ready" || !!startup && !startupRoomReady;
+  const sourceAccess = useMemo(() => [
+    EditorState.readOnly.of(readOnly), EditorView.editable.of(!readOnly),
+    EditorState.transactionFilter.of(tr => {
+      if (!tr.docChanged) return tr;
+      if (restoringDraft.current && tr.isUserEvent("input.unwrap")) return [];
+      if ((startup && !startupRoomReady) || !hickLangReady()) {
+        // The room may deliver another update just after its compartment
+        // attaches, while the view still displays read-only startup state.
+        // Admit only text already installed in the room by that sync.
+        const room = tr.startState.facet(ySyncFacet);
+        return tr.annotation(Transaction.userEvent) === undefined
+          && room?.ytext.toString() === tr.newDoc.toString() ? tr : [];
+      }
+      return explicitReadOnly && tr.annotation(Transaction.userEvent) ? [] : tr;
+    }),
+  ], [explicitReadOnly, readOnly, startup, startupRoomReady]);
+  const completionClient = lspCompletion?.client, completionUri = lspCompletion?.uri;
+  const completionExtension = useMemo(() => completions({
+    lsp: completionClient && completionUri ? {
+      client: completionClient, uri: completionUri,
+      positionAt: (offset, state) => offsetToPosition(state.doc, offset),
+    } : undefined,
+    project: (prefix, around) => api.complete(prefix, around).then(answer => answer.suggestions),
+  }), [completionClient, completionUri]);
   // The live view AS STATE, for the right rail — a ref never re-renders.
   const [railView, setRailView] = useState<EditorView | null>(null);
   useEditorActions(railView, `document:${docId}`);
@@ -243,11 +301,20 @@ export function DocumentEditor({
   // it is read through a ref at the moment it is needed.
   const pathRef = useRef(path);
   pathRef.current = path;
-  // The ruler is memoized — a hundred-odd tick elements that never change
-  // while you type — so what it is handed must not change identity per render.
-  const onWrapColumnRef = useRef(onWrapColumn);
-  onWrapColumnRef.current = onWrapColumn;
-  const onWrapColumnStable = useCallback((next: number) => onWrapColumnRef.current?.(next), []);
+  // Wrapping is presentation state. Keep the action available on the existing
+  // command surface so the editor has no persistent measuring strip.
+  const wrapOwner = `document:${docId}:wrap`;
+  const wrapRevision = useUiRevision(() => [docId, path, wrapColumn, !!railView?.dom.isConnected]);
+  useUiCommands(onWrapColumn && railView ? [{ key: wrapOwner, command: {
+    label: "Set prose wrapping measure", parent: wrapOwner, subject: wrapOwner,
+    parameters: { column: { type: "number", minimum: WRAP_MIN, maximum: WRAP_MAX, integer: true } },
+    prerequisites: [],
+    read: () => ({ revision: wrapRevision(), enabled: railView.dom.isConnected }),
+    execute: async args => {
+      onWrapColumn(args.column as number);
+      return { status: "completed", value: { measure_requested: args.column, source_changed: false } };
+    },
+  } }] : []);
   // What went wrong with the last drop or paste, shown until the next one.
   // A write that fails silently leaves a note referencing a file that was
   // never created.
@@ -259,18 +326,6 @@ export function DocumentEditor({
   // asked of git until somebody turns it on.
   useBlame(railView, path);
 
-  // Focus is tracked on the document rather than per widget: the widgets are
-  // portalled into CodeMirror's DOM and come and go as the fold does, so a
-  // handler per widget would be a subscription per render.
-  useEffect(() => {
-    const onFocusIn = (event: FocusEvent) => {
-      const target = event.target;
-      setFocusedEl(target instanceof HTMLElement ? target : null);
-    };
-    document.addEventListener("focusin", onFocusIn);
-    return () => document.removeEventListener("focusin", onFocusIn);
-  }, []);
-
   // The action rail's contents, recomputed whenever an edit changes them.
   // Held as state rather than derived per render because the editor
   // deliberately does not re-render on every keystroke.
@@ -278,6 +333,7 @@ export function DocumentEditor({
   // Which card's popover is open, and the rail-relative top of the icon that
   // opened it.
   const [open, setOpen] = useState<{ card: DocCard; iconTop: number } | null>(null);
+  const openRef = useRef(open); openRef.current = open;
   // Cells whose transcript is revealed, by block start. This used to be local
   // state inside CellPanel, back when Replay was a button in the panel; the
   // rail owns the verb now, so the rail's owner owns the state.
@@ -286,19 +342,6 @@ export function DocumentEditor({
   // Blocks currently showing their result instead of their source.
   const renderedRegistry = useMemo(() => new RenderedRegistry(), []);
   const [renderedSlots, setRenderedSlots] = useState<RenderedSlot[]>([]);
-  // The rendered table the caret is inside (by block start), or null. State
-  // rather than a ref because the ruler above the editor changes what it
-  // draws when the caret is inside a table — but ONLY that: the caret's
-  // position itself is not kept, because it changes on every keystroke and
-  // nothing rendered here depends on it. A component re-rendering every rail,
-  // ruler and portal per keystroke is what a laggy editor is made of.
-  const [caretTableAt, setCaretTableAt] = useState<number | null>(null);
-  // Which rendered widget has the focus. A rendered table is a FOLD — the
-  // caret cannot be inside it, and the widget deliberately swallows its own
-  // events so a click in a cell is not read as a click in the text. So "the
-  // reader is in this table" is a focus question, not a caret question.
-  const [focusedEl, setFocusedEl] = useState<HTMLElement | null>(null);
-
   useEffect(
     () => envRegistry.subscribe(() => setEnvSlots(envRegistry.list())),
     [envRegistry],
@@ -368,7 +411,7 @@ export function DocumentEditor({
       name: localStorage.getItem("hickory.name") ?? "anonymous",
       color: presenceColor,
     });
-    realtime.bindDoc(ydoc, awareness);
+    if (!startup) realtime.bindDoc(ydoc, awareness);
 
     // Seeding is ONLY for realtimes with no server behind them (mock mode).
     // With a server, the room's Y.Doc is built from `docs.source`; seeding
@@ -376,7 +419,7 @@ export function DocumentEditor({
     // client id, and the CRDT merges the two by concatenation — the document
     // doubles on every single connect. (Measured: a 15KB doc reached 49MB.)
     let cancelled = false;
-    if (!realtime.serverAuthoritative) {
+    if (!startup && !realtime.serverAuthoritative) {
       void realtime.whenSynced().then(() => {
         if (!cancelled && ytext.length === 0 && initialSource.length > 0) {
           ytext.insert(0, initialSource);
@@ -389,8 +432,9 @@ export function DocumentEditor({
     // re-applied afterwards, because a block you just typed turning into a
     // picture under the caret is the opposite of helpful.
     let seeded = false;
+    const parserAtOpen = hickLangReady();
     const seedRendered = (target: EditorView) => {
-      if (seeded || target.state.doc.length === 0) return;
+      if (startup || !parserAtOpen || seeded || target.state.doc.length === 0) return;
       seeded = true;
       // A session opened as a DOCUMENT keeps its framed text (see
       // editor/session.test.tsx); the cards are the lens's way of drawing
@@ -412,7 +456,7 @@ export function DocumentEditor({
     const view = new EditorView({
       parent: host,
       state: EditorState.create({
-        doc: ytext.toString(),
+        doc: startup?.source.content ?? ytext.toString(),
         extensions: [
           // Gutters, caret, selection, the find panel — one definition, loaded
           // by every editor in the app. See editor/chrome.ts.
@@ -473,17 +517,7 @@ export function DocumentEditor({
           // Two sources, one list, each marked. The language server knows
           // what is in scope; the project index knows what this codebase
           // calls things. Neither subsumes the other — see lsp/completion.ts.
-          completions({
-            lsp: lspCompletion
-              ? {
-                  client: lspCompletion.client,
-                  uri: lspCompletion.uri,
-                  positionAt: (offset, state) => offsetToPosition(state.doc, offset),
-                }
-              : undefined,
-            project: (prefix, around) =>
-              api.complete(prefix, around).then((answer) => answer.suggestions),
-          }),
+          completionServices.of(completionExtension),
           ...multipleCursors(),
           // Inline and display maths written in PROSE. The verbatim ranges of
           // the document are excluded, so `$PATH` in a shell cell stays a
@@ -504,13 +538,13 @@ export function DocumentEditor({
           sessionWorkFolds(),
           // A scaffold opens as a tree: one line per ingested file.
           ingestedFolds(),
-          immutableScaffolds(),
-          yCollab(ytext, awareness),
+          parserProtection.of(parserAtOpen ? immutableScaffolds() : []),
+          collaboration.of(startup ? [] : yCollab(ytext, awareness)),
           ...(placeholderText ? [placeholder(placeholderText)] : []),
-          ...(lspExtensions ?? []),
+          languageServices.of(lspExtensions ?? []),
           ...editorExtensions,
           comparisonField,
-          access.of([EditorState.readOnly.of(readOnly), EditorView.editable.of(!readOnly), EditorState.transactionFilter.of(tr => readOnly && tr.docChanged && tr.annotation(Transaction.userEvent) ? [] : tr)]),
+          access.of(sourceAccess),
           // Which buffer the Insert menu writes into. Recorded on focus
           // rather than read at insert time: opening the panel takes the
           // focus away from every editor on the page.
@@ -582,16 +616,8 @@ export function DocumentEditor({
             onError: setAssetError,
           }),
           EditorView.updateListener.of((u) => {
-            if (u.selectionSet || u.docChanged) {
-              const head = u.state.selection.main.head;
-              const inTable = renderedRegistry
-                .list()
-                .find((slot) => slot.kind === "table" && head >= slot.span[0] && head <= slot.span[1]);
-              const at = inTable ? inTable.at : null;
-              setCaretTableAt((current) => (current === at ? current : at));
-            }
-            if (!u.docChanged) return;
-            onChange?.(u.state.doc.toString());
+            if (!u.docChanged && !u.transactions.some(tr => tr.effects.some(effect => effect.is(parserBecameReady)))) return;
+            if (u.docChanged) onChange?.(u.state.doc.toString());
             // Actions need current ranges and metadata even when no icon
             // moved. CardRail separately compares positions for layout.
             const next = cardsOf(structureOf(u.state), { text: u.state.doc.toString() });
@@ -613,6 +639,72 @@ export function DocumentEditor({
       }),
     });
     viewRef.current = view;
+    documentDraftBindings.set(view, {
+      roomSource: () => ytext.toString(),
+      prepare(before, after) {
+        const state = view.state;
+        if (state.readOnly || state.doc.toString() !== before || !view.dom.isConnected) return null;
+        const detach = state.facet(ySyncFacet) ? state.update({effects: collaboration.reconfigure([])}) : null;
+        const changes = computeEdits(before, after).map(edit => ({from: edit.start, to: edit.end, insert: edit.text}));
+        const edit = (detach?.state ?? state).update({changes, userEvent: "input.apply", annotations: isolateHistory.of("full")});
+        if (edit.newDoc.toString() !== after) return null;
+        const current = () => viewRef.current === view && view.dom.isConnected && view.state === state;
+        let undo: (() => void) | undefined;
+        return {
+          current,
+          commit() {
+            if (!current()) throw Error("The document editor changed before the draft was applied.");
+            const top = view.scrollDOM.scrollTop, left = view.scrollDOM.scrollLeft, opened = openRef.current;
+            undo = () => {
+              // setState restores the same history and selection, but it also
+              // restarts the open-time reflow plugin. Its queued edit must not
+              // change the restored view or reach the reattached room.
+              restoringDraft.current++;
+              try { view.setState(state); }
+              finally { queueMicrotask(() => { restoringDraft.current--; }); }
+              view.scrollDOM.scrollTop = top; view.scrollDOM.scrollLeft = left;
+              setCards(cardsOf(structureOf(state), {text: before}));
+              setOpen(opened);
+            };
+            // Remove the observer before dispatching a source change. The room
+            // stays connected, but the view no longer sends or applies its edits.
+            if (detach) view.dispatch(detach);
+            view.dispatch(edit);
+          },
+          rollback() { undo?.(); undo = undefined; },
+        };
+      },
+    });
+    parserInstalled.current = parserAtOpen ? view : null;
+    if (startup) {
+      let joining = false;
+      startStartupRoom.current = () => {
+        if (joining || !startup.current() || !realtime.serverAuthoritative) return;
+        joining = true;
+        realtime.bindDoc(ydoc, awareness);
+        void realtime.whenSynced().then(async () => {
+          if (cancelled || viewRef.current !== view || !startup.current()) return;
+          await startup.confirmRoom();
+          if (cancelled || viewRef.current !== view || !startup.current()) return;
+          const confirmed = ytext.toString();
+          if (confirmed !== startup.source.content) {
+            setStartupRoomError("The document room differs from this read-only source preview. Reopen the document to read its current source.");
+            return;
+          }
+          if (confirmed !== view.state.doc.toString()) {
+            // Treating CR as a visible character makes Yjs positions line up
+            // but lets ordinary Delete or Backspace split a CRLF separator.
+            setStartupRoomError("This preview is read-only because the editor cannot preserve the document's line endings during collaboration.");
+            return;
+          }
+          // The room already contains these bytes. Attaching a plugin without
+          // a text transaction preserves history and sends no source update.
+          view.dispatch({effects: collaboration.reconfigure(yCollab(ytext, awareness))});
+          setStartupRoomReady(true);
+          onStartupRoomReady?.();
+        }).catch(error => { if (!cancelled && startup.current()) setStartupRoomError(String(error)); });
+      };
+    }
     setRailView(view);
     // Debug handle for driving the editor from automation (kept out of the
     // normal path; enable with localStorage "hickory.debug" = "1").
@@ -632,7 +724,9 @@ export function DocumentEditor({
 
     return () => {
       cancelled = true;
+      startStartupRoom.current = null;
       onViewReady?.(null);
+      documentDraftBindings.delete(view);
       forgetEditor(view);
       forgetFocusedEditor(view);
       view.destroy();
@@ -644,11 +738,23 @@ export function DocumentEditor({
     };
     // Recreate the editor per document.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [docId, realtime, envRegistry, renderedRegistry]);
+  }, [docId, realtime, envRegistry, renderedRegistry, startup]);
 
   useEffect(() => {
-    viewRef.current?.dispatch({ effects: [setComparison.of({ base: comparisonBase, editable: !readOnly }), access.reconfigure([EditorState.readOnly.of(readOnly), EditorView.editable.of(!readOnly), EditorState.transactionFilter.of(tr => readOnly && tr.docChanged && tr.annotation(Transaction.userEvent) ? [] : tr)])] });
-  }, [comparisonBase, readOnly, access, docId, realtime]);
+    viewRef.current?.dispatch({effects: [setComparison.of({base: comparisonBase, editable: !readOnly}), access.reconfigure(sourceAccess)]});
+  }, [comparisonBase, readOnly, access, sourceAccess, docId, realtime]);
+  useEffect(() => {
+    if (startupAuthorized) startStartupRoom.current?.();
+  }, [startupAuthorized, startup, realtime]);
+  useEffect(() => {
+    railView?.dispatch({effects: [languageServices.reconfigure(lspExtensions ?? []), completionServices.reconfigure(completionExtension)]});
+  }, [railView, languageServices, lspExtensions, completionServices, completionExtension]);
+  useEffect(() => {
+    if (!railView || parserStatus !== "ready" || parserInstalled.current === railView) return;
+    parserInstalled.current = railView;
+    railView.dispatch({effects: [parserBecameReady.of(null), parserProtection.reconfigure(immutableScaffolds()), railView.scrollSnapshot()],
+      annotations: Transaction.addToHistory.of(false)});
+  }, [railView, parserStatus, parserProtection]);
 
 
 
@@ -743,15 +849,6 @@ export function DocumentEditor({
   // than read out of the editor state: a slot exists for exactly the blocks
   // that are rendered, and it is already React state that updates when one
   // appears or goes away.
-  // The table the reader is in: the one holding the focus, or failing that
-  // the one the caret sits inside — which is how it reads when a document is
-  // opened straight onto a table, before anything has been clicked.
-  const activeTableEl =
-    renderedSlots.find((slot) => slot.kind === "table" && focusedEl && slot.el.contains(focusedEl))
-      ?.el ??
-    renderedSlots.find((slot) => slot.kind === "table" && slot.at === caretTableAt)?.el ??
-    null;
-
   const renderedAt = renderedSlots.filter((slot) => !slot.outputOnly).map((slot) => slot.at);
 
   const toggleRenderedAt = (at: number) => {
@@ -775,8 +872,10 @@ export function DocumentEditor({
       ? matchExecBlock({ span: [card.from, card.to], index: card.index }, execBlocks)
       : undefined;
 
-  /** Which icons a card puts on the rail. */
+  /** Recorded code remains a fence. Its own review and debugger controls
+   * live in the recorded-message gutter. */
   const cardActionsOf = (card: DocCard): RailAction[] => {
+    if (readOnly && preserveBytes && card.kind === "fence") return [];
     if (card.kind !== "exec") return actionsFor(card.kind);
     const block = blockOf(card);
     return actionsFor("exec", {
@@ -922,6 +1021,7 @@ export function DocumentEditor({
       {/* Inside a table the ruler stops measuring prose and names the
           table's columns instead, so A1 is readable off the same stick that
           is already there rather than out of a second row of furniture. */}
+      {startupRoomError && <p role="status" className="muted">{startupRoomError}</p>}
       {assetError && (
         <div className="editor-asset-error" role="status">
           <span>{assetError}</span>
@@ -930,12 +1030,6 @@ export function DocumentEditor({
           </button>
         </div>
       )}
-      <EditorRuler owner={path}
-        view={railView}
-        column={wrapColumn}
-        onColumn={onWrapColumnStable}
-        tableEl={activeTableEl}
-      />
       <div className="document-editor with-right-rail with-card-rail">
         <div ref={hostRef} className="editor-cm-host" />
         <RightRail view={railView} />

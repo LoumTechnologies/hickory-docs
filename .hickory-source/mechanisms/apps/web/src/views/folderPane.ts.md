@@ -22,6 +22,8 @@ without taking editor focus; subsequent manual closing remains possible.
 <storycode:copy id="f-c66b482f3cc6-useFolderPane">
 import { useCallback, useEffect, useRef, type Dispatch, type SetStateAction } from "react";
 import { api } from "../api/client";
+import type { Doc, FilesResponse, PlainFile } from "../api/types";
+import { findNodeByPath } from "../shell/workspacePaths";
 import { activate, closeTab, panes, tab, treePane, withTree, type Layout } from "../shell/layout";
 
 /** Folder visibility belongs to this window, independent of the engine's working directory. */
@@ -69,18 +71,116 @@ export function useFolderPane(
 <a id="f-c66b482f3cc6-openSelectedFile"></a>
 ### `openSelectedFile`
 
+An explicit native file window can read its workspace-relative address while
+the normal open, tree ownership, and guarded source requests settle. A preview
+carries no write authority. Admit the original editor only when all observations
+agree on the exact address, bytes, and workspace.
+
 <storycode:copy id="f-c66b482f3cc6-openSelectedFile">
+type StartupSource = Awaited<ReturnType<typeof api.startupSource>>;
+export type StartupPlainFile = {
+  source: StartupSource;
+  current: () => boolean;
+  authority: Promise<{file: PlainFile; namespace: string; workspace: string; generatedBy: string | null}>;
+};
+
+export type StartupManagedDocument = {
+  source: StartupSource;
+  docId: string;
+  current: () => boolean;
+  authority: Promise<Doc>;
+  confirmRoom: () => Promise<void>;
+};
+
+async function readStartupSource(requested: string, hint: string | null, current: () => boolean): Promise<StartupSource | null> {
+  const path = hint ?? requested;
+  const normalizedRequest = requested.replaceAll("\\", "/");
+  if (hint && requested !== hint && !normalizedRequest.endsWith("/" + hint)) return null;
+  if (path.includes("\\") || path.includes(":")
+    || /[\u0000-\u001f\u007f]/.test(path) || path.split("/").some(part => !part || part === "." || part === "..")) return null;
+  const source = await api.startupSource(path);
+  const absolute = source?.root_path?.replaceAll("\\", "/").replace(/\/$/, "") + "/" + path;
+  if (!current() || source?.version !== 1 || source.path !== path || typeof source.content !== "string"
+    || !source.root_path || (requested !== path && normalizedRequest !== absolute)) return null;
+  return source;
+}
+
+function ownsStartupSource(files: FilesResponse, source: StartupSource) {
+  const workspace = files.workspace_id, namespace = files.root_path;
+  return !!namespace && namespace === source.root_path && !!workspace && /^[a-f0-9]{32}$/.test(workspace)
+    && source.workspace_id === workspace && files.folder_open !== false;
+}
+
+export async function observePlainStartup(
+  requested: string, hint: string | null, selected: ReturnType<typeof api.openFile>,
+  current: () => boolean,
+): Promise<StartupPlainFile | null> {
+  if ((hint ?? requested).endsWith(".md")) return null;
+  const source = await readStartupSource(requested, hint, current);
+  if (!source || source.doc_id) return null;
+  const {path} = source;
+  const authority = Promise.all([selected, api.files(), api.file(path)]).then(([opened, files, file]) => {
+    const workspace = files.workspace_id, namespace = files.root_path;
+    const node = findNodeByPath([files], path);
+    if (!current() || opened.doc_id || opened.path !== path || !namespace || !workspace
+      || !ownsStartupSource(files, source) || !node || node.dir || node.doc_id
+      || file.path !== path || file.content !== source.content) {
+      throw Error("The requested file no longer matches the startup observation. Reopen it to check the current source.");
+    }
+    if (!node.generated_by && !file.save_guard) throw Error(file.save_guard_reason || "The file's saved source authority is unavailable. Reopen it to check again.");
+    return {file, namespace, workspace, generatedBy: node.generated_by ?? null};
+  });
+  // The preview may close or be superseded before its pane mounts.
+  void authority.catch(() => {});
+  return {source, current, authority};
+}
+
+export async function observeManagedStartup(
+  requested: string, hint: string | null, selected: ReturnType<typeof api.openFile>,
+  current: () => boolean,
+): Promise<StartupManagedDocument | null> {
+  if (!(hint ?? requested).endsWith(".md")) return null;
+  const source = await readStartupSource(requested, hint, current);
+  const docId = source?.doc_id;
+  if (!source || !docId || !/^[a-f0-9]{16}$/.test(docId)) return null;
+  const {path} = source;
+  const authority = selected.then(async opened => {
+    const refuse = () => Error("The requested document no longer matches its startup observation. Reopen it to check the current source.");
+    if (!current() || opened.path !== path || opened.doc_id !== docId) throw refuse();
+    const [doc, files] = await Promise.all([api.doc(docId), api.files()]);
+    const node = findNodeByPath([files], path);
+    if (!current() || !ownsStartupSource(files, source) || !node || node.dir
+      || node.generated_by || node.doc_id !== docId || doc.id !== docId || doc.path !== path || doc.source !== source.content) throw refuse();
+    if (!doc.save_guard) throw Error(doc.save_guard_reason || "The document's saved source authority is unavailable. Reopen it to check again.");
+    return doc;
+  });
+  const confirmRoom = async () => {
+    const original = await authority;
+    if (!current()) throw Error("The original document request changed.");
+    const latest = await api.doc(docId);
+    if (!current() || latest.path !== path || latest.id !== docId || latest.source !== original.source
+      || latest.save_guard !== original.save_guard) {
+      throw Error("The document's saved authority changed while its room loaded. Reopen the read-only preview.");
+    }
+  };
+  void authority.catch(() => {});
+  return {source, docId, current, authority, confirmRoom};
+}
+
 export async function openSelectedFile(
   path: string,
-  openDoc: (id: string) => void,
+  openDoc: (id: string, path: string) => void,
   openPlain: (path: string) => void,
   notice: (message: string) => void,
+  current: () => boolean = () => true,
 ) {
   try {
     const selected = await api.openFile(path);
-    if (selected.doc_id) openDoc(selected.doc_id);
+    if (!current()) return;
+    if (selected.doc_id) openDoc(selected.doc_id, selected.path);
     else openPlain(selected.path);
   } catch (error) {
+    if (!current()) return;
     notice(error instanceof Error ? error.message : String(error));
   }
 }
@@ -114,7 +214,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { api } from "../api/client";
 import { panes, tab, withTree } from "../shell/layout";
 import { initialWorkspace, openUntitledTab } from "./workspaceState";
-import { openSelectedFile, useFolderPane } from "./folderPane";
+import { observeManagedStartup, observePlainStartup, openSelectedFile, useFolderPane } from "./folderPane";
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -123,6 +223,53 @@ afterEach(() => vi.restoreAllMocks());
 ### `expression_statement`
 
 <storycode:copy id="f-c29616a4a7b1-expression_statement-2">
+it("keeps the raw startup bytes readable without granting missing or stale authority", async () => {
+  const path = "nested/code #é.py", namespace = "/workspace", workspace = "a".repeat(32);
+  const content = "value = 1\n";
+  vi.spyOn(api, "startupSource").mockResolvedValue({version: 1, path, content, root_path: namespace, workspace_id: workspace});
+  vi.spyOn(api, "files").mockResolvedValue({root: "workspace", root_path: namespace, workspace_id: workspace,
+    tree: [{name: "code #é.py", path, dir: false}]});
+  const read = vi.spyOn(api, "file").mockResolvedValue({path, content, language: "python", hash: "base"});
+  const open = Promise.resolve({path});
+  const preview = await observePlainStartup(namespace + "/" + path, path, open, () => true);
+  expect(preview?.source.content).toBe(content);
+  await expect(preview?.authority).rejects.toThrow(/saved source authority/);
+
+  read.mockResolvedValue({path, content, language: "python", hash: "base", save_guard: "current"});
+  let current = true;
+  let complete!: (opened: {path: string}) => void;
+  const later = new Promise<{path: string}>(resolve => { complete = resolve; });
+  const stale = await observePlainStartup(namespace + "/" + path, path, later, () => current);
+  current = false;
+  complete({path});
+  await expect(stale?.authority).rejects.toThrow(/no longer matches/);
+  const foreign = await observePlainStartup("/elsewhere/" + path, path, open, () => true);
+  expect(foreign).toBeNull();
+  vi.mocked(api.startupSource).mockResolvedValueOnce({version: 1, path, content, root_path: namespace, workspace_id: null});
+  const unbound = await observePlainStartup(namespace + "/" + path, path, open, () => true);
+  expect(unbound?.source.content).toBe(content);
+  await expect(unbound?.authority).rejects.toThrow(/no longer matches/);
+});
+
+it("rechecks the original managed guard after an equal-byte room wait", async () => {
+  const path = "nested/new #é.md", docId = "b".repeat(16), root = "/workspace", workspace = "a".repeat(32);
+  const content = "# Readable\n";
+  vi.spyOn(api, "startupSource").mockResolvedValue({version: 1, path, doc_id: docId, content, root_path: root, workspace_id: workspace});
+  vi.spyOn(api, "files").mockResolvedValue({root, root_path: root, workspace_id: workspace,
+    tree: [{name: "new #é.md", path, dir: false, doc_id: docId}]});
+  const file = {id: docId, path, source: content, updated_at: "", save_guard: "first physical source"};
+  const read = vi.spyOn(api, "doc").mockResolvedValue(file);
+  let open!: (selected: {path: string; doc_id: string}) => void;
+  const selected = new Promise<{path: string; doc_id: string}>(resolve => { open = resolve; });
+  const preview = await observeManagedStartup(root + "/" + path, path, selected, () => true);
+  expect(preview?.source.content).toBe(content);
+  expect(read).not.toHaveBeenCalled();
+  open({path, doc_id: docId});
+  await expect(preview?.authority).resolves.toEqual(file);
+  read.mockResolvedValue({...file, save_guard: "equal-byte replacement"});
+  await expect(preview?.confirmRoom()).rejects.toThrow(/saved authority changed/);
+});
+
 it("removes restored Files furniture without removing the editor", async () => {
   const notice = vi.fn();
   const { result } = renderHook(() => {
@@ -147,7 +294,21 @@ it("opens the selected document independently of folder visibility", async () =>
   const openPlain = vi.fn();
   const notice = vi.fn();
   await openSelectedFile("/notes/note.md", openDoc, openPlain, notice);
-  expect(openDoc).toHaveBeenCalledWith("note");
+  expect(openDoc).toHaveBeenCalledWith("note", "/notes/note.md");
+  expect(openPlain).not.toHaveBeenCalled();
+  expect(notice).not.toHaveBeenCalled();
+});
+
+it("ignores a selected-file identity that arrives after the route changes", async () => {
+  let deliver!: (value: { path: string; doc_id: string }) => void;
+  vi.spyOn(api, "openFile").mockReturnValueOnce(new Promise(resolve => { deliver = resolve; }));
+  const openDoc = vi.fn(), openPlain = vi.fn(), notice = vi.fn();
+  let current = true;
+  const opening = openSelectedFile("/notes/old.md", openDoc, openPlain, notice, () => current);
+  current = false;
+  deliver({ path: "/notes/old.md", doc_id: "retired" });
+  await opening;
+  expect(openDoc).not.toHaveBeenCalled();
   expect(openPlain).not.toHaveBeenCalled();
   expect(notice).not.toHaveBeenCalled();
 });

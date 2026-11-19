@@ -1,12 +1,12 @@
 import staticHtml from "../index.html?raw";
 import type { ReactNode } from "react";
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { act, screen } from "@testing-library/react";
 
-const boot = vi.hoisted(() => ({ parser: vi.fn(), keys: vi.fn() }));
+const boot = vi.hoisted(() => ({ parser: vi.fn(), keys: vi.fn(), policy: vi.fn() }));
 vi.mock("./api/client", () => {
-  class ApiError extends Error { status = 404; }
-  return { MOCK: false, ApiError, request: vi.fn(() => Promise.reject(new ApiError())) };
+  class ApiError extends Error { constructor(readonly status: number) { super(); } }
+  return { MOCK: false, ApiError, request: boot.policy };
 });
 vi.mock("./components/PrivatePredictionCoach", () => ({ validatePrivatePredictionState: vi.fn() }));
 vi.mock("./api/realtime", () => ({ setSharedRealtime: vi.fn() }));
@@ -21,37 +21,43 @@ function loadStaticPage() {
   const page = new DOMParser().parseFromString(staticHtml, "text/html");
   document.body.innerHTML = page.body.innerHTML;
 }
-afterEach(() => { document.body.innerHTML = ""; vi.resetModules(); vi.unstubAllGlobals(); });
+beforeEach(async () => {
+  const { ApiError } = await import("./api/client");
+  boot.policy.mockRejectedValue(new ApiError(404, "Ordinary workspace"));
+  boot.keys.mockResolvedValue(undefined);
+});
+afterEach(() => { document.body.innerHTML = ""; vi.resetModules(); vi.unstubAllGlobals(); vi.resetAllMocks(); });
 
-it("paints static opening status before the actual entrypoint's dependencies resolve, then mounts the workspace", async () => {
+it("mounts the ordinary workspace before its parser and saved keymap arrive", async () => {
   loadStaticPage();
   expect(screen.getByRole("status").textContent).toBe("Opening Hickory Docs…");
   let ready!: () => void;
   boot.parser.mockImplementation(() => new Promise<void>(resolve => { ready = resolve; }));
-  boot.keys.mockResolvedValue(undefined);
+  let keymapReady!: () => void;
+  boot.keys.mockImplementation(() => new Promise<void>(resolve => { keymapReady = resolve; }));
   await act(async () => { await import("./main"); });
-  expect(screen.getByRole("status").textContent).toBe("Opening Hickory Docs…");
-  expect(screen.queryByRole("main")).toBeNull();
-  await act(async () => { ready(); });
-  expect(screen.getByRole("main").textContent).toBe("Retained workspace");
+  const workspace = await screen.findByRole("main");
+  await act(async () => { ready(); keymapReady(); });
+  expect(screen.getByRole("main")).toBe(workspace);
   expect(screen.queryByRole("status")).toBeNull();
 });
 
-it("replaces static opening status with an actionable alert when the actual bootstrap dependency fails", async () => {
+it("keeps the ordinary workspace mounted when the parser fails", async () => {
   loadStaticPage();
   boot.parser.mockRejectedValue(new Error("parser dependency unavailable"));
   boot.keys.mockResolvedValue(undefined);
   await act(async () => { await import("./main"); });
-  expect(screen.getByRole("alert").textContent).toBe("Hickory Docs could not open. Reload this window to try again.");
+  expect((await screen.findByRole("main")).textContent).toBe("Retained workspace");
+  expect(screen.queryByRole("alert")).toBeNull();
   expect(screen.queryByRole("status")).toBeNull();
-  expect(screen.queryByRole("main")).toBeNull();
 });
 
 it("updates the actual static opening paint with pending preparation progress", async () => {
   loadStaticPage();
+  const { ApiError } = await import("./api/client");
   let finish!: () => void;
-  boot.parser.mockImplementation(() => new Promise<void>(resolve => {finish=resolve;}));
-  boot.keys.mockResolvedValue(undefined);
+  boot.policy.mockImplementation(() => new Promise((_, reject) => { finish = () => reject(new ApiError(404, "Ordinary workspace")); }));
+  boot.parser.mockResolvedValue(undefined);
   await act(async () => { await import("./main"); });
   let ready=false;
   vi.stubGlobal("fetch",vi.fn(async()=>new Response(JSON.stringify(ready ? {ready:true} : {
@@ -62,7 +68,9 @@ it("updates the actual static opening paint with pending preparation progress", 
   await act(async()=>{waiting=waitForWorkspace();await new Promise(resolve=>setTimeout(resolve,0));});
   expect(screen.getByRole("status").textContent).toContain("2 of 5 documents finished");
   expect(screen.getByRole("status").textContent).toContain("still pending, not complete");
+  expect(screen.queryByRole("main")).toBeNull();
+  expect(boot.parser).not.toHaveBeenCalled();
   ready=true;
   await act(async()=>{await waiting;finish();});
-  expect(screen.getByRole("main").textContent).toBe("Retained workspace");
+  expect((await screen.findByRole("main")).textContent).toBe("Retained workspace");
 });

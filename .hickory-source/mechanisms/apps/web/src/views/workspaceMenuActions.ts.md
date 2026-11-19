@@ -38,7 +38,7 @@ export type MenuScope = {
 export type MenuHandlers = {
   formatFirst(): Promise<void>;
   saveUntitled(saveAs: boolean, id?: string, destination?: string): Promise<boolean>;
-  flush(): void; print(): boolean | void; insert(id: string | null): void; editElement(): void;
+  flush(includeDetached?: boolean): void; print(): boolean | void; insert(id: string | null): void; editElement(): void;
 };
 
 </storycode:copy>
@@ -63,7 +63,7 @@ export async function runWorkspaceMenu(action: MenuAction, actor: UiActor, scope
     for (const id of scope.untitled) if (!await handlers.saveUntitled(false, id)) return { status: "completed", value: { unnamed_save_completed: false, target: id, scope: "Cancelled, unavailable or failed; inspect actual UI result" } };
     const documents = [];
     for (const session of scope.sessions) documents.push({ id: session.id, unchanged_after_save: await session.save() });
-    handlers.flush();
+    handlers.flush(true);
     return { status: "completed", value: { documents, self_saving_panes: "Flush requested; completion not established here", verification: "not requested" } };
   }
   if (action !== "save" && action !== "save-as") return { status: "unavailable", reason: "No scoped document handler for this menu action" };

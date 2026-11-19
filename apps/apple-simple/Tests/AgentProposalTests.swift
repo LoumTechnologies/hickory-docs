@@ -41,7 +41,7 @@ final class AgentProposalTests:XCTestCase {
  }
  #endif
 
- @MainActor private func fixture(_ b:DocumentBuffer?=nil,managed:Bool=false)throws->(AgentProposalEntry,ResourceJSON) {
+ @MainActor private func fixture(_ b:DocumentBuffer?=nil,managed:Bool=false,recordedAuthority:String?=nil)throws->(AgentProposalEntry,ResourceJSON) {
   let workspace=String(repeating:"b",count:32),before="value=1\n",after="value=41\n",guardToken="original-loaded",context="captured"
   func source(_ text:String)->[String:Any]{["kind":"file","identity":"source-note","text":text,"writable":true,"removable":true,"version":NSNull()]}
   func saved(_ text:String)->[String:Any]{["kind":"file","text":text,"sha256":nativeSourceHash(text),"readonly":false,"executable":false,"mode":420]}
@@ -54,12 +54,63 @@ final class AgentProposalTests:XCTestCase {
   let reading:[String:Any]=["version":1,"behavior_protocol":1,"namespace":"/fixture","engine_workspace_id":workspace]
   var intention:[String:Any]=["version":1,"request_id":String(repeating:"c",count:32),"title":"Complete change","explanation":"Implementation and explanation remain one intention.","claims":["Unverified agent claim"],"check_ids":[],"capture":capture]
   if let b{intention["editor_snapshot"]=["live":false,"buffers":[["id":b.id.uuidString,"path":"note.py","source_hash":nativeSourceHash(b.text),"save_guard":guardToken,"source_revision":b.agentSourceRevision.map(String.init) as Any? ?? NSNull()]]]}
-  let material:[String:Any]=["version":1,"workspace":workspace,"namespace":"/fixture","origin_authority":managed ? "engine-managed agent tool; non-live submitted editor snapshot; claims remain unverified":"caller-provided intention; not an agent attestation","intention":intention,"inputs":inputs,"plan":plan,"consequences":facts,"before":reading,"after":reading,"saved_guards":guards]
+  let authority = recordedAuthority ?? (managed ? "engine-managed agent tool; non-live submitted editor snapshot; claims remain unverified" : "caller-provided intention; not an agent attestation")
+  let material:[String:Any]=["version":1,"workspace":workspace,"namespace":"/fixture","origin_authority":authority,"intention":intention,"inputs":inputs,"plan":plan,"consequences":facts,"before":reading,"after":reading,"saved_guards":guards]
   let text=String(decoding:try JSONSerialization.data(withJSONObject:material,options:[.sortedKeys]),as:UTF8.self),entry=AgentProposalEntry(token:String(repeating:"a",count:32),fingerprint:nativeSourceHash(text))
   let raw:[String:Any]=["version":1,"proposal_protocol":1,"token":entry.token,"fingerprint":entry.fingerprint,"workspace":workspace,"namespace":"/fixture","material":text,"source_effects":false,"checks_executed":false,"host_application":NSNull()]
   return(entry,try JSONDecoder().decode(ResourceJSON.self,from:JSONSerialization.data(withJSONObject:raw)))
  }
  @MainActor private func host()throws->(Workspace,DocumentBuffer){let w=Workspace();w.engine=try Engine(address:"http://fixture.invalid");w.sourceWorkspaceID=String(repeating:"b",count:32);w.sourceRootAddress="/fixture";let b=DocumentBuffer(file:FileNode(name:"note.py",path:"note.py",dir:false),text:FileText(path:"note.py",content:"value=1\n",hash:"baseline",save_guard:"original-loaded"));w.buffers["note.py"]=b;return(w,b)}
+ @MainActor func testRecordedPatchAdmissionUsesBothMessageSidesAndRetiresAppliedAuthorityOnEdit() async throws {
+  let (w, target) = try host(), model = w.agentProposals, agent = w.agent, turn = "owned-review"
+  let patch = "Recorded text\n```diff\n--- a/note.py\n+++ b/note.py\n@@ -1 +1 @@\n-value=1\n+value=41\n```\n"
+  let answer = "Assistant patch\n" + patch
+  agent.turns = [AgentTurn(id: turn, prompt: patch, answer: answer, status: "ok")]
+  let selectedEntry: [String: Any] = ["version": 1, "entry_protocol": 1, "workspace": String(repeating: "b", count: 32),
+   "namespace": "/fixture", "entry": ["version": 1, "identity": String(repeating: "c", count: 32), "generation": 1, "path": NSNull()],
+   "guard": String(repeating: "d", count: 64), "movable": false, "source_effects": false]
+  let entry = try JSONDecoder().decode(ResourceJSON.self, from: JSONSerialization.data(withJSONObject: selectedEntry))
+  for (side, text, opening) in [(RecordedMessageSide.user, patch, 1), (.assistant, answer, 2)] {
+   let message = agent.document("\(turn)-\(side.bufferSuffix)", text)
+   let hash = nativeSourceHash(text), authority = "recorded \(side.rawValue) fence, source SHA-256 \(hash); claims remain unverified"
+   let (seal, envelope) = try fixture(target, recordedAuthority: authority)
+   var writes = 0, reviewed = 0
+   model.transport = { method, path, body in
+    if method == "GET", path == "/api/workspace/entry" { return entry }
+    if method == "POST", path == "/api/docs/workspace/agent/turns/owned-review/fence-patch" {
+     let fence = try XCTUnwrap(body?["fence"] as? [String: Any])
+     XCTAssertEqual(fence["side"] as? String, side.rawValue)
+     XCTAssertEqual(fence["source_hash"] as? String, hash)
+     XCTAssertEqual(fence["opening_line"] as? Int, opening)
+     let intention = try XCTUnwrap(body?["intention"] as? [String: Any])
+     let capture = try XCTUnwrap(intention["capture"] as? [String: Any])
+     XCTAssertEqual((capture["saved_guards"] as? [String: String])?["note.py"], "original-loaded")
+     XCTAssertTrue(((capture["edit"] as? [String: Any])?["changes"] as? [String: Any])?.isEmpty == true)
+     reviewed += 1
+     return envelope
+    }
+    if method == "GET", path == "/api/agent-proposals/" + seal.token { return envelope }
+    writes += 1
+    throw EngineError(message: "A stale review cannot dispatch a write")
+   }
+   message.inlineMarkup = InlineSnapshot(source: text, debug: inlineDebugContext(text, path: message.file.path))
+   XCTAssertEqual(message.inlineMarkup.debug.recordedPatches, [opening])
+   let source = NativeRecordedMessageSource(turn: turn, side: side, workspace: "/fixture") { agent.owns(message, turn: turn, side: side) }
+   await model.prepareRecordedPatch(w, message: message, source: source, openingLine: opening)
+   XCTAssertEqual(reviewed, 1)
+   XCTAssertEqual(model.value?.material.origin_authority, authority, model.notice)
+   XCTAssertTrue(model.canApply, model.notice)
+   XCTAssertEqual(target.text, "value=1\n")
+   XCTAssertTrue(message.readOnly)
+   XCTAssertTrue(exactUTF8(message.text, text))
+   target.text = "intervening draft"; target.text = "value=1\n"
+   XCTAssertFalse(model.canApply)
+   await model.applyDraft(w)
+   XCTAssertEqual(writes, 0)
+   XCTAssertEqual(target.text, "value=1\n")
+   model.close()
+  }
+ }
  @MainActor func testHistoricalProposalReadsOriginalSealWithoutAcquiringCurrentEditors()async throws {
   let(w,b)=try host(),(entry,raw)=try fixture();guard case .object(let original)=raw else{return XCTFail("Expected fixture envelope")};var fields=original;let runtime=String(repeating:"c",count:32);w.sourceWorkspaceID=runtime;fields["historical"] = .bool(true);fields["reading_scope"] = .object(["workspace":.string(runtime),"namespace":.string("/fixture")]);let historical=ResourceJSON.object(fields),m=w.agentProposals;var effects=0
   m.transport={method,path,_ in if path=="/api/agent-proposals"{return .object(["version":.integer(1),"proposal_protocol":.integer(1),"workspace":.string(runtime),"namespace":.string("/fixture"),"reviews":.array([.object(["token":.string(entry.token),"fingerprint":.string(entry.fingerprint),"historical":.bool(true)])])])};if method=="GET",path=="/api/agent-proposals/"+entry.token{return historical};effects+=1;throw EngineError(message:"Historical reading entered live preparation")}

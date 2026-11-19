@@ -962,6 +962,8 @@ impl Registry {
                 .projects
                 .get(&tower_lsp::lsp_types::Url::parse(uri)?)
                 .map_err(anyhow::Error::msg)?;
+            anyhow::ensure!(capture.recorded_fence.is_none(),
+                "A recorded message uses its own pinned fence Debug action. Return to the message to launch it.");
             return Ok(LaunchContext {
                 inputs: LaunchInputs::Constructed(capture.tree.clone()),
                 root: root.into(),
@@ -1920,11 +1922,31 @@ implemented wire contract in the read-only catalog so a newer frontend can refus
 an older engine before starting a process it cannot safely identify. Ordinary
 Run profiles remain independent of this debugger capability.
 
+A recorded message fence already has one selected program. Report the wire
+capability for its pinned message address so the same guarded Start can be used
+without inventing a workspace Run or attach profile for the message.
+
 <storycode:copy id="f-97a426cc0869-list">
 pub async fn list(
     State(state): State<LocalState>,
     Json(query): Json<Query>,
 ) -> ApiResult<Json<Value>> {
+    if query.uri.starts_with("hick-project:///") {
+        let uri = tower_lsp::lsp_types::Url::parse(&query.uri)
+            .map_err(|error| ApiError::bad_request(error.to_string()))?;
+        let (id, path, context) = state.lsp.projects().get(&uri).map_err(ApiError::not_found)?;
+        if let Some(program) = &context.recorded_fence {
+            if path != hick_lsp::ProjectContext::RECORDED_MESSAGE || query.project != "new"
+                || query.program.as_ref().is_some_and(|target| target != program)
+            {
+                return Err(ApiError::conflict("Choose the exact recorded message fence again before Debug."));
+            }
+            // The ordinary profile selection endpoint grants no authority for
+            // this source. Only the recorded-fence Start path can materialize it.
+            return Ok(Json(json!({"debug_protocol":3,"notices":[],"profiles":[],"fingerprint":id,
+                "viewed":query.uri,"workspace":state.index.root(),"configuration":crate::launch_profiles::CONFIG})));
+        }
+    }
     let context = context(&state, &query).map_err(|e| ApiError::unprocessable(format!("{e:#}")))?;
     let profiles = context
         .profiles()

@@ -39,6 +39,8 @@ export interface ApiRoutes {
   openExternal(path: string): POST<"/api/open-external", { ok: true }>;
 /** Any text file in the folder, whole, with the hash a save passes back. */
   openFile(path: string): POST<"/api/open-file", { path: string; doc_id?: string }>;
+  /** Observe an exact workspace file before ownership and guarded editing arrive. */
+  startupSource(path: string): GET<"/api/startup-source?path={path:url}", { version: 1; path: string; content: string; root_path: string; workspace_id: string | null; doc_id?: string }>;
   file(path: string): GET<"/api/file?path={path:url}", Types.PlainFile>;
   /** Parse public recipes without evaluating assignments or starting a recipe. */
   justRecipes(path: string): GET<"/api/just-recipes?path={path:url}", { recipes: Types.JustRecipe[] }>;

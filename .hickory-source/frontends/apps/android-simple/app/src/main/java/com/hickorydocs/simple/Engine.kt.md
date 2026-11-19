@@ -7,6 +7,10 @@ The user-entered origin is validated at connection time. The transport performs 
 
 Managed Markdown reads its current source from the document endpoint, while plain files use the file endpoint and its content hash. This matches the existing save distinction and avoids the plain-file route’s deliberate refusal of documents.
 
+The startup observation route can supply readable UTF-8 before Files discovers
+whether the same path is managed, generated or plain. It carries exact root
+and path identities. Only the ordinary guarded read can authorize editing.
+
 <ui:copy id="simple-38d4bd61a8-0">
 package com.hickorydocs.simple
 
@@ -33,6 +37,7 @@ import java.net.URI
 import java.net.URLEncoder
 
 data class FileNode(val name: String, val path: String, val dir: Boolean, val children: List<FileNode>, val docID: String?, val generatedBy: String?, val language: String? = null)
+data class StartupSource(val path: String, val content: String, val rootPath: String, val workspaceID: String?)
 data class FileText(val content: String, val hash: String, val saveGuard:String?=null, val saveGuardReason:String?=null)
 data class AgentTurn(val id: String, val prompt: String, val answer: String?, val error: String?, val status: String)
 private fun JSONObject.optional(key: String) = if (isNull(key)) null else optString(key).takeIf { it.isNotEmpty() }
@@ -81,6 +86,14 @@ class Engine(address: String) {
         sourceWorkspaceID=response.optional("workspace_id")?.takeIf{it.matches(Regex("[a-f0-9]{32}"))}
         return response.getString("root") to decode(response.getJSONArray("tree"))
     }
+    suspend fun startupSource(path: String): StartupSource {
+        val reply = request("GET", "/api/startup-source?path=" + URLEncoder.encode(path, "UTF-8"))
+        val root = reply.getString("root_path")
+        val identity = reply.optional("workspace_id")
+        check(reply.opt("version") == 1 && reply.getString("path") == path && root.isNotEmpty() &&
+            (identity == null || identity.matches(Regex("[a-f0-9]{32}")))) { "The startup source address could not be confirmed." }
+        return StartupSource(path, reply.getString("content"), root, identity)
+    }
     suspend fun file(file: FileNode): FileText {
         if (file.docID != null) {
             val document = request("GET", "/api/docs/${file.docID}")
@@ -112,12 +125,22 @@ Both file save forms carry the original baseline. Agent methods use the same wor
     suspend fun terminalResize(id: String, rows: Int, cols: Int) { request("POST", "/api/terminals/$id/resize", JSONObject().put("rows", rows).put("cols", cols)) }
     suspend fun terminalScreen(id: String): String {
         val bytes = java.io.ByteArrayOutputStream(); var offset = 0; var revision = ""
+        val maxBytes = 50_000
         while (true) {
             val page = request("GET", "/api/terminals/$id/output?view=screen&offset=$offset&limit=16384&revision=" + URLEncoder.encode(revision, "UTF-8"))
             val part = page.getJSONArray("bytes")
-            bytes.write(ByteArray(part.length()) { part.getInt(it).toByte() }); revision = page.getString("revision")
-            if (page.isNull("next")) return bytes.toString("UTF-8")
-            offset = page.getInt("next")
+            val nextRevision = page.getString("revision")
+            require(part.length() <= 16_384 && (revision.isEmpty() || revision == nextRevision)) {
+                "The retained terminal screen changed. Refresh the current screen."
+            }
+            val size = minOf(part.length(), maxBytes - bytes.size())
+            bytes.write(ByteArray(size) { part.getInt(it).toByte() })
+            if (page.isNull("next") && size == part.length()) return bytes.toString("UTF-8")
+            if (bytes.size() == maxBytes) return bytes.toString("UTF-8") + "\n[Terminal screen truncated.]"
+            val next = page.getInt("next")
+            require(next > offset && next - offset == part.length()) { "Invalid retained terminal page." }
+            offset = next
+            revision = nextRevision
         }
     }
 
@@ -183,12 +206,20 @@ Saved source-test Debug enters this same transport through a dedicated `start_te
 
 The owned 30-second deadline retires an unconfirmed launch without retrying. Closing the reading invalidates its preparation, while a positively identified late owned Started can be stopped once. After adoption, keep the process-outcome observer independent of the floating reading: it records completion and available debugger output even if the reading closes. A process exit does not supply a collected test-case verdict. These explanations cover the new admission/lifetime boundaries; they do not resolve the narrative map's other unexplained engine remainder.
 
+Recorded-message Debug uses the same session transport with an extra source
+boundary. The normal workspace debugger does not own conversation cards. Its
+separate Agent counterpart can hold breakpoints in immutable recorded text,
+then sends a turn, side, exact revision and fence line for host preparation.
+The host-issued address is used only after its entire reading matches, and is
+released after admission. Stopped frames must still name that exact capture and
+revision before the message can display their position.
+
 <ui:copy id="simple-android-debug-session">
 fun debugURI(path: String): String = languageURI(path)
 data class NativeDebugTarget(val path: String, val line: Int, val end: Int)
 private val debugHTTP = OkHttpClient.Builder().retryOnConnectionFailure(false).build()
 data class NativeRunOutput(val category: String, val text: String, val source: String?, val line: Int?)
-class NativeDebugger(private val engine: Engine, private val scope: CoroutineScope) {
+class NativeDebugger(private val engine: Engine, private val scope: CoroutineScope, private val recordedMessages: Boolean = false) {
     var status by mutableStateOf("idle"); private set
     var message by mutableStateOf(""); private set
     var owner by mutableStateOf(""); private set
@@ -213,6 +244,9 @@ class NativeDebugger(private val engine: Engine, private val scope: CoroutineSco
     private var sourceTestPreparing=false
     private var sourceTestLaunch:SourceTestLaunch?=null
     private var sourceTestOutcome:((String,String,Int?)->Unit)?=null
+    private data class RecordedLaunch(val uri: String, val hash: String, val closingLine: Int, val current: () -> Boolean)
+    private var recordedLaunch: RecordedLaunch? = null
+    private var pendingRecordedContext: String? = null
     private var launchRequest:String?=null
     private var launchDocument:String?=null
     private val retiredLaunches=linkedMapOf<String,String>()
@@ -254,7 +288,8 @@ class NativeDebugger(private val engine: Engine, private val scope: CoroutineSco
     val active get() = status in listOf("starting", "running", "paused", "stopping")
     val hasInspection get()=active||owner.isNotEmpty()&&(status!="idle"||message.isNotBlank()||profiles.isNotEmpty()||offer!=null||output.isNotEmpty())
         ||breakpointModel.intents.isNotEmpty()||adapterSources.reading!=null
-    private fun sourceSnapshot(buffer:DocumentBuffer)=NativeSourceSnapshot(buffer.debugIdentity,buffer.file.path,buffer.text,!buffer.dirty&&!buffer.saving,!buffer.readOnly&&!buffer.saving)
+    private fun isRecordedSource(buffer: DocumentBuffer): Boolean = recordedMessages && buffer.file.generatedBy == "conversation"
+    private fun sourceSnapshot(buffer:DocumentBuffer)=NativeSourceSnapshot(buffer.debugIdentity,buffer.file.path,buffer.text,!buffer.dirty&&!buffer.saving,(!buffer.readOnly||isRecordedSource(buffer))&&!buffer.saving)
     private fun currentBreakpointSource(identity:String)=breakpointBuffers[identity]?.get()?.let{sourceSnapshot(it)}
     fun registerSource(buffer:DocumentBuffer,confirmedAddressChange:Boolean=false){
         breakpointBuffers[buffer.debugIdentity]=java.lang.ref.WeakReference(buffer);breakpointPaths[buffer.file.path]=buffer.debugIdentity
@@ -273,12 +308,19 @@ class NativeDebugger(private val engine: Engine, private val scope: CoroutineSco
         if (attaching||status != "paused"||!framesCurrent) return null
         val frame = frames.firstOrNull { it.optLong("id") == selectedFrame } ?: frames.firstOrNull()
         if((frame?.opt("source_reference") as? Number)?.toDouble()?.let{it>0}==true)return null
+        if (recordedMessages) {
+            val reading = recordedLaunch ?: return null
+            return frame?.takeIf { path == owner && reading.current() && it.optBoolean("in_document") &&
+                it.optString("source") == reading.uri && it.optString("source_hash") == reading.hash && !it.isNull("line") }?.getInt("line")
+        }
         if (path == owner && frame?.optBoolean("in_document") == true) return if (frame.isNull("line")) null else frame.getInt("line")
         if (frame?.optString("source") == path) return if (frame.isNull("source_line")) null else frame.getInt("source_line")
         return if (path == owner && selectedFrame == frames.firstOrNull()?.optLong("id")) pausedLine else null
     }
     fun outputPlacements(buffer: DocumentBuffer): Map<Int, String> {
         if (!sourceMatches(buffer)) return emptyMap()
+        if (recordedMessages) return recordedLaunch?.takeIf { it.current() && output.isNotEmpty() }
+            ?.let { mapOf(it.closingLine to output.joinToString("") { event -> event.text }) }.orEmpty()
         val context = inlineDebugContext(buffer.text, buffer.file.path)
         val last = (buffer.text.count { it == '\n' } - if (buffer.text.endsWith('\n')) 1 else 0).coerceAtLeast(0)
         val rows = buffer.text.split('\n')
@@ -305,7 +347,8 @@ class NativeDebugger(private val engine: Engine, private val scope: CoroutineSco
         return result
     }
     fun sourceEditor(runtime:String):DocumentBuffer?=sourceLineage.sources[runtime]?.identity?.let{breakpointBuffers[it]?.get()}
-    fun sourceMatches(buffer: DocumentBuffer) = !attaching&&!buffer.resourceDeleted&&sourceLineage.matches(sourceSnapshot(buffer))
+    fun sourceMatches(buffer: DocumentBuffer) = !attaching&&!buffer.resourceDeleted&&
+        (!recordedMessages || recordedLaunch?.current?.invoke() == true) && sourceLineage.matches(sourceSnapshot(buffer))
     val adapterSourceRequired get()=frames.firstOrNull{debugInteger(it.opt("id"))==selectedFrame}?.let{(it.opt("source_reference") as? Number)?.toString()?.toLongOrNull()?.let{reference->reference>0}}==true
     fun positionSourceMatches(buffer:DocumentBuffer)=!adapterSourceRequired&&sourceMatches(buffer)
     suspend fun rememberSource(buffer: DocumentBuffer) {
@@ -323,6 +366,8 @@ class NativeDebugger(private val engine: Engine, private val scope: CoroutineSco
         return {sourceLineage.epoch==namespace&&epoch==connection&&sessionID==session&&status=="paused"&&framesCurrent&&stoppedGeneration==stop&&stoppedThread==thread&&selectedFrame==frame&&this.line(path)==line}
     }
     suspend fun prepare(buffer: DocumentBuffer, line: Int = 0, program: String? = null,chooseProfile:Boolean=false) {
+        if (recordedMessages) { message = "Choose Debug on a complete recorded code fence."; return }
+        if (buffer.startupObservation) { message = "Refresh Files to confirm this source before debugging."; return }
         if (active) { message = "Stop the current debugger before launching another program."; return }
         if (buffer.dirty || buffer.saving) { message = "Save this file before debugging so the adapter runs the displayed text."; return }
         close(); val current = epoch;val namespace=sourceLineage.epoch
@@ -367,6 +412,73 @@ class NativeDebugger(private val engine: Engine, private val scope: CoroutineSco
         sourceTestLaunch=pending;catalogNotices=plan.notices
         launch(profile,pending)
     }
+
+    suspend fun prepareRecordedFence(buffer: DocumentBuffer, reading: AgentFenceReading, line: Int) {
+        if (active) { message = "Stop the current Agent debugger before launching another fence."; return }
+        if (!isRecordedSource(buffer) || !reading.current() || buffer.text != reading.source) return
+        val closing = buffer.inlineMarkup.takeIf { it.source == reading.source }?.debug?.recordedClosing?.get(line) ?: return
+        close()
+        val preparation = epoch
+        val workspace = engine.sourceRootAddress
+        owner = buffer.file.path
+        launchBuffer = buffer
+        launchSource = reading.source
+        var requested: String? = null
+        try {
+            check(workspace != null) { "The workspace identity is unconfirmed. Refresh Files and try Debug again." }
+            val snapshot = sourceSnapshot(buffer)
+            val hash = withContext(Dispatchers.Default) { debugHash(snapshot.text) }
+            if (epoch != preparation || !reading.current() || snapshot != sourceSnapshot(buffer)) return
+            val proof = engine.request("POST", reading.endpoint("fence-debug"),
+                JSONObject().put("side", reading.side).put("source_hash", hash).put("opening_line", line))
+            val id = proof.optional("id")?.takeIf { it.matches(Regex("[a-f0-9]{16}")) }
+            val uri = proof.optional("uri")
+            check(id != null && uri == "hick-project:///$id/message.md" && proof.opt("version") == 1 &&
+                proof.opt("started") == false && proof.optString("turn") == reading.turn && proof.optString("side") == reading.side &&
+                proof.optString("source_hash") == hash && debugInteger(proof.opt("opening_line")) == line.toLong() &&
+                proof.optString("workspace") == workspace) { "Recorded fence did not match this message. Refresh the conversation and try Debug again." }
+            requested = id
+            if (epoch != preparation || !reading.current() || snapshot != sourceSnapshot(buffer) || engine.sourceRootAddress != workspace) return
+            registerSource(buffer)
+            val intent = breakpointModel.intents[buffer.debugIdentity]?.takeIf { breakpointModel.matches(it, snapshot) }
+            intent?.let { breakpointModel.stamp(buffer.debugIdentity, it.revision, hash) }
+            launchHash = hash
+            launchSourceBindings = mapOf(buffer.debugIdentity to (snapshot to hash))
+            sourceLineage.begin(launchSourceBindings.values.toList())
+            recordedLaunch = RecordedLaunch(checkNotNull(uri), hash, closing, reading.current)
+            onLocation = { path, pausedLine ->
+                val current = locationGuard(path, pausedLine)
+                if (path == buffer.file.path && current() && sourceMatches(buffer)) {
+                    buffer.debugRevealSource = reading.source
+                    buffer.debugRevealCurrent = { current() && sourceMatches(buffer) }
+                    buffer.debugReveal = pausedLine to ((buffer.debugReveal?.second ?: 0) + 1)
+                }
+            }
+            pendingRecordedContext = id
+            requested = null
+            startWire(checkNotNull(uri)) { request ->
+                breakpointModel.request(snapshot, "pending-start", request)
+                JSONObject().put("op", "start").put("doc", uri).put("request_id", request).put("source_hash", hash)
+                    .put("breakpoints", JSONArray(intent?.marks.orEmpty()))
+            }
+        } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+        catch (failure: Exception) {
+            if (epoch == preparation) fail("${failure.message} Reopen the recorded fence and choose Debug again.")
+        } finally {
+            requested?.let { releaseRecordedContext(it) }
+        }
+    }
+
+    private fun releaseRecordedContext(id: String? = pendingRecordedContext) {
+        if (id == null) return
+        if (pendingRecordedContext == id) pendingRecordedContext = null
+        scope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
+            withContext(kotlinx.coroutines.NonCancellable) {
+                runCatching { engine.request("DELETE", "/api/project-contexts/$id") }
+            }
+        }
+    }
+
     suspend fun launch(profile:JSONObject)=launch(profile,null)
     private suspend fun launch(profile: JSONObject,test:SourceTestLaunch?) {
         val buffer = launchBuffer; val catalog = catalog
@@ -383,8 +495,25 @@ class NativeDebugger(private val engine: Engine, private val scope: CoroutineSco
         launchHash=hashes.second
         launchSourceBindings=candidates.associate{it.source.identity to (it.source to hashes.first.getValue(it.source.identity))}+(buffer.debugIdentity to (sourceSnapshot(buffer) to hashes.second))
         if(attaching){launchSourceBindings=emptyMap();sourceLineage.clear()}else sourceLineage.begin(launchSourceBindings.values.toList())
+        val address = test?.plan?.sourceURI ?: debugURI(owner)
+        startWire(address) { requestID ->
+            val request = JSONObject().put("op", "start").put("request_id",requestID).put("source_hash",launchHash).put("doc", address)
+                .put("profile", JSONObject().put("id", profile.getString("id")).put("fingerprint", catalog.getString("fingerprint")))
+            if(!attaching)launchProgram?.let { request.put("program", it) }
+            val sources=JSONObject();val sourceHashes=JSONObject();var primary=JSONArray()
+            for(intent in candidates){val source=currentBreakpointSource(intent.source.identity) ?: continue;breakpointModel.request(source,"pending-start",requestID);if(source.path==owner)primary=JSONArray(intent.marks) else {sources.put(debugURI(source.path),JSONArray(intent.marks));sourceHashes.put(debugURI(source.path),hashes.first.getValue(source.identity))}}
+            request.put("breakpoints",primary).put("sources",sources).put("source_hashes",sourceHashes)
+            if(test!=null){request.put("op","start_test").put("source_test",test.body);request.remove("profile");request.remove("program")}
+            if(test!=null)waitForSourceTest(requestID,30_000,preparing=false)
+            request
+        }
+    }
+
+    private fun startWire(address: String, request: (String) -> JSONObject) {
         status = "starting"; message = ""; profiles = emptyList(); values = emptyMap(); variables = emptyList(); frames = emptyList(); pausedLine = null; offer = null
-        launchRequest=UUID.randomUUID().toString();launchDocument=debugURI(owner)
+        val requestID = UUID.randomUUID().toString()
+        launchRequest = requestID
+        launchDocument = address
         val current = epoch
         if (emitForTest == null) socket = debugHTTP.newWebSocket(Request.Builder().url(engine.debugURL).build(), object : WebSocketListener() {
             override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
@@ -401,15 +530,7 @@ class NativeDebugger(private val engine: Engine, private val scope: CoroutineSco
                 scope.launch { if (epoch == current && active) fail("Debugger connection closed. Reconnect explicitly; commands were not retried.") }
             }
         })
-        val request = JSONObject().put("op", "start").put("request_id",launchRequest).put("source_hash",launchHash).put("doc", debugURI(owner))
-            .put("profile", JSONObject().put("id", profile.getString("id")).put("fingerprint", catalog.getString("fingerprint")))
-        if(!attaching)launchProgram?.let { request.put("program", it) }
-        val sources=JSONObject();val sourceHashes=JSONObject();var primary=JSONArray()
-        for(intent in candidates){val source=currentBreakpointSource(intent.source.identity) ?: continue;breakpointModel.request(source,"pending-start",launchRequest!!);if(source.path==owner)primary=JSONArray(intent.marks) else {sources.put(debugURI(source.path),JSONArray(intent.marks));sourceHashes.put(debugURI(source.path),hashes.first.getValue(source.identity))}}
-        request.put("breakpoints",primary).put("sources",sources).put("source_hashes",sourceHashes)
-        if(test!=null){request.put("op","start_test").put("doc",test.plan.sourceURI).put("source_test",test.body);request.remove("profile");request.remove("program")}
-        if(test!=null)waitForSourceTest(launchRequest!!,30_000,preparing=false)
-        send(request)
+        send(request(requestID))
     }
     private fun waitForSourceTest(request:String,milliseconds:Long,preparing:Boolean) {
         sourceTestDeadline?.cancel()
@@ -442,8 +563,8 @@ class NativeDebugger(private val engine: Engine, private val scope: CoroutineSco
         if(emit!=null)emit(stop) else if(socket?.send((byteArrayOf(3)+stop.toString().toByteArray(Charsets.UTF_8)).toByteString())!=true)message="Cleanup of retired owned debugger session $session was not confirmed. Inspect it before further debug work; no cleanup command was retried."
         return true
     }
-    private fun fail(detail: String) { sourceTestDeadline?.cancel();sourceTestDeadline=null;val pending=sourceTestLaunch;sourceTestLaunch=null;pending?.rejected?.invoke(detail);sessionID?.let{sourceTestOutcome?.invoke(it,"failed",null)};sourceTestOutcome=null;sourceLineage.clear();movement=null;retireLaunch();retireThreads(true);breakpointModel.retireSession();runSourceHashes=emptyMap();status = "failed"; message = detail; sessionID = null; pausedLine = null; variables = emptyList(); frames = emptyList(); values = emptyMap() }
-    fun close() { attaching=false;attachReading=null;sourceTestDeadline?.cancel();sourceTestDeadline=null;sourceTestLaunch?.rejected?.invoke("Test Debug preparation closed. No replacement was requested.");sourceTestLaunch=null;sessionID?.let{sourceTestOutcome?.invoke(it,"closed",null)};sourceTestOutcome=null;sourceLineage.clear();catalogNotices=emptyList();movement=null;launchTicket++;retireLaunch();retireThreads(true);breakpointModel.retireSession();runSourceHashes=emptyMap();stopPending = false; epoch = UUID.randomUUID(); socket?.cancel(); socket = null; sessionID = null; status = "idle"; pausedLine = null; frames = emptyList(); variables = emptyList(); values = emptyMap(); profiles = emptyList() }
+    private fun fail(detail: String) { releaseRecordedContext();sourceTestDeadline?.cancel();sourceTestDeadline=null;val pending=sourceTestLaunch;sourceTestLaunch=null;pending?.rejected?.invoke(detail);sessionID?.let{sourceTestOutcome?.invoke(it,"failed",null)};sourceTestOutcome=null;sourceLineage.clear();movement=null;retireLaunch();retireThreads(true);breakpointModel.retireSession();runSourceHashes=emptyMap();status = "failed"; message = detail; sessionID = null; pausedLine = null; variables = emptyList(); frames = emptyList(); values = emptyMap() }
+    fun close() { releaseRecordedContext();recordedLaunch=null;attaching=false;attachReading=null;sourceTestDeadline?.cancel();sourceTestDeadline=null;sourceTestLaunch?.rejected?.invoke("Test Debug preparation closed. No replacement was requested.");sourceTestLaunch=null;sessionID?.let{sourceTestOutcome?.invoke(it,"closed",null)};sourceTestOutcome=null;sourceLineage.clear();catalogNotices=emptyList();movement=null;launchTicket++;retireLaunch();retireThreads(true);breakpointModel.retireSession();runSourceHashes=emptyMap();stopPending = false; epoch = UUID.randomUUID(); socket?.cancel(); socket = null; sessionID = null; status = "idle"; pausedLine = null; frames = emptyList(); variables = emptyList(); values = emptyMap(); profiles = emptyList() }
     fun receive(event: JSONObject) {
         val kind = event.optString("event")
         if(kind=="test_preparing"){
@@ -473,7 +594,13 @@ class NativeDebugger(private val engine: Engine, private val scope: CoroutineSco
             "started" -> {
                 val test=sourceTestLaunch
                 if(test!=null&&(!test.current()||!test.plan.admits(event.optJSONObject("source_test"),test.facts))){fail("Test Debug receipt or source context changed. The owned session was not adopted.");cleanupRetiredLaunch(event);return}
+                if (recordedLaunch?.current?.invoke() == false) {
+                    fail("The recorded message changed during Debug preparation. The owned session was not adopted.")
+                    cleanupRetiredLaunch(event)
+                    return
+                }
                 if((!attaching&&event.optString("source_hash")!=launchHash)||(attaching&&!event.isNull("source_hash")&&event.optString("source_hash")!=launchHash)){fail("Debugger source receipt does not match this launch. Its owned session was not adopted; review source and launch again.");cleanupRetiredLaunch(event);return}
+                releaseRecordedContext()
                 retireThreads(true);message="";output = emptyList(); sessionID = event.getString("session");capabilities = event.optJSONObject("capabilities") ?: JSONObject();status = "running"
                 runSourceHashes=launchSourceBindings.values.associate{it.first.path to it.second};sourceSnapshots=launchSourceBindings.values.associate{it.first.path to it.first.text};breakpointModel.adoptStart(launchRequest!!,sessionID!!);bind(event,owner)
                 if(test!=null){sourceTestDeadline?.cancel();sourceTestDeadline=null;sourceTestPreparing=false;sourceTestLaunch=null;sourceTestOutcome=test.outcome;test.admitted(sessionID!!)}

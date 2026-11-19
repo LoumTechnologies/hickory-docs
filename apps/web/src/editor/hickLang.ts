@@ -9,11 +9,10 @@
 // document about hick's own syntax. Now there is one parser, and what the
 // editor draws is what the server reads.
 //
-// The module must be loaded before anything parses: the parse itself is
-// synchronous (CodeMirror computes decorations synchronously), so the entry
-// points await `loadHickLang()` once before the first render, and the tests
-// load the bytes from disk in `test-setup.ts`.
+// Source can mount while the parser loads. Consumers attach their parsed
+// presentation after readiness, and tests can load the same bytes directly.
 
+import { useSyncExternalStore } from "react";
 import init, { browser_prediction, initSync, structure as wasmStructure, literal_files, evaluate_project, latest_debug_project, project_position, project_transition, regenerate_project_patch, reverse_project_edit } from "./generated/hick-lang/hick_lang.js";
 import wasmUrl from "./generated/hick-lang/hick_lang_bg.wasm?url";
 
@@ -47,26 +46,50 @@ export interface RawStructure {
   error: string | null;
 }
 
-let ready = false;
+type HickLangStatus = "loading" | "ready" | "unavailable";
+let status: HickLangStatus = "loading";
+const listeners = new Set<() => void>();
+
+function publishStatus(next: HickLangStatus) {
+  if (status === next) return;
+  status = next;
+  for (const listener of listeners) listener();
+}
+
+function subscribe(listener: () => void) {
+  listeners.add(listener);
+  return () => { listeners.delete(listener); };
+}
+
+export function useHickLangStatus(): HickLangStatus {
+  return useSyncExternalStore(subscribe, () => status, () => "loading");
+}
 let loading: Promise<void> | null = null;
 
 /** Load the parser. Idempotent; resolves at once after the first load. */
 export async function loadHickLang(): Promise<void> {
-  if (ready) return;
-  loading ??= init({ module_or_path: wasmUrl }).then(() => { ready = true; }).catch((e) => { loading = null; throw e; });
+  if (hickLangReady()) return;
+  if (!loading) {
+    loading = init({ module_or_path: wasmUrl }).then(() => publishStatus("ready")).catch(error => {
+      loading = null;
+      if (!hickLangReady()) publishStatus("unavailable");
+      throw error;
+    });
+    publishStatus("loading");
+  }
   await loading;
 }
 
 /** Load the parser from bytes already in hand — the tests, which have a
  * filesystem and no fetch. */
 export function loadHickLangSync(bytes: BufferSource): void {
-  if (ready) return;
+  if (hickLangReady()) return;
   initSync({ module: bytes });
-  ready = true;
+  publishStatus("ready");
 }
 
 export function hickLangReady(): boolean {
-  return ready;
+  return status === "ready";
 }
 
 /**
@@ -75,7 +98,7 @@ export function hickLangReady(): boolean {
  * strings and CodeMirror use.
  */
 export function rawStructure(text: string): RawStructure {
-  if (!ready) {
+  if (!hickLangReady()) {
     throw new Error(
       "hick-lang is not loaded: await loadHickLang() (or call loadHickLangSync) before parsing a document",
     );
@@ -90,7 +113,7 @@ export interface LiteralFile {
 }
 
 export function materializeLiteralFiles(source: string): LiteralFile[] {
-  if (!ready) throw new Error("Load hick-lang before materializing files");
+  if (!hickLangReady()) throw new Error("Load hick-lang before materializing files");
   const result = JSON.parse(literal_files(source)) as { version: number; files: LiteralFile[]; error: string | null };
   if (result.version !== 1) throw new Error("Unsupported portable document interface version");
   if (result.error) throw new Error(result.error);
@@ -115,7 +138,7 @@ export interface EvaluatedProject {
 }
 /** Pure source equivalence substrate; this never invokes native tools or cells. */
 export function materializeProject(entry: string, sources: Record<string, string>, input: ProjectEntry[] = []): EvaluatedProject {
-  if (!ready) throw new Error("Load hick-lang before evaluating a project");
+  if (!hickLangReady()) throw new Error("Load hick-lang before evaluating a project");
   const result = JSON.parse(evaluate_project(entry, JSON.stringify(sources), JSON.stringify(input))) as { version: number; project: EvaluatedProject | null; error: string | null };
   if (result.version !== 1) throw new Error("Unsupported portable project interface version");
   if (result.error || !result.project) throw new Error(result.error ?? "Project evaluation failed");
@@ -155,7 +178,7 @@ export function latestDebugProject(versions: ProjectEntry[][], displayed: Projec
 
 /** Private browser-host ledger transition; raw snapshots must never be UI readings. */
 export function browserPredictionTransition(snapshot: string, command: unknown): { snapshot: string | null; value: unknown; error: string | null } {
-  if (!ready) throw Error("Load the shared prediction mechanism before use");
+  if (!hickLangReady()) throw Error("Load the shared prediction mechanism before use");
   return JSON.parse(browser_prediction(snapshot, JSON.stringify(command)));
 }
 

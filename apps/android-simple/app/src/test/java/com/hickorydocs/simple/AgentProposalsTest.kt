@@ -21,15 +21,16 @@ class AgentProposalsTest {
  }
  private fun envelope(text:String=material())=JSONObject().put("version",1).put("proposal_protocol",1).put("token",token).put("fingerprint",debugHash(text)).put("workspace",workspace).put("namespace","/fixture").put("material",text).put("source_effects",false).put("checks_executed",false).put("host_application",JSONObject.NULL)
  private class Host(val w:Workspace,val b:DocumentBuffer,val model:AgentProposalModel,val mode:java.util.concurrent.atomic.AtomicReference<String>,val requests:MutableList<Pair<String,String>>,val entered:java.util.concurrent.CountDownLatch,val release:java.util.concurrent.CountDownLatch){fun count(path:String)=requests.count{it.first==path}}
- private suspend fun host(originalExtra:String?=null,binding:String?=null,block:suspend(Host)->Unit)=coroutineScope {
+ private suspend fun host(originalExtra:String?=null,binding:String?=null,recordedOrigin:String?=null,block:suspend(Host)->Unit)=coroutineScope {
   val b=DocumentBuffer(FileNode("note.py","note.py",false,emptyList(),null,null),FileText(before,"base","loaded"))
-  val text=JSONObject(material()).apply{val capture=getJSONObject("intention").getJSONObject("capture");if(originalExtra=="anonymous")capture.getJSONObject("unaddressed_sources").put("original-anonymous","captured plain note");if(originalExtra=="named")capture.getJSONObject("ownership_sources").put("closed.txt","captured named note");if(binding!=null){put("origin_authority","engine-managed agent tool; claims remain unverified");if(binding!="absent")getJSONObject("intention").put("editor_snapshot",JSONObject().put("live",false).put("buffers",JSONArray().put(JSONObject().put("id",if(binding=="missing-id")JSONObject.NULL else b.debugIdentity).put("path","note.py").put("source_hash",debugHash(before)).put("save_guard","loaded").put("source_revision",when(binding){"unknown"->JSONObject.NULL;"noncanonical"->"00";else->b.sourceRevision.toString()}))))}}.toString();val proof=debugHash(text);val mode=java.util.concurrent.atomic.AtomicReference("normal");val requests=java.util.Collections.synchronizedList(mutableListOf<Pair<String,String>>());val entered=java.util.concurrent.CountDownLatch(1);val release=java.util.concurrent.CountDownLatch(1);var published:JSONObject?=null
+  val text=JSONObject(material()).apply{val capture=getJSONObject("intention").getJSONObject("capture");if(originalExtra=="anonymous")capture.getJSONObject("unaddressed_sources").put("original-anonymous","captured plain note");if(originalExtra=="named")capture.getJSONObject("ownership_sources").put("closed.txt","captured named note");if(binding!=null){put("origin_authority","engine-managed agent tool; claims remain unverified");if(binding!="absent")getJSONObject("intention").put("editor_snapshot",JSONObject().put("live",false).put("buffers",JSONArray().put(JSONObject().put("id",if(binding=="missing-id")JSONObject.NULL else b.debugIdentity).put("path","note.py").put("source_hash",debugHash(before)).put("save_guard","loaded").put("source_revision",when(binding){"unknown"->JSONObject.NULL;"noncanonical"->"00";else->b.sourceRevision.toString()}))))};recordedOrigin?.let{put("origin_authority",it)}}.toString();val proof=debugHash(text);val mode=java.util.concurrent.atomic.AtomicReference("normal");val requests=java.util.Collections.synchronizedList(mutableListOf<Pair<String,String>>());val entered=java.util.concurrent.CountDownLatch(1);val release=java.util.concurrent.CountDownLatch(1);var published:JSONObject?=null
   val listener=com.sun.net.httpserver.HttpServer.create(java.net.InetSocketAddress("127.0.0.1",0),0)
   listener.createContext("/api"){exchange->val path=exchange.requestURI.path;val wire=exchange.requestBody.bufferedReader().readText();requests.add(path to wire);val body=wire.takeIf{it.isNotEmpty()}?.let{JSONObject(it)};var status=200
    val reply=when(path){
     "/api/files"->JSONObject().put("root","Fixture").put("root_path","/fixture").put("workspace_id",workspace).put("tree",JSONArray())
     "/api/agent-proposals"->JSONObject().put("version",1).put("proposal_protocol",1).put("workspace",workspace).put("namespace","/fixture").put("reviews",JSONArray().put(JSONObject().put("token",token).put("fingerprint",proof).put("title","UNSEALED CATALOGUE LABEL")))
     "/api/agent-proposals/$token"->envelope(text).apply{if(mode.get()=="tamper")put("material",text+" ");if(mode.get()=="foreign")put("namespace","/other");if(mode.get()=="archive-reading")put("historical",true).put("reading_scope",JSONObject().put("workspace",workspace).put("namespace","/fixture"))}
+    "/api/docs/workspace/agent/turns/recorded/fence-patch"->envelope(text)
     "/api/changes/resource-inputs"->JSONObject().put("sources",JSONObject().put("note.py",source(before))).put("saved_guards",JSONObject().put("note.py","loaded"))
     "/api/agent-proposals/validate"->{assertEquals(setOf("version","token","fingerprint"),body!!.keys().asSequence().toSet());if(mode.get()=="hold"){entered.countDown();release.await(5,java.util.concurrent.TimeUnit.SECONDS)};JSONObject().put("version",1).put("proposal_protocol",1).put("token",token).put("fingerprint",proof).put("workspace",workspace).put("namespace","/fixture").put("admitted",mode.get()!="refuse").put("source_effects",false).put("checks_executed",false)}
     "/api/agent-proposals/report"->{if(mode.get()=="report-lost"){status=409;JSONObject().put("error","Host report response unconfirmed")}else JSONObject(body!!.toString()).put("proposal_protocol",1).put("report_fingerprint","e".repeat(64)).put("status","host-reported draft application").put("saved",false).put("checks_executed",false)}
@@ -40,6 +41,43 @@ class AgentProposalsTest {
   try{block(Host(w,b,model,mode,requests,entered,release))}finally{release.countDown();w.buffers.values.forEach{it.language?.close()};background.cancel();listener.stop(0)}
  }
  private suspend fun read(h:Host){h.model.open(h.w);assertNull(h.model.value);assertFalse(h.model.notice.contains("UNSEALED"));h.model.read(h.w,h.model.entries.single());assertNotNull(h.model.notice,h.model.value)}
+ @Test fun recordedFenceReviewUsesExactMessageAndExistingGuardedApply()=runBlocking {
+  val source = "Read this before applying.\n\n~~~diff\n--- a/note.py\n+++ b/note.py\n@@ -1 +1 @@\n-value = 1\n+value = 41\n~~~\n"
+  val hash = debugHash(source)
+  val endpoint = "/api/docs/workspace/agent/turns/recorded/fence-patch"
+  assertEquals(setOf(2), recordedFenceDebugContext(source).recordedPatches)
+  assertTrue(recordedFenceDebugContext(source).launch.isEmpty())
+  for (side in listOf("user", "assistant")) host(binding="known", recordedOrigin="recorded $side fence, source SHA-256 $hash; claims remain unverified") { h ->
+   var stillCurrent = true
+   val reading = AgentFenceReading("recorded", side, source) { stillCurrent }
+   h.model.prepareRecordedPatch(h.w, reading, 2)
+   val request = JSONObject(h.requests.single { it.first == endpoint }.second)
+   val fence = request.getJSONObject("fence")
+   assertEquals(side, fence.getString("side")); assertEquals(hash, fence.getString("source_hash")); assertEquals(2, fence.getInt("opening_line"))
+   val intention = request.getJSONObject("intention")
+   val capture = intention.getJSONObject("capture")
+   assertEquals(0, capture.getJSONObject("edit").getJSONObject("changes").length())
+   assertEquals("loaded", capture.getJSONObject("drafts").getJSONObject("note.py").getString("save_guard"))
+   val owner = intention.getJSONObject("editor_snapshot").getJSONArray("buffers").getJSONObject(0)
+   assertEquals(h.b.debugIdentity, owner.getString("id")); assertEquals(h.b.sourceRevision.toString(), owner.getString("source_revision"))
+   assertTrue(h.model.notice, h.model.canApply)
+   assertEquals(token, h.model.value!!.token)
+   assertTrue(h.model.value!!.sections.any { it.title.contains("generated consequences") })
+   assertEquals(before, h.b.text)
+   assertEquals(0, h.count("/api/agent-proposals/validate"))
+   if (side == "assistant") {
+    stillCurrent = false
+    h.model.read(h.w, h.model.entries.single())
+    assertFalse(h.model.canApply)
+    assertEquals(token, h.model.value!!.token)
+   }
+   h.model.applyDraft(h.w)
+   assertEquals(if (side == "assistant") before else after, h.b.text)
+   assertEquals(before, h.b.base)
+   assertEquals(if (side == "assistant") 0 else 1, h.count("/api/agent-proposals/validate"))
+   assertEquals(0, h.count("/api/changes/resource-save"))
+  }
+ }
  @Test fun historicalReadingNeverAcquiresCurrentEditorsOrApplies()=runBlocking{host{h->h.mode.set("archive-reading");read(h);assertTrue(h.model.value!!.historical);assertFalse(h.model.canApply);assertFalse(h.model.authorityCurrent);assertTrue(h.model.phase.contains("Historical"));h.model.applyDraft(h.w);h.model.prepareSave(h.w);assertEquals(before,h.b.text);assertEquals(0,h.count("/api/changes/resource-inputs"));assertEquals(0,h.count("/api/agent-proposals/validate"));assertEquals(0,h.count("/api/agent-proposals/report"))}}
  @Test fun historicalScopeAndSealRemainOriginalAndMalformedScopeRefuses()=runBlocking{
   val original=JSONObject(material());val old="f".repeat(32);original.put("workspace",old);original.getJSONObject("inputs").put("workspace",old);original.getJSONObject("consequences").put("workspace",old);for(key in listOf("before","after"))original.getJSONObject(key).put("engine_workspace_id",old)

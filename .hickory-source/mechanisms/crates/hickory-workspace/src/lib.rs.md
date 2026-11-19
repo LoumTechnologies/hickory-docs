@@ -160,6 +160,9 @@ pub struct Draft {
     /// Milliseconds since the epoch, as the app reported them. Advisory: it
     /// orders drafts for display and nothing depends on it being accurate.
     pub saved_at: u64,
+    /// Recovered draft edits require explicit publication. Older drafts omit this.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detached: Option<bool>,
 }
 
 </storycode:copy>
@@ -594,6 +597,7 @@ mod tests {
             contents: "unsaved".into(),
             base: "".into(),
             saved_at: 1,
+            detached: None,
         })
         .unwrap();
 
@@ -660,6 +664,7 @@ mod tests {
             contents: "half a sentence".into(),
             base: "what was on disk".into(),
             saved_at: 42,
+            detached: Some(true),
         };
         s.save_draft(&draft).unwrap();
         assert_eq!(s.load_draft("notes/today.md"), Some(draft));
@@ -675,6 +680,7 @@ mod tests {
                 contents: path.into(),
                 base: String::new(),
                 saved_at: at,
+                detached: None,
             })
             .unwrap();
         }
@@ -702,6 +708,7 @@ mod tests {
                 contents: path.into(),
                 base: String::new(),
                 saved_at: 1,
+                detached: None,
             })
             .unwrap();
         }
@@ -745,6 +752,7 @@ mod tests {
             contents: "the good one".into(),
             base: String::new(),
             saved_at: 1,
+            detached: None,
         };
         s.save_draft(&good).unwrap();
         // A leftover temp file from a crashed write is ignored entirely.
@@ -783,6 +791,7 @@ mod response_tests {
             contents: r#"{"version":1,"tip":null,"drafts":{"new":"unsent"}}"#.into(),
             base: String::new(),
             saved_at: 1,
+            detached: None,
         };
         open().save_draft(&draft).unwrap();
         assert_eq!(open().response("workspace").unwrap(), Some(draft));
@@ -834,6 +843,7 @@ mod response_tests {
             contents: "retained".into(),
             base: String::new(),
             saved_at: 0,
+            detached: None,
         };
         store.save_draft(&draft).unwrap();
         fs::write(

@@ -362,11 +362,12 @@ export const api = {
   /** Save a plain file whole. `baseHash` is the hash the content was loaded
    * under — a mismatch means the disk moved and the server answers 409.
    * `force` is the deliberate overwrite after that 409. */
-  saveFile: (path: string, content: string, baseHash?: string, force = false) =>
+  saveFile: (path: string, content: string, baseHash?: string, force = false, saveGuard?: string) =>
     request<PlainFileSaved>("PUT", "/api/file", {
       path,
       content,
       ...(baseHash !== undefined ? { base_hash: baseHash } : {}),
+      ...(saveGuard !== undefined ? { save_guard: saveGuard } : {}),
       ...(force ? { force } : {}),
     }),
   /** One action on the element whose tag starts at byte `at`. The element
