@@ -31,6 +31,10 @@ against the same observed buffer, preserving its selection and viewport. A
 reply to an older tree request cannot replace the latest tree or authority.
 A startup file read applies only while the initial layout is still current, so
 a slow request cannot replace a tab the user opened in the meantime.
+When Files and the guarded reader deliver readable text first, the same
+startup lease owns that buffer until a matching reply confirms the save guard.
+Record the provisional owner before activating its tab so a later Refresh can
+confirm it without reopening the editor.
 
 A document component belongs to one buffer path. Switching tabs mounts the next component around its already cached editor; it does not reuse React state that still points to the previous file's editor. Without that identity boundary, a queued cross-file reveal can be consumed by the detached old editor before the destination mounts. The cache retains selection and undo when the original tab returns.
 
@@ -105,6 +109,7 @@ function EditorSettings() {
   </label>)}{error && <p role="status">{error}</p>}</fieldset>;
 }
 type OpenFileOptions = {
+  startup?: { observe: (buffer: Buffer) => void; refuse: (message: string) => void };
   current?: () => boolean;
   originCurrent?: () => boolean;
   observed?: Buffer;
@@ -249,12 +254,17 @@ export function App() {
         && buffers.values.get(held.file.path) === held
         && groups(liveLayout.current).some(group => group.id === "document-group" && group.active === sourceTab(held.file.path)));
     };
+    const reportAuthorityFailure = (message: string) => {
+      authorityFailure = `${message} Choose File → Refresh to check ownership again.`;
+      setNotice(authorityFailure);
+    };
     if (path) void api.startupSource(path).then(snapshot => {
       if (!current() || snapshot?.version !== 1 || snapshot.path !== path || typeof snapshot.content !== "string" || !snapshot.root_path) return;
-      observed = buffers.observeStartup(snapshot);
-      if (observed) {
+      const preview = buffers.observeStartup(snapshot);
+      if (preview) {
+        observed = preview;
         showContainingFolder(path);
-        void open(observed.file, {current, observed});
+        void open(preview.file, {current, observed: preview});
       }
     }).catch(() => { /* The authoritative tree reader can still open this file. */ });
     // Refresh uses the same lease after an unavailable listing or guarded
@@ -270,12 +280,18 @@ export function App() {
           if (authorityFailure) setNotice(notice => notice === authorityFailure ? "" : notice);
         }, error => {
           if (!current()) return;
-          authorityFailure = `${String(error)} Choose File → Refresh to check ownership again.`;
-          setNotice(authorityFailure);
+          reportAuthorityFailure(String(error));
         });
       } else {
         showContainingFolder(file.path);
-        void open(file, {current});
+        void open(file, {current, startup: {
+          observe: owner => {
+            if (owner.startupWorkspace === undefined) return;
+            observed = owner;
+            if (owner.saveGuardReason) reportAuthorityFailure(owner.saveGuardReason);
+          },
+          refuse: reportAuthorityFailure,
+        }});
       }
     };
     void loadFiles();
@@ -310,7 +326,7 @@ export function App() {
     const owner = groups(liveLayout.current).find(group => group.tabs.includes(tab));
     activateTab(owner?.id ?? currentGroup.id, tab);
   }
-  async function open(file: FileNode, {current: isCurrent = () => true, originCurrent = () => true, observed, verify}: OpenFileOptions = {}): Promise<OpenedFile | null> {
+  async function open(file: FileNode, {current: isCurrent = () => true, originCurrent = () => true, observed, verify, startup}: OpenFileOptions = {}): Promise<OpenedFile | null> {
     if (!isCurrent() || !originCurrent()) return null;
     const path = file.path, tab = sourceTab(path), panes = groups(liveLayout.current);
     const target = panes.find(group => group.tabs.includes(tab))?.id
@@ -330,7 +346,7 @@ export function App() {
     const focus = focusEpoch.current;
     const foreground = () => recoveryFocus.current === target && focusEpoch.current === focus;
     try {
-      const owner = observed ?? await buffers.open(file);
+      const owner = observed ?? await buffers.open(file, startup !== undefined);
       if (!pending() || !originCurrent()) return null;
       const revision = owner.sourceRevision;
       if (verify) await verify(owner);
@@ -338,6 +354,7 @@ export function App() {
         && owner.file.path === path && (!verify || owner.sourceRevision === revision);
       // Admit the origin before handing the reveal to its destination.
       if (!admitted() || !originCurrent()) return null;
+      startup?.observe(owner);
       setLayout(layout => admitted() ? activate(layout, target, tab) : layout);
       const current = () => admitted() && foreground();
       if (current()) setStatus(status => current() ? owner.file.generated_by ? "Generated file · read-only" : path : status);
@@ -345,7 +362,8 @@ export function App() {
     } catch (error) {
       if (!pending() || !foreground() || !originCurrent()) return null;
       if (verify) throw error;
-      setNotice(notice => pending() && foreground() && originCurrent() ? `${String(error)} Refresh files and try opening ${path} again.` : notice);
+      if (startup) startup.refuse(String(error));
+      else setNotice(notice => pending() && foreground() && originCurrent() ? `${String(error)} Refresh files and try opening ${path} again.` : notice);
       return null;
     }
   }

@@ -31,7 +31,7 @@ import enterCases from "../../../simple-contract/enter-cases.json";
 import { EditorView } from "@codemirror/view";
 import { EditorSelection, EditorState } from "@codemirror/state";
 import { foldedRanges } from "@codemirror/language";
-import { undo, isolateHistory } from "@codemirror/commands";
+import { undo, redo, isolateHistory } from "@codemirror/commands";
 import { currentCompletions } from "@codemirror/autocomplete";
 import { Document, semanticPath, semanticLocations, querySemanticLocations, openSemanticQuery, simpleWordOffset, simpleWordMove, simpleFoldRanges, openFind, simpleIndent, simpleTab } from "./Document";
 vi.mock("../debug/launchProfiles", () => ({ launchWithProfiles: vi.fn(async (_query, start, options) => { if (options.isCurrent()) start({ id: "test", fingerprint: "test" }); }) }));
@@ -59,7 +59,7 @@ import { TerminalSession } from "./Terminal";
 import { Buffer, Buffers,createSourceCopy } from "./buffers";
 import { api,request } from "../api/client";
 import {historySourceHash} from "./SourceHistory";
-vi.mock("../api/client", () => ({ request:vi.fn(),api: { find: vi.fn(), formulaLanguages: vi.fn().mockResolvedValue({ languages: ["python"] }), files: vi.fn(), doc: vi.fn(), file: vi.fn(), saveFile: vi.fn(), saveDoc: vi.fn(), fileOp: vi.fn(), openFile: vi.fn(), createDoc: vi.fn(), openTerminal: vi.fn(), terminalInput: vi.fn(), agentTurns: vi.fn().mockResolvedValue({ turns: [] }), agentStop: vi.fn(), agent: vi.fn() } }));
+vi.mock("../api/client", () => ({ request:vi.fn(),api: { find: vi.fn(), formulaLanguages: vi.fn().mockResolvedValue({ languages: ["python"] }), files: vi.fn(), startupSource: vi.fn(), doc: vi.fn(), file: vi.fn(), saveFile: vi.fn(), saveDoc: vi.fn(), fileOp: vi.fn(), openFile: vi.fn(), createDoc: vi.fn(), openTerminal: vi.fn(), terminalInput: vi.fn(), agentTurns: vi.fn().mockResolvedValue({ turns: [] }), agentStop: vi.fn(), agent: vi.fn() } }));
 beforeAll(async()=>{const name='node:'+'crypto';const {webcrypto}=await import(name);Object.defineProperty(globalThis,'crypto',{value:webcrypto,configurable:true});});
 async function saveReceipt(path:string,body:unknown,hash='confirmed-hash') {const value=body as {request_id:string;source?:string;content?:string};return {version:1,history_protocol:1,path,request_id:value.request_id,source_hash:await historySourceHash(value.source??value.content??''),save_guard:'confirmed-physical',hash,history:{available:true,outcome:'published'}};}
 describe("shared frontend layout contract", () => {
@@ -683,6 +683,71 @@ describe("tab drop placement", () => {
 });
 
 describe("simple background source loading", () => {
+  it("keeps a tree-first guardless startup editor through late raw text and Refresh", async () => {
+    const path = "nested/wanted.txt", source = "First row\nSecond readable row\n";
+    const workspace = "a".repeat(32), namespace = "/owned";
+    const previous = window.location.pathname + window.location.search + window.location.hash;
+    window.history.replaceState(null, "", `?path=${encodeURIComponent(path)}`);
+    let finishRaw!: (reply: Awaited<ReturnType<typeof api.startupSource>>) => void;
+    vi.mocked(api.startupSource).mockImplementationOnce(() => new Promise(resolve => { finishRaw = resolve; }));
+    vi.mocked(api.files).mockResolvedValue({ root: "Owned files", root_path: namespace, workspace_id: workspace, tree: [
+      { name: "nested", path: "nested", dir: true, children: [
+        { name: "wanted.txt", path, dir: false },
+        { name: "peer.txt", path: "nested/peer.txt", dir: false },
+      ] },
+      { name: "outside.txt", path: "outside.txt", dir: false },
+    ] });
+    const reply = { path, content: source, language: "text", hash: "loaded" };
+    vi.mocked(api.file).mockReset()
+      .mockResolvedValueOnce({ ...reply, save_guard_reason: "Save permission is pending." })
+      .mockResolvedValueOnce({ ...reply, save_guard: "confirmed" });
+    const screen = render(createElement(App));
+    try {
+      const content = await screen.findByLabelText(path);
+      const view = EditorView.findFromDOM(content)!;
+      expect(view.state.doc.toString()).toBe(source);
+      expect(view.state.readOnly).toBe(true);
+      expect(screen.getByRole("button", { name: "peer.txt" })).toBeTruthy();
+      expect(screen.queryByRole("button", { name: "outside.txt" })).toBeNull();
+      act(() => view.dispatch({ selection: { anchor: 10, head: 16 } }));
+      view.scrollDOM.scrollTop = 125;
+      await act(async () => finishRaw({ version: 1, path, content: source, root_path: namespace, workspace_id: workspace }));
+      expect(EditorView.findFromDOM(screen.getByLabelText(path))).toBe(view);
+      expect(view.state.readOnly).toBe(true);
+
+      fireEvent.click(screen.getByText("File", { selector: "summary" }));
+      fireEvent.click(screen.getByRole("button", { name: "Refresh", exact: true }));
+      await waitFor(() => expect(view.state.readOnly).toBe(false));
+      expect(api.file).toHaveBeenCalledTimes(2);
+      expect(EditorView.findFromDOM(screen.getByLabelText(path))).toBe(view);
+      expect(view.state.selection.main.anchor).toBe(10);
+      expect(view.state.selection.main.head).toBe(16);
+      expect(view.scrollDOM.scrollTop).toBe(125);
+      act(() => view.dispatch({ changes: { from: 10, insert: "Draft " } }));
+      const draft = source.slice(0, 10) + "Draft " + source.slice(10);
+      expect(view.state.doc.toString()).toBe(draft);
+      act(() => { expect(undo(view)).toBe(true); });
+      expect(view.state.doc.toString()).toBe(source);
+      act(() => { expect(redo(view)).toBe(true); });
+      expect(view.state.doc.toString()).toBe(draft);
+    } finally {
+      screen.unmount();
+      window.history.replaceState(null, "", previous);
+      vi.mocked(api.file).mockReset();
+    }
+  });
+  it("refuses a stale tree-first startup reply from a former root", async () => {
+    const buffers = new Buffers(() => {});
+    const file = { name: "early.txt", path: "early.txt", dir: false };
+    const workspace = "1".repeat(32);
+    buffers.workspace = "/previous";
+    buffers.workspaceId = workspace;
+    vi.mocked(api.file).mockResolvedValueOnce({ path: file.path, language: "text", hash: "hash", save_guard: "old", content: "Old root." });
+    const first = buffers.open(file, true);
+    buffers.workspace = "/current";
+    await expect(first).rejects.toThrow("different workspace or source");
+    expect(buffers.values.has(file.path)).toBe(false);
+  });
   it("upgrades only an exact provisional source to its guarded workspace buffer", async () => {
     const buffers = new Buffers(() => {});
     const file = {name:"early.txt", path:"docs/early.txt", dir:false};

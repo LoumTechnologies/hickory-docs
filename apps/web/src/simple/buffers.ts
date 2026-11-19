@@ -79,7 +79,7 @@ export class Buffers {
     this.values.set(source.path, buffer); this.changed();
     return buffer;
   }
-  open(file: FileNode): Promise<Buffer> {
+  open(file: FileNode, forStartup = false): Promise<Buffer> {
     const current = this.values.get(file.path);
     if (current && current.startupWorkspace === undefined) return Promise.resolve(current);
     const pending = this.pending.get(file.path);
@@ -90,6 +90,9 @@ export class Buffers {
       : api.file(file.path);
     const request = read.then(data => {
       if (revision !== this.namespaceRevision) throw new Error("Source addresses changed while opening. Choose the file again.");
+      if (forStartup && (this.workspace !== namespace || this.workspaceId !== workspace || data.path !== file.path)) {
+        throw Error("The first file reply belongs to a different workspace or source. Refresh Files to read the current source.");
+      }
       const available = this.values.get(file.path);
       if (current?.startupWorkspace !== undefined && available !== current) {
         throw Error("The startup editor closed while confirming ownership. Open the file again.");
@@ -113,8 +116,16 @@ export class Buffers {
         return available;
       }
       if (available) return available;
-      const buffer = new Buffer(file, data.content, data.hash, this.changed,false,this.workspace);
-      buffer.saveGuard=data.save_guard;buffer.saveGuardReason=data.save_guard_reason;
+      const buffer = new Buffer(file, data.content, data.hash, this.changed, false, this.workspace);
+      if (forStartup && !file.generated_by && (!namespace || !/^[0-9a-f]{32}$/.test(workspace) || !data.save_guard)) {
+        // A guarded endpoint can return readable bytes even when save
+        // permission is absent. Let a later exact read confirm this editor.
+        buffer.startupWorkspace = /^[0-9a-f]{32}$/.test(workspace) ? workspace : null;
+        buffer.saveGuardReason = data.save_guard_reason || "Source authority is still unavailable.";
+      } else {
+        buffer.saveGuard = data.save_guard;
+        buffer.saveGuardReason = data.save_guard_reason;
+      }
       this.values.set(file.path, buffer); this.changed(); return buffer;
     }).finally(() => { if(this.pending.get(file.path)===request)this.pending.delete(file.path); });
     this.pending.set(file.path, request); return request;

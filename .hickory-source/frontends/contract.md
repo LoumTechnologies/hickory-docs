@@ -237,6 +237,17 @@ provided no numeric selection offset. The focused model test above checks
 exact nonempty selection retention. See
 `target/parity-rendered-android.sgYIt7/continuation-receipts/final-android-7_i4auql/startup-tree-first/tree-first-result.json`.
 
+Simple Browser retains a read-only editor when the first guarded reply
+already has text and lacks a save guard. A later raw reply leaves that
+editor and its pending confirmation in place. Focused Chromium with
+controlled API replies exercised both this order and a guarded 503
+followed by late raw text. Refresh Files confirmed permission in the
+same CodeMirror editor and preserved its nonempty selection, scroll,
+and Undo and Redo history. Typing and native editor Undo and Redo produced
+the expected text with zero source-history writes. See
+`target/simple-startup-guardless-fixed.json` and
+`target/simple-startup-guardless-vitest.log`.
+
 Mounted AppKit repeated both cases against the freshly linked engine. A held
 Files response let the exact startup bytes appear first. Releasing Files and
 the guarded read kept the original editor, its selection and viewport, and
