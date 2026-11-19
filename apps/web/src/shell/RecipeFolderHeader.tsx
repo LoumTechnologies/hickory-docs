@@ -24,7 +24,15 @@ export function RecipeFolderHeader({ name, paths, revision, onOpenTerminal, onEr
           .catch(error => { if (alive) callbacks.current.onError(error instanceof Error ? error.message : String(error)); })
           .finally(() => { pending = false; });
       }, reason => callbacks.current.onError(reason)),
-      EditorView.theme({ "&": { overflow: "visible" }, ".cm-scroller": { overflow: "visible" }, ".cm-content": { padding: "0" }, ".cm-line": { padding: "0" } }),
+      EditorView.theme({
+        "&": { overflow: "visible" },
+        "&:has(.cm-gutter-overflow)": { zIndex: "201" },
+        ".cm-scroller": { overflow: "visible" },
+        ".cm-scroller > .cm-content": { padding: "0" },
+        ".cm-scroller .cm-line": { padding: "0" },
+        ".cm-gutters-after": { boxSizing: "border-box", flex: "0 0 20px", width: "20px" },
+        ".cm-just-gutter": { minWidth: "0", width: "0" },
+      }),
     ] }) });
     return () => { alive = false; view.destroy(); };
   }, [name, version, revision]);

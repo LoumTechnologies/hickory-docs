@@ -406,7 +406,14 @@ export function justRecipeGutter(folders: RecipeFolder[], current: () => boolean
 
 Give the workspace root the same recipe gutter
 
-The workspace root is a read-only one-line editor, not an invented editable filesystem entry. It uses the same discovery and gutter layout as nested folders. Retire asynchronous discovery and terminal callbacks when the header unmounts.
+The workspace root and nested folder headers use the same recipe discovery
+and gutter layout. Each header gives the rail one 20-pixel column. The layout
+plugin measures from that column's outer edge and adds its padding inside the
+reserved width. The marker container has zero intrinsic width so buttons
+awaiting measurement cannot expand the pane. While the grid is open, the
+header stacks above neighboring gutters which would otherwise intercept a
+click in its lower rows. Unmounting the header retires discovery and terminal
+callbacks.
 
 <storycode:copy id="just-gutter-apps-web-src-shell-RecipeFolderHeader-tsx">
 import { useEffect, useRef } from "react";
@@ -435,7 +442,15 @@ export function RecipeFolderHeader({ name, paths, revision, onOpenTerminal, onEr
           .catch(error => { if (alive) callbacks.current.onError(error instanceof Error ? error.message : String(error)); })
           .finally(() => { pending = false; });
       }, reason => callbacks.current.onError(reason)),
-      EditorView.theme({ "&": { overflow: "visible" }, ".cm-scroller": { overflow: "visible" }, ".cm-content": { padding: "0" }, ".cm-line": { padding: "0" } }),
+      EditorView.theme({
+        "&": { overflow: "visible" },
+        "&:has(.cm-gutter-overflow)": { zIndex: "201" },
+        ".cm-scroller": { overflow: "visible" },
+        ".cm-scroller > .cm-content": { padding: "0" },
+        ".cm-scroller .cm-line": { padding: "0" },
+        ".cm-gutters-after": { boxSizing: "border-box", flex: "0 0 20px", width: "20px" },
+        ".cm-just-gutter": { minWidth: "0", width: "0" },
+      }),
     ] }) });
     return () => { alive = false; view.destroy(); };
   }, [name, version, revision]);

@@ -187,6 +187,16 @@ open. See `target/apple-git-conflict-uikit-v10-coordinates/receipt.json`,
 `target/apple-git-working-tree-uikit-v10-probe/receipt.json`, and
 `target/apple-git-working-tree-uikit-v10-center-fix-retry/`.
 
+### Files gutter overflow
+
+The Main browser Files tree now keeps each recipe rail inside the row's
+reserved column. A mounted two-folder replay opened a five-action grid,
+kept the next folder and its action at the same coordinates, and clicked
+an action on the grid's second row. Escape focused the original trigger.
+The exact terminal request addressed the first folder. The full app replay
+passed in Chromium. The isolated Files tree also passed in WebKit and Firefox. See the
+[Files browser witness](../guarantees/authoring/the-workspace-tree-edits-like-an-editor/contract.md#files-recipe-overflow-browser).
+
 ### Requested files and capability arrival
 
 The shared Simple launcher now passes the exact workspace-relative requested
