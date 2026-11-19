@@ -17,6 +17,12 @@ source endpoints. Neither delay may hide the raw text. Once both answer, the
 exact editor, text state, selection and scroll remain mounted. A differing
 guarded revision stays readable with writes refused until an explicit reopen.
 
+When Files comes first, the guarded request can fail before the independent
+text returns. A second branch serves the bytes immediately without a save
+guard. Both paths must show a read-only editor whose exact state, selection
+and scroll survive Refresh. Native text history checks the first permitted
+draft, and the fixture records any attempted publication.
+
 The delayed semantic navigation witness changes the originating selection
 while a provider destination loads. It checks that the file is cached and the
 visible draft, selection and navigation history stay unchanged. Choosing a
@@ -153,6 +159,116 @@ class ParityTest {
             workspace.agent.debugger?.close()
             listener.stop(0)
             workers.shutdownNow()
+        }
+    }
+
+    @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+    @Test(timeout = 22000)
+    fun treeFirstStartupKeepsAvailableTextWhileGuardIsMissing() = kotlinx.coroutines.runBlocking {
+        for (firstReadFails in listOf(true, false)) {
+            val listener = com.sun.net.httpserver.HttpServer.create(java.net.InetSocketAddress("127.0.0.1", 0), 0)
+            val workers = java.util.concurrent.Executors.newFixedThreadPool(3)
+            listener.executor = workers
+            val rawRequested = java.util.concurrent.CountDownLatch(1)
+            val releaseRaw = java.util.concurrent.CountDownLatch(1)
+            val guardedReads = java.util.concurrent.atomic.AtomicInteger()
+            val mutations = java.util.concurrent.atomic.AtomicInteger()
+            val path = "nested/entry + #.md"
+            val raw = "# First-open café 😀\n" + (1..70).joinToString("") { "Readable line $it\n" }
+            val identity = "b".repeat(32)
+            fun respond(exchange: com.sun.net.httpserver.HttpExchange, body: JSONObject, status: Int = 200) {
+                val bytes = body.toString().toByteArray(Charsets.UTF_8)
+                if (exchange.requestMethod in listOf("PUT", "PATCH", "DELETE") ||
+                    exchange.requestMethod == "POST" && exchange.requestURI.path == "/api/changes/resource-save") mutations.incrementAndGet()
+                exchange.sendResponseHeaders(status, bytes.size.toLong())
+                exchange.responseBody.use { it.write(bytes) }
+            }
+            listener.createContext("/api/startup-source") { exchange ->
+                rawRequested.countDown()
+                releaseRaw.await(8, java.util.concurrent.TimeUnit.SECONDS)
+                respond(exchange, JSONObject().put("version", 1).put("path", path).put("content", raw)
+                    .put("root_path", "/owned").put("workspace_id", identity))
+            }
+            listener.createContext("/api/files") { exchange ->
+                val file = JSONObject().put("name", path.substringAfterLast('/')).put("path", path).put("doc_id", "wanted").put("dir", false)
+                val sibling = JSONObject().put("name", "sibling.txt").put("path", "nested/sibling.txt").put("dir", false)
+                val outside = JSONObject().put("name", "outside.txt").put("path", "outside.txt").put("dir", false)
+                val directory = JSONObject().put("name", "nested").put("path", "nested").put("dir", true)
+                    .put("children", org.json.JSONArray().put(file).put(sibling))
+                respond(exchange, JSONObject().put("root", "Owned").put("root_path", "/owned").put("workspace_id", identity)
+                    .put("tree", org.json.JSONArray().put(directory).put(outside)))
+            }
+            listener.createContext("/api/docs/wanted") { exchange ->
+                when {
+                    guardedReads.incrementAndGet() != 1 -> respond(exchange, JSONObject().put("source", raw).put("save_guard", "owned guard"))
+                    firstReadFails -> respond(exchange, JSONObject().put("error", "Guarded source temporarily unavailable"), 503)
+                    else -> respond(exchange, JSONObject().put("source", raw).put("save_guard_reason", "Permission is pending"))
+                }
+            }
+            listener.createContext("/") { exchange -> respond(exchange, JSONObject().put("error", "Fixture route unavailable"), 404) }
+            listener.start()
+            val job = kotlinx.coroutines.SupervisorJob(coroutineContext[kotlinx.coroutines.Job])
+            val workspace = Workspace(kotlinx.coroutines.CoroutineScope(coroutineContext + job))
+            try {
+                workspace.connectFromLaunch("http://127.0.0.1:${listener.address.port}", path)
+                withTimeout(3000) { while (rawRequested.count != 0L || guardedReads.get() != 1) delay(10) }
+                assertEquals(listOf(path, "nested/sibling.txt"), workspace.files.map { it.path })
+                assertEquals(1L, releaseRaw.count)
+                if (firstReadFails) {
+                    withTimeout(3000) { while (!workspace.status.contains("HTTP 503")) delay(10) }
+                    assertTrue(workspace.connecting)
+                    assertNull(workspace.currentBuffer)
+                    releaseRaw.countDown()
+                }
+                withTimeout(3000) { while (workspace.currentBuffer == null || workspace.connecting) delay(10) }
+                val editor = workspace.currentBuffer!!
+                val textState = editor.state
+                val scroll = editor.sourceScroll
+                assertEquals(raw, editor.text)
+                assertTrue(editor.readOnly)
+                assertNull(editor.saveGuard)
+                assertNull(editor.language)
+                if (!firstReadFails) {
+                    assertEquals("Permission is pending", workspace.status)
+                    assertEquals(1L, releaseRaw.count)
+                    releaseRaw.countDown()
+                }
+                val selection = androidx.compose.ui.text.TextRange(2, 5)
+                textState.edit { this.selection = selection }
+                scroll.scrollTo(120)
+                val edit = NativeSourceEdit(2, 5, "draft")
+                assertFalse(editor.applySourceEdits(listOf(edit), raw))
+                assertEquals(1, guardedReads.get())
+
+                workspace.refresh()
+                assertEquals(2, guardedReads.get())
+                assertEquals(listOf(path, "nested/sibling.txt"), workspace.files.map { it.path })
+                assertSame(editor, workspace.currentBuffer)
+                assertSame(textState, editor.state)
+                assertSame(scroll, editor.sourceScroll)
+                assertEquals(selection, textState.selection)
+                assertEquals(120, scroll.value)
+                assertFalse(editor.readOnly)
+                assertEquals("owned guard", editor.saveGuard)
+                assertTrue(editor.applySourceEdits(listOf(edit), raw))
+                val draft = raw.replaceRange(2, 5, "draft")
+                assertEquals(draft, editor.text)
+                assertTrue(editor.dirty)
+                textState.undoState.undo()
+                assertEquals(raw, editor.text)
+                assertFalse(editor.dirty)
+                textState.undoState.redo()
+                assertEquals(draft, editor.text)
+                assertEquals(0, mutations.get())
+            } finally {
+                releaseRaw.countDown()
+                workspace.currentBuffer?.language?.close()
+                workspace.debugger?.close()
+                workspace.agent.debugger?.close()
+                job.cancel()
+                listener.stop(0)
+                workers.shutdownNow()
+            }
         }
     }
 

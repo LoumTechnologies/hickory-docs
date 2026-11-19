@@ -221,6 +221,14 @@ See
 and
 `target/apple-startup-authority-tree-first-uikit-retry-2026-11-19/startup-authority-tree-first-retry-receipt.json`.
 
+Android's focused startup tests also cover Files arriving first. A guarded
+503 leaves the independent raw read alive. When guarded text arrives
+without a save guard, it opens read-only and the late raw response cannot
+replace it. Refresh Files confirms permission in the same retained text
+field with its selection and scroll position. A native-model draft then
+round-trips through Undo and Redo with zero source publications. See
+`target/android-tree-first-startup-focused-retry.log`.
+
 Mounted AppKit repeated both cases against the freshly linked engine. A held
 Files response let the exact startup bytes appear first. Releasing Files and
 the guarded read kept the original editor, its selection and viewport, and

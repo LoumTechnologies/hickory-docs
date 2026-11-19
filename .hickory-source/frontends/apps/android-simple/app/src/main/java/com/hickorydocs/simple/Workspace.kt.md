@@ -484,6 +484,11 @@ Provider acquisition and resource publication share the same retained owner leas
 
 The remaining workspace operations reuse the adopted buffers and current namespace.
 
+Files may arrive before the requested text. A failed guarded read leaves the
+independent text request running as long as that launch still owns the pane.
+If the read supplies bytes without a save guard, keep them in a read-only
+preview. Refresh Files can confirm authority in that same editor.
+
 Read the requested path and its file tree independently. An early observation
 may mount text before Files lists the destination. Keep that editor read-only
 until the normal source endpoint confirms permission and matching bytes in the
@@ -530,7 +535,17 @@ cache after that selection is retired.
         workspaceScope.launch { connect() }
     }
 
-    private suspend fun confirmStartupPreview(file: FileNode, server: Engine, reopen: Boolean = false) {
+    private fun retainStartupPreview(file: FileNode, server: Engine, source: StartupSource, text: FileText): DocumentBuffer {
+        val editor = DocumentBuffer(file, text, startupObservation = true)
+        startupPreview = StartupPreview(server, source, editor)
+        buffers[file.path] = editor
+        return editor
+    }
+
+    private fun startupPermissionNotice(text: FileText) =
+        text.saveGuardReason ?: "Source permission is unconfirmed. Refresh Files before editing."
+
+    private suspend fun confirmStartupPreview(file: FileNode, server: Engine, reopen: Boolean = false, response: FileText? = null) {
         val held = startupPreview?.takeIf { it.engine === server && it.source.path == file.path } ?: return
         val identity = server.sourceWorkspaceID
         val root = server.sourceRootAddress
@@ -543,10 +558,10 @@ cache after that selection is retired.
             if (!reopen) check(root == held.source.rootPath && (held.source.workspaceID == null || held.source.workspaceID == identity)) {
                 "The workspace changed while opening ${file.path}. Reopen it from Files to read the current source."
             }
-            val loaded = server.file(file)
+            val loaded = response ?: server.file(file)
             if (!stillOwnsPreview()) return
-            check(file.generatedBy != null || loaded.saveGuard != null) {
-                loaded.saveGuardReason ?: "Source permission is unconfirmed. Refresh Files before editing."
+            check(file.generatedBy != null || !loaded.saveGuard.isNullOrEmpty()) {
+                startupPermissionNotice(loaded)
             }
             val editor = if (held.source.content == loaded.content && held.editor.text == loaded.content) held.editor else {
                 check(reopen) { "${file.path} changed during first open. Reopen it from Files to read the current source." }
@@ -560,9 +575,11 @@ cache after that selection is retired.
             retainBuffer(file, loaded, server, editor)
             editor.startupObservation = false
             startupPreview = null
-            status = file.path
+            if (currentBuffer === editor) status = file.path
         } catch (cancelled: CancellationException) { throw cancelled }
-        catch (failure: Exception) { if (stillOwnsPreview()) status = failure.message ?: "Refresh Files to check the current source." }
+        catch (failure: Exception) {
+            if (stillOwnsPreview() && currentBuffer === held.editor) status = failure.message ?: "Refresh Files to check the current source."
+        }
     }
 
     suspend fun connect(): Boolean {
@@ -574,17 +591,18 @@ cache after that selection is retired.
             val origin = address
             val next = Engine(origin)
             val requested = launchFile?.takeIf { it.first == origin }?.second
-            val before = generation
+            var requestedGeneration = generation
+            var requestedNavigation = foregroundNavigation
+            val startupIsCurrent = { generation == requestedGeneration && foregroundNavigation == requestedNavigation }
             if (requested != null && engine == null) reading = workspaceScope.launch {
                 val observed = try { next.startupSource(requested) }
                 catch (cancelled: CancellationException) { throw cancelled }
                 catch (_: Exception) { return@launch }
-                val initialHost = engine == null && generation == before || engine === next
-                if (initialHost && connecting && address == origin && currentBuffer == null && requested !in buffers) {
+                val sameHost = engine == null || engine === next && next.sourceRootAddress == observed.rootPath &&
+                    (observed.workspaceID == null || observed.workspaceID == next.sourceWorkspaceID)
+                if (sameHost && startupIsCurrent() && connecting && address == origin && currentBuffer == null && requested !in buffers) {
                     val file = FileNode(requested.substringAfterLast('/'), requested, false, emptyList(), null, null)
-                    val editor = DocumentBuffer(file, FileText(observed.content, ""), startupObservation = true)
-                    startupPreview = StartupPreview(next, observed, editor)
-                    buffers[requested] = editor
+                    retainStartupPreview(file, next, observed, FileText(observed.content, ""))
                     show(sourceTab(requested))
                     status = "Reading ${file.name}. Edit access will follow source confirmation."
                 }
@@ -599,6 +617,7 @@ cache after that selection is retired.
                 observed.rootPath to emptyList()
             }
             val preview = startupPreview?.takeIf { it.engine === next }
+            val requestedTabIsCurrent = startupIsCurrent()
             startupPreview = preview
             launchFile = null
             directoryScope=""
@@ -611,6 +630,7 @@ cache after that selection is retired.
             buffers.values.forEach { it.language?.close() }; languageConnection?.close();languageConnection=null; analysis.stop();analysis=WorkspaceAnalysis();showAnalysis=false;showEverywhere=false;showTests=false;showTemplates=false;sourceTemplates.close();sourceTemplates=SourceTemplatesModel();showReview=false;showHistory=false;showAttribution=false;showConstruction=false;showRecovery=false;gitAttribution.close();gitAttribution=GitAttributionModel("");gitHistory.close();gitHistory=GitHistoryModel();gitReview.close();gitReview=GitReviewModel();showCoverage=false;coverage.stop();coverage=SimpleCoverageState();testSources=TestSourcesModel();sourceTestIndex?.stop();sourceTestIndex=null;generation = UUID.randomUUID(); changes.reset(); search.invalidate(); showWorkspaceSearch = false; engine = next; files = tree; rootFiles = tree; navigationTrail = NavigationTrail(); retainedResourceEditors.clear(); buffers.clear(); loading.values.forEach {it.cancel()}; loading.clear()
             if (preview == null) { layout = PaneLayout(); focused = "document-group" }
             else buffers[preview.source.path] = preview.editor
+            if (requestedTabIsCurrent) { requestedGeneration = generation; requestedNavigation = foregroundNavigation }
             status = root
             if (requested != null) {
                 directoryScope = requested.substringBeforeLast('/', "")
@@ -620,8 +640,11 @@ cache after that selection is retired.
                 else if (file == null) {
                     status = "Requested file not found: $requested. Refresh files and open it from the tree."
                 } else {
-                    if (preview == null) open(file, recordNavigation = false)
-                    if (startupPreview?.source?.path == file.path) confirmStartupPreview(file, next)
+                    if (preview != null) confirmStartupPreview(file, next)
+                    else if (startupIsCurrent()) {
+                        val opened = activateFile(file, recordNavigation = false, isCurrent = startupIsCurrent, forStartup = true)
+                        if (!opened && startupIsCurrent()) reading?.join()
+                    }
                 }
             }
             return true
@@ -650,16 +673,28 @@ Opening reads raw text once. Closing dirty tabs refuses, matching the other fron
 Foreground file opening and background intelligence share one acquisition path. A pending read is keyed by workspace generation and path; after it returns, prefer any already available buffer so unsaved text cannot be overwritten. Retaining text attaches capabilities without activating a pane. Only the foreground request changes layout and records navigation. Reconnecting cancels old acquisitions and prevents late results from entering the new workspace.
 
 <ui:copy id="simple-f6fdc8535c-1">
-    suspend fun loadBuffer(file: FileNode): DocumentBuffer {
+    suspend fun loadBuffer(file: FileNode, forStartup: Boolean = false): DocumentBuffer {
         buffers[file.path]?.let { return it }
         loading[file.path]?.let { return it.await() }
         val server = engine ?: error("Connect to the workspace and choose a file.")
         require(!file.dir) { "Choose a file, not a directory." }
         val current = generation
+        val root = server.sourceRootAddress
+        val workspace = server.sourceWorkspaceID
         val pending = workspaceScope.async(start=kotlinx.coroutines.CoroutineStart.LAZY) {
             val text = server.file(file)
             if(generation != current) throw CancellationException("Workspace changed")
-            buffers[file.path] ?: retainBuffer(file,text,server)
+            if (forStartup && (server.sourceRootAddress != root || server.sourceWorkspaceID != workspace || findFileNode(file.path, rootFiles) != file)) {
+                throw CancellationException("Requested source authority changed")
+            }
+            buffers[file.path]?.let { available ->
+                if (available.startupObservation) confirmStartupPreview(file, server, response = text)
+                return@async buffers[file.path] ?: available
+            }
+            if (forStartup && file.generatedBy == null && text.saveGuard.isNullOrEmpty()) {
+                val source = StartupSource(file.path, text.content, root.orEmpty(), workspace)
+                retainStartupPreview(file, server, source, text.copy(saveGuard = null, saveGuardReason = startupPermissionNotice(text)))
+            } else retainBuffer(file, text, server)
         }
         loading[file.path] = pending; pending.start()
         try { return pending.await() }
@@ -703,7 +738,8 @@ Foreground file opening and background intelligence share one acquisition path. 
     suspend fun open(file: FileNode, recordNavigation: Boolean = true) {
         activateFile(file, recordNavigation)
     }
-    private suspend fun activateFile(file: FileNode, recordNavigation: Boolean, isCurrent: (() -> Boolean)? = null): Boolean {
+    private suspend fun activateFile(file: FileNode, recordNavigation: Boolean, isCurrent: (() -> Boolean)? = null,
+                                     forStartup: Boolean = false): Boolean {
         if (isCurrent?.invoke() == false) return false
         val departed = currentSemanticLocation()
         if (file.path in buffers) {
@@ -717,18 +753,18 @@ Foreground file opening and background intelligence share one acquisition path. 
             ?: layout.groups().firstOrNull {"files" !in it.tabs}?.id ?: focused
         val request = Any()
         newestOpen[target] = request
-        foregroundNavigation++
+        if (!forStartup) foregroundNavigation++
         val startingPane = focused
         if (isCurrent == null) focused = target
         fun ownsGroup() = generation == current && newestOpen[target] === request && layout.groups().any { it.id == target } &&
             (isCurrent == null || focused == startingPane && isCurrent())
         return try {
-            loadBuffer(file)
+            val buffer = loadBuffer(file, forStartup)
             if (!ownsGroup()) return false
             layout = layout.activate(sourceTab(file.path), target)
             if (isCurrent != null) focused = target
             if (focused == target) {
-                status = file.path
+                status = if (buffer.startupObservation) buffer.saveGuardReason ?: "Waiting for workspace permission." else file.path
                 if (recordNavigation) currentSemanticLocation()?.let { navigationTrail = navigationTrail.record(departed, it) }
             }
             focused == target
