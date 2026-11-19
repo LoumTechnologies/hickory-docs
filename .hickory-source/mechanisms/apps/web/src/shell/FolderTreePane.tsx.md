@@ -32,7 +32,7 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState, type MouseEve
 import { useUiCommands, useUiRevision } from "../lib/uiActionBridge";
 
 import { api } from "../api/client";
-import type { FileNode, FilesResponse } from "../api/types";
+import type { FileNode, FilesResponse, FindFile, FindMatch } from "../api/types";
 import { RecipeFolderHeader } from "./RecipeFolderHeader";
 import { TreeContextMenu } from "./TreeContextMenu";
 import { TreePrompt } from "./TreePrompt";
@@ -530,7 +530,7 @@ export interface FolderTreePaneProps {
    * stopped now that terminals have no list of their own. */
   onCloseTerminal?: (id: string) => void;
   /** Jump to a find hit: a root-relative path and a 1-based line. */
-  onOpenHit?: (path: string, line: number) => void;
+  onOpenHit?: (file: FindFile, match: FindMatch) => void;
   /** Incremented when the shell's Show Files command should put point here. */
   focusRequest?: number;
   error?: string | null;
@@ -649,7 +649,7 @@ export function FolderTreePane({
     >
       {/* Search opens above the tree without changing its geometry. */}
       <TreeFindReplace
-        onOpenHit={(path, line) => onOpenHit?.(path, line)}
+        onOpenHit={(file, match) => onOpenHit?.(file, match)}
         onReplaced={() => window.dispatchEvent(new Event(FILES_CHANGED_EVENT))}
       />
       {roots.map((folder) => (

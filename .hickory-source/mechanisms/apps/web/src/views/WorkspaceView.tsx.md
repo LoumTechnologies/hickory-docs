@@ -51,6 +51,8 @@ import type {
   PlainFile,
   SearchHit,
   SearchResponse,
+  FindFile,
+  FindMatch,
 } from "../api/types";
 import { WorkspaceChat } from "./deferredAgent";
 import { InsertMenu } from "../components/InsertMenu";
@@ -65,6 +67,7 @@ import { PromptPanel, usePrompt } from "../components/PromptPanel";
 import { bufferEditor, openBufferTarget } from "../lib/editorBufferTargets";
 import { workspaceRibbonSources } from "./workspaceRibbonSources";
 import { matchesRankedSearchHit, openPlainSearchFiles, searchWorkspace } from "../lib/workspaceSearch";
+import { searchCharacter } from "../simple/Intelligence";
 import type { MenuAction } from "../lib/menuBridge";
 import { captureInsertion, insertionCurrent, insertCapturedElement } from "../editor/insertElement";
 import {
@@ -955,9 +958,10 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   // activating a tab. Coverage can yield while hashing the text as well as
   // during the read. Recheck the report, the foreground and the live text at
   // the last point before activation. A source-only link leaves the caret alone.
-  const visitSource = useCallback(async ({path, line, character, expectedSource, originCurrent, report, searchHit}: {
+  const visitSource = useCallback(async ({path, line, character, expectedSource, originCurrent, report, searchHit, findHit}: {
     path: string; line: number | null; character?: number; expectedSource?: string;
     originCurrent?: () => boolean; report?: {sourceHash: string | null}; searchHit?: SearchHit;
+    findHit?: {sourceHash: string; text: string};
   }) => {
     const request = beginSourceOpen(originCurrent);
     const {current, beforeOpen} = request;
@@ -976,7 +980,8 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       const firstNode = findNodeByPath(folderRootsRef.current, path);
       const documentId = (node: FileNode | undefined | null, target: ReturnType<typeof retained>) =>
         node?.doc_id ?? target.session?.docId ?? (target.tab?.kind === "document" ? target.tab.docId : undefined);
-      if ((report || searchHit) && !listed(firstNode, first)) {
+      const needsListedSource = !!(report || searchHit || findHit);
+      if (needsListedSource && !listed(firstNode, first)) {
         throw Error("Source no longer listed. Refresh the workspace.");
       }
       const id = documentId(firstNode, first);
@@ -990,20 +995,23 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       }
       const source = doc?.source ?? file?.content ?? first.text;
       if (source === undefined) return false;
-      const hash = report && line !== null ? await historySourceHash(source) : undefined;
+      const hash = (report || findHit) && line !== null ? await historySourceHash(source) : undefined;
       if (!beforeOpen()) return false;
       const latest = retained();
       const node = findNodeByPath(folderRootsRef.current, path);
-      if ((report || searchHit) && !listed(node, latest)) throw Error("Source no longer listed. Refresh the workspace.");
+      if (needsListedSource && !listed(node, latest)) throw Error("Source no longer listed. Refresh the workspace.");
       const textChanged = latest.text === undefined ? first.text !== undefined : latest.text !== source;
       const row = line === null ? undefined : source.split("\n")[line - 1]?.replace(/\r$/, "");
       const column = character ?? 0;
       if (searchHit && !matchesRankedSearchHit(source, searchHit)) {
         throw Error("Search result changed. Search again to find its current location.");
       }
+      if (findHit && (hash !== findHit.sourceHash || row !== findHit.text)) {
+        throw Error("Saved search source changed. Find it again before opening the result.");
+      }
       if (textChanged || documentId(node, latest) !== id || (expectedSource !== undefined && source !== expectedSource) ||
           (line !== null && (!Number.isInteger(line) || line < 1 || row === undefined || !Number.isInteger(column) || column < 0 || column > row.length)) ||
-          (hash !== undefined && hash !== report?.sourceHash)) {
+          (report && hash !== undefined && hash !== report.sourceHash)) {
         throw Error(report ? "Source changed or report position is unavailable. Refresh coverage before navigating."
           : "Source or position changed. Query the location again.");
       }
@@ -1036,6 +1044,19 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       .catch(error => setInsertNotice(error instanceof Error ? error.message : String(error)));
   }, [captureReadingPosition, visitSource]);
   openSearchHitRef.current = openSearchHit;
+  const openFolderHit = useCallback((file: FindFile, match: FindMatch) => {
+    // The engine reports UTF-8 byte columns, while the editor uses UTF-16.
+    // The visible row opens its first observed match.
+    const sourceHash = file.source_hash?.replace(/^sha256:/i, "").toLowerCase() ?? "";
+    const first = match.at[0];
+    const character = first ? searchCharacter(match.text, first.column) : null;
+    if (!/^[a-f0-9]{64}$/.test(sourceHash) || character === null) {
+      setInsertNotice("Saved search source or position is unavailable. Search again with a current workspace server.");
+      return;
+    }
+    void visitSource({path: file.path, line: match.line, character, originCurrent: captureReadingPosition(),
+      findHit: {sourceHash, text: match.text}}).catch(error => setInsertNotice(error instanceof Error ? error.message : String(error)));
+  }, [captureReadingPosition, visitSource]);
   const navigateCoverage = useCallback<CoverageSurfaceClient["navigate"]>((location, current) => {
     const readingCurrent = captureReadingPosition();
     const originCurrent = () => current() && readingCurrent();
@@ -2106,8 +2127,8 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
               });
           }}
           onCloseTerminal={(id) => void terminals.close(id)}
-          // Find uses the tree's document/generated/plain-file routing.
-          onOpenHit={openHit}
+          // Find opens through the tree only after checking the observed saved bytes.
+          onOpenHit={openFolderHit}
           onOpen={(action) => {
             // Documents open/front a tab; generated files open beside their owner.
             if (action.kind === "doc") {

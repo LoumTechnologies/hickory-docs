@@ -6,14 +6,14 @@ import { useUiCommands, useUiRevision } from "../lib/uiActionBridge";
 import type { UiCommand, UiField } from "../lib/uiActions";
 
 import { api } from "../api/client";
-import type { FindFile, FindOptions, ReplaceResponse } from "../api/types";
+import type { FindFile, FindMatch, FindOptions, ReplaceResponse } from "../api/types";
 
 export function TreeFindReplace({
   onOpenHit,
   onReplaced,
 }: {
-  /** Jump to a match: path, and the 1-based line it is on. */
-  onOpenHit: (path: string, line: number) => void;
+  /** The workspace verifies the saved file and its observed coordinates. */
+  onOpenHit: (file: FindFile, match: FindMatch) => void;
   /** A write happened — the tree and any open buffer should refresh. */
   onReplaced: (result: ReplaceResponse) => void;
 }) {
@@ -89,6 +89,11 @@ export function TreeFindReplace({
   }, [query, replacement, options, writable, onReplaced, busy, sourceGuardAvailable, result?.truncated]);
   const revision = useUiRevision(() => [open, query, replacement, options, result, error, busy, report]);
   const commands: { key: string; command: UiCommand }[] = [];
+  const openMatch = (file: FindFile, match: FindMatch) => {
+    // Release the modal before the destination read completes.
+    setOpen(false);
+    onOpenHit(file, match);
+  };
   function add(id: string, label: string, parameters: Record<string, UiField>, execute: UiCommand["execute"], enabled = true, group = parent, reason?: string) {
     commands.push({ key: `${parent}/${id}`, command: { label, parent: group, subject: parent, parameters, prerequisites: ["Search matches are retained observations, not complete edit baselines"], read: () => ({ revision: revision(), enabled, reason }), execute } });
   }
@@ -104,8 +109,9 @@ export function TreeFindReplace({
     });
     add("hit", "Open observed folder search hit", { path: { type: "string", maxLength: 8192 }, line: { type: "number", minimum: 1, maximum: 100000000, integer: true } }, async args => {
       const file = result?.files.find(file => file.path === args.path);
-      if (!file?.matches.some(match => match.line === args.line)) return { status: "unavailable", reason: "Hit does not belong to this observed search response" };
-      onOpenHit(file.path, Number(args.line)); return { status: "completed", value: { dispatch: "navigation requested", path: file.path, line: args.line } };
+      const match = file?.matches.find(match => match.line === args.line);
+      if (!file || !match) return { status: "unavailable", reason: "Hit does not belong to this observed search response" };
+      openMatch(file, match); return { status: "completed", value: { dispatch: "navigation requested", path: file.path, line: args.line } };
     }, !!result);
     add("replace", "Replace folder matches", {}, async () => {
       const outcome = await runReplace(true);
@@ -236,7 +242,7 @@ export function TreeFindReplace({
                   <button
                     type="button"
                     className="tree-find__hit mono"
-                    onClick={() => onOpenHit(file.path, match.line)}
+                    onClick={() => openMatch(file, match)}
                   >
                     <span className="tree-find__line">{match.line}</span>
                     <span className="tree-find__text">{match.text.trim()}</span>

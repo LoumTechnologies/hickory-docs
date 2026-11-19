@@ -26,11 +26,15 @@ it("discloses search, validates hit identity and replaces with observed hashes",
   await waitFor(() => expect(registry.observe(parent).actions.find(action => action.label === "Open observed folder search hit")?.enabled).toBe(true));
   expect(find).toHaveBeenCalledWith("old", { case: false, whole_word: false, regex: false });
   expect(await invoke(parent, "Open observed folder search hit", { path: "source.md", line: 4 })).toMatchObject({ outcome: { status: "unavailable" } });
-  await invoke(parent, "Open observed folder search hit", { path: "source.md", line: 3 }); expect(open).toHaveBeenCalledWith("source.md", 3);
   await invoke(parent, "Set folder replacement draft", { text: "new" });
   expect(await invoke(parent, "Replace folder matches")).toMatchObject({ outcome: { value: { changed_files: 0, skipped_files: 1, replacements: 0 } } });
   expect(replace).toHaveBeenCalledWith("old", "new", { case: false, whole_word: false, regex: false }, ["source.md"], { "source.md": "a".repeat(64) });
   expect(replaced).toHaveBeenCalledWith(expect.objectContaining({ skipped: [expect.objectContaining({ reason: "source_changed" })] }));
+  await waitFor(() => expect(registry.observe(parent).actions.find(action => action.label === "Open observed folder search hit")?.enabled).toBe(true));
+  await invoke(parent, "Open observed folder search hit", { path: "source.md", line: 3 });
+  expect(open).toHaveBeenCalledWith(expect.objectContaining({path: "source.md", source_hash: "a".repeat(64)}),
+    {line: 3, text: "old", at: [{column: 0, length: 3}]});
+  expect(screen.queryByRole("dialog", {name: "Search files"})).toBeNull();
 });
 // Contract: .hickory-source/guarantees/search/find-and-replace-is-exhaustive/contract.md
 it("opens one modal search with replacement and all match options", () => {

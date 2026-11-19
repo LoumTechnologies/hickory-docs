@@ -2751,6 +2751,15 @@ revealed the original start of a ranked span at line 65, UTF-16 offset
 1344. No browser source write occurred. See
 `target/main-ranked-search-held-fixed-v1/browser.json`.
 
+Main Folder Find verifies the saved file's hash and line before using
+the result. A rendered replay clicked a real Files result and held its
+destination read. The Find dialog closed, and selecting a peer left its
+editor active after HTTP 200 with no late tab. An edit to a different
+line invalidated a second result even though its matching line stayed
+identical. A fresh result on line 3 converted byte column 6 after an
+emoji to UTF-16 column 4 and revealed exact offset 20. The browser made
+no source writes. See `target/main-folder-find-held-fixed-v1/browser.json`.
+
 Focused rebuilt-engine replays also passed for Python definition and
 Back/Forward, workspace search, delayed first-open authority and capabilities,
 and Debug and guarded patch review on both recorded Agent message sides.
