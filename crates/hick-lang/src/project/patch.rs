@@ -9,6 +9,28 @@ pub struct PatchResult {
     pub paths: BTreeSet<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PatchTarget {
+    pub before: Option<String>,
+    pub after: Option<String>,
+}
+
+struct PatchSection<'a> {
+    target: PatchTarget,
+    hunks: Vec<PatchHunk<'a>>,
+}
+
+struct PatchHunk<'a> {
+    old_at: usize,
+    lines: Vec<PatchLine<'a>>,
+}
+
+struct PatchLine<'a> {
+    operation: u8,
+    payload: &'a str,
+    offset: usize,
+}
+
 /// Exact, transactional unified-diff replay. Diff payload line endings are data;
 /// header line endings are syntax. No offset search, native IO, merge or model.
 pub fn apply_project_patch(
@@ -17,39 +39,9 @@ pub fn apply_project_patch(
     document: &str,
     source_offset: usize,
 ) -> Result<PatchResult, String> {
-    let mut lines = vec![];
-    let mut at = 0;
-    for line in diff.split_inclusive('\n') {
-        lines.push((line, at));
-        at += line.len();
-    }
-    let mut cursor = 0;
+    let (sections, paths) = parse_patch(diff)?;
     let mut after = tree.clone();
-    let mut paths = BTreeSet::new();
-    while cursor < lines.len() {
-        let old = header(lines[cursor].0, "--- ", "a/")?;
-        cursor += 1;
-        let new = header(
-            lines.get(cursor).ok_or("missing +++ header")?.0,
-            "+++ ",
-            "b/",
-        )?;
-        cursor += 1;
-        if old.is_none() && new.is_none() {
-            return Err("patch cannot have two /dev/null paths".into());
-        }
-        for path in [old.as_ref(), new.as_ref()].into_iter().flatten() {
-            validate_project_path(path)?;
-        }
-        let touched: BTreeSet<_> = [old.as_ref(), new.as_ref()]
-            .into_iter()
-            .flatten()
-            .cloned()
-            .collect();
-        if touched.iter().any(|p| paths.contains(p)) {
-            return Err("a file occurs twice in one patch act".into());
-        }
-        paths.extend(touched);
+    for PatchSection { target: PatchTarget { before: old, after: new }, hunks } in sections {
         let original = match &old {
             Some(path) => tree
                 .get(path)
@@ -78,13 +70,7 @@ pub fn apply_project_patch(
         let mut output_lines = 0;
         let mut bytes = Vec::new();
         let mut origins = vec![];
-        let mut hunks = 0;
-        while cursor < lines.len() && !lines[cursor].0.starts_with("--- ") {
-            let (old_start, old_count, new_start, new_count) = hunk_header(lines[cursor].0)?;
-            cursor += 1;
-            hunks += 1;
-            let old_at = line_index(old_start, old_count)?;
-            let new_at = line_index(new_start, new_count)?;
+        for PatchHunk { old_at, lines } in hunks {
             if old_at < consumed || old_at > old_lines.len() {
                 return Err("hunk offset is overlapping or outside input".into());
             }
@@ -96,38 +82,8 @@ pub fn apply_project_patch(
             );
             output_lines += old_at - consumed;
             consumed = old_at;
-            if new_at != output_lines {
-                return Err("new hunk offset does not match constructed output".into());
-            }
-            let mut removed = 0;
-            let mut added = 0;
-            while removed < old_count || added < new_count {
-                let (line, offset) = *lines.get(cursor).ok_or("truncated hunk")?;
-                let operation = *line.as_bytes().first().ok_or("empty hunk line")?;
-                if !matches!(operation, b' ' | b'+' | b'-') {
-                    return Err("hunk line must begin with space, + or -".into());
-                }
-                let mut payload = &line[1..];
-                let mut no_newline = false;
-                cursor += 1;
-                if lines
-                    .get(cursor)
-                    .is_some_and(|(l, _)| syntax(l) == "\\ No newline at end of file")
-                {
-                    if !payload.ends_with('\n') {
-                        return Err("newline marker requires a terminated diff line".into());
-                    }
-                    payload = &payload[..payload.len() - 1];
-                    no_newline = true;
-                    cursor += 1;
-                }
-                if !no_newline && !payload.ends_with('\n') {
-                    return Err("unterminated diff payload needs a no-newline marker".into());
-                }
+            for PatchLine { operation, payload, offset } in lines {
                 if operation != b'+' {
-                    if removed == old_count {
-                        return Err("hunk exceeds old count".into());
-                    }
                     if old_lines.get(consumed).copied() != Some(payload) {
                         return Err(format!(
                             "wrong patch context at input line {}",
@@ -143,12 +99,8 @@ pub fn apply_project_patch(
                         );
                     }
                     consumed += 1;
-                    removed += 1;
                 }
                 if operation != b'-' {
-                    if added == new_count {
-                        return Err("hunk exceeds new count".into());
-                    }
                     if operation == b'+' {
                         let start = bytes.len();
                         bytes.extend_from_slice(payload.as_bytes());
@@ -164,12 +116,8 @@ pub fn apply_project_patch(
                         }
                     }
                     output_lines += 1;
-                    added += 1;
                 }
             }
-        }
-        if hunks == 0 {
-            return Err("file patch requires at least one hunk".into());
         }
         append_original(
             &original,
@@ -198,14 +146,90 @@ pub fn apply_project_patch(
             None => return Err("deletion patch did not remove the complete file".into()),
         }
     }
-    if paths.is_empty() {
-        return Err("empty patch".into());
-    }
     Ok(PatchResult {
         before: tree.clone(),
         after,
         paths,
     })
+}
+
+/// Enumerate exact header path pairs without opening or changing any source.
+pub fn project_patch_targets(diff: &str) -> Result<Vec<PatchTarget>, String> {
+    let (sections, _) = parse_patch(diff)?;
+    Ok(sections.into_iter().map(|section| section.target).collect())
+}
+
+fn parse_patch(diff: &str) -> Result<(Vec<PatchSection<'_>>, BTreeSet<String>), String> {
+    let mut lines = diff.split_inclusive('\n').scan(0, |offset, line| {
+        let at = *offset;
+        *offset += line.len();
+        Some((line, at))
+    }).peekable();
+    let mut sections = Vec::new();
+    let mut paths = BTreeSet::new();
+    while let Some((line, _)) = lines.next() {
+        let before = header(line, "--- ", "a/")?;
+        let after = header(lines.next().ok_or("missing +++ header")?.0, "+++ ", "b/")?;
+        let touched: BTreeSet<_> = before.iter().chain(&after).cloned().collect();
+        if touched.is_empty() {
+            return Err("patch cannot have two /dev/null paths".into());
+        }
+        if !paths.is_disjoint(&touched) {
+            return Err("a file occurs twice in one patch act".into());
+        }
+        paths.extend(touched);
+
+        let mut hunks = Vec::new();
+        let (mut previous_old, mut previous_new) = (0usize, 0usize);
+        while lines.peek().is_some_and(|(line, _)| !line.starts_with("--- ")) {
+            let (old_start, old_count, new_start, new_count) = hunk_header(lines.next().unwrap().0)?;
+            let old_at = line_index(old_start, old_count)?;
+            let new_at = line_index(new_start, new_count)?;
+            let untouched = old_at.checked_sub(previous_old)
+                .ok_or("hunk offset is overlapping or outside input")?;
+            if previous_new.checked_add(untouched) != Some(new_at) {
+                return Err("new hunk offset does not match constructed output".into());
+            }
+            previous_old = old_at.checked_add(old_count).ok_or("hunk old count overflows")?;
+            previous_new = new_at.checked_add(new_count).ok_or("hunk new count overflows")?;
+            let (mut removed, mut added) = (0, 0);
+            let mut payload = Vec::new();
+            while removed < old_count || added < new_count {
+                let (line, offset) = lines.next().ok_or("truncated hunk")?;
+                let operation = *line.as_bytes().first().ok_or("empty hunk line")?;
+                if !matches!(operation, b' ' | b'+' | b'-') {
+                    return Err("hunk line must begin with space, + or -".into());
+                }
+                let text = &line[1..];
+                let no_newline = lines.peek().is_some_and(|(next, _)| syntax(next) == "\\ No newline at end of file");
+                let text = if no_newline {
+                    lines.next();
+                    text.strip_suffix('\n').ok_or("newline marker requires a terminated diff line")?
+                } else {
+                    if !text.ends_with('\n') {
+                        return Err("unterminated diff payload needs a no-newline marker".into());
+                    }
+                    text
+                };
+                if operation != b'+' {
+                    if removed == old_count { return Err("hunk exceeds old count".into()); }
+                    removed += 1;
+                }
+                if operation != b'-' {
+                    if added == new_count { return Err("hunk exceeds new count".into()); }
+                    added += 1;
+                }
+                payload.push(PatchLine { operation, payload: text, offset });
+            }
+            hunks.push(PatchHunk { old_at, lines: payload });
+        }
+        if hunks.is_empty() {
+            return Err("file patch requires at least one hunk".into());
+        }
+        sections.push(PatchSection { target: PatchTarget { before, after }, hunks });
+    }
+    if sections.is_empty() { return Err("empty patch".into()); }
+    Ok((sections, paths))
 }
 
 fn syntax(line: &str) -> &str {
@@ -262,4 +286,44 @@ fn append_original(
 ) {
     copy_origins(entry, range, bytes.len(), origins);
     bytes.extend_from_slice(&entry.bytes[range.0..range.1]);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn exact_target_pairs_ignore_header_like_payload_and_support_resource_changes() {
+        let diff = concat!(
+            "--- a/a.txt\r\n+++ b/moved.txt\r\n@@ -1 +1 @@\r\n--- a/not-a-target\r\n+++ b/not-a-target\r\n",
+            "--- /dev/null\n+++ b/new.txt\n@@ -0,0 +1 @@\n+new\n\\ No newline at end of file\n",
+            "--- a/delete.txt\n+++ /dev/null\n@@ -1 +0,0 @@\n-old\n",
+        );
+        let targets = project_patch_targets(diff).unwrap();
+        assert_eq!(targets, [
+            PatchTarget { before: Some("a.txt".into()), after: Some("moved.txt".into()) },
+            PatchTarget { before: None, after: Some("new.txt".into()) },
+            PatchTarget { before: Some("delete.txt".into()), after: None },
+        ]);
+        let mut start = ProjectTree::default();
+        start.insert("a.txt", ProjectEntry::file(b"-- a/not-a-target\r\n".as_slice())).unwrap();
+        start.insert("delete.txt", ProjectEntry::file(b"old\n".as_slice())).unwrap();
+        let replay = apply_project_patch(&start, diff, "patch.md", 0).unwrap();
+        assert_eq!(replay.after.get("moved.txt").unwrap().bytes.as_ref(), b"++ b/not-a-target\r\n");
+        assert_eq!(replay.after.get("new.txt").unwrap().bytes.as_ref(), b"new");
+        assert!(replay.after.get("a.txt").is_none() && replay.after.get("delete.txt").is_none());
+        let target_paths = targets.into_iter().flat_map(|target| target.before.into_iter().chain(target.after)).collect::<BTreeSet<_>>();
+        assert_eq!(replay.paths, target_paths);
+    }
+
+    #[test]
+    fn target_discovery_refuses_malformed_or_ambiguous_hunks_before_acquisition() {
+        let valid = "--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-old\n+new\n";
+        for diff in ["".into(), format!("{valid}{valid}"), valid.replace("-1 +1", "-1 +2"),
+            valid.replace("-1 +1", "-1,2 +1"), valid.replace("a/a.txt", "a/../outside"),
+            "--- /dev/null\n+++ /dev/null\n@@ -0,0 +0,0 @@\n".into(),
+        ] {
+            assert!(project_patch_targets(&diff).is_err(), "{diff:?}");
+        }
+    }
 }

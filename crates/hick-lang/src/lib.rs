@@ -17,10 +17,10 @@ pub use recording::{
 mod project;
 pub use project::{
     AgentProjectCapture, ByteOrigin, ComparisonSource, DifferenceKind, EDITOR_BUFFER_PREFIX,
-    EditPolicy, EntryKind, EvaluatedProject, IncorporationCandidate, IncorporationError,
-    PatchResult, ProjectComparison, ProjectDifference, ProjectEntry, ProjectInventory,
+    EditPolicy, EntryKind, EvaluatedProject, IncorporationCandidate, IncorporationError, InspectedProjectPatch,
+    PatchResult, PatchTarget, ProjectComparison, ProjectDifference, ProjectEntry, ProjectInventory,
     ProjectSnapshot, ProjectTree, RecordedCell, RevisionIdentity, apply_project_patch,
-    evaluate_project, latest_debug_project, load_project_sources, project_byte_location,
+    evaluate_project, inspect_project_patch, latest_debug_project, load_project_sources, project_byte_location, project_patch_targets,
     regenerate_patch, reverse_project_edit, transition_response, unified_transition,
     validate_project_path,
 };

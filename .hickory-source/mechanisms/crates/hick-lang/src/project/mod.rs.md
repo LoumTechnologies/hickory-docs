@@ -63,13 +63,13 @@ pub use comparison::{ComparisonSource, EditPolicy, ProjectComparison, RevisionId
 ### `use_declaration`
 
 <storycode:copy id="f-134665e92482-use_declaration-2">
-pub use evaluate::{EvaluatedProject, ProjectInventory, evaluate_project};
+pub use evaluate::{EvaluatedProject, InspectedProjectPatch, ProjectInventory, evaluate_project, inspect_project_patch};
 </storycode:copy>
 <a id="f-134665e92482-use_declaration-3"></a>
 ### `use_declaration`
 
 <storycode:copy id="f-134665e92482-use_declaration-3">
-pub use patch::{PatchResult, apply_project_patch};
+pub use patch::{PatchResult, PatchTarget, apply_project_patch, project_patch_targets};
 </storycode:copy>
 <a id="f-134665e92482-use_declaration-4"></a>
 ### `use_declaration`

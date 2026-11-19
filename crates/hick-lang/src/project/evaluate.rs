@@ -91,6 +91,46 @@ pub fn evaluate_project(
     sources: &BTreeMap<String, String>,
     input: &ProjectTree,
 ) -> Result<EvaluatedProject, String> {
+    evaluate_project_with_selection(entry, sources, input, None).map(|(project, _)| project)
+}
+
+/// The compiler-selected local transition and its opening byte coordinate.
+pub struct InspectedProjectPatch {
+    pub id: String,
+    pub opening_byte: usize,
+    pub before: ProjectTree,
+    pub after: ProjectTree,
+}
+
+/// Locate one declared operation in this exact document and zero-based line.
+/// The ordinary evaluator supplies both the local transition and complete New.
+pub fn inspect_project_patch(
+    entry: &str,
+    sources: &BTreeMap<String, String>,
+    input: &ProjectTree,
+    document: &str,
+    opening_line: usize,
+) -> Result<(EvaluatedProject, InspectedProjectPatch), String> {
+    let source = sources.get(document).ok_or("The selected patch document is missing.")?;
+    let start = std::iter::once(0)
+        .chain(source.match_indices('\n').map(|(index, _)| index + 1))
+        .nth(opening_line)
+        .ok_or("The selected patch opening line is outside its document.")?;
+    let length = source[start..].find('\n').unwrap_or(source.len() - start);
+    let selection = (document, start..start + length);
+    let (project, selected) = evaluate_project_with_selection(entry, sources, input, Some(selection))?;
+    let (id, opening_byte) = selected.ok_or("Choose a declared patch's opening line in the captured document.")?;
+    let (before, after) = project.local_states.get(&id).ok_or("The declared patch has no completed local transition.")?;
+    let patch = InspectedProjectPatch { id, opening_byte, before: before.clone(), after: after.clone() };
+    Ok((project, patch))
+}
+
+fn evaluate_project_with_selection(
+    entry: &str,
+    sources: &BTreeMap<String, String>,
+    input: &ProjectTree,
+    selection: Option<(&str, std::ops::Range<usize>)>,
+) -> Result<(EvaluatedProject, Option<(String, usize)>), String> {
     validate_project_path(entry)?;
     let mut entry = entry.to_owned();
     let mut routes = BTreeSet::new();
@@ -138,6 +178,25 @@ pub fn evaluate_project(
             return Err(format!(
                 "entry route {routed} is not part of the declared Markdown closure"
             ));
+        }
+    }
+    let mut selected = None;
+    if let Some((document, line)) = selection {
+        for op in operations.values().filter(|op| op.document == document && op.tag.name == "patch") {
+            let Some(opening) = op.tag.source_span else { continue };
+            let start = opening.start + op.bom;
+            if !line.contains(&start) {
+                continue;
+            }
+            let opening_text = sources[document]
+                .get(start..opening.end + op.bom)
+                .ok_or("The compiler's opening span is outside the captured source.")?;
+            if !opening_text.trim_start().starts_with('<') && op.tag.attributes.is_empty() {
+                continue;
+            }
+            if op.id.is_empty() || selected.replace((op.id.clone(), start)).is_some() {
+                return Err("The selected line has an empty or ambiguous declared patch identity.".into());
+            }
         }
     }
     let recordings = super::recorded::load(sources, &inventory.documents)?;
@@ -287,7 +346,7 @@ pub fn evaluate_project(
         }
         scopes.insert(op.id.clone(), (old, local_states[&op.id].1.clone()));
     }
-    Ok(EvaluatedProject {
+    let project = EvaluatedProject {
         versions,
         file_paths,
         scopes,
@@ -296,7 +355,8 @@ pub fn evaluate_project(
         new: result,
         inventory,
         local_states,
-    })
+    };
+    Ok((project, selected))
 }
 
 fn visit(

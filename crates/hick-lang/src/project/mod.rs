@@ -7,8 +7,8 @@ mod reconstruct;
 mod tree;
 
 pub use comparison::{ComparisonSource, EditPolicy, ProjectComparison, RevisionIdentity};
-pub use evaluate::{EvaluatedProject, ProjectInventory, evaluate_project};
-pub use patch::{PatchResult, apply_project_patch};
+pub use evaluate::{EvaluatedProject, InspectedProjectPatch, ProjectInventory, evaluate_project, inspect_project_patch};
+pub use patch::{PatchResult, PatchTarget, apply_project_patch, project_patch_targets};
 pub use tree::{
     ByteOrigin, DifferenceKind, EDITOR_BUFFER_PREFIX, EntryKind, ProjectDifference, ProjectEntry,
     ProjectTree, validate_project_path,
