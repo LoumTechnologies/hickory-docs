@@ -33,6 +33,7 @@ import {
   lazy,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -43,6 +44,7 @@ import { STARTUP_INTRODUCTION } from "../lib/newDoc";
 import { api } from "../api/client";
 import { MergeDriverNotice } from "../components/MergeDriverNotice";
 import type {
+  Doc,
   DocSummary,
   FileNode,
   OpenTerminal,
@@ -305,7 +307,7 @@ import { requestFlushSaves } from "../lib/flushSaves";
 ### `import_statement`
 
 <storycode:copy id="f-47afe3575948-import_statement-22">
-import { onOpenLocation, onShowTerminal, pathOfDocUri, revealLine } from "../lib/revealLine";
+import { afterSourceTabActivation, onOpenLocation, onShowTerminal, pathOfDocUri, revealLine, type SourceRevealTab } from "../lib/revealLine";
 import { historySourceHash } from "../simple/SourceHistory";
 import type { CoverageSurfaceClient } from "../coverage/CoverageSurface";
 </storycode:copy>
@@ -403,11 +405,12 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   layoutRef.current = layout;
   const focusedPane = paneById(layout, layout.focus);
   const activeTab = focusedPane?.tabs[focusedPane.active];
-  const focusKey = JSON.stringify([layout.focus, activeTab?.id]);
-  const focusIntent = useRef({key: focusKey});
+  const focusKey = JSON.stringify([layout.focus, activeTab?.id, activeTab?.kind, activeTab?.target, activeTab?.docId]);
+  const focusIntent = useRef({key: focusKey, tab: activeTab});
   const preparedFile = useRef<{file: PlainFile; current: ()=>boolean} | undefined>(undefined);
+  const preparedDocument = useRef<{doc: Doc; current: ()=>boolean} | undefined>(undefined);
   if (focusIntent.current.key !== focusKey) {
-    focusIntent.current = {key: focusKey};
+    focusIntent.current = {key: focusKey, tab: activeTab};
     if (preparedFile.current?.file.path !== activeTab?.target) preparedFile.current = undefined;
   }
   const takePreparedSource = useCallback((path: string) => {
@@ -421,7 +424,13 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     () => undefined,
   );
   const sourceVisit = useRef(0);
-  const openHitRef = useRef<(path: string, line: number, into?: string, reveal?: ((path: string)=>void) | null) => boolean | void>(
+  const sourceActivation = useRef<(() => boolean) | undefined>(undefined);
+  const flushSourceActivation = useCallback(() => {
+    const poll = sourceActivation.current;
+    if (poll?.() && sourceActivation.current === poll) sourceActivation.current = undefined;
+  }, []);
+  useLayoutEffect(flushSourceActivation, [focusKey, flushSourceActivation]);
+  const openHitRef = useRef<(path: string, line: number, into?: string, onOpen?: (target: SourceRevealTab)=>void) => boolean | void>(
     () => undefined,
   );
   const focusedPathRef = useRef<string | null>(null);
@@ -841,21 +850,30 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
    * would eventually disagree.
    */
   const openHit = useCallback(
-    (path: string, line: number, into?: string, reveal?: ((path: string)=>void) | null) => {
-      const publish = reveal === undefined ? (target: string) => revealLine(target, line) : reveal;
-      if (openBufferTarget(path, line, layoutRef.current, setLayout, setInsertNotice)) return true;
+    (path: string, line: number, into?: string, onOpen?: (target: SourceRevealTab)=>void) => {
+      const publish = onOpen ?? ((tab: SourceRevealTab) => revealLine(tab.target, line));
+      if (!onOpen && openBufferTarget(path, line, layoutRef.current, setLayout, setInsertNotice)) return true;
+      const openDocument = (id: string, target: string) => {
+        if (onOpen) {
+          // The path is already verified. Let the session load in its own tab
+          // rather than letting a second document request decide the focus.
+          setLayout(current => activateDocTab(current, id) ?? openDocTab(current, id, target, into));
+          onOpen({kind: "document", target, docId: id});
+        } else {
+          ensureDocOpen(id, into);
+          navigate(`/docs/${id}`);
+        }
+      };
       const document = registry.all().find((session) => session.doc && samePath(session.doc.path, path));
       if (document) {
-        ensureDocOpen(document.docId, into);
-        navigate(`/docs/${document.docId}`);
-        if (reveal) reveal(document.doc?.path ?? path);
-        else if (reveal === undefined) document.revealDocLine(Math.max(0, line - 1));
+        openDocument(document.docId, document.doc?.path ?? path);
+        if (!onOpen) document.revealDocLine(Math.max(0, line - 1));
         return true;
       }
       const output = registry.all().find((session) => session.openOutputs.has(path));
       if (output) {
         openGeneratedFor(output.docId, path, into);
-        publish?.(path);
+        publish({kind: "generated", target: path, docId: output.docId});
         return true;
       }
       const node = findNodeByPath(folderRootsRef.current, path);
@@ -863,17 +881,18 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         ? fileAction(node, new Set(openableOutputsRef.current.keys()))
         : ({ kind: "file", path } as const);
       if (action.kind === "doc") {
-        ensureDocOpen(action.id, into);
-        navigate(`/docs/${action.id}`);
+        openDocument(action.id, node?.path ?? path);
+        if (!onOpen) revealLine(path, line);
       } else if (action.kind === "generated") {
         const owner =
           action.docId ?? openableOutputsRef.current.get(action.path);
         if (!owner) return false;
         openGeneratedFor(owner, action.path, into);
+        publish({kind: "generated", target: action.path, docId: owner});
       } else if (action.kind === "file") {
         openPlainFile(action.path, into);
+        publish({kind: "file", target: action.path});
       } else return false;
-      publish?.(path);
       return true;
     },
     [registry, ensureDocOpen, openGeneratedFor, openPlainFile],
@@ -900,20 +919,29 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     const retained = () => {
       const session = registry.all().find(item => item.doc?.path === path);
       const tab = panesOf(layoutRef.current.root).flatMap(item => item.tabs)
-        .find(item => (item.kind === "file" || item.kind === "generated") && item.target === path);
+        .find(item => ["file", "generated", "document"].includes(item.kind) && item.target === path);
       return {session, tab, text: session?.liveSource ?? (tab && plainSources.current.get(tab.id))};
     };
     try {
       const first = retained();
       const listed = (node: FileNode | undefined | null, target: ReturnType<typeof retained>) =>
         !node?.dir && !!(node || target.tab || target.session);
-      if (report && !listed(findNodeByPath(folderRootsRef.current, path), first)) {
+      const firstNode = findNodeByPath(folderRootsRef.current, path);
+      const documentId = (node: FileNode | undefined | null, target: ReturnType<typeof retained>) =>
+        node?.doc_id ?? target.session?.docId ?? (target.tab?.kind === "document" ? target.tab.docId : undefined);
+      if (report && !listed(firstNode, first)) {
         throw Error("Source no longer listed. Refresh the workspace.");
       }
-      const file = first.text === undefined ? await api.file(path) : undefined;
+      const id = documentId(firstNode, first);
+      // Managed documents have their own endpoint. Use its admitted source
+      // to start a new session directly while rendering and the room connect.
+      const doc = first.text === undefined && id ? await api.doc(id) : undefined;
+      const file = first.text === undefined && !id ? await api.file(path) : undefined;
       if (!beforeOpen()) return false;
-      if (file && file.path !== path) throw Error("The server returned a different source. Select the exact location again.");
-      const source = file?.content ?? first.text;
+      if ((file && file.path !== path) || (doc && (doc.path !== path || doc.id !== id))) {
+        throw Error("The server returned a different source. Select the exact location again.");
+      }
+      const source = doc?.source ?? file?.content ?? first.text;
       if (source === undefined) return false;
       const hash = report && line !== null ? await historySourceHash(source) : undefined;
       if (!beforeOpen()) return false;
@@ -923,7 +951,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       const textChanged = latest.text === undefined ? first.text !== undefined : latest.text !== source;
       const row = line === null ? undefined : source.split("\n")[line - 1]?.replace(/\r$/, "");
       const column = character ?? 0;
-      if (textChanged || (expectedSource !== undefined && source !== expectedSource) ||
+      if (textChanged || documentId(node, latest) !== id || (expectedSource !== undefined && source !== expectedSource) ||
           (line !== null && (!Number.isInteger(line) || line < 1 || row === undefined || !Number.isInteger(column) || column < 0 || column > row.length)) ||
           (hash !== undefined && hash !== report?.sourceHash)) {
         throw Error(report ? "Source changed or report position is unavailable. Refresh coverage before navigating."
@@ -932,13 +960,21 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       if (file && !latest.tab && !latest.session && (!node || (!node.doc_id && !node.generated_by && !node.dir))) {
         preparedFile.current = {file, current};
       }
-      return openHitRef.current(path, line ?? 1, undefined, line === null ? null :
-        target => revealLine(target, line, character, {source, current})) === true;
+      if (doc && !docIdsIn(layoutRef.current).includes(doc.id)) {
+        preparedDocument.current = {doc, current};
+      }
+      return openHitRef.current(path, line ?? 1, undefined, target => {
+        sourceActivation.current = afterSourceTabActivation(target, () => focusIntent.current, current, stillFocused => {
+          if (target.kind === "document") navigate(`/docs/${target.docId}`);
+          if (line !== null) revealLine(target.target, line, character, {source, current: stillFocused});
+        });
+        flushSourceActivation();
+      }) === true;
     } catch (error) {
       if (!beforeOpen()) return false;
       throw error;
     }
-  }, [registry]);
+  }, [registry, flushSourceActivation]);
   const navigateCoverage = useCallback<CoverageSurfaceClient["navigate"]>((location, current) => {
     const editor = focusedEditor();
     const document = editor?.state.doc, selection = editor?.state.selection;
@@ -956,7 +992,13 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         void visitSource(location).catch(error => setInsertNotice(String(error)));
       }
     });
-    return () => { sourceVisit.current++; preparedFile.current = undefined; stop(); };
+    return () => {
+      sourceVisit.current++;
+      sourceActivation.current = undefined;
+      preparedFile.current = undefined;
+      preparedDocument.current = undefined;
+      stop();
+    };
   }, [visitSource]);
   // The route is a REQUEST against the workspace, not its owner:
   // `#/docs/<id>` means "make sure this document is open and frontmost",
@@ -1095,6 +1137,11 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   // ANY of its tabs is open — a generated file outliving its document's own
   // tab still needs the provenance, the saver, and the way back.
   const openDocIds = useMemo(() => docIdsIn(layout), [layout]);
+  const admittedDocument = preparedDocument.current;
+  useLayoutEffect(() => {
+    if (admittedDocument && openDocIds.includes(admittedDocument.doc.id) &&
+        preparedDocument.current === admittedDocument) preparedDocument.current = undefined;
+  }, [openDocIds, admittedDocument]);
   const attachedManagedStartup = managedStartup &&
     findDocTab(layout, managedStartup.observation.docId)?.tab.id === managedStartup.id ? managedStartup.observation : undefined;
   // ---- ribbons and ports (the focused document's outputs) -----------------
@@ -2025,6 +2072,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
               registry={registry}
               docId={docId}
               startup={attachedManagedStartup?.docId === docId ? attachedManagedStartup : undefined}
+              initialDocument={admittedDocument?.doc.id === docId && admittedDocument.current() ? admittedDocument.doc : undefined}
               openGenerated={openGeneratedFor}
               retainUnsaved={retainSavedDrafts}
             />

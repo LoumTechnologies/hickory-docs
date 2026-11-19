@@ -2683,6 +2683,18 @@ The original editor and caret remained active, and no target tab opened.
 A fresh F12 reached offset 12 in the target. Both saved files kept their
 exact bytes. See `target/main-definition-held-browser-v1/`.
 
+Main Hickory Docs now resolves a closed managed destination through its
+document identity. In a rendered replay, the first managed read was held
+while the reader activated an existing peer tab. The HTTP 200 left the
+same peer editor active and opened no destination tab. A fresh link mounted
+the correct managed source and selected UTF-16 offset 31 while the saved
+render and follow-up document reads were still held. Releasing the render
+preserved the editor and selection. No source write occurred. The replay
+exercised the guarded location event and real document room. Two focused
+position tests also verify that leaving a selected destination retires its
+queued position, including an eventual return to the same tab. See
+`target/main-managed-reveal-held-final-v3/browser.json`.
+
 Focused rebuilt-engine replays also passed for Python definition and
 Back/Forward, workspace search, delayed first-open authority and capabilities,
 and Debug and guarded patch review on both recorded Agent message sides.

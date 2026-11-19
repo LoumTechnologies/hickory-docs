@@ -46,7 +46,7 @@ Related contracts: [Find And Replace Is Exhaustive, And Refuses What It Would Un
 
 <storycode:copy id="f-3bdafe22f219-expression_statement">
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { claimReveal,claimRevealPosition,onOpenLocation,openCapturedLocation, onRevealLine, resetReveals, revealLine } from "./revealLine";
+import { afterSourceTabActivation, claimReveal,claimRevealPosition,onOpenLocation,openCapturedLocation, onRevealLine, resetReveals, revealLine } from "./revealLine";
 
 afterEach(() => {
   resetReveals();
@@ -102,11 +102,54 @@ describe("asking for a file at a line", () => {
 });
 </storycode:copy>
 
+### Deferred editor position
+
+The destination may be selected while its editor still loads. Leaving that
+tab retires the queued position even if the same source and tab return.
+A fresh request can still reveal the exact UTF-16 column.
+
+<storycode:copy id="source-tab-activation-witness">
+it("retires a queued position when the destination tab loses focus before its editor mounts", () => {
+  const origin = {tab: {kind: "file", target: "caller.py"}};
+  const target = {kind: "generated", target: "target.py", docId: "owner"};
+  let focus = origin;
+  const source = "heading\n😀result";
+  const request = () => afterSourceTabActivation(target, () => focus, () => true,
+    current => revealLine(target.target, 2, 2, {source, current}));
+  const first = request();
+  expect(first()).toBe(false);
+  expect(claimRevealPosition(target.target, source)).toBeNull();
+  focus = {tab: target};
+  expect(first()).toBe(true);
+  focus = origin;
+  focus = {tab: target};
+  expect(claimRevealPosition(target.target, source)).toBeNull();
+  expect(first()).toBe(true);
+  expect(claimRevealPosition(target.target, source)).toBeNull();
+
+  expect(request()()).toBe(true);
+  expect(claimRevealPosition(target.target, source)).toEqual({line: 2, character: 2});
+  expect(claimRevealPosition(target.target, source)).toBeNull();
+});
+
+it("retires the handoff when a different generated owner is selected first", () => {
+  const target = {kind: "generated", target: "same.py", docId: "owner"};
+  let focus = {tab: {kind: "file", target: "caller.py", docId: ""}};
+  const deliver = vi.fn();
+  const poll = afterSourceTabActivation(target, () => focus, () => true, deliver);
+  focus = {tab: {...target, docId: "another-owner"}};
+  expect(poll()).toBe(true);
+  focus = {tab: target};
+  expect(poll()).toBe(true);
+  expect(deliver).not.toHaveBeenCalled();
+});
+</storycode:copy>
+
 ### Assemble `apps/web/src/lib/revealLine.test.ts`
 
 The selections below preserve the original byte order. Narrative reading order does not change the output.
 
-<storycode:file path="apps/web/src/lib/revealLine.test.ts"><storycode:paste select="#f-3bdafe22f219-expression_statement"/><storycode:paste select="#f-3bdafe22f219-expression_statement-2"/>
+<storycode:file path="apps/web/src/lib/revealLine.test.ts"><storycode:paste select="#f-3bdafe22f219-expression_statement"/><storycode:paste select="#f-3bdafe22f219-expression_statement-2"/><storycode:paste select="#source-tab-activation-witness"/>
 
 it("retains captured source and interaction authority until the final position claim",()=>{
  let current=true;revealLine("a.py",2,0,{source:"a\nb",current:()=>current});current=false;expect(claimRevealPosition("a.py","a\nb")).toBeNull();

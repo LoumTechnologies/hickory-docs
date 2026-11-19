@@ -22,6 +22,41 @@ export function revealLine(path: string, line: number, character?: number,guard?
   window.dispatchEvent(new CustomEvent(REVEAL_LINE_EVENT, { detail: path }));
 }
 
+export interface SourceRevealTab {
+  kind: string;
+  target: string;
+  docId?: string;
+}
+
+interface SourceRevealFocus { tab?: SourceRevealTab }
+
+/** Return a poll that is done once it has delivered or retired the request. */
+export function afterSourceTabActivation(
+  target: SourceRevealTab,
+  focused: () => SourceRevealFocus,
+  current: () => boolean,
+  deliver: (stillFocused: () => boolean) => void,
+): () => boolean {
+  const origin = focused();
+  let done = false;
+  return () => {
+    if (done) return true;
+    if (!current()) {
+      done = true;
+      return true;
+    }
+    const focus = focused(), tab = focus.tab;
+    if (!tab || tab.kind !== target.kind || tab.docId !== target.docId ||
+        (target.kind !== "document" && tab.target !== target.target)) {
+      done = focus !== origin;
+      return done;
+    }
+    done = true;
+    deliver(() => current() && focused() === focus);
+    return true;
+  };
+}
+
 /**
  * Take the request for `path`, if there is one.
  *

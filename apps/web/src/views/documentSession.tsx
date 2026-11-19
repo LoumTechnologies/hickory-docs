@@ -250,16 +250,19 @@ export const DocSessionHost = memo(function DocSessionHost({
   openGenerated,
   retainUnsaved = false,
   startup,
+  initialDocument,
 }: {
   registry: SessionRegistry;
   docId: string;
   startup?: StartupManagedDocument;
+  initialDocument?: Doc;
   /** Open one of THIS document's generated files in the layout. */
   openGenerated: (docId: string, path: string) => void;
   retainUnsaved?: boolean;
 }) {
   const startupAtOpen = useRef(startup).current;
-  const session = useDocumentSession(docId, openGenerated, retainUnsaved, startupAtOpen);
+  const docAtOpen = useRef(initialDocument).current;
+  const session = useDocumentSession(docId, openGenerated, retainUnsaved, startupAtOpen, docAtOpen);
   useEffect(() => {
     registry.publish(session);
   });
@@ -296,13 +299,14 @@ function useDocumentSession(
   openGeneratedFor: (docId: string, path: string) => void,
   retainUnsaved: boolean,
   startup?: StartupManagedDocument,
+  initialDocument?: Doc,
 ): DocSession {
   const openGenerated = useCallback(
     (path: string) => openGeneratedFor(docId, path),
     [openGeneratedFor, docId],
   );
-  const sourceSignal=useMemo(()=>new DebugSourceSignal(),[docId]),debugDoc=useRef<Doc|null>(null),debugNamespace=useRef<string|null>(null),proposalWorkspace=useRef<string|null>(null),debugDirty=useRef<string|null>(null);
-  const [doc,setDocState]=useState<Doc|null>(null);
+  const sourceSignal=useMemo(()=>new DebugSourceSignal(),[docId]),debugDoc=useRef<Doc|null>(initialDocument ?? null),debugNamespace=useRef<string|null>(null),proposalWorkspace=useRef<string|null>(null),debugDirty=useRef<string|null>(null);
+  const [doc,setDocState]=useState<Doc|null>(initialDocument ?? null);
   const [startupRoomReady, setStartupRoomReady] = useState(false);
   const onStartupRoomReady = useCallback(() => setStartupRoomReady(true), []);
   const startRoom = !startup || !!doc;
@@ -494,6 +498,12 @@ function useDocumentSession(
   }, [docId, refreshRender]);
 
   useEffect(() => {
+    if (!startup && initialDocument) {
+      // The workspace already fetched this document to verify the source
+      // location. Its text can mount while the independent rendering arrives.
+      void refreshRender(initialDocument.source);
+      return;
+    }
     if (!startup) return refresh();
     let current = true;
     void startup.authority.then(confirmed => {
@@ -503,7 +513,7 @@ function useDocumentSession(
       void refreshRender(confirmed.source);
     }, error => { if (current) setFatalError(String(error)); });
     return () => { current = false; };
-  }, [refresh, refreshRender, setDoc, startup]);
+  }, [refresh, refreshRender, setDoc, startup, initialDocument]);
 
   // Recovery drafts are separate from acknowledged file persistence.
   // Previously named files opt into recovery; Untitled has its own policy.
@@ -1111,8 +1121,13 @@ function useDocumentSession(
   useEffect(() => {
     if (!docEditor || !doc?.path) return;
     const path = doc.path;
+    // A room-backed editor can mount with an empty Y.Doc. Wait for the
+    // initial room contents before asking it to claim an exact source jump.
+    // An explicit startup preview already carries its readable source.
+    let live = true;
+    let readable = !!startup || !realtime.serverAuthoritative;
     const jump = (target: string) => {
-      if (target !== path) return;
+      if (!readable || target !== path) return;
       const position = claimRevealPosition(path, authoredSource(docEditor.state));
       if (!position) return;
       const row = docEditor.state.doc.line(Math.min(position.line, docEditor.state.doc.lines));
@@ -1120,9 +1135,14 @@ function useDocumentSession(
       revealRange(docEditor, [offset, offset]);
     };
     const stop = onRevealLine(jump);
-    jump(path);
-    return stop;
-  }, [docEditor, doc?.path]);
+    if (readable) jump(path);
+    else void realtime.whenSynced().then(() => {
+      if (!live) return;
+      readable = true;
+      jump(path);
+    }, () => { /* The room connection owns the loading error. */ });
+    return () => { live = false; stop(); };
+  }, [docEditor, doc?.path, realtime, startup]);
 
   const adoptDiskSource = useCallback(async (disk: Doc, text: string, expected: string) => {
     const before = editorRef.current?.state.doc.toString() ?? liveSourceRef.current;

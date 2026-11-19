@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { claimReveal,claimRevealPosition,onOpenLocation,openCapturedLocation, onRevealLine, resetReveals, revealLine } from "./revealLine";
+import { afterSourceTabActivation, claimReveal,claimRevealPosition,onOpenLocation,openCapturedLocation, onRevealLine, resetReveals, revealLine } from "./revealLine";
 
 afterEach(() => {
   resetReveals();
@@ -47,6 +47,40 @@ describe("asking for a file at a line", () => {
     revealLine("src/lib.rs", 8);
     expect(heard).toHaveBeenCalledTimes(1);
   });
+});
+it("retires a queued position when the destination tab loses focus before its editor mounts", () => {
+  const origin = {tab: {kind: "file", target: "caller.py"}};
+  const target = {kind: "generated", target: "target.py", docId: "owner"};
+  let focus = origin;
+  const source = "heading\n😀result";
+  const request = () => afterSourceTabActivation(target, () => focus, () => true,
+    current => revealLine(target.target, 2, 2, {source, current}));
+  const first = request();
+  expect(first()).toBe(false);
+  expect(claimRevealPosition(target.target, source)).toBeNull();
+  focus = {tab: target};
+  expect(first()).toBe(true);
+  focus = origin;
+  focus = {tab: target};
+  expect(claimRevealPosition(target.target, source)).toBeNull();
+  expect(first()).toBe(true);
+  expect(claimRevealPosition(target.target, source)).toBeNull();
+
+  expect(request()()).toBe(true);
+  expect(claimRevealPosition(target.target, source)).toEqual({line: 2, character: 2});
+  expect(claimRevealPosition(target.target, source)).toBeNull();
+});
+
+it("retires the handoff when a different generated owner is selected first", () => {
+  const target = {kind: "generated", target: "same.py", docId: "owner"};
+  let focus = {tab: {kind: "file", target: "caller.py", docId: ""}};
+  const deliver = vi.fn();
+  const poll = afterSourceTabActivation(target, () => focus, () => true, deliver);
+  focus = {tab: {...target, docId: "another-owner"}};
+  expect(poll()).toBe(true);
+  focus = {tab: target};
+  expect(poll()).toBe(true);
+  expect(deliver).not.toHaveBeenCalled();
 });
 
 

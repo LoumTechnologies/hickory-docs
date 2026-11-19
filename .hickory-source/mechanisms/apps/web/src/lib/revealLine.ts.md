@@ -70,6 +70,51 @@ export function revealLine(path: string, line: number, character?: number,guard?
 }
 
 </storycode:copy>
+### Foreground tab activation
+
+A verified source request can open a tab before that tab's editor can claim
+the position. Bind the claim to the first committed activation of that tab.
+If the reader leaves and returns, the new focus object represents a new
+choice, even when it carries the same tab.
+
+<storycode:copy id="source-tab-activation">
+export interface SourceRevealTab {
+  kind: string;
+  target: string;
+  docId?: string;
+}
+
+interface SourceRevealFocus { tab?: SourceRevealTab }
+
+/** Return a poll that is done once it has delivered or retired the request. */
+export function afterSourceTabActivation(
+  target: SourceRevealTab,
+  focused: () => SourceRevealFocus,
+  current: () => boolean,
+  deliver: (stillFocused: () => boolean) => void,
+): () => boolean {
+  const origin = focused();
+  let done = false;
+  return () => {
+    if (done) return true;
+    if (!current()) {
+      done = true;
+      return true;
+    }
+    const focus = focused(), tab = focus.tab;
+    if (!tab || tab.kind !== target.kind || tab.docId !== target.docId ||
+        (target.kind !== "document" && tab.target !== target.target)) {
+      done = focus !== origin;
+      return done;
+    }
+    done = true;
+    deliver(() => current() && focused() === focus);
+    return true;
+  };
+}
+
+</storycode:copy>
+
 <a id="f-bca672428db0-claimReveal"></a>
 ### `claimReveal`
 
@@ -276,6 +321,6 @@ export function resetReveals(): void {
 
 The selections below preserve the original byte order. Narrative reading order does not change the output.
 
-<storycode:file path="apps/web/src/lib/revealLine.ts"><storycode:paste select="#f-bca672428db0-REVEAL_LINE_EVENT"/><storycode:paste select="#f-bca672428db0-pending"/><storycode:paste select="#f-bca672428db0-revealLine"/><storycode:paste select="#f-bca672428db0-claimReveal"/><storycode:paste select="#f-bca672428db0-onRevealLine"/><storycode:paste select="#f-bca672428db0-OPEN_LOCATION_EVENT"/><storycode:paste select="#f-bca672428db0-OpenLocation"/><storycode:paste select="#f-bca672428db0-openLocation"/><storycode:paste select="#f-bca672428db0-onOpenLocation"/><storycode:paste select="#f-bca672428db0-pathOfDocUri"/><storycode:paste select="#f-bca672428db0-SHOW_TERMINAL_EVENT"/><storycode:paste select="#f-bca672428db0-showTerminalRequest"/><storycode:paste select="#f-bca672428db0-onShowTerminal"/><storycode:paste select="#f-bca672428db0-resetReveals"/></storycode:file>
+<storycode:file path="apps/web/src/lib/revealLine.ts"><storycode:paste select="#f-bca672428db0-REVEAL_LINE_EVENT"/><storycode:paste select="#f-bca672428db0-pending"/><storycode:paste select="#f-bca672428db0-revealLine"/><storycode:paste select="#source-tab-activation"/><storycode:paste select="#f-bca672428db0-claimReveal"/><storycode:paste select="#f-bca672428db0-onRevealLine"/><storycode:paste select="#f-bca672428db0-OPEN_LOCATION_EVENT"/><storycode:paste select="#f-bca672428db0-OpenLocation"/><storycode:paste select="#f-bca672428db0-openLocation"/><storycode:paste select="#f-bca672428db0-onOpenLocation"/><storycode:paste select="#f-bca672428db0-pathOfDocUri"/><storycode:paste select="#f-bca672428db0-SHOW_TERMINAL_EVENT"/><storycode:paste select="#f-bca672428db0-showTerminalRequest"/><storycode:paste select="#f-bca672428db0-onShowTerminal"/><storycode:paste select="#f-bca672428db0-resetReveals"/></storycode:file>
 
 </storycode:doc>
