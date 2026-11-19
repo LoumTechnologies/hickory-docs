@@ -39,7 +39,7 @@ an earlier open item only for the behavior it actually exercises.
 | Debugging | Genuine debugpy launch/loopback attach and LLDB canonical C launch/PID attach pass on browser, macOS and the Android controller. Scoped receipts cover profiles, conditional breakpoints, threads, deep frames, evaluation, source navigation, Continue and retained outcomes. Browser, mounted macOS and mounted iOS application launches also passed with netcoredbg for .NET and js-debug for Node.js. Saved source-test Debug has verified pytest/debugpy and Cargo/LLDB adapters. Rust binds the selected declaration to the compiled inline or external-module function before exact harness selection, with engine and host acceptance for plain and compiler-authored source. Mounted iOS reached the real selected Rust breakpoint after a build exceeded 30 seconds. Rendered Android paused the selected pytest test and a netcoredbg .NET application at their saved lines, continued and retained exit 0. Rendered Android reached a genuine saved Node.js breakpoint, evaluated a scoped Watch expression and continued to retained Finished. |
 | Connected behavior readings | Browser, mounted macOS and Android controller have guarded contract, explanation, implementation, generated, test and evidence readings through the captured construction graph, including dirty contributors. Mounted iOS opened the connected reading and exercised its source-staleness boundary. Default entry reads carry their original proof through execution admission. Missing mappings and stale captures retain their own status. |
 | Change impact and relevant verification | Browser, mounted macOS and Android controller have scoped compiler consequences, bounded declared relationships, selected checks/profiles and retained process-only results. Mounted iOS reached the selected process-only receipt from its connected reading. Undeclared dependencies remain unknown. A command exit supplies process evidence. Independent verification requires a source-bound receipt. |
-| Agent proposal review and guarded application | Owned managed-provider flows on browser, macOS and the Android controller cover a sealed complete review, original-context application, coordinated draft history and separate resource publication. Rendered Android and mounted iOS read sealed historical material without restoring application authority. Mounted iOS also completed a guarded resource rename and its reviewed inverse. Rendered Android applied a live caller-prepared proposal and an owned managed-provider proposal to two drafts in separate replays. Rendered Android completed coordinated Undo/Redo from an owned checkpoint and separately sent an exact native composer request through a local ACP fixture. AppKit and iPhone simulator replays completed native Send through coordinated draft history using the local ACP fixture. The unified Android replay and external provider breadth remain open. |
+| Agent proposal review and guarded application | Owned managed-provider flows on browser, macOS and the Android controller cover a sealed complete review, original-context application, coordinated draft history and separate resource publication. Rendered Android and mounted iOS read sealed historical material without restoring application authority. Mounted iOS also completed a guarded resource rename and its reviewed inverse. AppKit, iPhone simulator and rendered Android completed native Send through coordinated draft history using a local ACP fixture. External provider breadth remains open. |
 
 Across all rows, the evidence distinguishes engine protocols, native controllers,
 mounted AppKit/UIKit, rendered browser and rendered Android. Physical input,
@@ -758,7 +758,7 @@ completed the turn. See
 `target/parity-rendered-android.sgYIt7/continuation-receipts/final-android-qjdb4ps6/managed-native/`.
 The combined retry's emulator preflight saw 6.723 GiB free against its 7.200 GiB
 boot floor. The bounded recheck peaked at 6.890 GiB and no emulator was created.
-One native Send through Apply, Undo and Redo remains unverified on Android.
+That retry could not exercise native Send through Apply, Undo and Redo.
 
 The Android composer now clears an acknowledged submission only when the
 submitted editor revision is still current and no composition is active. The
@@ -767,6 +767,16 @@ that returned to exactly the submitted bytes, unchanged success, and refusal.
 Both later drafts and the refused draft survived intact. The same buffer and
 native editor state were retained. See
 `target/android-agent-send-draft-revision-unit.77ugzt4j/`.
+
+The rebuilt Android app then passed native Send through the entire two-draft
+review and history flow on one API 36 emulator. The composer retained focus
+with Gboard visible at Send. The exact prompt, two original editor IDs and
+guards reached the owned local ACP fixture. The rendered review applied both
+drafts, a single workspace Undo restored both, and one Redo reapplied both.
+The sealed validation and draft-only host report succeeded. Saved file hashes
+were unchanged, with no publication or checks. The owned device was stopped
+and removed. See
+`target/parity-rendered-android.sgYIt7/continuation-receipts/final-android-d1xcite4/managed-native/`.
 
 The mounted AppKit native Send probe opened both original source editors and
 entered the exact prompt in the native composer. Its captured window showed an
