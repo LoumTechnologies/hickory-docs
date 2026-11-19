@@ -1872,7 +1872,7 @@ extension RecordedRunUITests {
 </ui:copy>
 ## Follow a Python definition between two iPhone editors
 
-Select the unique call to an imported function with native Find. Use Go to definition, choose the exact provider location, and walk Back and Forward through the original caller and target tabs. Check the two source contents and editor geometry after navigation. The owned transport records the real provider request and definition so the rendered result can be checked against the provider's UTF-16 coordinates.
+Select the unique call to an imported function with native Find. A fresh simulator can show the keyboard’s QuickPath introduction over the editor. Dismiss that message when it appears, then submit the Find field with Return. Use Go to definition, choose the exact provider location, and walk Back and Forward through the original caller and target tabs. Check the two source contents and editor geometry after navigation. The owned transport records the real provider request and definition so the rendered result can be checked against the provider's UTF-16 coordinates.
 
 <ui:copy id="ios-native-python-definition-ui-test">
 extension RecordedRunUITests {
@@ -1936,7 +1936,13 @@ extension RecordedRunUITests {
         find.typeText("greeting(")
         let entered = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", "greeting("), object: find)
         XCTAssertEqual(XCTWaiter.wait(for: [entered], timeout: 8), .completed)
-        tap(app.buttons["Next"].firstMatch, "Select the single greeting call")
+        let keyboardIntro = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Speed up your typing by sliding your finger")).firstMatch
+        if keyboardIntro.waitForExistence(timeout: 3) {
+            tap(app.buttons["Continue"].firstMatch, "Dismiss the first-use keyboard introduction")
+            XCTAssertTrue(keyboardIntro.waitForNonExistence(timeout: 8))
+        }
+        find.tap()
+        find.typeText("\n")
         tap(app.buttons["Close search"].firstMatch, "Close search with selected call")
         releaseKeyboard(in: "main.py")
 

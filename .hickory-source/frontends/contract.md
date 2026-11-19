@@ -57,15 +57,23 @@ fixture now scrolls the menu to reveal the commands for definition, Back
 and Forward. The next mounted run scrolled that menu and got a real
 basedpyright reply. The native test tap had selected the blank second row,
 so the provider returned an empty definition and the run stopped before
-reveal or history. The fixture now uses native Find to select the unique call
-and checks that the provider saw its exact position. The revised arm64 test
-bundle compiled, and a direct request at the selected call's first character
-resolved the helper declaration through genuine basedpyright. Another mounted
-run needs 3,072 MiB free to boot and dispose of its isolated simulator. Both
-owned simulators were deleted. See
+reveal or history. A direct request at the call's first character resolved the
+helper declaration through genuine basedpyright.
+
+The first native Find replay typed the exact call text and showed one match.
+The iPhone keyboard's first-use introduction blocked the Next button. The
+revised arm64 replay dismissed that introduction, submitted Find with native
+Return, closed search and returned to the caller. It was stopped while
+revealing Go to definition as free disk fell to 116 MiB. No definition
+request or Back/Forward occurred in that attempt. Starting with 3,397 MiB
+free proved insufficient on this host, so another mounted run awaits more
+headroom. All owned simulators were deleted. See
 `target/apple-python-definition-uikit-2026-11-19/` and
-`target/apple-python-definition-uikit-retry-2026-11-19/`. The updated bundle
-build is in `target/ios-python-definition-find-arm64.log`.
+`target/apple-python-definition-uikit-retry-2026-11-19/` for the earlier runs,
+`target/apple-python-definition-uikit-find-d2d9f531/` for the keyboard-blocked
+run, and `target/apple-python-definition-uikit-quickpath-2026-11-19/` for the
+interrupted run. The updated bundle build is in
+`target/ios-python-definition-quickpath-arm64.log`.
 
 ### iPhone Git review with an unsaved draft
 

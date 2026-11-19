@@ -448,7 +448,13 @@ extension RecordedRunUITests {
         find.typeText("greeting(")
         let entered = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", "greeting("), object: find)
         XCTAssertEqual(XCTWaiter.wait(for: [entered], timeout: 8), .completed)
-        tap(app.buttons["Next"].firstMatch, "Select the single greeting call")
+        let keyboardIntro = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Speed up your typing by sliding your finger")).firstMatch
+        if keyboardIntro.waitForExistence(timeout: 3) {
+            tap(app.buttons["Continue"].firstMatch, "Dismiss the first-use keyboard introduction")
+            XCTAssertTrue(keyboardIntro.waitForNonExistence(timeout: 8))
+        }
+        find.tap()
+        find.typeText("\n")
         tap(app.buttons["Close search"].firstMatch, "Close search with selected call")
         releaseKeyboard(in: "main.py")
 
