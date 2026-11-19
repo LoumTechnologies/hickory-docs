@@ -1228,6 +1228,20 @@ extension UIKitParityAcceptanceTests {
         workspace.address = origin
         let mounted = try MountedIOSWorkspace(workspace: workspace, launchFile: path)
         defer { mounted.close() }
+        func releaseGate(_ url: URL) async throws {
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            let (_, response) = try await URLSession.shared.data(for: request)
+            XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 204)
+        }
+        let treeFirst = mode == "tree-first-retry"
+        if treeFirst {
+            try await mounted.wait("Files did not arrive ahead of the held source reads") {
+                workspace.engine != nil && Set(workspace.files.map(\.path)) == [path, "nested/sibling.txt"]
+            }
+            XCTAssertNil(workspace.currentBuffer)
+            try await releaseGate(release)
+        }
         try await mounted.wait("Requested source did not mount while authority was held") {
             exactUTF8(workspace.currentBuffer?.file.path, path)
         }
@@ -1235,7 +1249,7 @@ extension UIKitParityAcceptanceTests {
         let editor = try await mounted.editor(buffer)
         let source = buffer.text, identity = try XCTUnwrap(buffer.sourceEditorState?()?.identity)
         XCTAssertTrue(workspace.connecting)
-        XCTAssertNil(workspace.engine)
+        XCTAssertEqual(workspace.engine != nil, treeFirst)
         XCTAssertTrue(buffer.readOnly)
         XCTAssertFalse(editor.isEditable)
         XCTAssertNil(buffer.savedGuard)
@@ -1248,12 +1262,9 @@ extension UIKitParityAcceptanceTests {
         editor.setContentOffset(CGPoint(x: 0, y: 260), animated: false)
         let viewport = editor.contentOffset, bounds = editor.convert(editor.bounds, to: mounted.window)
         XCTAssertGreaterThan(viewport.y, 0)
-        NSLog("HickoryUIKitParity requested-text-before-tree-authority")
+        NSLog(treeFirst ? "HickoryUIKitParity requested-text-before-guarded-authority" : "HickoryUIKitParity requested-text-before-tree-authority")
 
-        var request = URLRequest(url: release)
-        request.httpMethod = "POST"
-        let (_, response) = try await URLSession.shared.data(for: request)
-        XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 204)
+        try await releaseGate(treeFirst ? release.appendingPathComponent("guard") : release)
         try await mounted.wait("Workspace authority reply did not settle") {
             !workspace.connecting && (mode != "confirmed" || editor.isEditable)
         }
@@ -1270,11 +1281,16 @@ extension UIKitParityAcceptanceTests {
             XCTAssertTrue(buffer.readOnly)
             XCTAssertFalse(editor.isEditable)
             XCTAssertNil(buffer.savedGuard)
-            XCTAssertTrue(workspace.status.contains("remains readable"))
+            XCTAssertTrue(workspace.status.contains(treeFirst ? "Source permission is unconfirmed" : "remains readable"))
         }
-        if mode == "retry" {
-            let connected = await workspace.connect()
-            XCTAssertTrue(connected, workspace.status)
+        if mode == "retry" || treeFirst {
+            if treeFirst {
+                NSLog("HickoryUIKitParity missing-startup-guard-kept-editor-read-only")
+                await workspace.refresh()
+            } else {
+                let connected = await workspace.connect()
+                XCTAssertTrue(connected, workspace.status)
+            }
             try await mounted.wait("Retry did not confirm the reading already on screen") { editor.isEditable }
             let retried = try await mounted.editor(buffer)
             XCTAssertTrue(workspace.currentBuffer === buffer)
@@ -1300,11 +1316,22 @@ extension UIKitParityAcceptanceTests {
             XCTAssertEqual(Set(workspace.files.map(\.path)), [path, "nested/sibling.txt"])
             XCTAssertTrue(editor.becomeFirstResponder())
             mounted.paste("draft", into: editor)
-            try await mounted.wait("The confirmed source did not admit native Paste") { buffer.dirty }
+            try await mounted.wait("The confirmed source did not admit native Paste") {
+                buffer.dirty && exactUTF8(editor.text, buffer.text)
+            }
+            let draft = buffer.text
             let history = try XCTUnwrap(editor.undoManager)
             history.undo()
             try await mounted.wait("Undo did not restore the identical startup bytes") {
                 exactUTF8(editor.text, source) && !buffer.dirty
+            }
+            if treeFirst {
+                XCTAssertTrue(history.canRedo)
+                history.redo()
+                try await mounted.wait("Redo did not restore the first authorized draft") {
+                    exactUTF8(editor.text, draft) && exactUTF8(buffer.text, draft) && buffer.dirty
+                }
+                history.undo()
             }
         }
         NSLog("HickoryUIKitParity late-tree-authority-kept-editor-state")
@@ -2243,6 +2270,13 @@ its authority response. Select the relevant UIKit case with
 `--workflow startup-authority`, `--workflow startup-authority-unavailable`
 or `--workflow startup-authority-retry`.
 
+Run `--workflow startup-authority-tree-first-retry` for the opposite order.
+Files returns while both source reads are still held. Release the startup text
+after the guarded request starts, select and scroll that text, and then send a
+response without a save guard. Refresh Files admits the same editor after a
+confirmed response. Native editing and Undo/Redo check the first draft after
+permission arrives.
+
 For the same UIKit editor check with real engine reads, supply
 `HICKORY_SIMPLE_TEST_ENGINE` and select `--workflow startup-authority-live`
 or `--workflow startup-authority-live-retry`. The relay delays Files and can
@@ -2298,6 +2332,7 @@ PYTHON_DEFINITION = '# The provider should open the declaration below.\n\n\ndef 
 STARTUP_AUTHORITY_MODES = {
     'startup-authority': 'confirmed', 'startup-authority-unavailable': 'unavailable', 'startup-authority-retry': 'retry',
     'startup-authority-live': 'confirmed', 'startup-authority-live-retry': 'retry',
+    'startup-authority-tree-first-retry': 'tree-first-retry',
 }
 LIVE_STARTUP_AUTHORITY = {'startup-authority-live', 'startup-authority-live-retry'}
 RECORDED_CONSTRUCTION_SIDES = {'recorded-construction': 'assistant', 'recorded-construction-user': 'user'}
@@ -2329,6 +2364,7 @@ WORKFLOWS = {
     'startup-authority-retry': ('testMountedRequestedTextPrecedesTreeAuthority', ['requested-text-before-tree-authority', 'retried-tree-authority-in-existing-editor', 'late-tree-authority-kept-editor-state']),
     'startup-authority-live': ('testMountedRequestedTextPrecedesTreeAuthority', ['requested-text-before-tree-authority', 'late-tree-authority-kept-editor-state']),
     'startup-authority-live-retry': ('testMountedRequestedTextPrecedesTreeAuthority', ['requested-text-before-tree-authority', 'retried-tree-authority-in-existing-editor', 'late-tree-authority-kept-editor-state']),
+    'startup-authority-tree-first-retry': ('testMountedRequestedTextPrecedesTreeAuthority', ['requested-text-before-guarded-authority', 'missing-startup-guard-kept-editor-read-only', 'retried-tree-authority-in-existing-editor', 'late-tree-authority-kept-editor-state']),
     'recorded-debug': ('testMountedRecordedCodeFencesPauseStepWatchAndContinue',
                        ['recorded-code-user-pause-step-watch-continue', 'recorded-code-assistant-pause-step-watch-continue']),
     'recorded-run': ('testRecordedUserAndAssistantRunsShowTerminalWithoutChangingSource',
@@ -3033,6 +3069,8 @@ def appkit_startup(receipt):
 def startup_authority_fixture(root, mode, engine=None):
     path = STARTUP_AUTHORITY_PATH
     released, lock, calls, wire = Event(), Lock(), [], []
+    tree_first = mode == 'tree-first-retry'
+    guard_requested, guard_released = Event(), Event()
     gate = '/' + uuid.uuid4().hex
     class Authority(BaseHTTPRequestHandler):
         def bytes_reply(self, status, body, content_type='application/json'):
@@ -3081,7 +3119,7 @@ def startup_authority_fixture(root, mode, engine=None):
         def do_GET(self):
             request = urllib.parse.urlsplit(self.path)
             if request.path == '/api/files':
-                if not released.wait(20):
+                if not tree_first and not released.wait(20):
                     self.reply(504, {'error': 'Owned authority fixture timed out'})
                     return
                 with lock:
@@ -3096,6 +3134,9 @@ def startup_authority_fixture(root, mode, engine=None):
             if engine:
                 self.forward(request.path)
             elif request.path == '/api/startup-source' and urllib.parse.parse_qs(request.query) == {'path': [path]}:
+                if tree_first and not released.wait(20):
+                    self.reply(504, {'error': 'Owned startup text was not released'})
+                    return
                 calls.append('startup-source')
                 self.reply(200, {'version': 1, 'path': path, 'content': STARTUP_SOURCE,
                                  'root_path': str(root), 'workspace_id': 'owned-workspace'})
@@ -3108,14 +3149,28 @@ def startup_authority_fixture(root, mode, engine=None):
                     ]},
                 ]})
             elif request.path == '/api/docs/owned-md':
-                calls.append('guarded-source')
-                self.reply(200, {'source': STARTUP_SOURCE, 'save_guard': 'owned-startup-guard'})
+                if tree_first and 'guard-missing' not in calls:
+                    guard_requested.set()
+                    if not guard_released.wait(20):
+                        self.reply(504, {'error': 'Owned guarded read was not released'})
+                        return
+                    calls.append('guard-missing')
+                    self.reply(200, {'source': STARTUP_SOURCE, 'save_guard_reason': 'Source permission is unconfirmed'})
+                else:
+                    calls.append('guarded-source')
+                    self.reply(200, {'source': STARTUP_SOURCE, 'save_guard': 'owned-startup-guard'})
             else:
                 self.reply(404, {'error': 'Optional capabilities are unavailable in this fixture'})
 
         def do_POST(self):
             if self.path == gate:
+                if tree_first and not guard_requested.wait(10):
+                    self.reply(504, {'error': 'The guarded source was not requested before startup text'})
+                    return
                 released.set()
+                self.reply(204)
+            elif tree_first and self.path == gate + '/guard':
+                guard_released.set()
                 self.reply(204)
             else:
                 self.reply(404, {'error': 'Unexpected mutation'})
@@ -3138,6 +3193,7 @@ def startup_authority_fixture(root, mode, engine=None):
             yield origin, controls, calls, wire
         finally:
             released.set()
+            guard_released.set()
             server.shutdown()
             thread.join()
 
@@ -3146,7 +3202,10 @@ def appkit_startup_authority(receipt):
     name = 'NativeSourceIdentityTests/testMountedRequestedTextPrecedesTreeAuthority'
     with tempfile.TemporaryDirectory(prefix='appkit-authority-') as temporary:
         root = Path(temporary).resolve()
-        for mode in ('confirmed', 'unavailable', 'retry'):
+        source = root/STARTUP_AUTHORITY_PATH
+        source.parent.mkdir()
+        source.write_text(STARTUP_SOURCE)
+        for mode in ('confirmed', 'unavailable', 'retry', 'tree-first-retry'):
             with startup_authority_fixture(root, mode) as (origin, controls, calls, _):
                 env = {**os.environ, **controls, 'HICKORY_APPKIT_STARTUP_AUTHORITY_ORIGIN': origin}
                 log = receipt/f'{mode}.log'
@@ -3156,8 +3215,10 @@ def appkit_startup_authority(receipt):
                         env=env, stdout=output, stderr=subprocess.STDOUT, timeout=600)
                 assert " testMountedRequestedTextPrecedesTreeAuthority]' passed" in log.read_text()
                 check_startup_authority_calls(mode, calls)
+                assert source.read_bytes() == STARTUP_SOURCE.encode()
                 (receipt/f'{mode}-receipt.json').write_text(json.dumps({
                     'test': name, 'log_sha256': hashlib.sha256(log.read_bytes()).hexdigest(), 'responses': calls,
+                    'source_unchanged': True,
                 }, indent=2))
     print('PASS mounted AppKit provisional source and later authority', flush=True)
 
@@ -3166,6 +3227,7 @@ def check_startup_authority_calls(mode, calls):
         'confirmed': ['startup-source', 'tree-confirmed', 'guarded-source'],
         'unavailable': ['startup-source', 'tree-unavailable'],
         'retry': ['startup-source', 'tree-unavailable', 'tree-confirmed', 'guarded-source'],
+        'tree-first-retry': ['tree-confirmed', 'startup-source', 'guard-missing', 'tree-confirmed', 'guarded-source'],
     }[mode]
     assert calls == expected, calls
 

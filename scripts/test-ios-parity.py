@@ -30,6 +30,7 @@ PYTHON_DEFINITION = '# The provider should open the declaration below.\n\n\ndef 
 STARTUP_AUTHORITY_MODES = {
     'startup-authority': 'confirmed', 'startup-authority-unavailable': 'unavailable', 'startup-authority-retry': 'retry',
     'startup-authority-live': 'confirmed', 'startup-authority-live-retry': 'retry',
+    'startup-authority-tree-first-retry': 'tree-first-retry',
 }
 LIVE_STARTUP_AUTHORITY = {'startup-authority-live', 'startup-authority-live-retry'}
 RECORDED_CONSTRUCTION_SIDES = {'recorded-construction': 'assistant', 'recorded-construction-user': 'user'}
@@ -61,6 +62,7 @@ WORKFLOWS = {
     'startup-authority-retry': ('testMountedRequestedTextPrecedesTreeAuthority', ['requested-text-before-tree-authority', 'retried-tree-authority-in-existing-editor', 'late-tree-authority-kept-editor-state']),
     'startup-authority-live': ('testMountedRequestedTextPrecedesTreeAuthority', ['requested-text-before-tree-authority', 'late-tree-authority-kept-editor-state']),
     'startup-authority-live-retry': ('testMountedRequestedTextPrecedesTreeAuthority', ['requested-text-before-tree-authority', 'retried-tree-authority-in-existing-editor', 'late-tree-authority-kept-editor-state']),
+    'startup-authority-tree-first-retry': ('testMountedRequestedTextPrecedesTreeAuthority', ['requested-text-before-guarded-authority', 'missing-startup-guard-kept-editor-read-only', 'retried-tree-authority-in-existing-editor', 'late-tree-authority-kept-editor-state']),
     'recorded-debug': ('testMountedRecordedCodeFencesPauseStepWatchAndContinue',
                        ['recorded-code-user-pause-step-watch-continue', 'recorded-code-assistant-pause-step-watch-continue']),
     'recorded-run': ('testRecordedUserAndAssistantRunsShowTerminalWithoutChangingSource',
@@ -765,6 +767,8 @@ def appkit_startup(receipt):
 def startup_authority_fixture(root, mode, engine=None):
     path = STARTUP_AUTHORITY_PATH
     released, lock, calls, wire = Event(), Lock(), [], []
+    tree_first = mode == 'tree-first-retry'
+    guard_requested, guard_released = Event(), Event()
     gate = '/' + uuid.uuid4().hex
     class Authority(BaseHTTPRequestHandler):
         def bytes_reply(self, status, body, content_type='application/json'):
@@ -813,7 +817,7 @@ def startup_authority_fixture(root, mode, engine=None):
         def do_GET(self):
             request = urllib.parse.urlsplit(self.path)
             if request.path == '/api/files':
-                if not released.wait(20):
+                if not tree_first and not released.wait(20):
                     self.reply(504, {'error': 'Owned authority fixture timed out'})
                     return
                 with lock:
@@ -828,6 +832,9 @@ def startup_authority_fixture(root, mode, engine=None):
             if engine:
                 self.forward(request.path)
             elif request.path == '/api/startup-source' and urllib.parse.parse_qs(request.query) == {'path': [path]}:
+                if tree_first and not released.wait(20):
+                    self.reply(504, {'error': 'Owned startup text was not released'})
+                    return
                 calls.append('startup-source')
                 self.reply(200, {'version': 1, 'path': path, 'content': STARTUP_SOURCE,
                                  'root_path': str(root), 'workspace_id': 'owned-workspace'})
@@ -840,14 +847,28 @@ def startup_authority_fixture(root, mode, engine=None):
                     ]},
                 ]})
             elif request.path == '/api/docs/owned-md':
-                calls.append('guarded-source')
-                self.reply(200, {'source': STARTUP_SOURCE, 'save_guard': 'owned-startup-guard'})
+                if tree_first and 'guard-missing' not in calls:
+                    guard_requested.set()
+                    if not guard_released.wait(20):
+                        self.reply(504, {'error': 'Owned guarded read was not released'})
+                        return
+                    calls.append('guard-missing')
+                    self.reply(200, {'source': STARTUP_SOURCE, 'save_guard_reason': 'Source permission is unconfirmed'})
+                else:
+                    calls.append('guarded-source')
+                    self.reply(200, {'source': STARTUP_SOURCE, 'save_guard': 'owned-startup-guard'})
             else:
                 self.reply(404, {'error': 'Optional capabilities are unavailable in this fixture'})
 
         def do_POST(self):
             if self.path == gate:
+                if tree_first and not guard_requested.wait(10):
+                    self.reply(504, {'error': 'The guarded source was not requested before startup text'})
+                    return
                 released.set()
+                self.reply(204)
+            elif tree_first and self.path == gate + '/guard':
+                guard_released.set()
                 self.reply(204)
             else:
                 self.reply(404, {'error': 'Unexpected mutation'})
@@ -870,6 +891,7 @@ def startup_authority_fixture(root, mode, engine=None):
             yield origin, controls, calls, wire
         finally:
             released.set()
+            guard_released.set()
             server.shutdown()
             thread.join()
 
@@ -878,7 +900,10 @@ def appkit_startup_authority(receipt):
     name = 'NativeSourceIdentityTests/testMountedRequestedTextPrecedesTreeAuthority'
     with tempfile.TemporaryDirectory(prefix='appkit-authority-') as temporary:
         root = Path(temporary).resolve()
-        for mode in ('confirmed', 'unavailable', 'retry'):
+        source = root/STARTUP_AUTHORITY_PATH
+        source.parent.mkdir()
+        source.write_text(STARTUP_SOURCE)
+        for mode in ('confirmed', 'unavailable', 'retry', 'tree-first-retry'):
             with startup_authority_fixture(root, mode) as (origin, controls, calls, _):
                 env = {**os.environ, **controls, 'HICKORY_APPKIT_STARTUP_AUTHORITY_ORIGIN': origin}
                 log = receipt/f'{mode}.log'
@@ -888,8 +913,10 @@ def appkit_startup_authority(receipt):
                         env=env, stdout=output, stderr=subprocess.STDOUT, timeout=600)
                 assert " testMountedRequestedTextPrecedesTreeAuthority]' passed" in log.read_text()
                 check_startup_authority_calls(mode, calls)
+                assert source.read_bytes() == STARTUP_SOURCE.encode()
                 (receipt/f'{mode}-receipt.json').write_text(json.dumps({
                     'test': name, 'log_sha256': hashlib.sha256(log.read_bytes()).hexdigest(), 'responses': calls,
+                    'source_unchanged': True,
                 }, indent=2))
     print('PASS mounted AppKit provisional source and later authority', flush=True)
 
@@ -898,6 +925,7 @@ def check_startup_authority_calls(mode, calls):
         'confirmed': ['startup-source', 'tree-confirmed', 'guarded-source'],
         'unavailable': ['startup-source', 'tree-unavailable'],
         'retry': ['startup-source', 'tree-unavailable', 'tree-confirmed', 'guarded-source'],
+        'tree-first-retry': ['tree-confirmed', 'startup-source', 'guard-missing', 'tree-confirmed', 'guarded-source'],
     }[mode]
     assert calls == expected, calls
 

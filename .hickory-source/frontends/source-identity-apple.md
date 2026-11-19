@@ -117,6 +117,13 @@ and draft must survive the current response, and native history must still
 replay the edit. A response for the earlier version cannot put a problem on
 the draft.
 
+The same native editor must handle Files returning before the requested text.
+The authority relay keeps the guarded response pending while the raw text
+loads. A response without a save guard leaves the exact preview read-only.
+Refresh Files supplies the guard without changing that editor, its selection,
+or the visible source. Its first permitted edit must still support Undo and
+Redo.
+
 <ui:copy id="source-identity-apple-tests">
 import XCTest
 #if os(macOS)
@@ -199,13 +206,27 @@ final class NativeSourceIdentityTests:XCTestCase {
             }
             throw EngineError(message: message + " · " + workspace.status)
         }
+        func releaseGate(_ url: URL) async throws {
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            let (_, response) = try await URLSession.shared.data(for: request)
+            XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 204)
+        }
+        let treeFirst = mode == "tree-first-retry"
+        if treeFirst {
+            try await wait("Files did not arrive ahead of the held source reads") {
+                workspace.engine != nil && Set(workspace.files.map(\.path)) == [path, "nested/sibling.txt"]
+            }
+            XCTAssertNil(workspace.currentBuffer)
+            try await releaseGate(release)
+        }
         try await wait("Requested source did not mount while authority was held") {
             exactUTF8(workspace.currentBuffer?.file.path, path) && editor(in: host) != nil
         }
         let buffer = try XCTUnwrap(workspace.currentBuffer), view = try XCTUnwrap(editor(in: host))
         let source = buffer.text, identity = try XCTUnwrap(buffer.sourceEditorState?()?.identity)
         XCTAssertTrue(workspace.connecting)
-        XCTAssertNil(workspace.engine)
+        XCTAssertEqual(workspace.engine != nil, treeFirst)
         XCTAssertTrue(buffer.readOnly)
         XCTAssertFalse(view.isEditable)
         XCTAssertNil(buffer.savedGuard)
@@ -228,10 +249,7 @@ final class NativeSourceIdentityTests:XCTestCase {
         let viewport = scroll.contentView.bounds.origin
         let bounds = scroll.convert(scroll.bounds, to: host)
         XCTAssertGreaterThan(viewport.y, 0)
-        var request = URLRequest(url: release)
-        request.httpMethod = "POST"
-        let (_, response) = try await URLSession.shared.data(for: request)
-        XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 204)
+        try await releaseGate(treeFirst ? release.appendingPathComponent("guard") : release)
         try await wait("Workspace authority reply did not settle") {
             !workspace.connecting && (mode != "confirmed" || view.isEditable)
         }
@@ -246,11 +264,14 @@ final class NativeSourceIdentityTests:XCTestCase {
             XCTAssertTrue(buffer.readOnly)
             XCTAssertFalse(view.isEditable)
             XCTAssertNil(buffer.savedGuard)
-            XCTAssertTrue(workspace.status.contains("remains readable"))
+            XCTAssertTrue(workspace.status.contains(treeFirst ? "Source permission is unconfirmed" : "remains readable"))
         }
-        if mode == "retry" {
-            let connected = await workspace.connect()
-            XCTAssertTrue(connected, workspace.status)
+        if mode == "retry" || treeFirst {
+            if treeFirst { await workspace.refresh() }
+            else {
+                let connected = await workspace.connect()
+                XCTAssertTrue(connected, workspace.status)
+            }
             try await wait("Retry did not confirm the reading already on screen") { view.isEditable }
             XCTAssertTrue(workspace.currentBuffer === buffer)
             XCTAssertTrue(editor(in: host) === view)
@@ -270,6 +291,12 @@ final class NativeSourceIdentityTests:XCTestCase {
             history.undo()
             XCTAssertTrue(exactUTF8(view.string, source))
             XCTAssertFalse(buffer.dirty)
+            if treeFirst {
+                history.redo()
+                XCTAssertTrue(buffer.dirty)
+                XCTAssertTrue(exactUTF8(view.string, (source as NSString).replacingCharacters(in: selection, with: "draft")))
+                history.undo()
+            }
         }
     }
 

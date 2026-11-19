@@ -1158,6 +1158,20 @@ extension UIKitParityAcceptanceTests {
         workspace.address = origin
         let mounted = try MountedIOSWorkspace(workspace: workspace, launchFile: path)
         defer { mounted.close() }
+        func releaseGate(_ url: URL) async throws {
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            let (_, response) = try await URLSession.shared.data(for: request)
+            XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 204)
+        }
+        let treeFirst = mode == "tree-first-retry"
+        if treeFirst {
+            try await mounted.wait("Files did not arrive ahead of the held source reads") {
+                workspace.engine != nil && Set(workspace.files.map(\.path)) == [path, "nested/sibling.txt"]
+            }
+            XCTAssertNil(workspace.currentBuffer)
+            try await releaseGate(release)
+        }
         try await mounted.wait("Requested source did not mount while authority was held") {
             exactUTF8(workspace.currentBuffer?.file.path, path)
         }
@@ -1165,7 +1179,7 @@ extension UIKitParityAcceptanceTests {
         let editor = try await mounted.editor(buffer)
         let source = buffer.text, identity = try XCTUnwrap(buffer.sourceEditorState?()?.identity)
         XCTAssertTrue(workspace.connecting)
-        XCTAssertNil(workspace.engine)
+        XCTAssertEqual(workspace.engine != nil, treeFirst)
         XCTAssertTrue(buffer.readOnly)
         XCTAssertFalse(editor.isEditable)
         XCTAssertNil(buffer.savedGuard)
@@ -1178,12 +1192,9 @@ extension UIKitParityAcceptanceTests {
         editor.setContentOffset(CGPoint(x: 0, y: 260), animated: false)
         let viewport = editor.contentOffset, bounds = editor.convert(editor.bounds, to: mounted.window)
         XCTAssertGreaterThan(viewport.y, 0)
-        NSLog("HickoryUIKitParity requested-text-before-tree-authority")
+        NSLog(treeFirst ? "HickoryUIKitParity requested-text-before-guarded-authority" : "HickoryUIKitParity requested-text-before-tree-authority")
 
-        var request = URLRequest(url: release)
-        request.httpMethod = "POST"
-        let (_, response) = try await URLSession.shared.data(for: request)
-        XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 204)
+        try await releaseGate(treeFirst ? release.appendingPathComponent("guard") : release)
         try await mounted.wait("Workspace authority reply did not settle") {
             !workspace.connecting && (mode != "confirmed" || editor.isEditable)
         }
@@ -1200,11 +1211,16 @@ extension UIKitParityAcceptanceTests {
             XCTAssertTrue(buffer.readOnly)
             XCTAssertFalse(editor.isEditable)
             XCTAssertNil(buffer.savedGuard)
-            XCTAssertTrue(workspace.status.contains("remains readable"))
+            XCTAssertTrue(workspace.status.contains(treeFirst ? "Source permission is unconfirmed" : "remains readable"))
         }
-        if mode == "retry" {
-            let connected = await workspace.connect()
-            XCTAssertTrue(connected, workspace.status)
+        if mode == "retry" || treeFirst {
+            if treeFirst {
+                NSLog("HickoryUIKitParity missing-startup-guard-kept-editor-read-only")
+                await workspace.refresh()
+            } else {
+                let connected = await workspace.connect()
+                XCTAssertTrue(connected, workspace.status)
+            }
             try await mounted.wait("Retry did not confirm the reading already on screen") { editor.isEditable }
             let retried = try await mounted.editor(buffer)
             XCTAssertTrue(workspace.currentBuffer === buffer)
@@ -1230,11 +1246,22 @@ extension UIKitParityAcceptanceTests {
             XCTAssertEqual(Set(workspace.files.map(\.path)), [path, "nested/sibling.txt"])
             XCTAssertTrue(editor.becomeFirstResponder())
             mounted.paste("draft", into: editor)
-            try await mounted.wait("The confirmed source did not admit native Paste") { buffer.dirty }
+            try await mounted.wait("The confirmed source did not admit native Paste") {
+                buffer.dirty && exactUTF8(editor.text, buffer.text)
+            }
+            let draft = buffer.text
             let history = try XCTUnwrap(editor.undoManager)
             history.undo()
             try await mounted.wait("Undo did not restore the identical startup bytes") {
                 exactUTF8(editor.text, source) && !buffer.dirty
+            }
+            if treeFirst {
+                XCTAssertTrue(history.canRedo)
+                history.redo()
+                try await mounted.wait("Redo did not restore the first authorized draft") {
+                    exactUTF8(editor.text, draft) && exactUTF8(buffer.text, draft) && buffer.dirty
+                }
+                history.undo()
             }
         }
         NSLog("HickoryUIKitParity late-tree-authority-kept-editor-state")

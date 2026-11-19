@@ -457,6 +457,12 @@ If Files fails during startup, an explicit retry against the same server can
 confirm the reading already on screen. A different connection must acquire its
 own source, even if it offers the same file path.
 
+A fast Files response establishes scope while the startup text read stays live.
+If that text arrives during the guarded read, display it immediately as a
+read-only buffer. The guarded reply must match the displayed source and supply
+permission before it can update that buffer. This lets a later permission reply
+preserve the native editor and its view state.
+
 <ui:copy id="simple-resource-adoption-apple-workspace">
 
     var status = "Connect to a Hickory workspace server"
@@ -476,12 +482,17 @@ own source, even if it offers the same file path.
     var active: String? {activeTab.map{NativeTabIdentity(address:$0).sourcePath ?? $0}}
     var currentBuffer: DocumentBuffer? {activeTab.flatMap{bufferForTab($0)}}
     var hasUnsavedChanges: Bool { gitResolution.hasPending || gitResolution.hasDraft || resourceRestoration.busy || resourceRestoration.hasPending || !agent.prompt.isEmpty || agent.running || (Array(buffers.values)+Array(retainedResourceEditors.values)).contains { $0.dirty || $0.saving } || debugger?.active == true }
-    private func startRequestedReading(_ path: String?, engine next: Engine) -> Task<Void, Never>? {
+    private func startRequestedReading(_ path: String?, engine next: Engine,
+                                       isCurrent: @escaping () -> Bool) -> Task<Void, Never>? {
         guard let path, !path.isEmpty, engine == nil, buffers.isEmpty else { return nil }
-        let scope = generation
         return Task { [weak self] in
             guard let reply = try? await next.startupSource(path), !Task.isCancelled,
-                  let self, self.generation == scope, self.connecting, self.engine == nil, self.buffers.isEmpty else { return }
+                  let self, self.connecting, isCurrent(), self.buffers.isEmpty,
+                  self.engine == nil || self.engine?.origin == next.origin else { return }
+            if self.engine != nil {
+                guard exactUTF8(self.sourceRootAddress, reply.root_path),
+                      reply.workspace_id.map({ exactUTF8(self.sourceWorkspaceID, $0) }) ?? true else { return }
+            }
             let file = FileNode(name: (path as NSString).lastPathComponent, path: path, dir: false)
             let reading = StartupSourceObservation(origin: next.origin, root: reply.root_path, workspace: reply.workspace_id)
             self.buffers[path] = DocumentBuffer(file: file, text: FileText(path: path, content: reply.content, hash: ""), startupObservation: reading)
@@ -490,36 +501,52 @@ own source, even if it offers the same file path.
         }
     }
     private func bindRequestedReading(_ buffer: DocumentBuffer, file: FileNode, acceptNewerSource: Bool = false) async {
-        guard let reading = buffer.startupObservation, let engine else { return }
+        guard buffer.startupObservation != nil, let engine else { return }
         let scope = generation
-        let root = sourceRootAddress, workspace = sourceWorkspaceID, before = buffer.text
+        let before = buffer.text, root = sourceRootAddress, workspace = sourceWorkspaceID
         let current = {
-            self.generation == scope && exactUTF8(self.sourceRootAddress, root) && exactUTF8(self.sourceWorkspaceID, workspace)
+            self.generation == scope && self.engine?.origin == engine.origin
+                && exactUTF8(self.sourceRootAddress, root) && exactUTF8(self.sourceWorkspaceID, workspace)
                 && self.buffers[file.path] === buffer && buffer.startupObservation != nil && exactUTF8(buffer.text, before)
-        }
-        guard engine.origin == reading.origin, exactUTF8(root, reading.root),
-              reading.workspace.map({ exactUTF8($0, workspace) }) ?? true else {
-            status = "Workspace identity changed while opening \(file.path). Reconnect to read its current source."
-            return
         }
         do {
             let text = try await engine.file(file)
-            guard current() else { return }
-            guard exactUTF8(text.path, file.path), acceptNewerSource || exactUTF8(text.content, before) else {
-                status = "\(file.path) changed while opening. Open it again in Files to read the current revision."
-                return
-            }
-            buffer.file = file
-            buffer.base = text.content
-            if !exactUTF8(buffer.text, text.content) { buffer.text = text.content }
-            buffer.hash = text.hash
-            buffer.savedGuard = text.save_guard
-            buffer.saveGuardReason = text.save_guard_reason
-            buffer.startupObservation = nil
-            _ = retainBuffer(file, text: text, engine: engine, existing: buffer)
+            if current() { acceptRequestedReading(text, in: buffer, file: file, engine: engine, acceptNewerSource: acceptNewerSource) }
         } catch {
-            if current() { status = "\(error.localizedDescription) The file remains readable. Open it again in Files to retry permissions." }
+            if current() && currentBuffer === buffer {
+                status = "\(error.localizedDescription) The file remains readable. Open it again in Files to retry permissions."
+            }
         }
+    }
+    private func acceptRequestedReading(_ text: FileText, in buffer: DocumentBuffer, file: FileNode,
+                                        engine: Engine, acceptNewerSource: Bool = false) {
+        guard let reading = buffer.startupObservation else { return }
+        func notice(_ message: String) { if currentBuffer === buffer { status = message } }
+        let root = sourceRootAddress, workspace = sourceWorkspaceID
+        guard engine.origin == reading.origin, exactUTF8(root, reading.root),
+              reading.workspace.map({ exactUTF8($0, workspace) }) ?? true else {
+            notice("Workspace identity changed while opening \(file.path). Reconnect to read its current source.")
+            return
+        }
+        guard exactUTF8(text.path, file.path), acceptNewerSource || exactUTF8(text.content, buffer.text) else {
+            notice("\(file.path) changed while opening. Open it again in Files to read the current revision.")
+            return
+        }
+        guard file.generated_by != nil || text.save_guard?.isEmpty == false else {
+            let reason = text.save_guard_reason ?? "Source permission is unconfirmed. Refresh Files to retry."
+            buffer.saveGuardReason = reason
+            notice(reason)
+            return
+        }
+        buffer.file = file
+        buffer.base = text.content
+        if !exactUTF8(buffer.text, text.content) { buffer.text = text.content }
+        buffer.hash = text.hash
+        buffer.savedGuard = text.save_guard
+        buffer.saveGuardReason = text.save_guard_reason
+        buffer.startupObservation = nil
+        _ = retainBuffer(file, text: text, engine: engine, existing: buffer)
+        notice(file.path)
     }
     func connect(opening explicitPath: String? = nil) async -> Bool {
         guard !connecting else { return false }
@@ -529,7 +556,9 @@ own source, even if it offers the same file path.
             let next = try Engine(address: address)
             let heldReading = engine == nil ? buffers.values.first(where: { $0.startupObservation?.origin == next.origin }) : nil
             let requestedPath = explicitPath ?? heldReading?.file.path
-            let startup = startRequestedReading(requestedPath, engine: next)
+            var requestedScope = generation, requestedInteraction = paneInteraction
+            let startupIsCurrent = { self.generation == requestedScope && self.paneInteraction == requestedInteraction }
+            let startup = startRequestedReading(requestedPath, engine: next, isCurrent: startupIsCurrent)
             defer { startup?.cancel() }
             let tree: FileTree
             do { tree = try await next.files() }
@@ -541,7 +570,7 @@ own source, even if it offers the same file path.
                 }
                 throw error
             }
-            startup?.cancel()
+            let requestedTabIsCurrent = startupIsCurrent()
             let preview = requestedPath.flatMap { buffers[$0] }.flatMap { $0.startupObservation?.origin == next.origin ? $0 : nil }
             // The terminal renderer owns screen contents; reconnect by clearing the session ID.
             agent.turns = []; agent.error = ""; terminal.id = nil; terminal.error = ""
@@ -552,13 +581,17 @@ own source, even if it offers the same file path.
             generation = UUID(); changes.reset(); search.invalidate(); showWorkspaceSearch = false; engine = next; debugger = NativeDebugger(engine: next)
             if let debug=debugger {debug.sourceBuffers={ [weak self] in guard let self else{return []};return Array(self.buffers.values)+Array(self.retainedResourceEditors.values)};debug.onLocation={ [weak self,weak debug] location in guard let self,let debug else{return};let scope=self.generation;Task {[weak self,weak debug] in guard let self,let debug,self.generation==scope else{return};await self.revealDebug(location,debug:debug)}}}; sourceRootAddress=tree.root_path;sourceWorkspaceID=tree.workspace_id;rootFiles = tree.tree; navigationTrail = NavigationTrail(); retainedResourceEditors = [:]; loading.values.forEach { $0.cancel() }; loading = [:]
             if preview == nil { buffers = [:]; layout = PaneLayout(); focused = "document-group" }
+            if requestedTabIsCurrent { requestedScope = generation; requestedInteraction = paneInteraction }
             status = tree.root
             displayFolder(nil)
             if let requestedPath, !requestedPath.isEmpty {
                 if let entry = treeEntry(requestedPath, in: rootFiles), !entry.file.dir {
                     displayFolder(entry.parent)
                     if let preview { await bindRequestedReading(preview, file: entry.file) }
-                    else { await open(entry.file) }
+                    else if startupIsCurrent() {
+                        let opened = await activateFile(entry.file, recordNavigation: false, isCurrent: startupIsCurrent, forStartup: true)
+                        if !opened && startupIsCurrent() { await startup?.value }
+                    }
                 } else {
                     status = "Requested file not found: \(requestedPath). Choose a file from the workspace tree."
                 }
@@ -578,6 +611,10 @@ own source, even if it offers the same file path.
             let folder = displayedFolder.flatMap { treeEntry($0.string, in: rootFiles)?.file }
             displayFolder(folder?.dir == true ? folder : nil)
             status = tree.root
+            if !connecting, let buffer = buffers.values.first(where: { $0.startupObservation != nil }),
+               let entry = treeEntry(buffer.file.path, in: rootFiles), !entry.file.dir {
+                await bindRequestedReading(buffer, file: entry.file)
+            }
         }
         catch { if current == generation { status = error.localizedDescription } }
     }
@@ -593,19 +630,33 @@ successful reveal deliberately changes tabs and selection.
 
 ## Retain source before choosing a pane
 
-Foreground file opening and background intelligence share one acquisition path. A pending read is keyed by workspace generation and path; after it returns, prefer any already available buffer so unsaved text cannot be overwritten. Retaining text attaches capabilities without activating a pane. Only the foreground request changes layout and records navigation. Reconnecting cancels old acquisitions and prevents late results from entering the new workspace.
+Foreground file opening and background intelligence share one acquisition path. A pending read is keyed by workspace generation and path; after it returns, prefer any already available buffer so unsaved text cannot be overwritten. Confirm an intervening startup preview with that same authoritative response. If the response supplies text without a save guard for a first-open source, retain the text in a read-only preview so Refresh Files can retry permission. Retaining source attaches available capabilities without activating a pane. Only the foreground request changes layout and records navigation. Reconnecting cancels old acquisitions and prevents late results from entering the new workspace.
 
 <ui:copy id="simple-230bbf9308-1">
-    func loadBuffer(_ file: FileNode) async throws -> DocumentBuffer {
+    func loadBuffer(_ file: FileNode, forStartup: Bool = false) async throws -> DocumentBuffer {
         if let buffer = buffers[file.path] { return buffer }
         if let pending = loading[file.path] { return try await pending.value }
         guard !file.dir, let engine else { throw EngineError(message:"Connect to the workspace and choose a file.") }
         let current = generation
+        let root = sourceRootAddress, workspace = sourceWorkspaceID
         let pending = Task { @MainActor [weak self] () async throws -> DocumentBuffer in
             let text = try await engine.file(file)
             guard exactUTF8(text.path,file.path) else{throw EngineError(message:"File reply names a different source spelling. Its text was not attached to another editor; reopen the exact file.")}
             guard let self, self.generation == current else { throw CancellationError() }
-            if let available = self.buffers[file.path] { return available }
+            if forStartup {
+                guard exactUTF8(self.sourceRootAddress, root), exactUTF8(self.sourceWorkspaceID, workspace) else { throw CancellationError() }
+            }
+            if let available = self.buffers[file.path] {
+                self.acceptRequestedReading(text, in: available, file: file, engine: engine)
+                return available
+            }
+            if forStartup, file.generated_by == nil, text.save_guard?.isEmpty != false, let root = self.sourceRootAddress {
+                let reading = StartupSourceObservation(origin: engine.origin, root: root, workspace: self.sourceWorkspaceID)
+                let buffer = DocumentBuffer(file: file, text: text, startupObservation: reading)
+                buffer.saveGuardReason = text.save_guard_reason ?? "Source permission is unconfirmed. Refresh Files to retry."
+                self.buffers[file.path] = buffer
+                return buffer
+            }
             return self.retainBuffer(file, text:text, engine:engine)
         }
         loading[file.path] = pending
@@ -653,7 +704,8 @@ Foreground file opening and background intelligence share one acquisition path. 
     func open(_ file: FileNode, recordNavigation: Bool = true) async {
         _ = await activateFile(file, recordNavigation: recordNavigation)
     }
-    private func activateFile(_ file: FileNode, recordNavigation: Bool, isCurrent: (() -> Bool)? = nil) async -> Bool {
+    private func activateFile(_ file: FileNode, recordNavigation: Bool, isCurrent: (() -> Bool)? = nil,
+                              forStartup: Bool = false) async -> Bool {
         guard isCurrent?() != false else { return false }
         let departed = currentSemanticLocation()
         if let existing = buffers[file.path] {
@@ -678,13 +730,13 @@ Foreground file opening and background intelligence share one acquisition path. 
         }
         defer { if newestOpen[target] == request { newestOpen.removeValue(forKey: target) } }
         do {
-            _ = try await loadBuffer(file)
+            let buffer = try await loadBuffer(file, forStartup: forStartup)
             guard ownsPane() else { return false }
             if isCurrent != nil { focused = target }
             if focused == target { paneInteraction = UUID() }
             layout.activateSource(file.path, in: target)
             if focused == target {
-                status = file.path
+                status = buffer.startupObservation == nil ? file.path : (buffer.saveGuardReason ?? "Waiting for workspace permissions.")
                 if recordNavigation, let arrived = currentSemanticLocation() { navigationTrail.record(from:departed,to:arrived) }
             }
             return focused == target

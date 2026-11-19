@@ -210,6 +210,17 @@ The Apple receipts are in `target/apple-startup-authority-appkit-retry-2026-11-1
 `target/browser-startup-retry-controlled-7fqqvcuh/`. The real engine browser
 receipt is in `target/recorded-engine-browser.CwVMo5/early-source.log`.
 
+Mounted AppKit and UIKit also passed the reverse response order. Files
+showed the requested folder while the guarded source read was pending.
+Late raw text mounted immediately and stayed read-only when the guarded
+reply lacked a save guard. Refresh Files confirmed the same native
+editor, selection, and scroll position. Native edits, Undo, and Redo
+preserved the expected draft bytes and left the file on disk unchanged.
+See
+`target/apple-startup-authority-tree-first-appkit-2026-11-19/tree-first-retry-receipt.json`
+and
+`target/apple-startup-authority-tree-first-uikit-retry-2026-11-19/startup-authority-tree-first-retry-receipt.json`.
+
 Mounted AppKit repeated both cases against the freshly linked engine. A held
 Files response let the exact startup bytes appear first. Releasing Files and
 the guarded read kept the original editor, its selection and viewport, and
