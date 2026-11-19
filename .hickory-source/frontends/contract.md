@@ -942,9 +942,14 @@ A separate workspace with `#`, `%`, spaces and Unicode in its folder name
 used symlinks to its installed Java provider. The rendered Debug attempt
 timed out waiting for LSP initialize. A direct provider probe exited before
 replying with those symlink paths, then initialized with the same workspace
-URI and the canonical installation paths. The rendered hosted launch through
-the literal alias remains open.
-See `target/mobile-provider-followup/java-hosted-current-literal # % λ/`.
+URI and the canonical installation paths. The hosted launcher now resolves
+the installed artifacts before starting Eclipse. The same rendered workspace
+then discovered `Main.java`, stopped at saved line 4, read Watch `41`, and
+ended both the debuggee and language server on Stop. The editor and source
+stayed intact. A focused provider-exit test also verified that closing the
+reply stream fails a waiting initialization before its timeout. See the
+`canonical-installation-stop` receipt under
+`target/mobile-provider-followup/java-hosted-current-literal # % λ/`.
 
 Configured csharp-ls 0.28.0 on .NET 10.0.401 supplied rendered browser
 definitions, usages, back navigation and a two-file rename. Review applied the

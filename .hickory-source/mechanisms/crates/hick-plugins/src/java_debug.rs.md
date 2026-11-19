@@ -88,7 +88,6 @@ not have to generate a `pom.xml`.
 
 use std::path::Path;
 use std::process::Stdio;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::time::Duration;
 
@@ -205,7 +204,7 @@ lifetimes would mean a debug session could end the editor's intelligence.
 struct Lsp {
     stdin: Mutex<ChildStdin>,
     next_id: AtomicI64,
-    replies: Arc<Mutex<std::collections::HashMap<i64, Value>>>,
+    replies: Mutex<mpsc::UnboundedReceiver<(i64, Value)>>,
     status: Mutex<mpsc::UnboundedReceiver<String>>,
 }
 
@@ -213,21 +212,24 @@ struct Lsp {
 <a id="f-2d734a88c587-impl-Lsp"></a>
 ### `impl-Lsp`
 
+The preparer keeps one outstanding request. Closing the reply stream wakes
+that request immediately. A live provider that supplies no reply still has
+its ordinary timeout.
+
 <storycode:copy id="f-2d734a88c587-impl-Lsp">
 impl Lsp {
     fn start(child: &mut Child) -> Result<Self> {
         let stdin = child.stdin.take().context("jdt.ls stdin")?;
         let stdout = child.stdout.take().context("jdt.ls stdout")?;
-        let replies: Arc<Mutex<std::collections::HashMap<i64, Value>>> = Default::default();
+        let (reply_tx, replies) = mpsc::unbounded_channel();
         let (status_tx, status_rx) = mpsc::unbounded_channel();
-        let reader_replies = replies.clone();
         tokio::spawn(async move {
             let mut stream = BufReader::new(stdout);
             while let Some(message) = read_message(&mut stream).await {
                 if let Some(id) = message.get("id").and_then(Value::as_i64)
                     && message.get("method").is_none()
                 {
-                    reader_replies.lock().await.insert(id, message);
+                    let _ = reply_tx.send((id, message));
                 } else if message.get("method").and_then(Value::as_str) == Some("language/status")
                     && let Some(kind) = message
                         .get("params")
@@ -241,7 +243,7 @@ impl Lsp {
         Ok(Self {
             stdin: Mutex::new(stdin),
             next_id: AtomicI64::new(0),
-            replies,
+            replies: Mutex::new(replies),
             status: Mutex::new(status_rx),
         })
     }
@@ -263,22 +265,23 @@ impl Lsp {
     }
 
     async fn request(&self, method: &str, params: Value, wait: Duration) -> Result<Value> {
+        // This preparer issues one request at a time. The reader closes this
+        // channel on protocol EOF, so an exited JVM cannot look like a slow one.
+        let mut replies = self.replies.lock().await;
         let id = self.next_id.fetch_add(1, Ordering::SeqCst) + 1;
         self.send(&json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params}))
             .await?;
-        let deadline = tokio::time::Instant::now() + wait;
-        loop {
-            if let Some(reply) = self.replies.lock().await.remove(&id) {
-                if let Some(error) = reply.get("error") {
-                    bail!("the Java language server refused `{method}`: {error}");
-                }
-                return Ok(reply.get("result").cloned().unwrap_or(Value::Null));
+        let reply = tokio::time::timeout(wait, async {
+            while let Some((answered, reply)) = replies.recv().await {
+                if answered == id { return Some(reply); }
             }
-            if tokio::time::Instant::now() >= deadline {
-                bail!("the Java language server did not answer `{method}` in time");
-            }
-            tokio::time::sleep(Duration::from_millis(50)).await;
+            None
+        }).await.with_context(|| format!("the Java language server did not answer `{method}` in time"))?
+            .with_context(|| format!("the Java language server connection closed before answering `{method}`"))?;
+        if let Some(error) = reply.get("error") {
+            bail!("the Java language server refused `{method}`: {error}");
         }
+        Ok(reply.get("result").cloned().unwrap_or(Value::Null))
     }
 
     /// Wait for jdt.ls to say it has finished starting AND importing.
@@ -400,6 +403,11 @@ pub async fn prepare(
          as a plugin INSIDE the language server, so both are needed — this is the one language \
          here where that is true."
     })?;
+    // Eclipse resolves its own installation files beside the launcher. Give
+    // it the real installation even when the workspace reaches it via an alias.
+    let launcher = found.launcher.canonicalize().context("Resolving the Java language server launcher")?;
+    let configuration = found.configuration.canonicalize().context("Resolving the Java language server configuration")?;
+    let bundle = found.bundle.canonicalize().context("Resolving the Java debugger bundle")?;
 
     // jdt.ls keeps its own workspace: compiled classes, indexes, and the
     // invisible project it makes for a directory with no build file. Kept
@@ -424,9 +432,9 @@ pub async fn prepare(
         "--add-opens".into(),
         "java.base/java.lang=ALL-UNNAMED".into(),
         "-jar".into(),
-        found.launcher.to_string_lossy().into_owned(),
+        launcher.to_string_lossy().into_owned(),
         "-configuration".into(),
-        found.configuration.to_string_lossy().into_owned(),
+        file_uri(&configuration),
         "-data".into(),
         workspace.to_string_lossy().into_owned(),
     ];
@@ -464,7 +472,7 @@ pub async fn prepare(
             // The whole mechanism. Without this the server starts and knows
             // nothing about debugging: java-debug is a bundle it loads.
             "initializationOptions": {
-                "bundles": [found.bundle.to_string_lossy()],
+                "bundles": [bundle.to_string_lossy()],
                 "workspaceFolders": [file_uri(project_dir)],
             },
         }),
@@ -657,6 +665,25 @@ mod tests {
     fn java_source_uris_encode_the_literal_path() {
         assert_eq!(file_uri(Path::new("/owned # % λ/Main.java")),
             "file:///owned%20%23%20%25%20%CE%BB/Main.java");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn java_request_reports_provider_exit_before_its_timeout() {
+        let mut server = tokio::process::Command::new("sh")
+            .args(["-c", "IFS= read -r header; IFS= read -r separator; count=${header#*: }; count=${count%?}; dd bs=1 count=\"$count\" of=/dev/null 2>/dev/null"])
+            .kill_on_drop(true)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let lsp = Lsp::start(&mut server).unwrap();
+        let error = tokio::time::timeout(Duration::from_secs(3),
+            lsp.request("initialize", json!({}), Duration::from_secs(30)))
+            .await.expect("provider closure should resolve the request")
+            .unwrap_err();
+        assert!(error.to_string().contains("connection closed before answering `initialize`"));
+        assert!(server.wait().await.unwrap().success());
     }
 }
 </storycode:copy>
