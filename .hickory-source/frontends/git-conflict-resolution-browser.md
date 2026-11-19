@@ -16,6 +16,12 @@ completed refusal can retire only after the original complete review preimage is
 revalidated. Source receipt adoption and coordinated undo remain host adapters;
 policy does not belong to the React renderer.
 
+Bind the composition to the row that opened it. A different selection retires
+approval and hides that composition. Returning to its row restores the typed
+destinations for a fresh preview. Choosing Compose on another row starts a new
+composition. A dispatched request keeps its original status control even
+after the selected row changes.
+
 <ui:copy id="git-resolution-browser-model">
 import {resourceWirePatches,type ResourceSaved,type ResourceWirePlan,type ResourceEditorPatch,type ResourceConstructionFacts,type ResourceReceipt} from './ResourceEditors';
 export interface ConflictStage {stage:number;mode:string;oid:string;text:string|null;unavailable:string|null}
@@ -44,11 +50,22 @@ export function decodeConflictPreview(raw:ConflictPreview):ConflictPreview {
 export function conflictDraftable(review:HeldConflict){return review.patches.some(patch=>patch.before?.text!==patch.after?.text)&&review.patches.every(patch=>patch.before&&patch.after&&patch.before.identity===patch.after.identity);}
 interface PendingConflict {id:string;review:HeldConflict;stage:boolean;receipt?:ResourceReceipt}
 export class ConflictResolutionModel {
- reading:ConflictReading|null=null;members:string[]=[];outputs:ConflictOutput[]=[];review:HeldConflict|null=null;notice='';busy=false;saved=false;pending:PendingConflict|null=null;private ticket=0;
+ anchor:string|null=null;reading:ConflictReading|null=null;members:string[]=[];outputs:ConflictOutput[]=[];review:HeldConflict|null=null;notice='';busy=false;saved=false;pending:PendingConflict|null=null;private ticket=0;
  constructor(private ports:ConflictPorts,private changed:()=>void=()=>{}){}
- close(){if(!this.pending){this.ticket++;this.review=null;this.busy=false;}}
+ close(){
+  if(this.pending)return;
+  this.ticket++;
+  if(this.review)this.notice='Preview the retained composition again before applying it.';
+  this.review=null;
+  this.busy=false;
+ }
  change(members:string[],outputs:ConflictOutput[]){if(this.busy||this.pending)return;this.ticket++;this.review=null;this.saved=false;this.members=[...members];this.outputs=structuredClone(outputs);this.changed();}
- async read(members:string[]){if(this.busy||this.pending)return;const ticket=++this.ticket;this.busy=true;this.review=null;this.changed();
+ async read(members:string[],anchor:string|null=members[0]??null){
+  if(this.busy||this.pending)return;
+  if(this.anchor!==anchor){this.anchor=anchor;this.outputs=[];}
+  const ticket=++this.ticket;
+  this.members=[...members];this.reading=null;this.review=null;this.saved=false;
+  this.busy=true;this.notice='Reading conflict stages…';this.changed();
   try{const lease=this.ports.lease();const reading=await this.ports.load<ConflictReading>('POST','/api/git/conflict-resolution/read',{version:1,members:[...members].sort()});if(ticket!==this.ticket)return;if(!lease())throw Error('Workspace or source context changed while reading conflict stages.');
    if(reading.version!==1||reading.resolution_protocol!==1||reading.source_files_modified!==false||reading.index_modified!==false||!Array.isArray(reading.paths)||reading.paths.length>1000||new Set(reading.paths.map(row=>row.path)).size!==reading.paths.length||JSON.stringify(reading.members)!==JSON.stringify([...members].sort()))throw Error('Conflict group identity changed or protocol is unavailable.');this.reading=structuredClone(reading);this.members=[...members];this.notice='Select the complete group and explicitly retain every destination. Omitted members will be deleted.';
   }catch(error){if(ticket===this.ticket)this.notice=String(error);}finally{if(ticket===this.ticket){this.busy=false;this.changed();}}
@@ -109,13 +126,14 @@ inspection rather than an automatic second write.
 import {useEffect,useState} from 'react';
 import {conflictDraftable,type ConflictOutput,type ConflictReading,type ConflictResolutionModel} from './GitConflictResolution';
 function outputText(output:ConflictOutput,reading:ConflictReading){const content=output.content;return content.kind==='text'?content.text:reading.paths.find(row=>row.path===content.path)?.stages.find(stage=>stage.stage===content.stage&&stage.oid===content.oid)?.text??'';}
-export function GitResolutionView({path,model}:{path:string;model:ConflictResolutionModel}){
+export function GitResolutionView({path,model}:{path:string|null;model:ConflictResolutionModel}){
  const [page,setPage]=useState(0);
  useEffect(()=>()=>model.close(),[model]);
  const update=(index:number,value:ConflictOutput|null)=>model.change(model.members,model.outputs.flatMap((row,at)=>at===index?value?[value]:[]:[row]));
- const blocked=model.busy||!!model.pending,reading=model.reading,review=model.review,raw=review?JSON.stringify(review.value,null,2):'',last=Math.max(0,Math.ceil(raw.length/8000)-1),shown=Math.min(page,last);
- return <section aria-label="Complete conflict resolution"><button disabled={blocked} onClick={()=>void model.read([path])}>Compose conflict group…</button><p role="status">{model.notice}</p>{model.pending?.receipt&&<p>Retained publication {model.pending.receipt.request_id} · historical completion {String(model.pending.receipt.outcome?.complete)} · current adoption {String(model.pending.receipt.adoption_current)}. {model.pending.receipt.adoption_reason}</p>}{model.pending&&<button disabled={model.busy} onClick={()=>void model.status()}>Inspect original resolution request</button>}
- {reading&&<><p>Select every member in this resolution. Rename relationships and retained identities are explicit choices.</p>{reading.paths.map(row=><div key={row.path}><label><input type="checkbox" disabled={blocked} checked={model.members.includes(row.path)} onChange={()=>model.change(model.members.includes(row.path)?model.members.filter(path=>path!==row.path):[...model.members,row.path],model.outputs)}/>{JSON.stringify(row.path)}</label>{row.unavailable&&<p>{row.unavailable}</p>}</div>)}<button disabled={blocked||!model.members.length} onClick={()=>void model.read(model.members)}>Read selected group stages</button>
+ const selected=path!==null&&model.anchor===path;
+ const blocked=model.busy||!!model.pending,reading=selected?model.reading:null,review=selected?model.review:null,raw=review?JSON.stringify(review.value,null,2):'',last=Math.max(0,Math.ceil(raw.length/8000)-1),shown=Math.min(page,last);
+ return <section aria-label="Complete conflict resolution">{path&&<button disabled={blocked} onClick={()=>void model.read([path],path)}>Compose conflict group…</button>}<p role="status">{(selected||model.pending)&&model.notice}</p>{model.pending?.receipt&&<p>Retained publication {model.pending.receipt.request_id} · historical completion {String(model.pending.receipt.outcome?.complete)} · current adoption {String(model.pending.receipt.adoption_current)}. {model.pending.receipt.adoption_reason}</p>}{model.pending&&<button disabled={model.busy} onClick={()=>void model.status()}>Inspect original resolution request</button>}
+ {reading&&<><p>Select every member in this resolution. Rename relationships and retained identities are explicit choices.</p>{reading.paths.map(row=><div key={row.path}><label><input type="checkbox" disabled={blocked} checked={model.members.includes(row.path)} onChange={()=>model.change(model.members.includes(row.path)?model.members.filter(path=>path!==row.path):[...model.members,row.path],model.outputs)}/>{JSON.stringify(row.path)}</label>{row.unavailable&&<p>{row.unavailable}</p>}</div>)}<button disabled={blocked||!model.members.length} onClick={()=>void model.read(model.members,path)}>Read selected group stages</button>
  {model.outputs.map((output,index)=><article key={index}><label>Destination<input aria-label={`Conflict destination ${index+1}`} disabled={blocked} value={output.path} onChange={event=>update(index,{...output,path:event.target.value})}/></label><label>Retained source identity<select aria-label={`Retained identity ${index+1}`} disabled={blocked} value={output.identity_from??''} onChange={event=>update(index,{...output,identity_from:event.target.value||null})}><option value="">New source identity</option>{model.members.map(member=><option key={member} value={member}>{JSON.stringify(member)}</option>)}</select></label>
  <label>Composed resolution<textarea aria-label={`Composed resolution ${index+1}`} rows={5} disabled={blocked} value={outputText(output,reading)} onChange={event=>update(index,{...output,content:{kind:'text',text:event.target.value}})}/></label>
  <label>Saved mode<select aria-label={`Saved mode ${index+1}`} disabled={blocked} value={output.mode} onChange={event=>update(index,{...output,mode:event.target.value as '100644'|'100755'})}><option value="100644">Regular file</option><option value="100755">Executable file</option></select></label><button disabled={blocked} onClick={()=>update(index,null)}>Remove destination</button>
@@ -150,6 +168,19 @@ it('retains uncertain request identity across close and refuses a second mutatio
 it('retires only a confirmed refused request whose complete original preimage is current',async()=>{for(const stale of [false,true]){const f=fixture(true);await prepared(f);f.foreignStage();await f.model.act(true);if(stale)f.stale();await f.model.status();expect(!!f.model.pending).toBe(stale);if(!stale)expect(f.model.notice).toContain('original complete preimage');}});
 it('refuses stale source before dispatch and keeps immutable decoded proposals independent of raw mutation',async()=>{const f=fixture();await prepared(f);const held=f.model.review!;f.value.plan.patches[0].after.text='tampered';expect(held.patches[0].after?.text).toBe('after');f.stale();await f.model.act(false);expect(f.calls.some(call=>call.path.endsWith('/save'))).toBe(false);for(const [key,bad] of [['token','foreign'],['fingerprint','old'],['version',true],['resolution_protocol',1.5],['index_modified',true]] as const){expect(()=>decodeConflictPreview({...preview(),[key]:bad} as ConflictPreview)).toThrow();}});
 it('retires a delayed reading on close or lost source/namespace lease',async()=>{for(const closed of [false,true]){let release!:(value:unknown)=>void,current=true;const ports:ConflictPorts={load:<T>()=>new Promise<T>(done=>{release=done as (value:unknown)=>void;}),lease:()=>()=>current,capture:async()=>{throw Error('unused');},draft:()=>{},adopt:()=>{}};const model=new ConflictResolutionModel(ports),pending=model.read(['a.py']);if(closed)model.close();else current=false;release(reading());await pending;expect(model.reading).toBeNull();}});
+it('retains composition when leaving a row and starts clean on another explicit group',async()=>{
+ const f=fixture();await prepared(f);
+ f.model.close();
+ expect(f.model.anchor).toBe('a.py');
+ expect(f.model.outputs).toEqual([output]);
+ expect(f.model.review).toBeNull();
+ await f.model.act(false);
+ expect(f.adopt).not.toHaveBeenCalled();
+ await f.model.read(['b.py'],'b.py');
+ expect(f.model.anchor).toBe('b.py');
+ expect(f.model.outputs).toEqual([]);
+ expect(f.model.reading).toBeNull();
+});
 it('reports refused source lease acquisition without rejecting the optional reading promise',async()=>{let reads=0;const ports:ConflictPorts={lease:()=>{throw Error('Foreign retained source namespace');},load:async<T>()=>{reads++;return reading() as T;},capture:async()=>{throw Error('unused');},draft:()=>{},adopt:()=>{}};const model=new ConflictResolutionModel(ports);await expect(model.read(['a.py'])).resolves.toBeUndefined();expect(model.reading).toBeNull();expect(model.busy).toBe(false);expect(model.notice).toContain('Foreign retained source');expect(reads).toBe(0);});
 
 </ui:copy>

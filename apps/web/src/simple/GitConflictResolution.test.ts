@@ -12,5 +12,18 @@ it('retains uncertain request identity across close and refuses a second mutatio
 it('retires only a confirmed refused request whose complete original preimage is current',async()=>{for(const stale of [false,true]){const f=fixture(true);await prepared(f);f.foreignStage();await f.model.act(true);if(stale)f.stale();await f.model.status();expect(!!f.model.pending).toBe(stale);if(!stale)expect(f.model.notice).toContain('original complete preimage');}});
 it('refuses stale source before dispatch and keeps immutable decoded proposals independent of raw mutation',async()=>{const f=fixture();await prepared(f);const held=f.model.review!;f.value.plan.patches[0].after.text='tampered';expect(held.patches[0].after?.text).toBe('after');f.stale();await f.model.act(false);expect(f.calls.some(call=>call.path.endsWith('/save'))).toBe(false);for(const [key,bad] of [['token','foreign'],['fingerprint','old'],['version',true],['resolution_protocol',1.5],['index_modified',true]] as const){expect(()=>decodeConflictPreview({...preview(),[key]:bad} as ConflictPreview)).toThrow();}});
 it('retires a delayed reading on close or lost source/namespace lease',async()=>{for(const closed of [false,true]){let release!:(value:unknown)=>void,current=true;const ports:ConflictPorts={load:<T>()=>new Promise<T>(done=>{release=done as (value:unknown)=>void;}),lease:()=>()=>current,capture:async()=>{throw Error('unused');},draft:()=>{},adopt:()=>{}};const model=new ConflictResolutionModel(ports),pending=model.read(['a.py']);if(closed)model.close();else current=false;release(reading());await pending;expect(model.reading).toBeNull();}});
+it('retains composition when leaving a row and starts clean on another explicit group',async()=>{
+ const f=fixture();await prepared(f);
+ f.model.close();
+ expect(f.model.anchor).toBe('a.py');
+ expect(f.model.outputs).toEqual([output]);
+ expect(f.model.review).toBeNull();
+ await f.model.act(false);
+ expect(f.adopt).not.toHaveBeenCalled();
+ await f.model.read(['b.py'],'b.py');
+ expect(f.model.anchor).toBe('b.py');
+ expect(f.model.outputs).toEqual([]);
+ expect(f.model.reading).toBeNull();
+});
 it('reports refused source lease acquisition without rejecting the optional reading promise',async()=>{let reads=0;const ports:ConflictPorts={lease:()=>{throw Error('Foreign retained source namespace');},load:async<T>()=>{reads++;return reading() as T;},capture:async()=>{throw Error('unused');},draft:()=>{},adopt:()=>{}};const model=new ConflictResolutionModel(ports);await expect(model.read(['a.py'])).resolves.toBeUndefined();expect(model.reading).toBeNull();expect(model.busy).toBe(false);expect(model.notice).toContain('Foreign retained source');expect(reads).toBe(0);});
 

@@ -59,6 +59,8 @@ Use the existing floating surface and menu vocabulary. Paging limits the visible
 
 Give the repository reading its own live-region name so a saved diff or index
 refusal can be distinguished from the nested conflict preview's status.
+Retire the previous approval synchronously when leaving a row. Keep the
+original publication status reachable even when Refresh clears the selection.
 
 <ui:copy id="simple-git-review-browser-view">
 export function GitReviewView({visible,workspace,close,acquire,buffers,history,adopt,alive}:{visible:boolean;workspace:string;close:()=>void;acquire:(path:string)=>Promise<Buffer>;buffers?:Buffers;history?:WorkspaceChangeHistory;adopt?:(routes:ResourceEditorRoute<Buffer>[])=>void;alive?:()=>boolean}) {
@@ -66,15 +68,20 @@ export function GitReviewView({visible,workspace,close,acquire,buffers,history,a
  const conflictCallbacks=useRef({acquire,adopt,alive});conflictCallbacks.current={acquire,adopt,alive};
  const resolution=useMemo(()=>buffers&&history&&adopt&&alive?browserConflictModel(buffers,history,path=>conflictCallbacks.current.acquire(path),routes=>conflictCallbacks.current.adopt?.(routes),()=>conflictCallbacks.current.alive?.()===true,paint):null,[buffers,history,buffers?.workspace]);
  const panel=useRef<HTMLElement>(null);
- useEffect(()=>{if(!visible)return;void model.refresh();panel.current?.focus();return()=>model.close();},[visible,model]);
+ const select=(path:string,staged:boolean)=>{if(model.selected!==path)resolution?.close();void model.select(path,staged);};
+ const refresh=()=>{resolution?.close();void model.refresh();};
+ const changeIndex=(path:string,unstage:boolean)=>{resolution?.close();void model.changeIndex(path,unstage);};
+ useEffect(()=>{if(!visible)return;void model.refresh();panel.current?.focus();return()=>{model.close();resolution?.close();};},[visible,model,resolution]);
  if(!visible)return null;
  return createPortal(<section ref={panel} tabIndex={-1} className="simple-workspace-problems simple-source-tests" role="dialog" aria-label="Repository changes" onKeyDown={event=>{if(event.key==='Escape'){event.preventDefault();close();}}}>
-  <header><strong>Repository changes {model.branch}</strong><button onClick={()=>void model.refresh()}>Refresh</button><button onClick={close}>Close</button></header>
+  <header><strong>Repository changes {model.branch}</strong><button onClick={refresh}>Refresh</button><button onClick={close}>Close</button></header>
   <p role="status" aria-label="Repository change status">{model.notice}</p><p>Saved working tree and index. Unsaved editor drafts are not included.</p>
-  <div aria-label="Changed files">{model.files.slice(model.page*20,(model.page+1)*20).map(file=><div key={file.path}><span>{file.from?`${file.from} → `:''}{file.path}</span> <button aria-label={`Working tree ${file.path}`} onClick={()=>void model.select(file.path,false)}>Working tree {file.tree}</button> <button aria-label={`Staged ${file.path}`} onClick={()=>void model.select(file.path,true)}>Staged {file.index}</button></div>)}</div>
+  <div aria-label="Changed files">{model.files.slice(model.page*20,(model.page+1)*20).map(file=><div key={file.path}><span>{file.from?`${file.from} → `:''}{file.path}</span> <button aria-label={`Working tree ${file.path}`} onClick={()=>select(file.path,false)}>Working tree {file.tree}</button> <button aria-label={`Staged ${file.path}`} onClick={()=>select(file.path,true)}>Staged {file.index}</button></div>)}</div>
   <nav aria-label="Changed file pages"><button disabled={model.page===0} onClick={()=>{model.page--;paint();}}>Previous</button><span>{model.files.length} changed files · page {model.page+1}</span><button disabled={(model.page+1)*20>=model.files.length} onClick={()=>{model.page++;paint();}}>Next</button></nav>
   {model.needsRefresh&&!model.indexPending&&<p>Refresh Git state before another index action.</p>}
-  {model.selected&&<><h3>{model.selected} · {model.staged?'Staged':'Working tree'}</h3><div><button disabled={model.indexPending||model.needsRefresh||![...model.files].some(file=>file.path===model.selected&&file.tree!==' ')} onClick={()=>void model.changeIndex(model.selected!,false)}>Stage saved file</button><button disabled={model.indexPending||model.needsRefresh||!model.files.some(file=>file.path===model.selected&&![' ','?','!'].includes(file.index))} onClick={()=>void model.changeIndex(model.selected!,true)}>Unstage file</button></div><GitConflictView key={model.selected} path={model.selected} acquire={acquire} close={close}/>{resolution&&<GitResolutionView path={model.selected} model={resolution}/>}<pre aria-label="Git diff" style={{maxHeight:'40vh',overflow:'auto',whiteSpace:'pre'}}>{model.detail}</pre></>}
+  {model.selected&&<><h3>{model.selected} · {model.staged?'Staged':'Working tree'}</h3><div><button disabled={model.indexPending||model.needsRefresh||![...model.files].some(file=>file.path===model.selected&&file.tree!==' ')} onClick={()=>changeIndex(model.selected!,false)}>Stage saved file</button><button disabled={model.indexPending||model.needsRefresh||!model.files.some(file=>file.path===model.selected&&![' ','?','!'].includes(file.index))} onClick={()=>changeIndex(model.selected!,true)}>Unstage file</button></div><GitConflictView key={model.selected} path={model.selected} acquire={acquire} close={close}/></>}
+  {resolution&&(model.selected||resolution.pending)&&<GitResolutionView path={model.selected} model={resolution}/>}
+  {model.selected&&<pre aria-label="Git diff" style={{maxHeight:'40vh',overflow:'auto',whiteSpace:'pre'}}>{model.detail}</pre>}
  </section>,document.body);
 }
 </ui:copy>

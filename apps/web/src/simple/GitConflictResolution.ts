@@ -25,11 +25,22 @@ export function decodeConflictPreview(raw:ConflictPreview):ConflictPreview {
 export function conflictDraftable(review:HeldConflict){return review.patches.some(patch=>patch.before?.text!==patch.after?.text)&&review.patches.every(patch=>patch.before&&patch.after&&patch.before.identity===patch.after.identity);}
 interface PendingConflict {id:string;review:HeldConflict;stage:boolean;receipt?:ResourceReceipt}
 export class ConflictResolutionModel {
- reading:ConflictReading|null=null;members:string[]=[];outputs:ConflictOutput[]=[];review:HeldConflict|null=null;notice='';busy=false;saved=false;pending:PendingConflict|null=null;private ticket=0;
+ anchor:string|null=null;reading:ConflictReading|null=null;members:string[]=[];outputs:ConflictOutput[]=[];review:HeldConflict|null=null;notice='';busy=false;saved=false;pending:PendingConflict|null=null;private ticket=0;
  constructor(private ports:ConflictPorts,private changed:()=>void=()=>{}){}
- close(){if(!this.pending){this.ticket++;this.review=null;this.busy=false;}}
+ close(){
+  if(this.pending)return;
+  this.ticket++;
+  if(this.review)this.notice='Preview the retained composition again before applying it.';
+  this.review=null;
+  this.busy=false;
+ }
  change(members:string[],outputs:ConflictOutput[]){if(this.busy||this.pending)return;this.ticket++;this.review=null;this.saved=false;this.members=[...members];this.outputs=structuredClone(outputs);this.changed();}
- async read(members:string[]){if(this.busy||this.pending)return;const ticket=++this.ticket;this.busy=true;this.review=null;this.changed();
+ async read(members:string[],anchor:string|null=members[0]??null){
+  if(this.busy||this.pending)return;
+  if(this.anchor!==anchor){this.anchor=anchor;this.outputs=[];}
+  const ticket=++this.ticket;
+  this.members=[...members];this.reading=null;this.review=null;this.saved=false;
+  this.busy=true;this.notice='Reading conflict stages…';this.changed();
   try{const lease=this.ports.lease();const reading=await this.ports.load<ConflictReading>('POST','/api/git/conflict-resolution/read',{version:1,members:[...members].sort()});if(ticket!==this.ticket)return;if(!lease())throw Error('Workspace or source context changed while reading conflict stages.');
    if(reading.version!==1||reading.resolution_protocol!==1||reading.source_files_modified!==false||reading.index_modified!==false||!Array.isArray(reading.paths)||reading.paths.length>1000||new Set(reading.paths.map(row=>row.path)).size!==reading.paths.length||JSON.stringify(reading.members)!==JSON.stringify([...members].sort()))throw Error('Conflict group identity changed or protocol is unavailable.');this.reading=structuredClone(reading);this.members=[...members];this.notice='Select the complete group and explicitly retain every destination. Omitted members will be deleted.';
   }catch(error){if(ticket===this.ticket)this.notice=String(error);}finally{if(ticket===this.ticket){this.busy=false;this.changed();}}
