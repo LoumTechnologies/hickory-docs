@@ -18,18 +18,45 @@ it("tracks late language providers, shares mapped navigation and retains bounded
   const location = { uri: "file:///actual.py", range: { start: { line: 2, character: 1 }, end: { line: 2, character: 6 } } };
   const client = { definition: vi.fn().mockResolvedValue([location]), references: vi.fn().mockResolvedValue([location]), hover: vi.fn().mockResolvedValue({ contents: "TYPE " + "λ".repeat(6000) }) } as unknown as LspClient;
   const navigate = vi.fn(), references = vi.fn(), runtimeValue = vi.fn().mockResolvedValue("captured 42");
+  let foreground = 0;
+  const captureNavigationContext = () => {
+    const captured = foreground;
+    return () => foreground === captured;
+  };
   function Harness() { useEditorActions(view, "source"); return null; }
   try {
     render(<UiActionContext.Provider value={registry}><Harness /></UiActionContext.Provider>);
     const actions = () => registry.groups().groups.flatMap(group => registry.observe(group).actions);
     expect(actions().some(a => a.label.startsWith("Go to definition"))).toBe(false);
-    await act(async () => view.dispatch({ effects: compartment.reconfigure(lspSupport({ client, uri: "mapped.py", positionAt: offset => ({ line: 2, character: offset + 1 }), onNavigate: navigate, onReferences: references, runtimeValue })) }));
+    await act(async () => view.dispatch({ effects: compartment.reconfigure(lspSupport({
+      client, uri: "mapped.py", positionAt: offset => ({ line: 2, character: offset + 1 }),
+      navigationIntent: true, captureNavigationContext, onNavigate: navigate, onReferences: references, runtimeValue,
+    })) }));
     await waitFor(() => expect(actions().some(a => a.label.startsWith("Go to definition"))).toBe(true));
     let id = 0;
     const run = async (label: string, args = {}) => { let reply: unknown; await act(async () => { reply = await registry.act(registry.scope, { id: "python:turn", kind: "agent" }, { handle: actions().find(a => a.label === label)!.handle, arguments: args, request_id: String(++id) }); }); return reply; };
     expect(await run("Go to definition at editor cursor (mapped.py)")).toMatchObject({ status: "result", outcome: { status: "completed", value: { total: 1, navigation_requested: true } } });
-    expect(client.definition).toHaveBeenCalledWith("mapped.py", { line: 2, character: 1 }); expect(navigate).toHaveBeenCalledWith(location);
-    await run("Find references at editor cursor (mapped.py)"); expect(references).toHaveBeenCalledWith([location], expect.objectContaining({ uri: "mapped.py" }));
+    expect(client.definition).toHaveBeenCalledWith("mapped.py", { line: 2, character: 1 });
+    expect(navigate).toHaveBeenCalledWith(location, expect.any(Function));
+    await run("Find references at editor cursor (mapped.py)");
+    expect(references).toHaveBeenCalledWith([location], expect.objectContaining({ uri: "mapped.py" }), expect.any(Function));
+    const resultIsCurrent = references.mock.calls[0][2] as () => boolean;
+    expect(resultIsCurrent()).toBe(true);
+    await act(async () => view.dispatch({ selection: { anchor: 1 } }));
+    expect(resultIsCurrent()).toBe(false);
+    await act(async () => view.dispatch({ selection: { anchor: 0 } }));
+    expect(resultIsCurrent()).toBe(false);
+    let resolveReferences!: (locations: typeof location[]) => void;
+    vi.mocked(client.references).mockImplementationOnce(() => new Promise(done => { resolveReferences = done; }));
+    const lateReferences = registry.act(registry.scope, { id: "python:turn", kind: "agent" }, {
+      handle: actions().find(action => action.label.startsWith("Find references"))!.handle,
+      arguments: {}, request_id: "late-references",
+    });
+    await waitFor(() => expect(client.references).toHaveBeenCalledTimes(2));
+    foreground++;
+    resolveReferences([location]);
+    expect(await lateReferences).toMatchObject({ outcome: { status: "unavailable" } });
+    expect(references).toHaveBeenCalledTimes(1);
     const capture = await run("Inspect editor hover (mapped.py)", { position: 1 }) as { outcome: { value: { snapshot: string; total_bytes: number } } };
     const snapshot = capture.outcome.value.snapshot;
     expect(capture.outcome.value.total_bytes).toBeGreaterThan(8192);

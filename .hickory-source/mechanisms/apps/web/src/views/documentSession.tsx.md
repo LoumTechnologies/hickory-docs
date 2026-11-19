@@ -80,6 +80,7 @@ import type { RecordedPatchSource } from "../simple/AgentProposalAdapter";
 import { historySourceHash } from "../simple/SourceHistory";
 import { documentDraftBinding } from "../editor/DocumentEditor";
 import { admittedManagedPreview, type ManagedDocumentPreview, type StartupManagedDocument } from "./folderPane";
+import type { ReferenceReading } from "../components/ReferencesPanel";
 import { useHickLangStatus } from "../editor/hickLang";
 </storycode:copy>
 <a id="f-bfb59577f48b-import_statement-10"></a>
@@ -351,7 +352,7 @@ export interface DocSession {
   realtime: Realtime;
   debug: ReturnType<typeof useDebugger>;
   selectSpan: [number, number] | null;
-  references: { locations: LspLocation[]; query: string } | null;
+  references: ReferenceReading | null;
   prompt: ReturnType<typeof usePrompt>["prompt"];
   settle: ReturnType<typeof usePrompt>["settle"];
   askText: ReturnType<typeof usePrompt>["askText"];
@@ -517,11 +518,13 @@ export const DocSessionHost = memo(function DocSessionHost({
   retainUnsaved = false,
   startup,
   initialDocument,
+  captureNavigationContext,
 }: {
   registry: SessionRegistry;
   docId: string;
   startup?: StartupManagedDocument;
   initialDocument?: {doc: Doc; workspaceCurrent: () => boolean};
+  captureNavigationContext?: () => () => boolean;
   /** Open one of THIS document's generated files in the layout. */
   openGenerated: (docId: string, path: string) => void;
   retainUnsaved?: boolean;
@@ -531,7 +534,8 @@ export const DocSessionHost = memo(function DocSessionHost({
   // A link chooses whether to open the tab. Once mounted, the document's
   // editing confirmation belongs to the session and its original workspace.
   const [preview] = useState(() => admitted && admittedManagedPreview(admitted.doc, admitted.workspaceCurrent));
-  const session = useDocumentSession(docId, openGenerated, retainUnsaved, startupAtOpen ?? preview, admitted?.doc);
+  const session = useDocumentSession(docId, openGenerated, retainUnsaved, startupAtOpen ?? preview, admitted?.doc,
+    captureNavigationContext);
   useEffect(() => {
     registry.publish(preview && !session.startupRoomReady ? {...session, admittedPreview: preview} : session);
   });
@@ -588,6 +592,7 @@ function useDocumentSession(
   retainUnsaved: boolean,
   startup?: ManagedDocumentPreview,
   initialDocument?: Doc,
+  captureNavigationContext?: () => () => boolean,
 ): DocSession {
   const openGenerated = useCallback(
     (path: string) => openGeneratedFor(docId, path),
@@ -622,7 +627,7 @@ function useDocumentSession(
       if (!managedDraft.current) { setDoc(stored); void refreshRender(stored.source); }
     });
   const savedSource = managedDraft.current?.disk ?? ordinarySavedSource;
-  const [references, setReferences] = useState<{ locations: LspLocation[]; query: string } | null>(
+  const [references, setReferences] = useState<ReferenceReading | null>(
     null,
   );
 
@@ -1325,11 +1330,14 @@ function useDocumentSession(
         uri: lsp.uri,
         positionAt: (offset, view) => offsetToPosition(view.state.doc, offset),
         navigationIntent: true,
+        captureNavigationContext,
         onNavigate: openTarget,
-        onReferences: (locations, from) =>
+        onReferences: (locations, from, current) =>
           setReferences({
             locations,
             query: wordAt(positionToUtf16(liveSourceRef.current, from.range.start)),
+            originUri: from.uri,
+            current,
           }),
         // While paused, a hover answers two questions at once: what this
         // symbol IS, and what it currently HOLDS. The type is what it should
@@ -1383,12 +1391,13 @@ function useDocumentSession(
         positionAt: (offset) =>
           sourcePositionAt(offset, provenance, docPathRef.current ?? "", liveSourceRef.current),
         navigationIntent: true,
+        captureNavigationContext,
         onNavigate: openTarget,
-        onReferences: (locations) => setReferences({ locations, query: "" }),
+        onReferences: (locations, from, current) => setReferences({ locations, query: "", originUri: from.uri, current }),
       }),
       completionSources.of(completionSource({lsp:lsp.client?{client:lsp.client,uri:lsp.uri,positionAt:offset=>sourcePositionAt(offset,provenance,docPathRef.current ?? "",liveSourceRef.current)}:undefined})),
     ],
-    [lsp.client, lsp.uri, openTarget],
+    [lsp.client, lsp.uri, openTarget, captureNavigationContext],
   );
 
   const readingOutputViews = useRef(new Map<string, EditorView>());

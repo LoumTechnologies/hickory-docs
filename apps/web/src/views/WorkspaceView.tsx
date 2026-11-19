@@ -41,7 +41,7 @@ import { InsertMenu } from "../components/InsertMenu";
 import { PlainFilePane } from "../components/PlainFilePane";
 import { ScratchpadPane } from "../components/ScratchpadPane";
 import { SearchPanel } from "../components/SearchPanel";
-import { ReferencesPanel } from "../components/ReferencesPanel";
+import { ReferencesPanel, type ReferenceReading } from "../components/ReferencesPanel";
 import { WorkspaceProblems } from "../environments/WorkspaceProblems";
 import type { ProblemRow } from "../components/ProblemsPanel";
 import { diagnosticBoundSource } from "../lsp/diagnosticRevision";
@@ -384,10 +384,8 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   );
   // Find References asked from a plain file. A document keeps its own list
   // on its session; a file has no session, so the workspace holds it.
-  const [fileReferences, setFileReferences] = useState<{
-    locations: LspLocation[];
-    query: string;
-  } | null>(null);
+  const [fileReferences, setFileReferences] = useState<ReferenceReading | null>(null);
+  const providerNavigation = useRef(0);
   /** Put the caret on the next error or warning in the focused document. */
   // The list behind the status bar's count. Open/closed is all that is held;
   // the rows are read from the sessions when it draws, so a diagnostic that
@@ -473,6 +471,13 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   const workspaceKey = JSON.stringify(folderRoots.map(root => [root.workspace_id, root.root_path ?? root.root]));
   const sourceWorkspace = useRef({key: workspaceKey});
   if (sourceWorkspace.current.key !== workspaceKey) sourceWorkspace.current = {key: workspaceKey};
+  const captureNavigationContext = useCallback(() => {
+    const ticket = ++providerNavigation.current;
+    const workspace = sourceWorkspace.current, focus = focusIntent.current;
+    sourceVisit.current++;
+    setFileReferences(null);
+    return () => providerNavigation.current === ticket && sourceWorkspace.current === workspace && focusIntent.current === focus;
+  }, []);
   const beginSourceOpen = useCallback((originCurrent?: () => boolean) => {
     const ticket = ++sourceVisit.current;
     const workspace = sourceWorkspace.current, focus = focusIntent.current;
@@ -783,10 +788,11 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   // activating a tab. Coverage can yield while hashing the text as well as
   // during the read. Recheck the report, the foreground and the live text at
   // the last point before activation. A source-only link leaves the caret alone.
-  const visitSource = useCallback(async ({path, line, character, expectedSource, originCurrent, report, searchHit, findHit}: {
+  const visitSource = useCallback(async ({path, line, character, expectedSource, originCurrent, report, searchHit, findHit, reference}: {
     path: string; line: number | null; character?: number; expectedSource?: string;
     originCurrent?: () => boolean; report?: {sourceHash: string | null}; searchHit?: SearchHit;
     findHit?: {sourceHash: string; text: string};
+    reference?: {crossFile: boolean};
   }) => {
     const request = beginSourceOpen(originCurrent);
     const {current, beforeOpen} = request;
@@ -805,21 +811,26 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       const firstNode = findNodeByPath(folderRootsRef.current, path);
       const documentId = (node: FileNode | undefined | null, target: ReturnType<typeof retained>) =>
         node?.doc_id ?? target.session?.docId ?? (target.tab?.kind === "document" ? target.tab.docId : undefined);
-      const needsListedSource = !!(report || searchHit || findHit);
+      const needsListedSource = !!(report || searchHit || findHit || reference);
       if (needsListedSource && !listed(firstNode, first)) {
         throw Error("Source no longer listed. Refresh the workspace.");
       }
       const id = documentId(firstNode, first);
       // Managed documents have their own endpoint. Use its admitted source
       // to start a new session directly while rendering and the room connect.
-      const doc = first.text === undefined && id ? await api.doc(id) : undefined;
-      const file = first.text === undefined && !id ? await api.file(path) : undefined;
+      const readSaved = first.text === undefined || reference?.crossFile;
+      const doc = readSaved && id ? await api.doc(id) : undefined;
+      const file = readSaved && !id ? await api.file(path) : undefined;
       if (!beforeOpen()) return false;
       if ((file && file.path !== path) || (doc && (doc.path !== path || doc.id !== id))) {
         throw Error("The server returned a different source. Select the exact location again.");
       }
-      const source = doc?.source ?? file?.content ?? first.text;
+      const saved = doc?.source ?? file?.content;
+      const source = first.text ?? saved;
       if (source === undefined) return false;
+      if (reference?.crossFile && source !== saved) {
+        throw Error("The reference target has unsaved changes. Save it and find references again.");
+      }
       const hash = (report || findHit) && line !== null ? await historySourceHash(source) : undefined;
       if (!beforeOpen()) return false;
       const latest = retained();
@@ -858,6 +869,26 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       throw error;
     }
   }, [beginSourceOpen, onSourceActivation, prepareDocument, registry]);
+  const openReference = useCallback(async (reading: ReferenceReading, location: LspLocation) => {
+    if (!reading.current()) {
+      setInsertNotice("The reference query is no longer current. Find references again.");
+      return false;
+    }
+    const target = pathOfDocUri(location.uri.replace(/^hick-output:/, "hick:"));
+    const origin = pathOfDocUri(reading.originUri.replace(/^hick-output:/, "hick:"));
+    if (!target || !origin) {
+      setInsertNotice("This reference has no open workspace source.");
+      return false;
+    }
+    const {line, character} = location.range.start;
+    try {
+      return await visitSource({path: target, line: line + 1, character, originCurrent: reading.current,
+        reference: {crossFile: target !== origin}});
+    } catch (error) {
+      setInsertNotice(error instanceof Error ? error.message : String(error));
+      return false;
+    }
+  }, [visitSource]);
   const captureReadingPosition = useCallback(() => {
     const editor = focusedEditor();
     const document = editor?.state.doc, selection = editor?.state.selection;
@@ -1826,6 +1857,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
           takePreparedSource={takePreparedSource}
           onSource={(_, source) => plainSources.current.set(tab.id, source)}
           onReferences={setFileReferences}
+          captureNavigationContext={captureNavigationContext}
           askText={shellPrompt.askText}
           askChoice={shellPrompt.askChoice}
           retainUnsaved={retainSavedDrafts}
@@ -2013,6 +2045,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
               docId={docId}
               startup={attachedManagedStartup?.docId === docId ? attachedManagedStartup : undefined}
               initialDocument={admittedDocument?.doc.id === docId && admittedDocument.current() ? admittedDocument : undefined}
+              captureNavigationContext={captureNavigationContext}
               openGenerated={openGeneratedFor}
               retainUnsaved={retainSavedDrafts}
             />
@@ -2134,25 +2167,23 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
           onClose={() => setProblemsOpen(false)}
         />
       )}
-      {fileReferences ? (
+      {fileReferences?.current() ? (
         <ReferencesPanel
           locations={fileReferences.locations}
           query={fileReferences.query}
-          onPick={(location) => {
-            setFileReferences(null);
-            const target =
-              pathOfDocUri(location.uri) ??
-              location.uri.replace(/^hick-output:\/\/\//, "");
-            openHit(target, location.range.start.line + 1);
-          }}
+          onPick={location => { void openReference(fileReferences, location).then(opened => {
+            if (opened) setFileReferences(current => current === fileReferences ? null : current);
+          }); }}
           onClose={() => setFileReferences(null)}
         />
       ) : (
-        focused?.references && (
+        focused?.references?.current() && (
           <ReferencesPanel
             locations={focused.references.locations}
             query={focused.references.query}
-            onPick={focused.openTarget}
+            onPick={location => { void openReference(focused.references!, location).then(opened => {
+              if (opened && registry.get(focused.docId)?.references === focused.references) focused.clearReferences();
+            }); }}
             onClose={focused.clearReferences}
           />
         )

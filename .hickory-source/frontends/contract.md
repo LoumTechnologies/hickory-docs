@@ -2770,6 +2770,20 @@ navigation test also skips unknown, stale and scalar-splitting positions.
 See `target/main-problems-clangd-fixed-v1/browser.json` and
 `target/main-problems-basedpyright-fixed-v1/browser.json`.
 
+Main Find References keeps the result list tied to the originating editor,
+caret, workspace and foreground tab. Selecting a row rechecks that context
+through the destination read and compares saved bytes with any retained
+cross-file editor. The provider supplies a URI and UTF-16 position; the
+target read has no provider-supplied revision to compare. A genuine
+basedpyright replay used Shift+F12 from a declaration and selected a use
+after an emoji in another file. The caret reached offset 53 at the reported
+column 13, with no source writes. See
+`target/main-references-genuine-fixed-v1/browser.json`. In a second
+replay, moving the declaration caret during the held destination read
+kept that editor active after HTTP 200. Dismissing the old list and
+issuing a fresh search reached the same exact offset. See
+`target/main-references-genuine-held-v1/browser.json`.
+
 Focused rebuilt-engine replays also passed for Python definition and
 Back/Forward, workspace search, delayed first-open authority and capabilities,
 and Debug and guarded patch review on both recorded Agent message sides.

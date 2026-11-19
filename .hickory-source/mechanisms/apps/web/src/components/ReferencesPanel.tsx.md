@@ -32,6 +32,13 @@ document/output split makes confusing.
 import { useUiListActions } from "../lib/uiListActions";
 import type { LspLocation } from "../lsp/client";
 
+export interface ReferenceReading {
+  locations: LspLocation[];
+  query: string;
+  originUri: string;
+  current: () => boolean;
+}
+
 export interface ReferencesPanelProps {
   locations: LspLocation[];
   /** What was asked about, for the header. */

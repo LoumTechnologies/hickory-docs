@@ -64,6 +64,7 @@ import {
 } from "../lsp/cmLsp";
 import { lspFeatures } from "../lsp/cmLspFeatures";
 import type { CodeAction, LspLocation } from "../lsp/client";
+import type { ReferenceReading } from "./ReferencesPanel";
 import { openLocation, openProviderLocation, pathOfDocUri } from "../lib/revealLine";
 import { forgetFileProblems, setFileProblems } from "../lib/fileProblems";
 import { blameGutter } from "../editor/blameGutter";
@@ -107,6 +108,7 @@ export function PlainFilePane({
   path,
   onAdopted,
   onReferences,
+  captureNavigationContext,
   askText,
   askChoice,
   retainUnsaved = false,
@@ -124,7 +126,8 @@ export function PlainFilePane({
    * converts this very tab into a generated tab and opens the document. */
   onAdopted?: (adopted: AdoptResponse) => void;
   /** Find References asked from this file: the workspace shows the list. */
-  onReferences?: (references: { locations: LspLocation[]; query: string }) => void;
+  onReferences?: (references: ReferenceReading) => void;
+  captureNavigationContext?: () => () => boolean;
   /** The window's prompt, for a rename's new name. */
   askText?: ReturnType<typeof usePrompt>["askText"];
   /** The window's prompt, for choosing a code action. */
@@ -587,12 +590,13 @@ export function PlainFilePane({
             uri: lspUri,
             positionAt: (offset, view) => offsetToPosition(view.state.doc, offset),
             navigationIntent: true,
+            captureNavigationContext,
             onNavigate: goTo,
-            onReferences: (locations, from) => {
+            onReferences: (locations, from, current) => {
               const live = viewRef.current;
               const at = live ? positionToOffset(live.state.doc, from.range.start) : 0;
               const query = live ? (identifierAt(live.state.doc.toString(), at) ?? "") : "";
-              onReferencesRef.current?.({ locations, query });
+              onReferencesRef.current?.({ locations, query, originUri: from.uri, current });
             },
             // While paused, a hover says what this holds as well as what it
             // is — the same merged tooltip a document's editor shows.

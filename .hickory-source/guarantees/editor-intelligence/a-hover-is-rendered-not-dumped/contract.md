@@ -93,8 +93,10 @@ export interface CmLspOptions {
   /** Open a definition/reference target. */
   onNavigate: (target: LspNavigationTarget, current?: () => boolean) => void;
   navigationIntent?: true | ((view: EditorView) => () => boolean);
+  /** The host can retire navigation when the workspace or active tab changes. */
+  captureNavigationContext?: () => () => boolean;
   /** Show a reference list (empty array means "none found"). */
-  onReferences?: (locations: LspLocation[], from: LspNavigationTarget) => void;
+  onReferences?: (locations: LspLocation[], from: LspNavigationTarget, current: () => boolean) => void;
   /**
    * What this identifier currently HOLDS, when a debugger is paused.
    *
@@ -307,8 +309,9 @@ export function lspSupport(opts: CmLspOptions): Extension[] {
     const intent = opts.navigationIntent === true
       ? () => navigationRevision === revision
       : opts.navigationIntent?.(view);
+    const contextCurrent = opts.captureNavigationContext?.();
     const current = () => !signal?.aborted && view.state.doc === original
-      && view.dom.isConnected && (!intent || intent());
+      && view.dom.isConnected && (!intent || intent()) && (!contextCurrent || contextCurrent());
     try {
       const locations = await (what === "definition" ? client.definition(uri, position) : client.references(uri, position));
       if (!current()) return { status: "unavailable", reason: "Navigation source changed, editor closed or request cancelled" };
@@ -316,7 +319,7 @@ export function lspSupport(opts: CmLspOptions): Extension[] {
         if (intent) onNavigate(locations[0], current);
         else onNavigate(locations[0]);
       }
-      if (what === "references") onReferences?.(locations, from);
+      if (what === "references") onReferences?.(locations, from, current);
       return { status: "completed", value: { kind: what, total: locations.length, navigation_requested: what === "definition" && locations.length > 0, references_requested: what === "references" && !!onReferences, scope: "Actual language-provider response and shared navigation callback; navigation is not an execution witness" } };
     } catch (e) { return { status: "unavailable", reason: e instanceof Error ? e.message : String(e) }; }
   };
