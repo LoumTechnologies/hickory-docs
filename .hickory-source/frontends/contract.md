@@ -376,6 +376,15 @@ Watch expression failed to produce a keyboard, so the native replay could
 not enter an expression or continue from the inspector. See the wire and
 simulator attachments in `target/ios-recorded-debug-ui-v9-first/` and
 `target/ios-recorded-debug-ui-v9-typed-retry/`.
+Mounted AppKit used native Debug, Step over and Continue gutter clicks for
+both recorded sides with the current engine and debugpy. Each session paused
+on authored line 4, stepped to line 5 and printed its expected `42` or `53`.
+The start request contained only the selected fence's breakpoint. Both
+recorded editors kept their frame and selection, and archived bytes stayed
+exact. The locked console did not dispatch the native Inspect action.
+Breakpoint setup and Watch used the production controller, so native input
+for those actions still needs a separate witness. See
+`target/appkit-recorded-debug-rail.9ef6tf33/receipt.json`.
 The rebuilt engine also rejected stale message hashes on both sides, withheld
 execution after preparation, and refused escaped or non-UTF-8 startup reads.
 The main Chromium window and Simple Browser also ran both selected Python
