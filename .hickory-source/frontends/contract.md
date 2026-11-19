@@ -142,6 +142,14 @@ The native bridge confirmed only the containing folder. This replay checked
 deep selection with the editor's scroll-into-view action. The viewport offset
 and visible row still lack a direct packaged witness. See
 `target/main-macos-packaged-startup.to8jhtpo/packaged-sequential-continuation.vTe50p/`.
+The follow-up used a same-origin, read-only fixture observer with the signed
+application and existing CSP intact. WebKit reported its page hidden and
+unfocused. It delivered no animation frames during the sample. The editor
+reported scroll offset zero, and the selected row lay outside the clipped
+viewport. AppKit also declined the activation request for the exact owned
+process. The rendered viewport through the four gates remains unverified.
+See `target/main-macos-packaged-startup.to8jhtpo/packaged-viewport-layout.Gss7MS/`
+and `target/main-macos-packaged-startup.to8jhtpo/packaged-viewport-activated.HIW2pd/`.
 
 AppKit and UIKit each passed the transient Files failure and same-server retry.
 Both kept their provisional editor, selection and viewport through confirmation.
@@ -731,6 +739,9 @@ lay above it. Tapping Send submitted the exact prompt and both original
 editors to the owned local ACP fixture. The engine accepted the request and
 completed the turn. See
 `target/parity-rendered-android.sgYIt7/continuation-receipts/final-android-qjdb4ps6/managed-native/`.
+The combined retry's emulator preflight saw 6.723 GiB free against its 7.200 GiB
+boot floor. The bounded recheck peaked at 6.890 GiB and no emulator was created.
+One native Send through Apply, Undo and Redo remains unverified on Android.
 
 The mounted AppKit native Send probe opened both original source editors and
 entered the exact prompt in the native composer. Its captured window showed an
