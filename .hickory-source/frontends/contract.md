@@ -3113,9 +3113,16 @@ their source coordinates. See
 
 Staged imports refresh when the authored document is prepared. Independent
 dependency changes retire stale locations until the next preparation.
-The provider still returned method-not-found for the separate Go to
-Declaration command. See
-`target/main-managed-resource-genuine-navigation-v1/browser.json`.
+Go to Declaration tries the provider's dedicated method. When it
+returns method-not-found, the engine asks for Definition at the same
+captured position and applies the same revision and saved-target checks.
+An empty response from a supported method does not retry. A genuine
+Chromium replay opened the saved `relocate.ts` through this fallback.
+After removal of the saved file, it showed an empty result and kept
+the original caret and navigation history. See
+`target/main-managed-resource-genuine-navigation-declaration-engine-v3/browser.json`
+and
+`target/main-managed-resource-genuine-navigation-declaration-removed-engine-v3-retry/browser.json`.
 
 A focused Main replay with clangd also passed managed formatting after
 the position shift. See
