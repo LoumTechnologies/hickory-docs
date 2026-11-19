@@ -72,18 +72,18 @@ export function semanticLocations(result: unknown, defaultUri?: string, qualifyN
 
 Call and type relationships share a prepare/follow-up model. Preserve opaque items until their matching follow-up; normalize only the returned source locations. Supertypes and subtypes use standard type-hierarchy methods through the shared server registration. Missing support remains an unavailable query or empty report, never an inferred relationship.
 
-Calls are two-phase reads: prepare candidate items, then ask for incoming or outgoing calls for those exact items. A broad ambiguous preparation is refused instead of silently choosing one symbol. Outlines and workspace symbols use their own protocol shapes; source-position reads share one path. No query applies an edit or saves a file.
+Calls are two-phase reads: prepare candidate items, then ask for incoming or outgoing calls for those exact items. The browser also checks that the caller still owns the request before it sends hierarchy follow-ups. A broad ambiguous preparation is refused. Outlines and workspace symbols use their own protocol shapes. No query applies an edit or saves a file.
 
 <ui:copy id="simple-intelligence-browser-query">
-export async function querySemanticLocations(client: LspClient, uri: string, position: { line: number; character: number }, kind: SemanticQuery, text = ""): Promise<SemanticLocation[]> {
+export async function querySemanticLocations(client: LspClient, uri: string, position: { line: number; character: number }, kind: SemanticQuery, text = "", current = () => true): Promise<SemanticLocation[]> {
   const params = { textDocument: { uri }, position, ...(kind === "references" ? { context: { includeDeclaration: true } } : {}) };
   if (kind === "symbols") return semanticLocations(await client.request("workspace/symbol", { query: text }));
   if (kind === "outline") return semanticLocations(await client.request("textDocument/documentSymbol", { textDocument: { uri } }), uri);
   if (["callers","callees","supertypes","subtypes"].includes(kind)) {
     const followup=kind==="callers"?"callHierarchy/incomingCalls":kind==="callees"?"callHierarchy/outgoingCalls":`typeHierarchy/${kind}`;
     const items = await client.request(kind==="supertypes"||kind==="subtypes"?"textDocument/prepareTypeHierarchy":"textDocument/prepareCallHierarchy", params);
-    if (!Array.isArray(items)) return [];
-    if (items.length > 32) throw new Error("Too many candidate call targets. Choose a more specific symbol.");
+    if (!current() || !Array.isArray(items)) return [];
+    if (items.length > 32) throw new Error("Too many hierarchy targets. Choose a more specific symbol.");
     const answers = await Promise.all(items.map(item => client.request(followup, { item })));
     return semanticLocations(answers);
   }

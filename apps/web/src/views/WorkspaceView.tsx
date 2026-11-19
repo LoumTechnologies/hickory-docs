@@ -169,6 +169,8 @@ import { useWorkspaceUi } from "./useWorkspaceUi";
 import { observeManagedStartup, observePlainStartup, openSelectedFile, useFolderPane, type StartupManagedDocument, type StartupPlainFile } from "./folderPane";
 import { hickLangReady, useHickLangStatus } from "../editor/hickLang";
 import { activeEditor, focusedEditor } from "../editor/activeEditor";
+import { editorLanguageActions } from "../editor/languageActions";
+import type { RelatedLocationReading } from "../lsp/cmLsp";
 import { useZoom } from "./useZoom";
 import { StatusBar } from "../shell/StatusBar";
 import { WelcomePane, type WelcomeAction } from "./WelcomePane";
@@ -675,7 +677,29 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         ];
       }
       if (mode === "command") {
+        const focus = focusIntent.current;
+        const tabBody = [...(shellBox?.querySelectorAll<HTMLElement>("[data-workspace-tab]") ?? [])]
+          .find(body => body.dataset.workspaceTab === focus.tab?.id);
+        const lastView = focusedEditor();
+        const editorNode = tabBody?.querySelector<HTMLElement>(".cm-editor");
+        const view = lastView && tabBody?.contains(lastView.dom) ? lastView : editorNode && EditorView.findFromDOM(editorNode);
+        const editorCommands: CommandItem[] = [];
+        if (view) {
+          for (const action of view.state.facet(editorLanguageActions)) {
+            const command = action.command;
+            if (!command || !action.enabled(view)) continue;
+            editorCommands.push({
+              id: `editor:${command.id}`, label: command.label, agentAllowed: true,
+              run: paletteCurrent => {
+                if (!paletteCurrent?.() || focusIntent.current !== focus || !view.dom.isConnected ||
+                    !view.state.facet(editorLanguageActions).includes(action) || !action.enabled(view)) return;
+                command.run(view, paletteCurrent);
+              },
+            });
+          }
+        }
         const all: CommandItem[] = [...documentCommands(registry.get(focusedDocId(layoutRef.current))),
+          ...editorCommands,
           {id: "workspace-symbols", label: "Search workspace symbols", detail: "Type @ in search", agentAllowed: true, run: () => openCommandBar("symbols")},
           ...([ ["connections", "Connection display"], ["execution", "Tests and execution"], ["review", "Review this file"], ["import", "Import meeting"], ["export", "Export document snapshot"], ["help", "Workflow help"] ] as const).map(([id, label]) => ({ id: `tool-${id}`, label, detail: "Open a temporary panel", run: () => setTool(id) })),
           ...(projectId ? [{ id: "document-connections-graph", label: "Show document connections graph", detail: "Workspace lineage", run: () => navigate(`/projects/${encodeURIComponent(projectId)}/lineage`) }] : []),
@@ -728,7 +752,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         run: () => openHitRef.current(node.path, 1),
       }));
     },
-    [welcomeActions, registry, projectId],
+    [welcomeActions, registry, projectId, shellBox],
   );
   /**
    * Open a path and put the caret on a line.
@@ -842,7 +866,8 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       const node = findNodeByPath(folderRootsRef.current, path);
       if (needsListedSource && !listed(node, latest)) throw Error("Source no longer listed. Refresh the workspace.");
       const textChanged = latest.text === undefined ? first.text !== undefined : latest.text !== source;
-      const row = line === null ? undefined : source.split("\n")[line - 1]?.replace(/\r$/, "");
+      const lines = line === null ? [] : source.split("\n");
+      const row = line === null ? undefined : lines[line - 1]?.replace(/\r$/, "");
       const column = character ?? 0;
       if (searchHit && !matchesRankedSearchHit(source, searchHit)) {
         throw Error("Search result changed. Search again to find its current location.");
@@ -854,7 +879,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         throw Error("The reported symbol has moved or changed. Search for it again.");
       }
       if (textChanged || documentId(node, latest) !== id || (expectedSource !== undefined && source !== expectedSource) ||
-          (line !== null && (!Number.isInteger(line) || line < 1 || row === undefined || !Number.isInteger(column) || column < 0 || column > row.length)) ||
+          (line !== null && !validProblemPosition(lines, {line: line - 1, character: column})) ||
           (report && hash !== undefined && hash !== report.sourceHash)) {
         throw Error(report ? "Source changed or report position is unavailable. Refresh coverage before navigating."
           : "Source or position changed. Query the location again.");
@@ -877,26 +902,45 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       throw error;
     }
   }, [beginSourceOpen, onSourceActivation, prepareDocument, registry]);
-  const openReference = useCallback(async (reading: ReferenceReading, location: LspLocation) => {
+  const openProviderResult = useCallback(async (reading: Pick<ReferenceReading, "current" | "originUri">,
+    location: LspLocation, symbol?: string) => {
     if (!reading.current()) {
-      setInsertNotice("The reference query is no longer current. Find references again.");
+      setInsertNotice("The source query is no longer current. Repeat it before opening a result.");
       return false;
     }
     const target = pathOfDocUri(location.uri.replace(/^hick-output:/, "hick:"));
     const origin = pathOfDocUri(reading.originUri.replace(/^hick-output:/, "hick:"));
     if (!target || !origin) {
-      setInsertNotice("This reference has no open workspace source.");
+      setInsertNotice("This result has no workspace source.");
       return false;
     }
     const {line, character} = location.range.start;
     try {
       return await visitSource({path: target, line: line + 1, character, originCurrent: reading.current,
-        provider: {savedOnly: target !== origin}});
+        provider: {savedOnly: target !== origin, symbol}});
     } catch (error) {
       setInsertNotice(error instanceof Error ? error.message : String(error));
       return false;
     }
   }, [visitSource]);
+  const showRelatedLocations = useCallback((reading: RelatedLocationReading) => {
+    if (!reading.current()) return;
+    const files = new Set(workspaceTreeFiles(folderRootsRef.current).map(file => file.path));
+    const options = reading.locations.flatMap(location => {
+      const path = semanticPath(location.uri.replace(/^hick-output:/, "hick:"));
+      if (!path || !files.has(path)) return [];
+      const {line, character} = location.range.start;
+      const position = `${path}:${line + 1}:${character + 1}`;
+      return [{label: location.name ? `${location.name}  ${position}` : position, value: location}];
+    });
+    void shellPrompt.askChoice(reading.title, options,
+      {agent: true, filterable: true, onlyWhenIdle: true, currentRevision: reading.current}).then(location => {
+      if (!location || !reading.current()) return;
+      const name = location.name;
+      const symbol = name && /^[\p{ID_Start}_$][\p{ID_Continue}$]*$/u.test(name) ? name : undefined;
+      void openProviderResult(reading, location, symbol);
+    });
+  }, [openProviderResult, shellPrompt.askChoice]);
   const captureReadingPosition = useCallback(() => {
     const editor = focusedEditor();
     const document = editor?.state.doc, selection = editor?.state.selection;
@@ -1896,6 +1940,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
           onSource={(_, source) => plainSources.current.set(tab.id, source)}
           onReferences={setFileReferences}
           captureNavigationContext={captureNavigationContext}
+          onRelatedLocations={showRelatedLocations}
           askText={shellPrompt.askText}
           askChoice={shellPrompt.askChoice}
           retainUnsaved={retainSavedDrafts}
@@ -2084,6 +2129,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
               startup={attachedManagedStartup?.docId === docId ? attachedManagedStartup : undefined}
               initialDocument={admittedDocument?.doc.id === docId && admittedDocument.current() ? admittedDocument : undefined}
               captureNavigationContext={captureNavigationContext}
+              onRelatedLocations={showRelatedLocations}
               openGenerated={openGeneratedFor}
               retainUnsaved={retainSavedDrafts}
             />
@@ -2110,6 +2156,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
             render={(tab) => (
               <div
                 className="tab-zoom"
+                data-workspace-tab={tab.id}
                 style={
                   {
                     [TAB_ZOOM_VAR]: workspaceUi.zoomFor(tab.target),
@@ -2209,7 +2256,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         <ReferencesPanel
           locations={fileReferences.locations}
           query={fileReferences.query}
-          onPick={location => { void openReference(fileReferences, location).then(opened => {
+          onPick={location => { void openProviderResult(fileReferences, location).then(opened => {
             if (opened) setFileReferences(current => current === fileReferences ? null : current);
           }); }}
           onClose={() => setFileReferences(null)}
@@ -2219,7 +2266,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
           <ReferencesPanel
             locations={focused.references.locations}
             query={focused.references.query}
-            onPick={location => { void openReference(focused.references!, location).then(opened => {
+            onPick={location => { void openProviderResult(focused.references!, location).then(opened => {
               if (opened && registry.get(focused.docId)?.references === focused.references) focused.clearReferences();
             }); }}
             onClose={focused.clearReferences}

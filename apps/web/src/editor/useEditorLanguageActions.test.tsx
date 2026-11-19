@@ -4,7 +4,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { Compartment, EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import type { LspClient } from "../lsp/client";
-import { lspSupport } from "../lsp/cmLsp";
+import { lspSupport, type RelatedLocationReading } from "../lsp/cmLsp";
 import { UiActions } from "../lib/uiActions";
 import { UiActionContext } from "../lib/uiActionBridge";
 import { useEditorActions } from "./uiEditorActions";
@@ -125,5 +125,48 @@ it("reveals only a current authored Structure position", async () => {
     await Promise.resolve();
     expect(view.state.selection.main.head).toBe(3);
     expect(view.state.doc.toString()).toBe("x😀member");
+  } finally { view.destroy(); host.remove(); }
+});
+
+it("uses the mapped hierarchy item and skips follow-up after the editor moves", async () => {
+  const {editorLanguageActions} = await import("./languageActions");
+  const host = document.body.appendChild(document.createElement("div"));
+  const uri = "hick:///authored.md";
+  const rangeAt = (character: number) => ({
+    start: {line: 5, character}, end: {line: 5, character: character + 6},
+  });
+  const prepared = {name: "callee", uri, selectionRange: rangeAt(3), data: {providerToken: "opaque"}};
+  const caller = {name: "caller", uri: "hick:///caller.py", range: rangeAt(0), selectionRange: rangeAt(4)};
+  let release!: (value: unknown) => void;
+  const request = vi.fn()
+    .mockImplementationOnce(() => new Promise(resolve => { release = resolve; }))
+    .mockResolvedValueOnce([prepared])
+    .mockResolvedValueOnce([{from: caller, fromRanges: [rangeAt(22)]}]);
+  const client = {request} as unknown as LspClient;
+  const onRelatedLocations = vi.fn<(reading: RelatedLocationReading) => void>();
+  const view = new EditorView({parent: host, state: EditorState.create({doc: "callee", extensions: lspSupport({
+    client, uri: "hick-output:///generated.py", navigationIntent: true, onRelatedLocations,
+    positionAt: () => null, targetAt: offset => ({uri, position: {line: 5, character: offset + 3}}),
+    onNavigate: vi.fn(),
+  })})});
+  try {
+    const action = view.state.facet(editorLanguageActions).find(action => action.command?.id === "callers")!;
+    const late = action.execute(view, {}, new AbortController().signal);
+    view.dispatch({selection: {anchor: 1}});
+    release([prepared]);
+    expect(await late).toMatchObject({status: "unavailable"});
+    expect(request).toHaveBeenCalledOnce();
+    expect(request).toHaveBeenCalledWith("textDocument/prepareCallHierarchy", {
+      textDocument: {uri}, position: {line: 5, character: 3},
+    });
+    expect(onRelatedLocations).not.toHaveBeenCalled();
+    action.command!.run(view, () => true);
+    await waitFor(() => expect(onRelatedLocations).toHaveBeenCalledOnce());
+    expect(request).toHaveBeenLastCalledWith("callHierarchy/incomingCalls", {item: prepared});
+    const reading = onRelatedLocations.mock.calls[0][0];
+    expect(reading.locations).toEqual([{name: "caller", uri: caller.uri, range: caller.selectionRange}]);
+    expect(reading.current()).toBe(true);
+    view.dispatch({selection: {anchor: 0}});
+    expect(reading.current()).toBe(false);
   } finally { view.destroy(); host.remove(); }
 });

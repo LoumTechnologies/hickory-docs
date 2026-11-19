@@ -61,6 +61,7 @@ import {
   positionToOffset,
   setLspDiagnostics,
   type LspNavigationTarget,
+  type RelatedLocationReading,
 } from "../lsp/cmLsp";
 import { lspFeatures } from "../lsp/cmLspFeatures";
 import type { CodeAction, LspLocation } from "../lsp/client";
@@ -109,6 +110,7 @@ export function PlainFilePane({
   onAdopted,
   onReferences,
   captureNavigationContext,
+  onRelatedLocations,
   askText,
   askChoice,
   retainUnsaved = false,
@@ -128,6 +130,7 @@ export function PlainFilePane({
   /** Find References asked from this file: the workspace shows the list. */
   onReferences?: (references: ReferenceReading) => void;
   captureNavigationContext?: () => () => boolean;
+  onRelatedLocations?: (reading: RelatedLocationReading) => void;
   /** The window's prompt, for a rename's new name. */
   askText?: ReturnType<typeof usePrompt>["askText"];
   /** The window's prompt, for choosing a code action. */
@@ -195,6 +198,8 @@ export function PlainFilePane({
   onAdoptedRef.current = onAdopted;
   const onReferencesRef = useRef(onReferences);
   onReferencesRef.current = onReferences;
+  const onRelatedLocationsRef = useRef(onRelatedLocations);
+  onRelatedLocationsRef.current = onRelatedLocations;
   const askTextRef = useRef(askText);
   askTextRef.current = askText;
   const askChoiceRef = useRef(askChoice);
@@ -591,6 +596,7 @@ export function PlainFilePane({
             positionAt: (offset, view) => offsetToPosition(view.state.doc, offset),
             navigationIntent: true,
             captureNavigationContext,
+            onRelatedLocations: onRelatedLocationsRef.current ? reading => onRelatedLocationsRef.current?.(reading) : undefined,
             chooseOutline: askChoiceRef.current ? (options, current) =>
               askChoiceRef.current?.("Structure", options, {agent: true, filterable: true, onlyWhenIdle: true, currentRevision: current}) ?? Promise.resolve(null) : undefined,
             onNavigate: goTo,

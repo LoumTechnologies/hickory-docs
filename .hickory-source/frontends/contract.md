@@ -2820,6 +2820,26 @@ the old name as a prefix was refused. The browser made no source writes.
 See `target/main-command-symbol-provider-wire-v1/wire.json` and
 `target/main-command-symbol-commit-chromium-v2/browser.json`.
 
+Main offers declaration, type definition, implementations, callers,
+callees, supertypes and subtypes in Commands when the current editor
+has a mapped language position. The floating results use provider selection
+ranges. A changed source, caret or foreground retires the query, including
+the interval between hierarchy preparation and its follow-up. A result
+must still belong to listed workspace source before it can move the caret.
+Named identifiers also need to match at the reported column.
+
+Genuine basedpyright found a caller in the current editor and reached a
+previously unopened caller and callee at offsets 56 and 28. Releasing a
+held incoming reply after switching tabs kept the newer editor active.
+Genuine Apple clangd returned supertypes, subtypes, a declaration, an
+implementation and a type definition in the same C++ editor. The five
+choices reached UTF-16 offsets 25, 85, 145, 359 and 85. Both browser
+replays kept the fixture source unchanged. See
+`target/main-call-hierarchy-commit-v2/browser.json` and
+`target/main-type-hierarchy-clangd-commit-v1/browser.json`.
+One concurrent Python replay timed out waiting for the origin to become
+editable before it sent a hierarchy request. The isolated replay passed.
+
 Focused rebuilt-engine replays also passed for Python definition and
 Back/Forward, workspace search, delayed first-open authority and capabilities,
 and Debug and guarded patch review on both recorded Agent message sides.

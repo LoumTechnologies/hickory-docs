@@ -50,6 +50,7 @@ import {
   offsetToPosition,
   positionToOffset,
   type LspNavigationTarget,
+  type RelatedLocationReading,
 } from "../lsp/cmLsp";
 import { lspFeatures } from "../lsp/cmLspFeatures";
 import { useDebugger } from "../debug/useDebugger";
@@ -254,12 +255,14 @@ export const DocSessionHost = memo(function DocSessionHost({
   startup,
   initialDocument,
   captureNavigationContext,
+  onRelatedLocations,
 }: {
   registry: SessionRegistry;
   docId: string;
   startup?: StartupManagedDocument;
   initialDocument?: {doc: Doc; workspaceCurrent: () => boolean};
   captureNavigationContext?: () => () => boolean;
+  onRelatedLocations?: (reading: RelatedLocationReading) => void;
   /** Open one of THIS document's generated files in the layout. */
   openGenerated: (docId: string, path: string) => void;
   retainUnsaved?: boolean;
@@ -270,7 +273,7 @@ export const DocSessionHost = memo(function DocSessionHost({
   // editing confirmation belongs to the session and its original workspace.
   const [preview] = useState(() => admitted && admittedManagedPreview(admitted.doc, admitted.workspaceCurrent));
   const session = useDocumentSession(docId, openGenerated, retainUnsaved, startupAtOpen ?? preview, admitted?.doc,
-    captureNavigationContext);
+    captureNavigationContext, onRelatedLocations);
   useEffect(() => {
     registry.publish(preview && !session.startupRoomReady ? {...session, admittedPreview: preview} : session);
   });
@@ -309,6 +312,7 @@ function useDocumentSession(
   startup?: ManagedDocumentPreview,
   initialDocument?: Doc,
   captureNavigationContext?: () => () => boolean,
+  onRelatedLocations?: (reading: RelatedLocationReading) => void,
 ): DocSession {
   const openGenerated = useCallback(
     (path: string) => openGeneratedFor(docId, path),
@@ -1047,6 +1051,7 @@ function useDocumentSession(
         positionAt: (offset, view) => offsetToPosition(view.state.doc, offset),
         navigationIntent: true,
         captureNavigationContext,
+        onRelatedLocations,
         chooseOutline: (options, current) =>
           askChoice("Structure", options, {agent: true, filterable: true, onlyWhenIdle: true, currentRevision: current}),
         onNavigate: openTarget,
@@ -1110,12 +1115,13 @@ function useDocumentSession(
           sourcePositionAt(offset, provenance, docPathRef.current ?? "", liveSourceRef.current),
         navigationIntent: true,
         captureNavigationContext,
+        onRelatedLocations,
         onNavigate: openTarget,
         onReferences: (locations, from, current) => setReferences({ locations, query: "", originUri: from.uri, current }),
       }),
       completionSources.of(completionSource({lsp:lsp.client?{client:lsp.client,uri:lsp.uri,positionAt:offset=>sourcePositionAt(offset,provenance,docPathRef.current ?? "",liveSourceRef.current)}:undefined})),
     ],
-    [lsp.client, lsp.uri, openTarget, captureNavigationContext],
+    [lsp.client, lsp.uri, openTarget, captureNavigationContext, onRelatedLocations],
   );
 
   const readingOutputViews = useRef(new Map<string, EditorView>());

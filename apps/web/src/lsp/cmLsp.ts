@@ -24,12 +24,22 @@ import type { DecorationSet, Tooltip } from "@codemirror/view";
 import type { LspClient, LspDiagnostic, LspLocation } from "./client";
 import type { LspPosition } from "./positions";
 import { sameDocumentUri } from "./documentUri";
-import { semanticLocations } from "../simple/Intelligence";
+import { querySemanticLocations, semanticLocations, semanticQueries, type SemanticLocation, type SemanticQuery } from "../simple/Intelligence";
 
 export interface LspNavigationTarget {
   uri: string;
   range: { start: LspPosition; end: LspPosition };
 }
+
+export interface RelatedLocationReading {
+  title: string;
+  locations: SemanticLocation[];
+  originUri: string;
+  current: () => boolean;
+}
+
+const relatedQueries = semanticQueries.filter(({kind}) =>
+  !["definition", "references", "outline", "symbols"].includes(kind));
 
 export interface CmLspOptions {
   client: LspClient | null;
@@ -52,6 +62,7 @@ export interface CmLspOptions {
   onReferences?: (locations: LspLocation[], from: LspNavigationTarget, current: () => boolean) => void;
   /** Only install Structure on editors whose text is in the request URI's coordinates. */
   chooseOutline?: (options: {label: string; value: number}[], current: () => boolean) => Promise<number | null>;
+  onRelatedLocations?: (reading: RelatedLocationReading) => void;
   /**
    * What this identifier currently HOLDS, when a debugger is paused.
    *
@@ -257,6 +268,22 @@ export function lspSupport(opts: CmLspOptions): Extension[] {
       return {status: "unavailable", reason: error instanceof Error ? error.message : String(error)};
     }
   };
+  const requestRelated = async (view: EditorView, kind: SemanticQuery, title: string,
+    signal?: AbortSignal, paletteCurrent?: () => boolean): Promise<UiOutcome> => {
+    const subject = target(view.state.selection.main.head, view);
+    if (!subject) return {status: "unavailable", reason: "Position has no mapped language source"};
+    if (paletteCurrent && !paletteCurrent()) return {status: "unavailable", reason: "A newer command superseded this request"};
+    const captured = captureIntent(view, signal);
+    const current = () => captured.current() && (!paletteCurrent || paletteCurrent());
+    try {
+      const locations = await querySemanticLocations(client, subject.uri, subject.position, kind, undefined, current);
+      if (!current()) return {status: "unavailable", reason: "The source or foreground editor changed"};
+      opts.onRelatedLocations?.({title, locations, originUri: subject.uri, current});
+      return {status: "completed", value: {total: locations.length, locations_requested: true}};
+    } catch (error) {
+      return {status: "unavailable", reason: error instanceof Error ? error.message : String(error)};
+    }
+  };
   let hoverSnapshot: { source: Text; id: string; bytes: Uint8Array } | undefined;
   const hoverAt = async (view: EditorView, pos: number) => {
     const original = view.state.doc;
@@ -275,6 +302,12 @@ export function lspSupport(opts: CmLspOptions): Extension[] {
 
   return [
     lspDiagnosticField,
+    ...(opts.onRelatedLocations ? relatedQueries.map(({kind, label}) => editorLanguageActions.of({
+      id: `${uri}:related:${kind}`, label: `${label} at editor cursor (${uri.slice(0, 200)})`, parameters: {},
+      enabled: view => !!target(view.state.selection.main.head, view),
+      execute: (view, _args, signal) => requestRelated(view, kind, label, signal),
+      command: {id: kind, label, run: (view, current) => { void requestRelated(view, kind, label, undefined, current); }},
+    })) : []),
     ...(opts.chooseOutline ? [editorLanguageActions.of({
       id: `${uri}:outline`, label: `File structure (${uri.slice(0, 200)})`, parameters: {},
       enabled: () => true, execute: (view, _args, signal) => requestOutline(view, signal),
