@@ -694,6 +694,7 @@ function useDocumentSession(
   debugRef.current = debug;
   const editorRef = useRef<EditorView | null>(null);
   const proposalRoom = useRef<Realtime | null>(null);
+  const recoveryObserved = useRef(false);
   useEffect(() => {
     let active = true;
     void realtime.whenSynced().then(() => { if (active) proposalRoom.current = realtime; }, () => {});
@@ -714,7 +715,8 @@ function useDocumentSession(
     return { path: source.path, text, base: source.source, guard: source.save_guard,
       revision, scope, current, prepareDraft(after) {
         const binding = documentDraftBinding(view), room = binding?.roomSource();
-        if (!current() || room === undefined || room !== (draft?.authority?.room ?? text)) return null;
+        if (!current() || (retainUnsaved && !recoveryObserved.current) ||
+            room === undefined || room !== (draft?.authority?.room ?? text)) return null;
         const editor = binding?.prepare(text, after);
         if (!editor) return null;
         const stageCurrent = () => current() && editor.current() && binding?.roomSource() === room;
@@ -743,7 +745,7 @@ function useDocumentSession(
           },
         };
       } };
-  }, [realtime, sourceSignal, setDirtySource]);
+  }, [realtime, sourceSignal, setDirtySource, retainUnsaved]);
   // Selecting a frame — from the strip's combo box or a gutter stack mark —
   // is asking to go there, and a jump with no sign of having moved leaves
   // you hunting for what changed.
@@ -868,7 +870,7 @@ function useDocumentSession(
       }
       setSavedSource(draft.base);
       setDirtySource(draft.contents);
-    });
+    }).then(() => { recoveryObserved.current = true; }, () => { /* Draft Apply must wait for a known recovery state. */ });
   }, [retainUnsaved, doc, docEditor, parserStatus, realtime, startup, startupRoomReady]);
 
   // Live run events: append to the matching cell's transcript.

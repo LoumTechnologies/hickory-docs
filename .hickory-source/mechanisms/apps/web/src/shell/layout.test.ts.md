@@ -28,6 +28,7 @@ import {
   fromRegions,
   matches,
   open,
+  openInBackground,
   paneFor,
   panes,
   regionOf,
@@ -65,6 +66,19 @@ describe("freeform: one pane, tabs, splits", () => {
     const pane = focused(layout)!;
     expect(pane.tabs.map((t) => t.target)).toEqual(["a.md", "b.md"]);
     expect(pane.tabs[pane.active].target).toBe("b.md");
+  });
+  it("opens affected files behind the current editor without changing another pane", () => {
+    const first = openAll(freeform(), "origin.py");
+    const other = open(split(first, first.focus, "row"), doc("existing.md"));
+    const layout = focus(other, first.focus);
+    const before = focused(layout)!;
+    const consumer = tab("file", "consumer.py");
+    const added = openInBackground(layout, [doc("existing.md"), consumer]);
+    const after = focused(added)!;
+    expect(added.focus).toBe(layout.focus);
+    expect(after.tabs[after.active]).toBe(before.tabs[before.active]);
+    expect(after.tabs).toEqual([...before.tabs, consumer]);
+    expect(panes(added.root).find(pane => pane.id === other.focus)).toBe(focused(other));
   });
 
   it("focuses an already-open file rather than opening it twice", () => {

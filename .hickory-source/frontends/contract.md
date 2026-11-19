@@ -2876,10 +2876,11 @@ including source change refusal and retry. See
 Main F2 now opens a guarded rename preview. The workflow synchronizes the
 authored inputs the provider discovers, requests a source-bound rename
 and verifies the returned hashes before rendering the before and after
-text. The preview can include an unopened target. Draft Apply currently
-requires an open editor for each target. The existing draft transaction
-stages every edit against its original editor and saved guard before
-committing the group. Commands exposes coordinated Undo and Redo.
+text. The preview can include an unopened target. Draft Apply checks the
+saved guards, opens any affected closed files in background tabs and waits
+for each editor's own source and recovery checks. It rechecks the saved
+sources before committing the entire group to drafts. Commands exposes
+coordinated Undo and Redo.
 
 A genuine basedpyright replay previewed a closed consumer, explicitly
 applied a single-file rename, and applied, undid and redid a two-file rename
@@ -2887,9 +2888,24 @@ with both editors open. Changing the originating caret after preview refused
 Apply. The browser retained the original editors and made no source writes.
 The provider can return an origin-only result while indexing. After
 basedpyright exposed the consumer, a fresh query returned its edits and
-hash. Applying to an unopened target remains open. See
+hash. See
 `target/main-rename-commit-v2/browser.json` and
 `target/main-rename-bound-wire-v2/wire.json`.
+
+A newer genuine basedpyright replay applied to an unopened consumer.
+It kept the original editor selected at the same dimensions, and
+coordinated Undo and Redo restored both exact versions. A held consumer
+read retired when the reader selected a peer tab. The consumer stayed
+closed and both drafts kept their original text. The replay made no
+source writes. See
+`target/main-cold-rename-tab-final-v1/browser.json`.
+A separate replay changed the saved consumer during the held read. Apply
+refused the whole group before opening the consumer. A fresh preview and
+Apply succeeded after the original fixture bytes were restored. A window
+opened directly to one file also passed F2, Apply, Undo and Redo against
+its admitted source with an empty folder tree. See
+`target/main-cold-rename-external-final-v1/browser.json` and
+`target/main-single-file-rename-final-v1/browser.json`.
 
 Focused rebuilt-engine replays also passed for Python definition and
 Back/Forward, workspace search, delayed first-open authority and capabilities,

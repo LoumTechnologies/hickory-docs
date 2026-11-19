@@ -524,6 +524,16 @@ export function open(layout: Layout, next: Tab, into?: string): Layout {
   return { root: root ?? layout.root, focus: target };
 }
 
+/** Add editor tabs without activating any of them or changing the focused pane. */
+export function openInBackground(layout: Layout, entries: readonly Tab[]): Layout {
+  if (!entries.length) return layout;
+  const existing = panes(layout.root).flatMap(pane => pane.tabs);
+  const fresh = entries.filter(entry => !existing.some(tab => tab.kind === entry.kind && tab.target === entry.target));
+  if (!fresh.length) return layout;
+  const root = replace(layout.root, layout.focus, pane => ({...pane, tabs: [...pane.tabs, ...fresh]}));
+  return root ? {...layout, root} : layout;
+}
+
 </storycode:copy>
 <a id="f-7c7c598c04b7-activate"></a>
 ### `activate`

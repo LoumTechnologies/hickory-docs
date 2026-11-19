@@ -106,7 +106,7 @@ import {
   fileAction,
 } from "../shell/FolderTreePane";
 import {
-  paneById, open as openInLayout, tab as makeTab,
+  paneById, open as openInLayout, openInBackground, tab as makeTab,
   panes as panesOf,
   type Layout,
   type Tab,
@@ -360,7 +360,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   const [recordedDraftHistory] = useState(() => new WorkspaceChangeHistory());
   const renameTicket = useRef(0);
   const [renameReview, setRenameReview] = useState<{
-    plan: ChangePlan; current: () => boolean; canApply: boolean; apply: () => Promise<void>;
+    plan: ChangePlan; current: () => boolean; opensFiles: boolean; apply: () => Promise<void>;
   } | null>(null);
   const [renamePath, setRenamePath] = useState(0);
   const [renamePage, setRenamePage] = useState(0);
@@ -1078,17 +1078,20 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       : tab ? plainPatchOwners.current.get(tab.id) : undefined;
     return {tab, owner: read?.() ?? undefined};
   }, [registry]);
-  const readRenameDisk = useCallback(async (path: string) => {
+  const readRenameDisk = useCallback(async (path: string, singleFile?: Tab) => {
     const node = findNodeByPath(folderRootsRef.current, path);
-    if (!node || node.dir || node.generated_by) throw Error(`Choose listed authored source for rename: ${path}`);
-    if (node.doc_id) {
-      const doc = await api.doc(node.doc_id);
-      if (doc.id !== node.doc_id || doc.path !== path || !doc.save_guard) throw Error(`Source authority changed: ${path}`);
-      return {text: doc.source, guard: doc.save_guard, managed: true};
+    if ((!node && singleFile?.target !== path) || node?.dir || node?.generated_by) {
+      throw Error(`Choose listed authored source for rename: ${path}`);
+    }
+    const docId = node?.doc_id ?? singleFile?.docId;
+    if (docId) {
+      const doc = await api.doc(docId);
+      if (doc.id !== docId || doc.path !== path || !doc.save_guard) throw Error(`Source authority changed: ${path}`);
+      return {text: doc.source, guard: doc.save_guard, managed: true, docId: doc.id};
     }
     const file = await api.file(path);
     if (file.path !== path || !file.save_guard) throw Error(`Source authority changed: ${path}`);
-    return {text: file.content, guard: file.save_guard, managed: false};
+    return {text: file.content, guard: file.save_guard, managed: false, docId: undefined};
   }, []);
   const prepareRenamePreview = useCallback(async (request: RenamePreviewRequest): Promise<UiOutcome> => {
     const path = semanticPath(request.uri);
@@ -1114,13 +1117,17 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       return {source_hash: digest, source_revision: (receipt as {source_revision: string}).source_revision};
     };
     try {
-      const {matchesScope, patchScope, stageDrafts, commitWorkspaceDrafts, invertWindowDraft} = await import("./WorkspaceChat");
-      const scope = patchScope(folderRootsRef.current[0]);
-      if (!scope) throw Error("Open the workspace folder before renaming.");
+      const {matchesScope, patchScope, commitWorkspaceDrafts, invertWindowDraft} = await import("./WorkspaceChat");
+      const files = folderRootsRef.current[0] ?? await api.files();
+      check();
+      const scope = patchScope(files);
+      if (!scope) throw Error("The current workspace has no guarded source identity.");
       const initial = readRenameOwner(path);
       if (!initial.tab || !initial.owner || !matchesScope(scope, initial.owner.scope) || initial.owner.text !== authoredSource(request.view.state)) {
         throw Error("The originating editor has no exact guarded source. Reopen it and retry.");
       }
+      const singleFile = files.folder_open === false ? initial.tab : undefined;
+      const readDisk = (target: string) => readRenameDisk(target, singleFile?.target === target ? singleFile : undefined);
       const origin = {text: initial.owner.text, base: initial.owner.base, guard: initial.owner.guard,
         managed: initial.tab.kind === "document", tabId: initial.tab.id, owner: initial.owner};
       snapshots.set(path, origin);
@@ -1128,7 +1135,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         const known = snapshots.get(target);
         if (known) return {text: known.text, writable: true};
         const retained = readRenameOwner(target);
-        const disk = await readRenameDisk(target);
+        const disk = await readDisk(target);
         check();
         if (retained.owner && (!matchesScope(scope, retained.owner.scope) || retained.owner.guard !== disk.guard || !retained.owner.current())) {
           throw Error(`The saved source changed: ${target}. Refresh its editor.`);
@@ -1171,26 +1178,66 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       check();
       const plan = planWorkspaceEdit(`Rename ${request.previous} to ${request.name}`, proposal.value.edit, proposal.sources);
       validateReferencedTargets(plan, reference.references);
-      const bindings = new Map(plan.patches.flatMap(({path: target}) => {
-        const snapshot = snapshots.get(target);
-        return snapshot?.tabId && snapshot.owner?.prepareDraft ? [[target, {tabId: snapshot.tabId, guard: snapshot.guard}] as const] : [];
-      }));
-      const canApply = bindings.size === plan.patches.length;
+      const opensFiles = plan.patches.some(patch => !snapshots.get(patch.path)?.tabId);
       const apply = async () => {
-        if (!canApply) throw Error("Open each affected file, then prepare rename again.");
+        const readCurrentDisk = async (target: string) => {
+          const snapshot = snapshots.get(target)!;
+          const disk = await readDisk(target);
+          check();
+          if (disk.text !== snapshot.base || disk.guard !== snapshot.guard || disk.managed !== snapshot.managed) {
+            throw Error(`Saved source changed: ${target}. Prepare rename again.`);
+          }
+          return disk;
+        };
+        const bindings = new Map<string, {tabId: string; guard: string}>();
+        const background: Tab[] = [];
         for (const patch of plan.patches) {
           const snapshot = snapshots.get(patch.path)!;
-          const disk = await readRenameDisk(patch.path);
-          check();
-          if (disk.text !== snapshot.base || disk.guard !== snapshot.guard) throw Error(`Saved source changed: ${patch.path}. Prepare rename again.`);
+          const disk = await readCurrentDisk(patch.path);
+          const retained = readRenameOwner(patch.path).tab;
+          if (snapshot.tabId && retained?.id !== snapshot.tabId) {
+            throw Error(`The reviewed editor changed: ${patch.path}. Prepare rename again.`);
+          }
+          const tab = retained ?? makeTab(disk.managed ? "document" : "file",
+            patch.path, patch.path.split("/").pop(), disk.docId);
+          if (!retained) background.push(tab);
+          bindings.set(patch.path, {tabId: tab.id, guard: snapshot.guard});
         }
         check();
+        if (background.length) setLayout(layout => current() ? openInBackground(layout, background) : layout);
+        const prepareStages = () => plan.patches.map(patch => {
+          const snapshot = snapshots.get(patch.path)!;
+          const binding = bindings.get(patch.path)!;
+          const {tab, owner} = readRenameOwner(patch.path);
+          if (tab && tab.id !== binding.tabId) throw Error(`Another editor took ownership of ${patch.path}. Prepare rename again.`);
+          if (!owner) return null;
+          if (!matchesScope(scope, owner.scope) || owner.guard !== binding.guard || owner.text !== patch.before ||
+              owner.base !== snapshot.base || !owner.current()) {
+            throw Error(`The editor source changed: ${patch.path}. Prepare rename again.`);
+          }
+          return owner.prepareDraft?.(patch.after) ?? null;
+        });
+        const until = Date.now() + 15_000;
+        // A background tab can load its text, room and recovery at different
+        // times. A stage is ready only when that editor can detach its saver.
+        while (true) {
+          check();
+          if (prepareStages().every(stage => stage?.current())) break;
+          if (Date.now() >= until) throw Error("An affected editor is still unavailable. Wait for it to load and retry Apply.");
+          await new Promise(resolve => window.setTimeout(resolve, 50));
+        }
+        if (background.length) for (const patch of plan.patches) await readCurrentDisk(patch.path);
+        check();
+        const stages = prepareStages().map(stage => {
+          if (!stage?.current()) throw Error("An affected editor changed while checking saved source.");
+          return stage;
+        });
         const historyPlan = {...plan, scope, bindings};
-        commitWorkspaceDrafts(stageDrafts(historyPlan, target => snapshots.get(target)?.owner));
+        commitWorkspaceDrafts(stages);
         const inverse = invertWindowDraft(historyPlan);
         recordedDraftHistory.record({kind: "draft", plan: inverse, read: () => inverse});
       };
-      setRenamePath(0); setRenamePage(0); setRenameReview({plan, current, canApply, apply});
+      setRenamePath(0); setRenamePage(0); setRenameReview({plan, current, opensFiles, apply});
       return {status: "completed", value: {preview_ready: true, source_files: plan.patches.length, source_changed: false}};
     } finally {
       secondary?.dispose();
@@ -1201,9 +1248,10 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   renameHistoryRef.current = direction => {
     const token = recordedDraftHistory.preview(direction), workspace = sourceWorkspace.current;
     if (!token) return;
-    void import("./WorkspaceChat").then(({matchesScope, patchScope, stageDrafts, commitWorkspaceDrafts, invertWindowDraft}) => {
+    void import("./WorkspaceChat").then(async ({matchesScope, patchScope, stageDrafts, commitWorkspaceDrafts, invertWindowDraft}) => {
+      const files = folderRootsRef.current[0] ?? await api.files();
       const plan = recordedDraftHistory.readDraft(token) as WindowHistoryPlan;
-      if (sourceWorkspace.current !== workspace || !matchesScope(patchScope(folderRootsRef.current[0]), plan.scope)) {
+      if (sourceWorkspace.current !== workspace || !matchesScope(patchScope(files), plan.scope)) {
         throw Error("Open the original workspace before changing these drafts.");
       }
       commitWorkspaceDrafts(stageDrafts(plan, path => {
@@ -2578,9 +2626,9 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
                 <button type="button" disabled={renamePage + 1 >= pageCount} onClick={() => setRenamePage(page => page + 1)}>Next lines</button>
               </>}
             </ChangePreview>
-            {!renameReview.canApply && <p>Open each affected file, then prepare rename again to apply the whole change.</p>}
+            {renameReview.opensFiles && <p>Apply opens affected files in background tabs.</p>}
             {renameError && <p role="alert">{renameError}</p>}
-            <button type="button" disabled={renamePending || !renameReview.canApply} onClick={() => {
+            <button type="button" disabled={renamePending} onClick={() => {
               if (renameApplying.current) return;
               if (!renameReview.current()) { setRenameError("Source or editor changed. Prepare rename again."); return; }
               renameApplying.current = true;

@@ -430,7 +430,8 @@ export function PlainFilePane({
               }
             };
             const node = find(files.tree);
-            plainOwnership.current = loaded.path === path && !!node && !node.dir && !node.doc_id && !node.generated_by;
+            plainOwnership.current = loaded.path === path && (files.folder_open === false
+              ? !!loaded.save_guard : !!node && !node.dir && !node.doc_id && !node.generated_by);
             setGeneratedBy(node?.generated_by ?? null);
           },
           () => {
