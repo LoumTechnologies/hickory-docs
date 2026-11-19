@@ -1,4 +1,4 @@
-import {authoredSource,authoredChanges,authoredTransactionSource} from './SourceText';
+import {authoredSource,authoredReplacement,authoredTransactionSource} from './SourceText';
 import {Buffer,type Buffers} from './buffers';
 import type {FileNode} from '../api/types';
 import {editorForBuffer} from './Document';
@@ -67,7 +67,7 @@ export function adoptResourceReceipt(buffers:Buffers,patches:readonly ResourceEd
   const view=editorForBuffer(buffer)?.view;
   if(view&&(view.composing||authoredSource(view.state)!==buffer.text||view.state.readOnly||!view.state.facet(EditorView.editable)))throw new Error('Finish composition and inspect recovery before adopting source editors.');
   if(route.to!==null&&!patches.some(p=>p.path===route.to&&p.before)&&buffers.values.has(route.to))throw new Error('A destination editor appeared after review. Preserve it and inspect recovery.');
-  const transaction=view&&route.after!==null&&buffer.text!==route.after?view.state.update({...authoredChanges(view.state,[{from:0,to:buffer.text.length,insert:route.after}]),annotations:isolateHistory.of('full'),userEvent:'input.workspace',filter:false}):undefined;
+  const transaction=view&&route.after!==null&&buffer.text!==route.after?view.state.update({...authoredReplacement(view.state, route.after),annotations:isolateHistory.of('full'),userEvent:'input.workspace',filter:false}):undefined;
   if(transaction&&authoredTransactionSource(transaction)!==route.after)throw new Error('Editor refused the complete resource change. Inspect recovery.');
   prepared.push({route,buffer,view,transaction});
  }

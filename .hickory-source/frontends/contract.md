@@ -3045,6 +3045,16 @@ the resulting TypeScript passed strict compilation. See
 `target/android-managed-move-rebuilt-2shfvobf/junit.xml`. This managed
 move still needs mounted iOS and rendered Android acceptance.
 
+Simple Browser replayed the same move in the rendered editor. Its first
+publication expanded the selection to the entire buffer. Resource adoption
+now applies a display diff with the exact authored source in the same
+transaction. Save selected the replacement import, reviewed Undo recovered
+the original declaration selection, and Redo selected the import again
+inside the authored block. The mounted editor, viewport dimensions, and
+scroll position stayed in place. The resulting code passed strict TypeScript
+compilation. See `target/simple-managed-resource-genuine-move-v1/browser.json`
+and `target/simple-managed-resource-genuine-move-v2/browser.json`.
+
 A focused Main replay with clangd also passed managed formatting after
 the position shift. See
 `target/main-managed-formatting-provider-framing-v2/browser.json`.

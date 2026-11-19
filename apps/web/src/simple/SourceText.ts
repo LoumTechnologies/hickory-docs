@@ -1,5 +1,6 @@
 import {EditorSelection,EditorState,Facet,StateEffect,StateField,type Extension,type Transaction,type TransactionSpec} from '@codemirror/state';
 import {invertedEffects} from '@codemirror/commands';
+import {computeEdits} from '../lib/diff';
 export interface AuthoredEdit {from:number;to:number;insert:string}
 interface SourceSnapshot {source:string;eols:readonly string[];crlf:readonly number[]}
 const seed=Facet.define<string,string>({combine:values=>values[0]??''});
@@ -36,6 +37,17 @@ export function authoredChanges(state:EditorState,edits:readonly AuthoredEdit[])
  const source=authoredSource(state),sorted=[...edits].sort((a,b)=>a.from-b.from||a.to-b.to);let last=0,next='';const changes=[];
  for(const edit of sorted){scalar(source,edit.from);scalar(source,edit.to);if(edit.to<edit.from||edit.from<last||typeof edit.insert!=='string')throw Error('Authored edits overlap or are malformed.');const from=editorOffset(state,edit.from),to=editorOffset(state,edit.to);changes.push({from,to,insert:normalizedSource(edit.insert)});next+=source.slice(last,edit.from)+edit.insert;last=edit.to;}next+=source.slice(last);
  const original=state.field(field,false);if(!original&&normalizedSource(next)!==next)throw Error('Byte-preserving source editing is unavailable on this editor.');return {changes,...(original?{effects:[replace.of({origin:original,source:next,eols:endings(next)})]}:{})};
+}
+export function authoredReplacement(state: EditorState, source: string): TransactionSpec {
+ const displayed = normalizedSource(source);
+ const original = state.field(field, false);
+ if (!original && displayed !== source) throw Error('Byte-preserving source editing is unavailable on this editor.');
+ const changes = computeEdits(state.doc.toString(), displayed)
+  .map(({start, end, text}) => ({from: start, to: end, insert: text}));
+ return {
+  changes,
+  ...(original ? {effects: [replace.of({origin: original, source, eols: endings(source)})]} : {}),
+ };
 }
 export function authoredInsert(state:EditorState,text:string):TransactionSpec{
  const ranges=state.selection.ranges.map(range=>({from:authoredOffset(state,range.from),to:authoredOffset(state,range.to),insert:text})),spec=authoredChanges(state,ranges),change=state.changes(spec.changes);return {...spec,selection:EditorSelection.create(state.selection.ranges.map(range=>EditorSelection.cursor(change.mapPos(range.to,1))),state.selection.mainIndex),userEvent:'input.paste'};
