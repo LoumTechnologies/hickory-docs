@@ -134,6 +134,50 @@ final class SaveTests: XCTestCase {
         XCTAssertTrue(loaded === draft);XCTAssertEqual(draft.text,"retained draft");XCTAssertTrue(draft.dirty);XCTAssertNil(workspace.active)
     }
 
+    @MainActor func testDelayedOpenKeepsNewerNativeTabSelection() async throws {
+        ResponseProtocol.status = 200
+        ResponseProtocol.responsesByPath = [:]
+        ResponseProtocol.response = Data(#"{"path":"earlier.txt","content":"saved earlier","hash":"disk"}"#.utf8)
+        let arrived = expectation(description: "earlier file request")
+        let gate = DispatchSemaphore(value: 0)
+        ResponseProtocol.beforeResponse = { request in
+            if request.url?.path == "/api/file" {
+                arrived.fulfill()
+                _ = gate.wait(timeout: .now() + 5)
+            }
+        }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [ResponseProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let workspace = Workspace()
+        workspace.engine = try Engine(address: "http://fixture.invalid", session: session)
+        defer {
+            gate.signal()
+            ResponseProtocol.beforeResponse = nil
+            workspace.buffers.values.forEach { $0.language?.close() }
+            session.invalidateAndCancel()
+        }
+        let file = FileNode(name: "draft.txt", path: "draft.txt", dir: false)
+        let draft = DocumentBuffer(file: file, text: FileText(path: file.path, content: "saved", hash: "saved"))
+        draft.text = "unsaved draft"
+        draft.selection = NSRange(location: 3, length: 2)
+        workspace.buffers[file.path] = draft
+        workspace.showSource(file.path)
+        workspace.showUtility(.agent)
+        let earlier = FileNode(name: "earlier.txt", path: "earlier.txt", dir: false)
+        let read = Task { await workspace.open(earlier) }
+        await fulfillment(of: [arrived], timeout: 3)
+        workspace.show(nativeSourceTab(file.path), in: workspace.focused)
+        gate.signal()
+        await read.value
+
+        XCTAssertEqual(workspace.active, file.path)
+        XCTAssertTrue(workspace.currentBuffer === draft)
+        XCTAssertTrue(draft.dirty)
+        XCTAssertEqual(draft.text, "unsaved draft")
+        XCTAssertEqual(draft.selection, NSRange(location: 3, length: 2))
+        XCTAssertEqual(workspace.buffers[earlier.path]?.text, "saved earlier")
+    }
     @MainActor func testAgentRequestUsesSubscriptionAndPythonBackend() async throws {
         let (engine, _) = try fixture()
         ResponseProtocol.status = 200; ResponseProtocol.responsesByPath = [:]

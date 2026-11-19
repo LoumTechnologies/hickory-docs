@@ -527,6 +527,77 @@ class ParityTest {
         } finally {gate.countDown();workspace.buffers.values.forEach {it.language?.close()};listener.stop(0)}
     }
 
+    @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+    @Test fun delayedOpenRespectsNewerTabAndIndependentPane() = kotlinx.coroutines.runBlocking {
+        val listener = com.sun.net.httpserver.HttpServer.create(java.net.InetSocketAddress("127.0.0.1", 0), 0)
+        fun file(path: String) = FileNode(path, path, false, emptyList(), null, null, "python")
+        val slow = file("slow.py")
+        val afterClose = file("after-close.py")
+        val parallel = file("parallel.py")
+        val arrived = listOf(slow, afterClose, parallel).associate { it.path to kotlinx.coroutines.CompletableDeferred<Unit>() }
+        val gates = arrived.mapValues { java.util.concurrent.CountDownLatch(1) }
+        listener.createContext("/api/file") { exchange ->
+            val path = exchange.requestURI.query.removePrefix("path=")
+            arrived.getValue(path).complete(Unit)
+            check(gates.getValue(path).await(8, java.util.concurrent.TimeUnit.SECONDS))
+            val response = JSONObject().put("path", path).put("content", "saved $path").put("hash", "disk").toString().toByteArray()
+            exchange.sendResponseHeaders(200, response.size.toLong())
+            exchange.responseBody.use { it.write(response) }
+        }
+        listener.start()
+        val workspace = Workspace(this)
+        workspace.engine = Engine("http://127.0.0.1:${listener.address.port}")
+        val retained = DocumentBuffer(file("main.py"), FileText("saved", "saved"))
+        val state = retained.state
+        state.edit { append(" local draft") }
+        state.edit { append(" future") }
+        state.undoState.undo()
+        state.edit { selection = androidx.compose.ui.text.TextRange(2, 5) }
+        retained.sourceScroll.scrollTo(7)
+        workspace.buffers[retained.file.path] = retained
+        try {
+            val first = async { workspace.open(slow) }
+            kotlinx.coroutines.withTimeout(4000) { arrived.getValue(slow.path).await() }
+            workspace.open(retained.file)
+            workspace.show(sourceTab(retained.file.path), workspace.focused)
+            gates.getValue(slow.path).countDown()
+            first.await()
+            assertSame(retained, workspace.currentBuffer)
+            assertSame(state, retained.state)
+            assertEquals("saved local draft", retained.text)
+            assertEquals(androidx.compose.ui.text.TextRange(2, 5), state.selection)
+            assertEquals(7, retained.sourceScroll.value)
+            assertTrue(state.undoState.canRedo)
+            assertEquals("saved slow.py", workspace.buffers.getValue(slow.path).text)
+
+            workspace.open(slow)
+            val closing = async { workspace.open(afterClose) }
+            kotlinx.coroutines.withTimeout(4000) { arrived.getValue(afterClose.path).await() }
+            workspace.close(sourceTab(slow.path))
+            gates.getValue(afterClose.path).countDown()
+            closing.await()
+            assertSame(retained, workspace.currentBuffer)
+            assertEquals("saved after-close.py", workspace.buffers.getValue(afterClose.path).text)
+
+            workspace.split("horizontal")
+            val initialPane = workspace.focused
+            val otherPane = workspace.layout.groups().last().id
+            val second = async { workspace.open(parallel) }
+            kotlinx.coroutines.withTimeout(4000) { arrived.getValue(parallel.path).await() }
+            workspace.show("terminal", otherPane)
+            gates.getValue(parallel.path).countDown()
+            second.await()
+            assertEquals(otherPane, workspace.focused)
+            assertEquals("terminal", workspace.active)
+            assertEquals(sourceTab(parallel.path), workspace.layout.nodes.getValue(initialPane).active)
+            assertSame(retained, workspace.buffers.getValue(retained.file.path))
+        } finally {
+            gates.values.forEach { it.countDown() }
+            workspace.buffers.values.forEach { it.language?.close() }
+            listener.stop(0)
+        }
+    }
+
     @Test fun diagnosticEngineHashesOverrideWindowCounterCoincidence() {
         // Contract: .hickory-source/frontends/contract.md
         val source="value";val hash="sha256:"+java.security.MessageDigest.getInstance("SHA-256").digest(source.toByteArray()).joinToString(""){"%02x".format(it)}

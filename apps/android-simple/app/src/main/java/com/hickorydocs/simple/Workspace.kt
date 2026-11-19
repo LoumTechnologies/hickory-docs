@@ -405,7 +405,7 @@ class Workspace(private val backgroundScope: kotlinx.coroutines.CoroutineScope? 
     private var generation = UUID.randomUUID()
     val sourceNavigationEpoch:UUID get()=generation
     private val loading = mutableMapOf<String,kotlinx.coroutines.Deferred<DocumentBuffer>>()
-    private val newestOpen = mutableMapOf<String, String>()
+    private val newestOpen = mutableMapOf<String, Any>()
     val agent = AgentSession()
     val agentProposals = AgentProposalModel()
     val terminal = TerminalSession()
@@ -580,22 +580,33 @@ class Workspace(private val backgroundScope: kotlinx.coroutines.CoroutineScope? 
     }
     suspend fun open(file: FileNode, recordNavigation: Boolean = true) {
         val departed = currentSemanticLocation()
-        if (file.path == startupPreview?.source?.path) engine?.let { confirmStartupPreview(file, it, reopen = true) }
-        if(buffers.containsKey(file.path)) {show(sourceTab(file.path));if(recordNavigation) currentSemanticLocation()?.let {navigationTrail=navigationTrail.record(departed,it)};return}
+        if (file.path in buffers) {
+            show(sourceTab(file.path))
+            if (recordNavigation) currentSemanticLocation()?.let { navigationTrail = navigationTrail.record(departed, it) }
+            if (file.path == startupPreview?.source?.path) engine?.let { confirmStartupPreview(file, it, reopen = true) }
+            return
+        }
         val current = generation
         val target = layout.groups().firstOrNull {it.id==focused && "files" !in it.tabs}?.id
             ?: layout.groups().firstOrNull {"files" !in it.tabs}?.id ?: focused
-        newestOpen[target]=file.path; focused=target
+        val request = Any()
+        newestOpen[target] = request
+        focused = target
+        fun ownsGroup() = generation == current && newestOpen[target] === request && layout.groups().any { it.id == target }
         try {
             loadBuffer(file)
-            if(generation != current) return
-            if(newestOpen[target]==file.path) {
-                val live=layout.groups().firstOrNull {it.id==target}?.id ?: layout.groups().first().id
-                layout=layout.activate(sourceTab(file.path),live);focused=live;status=file.path
-                if(recordNavigation) currentSemanticLocation()?.let {navigationTrail=navigationTrail.record(departed,it)}
+            if (!ownsGroup()) return
+            layout = layout.activate(sourceTab(file.path), target)
+            if (focused == target) {
+                status = file.path
+                if (recordNavigation) currentSemanticLocation()?.let { navigationTrail = navigationTrail.record(departed, it) }
             }
         } catch(cancelled:CancellationException) {throw cancelled}
-        catch(failure:Exception) {if(generation==current) status="${failure.message} Refresh files and try opening ${file.path} again."}
+        catch(failure:Exception) {
+            if (ownsGroup() && focused == target) status = "${failure.message} Refresh files and try opening ${file.path} again."
+        } finally {
+            if (newestOpen[target] === request) newestOpen.remove(target)
+        }
     }
     fun currentSemanticLocation(): SemanticLocation? {
         val buffer = currentBuffer ?: return null
@@ -649,15 +660,23 @@ class Workspace(private val backgroundScope: kotlinx.coroutines.CoroutineScope? 
         val server = engine ?: run { status = "Connect to a workspace server before opening Terminal."; return }
         show("terminal"); terminal.open(server)
     }
-    fun show(tab: String) {
-        val target = layout.groups().firstOrNull { tab in it.tabs }?.id ?: (if (tab != "files") layout.groups().firstOrNull { it.id == focused && "files" !in it.tabs }?.id ?: layout.groups().firstOrNull { "files" !in it.tabs }?.id else null) ?: focused
+    fun show(tab: String, group: String? = null) {
+        val target = group ?: layout.groups().firstOrNull { tab in it.tabs }?.id ?: (if (tab != "files") layout.groups().firstOrNull { it.id == focused && "files" !in it.tabs }?.id ?: layout.groups().firstOrNull { "files" !in it.tabs }?.id else null) ?: focused
+        newestOpen.remove(target)
         layout = layout.activate(tab, target); focused = target
+    }
+    internal fun adoptTabLayout(next: PaneLayout, group: String? = null): Boolean {
+        if (layout === next) return false
+        val groups = next.groups().associateBy { it.id }
+        newestOpen.keys.removeAll { id -> id == group || id !in groups || groups[id]?.active != layout.nodes[id]?.active }
+        layout = next
+        focused = group ?: focused.takeIf { it in groups } ?: groups.keys.first()
+        return true
     }
     fun close(tab: String) {
         val buffer = bufferForTab(tab)
         if (buffer != null && (buffer.dirty || buffer.saving)) { status = "Unsaved edits retained. Save this document before closing its tab."; return }
-        layout = layout.remove(tab)
-        if (layout.groups().none { it.id == focused }) focused = layout.groups().first().id
+        adoptTabLayout(layout.remove(tab))
     }
     fun split(axis: String) {
         val id = UUID.randomUUID().toString(); layout = layout.split(focused, axis, id); focused = "retained-$id"
@@ -666,7 +685,7 @@ class Workspace(private val backgroundScope: kotlinx.coroutines.CoroutineScope? 
         val groups = layout.groups(); val tab = active ?: return
         val index = groups.indexOfFirst { it.id == focused }; if (index < 0) return
         val target = groups[(index + 1) % groups.size].id
-        layout = layout.move(tab, target); focused = target
+        adoptTabLayout(layout.move(tab, target), target)
     }
     fun label(tab: String) = when (tab) {
         "files" -> "Files"; "agent" -> "Agent"; "terminal" -> "Terminal"

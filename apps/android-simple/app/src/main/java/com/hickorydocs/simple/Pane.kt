@@ -73,8 +73,7 @@ private const val TAB_MIME = "application/vnd.hickorydocs.tab"
             val clip = event.toAndroidDragEvent().clipData ?: return false
             if (clip.itemCount != 1 || !clip.description.hasMimeType(TAB_MIME) || clip.description.label?.toString() != "hickory-tab") return false
             val tab = clip.getItemAt(0).text?.toString() ?: return false
-            if (workspace.layout.groups().none { tab in it.tabs }) return false
-            workspace.layout = workspace.layout.move(tab, group, before); workspace.focused = group; return true
+            return workspace.adoptTabLayout(workspace.layout.move(tab, group, before), group)
         }
     } }
 }
@@ -131,7 +130,7 @@ private const val TAB_MIME = "application/vnd.hickorydocs.tab"
                         }
                         .dragAndDropTarget(shouldStartDragAndDrop = { TAB_MIME in it.mimeTypes() }, target = tabTarget)
                         .dragAndDropSource { _ -> DragAndDropTransferData(ClipData(ClipDescription("hickory-tab", arrayOf(TAB_MIME)), ClipData.Item(tab))) }) {
-                        Text(workspace.label(tab), fontSize = 13.sp, modifier = Modifier.clickable { workspace.layout = workspace.layout.activate(tab, id); workspace.focused = id }.padding(horizontal = 7.dp, vertical = 5.dp))
+                        Text(workspace.label(tab), fontSize = 13.sp, modifier = Modifier.clickable { workspace.show(tab, id) }.padding(horizontal = 7.dp, vertical = 5.dp))
                         Text("×", modifier = Modifier.clickable { workspace.close(tab) }.semantics { contentDescription = "Close ${workspace.label(tab)}" }.padding(horizontal = 6.dp, vertical = 5.dp))
                     }
                 }
@@ -173,8 +172,7 @@ private const val TAB_MIME = "application/vnd.hickorydocs.tab"
                     if (workspace.layout.groups().none { it.id == group } || workspace.layout.groups().none { tab in it.tabs }) return false
                     val id = if (edge == "center") group else java.util.UUID.randomUUID().toString()
                     val next = if (edge == "center") workspace.layout.move(tab, group) else workspace.layout.dock(tab, group, edge, id)
-                    if (next === workspace.layout) return false
-                    workspace.layout = next; workspace.focused = id; return true
+                    return workspace.adoptTabLayout(next, id)
                 }
             } }
             val zone = when (edge) {

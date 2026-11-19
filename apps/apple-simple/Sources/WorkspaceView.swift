@@ -143,10 +143,10 @@ struct PaneView: View {
                                 HStack(spacing: 0) {
                                     #if os(macOS)
                                     MacTabLabel(tab: tab, label: workspace.label(tab), activate: {
-                                        workspace.layout.activate(tab, in: id); workspace.focused = id
+                                        workspace.show(tab, in: id)
                                     }, dragging: { workspace.draggingTab = $0 }).fixedSize(horizontal: true, vertical: false).frame(height: 28)
                                     #else
-                                    Button(workspace.label(tab)) { workspace.layout.activate(tab, in: id); workspace.focused = id }
+                                    Button(workspace.label(tab)) { workspace.show(tab, in: id) }
                                         .accessibilityAddTraits(exactUTF8(node.active,tab) ? .isSelected : [])
                                     #endif
                                     Button("×") { workspace.close(tab) }.accessibilityLabel("Close \(workspace.label(tab))")
@@ -165,7 +165,7 @@ struct PaneView: View {
                                     .dropDestination(for: TabDrag.self) { tabs, _ in
                                         dropBefore = nil
                                         guard let dragged = tabs.first?.tab, workspace.layout.groups().contains(where: { $0.tabs.containsTab(dragged) }) else { return false }
-                                        workspace.layout.move(dragged, to: id, before: tab); workspace.focused = id; return true
+                                        workspace.moveTab(dragged, to: id, before: tab); return true
                                     } isTargeted: { targeted in
                                         if targeted { dropBefore = tab.nativeSourceKey } else if dropBefore==tab.nativeSourceKey { dropBefore = nil }
                                     }
@@ -182,7 +182,7 @@ struct PaneView: View {
                                     dropBefore = point.flatMap { point in node.tabs.first { tabFrames[$0.nativeSourceKey]?.contains(point) == true }?.nativeSourceKey }
                                 }, drop: { tab, point in
                                     let before = node.tabs.first { tabFrames[$0.nativeSourceKey]?.contains(point) == true }
-                                    workspace.layout.move(tab, to: id, before: before); workspace.focused = id
+                                    workspace.moveTab(tab, to: id, before: before)
                                     workspace.draggingTab = nil; dropBefore = nil; return true
                                 })
                         }
@@ -190,7 +190,7 @@ struct PaneView: View {
                         .dropDestination(for: TabDrag.self) { tabs, _ in
                             guard let tab = tabs.first?.tab, workspace.layout.groups().contains(where: { $0.tabs.containsTab(tab) }) else { return false }
                             dropBefore = nil
-                            workspace.layout.move(tab, to: id); workspace.focused = id; return true
+                            workspace.moveTab(tab, to: id); return true
                         }
                         #endif
                     Divider()
@@ -205,9 +205,8 @@ struct PaneView: View {
                                         paneEdge = nil
                                         guard workspace.layout.groups().contains(where: { $0.id == id }), workspace.layout.groups().contains(where: { $0.tabs.containsTab(tab) }) else { return false }
                                         if let edge = dropEdge(point.x / max(1, geometry.size.width), point.y / max(1, geometry.size.height)) {
-                                            guard let focused = workspace.layout.dock(tab, to: id, edge: edge, newID: UUID().uuidString) else { return false }
-                                            workspace.focused = focused
-                                        } else { workspace.layout.move(tab, to: id); workspace.focused = id }
+                                            guard workspace.dockTab(tab, to: id, edge: edge) else { return false }
+                                        } else { workspace.moveTab(tab, to: id) }
                                         workspace.draggingTab = nil; return true
                                     })
                             }
@@ -290,8 +289,8 @@ struct PaneView: View {
             let tab = payload.tab
             Task { @MainActor in
                 guard workspace.layout.groups().contains(where: { $0.id == group }), workspace.layout.groups().contains(where: { $0.tabs.containsTab(tab) }) else { return }
-                if selected == "center" { workspace.layout.move(tab, to: group); workspace.focused = group }
-                else if let focused = workspace.layout.dock(tab, to: group, edge: selected, newID: UUID().uuidString) { workspace.focused = focused }
+                if selected == "center" { workspace.moveTab(tab, to: group) }
+                else { workspace.dockTab(tab, to: group, edge: selected) }
             }
         }
         return true

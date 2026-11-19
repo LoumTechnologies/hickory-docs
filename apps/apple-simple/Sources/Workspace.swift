@@ -403,7 +403,7 @@ struct StartupSourceObservation {
     var connecting = false
     private var loading: NativeSourceMap<Task<DocumentBuffer, Error>> = [:]
     private var languageConnection: NativeLanguageConnection?
-    private var newestOpen: [String: NativeSourceKey] = [:]
+    private var newestOpen: [String: UUID] = [:]
     let agent = AgentSession()
     func configureAgentContext(){agent.captureContext={ [weak self] in guard let self else{throw EngineError(message:"Original agent workspace closed.")};return try nativeAgentContext(self)}}
     let terminal = TerminalSession()
@@ -565,28 +565,38 @@ struct StartupSourceObservation {
         buffer.language = NativeLanguage(engine:engine,buffer:buffer,connection:languageConnection); buffer.language?.start()
         return buffer
     }
+    // A read can populate the buffer cache after its pane selects another tab.
+    // Only the pane's current open request can activate the newly read buffer.
     func open(_ file: FileNode, recordNavigation: Bool = true) async {
         let departed = currentSemanticLocation()
         if let existing = buffers[file.path] {
             showSource(file.path)
-            if existing.startupObservation != nil { await bindRequestedReading(existing, file: file, acceptNewerSource: true) }
             if recordNavigation, let arrived = currentSemanticLocation() { navigationTrail.record(from:departed,to:arrived) }
+            if existing.startupObservation != nil { await bindRequestedReading(existing, file: file, acceptNewerSource: true) }
             return
         }
         let current = generation
         let target = layout.groups().first(where: { $0.id == focused && !$0.tabs.containsUtility(.files) })?.id
             ?? layout.groups().first(where: { !$0.tabs.containsUtility(.files) })?.id ?? focused
-        newestOpen[target] = file.path.nativeSourceKey; focused = target
+        let request = UUID()
+        newestOpen[target] = request
+        focused = target
+        func ownsPane() -> Bool {
+            generation == current && newestOpen[target] == request && layout.groups().contains { $0.id == target }
+        }
+        defer { if newestOpen[target] == request { newestOpen.removeValue(forKey: target) } }
         do {
             _ = try await loadBuffer(file)
-            guard current == generation else { return }
-            if newestOpen[target] == file.path.nativeSourceKey {
-                let live = layout.groups().first(where: { $0.id == target })?.id ?? layout.groups()[0].id
-                layout.activateSource(file.path,in:live); focused = live; status = file.path
+            guard ownsPane() else { return }
+            layout.activateSource(file.path, in: target)
+            if focused == target {
+                status = file.path
                 if recordNavigation, let arrived = currentSemanticLocation() { navigationTrail.record(from:departed,to:arrived) }
             }
         } catch is CancellationError { return }
-        catch { if current == generation { status = "\(error.localizedDescription) Refresh files and try opening \(file.path) again." } }
+        catch {
+            if ownsPane(), focused == target { status = "\(error.localizedDescription) Refresh files and try opening \(file.path) again." }
+        }
     }
     func currentSemanticLocation() -> SemanticLocation? {
         guard let buffer = currentBuffer else { return nil }
@@ -654,26 +664,56 @@ struct StartupSourceObservation {
     }
     func showSource(_ path:String){show(nativeSourceTab(path))}
     func showUtility(_ utility:NativeUtilityTab){show(utility.rawValue)}
-    func show(_ tab: String) {
-        let target = layout.groups().first(where: { $0.tabs.containsTab(tab) })?.id ?? (tab != "files" ? layout.groups().first(where: { $0.id == focused && !$0.tabs.containsUtility(.files) })?.id ?? layout.groups().first(where: { !$0.tabs.containsUtility(.files) })?.id : nil) ?? focused
+    func show(_ tab: String, in group: String? = nil) {
+        let groups = layout.groups()
+        let target = group ?? groups.first(where: { $0.tabs.containsTab(tab) })?.id
+            ?? (tab != "files" ? groups.first(where: { $0.id == focused && !$0.tabs.containsUtility(.files) })?.id
+                ?? groups.first(where: { !$0.tabs.containsUtility(.files) })?.id : nil) ?? focused
+        guard groups.contains(where: { $0.id == target }) else { return }
+        newestOpen.removeValue(forKey: target)
         layout.activate(tab, in: target); focused = target
+    }
+    private func adoptTabLayout(_ next: PaneLayout, focus group: String? = nil) {
+        let groups = next.groups()
+        let retained = Set(groups.map(\.id))
+        newestOpen = newestOpen.filter { id, _ in
+            id != group && retained.contains(id) && exactUTF8(next.nodes[id]?.active, layout.nodes[id]?.active)
+        }
+        layout = next
+        focused = group ?? (retained.contains(focused) ? focused : groups[0].id)
+    }
+    func moveTab(_ tab: String, to group: String, before: String? = nil) {
+        var next = layout
+        next.move(tab, to: group, before: before)
+        guard next.nodes != layout.nodes else { return }
+        adoptTabLayout(next, focus: group)
+    }
+    @discardableResult func dockTab(_ tab: String, to group: String, edge: String) -> Bool {
+        var next = layout
+        guard let retained = next.dock(tab, to: group, edge: edge, newID: UUID().uuidString) else { return false }
+        adoptTabLayout(next, focus: retained)
+        return true
     }
     func close(_ tab: String) {
         if let buffer = bufferForTab(tab), buffer.dirty || buffer.saving {
             status = "Unsaved edits retained. Save this document before closing its tab."; return
         }
         if let buffer=bufferForTab(tab){buffer.retireAgentContext();sourceHistory.sourceClosed(buffer);sourceTemplates.sourceClosed(buffer);testSources.sourceClosed(buffer,workspace:self)}
-        layout.remove(tab)
-        if !layout.groups().contains(where: { $0.id == focused }) { focused = layout.groups()[0].id }
+        var next = layout
+        next.remove(tab)
+        adoptTabLayout(next)
     }
     func split(_ axis: String) {
-        if let retained = layout.split(focused, axis: axis, newID: UUID().uuidString) { focused = retained }
+        var next = layout
+        if let retained = next.split(focused, axis: axis, newID: UUID().uuidString) {
+            adoptTabLayout(next, focus: retained)
+        }
     }
     func moveToNext() {
         let groups = layout.groups()
         guard let active=activeTab, let index = groups.firstIndex(where: { $0.id == focused }) else { return }
         let target = groups[(index + 1) % groups.count].id
-        layout.move(active, to: target); focused = target
+        moveTab(active, to: target)
     }
     func label(_ tab: String) -> String {
         switch NativeTabIdentity(address:tab).utility{case .files:return "Files";case .agent:return "Agent";case .terminal:return "Terminal";case nil:break}

@@ -2517,6 +2517,15 @@ The file tree exposes optional language-routing facts from the engine without pa
 
 All simple workspaces share one pending raw read per path between background acquisition and foreground opening. A completed read prefers an already available buffer, preserving unsaved text. Native acquisition checks workspace generation and cancels old reads on reconnect. Retaining source attaches language services without opening a pane, moving selection or recording navigation; only a foreground request activates layout. The browser publishes newly retained buffers so independent capability owners can attach even without a visible editor. The analysis orchestration and presentation are separate work; these acquisition primitives alone do not prove whole-project semantic coverage. Focused verification passed: one real serialized-tree Rust witness, two browser scope/acquisition witnesses, three Swift witnesses (including shared and delayed HTTP reads), two Kotlin witnesses against a local HTTP fixture, TypeScript checking, iOS compilation, reconstruction and ownership audit.
 
+The Apple and Android workspaces now give each pane its own pending file-open
+request. A later tab selection or active-tab change can retire that request
+while the file read still populates the cache. A pane that finishes its current
+open in the background does not take focus from another pane. The focused Swift
+HTTP fixture preserved the selected editor, draft and caret. The focused
+Android HTTP fixture also verified scroll, redo, active-tab close and focus
+across panes. See `target/apple-delayed-tab-open-focused.log` and
+`target/android-delayed-open-focused-receipt/` for the controller replays.
+
 ## Native source sessions share workspace transport
 
 Apple and Android retain per-buffer language knowledge while borrowing one workspace-owned language connection. The transport assigns unique request IDs, routes each reply to its requester and diagnostics to their source URI, and cancels only a detached source's pending requests. A duplicate URI cannot overwrite the held source or borrow its request authority. Transport failure invalidates source captures before resuming pending reads; a later read can reconnect and replay every held full-text document, including changes retained while offline. Closing the last source releases the idle wire; reconnecting a workspace closes its old transport. Server-initiated applyEdit requests are refused because source changes require a retained preview.
