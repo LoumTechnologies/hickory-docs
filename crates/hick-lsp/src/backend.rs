@@ -1101,7 +1101,6 @@ impl HickBackend {
             origin.staged_imports.clone()
         };
         let mut index = self.index_snapshot().await;
-        let stage = self.staging.document_dir(uri).ok();
         let mut retired = std::collections::HashSet::new();
         let location_uri = |location: &serde_json::Value| location.get("uri").or_else(|| location.get("targetUri"))
             .and_then(serde_json::Value::as_str).map(uri_key);
@@ -1109,18 +1108,30 @@ impl HickBackend {
             serde_json::Value::Array(items) => items.iter().filter_map(location_uri).collect(),
             one => location_uri(one).into_iter().collect(),
         };
-        for (name, target) in &imports {
-            let staged_uri = self.staging.vfile_uri(uri, name);
-            let key = uri_key(staged_uri.as_str());
-            if !wanted.contains(&key) { continue; }
-            let held = self.documents.read().await.get(&target.uri)
-                .is_none_or(|entry| !entry.preparing && entry.source_hash.as_deref() == Some(target.hash.as_str()));
-            let matches = |root: &std::path::Path| read_staged_import(root, name)
-                .is_some_and(|text| diagnostic_source_digest(&text) == target.hash);
-            if held && matches(&target.workspace) && stage.as_deref().is_some_and(matches) {
-                index.entry(key).or_insert_with(|| (target.uri.clone(), PositionMap::identity(u32::MAX)));
-            } else {
-                retired.insert(key);
+        let aliases: Vec<_> = imports.iter().filter_map(|(name, target)| {
+            let key = uri_key(self.staging.vfile_uri(uri, name).as_str());
+            wanted.contains(&key).then(|| (key, target.uri.clone()))
+        }).collect();
+        if !aliases.is_empty() {
+            // The returned leaf can be unchanged while an intermediate re-export
+            // redirected it. Check the bounded projection off the async worker
+            // and then compare it with all current held editor snapshots.
+            let stage = self.staging.document_dir(uri).ok();
+            let checked_imports = tokio::task::spawn_blocking(move || {
+                stage.as_deref().is_some_and(|path| staged_projection_matches(path, &imports))
+                    .then_some(imports)
+            }).await.ok().flatten();
+            let docs = self.documents.read().await;
+            let current = checked_imports.is_some_and(|imports| imports.values().all(|target| {
+                docs.get(&target.uri).is_none_or(|entry| !entry.preparing
+                    && entry.source_hash.as_deref() == Some(target.hash.as_str()))
+            }));
+            for (key, target) in aliases {
+                if current {
+                    index.entry(key).or_insert_with(|| (target, PositionMap::identity(u32::MAX)));
+                } else {
+                    retired.insert(key);
+                }
             }
         }
         let current = self.documents.read().await.get(uri)
@@ -1992,6 +2003,14 @@ fn read_staged_import(workspace: &std::path::Path, relative: &str) -> Option<Str
     String::from_utf8(raw).ok()
 }
 
+fn staged_projection_matches(stage: &std::path::Path, imports: &HashMap<String, StagedImport>) -> bool {
+    imports.iter().all(|(name, target)| {
+        let matches = |root: &std::path::Path| read_staged_import(root, name)
+            .is_some_and(|text| diagnostic_source_digest(&text) == target.hash);
+        matches(&target.workspace) && matches(stage)
+    })
+}
+
 fn collect_staged_imports<'a>(
     workspace: &std::path::Path,
     outputs: impl Iterator<Item = (&'a str, Option<&'a str>, &'a str)>,
@@ -2077,6 +2096,34 @@ mod staged_import_projection_tests {
         assert_eq!(projected["src/real.ts"].0.uri, Url::from_file_path(workspace.join("src/real.ts")).unwrap());
         std::fs::remove_file(workspace.join("src/leaf.ts")).unwrap();
         assert!(read_staged_import(&workspace, "src/leaf.ts").is_none());
+    }
+
+    #[test]
+    fn changing_an_intermediate_reexport_retires_the_unchanged_leaf() {
+        let workspace = tempfile::tempdir().unwrap();
+        let stage = tempfile::tempdir().unwrap();
+        let workspace = workspace.path().canonicalize().unwrap();
+        let stage = stage.path().canonicalize().unwrap();
+        let barrel = "export { symbol } from './leaf';";
+        let leaf = "export const symbol = 1;";
+        for root in [&workspace, &stage] {
+            std::fs::write(root.join("barrel.ts"), barrel).unwrap();
+            std::fs::write(root.join("leaf.ts"), leaf).unwrap();
+        }
+        let imports = collect_staged_imports(&workspace, [
+            ("main.ts", Some("typescript"), "import { symbol } from './barrel'; symbol;"),
+        ].into_iter()).into_iter().map(|(name, (target, _))| (name, target)).collect();
+        assert!(staged_projection_matches(&stage, &imports));
+
+        std::fs::write(workspace.join("barrel.ts"), "export { symbol } from './elsewhere';").unwrap();
+        assert_eq!(read_staged_import(&workspace, "leaf.ts").as_deref(), Some(leaf));
+        assert_eq!(read_staged_import(&stage, "leaf.ts").as_deref(), Some(leaf));
+        assert!(!staged_projection_matches(&stage, &imports));
+
+        std::fs::write(workspace.join("barrel.ts"), barrel).unwrap();
+        assert!(staged_projection_matches(&stage, &imports));
+        std::fs::remove_file(stage.join("barrel.ts")).unwrap();
+        assert!(!staged_projection_matches(&stage, &imports));
     }
 
     #[cfg(unix)]
