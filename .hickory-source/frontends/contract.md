@@ -313,6 +313,11 @@ editor frame and exact text. The trace recorded no source write, and the
 archive and working file stayed byte-identical. The owned emulator and its
 temporary disk were removed. See
 `target/parity-rendered-android.sgYIt7/continuation-receipts/final-android-yn39rn6t/declared-assistant/`.
+The owned Android emulator repeated the gutter reading for the archived user
+message. The verified owner was `request.md`. The reading showed the same
+Before `old` and After `middle`, and closing it left the card frame and bytes
+intact. The saved fixture was unchanged and the emulator was removed. See
+`target/parity-rendered-android.sgYIt7/continuation-receipts/final-android-r9g2of58/declared-user/`.
 
 Both browser frontends also inspected the user-side declaration when the
 finalized response included the exact archived request as a contributing
