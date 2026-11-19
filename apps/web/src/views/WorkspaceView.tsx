@@ -106,7 +106,7 @@ import {
   fileAction,
 } from "../shell/FolderTreePane";
 import {
-  paneById, open as openInLayout, openInBackground, retargetFileTabs, tab as makeTab,
+  paneById, open as openInLayout, openInBackground, retargetResourceTabs, tab as makeTab,
   panes as panesOf,
   type Layout,
   type Tab,
@@ -369,7 +369,8 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   const [changePath, setChangePath] = useState(0);
   const [changePage, setChangePage] = useState(0);
   const [changePending, setChangePending] = useState(false);
-  const [changeKind, setChangeKind] = useState<ProviderPreviewRequest["kind"]>("rename");
+  const [changeKind, setChangeKind] = useState<ProviderPreviewRequest["kind"] | "delete">("rename");
+  const prepareDeleteRef = useRef<(view: EditorView, tab: Tab, current: () => boolean) => void>(() => {});
   const [changeError, setChangeError] = useState<string | null>(null);
   const changeApplying = useRef(false);
   const changeHistoryRef = useRef<(direction: "undo" | "redo") => void>(() => {});
@@ -762,6 +763,10 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         }
         const all: CommandItem[] = [...documentCommands(registry.get(focusedDocId(layoutRef.current))),
           ...editorCommands,
+          ...(view && focus.tab && (focus.tab.kind === "file" || focus.tab.kind === "document") && !view.state.readOnly
+            ? [{id: "workspace-resources:delete", label: "Preview deletion of this file", run: (current?: () => boolean) => {
+              if (current) prepareDeleteRef.current(view, focus.tab!, current);
+            }}] : []),
           ...(["undo", "redo"] as const).filter(direction => recordedDraftHistory.preview(direction)).map(direction => ({
             id: `workspace-drafts:${direction}`, label: direction === "undo" ? "Undo workspace change" : "Redo workspace change",
             run: () => changeHistoryRef.current(direction),
@@ -1108,7 +1113,8 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         retained.every((tab, index) => tab.id === originalTabs[index].id && tab.target === originalTabs[index].target);
     };
     return tools.captureWorkspacePatch(originalTabs, scope, tab => {
-      if (tab.retainedResource) return plainPatchOwners.current.get(tab.id)?.();
+      if (tab.retainedResource) return tab.kind === "document"
+        ? registry.get(tab.docId)?.recordedPatchSource() : plainPatchOwners.current.get(tab.id)?.();
       const owner = readChangeOwner(tab.target);
       return owner.tab?.id === tab.id ? owner.owner : undefined;
     }, id => {
@@ -1118,7 +1124,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       return {text: doc.toString(), revision, current: () => bufferEditor(id) === view &&
         view.dom.isConnected && view.state.doc === doc && (untitledRevisions.current.get(id) ?? 0) === revision};
     }, rosterCurrent);
-  }, [readChangeOwner]);
+  }, [readChangeOwner, registry]);
   const observeResourceWindow = useCallback(async (capture: ReturnType<typeof captureResourceWindow>, edit: unknown,
     targets: string[], context: string, load: ResourceTransport, observe: typeof import("../simple/ResourceEditors").observeResourceInputs) => {
     const retained = await capture.retain();
@@ -1344,6 +1350,41 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       if (visible()) setChangePending(false);
     }
   }, [activeSourceEditor, captureResourceWindow, observeResourceWindow, readChangeOwner, readChangeDisk, recordedDraftHistory]);
+  prepareDeleteRef.current = (view, tab, paletteCurrent) => {
+    const active = activeSourceEditor();
+    if (changeApplying.current || !workspaceIsVisible() || active?.view !== view || active.tab.id !== tab.id ||
+        view.composing || view.state.readOnly || !paletteCurrent()) return;
+    const ticket = ++changeTicket.current, workspace = sourceWorkspace.current, focus = focusIntent.current;
+    const {doc, selection} = view.state;
+    const visible = () => ticket === changeTicket.current && sourceWorkspace.current === workspace;
+    const current = () => visible() && workspaceIsVisible() && focusIntent.current === focus && paletteCurrent() &&
+      view.dom.isConnected && !view.composing && !view.state.readOnly && view.state.doc === doc && view.state.selection === selection;
+    setChangeKind("delete");
+    setChangePending(true); setChangeReview(null); setResourceReview(null); setChangeError(null);
+    const load: ResourceTransport = (route, body) => callApi("POST", route, body);
+    void (async () => {
+      const [tools, resources] = await Promise.all([import("./WorkspaceChat"), import("../simple/ResourceEditors")]);
+      const files = folderRootsRef.current[0] ?? await api.files();
+      const scope = tools.patchScope(files);
+      if (!scope || !current()) throw Error("Choose a current authored file before reviewing its deletion.");
+      const capture = captureResourceWindow(tools, scope, current);
+      const source = capture.named.get(tab.target);
+      if (!source || source.text !== authoredSource(view.state)) throw Error("The editor has no exact source to review.");
+      const edit = {documentChanges: [{kind: "delete", uri: documentUri(source.path)}]};
+      const review = await resources.prepareResourceReview(`Delete ${source.path}`, edit, crypto.randomUUID().replaceAll("-", ""),
+        async path => {
+          if (path !== source.path) throw Error("The resource preview named an unexpected file.");
+          return source.text;
+        }, async (paths, context) => {
+          const observation = await observeResourceWindow(capture, edit, paths, context, load, resources.observeResourceInputs);
+          if (observation.inputs.workspace !== scope.workspace) throw Error("The resource preview belongs to another workspace.");
+          return observation;
+        }, load, capture.current);
+      if (!review.current()) throw Error("The source changed while preparing deletion.");
+      setChangePath(0); setChangePage(0); setResourceReview({...review, operation: "save"});
+    })().catch(error => { if (visible()) setInsertNotice(String(error)); })
+      .finally(() => { if (visible()) setChangePending(false); });
+  };
   const saveResourceReview = async (review: NonNullable<typeof resourceReview>) => {
     if (changeApplying.current || !review.current()) {
       setChangeError("Source changed after review. Prepare the resource change again.");
@@ -1376,12 +1417,14 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         const identity = patch.before?.identity ?? restored?.retainedResource?.identity;
         const destination = identity ? destinations.get(identity) : undefined;
         const saved = destination && review.saved[destination.path];
-        const owner = restored && !live.tab ? plainPatchOwners.current.get(restored.id)?.() : live.owner;
+        const owner = restored && !live.tab
+          ? restored.kind === "document" ? registry.get(restored.docId)?.recordedPatchSource() : plainPatchOwners.current.get(restored.id)?.()
+          : live.owner;
         const moved = destination && destination.path !== patch.path;
         const canRetarget = !moved || (tab.kind === "file" && !destination.path.endsWith(".md") &&
           !readChangeOwner(destination.path).tab);
         if (!owner || !identity || (!patch.before && live.tab) || !canRetarget ||
-            (destination ? saved?.kind !== "file" : tab.kind !== "file")) {
+            (destination ? saved?.kind !== "file" : tab.kind !== "file" && tab.kind !== "document")) {
           throw Error(`The open editor for ${patch.path} cannot adopt this resource transition in place.`);
         }
         const before = patch.before?.text ?? destination?.text;
@@ -1414,7 +1457,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         if (moved.size) {
           providerNavigation.current++;
           setFileReferences(null);
-          setLayout(layout => retargetFileTabs(layout, moved));
+          setLayout(layout => retargetResourceTabs(layout, moved));
         }
       }, () => {
         for (const {stage} of stages) if (stage.begin) {

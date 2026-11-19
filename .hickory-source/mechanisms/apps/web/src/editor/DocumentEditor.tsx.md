@@ -273,8 +273,10 @@ rail's never skip. See editor/CardRail.tsx.
  */
 type DocumentDraftBinding = {
   roomSource: () => string;
+  setRetained: (retained: boolean) => void;
+  prepareRoom: (realtime: Realtime) => {source: () => string; install: (attach: boolean) => void; discard: () => void};
   suspendRoom: () => {attached: boolean; resume: (expected: string) => boolean};
-  prepare: (before: string, after: string, options?: {published: boolean}) => {
+  prepare: (before: string, after: string, options?: {published: boolean; restoring?: boolean}) => {
     current: () => boolean;
     commit: () => void;
     rollback: () => void;
@@ -321,6 +323,7 @@ export function DocumentEditor({
   const access = useMemo(() => new Compartment(), []);
   const parserProtection = useMemo(() => new Compartment(), []);
   const collaboration = useMemo(() => new Compartment(), []);
+  const retainedAccess = useMemo(() => new Compartment(), []);
   const languageServices = useMemo(() => new Compartment(), []);
   const completionServices = useMemo(() => new Compartment(), []);
   const parserStatus = useHickLangStatus();
@@ -469,6 +472,7 @@ export function DocumentEditor({
     const ydoc = new Y.Doc();
     const ytext = ydoc.getText("source");
     const awareness = new Awareness(ydoc);
+    let activeRoom = {doc: ydoc, text: ytext, awareness};
     // The presence color travels to peers as a literal value, so resolve the
     // theme's accent once at bind time rather than shipping a var() string.
     const presenceColor =
@@ -610,6 +614,7 @@ export function DocumentEditor({
           languageServices.of(lspExtensions ?? []),
           ...editorExtensions,
           comparisonField,
+          retainedAccess.of([]),
           access.of(sourceAccess),
           // Which buffer the Insert menu writes into. Recorded on focus
           // rather than read at insert time: opening the panel takes the
@@ -706,7 +711,39 @@ export function DocumentEditor({
     });
     viewRef.current = view;
     documentDraftBindings.set(view, {
-      roomSource: () => ytext.toString(),
+      roomSource: () => activeRoom.text.toString(),
+      setRetained(retained) {
+        view.dispatch({effects: retainedAccess.reconfigure(retained
+          ? [EditorState.readOnly.of(true), EditorView.editable.of(false)] : [])});
+      },
+      prepareRoom(realtime) {
+        const doc = new Y.Doc(), text = doc.getText("source"), presence = new Awareness(doc);
+        presence.setLocalStateField("user", activeRoom.awareness.getLocalState()?.user ?? {
+          name: localStorage.getItem("hickory.name") ?? "anonymous", color: presenceColor,
+        });
+        const fresh = {doc, text, awareness: presence};
+        // A restored room is server-owned. The fresh client starts empty.
+        realtime.bindDoc(doc, presence);
+        let installed = false;
+        return {
+          source: () => text.toString(),
+          install(attach) {
+            if (viewRef.current !== view || !view.dom.isConnected || installed) throw Error("The retained editor changed.");
+            if (attach && view.state.doc.toString() !== text.toString()) throw Error("The restored room differs from the editor.");
+            if (attach) view.dispatch({effects: collaboration.reconfigure(yCollab(text, presence))});
+            const previous = activeRoom;
+            activeRoom = fresh;
+            installed = true;
+            previous.awareness.destroy();
+            previous.doc.destroy();
+          },
+          discard() {
+            if (installed) return;
+            presence.destroy();
+            doc.destroy();
+          },
+        };
+      },
       suspendRoom() {
         const extension = view.state.facet(ySyncFacet) ? collaboration.get(view.state) : undefined;
         if (extension) view.dispatch({effects: collaboration.reconfigure([])});
@@ -714,7 +751,7 @@ export function DocumentEditor({
           attached: !!extension,
           resume(expected) {
             if (!extension) return true;
-            if (viewRef.current !== view || !view.dom.isConnected || ytext.toString() !== expected ||
+            if (viewRef.current !== view || !view.dom.isConnected || activeRoom.text.toString() !== expected ||
                 view.state.doc.toString() !== expected) return false;
             // Reuse the original sync extension and its undo manager.
             view.dispatch({effects: collaboration.reconfigure(extension)});
@@ -724,7 +761,7 @@ export function DocumentEditor({
       },
       prepare(before, after, options) {
         const state = view.state;
-        if (state.readOnly || state.doc.toString() !== before || !view.dom.isConnected) return null;
+        if ((state.readOnly && !options?.restoring) || state.doc.toString() !== before || !view.dom.isConnected) return null;
         const detach = state.facet(ySyncFacet) ? state.update({effects: collaboration.reconfigure([])}) : null;
         const changes = computeEdits(before, after).map(edit => ({from: edit.start, to: edit.end, insert: edit.text}));
         const edit = (detach?.state ?? state).update({
@@ -817,8 +854,8 @@ export function DocumentEditor({
       viewRef.current = null;
       setRailView(null);
       setOpen(null);
-      awareness.destroy();
-      ydoc.destroy();
+      activeRoom.awareness.destroy();
+      activeRoom.doc.destroy();
     };
     // Recreate the editor per document.
     // eslint-disable-next-line react-hooks/exhaustive-deps

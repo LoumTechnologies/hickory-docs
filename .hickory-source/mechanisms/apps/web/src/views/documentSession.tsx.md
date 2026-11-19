@@ -337,6 +337,7 @@ export interface DocSession {
   startDebugFile: (path: string, at?: number, choose?: boolean) => void;
   savedSource: string | null;
   detachedDraft: boolean;
+  retainedResource: boolean;
   diskReviewBase: string | null;
   needsDraftReconciliation: boolean;
   recordedPatchSource: () => RecordedPatchSource | null;
@@ -578,6 +579,12 @@ After the receipt and room agree, install the confirmed saved baseline and
 the reviewed draft in the same editor. Reuse the original room extension
 when resuming collaboration so earlier editor history stays available.
 
+Deletion retires the connection and keeps the mounted editor readable. On
+restoration, start an empty local replica and read the new room until it
+matches the confirmed saved source. Attach it to the retained editor only
+after that check. The previous replica's history is local to its old room;
+the editor's own selection and native history stay in place.
+
 <storycode:copy id="f-bfb59577f48b-useDocumentSession">
 // ---------------------------------------------------------------------------
 // The session itself (moved, near-verbatim, from views/DocumentView.tsx)
@@ -641,6 +648,8 @@ function useDocumentSession(
   const managedDraft = useRef<ManagedDraft | null>(null);
   const publishing = useRef(0);
   const resourceHold = useRef<object | null>(null);
+  const retainedRoom = useRef<"shared" | "private" | null>(null);
+  const [retainedResource, setRetainedResource] = useState(false);
   const [detached, setDetached] = useState(false);
   const [detachedSync, setDetachedSync] = useState<SyncState>("idle");
   const { savedSource: ordinarySavedSource, setSavedSource, syncState, setSyncState } = useDocumentPersistence(
@@ -666,13 +675,15 @@ function useDocumentSession(
   const requestedCellsRef = useRef<Set<string>>(new Set());
   const knownDocumentRunsRef = useRef<Set<string>>(new Set());
 
-  const realtime: Realtime = useMemo(() => {
+  const initialRealtime: Realtime = useMemo(() => {
     // In mock mode a shared local bus is registered at startup so fake run
     // events reach this session without a network socket.
     const shared = getSharedRealtime();
     if (MOCK && shared) return shared;
     return new WsRealtime(`doc:${docId}`, undefined, !!startup);
   }, [docId, startup]);
+  const [replacementRealtime, setReplacementRealtime] = useState<{docId: string; room: Realtime}>();
+  const realtime = replacementRealtime?.docId === docId ? replacementRealtime.room : initialRealtime;
 
   useEffect(() => {
     // `reopen` before `close`, and both on the same object, because the memo
@@ -682,18 +693,18 @@ function useDocumentSession(
     // first cleanup shut, and the document would never sync. A production
     // bundle never double-mounts, which is why running this app from Vite for
     // the first time is what surfaced it.
-    if (!startRoom) return;
+    if (!startRoom || retainedResource) return;
     realtime.reopen();
     return () => {
       if (realtime !== getSharedRealtime()) realtime.close();
     };
-  }, [realtime, startRoom]);
+  }, [realtime, startRoom, retainedResource]);
 
   // The debugger. It is a READER: nothing it does can change the document,
   // its generated files, or a recorded transcript — the channel carries no
   // edit operation and the debuggee runs in a scratch copy.
   const debugSources=useMemo<DebugSourceCapability>(()=>({read:uri=>{
-    const source=debugDoc.current,workspace=debugNamespace.current,revision=sourceSignal.revision;if(!source||!workspace||documentUri(source.path)!==uri)throw Error('The document source namespace is still loading or changed.');
+    const source=debugDoc.current,workspace=debugNamespace.current,revision=sourceSignal.revision;if(retainedRoom.current||!source||!workspace||documentUri(source.path)!==uri)throw Error('The document source namespace is still loading or changed.');
     const text=debugDirty.current??source.source;return {uri,workspace,namespace:workspace,identity:source.id,text,saved:text===source.source,current:()=>sourceSignal.revision===revision&&debugNamespace.current===workspace&&debugDoc.current?.id===source.id&&debugDoc.current.path===source.path&&(debugDirty.current??debugDoc.current.source)===text};
   },subscribe:sourceSignal.subscribe}),[sourceSignal]);
   const debug = useDebugger(realtime, doc?.path ?? "","new",debugSources);
@@ -705,9 +716,9 @@ function useDocumentSession(
   const recoveryObserved = useRef(false);
   useEffect(() => {
     let active = true;
-    void realtime.whenSynced().then(() => { if (active) proposalRoom.current = realtime; }, () => {});
+    if (!retainedResource) void realtime.whenSynced().then(() => { if (active) proposalRoom.current = realtime; }, () => {});
     return () => { active = false; proposalRoom.current = null; };
-  }, [realtime]);
+  }, [realtime, retainedResource]);
   // Selecting a frame — from the strip's combo box or a gutter stack mark —
   // is asking to go there, and a jump with no sign of having moved leaves
   // you hunting for what changed.
@@ -764,28 +775,32 @@ function useDocumentSession(
   const recordedPatchSource = useCallback((): RecordedPatchSource | null => {
     const source = debugDoc.current, view = editorRef.current, revision = sourceSignal.revision;
     const namespace = debugNamespace.current, workspace = proposalWorkspace.current;
-    const draft = managedDraft.current;
-    if (!source?.save_guard || !view?.dom.isConnected || view.state.readOnly || !namespace || !workspace
-      || proposalRoom.current !== realtime || resourceHold.current || publishing.current || (draft && (!draft.authority || draft.attempt))) return null;
+    const draft = managedDraft.current, retired = retainedRoom.current;
+    if (!source?.save_guard || !view?.dom.isConnected || (view.state.readOnly && !retired) || !namespace || !workspace
+      || (!retired && proposalRoom.current !== realtime) || resourceHold.current || publishing.current ||
+      (draft && (!draft.authority || draft.attempt))) return null;
     const document = view.state.doc;
     const text = document.toString(), scope = {namespace, workspace};
     const current = () => editorRef.current === view && view.dom.isConnected && view.state.doc === document
-      && sourceSignal.revision === revision && debugDoc.current === source && proposalRoom.current === realtime
+      && sourceSignal.revision === revision && debugDoc.current === source &&
+      retainedRoom.current === retired && (retired || proposalRoom.current === realtime)
       && debugNamespace.current === namespace && proposalWorkspace.current === workspace
       && managedDraft.current === draft && !publishing.current;
     return { path: source.path, text, base: source.source, guard: source.save_guard,
       revision, scope, current,
       prepareResource(after, saved, destination = source.path) {
-        if (destination !== source.path) return null;
+        if (destination !== null && destination !== source.path) return null;
         const binding = documentDraftBinding(view);
-        if (!binding || binding.roomSource() !== source.source) return null;
+        if (!binding || (!retired && binding.roomSource() !== source.source)) return null;
         let hold: ReturnType<typeof binding.suspendRoom> | undefined;
+        let replacement: {transport: Realtime; room: ReturnType<typeof binding.prepareRoom>} | undefined;
         let adopted = false;
         const ready = () => current() && (!retainUnsaved || recoveryObserved.current) && !view.composing &&
-          !view.state.readOnly && view.state.facet(EditorView.editable) &&
+          (!!retired || (!view.state.readOnly && view.state.facet(EditorView.editable))) &&
           (hold ? resourceHold.current === hold : !resourceHold.current) &&
-          (binding.roomSource() === source.source || !!hold && binding.roomSource() === saved);
-        if (!ready() || !binding.prepare(text, after, {published: true})?.current()) return null;
+          (!!retired || binding.roomSource() === source.source || !!hold && binding.roomSource() === saved);
+        const options = {published: true, restoring: !!retired};
+        if (!ready() || (destination !== null && !binding.prepare(text, after, options)?.current())) return null;
         return {
           current: ready,
           begin() {
@@ -794,23 +809,51 @@ function useDocumentSession(
             resourceHold.current = hold;
           },
           async waitForSavedSource() {
+            if (destination === null) return;
             const until = Date.now() + 5000;
-            while (ready() && binding.roomSource() !== saved && Date.now() < until) {
+            let synced = !retired;
+            if (retired) {
+              const transport = new WsRealtime(`doc:${source.id}`);
+              replacement = {transport, room: binding.prepareRoom(transport)};
+              void transport.whenSynced().then(() => { synced = true; });
+            }
+            const roomSource = replacement?.room.source ?? binding.roomSource;
+            while (ready() && (!synced || roomSource() !== saved) && Date.now() < until) {
               await new Promise(resolve => window.setTimeout(resolve, 25));
             }
-            if (!ready() || binding.roomSource() !== saved) {
+            if (!ready() || !synced || roomSource() !== saved) {
               throw Error("The published source and the current document room could not be reconciled.");
             }
           },
           adopt(authority) {
-            if (!authority) throw Error("The managed editor needs confirmed saved authority.");
-            const adoption = binding.prepare(text, after, {published: true});
-            if (!hold || !ready() || !adoption?.current() || binding.roomSource() !== saved) {
+            if (!hold || !ready()) throw Error("The managed editor changed during resource publication.");
+            if (destination === null) {
+              if (authority) throw Error("The deleted document received live source authority.");
+              retainedRoom.current = draft || !hold.attached ? "private" : "shared";
+              binding.setRetained(true);
+              managedDraft.current = null;
+              setRetainedResource(true);
+              proposalRoom.current = null;
+              realtime.close();
+              sourceSignal.changed();
+              adopted = true;
+              return;
+            }
+            const adoption = binding.prepare(text, after, options);
+            if (!authority || !adoption?.current() || (replacement?.room.source ?? binding.roomSource)() !== saved) {
               throw Error("The managed editor changed during resource publication.");
             }
-            const keepPrivate = !!draft || after !== saved || !hold.attached;
+            const keepPrivate = after !== saved || (retired ? retired === "private" : !!draft || !hold.attached);
             adoption.commit();
-            if (!keepPrivate && !hold.resume(saved)) throw Error("Could not resume the confirmed document room.");
+            if (replacement) {
+              replacement.room.install(!keepPrivate);
+              setReplacementRealtime({docId, room: replacement.transport});
+              binding.setRetained(false);
+              retainedRoom.current = null;
+              setRetainedResource(false);
+            } else if (!keepPrivate && !hold.resume(saved)) {
+              throw Error("Could not resume the confirmed document room.");
+            }
             managedDraft.current = keepPrivate ? {
               view, disk: saved, recoveryBase: saved, authority: {room: saved, guard: authority.guard, scope},
             } : null;
@@ -826,7 +869,10 @@ function useDocumentSession(
           release() {
             if (!hold || resourceHold.current !== hold) return;
             resourceHold.current = null;
-            if (adopted || !hold.attached || editorRef.current !== view || !view.dom.isConnected) return;
+            if (adopted) return;
+            replacement?.transport.close();
+            replacement?.room.discard();
+            if (!hold.attached || editorRef.current !== view || !view.dom.isConnected) return;
             if (hold.resume(source.source)) return;
             // Newer local text or an uncertain room result must stay private.
             managedDraft.current = {view, disk: source.source, recoveryBase: source.source, authority: null};
@@ -837,7 +883,7 @@ function useDocumentSession(
       },
       prepareDraft(after) {
         const binding = documentDraftBinding(view), room = binding?.roomSource();
-        if (!current() || resourceHold.current || (retainUnsaved && !recoveryObserved.current) ||
+        if (retired || !current() || resourceHold.current || (retainUnsaved && !recoveryObserved.current) ||
             room === undefined || room !== (draft?.authority?.room ?? text)) return null;
         const editor = binding?.prepare(text, after);
         if (!editor) return null;
@@ -867,11 +913,12 @@ function useDocumentSession(
           },
         };
       } };
-  }, [realtime, sourceSignal, setDirtySource, retainUnsaved, refreshRender, setDoc, setSavedSource, setSyncState]);
+  }, [docId, realtime, sourceSignal, setDirtySource, retainUnsaved, refreshRender, setDoc, setSavedSource, setSyncState]);
   const loadedDoc = useRef(doc); loadedDoc.current = doc;
   const refresh = useCallback(() => {
-    api.doc(docId).then(d => { if (!managedDraft.current) { setDoc(d); setFatalError(null); } }, e => {
-      if (managedDraft.current) return;
+    if (retainedRoom.current) return;
+    api.doc(docId).then(d => { if (!retainedRoom.current && !managedDraft.current) { setDoc(d); setFatalError(null); } }, e => {
+      if (retainedRoom.current || managedDraft.current) return;
       if (loadedDoc.current) setBanner({ kind: "fail", text: `Could not reload ${loadedDoc.current.path}: ${String(e.message ?? e)}`, retry: { label: "Retry reload", run: refresh } });
       else setFatalError(String(e.message ?? e));
     });
@@ -899,7 +946,7 @@ function useDocumentSession(
   // Recovery drafts are separate from acknowledged file persistence.
   // Previously named files opt into recovery; Untitled has its own policy.
   useDraftKeeper({
-    path: doc?.path ?? null,
+    path: retainedResource ? null : doc?.path ?? null,
     enabled: retainUnsaved && doc !== null && savedSource !== null && (!startup || startupRoomReady),
     read: () => {
       const draft = managedDraft.current;
@@ -1187,7 +1234,7 @@ function useDocumentSession(
   // room observations. A retry keeps the submitted bytes and request ID.
   const menuSave = useCallback(async () => {
     const { doc, dirtySource } = menuStateRef.current;
-    if (!doc || resourceHold.current || (startup && (!previewConfirmed.current || !editorRef.current)) || editorRef.current?.state.readOnly) return false;
+    if (!doc || retainedRoom.current || resourceHold.current || (startup && (!previewConfirmed.current || !editorRef.current)) || editorRef.current?.state.readOnly) return false;
     const draft = managedDraft.current;
     if (draft) {
       if (publishing.current) return false;
@@ -1358,7 +1405,7 @@ function useDocumentSession(
           profile=>debug.start(path, {}, context,profile), {choose,isCurrent:()=>!editorRef.current || editorRef.current.state.doc.toString()===source});
     });
   }, [doc, liveSource, menuSave, debug.start]);
-  const lsp = useLsp(realtime, doc?.path ?? "", liveSource);
+  const lsp = useLsp(realtime, retainedResource ? "" : doc?.path ?? "", liveSource);
   // The callbacks below read the live text at the moment they are CALLED,
   // through a ref, rather than closing over it: closing over it would give
   // them a new identity on every keystroke, and the session they belong to
@@ -1622,6 +1669,7 @@ function useDocumentSession(
     liveSource: dirtySource ?? doc?.source ?? "",
     savedSource,
     detachedDraft: detached,
+    retainedResource,
     diskReviewBase: managedDraft.current?.recoveryBase ?? savedSource,
     needsDraftReconciliation: detached && managedDraft.current?.authority === null,
     recordedPatchSource,

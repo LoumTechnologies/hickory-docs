@@ -112,6 +112,41 @@ describe("DocumentEditor (WYSIWYG over raw source)", () => {
     expect(binding.roomSource()).toBe(view.state.doc.toString());
   });
 
+  it("joins a fresh restored room without replaying the retired replica or remounting the editor", async () => {
+    const source = "# Saved\nBody\n";
+    const original = new LocalRealtime(), restored = new LocalRealtime();
+    let oldDoc!: YDoc, newDoc!: YDoc;
+    vi.spyOn(original, "bindDoc").mockImplementation(doc => { oldDoc = doc; });
+    vi.spyOn(restored, "bindDoc").mockImplementation(doc => { newDoc = doc; });
+    render(<DocumentEditor docId="restored-notes" initialSource={source} realtime={original}
+      reflowOnOpen={false} execBlocks={[]} runningCells={new Set()} onRunCell={() => {}} />);
+    const view = (window as unknown as {__hickoryView: EditorViewType}).__hickoryView;
+    await waitFor(() => expect(view.state.doc.toString()).toBe(source));
+    const binding = documentDraftBinding(view)!;
+    act(() => {
+      view.dispatch({selection: {anchor: 3, head: 5}});
+      binding.suspendRoom();
+      binding.setRetained(true);
+    });
+    const selection = view.state.selection;
+    expect(view.state.readOnly).toBe(true);
+    const replacement = binding.prepareRoom(restored);
+    expect(replacement.source()).toBe("");
+    act(() => { newDoc.getText("source").insert(0, source); });
+    expect(binding.roomSource()).toBe(oldDoc.getText("source").toString());
+    expect(view.state.selection).toBe(selection);
+    act(() => {
+      replacement.install(true);
+      binding.setRetained(false);
+    });
+    expect(view.state.readOnly).toBe(false);
+    expect(view.state.selection).toBe(selection);
+    act(() => view.dispatch({changes: {from: source.length, insert: "new typing"}, userEvent: "input.type"}));
+    expect(newDoc.getText("source").toString()).toBe(source + "new typing");
+    expect(oldDoc.getText("source").toString()).toBe(source);
+    expect(documentDraftBinding(view)).toBe(binding);
+  });
+
   it("keeps mixed CRLF startup readable and refuses an edit without byte-exact collaboration", async () => {
     const path = "mixed.md", id = "b".repeat(16), source = "# Mixed document\r\nFirst line\nSecond line\r\n";
     let room!: YDoc, finish!: () => void;

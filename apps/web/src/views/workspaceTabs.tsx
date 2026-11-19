@@ -20,7 +20,7 @@ import type { EditorView } from "@codemirror/view";
 
 import { api } from "../api/client";
 import type { PlainFile } from "../api/types";
-import { LocalRealtime } from "../api/realtime";
+import { LocalRealtime, type Realtime } from "../api/realtime";
 import { DocumentEditor } from "../editor/DocumentEditor";
 import type { TableLayout } from "../components/TablePanel";
 import { DebugStrip } from "../debug/DebugStrip";
@@ -162,6 +162,10 @@ export function DocTabBody({
   onTableLayout?: (key: string, size: TableLayout) => void;
 }) {
   const session = useDocSession(registry, docId);
+  // The session replaces a retired room through the mounted editor binding.
+  // The construction prop stays fixed for this editor's lifetime.
+  const mountedRoom = useRef<{docId: string; realtime: Realtime} | null>(null);
+  if (session && mountedRoom.current?.docId !== docId) mountedRoom.current = {docId, realtime: session.realtime};
   // Keep the first preview for the editor that mounted from it. When a
   // generated tab keeps the session alive, a later document open can use
   // the now-confirmed room instead of replaying the old preview.
@@ -184,10 +188,13 @@ export function DocTabBody({
 
   return (
     <div className="debug-block">
-      <SurfaceInfo name={`Document · ${path}`} editable={connected} destination={connected
-        ? session.detachedDraft ? "Changes stay in this draft until Save is confirmed." : "Edits save automatically to this document on disk."
-        : "Read-only source preview."} />
-      {doc && connected ? <>
+      <SurfaceInfo name={`Document · ${path}`} editable={connected && !session.retainedResource}
+        destination={session.retainedResource ? "Deleted source. Restore it through Undo workspace change." : connected
+          ? session.detachedDraft ? "Changes stay in this draft until Save is confirmed." : "Edits save automatically to this document on disk."
+          : "Read-only source preview."} />
+      {session.retainedResource ? <PaneHeaderContent part="info">
+        <span className="save-state" role="status">Deleted source</span>
+      </PaneHeaderContent> : doc && connected ? <>
       <DocToolbar
         docId={docId}
         path={doc.path}
@@ -264,23 +271,24 @@ export function DocTabBody({
         startup={startup}
         startupAuthorized={!!doc}
         onStartupRoomReady={session.onStartupRoomReady}
-        realtime={session.realtime}
+        realtime={mountedRoom.current?.realtime ?? session.realtime}
+        readOnly={session.retainedResource}
         onChange={session.setDirtySource}
         selectSpan={session.selectSpan}
-        execBlocks={session.execBlocks}
+        execBlocks={session.retainedResource ? [] : session.execBlocks}
         diagramBlocks={session.diagramBlocks}
         runningCells={session.runningCells}
         onRunCell={session.runCell}
         lspExtensions={session.lspExtensions}
         lspDiagnostics={session.lspDiagnostics}
         lspCompletion={session.lspCompletion}
-        onDebugFile={session.startDebugFile}
+        onDebugFile={session.retainedResource ? undefined : session.startDebugFile}
         onViewReady={session.onDocViewReady}
         wrapColumn={wrapColumn}
         onWrapColumn={onWrapColumn}
         tableLayouts={tableLayouts}
         onTableLayout={onTableLayout}
-        path={path}
+        path={session.retainedResource ? null : path}
       />
     </div>
   );
