@@ -1369,8 +1369,19 @@ indented Unicode and CRLF source. The protocol also exercised dirty changes,
 Undo, close and unsupported edit requests. Rendered browser navigation and
 mounted macOS and Android controller inspections reached the authored
 locations and preserved the original editor, saved bytes and workspace files.
-iOS feature runtime, rendered Android, physical input and assistive technology
-remain unverified for this flow.
+The current Android replay used genuine basedpyright and TypeScript
+Language Server on the same CRLF and Unicode fixture. The exact engine
+returned both authored definitions and resolved subsequent requests
+from each declaration. One native attempt launched Hickory and read
+Files successfully, but the test helper could not read the active window.
+In the final attempt Android lost its Activity and Package services during
+accessibility instrumentation, after installing both APKs. The native
+runner did not open the Markdown document or select either Definition
+result. See
+`target/parity-rendered-android.sgYIt7/continuation-receipts/final-android-rke6bmx3/`
+and `target/parity-rendered-android.sgYIt7/continuation-receipts/final-android-451cea1t/`.
+Rendered Android and iOS runtime acceptance remain open for this flow.
+Physical input and assistive technology remain unverified.
 
 ## Debug a saved Rust test selection through Cargo and LLDB
 
