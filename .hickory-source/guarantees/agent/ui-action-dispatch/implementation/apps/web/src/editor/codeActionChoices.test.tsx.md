@@ -22,7 +22,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { EditorState } from "@codemirror/state";
 import { cmKeyOf } from "../lib/keymap";
 import { EditorView, keymap } from "@codemirror/view";
-import { lspFeatures, type CodeActionPreviewRequest } from "../lsp/cmLspFeatures";
+import { lspFeatures, type ProviderPreviewRequest } from "../lsp/cmLspFeatures";
 import type { LspClient } from "../lsp/client";
 import { UiActions } from "../lib/uiActions";
 import { UiActionContext } from "../lib/uiActionBridge";
@@ -91,14 +91,14 @@ it("hands Main the original range and invalidates the preview when its editor co
   const codeActions = vi.fn().mockResolvedValue([action]);
   const client = {codeActions, request, foldingRanges: async () => []} as unknown as LspClient;
   let context = 0;
-  const preview = vi.fn(async (_preview: CodeActionPreviewRequest) => ({status: "completed" as const, value: {preview_ready: true}}));
+  const preview = vi.fn(async (_preview: ProviderPreviewRequest) => ({status: "completed" as const, value: {preview_ready: true}}));
   const host = document.createElement("div");
   document.body.append(host);
   const view = new EditorView({parent: host, state: EditorState.create({
     doc: "bad", selection: {anchor: 0, head: 2},
     extensions: lspFeatures({
       client, uri: "file.py", positionAt: p => ({line: 0, character: p}), offsetAt: p => p.character,
-      onCodeActions: actions => actions[0], onCodeActionPreview: preview,
+      onCodeActions: actions => actions[0], onProviderPreview: preview,
       captureChangeContext: () => {
         const original = context;
         return () => context === original;
@@ -110,6 +110,7 @@ it("hands Main the original range and invalidates the preview when its editor co
     await act(async () => { expect(binding.run!(view)).toBe(true); });
     expect(preview).toHaveBeenCalledOnce();
     const captured = preview.mock.calls[0][0];
+    if (captured.kind !== "code action") throw Error("Expected the captured code action");
     expect(captured.range).toEqual({start: {line: 0, character: 0}, end: {line: 0, character: 2}});
     expect(captured.action).toEqual(action);
     expect(captured.current()).toBe(true);

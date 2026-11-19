@@ -2927,6 +2927,20 @@ writes. See `target/main-code-action-fixed-v1/browser.json` and
 also passed the existing Python rename replay at
 `target/main-rename-shared-preview-v1/browser.json`.
 
+Main's explicit Format document shortcut and Preview formatting in Commands
+request source-bound formatting. The formatter's whole proposal uses the
+same exact source proofs, Before and After, draft Apply, and coordinated
+Undo and Redo as Rename. Save continues to use the existing format-on-save
+setting and formatter entry point.
+
+Chromium drove both Main entry points with Apple clangd. It checked nine
+provider edits against the original source, applied them to a draft, and
+restored both exact versions through Undo and Redo. A caret move before
+Apply refused the preview and a fresh request succeeded. The same editor
+stayed mounted and the saved source stayed unchanged. See
+`target/main-formatting-guarded-v1/browser.json` and
+`target/main-formatting-command-v1/browser.json`.
+
 Focused rebuilt-engine replays also passed for Python definition and
 Back/Forward, workspace search, delayed first-open authority and capabilities,
 and Debug and guarded patch review on both recorded Agent message sides.

@@ -1321,10 +1321,9 @@ export interface LspFeatureOptions {
   inlayHints?: boolean;
   /** Ask the user for a new name; null cancels. */
   onRename?: (current: string) => Promise<string | null> | string | null;
-  onRenamePreview?: (request: RenamePreviewRequest) => Promise<UiOutcome>;
-  onCodeActionPreview?: (request: CodeActionPreviewRequest) => Promise<UiOutcome>;
+  onProviderPreview?: (request: ProviderPreviewRequest) => Promise<UiOutcome>;
   captureChangeContext?: () => () => boolean;
-  /** Offer a list of code actions; the chosen one is applied. */
+  /** Offer retained code actions for the editor or workspace to handle. */
   onCodeActions?: (actions: CodeAction[]) => Promise<CodeAction | null> | CodeAction | null;
   /** Report something the user needs to know (a refused rename, say). */
   onMessage?: (message: string) => void;
@@ -1347,6 +1346,14 @@ export function lspFeatures(opts: LspFeatureOptions): Extension[] {
   const fields = [semanticTokenField, highlightField, inlayHintField, signatureField, signatureRenderer, annotationReading(opts.uri)];
   if (!client) return fields;
   const codeActions = codeActionController(opts, applyEdit);
+  const canFormat = (view: EditorView) => !view.state.readOnly && view.state.facet(EditorView.editable) &&
+    (!opts.rangeAt || !!opts.positionAt(view.state.selection.main.head, view)) &&
+    (!opts.onProviderPreview || (view.dom.isConnected && !view.composing));
+  const formatAt = (view: EditorView, paletteCurrent?: () => boolean) => {
+    if (opts.onProviderPreview) void previewFormatting(view, opts, undefined, paletteCurrent);
+    else void formatView(view);
+    return true;
+  };
 
   return [
     ...codeActions.extensions,
@@ -1362,22 +1369,18 @@ export function lspFeatures(opts: LspFeatureOptions): Extension[] {
         { key: cmKeyOf("editor.codeAction"), run: (view: EditorView) => codeActions.human(view) },
         {
           key: cmKeyOf("editor.format"),
-          run: (view: EditorView) => {
-            void formatView(view);
-            return true;
-          },
+          run: (view: EditorView) => formatAt(view),
         },
       ].filter((binding): binding is { key: string; run: (view: EditorView) => boolean } => binding.key !== null),
     ),
-    keymap.of(formatOptionFallback(bindingOf("editor.format"), view => {
-      void formatView(view);
-      return true;
-    })),
+    keymap.of(formatOptionFallback(bindingOf("editor.format"), view => formatAt(view))),
     formatter.of((view) => formatDocument(view, opts)),
     editorLanguageActions.of({
-      id: `${opts.uri}:format`, label: `Format editor source (${opts.uri.slice(0, 200)})`, parameters: {},
-      enabled: view => !view.state.readOnly && view.state.facet(EditorView.editable) && (!opts.rangeAt || !!opts.positionAt(view.state.selection.main.head, view)),
+      id: `${opts.uri}:format`, label: `${opts.onProviderPreview ? "Preview formatting for" : "Format"} editor source (${opts.uri.slice(0, 200)})`, parameters: {},
+      enabled: canFormat,
+      command: opts.onProviderPreview ? {id: "format", label: "Preview formatting", run: formatAt} : undefined,
       execute: async (view, _args, signal) => {
+        if (opts.onProviderPreview) return previewFormatting(view, opts, signal);
         const applied = await formatDocument(view, opts, signal);
         return { status: "completed", value: { source_changed: applied, saved: false, verified: false, scope: "Actual shared formatter result; false means no changes applied, not verified formatting" } };
       },
@@ -1787,23 +1790,20 @@ function renameAt(view: EditorView, opts: LspFeatureOptions): boolean {
 ### `renameSymbol`
 
 <storycode:copy id="f-a12307572b4c-renameSymbol">
-export type CodeActionPreviewRequest = {
-  client: LspClient; uri: string; view: EditorView; range: LspRange;
-  action: CodeAction; current: () => boolean;
-};
-
-export type RenamePreviewRequest = {
-  client: LspClient; uri: string; position: LspPosition; view: EditorView;
-  previous: string; name: string; current: () => boolean;
-};
+type SourcePreviewRequest = {client: LspClient; uri: string; view: EditorView; current: () => boolean};
+export type ProviderPreviewRequest = SourcePreviewRequest & (
+  | {kind: "code action"; range: LspRange; action: CodeAction}
+  | {kind: "rename"; position: LspPosition; previous: string; name: string}
+  | {kind: "formatting"; options: {tabSize: number; insertSpaces: boolean}}
+);
 
 export async function renameSymbol(view: EditorView, opts: LspFeatureOptions, askName: NonNullable<LspFeatureOptions["onRename"]>, signal?: AbortSignal): Promise<UiOutcome> {
   const original = view.state.doc;
   const selection = view.state.selection;
-  const context = opts.onRenamePreview ? opts.captureChangeContext?.() : undefined;
+  const context = opts.onProviderPreview ? opts.captureChangeContext?.() : undefined;
   const { client, uri, positionAt, offsetAt, onMessage } = opts;
   const current = () => view.state.doc === original && !view.state.readOnly && view.state.facet(EditorView.editable) && !signal?.aborted &&
-    (!opts.onRenamePreview || (view.dom.isConnected && !view.composing && view.state.selection === selection && (!context || context())));
+    (!opts.onProviderPreview || (view.dom.isConnected && !view.composing && view.state.selection === selection && (!context || context())));
   const refuse = (reason: string): UiOutcome => { onMessage?.(reason); return { status: "unavailable", reason }; };
   const position = positionAt(view.state.selection.main.head, view);
   if (!client || !current() || !position) return refuse("Rename needs a writable mapped source position.");
@@ -1817,8 +1817,8 @@ export async function renameSymbol(view: EditorView, opts: LspFeatureOptions, as
     const next = await askName(previous);
     if (!current()) return refuse("The buffer changed. Request rename again.");
     if (!next || next === previous) return { status: "completed", value: { source_changed: false, cancelled_or_unchanged: true } };
-    if (opts.onRenamePreview) {
-      return await opts.onRenamePreview({client, uri, position, view, previous, name: next, current});
+    if (opts.onProviderPreview) {
+      return await opts.onProviderPreview({kind: "rename", client, uri, position, view, previous, name: next, current});
     }
     const edit = await client.rename(uri, position, next);
     if (!current()) return refuse("The buffer changed. Request rename again.");
@@ -1865,6 +1865,36 @@ export async function formatView(view: EditorView): Promise<boolean> {
 }
 
 </storycode:copy>
+### Preview formatting on explicit request
+
+The keyboard shortcut and Commands entry hand Main an immutable editor lease.
+The preview can cross authored files if the provider returns proven edits for
+each target. A caret move, new command or retired editor invalidates the lease.
+Save's formatter facet still submits its own guarded edit before the save.
+
+<storycode:copy id="main-preview-formatting">
+async function previewFormatting(view: EditorView, opts: LspFeatureOptions, signal?: AbortSignal, paletteCurrent?: () => boolean): Promise<UiOutcome> {
+  const {client, uri, onProviderPreview, onMessage} = opts;
+  const {doc, selection, tabSize} = view.state;
+  const context = opts.captureChangeContext?.();
+  const current = () => view.dom.isConnected && view.state.doc === doc && view.state.selection === selection &&
+    !view.composing && !view.state.readOnly && view.state.facet(EditorView.editable) &&
+    !signal?.aborted && (!context || context()) && (!paletteCurrent || paletteCurrent());
+  const refuse = (reason: string): UiOutcome => { onMessage?.(reason); return {status: "unavailable", reason}; };
+  if (!client || !onProviderPreview || !current() || (opts.rangeAt && !opts.positionAt(selection.main.head, view))) {
+    return refuse("Choose writable source before requesting formatting.");
+  }
+  const options = {tabSize, insertSpaces: !/^\t/m.test(doc.toString())};
+  try {
+    return await onProviderPreview({kind: "formatting", client, uri, view, options, current});
+  } catch (error) {
+    if (!current()) return {status: "unavailable", reason: "Formatting preview superseded."};
+    return refuse(error instanceof Error ? error.message : String(error));
+  }
+}
+
+</storycode:copy>
+
 <a id="f-a12307572b4c-formatDocument"></a>
 ### `formatDocument`
 
@@ -1935,7 +1965,7 @@ function applyEdit(view: EditorView, edit: WorkspaceEdit | null, opts: LspFeatur
 
 The selections below preserve the original byte order. Narrative reading order does not change the output.
 
-<storycode:file path="apps/web/src/lsp/cmLspFeatures.ts"><storycode:paste select="#f-a12307572b4c-Span"/><storycode:paste select="#f-a12307572b4c-setSemanticTokens"/><storycode:paste select="#f-a12307572b4c-semanticTokenField"/><storycode:paste select="#f-a12307572b4c-setHighlights"/><storycode:paste select="#f-a12307572b4c-highlightField"/><storycode:paste select="#f-a12307572b4c-buildMarks"/><storycode:paste select="#f-a12307572b4c-InlayWidget"/><storycode:paste select="#f-a12307572b4c-setInlayHints"/><storycode:paste select="#f-a12307572b4c-inlayHintField"/><storycode:paste select="#f-a12307572b4c-inlayText"/><storycode:paste select="#f-a12307572b4c-editsForUri"/><storycode:paste select="#f-a12307572b4c-urisInEdit"/><storycode:paste select="#f-a12307572b4c-LspFeatureOptions"/><storycode:paste select="#f-a12307572b4c-REFRESH_DELAY_MS"/><storycode:paste select="#f-a12307572b4c-lspFeatures"/><storycode:paste select="#f-a12307572b4c-refreshPlugin"/><storycode:paste select="#f-a12307572b4c-setSignatureHelp"/><storycode:paste select="#f-a12307572b4c-signatureField"/><storycode:paste select="#f-a12307572b4c-signatureRenderer"/><storycode:paste select="#f-a12307572b4c-signatureHelpTooltip"/><storycode:paste select="#f-a12307572b4c-annotationReading"/><storycode:paste select="#f-a12307572b4c-signatureLabel"/><storycode:paste select="#f-a12307572b4c-foldFromServer"/><storycode:paste select="#f-a12307572b4c-FoldSpan"/><storycode:paste select="#f-a12307572b4c-foldServiceFor"/><storycode:paste select="#f-a12307572b4c-semanticLegend"/><storycode:paste select="#f-a12307572b4c-renameAt"/><storycode:paste select="#f-a12307572b4c-renameSymbol"/><storycode:paste select="#f-a12307572b4c-formatter"/><storycode:paste select="#f-a12307572b4c-formatView"/><storycode:paste select="#f-a12307572b4c-formatDocument"/><storycode:paste select="#f-a12307572b4c-applyLanguageBatch"/><storycode:paste select="#f-a12307572b4c-applyEdit"/></storycode:file>
+<storycode:file path="apps/web/src/lsp/cmLspFeatures.ts"><storycode:paste select="#f-a12307572b4c-Span"/><storycode:paste select="#f-a12307572b4c-setSemanticTokens"/><storycode:paste select="#f-a12307572b4c-semanticTokenField"/><storycode:paste select="#f-a12307572b4c-setHighlights"/><storycode:paste select="#f-a12307572b4c-highlightField"/><storycode:paste select="#f-a12307572b4c-buildMarks"/><storycode:paste select="#f-a12307572b4c-InlayWidget"/><storycode:paste select="#f-a12307572b4c-setInlayHints"/><storycode:paste select="#f-a12307572b4c-inlayHintField"/><storycode:paste select="#f-a12307572b4c-inlayText"/><storycode:paste select="#f-a12307572b4c-editsForUri"/><storycode:paste select="#f-a12307572b4c-urisInEdit"/><storycode:paste select="#f-a12307572b4c-LspFeatureOptions"/><storycode:paste select="#f-a12307572b4c-REFRESH_DELAY_MS"/><storycode:paste select="#f-a12307572b4c-lspFeatures"/><storycode:paste select="#f-a12307572b4c-refreshPlugin"/><storycode:paste select="#f-a12307572b4c-setSignatureHelp"/><storycode:paste select="#f-a12307572b4c-signatureField"/><storycode:paste select="#f-a12307572b4c-signatureRenderer"/><storycode:paste select="#f-a12307572b4c-signatureHelpTooltip"/><storycode:paste select="#f-a12307572b4c-annotationReading"/><storycode:paste select="#f-a12307572b4c-signatureLabel"/><storycode:paste select="#f-a12307572b4c-foldFromServer"/><storycode:paste select="#f-a12307572b4c-FoldSpan"/><storycode:paste select="#f-a12307572b4c-foldServiceFor"/><storycode:paste select="#f-a12307572b4c-semanticLegend"/><storycode:paste select="#f-a12307572b4c-renameAt"/><storycode:paste select="#f-a12307572b4c-renameSymbol"/><storycode:paste select="#f-a12307572b4c-formatter"/><storycode:paste select="#f-a12307572b4c-formatView"/><storycode:paste select="#main-preview-formatting"/><storycode:paste select="#f-a12307572b4c-formatDocument"/><storycode:paste select="#f-a12307572b4c-applyLanguageBatch"/><storycode:paste select="#f-a12307572b4c-applyEdit"/></storycode:file>
 
 ## Test the behavior: `a_plain_rust_file_formats_with_rustfmt_through_the_language_server`
 

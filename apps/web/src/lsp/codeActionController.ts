@@ -33,7 +33,7 @@ export function codeActionController(opts: LspFeatureOptions, apply: (view: Edit
     const start = opts.positionAt(selection.main.from, view), end = opts.positionAt(selection.main.to, view) ?? start;
     if (!client || !writable(view) || !start || !end) return refuse("Code actions need a writable mapped source selection.");
     const range = {start, end};
-    const context = opts.onCodeActionPreview ? opts.captureChangeContext?.() : undefined;
+    const context = opts.onProviderPreview ? opts.captureChangeContext?.() : undefined;
     try {
       const actions = await client.codeActions(uri, range);
       if(request!==query||signal?.aborted||!view.dom.isConnected)return {status:"unavailable",reason:"Code action query superseded."};
@@ -51,13 +51,13 @@ export function codeActionController(opts: LspFeatureOptions, apply: (view: Edit
     const selected = capture.choices.find(choice => choice.id === id)?.action;
     if (!selected) return refuse("Choose an action from this retained provider snapshot.");
     if (selected.disabled) return refuse(selected.disabled.reason);
-    if (opts.onCodeActionPreview) {
+    if (opts.onProviderPreview) {
       const current = () => choice === choiceEpoch && captured === capture && !signal?.aborted && matches(view, capture);
       if (capture.choices.filter(({action}) => action.title === selected.title && action.kind === selected.kind).length !== 1) {
         return refuse("The provider returned indistinguishable choices. Select a more specific source range and try again.");
       }
       try {
-        return await opts.onCodeActionPreview({client: opts.client!, uri: opts.uri, view, range: capture.range, action: selected, current});
+        return await opts.onProviderPreview({kind: "code action", client: opts.client!, uri: opts.uri, view, range: capture.range, action: selected, current});
       } catch (error) {
         return current() ? refuse(error instanceof Error ? error.message : String(error)) :
           {status: "unavailable", reason: "Code action choice superseded."};
@@ -97,7 +97,7 @@ export function codeActionController(opts: LspFeatureOptions, apply: (view: Edit
         return { status: "completed", value: { snapshot: capture.id, bytes: Array.from(capture.bytes.slice(offset, end)), offset, encoding: "JSON UTF-8", total_bytes: capture.bytes.length, next_offset: end < capture.bytes.length ? end : null } };
       },
     }),
-    editorLanguageActions.of({ id: `${opts.uri}:actions-choose`, label: `${opts.onCodeActionPreview ? "Preview" : "Apply"} captured editor code action (${opts.uri.slice(0, 200)})`, revision: () => captured?.id,
+    editorLanguageActions.of({ id: `${opts.uri}:actions-choose`, label: `${opts.onProviderPreview ? "Preview" : "Apply"} captured editor code action (${opts.uri.slice(0, 200)})`, revision: () => captured?.id,
       parameters: { snapshot: { type: "string", maxLength: 128 }, choice: { type: "string", maxLength: 128 } }, enabled: view => !!captured && matches(view, captured),
       execute: async (view, args, signal) => !captured || captured.id !== args.snapshot ? refuse("Code action snapshot changed. Inspect current choices again.") : choose(view, captured, args.choice as string, signal),
     }),

@@ -98,7 +98,7 @@ import {
   type RelatedLocationReading,
   type LocalSourceNavigation,
 } from "../lsp/cmLsp";
-import { lspFeatures, type CodeActionPreviewRequest, type RenamePreviewRequest } from "../lsp/cmLspFeatures";
+import { lspFeatures, type ProviderPreviewRequest } from "../lsp/cmLspFeatures";
 import type { UiOutcome } from "../lib/uiActions";
 import type { CodeAction, LspLocation } from "../lsp/client";
 import type { ReferenceReading } from "./ReferencesPanel";
@@ -148,8 +148,7 @@ export function PlainFilePane({
   captureNavigationContext,
   onRelatedLocations,
   onLocalNavigation,
-  onRenamePreview,
-  onCodeActionPreview,
+  onProviderPreview,
   askText,
   askChoice,
   retainUnsaved = false,
@@ -171,8 +170,7 @@ export function PlainFilePane({
   captureNavigationContext?: () => () => boolean;
   onRelatedLocations?: (reading: RelatedLocationReading) => void;
   onLocalNavigation?: LocalSourceNavigation;
-  onRenamePreview?: (request: RenamePreviewRequest) => Promise<UiOutcome>;
-  onCodeActionPreview?: (request: CodeActionPreviewRequest) => Promise<UiOutcome>;
+  onProviderPreview?: (request: ProviderPreviewRequest) => Promise<UiOutcome>;
   /** The window's prompt, for a rename's new name. */
   askText?: ReturnType<typeof usePrompt>["askText"];
   /** The window's prompt, for choosing a code action. */
@@ -244,10 +242,8 @@ export function PlainFilePane({
   onRelatedLocationsRef.current = onRelatedLocations;
   const onLocalNavigationRef = useRef(onLocalNavigation);
   onLocalNavigationRef.current = onLocalNavigation;
-  const onRenamePreviewRef = useRef(onRenamePreview);
-  onRenamePreviewRef.current = onRenamePreview;
-  const onCodeActionPreviewRef = useRef(onCodeActionPreview);
-  onCodeActionPreviewRef.current = onCodeActionPreview;
+  const providerPreviewRef = useRef(onProviderPreview);
+  providerPreviewRef.current = onProviderPreview;
   const askTextRef = useRef(askText);
   askTextRef.current = askText;
   const askChoiceRef = useRef(askChoice);
@@ -667,8 +663,7 @@ export function PlainFilePane({
             offsetAt: (position, view) => positionToOffset(view.state.doc, position),
             inlayHints: true,
             captureChangeContext: captureNavigationContext,
-            onCodeActionPreview: onCodeActionPreviewRef.current ? request => onCodeActionPreviewRef.current!(request) : undefined,
-            onRenamePreview: onRenamePreviewRef.current ? request => onRenamePreviewRef.current!(request) : undefined,
+            onProviderPreview: providerPreviewRef.current ? request => providerPreviewRef.current!(request) : undefined,
             onRename: (current) =>
               askTextRef.current
                 ? askTextRef.current(`Rename "${current}" to:`, current, { agent: true, currentRevision: () => viewRef.current?.state.doc })

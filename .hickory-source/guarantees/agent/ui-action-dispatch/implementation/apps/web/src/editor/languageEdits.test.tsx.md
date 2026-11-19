@@ -21,11 +21,12 @@ import { act, cleanup, render, waitFor } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { Compartment, EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
-import { formatView, lspFeatures, renameSymbol } from "../lsp/cmLspFeatures";
+import { formatView, lspFeatures, renameSymbol, type ProviderPreviewRequest } from "../lsp/cmLspFeatures";
 import type { LspClient } from "../lsp/client";
 import { UiActions } from "../lib/uiActions";
 import { UiActionContext } from "../lib/uiActionBridge";
 import { useEditorActions } from "./uiEditorActions";
+import { editorLanguageActions } from "./languageActions";
 afterEach(cleanup);
 </storycode:copy>
 <a id="f-241995db076e-range"></a>
@@ -117,19 +118,58 @@ it("routes Main rename into review and refuses a displaced originating caret", a
   const host = document.body.appendChild(document.createElement("div"));
   const client = {...quiet, prepareRename: vi.fn().mockResolvedValue(range(0, 6)), rename: vi.fn()} as unknown as LspClient;
   const view = new EditorView({state: EditorState.create({doc: "square"}), parent: host});
-  const onRenamePreview = vi.fn().mockResolvedValue({status: "completed", value: {preview_ready: true}});
+  const onProviderPreview = vi.fn().mockResolvedValue({status: "completed", value: {preview_ready: true}});
   const opts = {client, uri: "hick:///a.py", positionAt: (p: number) => ({line: 0, character: p}),
-    offsetAt: (p: {character: number}) => p.character, onRenamePreview};
+    offsetAt: (p: {character: number}) => p.character, onProviderPreview};
   try {
     expect(await renameSymbol(view, opts, async () => "squared")).toMatchObject({status: "completed", value: {preview_ready: true}});
-    expect(onRenamePreview).toHaveBeenCalledWith(expect.objectContaining({view, previous: "square", name: "squared"}));
+    expect(onProviderPreview).toHaveBeenCalledWith(expect.objectContaining({view, previous: "square", name: "squared"}));
     expect(await renameSymbol(view, opts, async () => {
       view.dispatch({selection: {anchor: 2}});
       return "another";
     })).toMatchObject({status: "unavailable"});
-    expect(onRenamePreview).toHaveBeenCalledOnce();
+    expect(onProviderPreview).toHaveBeenCalledOnce();
     expect(client.rename).not.toHaveBeenCalled();
     expect(view.state.doc.toString()).toBe("square");
+  } finally { view.destroy(); host.remove(); }
+});
+</storycode:copy>
+
+### Explicit formatting and format-on-save use different entry points
+
+Explicit formatting shows an editor-bound preview. The Save caller still uses
+the formatter facet and awaits the edit before submitting the save. Exercise
+both entry points on the same mounted editor to catch accidental reuse.
+
+<storycode:copy id="main-explicit-formatting-preview">
+it("previews Main's explicit formatting command and preserves the formatter used by Save", async () => {
+  const host = document.body.appendChild(document.createElement("div"));
+  const formatting = vi.fn().mockResolvedValue([{range: range(1, 3), newText: " "}]);
+  const client = {...quiet, formatting} as unknown as LspClient;
+  const onProviderPreview = vi.fn(async (_request: ProviderPreviewRequest) =>
+    ({status: "completed" as const, value: {preview_ready: true}}));
+  const view = new EditorView({parent: host, state: EditorState.create({
+    doc: "a  b", extensions: [EditorState.tabSize.of(2), lspFeatures({
+      client, uri: "hick:///a.py", positionAt: p => ({line: 0, character: p}),
+      offsetAt: p => p.character, onProviderPreview,
+    })],
+  })});
+  try {
+    const action = view.state.facet(editorLanguageActions).find(item => item.command?.id === "format");
+    expect(action?.command?.label).toBe("Preview formatting");
+    action?.command?.run(view, () => true);
+    expect(onProviderPreview).toHaveBeenCalledOnce();
+    const captured = onProviderPreview.mock.calls[0][0];
+    expect(captured).toMatchObject({kind: "formatting", options: {tabSize: 2, insertSpaces: true}});
+    expect(captured.current()).toBe(true);
+    expect(formatting).not.toHaveBeenCalled();
+    expect(view.state.doc.toString()).toBe("a  b");
+
+    expect(await formatView(view)).toBe(true);
+    expect(formatting).toHaveBeenCalledOnce();
+    expect(onProviderPreview).toHaveBeenCalledOnce();
+    expect(view.state.doc.toString()).toBe("a b");
+    expect(captured.current()).toBe(false);
   } finally { view.destroy(); host.remove(); }
 });
 </storycode:copy>
@@ -138,6 +178,6 @@ it("routes Main rename into review and refuses a displaced originating caret", a
 
 The selections below preserve the original byte order. Narrative reading order does not change the output.
 
-<storycode:file path="apps/web/src/editor/languageEdits.test.tsx"><storycode:paste select="#f-241995db076e-expression_statement"/><storycode:paste select="#f-241995db076e-range"/><storycode:paste select="#f-241995db076e-quiet"/><storycode:paste select="#f-241995db076e-expression_statement-2"/><storycode:paste select="#f-241995db076e-expression_statement-3"/><storycode:paste select="#f-241995db076e-expression_statement-4"/></storycode:file>
+<storycode:file path="apps/web/src/editor/languageEdits.test.tsx"><storycode:paste select="#f-241995db076e-expression_statement"/><storycode:paste select="#f-241995db076e-range"/><storycode:paste select="#f-241995db076e-quiet"/><storycode:paste select="#f-241995db076e-expression_statement-2"/><storycode:paste select="#f-241995db076e-expression_statement-3"/><storycode:paste select="#f-241995db076e-expression_statement-4"/><storycode:paste select="#main-explicit-formatting-preview"/></storycode:file>
 
 </storycode:doc>

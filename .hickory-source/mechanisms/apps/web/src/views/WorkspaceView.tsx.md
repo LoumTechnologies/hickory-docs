@@ -375,7 +375,7 @@ import { formatOnSave, loadFormatOnSave } from "../lib/formatOnSave";
 ### `import_statement`
 
 <storycode:copy id="f-47afe3575948-import_statement-26">
-import { formatView, type CodeActionPreviewRequest, type RenamePreviewRequest } from "../lsp/cmLspFeatures";
+import { formatView, type ProviderPreviewRequest } from "../lsp/cmLspFeatures";
 import { resolveCodeAction } from "../lsp/codeActionResolution";
 </storycode:copy>
 <a id="f-47afe3575948-import_statement-27"></a>
@@ -573,7 +573,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   const [changePath, setChangePath] = useState(0);
   const [changePage, setChangePage] = useState(0);
   const [changePending, setChangePending] = useState(false);
-  const [changeKind, setChangeKind] = useState<"rename" | "code action">("rename");
+  const [changeKind, setChangeKind] = useState<ProviderPreviewRequest["kind"]>("rename");
   const [changeError, setChangeError] = useState<string | null>(null);
   const changeApplying = useRef(false);
   const changeHistoryRef = useRef<(direction: "undo" | "redo") => void>(() => {});
@@ -1301,9 +1301,8 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     if (file.path !== path || !file.save_guard) throw Error(`Source authority changed: ${path}`);
     return {text: file.content, guard: file.save_guard, managed: false, docId: undefined};
   }, []);
-  const prepareChangePreview = useCallback(async (request: RenamePreviewRequest | CodeActionPreviewRequest): Promise<UiOutcome> => {
-    const isRename = "name" in request;
-    const operation = isRename ? "rename" : "code action";
+  const prepareChangePreview = useCallback(async (request: ProviderPreviewRequest): Promise<UiOutcome> => {
+    const operation = request.kind;
     const path = semanticPath(request.uri);
     if (changeApplying.current) throw Error("Wait for the current draft Apply to finish.");
     if (!path || !workspaceIsVisible() || activeSourceEditor()?.view !== request.view || !request.current()) {
@@ -1366,7 +1365,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       };
       await capture(request.client, request.uri, origin.text, origin.managed);
       const sources = new Map([[path, {text: origin.text, writable: true}]]);
-      const reference = isRename ? await acquireReferenceSources(sources, async () =>
+      const reference = request.kind === "rename" ? await acquireReferenceSources(sources, async () =>
         (await request.client.references(request.uri, request.position)).map(location => {
           const target = semanticPath(location.uri);
           if (!target) throw Error("A reported reference has no editable workspace source.");
@@ -1375,14 +1374,16 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       const proposal = await acquireSourceProposal(reference?.sources ?? sources, async () => {
         const expected = await capture(request.client, request.uri, origin.text, origin.managed);
         let value: CodeAction;
-        if (isRename) {
-          const rename = await request.client.request("hick/rename", {
-            textDocument: {uri: request.uri}, position: request.position, newName: request.name, expected,
-          }) as CodeAction & {source_files_modified?: boolean};
-          if (!rename || rename.source_files_modified !== false) {
-            throw Error("The provider did not confirm a complete rename preview.");
+        if (request.kind !== "code action") {
+          const document = {textDocument: {uri: request.uri}, expected};
+          const bound = (request.kind === "rename"
+            ? await request.client.request("hick/rename", {...document, position: request.position, newName: request.name})
+            : await request.client.request("hick/formatting", {...document, options: request.options})
+          ) as CodeAction & {source_files_modified?: boolean};
+          if (!bound || bound.source_files_modified !== false) {
+            throw Error(`The provider did not confirm a complete ${operation} preview.`);
           }
-          value = rename;
+          value = bound;
         } else {
           // Acquiring other sources can expire the old provider token. Keep
           // the captured range and resolve only the uniquely matching choice.
@@ -1402,7 +1403,8 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       const targets = new Set(workspaceEditTargets(proposal.value.edit).map(target => target.path));
       await validateProviderSourceProofs(proposal.value, proposal.sources, targets);
       check();
-      const title = isRename ? `Rename ${request.previous} to ${request.name}` : request.action.title;
+      const title = request.kind === "rename" ? `Rename ${request.previous} to ${request.name}`
+        : request.kind === "code action" ? request.action.title : "Format document";
       const plan = planWorkspaceEdit(title, proposal.value.edit, proposal.sources);
       if (reference) validateReferencedTargets(plan, reference.references);
       const opensFiles = plan.patches.some(patch => !snapshots.get(patch.path)?.tabId);
@@ -2487,8 +2489,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
           captureNavigationContext={captureNavigationContext}
           onRelatedLocations={showRelatedLocations}
           onLocalNavigation={recordLocalNavigation}
-          onRenamePreview={prepareChangePreview}
-          onCodeActionPreview={prepareChangePreview}
+          onProviderPreview={prepareChangePreview}
           askText={shellPrompt.askText}
           askChoice={shellPrompt.askChoice}
           retainUnsaved={retainSavedDrafts}
@@ -2679,8 +2680,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
               captureNavigationContext={captureNavigationContext}
               onRelatedLocations={showRelatedLocations}
               onLocalNavigation={recordLocalNavigation}
-              onRenamePreview={prepareChangePreview}
-              onCodeActionPreview={prepareChangePreview}
+              onProviderPreview={prepareChangePreview}
               openGenerated={openGeneratedFor}
               retainUnsaved={retainSavedDrafts}
             />
@@ -2828,7 +2828,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         <PromptPanel prompt={focused.prompt} onSettle={focused.settle} />
       )}
       <PromptPanel prompt={shellPrompt.prompt} onSettle={shellPrompt.settle} />
-      {(changePending || changeReview) && <aside className="prompt-panel prompt-panel--filtered" role="dialog" aria-label={changeKind === "rename" ? "Rename preview" : "Code action preview"}
+      {(changePending || changeReview) && <aside className="prompt-panel prompt-panel--filtered" role="dialog" aria-label={`${changeKind[0].toUpperCase()}${changeKind.slice(1)} preview`}
         onKeyDown={event => {
           if (event.key !== "Escape" || changeApplying.current) return;
           changeTicket.current++;
@@ -2866,7 +2866,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
               setChangePending(true); setChangeError(null);
               void changeReview.apply().then(() => {
                 setChangeReview(null);
-                const applied = changeKind === "rename" ? "Rename" : "Code action";
+                const applied = changeKind[0].toUpperCase() + changeKind.slice(1);
                 setInsertNotice(`${applied} applied to source drafts. Use Save All to publish or Undo workspace change to revert.`);
               }, error => setChangeError(error instanceof Error ? error.message : String(error)))
                 .finally(() => { changeApplying.current = false; setChangePending(false); });

@@ -198,10 +198,9 @@ export interface LspFeatureOptions {
   inlayHints?: boolean;
   /** Ask the user for a new name; null cancels. */
   onRename?: (current: string) => Promise<string | null> | string | null;
-  onRenamePreview?: (request: RenamePreviewRequest) => Promise<UiOutcome>;
-  onCodeActionPreview?: (request: CodeActionPreviewRequest) => Promise<UiOutcome>;
+  onProviderPreview?: (request: ProviderPreviewRequest) => Promise<UiOutcome>;
   captureChangeContext?: () => () => boolean;
-  /** Offer a list of code actions; the chosen one is applied. */
+  /** Offer retained code actions for the editor or workspace to handle. */
   onCodeActions?: (actions: CodeAction[]) => Promise<CodeAction | null> | CodeAction | null;
   /** Report something the user needs to know (a refused rename, say). */
   onMessage?: (message: string) => void;
@@ -214,6 +213,14 @@ export function lspFeatures(opts: LspFeatureOptions): Extension[] {
   const fields = [semanticTokenField, highlightField, inlayHintField, signatureField, signatureRenderer, annotationReading(opts.uri)];
   if (!client) return fields;
   const codeActions = codeActionController(opts, applyEdit);
+  const canFormat = (view: EditorView) => !view.state.readOnly && view.state.facet(EditorView.editable) &&
+    (!opts.rangeAt || !!opts.positionAt(view.state.selection.main.head, view)) &&
+    (!opts.onProviderPreview || (view.dom.isConnected && !view.composing));
+  const formatAt = (view: EditorView, paletteCurrent?: () => boolean) => {
+    if (opts.onProviderPreview) void previewFormatting(view, opts, undefined, paletteCurrent);
+    else void formatView(view);
+    return true;
+  };
 
   return [
     ...codeActions.extensions,
@@ -229,22 +236,18 @@ export function lspFeatures(opts: LspFeatureOptions): Extension[] {
         { key: cmKeyOf("editor.codeAction"), run: (view: EditorView) => codeActions.human(view) },
         {
           key: cmKeyOf("editor.format"),
-          run: (view: EditorView) => {
-            void formatView(view);
-            return true;
-          },
+          run: (view: EditorView) => formatAt(view),
         },
       ].filter((binding): binding is { key: string; run: (view: EditorView) => boolean } => binding.key !== null),
     ),
-    keymap.of(formatOptionFallback(bindingOf("editor.format"), view => {
-      void formatView(view);
-      return true;
-    })),
+    keymap.of(formatOptionFallback(bindingOf("editor.format"), view => formatAt(view))),
     formatter.of((view) => formatDocument(view, opts)),
     editorLanguageActions.of({
-      id: `${opts.uri}:format`, label: `Format editor source (${opts.uri.slice(0, 200)})`, parameters: {},
-      enabled: view => !view.state.readOnly && view.state.facet(EditorView.editable) && (!opts.rangeAt || !!opts.positionAt(view.state.selection.main.head, view)),
+      id: `${opts.uri}:format`, label: `${opts.onProviderPreview ? "Preview formatting for" : "Format"} editor source (${opts.uri.slice(0, 200)})`, parameters: {},
+      enabled: canFormat,
+      command: opts.onProviderPreview ? {id: "format", label: "Preview formatting", run: formatAt} : undefined,
       execute: async (view, _args, signal) => {
+        if (opts.onProviderPreview) return previewFormatting(view, opts, signal);
         const applied = await formatDocument(view, opts, signal);
         return { status: "completed", value: { source_changed: applied, saved: false, verified: false, scope: "Actual shared formatter result; false means no changes applied, not verified formatting" } };
       },
@@ -560,23 +563,20 @@ function renameAt(view: EditorView, opts: LspFeatureOptions): boolean {
   return true;
 }
 
-export type CodeActionPreviewRequest = {
-  client: LspClient; uri: string; view: EditorView; range: LspRange;
-  action: CodeAction; current: () => boolean;
-};
-
-export type RenamePreviewRequest = {
-  client: LspClient; uri: string; position: LspPosition; view: EditorView;
-  previous: string; name: string; current: () => boolean;
-};
+type SourcePreviewRequest = {client: LspClient; uri: string; view: EditorView; current: () => boolean};
+export type ProviderPreviewRequest = SourcePreviewRequest & (
+  | {kind: "code action"; range: LspRange; action: CodeAction}
+  | {kind: "rename"; position: LspPosition; previous: string; name: string}
+  | {kind: "formatting"; options: {tabSize: number; insertSpaces: boolean}}
+);
 
 export async function renameSymbol(view: EditorView, opts: LspFeatureOptions, askName: NonNullable<LspFeatureOptions["onRename"]>, signal?: AbortSignal): Promise<UiOutcome> {
   const original = view.state.doc;
   const selection = view.state.selection;
-  const context = opts.onRenamePreview ? opts.captureChangeContext?.() : undefined;
+  const context = opts.onProviderPreview ? opts.captureChangeContext?.() : undefined;
   const { client, uri, positionAt, offsetAt, onMessage } = opts;
   const current = () => view.state.doc === original && !view.state.readOnly && view.state.facet(EditorView.editable) && !signal?.aborted &&
-    (!opts.onRenamePreview || (view.dom.isConnected && !view.composing && view.state.selection === selection && (!context || context())));
+    (!opts.onProviderPreview || (view.dom.isConnected && !view.composing && view.state.selection === selection && (!context || context())));
   const refuse = (reason: string): UiOutcome => { onMessage?.(reason); return { status: "unavailable", reason }; };
   const position = positionAt(view.state.selection.main.head, view);
   if (!client || !current() || !position) return refuse("Rename needs a writable mapped source position.");
@@ -590,8 +590,8 @@ export async function renameSymbol(view: EditorView, opts: LspFeatureOptions, as
     const next = await askName(previous);
     if (!current()) return refuse("The buffer changed. Request rename again.");
     if (!next || next === previous) return { status: "completed", value: { source_changed: false, cancelled_or_unchanged: true } };
-    if (opts.onRenamePreview) {
-      return await opts.onRenamePreview({client, uri, position, view, previous, name: next, current});
+    if (opts.onProviderPreview) {
+      return await opts.onProviderPreview({kind: "rename", client, uri, position, view, previous, name: next, current});
     }
     const edit = await client.rename(uri, position, next);
     if (!current()) return refuse("The buffer changed. Request rename again.");
@@ -616,6 +616,26 @@ export const formatter = Facet.define<(view: EditorView) => Promise<boolean>>();
 export async function formatView(view: EditorView): Promise<boolean> {
   for (const format of view.state.facet(formatter)) if (await format(view)) return true;
   return false;
+}
+
+async function previewFormatting(view: EditorView, opts: LspFeatureOptions, signal?: AbortSignal, paletteCurrent?: () => boolean): Promise<UiOutcome> {
+  const {client, uri, onProviderPreview, onMessage} = opts;
+  const {doc, selection, tabSize} = view.state;
+  const context = opts.captureChangeContext?.();
+  const current = () => view.dom.isConnected && view.state.doc === doc && view.state.selection === selection &&
+    !view.composing && !view.state.readOnly && view.state.facet(EditorView.editable) &&
+    !signal?.aborted && (!context || context()) && (!paletteCurrent || paletteCurrent());
+  const refuse = (reason: string): UiOutcome => { onMessage?.(reason); return {status: "unavailable", reason}; };
+  if (!client || !onProviderPreview || !current() || (opts.rangeAt && !opts.positionAt(selection.main.head, view))) {
+    return refuse("Choose writable source before requesting formatting.");
+  }
+  const options = {tabSize, insertSpaces: !/^\t/m.test(doc.toString())};
+  try {
+    return await onProviderPreview({kind: "formatting", client, uri, view, options, current});
+  } catch (error) {
+    if (!current()) return {status: "unavailable", reason: "Formatting preview superseded."};
+    return refuse(error instanceof Error ? error.message : String(error));
+  }
 }
 
 /**
