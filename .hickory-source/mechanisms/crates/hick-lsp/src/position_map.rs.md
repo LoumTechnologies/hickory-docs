@@ -187,15 +187,9 @@ impl PositionMap {
     /// The same map for a copy of the file with its **first line removed**.
     ///
     /// A virtual file's content begins with the newline that follows the
-    /// `<hick:file>` tag, so its line 0 is the tag's own line and every line
-    /// after it lines up with the document. That is exactly right for a
-    /// language server, which never writes the file down — and wrong for
-    /// anything that does, because a leading blank line moves whatever has
-    /// to be at byte 0: a shebang, a BOM, an XML declaration. The engine's
-    /// own weave writes no such line.
-    ///
-    /// So a caller that WRITES the file drops that first line and shifts the
-    /// map with it, here, rather than each doing half of it and drifting.
+    /// `<hick:file>` tag, so line 0 belongs to the tag's own line. Weaving
+    /// drops that newline. Anyone consuming the woven bytes also needs the
+    /// shifted map so a first-line edit lands inside the authored body.
     pub fn without_first_line(mut self) -> Self {
         if let Some(lines) = self.identity_lines {
             self.identity_lines = Some(lines.saturating_sub(1));

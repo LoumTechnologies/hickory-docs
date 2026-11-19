@@ -570,6 +570,10 @@ pub struct VirtualFile {
 <a id="f-a254cbbf439c-impl-VirtualFile"></a>
 ### `impl-VirtualFile`
 
+The provider and debugger read generated code using the weave's opening
+boundary. Keep the newline removal and the position shift paired so an
+edit or breakpoint on the first code line stays in the file body.
+
 <storycode:copy id="f-a254cbbf439c-impl-VirtualFile">
 impl VirtualFile {
     /// Get the full text content of the virtual file.
@@ -585,23 +589,26 @@ impl VirtualFile {
     /// them: the content without the newline that opens it.
     ///
     /// [`VirtualFile::content`] begins with the newline after the
-    /// `<hick:file>` tag, so line 0 is the tag's line and the rest lines up
-    /// with the document. A language server, which only ever reads, wants
-    /// exactly that. Anything that writes the file down wants the other
-    /// thing, because a leading blank line moves whatever must be at byte 0
-    /// — a `#!` line, a UTF-8 BOM, an XML declaration. `dotnet new` writes
-    /// its `.csproj` with a BOM, and a scaffold a document had ingested
-    /// could not be built by the debugger for exactly this reason:
-    /// `MSB4025: Data at the root level is invalid. Line 2, position 1.`
+    /// `<hick:file>` tag. A leading blank line moves anything that must be
+    /// at byte 0, such as a shebang, UTF-8 BOM, or XML declaration. It also
+    /// gives a provider's first-line edit a position on the opening tag
+    /// instead of a position in the authored code.
     ///
     /// Pair it with [`crate::position_map::PositionMap::without_first_line`],
     /// which is the same removal on the other side.
     pub fn written_content(&self) -> String {
-        let content = self.content();
-        content
-            .strip_prefix('\n')
-            .map(str::to_string)
-            .unwrap_or(content)
+        self.written_projection().0
+    }
+
+    /// Report whether the projected bytes lost a line so callers can
+    /// shift a freshly built map by the same amount.
+    pub(crate) fn written_projection(&self) -> (String, bool) {
+        let mut content = self.content();
+        let removed_framing = content.starts_with('\n');
+        if removed_framing {
+            content.remove(0);
+        }
+        (content, removed_framing)
     }
 
     /// Total number of lines.
@@ -732,6 +739,24 @@ fn collect_segments(
 mod tests {
     use super::*;
     use hick_lang::{HickDocument, HickNode, HickTag, SourceSpan};
+
+    #[test]
+    fn written_first_line_edits_stay_inside_the_file_block() {
+        use crate::position_map::PositionMap;
+        use tower_lsp::lsp_types::{Position, Range};
+
+        let source = "<hick:doc xmlns:hick=\"http://www.hickorydocs.com/1.0\">\n\n<hick:file path=\"move.ts\">\nfunction moved() {}\nmoved();\n</hick:file>\n</hick:doc>\n";
+        let state = crate::document::HickDocumentState::from_source(source).unwrap();
+        let file = &state.virtual_files[0];
+        let (content, removed_framing) = file.written_projection();
+        assert!(removed_framing);
+        assert_eq!(content, "function moved() {}\nmoved();\n");
+        let map = PositionMap::build(&file.segments).without_first_line();
+        let edit = Range::new(Position::new(0, 0), Position::new(1, 0));
+        let (_, mapped) = map.source_edit_range(edit).unwrap();
+        assert_eq!(mapped, Range::new(Position::new(3, 0), Position::new(4, 0)));
+        assert_eq!(map.to_virtual(3, 0), Some((0, 0)));
+    }
 
     fn make_doc(nodes: Vec<HickNode>) -> HickDocument {
         HickDocument {

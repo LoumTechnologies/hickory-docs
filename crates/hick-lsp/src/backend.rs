@@ -419,14 +419,18 @@ impl HickBackend {
         };
 
         let frontmatter = Self::frontmatter_file(source, &state.virtual_files);
+        // Stage and synchronize the same bytes. The opening newline of a
+        // file block belongs to Markdown framing. Frontmatter is already
+        // extracted exactly between its explicit delimiters.
         let service_files: Vec<_> = state
             .virtual_files
             .iter()
-            .chain(frontmatter.iter())
+            .map(|vf| (vf, vf.written_projection()))
+            .chain(frontmatter.iter().map(|vf| (vf, (vf.content(), false))))
             .collect();
         let new_vfile_uris: Vec<Url> = service_files
             .iter()
-            .map(|vf| self.vfile_uri(hick_uri, &vf.path))
+            .map(|(vf, _)| self.vfile_uri(hick_uri, &vf.path))
             .collect();
 
         // 3. Close old virtual files, pruning diagnostics for removed files.
@@ -501,11 +505,11 @@ impl HickBackend {
         } else {
             copy_manifests(&self.staging, hick_uri);
         }
-        for vf in &service_files {
+        for (vf, (content, _)) in &service_files {
             if state.evaluated_project.is_some() && state.project_maps.contains_key(&vf.path) {
                 continue;
             }
-            if let Err(error) = self.staging.write_vfile(hick_uri, &vf.path, &vf.content()) {
+            if let Err(error) = self.staging.write_vfile(hick_uri, &vf.path, content) {
                 self.report_staging_failure(hick_uri, &error).await;
             }
         }
@@ -514,7 +518,7 @@ impl HickBackend {
         let mut new_open_vfiles = Vec::new();
 
         let primary_source_hash = diagnostic_source_digest(source);
-        for vf in &service_files {
+        for (vf, (content, removed_framing)) in service_files {
             tracing::debug!(path = %vf.path, language_id = ?vf.language_id, "processing virtual file");
 
             let lang_id = match vf.language_id {
@@ -529,16 +533,12 @@ impl HickBackend {
             }
 
             let vf_uri = self.vfile_uri(hick_uri, &vf.path);
-            let content = if state.project_maps.contains_key(&vf.path) {
-                vf.written_content()
-            } else {
-                vf.content()
-            };
             tracing::debug!(%vf_uri, content_len = content.len(), "forwarding to child LSP");
             let position_map = if let Some(map) = state.project_maps.get(&vf.path) {
                 map.clone()
             } else {
-                PositionMap::build(&vf.segments)
+                let map = PositionMap::build(&vf.segments);
+                if removed_framing { map.without_first_line() } else { map }
             };
 
             // Store the mapping.
