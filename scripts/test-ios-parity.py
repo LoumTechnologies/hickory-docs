@@ -26,6 +26,8 @@ WORKFLOWS = {
     'recovery': ('testMountedConnectedReadingAndPrivateRecovery', ['connected-impact-passed', 'private-recovery-passed']),
     'proposal': ('testMountedHistoricalProposalRefusesApplication', ['historical-proposal-passed']),
     'proposal-apply': ('testMountedManagedProposalAppliesBothReviewedDrafts', ['managed-proposal-preview-passed', 'managed-proposal-history-passed']),
+    'proposal-native-send': ('testNativeAgentSendAppliesBothDraftsAndReplaysHistory',
+                             ['native-proposal-send-archived-exact-message', 'native-proposal-send-applied-and-replayed-two-drafts']),
     'proposal-save': ('testMountedManagedProposalPublishesReviewedResource', ['managed-resource-publication-passed', 'managed-resource-inverse-passed']),
     'startup': ('testMountedRequestedFileRetainsEditingThroughDelayedDiagnostics', ['requested-source-before-provider', 'delayed-diagnostic-kept-editor-state']),
     'startup-authority': ('testMountedRequestedTextPrecedesTreeAuthority', ['requested-text-before-tree-authority', 'late-tree-authority-kept-editor-state']),
@@ -55,7 +57,7 @@ def recorded_fixture_path(folder, workflow, path):
     return folder/('recorded-debug' if workflow == 'recorded-run' else workflow)/path
 
 def workflow_target(workflow):
-    return RECORDED_RUN_TARGET if workflow == 'recorded-run' or workflow in RECORDED_CONSTRUCTION_SIDES else TARGET
+    return RECORDED_RUN_TARGET if workflow in {'recorded-run', 'proposal-native-send'} or workflow in RECORDED_CONSTRUCTION_SIDES else TARGET
 
 STARTUP_PROVIDER = r'''
 import json
@@ -231,11 +233,12 @@ def prepare_workflow(workflow, workspace, python_env, slow_debug, recorded_fixtu
         (workspace/'.venv').symlink_to(python_env.resolve(), target_is_directory=True)
         files = {name: (workspace/name).read_text() for name in ['project.md', 'source.md', 'behavior.md', 'a.py', 'test_a.py', 'test_undeclared.py', 'hickory-dogfood/behavior-map.json', 'hickory-dogfood/narrative-map.json']}
         sentinel = Path(details['sibling'])
-    elif workflow in {'proposal-apply', 'proposal-save'}:
+    elif workflow in {'proposal-apply', 'proposal-save', 'proposal-native-send'}:
         load_script('test-agent-proposals-browser').prepare(workspace)
         files = {name: (workspace/name).read_text() for name in ['project.md', 'construction.md', 'note.py', 'generated.py', 'behavior.md']}
-        close = '\x3c/h:doc>\n'
-        files['construction.md'] = files['construction.md'].removesuffix(close) + 'Retained author context for the mounted viewport.\n' * 100 + close
+        if workflow != 'proposal-native-send':
+            close = '\x3c/h:doc>\n'
+            files['construction.md'] = files['construction.md'].removesuffix(close) + 'Retained author context for the mounted viewport.\n' * 100 + close
         sentinel = None
     else:
         archive = load_script('test-agent-proposal-persistence')
@@ -260,10 +263,13 @@ def run_workflow(workflow, device, seed, temporary_device, candidate, derived, d
         recorded = workflow in RECORDED_FILES or workflow in RECORDED_CONSTRUCTION_SIDES
         if workflow in ('recorded-debug', 'recorded-run'):
             environment['PATH'] = str(python_env.resolve()/'bin') + os.pathsep + environment['PATH']
-        managed = load_script('test-agent-proposals-browser') if workflow in {'proposal-apply', 'proposal-save'} else None
+        native_send = workflow == 'proposal-native-send'
+        managed = load_script('test-agent-proposals-browser') if workflow in {'proposal-apply', 'proposal-save', 'proposal-native-send'} else None
         if managed:
             settings, calls, tool_result = managed.provider_fixture(folder)
             environment['HICKORY_AGENT_TEST_UI_SETTINGS'] = str(settings)
+            if native_send:
+                environment['HICKORY_EXECUTOR'] = 'local'
             if workflow == 'proposal-save':
                 edit = {'documentChanges': [{
                     'kind': 'rename', 'oldUri': 'hick:///note.py',
@@ -309,6 +315,11 @@ def run_workflow(workflow, device, seed, temporary_device, candidate, derived, d
                 metadata.update(controls)
             else:
                 origin = upstream
+            if native_send:
+                managed.api(upstream, 'POST', '/api/docs/workspace/agent/acp', {'backend': 'owned-proposal'})
+                send_wire = receipt/'proposal-native-send-http.jsonl'
+                origin = cleanup.enter_context(managed.trace_appkit_send(upstream, send_wire))
+                metadata['HICKORY_IOS_PROPOSAL_PROMPT'] = managed.PROMPT
             if archive:
                 catalogue = archive.call(origin, 'GET', '/api/agent-proposals')
                 assert catalogue['workspace'] != original['workspace'], 'Expected a new owned engine lifetime'
@@ -369,6 +380,14 @@ def run_workflow(workflow, device, seed, temporary_device, candidate, derived, d
                             'note.py': hashlib.sha256(b'value=41\n').hexdigest(),
                             'construction.md': hashlib.sha256(files['construction.md'].replace('generated = 1', 'generated = 41').encode()).hexdigest(),
                         }
+                if native_send:
+                    turns = managed.api(upstream, 'GET', '/api/docs/workspace/agent/turns')['turns']
+                    turn, = turns
+                    assert turn['prompt'] == managed.PROMPT and turn['status'] == 'ok', turn
+                    managed.verify_native_send(Path(command[0]).resolve(), {path: text.encode() for path, text in files.items()},
+                                               workspace, upstream, tool_result, wire=send_wire, log=log,
+                                               receipt=receipt/'proposal-native-send-wire-receipt.json',
+                                               scope='iOS simulator native keyboard, Send, sealed review, draft Apply and coordinated Edit menu Undo/Redo')
                 observed = log.read_text()
                 if live_authority:
                     check_live_startup_authority(workspace.resolve(), authority_wire, observed)
@@ -390,6 +409,9 @@ def run_workflow(workflow, device, seed, temporary_device, candidate, derived, d
                     payload.update(native_paste_undo_redo_verified=True, coordinated_cleanup_undo_redo_verified=True)
                 if taps:
                     payload['simulator_ui_taps_verified'] = True
+                if native_send:
+                    payload['keyboard_input_verified'] = True
+                    payload['native_send_wire_receipt'] = 'proposal-native-send-wire-receipt.json'
                 if workflow == 'recorded-run':
                     payload['rendered_terminal_accessibility_verified'] = True
                 if authority_mode:
@@ -404,7 +426,7 @@ def run_workflow(workflow, device, seed, temporary_device, candidate, derived, d
         finally:
             if archive:
                 archive.stop_engine(fixture, engine, state)
-            elif recorded or live_authority:
+            elif recorded or live_authority or native_send:
                 load_script('test-agent-proposal-persistence').stop_engine(fixture, engine, state)
             elif engine:
                 fixture.stop(engine)
@@ -627,6 +649,8 @@ def main():
  recorded_workflows = RECORDED_FILES.keys() & set(args.workflow or [])
  if RECORDED_CONSTRUCTION_SIDES.keys() & set(args.workflow or []) and not os.environ.get('HICKORY_SIMPLE_TEST_ENGINE'):
   parser.error('Recorded construction requires an explicit HICKORY_SIMPLE_TEST_ENGINE')
+ if 'proposal-native-send' in (args.workflow or []) and not os.environ.get('HICKORY_SIMPLE_TEST_ENGINE'):
+  parser.error('Native proposal Send requires an explicit HICKORY_SIMPLE_TEST_ENGINE')
  if LIVE_STARTUP_AUTHORITY.intersection(args.workflow or []) and not os.environ.get('HICKORY_SIMPLE_TEST_ENGINE'):
   parser.error('Live startup authority requires an explicit HICKORY_SIMPLE_TEST_ENGINE')
  if recorded_workflows:

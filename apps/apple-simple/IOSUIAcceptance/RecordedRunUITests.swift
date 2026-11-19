@@ -121,3 +121,120 @@ final class RecordedRunUITests: XCTestCase {
         NSLog("HickoryUIKitParity recorded-construction-\(side)-read-immutable-local-transition")
     }
 }
+extension RecordedRunUITests {
+    @MainActor func testNativeAgentSendAppliesBothDraftsAndReplaysHistory() throws {
+        continueAfterFailure = false
+        let environment = ProcessInfo.processInfo.environment
+        let origin = try XCTUnwrap(environment["HICKORY_IOS_PARITY_ORIGIN"])
+        let prompt = try XCTUnwrap(environment["HICKORY_IOS_PROPOSAL_PROMPT"])
+        let app = XCUIApplication()
+        app.launchEnvironment["HICKORY_API_ORIGIN"] = origin
+        app.launchEnvironment["HICKORY_OPEN_FILE"] = "note.py"
+        app.launch()
+
+        func menu(_ name: String, _ action: String) {
+            let menu = app.buttons[name].firstMatch
+            XCTAssertTrue(menu.waitForExistence(timeout: 15), name)
+            menu.tap()
+            let item = app.buttons[action].firstMatch
+            XCTAssertTrue(item.waitForExistence(timeout: 8), action)
+            item.tap()
+        }
+        func source(_ path: String, expected: String? = nil) throws -> XCUIElement {
+            let open = app.buttons.matching(NSPredicate(format: "identifier == %@ OR label == %@ OR label == %@", path, path, path + " •")).firstMatch
+            let editor = app.textViews[path].firstMatch
+            if !editor.exists || !editor.isHittable {
+                XCTAssertTrue(open.waitForExistence(timeout: 12), path)
+                open.tap()
+            }
+            XCTAssertTrue(editor.waitForExistence(timeout: 12), path)
+            if let expected {
+                let exact = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", expected), object: editor)
+                XCTAssertEqual(XCTWaiter.wait(for: [exact], timeout: 8), .completed, path)
+            }
+            return editor
+        }
+        func reveal(_ element: XCUIElement, upward: Bool) {
+            for _ in 0..<5 where !element.isHittable {
+                if upward { app.swipeUp() } else { app.swipeDown() }
+            }
+            XCTAssertTrue(element.isHittable, element.debugDescription)
+        }
+        func acknowledgeChange(_ statusPrefix: String) {
+            let preview = app.staticTexts["Workspace change preview"].firstMatch
+            XCTAssertTrue(preview.waitForExistence(timeout: 12))
+            let status = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", statusPrefix)).firstMatch
+            XCTAssertTrue(status.waitForExistence(timeout: 8), statusPrefix)
+            app.buttons["Close"].firstMatch.tap()
+            XCTAssertTrue(preview.waitForNonExistence(timeout: 10))
+        }
+
+        let note = "note.py", construction = "construction.md"
+        let noteView = try source(note, expected: "value=1\n")
+        let noteFrame = noteView.frame.integral
+        let constructionView = try source(construction)
+        let originalConstruction = try XCTUnwrap(constructionView.value as? String)
+        XCTAssertTrue(originalConstruction.contains("generated = 1"))
+        let constructionFrame = constructionView.frame.integral
+        let changedConstruction = originalConstruction.replacingOccurrences(of: "generated = 1", with: "generated = 41")
+
+        menu("View", "Agent")
+        let conversation = app.scrollViews["Conversation"].firstMatch
+        XCTAssertTrue(conversation.waitForExistence(timeout: 15))
+        let composer = app.textViews.matching(NSPredicate(format: "identifier == %@ OR label == %@ OR label == %@",
+            "conversation/draft.md", "conversation/draft.md", "Message")).firstMatch
+        XCTAssertTrue(composer.waitForExistence(timeout: 12))
+        composer.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 8))
+        composer.typeText(prompt)
+        let entered = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", prompt), object: composer)
+        XCTAssertEqual(XCTWaiter.wait(for: [entered], timeout: 10), .completed)
+        let send = app.buttons["Send"].firstMatch
+        XCTAssertTrue(send.isHittable && send.isEnabled)
+        send.tap()
+        let cleared = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == '' OR value == nil"), object: composer)
+        XCTAssertEqual(XCTWaiter.wait(for: [cleared], timeout: 10), .completed)
+        XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 10))
+        XCTAssertTrue(conversation.waitForExistence(timeout: 12))
+        XCTAssertGreaterThan(conversation.frame.height, 0)
+        let userCard = conversation.descendants(matching: .any)["Recorded user message"].firstMatch
+        let archived = userCard.textViews.matching(NSPredicate(format: "value == %@", prompt)).firstMatch
+        XCTAssertTrue(archived.waitForExistence(timeout: 20), "The exact native message was not visible in the recorded user card")
+        NSLog("HickoryUIKitParity native-proposal-send-archived-exact-message")
+
+        menu("View", "Agent proposal review")
+        let review = app.staticTexts["Agent proposal review"].firstMatch
+        XCTAssertTrue(review.waitForExistence(timeout: 12))
+        let read = app.buttons["Read Explain and change the source together"].firstMatch
+        XCTAssertTrue(read.waitForExistence(timeout: 15))
+        read.tap()
+        let digest = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Complete SHA256 ")).firstMatch
+        XCTAssertTrue(digest.waitForExistence(timeout: 15))
+        let apply = app.buttons["Apply complete draft batch"].firstMatch
+        reveal(apply, upward: true)
+        XCTAssertTrue(apply.isEnabled)
+        apply.tap()
+        acknowledgeChange("Applied 2 source drafts. Not saved or verified.")
+        if review.exists {
+            let close = app.buttons["Close"].firstMatch
+            reveal(close, upward: false)
+            close.tap()
+            XCTAssertTrue(review.waitForNonExistence(timeout: 10))
+        }
+
+        func drafts(noteText: String, constructionText: String) throws {
+            XCTAssertEqual(try source(note, expected: noteText).frame.integral, noteFrame)
+            XCTAssertEqual(try source(construction, expected: constructionText).frame.integral, constructionFrame)
+        }
+        try drafts(noteText: "value=41\n", constructionText: changedConstruction)
+        menu("View", "Agent")
+        menu("Edit", "Undo workspace change")
+        acknowledgeChange("Workspace undo applied to 2 drafts. Not saved or verified.")
+        try drafts(noteText: "value=1\n", constructionText: originalConstruction)
+        menu("View", "Agent")
+        menu("Edit", "Redo workspace change")
+        acknowledgeChange("Workspace redo applied to 2 drafts. Not saved or verified.")
+        try drafts(noteText: "value=41\n", constructionText: changedConstruction)
+        NSLog("HickoryUIKitParity native-proposal-send-applied-and-replayed-two-drafts")
+    }
+}

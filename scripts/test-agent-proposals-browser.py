@@ -135,8 +135,8 @@ def trace_appkit_send(origin, evidence):
 
 PROMPT = "Prepare the owned two-source intention."
 
-def verify_appkit_send(binary, evidence, originals, root, backend, tool_result):
-    rows = [json.loads(line) for line in (evidence/"appkit-http.jsonl").read_text().splitlines()]
+def verify_native_send(binary, originals, root, backend, tool_result, *, wire, log, receipt, scope):
+    rows = [json.loads(line) for line in wire.read_text().splitlines()]
     sends = [row for row in rows if row["method"] == "POST" and row["path"] == "/api/docs/workspace/agent"]
     send, = sends
     assert send["status"] == 202 and send["fixture_backend_translation"] == ["python", "owned-proposal"], send
@@ -162,14 +162,19 @@ def verify_appkit_send(binary, evidence, originals, root, backend, tool_result):
              row["path"].startswith(("/api/changes/resource-save", "/api/source-history/"))
              for row in rows), rows
     assert any(row["method"] == "POST" and row["path"] == "/api/agent-proposals/validate" and row["status"] == 200 for row in rows)
-    (evidence/"receipt.json").write_text(json.dumps({
-        "engine": str(binary), "scope": "Mounted AppKit native Send; rendered review with native review/apply controller; workspace menu dispatch and native editor reflection",
+    receipt.write_text(json.dumps({
+        "engine": str(binary), "scope": scope,
         "native_send_request": original, "send_status": send["status"], "fixture_backend_translation": send["fixture_backend_translation"],
         "sealed": {"token": token, "fingerprint": sealed["fingerprint"]},
         "reported_draft_application": sealed["host_application"],
         "file_hashes_unchanged": {name: hashlib.sha256(data).hexdigest() for name, data in originals.items()},
-        "log_sha256": hashlib.sha256((evidence/"appkit.log").read_bytes()).hexdigest(),
+        "log_sha256": hashlib.sha256(log.read_bytes()).hexdigest(),
     }, indent=2)+"\n")
+
+def verify_appkit_send(binary, evidence, originals, root, backend, tool_result):
+    verify_native_send(binary, originals, root, backend, tool_result,
+                       wire=evidence/"appkit-http.jsonl", log=evidence/"appkit.log", receipt=evidence/"receipt.json",
+                       scope="Mounted AppKit native Send; rendered review with native review/apply controller; workspace menu dispatch and native editor reflection")
 
 def appkit_send(fixture, evidence):
     binary = Path(os.environ["HICKORY_SIMPLE_TEST_ENGINE"]).resolve(strict=True)
