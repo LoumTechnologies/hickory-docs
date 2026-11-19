@@ -57,6 +57,13 @@ staged diff. The editor showed the same draft bytes and frame afterward.
 The saved working file and HEAD stayed unchanged. The disposable simulator
 was deleted. See `target/apple-git-review-uikit-retry-2026-11-19/`.
 
+A separate iPhone replay opened saved attribution from a dirty editor.
+The stable saved line offered its exact commit, and the changed saved line
+offered no commit. Attribution and file-scoped Saved file history both opened
+the same complete Git identity and exact committed blob. The unsaved draft,
+editor frame, saved file, HEAD and index stayed unchanged. See
+`target/apple-git-history-uikit-2026-11-19/`.
+
 ### Requested files and capability arrival
 
 The shared Simple launcher now passes the exact workspace-relative requested

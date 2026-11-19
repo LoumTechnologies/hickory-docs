@@ -15,6 +15,8 @@ STARTUP_AUTHORITY_PATH = 'nested/entry # %.md'
 GIT_REVIEW_BASELINE = 'print("committed baseline")\n'
 GIT_REVIEW_SAVED = 'print("saved working tree")\n'
 GIT_REVIEW_DRAFT_MARKER = '# retained local editor draft'
+GIT_HISTORY_STABLE_LINE = '# stable committed source\n'
+GIT_WORKFLOWS = {'git-review', 'git-history'}
 STARTUP_AUTHORITY_MODES = {
     'startup-authority': 'confirmed', 'startup-authority-unavailable': 'unavailable', 'startup-authority-retry': 'retry',
     'startup-authority-live': 'confirmed', 'startup-authority-live-retry': 'retry',
@@ -33,6 +35,8 @@ WORKFLOWS = {
                              ['native-proposal-send-archived-exact-message', 'native-proposal-send-applied-and-replayed-two-drafts']),
     'proposal-save': ('testMountedManagedProposalPublishesReviewedResource', ['managed-resource-publication-passed', 'managed-resource-inverse-passed']),
     'git-review': ('testNativeGitReviewStagesOnlySavedBytesAndRetainsDraft', ['native-git-review-staged-saved-only-and-retained-draft']),
+    'git-history': ('testNativeGitAttributionOpensImmutableCommitAndRetainsDraft',
+                    ['native-git-history-read-immutable-commit-and-retained-draft']),
     'startup': ('testMountedRequestedFileRetainsEditingThroughDelayedDiagnostics', ['requested-source-before-provider', 'delayed-diagnostic-kept-editor-state']),
     'startup-authority': ('testMountedRequestedTextPrecedesTreeAuthority', ['requested-text-before-tree-authority', 'late-tree-authority-kept-editor-state']),
     'startup-authority-unavailable': ('testMountedRequestedTextPrecedesTreeAuthority', ['requested-text-before-tree-authority', 'late-tree-authority-kept-editor-state']),
@@ -61,7 +65,7 @@ def recorded_fixture_path(folder, workflow, path):
     return folder/('recorded-debug' if workflow == 'recorded-run' else workflow)/path
 
 def workflow_target(workflow):
-    return RECORDED_RUN_TARGET if workflow in {'recorded-run', 'proposal-native-send', 'git-review'} or workflow in RECORDED_CONSTRUCTION_SIDES else TARGET
+    return RECORDED_RUN_TARGET if workflow in {'recorded-run', 'proposal-native-send'} or workflow in RECORDED_CONSTRUCTION_SIDES or workflow in GIT_WORKFLOWS else TARGET
 
 STARTUP_PROVIDER = r'''
 import json
@@ -162,12 +166,14 @@ def engine_command(workspace):
 def git_output(workspace, *arguments):
     return subprocess.check_output(['git', '-C', str(workspace), *arguments])
 
-def observe_git_review(workspace, method, address, request, status, response):
+def observe_git_fixture(workspace, method, address, request, status, response):
     path = urllib.parse.urlsplit(address).path
     if status != 200:
         return {}
     if method == 'GET' and path == '/api/git/diff':
         return {'diff': json.loads(response)['diff']}
+    if method == 'GET' and path in {'/api/blame', '/api/git/log', '/api/git/reading'}:
+        return {'reading': json.loads(response)}
     if method == 'POST' and path in {'/api/git/stage', '/api/git/unstage'}:
         return {'paths': json.loads(request)['paths'],
                 'index_sha256': hashlib.sha256(git_output(workspace, 'show', ':note.py')).hexdigest()}
@@ -195,20 +201,50 @@ def check_git_review(workspace, trace, head):
     assert not any(row['method'] in {'PUT', 'PATCH', 'DELETE'} for row in rows), rows
     return mutations
 
+def check_git_history(workspace, trace, head, baseline, saved):
+    rows = [json.loads(line) for line in trace.read_text().splitlines()]
+    sha = head.decode().strip()
+    def reads(path, field, value):
+        selected = [row for row in rows if row['method'] == 'GET' and urllib.parse.urlsplit(row['path']).path == path]
+        for row in selected:
+            query = urllib.parse.parse_qs(urllib.parse.urlsplit(row['path']).query)
+            assert row['status'] == 200 and query[field] == [value], row
+        return [row['reading'] for row in selected]
+    blame, = reads('/api/blame', 'path', 'note.py')
+    assert blame['path'] == 'note.py'
+    committed, uncommitted = blame['lines']
+    first, second = saved.splitlines()
+    assert committed['line'] == 1 and committed['text'] == first and not committed['uncommitted'] and committed['full_commit'] == sha, committed
+    assert uncommitted['line'] == 2 and uncommitted['text'] == second and uncommitted['uncommitted'] and not uncommitted.get('full_commit'), uncommitted
+    history, = reads('/api/git/log', 'path', 'note.py')
+    assert history['repository'] and [commit['sha'] for commit in history['commits']] == [sha], history
+    immutable = reads('/api/git/reading', 'sha', sha)
+    assert len(immutable) == 2, immutable
+    for reading in immutable:
+        file, = reading['files']
+        assert reading['sha'] == sha and file['path'] == 'note.py' and file['after'] == baseline and file['before'] == '' and not file['binary'], reading
+    assert git_output(workspace, 'rev-parse', 'HEAD') == head
+    assert git_output(workspace, 'diff', '--cached', '--', 'note.py') == b''
+    assert (workspace/'note.py').read_bytes() == saved.encode()
+    assert not any(row['method'] in {'PUT', 'PATCH', 'DELETE'} or row['path'] in {'/api/git/stage', '/api/git/unstage'} for row in rows), rows
+    return sha
+
 def prepare_workflow(workflow, workspace, python_env, slow_debug, recorded_fixtures=None):
     workspace.mkdir()
     if workflow in RECORDED_CONSTRUCTION_SIDES:
         side = RECORDED_CONSTRUCTION_SIDES[workflow]
         return load_script('test-simple-browser').prepare_recorded_construction(workspace, side), None
-    if workflow == 'git-review':
+    if workflow in GIT_WORKFLOWS:
+        stable = GIT_HISTORY_STABLE_LINE if workflow == 'git-history' else ''
         note = workspace/'note.py'
-        note.write_text(GIT_REVIEW_BASELINE)
+        note.write_text(stable+GIT_REVIEW_BASELINE)
         git_output(workspace, 'init', '-q')
         git_output(workspace, 'add', '--', 'note.py')
         git_output(workspace, '-c', 'user.name=Owned fixture', '-c', 'user.email=fixture@example.invalid',
                    'commit', '-qm', 'Commit owned baseline')
-        note.write_text(GIT_REVIEW_SAVED)
-        return {'note.py': GIT_REVIEW_SAVED}, None
+        saved = stable+GIT_REVIEW_SAVED
+        note.write_text(saved)
+        return {'note.py': saved}, None
     if workflow == 'editing':
         (workspace/'src').mkdir()
         (workspace/'.git').mkdir()
@@ -313,7 +349,7 @@ def run_workflow(workflow, device, seed, temporary_device, candidate, derived, d
         if workflow in ('recorded-debug', 'recorded-run'):
             environment['PATH'] = str(python_env.resolve()/'bin') + os.pathsep + environment['PATH']
         native_send = workflow == 'proposal-native-send'
-        git_review = workflow == 'git-review'
+        git_workflow = workflow in GIT_WORKFLOWS
         managed = load_script('test-agent-proposals-browser') if workflow in {'proposal-apply', 'proposal-save', 'proposal-native-send'} else None
         if managed:
             settings, calls, tool_result = managed.provider_fixture(folder)
@@ -370,14 +406,16 @@ def run_workflow(workflow, device, seed, temporary_device, candidate, derived, d
                 send_wire = receipt/'proposal-native-send-http.jsonl'
                 origin = cleanup.enter_context(managed.trace_appkit_send(upstream, send_wire))
                 metadata['HICKORY_IOS_PROPOSAL_PROMPT'] = managed.PROMPT
-            if git_review:
+            if git_workflow:
                 git_head = git_output(workspace, 'rev-parse', 'HEAD')
-                git_wire = receipt/'git-review-http.jsonl'
+                baseline = git_output(workspace, 'show', 'HEAD:note.py').decode()
+                git_wire = receipt/f'{workflow}-http.jsonl'
                 transport = load_script('test-agent-proposals-browser')
                 origin = cleanup.enter_context(transport.trace_appkit_send(
-                    upstream, git_wire, observe=lambda *event: observe_git_review(workspace, *event)))
-                metadata.update(HICKORY_IOS_GIT_BASELINE=GIT_REVIEW_BASELINE, HICKORY_IOS_GIT_SAVED=GIT_REVIEW_SAVED,
-                                HICKORY_IOS_GIT_DRAFT_MARKER=GIT_REVIEW_DRAFT_MARKER)
+                    upstream, git_wire, observe=lambda *event: observe_git_fixture(workspace, *event)))
+                metadata.update(HICKORY_IOS_GIT_BASELINE=baseline, HICKORY_IOS_GIT_SAVED=files['note.py'],
+                                HICKORY_IOS_GIT_DRAFT_MARKER=GIT_REVIEW_DRAFT_MARKER,
+                                HICKORY_IOS_GIT_COMMIT=git_head.decode().strip())
             if archive:
                 catalogue = archive.call(origin, 'GET', '/api/agent-proposals')
                 assert catalogue['workspace'] != original['workspace'], 'Expected a new owned engine lifetime'
@@ -446,8 +484,10 @@ def run_workflow(workflow, device, seed, temporary_device, candidate, derived, d
                                                workspace, upstream, tool_result, wire=send_wire, log=log,
                                                receipt=receipt/'proposal-native-send-wire-receipt.json',
                                                scope='iOS simulator native keyboard, Send, sealed review, draft Apply and coordinated Edit menu Undo/Redo')
-                if git_review:
+                if workflow == 'git-review':
                     index_receipts = check_git_review(workspace, git_wire, git_head)
+                if workflow == 'git-history':
+                    commit = check_git_history(workspace, git_wire, git_head, baseline, files['note.py'])
                 observed = log.read_text()
                 if live_authority:
                     check_live_startup_authority(workspace.resolve(), authority_wire, observed)
@@ -472,10 +512,13 @@ def run_workflow(workflow, device, seed, temporary_device, candidate, derived, d
                 if native_send:
                     payload['keyboard_input_verified'] = True
                     payload['native_send_wire_receipt'] = 'proposal-native-send-wire-receipt.json'
-                if git_review:
+                if git_workflow:
                     payload['keyboard_input_verified'] = True
+                    payload['fixture_sha256'] = {'note.py': hashlib.sha256(files['note.py'].encode()).hexdigest()}
+                if workflow == 'git-review':
                     payload['git_index_receipts'] = index_receipts
-                    payload['fixture_sha256'] = {'note.py': hashlib.sha256(GIT_REVIEW_SAVED.encode()).hexdigest()}
+                if workflow == 'git-history':
+                    payload['git_immutable_commit'] = commit
                 if workflow == 'recorded-run':
                     payload['rendered_terminal_accessibility_verified'] = True
                 if authority_mode:
@@ -490,7 +533,7 @@ def run_workflow(workflow, device, seed, temporary_device, candidate, derived, d
         finally:
             if archive:
                 archive.stop_engine(fixture, engine, state)
-            elif recorded or live_authority or native_send or git_review:
+            elif recorded or live_authority or native_send or git_workflow:
                 load_script('test-agent-proposal-persistence').stop_engine(fixture, engine, state)
             elif engine:
                 fixture.stop(engine)
@@ -715,7 +758,7 @@ def main():
   parser.error('Recorded construction requires an explicit HICKORY_SIMPLE_TEST_ENGINE')
  if 'proposal-native-send' in (args.workflow or []) and not os.environ.get('HICKORY_SIMPLE_TEST_ENGINE'):
   parser.error('Native proposal Send requires an explicit HICKORY_SIMPLE_TEST_ENGINE')
- if 'git-review' in (args.workflow or []) and not os.environ.get('HICKORY_SIMPLE_TEST_ENGINE'):
+ if GIT_WORKFLOWS.intersection(args.workflow or []) and not os.environ.get('HICKORY_SIMPLE_TEST_ENGINE'):
   parser.error('Native Git review requires an explicit HICKORY_SIMPLE_TEST_ENGINE')
  if LIVE_STARTUP_AUTHORITY.intersection(args.workflow or []) and not os.environ.get('HICKORY_SIMPLE_TEST_ENGINE'):
   parser.error('Live startup authority requires an explicit HICKORY_SIMPLE_TEST_ENGINE')

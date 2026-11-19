@@ -302,3 +302,88 @@ extension RecordedRunUITests {
         NSLog("HickoryUIKitParity native-git-review-staged-saved-only-and-retained-draft")
     }
 }
+extension RecordedRunUITests {
+    @MainActor func testNativeGitAttributionOpensImmutableCommitAndRetainsDraft() throws {
+        continueAfterFailure = false
+        let environment = ProcessInfo.processInfo.environment
+        let origin = try XCTUnwrap(environment["HICKORY_IOS_PARITY_ORIGIN"])
+        let baseline = try XCTUnwrap(environment["HICKORY_IOS_GIT_BASELINE"])
+        let saved = try XCTUnwrap(environment["HICKORY_IOS_GIT_SAVED"])
+        let draftMarker = try XCTUnwrap(environment["HICKORY_IOS_GIT_DRAFT_MARKER"])
+        let commit = try XCTUnwrap(environment["HICKORY_IOS_GIT_COMMIT"])
+        let path = "note.py"
+        let app = XCUIApplication()
+        app.launchEnvironment["HICKORY_API_ORIGIN"] = origin
+        app.launchEnvironment["HICKORY_OPEN_FILE"] = path
+        app.launch()
+
+        func tap(_ title: String) {
+            let button = app.buttons[title].firstMatch
+            XCTAssertTrue(button.waitForExistence(timeout: 15), title)
+            XCTAssertTrue(button.isHittable && button.isEnabled, title)
+            button.tap()
+        }
+        func text(_ value: String) -> XCUIElement {
+            app.descendants(matching: .any).matching(NSPredicate(format: "label == %@ OR value == %@", value, value)).firstMatch
+        }
+        func read(_ value: String) {
+            XCTAssertTrue(text(value).waitForExistence(timeout: 12), value)
+        }
+        func readCommittedBlob() {
+            read(commit)
+            let lines = baseline.split(separator: "\n").map(String.init)
+            XCTAssertEqual(lines.count, 2)
+            let blob = app.descendants(matching: .any).matching(NSPredicate(format:
+                "(label CONTAINS %@ AND label CONTAINS %@ AND NOT label CONTAINS %@) OR (value CONTAINS %@ AND value CONTAINS %@ AND NOT value CONTAINS %@)",
+                lines[0], lines[1], draftMarker, lines[0], lines[1], draftMarker)).firstMatch
+            XCTAssertTrue(blob.waitForExistence(timeout: 15), "The immutable reading must display both committed lines")
+        }
+        func leaveKeyboard() {
+            tap("Agent")
+            XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 10))
+            tap(path)
+        }
+
+        let editor = app.textViews[path].firstMatch
+        XCTAssertTrue(editor.waitForExistence(timeout: 20))
+        tap("View"); tap("Agent"); tap(path)
+        let loaded = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", saved), object: editor)
+        XCTAssertEqual(XCTWaiter.wait(for: [loaded], timeout: 10), .completed)
+        let frame = editor.frame.integral
+        editor.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 8))
+        editor.typeText(draftMarker)
+        let draft = try XCTUnwrap(editor.value as? String)
+        XCTAssertTrue(draft.contains(draftMarker)); XCTAssertNotEqual(draft, saved)
+        leaveKeyboard()
+
+        tap("View"); tap("Saved file attribution")
+        read("Saved attribution · \(path)")
+        read("Saved-file lines only. Unsaved editor changes are not included.")
+        let lines = saved.split(separator: "\n").map(String.init)
+        XCTAssertEqual(lines.count, 2)
+        for line in lines { read(line) }
+        read("Full immutable commit reference unavailable.")
+        XCTAssertFalse(app.buttons["Read commit for saved line 2"].exists)
+        tap("Read commit for saved line 1")
+        let attributedHistory = "Commit from saved attribution · \(path):1"
+        read(attributedHistory)
+        readCommittedBlob()
+        tap("Close")
+        XCTAssertTrue(text(attributedHistory).waitForNonExistence(timeout: 10))
+        leaveKeyboard()
+
+        tap("View"); tap("Saved file history")
+        let fileHistory = "Saved history · \(path)"
+        read(fileHistory)
+        tap("Read commit \(commit)")
+        readCommittedBlob()
+        tap("Close")
+        XCTAssertTrue(text(fileHistory).waitForNonExistence(timeout: 10))
+        leaveKeyboard()
+        XCTAssertTrue(editor.waitForExistence(timeout: 12))
+        XCTAssertEqual(editor.value as? String, draft)
+        XCTAssertEqual(editor.frame.integral, frame)
+        NSLog("HickoryUIKitParity native-git-history-read-immutable-commit-and-retained-draft")
+    }
+}
