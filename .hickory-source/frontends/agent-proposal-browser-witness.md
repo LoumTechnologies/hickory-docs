@@ -20,9 +20,23 @@ native fixture marker. `--serve-only` exposes that isolated real engine for
 native controller witnesses. A caller-provided API review is not upgraded to an
 engine-managed tool attestation by this helper.
 
+
+On macOS, supply `--appkit-send-receipt <new-directory>` and set
+`HICKORY_SIMPLE_TEST_ENGINE` to the current engine client. The native test
+types into the mounted composer and invokes the visible Send button. The
+loopback fixture accepts only its exact prompt and routes only the backend
+name to the owned scripted provider. It records the original two editor
+snapshots, checks the retained seal and draft report, and keeps the saved
+sources and generated output intact through coordinated Undo and Redo.
+The scripted local provider exercises the real engine tool and AppKit editor
+path.
+
 <ui:copy id="agent-proposals-browser-real-engine">
 """Owned engine/ACP/browser: sealed proposal review, whole draft Apply and resource Save."""
 import argparse,hashlib,importlib.util,json,os,signal,socket,subprocess,sys,tempfile,threading,time,urllib.error,urllib.parse,urllib.request,uuid
+from contextlib import contextmanager
+from http.client import HTTPConnection
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 def prepare(root):
@@ -73,9 +87,192 @@ def controlled_tool(origin,calls,result,captured,edit):
    except json.JSONDecodeError:pass
   time.sleep(.05)
  raise AssertionError('Controlled ACP tool did not retain a pending coherent proposal')
+@contextmanager
+def trace_appkit_send(origin, evidence):
+    upstream = urllib.parse.urlsplit(origin)
+    lock = threading.Lock()
+    hop = {"connection", "host", "transfer-encoding", "content-length", "keep-alive", "upgrade"}
+
+    def trace(row):
+        with lock, evidence.open("a") as output:
+            output.write(json.dumps(row) + "\n")
+
+    class Relay(BaseHTTPRequestHandler):
+        def forward(self):
+            size = int(self.headers.get("Content-Length", "0"))
+            if not 0 <= size <= 256 * 1024:
+                self.send_error(413, "Request exceeds the owned fixture limit")
+                return
+            data = self.rfile.read(size)
+            path = urllib.parse.urlsplit(self.path).path
+            selected = self.command == "POST" and path == "/api/docs/workspace/agent"
+            report = self.command == "POST" and path == "/api/agent-proposals/report"
+            original = json.loads(data) if selected or report else None
+            forwarded = original
+            if selected:
+                if original.get("backend") != "python" or original.get("prompt") != PROMPT:
+                    trace({"method": self.command, "path": self.path, "refused": True})
+                    self.send_error(400, "Only the exact owned native Send fixture is routed")
+                    return
+                # The only change to the app's request prevents subscription use.
+                forwarded = {**original, "backend": "owned-proposal"}
+                data = json.dumps(forwarded).encode()
+            connection = HTTPConnection(upstream.hostname, upstream.port, timeout=30)
+            try:
+                headers = {key:value for key,value in self.headers.items() if key.lower() not in hop}
+                connection.request(self.command, self.path, body=data if data else None, headers=headers)
+                response = connection.getresponse()
+                row = {"method": self.command, "path": self.path, "status": response.status}
+                streamed = "text/event-stream" in (response.getheader("Content-Type") or "")
+                body = None if streamed else response.read()
+                if path == "/api/files" and body is not None:
+                    tree = json.loads(body)
+                    row["tree_root"] = tree.get("root_path") if isinstance(tree, dict) else "invalid response"
+                if selected or report:
+                    row["request"] = original
+                    row["response"] = json.loads(body)
+                if selected:
+                    row["fixture_backend_translation"] = [original["backend"], forwarded["backend"]]
+                trace(row)
+                self.send_response(response.status)
+                for name, value in response.getheaders():
+                    if name.lower() not in hop:
+                        self.send_header(name, value)
+                if body is not None:
+                    self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                if body is not None:
+                    self.wfile.write(body)
+                else:
+                    while chunk := response.read1(8192):
+                        self.wfile.write(chunk)
+                        self.wfile.flush()
+            except (BrokenPipeError, ConnectionError, TimeoutError):
+                pass
+            finally:
+                connection.close()
+
+        do_GET = do_POST = do_PUT = do_DELETE = do_PATCH = forward
+
+        def log_message(self, *_args):
+            pass
+
+    with ThreadingHTTPServer(("127.0.0.1", 0), Relay) as server:
+        background = threading.Thread(target=server.serve_forever, daemon=True)
+        background.start()
+        try:
+            yield f"http://127.0.0.1:{server.server_port}"
+        finally:
+            server.shutdown()
+            background.join()
+
+
+PROMPT = "Prepare the owned two-source intention."
+
+def verify_appkit_send(binary, evidence, originals, root, backend, tool_result):
+    rows = [json.loads(line) for line in (evidence/"appkit-http.jsonl").read_text().splitlines()]
+    sends = [row for row in rows if row["method"] == "POST" and row["path"] == "/api/docs/workspace/agent"]
+    send, = sends
+    assert send["status"] == 202 and send["fixture_backend_translation"] == ["python", "owned-proposal"], send
+    original = send["request"]
+    assert original["prompt"] == PROMPT and original["parent_id"] is None, original
+    buffers = original["context"]["buffers"]
+    snapshots = {item["path"]: item for item in buffers}
+    assert len(buffers) == 2 and set(snapshots) == {"note.py", "construction.md"}, buffers
+    assert len({item["id"] for item in snapshots.values()}) == 2
+    for path, item in snapshots.items():
+        assert item["content"].encode() == originals[path] and item["save_guard"], item
+        revisions = [row["source_revision"] for row in item["observations"] if row["kind"] == "editor_revision"]
+        assert len(revisions) == 1 and revisions[0], item
+    tool = json.loads(tool_result.read_text())["result"]
+    assert not tool["isError"], tool
+    token = json.loads(tool["content"][0]["text"])["token"]
+    sealed = api(backend, "GET", "/api/agent-proposals/"+token)
+    snapshot = json.loads(sealed["material"])["intention"]["editor_snapshot"]
+    assert {row["id"] for row in snapshot["buffers"]} == {row["id"] for row in snapshots.values()}, snapshot
+    assert sealed["host_application"]["saved"] is False and sealed["host_application"]["checks_executed"] is False
+    assert all((root/name).read_bytes() == data for name,data in originals.items())
+    assert not any(row["method"] in {"PUT", "PATCH", "DELETE"} or
+             row["path"].startswith(("/api/changes/resource-save", "/api/source-history/"))
+             for row in rows), rows
+    assert any(row["method"] == "POST" and row["path"] == "/api/agent-proposals/validate" and row["status"] == 200 for row in rows)
+    (evidence/"receipt.json").write_text(json.dumps({
+        "engine": str(binary), "scope": "Mounted AppKit native Send; rendered review with native review/apply controller; workspace menu dispatch and native editor reflection",
+        "native_send_request": original, "send_status": send["status"], "fixture_backend_translation": send["fixture_backend_translation"],
+        "sealed": {"token": token, "fingerprint": sealed["fingerprint"]},
+        "reported_draft_application": sealed["host_application"],
+        "file_hashes_unchanged": {name: hashlib.sha256(data).hexdigest() for name, data in originals.items()},
+        "log_sha256": hashlib.sha256((evidence/"appkit.log").read_bytes()).hexdigest(),
+    }, indent=2)+"\n")
+
+def appkit_send(fixture, evidence):
+    binary = Path(os.environ["HICKORY_SIMPLE_TEST_ENGINE"]).resolve(strict=True)
+    persistence = load_fixture("persistence", "test-agent-proposal-persistence.py")
+    evidence.mkdir(parents=True)
+    with tempfile.TemporaryDirectory(prefix="hickory-appkit-proposal-send-") as temporary:
+        lease = Path(temporary).resolve()
+        root, state = lease / "workspace", lease / "state"
+        prepare(root)
+        settings, calls, result = provider_fixture(lease)
+
+        def edit(line, start, end):
+            return {"range": {"start": {"line": line, "character": start},
+                              "end": {"line": line, "character": end}}, "newText": "41"}
+
+        changes = {"hick:///note.py": [edit(0, 6, 7)], "hick:///construction.md": [edit(2, 12, 13)]}
+        calls.write_text(json.dumps({"intention": intention({"changes": changes})}))
+        names = ("note.py", "construction.md", "generated.py", "project.md", "behavior.md")
+        originals = {name: (root / name).read_bytes() for name in names}
+        environment = {
+            **os.environ, "HICKORY_STATE_DIR": str(state), "HICKORY_EXECUTOR": "local",
+            "HICKORY_AGENT_TEST_UI_SETTINGS": str(settings), "HICKORY_APPKIT_PROPOSAL_SEND_ROOT": str(root),
+            "HICKORY_APPKIT_PROPOSAL_SEND_IMAGES": str(evidence),
+        }
+        engine = fixture.start([str(binary), str(root), "appkit-proposal-send"], env=environment)
+        try:
+            origin = fixture.origin(engine)
+            api(origin, "POST", "/api/docs/workspace/agent/acp", {"backend": "owned-proposal"})
+            command = ["swift", "test", "--package-path", "apps/apple-simple",
+                       "--scratch-path", "target/apple-simple-spm", "--jobs", "2",
+                       "--filter", "AgentProposalTests/testMountedNativeAgentSendThroughCoordinatedDraftHistory"]
+            with trace_appkit_send(origin, evidence / "appkit-http.jsonl") as relay, (evidence / "appkit.log").open("w") as output:
+                environment["HICKORY_APPKIT_PROPOSAL_SEND_ORIGIN"] = relay
+                test = subprocess.Popen(command, cwd=ROOT, env=environment, stdout=output,
+                                        stderr=subprocess.STDOUT, start_new_session=True)
+                try:
+                    status = test.wait(timeout=100)
+                except subprocess.TimeoutExpired:
+                    os.killpg(test.pid, signal.SIGTERM)
+                    test.wait(timeout=10)
+                    raise
+                if status:
+                    raise subprocess.CalledProcessError(status, command)
+            verify_appkit_send(binary, evidence, originals, root, origin, result)
+        finally:
+            persistence.stop_engine(fixture, engine, state)
+            assert all((root / name).read_bytes() == saved for name, saved in originals.items())
+    print(evidence / "receipt.json", flush=True)
+
+
+def load_fixture(name, filename):
+    spec = importlib.util.spec_from_file_location(name, ROOT / "scripts" / filename)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def main():
- parser=argparse.ArgumentParser();parser.add_argument('--serve-only',action='store_true');args=parser.parse_args()
- spec=importlib.util.spec_from_file_location('browser_fixture',ROOT/'scripts/test-simple-browser.py');fixture=importlib.util.module_from_spec(spec);spec.loader.exec_module(fixture)
+ parser = argparse.ArgumentParser()
+ modes = parser.add_mutually_exclusive_group()
+ modes.add_argument('--serve-only', action='store_true')
+ modes.add_argument('--appkit-send-receipt', type=Path)
+ args = parser.parse_args()
+ fixture = load_fixture('browser_fixture', 'test-simple-browser.py')
+ if args.appkit_send_receipt:
+  if sys.platform != 'darwin' or not os.environ.get('HICKORY_SIMPLE_TEST_ENGINE'):
+   parser.error('AppKit Send requires macOS and an explicit HICKORY_SIMPLE_TEST_ENGINE')
+  appkit_send(fixture, args.appkit_send_receipt.resolve())
+  return
  with tempfile.TemporaryDirectory(prefix='hickory-agent-proposals-browser-') as temporary:
   folder=Path(temporary).resolve();details=prepare(folder/'workspace');root=Path(details['workspace']);settings,calls,result=provider_fixture(folder);processes=[];driver=None
   try:

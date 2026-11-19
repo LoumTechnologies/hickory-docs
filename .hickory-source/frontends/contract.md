@@ -39,7 +39,7 @@ an earlier open item only for the behavior it actually exercises.
 | Debugging | Genuine debugpy launch/loopback attach and LLDB canonical C launch/PID attach pass on browser, macOS and the Android controller. Scoped receipts cover profiles, conditional breakpoints, threads, deep frames, evaluation, source navigation, Continue and retained outcomes. Browser, mounted macOS and mounted iOS application launches also passed with netcoredbg for .NET and js-debug for Node.js. Saved source-test Debug has verified pytest/debugpy and Cargo/LLDB adapters. Rust binds the selected declaration to the compiled inline or external-module function before exact harness selection, with engine and host acceptance for plain and compiler-authored source. Mounted iOS reached the real selected Rust breakpoint after a build exceeded 30 seconds. Rendered Android paused the selected pytest test and a netcoredbg .NET application at their saved lines, continued and retained exit 0. Rendered Android reached a genuine saved Node.js breakpoint, evaluated a scoped Watch expression and continued to retained Finished. |
 | Connected behavior readings | Browser, mounted macOS and Android controller have guarded contract, explanation, implementation, generated, test and evidence readings through the captured construction graph, including dirty contributors. Mounted iOS opened the connected reading and exercised its source-staleness boundary. Default entry reads carry their original proof through execution admission. Missing mappings and stale captures retain their own status. |
 | Change impact and relevant verification | Browser, mounted macOS and Android controller have scoped compiler consequences, bounded declared relationships, selected checks/profiles and retained process-only results. Mounted iOS reached the selected process-only receipt from its connected reading. Undeclared dependencies remain unknown. A command exit supplies process evidence. Independent verification requires a source-bound receipt. |
-| Agent proposal review and guarded application | Owned managed-provider flows on browser, macOS and the Android controller cover a sealed complete review, original-context application, coordinated draft history and separate resource publication. Mounted iOS also passed managed two-draft Apply and coordinated Undo/Redo. Rendered Android and mounted iOS read sealed historical material without restoring application authority. Mounted iOS also completed a guarded resource rename and its reviewed inverse. Rendered Android applied a live caller-prepared proposal and an owned managed-provider proposal to two drafts in separate replays. Rendered Android completed coordinated Undo/Redo from an owned checkpoint and separately sent an exact native composer request through a local ACP fixture. One replay covering native Send through draft history and external provider breadth remain open. |
+| Agent proposal review and guarded application | Owned managed-provider flows on browser, macOS and the Android controller cover a sealed complete review, original-context application, coordinated draft history and separate resource publication. Mounted iOS also passed managed two-draft Apply and coordinated Undo/Redo. Rendered Android and mounted iOS read sealed historical material without restoring application authority. Mounted iOS also completed a guarded resource rename and its reviewed inverse. Rendered Android applied a live caller-prepared proposal and an owned managed-provider proposal to two drafts in separate replays. Rendered Android completed coordinated Undo/Redo from an owned checkpoint and separately sent an exact native composer request through a local ACP fixture. Mounted AppKit completed native Send through coordinated draft history using the local ACP fixture. The unified Android replay and external provider breadth remain open. |
 
 Across all rows, the evidence distinguishes engine protocols, native controllers,
 mounted AppKit/UIKit, rendered browser and rendered Android. Physical input,
@@ -730,6 +730,16 @@ request or archived turn, so the complete AppKit Send-through-draft-history
 journey still needs acceptance. Earlier engine-managed review receipts begin
 with an already submitted request. See
 `target/main-macos-packaged-startup.to8jhtpo/apple-native-proposal-send-xcb43d7a/`.
+
+The maintained AppKit replay then passed the complete native Send journey.
+Keyboard text entered through the mounted composer and a native click produced
+one accepted request with the two original editor IDs, revisions and guards.
+An isolated relay changed only the backend name to the scripted local ACP
+provider. The mounted review applied the sealed batch, and the native editor
+views reflected coordinated Undo and Redo through the workspace commands. The
+original editor identities, selections, frames, guards and saved/generated
+bytes remained intact. The host report recorded draft application and no
+publication or executed checks. See `target/apple-appkit-send-maintained.MUyXom/`.
 
 ### Provider admission
 

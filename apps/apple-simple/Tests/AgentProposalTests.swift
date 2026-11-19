@@ -1,6 +1,7 @@
 import XCTest
 #if os(macOS)
 import AppKit
+import Vision
 import SwiftUI
 import Darwin
 #endif
@@ -148,3 +149,179 @@ final class AgentProposalTests:XCTestCase {
   let b=DocumentBuffer(file:FileNode(name:"main.py",path:"main.py",dir:false),text:FileText(path:"main.py",content:"value=1\n",hash:""));let original=b.agentSourceRevision;b.text="value=2\n";b.text="value=1\n";XCTAssertNotEqual(b.agentSourceRevision,original);let equal=b.agentSourceRevision;b.retireAgentContext();XCTAssertNotEqual(equal,b.agentSourceRevision)
  }
 }
+#if os(macOS)
+extension AgentProposalTests {
+ @MainActor func testMountedNativeAgentSendThroughCoordinatedDraftHistory() async throws {
+  let environment = ProcessInfo.processInfo.environment
+  guard let origin = environment["HICKORY_APPKIT_PROPOSAL_SEND_ORIGIN"],
+        let root = environment["HICKORY_APPKIT_PROPOSAL_SEND_ROOT"] else {
+   throw XCTSkip("Use the owned native Agent Send fixture.")
+  }
+  let directory = URL(fileURLWithPath: root).standardizedFileURL.resolvingSymlinksInPath()
+  let marker = directory.appendingPathComponent(".hickory-native-agent-proposal-fixture")
+  guard try String(contentsOf: marker, encoding: .utf8) == "owned-native-agent-proposal-v1\n" else {
+   throw EngineError(message: "An isolated proposal workspace is required.")
+  }
+  _ = NSApplication.shared
+  NSApp.setActivationPolicy(.regular)
+  let workspace = Workspace()
+  workspace.address = origin
+  guard await workspace.connect(), let confirmed = workspace.sourceRootAddress,
+        URL(fileURLWithPath: confirmed).standardizedFileURL.resolvingSymlinksInPath() == directory else {
+   throw EngineError(message: "The server is not connected to the owned proposal workspace. \(workspace.status) · \(workspace.sourceRootAddress ?? "no root") · \(directory.path)")
+  }
+  let noteFile = try XCTUnwrap(workspace.workspaceFile("note.py")), constructionFile = try XCTUnwrap(workspace.workspaceFile("construction.md"))
+  let note = try await workspace.loadBuffer(noteFile), construction = try await workspace.loadBuffer(constructionFile)
+  let notePane = try XCTUnwrap(workspace.layout.split("document-group", axis: "horizontal", newID: "fixture-neighbor"))
+  let constructionPane = try XCTUnwrap(workspace.layout.split("fixture-neighbor", axis: "vertical", newID: "fixture-agent"))
+  workspace.layout.activateSource(note.file.path, in: notePane)
+  workspace.layout.activateSource(construction.file.path, in: constructionPane)
+  workspace.layout.activateUtility(.agent, in: "fixture-agent")
+  workspace.focused = notePane
+  let host = NSHostingView(rootView: WorkspaceView(workspace: workspace))
+  let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1240, height: 940),
+   styleMask: [.titled], backing: .buffered, defer: false)
+  window.contentView = host
+  window.makeKeyAndOrderFront(nil)
+  NSApp.activate()
+  defer { workspace.debugger?.close(); workspace.editorRecovery.close(); window.orderOut(nil); window.contentView = nil }
+
+  func wait(_ message: @autoclosure () -> String, ready: () -> Bool) async throws {
+   let clock = ContinuousClock(), deadline = clock.now + .seconds(20)
+   while clock.now < deadline {
+    host.layoutSubtreeIfNeeded()
+    if ready() { return }
+    try await Task.sleep(for: .milliseconds(100))
+   }
+   let message = message()
+   XCTFail(message)
+   throw EngineError(message: message)
+  }
+  func editor(_ source: String, under view: NSView) -> NSTextView? {
+   if let text = view as? NSTextView, text.isEditable, exactUTF8(text.string, source) { return text }
+   return view.subviews.lazy.compactMap { editor(source, under: $0) }.first
+  }
+  func clickSend(around view: NSView) throws -> Bool {
+   view.displayIfNeeded()
+   guard let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return false }
+   view.cacheDisplay(in: view.bounds, to: bitmap)
+   guard let raster = bitmap.cgImage,
+         let composite = CGContext(data: nil, width: raster.width, height: raster.height,
+          bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
+          bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue) else { return false }
+   var background = NSColor.white
+   view.effectiveAppearance.performAsCurrentDrawingAppearance {
+    background = NSColor.windowBackgroundColor.usingColorSpace(.deviceRGB) ?? .white
+   }
+   let area = CGRect(x: 0, y: 0, width: CGFloat(raster.width), height: CGFloat(raster.height))
+   composite.setFillColor(background.cgColor)
+   composite.fill(area)
+   composite.draw(raster, in: area)
+   guard let pixels = composite.makeImage() else { return false }
+   if let directory = environment["HICKORY_APPKIT_PROPOSAL_SEND_IMAGES"],
+      let png = NSBitmapImageRep(cgImage: pixels).representation(using: .png, properties: [:]) {
+    let output = URL(fileURLWithPath: directory).appendingPathComponent("native-composer.png")
+    try? png.write(to: output, options: .atomic)
+   }
+   let reading = VNRecognizeTextRequest()
+   reading.recognitionLevel = .accurate
+   reading.usesLanguageCorrection = false
+   try VNImageRequestHandler(cgImage: pixels, options: [:]).perform([reading])
+   let sendBoxes = (reading.results ?? []).compactMap { row -> CGRect? in
+    guard let line = row.topCandidates(1).first,
+          line.string == "Send" || line.string.hasPrefix("Send Stop"),
+          let word = line.string.range(of: "Send") else { return nil }
+    return (try? line.boundingBox(for: word))?.boundingBox
+   }
+   guard sendBoxes.count == 1, let box = sendBoxes.first else { return false }
+   let local = NSPoint(x: view.bounds.minX + box.midX * view.bounds.width,
+                       y: view.bounds.minY + (view.isFlipped ? 1 - box.midY : box.midY) * view.bounds.height)
+   guard window.isVisible, view.bounds.contains(local) else { return false }
+   if !window.isKeyWindow { window.makeKey() }
+   let point = view.convert(local, to: nil)
+   let hit = view.hitTest(view.convert(local, to: view.superview))
+   NSLog("HickoryAppKitNativeSend button (%g, %g), key=%d, flipped=%d, hit=%@", point.x, point.y,
+         window.isKeyWindow ? 1 : 0, view.isFlipped ? 1 : 0, hit.map { String(describing: type(of: $0)) } ?? "none")
+   func mouse(_ type: NSEvent.EventType) throws -> NSEvent {
+    try XCTUnwrap(NSEvent.mouseEvent(with: type, location: point, modifierFlags: [],
+     timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+     context: nil, eventNumber: 0, clickCount: type == .mouseMoved ? 0 : 1,
+     pressure: type == .leftMouseDown ? 1 : 0))
+   }
+   NSApp.sendEvent(try mouse(.mouseMoved))
+   NSApp.postEvent(try mouse(.leftMouseUp), atStart: false)
+   NSApp.sendEvent(try mouse(.leftMouseDown))
+   if let up = NSApp.nextEvent(matching: .leftMouseUp, until: .distantPast, inMode: .default, dequeue: true) {
+    NSApp.sendEvent(up)
+   }
+   return true
+  }
+  func command(_ id: String) throws { try XCTUnwrap(workspace.commands().first { $0.id == id }).run() }
+
+  let before = [note.text, construction.text]
+  let after = ["value=41\n", construction.text.replacingOccurrences(of: "generated = 1", with: "generated = 41")]
+  let fileNames = ["note.py", "construction.md", "generated.py"]
+  let saved = try fileNames.map { try Data(contentsOf: directory.appendingPathComponent($0)) }
+  XCTAssertEqual(before[0], "value=1\n"); XCTAssertNotEqual(before[1], after[1])
+  try await wait("Both source editors and the native composer must mount before Send") {
+   before.allSatisfy { editor($0, under: host) != nil } && editor("", under: host) != nil
+  }
+  let noteEditor = try XCTUnwrap(editor(before[0], under: host)), constructionEditor = try XCTUnwrap(editor(before[1], under: host))
+  let composer = try XCTUnwrap(editor("", under: host))
+  let originalEditorIDs = try [note, construction].map { try XCTUnwrap($0.sourceEditorState?()).identity }
+  let originalGuards = try [note, construction].map { try XCTUnwrap($0.savedGuard) }
+  let editors = [noteEditor, constructionEditor]
+  for text in editors { text.setSelectedRange(NSRange(location: 2, length: 3)) }
+  let selections = editors.map { $0.selectedRange() }, frames = editors.map { $0.convert($0.bounds, to: host) }
+  let prompt = "Prepare the owned two-source intention.", agent = workspace.agent
+  XCTAssertTrue(window.makeFirstResponder(composer))
+  composer.insertText(prompt, replacementRange: composer.selectedRange())
+  try await wait("Native composer did not retain the exact entered prompt") { exactUTF8(agent.prompt, prompt) }
+  try await wait("The visible Agent Send button could not be found") {
+   (try? clickSend(around: host)) == true
+  }
+  try await wait("Native Send did not archive the exact prompt. Agent: \(agent.error)") {
+   agent.turns.contains { exactUTF8($0.prompt, prompt) && $0.status == "ok" }
+  }
+  XCTAssertTrue(agent.prompt.isEmpty)
+  let recorded = try XCTUnwrap(agent.turns.first { exactUTF8($0.prompt, prompt) })
+
+  let review = workspace.agentProposals
+  try command("agent.proposals")
+  try await wait("The mounted proposal review did not list the sealed native Send result. Review: \(review.notice)") {
+   review.showing && !review.busy && review.entries.count == 1
+  }
+  let entry = try XCTUnwrap(review.entries.first)
+  await review.read(workspace, entry)
+  let proposal = try XCTUnwrap(review.value, review.notice)
+  XCTAssertTrue(proposal.material.origin_authority.hasPrefix("engine-managed"))
+  XCTAssertEqual(nativeSourceHash(proposal.envelope.material), entry.fingerprint)
+  XCTAssertEqual(Set(proposal.patches.map(\.path)), Set(fileNames.prefix(2)))
+  XCTAssertTrue(proposal.sections.contains { $0.title.hasPrefix("Saved and draft generated consequences") && $0.text.contains("generated.py") })
+  XCTAssertEqual([note.text, construction.text], before)
+  XCTAssertTrue(review.canApply, review.notice)
+  XCTAssertFalse(proposal.envelope.source_effects); XCTAssertFalse(proposal.envelope.checks_executed)
+  await review.applyDraft(workspace)
+  try await wait("The guarded proposal did not apply exactly both drafts. Review: \(review.notice)") {
+   [note.text, construction.text] == after && zip(editors, after).allSatisfy { exactUTF8($0.0.string, $0.1) }
+  }
+  XCTAssertFalse(review.hasReport, review.notice)
+  review.close()
+  try command("workspace.undo")
+  try await wait("One coordinated Undo did not restore both mounted editors") {
+   [note.text, construction.text] == before && zip(editors, before).allSatisfy { exactUTF8($0.0.string, $0.1) }
+  }
+  XCTAssertEqual(editors.map { $0.selectedRange() }, selections)
+  try command("workspace.redo")
+  try await wait("One coordinated Redo did not restore both reviewed drafts") {
+   [note.text, construction.text] == after && zip(editors, after).allSatisfy { exactUTF8($0.0.string, $0.1) }
+  }
+  XCTAssertTrue(editor(after[0], under: host) === noteEditor); XCTAssertTrue(editor(after[1], under: host) === constructionEditor)
+  XCTAssertEqual(try [note, construction].map { try XCTUnwrap($0.sourceEditorState?()).identity }, originalEditorIDs)
+  XCTAssertEqual(try [note, construction].map { try XCTUnwrap($0.savedGuard) }, originalGuards)
+  XCTAssertEqual(editors.map { $0.convert($0.bounds, to: host) }, frames)
+  XCTAssertEqual(try fileNames.map { try Data(contentsOf: directory.appendingPathComponent($0)) }, saved)
+  XCTAssertEqual(agent.turns.first { $0.id == recorded.id }?.prompt, prompt)
+ }
+}
+#endif
