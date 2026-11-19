@@ -146,10 +146,7 @@ The archive for this machine, when the catalogue has one.
 <storycode:copy id="f-2e9d7402a43b-asset_for">
 /// The archive for this machine, when the catalogue has one.
 fn asset_for(installer: &Installer) -> Option<&'static Asset> {
-    installer
-        .assets
-        .iter()
-        .find(|a| a.os == std::env::consts::OS && a.arch == std::env::consts::ARCH)
+    installer.host_asset()
 }
 
 </storycode:copy>

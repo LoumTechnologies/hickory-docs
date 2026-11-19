@@ -27,6 +27,15 @@ pub struct Installer {
     pub reason: &'static str,
 }
 
+impl Installer {
+    /// The archive published for the host running Hickory.
+    pub fn host_asset(&self) -> Option<&'static Asset> {
+        self.assets
+            .iter()
+            .find(|asset| asset.os == std::env::consts::OS && asset.arch == std::env::consts::ARCH)
+    }
+}
+
 /// One platform's prebuilt archive, pinned.
 #[derive(Debug, Clone, Copy)]
 pub struct Asset {
@@ -37,11 +46,8 @@ pub struct Asset {
     pub url: &'static str,
     /// SHA-256 of the archive, checked before anything is unpacked.
     ///
-    /// A pin, not a signature: it proves the bytes are the ones somebody
-    /// looked at when this line was written, and proves nothing about
-    /// whether those bytes are trustworthy. Upstream publishes no
-    /// signatures, so this is the strongest available statement and it is
-    /// worth being precise about which one it is.
+    /// This check binds the downloaded bytes to the selected release pin.
+    /// It does not verify an upstream signature.
     pub sha256: &'static str,
     /// The directory under the prefix to unpack into, or empty for the
     /// prefix itself. An archive that carries a top-level directory of its

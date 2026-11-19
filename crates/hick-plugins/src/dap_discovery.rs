@@ -67,12 +67,6 @@ fn candidates(language: &str) -> &'static [Candidate] {
 /// `crates/hickory-cli/src/dap_install.rs` holds the catalogue that actually
 /// installs, and a test there asserts the two agree.
 pub fn how_to_get(language: &str) -> String {
-    // Only two ecosystems package an adapter as one command hick can run
-    // confined, and those two are what `hick dap install` offers. Every
-    // other row here names the adapter and the ecosystem's own way to get
-    // it — because this message used to say `hick dap install go`, which
-    // prints "no installer for go" and costs a person a shell round trip to
-    // find out.
     match language {
         "python"
         // js-debug is not on npm at all and does not speak stdio; it is
@@ -88,6 +82,17 @@ pub fn how_to_get(language: &str) -> String {
                 "Install one with `hick dap install {language}`, or install it the way that \
                  ecosystem does — hick prefers whatever is already there."
             )
+        }
+        "go"
+            if crate::registry()
+                .interface(language, crate::InterfaceKind::Dap)
+                .and_then(crate::Interface::installer)
+                .and_then(crate::Installer::host_asset)
+                .is_some() =>
+        {
+            "Install Delve with `hick dap install go` or put `dlv` on PATH. Debugging Go \
+             source also requires `go` on PATH."
+                .to_string()
         }
         "go" => "delve is the Go debugger: `go install \
                  github.com/go-delve/delve/cmd/dlv@latest`, and hick will find `dlv` on PATH."
@@ -548,8 +553,12 @@ mod tests {
     fn a_project_pinned_adapter_beats_the_machine() {
         let dir = tempfile::tempdir().unwrap();
         fs::create_dir_all(dir.path().join(".git")).unwrap();
-        executable(&dir.path().join("bin"), "dlv");
-        let found = discover("go", dir.path()).expect("found the project's dlv");
+        let adapter_dir = dir.path().join(".hick-cache/adapters/delve");
+        executable(&adapter_dir, "dlv");
+        let nested = dir.path().join("src/app");
+        fs::create_dir_all(&nested).unwrap();
+        let found = discover("go", &nested).expect("found the workspace's managed dlv");
+        assert_eq!(Path::new(&found.command[0]), adapter_dir.join("dlv"));
         assert_eq!(found.origin, "project");
         assert_eq!(found.adapter, "delve");
         // `dlv dap` is a TCP server, so the command carries the port

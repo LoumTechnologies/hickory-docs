@@ -12,7 +12,7 @@ This page owns the output construction and the explained fragments below. Source
 ### `PLUGIN`
 
 <storycode:copy id="f-9b16480d1289-PLUGIN">
-use super::{dap, lsp};
+use super::{dap, dap_install, lsp};
 use crate::*;
 pub static PLUGIN: Plugin = Plugin {
     id: "go",
@@ -42,8 +42,8 @@ pub static PLUGIN: Plugin = Plugin {
         },
         Interface::Dap {
             candidates: dap::C_GO,
-            project_dirs: &[],
-            installer: None,
+            project_dirs: &[".hick-cache/adapters/delve"],
+            installer: Some(&dap_install::GO),
         },
         Interface::CodeModel {
             bin: "hick-model-go",

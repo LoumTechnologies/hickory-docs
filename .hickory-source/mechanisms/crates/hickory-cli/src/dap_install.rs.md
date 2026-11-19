@@ -152,7 +152,10 @@ mod tests {
     #[test]
     fn nothing_is_offered_that_cannot_be_installed_and_nothing_installable_is_hidden() {
         for language in hick_dap::known_languages() {
-            let installable = super::INSTALLERS.iter().any(|i| i.language == language)
+            let installable = super::INSTALLERS.iter().any(|installer| {
+                installer.language == language
+                    && (language != "go" || installer.host_asset().is_some())
+            })
                 // The catalogue is keyed by ecosystem, not by language id:
                 // one `typescript` installer serves every JavaScript flavour
                 // discovery routes to the same adapter.

@@ -955,6 +955,23 @@ The same editor, its dimensions and exact saved bytes survived. See
 `target/mobile-provider-followup/go-browser-opnyelru/` and
 `target/mobile-provider-followup/go-rendered-current-remote-output/`.
 
+Go Debug now has a managed Delve setup path. Hickory selects a pinned Delve
+1.26.3 archive for its host, checks the digest before unpacking into the
+workspace, and discovers that adapter from nested Go sources. A clean Simple
+Browser workspace requested the real install only after Debug was selected.
+The installer returned HTTP 200, and the retry started the workspace's new
+`dlv dap` process. With no Go SDK on PATH, that replay timed out waiting for
+the retry's terminal response. It establishes first installation and adapter
+discovery. See `target/delve-install-browser-receipt-v1/`.
+
+With the verified Go 1.26.8 SDK on PATH, another clean browser run completed
+installation, retried once, admitted the saved breakpoint and paused the real
+debugger at `main.main`, line 5. The test stopped at its frame-label assertion,
+which expected the filename in a label that shows the function and line. The
+corrected replay through Continue still awaits disk headroom. See
+`target/delve-install-browser-live-v1/`. The focused Rust discovery and
+browser setup tests passed separately.
+
 The installed js-debug adapter also passed a rendered Node.js project with
 a separate copy contributor. Step Into moved from authored `launch.md:7`
 to the exact captured source at `helper.md:6`. Scoped Watch read `seed = 41`.

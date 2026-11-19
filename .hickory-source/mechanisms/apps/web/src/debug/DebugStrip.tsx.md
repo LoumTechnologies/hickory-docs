@@ -901,17 +901,15 @@ describe("the strip on the debugged block", () => {
   });
 
   it("still says the whole sentence when nothing here can install it", () => {
-    // Go's adapter comes from `go install`. There is no button to offer, so
-    // the prose is all there is — and it must not be swallowed.
     render(
       <DebugStrip
         {...base({
           status: "failed",
-          message: "no debug adapter for go on this machine. delve is the Go debugger: …",
+          message: "no debug adapter for cpp on this machine. lldb-dap ships with LLVM: …",
         })}
       />,
     );
-    expect(screen.getByRole("alert").textContent).toContain("delve");
+    expect(screen.getByRole("alert").textContent).toContain("lldb-dap");
   });
 
   it("says how a finished program ended, and offers the way back in", () => {

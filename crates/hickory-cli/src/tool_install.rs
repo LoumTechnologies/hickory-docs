@@ -77,10 +77,7 @@ fn asset_command(asset: &Asset) -> String {
 
 /// The archive for this machine, when the catalogue has one.
 fn asset_for(installer: &Installer) -> Option<&'static Asset> {
-    installer
-        .assets
-        .iter()
-        .find(|a| a.os == std::env::consts::OS && a.arch == std::env::consts::ARCH)
+    installer.host_asset()
 }
 
 /// A named set of installers with a home of its own.

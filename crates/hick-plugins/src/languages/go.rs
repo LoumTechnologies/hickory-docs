@@ -1,4 +1,4 @@
-use super::{dap, lsp};
+use super::{dap, dap_install, lsp};
 use crate::*;
 pub static PLUGIN: Plugin = Plugin {
     id: "go",
@@ -28,8 +28,8 @@ pub static PLUGIN: Plugin = Plugin {
         },
         Interface::Dap {
             candidates: dap::C_GO,
-            project_dirs: &[],
-            installer: None,
+            project_dirs: &[".hick-cache/adapters/delve"],
+            installer: Some(&dap_install::GO),
         },
         Interface::CodeModel {
             bin: "hick-model-go",

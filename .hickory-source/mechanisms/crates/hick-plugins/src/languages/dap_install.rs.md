@@ -86,6 +86,78 @@ pub static RUST: Installer = Installer {
 };
 
 </storycode:copy>
+<a id="f-d008b50ec937-GO"></a>
+### Install Delve into the workspace
+
+Delve publishes executable archives, so Hickory can install the debugger without
+using a Go SDK to compile it. A Go SDK is still needed to debug Go source.
+The archive contains the binary and release documents at its top level. Extract
+them under <code>.hick-cache/adapters/delve/</code>, where the Go plugin looks for
+the workspace debugger. The hashes below match the upstream
+<a href="https://github.com/go-delve/delve/releases/download/v1.26.3/checksums.txt">v1.26.3 checksum manifest</a>.
+
+<storycode:copy id="f-d008b50ec937-GO">
+pub static GO: Installer = Installer {
+    language: "go",
+    tool: "curl",
+    package: "delve",
+    command: "",
+    assets: DELVE,
+    reason: "the Go debugger, published by the Delve project",
+};
+
+const DELVE: &[Asset] = &[
+    Asset {
+        os: "macos",
+        arch: "aarch64",
+        url: "https://github.com/go-delve/delve/releases/download/v1.26.3/dlv_1.26.3_darwin_arm64.tar.gz",
+        sha256: "7f28483a42f0a911f29b236aa40d24d7099f1b0ec54c56c4d439a6903d478a3d",
+        unpack: "tar",
+        into: "delve",
+    },
+    Asset {
+        os: "macos",
+        arch: "x86_64",
+        url: "https://github.com/go-delve/delve/releases/download/v1.26.3/dlv_1.26.3_darwin_amd64.tar.gz",
+        sha256: "6827a438473167a1e0805b4546e5bf2d53401530f694deb35e41c6e7b46e27c8",
+        unpack: "tar",
+        into: "delve",
+    },
+    Asset {
+        os: "linux",
+        arch: "aarch64",
+        url: "https://github.com/go-delve/delve/releases/download/v1.26.3/dlv_1.26.3_linux_arm64.tar.gz",
+        sha256: "5b03fd74895d676c4435bec1aade0863be1489a4be1bb5c9269c6ef389bf5d2d",
+        unpack: "tar",
+        into: "delve",
+    },
+    Asset {
+        os: "linux",
+        arch: "x86_64",
+        url: "https://github.com/go-delve/delve/releases/download/v1.26.3/dlv_1.26.3_linux_amd64.tar.gz",
+        sha256: "cdd4d6b2a638d8f26468d82a76b766df594641490bea566629305d90fbccc06e",
+        unpack: "tar",
+        into: "delve",
+    },
+    Asset {
+        os: "windows",
+        arch: "aarch64",
+        url: "https://github.com/go-delve/delve/releases/download/v1.26.3/dlv_1.26.3_windows_arm64.zip",
+        sha256: "906e942b9fe00fc43770151f378b2e3cff2777030d70e338e7b51ed77ceb588b",
+        unpack: "unzip",
+        into: "delve",
+    },
+    Asset {
+        os: "windows",
+        arch: "x86_64",
+        url: "https://github.com/go-delve/delve/releases/download/v1.26.3/dlv_1.26.3_windows_amd64.zip",
+        sha256: "f9e15b8f3628e4c7bfe481011bea458df754d0e75c6ff4ab01c71294165950fd",
+        unpack: "unzip",
+        into: "delve",
+    },
+];
+
+</storycode:copy>
 <a id="f-d008b50ec937-JAVA_DEBUG"></a>
 ### `JAVA_DEBUG`
 
@@ -293,6 +365,6 @@ const CODELLDB: &[Asset] = &[
 
 The selections below preserve the original byte order. Narrative reading order does not change the output.
 
-<storycode:file path="crates/hick-plugins/src/languages/dap_install.rs"><storycode:paste select="#f-d008b50ec937-PYTHON"/><storycode:paste select="#f-d008b50ec937-TYPESCRIPT"/><storycode:paste select="#f-d008b50ec937-JAVA"/><storycode:paste select="#f-d008b50ec937-RUST"/><storycode:paste select="#f-d008b50ec937-JAVA_DEBUG"/><storycode:paste select="#f-d008b50ec937-JAVA_DEBUG_URL"/><storycode:paste select="#f-d008b50ec937-JAVA_DEBUG_SHA256"/><storycode:paste select="#f-d008b50ec937-JS_DEBUG"/><storycode:paste select="#f-d008b50ec937-JS_DEBUG_URL"/><storycode:paste select="#f-d008b50ec937-JS_DEBUG_SHA256"/><storycode:paste select="#f-d008b50ec937-CODELLDB"/></storycode:file>
+<storycode:file path="crates/hick-plugins/src/languages/dap_install.rs"><storycode:paste select="#f-d008b50ec937-PYTHON"/><storycode:paste select="#f-d008b50ec937-TYPESCRIPT"/><storycode:paste select="#f-d008b50ec937-JAVA"/><storycode:paste select="#f-d008b50ec937-RUST"/><storycode:paste select="#f-d008b50ec937-GO"/><storycode:paste select="#f-d008b50ec937-JAVA_DEBUG"/><storycode:paste select="#f-d008b50ec937-JAVA_DEBUG_URL"/><storycode:paste select="#f-d008b50ec937-JAVA_DEBUG_SHA256"/><storycode:paste select="#f-d008b50ec937-JS_DEBUG"/><storycode:paste select="#f-d008b50ec937-JS_DEBUG_URL"/><storycode:paste select="#f-d008b50ec937-JS_DEBUG_SHA256"/><storycode:paste select="#f-d008b50ec937-CODELLDB"/></storycode:file>
 
 </storycode:doc>
