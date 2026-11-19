@@ -475,8 +475,15 @@ supplied the initial breakpoint in this replay. See
 An unlocked follow-up queued the click over the visible user line-number
 glyph in the native gutter. It produced no pending marker and stopped before
 Debug Start. The assistant line-number interaction was outside that run.
-Native marker placement remains unverified for both recorded sides. See
+That attempt left native marker placement unverified. See
 `target/appkit-recorded-native-breakpoint.1t_v6fnx/appkit.log`.
+Executable line numbers now use native buttons aligned to their measured
+text rows. The rebuilt AppKit replay placed two pending markers on each
+recorded side before launch. Each Debug start admitted only the selected
+fence's breakpoint and exact recorded hash. Native Step over and Continue
+reached the next authored line and produced `42` or `53`. The archive,
+editor identity, selection, and frame stayed exact. See
+`target/appkit-recorded-native-breakpoint.vo3cw2jj/receipt.json`.
 The rebuilt engine also rejected stale message hashes on both sides, withheld
 execution after preparation, and refused escaped or non-UTF-8 startup reads.
 The main Chromium window and Simple Browser also ran both selected Python

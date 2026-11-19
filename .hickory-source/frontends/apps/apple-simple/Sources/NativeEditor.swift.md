@@ -2396,6 +2396,11 @@ AppKit and UIKit keep their own text views above. The language session supplies 
 
 The left number gutter consumes the same TextKit line rectangles as the right debugger rail. Only the first visual fragment of each logical line receives a number; wrapped continuations stay blank. TextKit's extra fragment accounts for an empty document and the line after a final newline. Drawing numbers beside the cached native view leaves selection, undo and scrolling in the editor. The gutter reserves at least three digits, expanding only when the document needs more.
 
+Executable rows use a button with the same TextKit rectangle as the displayed
+number. The button exposes a line-specific accessibility action and uses the
+current parsed source and recorded-message lease again at activation. Prose and
+stale rows remain readable while the breakpoint action is unavailable.
+
 <ui:copy id="simple-apple-language-preview">
 struct NativeFindPanel: View {
     @Bindable var buffer: DocumentBuffer
@@ -2460,6 +2465,58 @@ struct LanguageEditor: View {
     var recordedRunEngine: Engine? = nil
     var recordedPatchReview: ((Int) -> Void)? = nil
     var presentRecordedInspection: ((NativeDebugInspector) -> Void)? = nil
+    private var breakpointMarkup: InlineDebugContext? {
+        guard debugger != nil, recordedDebug?.current() != false,
+              exactUTF8(buffer.inlineMarkup.source, buffer.text) else { return nil }
+        return buffer.inlineMarkup.debug
+    }
+    private func canToggleBreakpoint(on line: Int, in markup: InlineDebugContext?) -> Bool {
+        guard let markup else { return false }
+        if recordedDebug != nil { return markup.recorded.values.contains { $0.contains(line) } }
+        return markup.code[line] != nil
+    }
+    private func lineNumber(_ line: Int, marker: String?) -> some View {
+        ZStack {
+            if let marker {
+                Text(marker == "refused" ? "○" : marker == "bound" ? "●" : "◌")
+                    .font(.system(size: 11)).foregroundStyle(.red)
+                    .frame(maxWidth: .infinity, alignment: .leading).padding(.leading, 2)
+            }
+            Text(String(line + 1)).font(.system(size: 13, design: .monospaced)).foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .trailing).padding(.trailing, 6)
+        }.frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+    private var lineNumbers: some View {
+        GeometryReader { geometry in
+            let breakpoints = debugger?.breakpointMarkers(buffer, recorded: recordedDebug != nil) ?? []
+            let markup = breakpointMarkup
+            let rows = buffer.visibleDebugLines.filter { $0.y + $0.height > 0 && $0.y < geometry.size.height }
+            ZStack(alignment: .topLeading) {
+                ForEach(rows, id: \.line) { row in
+                    let marker = breakpoints.first { $0["line"] as? Int == row.line }?["state"] as? String
+                    Group {
+                        if canToggleBreakpoint(on: row.line, in: markup) {
+                            Button {
+                                if canToggleBreakpoint(on: row.line, in: breakpointMarkup) { debugger?.toggle(buffer, line: row.line) }
+                            } label: {
+                                lineNumber(row.line, marker: marker)
+                            }
+                            .buttonStyle(SimpleChromeButtonStyle())
+                            .accessibilityLabel("Toggle breakpoint on line \(row.line + 1)")
+                            .accessibilityValue(marker ?? "No breakpoint")
+                        } else {
+                            lineNumber(row.line, marker: marker).accessibilityHidden(true).allowsHitTesting(false)
+                        }
+                    }
+                    .frame(width: geometry.size.width, height: row.height)
+                    .position(x: geometry.size.width / 2, y: row.y + row.height / 2)
+                }
+            }.clipped()
+        }
+        .frame(width: CGFloat(max(3, String(buffer.text.filter { $0 == "\n" }.count + 1).count)) * 8 + 12)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Line numbers; click code to toggle breakpoint")
+    }
     var body: some View {
         HStack(spacing: 0) {
             GeometryReader { geometry in
@@ -2473,29 +2530,7 @@ struct LanguageEditor: View {
                     }
                 }.clipped()
             }.frame(width: 24)
-            GeometryReader { geometry in
-                let breakpoints = debugger?.breakpointMarkers(buffer, recorded: recordedDebug != nil) ?? []
-                Canvas { context, size in
-                    for row in buffer.visibleDebugLines where row.y + row.height > 0 && row.y < size.height {
-                        if let mark = breakpoints.first(where: { $0["line"] as? Int == row.line }) {
-                            let state = mark["state"] as? String
-                            context.draw(Text(state == "refused" ? "○" : state == "bound" ? "●" : "◌").font(.system(size: 11)).foregroundColor(.red), at: CGPoint(x: 2, y: row.y + row.height / 2), anchor: .leading)
-                        }
-                        context.draw(Text(String(row.line + 1)).font(.system(size: 13, design: .monospaced)).foregroundColor(.secondary),
-                            at: CGPoint(x: size.width - 6, y: row.y + row.height / 2), anchor: .trailing)
-                    }
-                }.clipped().contentShape(Rectangle()).onTapGesture { point in
-                    guard let row = buffer.visibleDebugLines.first(where: { point.y >= $0.y && point.y < $0.y + $0.height }) else { return }
-                    if let recordedDebug {
-                        if recordedDebug.current(), exactUTF8(buffer.inlineMarkup.source, buffer.text),
-                           buffer.inlineMarkup.debug.recorded.values.contains(where: { $0.contains(row.line) }) {
-                            debugger?.toggle(buffer, line: row.line)
-                        }
-                    } else if inlineDebugPath(buffer.text, path: buffer.file.path, line: row.line) != nil {
-                        debugger?.toggle(buffer, line: row.line)
-                    }
-                }.accessibilityLabel("Line numbers; click code to toggle breakpoint")
-            }.frame(width: CGFloat(max(3, String(buffer.text.filter { $0 == "\n" }.count + 1).count)) * 8 + 12)
+            lineNumbers
             NativeEditor(buffer: buffer, readOnly: buffer.readOnly).overlay {
                 // Paint stopped execution independently of selection and text styling.
                 // The source guard retires positional facts as soon as displayed bytes change.
