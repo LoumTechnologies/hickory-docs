@@ -851,6 +851,13 @@ The browser's Node attach received Started and the target reported
 debugger statement produced no rendered pause in the bounded replay.
 Watch and detach remain open. The adapter and host traces are in
 `target/mobile-provider-followup/js-debug-attach-first`.
+The explicit `pwa-node` attach now follows the adapter's child on the same
+loopback endpoint. Two focused TCP fixtures passed. They checked ordinary
+single-connection attach, exact child configuration and stack reads on the
+child. Each connection sent a detach with target termination disabled. Both
+setups withheld saved-source authority. The tests compiled the current debugger
+crate against a consistent cached dependency graph. A rendered rerun with
+the genuine js-debug provider is still required.
 The confined CodeLLDB 1.12.3 install and direct DAP initialize passed. Its
 first simple-host Rust attempt stopped before Started. A fresh browser replay
 started the actual adapter, stopped at line 3 and displayed the inline value

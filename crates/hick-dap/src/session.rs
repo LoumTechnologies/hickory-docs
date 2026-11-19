@@ -447,6 +447,7 @@ pub struct Launch {
 async fn wait_for_start_debugging(
     events: &mut broadcast::Receiver<Event>,
     adapter: &Adapter,
+    attached: bool,
 ) -> Result<Value> {
     let deadline = Duration::from_secs(30);
     let found = tokio::time::timeout(deadline, async {
@@ -467,16 +468,20 @@ async fn wait_for_start_debugging(
     .ok()
     .flatten();
     let event = found.context("no `startDebugging` request arrived")?;
+    let configuration = event.body.get("configuration");
+    if attached {
+        anyhow::ensure!(
+            event.body.get("request").and_then(Value::as_str) == Some("attach")
+                && configuration.is_some_and(Value::is_object),
+            "The adapter did not provide a valid child attachment"
+        );
+    }
     // `reverse_as_event` carries the request's own seq, which is what a
     // response has to name.
     adapter
         .respond(event.seq, "startDebugging", json!({}))
         .await?;
-    Ok(event
-        .body
-        .get("configuration")
-        .cloned()
-        .unwrap_or_else(|| json!({})))
+    Ok(configuration.cloned().unwrap_or_else(|| json!({})))
 }
 fn omit_cleared_module_program(arguments: &mut Value) {
     if arguments.get("module").is_some_and(Value::is_string)
@@ -549,11 +554,12 @@ impl Session {
     ) -> Result<Self> {
         anyhow::ensure!(port != 0, "Choose a nonzero adapter endpoint port");
         anyhow::ensure!(arguments.is_object(), "Attach arguments must be an object");
+        let multi_session = arguments.get("type").and_then(Value::as_str) == Some("pwa-node");
         let adapter = Adapter::attach(port).await?;
         let launch = Launch {
-            adapter: Vec::new(), transport: crate::adapter::Transport::Stdio,
-            adapter_extra: json!({}), multi_session: false,
-            program: PathBuf::new(), cwd: PathBuf::new(), extra: arguments.clone(),
+            adapter: Vec::new(), transport: crate::adapter::Transport::Attached(port),
+            adapter_extra: json!({}), multi_session,
+            program: PathBuf::new(), cwd: PathBuf::new(), extra: json!({}),
         };
         let (session, _) = Self::start_on(adapter, None, &launch, arguments,
             mapping, &[], &[], true).await?;
@@ -796,12 +802,9 @@ impl Session {
         // `provisionalBreakpoint` and will never fire; the ones that matter
         // are set on the sibling below, by the recursion.
         if is_supervisor {
-            let configuration = wait_for_start_debugging(&mut child_watch, &session.adapter)
+            let configuration = wait_for_start_debugging(&mut child_watch, &session.adapter, attached)
                 .await
-                .context(
-                    "this adapter runs the program on a second connection and never asked \
-                     for one",
-                )?;
+                .context("following the adapter's debug target on a second connection")?;
             let sibling = session.adapter.sibling().await?;
             let parent = session.into_parent();
             return Box::pin(Self::start_on(
@@ -1369,18 +1372,27 @@ mod source_admission_tests {
     // matching path text must not confer source authority on an external target.
     #[tokio::test]
     async fn endpoint_attach_detaches_and_keeps_frames_unverified() {
+        assert_endpoint_attach(false).await;
+    }
+
+    #[tokio::test]
+    async fn node_endpoint_attach_follows_the_exact_child_and_detaches_both_connections() {
+        assert_endpoint_attach(true).await;
+    }
+
+    async fn assert_endpoint_attach(multi_session: bool) {
         use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
-        let root = tempfile::tempdir().unwrap();
-        let path = root.path().join("main.py");
-        std::fs::write(&path, "answer=41\n").unwrap();
-        let mapping = Arc::new(Mapping::identity(&path));
-        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
-        let port = listener.local_addr().unwrap().port();
-        let server = tokio::spawn(async move {
-            let (stream, _) = listener.accept().await.unwrap();
+        use tokio::net::TcpStream;
+        async fn serve_connection(
+            stream: TcpStream,
+            path: PathBuf,
+            attach_arguments: Value,
+            child: Option<Value>,
+        ) -> Vec<String> {
             let (read, mut write) = stream.into_split();
             let mut read = BufReader::new(read);
             let mut commands = Vec::new();
+            let mut acknowledged = false;
             loop {
                 let mut length = 0;
                 loop {
@@ -1395,10 +1407,22 @@ mod source_admission_tests {
                 read.read_exact(&mut bytes).await.unwrap();
                 let request: Value = serde_json::from_slice(&bytes).unwrap();
                 let command = request["command"].as_str().unwrap();
+                if request["type"] == "response" {
+                    assert!(child.is_some());
+                    assert_eq!(command, "startDebugging");
+                    assert_eq!(request["request_seq"], 3);
+                    assert_eq!(request["success"], true);
+                    acknowledged = true;
+                    continue;
+                }
                 commands.push(command.to_owned());
                 if command == "disconnect" {
                     assert_eq!(request["arguments"]["terminateDebuggee"], false);
+                    assert_eq!(acknowledged, child.is_some());
                     return commands;
+                }
+                if command == "attach" {
+                    assert_eq!(request["arguments"], attach_arguments);
                 }
                 let body = match command {
                     "stackTrace" => json!({"totalFrames":1,"stackFrames":[{
@@ -1414,10 +1438,34 @@ mod source_admission_tests {
                     let event = json!({"seq":2,"type":"event","event":"initialized"});
                     write.write_all(&crate::protocol::frame(&event)).await.unwrap();
                 }
+                if command == "configurationDone" && let Some(configuration) = &child {
+                    let reverse = json!({"seq":3,"type":"request","command":"startDebugging",
+                        "arguments":{"request":"attach","configuration":configuration}});
+                    write.write_all(&crate::protocol::frame(&reverse)).await.unwrap();
+                }
                 write.flush().await.unwrap();
             }
+        }
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("main.py");
+        std::fs::write(&path, "answer=41\n").unwrap();
+        let mapping = Arc::new(Mapping::identity(&path));
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let arguments = if multi_session { json!({"type":"pwa-node","port":55123}) }
+            else { json!({"justMyCode":false}) };
+        let parent_arguments = arguments.clone();
+        let child = multi_session.then(|| json!({"type":"pwa-node","__pendingTargetId":"owned-child"}));
+        let server = tokio::spawn(async move {
+            let (parent, _) = listener.accept().await.unwrap();
+            let parent = tokio::spawn(serve_connection(parent, path.clone(), parent_arguments, child.clone()));
+            let sibling = if let Some(arguments) = child {
+                let (stream, _) = listener.accept().await.unwrap();
+                Some(serve_connection(stream, path, arguments, None).await)
+            } else { None };
+            (parent.await.unwrap(), sibling)
         });
-        let session = Session::attach_to_endpoint(port, json!({"justMyCode":false}), mapping).await.unwrap();
+        let session = Session::attach_to_endpoint(port, arguments, mapping).await.unwrap();
         assert!(session.observation_source.is_none());
         assert!(session.primary_source_hash().is_none());
         assert!(session.set_breakpoints(&[Breakpoint { line:0, condition:None, hit_condition:None, log_message:None }]).await.is_err());
@@ -1429,9 +1477,13 @@ mod source_admission_tests {
         assert!(session.run_to(0, 1).await.is_err());
         assert!(session.jump_to(0, 1).await.is_err());
         session.shutdown().await;
-        let commands = server.await.unwrap();
-        assert!(commands.contains(&"attach".into()));
-        assert!(!commands.contains(&"launch".into()));
+        let (parent, child) = server.await.unwrap();
+        if let Some(child) = child {
+            assert_eq!(parent, ["initialize", "attach", "configurationDone", "disconnect"]);
+            assert_eq!(child, ["initialize", "attach", "configurationDone", "stackTrace", "disconnect"]);
+        } else {
+            assert_eq!(parent, ["initialize", "attach", "configurationDone", "stackTrace", "disconnect"]);
+        }
     }
 
     #[test]
