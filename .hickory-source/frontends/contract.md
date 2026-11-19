@@ -2969,6 +2969,20 @@ contributor as a background draft. Undo and Redo preserved the focused
 project editor and the saved files. See
 `target/main-bulk-actions-managed-requery-v1/browser.json`.
 
+Main now opens the complete resource review for provider actions that
+create, move, or remove paths. The shared planner observes exact drafts,
+saved baselines, and physical guards, then reads construction consequences.
+Main displays each reviewed path in the existing floating preview. Resource
+publication and coordinated inverse restoration in Main still require
+editor adoption of confirmed saved identities.
+
+A genuine TypeScript Move to a new file replay previewed the import in
+`move.ts` and the proposed `relocate.ts` export. Both saved and draft layers
+showed the exact changes, including the absent destination preimage. The
+original editor, full selection, and geometry stayed in place through
+Close. The browser sent no source writes. See
+`target/main-resource-move-preview-v3/browser.json`.
+
 Focused rebuilt-engine replays also passed for Python definition and
 Back/Forward, workspace search, delayed first-open authority and capabilities,
 and Debug and guarded patch review on both recorded Agent message sides.

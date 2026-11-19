@@ -202,23 +202,63 @@ export function resourceLayout(layout:Layout,routes:readonly ResourceEditorRoute
  };return routeTree(layout);
 }
 export function isResourceEdit(edit:unknown):boolean{return !!edit&&typeof edit==='object'&&Array.isArray((edit as {documentChanges?:unknown}).documentChanges)&&((edit as {documentChanges:unknown[]}).documentChanges).some(item=>!!item&&typeof item==='object'&&'kind' in item);}
-/** A resource proposal is acquired as a whole; no text-only fallback may escape review. */
+export type ResourceSaveReview = Pick<ResourceRestoreReview, "facts" | "consequence" | "workspace" | "context" | "plan" | "patches" | "saved" | "savedBefore" | "proposal" | "current">;
+
+type ObserveResourceInputs = (paths: string[], context: string) => Promise<{
+  inputs: ResourceInputs;
+  capture: ResourceInputCapture;
+  current: () => boolean;
+}>;
+
+/** Acquire and review a whole resource proposal before choosing a host's adoption policy. */
+export async function prepareResourceReview(title: string, edit: unknown, context: string,
+  acquire: (path: string) => Promise<string>, observe: ObserveResourceInputs, load: ResourceTransport,
+  alive: () => boolean): Promise<ResourceSaveReview> {
+  const targets = await load<{paths: string[]}>("/api/changes/resource-targets", {edit});
+  if (!alive() || !targets.paths.length || targets.paths.length > 1000 || new Set(targets.paths).size !== targets.paths.length) {
+    throw Error("Resource targets changed or exceed the review bound.");
+  }
+  const initial = await observe(targets.paths, context);
+  for (const path of targets.paths) {
+    const source = initial.inputs.sources[path];
+    if (source?.kind === "file" && await acquire(path) !== source.text) {
+      throw Error("Referenced source changed during acquisition. Prepare the provider action again.");
+    }
+  }
+  const captured = await observe(targets.paths, context);
+  if (initial.inputs.workspace !== captured.inputs.workspace) throw Error("Resource workspace changed. Prepare again.");
+  for (const path of targets.paths) {
+    const before = initial.inputs.sources[path], after = captured.inputs.sources[path];
+    if (before?.kind !== after?.kind || before?.text !== after?.text ||
+        JSON.stringify(initial.inputs.saved_sources[path]) !== JSON.stringify(captured.inputs.saved_sources[path]) ||
+        initial.inputs.saved_guards[path] !== captured.inputs.saved_guards[path]) {
+      throw Error("Saved or draft resource input changed during acquisition. Prepare the whole action again.");
+    }
+  }
+  if (JSON.stringify(initial.inputs.saved_guards) !== JSON.stringify(captured.inputs.saved_guards)) {
+    throw Error("Physical construction dependencies changed during acquisition. Prepare the whole action again.");
+  }
+  const {plan} = await load<{plan: ResourceWirePlan}>("/api/changes/plan-resources", {context, title, edit, sources: captured.inputs.sources});
+  if (!captured.current()) throw Error("Source changed while planning resource operations.");
+  const proposal = {inputs: captured.inputs, capture: captured.capture, plan};
+  const facts = await load<ResourceConstructionFacts & {saved_sources: Record<string, ResourceSaved>}>("/api/changes/resource-consequences", proposal);
+  if (!captured.current() || !currentResourceFacts(facts, captured.inputs.workspace, context) || !facts.saved_sources) {
+    throw Error("Resource ownership changed or saved consequences are unavailable. Prepare again.");
+  }
+  return {
+    facts, consequence: facts.fingerprint, workspace: captured.inputs.workspace, context, plan,
+    patches: resourceWirePatches(plan), saved: facts.saved_sources, savedBefore: captured.inputs.saved_sources,
+    proposal, current: captured.current,
+  };
+}
+
 export async function prepareResourceSave(buffers:Buffers,title:string,edit:unknown,acquire:(path:string)=>Promise<Buffer>,load:ResourceTransport,alive:()=>boolean,hash:(text:string)=>Promise<string>=resourceHash,entryIntent?:EntryIntent):Promise<ResourceRestoreReview>{
  const context=entryIntent?.context??crypto.randomUUID().replaceAll('-','');
- const targets=await load<{paths:string[]}>('/api/changes/resource-targets',{edit});
- if(!alive()||!targets.paths.length||targets.paths.length>1000||new Set(targets.paths).size!==targets.paths.length)throw new Error('Resource targets changed or exceed the review bound.');
- const initial=await captureResourceInputs(buffers,targets.paths,context,edit,load,alive,hash,entryIntent);
- for(const path of targets.paths)if(initial.inputs.sources[path]?.kind==='file'){const buffer=await acquire(path);if(buffer.text!==initial.inputs.sources[path].text)throw new Error('Referenced source changed during acquisition. Prepare the provider action again.');}
- const captured=await captureResourceInputs(buffers,targets.paths,context,edit,load,alive,hash,entryIntent);
- for(const path of targets.paths){const before=initial.inputs.sources[path],after=captured.inputs.sources[path];if(before?.kind!==after?.kind||before?.text!==after?.text||JSON.stringify(initial.inputs.saved_sources[path])!==JSON.stringify(captured.inputs.saved_sources[path])||initial.inputs.saved_guards[path]!==captured.inputs.saved_guards[path])throw new Error('Saved or draft resource input changed during acquisition. Prepare the whole action again.');}
- if(JSON.stringify(initial.inputs.saved_guards)!==JSON.stringify(captured.inputs.saved_guards))throw Error('Physical construction dependencies changed during acquisition. Prepare the whole action again.');
- const plan=await load<{plan:ResourceWirePlan}>('/api/changes/plan-resources',{context,title,edit,sources:captured.inputs.sources});
- if(!captured.current())throw new Error('Source changed while planning resource operations.');
- const proposal={inputs:captured.inputs,capture:captured.capture,plan:plan.plan},facts=await load<ResourceConstructionFacts&{saved_sources:Record<string,ResourceSaved>}>('/api/changes/resource-consequences',proposal);
- if(!captured.current()||!currentResourceFacts(facts,captured.inputs.workspace,context)||!facts.saved_sources)throw new Error('Resource ownership changed or saved consequences are unavailable. Prepare again.');
- const patches=resourceWirePatches(plan.plan),editorCurrent=captureResourceEditors(buffers,patches);
- if(patches.some(patch=>patch.before&&buffers.values.get(patch.path)?.text!==patch.before.text))throw new Error('Acquire every reviewed resource source before publication.');
- return {operation:'save',facts,record:'',fingerprint:'',consequence:facts.fingerprint,workspace:captured.inputs.workspace,context,plan:plan.plan,patches,saved:facts.saved_sources,savedBefore:captured.inputs.saved_sources,proposal,current:()=>captured.current()&&editorCurrent(),restoring:new Map(),entryIntent};
+ const review=await prepareResourceReview(title,edit,context,async path=>(await acquire(path)).text,
+  (paths,id)=>captureResourceInputs(buffers,paths,id,edit,load,alive,hash,entryIntent),load,alive);
+ const editorCurrent=captureResourceEditors(buffers,review.patches);
+ if(review.patches.some(patch=>patch.before&&buffers.values.get(patch.path)?.text!==patch.before.text))throw new Error('Acquire every reviewed resource source before publication.');
+ return {...review,operation:'save',record:'',fingerprint:'',current:()=>review.current()&&editorCurrent(),restoring:new Map(),entryIntent};
 }
 const resourceHash=async(text:string)=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(text))),byte=>byte.toString(16).padStart(2,'0')).join('');
 export interface ResourceInputs {source_files_modified:false;workspace:string;context:string;refusals:Record<string,string>;sources:Record<string,ResourceWireState>;saved_sources:Record<string,ResourceSaved>;saved_guards:Record<string,string>}
@@ -251,7 +291,18 @@ export async function retainedResourceInputs(buffers:Buffers,roster:ReturnType<t
 export async function captureResourceInputs(buffers:Buffers,targetPaths:string[],context:string,edit:unknown,load:ResourceTransport,alive:()=>boolean,hash:(text:string)=>Promise<string>,entryIntent?:EntryIntent){
  const roster=captureResourceRoster(buffers),current=()=>alive()&&roster.current();
  const retained=await retainedResourceInputs(buffers,roster,targetPaths,current,hash,entryIntent?.interrupted);
- const capture={context,edit,...retained};
+ return observeResourceInputs({context,edit,...retained},load,current,entryIntent);
+}
+export interface ResourceInputCapture {
+ context: string;
+ edit: unknown;
+ drafts: Record<string, unknown>;
+ ownership_sources: Record<string, string>;
+ unaddressed_sources: Record<string, string>;
+ saved_guards: Record<string, string>;
+}
+export async function observeResourceInputs(capture:ResourceInputCapture,load:ResourceTransport,current:()=>boolean,entryIntent?:EntryIntent) {
+ const {context}=capture;
  const inputs=entryIntent
     ? await load<ResourceInputs>('/api/workspace/entry/inputs',{version:1,token:entryIntent.token,capture})
     : await load<ResourceInputs>('/api/changes/resource-inputs',capture);
@@ -260,7 +311,7 @@ export async function captureResourceInputs(buffers:Buffers,targetPaths:string[]
  for (const [path, source] of Object.entries(inputs.sources)) {
   if (source.kind !== 'file' || Object.hasOwn(inputs.saved_guards,path)) continue;
   if (interrupted?.missingOriginal && path === interrupted.source && inputs.saved_sources[path]?.kind === 'missing' &&
-     Object.hasOwn(retained.drafts,path)) continue;
+     Object.hasOwn(capture.drafts,path)) continue;
   throw Error('Current source acquisition lacks its physical observation. Prepare again.');
  }
  return {inputs,capture,current};

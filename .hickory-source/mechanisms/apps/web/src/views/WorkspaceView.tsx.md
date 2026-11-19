@@ -62,7 +62,7 @@ import {
 } from "react";
 import { useRecentFiles } from "./useRecentFiles";
 import { STARTUP_INTRODUCTION } from "../lib/newDoc";
-import { api } from "../api/client";
+import { api, request as callApi } from "../api/client";
 import { MergeDriverNotice } from "../components/MergeDriverNotice";
 import type {
   Doc,
@@ -226,6 +226,8 @@ import { validateSourcePreparation } from "../simple/WorkspaceLanguages";
 import { sourceDigest } from "../lsp/diagnosticRevision";
 import { WsRealtime } from "../api/realtime";
 import { ChangePreview } from "../components/ChangePreview";
+import type { ResourceSaveReview, ResourceTransport } from "../simple/ResourceEditors";
+const ResourceConsequencesView = lazy(() => import("../simple/SourceRecovery").then(module => ({default: module.ResourceConsequencesView})));
 import type { WindowHistoryPlan } from "./WorkspaceChat";
 import type { UiOutcome } from "../lib/uiActions";
 </storycode:copy>
@@ -570,6 +572,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   const [changeReview, setChangeReview] = useState<{
     plan: ChangePlan; current: () => boolean; opensFiles: boolean; apply: () => Promise<void>;
   } | null>(null);
+  const [resourceReview, setResourceReview] = useState<ResourceSaveReview | null>(null);
   const [changePath, setChangePath] = useState(0);
   const [changePage, setChangePage] = useState(0);
   const [changePending, setChangePending] = useState(false);
@@ -1314,7 +1317,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       tabId?: string; owner?: RecordedPatchSource}>();
     const current = () => visible() && request.current() && [...snapshots.values()].every(snapshot => !snapshot.owner || snapshot.owner.current());
     const check = () => { if (!current()) throw Error(`Source or editor changed. Prepare the ${operation} again.`); };
-    setChangeKind(operation); setChangePending(true); setChangeReview(null); setChangeError(null);
+    setChangeKind(operation); setChangePending(true); setChangeReview(null); setResourceReview(null); setChangeError(null);
     let temporary: WsRealtime | undefined, secondary: LspClient | undefined;
     const capture = async (client: LspClient, uri: string, text: string, managed: boolean) => {
       check();
@@ -1326,7 +1329,10 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       return {source_hash: digest, source_revision: (receipt as {source_revision: string}).source_revision};
     };
     try {
-      const {matchesScope, patchScope, commitWorkspaceDrafts, invertWindowDraft} = await import("./WorkspaceChat");
+      const [
+        {matchesScope, patchScope, captureWorkspacePatch, commitWorkspaceDrafts, invertWindowDraft},
+        {isResourceEdit, observeResourceInputs, prepareResourceReview},
+      ] = await Promise.all([import("./WorkspaceChat"), import("../simple/ResourceEditors")]);
       const files = folderRootsRef.current[0] ?? await api.files();
       check();
       const scope = patchScope(files);
@@ -1372,6 +1378,8 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
           return target;
         }), acquire, current) : null;
       let retainedChoice = request.kind === "code action" ? request.action : undefined;
+      let resourceEditTargets: string[] | null = null;
+      const load: ResourceTransport = (route, body) => callApi("POST", route, body);
       const proposal = await acquireSourceProposal(reference?.sources ?? sources, async () => {
         let value: CodeAction;
         if (request.kind !== "code action") {
@@ -1406,17 +1414,63 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         check();
         if (value.disabled) throw Error(value.disabled.reason);
         if (value.command) throw Error(`"${value.title}" needs a language-server command this editor cannot execute.`);
-        const paths = [...providerActionPaths(value), ...providerSourceProofPaths(value)];
+        // A resource plan names missing destinations as well as existing
+        // files. Only existing inputs can supply provider preimage proofs.
+        if (isResourceEdit(value.edit)) {
+          const {inputs} = await observeResourceInputs({
+            context: crypto.randomUUID().replaceAll("-", ""), edit: value.edit,
+            drafts: {}, ownership_sources: {}, unaddressed_sources: {}, saved_guards: {},
+          }, load, current);
+          if (inputs.workspace !== scope.workspace) throw Error("The resource proposal belongs to a different workspace.");
+          resourceEditTargets = Object.entries(inputs.sources).flatMap(([target, source]) => source.kind === "file" ? [target] : []);
+        } else resourceEditTargets = null;
+        const paths = [...(resourceEditTargets ?? providerActionPaths(value)), ...providerSourceProofPaths(value)];
         // The action's proof binds the originating source already in sources.
         // It still participates in hash and saved-guard verification.
         return {paths: request.kind === "code action" ? paths.filter(target => target !== path) : paths, value};
       }, acquire, current);
-      const requiredProofs = new Set(workspaceEditTargets(proposal.value.edit).map(target => target.path));
+      const requiredProofs = new Set(resourceEditTargets ?? workspaceEditTargets(proposal.value.edit).map(target => target.path));
       if (request.kind === "code action") requiredProofs.add(path);
       await validateProviderSourceProofs(proposal.value, proposal.sources, requiredProofs);
       check();
       const title = request.kind === "rename" ? `Rename ${request.previous} to ${request.name}`
         : request.kind === "code action" ? request.action.title : "Format document";
+      if (isResourceEdit(proposal.value.edit)) {
+        const edit = proposal.value.edit;
+        const tabs = () => panesOf(layoutRef.current.root).flatMap(pane => pane.tabs)
+          .filter(tab => tab.kind === "file" || tab.kind === "document" || tab.kind === "untitled");
+        const originalTabs = tabs();
+        const rosterCurrent = () => {
+          const retained = tabs();
+          return current() && retained.length === originalTabs.length &&
+            retained.every((tab, index) => tab.id === originalTabs[index].id && tab.target === originalTabs[index].target);
+        };
+        const captured = captureWorkspacePatch(originalTabs, scope, tab => {
+          const owner = readChangeOwner(tab.target);
+          return owner.tab?.id === tab.id ? owner.owner : undefined;
+        }, id => {
+          const view = bufferEditor(id);
+          if (!view?.dom.isConnected) return null;
+          const revision = untitledRevisions.current.get(id) ?? 0, doc = view.state.doc;
+          return {text: doc.toString(), revision, current: () => bufferEditor(id) === view &&
+            view.dom.isConnected && view.state.doc === doc && (untitledRevisions.current.get(id) ?? 0) === revision};
+        }, rosterCurrent);
+        const review = await prepareResourceReview(title, edit, crypto.randomUUID().replaceAll("-", ""), async target => {
+          const source = proposal.sources.get(target);
+          if (!source || !requiredProofs.has(target)) throw Error(`Resource source lacks an exact provider proof: ${target}`);
+          return source.text;
+        }, async (targets, context) => {
+          const retained = await captured.retain();
+          const drafts = Object.fromEntries(targets.filter(target => Object.hasOwn(retained.drafts, target))
+            .map(target => [target, retained.drafts[target]]));
+          const observation = await observeResourceInputs({context, edit, ...retained, drafts}, load, captured.current);
+          if (observation.inputs.workspace !== scope.workspace) throw Error("Resource workspace changed. Prepare again.");
+          return observation;
+        }, load, captured.current);
+        if (!review.current()) throw Error("Resource sources changed. Prepare the preview again.");
+        setChangePath(0); setChangePage(0); setResourceReview(review);
+        return {status: "completed", value: {preview_ready: true, source_files: review.patches.length, source_changed: false}};
+      }
       const plan = planWorkspaceEdit(title, proposal.value.edit, proposal.sources);
       if (reference) validateReferencedTargets(plan, reference.references);
       const opensFiles = plan.patches.some(patch => !snapshots.get(patch.path)?.tabId);
@@ -2840,16 +2894,46 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         <PromptPanel prompt={focused.prompt} onSettle={focused.settle} />
       )}
       <PromptPanel prompt={shellPrompt.prompt} onSettle={shellPrompt.settle} />
-      {(changePending || changeReview) && <aside className="prompt-panel prompt-panel--filtered" role="dialog" aria-label={`${changeKind[0].toUpperCase()}${changeKind.slice(1)} preview`}
+      {(changePending || changeReview || resourceReview) && <aside className="prompt-panel prompt-panel--filtered" role="dialog" aria-label={`${changeKind[0].toUpperCase()}${changeKind.slice(1)} preview`}
         onKeyDown={event => {
           if (event.key !== "Escape" || changeApplying.current) return;
           changeTicket.current++;
-          setChangeReview(null);
+          setChangeReview(null); setResourceReview(null);
           setChangePending(false);
         }}>
         <button type="button" aria-label={`Close ${changeKind} preview`} disabled={changeApplying.current}
-          onClick={() => { changeTicket.current++; setChangeReview(null); setChangePending(false); }}>×</button>
+          onClick={() => { changeTicket.current++; setChangeReview(null); setResourceReview(null); setChangePending(false); }}>×</button>
         {changePending && <p role="status">{changeApplying.current ? "Checking and applying source drafts…" : `Preparing ${changeKind} preview…`}</p>}
+        {resourceReview && (() => {
+          const patch = resourceReview.patches[changePath];
+          const savedBefore = resourceReview.savedBefore[patch.path], savedAfter = resourceReview.saved[patch.path];
+          const sources = [
+            ["Current draft", patch.before?.text],
+            ["After draft", patch.after?.text],
+            ["Current saved baseline", savedBefore?.kind === "file" ? savedBefore.text : undefined],
+            ["After saved baseline", savedAfter?.kind === "file" ? savedAfter.text : undefined],
+          ] as const;
+          const offset = changePage * 16000;
+          const more = sources.some(([, text]) => text !== undefined && text.length > offset + 16000);
+          return <section aria-label="Resource change preview">
+            <ChangePreview heading={resourceReview.plan.title}>
+              <label>Resource preview source <select aria-label="Resource preview source" value={changePath}
+                onChange={event => { setChangePath(Number(event.target.value)); setChangePage(0); }}>
+                {resourceReview.patches.map((item, index) => <option key={item.path} value={index}>{item.path}</option>)}
+              </select></label>
+              {sources.map(([label, text]) => <div key={label}><strong>{label}</strong>
+                <pre aria-label={label}>{text === undefined ? "Source absent" : text.slice(offset, offset + 16000)}</pre></div>)}
+              {(more || changePage > 0) && <>
+                <button type="button" disabled={!changePage} onClick={() => setChangePage(page => page - 1)}>Previous text</button>
+                <button type="button" disabled={!more} onClick={() => setChangePage(page => page + 1)}>Next text</button>
+              </>}
+              <Suspense fallback={<p role="status">Opening construction consequences…</p>}>
+                <ResourceConsequencesView review={resourceReview} />
+              </Suspense>
+            </ChangePreview>
+            <p role="status">Source resource review is read-only in this window.</p>
+          </section>;
+        })()}
         {changeReview && (() => {
           const patch = changeReview.plan.patches[changePath];
           const before = patch.before.split("\n"), after = patch.after.split("\n");
