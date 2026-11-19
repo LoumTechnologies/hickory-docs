@@ -404,7 +404,13 @@ class Workspace(private val backgroundScope: kotlinx.coroutines.CoroutineScope? 
             val path=route.to
             if(path==null){buffer.resourceDeleted=true;retainedResourceEditors[route.identity]=buffer;route.from?.let{retainedResourceTabs[addresses.getValue(sourceTab(it))]=buffer};continue}
             val entry=files.getValue(path)
-            if(buffer.text!=route.after){buffer.state.edit{replace(0,length,route.after!!)}}
+            reviewedSourceReplacement(buffer.text, route.after!!)?.let { edit ->
+                val selected = edit.reviewedSelection(buffer.state.selection)
+                buffer.state.edit {
+                    replace(edit.from, edit.to, edit.text)
+                    selection = selected
+                }
+            }
             buffer.file=entry.file;buffer.base=entry.saved.text!!;buffer.hash=entry.hash;buffer.saveGuard=entry.saveGuard;buffer.saveGuardReason=if(entry.saveGuard==null)"Resource receipt lacks physical save authority. Reopen or compare before ordinary Save." else null;buffer.resourceDeleted=false;buffer.unmaterializedHistoryDraft=false;buffer.error=""
             buffers[path]=buffer;retainedResourceEditors.entries.removeAll{it.value===buffer}
             retainedResourceTabs.entries.removeAll{it.value===buffer}

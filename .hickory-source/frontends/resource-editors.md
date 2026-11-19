@@ -45,7 +45,7 @@ establish completed live apply/undo parity.
 
 Reject malformed namespaces and missing or stale captures before returning any routes. Retained handles are admitted only for identities absent from the before namespace and only against their exact restoration draft; they cannot replace a live editor.
 
-Browser resource adoption validates exact authored text and prepares raw-source transactions before changing identity routes. A full replacement carries its original inserted line endings and native undo metadata; normalized display equivalence grants no publication authority.
+Browser resource adoption validates exact authored text and prepares raw-source transactions before changing identity routes. The display diff maps the native selection and history. The same transaction carries the exact authored bytes and original line endings. Normalized display equivalence grants no publication authority.
 
 <ui:copy id="resource-editor-routes-browser">
 import {authoredSource,authoredReplacement,authoredTransactionSource} from './SourceText';
@@ -769,6 +769,19 @@ final class ResourceEditorsTests:XCTestCase {
   XCTAssertEqual(swapped.nodes["root"],before.nodes["root"]);XCTAssertEqual(swapped.rootID,before.rootID)
   XCTAssertThrowsError(try layout.remappingTabs([Data("a.py".utf8):"b.py"]))
   XCTAssertEqual(layout.nodes,before.nodes)
+ }
+ func testReviewedReplacementMapsSelectionAndPreservesScalarAndSeparatorBoundaries() throws {
+  let prefix = "prose 🧪\r\n", suffix = "\r\ncall()"
+  let declaration = "function moved() {}", imported = "import { moved } from \"./other\";\r\n"
+  let original = prefix + declaration + suffix, changed = prefix + imported + suffix
+  let range = NSRange(location: prefix.utf16.count, length: declaration.utf16.count)
+  let edit = try XCTUnwrap(reviewedSourceReplacement(original, changed))
+  let mapped = edit.reviewedSelection(range)
+  XCTAssertEqual((changed as NSString).substring(with: mapped), imported)
+  XCTAssertEqual(try XCTUnwrap(reviewedSourceReplacement(changed, original)).reviewedSelection(mapped), range)
+  XCTAssertEqual(edit.reviewedSelection(NSRange(location: 0, length: 5)), NSRange(location: 0, length: 5))
+  let exact = try XCTUnwrap(reviewedSourceReplacement("😀\r\nrest", "😁\nrest"))
+  XCTAssertEqual(exact, SourceReplacement(from: 0, to: 4, text: "😁\n"))
  }
  @MainActor func testLiveReceiptAdoptsMoveDeletionAndExplicitRetainedRestoration() throws {
   let workspace=Workspace();workspace.engine=try Engine(address:"http://127.0.0.1:1")

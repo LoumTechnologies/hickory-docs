@@ -4,6 +4,40 @@ struct SourceSnapshot { var text: String; var writable: Bool }
 struct SourceReplacement: Equatable { var from: Int; var to: Int; var text: String
     static func ==(lhs:Self,rhs:Self)->Bool {lhs.from==rhs.from&&lhs.to==rhs.to&&exactUTF8(lhs.text,rhs.text)}
 }
+func reviewedSourceReplacement(_ before: String, _ after: String) -> SourceReplacement? {
+    let old = Array(before.utf16), new = Array(after.utf16)
+    let sharedLength = min(old.count, new.count)
+    var from = 0
+    while from < sharedLength && old[from] == new[from] { from += 1 }
+    if from == old.count && from == new.count { return nil }
+    func split(_ units: [UInt16], _ at: Int) -> Bool {
+        guard at > 0 && at < units.count else { return false }
+        let left = units[at - 1], right = units[at]
+        return (0xD800...0xDBFF).contains(left) && (0xDC00...0xDFFF).contains(right)
+            || (left == 13 && right == 10)
+    }
+    if split(old, from) || split(new, from) { from -= 1 }
+    var suffix = 0
+    while suffix < sharedLength - from && old[old.count - suffix - 1] == new[new.count - suffix - 1] { suffix += 1 }
+    if split(old, old.count - suffix) || split(new, new.count - suffix) { suffix -= 1 }
+    return SourceReplacement(from: from, to: old.count - suffix,
+        text: String(decoding: new[from..<(new.count - suffix)], as: UTF16.self))
+}
+extension SourceReplacement {
+    func reviewedSelection(_ previous: NSRange) -> NSRange {
+        let end = from + text.utf16.count
+        func map(_ offset: Int, lower: Bool) -> Int {
+            if offset == from && from == to {
+                return lower || previous.length == 0 ? end : from
+            }
+            if offset <= from { return offset }
+            if offset >= to { return offset + end - to }
+            return lower && previous.length > 0 ? from : end
+        }
+        let start = map(previous.location, lower: true)
+        return NSRange(location: start, length: max(0, map(NSMaxRange(previous), lower: false) - start))
+    }
+}
 struct SourcePatch { var path: String; var before: String; var after: String; var edits: [SourceReplacement] }
 struct ChangePlan { var title: String; var patches: [SourcePatch] }
 func sourceChangeInteger(_ raw:Any?)->Int? {

@@ -208,7 +208,7 @@ struct StartupSourceObservation {
     var findRegex = false
     @ObservationIgnored var selectSourceRange: ((NSRange, String) -> Bool)?
     @ObservationIgnored var canReflectWorkspaceEdits: (([NativeSourceEdit], String) -> Bool)?
-    @ObservationIgnored var adoptSourceDraft: ((String,String)->Bool)?
+    @ObservationIgnored var adoptSourceDraft: ((String, String, SourceReplacement) -> Bool)?
     @ObservationIgnored var reflectWorkspaceEdits: (([NativeSourceEdit], String, String) -> Bool)?
     @ObservationIgnored var applySourceEdits: (([NativeSourceEdit], String) -> Bool)?
     var foldedLines: Set<Int> = []
@@ -394,16 +394,16 @@ normal capability setup. Deleted dirty buffers still guard workspace switching.
         guard restoring.values.allSatisfy({buffer in buffer.resourceDeleted && retainedResourceEditors.values.contains(where:{$0 === buffer}) && !buffers.values.contains(where:{$0 === buffer})}) else{throw EngineError(message:"Restoration must select a retained deleted editor. Inspect Source recovery.")}
         let editorPatches=patches.filter{!exactUTF8($0.path,absentOriginal) || $0.before != nil || $0.after != nil || buffers[$0.path] != nil}
         let routes=try routeResourceEditors(editorPatches,live:live,retained:restoring.mapValues{ResourceEditorCapture(editor:$0,source:$0.text)})
-        let targets=routes.map{route->(ResourceEditorRoute<DocumentBuffer>,DocumentBuffer,[NativeSourceEdit]) in
+        let targets=routes.map{route->(ResourceEditorRoute<DocumentBuffer>,DocumentBuffer,SourceReplacement?) in
             let entry=route.to.flatMap{files[Data($0.utf8)]}
             let buffer=route.editor ?? DocumentBuffer(file:entry!.file,text:FileText(path:entry!.file.path,content:route.after!,hash:entry!.hash))
-            let edits=route.after.flatMap{exactUTF8(buffer.text,$0) ? nil:[NativeSourceEdit(range:NSRange(location:0,length:buffer.text.utf16.count),text:$0)]} ?? []
-            return (route,buffer,edits)
+            let edit = route.after.flatMap { reviewedSourceReplacement(buffer.text, $0) }
+            return (route,buffer,edit)
         }
-        for (route,buffer,edits) in targets {
+        for (route,buffer,edit) in targets {
             if let path=route.to,!patches.contains(where:{exactUTF8($0.path,path)&&$0.before != nil}),buffers[path] != nil {throw EngineError(message:"A destination editor appeared after review. Inspect recovery.")}
-            let probe=edits.isEmpty ? [NativeSourceEdit(range:NSRange(location:0,length:0),text:"")]:edits
-            if !(buffer.resourceDeleted && edits.isEmpty),buffer.applySourceEdits != nil,buffer.canReflectWorkspaceEdits?(probe,buffer.text) != true {throw EngineError(message:"Finish composition before adopting source editors. Inspect recovery.")}
+            let probe = NativeSourceEdit(range: NSRange(location: edit?.from ?? 0, length: edit.map { $0.to - $0.from } ?? 0), text: edit?.text ?? "")
+            if !(buffer.resourceDeleted && edit == nil),buffer.applySourceEdits != nil,buffer.canReflectWorkspaceEdits?([probe],buffer.text) != true {throw EngineError(message:"Finish composition before adopting source editors. Inspect recovery.")}
         }
         var addresses:[Data:String]=[:]
         for (route,buffer,_) in targets {
@@ -417,12 +417,18 @@ normal capability setup. Deleted dirty buffers still guard workspace switching.
         // collide with the other editor's still-live language subscription.
         for (_,buffer,_) in targets {buffer.language?.close();buffer.language=nil}
         for (route,_,_) in targets {if let path=route.from {buffers.removeValue(forKey:path)}}
-        for (route,buffer,edits) in targets {
+        for (route,buffer,edit) in targets {
             guard let path=route.to,let entry=files[Data(path.utf8)] else{buffer.resourceDeleted=true;retainedResourceEditors[route.identity]=buffer;continue}
             let before=buffer.text
-            if !edits.isEmpty {
-                if let adopt=buffer.adoptSourceDraft {guard adopt(before,route.after!) else{throw EngineError(message:"Native source adoption failed. Preserve drafts and inspect recovery.")}}
-                else{buffer.text=route.after!;_ = buffer.reflectWorkspaceEdits?(edits,before,route.after!)}
+            if let edit, let after = route.after {
+                if let adopt = buffer.adoptSourceDraft {
+                    guard adopt(before, after, edit) else { throw EngineError(message:"Native source adoption failed. Preserve drafts and inspect recovery.") }
+                } else {
+                    buffer.selection = edit.reviewedSelection(buffer.selection)
+                    buffer.text = after
+                    let replacement = NativeSourceEdit(range: NSRange(location: edit.from, length: edit.to - edit.from), text: edit.text)
+                    _ = buffer.reflectWorkspaceEdits?([replacement], before, after)
+                }
             }
             buffer.file=entry.file;buffer.base=entry.saved.text!;buffer.hash=entry.hash;buffer.savedGuard=entry.save_guard;buffer.saveGuardReason=entry.save_guard==nil ? "Resource publication did not provide a physical save guard. Preserve the draft and read the exact saved source before another ordinary Save.":nil;buffer.saveHistoryAttempt=nil;buffer.resourceDeleted=false;buffer.unmaterializedHistoryDraft=false;buffer.error=""
             buffers[path]=buffer;retainedResourceEditors = retainedResourceEditors.filter{$0.value !== buffer}

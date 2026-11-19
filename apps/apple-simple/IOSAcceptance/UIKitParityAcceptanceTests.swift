@@ -1242,6 +1242,134 @@ extension UIKitParityAcceptanceTests {
 }
 
 extension UIKitParityAcceptanceTests {
+    func testMountedManagedTypeScriptMovePublishesExactHistory() async throws {
+        let path = "notes.md", destination = "relocate.ts"
+        let mounted = try await MountedIOSWorkspace(marker: ".hickory-managed-move-fixture", expected: "owned-managed-move-v1\n", path: path)
+        defer { mounted.close() }
+        let workspace = mounted.workspace, engine = try XCTUnwrap(workspace.engine)
+        let buffer = try XCTUnwrap(workspace.currentBuffer)
+        let editor = try await mounted.editor(buffer)
+        let identity = try XCTUnwrap(buffer.sourceEditorState?()).identity
+        let history = try XCTUnwrap(editor.undoManager)
+        let original = buffer.text
+        let declaration = #"function relocate(name: string) { return "Hello " + name; }"#
+        let imported = #"import { relocate } from "./relocate";"#
+        let importedSelection = imported + "\n"
+        let call = #"console.log(relocate("Ada"));"#
+        let targetSource = "export " + declaration + "\n"
+        let block = declaration + "\n" + call
+        let replacedBlock = imported + "\n\n" + call
+        let marker = "// retained dirty\n"
+        XCTAssertEqual(original.components(separatedBy: block).count, 2)
+        XCTAssertTrue(original.contains("The authored prose after the declaration remains."))
+        let draft = original + marker
+        let moved = original.replacingOccurrences(of: block, with: replacedBlock) + marker
+        mounted.paste(marker, into: editor)
+        try await mounted.wait("Native Paste did not retain the managed draft") {
+            buffer.dirty && exactUTF8(buffer.text, draft) && exactUTF8(editor.text, draft)
+        }
+        mounted.window.endEditing(true)
+        try await mounted.wait("Source did not release the keyboard") { !editor.isFirstResponder }
+        let selection = (draft as NSString).range(of: declaration)
+        XCTAssertNotEqual(selection.location, NSNotFound)
+        XCTAssertTrue(buffer.selectSourceRange?(selection, draft) == true)
+        try await mounted.wait("Move selection did not reach the native editor") { editor.selectedRange == selection }
+        let frame = editor.convert(editor.bounds, to: mounted.window)
+        let restoration = workspace.resourceRestoration
+
+        func checkEditor(_ source: String, selected: String, dirty: Bool) async throws {
+            let retained = try await mounted.editor(buffer)
+            let state = try XCTUnwrap(buffer.sourceEditorState?())
+            let expected = (source as NSString).range(of: selected)
+            XCTAssertNotEqual(expected.location, NSNotFound)
+            XCTAssertTrue(workspace.currentBuffer === buffer)
+            XCTAssertTrue(workspace.buffers[path] === buffer)
+            XCTAssertTrue(retained === editor)
+            XCTAssertTrue(retained.undoManager === history)
+            XCTAssertEqual(state.identity, identity)
+            XCTAssertEqual(retained.convert(retained.bounds, to: mounted.window), frame)
+            XCTAssertTrue(exactUTF8(retained.text, source))
+            XCTAssertTrue(exactUTF8(buffer.text, source))
+            XCTAssertEqual(retained.selectedRange, expected)
+            XCTAssertEqual(state.selection, expected)
+            XCTAssertEqual(buffer.dirty, dirty)
+        }
+        func checkSaved(_ source: String, created: Bool) async throws {
+            let files = try await engine.files()
+            let file = try XCTUnwrap(MountedIOSWorkspace.file(path, in: files.tree))
+            let note = try await engine.file(file)
+            XCTAssertTrue(exactUTF8(note.content, source))
+            let destinationFile = MountedIOSWorkspace.file(destination, in: files.tree)
+            if created {
+                let saved = try await engine.file(try XCTUnwrap(destinationFile))
+                XCTAssertTrue(exactUTF8(saved.content, targetSource))
+            } else {
+                XCTAssertNil(destinationFile)
+            }
+        }
+        func checkReview(from: String, to: String, creates: Bool, history direction: String?) throws {
+            let review = try XCTUnwrap(restoration.review, restoration.notice)
+            XCTAssertEqual(review.history?.direction, direction)
+            XCTAssertEqual(review.save != nil, direction == nil)
+            XCTAssertEqual(Set(review.patches.map(\.path)), Set([path, destination]))
+            let note = try XCTUnwrap(review.patches.first { $0.path == path })
+            let target = try XCTUnwrap(review.patches.first { $0.path == destination })
+            XCTAssertTrue(exactUTF8(note.before?.text, from))
+            XCTAssertTrue(exactUTF8(note.after?.text, to))
+            XCTAssertEqual(target.before?.text, creates ? nil : targetSource)
+            XCTAssertEqual(target.after?.text, creates ? targetSource : nil)
+        }
+        func publish() async throws -> String {
+            await restoration.publish(workspace)
+            XCTAssertEqual(restoration.confirmedReceipt?.adoption_current, true, restoration.notice)
+            return try XCTUnwrap(restoration.lastRecovery, restoration.notice)
+        }
+
+        try mounted.command("symbol.actions")
+        let changes = workspace.changes
+        let title = "Move to a new file"
+        for _ in 0..<100 {
+            await changes.prepare(workspace)
+            if changes.choices.contains(where: { $0["title"] as? String == title }) { break }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        let index = try XCTUnwrap(changes.choices.firstIndex { $0["title"] as? String == title }, changes.notice)
+        await changes.choose(index, workspace: workspace, expectedSnapshot: changes.actionSnapshot)
+        try checkReview(from: draft, to: moved, creates: true, history: nil)
+        try await checkSaved(original, created: false)
+        try await checkEditor(draft, selected: declaration, dirty: true)
+        NSLog("HickoryUIKitParity managed-typescript-move-preview-passed")
+
+        let saved = try await publish()
+        try await checkSaved(moved, created: true)
+        try await checkEditor(moved, selected: importedSelection, dirty: false)
+        NSLog("HickoryUIKitParity managed-typescript-move-save-passed")
+
+        try mounted.command("workspace.undo")
+        try await mounted.wait("Workspace Undo did not prepare a managed resource review") { restoration.review != nil }
+        try checkReview(from: moved, to: draft, creates: false, history: "undo")
+        try await checkSaved(moved, created: true)
+        try await checkEditor(moved, selected: importedSelection, dirty: false)
+        let inverse = try await publish()
+        XCTAssertNotEqual(inverse, saved)
+        try await checkSaved(original, created: false)
+        try await checkEditor(draft, selected: declaration, dirty: true)
+        NSLog("HickoryUIKitParity managed-typescript-move-inverse-passed")
+
+        try mounted.command("workspace.redo")
+        try await mounted.wait("Workspace Redo did not prepare a managed resource review") { restoration.review != nil }
+        try checkReview(from: draft, to: moved, creates: true, history: "redo")
+        try await checkSaved(original, created: false)
+        try await checkEditor(draft, selected: declaration, dirty: true)
+        let redo = try await publish()
+        XCTAssertNotEqual(redo, inverse)
+        try await checkSaved(moved, created: true)
+        try await checkEditor(moved, selected: importedSelection, dirty: false)
+        NSLog("HickoryUIKitParity managed-typescript-move-redo-passed")
+    }
+}
+
+extension UIKitParityAcceptanceTests {
     private func mountRecordedTurn(_ id: String) async throws -> (MountedIOSWorkspace, AgentTurn) {
         let environment = ProcessInfo.processInfo.environment
         let origin = try XCTUnwrap(environment["HICKORY_IOS_PARITY_ORIGIN"])

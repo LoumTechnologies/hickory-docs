@@ -1493,6 +1493,39 @@ class ResourceReviewTest {
   assertSame(buffer,workspace.currentBuffer);assertTrue(buffer.resourceDeleted);assertTrue(buffer.readOnly);assertTrue(workspace.active!!.startsWith("deleted-resource:"));assertNull(workspace.buffers["a.py"])
   val reused=DocumentBuffer(file,FileText("different","new"));workspace.buffers["a.py"]=reused;assertSame(buffer,workspace.currentBuffer);assertNotSame(workspace.buffers["a.py"],workspace.currentBuffer)
  }
+ @Test fun samePathAdoptionMapsReversedSelectionThroughReviewedSaveAndInverse() = runBlocking {
+  val workspace = Workspace(this)
+  try {
+   workspace.engine = Engine("http://127.0.0.1:1")
+   val file = FileNode("note.md", "note.md", false, emptyList(), null, null)
+   val prefix = "prose 🧪\r\n"
+   val declaration = "function moved() {}"
+   val imported = "import { moved } from \"./other\";\r\n"
+   val suffix = "\r\ncall()"
+   val original = prefix + declaration + suffix
+   val changed = prefix + imported + suffix
+   val buffer = DocumentBuffer(file, FileText(original, "old"))
+   workspace.buffers[file.path] = buffer
+   workspace.show(file.path)
+   buffer.state.edit { selection = androidx.compose.ui.text.TextRange(prefix.length + declaration.length, prefix.length) }
+   val initialSelection = buffer.state.selection
+   for ((source, selected) in listOf(changed to imported, original to declaration, changed to imported)) {
+    val patches = listOf(ResourceEditorPatch(file.path, ResourceSource("id", buffer.text), ResourceSource("id", source)))
+    val saved = ResourceSaved("file", text = source)
+    val values = mapOf(file.path to saved)
+    val receipt = ResourcePublication(2, "request", "workspace", "context", true, "record",
+       listOf(file.path), values, listOf(ResourcePublishedFile(file, saved, "fresh")), adoptionCurrent = true)
+    workspace.adoptResourceReceipt(patches, receipt, "request", "workspace", "context", values,
+       workspace.captureResourceEditors(patches))
+    assertSame(buffer, workspace.currentBuffer)
+    assertEquals(source, buffer.text)
+    assertEquals(androidx.compose.ui.text.TextRange(prefix.length + selected.length, prefix.length), buffer.state.selection)
+    if (source == original) assertEquals(initialSelection, buffer.state.selection)
+   }
+  } finally {
+   coroutineContext.cancelChildren()
+  }
+ }
  @Test fun partialReceiptRefusesBeforeTabOrEditorMutation()=runBlocking{
   val workspace=Workspace(this);workspace.engine=Engine("http://127.0.0.1:1");val file=FileNode("a.py","a.py",false,emptyList(),null,null);val buffer=DocumentBuffer(file,FileText("text","old"));workspace.buffers[file.path]=buffer;workspace.show(file.path)
   val patches=listOf(ResourceEditorPatch("a.py",ResourceSource("id","text"),null));val state=ResourceSaved("missing");val receipt=ResourcePublication<FileNode>(2,"request","workspace","context",false,"record",emptyList(),null,emptyList());val layout=workspace.layout

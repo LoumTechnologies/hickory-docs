@@ -9,6 +9,12 @@ TARGET = 'HickorySimpleMobileParityTests'
 RECORDED_RUN_TARGET = 'HickorySimpleMobileRecordedRunTests'
 SCHEMES = {TARGET: 'HickorySimpleMobileParity', RECORDED_RUN_TARGET: 'HickorySimpleMobileRecordedRun'}
 PROPOSAL_DESTINATION = 'moved λ%2F?#.py'
+MANAGED_MOVE_WORKFLOW = 'typescript-managed-move'
+MANAGED_MOVE_DECLARATION = 'function relocate(name: string) { return "Hello " + name; }\n'
+MANAGED_MOVE_LITERAL = MANAGED_MOVE_DECLARATION + 'console.log(relocate("Ada"));\n'
+MANAGED_MOVE_IMPORT = 'import { relocate } from "./relocate";\n\n'
+MANAGED_MOVE_MARKER = '// retained dirty\n'
+TYPESCRIPT_PROVIDER_VERSIONS = {'typescript-language-server': '6.1.0', 'typescript': '6.0.3'}
 STARTUP_PATH = 'nested/entry # %.py'
 STARTUP_SOURCE = '# owned startup capability fixture\n' + ''.join(f'value_{i} = {i}\n' for i in range(180))
 STARTUP_AUTHORITY_PATH = 'nested/entry # %.md'
@@ -30,6 +36,10 @@ WORKFLOWS = {
     'workspace': ('testMountedSearchProblemsAndCollectedTests', ['workspace-navigation-problems-passed', 'workspace-tests-coverage-passed']),
     'quickfix': ('testMountedClangdQuickFixReviewsAndReplaysDraft', ['clangd-quickfix-preview-passed', 'clangd-quickfix-history-passed']),
     'typescript-extraction': ('testMountedTypeScriptExtractionReplaysExactDraft', ['typescript-extraction-exact-history-passed']),
+    MANAGED_MOVE_WORKFLOW: ('testMountedManagedTypeScriptMovePublishesExactHistory', [
+        'managed-typescript-move-preview-passed', 'managed-typescript-move-save-passed',
+        'managed-typescript-move-inverse-passed', 'managed-typescript-move-redo-passed',
+    ]),
     'recovery': ('testMountedConnectedReadingAndPrivateRecovery', ['connected-impact-passed', 'private-recovery-passed']),
     'proposal': ('testMountedHistoricalProposalRefusesApplication', ['historical-proposal-passed']),
     'proposal-apply': ('testMountedManagedProposalAppliesBothReviewedDrafts', ['managed-proposal-preview-passed', 'managed-proposal-history-passed']),
@@ -400,21 +410,33 @@ def prepare_workflow(workflow, workspace, python_env, slow_debug, recorded_fixtu
             '.hickory-ios-quickfix': 'owned-quickfix-v1\n',
         }
         sentinel = None
-    elif workflow == 'typescript-extraction':
+    elif workflow in {'typescript-extraction', MANAGED_MOVE_WORKFLOW}:
         tools = ROOT/'target/refactor-provider/node_modules'
         server = tools/'typescript-language-server/lib/cli.mjs'
-        for name, version in [('typescript-language-server', '6.1.0'), ('typescript', '6.0.3')]:
+        for name, version in TYPESCRIPT_PROVIDER_VERSIONS.items():
             assert json.loads((tools/name/'package.json').read_text())['version'] == version
         (workspace/'node_modules').mkdir()
         (workspace/'node_modules/typescript').symlink_to(tools/'typescript', target_is_directory=True)
-        case = load_script('test-provider-refactor-host').CASES[0]
         files = {
-            case['path']: case['source'],
-            '.hickory-refactor-fixture': 'owned-refactor-v1\n',
             '.hick-lsp.json': json.dumps({'servers': {'typescript': {'command': ['node', str(server), '--stdio']}}}),
             'package.json': '{"type":"module"}',
             'tsconfig.json': '{"compilerOptions":{"strict":true,"target":"ES2022","ignoreDeprecations":"6.0"}}',
         }
+        if workflow == MANAGED_MOVE_WORKFLOW:
+            namespace = '\x3chick:doc xmlns:hick="http://www.hickorydocs.com/1.0">\n'
+            close = '\x3c/hick:doc>\n'
+            files.update({
+                '.hickory-managed-move-fixture': 'owned-managed-move-v1\n',
+                'project.md': namespace + '\x3chick:project sources="notes.md"/>\n' + close,
+                'notes.md': namespace + '\n# Original managed prose 🧪\n\n'
+                            '\x3chick:file id="source" path="move.ts">\n' + MANAGED_MOVE_LITERAL
+                            + '\x3c/hick:file>\n\nThe authored prose after the declaration remains.\n\n' + close,
+                'move.ts': MANAGED_MOVE_LITERAL,
+            })
+            subprocess.run(['git', '-C', str(workspace), 'init', '-q'], check=True)
+        else:
+            case = load_script('test-provider-refactor-host').CASES[0]
+            files.update({case['path']: case['source'], '.hickory-refactor-fixture': 'owned-refactor-v1\n'})
         sentinel = None
     elif workflow == 'recovery':
         details = load_script('test-behavior-readings-browser').prepare(workspace)
@@ -545,7 +567,12 @@ def run_workflow(workflow, device, seed, temporary_device, candidate, derived, d
                 summary = json.loads(subprocess.check_output(['xcrun', 'xcresulttool', 'get', 'test-results', 'summary', '--path', str(result)]))
                 (receipt/f'{prefix}-summary.json').write_text(json.dumps(summary, indent=2))
                 assert summary['result'] == 'Passed' and summary['totalTestCount'] == 1 and summary['passedTests'] == 1 and summary['failedTests'] == summary['skippedTests'] == 0, summary
-                for path, text in files.items():
+                expected = files
+                if workflow == MANAGED_MOVE_WORKFLOW:
+                    expected = {**files, 'relocate.ts': 'export ' + MANAGED_MOVE_DECLARATION}
+                    expected['notes.md'] = files['notes.md'].replace(
+                        MANAGED_MOVE_DECLARATION, MANAGED_MOVE_IMPORT, 1) + MANAGED_MOVE_MARKER
+                for path, text in expected.items():
                     assert (workspace/path).read_bytes() == text.encode(), path
                 if sentinel:
                     assert not sentinel.exists(), sentinel.name
@@ -610,6 +637,13 @@ def run_workflow(workflow, device, seed, temporary_device, candidate, derived, d
                 }
                 if workflow == 'proposal-save':
                     payload['saved_namespace_restored'] = True
+                elif workflow == MANAGED_MOVE_WORKFLOW:
+                    payload['provider_versions'] = TYPESCRIPT_PROVIDER_VERSIONS
+                    payload['saved_source_sha256'] = {
+                        path: hashlib.sha256((workspace/path).read_bytes()).hexdigest()
+                        for path in ['notes.md', 'relocate.ts', 'move.ts']
+                    }
+                    payload['generated_output_unchanged'] = True
                 else:
                     payload['source_unchanged'] = True
                 if sentinel:
@@ -651,7 +685,7 @@ def run_workflow(workflow, device, seed, temporary_device, candidate, derived, d
                     shutil.copyfile(trace, receipt/'python-definition-provider.jsonl')
             if archive:
                 archive.stop_engine(fixture, engine, state)
-            elif recorded or live_authority or native_send or git_workflow or python_definition:
+            elif recorded or live_authority or native_send or git_workflow or python_definition or workflow == MANAGED_MOVE_WORKFLOW:
                 load_script('test-agent-proposal-persistence').stop_engine(fixture, engine, state)
             elif engine:
                 fixture.stop(engine)
@@ -880,6 +914,8 @@ def main():
   parser.error('Native Git review requires an explicit HICKORY_SIMPLE_TEST_ENGINE')
  if 'python-definition' in (args.workflow or []) and not os.environ.get('HICKORY_SIMPLE_TEST_ENGINE'):
   parser.error('Native Python definition requires an explicit HICKORY_SIMPLE_TEST_ENGINE')
+ if MANAGED_MOVE_WORKFLOW in (args.workflow or []) and not os.environ.get('HICKORY_SIMPLE_TEST_ENGINE'):
+  parser.error('Managed TypeScript Move requires an explicit HICKORY_SIMPLE_TEST_ENGINE')
  if LIVE_STARTUP_AUTHORITY.intersection(args.workflow or []) and not os.environ.get('HICKORY_SIMPLE_TEST_ENGINE'):
   parser.error('Live startup authority requires an explicit HICKORY_SIMPLE_TEST_ENGINE')
  if recorded_workflows:

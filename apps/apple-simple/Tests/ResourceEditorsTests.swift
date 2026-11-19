@@ -12,6 +12,19 @@ final class ResourceEditorsTests:XCTestCase {
   XCTAssertThrowsError(try layout.remappingTabs([Data("a.py".utf8):"b.py"]))
   XCTAssertEqual(layout.nodes,before.nodes)
  }
+ func testReviewedReplacementMapsSelectionAndPreservesScalarAndSeparatorBoundaries() throws {
+  let prefix = "prose 🧪\r\n", suffix = "\r\ncall()"
+  let declaration = "function moved() {}", imported = "import { moved } from \"./other\";\r\n"
+  let original = prefix + declaration + suffix, changed = prefix + imported + suffix
+  let range = NSRange(location: prefix.utf16.count, length: declaration.utf16.count)
+  let edit = try XCTUnwrap(reviewedSourceReplacement(original, changed))
+  let mapped = edit.reviewedSelection(range)
+  XCTAssertEqual((changed as NSString).substring(with: mapped), imported)
+  XCTAssertEqual(try XCTUnwrap(reviewedSourceReplacement(changed, original)).reviewedSelection(mapped), range)
+  XCTAssertEqual(edit.reviewedSelection(NSRange(location: 0, length: 5)), NSRange(location: 0, length: 5))
+  let exact = try XCTUnwrap(reviewedSourceReplacement("😀\r\nrest", "😁\nrest"))
+  XCTAssertEqual(exact, SourceReplacement(from: 0, to: 4, text: "😁\n"))
+ }
  @MainActor func testLiveReceiptAdoptsMoveDeletionAndExplicitRetainedRestoration() throws {
   let workspace=Workspace();workspace.engine=try Engine(address:"http://127.0.0.1:1")
   let source=ResourceSource(identity:"source",text:"dirty"),missing=ResourceSaved(kind:"missing")

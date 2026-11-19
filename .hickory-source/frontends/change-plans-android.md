@@ -11,12 +11,49 @@ Discovery and planning share the same workspace-edit decoder. It validates sourc
 
 Completion planning reuses the scalar-aware offset decoder. Only an explicit selection-only caller may allow an empty patch set after all targets and edits have still been validated; ordinary workspace proposals continue to refuse no-change results. Hosts must retain the before snapshot and recheck source and permissions even for an empty patch set.
 
+Resource receipts carry full snapshots. Trim common text and map the
+retained selection before updating the native field. A changed span
+includes both units of a surrogate pair or CRLF separator so the editor
+never receives half of either.
+
 <ui:copy id="simple-android-change-plans">
 package com.hickorydocs.simple
 import org.json.JSONObject
 import org.json.JSONArray
+import androidx.compose.ui.text.TextRange
 data class SourceSnapshot(val text: String, val writable: Boolean)
 data class SourceReplacement(val from: Int, val to: Int, val text: String)
+internal fun reviewedSourceReplacement(before: String, after: String): SourceReplacement? {
+    val sharedLength = minOf(before.length, after.length)
+    var from = 0
+    while (from < sharedLength && before[from] == after[from]) from++
+    if (from == before.length && from == after.length) return null
+    fun split(text: String, at: Int): Boolean {
+        if (at <= 0 || at >= text.length) return false
+        val left = text[at - 1]
+        val right = text[at]
+        return (Character.isHighSurrogate(left) && Character.isLowSurrogate(right)) || (left == '\r' && right == '\n')
+    }
+    if (split(before, from) || split(after, from)) from--
+    var suffix = 0
+    while (suffix < sharedLength - from && before[before.length - suffix - 1] == after[after.length - suffix - 1]) suffix++
+    if (split(before, before.length - suffix) || split(after, after.length - suffix)) suffix--
+    return SourceReplacement(from, before.length - suffix, after.substring(from, after.length - suffix))
+}
+
+internal fun SourceReplacement.reviewedSelection(previous: TextRange): TextRange {
+    val end = from + text.length
+    fun map(offset: Int, lower: Boolean): Int = when {
+        offset == from && from == to -> if (lower || previous.collapsed) end else from
+        offset <= from -> offset
+        offset >= to -> offset + end - to
+        lower && !previous.collapsed -> from
+        else -> end
+    }
+    val start = map(previous.min, lower = true)
+    val finish = map(previous.max, lower = false)
+    return if (previous.reversed) TextRange(finish, start) else TextRange(start, finish)
+}
 data class SourcePatch(val path: String, val before: String, val after: String, val edits: List<SourceReplacement>)
 data class ChangePlan(val title: String, val patches: List<SourcePatch>)
 fun sourceChangeOffset(source: String, raw: Any?): Int {
