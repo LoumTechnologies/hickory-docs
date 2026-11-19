@@ -2648,6 +2648,12 @@ A fresh matching link closed the dialog and opened line 3 at UTF-16 offset
 27. Saved source stayed exact. The replay exercised a plain source file.
 Forty-two focused web tests and TypeScript checking passed. See
 `target/main-coverage-navigation-held-browser-final/browser.json`.
+In a second replay, pressing Enter on a retained peer tab during another
+held coverage read left that tab active and the report open after HTTP 200.
+No target tab appeared. See
+`target/main-coverage-focus-held-browser-v1/browser.json`.
+The real basedpyright F12 replay passed again through the shared destination
+reader. See `target/main-definition-held-browser-post-coverage/browser.json`.
 
 Simple Browser binds opening, history, source reveal and follow-up inspectors
 to the same request for the pane. Selecting a retained tab retires an older
