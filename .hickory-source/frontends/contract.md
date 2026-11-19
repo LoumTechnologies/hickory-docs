@@ -31,7 +31,7 @@ an earlier open item only for the behavior it actually exercises.
 
 | Required outcome | Current usable evidence and remaining acceptance |
 | --- | --- |
-| Navigation and code intelligence | Search Everywhere, file and saved-text search, outlines, semantic locations and back/forward have focused receipts. The genuine Python browser witness covers cross-file definitions/usages and caller/callee queries. Configured csharp-ls adds browser definitions, usages and history. A controlled child covers standard LSP type hierarchy, including browser rendering and native protocol/model checks. Installed basedpyright and TypeScript Language Server read ordinary Markdown fences on browser, mounted macOS and the Android controller. Mounted iOS passed real basedpyright cross-file Definition and native Back and Forward. An Android controller navigated into a literal source tab while Agent was open. Index breadth depends on the installed provider. Unavailable capabilities and unsupported fence actions leave authored text readable. |
+| Navigation and code intelligence | Search Everywhere, file and saved-text search, outlines, semantic locations and back/forward have focused receipts. The genuine Python browser witness covers cross-file definitions/usages and caller/callee queries. Configured csharp-ls adds browser definitions, usages and history. A controlled child covers standard LSP type hierarchy, including browser rendering and native protocol/model checks. Installed basedpyright and TypeScript Language Server read ordinary Markdown fences on browser, mounted macOS and rendered Android. Mounted iOS passed real basedpyright cross-file Definition and native Back and Forward. An Android controller navigated into a literal source tab while Agent was open. Index breadth depends on the installed provider. Unavailable capabilities and unsupported fence actions leave authored text readable. |
 | Refactoring, cleanup, generation, templates and history | Genuine basedpyright and configured csharp-ls cover cross-file rename in the browser. TypeScript Language Server 6.1.0 with TypeScript 6.0.3 covers extraction, accessor generation, cleanup and Move to a new file on browser, mounted macOS and the Android controller. Guarded native action and formatting receipts include controlled providers. Preview holds the complete edit. Missing preimages, commands without supported effects and changed owner revisions refuse the group. Later template receipts close the earlier embedded and multi-caret catalog gaps. Expanded regex and source-bound variable programs retain their syntax and work bounds. Mounted iOS and rendered Android covered reviewed Cleanup. Mounted iOS also replayed native Paste, coordinated Cleanup Undo/Redo and the genuine CRLF and LF TypeScript extraction. |
 | Diagnostics and contextual fixes | Genuine basedpyright browser and rendered Android Problems, configured csharp-ls browser Problems, and clangd mounted iOS Problems exercised exact source navigation. Real clangd engine coverage includes the missing-semicolon quick fix. Controlled-child receipts cover complete-file `source.fixAll` acquisition, review, draft Apply and Undo/Redo on browser, mounted macOS and the Android controller, including a prose-origin action that acquires its copy contributor. Stale and unversioned diagnostics stay readable. Precise navigation and application require matching authority. Mounted iOS exercised the genuine clangd missing-semicolon Quick Fix through review, draft Apply and coordinated Undo/Redo. Provider workspace completeness and additional source mappings remain open. |
 | Testing and coverage | Discovery, failed results, coverage and failed-only reruns have provider receipts for pytest, Jest, Vitest, Cargo with cargo-llvm-cov, and .NET with Coverlet. Connected pytest runs on browser, macOS and the Android controller. Mounted iOS executed selected pytest and rendered a collected failure and coverage. Rendered Android ran the saved Rust case and retained exit 0. Rendered Android discovered both pytest cases, retained a coverage run and reran only the deliberate failure. Source-adjacent Run and Debug distinguish process exit from a provider verdict. Unsupported runners and stale, missing or ambiguous test identities refuse selection. Coverage navigation requires matching source hashes. |
@@ -1370,24 +1370,17 @@ indented Unicode and CRLF source. The protocol also exercised dirty changes,
 Undo, close and unsupported edit requests. Rendered browser navigation and
 mounted macOS and Android controller inspections reached the authored
 locations and preserved the original editor, saved bytes and workspace files.
-The current Android replay used genuine basedpyright and TypeScript
-Language Server on the same CRLF and Unicode fixture. The exact engine
-returned both authored definitions and resolved subsequent requests
-from each declaration. One native attempt launched Hickory and read
-Files successfully, but the test helper could not read the active window.
-In the final attempt Android lost its Activity and Package services during
-accessibility instrumentation, after installing both APKs. The native
-runner did not open the Markdown document or select either Definition
-result. See
-`target/parity-rendered-android.sgYIt7/continuation-receipts/final-android-rke6bmx3/`
-and `target/parity-rendered-android.sgYIt7/continuation-receipts/final-android-451cea1t/`.
-The Android 17 replay used a single accessibility helper and opened the
-ordinary Markdown fixture in Hickory. The native Language Tools command
-sent the exact Python Definition request to basedpyright, which returned
-the declaration. A subsequent menu gesture dispatched Find subtypes
-before the witness selected the Definition result. Native selection and
-the equivalent TypeScript flow remain open. See
-`target/parity-rendered-android.sgYIt7/continuation-receipts/final-android-o74vsjwo/`.
+Two mounted Android 17 replays used the same ordinary CRLF and Unicode
+Markdown fixture. Native Language Tools selected `notes.md:5:7` for
+basedpyright and `notes.md:11:31` for TypeScript Language Server. Each
+selection returned to the same editor. A second Definition request from
+the selected caret reached the exact declaration inside its fence. Both
+replays preserved saved bytes, provider configuration and the file list.
+The Python keyboard shortened the viewport at the bottom while its top
+and side edges stayed fixed. The TypeScript editor held its full frame.
+See the rendered receipts in
+`target/parity-rendered-android.sgYIt7/continuation-receipts/final-android-v_z3avk0/fenced-definition/`
+and `target/parity-rendered-android.sgYIt7/continuation-receipts/final-android-jjuqbi_2/fenced-definition/`.
 iOS runtime, physical input and assistive technology remain unverified for
 this flow.
 
