@@ -83,6 +83,15 @@ export function matchesRankedSearchHit(source: string, hit: SearchHit): boolean 
   return end <= lines.length && lines.slice(start - 1, end).join("\n") === snippet;
 }
 
+/** A provider spelling at an exact UTF-16 column is the minimum evidence for a symbol jump. */
+export function matchesWorkspaceSymbol(line: string | undefined, column: number, name: string): boolean {
+  if (!line || !name || !Number.isSafeInteger(column) || column < 0 || !line.startsWith(name, column)) return false;
+  const before = line.slice(0, column), after = line.slice(column + name.length);
+  const identifierStart = /^[\p{ID_Continue}$]/u, identifierEnd = /[\p{ID_Continue}$]$/u;
+  return !(identifierEnd.test(before) && identifierStart.test(name))
+    && !(identifierEnd.test(name) && identifierStart.test(after));
+}
+
 export async function searchWorkspace(
   query: string,
   limit: number,

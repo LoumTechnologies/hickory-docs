@@ -278,7 +278,7 @@ let workspaceClient: LspClient | null = null;
 ### `workspaceLspClient`
 
 <storycode:copy id="f-5ad96644c888-workspaceLspClient">
-function workspaceLspClient(): LspClient | null {
+export function workspaceLspClient(): LspClient | null {
   if (workspaceClient) return workspaceClient;
   const channel = getWorkspaceRealtime()?.lsp() ?? null;
   if (!channel) return null;

@@ -24,19 +24,19 @@ import { useUiCommands, useUiRevision } from "../lib/uiActionBridge";
 import type { UiCommand, UiField } from "../lib/uiActions";
 
 const OPEN_COMMAND_BAR = "hickory-open-command-bar";
-export function openCommandBar(commands = false) {
+export function openCommandBar(commands: boolean | "symbols" = false) {
   window.dispatchEvent(new CustomEvent(OPEN_COMMAND_BAR, { detail: commands }));
 }
 
 /** What a query is asking for. */
-export type CommandMode = "files" | "command" | "content" | "line";
+export type CommandMode = "files" | "command" | "content" | "line" | "symbols";
 
 export interface CommandItem {
   id: string;
   label: string;
   /** The dim second line — a path, a match, a keyboard shortcut. */
   detail?: string;
-  run: () => void;
+  run: (current?: () => boolean) => void;
   /** Command-mode callbacks need explicit policy review; navigation is separate. */
   agentAllowed?: boolean;
 }
@@ -47,6 +47,7 @@ export function parseQuery(raw: string): { mode: CommandMode; term: string } {
   if (trimmed.startsWith(">")) return { mode: "command", term: trimmed.slice(1).trim() };
   if (trimmed.startsWith("?")) return { mode: "content", term: trimmed.slice(1).trim() };
   if (trimmed.startsWith(":")) return { mode: "line", term: trimmed.slice(1).trim() };
+  if (trimmed.startsWith("@")) return { mode: "symbols", term: trimmed.slice(1).trim() };
   return { mode: "content", term: trimmed.trim() };
 }
 
@@ -60,6 +61,8 @@ export function modeHint(mode: CommandMode): string {
       return "Search open files and folder";
     case "line":
       return "Go to line";
+    case "symbols":
+      return "Search workspace symbols";
     case "files":
       return "Files";
   }
@@ -84,6 +87,11 @@ export function CommandBar({
   const items = results?.raw === raw ? results.items : [];
   const loading = results?.raw !== raw;
   const previousFocus = useRef<HTMLElement | null>(null);
+  const queryIntent = useRef(0);
+  const changeQuery = (query: string) => {
+    queryIntent.current++;
+    setRaw(query);
+  };
   const openRef = useRef(open); openRef.current = open;
   const { mode, term } = useMemo(() => parseQuery(raw), [raw]);
   // Keep the chosen query when dismissing; reopening an empty content search
@@ -91,9 +99,9 @@ export function CommandBar({
   useEffect(() => {
     if (open) highlightProjectSearch(mode === "content" ? term : "");
   }, [open, mode, term]);
-  const reveal = (commands: boolean) => {
+  const reveal = (commands: boolean | "symbols") => {
       if (!openRef.current) previousFocus.current = document.activeElement as HTMLElement | null;
-      setRaw(commands ? ">" : "");
+      changeQuery(commands === "symbols" ? "@" : commands ? ">" : "");
       setOpen(true);
       inputRef.current?.focus();
       inputRef.current?.select();
@@ -106,10 +114,14 @@ export function CommandBar({
       event.preventDefault();
       reveal(commands);
     };
-    const onOpen = (event: Event) => reveal((event as CustomEvent<boolean>).detail === true);
+    const onOpen = (event: Event) => {
+      const detail = (event as CustomEvent<boolean | "symbols">).detail;
+      reveal(detail === "symbols" ? detail : detail === true);
+    };
     window.addEventListener("keydown", onKey);
     window.addEventListener(OPEN_COMMAND_BAR, onOpen);
     return () => {
+      queryIntent.current++;
       window.removeEventListener("keydown", onKey);
       window.removeEventListener(OPEN_COMMAND_BAR, onOpen);
     };
@@ -117,7 +129,8 @@ export function CommandBar({
   useLayoutEffect(() => {
     if (overlay && open) { inputRef.current?.focus(); inputRef.current?.select(); }
   }, [overlay, open]);
-  const dismiss = () => {
+  const dismiss = (picked = false) => {
+    if (!picked) queryIntent.current++;
     setOpen(false);
     setRaw("");
     if (overlay && previousFocus.current?.isConnected) previousFocus.current.focus();
@@ -153,8 +166,9 @@ export function CommandBar({
 
   const choose = (item: CommandItem | undefined) => {
     if (!item) return;
-    dismiss();
-    return item.run();
+    const ticket = queryIntent.current;
+    dismiss(true);
+    return item.run(() => queryIntent.current === ticket);
   };
   const parent = `command-search:${listId}`;
   const revision = useUiRevision(() => [raw, open, selected, results?.raw, items.map(item => [item.id, item.label, item.detail, item.agentAllowed])]);
@@ -164,7 +178,7 @@ export function CommandBar({
   }
   add("visibility", "Set command search visibility", { open: { type: "boolean" }, commands: { type: "boolean" } }, async args => { if (args.open) reveal(Boolean(args.commands)); else dismiss(); return { status: "completed", value: { open: Boolean(args.open) } }; }, true, "command-search-disclosures");
   if (open) {
-    add("input", "Set command search query", { query: { type: "string", maxLength: 8192 } }, async args => { setRaw(String(args.query)); return { status: "completed", value: { dispatch: "query requested", result: "Observe the current candidates before choosing" } }; });
+    add("input", "Set command search query", { query: { type: "string", maxLength: 8192 } }, async args => { changeQuery(String(args.query)); return { status: "completed", value: { dispatch: "query requested", result: "Observe the current candidates before choosing" } }; });
     add("read", "Read command search bytes", { offset: { type: "number", minimum: 0, maximum: 100000000, integer: true }, limit: { type: "number", minimum: 1, maximum: 8192, integer: true } }, async args => {
       const bytes = new TextEncoder().encode(JSON.stringify({ query: raw, mode, loading, selected, items: items.map(item => ({ id: item.id, label: item.label, detail: item.detail, agent_allowed: mode !== "command" || item.agentAllowed === true })) }));
       const offset = Number(args.offset), end = Math.min(bytes.length, offset + Number(args.limit));
@@ -205,7 +219,7 @@ export function CommandBar({
           } else window.setTimeout(() => setOpen(false), 120);
         }}
         onChange={(event) => {
-          setRaw(event.target.value);
+          changeQuery(event.target.value);
           setOpen(true);
         }}
         onKeyDown={(event) => {
@@ -229,7 +243,7 @@ export function CommandBar({
           <p className="command-bar__hint">{modeHint(mode)}</p>
           {items.length === 0 ? (
             <p className="command-bar__empty muted">
-              {loading ? "Searching…" : term ? "Nothing matches." : "Start typing."}
+              {loading ? "Searching…" : term ? (mode === "symbols" ? "No workspace symbols returned by the active providers." : "Nothing matches.") : "Start typing."}
             </p>
           ) : (
             <ul className="command-bar__list" role="listbox" id={listId} aria-label={modeHint(mode)}>

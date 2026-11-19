@@ -44,7 +44,7 @@ import { EditorState } from "@codemirror/state";
 import { SearchQuery, setSearchQuery } from "@codemirror/search";
 import { EditorView } from "@codemirror/view";
 import { describe, expect, it, vi } from "vitest";
-import { highlightProjectSearch, matchesRankedSearchHit, persistentSearchHighlights, searchMatchPositions, openPlainSearchFiles, registerSearchEditor, searchWorkspace } from "./workspaceSearch";
+import { highlightProjectSearch, matchesRankedSearchHit, matchesWorkspaceSymbol, persistentSearchHighlights, searchMatchPositions, openPlainSearchFiles, registerSearchEditor, searchWorkspace } from "./workspaceSearch";
 
 const hit = (path: string, snippet: string) => ({ path, snippet, start_line: 1, end_line: 1, score: 1 });
 
@@ -149,6 +149,17 @@ it("accepts only the whole ranked chunk at the original line range", () => {
   expect(matchesRankedSearchHit("first\nadded\n  invoice\npaid\nlast", target)).toBe(false);
   expect(matchesRankedSearchHit("first\n  invoice\nunpaid\nlast", target)).toBe(false);
   expect(matchesRankedSearchHit("first\n  invoice\npaid\nlast", {...target, end_line: 99})).toBe(false);
+});
+
+it("verifies a workspace symbol at the exact UTF-16 column and rejects partial identifiers", () => {
+  const row = 'def "😀"  OwnedSymbol():';
+  const column = row.indexOf("OwnedSymbol");
+  expect(matchesWorkspaceSymbol(row, column, "OwnedSymbol")).toBe(true);
+  expect(matchesWorkspaceSymbol(row, column - 1, "OwnedSymbol")).toBe(false);
+  expect(matchesWorkspaceSymbol(row.replace("OwnedSymbol", "OwnedSymbolNew"), column, "OwnedSymbol")).toBe(false);
+  expect(matchesWorkspaceSymbol(row, column + 5, "Symbol")).toBe(false);
+  expect(matchesWorkspaceSymbol(row, column, "Renamed")).toBe(false);
+  expect(matchesWorkspaceSymbol(undefined, column, "OwnedSymbol")).toBe(false);
 });
 </storycode:copy>
 

@@ -2806,6 +2806,20 @@ empty list. The source editor stayed available and a fresh query worked after
 preparation. See
 `target/main-document-outline-hook-fixed-managed-fence-ready-v1/browser.json`.
 
+Main workspace symbol search accepts `@name` in the existing search box
+and is also listed in its Commands mode. It uses the active providers'
+answers and includes listed workspace locations with their exact position.
+Before opening, it checks the reported spelling at that position and
+compares a retained cross-file editor with its saved source. The provider
+response carries no source hash or complete-index claim. A cold basedpyright
+query returned no symbols while indexing, and a later query found the symbol
+in an unopened file. Chromium reached that symbol at UTF-16 offset 53.
+An older held provider reply left newer results visible. A held target read
+left a newly selected peer active, and a same-column fixture rename that kept
+the old name as a prefix was refused. The browser made no source writes.
+See `target/main-command-symbol-provider-wire-v1/wire.json` and
+`target/main-command-symbol-commit-chromium-v2/browser.json`.
+
 Focused rebuilt-engine replays also passed for Python definition and
 Back/Forward, workspace search, delayed first-open authority and capabilities,
 and Debug and guarded patch review on both recorded Agent message sides.

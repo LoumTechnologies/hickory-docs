@@ -124,7 +124,10 @@ export function plainSearchEditor(path: string): EditorView | undefined {
 
 Ranked results carry the text of a line or chunk. Check that complete
 text at its reported position before revealing it. Disk chunks use LF
-between lines even when the saved file uses CRLF.
+between lines even when the saved file uses CRLF. A provider symbol can
+be confirmed only by its reported spelling at the exact UTF-16 column.
+Reject a shorter spelling inside a longer identifier so an old result
+cannot jump to a renamed symbol that shares its prefix.
 
 <storycode:copy id="f-a5b848b0817a-searchWorkspace">
 export function matchesRankedSearchHit(source: string, hit: SearchHit): boolean {
@@ -132,6 +135,15 @@ export function matchesRankedSearchHit(source: string, hit: SearchHit): boolean 
   if (!Number.isInteger(start) || !Number.isInteger(end) || start < 1 || end < start || !snippet) return false;
   const lines = source.replace(/\r\n/g, "\n").split("\n");
   return end <= lines.length && lines.slice(start - 1, end).join("\n") === snippet;
+}
+
+/** A provider spelling at an exact UTF-16 column is the minimum evidence for a symbol jump. */
+export function matchesWorkspaceSymbol(line: string | undefined, column: number, name: string): boolean {
+  if (!line || !name || !Number.isSafeInteger(column) || column < 0 || !line.startsWith(name, column)) return false;
+  const before = line.slice(0, column), after = line.slice(column + name.length);
+  const identifierStart = /^[\p{ID_Continue}$]/u, identifierEnd = /[\p{ID_Continue}$]$/u;
+  return !(identifierEnd.test(before) && identifierStart.test(name))
+    && !(identifierEnd.test(name) && identifierStart.test(after));
 }
 
 export async function searchWorkspace(

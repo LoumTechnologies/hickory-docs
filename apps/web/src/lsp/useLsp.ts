@@ -50,7 +50,7 @@ export function useLsp(realtime: Realtime, docPath: string, text: string, projec
 // other's replies. Documents avoid this by each having a socket; plain files
 // have no room and share the workspace socket, so they share the client too.
 let workspaceClient: LspClient | null = null;
-function workspaceLspClient(): LspClient | null {
+export function workspaceLspClient(): LspClient | null {
   if (workspaceClient) return workspaceClient;
   const channel = getWorkspaceRealtime()?.lsp() ?? null;
   if (!channel) return null;

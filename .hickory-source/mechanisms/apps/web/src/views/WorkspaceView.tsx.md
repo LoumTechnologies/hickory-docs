@@ -15,6 +15,9 @@ the editor's own source and caret. Find References keeps those checks on the
 result list so a later row pick can verify them through the destination read.
 For cross-file results, the saved source must agree with any retained target
 editor before the existing tab activation and exact-position reveal can run.
+Workspace symbol search uses the same destination path. The palette gives
+the pick its own lifetime, while the workspace checks a listed source and
+the provider's spelling at the reported position before activating a tab.
 
 Related contracts: [Trace conversation passages without confusing context with support](../../../../../guarantees/agent/an-answer-in-the-agent-pane-has-ribbons/contract.md), [A Folder Remembers Its Window](../../../../../guarantees/authoring/a-folder-remembers-its-window/contract.md), [A Keystroke Redraws Only The Editor](../../../../../guarantees/authoring/a-keystroke-redraws-only-the-editor/contract.md), [Inserting An Element Writes Hick You Could Have Typed Yourself](../../../../../guarantees/authoring/inserting-an-element-writes-hick-you-could-have-typed/contract.md), [New Document Creates Another Unnamed Buffer](../../../../../guarantees/authoring/new-document-is-an-act/contract.md), [Open File Tabs Follow Renames](../../../../../guarantees/authoring/open-file-tabs-follow-renames/contract.md), [Shared print requests do not attest physical output](../../../../../guarantees/authoring/print-requests-do-not-attest-physical-output/contract.md), [Settings preserves the open workspace](../../../../../guarantees/authoring/settings-preserves-the-open-workspace/contract.md), [The App Starts As A Lightweight Editor](../../../../../guarantees/authoring/the-app-starts-as-a-lightweight-editor/contract.md), [The engineer tour distinguishes replay from execution](../../../../../guarantees/authoring/the-engineer-tour-distinguishes-replay-from-execution/contract.md), [The Measure Says What It Measures](../../../../../guarantees/authoring/the-measure-says-what-it-measures/contract.md), [Close or recover a document without losing the wrong draft](../../../../../guarantees/authoring/unsaved-work-survives-closing-the-app/contract.md), [Pair identity without silently granting execution](../../../../../guarantees/collaboration/a-machine-is-a-keypair/contract.md), [A Plain File Has The Same Language Server A Document Has](../../../../../guarantees/editor-intelligence/a-plain-file-has-the-same-language-server/contract.md), [A Typed Path Opens That File](../../../../../guarantees/editor-intelligence/a-typed-path-opens-that-file/contract.md), [Keep editor actions attached to the view they affect](../../../../../guarantees/editor-intelligence/actions-belong-to-their-subject/contract.md), [Every Shortcut Is A Setting](../../../../../guarantees/editor-intelligence/every-shortcut-is-a-setting/contract.md), [Save Can Format First, With The File's Own Formatter](../../../../../guarantees/editor-intelligence/save-can-format-first/contract.md), [Run and test from the pane menu without adding a toolbar row](../../../../../guarantees/editor-intelligence/the-toolbar-uses-words-an-ide-user-knows/contract.md), [A Test Runs From The Line It Is Written On](../../../../../guarantees/execution/a-test-runs-from-the-line-it-is-written-on/contract.md), [The History Lens Reads The Repository As A Story](../../../../../guarantees/lenses/the-history-lens-reads-the-repository-as-a-story/contract.md), [Trace a ribbon to the visible part of its source](../../../../../guarantees/lineage/a-ribbon-crosses-documents/contract.md), [Show the requested connections without changing their meaning](../../../../../guarantees/lineage/a-ribbon-is-drawn-where-it-is-asked-for/contract.md), [Three Provenances Are Drawn Apart, And Any Subset Can Be Shown](../../../../../guarantees/lineage/three-provenances-are-drawn-apart/contract.md), [A Local Install Is a Launchable macOS App](../../../../../guarantees/release/a-local-install-is-a-launchable-macos-app/contract.md), [Spatial Views Preserve The Editor](../../../../../guarantees/shell/spatial-views-preserve-the-editor/contract.md), [A Session Appears Where It Is Working](../../../../../guarantees/terminal/a-session-appears-where-it-is-working/contract.md).
 
@@ -74,8 +77,9 @@ import { EnvironmentNotice } from "../environments/EnvironmentPanel";
 import { PromptPanel, usePrompt } from "../components/PromptPanel";
 import { bufferEditor, openBufferTarget } from "../lib/editorBufferTargets";
 import { workspaceRibbonSources } from "./workspaceRibbonSources";
-import { matchesRankedSearchHit, openPlainSearchFiles, searchWorkspace } from "../lib/workspaceSearch";
-import { searchCharacter } from "../simple/Intelligence";
+import { matchesRankedSearchHit, matchesWorkspaceSymbol, openPlainSearchFiles, searchWorkspace } from "../lib/workspaceSearch";
+import { searchCharacter, semanticLocations, semanticPath } from "../simple/Intelligence";
+import { workspaceLspClient } from "../lsp/useLsp";
 import type { MenuAction } from "../lib/menuBridge";
 import { captureInsertion, insertionCurrent, insertCapturedElement } from "../editor/insertElement";
 import {
@@ -281,6 +285,7 @@ import { MergedView } from "./MergedView";
 <storycode:copy id="f-47afe3575948-import_statement-16">
 import {
   CommandBar,
+  openCommandBar,
   type CommandItem,
   type CommandMode,
 } from "../shell/CommandBar";
@@ -460,6 +465,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   const focusedPathRef = useRef<string | null>(null);
   const workspaceSearchRef = useRef<(query: string, limit: number) => Promise<SearchResponse>>(async () => ({ semantic: false, hits: [] }));
   const openSearchHitRef = useRef<(hit: SearchHit) => void>(() => {});
+  const readSymbolCandidates = useRef<(term: string) => Promise<CommandItem[]>>(async () => []);
   // The tree and the outputs map are built further down; these let the
   // callbacks above read the current values without depending on declaration
   // order.
@@ -865,6 +871,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       }
       if (mode === "command") {
         const all: CommandItem[] = [...documentCommands(registry.get(focusedDocId(layoutRef.current))),
+          {id: "workspace-symbols", label: "Search workspace symbols", detail: "Type @ in search", agentAllowed: true, run: () => openCommandBar("symbols")},
           ...([ ["connections", "Connection display"], ["execution", "Tests and execution"], ["review", "Review this file"], ["import", "Import meeting"], ["export", "Export document snapshot"], ["help", "Workflow help"] ] as const).map(([id, label]) => ({ id: `tool-${id}`, label, detail: "Open a temporary panel", run: () => setTool(id) })),
           ...(projectId ? [{ id: "document-connections-graph", label: "Show document connections graph", detail: "Workspace lineage", run: () => navigate(`/projects/${encodeURIComponent(projectId)}/lineage`) }] : []),
           ...welcomeActions.map((action) => ({
@@ -896,6 +903,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         const needle = term.toLowerCase();
         return all.filter((c) => c.label.toLowerCase().includes(needle));
       }
+      if (mode === "symbols") return term ? readSymbolCandidates.current(term) : [];
       if (mode === "content") {
         if (!term) return [];
         const found = await workspaceSearchRef.current(term, 12);
@@ -980,11 +988,11 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   // activating a tab. Coverage can yield while hashing the text as well as
   // during the read. Recheck the report, the foreground and the live text at
   // the last point before activation. A source-only link leaves the caret alone.
-  const visitSource = useCallback(async ({path, line, character, expectedSource, originCurrent, report, searchHit, findHit, reference}: {
+  const visitSource = useCallback(async ({path, line, character, expectedSource, originCurrent, report, searchHit, findHit, provider}: {
     path: string; line: number | null; character?: number; expectedSource?: string;
     originCurrent?: () => boolean; report?: {sourceHash: string | null}; searchHit?: SearchHit;
     findHit?: {sourceHash: string; text: string};
-    reference?: {crossFile: boolean};
+    provider?: {savedOnly: boolean; symbol?: string};
   }) => {
     const request = beginSourceOpen(originCurrent);
     const {current, beforeOpen} = request;
@@ -1003,14 +1011,14 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       const firstNode = findNodeByPath(folderRootsRef.current, path);
       const documentId = (node: FileNode | undefined | null, target: ReturnType<typeof retained>) =>
         node?.doc_id ?? target.session?.docId ?? (target.tab?.kind === "document" ? target.tab.docId : undefined);
-      const needsListedSource = !!(report || searchHit || findHit || reference);
+      const needsListedSource = !!(report || searchHit || findHit || provider);
       if (needsListedSource && !listed(firstNode, first)) {
         throw Error("Source no longer listed. Refresh the workspace.");
       }
       const id = documentId(firstNode, first);
       // Managed documents have their own endpoint. Use its admitted source
       // to start a new session directly while rendering and the room connect.
-      const readSaved = first.text === undefined || reference?.crossFile;
+      const readSaved = first.text === undefined || provider?.savedOnly;
       const doc = readSaved && id ? await api.doc(id) : undefined;
       const file = readSaved && !id ? await api.file(path) : undefined;
       if (!beforeOpen()) return false;
@@ -1020,8 +1028,8 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       const saved = doc?.source ?? file?.content;
       const source = first.text ?? saved;
       if (source === undefined) return false;
-      if (reference?.crossFile && source !== saved) {
-        throw Error("The reference target has unsaved changes. Save it and find references again.");
+      if (provider?.savedOnly && source !== saved) {
+        throw Error("The target editor differs from the saved source. Save it and repeat the search.");
       }
       const hash = (report || findHit) && line !== null ? await historySourceHash(source) : undefined;
       if (!beforeOpen()) return false;
@@ -1036,6 +1044,9 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       }
       if (findHit && (hash !== findHit.sourceHash || row !== findHit.text)) {
         throw Error("Saved search source changed. Find it again before opening the result.");
+      }
+      if (provider?.symbol && !matchesWorkspaceSymbol(row, column, provider.symbol)) {
+        throw Error("The reported symbol has moved or changed. Search for it again.");
       }
       if (textChanged || documentId(node, latest) !== id || (expectedSource !== undefined && source !== expectedSource) ||
           (line !== null && (!Number.isInteger(line) || line < 1 || row === undefined || !Number.isInteger(column) || column < 0 || column > row.length)) ||
@@ -1075,7 +1086,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     const {line, character} = location.range.start;
     try {
       return await visitSource({path: target, line: line + 1, character, originCurrent: reading.current,
-        reference: {crossFile: target !== origin}});
+        provider: {savedOnly: target !== origin}});
     } catch (error) {
       setInsertNotice(error instanceof Error ? error.message : String(error));
       return false;
@@ -1087,6 +1098,36 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     return () => !editor || (focusedEditor() === editor &&
       editor.state.doc === document && editor.state.selection === selection);
   }, []);
+  readSymbolCandidates.current = async term => {
+    const client = workspaceLspClient();
+    if (!client) return [];
+    const origin = focusIntent.current.tab?.target;
+    const contextCurrent = captureNavigationContext();
+    const readingCurrent = captureReadingPosition();
+    const current = () => contextCurrent() && readingCurrent();
+    const answer = await client.request("workspace/symbol", {query: term});
+    if (!current()) return [];
+    const candidates: CommandItem[] = [];
+    for (const {name, uri, range: {start: {line, character}}} of semanticLocations(answer)) {
+      const path = semanticPath(uri.replace(/^hick-output:/, "hick:"));
+      const node = path && findNodeByPath(folderRootsRef.current, path);
+      if (!name || !path || !node || node.dir) continue;
+      candidates.push({
+        id: JSON.stringify([path, line, character, name]),
+        label: name,
+        detail: `${path}:${line + 1}:${character + 1}`,
+        run: paletteCurrent => {
+          const originCurrent = () => !!paletteCurrent?.() && current();
+          if (!originCurrent()) return;
+          void visitSource({path, line: line + 1, character, originCurrent,
+            provider: {savedOnly: path !== origin, symbol: name}})
+            .catch(error => setInsertNotice(error instanceof Error ? error.message : String(error)));
+        },
+      });
+      if (candidates.length === 100) break;
+    }
+    return candidates;
+  };
   const openSearchHit = useCallback((hit: SearchHit) => {
     void visitSource({path: hit.path, line: hit.start_line, originCurrent: captureReadingPosition(), searchHit: hit})
       .catch(error => setInsertNotice(error instanceof Error ? error.message : String(error)));

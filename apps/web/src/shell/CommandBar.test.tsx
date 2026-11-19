@@ -39,6 +39,7 @@ describe("one field, four questions", () => {
     expect(parseQuery(">split right")).toEqual({ mode: "command", term: "split right" });
     expect(parseQuery("?invoice")).toEqual({ mode: "content", term: "invoice" });
     expect(parseQuery(":42")).toEqual({ mode: "line", term: "42" });
+    expect(parseQuery(" @  OwnedClass ")).toEqual({ mode: "symbols", term: "OwnedClass" });
   });
 
   it("survives the space people leave after a prefix", () => {
@@ -91,6 +92,24 @@ describe("the bar in use", () => {
     render(<CommandBar candidates={candidates} />);
     fireEvent.change(screen.getByRole("textbox"), { target: { value: ">go" } });
     await waitFor(() => expect(candidates).toHaveBeenCalledWith("command", "go"));
+  });
+
+  it("retires a picked symbol read when a newer palette query begins", async () => {
+    let pickIsCurrent: (() => boolean) | undefined;
+    const candidates = vi.fn((mode: string, term: string) => mode === "symbols" && term
+      ? [item("OwnedClass", vi.fn((current?: () => boolean) => { pickIsCurrent = current; }))]
+      : []);
+    render(<CommandBar candidates={candidates} overlay />);
+    act(() => openCommandBar("symbols"));
+    const input = screen.getByRole("textbox", {name: "Search workspace symbols"});
+    fireEvent.change(input, {target: {value: "@OwnedClass"}});
+    await screen.findByRole("option", {name: /OwnedClass/});
+    expect(candidates).toHaveBeenCalledWith("symbols", "OwnedClass");
+    fireEvent.keyDown(input, {key: "Enter"});
+    expect(screen.queryByRole("option")).toBeNull();
+    expect(pickIsCurrent?.()).toBe(true);
+    act(() => openCommandBar());
+    expect(pickIsCurrent?.()).toBe(false);
   });
 
   it("runs the highlighted candidate on Enter", async () => {
