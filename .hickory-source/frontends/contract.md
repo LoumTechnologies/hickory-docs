@@ -2907,6 +2907,26 @@ its admitted source with an empty folder tree. See
 `target/main-cold-rename-external-final-v1/browser.json` and
 `target/main-single-file-rename-final-v1/browser.json`.
 
+Main code actions use the same guarded preview and coordinated draft
+history. Selecting a retained quick fix or refactoring prepares a
+proposal at the captured source range. If the provider discovers more
+sources, Main acquires them and asks again for the uniquely matching
+choice. The final edit must carry exact source proofs for all affected
+files. Actions that still carry a server command or a resource operation
+are refused. Apply requires a separate interaction and stages the
+reviewed changes as drafts.
+
+A genuine Apple clangd replay selected the missing-semicolon quick fix,
+checked the provider-proof hash and exact Before and After text, and
+applied it to a draft. Undo and Redo restored both versions in the same
+editor. Moving the caret during another preview blocked Apply. A fresh
+query at the original caret returned a new provider token, and the
+subsequent Apply and Undo and Redo succeeded. Neither replay sent source
+writes. See `target/main-code-action-fixed-v1/browser.json` and
+`target/main-code-action-guarded-v1/browser.json`. The shared preview
+also passed the existing Python rename replay at
+`target/main-rename-shared-preview-v1/browser.json`.
+
 Focused rebuilt-engine replays also passed for Python definition and
 Back/Forward, workspace search, delayed first-open authority and capabilities,
 and Debug and guarded patch review on both recorded Agent message sides.

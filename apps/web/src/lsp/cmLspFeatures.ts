@@ -199,7 +199,8 @@ export interface LspFeatureOptions {
   /** Ask the user for a new name; null cancels. */
   onRename?: (current: string) => Promise<string | null> | string | null;
   onRenamePreview?: (request: RenamePreviewRequest) => Promise<UiOutcome>;
-  captureRenameContext?: () => () => boolean;
+  onCodeActionPreview?: (request: CodeActionPreviewRequest) => Promise<UiOutcome>;
+  captureChangeContext?: () => () => boolean;
   /** Offer a list of code actions; the chosen one is applied. */
   onCodeActions?: (actions: CodeAction[]) => Promise<CodeAction | null> | CodeAction | null;
   /** Report something the user needs to know (a refused rename, say). */
@@ -559,6 +560,11 @@ function renameAt(view: EditorView, opts: LspFeatureOptions): boolean {
   return true;
 }
 
+export type CodeActionPreviewRequest = {
+  client: LspClient; uri: string; view: EditorView; range: LspRange;
+  action: CodeAction; current: () => boolean;
+};
+
 export type RenamePreviewRequest = {
   client: LspClient; uri: string; position: LspPosition; view: EditorView;
   previous: string; name: string; current: () => boolean;
@@ -567,7 +573,7 @@ export type RenamePreviewRequest = {
 export async function renameSymbol(view: EditorView, opts: LspFeatureOptions, askName: NonNullable<LspFeatureOptions["onRename"]>, signal?: AbortSignal): Promise<UiOutcome> {
   const original = view.state.doc;
   const selection = view.state.selection;
-  const context = opts.onRenamePreview ? opts.captureRenameContext?.() : undefined;
+  const context = opts.onRenamePreview ? opts.captureChangeContext?.() : undefined;
   const { client, uri, positionAt, offsetAt, onMessage } = opts;
   const current = () => view.state.doc === original && !view.state.readOnly && view.state.facet(EditorView.editable) && !signal?.aborted &&
     (!opts.onRenamePreview || (view.dom.isConnected && !view.composing && view.state.selection === selection && (!context || context())));

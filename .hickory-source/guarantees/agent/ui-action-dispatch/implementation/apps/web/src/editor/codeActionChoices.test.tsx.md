@@ -22,7 +22,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { EditorState } from "@codemirror/state";
 import { cmKeyOf } from "../lib/keymap";
 import { EditorView, keymap } from "@codemirror/view";
-import { lspFeatures } from "../lsp/cmLspFeatures";
+import { lspFeatures, type CodeActionPreviewRequest } from "../lsp/cmLspFeatures";
 import type { LspClient } from "../lsp/client";
 import { UiActions } from "../lib/uiActions";
 import { UiActionContext } from "../lib/uiActionBridge";
@@ -80,10 +80,51 @@ it("retains real source-bound code choices and refuses forged, stale or unsuppor
 });
 </storycode:copy>
 
+### Preview guards survive the chooser
+
+The chooser hands Main a retained action and the range used to query it. The preview still needs the originating editor after the chooser closes. This test checks that selecting a choice leaves the local text untouched and that losing the originating workspace context invalidates the preview.
+
+<storycode:copy id="main-code-action-preview">
+it("hands Main the original range and invalidates the preview when its editor context changes", async () => {
+  const request = vi.fn();
+  const action = {title: "Fix name", kind: "quickfix", data: {hickory_action: "retained"}};
+  const codeActions = vi.fn().mockResolvedValue([action]);
+  const client = {codeActions, request, foldingRanges: async () => []} as unknown as LspClient;
+  let context = 0;
+  const preview = vi.fn(async (_preview: CodeActionPreviewRequest) => ({status: "completed" as const, value: {preview_ready: true}}));
+  const host = document.createElement("div");
+  document.body.append(host);
+  const view = new EditorView({parent: host, state: EditorState.create({
+    doc: "bad", selection: {anchor: 0, head: 2},
+    extensions: lspFeatures({
+      client, uri: "file.py", positionAt: p => ({line: 0, character: p}), offsetAt: p => p.character,
+      onCodeActions: actions => actions[0], onCodeActionPreview: preview,
+      captureChangeContext: () => {
+        const original = context;
+        return () => context === original;
+      },
+    }),
+  })});
+  try {
+    const binding = view.state.facet(keymap).flat().find(b => b.key === cmKeyOf("editor.codeAction"))!;
+    await act(async () => { expect(binding.run!(view)).toBe(true); });
+    expect(preview).toHaveBeenCalledOnce();
+    const captured = preview.mock.calls[0][0];
+    expect(captured.range).toEqual({start: {line: 0, character: 0}, end: {line: 0, character: 2}});
+    expect(captured.action).toEqual(action);
+    expect(captured.current()).toBe(true);
+    expect(request).not.toHaveBeenCalled();
+    expect(view.state.doc.toString()).toBe("bad");
+    context++;
+    expect(captured.current()).toBe(false);
+  } finally { view.destroy(); host.remove(); }
+});
+</storycode:copy>
+
 ### Assemble `apps/web/src/editor/codeActionChoices.test.tsx`
 
 The selections below preserve the original byte order. Narrative reading order does not change the output.
 
-<storycode:file path="apps/web/src/editor/codeActionChoices.test.tsx"><storycode:paste select="#f-7d80c08f42fb-expression_statement"/><storycode:paste select="#f-7d80c08f42fb-expression_statement-2"/></storycode:file>
+<storycode:file path="apps/web/src/editor/codeActionChoices.test.tsx"><storycode:paste select="#f-7d80c08f42fb-expression_statement"/><storycode:paste select="#f-7d80c08f42fb-expression_statement-2"/><storycode:paste select="#main-code-action-preview"/></storycode:file>
 
 </storycode:doc>

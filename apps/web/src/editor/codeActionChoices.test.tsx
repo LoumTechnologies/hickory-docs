@@ -4,7 +4,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { EditorState } from "@codemirror/state";
 import { cmKeyOf } from "../lib/keymap";
 import { EditorView, keymap } from "@codemirror/view";
-import { lspFeatures } from "../lsp/cmLspFeatures";
+import { lspFeatures, type CodeActionPreviewRequest } from "../lsp/cmLspFeatures";
 import type { LspClient } from "../lsp/client";
 import { UiActions } from "../lib/uiActions";
 import { UiActionContext } from "../lib/uiActionBridge";
@@ -54,4 +54,38 @@ it("retains real source-bound code choices and refuses forged, stale or unsuppor
     await waitFor(() => expect(view.state.doc.toString()).toBe("human"));
     expect(client.codeActions).toHaveBeenCalledTimes(3);
   } finally { cleanup(); view.destroy(); host.remove(); }
+});
+it("hands Main the original range and invalidates the preview when its editor context changes", async () => {
+  const request = vi.fn();
+  const action = {title: "Fix name", kind: "quickfix", data: {hickory_action: "retained"}};
+  const codeActions = vi.fn().mockResolvedValue([action]);
+  const client = {codeActions, request, foldingRanges: async () => []} as unknown as LspClient;
+  let context = 0;
+  const preview = vi.fn(async (_preview: CodeActionPreviewRequest) => ({status: "completed" as const, value: {preview_ready: true}}));
+  const host = document.createElement("div");
+  document.body.append(host);
+  const view = new EditorView({parent: host, state: EditorState.create({
+    doc: "bad", selection: {anchor: 0, head: 2},
+    extensions: lspFeatures({
+      client, uri: "file.py", positionAt: p => ({line: 0, character: p}), offsetAt: p => p.character,
+      onCodeActions: actions => actions[0], onCodeActionPreview: preview,
+      captureChangeContext: () => {
+        const original = context;
+        return () => context === original;
+      },
+    }),
+  })});
+  try {
+    const binding = view.state.facet(keymap).flat().find(b => b.key === cmKeyOf("editor.codeAction"))!;
+    await act(async () => { expect(binding.run!(view)).toBe(true); });
+    expect(preview).toHaveBeenCalledOnce();
+    const captured = preview.mock.calls[0][0];
+    expect(captured.range).toEqual({start: {line: 0, character: 0}, end: {line: 0, character: 2}});
+    expect(captured.action).toEqual(action);
+    expect(captured.current()).toBe(true);
+    expect(request).not.toHaveBeenCalled();
+    expect(view.state.doc.toString()).toBe("bad");
+    context++;
+    expect(captured.current()).toBe(false);
+  } finally { view.destroy(); host.remove(); }
 });

@@ -375,7 +375,8 @@ import { formatOnSave, loadFormatOnSave } from "../lib/formatOnSave";
 ### `import_statement`
 
 <storycode:copy id="f-47afe3575948-import_statement-26">
-import { formatView, type RenamePreviewRequest } from "../lsp/cmLspFeatures";
+import { formatView, type CodeActionPreviewRequest, type RenamePreviewRequest } from "../lsp/cmLspFeatures";
+import { resolveCodeAction } from "../lsp/codeActionResolution";
 </storycode:copy>
 <a id="f-47afe3575948-import_statement-27"></a>
 ### `import_statement`
@@ -565,16 +566,17 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   const plainSources = useRef(new Map<string, string>());
   const plainPatchOwners = useRef(new Map<string, () => RecordedPatchSource | null>());
   const [recordedDraftHistory] = useState(() => new WorkspaceChangeHistory());
-  const renameTicket = useRef(0);
-  const [renameReview, setRenameReview] = useState<{
+  const changeTicket = useRef(0);
+  const [changeReview, setChangeReview] = useState<{
     plan: ChangePlan; current: () => boolean; opensFiles: boolean; apply: () => Promise<void>;
   } | null>(null);
-  const [renamePath, setRenamePath] = useState(0);
-  const [renamePage, setRenamePage] = useState(0);
-  const [renamePending, setRenamePending] = useState(false);
-  const [renameError, setRenameError] = useState<string | null>(null);
-  const renameApplying = useRef(false);
-  const renameHistoryRef = useRef<(direction: "undo" | "redo") => void>(() => {});
+  const [changePath, setChangePath] = useState(0);
+  const [changePage, setChangePage] = useState(0);
+  const [changePending, setChangePending] = useState(false);
+  const [changeKind, setChangeKind] = useState<"rename" | "code action">("rename");
+  const [changeError, setChangeError] = useState<string | null>(null);
+  const changeApplying = useRef(false);
+  const changeHistoryRef = useRef<(direction: "undo" | "redo") => void>(() => {});
   const untitledRevisions = useRef(new Map<string, number>());
   const registerPlainPatchOwner = useCallback((id: string, read: () => RecordedPatchSource | null) => {
     plainPatchOwners.current.set(id, read);
@@ -966,7 +968,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
           ...editorCommands,
           ...(["undo", "redo"] as const).filter(direction => recordedDraftHistory.preview(direction)).map(direction => ({
             id: `workspace-drafts:${direction}`, label: direction === "undo" ? "Undo workspace change" : "Redo workspace change",
-            run: () => renameHistoryRef.current(direction),
+            run: () => changeHistoryRef.current(direction),
           })),
           ...([[history.trail.canBack, -1, "back", "Navigate Back"], [history.trail.canForward, 1, "forward", "Navigate Forward"]] as const)
             .flatMap(([available, direction, id, label]): CommandItem[] => available ? [{
@@ -1272,11 +1274,10 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
-  // A rename first discovers its targets, then captures each exact input.
-  // The sealed provider answer supplies coordinate proofs for the final edits.
-  // Review uses those same bytes. Apply also needs a current draft owner for
-  // every patch, and stages the whole group before any editor is changed.
-  const readRenameOwner = useCallback((path: string) => {
+  // A provider change discovers its targets and captures each exact input
+  // before preview. Apply needs a current draft owner for every patch, and
+  // stages the whole group before changing any editor.
+  const readChangeOwner = useCallback((path: string) => {
     const tabs = panesOf(layoutRef.current.root).flatMap(pane => pane.tabs)
       .filter(tab => (tab.kind === "document" || tab.kind === "file") && tab.target === path);
     if (tabs.length > 1) throw Error(`More than one tab owns ${path}. Close the duplicate first.`);
@@ -1285,10 +1286,10 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       : tab ? plainPatchOwners.current.get(tab.id) : undefined;
     return {tab, owner: read?.() ?? undefined};
   }, [registry]);
-  const readRenameDisk = useCallback(async (path: string, singleFile?: Tab) => {
+  const readChangeDisk = useCallback(async (path: string, singleFile?: Tab) => {
     const node = findNodeByPath(folderRootsRef.current, path);
     if ((!node && singleFile?.target !== path) || node?.dir || node?.generated_by) {
-      throw Error(`Choose listed authored source for rename: ${path}`);
+      throw Error(`Choose listed authored source: ${path}`);
     }
     const docId = node?.doc_id ?? singleFile?.docId;
     if (docId) {
@@ -1300,19 +1301,21 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     if (file.path !== path || !file.save_guard) throw Error(`Source authority changed: ${path}`);
     return {text: file.content, guard: file.save_guard, managed: false, docId: undefined};
   }, []);
-  const prepareRenamePreview = useCallback(async (request: RenamePreviewRequest): Promise<UiOutcome> => {
+  const prepareChangePreview = useCallback(async (request: RenamePreviewRequest | CodeActionPreviewRequest): Promise<UiOutcome> => {
+    const isRename = "name" in request;
+    const operation = isRename ? "rename" : "code action";
     const path = semanticPath(request.uri);
-    if (renameApplying.current) throw Error("Wait for the current draft Apply to finish.");
+    if (changeApplying.current) throw Error("Wait for the current draft Apply to finish.");
     if (!path || !workspaceIsVisible() || activeSourceEditor()?.view !== request.view || !request.current()) {
-      throw Error("Select a current authored symbol before preparing rename.");
+      throw Error("Select a current authored source before preparing changes.");
     }
-    const ticket = ++renameTicket.current, workspace = sourceWorkspace.current;
-    const visible = () => renameTicket.current === ticket && sourceWorkspace.current === workspace;
+    const ticket = ++changeTicket.current, workspace = sourceWorkspace.current;
+    const visible = () => changeTicket.current === ticket && sourceWorkspace.current === workspace;
     const snapshots = new Map<string, {text: string; base: string; guard: string; managed: boolean;
       tabId?: string; owner?: RecordedPatchSource}>();
     const current = () => visible() && request.current() && [...snapshots.values()].every(snapshot => !snapshot.owner || snapshot.owner.current());
-    const check = () => { if (!current()) throw Error("Source or editor changed. Prepare rename again."); };
-    setRenamePending(true); setRenameReview(null); setRenameError(null);
+    const check = () => { if (!current()) throw Error(`Source or editor changed. Prepare the ${operation} again.`); };
+    setChangeKind(operation); setChangePending(true); setChangeReview(null); setChangeError(null);
     let temporary: WsRealtime | undefined, secondary: LspClient | undefined;
     const capture = async (client: LspClient, uri: string, text: string, managed: boolean) => {
       check();
@@ -1329,19 +1332,19 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       check();
       const scope = patchScope(files);
       if (!scope) throw Error("The current workspace has no guarded source identity.");
-      const initial = readRenameOwner(path);
+      const initial = readChangeOwner(path);
       if (!initial.tab || !initial.owner || !matchesScope(scope, initial.owner.scope) || initial.owner.text !== authoredSource(request.view.state)) {
         throw Error("The originating editor has no exact guarded source. Reopen it and retry.");
       }
       const singleFile = files.folder_open === false ? initial.tab : undefined;
-      const readDisk = (target: string) => readRenameDisk(target, singleFile?.target === target ? singleFile : undefined);
+      const readDisk = (target: string) => readChangeDisk(target, singleFile?.target === target ? singleFile : undefined);
       const origin = {text: initial.owner.text, base: initial.owner.base, guard: initial.owner.guard,
         managed: initial.tab.kind === "document", tabId: initial.tab.id, owner: initial.owner};
       snapshots.set(path, origin);
       const acquire = async (target: string) => {
         const known = snapshots.get(target);
         if (known) return {text: known.text, writable: true};
-        const retained = readRenameOwner(target);
+        const retained = readChangeOwner(target);
         const disk = await readDisk(target);
         check();
         if (retained.owner && (!matchesScope(scope, retained.owner.scope) || retained.owner.guard !== disk.guard || !retained.owner.current())) {
@@ -1349,7 +1352,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         }
         const text = retained.owner?.text ?? disk.text;
         const held = retained.tab && plainSources.current.get(retained.tab.id);
-        if (!retained.owner && held !== undefined && held !== disk.text) throw Error(`Open the retained draft for ${target} before renaming.`);
+        if (!retained.owner && held !== undefined && held !== disk.text) throw Error(`Open the retained draft for ${target} before preparing this change.`);
         snapshots.set(target, {text, base: disk.text, guard: disk.guard, managed: disk.managed,
           tabId: retained.tab?.id, owner: retained.owner});
         if (!secondary) {
@@ -1363,28 +1366,45 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       };
       await capture(request.client, request.uri, origin.text, origin.managed);
       const sources = new Map([[path, {text: origin.text, writable: true}]]);
-      const reference = await acquireReferenceSources(sources, async () =>
+      const reference = isRename ? await acquireReferenceSources(sources, async () =>
         (await request.client.references(request.uri, request.position)).map(location => {
           const target = semanticPath(location.uri);
           if (!target) throw Error("A reported reference has no editable workspace source.");
           return target;
-        }), acquire, current);
-      const proposal = await acquireSourceProposal(reference.sources, async () => {
+        }), acquire, current) : null;
+      const proposal = await acquireSourceProposal(reference?.sources ?? sources, async () => {
         const expected = await capture(request.client, request.uri, origin.text, origin.managed);
-        const value = await request.client.request("hick/rename", {
-          textDocument: {uri: request.uri}, position: request.position, newName: request.name, expected,
-        }) as CodeAction & {source_files_modified?: boolean};
-        check();
-        if (!value || value.source_files_modified !== false || value.command || value.disabled) {
-          throw Error(value?.disabled?.reason ?? "The provider did not confirm a complete rename preview.");
+        let value: CodeAction;
+        if (isRename) {
+          const rename = await request.client.request("hick/rename", {
+            textDocument: {uri: request.uri}, position: request.position, newName: request.name, expected,
+          }) as CodeAction & {source_files_modified?: boolean};
+          if (!rename || rename.source_files_modified !== false) {
+            throw Error("The provider did not confirm a complete rename preview.");
+          }
+          value = rename;
+        } else {
+          // Acquiring other sources can expire the old provider token. Keep
+          // the captured range and resolve only the uniquely matching choice.
+          const choices = await request.client.codeActions(request.uri, request.range);
+          check();
+          const matches = choices.filter(action => action.title === request.action.title && action.kind === request.action.kind);
+          if (matches.length !== 1) throw Error("The selected provider action changed. Request code actions again.");
+          const fresh = matches[0];
+          if (fresh.disabled) throw Error(fresh.disabled.reason);
+          value = await resolveCodeAction(request.client, fresh, request.uri);
         }
+        check();
+        if (value.disabled) throw Error(value.disabled.reason);
+        if (value.command) throw Error(`"${value.title}" needs a language-server command this editor cannot execute.`);
         return {paths: [...providerActionPaths(value), ...providerSourceProofPaths(value)], value};
       }, acquire, current);
       const targets = new Set(workspaceEditTargets(proposal.value.edit).map(target => target.path));
       await validateProviderSourceProofs(proposal.value, proposal.sources, targets);
       check();
-      const plan = planWorkspaceEdit(`Rename ${request.previous} to ${request.name}`, proposal.value.edit, proposal.sources);
-      validateReferencedTargets(plan, reference.references);
+      const title = isRename ? `Rename ${request.previous} to ${request.name}` : request.action.title;
+      const plan = planWorkspaceEdit(title, proposal.value.edit, proposal.sources);
+      if (reference) validateReferencedTargets(plan, reference.references);
       const opensFiles = plan.patches.some(patch => !snapshots.get(patch.path)?.tabId);
       const apply = async () => {
         const readCurrentDisk = async (target: string) => {
@@ -1392,18 +1412,20 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
           const disk = await readDisk(target);
           check();
           if (disk.text !== snapshot.base || disk.guard !== snapshot.guard || disk.managed !== snapshot.managed) {
-            throw Error(`Saved source changed: ${target}. Prepare rename again.`);
+            throw Error(`Saved source changed: ${target}. Prepare the ${operation} again.`);
           }
           return disk;
         };
+        const saved = new Map<string, Awaited<ReturnType<typeof readDisk>>>();
+        for (const target of snapshots.keys()) saved.set(target, await readCurrentDisk(target));
         const bindings = new Map<string, {tabId: string; guard: string}>();
         const background: Tab[] = [];
         for (const patch of plan.patches) {
           const snapshot = snapshots.get(patch.path)!;
-          const disk = await readCurrentDisk(patch.path);
-          const retained = readRenameOwner(patch.path).tab;
+          const disk = saved.get(patch.path)!;
+          const retained = readChangeOwner(patch.path).tab;
           if (snapshot.tabId && retained?.id !== snapshot.tabId) {
-            throw Error(`The reviewed editor changed: ${patch.path}. Prepare rename again.`);
+            throw Error(`The reviewed editor changed: ${patch.path}. Prepare the ${operation} again.`);
           }
           const tab = retained ?? makeTab(disk.managed ? "document" : "file",
             patch.path, patch.path.split("/").pop(), disk.docId);
@@ -1415,12 +1437,12 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         const prepareStages = () => plan.patches.map(patch => {
           const snapshot = snapshots.get(patch.path)!;
           const binding = bindings.get(patch.path)!;
-          const {tab, owner} = readRenameOwner(patch.path);
-          if (tab && tab.id !== binding.tabId) throw Error(`Another editor took ownership of ${patch.path}. Prepare rename again.`);
+          const {tab, owner} = readChangeOwner(patch.path);
+          if (tab && tab.id !== binding.tabId) throw Error(`Another editor took ownership of ${patch.path}. Prepare the ${operation} again.`);
           if (!owner) return null;
           if (!matchesScope(scope, owner.scope) || owner.guard !== binding.guard || owner.text !== patch.before ||
               owner.base !== snapshot.base || !owner.current()) {
-            throw Error(`The editor source changed: ${patch.path}. Prepare rename again.`);
+            throw Error(`The editor source changed: ${patch.path}. Prepare the ${operation} again.`);
           }
           return owner.prepareDraft?.(patch.after) ?? null;
         });
@@ -1433,7 +1455,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
           if (Date.now() >= until) throw Error("An affected editor is still unavailable. Wait for it to load and retry Apply.");
           await new Promise(resolve => window.setTimeout(resolve, 50));
         }
-        if (background.length) for (const patch of plan.patches) await readCurrentDisk(patch.path);
+        if (background.length) for (const target of snapshots.keys()) await readCurrentDisk(target);
         check();
         const stages = prepareStages().map(stage => {
           if (!stage?.current()) throw Error("An affected editor changed while checking saved source.");
@@ -1444,15 +1466,15 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         const inverse = invertWindowDraft(historyPlan);
         recordedDraftHistory.record({kind: "draft", plan: inverse, read: () => inverse});
       };
-      setRenamePath(0); setRenamePage(0); setRenameReview({plan, current, opensFiles, apply});
+      setChangePath(0); setChangePage(0); setChangeReview({plan, current, opensFiles, apply});
       return {status: "completed", value: {preview_ready: true, source_files: plan.patches.length, source_changed: false}};
     } finally {
       secondary?.dispose();
       temporary?.close();
-      if (visible()) setRenamePending(false);
+      if (visible()) setChangePending(false);
     }
-  }, [activeSourceEditor, readRenameOwner, readRenameDisk, recordedDraftHistory]);
-  renameHistoryRef.current = direction => {
+  }, [activeSourceEditor, readChangeOwner, readChangeDisk, recordedDraftHistory]);
+  changeHistoryRef.current = direction => {
     const token = recordedDraftHistory.preview(direction), workspace = sourceWorkspace.current;
     if (!token) return;
     void import("./WorkspaceChat").then(async ({matchesScope, patchScope, stageDrafts, commitWorkspaceDrafts, invertWindowDraft}) => {
@@ -1462,7 +1484,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         throw Error("Open the original workspace before changing these drafts.");
       }
       commitWorkspaceDrafts(stageDrafts(plan, path => {
-        const {tab, owner} = readRenameOwner(path), binding = plan.bindings.get(path);
+        const {tab, owner} = readChangeOwner(path), binding = plan.bindings.get(path);
         return tab?.id === binding?.tabId && owner?.guard === binding?.guard ? owner : null;
       }));
       const inverse = invertWindowDraft(plan);
@@ -2465,7 +2487,8 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
           captureNavigationContext={captureNavigationContext}
           onRelatedLocations={showRelatedLocations}
           onLocalNavigation={recordLocalNavigation}
-          onRenamePreview={prepareRenamePreview}
+          onRenamePreview={prepareChangePreview}
+          onCodeActionPreview={prepareChangePreview}
           askText={shellPrompt.askText}
           askChoice={shellPrompt.askChoice}
           retainUnsaved={retainSavedDrafts}
@@ -2656,7 +2679,8 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
               captureNavigationContext={captureNavigationContext}
               onRelatedLocations={showRelatedLocations}
               onLocalNavigation={recordLocalNavigation}
-              onRenamePreview={prepareRenamePreview}
+              onRenamePreview={prepareChangePreview}
+              onCodeActionPreview={prepareChangePreview}
               openGenerated={openGeneratedFor}
               retainUnsaved={retainSavedDrafts}
             />
@@ -2804,47 +2828,48 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         <PromptPanel prompt={focused.prompt} onSettle={focused.settle} />
       )}
       <PromptPanel prompt={shellPrompt.prompt} onSettle={shellPrompt.settle} />
-      {(renamePending || renameReview) && <aside className="prompt-panel prompt-panel--filtered" role="dialog" aria-label="Rename preview"
+      {(changePending || changeReview) && <aside className="prompt-panel prompt-panel--filtered" role="dialog" aria-label={changeKind === "rename" ? "Rename preview" : "Code action preview"}
         onKeyDown={event => {
-          if (event.key !== "Escape" || renameApplying.current) return;
-          renameTicket.current++;
-          setRenameReview(null);
-          setRenamePending(false);
+          if (event.key !== "Escape" || changeApplying.current) return;
+          changeTicket.current++;
+          setChangeReview(null);
+          setChangePending(false);
         }}>
-        <button type="button" aria-label="Close rename preview" disabled={renameApplying.current}
-          onClick={() => { renameTicket.current++; setRenameReview(null); setRenamePending(false); }}>×</button>
-        {renamePending && <p role="status">{renameApplying.current ? "Checking and applying source drafts…" : "Preparing rename preview…"}</p>}
-        {renameReview && (() => {
-          const patch = renameReview.plan.patches[renamePath];
+        <button type="button" aria-label={`Close ${changeKind} preview`} disabled={changeApplying.current}
+          onClick={() => { changeTicket.current++; setChangeReview(null); setChangePending(false); }}>×</button>
+        {changePending && <p role="status">{changeApplying.current ? "Checking and applying source drafts…" : `Preparing ${changeKind} preview…`}</p>}
+        {changeReview && (() => {
+          const patch = changeReview.plan.patches[changePath];
           const before = patch.before.split("\n"), after = patch.after.split("\n");
           const pageCount = Math.max(1, Math.ceil(Math.max(before.length, after.length) / 100));
-          const offset = renamePage * 100;
+          const offset = changePage * 100;
           return <>
-            <ChangePreview heading={renameReview.plan.title}>
-              <p>Provider-reported changes in {renameReview.plan.patches.length} source {renameReview.plan.patches.length === 1 ? "file" : "files"}.</p>
-              <label>Preview source file <select aria-label="Preview source file" value={renamePath}
-                onChange={event => { setRenamePath(Number(event.target.value)); setRenamePage(0); }}>
-                {renameReview.plan.patches.map((item, index) => <option key={item.path} value={index}>{item.path}</option>)}
+            <ChangePreview heading={changeReview.plan.title}>
+              <p>Provider-reported changes in {changeReview.plan.patches.length} source {changeReview.plan.patches.length === 1 ? "file" : "files"}.</p>
+              <label>Preview source file <select aria-label="Preview source file" value={changePath}
+                onChange={event => { setChangePath(Number(event.target.value)); setChangePage(0); }}>
+                {changeReview.plan.patches.map((item, index) => <option key={item.path} value={index}>{item.path}</option>)}
               </select></label>
               <strong>Before</strong><pre aria-label="Before">{before.slice(offset, offset + 100).join("\n")}</pre>
               <strong>After</strong><pre aria-label="After">{after.slice(offset, offset + 100).join("\n")}</pre>
               {pageCount > 1 && <>
-                <button type="button" disabled={!renamePage} onClick={() => setRenamePage(page => page - 1)}>Previous lines</button>
-                <button type="button" disabled={renamePage + 1 >= pageCount} onClick={() => setRenamePage(page => page + 1)}>Next lines</button>
+                <button type="button" disabled={!changePage} onClick={() => setChangePage(page => page - 1)}>Previous lines</button>
+                <button type="button" disabled={changePage + 1 >= pageCount} onClick={() => setChangePage(page => page + 1)}>Next lines</button>
               </>}
             </ChangePreview>
-            {renameReview.opensFiles && <p>Apply opens affected files in background tabs.</p>}
-            {renameError && <p role="alert">{renameError}</p>}
-            <button type="button" disabled={renamePending} onClick={() => {
-              if (renameApplying.current) return;
-              if (!renameReview.current()) { setRenameError("Source or editor changed. Prepare rename again."); return; }
-              renameApplying.current = true;
-              setRenamePending(true); setRenameError(null);
-              void renameReview.apply().then(() => {
-                setRenameReview(null);
-                setInsertNotice("Rename applied to source drafts. Use Save All to publish or Undo workspace change to revert.");
-              }, error => setRenameError(error instanceof Error ? error.message : String(error)))
-                .finally(() => { renameApplying.current = false; setRenamePending(false); });
+            {changeReview.opensFiles && <p>Apply opens affected files in background tabs.</p>}
+            {changeError && <p role="alert">{changeError}</p>}
+            <button type="button" disabled={changePending} onClick={() => {
+              if (changeApplying.current) return;
+              if (!changeReview.current()) { setChangeError(`Source or editor changed. Prepare the ${changeKind} again.`); return; }
+              changeApplying.current = true;
+              setChangePending(true); setChangeError(null);
+              void changeReview.apply().then(() => {
+                setChangeReview(null);
+                const applied = changeKind === "rename" ? "Rename" : "Code action";
+                setInsertNotice(`${applied} applied to source drafts. Use Save All to publish or Undo workspace change to revert.`);
+              }, error => setChangeError(error instanceof Error ? error.message : String(error)))
+                .finally(() => { changeApplying.current = false; setChangePending(false); });
             }}>Apply to source drafts</button>
           </>;
         })()}
