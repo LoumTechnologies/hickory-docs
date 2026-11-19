@@ -301,6 +301,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
 
   // One live session per open document, published through the registry.
   const registry = useMemo(() => new SessionRegistry(), []);
+  const documentSlots = useRef(new Map<string, string>());
   useSessionVersion(registry);
 
   // Project search (Mod-Shift-F). The folder's documents are kept alongside
@@ -369,8 +370,8 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   const [changePath, setChangePath] = useState(0);
   const [changePage, setChangePage] = useState(0);
   const [changePending, setChangePending] = useState(false);
-  const [changeKind, setChangeKind] = useState<ProviderPreviewRequest["kind"] | "delete">("rename");
-  const prepareDeleteRef = useRef<(view: EditorView, tab: Tab, current: () => boolean) => void>(() => {});
+  const [changeKind, setChangeKind] = useState<ProviderPreviewRequest["kind"] | "delete" | "move">("rename");
+  const prepareFileResourceRef = useRef<(kind: "delete" | "move", view: EditorView, tab: Tab, current: () => boolean) => void>(() => {});
   const [changeError, setChangeError] = useState<string | null>(null);
   const changeApplying = useRef(false);
   const changeHistoryRef = useRef<(direction: "undo" | "redo") => void>(() => {});
@@ -764,9 +765,13 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         const all: CommandItem[] = [...documentCommands(registry.get(focusedDocId(layoutRef.current))),
           ...editorCommands,
           ...(view && focus.tab && (focus.tab.kind === "file" || focus.tab.kind === "document") && !view.state.readOnly
-            ? [{id: "workspace-resources:delete", label: "Preview deletion of this file", run: (current?: () => boolean) => {
-              if (current) prepareDeleteRef.current(view, focus.tab!, current);
-            }}] : []),
+            ? (["delete", "move"] as const).map(kind => ({
+              id: `workspace-resources:${kind}`,
+              label: kind === "delete" ? "Preview deletion of this file" : "Preview move of this file",
+              run: (current?: () => boolean) => {
+                if (current) prepareFileResourceRef.current(kind, view, focus.tab!, current);
+              },
+            })) : []),
           ...(["undo", "redo"] as const).filter(direction => recordedDraftHistory.preview(direction)).map(direction => ({
             id: `workspace-drafts:${direction}`, label: direction === "undo" ? "Undo workspace change" : "Redo workspace change",
             run: () => changeHistoryRef.current(direction),
@@ -1350,7 +1355,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       if (visible()) setChangePending(false);
     }
   }, [activeSourceEditor, captureResourceWindow, observeResourceWindow, readChangeOwner, readChangeDisk, recordedDraftHistory]);
-  prepareDeleteRef.current = (view, tab, paletteCurrent) => {
+  prepareFileResourceRef.current = (kind, view, tab, paletteCurrent) => {
     const active = activeSourceEditor();
     if (changeApplying.current || !workspaceIsVisible() || active?.view !== view || active.tab.id !== tab.id ||
         view.composing || view.state.readOnly || !paletteCurrent()) return;
@@ -1359,19 +1364,31 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     const visible = () => ticket === changeTicket.current && sourceWorkspace.current === workspace;
     const current = () => visible() && workspaceIsVisible() && focusIntent.current === focus && paletteCurrent() &&
       view.dom.isConnected && !view.composing && !view.state.readOnly && view.state.doc === doc && view.state.selection === selection;
-    setChangeKind("delete");
-    setChangePending(true); setChangeReview(null); setResourceReview(null); setChangeError(null);
+    setChangePending(false); setChangeReview(null); setResourceReview(null); setChangeError(null);
     const load: ResourceTransport = (route, body) => callApi("POST", route, body);
     void (async () => {
+      const destination = kind === "move" ? await shellPrompt.askText("Move this file", tab.target) : null;
+      if (kind === "move") {
+        if (destination === null || destination === tab.target) return;
+        if (semanticPath(documentUri(destination)) !== destination ||
+            destination.endsWith(".md") !== (tab.kind === "document")) {
+          throw Error("Choose a new workspace-relative path with the same document type.");
+        }
+      }
+      if (!current()) return;
+      setChangeKind(kind);
+      setChangePending(true);
       const [tools, resources] = await Promise.all([import("./WorkspaceChat"), import("../simple/ResourceEditors")]);
       const files = folderRootsRef.current[0] ?? await api.files();
       const scope = tools.patchScope(files);
-      if (!scope || !current()) throw Error("Choose a current authored file before reviewing its deletion.");
+      if (!scope || !current()) throw Error("Choose a current authored file before reviewing this change.");
       const capture = captureResourceWindow(tools, scope, current);
       const source = capture.named.get(tab.target);
       if (!source || source.text !== authoredSource(view.state)) throw Error("The editor has no exact source to review.");
-      const edit = {documentChanges: [{kind: "delete", uri: documentUri(source.path)}]};
-      const review = await resources.prepareResourceReview(`Delete ${source.path}`, edit, crypto.randomUUID().replaceAll("-", ""),
+      const edit = {documentChanges: [destination === null ? {kind: "delete", uri: documentUri(source.path)}
+        : {kind: "rename", oldUri: documentUri(source.path), newUri: documentUri(destination)}]};
+      const title = destination === null ? `Delete ${source.path}` : `Move ${source.path} to ${destination}`;
+      const review = await resources.prepareResourceReview(title, edit, crypto.randomUUID().replaceAll("-", ""),
         async path => {
           if (path !== source.path) throw Error("The resource preview named an unexpected file.");
           return source.text;
@@ -1380,7 +1397,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
           if (observation.inputs.workspace !== scope.workspace) throw Error("The resource preview belongs to another workspace.");
           return observation;
         }, load, capture.current);
-      if (!review.current()) throw Error("The source changed while preparing deletion.");
+      if (!review.current()) throw Error("The source changed while preparing the review.");
       setChangePath(0); setChangePage(0); setResourceReview({...review, operation: "save"});
     })().catch(error => { if (visible()) setInsertNotice(String(error)); })
       .finally(() => { if (visible()) setChangePending(false); });
@@ -1421,8 +1438,10 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
           ? restored.kind === "document" ? registry.get(restored.docId)?.recordedPatchSource() : plainPatchOwners.current.get(restored.id)?.()
           : live.owner;
         const moved = destination && destination.path !== patch.path;
-        const canRetarget = !moved || (tab.kind === "file" && !destination.path.endsWith(".md") &&
-          !readChangeOwner(destination.path).tab);
+        const managed = tab.kind === "document";
+        const canRetarget = !moved || (destination.path.endsWith(".md") === managed &&
+          !readChangeOwner(destination.path).tab && (!managed || !retained.some(other =>
+            other.id !== tab.id && other.kind === "document" && other.retainedResource?.path === destination.path)));
         if (!owner || !identity || (!patch.before && live.tab) || !canRetarget ||
             (destination ? saved?.kind !== "file" : tab.kind !== "file" && tab.kind !== "document")) {
           throw Error(`The open editor for ${patch.path} cannot adopt this resource transition in place.`);
@@ -1439,21 +1458,36 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       const {recovery} = await publishReviewedResources(review, load, async (receipt, expected) => {
         const files = confirmedResourceFiles(review.patches, receipt, expected);
         if (!owned()) throw Error("Open editors changed during publication.");
-        const adoptions = stages.map(({to, tab, stage}) => {
-          if (to === null) return {stage, authority: null};
+        const adoptions = stages.map(({from, to, tab, stage, identity}) => {
+          if (to === null) return {from, to, tab, stage, identity, authority: null};
           const file = files.get(to);
-          if (!file?.save_guard || file.file.doc_id !== tab.docId) {
+          const docId = file?.file.doc_id;
+          if (!file?.save_guard || (tab.kind === "document") !== !!docId ||
+              (from === to && docId !== tab.docId)) {
             throw Error(`The saved source has no matching editor authority: ${to}`);
           }
-          return {stage, authority: {hash: file.hash, guard: file.save_guard}};
+          return {from, to, tab, stage, identity, authority: {hash: file.hash, guard: file.save_guard, docId}};
         });
-        await Promise.all(adoptions.map(({stage}) => stage.waitForSavedSource?.()));
+        await Promise.all(adoptions.map(({stage, authority}) => stage.waitForSavedSource?.(authority)));
         if (!owned()) throw Error("Open editors changed while confirming the saved resource sources.");
-        for (const {stage, authority} of adoptions) stage.adopt(authority);
-        const moved = new Map(stages.filter(({from, to, tab}) => from !== to || tab.retainedResource)
-          .map(({from, to, identity, tab}) => [tab.id, to === null
-            ? {target: `\0retained-file:${tab.id}`, retainedResource: {path: from, identity}}
-            : {target: to}]));
+        const moved = new Map<string, Pick<Tab, "target" | "retainedResource" | "docId">>();
+        for (const {from, to, tab, stage, identity, authority} of adoptions) {
+          stage.adopt(authority);
+          if (from === to && !tab.retainedResource) continue;
+          if (to === null) {
+            moved.set(tab.id, {target: `\0retained-file:${tab.id}`, retainedResource: {path: from, identity}});
+            continue;
+          }
+          const docId = authority?.docId;
+          if (tab.docId && docId && tab.docId !== docId) {
+            const slot = documentSlots.current.get(tab.docId);
+            if (slot) {
+              documentSlots.current.delete(tab.docId);
+              documentSlots.current.set(docId, slot);
+            }
+          }
+          moved.set(tab.id, {target: to, docId});
+        }
         if (moved.size) {
           providerNavigation.current++;
           setFileReferences(null);
@@ -1765,6 +1799,11 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   // ANY of its tabs is open — a generated file outliving its document's own
   // tab still needs the provenance, the saver, and the way back.
   const openDocIds = useMemo(() => docIdsIn(layout), [layout]);
+  // Open sessions follow their editor across a reviewed change of address.
+  // A later occupant of the original address gets its own session.
+  documentSlots.current = new Map(openDocIds.map(docId =>
+    [docId, documentSlots.current.get(docId) ?? crypto.randomUUID()]));
+
   const admittedOutput = preparedOutput.current;
   useLayoutEffect(() => {
     if (!admittedOutput || preparedOutput.current !== admittedOutput) return;
@@ -2493,6 +2532,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
           reflowOnOpen={!tab.id.startsWith("untitled-")}
           registry={registry}
           docId={tab.docId}
+          slot={documentSlots.current.get(tab.docId)}
           startup={managedStartup?.id === tab.id ? managedStartup.observation : undefined}
           wrapColumn={workspaceUi.wrapFor(tab.target)}
           onWrapColumn={(column) => workspaceUi.setWrap(tab.target, column)}
@@ -2712,7 +2752,8 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
               tabs below subscribe to what these publish. */}
           {openDocIds.map((docId) => (
             <DocSessionHost
-              key={docId}
+              key={documentSlots.current.get(docId)}
+              slot={documentSlots.current.get(docId)}
               registry={registry}
               docId={docId}
               startup={attachedManagedStartup?.docId === docId ? attachedManagedStartup : undefined}

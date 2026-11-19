@@ -2986,11 +2986,14 @@ guard. Deleting an open plain file removes its live address and keeps its
 editor readable in the window. Reviewed restoration matches the retained
 resource identity and reinstalls its file guard. The window arrangement
 does not reopen this session-only tab as a live file after restart.
-Commands offers Preview deletion of this file for writable authored files.
-An open managed document also stays readable after deletion. Reviewed Undo
-reattaches it to a fresh empty client replica after the restored room
-matches the saved bytes. Moving an open managed document to a different
-path still requires Main adoption support.
+Commands offers Preview deletion of this file and Preview move of this file
+for writable authored files. An open managed document stays readable after
+deletion. Reviewed Undo reconnects it after the restored room matches the
+saved bytes. A reviewed move between Markdown paths keeps the mounted tab
+and editor. The new path supplies the managed document identity and guarded
+save authority. The editor joins that room through an empty client replica
+after the room confirms the saved bytes. CodeMirror keeps its selection and
+scroll position. Collaboration undo history belongs to its original room.
 
 A genuine TypeScript Move to a new file replay previewed the import in
 `move.ts` and the proposed `relocate.ts` export. Both saved and draft layers
@@ -3054,6 +3057,17 @@ A separate Delete and Undo replay typed in that same editor after
 reconnection. One client update reached the restored room. The new text
 matched the editor, an independent room read, and the saved file. See
 `target/main-managed-resource-deletefile-direct-typing-v2/browser.json`.
+
+Chromium used Preview move of this file to move `notes.md` to
+`revised.md` with the real engine. Save, reviewed Undo, and reviewed Redo
+preserved the same mounted editor, nonempty selection, and viewport.
+Each publication changed the Files tree and saved path, closed the
+superseded client sockets, and sent zero client text updates. An
+independent read of each destination room matched the saved bytes.
+A separate replay typed after Redo. Its single text update reached only
+the new room, and its text matched the editor and saved file. See
+`target/main-managed-resource-move-command-fixed-strict-v3/browser.json`
+and `target/main-managed-resource-move-command-typing-strict-v3/browser.json`.
 
 Focused rebuilt-engine replays also passed for Python definition and
 Back/Forward, workspace search, delayed first-open authority and capabilities,

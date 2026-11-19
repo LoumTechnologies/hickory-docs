@@ -180,25 +180,31 @@ export class SessionRegistry {
    * read several sessions at once (the workspace chrome). */
   version = 0;
 
-  publish(session: DocSession): void {
+  publish(session: DocSession, slot = session.docId): void {
     // A session hook re-runs on every keystroke (the dirty buffer is its
     // state), and each run hands over a fresh object. Re-publishing one whose
     // every field is the same would re-render the workspace chrome — every
     // pane, rail and ruler in the window — for a change nothing can see.
     // Shallow equality is exactly the test, because the hook keeps every
     // field referentially stable unless it changed.
-    const current = this.sessions.get(session.docId);
+    const current = this.sessions.get(slot);
     if (current && sameSession(current, session)) return;
-    this.sessions.set(session.docId, session);
+    this.sessions.set(slot, session);
     this.emit();
   }
 
-  drop(docId: string): void {
-    if (this.sessions.delete(docId)) this.emit();
+  drop(slot: string): void {
+    if (this.sessions.delete(slot)) this.emit();
   }
 
   get(docId: string | null | undefined): DocSession | undefined {
-    return docId ? this.sessions.get(docId) : undefined;
+    if (!docId) return undefined;
+    for (const session of this.sessions.values()) if (session.docId === docId) return session;
+    return undefined;
+  }
+
+  atSlot(slot: string): DocSession | undefined {
+    return this.sessions.get(slot);
   }
 
   all(): DocSession[] {
@@ -234,8 +240,9 @@ export function useSessionVersion(registry: SessionRegistry): number {
 export function useDocSession(
   registry: SessionRegistry,
   docId: string | null | undefined,
+  slot?: string,
 ): DocSession | undefined {
-  return useSyncExternalStore(registry.subscribe, () => registry.get(docId));
+  return useSyncExternalStore(registry.subscribe, () => slot ? registry.atSlot(slot) : registry.get(docId));
 }
 
 // ---------------------------------------------------------------------------
@@ -254,6 +261,7 @@ export function useDocSession(
 export const DocSessionHost = memo(function DocSessionHost({
   registry,
   docId,
+  slot = docId,
   openGenerated,
   retainUnsaved = false,
   startup,
@@ -265,6 +273,7 @@ export const DocSessionHost = memo(function DocSessionHost({
 }: {
   registry: SessionRegistry;
   docId: string;
+  slot?: string;
   startup?: StartupManagedDocument;
   initialDocument?: {doc: Doc; workspaceCurrent: () => boolean};
   captureNavigationContext?: () => () => boolean;
@@ -280,12 +289,14 @@ export const DocSessionHost = memo(function DocSessionHost({
   // A link chooses whether to open the tab. Once mounted, the document's
   // editing confirmation belongs to the session and its original workspace.
   const [preview] = useState(() => admitted && admittedManagedPreview(admitted.doc, admitted.workspaceCurrent));
-  const session = useDocumentSession(docId, openGenerated, retainUnsaved, startupAtOpen ?? preview, admitted?.doc,
+  const openingPreview = startupAtOpen ?? preview;
+  const session = useDocumentSession(docId, openGenerated, retainUnsaved,
+    openingPreview?.docId === docId ? openingPreview : undefined, admitted?.doc.id === docId ? admitted.doc : undefined,
     captureNavigationContext, onRelatedLocations, onLocalNavigation, onProviderPreview);
   useEffect(() => {
-    registry.publish(preview && !session.startupRoomReady ? {...session, admittedPreview: preview} : session);
+    registry.publish(preview && !session.startupRoomReady ? {...session, admittedPreview: preview} : session, slot);
   });
-  useEffect(() => () => registry.drop(docId), [registry, docId]);
+  useEffect(() => () => registry.drop(slot), [registry, slot]);
   return null;
 });
 
@@ -328,7 +339,7 @@ function useDocumentSession(
     (path: string) => openGeneratedFor(docId, path),
     [openGeneratedFor, docId],
   );
-  const sourceSignal=useMemo(()=>new DebugSourceSignal(),[docId]),debugDoc=useRef<Doc|null>(initialDocument ?? null),debugNamespace=useRef<string|null>(null),proposalWorkspace=useRef<string|null>(null),debugDirty=useRef<string|null>(null);
+  const sourceSignal=useMemo(()=>new DebugSourceSignal(),[]),debugDoc=useRef<Doc|null>(initialDocument ?? null),debugNamespace=useRef<string|null>(null),proposalWorkspace=useRef<string|null>(null),debugDirty=useRef<string|null>(null);
   const [doc,setDocState]=useState<Doc|null>(initialDocument ?? null);
   const [startupRoomReady, setStartupRoomReady] = useState(false);
   const previewConfirmed = useRef(false);
@@ -351,13 +362,14 @@ function useDocumentSession(
   const managedDraft = useRef<ManagedDraft | null>(null);
   const publishing = useRef(0);
   const resourceHold = useRef<object | null>(null);
+  const roomGeneration = useRef(0);
   const retainedRoom = useRef<"shared" | "private" | null>(null);
   const [retainedResource, setRetainedResource] = useState(false);
   const [detached, setDetached] = useState(false);
   const [detachedSync, setDetachedSync] = useState<SyncState>("idle");
   const { savedSource: ordinarySavedSource, setSavedSource, syncState, setSyncState } = useDocumentPersistence(
     docId, doc, detached ? null : dirtySource, stored => {
-      if (!managedDraft.current && !resourceHold.current) { setDoc(stored); void refreshRender(stored.source); }
+      if (stored.id === debugDoc.current?.id && !managedDraft.current && !resourceHold.current) { setDoc(stored); void refreshRender(stored.source); }
     });
   const savedSource = managedDraft.current?.disk ?? ordinarySavedSource;
   const [references, setReferences] = useState<ReferenceReading | null>(
@@ -383,8 +395,8 @@ function useDocumentSession(
     // events reach this session without a network socket.
     const shared = getSharedRealtime();
     if (MOCK && shared) return shared;
-    return new WsRealtime(`doc:${docId}`, undefined, !!startup);
-  }, [docId, startup]);
+    return new WsRealtime(`doc:${docId}`, undefined, true);
+  }, [docId]);
   const [replacementRealtime, setReplacementRealtime] = useState<{docId: string; room: Realtime}>();
   const realtime = replacementRealtime?.docId === docId ? replacementRealtime.room : initialRealtime;
 
@@ -492,11 +504,11 @@ function useDocumentSession(
     return { path: source.path, text, base: source.source, guard: source.save_guard,
       revision, scope, current,
       prepareResource(after, saved, destination = source.path) {
-        if (destination !== null && destination !== source.path) return null;
+        const relocating = destination !== null && destination !== source.path;
         const binding = documentDraftBinding(view);
         if (!binding || (!retired && binding.roomSource() !== source.source)) return null;
         let hold: ReturnType<typeof binding.suspendRoom> | undefined;
-        let replacement: {transport: Realtime; room: ReturnType<typeof binding.prepareRoom>} | undefined;
+        let replacement: {docId: string; transport: Realtime; room: ReturnType<typeof binding.prepareRoom>} | undefined;
         let adopted = false;
         const ready = () => current() && (!retainUnsaved || recoveryObserved.current) && !view.composing &&
           (!!retired || (!view.state.readOnly && view.state.facet(EditorView.editable))) &&
@@ -511,13 +523,14 @@ function useDocumentSession(
             hold = binding.suspendRoom();
             resourceHold.current = hold;
           },
-          async waitForSavedSource() {
+          async waitForSavedSource(authority) {
             if (destination === null) return;
             const until = Date.now() + 5000;
-            let synced = !retired;
-            if (retired) {
-              const transport = new WsRealtime(`doc:${source.id}`);
-              replacement = {transport, room: binding.prepareRoom(transport)};
+            let synced = !retired && !relocating;
+            if (retired || relocating) {
+              if (!authority?.docId) throw Error("The confirmed resource has no document room.");
+              const transport = new WsRealtime(`doc:${authority.docId}`);
+              replacement = {docId: authority.docId, transport, room: binding.prepareRoom(transport)};
               void transport.whenSynced().then(() => { synced = true; });
             }
             const roomSource = replacement?.room.source ?? binding.roomSource;
@@ -532,6 +545,7 @@ function useDocumentSession(
             if (!hold || !ready()) throw Error("The managed editor changed during resource publication.");
             if (destination === null) {
               if (authority) throw Error("The deleted document received live source authority.");
+              roomGeneration.current++;
               retainedRoom.current = draft || !hold.attached ? "private" : "shared";
               binding.setRetained(true);
               managedDraft.current = null;
@@ -543,14 +557,22 @@ function useDocumentSession(
               return;
             }
             const adoption = binding.prepare(text, after, options);
-            if (!authority || !adoption?.current() || (replacement?.room.source ?? binding.roomSource)() !== saved) {
+            if (!authority?.docId || !adoption?.current() || (replacement?.room.source ?? binding.roomSource)() !== saved) {
               throw Error("The managed editor changed during resource publication.");
             }
             const keepPrivate = after !== saved || (retired ? retired === "private" : !!draft || !hold.attached);
             adoption.commit();
             if (replacement) {
+              roomGeneration.current++;
               replacement.room.install(!keepPrivate);
-              setReplacementRealtime({docId, room: replacement.transport});
+              setRunningCells(new Set());
+              setLastRunId(null);
+              checkRunRef.current = null;
+              terminalStatusesRef.current.clear();
+              startedCellsRef.current.clear();
+              requestedCellsRef.current.clear();
+              knownDocumentRunsRef.current.clear();
+              setReplacementRealtime({docId: replacement.docId, room: replacement.transport});
               binding.setRetained(false);
               retainedRoom.current = null;
               setRetainedResource(false);
@@ -561,13 +583,19 @@ function useDocumentSession(
               view, disk: saved, recoveryBase: saved, authority: {room: saved, guard: authority.guard, scope},
             } : null;
             setDetached(keepPrivate);
-            setDoc({...source, source: saved, save_guard: authority.guard});
+            setDoc({...source, id: authority.docId, path: destination, source: saved, save_guard: authority.guard});
             setSavedSource(saved);
             setDirtySource(after);
             setSyncState(after === saved ? "saved" : "editing");
             setDetachedSync(after === saved ? "saved" : "editing");
             adopted = true;
-            void refreshRender(saved);
+            if (relocating) {
+              setBlocks(null);
+              setOutputs(new Map());
+              setReferences(null);
+              setBanner(null);
+              setRenderError(null);
+            } else void refreshRender(saved);
           },
           release() {
             if (!hold || resourceHold.current !== hold) return;
@@ -620,8 +648,10 @@ function useDocumentSession(
   const loadedDoc = useRef(doc); loadedDoc.current = doc;
   const refresh = useCallback(() => {
     if (retainedRoom.current) return;
-    api.doc(docId).then(d => { if (!retainedRoom.current && !managedDraft.current) { setDoc(d); setFatalError(null); } }, e => {
-      if (retainedRoom.current || managedDraft.current) return;
+    const observed = debugDoc.current;
+    const current = () => debugDoc.current === observed && !retainedRoom.current && !managedDraft.current && !resourceHold.current;
+    api.doc(docId).then(d => { if (current()) { setDoc(d); setFatalError(null); } }, e => {
+      if (!current()) return;
       if (loadedDoc.current) setBanner({ kind: "fail", text: `Could not reload ${loadedDoc.current.path}: ${String(e.message ?? e)}`, retry: { label: "Retry reload", run: refresh } });
       else setFatalError(String(e.message ?? e));
     });
@@ -638,13 +668,13 @@ function useDocumentSession(
     if (!startup) return refresh();
     let current = true;
     void startup.authority.then(confirmed => {
-      if (!current || !startup.current() || managedDraft.current) return;
+      if (!current || !startup.current() || managedDraft.current || debugDoc.current && debugDoc.current.id !== docId) return;
       setDoc(confirmed);
       setFatalError(null);
       void refreshRender(confirmed.source);
     }, error => { if (current) setFatalError(String(error)); });
     return () => { current = false; };
-  }, [refresh, refreshRender, setDoc, startup, initialDocument]);
+  }, [docId, refresh, refreshRender, setDoc, startup, initialDocument]);
 
   // Recovery drafts are separate from acknowledged file persistence.
   // Previously named files opt into recovery; Untitled has its own policy.
@@ -694,7 +724,9 @@ function useDocumentSession(
 
   // Live run events: append to the matching cell's transcript.
   useEffect(() => {
+    const generation = roomGeneration.current;
     return realtime.onRunEvent((msg) => {
+      if (generation !== roomGeneration.current) return;
       if (isFilesChanged(msg)) {
         // The server's up-loop re-wove this document and something on disk
         // actually changed: refetch the outputs (the effect below), which
@@ -730,6 +762,7 @@ function useDocumentSession(
         // model has the transcripts in it, so that is what the cells show.
         void settleDocumentRun(msg.run_id, knownDocumentRunsRef.current,
           (run) => {
+            if (generation !== roomGeneration.current) return;
             clearProgress();
             setBlocks(prev => completedRunBlocks(run, prev, started, requested));
             const failure = failedRunBanner(run);
@@ -737,6 +770,7 @@ function useDocumentSession(
             if (!run.blocks?.length && run.status !== "failed") scheduleRender();
           },
           (error) => {
+            if (generation !== roomGeneration.current) return;
             clearProgress();
             setBanner({ kind: "fail", text: `Could not load run results: ${error instanceof Error ? error.message : String(error)}` });
           },
@@ -775,6 +809,7 @@ function useDocumentSession(
   const runCell = useCallback(
     (execId: string) => {
       void (async () => {
+        const generation = roomGeneration.current;
         setBanner(null);
         startedCellsRef.current.delete(execId);
         requestedCellsRef.current.add(execId);
@@ -782,8 +817,9 @@ function useDocumentSession(
         setRunningCells((prev) => new Set(prev).add(execId));
         try {
           const outcome = await runCellFresh(docId, execId, () => liveSourceRef.current);
-          if (outcome.outcome === "run") knownDocumentRunsRef.current.add(outcome.run_id);
+          if (generation === roomGeneration.current && outcome.outcome === "run") knownDocumentRunsRef.current.add(outcome.run_id);
         } catch (e) {
+          if (generation !== roomGeneration.current) return;
           setRunningCells((prev) => {
             const next = new Set(prev);
             next.delete(execId);
@@ -801,6 +837,7 @@ function useDocumentSession(
 
   const runAll = useCallback((expectedSourceHash?: string): Promise<string | null> => {
     return (async () => {
+      const generation = roomGeneration.current;
       setBanner(null);
       startedCellsRef.current = new Set();
       const ids = (blocksRef.current ?? []).filter((b) => b.kind === "exec").map((b) => b.id);
@@ -816,6 +853,7 @@ function useDocumentSession(
       setRunningCells(new Set(ids));
       try {
         const { run_id } = await api.run(docId, undefined, expectedSourceHash);
+        if (generation !== roomGeneration.current) return null;
         knownDocumentRunsRef.current.add(run_id);
         setLastRunId(run_id);
         if (ids.length === 0) {
@@ -824,6 +862,7 @@ function useDocumentSession(
         }
         return run_id;
       } catch (e) {
+        if (generation !== roomGeneration.current) return null;
         setRunningCells(new Set());
         setBanner({ kind: "fail", text: `Could not run this document: ${e instanceof Error ? e.message : String(e)}`, retry: { label: "Retry Run", run: runAll } });
         return null;
@@ -833,6 +872,7 @@ function useDocumentSession(
 
   const verify = useCallback((expectedSourceHash?: string): Promise<string | null> => {
     return (async () => {
+      const generation = roomGeneration.current;
       setBanner({ kind: "pending", text: "Testing — re-running cells and checking expectations and output drift…" });
       startedCellsRef.current = new Set();
       const requested = new Set((blocksRef.current ?? []).filter(block => block.kind === "exec").map(block => block.id));
@@ -840,6 +880,7 @@ function useDocumentSession(
       setBlocks(prev => prev?.map(block => block.kind === "exec" ? { ...block, runError: undefined } : block) ?? prev);
       try {
         const { run_id } = await api.check(docId, expectedSourceHash);
+        if (generation !== roomGeneration.current) return null;
         knownDocumentRunsRef.current.add(run_id);
         setLastRunId(run_id);
         const already = terminalStatusesRef.current.get(run_id);
@@ -853,6 +894,7 @@ function useDocumentSession(
           // its receipt here too: a fresh render would erase its failure
           // transcript and the generic banner would hide its diagnostic.
           void api.runStatus(run_id).then(run => {
+            if (generation !== roomGeneration.current) return;
             setBlocks(prev => completedRunBlocks(run, prev, new Set(), requested));
             const failure = failedRunBanner(run);
             if (failure) setBanner(failure);
@@ -862,6 +904,7 @@ function useDocumentSession(
         }
         return run_id;
       } catch (e) {
+        if (generation !== roomGeneration.current) return null;
         setBanner({ kind: "fail", text: `Could not test this document: ${e instanceof Error ? e.message : String(e)}`, retry: { label: "Retry Test", run: verify } });
         return null;
       }
@@ -1273,12 +1316,15 @@ function useDocumentSession(
     });
   }, [docId]);
 
+  const currentDocId = useRef(docId);
+  currentDocId.current = docId;
   const onDocViewReady = useCallback((view: EditorView | null) => {
-    rememberReadingState(`doc:${docId}`, editorRef.current);
-    if (view) restoreReadingState(`doc:${docId}`, view);
+    const key = `doc:${currentDocId.current}`;
+    rememberReadingState(key, editorRef.current);
+    if (view) restoreReadingState(key, view);
     editorRef.current = view;
     setDocEditor(view);
-  }, [docId]);
+  }, []);
   useEffect(() => {
     if (!docEditor || !doc?.path) return;
     const path = doc.path;

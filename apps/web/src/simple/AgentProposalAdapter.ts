@@ -25,12 +25,13 @@ export interface WorkspaceDraftStage {
  commit(): void;
  rollback(): void;
 }
+export type ResourceAuthority = {hash: string; guard: string; docId?: string};
 export interface ResourceAdoptionStage {
  current: () => boolean;
  begin?: () => void;
- waitForSavedSource?: () => Promise<void>;
+ waitForSavedSource?: (authority: ResourceAuthority | null) => Promise<void>;
  release?: () => void;
- adopt: (authority: {hash: string; guard: string} | null) => void;
+ adopt: (authority: ResourceAuthority | null) => void;
 }
 export type RecordedPatchSource = {
  path: string;

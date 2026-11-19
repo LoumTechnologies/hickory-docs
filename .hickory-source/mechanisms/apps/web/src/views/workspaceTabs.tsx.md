@@ -176,6 +176,7 @@ export function DocTabBody({
   reflowOnOpen = true,
   registry,
   docId,
+  slot,
   wrapColumn,
   onWrapColumn,
   tableLayouts,
@@ -184,6 +185,7 @@ export function DocTabBody({
 }: {
   registry: SessionRegistry;
   docId: string;
+  slot?: string;
   startup?: StartupManagedDocument;
   reflowOnOpen?: boolean;
   /** Where prose wraps in this tab, restored with the arrangement. */
@@ -194,11 +196,13 @@ export function DocTabBody({
   tableLayouts?: Record<string, TableLayout>;
   onTableLayout?: (key: string, size: TableLayout) => void;
 }) {
-  const session = useDocSession(registry, docId);
-  // The session replaces a retired room through the mounted editor binding.
-  // The construction prop stays fixed for this editor's lifetime.
-  const mountedRoom = useRef<{docId: string; realtime: Realtime} | null>(null);
-  if (session && mountedRoom.current?.docId !== docId) mountedRoom.current = {docId, realtime: session.realtime};
+  const session = useDocSession(registry, docId, slot);
+  // Restoration and moves replace the room through the mounted binding.
+  const editorIdentity = slot ?? docId;
+  const mountedRoom = useRef<{editorIdentity: string; realtime: Realtime} | null>(null);
+  if (session && mountedRoom.current?.editorIdentity !== editorIdentity) {
+    mountedRoom.current = {editorIdentity, realtime: session.realtime};
+  }
   // Keep the first preview for the editor that mounted from it. When a
   // generated tab keeps the session alive, a later document open can use
   // the now-confirmed room instead of replaying the old preview.
@@ -297,7 +301,8 @@ export function DocTabBody({
           screen, because the file IS the conversation and a second surface
           would be a second story. */}
       <DocumentEditor
-        key={docId}
+        key={editorIdentity}
+        editorIdentity={editorIdentity}
         docId={docId}
         initialSource={initialSource}
         reflowOnOpen={reflowOnOpen && !startup}

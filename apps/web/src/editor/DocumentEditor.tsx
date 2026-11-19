@@ -103,6 +103,7 @@ export interface DocumentEditorProps {
   comparisonBase?: string | null;
   readOnly?: boolean;
   docId: string;
+  editorIdentity?: string;
   /** Initial .md source, used to seed the Y.Doc when it is empty. */
   initialSource: string;
   startup?: ManagedDocumentPreview;
@@ -230,6 +231,7 @@ export function DocumentEditor({
   comparisonBase = null,
   readOnly: explicitReadOnly = false,
   docId,
+  editorIdentity = docId,
   reflowOnOpen = docId !== "untitled",
   initialSource,
   startup,
@@ -795,7 +797,7 @@ export function DocumentEditor({
     };
     // Recreate the editor per document.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [docId, realtime, envRegistry, renderedRegistry, startup]);
+  }, [editorIdentity, realtime, envRegistry, renderedRegistry, startup]);
 
   useEffect(() => {
     viewRef.current?.dispatch({effects: [setComparison.of({base: comparisonBase, editable: !readOnly}), access.reconfigure(sourceAccess)]});

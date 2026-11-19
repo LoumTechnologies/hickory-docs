@@ -275,14 +275,22 @@ export function openInBackground(layout: Layout, entries: readonly Tab[]): Layou
 }
 
 /** Rename resource tabs by stable editor id, without changing their placement or active index. */
-export function retargetResourceTabs(layout: Layout, targets: ReadonlyMap<string, Pick<Tab, "target" | "retainedResource">>): Layout {
+export function retargetResourceTabs(layout: Layout, targets: ReadonlyMap<string, Pick<Tab, "target" | "retainedResource" | "docId">>): Layout {
   if (!targets.size) return layout;
+  const movedDocuments = new Map(panes(layout.root).flatMap(pane => pane.tabs.flatMap(tab => {
+    const docId = targets.get(tab.id)?.docId;
+    return tab.kind === "document" && tab.docId && docId && docId !== tab.docId ? [[tab.docId, docId] as const] : [];
+  })));
   function visit(node: Node): Node {
     if (node.type === "split") {
       const children = node.children.map(visit);
       return children.every((child, index) => child === node.children[index]) ? node : {...node, children};
     }
     const tabs = node.tabs.map(tab => {
+      if (tab.kind === "generated" && tab.docId) {
+        const docId = movedDocuments.get(tab.docId);
+        return docId ? {...tab, docId} : tab;
+      }
       const next = (tab.kind === "file" || tab.kind === "document") && targets.get(tab.id);
       if (!next) return tab;
       const path = next.retainedResource?.path ?? next.target;
