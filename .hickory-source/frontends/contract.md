@@ -179,12 +179,13 @@ The Working tree control did not open the detail in either attempt. A
 follow-up tested five points within its displayed bounds. The upper-right
 tap opened the exact conflict and returned HTTP 200 from the Working tree
 diff route. Four other points, including the center, opened no detail.
-Source and index bytes stayed exact. The center-hit candidate built, but
+Source and index bytes stayed exact. The center-hit candidate built.
 XCTest stopped while loading Accessibility before the test case started.
-Reliable tapping across the side button remains open. See
-`target/apple-git-conflict-uikit-v10-coordinates/receipt.json`,
+On a fresh simulator, Xcode reached its 410-second startup timeout before
+the test runner registered. Reliable tapping across the side button remains
+open. See `target/apple-git-conflict-uikit-v10-coordinates/receipt.json`,
 `target/apple-git-working-tree-uikit-v10-probe/receipt.json`, and
-`target/apple-git-working-tree-uikit-v10-center-fix/`.
+`target/apple-git-working-tree-uikit-v10-center-fix-retry/`.
 
 ### Requested files and capability arrival
 
@@ -1380,8 +1381,15 @@ runner did not open the Markdown document or select either Definition
 result. See
 `target/parity-rendered-android.sgYIt7/continuation-receipts/final-android-rke6bmx3/`
 and `target/parity-rendered-android.sgYIt7/continuation-receipts/final-android-451cea1t/`.
-Rendered Android and iOS runtime acceptance remain open for this flow.
-Physical input and assistive technology remain unverified.
+The Android 17 replay used a single accessibility helper and opened the
+ordinary Markdown fixture in Hickory. The native Language Tools command
+sent the exact Python Definition request to basedpyright, which returned
+the declaration. A subsequent menu gesture dispatched Find subtypes
+before the witness selected the Definition result. Native selection and
+the equivalent TypeScript flow remain open. See
+`target/parity-rendered-android.sgYIt7/continuation-receipts/final-android-o74vsjwo/`.
+iOS runtime, physical input and assistive technology remain unverified for
+this flow.
 
 ## Debug a saved Rust test selection through Cargo and LLDB
 
