@@ -231,11 +231,23 @@ application and existing CSP intact. WebKit reported its page hidden and
 unfocused. It delivered no animation frames during the sample. The editor
 reported scroll offset zero, and the selected row lay outside the clipped
 viewport. AppKit also declined the activation request for the exact owned
-process. The rendered viewport through the four gates remains unverified.
+process. That attempt left the rendered four-gate viewport unverified.
 See `target/main-macos-packaged-startup.to8jhtpo/packaged-viewport-layout.Gss7MS/`
 and `target/main-macos-packaged-startup.to8jhtpo/packaged-viewport-activated.HIW2pd/`.
 The next preflight confirmed that the macOS console session was locked. A
 foreground signed-app replay requires an unlocked console session.
+
+The rebuilt signed Main bundle passed the four-gate viewport replay on the
+unlocked console. WebKit kept the same editor, scroll owner, nonempty
+selection, offset of 4,765 CSS pixels, and first visible source row 108 while
+Open File, the guarded read, collaboration sync, and parser loaded separately.
+Files showed only the containing folder. Promotion emitted no source updates.
+Edit and Undo emitted two ordinary collaboration updates and restored the
+exact saved bytes. The build wrapper reached its disk cutoff after signing.
+The completed bundle passed independent strict signature verification before
+launch. See
+`target/current-signed-main-9f764d14/package-receipt.json` and
+`target/current-signed-main-9f764d14/packaged-viewport-unlocked-1795115620844905000/receipt.json`.
 
 A separate mounted AppKit minimap probe reached a dirty native text editor.
 Both event delivery routes left the viewport at offset zero. The locked
@@ -516,8 +528,7 @@ generated consequence. The same recorded editor, selection and frame survived
 closing the review. Controller Apply and the workspace Undo command replayed
 the exact draft changes with the saved and archived bytes unchanged. The locked
 macOS console left the review popover without keyboard focus. Native Close
-worked, but click and accessibility activation did not dispatch Apply. Applying
-through the rendered button remains unverified. See
+worked. Click and accessibility activation left Apply undispatched. See
 `target/appkit-recorded-gutter-patch.4xypqkm6/receipt.json`.
 The follow-up scrolled the reviewer and placed Apply inside the visible
 popover. Native activation still sent no validation or application request
