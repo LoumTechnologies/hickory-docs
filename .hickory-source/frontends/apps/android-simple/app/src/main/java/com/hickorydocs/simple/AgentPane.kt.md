@@ -8,6 +8,8 @@ Polling and prompt state are confined to the agent pane. Cancelling its composit
 <ui:copy id="simple-716e739687-0">
 package com.hickorydocs.simple
 
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -278,8 +280,11 @@ composer. A read-only history buffer protects inline edits as well as typing.
 Both recorded sides can use their code fence's gutter. The session retains one
 Agent debugger even when a scrolling message card leaves composition. A
 streaming answer and the editable composer have no recorded launch identity.
-Flow the provider and effort controls on narrow
-screens, then keep Send beneath the draft. The session outlives tab composition;
+Under the keyboard, the composer footer measures before the scrollable editor
+and options. Send and Stop keep their regular positions beneath the form and
+remain reachable when the form needs to scroll. Without pressure the scroll
+container measures to its content. One mounted editor retains focus and draft
+through the viewport change. The session outlives tab composition;
 polling cancels when hidden, while an acknowledged send continues independently.
 
 <ui:copy id="simple-android-agent-pane">
@@ -317,15 +322,20 @@ polling cancels when hidden, while an acknowledged send continues independently.
         if (session.error.isNotEmpty()) Text(session.error, color = MaterialTheme.colorScheme.error, fontSize = 12.sp, modifier = Modifier.padding(6.dp))
         HorizontalDivider()
         Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text("Your message · literate document", style = MaterialTheme.typography.labelMedium)
-            LanguageEditor(session.draft, null, Modifier.fillMaxWidth().height(140.dp))
-            FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                AgentChoice("Provider", session.provider, listOf("codex-subscription" to "ChatGPT subscription", "claude-subscription" to "Claude Code subscription", "grok-subscription" to "Grok subscription"), !running) {
-                    session.provider = it; session.model = ""; session.effort = ""
+            Column(
+                Modifier.weight(1f, fill = false).fillMaxWidth().verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Text("Your message · literate document", style = MaterialTheme.typography.labelMedium)
+                LanguageEditor(session.draft, null, Modifier.fillMaxWidth().height(140.dp))
+                FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    AgentChoice("Provider", session.provider, listOf("codex-subscription" to "ChatGPT subscription", "claude-subscription" to "Claude Code subscription", "grok-subscription" to "Grok subscription"), !running) {
+                        session.provider = it; session.model = ""; session.effort = ""
+                    }
+                    AgentChoice("Effort", session.effort, listOf("" to "Default") + listOf("low", "medium", "high", "xhigh", "max").map { it to it }, !running && session.provider != "grok-subscription") { session.effort = it }
                 }
-                AgentChoice("Effort", session.effort, listOf("" to "Default") + listOf("low", "medium", "high", "xhigh", "max").map { it to it }, !running && session.provider != "grok-subscription") { session.effort = it }
+                OutlinedTextField(session.model, { session.model = it }, enabled = !running, label = { Text("Model · provider default") }, singleLine = true, modifier = Modifier.fillMaxWidth())
             }
-            OutlinedTextField(session.model, { session.model = it }, enabled = !running, label = { Text("Model · provider default") }, singleLine = true, modifier = Modifier.fillMaxWidth())
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
             TextButton(enabled = engine != null && !running && session.prompt.isNotBlank(), onClick = {
                 val submitted = session.prompt

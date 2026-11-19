@@ -723,6 +723,15 @@ exact intended bytes and rejected an incomplete native Send before forwarding
 it. The checkpoint-based Apply and draft history evidence remains current. See
 `target/parity-rendered-android.sgYIt7/continuation-receipts/final-android-tgm6itzy/managed-native/`.
 
+The Android Agent form now bounds the scrolling composer and provider options
+above its existing Send and Stop footer. The previous fixed-height form
+clipped the footer when Gboard reduced the pane. On the rebuilt app the
+original composer stayed focused with the keyboard visible, and both actions
+lay above it. Tapping Send submitted the exact prompt and both original
+editors to the owned local ACP fixture. The engine accepted the request and
+completed the turn. See
+`target/parity-rendered-android.sgYIt7/continuation-receipts/final-android-qjdb4ps6/managed-native/`.
+
 The mounted AppKit native Send probe opened both original source editors and
 entered the exact prompt in the native composer. Its captured window showed an
 enabled Send beside Stop. The isolated click replay did not yield an Agent

@@ -1,5 +1,7 @@
 package com.hickorydocs.simple
 
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -264,15 +266,20 @@ private fun recordedConstructionReceipt(reply: JSONObject): RecordedConstruction
         if (session.error.isNotEmpty()) Text(session.error, color = MaterialTheme.colorScheme.error, fontSize = 12.sp, modifier = Modifier.padding(6.dp))
         HorizontalDivider()
         Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text("Your message · literate document", style = MaterialTheme.typography.labelMedium)
-            LanguageEditor(session.draft, null, Modifier.fillMaxWidth().height(140.dp))
-            FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                AgentChoice("Provider", session.provider, listOf("codex-subscription" to "ChatGPT subscription", "claude-subscription" to "Claude Code subscription", "grok-subscription" to "Grok subscription"), !running) {
-                    session.provider = it; session.model = ""; session.effort = ""
+            Column(
+                Modifier.weight(1f, fill = false).fillMaxWidth().verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Text("Your message · literate document", style = MaterialTheme.typography.labelMedium)
+                LanguageEditor(session.draft, null, Modifier.fillMaxWidth().height(140.dp))
+                FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    AgentChoice("Provider", session.provider, listOf("codex-subscription" to "ChatGPT subscription", "claude-subscription" to "Claude Code subscription", "grok-subscription" to "Grok subscription"), !running) {
+                        session.provider = it; session.model = ""; session.effort = ""
+                    }
+                    AgentChoice("Effort", session.effort, listOf("" to "Default") + listOf("low", "medium", "high", "xhigh", "max").map { it to it }, !running && session.provider != "grok-subscription") { session.effort = it }
                 }
-                AgentChoice("Effort", session.effort, listOf("" to "Default") + listOf("low", "medium", "high", "xhigh", "max").map { it to it }, !running && session.provider != "grok-subscription") { session.effort = it }
+                OutlinedTextField(session.model, { session.model = it }, enabled = !running, label = { Text("Model · provider default") }, singleLine = true, modifier = Modifier.fillMaxWidth())
             }
-            OutlinedTextField(session.model, { session.model = it }, enabled = !running, label = { Text("Model · provider default") }, singleLine = true, modifier = Modifier.fillMaxWidth())
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
             TextButton(enabled = engine != null && !running && session.prompt.isNotBlank(), onClick = {
                 val submitted = session.prompt
