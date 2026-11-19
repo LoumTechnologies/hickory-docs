@@ -1,11 +1,12 @@
-import {resolveCodeAction,actionNeedsResolution} from "./codeActionResolution";
+import {resolveCodeAction,actionNeedsResolution,queryCodeActions,type SourceActionKind} from "./codeActionResolution";
 import { sameDocumentUri } from "./documentUri";
 import type { EditorSelection, Extension, Text } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { editorLanguageActions } from "../editor/languageActions";
 import type { UiOutcome } from "../lib/uiActions";
 import type { CodeAction, WorkspaceEdit } from "./client";
-import type { LspRange } from "./positions";
+import { utf16ToPosition, type LspRange } from "./positions";
+import { authoredSource } from "../simple/SourceText";
 import type { LspFeatureOptions } from "./cmLspFeatures";
 
 function freeze<T>(value: T, seen = new WeakSet<object>()): T {
@@ -18,46 +19,61 @@ function freeze<T>(value: T, seen = new WeakSet<object>()): T {
 }
 
 type Capture = {
-  id: string; source: Text; selection: EditorSelection; range: LspRange;
-  context?: () => boolean; choices: { id: string; action: CodeAction }[]; bytes: Uint8Array;
+  id: string; source: Text; selection: EditorSelection; range: LspRange; scope?: SourceActionKind;
+  authored?: string; context: () => boolean; choices: { id: string; action: CodeAction }[]; bytes: Uint8Array;
 };
 /** Retained provider choices; model titles or IDs cannot fabricate a workspace edit. */
 export function codeActionController(opts: LspFeatureOptions, apply: (view: EditorView, edit: WorkspaceEdit | null, opts: LspFeatureOptions) => boolean): { extensions: Extension[]; human: (view: EditorView) => boolean } {
   let captured: Capture | undefined;let query=0,choiceEpoch=0;
   const writable = (view: EditorView) => view.dom.isConnected && !view.composing && !view.state.readOnly && view.state.facet(EditorView.editable);
-  const matches = (view: EditorView, capture: Capture) => writable(view) && view.state.doc === capture.source && view.state.selection.eq(capture.selection) && (!capture.context || capture.context());
+  const sameSelection = (view: EditorView, selection: EditorSelection) => opts.onProviderPreview
+    ? view.state.selection === selection : view.state.selection.eq(selection);
+  const matches = (view: EditorView, capture: Capture) => writable(view) && view.state.doc === capture.source &&
+    sameSelection(view, capture.selection) && capture.context() &&
+    (capture.authored === undefined || authoredSource(view.state) === capture.authored);
   const refuse = (reason: string): UiOutcome => { opts.onMessage?.(reason); return { status: "unavailable", reason }; };
-  const collect = async (view: EditorView, signal?: AbortSignal): Promise<Capture | UiOutcome> => {
+  const collect = async (view: EditorView, signal?: AbortSignal, scope?: SourceActionKind, paletteCurrent?: () => boolean): Promise<Capture | UiOutcome> => {
     const request=++query;choiceEpoch++;captured=undefined;
     const { client, uri } = opts, source = view.state.doc, selection = view.state.selection;
-    const start = opts.positionAt(selection.main.from, view), end = opts.positionAt(selection.main.to, view) ?? start;
-    if (!client || !writable(view) || !start || !end) return refuse("Code actions need a writable mapped source selection.");
-    const range = {start, end};
-    const context = opts.onProviderPreview ? opts.captureChangeContext?.() : undefined;
+    if (!client || !writable(view)) return refuse("Code actions need a writable source.");
+    const authored = scope ? authoredSource(view.state) : undefined;
+    let range: LspRange;
+    if (authored !== undefined) {
+      range = {start: {line: 0, character: 0}, end: utf16ToPosition(authored, authored.length)};
+    } else {
+      const start = opts.positionAt(selection.main.from, view), end = opts.positionAt(selection.main.to, view) ?? start;
+      if (!start || !end) return refuse("Code actions need a writable mapped source selection.");
+      range = {start, end};
+    }
+    const editorContext = opts.onProviderPreview ? opts.captureChangeContext?.() : undefined;
+    const context = () => (!editorContext || editorContext()) && (!paletteCurrent || paletteCurrent());
     try {
-      const actions = await client.codeActions(uri, range);
+      const actions = await queryCodeActions(client, uri, range, scope);
       if(request!==query||signal?.aborted||!view.dom.isConnected)return {status:"unavailable",reason:"Code action query superseded."};
-      if (view.state.doc !== source || !view.state.selection.eq(selection) || !writable(view) || (context && !context())) return refuse("The source or selection changed. Request code actions again.");
+      if (!writable(view) || view.state.doc !== source || !sameSelection(view, selection) || !context() ||
+          (authored !== undefined && authoredSource(view.state) !== authored)) {
+        return refuse("The source or selection changed. Request code actions again.");
+      }
       const choices = structuredClone(actions).map(action => ({ id: crypto.randomUUID(), action: freeze(action) }));
       const id = crypto.randomUUID();
       const bytes = new TextEncoder().encode(JSON.stringify({ snapshot: id, choices: choices.map(({ id, action }) => ({ id, title: action.title, kind: action.kind, disabled_reason: action.disabled?.reason, has_edit: !!action.edit, needs_resolution:actionNeedsResolution(action), needs_command: !!action.command, command_supported: false })) }));
-      captured = {id, source, selection, range, context, choices, bytes};
+      captured = {id, source, selection, range, scope, authored, context, choices, bytes};
       return captured;
     } catch (e) { if(request!==query||signal?.aborted||!view.dom.isConnected)return {status:"unavailable",reason:"Code action query superseded."};return refuse(e instanceof Error ? e.message : String(e)); }
   };
   const choose = async (view: EditorView, capture: Capture, id: string, signal?: AbortSignal): Promise<UiOutcome> => {
-    const choice=++choiceEpoch;
     if (captured !== capture || !matches(view, capture) || signal?.aborted) return refuse("Code action choices changed. Request them again.");
     const selected = capture.choices.find(choice => choice.id === id)?.action;
     if (!selected) return refuse("Choose an action from this retained provider snapshot.");
     if (selected.disabled) return refuse(selected.disabled.reason);
+    const choice = ++choiceEpoch;
     if (opts.onProviderPreview) {
       const current = () => choice === choiceEpoch && captured === capture && !signal?.aborted && matches(view, capture);
       if (capture.choices.filter(({action}) => action.title === selected.title && action.kind === selected.kind).length !== 1) {
         return refuse("The provider returned indistinguishable choices. Select a more specific source range and try again.");
       }
       try {
-        return await opts.onProviderPreview({kind: "code action", client: opts.client!, uri: opts.uri, view, range: capture.range, action: selected, current});
+        return await opts.onProviderPreview({kind: "code action", client: opts.client!, uri: opts.uri, view, range: capture.range, scope: capture.scope, action: selected, current});
       } catch (error) {
         return current() ? refuse(error instanceof Error ? error.message : String(error)) :
           {status: "unavailable", reason: "Code action choice superseded."};
@@ -81,12 +97,45 @@ export function codeActionController(opts: LspFeatureOptions, apply: (view: Edit
     for (const entry of chosen.edit?.documentChanges ?? []) if (entry.textDocument?.uri) other.push(entry.textDocument.uri);
     return { status: "completed", value: { title: chosen.title, source_changed: changed, other_documents: [...new Set(other)].filter(uri => uri !== opts.uri), saved: false, verified: false, scope: "Actual current-editor edit result; other document edits are reported, not applied" } };
   };
-  const common = { enabled: (view: EditorView) => !!opts.client && !!opts.onCodeActions && writable(view) && !!opts.positionAt(view.state.selection.main.from, view) };
+  const enabled = (view: EditorView, scope?: SourceActionKind) =>
+    !!opts.client && !!opts.onCodeActions && writable(view) && (!!scope || !!opts.positionAt(view.state.selection.main.from, view));
+  const inspect = async (view: EditorView, signal: AbortSignal, scope?: SourceActionKind): Promise<UiOutcome> => {
+    const reply = await collect(view, signal, scope);
+    return "status" in reply ? reply : {status: "completed", value: {snapshot: reply.id, count: reply.choices.length, total_bytes: reply.bytes.length}};
+  };
+  const human = (view: EditorView, scope?: SourceActionKind, paletteCurrent?: () => boolean) => {
+    if (!enabled(view, scope)) return false;
+    void (async () => {
+      const capture = await collect(view, undefined, scope, paletteCurrent);
+      if ("status" in capture) return;
+      if (!capture.choices.length) {
+        opts.onMessage?.(scope === "source.fixAll" ? "The provider offers no file-wide diagnostic fixes."
+          : scope === "source" ? "The provider offers no source actions." : "No code actions here.");
+        return;
+      }
+      const actions = capture.choices.map(choice => choice.action);
+      const selected = await opts.onCodeActions!(actions);
+      if (!selected || captured !== capture) return;
+      const choice = capture.choices.find(choice => choice.action === selected);
+      if (choice) await choose(view, capture, choice.id);
+      else refuse("The selected action is not from the retained provider choices.");
+    })().catch(e => opts.onMessage?.(e instanceof Error ? e.message : String(e)));
+    return true;
+  };
+  const scopeCommands = [
+    {id: "fixAll", label: "File-wide diagnostic fixes", scope: "source.fixAll"},
+    {id: "sourceActions", label: "Source actions", scope: "source"},
+  ] as const;
   const extensions = !opts.client || !opts.onCodeActions ? [] : [
-    editorLanguageActions.of({ ...common, id: `${opts.uri}:actions`, label: `Inspect editor code actions (${opts.uri.slice(0, 200)})`, parameters: {}, execute: async (view, _args, signal) => {
-      const reply = await collect(view, signal);
-      return "status" in reply ? reply : { status: "completed", value: { snapshot: reply.id, count: reply.choices.length, total_bytes: reply.bytes.length } };
-    } }),
+    editorLanguageActions.of({id: `${opts.uri}:actions`, label: `Inspect editor code actions (${opts.uri.slice(0, 200)})`,
+      parameters: {}, enabled: view => enabled(view), execute: (view, _args, signal) => inspect(view, signal),
+    }),
+    ...(opts.onProviderPreview ? scopeCommands.map(({id, label, scope}) => editorLanguageActions.of({
+      id: `${opts.uri}:actions:${id}`, label: `Inspect ${label.toLowerCase()} (${opts.uri.slice(0, 200)})`,
+      parameters: {}, enabled: view => enabled(view, scope),
+      command: {id, label, run: (view, current) => human(view, scope, current)},
+      execute: (view, _args, signal) => inspect(view, signal, scope),
+    })) : []),
     editorLanguageActions.of({ id: `${opts.uri}:actions-read`, label: `Read editor code action choices (${opts.uri.slice(0, 200)})`, revision: () => captured?.id,
       parameters: { snapshot: { type: "string", maxLength: 128 }, offset: { type: "number", minimum: 0, maximum: 1000000000, integer: true }, limit: { type: "number", minimum: 1, maximum: 8192, integer: true } },
       enabled: view => !!captured && matches(view, captured), execute: async (view, args) => {
@@ -102,19 +151,5 @@ export function codeActionController(opts: LspFeatureOptions, apply: (view: Edit
       execute: async (view, args, signal) => !captured || captured.id !== args.snapshot ? refuse("Code action snapshot changed. Inspect current choices again.") : choose(view, captured, args.choice as string, signal),
     }),
   ];
-  return { extensions, human: view => {
-    if (!common.enabled(view)) return false;
-    void (async () => {
-      const capture = await collect(view);
-      if ("status" in capture) return;
-      if (!capture.choices.length) { opts.onMessage?.("No code actions here."); return; }
-      const actions = capture.choices.map(choice => choice.action);
-      const selected = await opts.onCodeActions!(actions);
-      if (!selected) return;
-      const choice = capture.choices.find(choice => choice.action === selected);
-      if (choice) await choose(view, capture, choice.id);
-      else refuse("The selected action is not from the retained provider choices.");
-    })().catch(e => opts.onMessage?.(e instanceof Error ? e.message : String(e)));
-    return true;
-  } };
+  return {extensions, human: view => human(view)};
 }

@@ -23,10 +23,12 @@ import { EditorState } from "@codemirror/state";
 import { cmKeyOf } from "../lib/keymap";
 import { EditorView, keymap } from "@codemirror/view";
 import { lspFeatures, type ProviderPreviewRequest } from "../lsp/cmLspFeatures";
-import type { LspClient } from "../lsp/client";
+import type { CodeAction, LspClient } from "../lsp/client";
 import { UiActions } from "../lib/uiActions";
 import { UiActionContext } from "../lib/uiActionBridge";
 import { useEditorActions } from "./uiEditorActions";
+import { editorLanguageActions } from "./languageActions";
+import { sourceText } from "../simple/SourceText";
 afterEach(cleanup);
 </storycode:copy>
 <a id="f-7d80c08f42fb-expression_statement-2"></a>
@@ -122,10 +124,56 @@ it("hands Main the original range and invalidates the preview when its editor co
 });
 </storycode:copy>
 
+### File-wide choices remain separate from caret actions
+
+The whole-file command remains available in prose. It queries the authored
+source from start to end and offers only the requested action family. The
+chosen scope reaches the preview with the editor lease still attached.
+
+<storycode:copy id="main-file-wide-code-action">
+it("requests file-wide actions from prose and retains only exact provider kinds", async () => {
+  const fix = {title: "Fix file", kind: "source.fixAll.provider"};
+  const contextual = {title: "Context fix", kind: "quickfix"};
+  const unrelated = {title: "Near kind", kind: "source.fixAllWrong"};
+  const codeActions = vi.fn().mockResolvedValue([contextual, unrelated, fix]);
+  const client = {codeActions, foldingRanges: async () => []} as unknown as LspClient;
+  const onCodeActions = vi.fn((actions: CodeAction[]) => actions[0]);
+  const onProviderPreview = vi.fn(async (_request: ProviderPreviewRequest) =>
+    ({status: "completed" as const, value: {preview_ready: true}}));
+  const source = "Prose\r\nCode 😀";
+  const host = document.body.appendChild(document.createElement("div"));
+  const view = new EditorView({parent: host, state: EditorState.create({
+    doc: source, selection: {anchor: 1}, extensions: [sourceText(source), lspFeatures({
+      client, uri: "hick:///page.md", positionAt: () => null, offsetAt: () => null,
+      onCodeActions, onProviderPreview,
+    })],
+  })});
+  try {
+    const actions = view.state.facet(editorLanguageActions);
+    const caret = actions.find(action => action.id.endsWith(":actions"));
+    const fixAll = actions.find(action => action.command?.label === "File-wide diagnostic fixes");
+    expect(caret?.enabled(view)).toBe(false);
+    expect(fixAll?.enabled(view)).toBe(true);
+    await act(async () => { fixAll?.command?.run(view, () => true); });
+    const range = {start: {line: 0, character: 0}, end: {line: 1, character: 7}};
+    expect(codeActions).toHaveBeenCalledWith("hick:///page.md", range, [], ["source.fixAll"]);
+    expect(onCodeActions).toHaveBeenCalledWith([fix]);
+    expect(onProviderPreview).toHaveBeenCalledWith(expect.objectContaining({
+      kind: "code action", range, scope: "source.fixAll", action: fix,
+    }));
+    const captured = onProviderPreview.mock.calls[0][0];
+    expect(captured.current()).toBe(true);
+    view.dispatch({selection: {anchor: 2}});
+    view.dispatch({selection: {anchor: 1}});
+    expect(captured.current()).toBe(false);
+  } finally { view.destroy(); host.remove(); }
+});
+</storycode:copy>
+
 ### Assemble `apps/web/src/editor/codeActionChoices.test.tsx`
 
 The selections below preserve the original byte order. Narrative reading order does not change the output.
 
-<storycode:file path="apps/web/src/editor/codeActionChoices.test.tsx"><storycode:paste select="#f-7d80c08f42fb-expression_statement"/><storycode:paste select="#f-7d80c08f42fb-expression_statement-2"/><storycode:paste select="#main-code-action-preview"/></storycode:file>
+<storycode:file path="apps/web/src/editor/codeActionChoices.test.tsx"><storycode:paste select="#f-7d80c08f42fb-expression_statement"/><storycode:paste select="#f-7d80c08f42fb-expression_statement-2"/><storycode:paste select="#main-code-action-preview"/><storycode:paste select="#main-file-wide-code-action"/></storycode:file>
 
 </storycode:doc>

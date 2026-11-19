@@ -586,11 +586,11 @@ export class LspClient {
     return Array.isArray(result) ? (result as FoldingRange[]) : [];
   }
 
-  async codeActions(uri: string, range: LspRange, diagnostics: LspDiagnostic[] = []) {
+  async codeActions(uri: string, range: LspRange, diagnostics: LspDiagnostic[] = [], only?: string[]) {
     const result = await this.request("textDocument/codeAction", {
       textDocument: { uri },
       range,
-      context: { diagnostics },
+      context: { diagnostics, ...(only ? {only} : {}) },
     });
     return Array.isArray(result) ? (result as CodeAction[]) : [];
   }
@@ -1075,6 +1075,7 @@ import type { Extension, Text } from "@codemirror/state";
 import { Decoration, EditorView, ViewPlugin, WidgetType, keymap } from "@codemirror/view";
 import type { DecorationSet, ViewUpdate } from "@codemirror/view";
 import type { CodeAction, InlayHint, LspClient, WorkspaceEdit } from "./client";
+import type { SourceActionKind } from "./codeActionResolution";
 import type { LspPosition, LspRange } from "./positions";
 import { decodeSemanticTokens, tokenClass } from "./semanticTokens";
 import type { SemanticLegend } from "./semanticTokens";
@@ -1792,7 +1793,7 @@ function renameAt(view: EditorView, opts: LspFeatureOptions): boolean {
 <storycode:copy id="f-a12307572b4c-renameSymbol">
 type SourcePreviewRequest = {client: LspClient; uri: string; view: EditorView; current: () => boolean};
 export type ProviderPreviewRequest = SourcePreviewRequest & (
-  | {kind: "code action"; range: LspRange; action: CodeAction}
+  | {kind: "code action"; range: LspRange; action: CodeAction; scope?: SourceActionKind}
   | {kind: "rename"; position: LspPosition; previous: string; name: string}
   | {kind: "formatting"; options: {tabSize: number; insertSpaces: boolean}}
 );

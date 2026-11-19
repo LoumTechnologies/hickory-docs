@@ -376,7 +376,7 @@ import { formatOnSave, loadFormatOnSave } from "../lib/formatOnSave";
 
 <storycode:copy id="f-47afe3575948-import_statement-26">
 import { formatView, type ProviderPreviewRequest } from "../lsp/cmLspFeatures";
-import { resolveCodeAction } from "../lsp/codeActionResolution";
+import { codeActionMatchesKind, queryCodeActions, resolveCodeAction } from "../lsp/codeActionResolution";
 </storycode:copy>
 <a id="f-47afe3575948-import_statement-27"></a>
 ### `import_statement`
@@ -1363,7 +1363,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         await capture(secondary, uri, text, disk.managed);
         return {text, writable: true};
       };
-      await capture(request.client, request.uri, origin.text, origin.managed);
+      if (request.kind === "rename") await capture(request.client, request.uri, origin.text, origin.managed);
       const sources = new Map([[path, {text: origin.text, writable: true}]]);
       const reference = request.kind === "rename" ? await acquireReferenceSources(sources, async () =>
         (await request.client.references(request.uri, request.position)).map(location => {
@@ -1371,10 +1371,11 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
           if (!target) throw Error("A reported reference has no editable workspace source.");
           return target;
         }), acquire, current) : null;
+      let retainedChoice = request.kind === "code action" ? request.action : undefined;
       const proposal = await acquireSourceProposal(reference?.sources ?? sources, async () => {
-        const expected = await capture(request.client, request.uri, origin.text, origin.managed);
         let value: CodeAction;
         if (request.kind !== "code action") {
+          const expected = await capture(request.client, request.uri, origin.text, origin.managed);
           const document = {textDocument: {uri: request.uri}, expected};
           const bound = (request.kind === "rename"
             ? await request.client.request("hick/rename", {...document, position: request.position, newName: request.name})
@@ -1385,23 +1386,34 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
           }
           value = bound;
         } else {
-          // Acquiring other sources can expire the old provider token. Keep
-          // the captured range and resolve only the uniquely matching choice.
-          const choices = await request.client.codeActions(request.uri, request.range);
-          check();
-          const matches = choices.filter(action => action.title === request.action.title && action.kind === request.action.kind);
-          if (matches.length !== 1) throw Error("The selected provider action changed. Request code actions again.");
-          const fresh = matches[0];
-          if (fresh.disabled) throw Error(fresh.disabled.reason);
-          value = await resolveCodeAction(request.client, fresh, request.uri);
+          // Resolve the retained token first. Re-sending its source would
+          // restart provider diagnostics. Query again only after acquisition.
+          let selected = retainedChoice;
+          retainedChoice = undefined;
+          if (!selected) {
+            const choices = await queryCodeActions(request.client, request.uri, request.range, request.scope);
+            check();
+            const matches = choices.filter(action => action.title === request.action.title && action.kind === request.action.kind);
+            if (matches.length !== 1) throw Error("The selected provider action changed. Request code actions again.");
+            selected = matches[0];
+          }
+          if (selected.disabled) throw Error(selected.disabled.reason);
+          value = await resolveCodeAction(request.client, selected, request.uri);
+          if (request.scope && !codeActionMatchesKind(value, request.scope)) {
+            throw Error("The provider changed the source action kind. Request code actions again.");
+          }
         }
         check();
         if (value.disabled) throw Error(value.disabled.reason);
         if (value.command) throw Error(`"${value.title}" needs a language-server command this editor cannot execute.`);
-        return {paths: [...providerActionPaths(value), ...providerSourceProofPaths(value)], value};
+        const paths = [...providerActionPaths(value), ...providerSourceProofPaths(value)];
+        // The action's proof binds the originating source already in sources.
+        // It still participates in hash and saved-guard verification.
+        return {paths: request.kind === "code action" ? paths.filter(target => target !== path) : paths, value};
       }, acquire, current);
-      const targets = new Set(workspaceEditTargets(proposal.value.edit).map(target => target.path));
-      await validateProviderSourceProofs(proposal.value, proposal.sources, targets);
+      const requiredProofs = new Set(workspaceEditTargets(proposal.value.edit).map(target => target.path));
+      if (request.kind === "code action") requiredProofs.add(path);
+      await validateProviderSourceProofs(proposal.value, proposal.sources, requiredProofs);
       check();
       const title = request.kind === "rename" ? `Rename ${request.previous} to ${request.name}`
         : request.kind === "code action" ? request.action.title : "Format document";

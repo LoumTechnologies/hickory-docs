@@ -2939,7 +2939,35 @@ restored both exact versions through Undo and Redo. A caret move before
 Apply refused the preview and a fresh request succeeded. The same editor
 stayed mounted and the saved source stayed unchanged. See
 `target/main-formatting-guarded-v1/browser.json` and
-`target/main-formatting-command-v1/browser.json`.
+`target/main-formatting-command-v1/browser.json`. A managed Markdown replay
+mapped all nine clangd edits to the two authored C++ lines. It preserved the
+surrounding prose, tags, and saved files through Apply and Undo and Redo. See
+`target/main-formatting-managed-command-v1/browser.json`.
+
+Main Commands offers File-wide diagnostic fixes and Source actions from the
+current authored file, including a prose caret. Each choice retains the
+whole-file range and action family through resolution. Main resolves the
+retained action immediately. If its proof or edit names another source,
+Main acquires that source before querying again within the same family.
+The original file and every edited source require matching proof hashes.
+
+Chromium used the installed TypeScript provider to remove an unused import
+and to fix two unreachable statements in one file. The first Fix All
+replay lost the action when redundant same-byte updates restarted
+diagnostics. The correction resolved the held action without restarting
+diagnostics and previewed both edits together. Draft Apply and coordinated
+Undo and Redo retained the same editor and left saved files unchanged.
+A controlled-provider replay also checked whole-file UTF-16 ranges,
+filtering of contextual quick fixes, and distinct choices within one kind.
+See `target/main-bulk-actions-typescript-retained-final-v1/browser.json`,
+`target/main-bulk-actions-typescript-fix-all-refusal-v1/browser.json`,
+`target/main-bulk-actions-typescript-fix-all-final-v1/browser.json`, and
+`target/main-bulk-actions-controlled-v1/browser.json`. In a controlled
+managed project, Main started from a prose caret, acquired a closed copy
+contributor and queried again with the same scope. Apply opened the
+contributor as a background draft. Undo and Redo preserved the focused
+project editor and the saved files. See
+`target/main-bulk-actions-managed-requery-v1/browser.json`.
 
 Focused rebuilt-engine replays also passed for Python definition and
 Back/Forward, workspace search, delayed first-open authority and capabilities,

@@ -40,7 +40,7 @@ import { isolateHistory } from "@codemirror/commands";
 import { type Transaction } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { editorForBuffer } from "./Document";
-import {resolveCodeAction} from "../lsp/codeActionResolution";
+import {codeActionMatchesKind,resolveCodeAction} from "../lsp/codeActionResolution";
 import {acquireReferenceSources,acquireSourceProposal} from "./ReferenceSources";
 import {providerSourceProofPaths,validateProviderSourceProofs} from "./ProviderSourceProofs";
 import type {FileNode} from "../api/types";
@@ -52,7 +52,7 @@ import { semanticLocations, semanticPath } from "./Intelligence";
 import { WorkspaceChangeHistory,type WorkspaceHistoryToken,providerActionPaths,validateReferencedTargets, planWorkspaceEdit, invertChangePlan, validateChangePlan, type SourceSnapshot, type ChangePlan, type WorkspaceHistoryEntry } from "./ChangePlan";
 import {workspaceChangeEventName as eventName,type ChangeCommand} from "./WorkspaceChangeEvents";
 export type {ChangeCommand} from "./WorkspaceChangeEvents";
-export function scopedProviderActions(actions:CodeAction[],scope:string|null):CodeAction[]{const prefix=scope==="fixAll"?"source.fixAll":scope==="sourceActions"?"source":null;return prefix?actions.filter(action=>action&&typeof action.kind==="string"&&(action.kind===prefix||action.kind.startsWith(prefix+"."))):actions;}
+export function scopedProviderActions(actions:CodeAction[],scope:string|null):CodeAction[]{const prefix=scope==="fixAll"?"source.fixAll":scope==="sourceActions"?"source":null;return prefix?actions.filter(action=>codeActionMatchesKind(action,prefix)):actions;}
 export function fileWideFixActions(actions:CodeAction[]):CodeAction[]{return scopedProviderActions(actions,"fixAll");}
 export function workspaceSnapshots(buffers: Buffers): Map<string, SourceSnapshot> { return new Map([...buffers.values].map(([path, buffer]) => [path, { text: buffer.text, writable: !buffer.readonly && !buffer.saving && !buffer.transient }])); }
 export function captureDraftHistory(buffers:Buffers,plan:ChangePlan):WorkspaceHistoryEntry {

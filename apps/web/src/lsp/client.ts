@@ -344,11 +344,11 @@ export class LspClient {
     return Array.isArray(result) ? (result as FoldingRange[]) : [];
   }
 
-  async codeActions(uri: string, range: LspRange, diagnostics: LspDiagnostic[] = []) {
+  async codeActions(uri: string, range: LspRange, diagnostics: LspDiagnostic[] = [], only?: string[]) {
     const result = await this.request("textDocument/codeAction", {
       textDocument: { uri },
       range,
-      context: { diagnostics },
+      context: { diagnostics, ...(only ? {only} : {}) },
     });
     return Array.isArray(result) ? (result as CodeAction[]) : [];
   }

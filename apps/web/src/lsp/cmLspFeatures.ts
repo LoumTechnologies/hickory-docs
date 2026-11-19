@@ -30,6 +30,7 @@ import type { Extension, Text } from "@codemirror/state";
 import { Decoration, EditorView, ViewPlugin, WidgetType, keymap } from "@codemirror/view";
 import type { DecorationSet, ViewUpdate } from "@codemirror/view";
 import type { CodeAction, InlayHint, LspClient, WorkspaceEdit } from "./client";
+import type { SourceActionKind } from "./codeActionResolution";
 import type { LspPosition, LspRange } from "./positions";
 import { decodeSemanticTokens, tokenClass } from "./semanticTokens";
 import type { SemanticLegend } from "./semanticTokens";
@@ -565,7 +566,7 @@ function renameAt(view: EditorView, opts: LspFeatureOptions): boolean {
 
 type SourcePreviewRequest = {client: LspClient; uri: string; view: EditorView; current: () => boolean};
 export type ProviderPreviewRequest = SourcePreviewRequest & (
-  | {kind: "code action"; range: LspRange; action: CodeAction}
+  | {kind: "code action"; range: LspRange; action: CodeAction; scope?: SourceActionKind}
   | {kind: "rename"; position: LspPosition; previous: string; name: string}
   | {kind: "formatting"; options: {tabSize: number; insertSpaces: boolean}}
 );

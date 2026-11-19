@@ -1,4 +1,18 @@
-import type {CodeAction} from './client';
+import type {CodeAction, LspClient} from './client';
+import type {LspRange} from './positions';
+
+export type SourceActionKind = "source" | "source.fixAll";
+
+export function codeActionMatchesKind(action: CodeAction, kind: SourceActionKind): boolean {
+  return action?.kind === kind || (typeof action?.kind === "string" && action.kind.startsWith(kind + "."));
+}
+
+export async function queryCodeActions(client: Pick<LspClient, "codeActions">, uri: string, range: LspRange, scope?: SourceActionKind): Promise<CodeAction[]> {
+  if (!scope) return client.codeActions(uri, range);
+  const actions = await client.codeActions(uri, range, [], [scope]);
+  return actions.filter(action => codeActionMatchesKind(action, scope));
+}
+
 export interface CodeActionResolver {request:(method:string,params?:unknown)=>Promise<unknown>}
 export function actionNeedsResolution(action:CodeAction):boolean {
  const data=action.data,held=!!data&&typeof data==='object'&&typeof (data as {hickory_action?:unknown}).hickory_action==='string';
