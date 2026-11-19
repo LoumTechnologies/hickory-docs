@@ -879,7 +879,12 @@ adapter changed its frame IDs on every stack read. The focused bridge replay
 verified one stack fetch per observation, live reads on the published IDs and
 refusal of retired IDs or references before another adapter request. Two genuine
 debugpy checks also passed for thread selection and captured adapter source.
-A rendered CodeLLDB rerun is still required.
+The rendered Simple Browser replay then passed with CodeLLDB 1.12.3 and
+the current bridge compiled against cached dependencies. It stopped at line
+3, requested Locals and Watch against published frame 1001, and displayed
+`41`. Continue retained output `42` and exit 0. The editor identity, frame
+and saved source stayed exact. See
+`target/parity-codelldb-replay-current-hlftmoio/`.
 
 Hickory's installer reported that it has no Delve recipe. The browser
 replay used independently installed Delve 1.26.3 and Go 1.26.8. The adapter
