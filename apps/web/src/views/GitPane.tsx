@@ -31,6 +31,7 @@ import type { GitBranch, GitChangeFile, GitChanges, GitDiff, GitFileChange, GitL
 import { graphWidth, laneColor, layout } from "../lib/gitGraph";
 import { FILES_CHANGED_EVENT } from "../shell/FolderTreePane";
 import { DiffView } from "../components/DiffView";
+import { GitConflictView } from "../simple/GitConflict";
 import { BisectPane } from "./BisectPane";
 import { openLiterate } from "../lib/openRepresentation";
 
@@ -339,11 +340,17 @@ interface SideFile {
   status: string;
 }
 
-/** Split git's two columns into the two lists a person stages between. */
+const unmergedStatuses = new Set(["DD", "AU", "UD", "UA", "DU", "AA", "UU"]);
+
+/** An unmerged pair names index stages; neither column represents a staged result. */
 export function sides(files: readonly GitChangeFile[]): { staged: SideFile[]; unstaged: SideFile[] } {
   const staged: SideFile[] = [];
   const unstaged: SideFile[] = [];
   for (const file of files) {
+    if (unmergedStatuses.has(file.index + file.tree)) {
+      unstaged.push({ path: file.path, status: "U" });
+      continue;
+    }
     if (file.index === "?") {
       unstaged.push({ path: file.path, status: "A" });
       continue;
@@ -444,6 +451,8 @@ function WorkingTree({
   );
 
   const { staged, unstaged } = sides(changes?.files ?? []);
+  const conflicts = new Set(unstaged.filter(file => file.status === "U").map(file => file.path));
+  const selectedConflict = selected && !selected.staged && conflicts.has(selected.path) ? selected.path : null;
   const ahead = changes?.ahead ?? 0;
   const behind = changes?.behind ?? 0;
 
@@ -462,7 +471,7 @@ function WorkingTree({
   };
 
   const workingAction = useGitWorkingActions({ changes, busy, notice, selected, diff, message, amend, branches, newBranch, confirmDiscard,
-    staged: staged.map(f => f.path), unstaged: unstaged.map(f => f.path), run, openBranches,
+    staged: staged.map(f => f.path), unstaged: unstaged.map(f => f.path), conflicts, run, openBranches,
     setMessage, setAmend: toggleAmend, setNewBranch, setDiscard: setConfirmDiscard,
     pick: (path, staged) => { setDiff(null); setSelected({ path, staged }); }, openFile: onOpenFile,
     operations: { pull: () => api.gitPull(), push: () => api.gitPush(), stash: pop => api.gitStash(pop ? "pop" : "push"),
@@ -588,6 +597,7 @@ function WorkingTree({
           files={staged}
           verb="Unstage"
           allVerb="Unstage all"
+          blockAll={conflicts.size > 0}
           busy={busy !== null}
           selected={selected?.staged ? selected.path : null}
           onVerb={path => void workingAction(`unstage:${staged.findIndex(f => f.path === path)}`)}
@@ -601,6 +611,7 @@ function WorkingTree({
           files={unstaged}
           verb="Stage"
           allVerb="Stage all"
+          blockAll={conflicts.size > 0}
           busy={busy !== null}
           selected={selected && !selected.staged ? selected.path : null}
           onVerb={path => void workingAction(`stage:${unstaged.findIndex(f => f.path === path)}`)}
@@ -640,7 +651,8 @@ function WorkingTree({
         </div>
       </form>
 
-      {selected && diff && (
+      {selectedConflict && <GitConflictView key={JSON.stringify([tick, selectedConflict])} path={selectedConflict} />}
+      {selected && diff && !selectedConflict && (
         <button className="btn" onClick={() => void workingAction("review")}>Review in the main editor</button>
       )}
       {selected && diff && (
@@ -656,6 +668,7 @@ function SideList({
   files,
   verb,
   allVerb,
+  blockAll,
   busy,
   selected,
   onVerb,
@@ -671,6 +684,7 @@ function SideList({
   files: SideFile[];
   verb: string;
   allVerb: string;
+  blockAll: boolean;
   busy: boolean;
   selected: string | null;
   onVerb: (path: string) => void;
@@ -687,7 +701,7 @@ function SideList({
           {heading} <span className="muted">{files.length}</span>
         </span>
         {files.length > 0 && (
-          <button type="button" className="btn-link" disabled={busy} onClick={onAll}>
+          <button type="button" className="btn-link" disabled={busy || blockAll} onClick={onAll}>
             {allVerb}
           </button>
         )}
@@ -703,7 +717,8 @@ function SideList({
                 className="git-file"
                 onClick={() => onPick(file.path)}
                 onDoubleClick={() => onOpen?.(file.path)}
-                data-tip={`Show the diff of ${file.path}; double-click opens it`}
+                aria-label={file.status === "U" ? `Conflict ${file.path}` : undefined}
+                data-tip={file.status === "U" ? `Show conflict stages for ${file.path}` : `Show the diff of ${file.path}; double-click opens it`}
               >
                 <span className={`git-file__status git-file__status--${file.status}`}>{file.status}</span>
                 <span className="git-file__path mono">
@@ -712,7 +727,7 @@ function SideList({
                 </span>
               </button>
               <span className="git-side__verbs">
-                {onDiscard && (
+                {onDiscard && file.status !== "U" && (
                   <button
                     type="button"
                     className={`btn-link git-side__discard${confirmDiscard === file.path ? " is-armed" : ""}`}
@@ -723,9 +738,11 @@ function SideList({
                     {confirmDiscard === file.path ? "Discard?" : "Discard"}
                   </button>
                 )}
-                <button type="button" className="btn-link" disabled={busy} onClick={() => onVerb(file.path)}>
-                  {verb}
-                </button>
+                {file.status !== "U" && (
+                  <button type="button" className="btn-link" disabled={busy} onClick={() => onVerb(file.path)}>
+                    {verb}
+                  </button>
+                )}
               </span>
             </li>
           ))}

@@ -247,6 +247,43 @@ describe("the working tree", () => {
     expect(staged[1].from).toBe("old.rs");
   });
 
+  it("lists unmerged pairs once and opens immutable conflict stages without ordinary write controls", async () => {
+    const path = "literal[1] λ%?#.py";
+    serve({});
+    serveChanges({files: [
+      {path, index: "A", tree: "A"},
+      {path: "staged.py", index: "M", tree: " "},
+      {path: "other.py", index: " ", tree: "M"},
+    ]});
+    vi.spyOn(api, "gitDiff").mockImplementation(async (path) => ({path, diff: "", binary: false}));
+    const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
+      version: 1, path, fingerprint: "a".repeat(64), index_modified: false, source_files_modified: false,
+      stages: [
+        {stage: 2, mode: "100644", oid: "b".repeat(40), text: "local\n", unavailable: null},
+        {stage: 3, mode: "100644", oid: "c".repeat(40), text: "incoming\n", unavailable: null},
+      ],
+    }), {headers: {"Content-Type": "application/json"}}));
+    render(<GitPane />);
+    const unstaged = await screen.findByRole("region", {name: "Unstaged files"});
+    const staged = screen.getByRole("region", {name: "Staged files"});
+    expect(within(staged).queryByText(path)).toBeNull();
+    const row = within(unstaged).getByText(path).closest("li")!;
+    expect(within(row).getByRole("button", {name: "Conflict " + path})).toBeTruthy();
+    expect(within(row).queryByRole("button", {name: "Stage"})).toBeNull();
+    expect(within(row).queryByRole("button", {name: "Discard"})).toBeNull();
+    expect((within(unstaged).getByRole("button", {name: "Stage all"}) as HTMLButtonElement).disabled).toBe(true);
+    expect((within(staged).getByRole("button", {name: "Unstage all"}) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(within(row).getByText(path));
+    fireEvent.click(screen.getByRole("button", {name: "Inspect conflict stages"}));
+    expect((await screen.findByLabelText("Conflict stage text")).textContent).toBe("local\n");
+    fireEvent.click(screen.getByRole("button", {name: "Stage 3"}));
+    expect(screen.getByLabelText("Conflict stage text").textContent).toBe("incoming\n");
+    expect(screen.queryByRole("button", {name: "Preview this stage as source"})).toBeNull();
+    expect(fetch.mock.calls.some(([url]) => String(url).endsWith("/api/git/conflict?path=" + encodeURIComponent(path)))).toBe(true);
+    fireEvent.click(within(unstaged).getByText("other.py"));
+    expect(screen.queryByRole("region", {name: "Conflict stages"})).toBeNull();
+  });
+
   it("shows the branch, how far ahead it is, and the files on each side", async () => {
     serve({});
     serveChanges();

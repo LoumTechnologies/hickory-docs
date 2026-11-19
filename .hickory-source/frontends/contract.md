@@ -92,6 +92,19 @@ the same complete Git identity and exact committed blob. The unsaved draft,
 editor frame, saved file, HEAD and index stayed unchanged. See
 `target/apple-git-history-uikit-2026-11-19/`.
 
+### Main Git conflict inspection
+
+The existing Main Git pane lists an unmerged path once in Changes. Opening
+that row gives the shared immutable Git stage reader. The real-engine replay
+selected the literal `literal[1] λ%?#.py`, displayed the exact base, local,
+and incoming bytes and object IDs, then retired the observation when another
+file was selected. The conflict row withheld ordinary Stage and Discard.
+The replay made only Git reads and preserved the saved working file and
+index byte-for-byte. The focused pane tests also exercise an add/add
+conflict and the whole-index action boundary. Main still needs its own
+guarded complete-group preview, draft Apply, Save and separate Stage.
+See `target/main-git-conflict-v10/browser.json`.
+
 ### Requested files and capability arrival
 
 The shared Simple launcher now passes the exact workspace-relative requested

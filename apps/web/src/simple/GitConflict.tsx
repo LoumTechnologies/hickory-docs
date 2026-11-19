@@ -24,20 +24,20 @@ export class GitConflictModel {
  }
 
 }
-export function GitConflictView({path,acquire,close}:{path:string;acquire:(path:string)=>Promise<Buffer>;close:()=>void}){
+export function GitConflictView({path,acquire,close}:{path:string}&({acquire:(path:string)=>Promise<Buffer>;close:()=>void}|{acquire?:never;close?:never})){
  const [,paint]=useReducer(n=>n+1,0),model=useMemo(()=>new GitConflictModel(paint),[path]);const [selected,setSelected]=useState(2),[page,setPage]=useState(0);
  useEffect(()=>()=>model.close(),[model]);
  const load=(path:string)=>request<ConflictReading>('GET','/api/git/conflict?path='+encodeURIComponent(path));
- const choose=(stage:number)=>model.choose(stage,load,async(item,value,current)=>{
+ const choose=acquire&&close?(stage:number)=>model.choose(stage,load,async(item,value,current)=>{
   const buffer=await acquire(value.path);if(!current())return;
   if(buffer.readonly||buffer.saving||buffer.transient)throw new Error('Choose an authored, editable source that is not saving.');
   const source=buffer.text,uri='hick:///'+value.path.split('/').map(encodeURIComponent).join('/');
   requestWorkspaceProposal(`Use Git stage ${item.stage} · ${item.oid}`,{changes:{[uri]:[{range:{start:{line:0,character:0},end:utf16ToPosition(source,source.length)},newText:item.text}]}},new Map([[value.path,source]]));close();
- });
+ }):undefined;
  const stage=model.value?.stages.find(item=>item.stage===selected)??model.value?.stages[0],rows=stage?.text?.split('\n')??[],last=Math.max(0,Math.ceil(rows.length/100)-1),index=Math.min(page,last),text=rows.slice(index*100,(index+1)*100).join('\n');
  return <section aria-label="Conflict stages"><button disabled={model.loading} onClick={()=>{setPage(0);void model.read(path,path=>request('GET','/api/git/conflict?path='+encodeURIComponent(path)));}}>Inspect conflict stages</button>{model.notice&&<p role="status">{model.notice}</p>}{model.value&&<>
  <p>Stage 1: base · Stage 2 and Stage 3 retain Git’s meanings, including during rebase.</p>
  {model.value.stages.map(item=><button key={item.stage} aria-pressed={stage===item} onClick={()=>{setSelected(item.stage);setPage(0);}}>Stage {item.stage}{item.stage===1?' · Base':''}</button>)}
- {stage&&<><p>Stage {stage.stage} · mode {stage.mode}</p><code>{stage.oid}</code>{stage.text===null?<p>{stage.unavailable}</p>:<><button disabled={model.loading} onClick={()=>void choose(stage.stage)}>Preview this stage as source</button><p>Lines {index*100+1}–{Math.min(rows.length,(index+1)*100)}{text.length>200000?' · page preview capped at 200,000 characters':''}</p><pre aria-label="Conflict stage text" style={{maxHeight:'30vh',overflow:'auto'}}>{text.slice(0,200000)}</pre><button disabled={!index} onClick={()=>setPage(index-1)}>Previous stage lines</button><button disabled={index===last} onClick={()=>setPage(index+1)}>Next stage lines</button></>}</>}
+ {stage&&<><p>Stage {stage.stage} · mode {stage.mode}</p><code>{stage.oid}</code>{stage.text===null?<p>{stage.unavailable}</p>:<>{choose&&<button disabled={model.loading} onClick={()=>void choose(stage.stage)}>Preview this stage as source</button>}<p>Lines {index*100+1}–{Math.min(rows.length,(index+1)*100)}{text.length>200000?' · page preview capped at 200,000 characters':''}</p><pre aria-label="Conflict stage text" style={{maxHeight:'30vh',overflow:'auto'}}>{text.slice(0,200000)}</pre><button disabled={!index} onClick={()=>setPage(index-1)}>Previous stage lines</button><button disabled={index===last} onClick={()=>setPage(index+1)}>Next stage lines</button></>}</>}
  </>}</section>;
 }

@@ -49,6 +49,7 @@ import type { GitBranch, GitChangeFile, GitChanges, GitDiff, GitFileChange, GitL
 import { graphWidth, laneColor, layout } from "../lib/gitGraph";
 import { FILES_CHANGED_EVENT } from "../shell/FolderTreePane";
 import { DiffView } from "../components/DiffView";
+import { GitConflictView } from "../simple/GitConflict";
 import { BisectPane } from "./BisectPane";
 import { openLiterate } from "../lib/openRepresentation";
 
@@ -429,11 +430,17 @@ interface SideFile {
 Split git's two columns into the two lists a person stages between.
 
 <storycode:copy id="f-f7cd01998027-sides">
-/** Split git's two columns into the two lists a person stages between. */
+const unmergedStatuses = new Set(["DD", "AU", "UD", "UA", "DU", "AA", "UU"]);
+
+/** An unmerged pair names index stages; neither column represents a staged result. */
 export function sides(files: readonly GitChangeFile[]): { staged: SideFile[]; unstaged: SideFile[] } {
   const staged: SideFile[] = [];
   const unstaged: SideFile[] = [];
   for (const file of files) {
+    if (unmergedStatuses.has(file.index + file.tree)) {
+      unstaged.push({ path: file.path, status: "U" });
+      continue;
+    }
     if (file.index === "?") {
       unstaged.push({ path: file.path, status: "A" });
       continue;
@@ -447,6 +454,12 @@ export function sides(files: readonly GitChangeFile[]): { staged: SideFile[]; un
 </storycode:copy>
 <a id="f-f7cd01998027-WorkingTree"></a>
 ### `WorkingTree`
+
+An unmerged porcelain pair describes unresolved index stages. Place each
+conflict once in Changes and reuse the exact-path stage reader. Selecting a
+different file or refreshing the repository retires the old stage observation.
+Ordinary Stage and Discard remain available on unrelated rows. Whole-index
+Stage and Unstage wait for the conflicts to be resolved.
 
 <storycode:copy id="f-f7cd01998027-WorkingTree">
 function WorkingTree({
@@ -539,6 +552,8 @@ function WorkingTree({
   );
 
   const { staged, unstaged } = sides(changes?.files ?? []);
+  const conflicts = new Set(unstaged.filter(file => file.status === "U").map(file => file.path));
+  const selectedConflict = selected && !selected.staged && conflicts.has(selected.path) ? selected.path : null;
   const ahead = changes?.ahead ?? 0;
   const behind = changes?.behind ?? 0;
 
@@ -557,7 +572,7 @@ function WorkingTree({
   };
 
   const workingAction = useGitWorkingActions({ changes, busy, notice, selected, diff, message, amend, branches, newBranch, confirmDiscard,
-    staged: staged.map(f => f.path), unstaged: unstaged.map(f => f.path), run, openBranches,
+    staged: staged.map(f => f.path), unstaged: unstaged.map(f => f.path), conflicts, run, openBranches,
     setMessage, setAmend: toggleAmend, setNewBranch, setDiscard: setConfirmDiscard,
     pick: (path, staged) => { setDiff(null); setSelected({ path, staged }); }, openFile: onOpenFile,
     operations: { pull: () => api.gitPull(), push: () => api.gitPush(), stash: pop => api.gitStash(pop ? "pop" : "push"),
@@ -683,6 +698,7 @@ function WorkingTree({
           files={staged}
           verb="Unstage"
           allVerb="Unstage all"
+          blockAll={conflicts.size > 0}
           busy={busy !== null}
           selected={selected?.staged ? selected.path : null}
           onVerb={path => void workingAction(`unstage:${staged.findIndex(f => f.path === path)}`)}
@@ -696,6 +712,7 @@ function WorkingTree({
           files={unstaged}
           verb="Stage"
           allVerb="Stage all"
+          blockAll={conflicts.size > 0}
           busy={busy !== null}
           selected={selected && !selected.staged ? selected.path : null}
           onVerb={path => void workingAction(`stage:${unstaged.findIndex(f => f.path === path)}`)}
@@ -735,7 +752,8 @@ function WorkingTree({
         </div>
       </form>
 
-      {selected && diff && (
+      {selectedConflict && <GitConflictView key={JSON.stringify([tick, selectedConflict])} path={selectedConflict} />}
+      {selected && diff && !selectedConflict && (
         <button className="btn" onClick={() => void workingAction("review")}>Review in the main editor</button>
       )}
       {selected && diff && (
@@ -756,6 +774,7 @@ function SideList({
   files,
   verb,
   allVerb,
+  blockAll,
   busy,
   selected,
   onVerb,
@@ -771,6 +790,7 @@ function SideList({
   files: SideFile[];
   verb: string;
   allVerb: string;
+  blockAll: boolean;
   busy: boolean;
   selected: string | null;
   onVerb: (path: string) => void;
@@ -787,7 +807,7 @@ function SideList({
           {heading} <span className="muted">{files.length}</span>
         </span>
         {files.length > 0 && (
-          <button type="button" className="btn-link" disabled={busy} onClick={onAll}>
+          <button type="button" className="btn-link" disabled={busy || blockAll} onClick={onAll}>
             {allVerb}
           </button>
         )}
@@ -803,7 +823,8 @@ function SideList({
                 className="git-file"
                 onClick={() => onPick(file.path)}
                 onDoubleClick={() => onOpen?.(file.path)}
-                data-tip={`Show the diff of ${file.path}; double-click opens it`}
+                aria-label={file.status === "U" ? `Conflict ${file.path}` : undefined}
+                data-tip={file.status === "U" ? `Show conflict stages for ${file.path}` : `Show the diff of ${file.path}; double-click opens it`}
               >
                 <span className={`git-file__status git-file__status--${file.status}`}>{file.status}</span>
                 <span className="git-file__path mono">
@@ -812,7 +833,7 @@ function SideList({
                 </span>
               </button>
               <span className="git-side__verbs">
-                {onDiscard && (
+                {onDiscard && file.status !== "U" && (
                   <button
                     type="button"
                     className={`btn-link git-side__discard${confirmDiscard === file.path ? " is-armed" : ""}`}
@@ -823,9 +844,11 @@ function SideList({
                     {confirmDiscard === file.path ? "Discard?" : "Discard"}
                   </button>
                 )}
-                <button type="button" className="btn-link" disabled={busy} onClick={() => onVerb(file.path)}>
-                  {verb}
-                </button>
+                {file.status !== "U" && (
+                  <button type="button" className="btn-link" disabled={busy} onClick={() => onVerb(file.path)}>
+                    {verb}
+                  </button>
+                )}
               </span>
             </li>
           ))}
@@ -1152,6 +1175,43 @@ describe("the working tree", () => {
     // An untracked file reads as an addition, not as a question mark.
     expect(unstaged[1].status).toBe("A");
     expect(staged[1].from).toBe("old.rs");
+  });
+
+  it("lists unmerged pairs once and opens immutable conflict stages without ordinary write controls", async () => {
+    const path = "literal[1] λ%?#.py";
+    serve({});
+    serveChanges({files: [
+      {path, index: "A", tree: "A"},
+      {path: "staged.py", index: "M", tree: " "},
+      {path: "other.py", index: " ", tree: "M"},
+    ]});
+    vi.spyOn(api, "gitDiff").mockImplementation(async (path) => ({path, diff: "", binary: false}));
+    const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
+      version: 1, path, fingerprint: "a".repeat(64), index_modified: false, source_files_modified: false,
+      stages: [
+        {stage: 2, mode: "100644", oid: "b".repeat(40), text: "local\n", unavailable: null},
+        {stage: 3, mode: "100644", oid: "c".repeat(40), text: "incoming\n", unavailable: null},
+      ],
+    }), {headers: {"Content-Type": "application/json"}}));
+    render(<GitPane />);
+    const unstaged = await screen.findByRole("region", {name: "Unstaged files"});
+    const staged = screen.getByRole("region", {name: "Staged files"});
+    expect(within(staged).queryByText(path)).toBeNull();
+    const row = within(unstaged).getByText(path).closest("li")!;
+    expect(within(row).getByRole("button", {name: "Conflict " + path})).toBeTruthy();
+    expect(within(row).queryByRole("button", {name: "Stage"})).toBeNull();
+    expect(within(row).queryByRole("button", {name: "Discard"})).toBeNull();
+    expect((within(unstaged).getByRole("button", {name: "Stage all"}) as HTMLButtonElement).disabled).toBe(true);
+    expect((within(staged).getByRole("button", {name: "Unstage all"}) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(within(row).getByText(path));
+    fireEvent.click(screen.getByRole("button", {name: "Inspect conflict stages"}));
+    expect((await screen.findByLabelText("Conflict stage text")).textContent).toBe("local\n");
+    fireEvent.click(screen.getByRole("button", {name: "Stage 3"}));
+    expect(screen.getByLabelText("Conflict stage text").textContent).toBe("incoming\n");
+    expect(screen.queryByRole("button", {name: "Preview this stage as source"})).toBeNull();
+    expect(fetch.mock.calls.some(([url]) => String(url).endsWith("/api/git/conflict?path=" + encodeURIComponent(path)))).toBe(true);
+    fireEvent.click(within(unstaged).getByText("other.py"));
+    expect(screen.queryByRole("region", {name: "Conflict stages"})).toBeNull();
   });
 
   it("shows the branch, how far ahead it is, and the files on each side", async () => {

@@ -7,7 +7,7 @@ export function useGitWorkingActions(state: {
   changes: GitChanges | null; busy: string | null; notice: unknown;
   selected: { path: string; staged: boolean } | null; diff: GitDiff | null;
   message: string; amend: boolean; branches: GitBranch[] | null; newBranch: string; confirmDiscard: string | null;
-  staged: string[]; unstaged: string[];
+  staged: string[]; unstaged: string[]; conflicts: ReadonlySet<string>;
   run: (verb: string, action: () => Promise<unknown>, done: string, filesChanged?: boolean) => Promise<UiOutcome>;
   operations: { pull: () => Promise<unknown>; push: () => Promise<unknown>; stash: (pop: boolean) => Promise<unknown>; stage: (paths?: string[]) => Promise<unknown>; unstage: (paths?: string[]) => Promise<unknown>; discard: (path: string) => Promise<unknown>; checkout: (name: string, create?: boolean) => Promise<unknown>; commit: () => Promise<unknown>; review: () => Promise<unknown> };
   openBranches: () => Promise<UiOutcome>;
@@ -35,13 +35,13 @@ export function useGitWorkingActions(state: {
     for (const [staged, paths] of [[true, state.staged], [false, state.unstaged]] as const) {
       const verb = staged ? "unstage" : "stage", title = staged ? "Unstage" : "Stage";
       const effect = staged ? state.operations.unstage : state.operations.stage;
-      if (paths.length) add(`${verb}:all`, `${title} all Git files`, {}, ready, async () => state.run(verb, () => effect(), `${title}d everything`));
+      if (paths.length) add(`${verb}:all`, `${title} all Git files`, {}, ready && state.conflicts.size === 0, async () => state.run(verb, () => effect(), `${title}d everything`));
       for (const [index, path] of paths.entries()) {
         const key = `${staged ? "staged" : "unstaged"}:${index}`;
         add(`pick:${key}`, `Show ${staged ? "staged" : "unstaged"} diff ${path}`, {}, true, async () => { state.pick(path, staged); return complete({ diff_requested: true }); });
         if (state.openFile) add(`open:${key}`, `Open current Git file ${path}`, {}, true, async () => { state.openFile!(path); return complete({ navigation_requested: true }); });
-        add(`${verb}:${index}`, `${title} Git file ${path}`, {}, ready, async () => state.run(verb, () => effect([path]), `${title}d ${path}`));
-        if (!staged) add(`discard:${index}`, `Discard Git changes ${path}`, {}, ready, async (_args, actor) => {
+        add(`${verb}:${index}`, `${title} Git file ${path}`, {}, ready && !state.conflicts.has(path), async () => state.run(verb, () => effect([path]), `${title}d ${path}`));
+        if (!staged && !state.conflicts.has(path)) add(`discard:${index}`, `Discard Git changes ${path}`, {}, ready, async (_args, actor) => {
           if (actor.kind === "agent") return { status: "requires_input", reason: "Discard requires the human's two-click confirmation on this file" };
           if (state.confirmDiscard !== path) { state.setDiscard(path); return complete({ confirmation_requested: true, discarded: false }); }
           state.setDiscard(null); return state.run("discard", () => state.operations.discard(path), `Discarded the changes to ${path}`, true);
@@ -56,7 +56,7 @@ export function useGitWorkingActions(state: {
       add("branch-create", "Create and switch Git branch", {}, ready && !!state.newBranch.trim(), async () => state.run("checkout", () => state.operations.checkout(state.newBranch.trim(), true), `On ${state.newBranch.trim()}`, true));
       for (const [index, branch] of state.branches.entries()) add(`checkout:${index}`, `Switch Git branch ${branch.name}`, {}, ready && !branch.current, async () => state.run("checkout", () => state.operations.checkout(branch.name), `On ${branch.name}`, true));
     }
-    if (state.selected && state.diff && state.diff.path === state.selected.path) add("review", "Review Git diff in main editor", {}, ready, async () => state.run("review", state.operations.review, "Opened editable review"));
+    if (state.selected && state.diff && state.diff.path === state.selected.path && !state.conflicts.has(state.selected.path)) add("review", "Review Git diff in main editor", {}, ready, async () => state.run("review", state.operations.review, "Opened editable review"));
   }
   const invoke = useUiCommands(commands);
   return (key: string, args: Parameters<typeof invoke>[1] = {}) => invoke(`${parent}:${key}`, args).catch(() => undefined);
