@@ -3017,10 +3017,37 @@ A held successful receipt let the user type after the server committed.
 The newer text stayed in the same editor and in private recovery. The
 room and disk retained the reviewed bytes, and Main withheld its Undo
 and Redo entry. See `target/main-managed-resource-late-local-v2/browser.json`.
-The installed TypeScript provider's managed Move proposed a destination
-inside its private staging directory. The engine refused that destination,
-so genuine managed Move remains unverified. See
-`target/main-managed-resource-genuine-projection-final-v2/browser.json`.
+TypeScript 6.0.3 through TypeScript Language Server 6.1.0 proposed
+a new sibling beside the staged output. The bridge now reads the woven
+code without the opening Markdown newline, shifts its position map, and
+maps the new sibling to the corresponding workspace path. Chromium
+reviewed both sources, then used explicit Save, Undo, and Redo against
+the real Engine. The import stayed inside the authored file block, and
+the surrounding prose and physical generated file stayed byte-exact.
+The mounted editor was retained, the managed room agreed with the
+saved document at each step, and the browser sent no ordinary writes.
+The authored code and new file passed strict TypeScript compilation.
+See `target/main-managed-resource-genuine-fixed-v2/browser.json` and
+`target/main-managed-resource-genuine-fixed-v2/typescript-check.json`.
+
+Creating the destination independently after preview caused one refused
+Save. The competitor, original authored file, managed room, editor text,
+and selection remained intact. Review history did not advance. See
+`target/main-managed-resource-genuine-stale-v2/browser.json`.
+
+The same managed move passed in mounted macOS and the Android controller
+with a dirty draft. Both replayed guarded Save, reviewed Undo, and
+reviewed Redo. The macOS test preserved the editor and viewport geometry
+and its final independent room read matched the saved document. The
+Android controller preserved the authored block and dirty suffix, and
+the resulting TypeScript passed strict compilation. See
+`target/appkit-staged-refactor-managed-v2-2026-11-19/receipt.json` and
+`target/android-managed-move-rebuilt-2shfvobf/junit.xml`. This managed
+move still needs mounted iOS and rendered Android acceptance.
+
+A focused Main replay with clangd also passed managed formatting after
+the position shift. See
+`target/main-managed-formatting-provider-framing-v2/browser.json`.
 
 A controlled provider's RenameFile moved an open plain file through
 Save, Undo, and Redo in Chromium. The tab, mounted editor, selection,
