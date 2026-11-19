@@ -44,7 +44,7 @@ import { EditorState } from "@codemirror/state";
 import { SearchQuery, setSearchQuery } from "@codemirror/search";
 import { EditorView } from "@codemirror/view";
 import { describe, expect, it, vi } from "vitest";
-import { highlightProjectSearch, persistentSearchHighlights, searchMatchPositions, openPlainSearchFiles, registerSearchEditor, searchWorkspace } from "./workspaceSearch";
+import { highlightProjectSearch, matchesRankedSearchHit, persistentSearchHighlights, searchMatchPositions, openPlainSearchFiles, registerSearchEditor, searchWorkspace } from "./workspaceSearch";
 
 const hit = (path: string, snippet: string) => ({ path, snippet, start_line: 1, end_line: 1, score: 1 });
 
@@ -136,11 +136,27 @@ describe("searching open files and the folder", () => {
 });
 </storycode:copy>
 
+### Verifying a ranked result before revealing it
+
+The result reports the chunk that was ranked, including its original line
+range. Seeing the query elsewhere after a change does not verify that range.
+The disk index normalizes CRLF to LF when reporting the chunk.
+
+<storycode:copy id="ranked-search-source-witness">
+it("accepts only the whole ranked chunk at the original line range", () => {
+  const target = {...hit("notes.md", "  invoice\npaid"), start_line: 2, end_line: 3};
+  expect(matchesRankedSearchHit("first\r\n  invoice\r\npaid\r\nlast\r\n", target)).toBe(true);
+  expect(matchesRankedSearchHit("first\nadded\n  invoice\npaid\nlast", target)).toBe(false);
+  expect(matchesRankedSearchHit("first\n  invoice\nunpaid\nlast", target)).toBe(false);
+  expect(matchesRankedSearchHit("first\n  invoice\npaid\nlast", {...target, end_line: 99})).toBe(false);
+});
+</storycode:copy>
+
 ### Assemble `apps/web/src/lib/workspaceSearch.test.ts`
 
 The selections below preserve the original byte order. Narrative reading order does not change the output.
 
-<storycode:file path="apps/web/src/lib/workspaceSearch.test.ts"><storycode:paste select="#f-7cc0c55f9b04-hit"/><storycode:paste select="#f-7cc0c55f9b04-expression_statement"/></storycode:file>
+<storycode:file path="apps/web/src/lib/workspaceSearch.test.ts"><storycode:paste select="#f-7cc0c55f9b04-hit"/><storycode:paste select="#f-7cc0c55f9b04-expression_statement"/><storycode:paste select="#ranked-search-source-witness"/></storycode:file>
 
 <a id="output-4c0f66567348"></a>
 ## `crates/hick-search/src/lib.rs`

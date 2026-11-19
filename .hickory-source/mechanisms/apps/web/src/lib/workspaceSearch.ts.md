@@ -18,7 +18,7 @@ import { rememberReadingState, restoreReadingState } from "./contextProjection";
 // Live open buffers supplement the folder index; their bytes replace stale disk hits.
 import { Decoration, EditorView, ViewPlugin } from "@codemirror/view";
 import { getSearchQuery, search, SearchQuery, setSearchQuery } from "@codemirror/search";
-import type { SearchResponse } from "../api/types";
+import type { SearchHit, SearchResponse } from "../api/types";
 import { SearchIndex } from "../lineage/bm25";
 import { samePath } from "./paths";
 
@@ -122,7 +122,18 @@ export function plainSearchEditor(path: string): EditorView | undefined {
 <a id="f-a5b848b0817a-searchWorkspace"></a>
 ### `searchWorkspace`
 
+Ranked results carry the text of a line or chunk. Check that complete
+text at its reported position before revealing it. Disk chunks use LF
+between lines even when the saved file uses CRLF.
+
 <storycode:copy id="f-a5b848b0817a-searchWorkspace">
+export function matchesRankedSearchHit(source: string, hit: SearchHit): boolean {
+  const {start_line: start, end_line: end, snippet} = hit;
+  if (!Number.isInteger(start) || !Number.isInteger(end) || start < 1 || end < start || !snippet) return false;
+  const lines = source.replace(/\r\n/g, "\n").split("\n");
+  return end <= lines.length && lines.slice(start - 1, end).join("\n") === snippet;
+}
+
 export async function searchWorkspace(
   query: string,
   limit: number,
@@ -138,7 +149,7 @@ export async function searchWorkspace(
   const unique = files.filter((file, index) =>
     files.findIndex((other) => matches(other.path, file.path)) === index,
   );
-  const byPath = new Map(unique.map((file) => [file.path, file.content.split("\n")]));
+  const byPath = new Map(unique.map((file) => [file.path, file.content.replace(/\r\n/g, "\n").split("\n")]));
   const index = new SearchIndex(unique.map((file) => ({
     path: file.path, lines: byPath.get(file.path)!, kind: "document" as const,
   })));

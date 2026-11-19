@@ -76,11 +76,14 @@ export function SearchPanel({
   const actions = useUiListActions("File search", hits, { query, error, semantic: result?.semantic ?? false, limit: 20, folder_open: folderOpen, coverage: "Current ranked search response; not exhaustive matches" }, pick, onClose, { index: selected, set: setSelected });
   const parent = `search-query:${useId()}`;
   const revision = useUiRevision(() => [query, folderOpen]);
-  const invoke = useUiCommands([{ key: parent, command: {
+  const updateQuery = (value: string) => {
+    setQuery(value); setResult(null); setError(null); setSelected(0);
+  };
+  useUiCommands([{ key: parent, command: {
     label: "Set ranked file search query", parent, subject: parent,
     parameters: { query: { type: "string", maxLength: 16384 } }, prerequisites: [],
     read: () => ({ revision: revision(), enabled: true }),
-    execute: async args => { setQuery(args.query as string); setResult(null); setError(null); setSelected(0); return { status: "completed", value: { search_requested: true, completion: "Observe current search results or error after debounce" } }; },
+    execute: async args => { updateQuery(args.query as string); return { status: "completed", value: { search_requested: true, completion: "Observe current search results or error after debounce" } }; },
   } }]);
   const onKeyDown = (event: React.KeyboardEvent) => {
     if (event.key === "Escape") {
@@ -90,12 +93,12 @@ export function SearchPanel({
     }
     if (event.key === "ArrowDown") {
       event.preventDefault();
-      if (hits.length) void actions.select(Math.min(selected + 1, hits.length - 1));
+      if (hits.length) setSelected(Math.min(selected + 1, hits.length - 1));
       return;
     }
     if (event.key === "ArrowUp") {
       event.preventDefault();
-      if (hits.length) void actions.select(Math.max(selected - 1, 0));
+      if (hits.length) setSelected(Math.max(selected - 1, 0));
       return;
     }
     if (event.key === "Enter" && hits[selected]) {
@@ -112,7 +115,7 @@ export function SearchPanel({
         type="search"
         placeholder={folderOpen ? "Search open files and this folder" : "Search open files"}
         value={query}
-        onChange={(event) => void invoke(parent, { query: event.target.value })}
+        onChange={(event) => updateQuery(event.target.value)}
         aria-label="Search query"
       />
       {folderOpen && result && !result.semantic && (
@@ -139,7 +142,7 @@ export function SearchPanel({
                   className={`search-panel__hit${index === selected ? " on" : ""}`}
                   role="option"
                   aria-selected={index === selected}
-                  onMouseEnter={() => void actions.select(index)}
+                  onMouseEnter={() => setSelected(index)}
                   onClick={() => void actions.pick(index)}
                 >
                   <span className="search-panel__where">

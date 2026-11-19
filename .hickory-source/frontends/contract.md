@@ -2742,6 +2742,15 @@ and `target/main-generated-files-provenance-mismatch-v1/browser.json`.
 A focused test also exercises explicit regeneration from the reviewed disk
 and produced versions and rereads the applied result before enabling edits.
 
+Main ranked file search now checks the complete reported chunk before
+opening its tab. A real search replay held the destination read, selected
+a peer, and let the read finish with HTTP 200. The same peer editor stayed
+selected and no result tab opened. A saved chunk that moved during another
+held read was refused, with a prompt to search again. A fresh pointer pick
+revealed the original start of a ranked span at line 65, UTF-16 offset
+1344. No browser source write occurred. See
+`target/main-ranked-search-held-fixed-v1/browser.json`.
+
 Focused rebuilt-engine replays also passed for Python definition and
 Back/Forward, workspace search, delayed first-open authority and capabilities,
 and Debug and guarded patch review on both recorded Agent message sides.

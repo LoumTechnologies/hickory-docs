@@ -15,6 +15,9 @@ Present and edit the shared engine state. Browser-side revisions, pending reques
 
 Search open files and the folder, opened with Mod-Shift-F from anywhere in the shell.
 Picking a hit uses the workspace's existing open-and-reveal routing.
+Typing, hovering, and moving the list highlight are local browsing. Reserve
+the recorded command for explicit activation so a pointer entering a row
+cannot contend with the click that opens it.
 
 <storycode:copy id="f-7dbf0adaf494-SearchPanel">
 // Search open files and the folder, opened with Mod-Shift-F from anywhere in the shell.
@@ -95,11 +98,14 @@ export function SearchPanel({
   const actions = useUiListActions("File search", hits, { query, error, semantic: result?.semantic ?? false, limit: 20, folder_open: folderOpen, coverage: "Current ranked search response; not exhaustive matches" }, pick, onClose, { index: selected, set: setSelected });
   const parent = `search-query:${useId()}`;
   const revision = useUiRevision(() => [query, folderOpen]);
-  const invoke = useUiCommands([{ key: parent, command: {
+  const updateQuery = (value: string) => {
+    setQuery(value); setResult(null); setError(null); setSelected(0);
+  };
+  useUiCommands([{ key: parent, command: {
     label: "Set ranked file search query", parent, subject: parent,
     parameters: { query: { type: "string", maxLength: 16384 } }, prerequisites: [],
     read: () => ({ revision: revision(), enabled: true }),
-    execute: async args => { setQuery(args.query as string); setResult(null); setError(null); setSelected(0); return { status: "completed", value: { search_requested: true, completion: "Observe current search results or error after debounce" } }; },
+    execute: async args => { updateQuery(args.query as string); return { status: "completed", value: { search_requested: true, completion: "Observe current search results or error after debounce" } }; },
   } }]);
   const onKeyDown = (event: React.KeyboardEvent) => {
     if (event.key === "Escape") {
@@ -109,12 +115,12 @@ export function SearchPanel({
     }
     if (event.key === "ArrowDown") {
       event.preventDefault();
-      if (hits.length) void actions.select(Math.min(selected + 1, hits.length - 1));
+      if (hits.length) setSelected(Math.min(selected + 1, hits.length - 1));
       return;
     }
     if (event.key === "ArrowUp") {
       event.preventDefault();
-      if (hits.length) void actions.select(Math.max(selected - 1, 0));
+      if (hits.length) setSelected(Math.max(selected - 1, 0));
       return;
     }
     if (event.key === "Enter" && hits[selected]) {
@@ -131,7 +137,7 @@ export function SearchPanel({
         type="search"
         placeholder={folderOpen ? "Search open files and this folder" : "Search open files"}
         value={query}
-        onChange={(event) => void invoke(parent, { query: event.target.value })}
+        onChange={(event) => updateQuery(event.target.value)}
         aria-label="Search query"
       />
       {folderOpen && result && !result.semantic && (
@@ -158,7 +164,7 @@ export function SearchPanel({
                   className={`search-panel__hit${index === selected ? " on" : ""}`}
                   role="option"
                   aria-selected={index === selected}
-                  onMouseEnter={() => void actions.select(index)}
+                  onMouseEnter={() => setSelected(index)}
                   onClick={() => void actions.pick(index)}
                 >
                   <span className="search-panel__where">
@@ -204,6 +210,8 @@ Present and edit the shared engine state. Browser-side revisions, pending reques
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { SearchPanel } from "./SearchPanel";
+import { UiActions } from "../lib/uiActions";
+import { UiActionContext } from "../lib/uiActionBridge";
 import { searchWorkspace } from "../lib/workspaceSearch";
 
 afterEach(cleanup);
@@ -247,11 +255,40 @@ it("includes both folder results and open files", async () => {
 });
 </storycode:copy>
 
+### Hover and click
+
+Only opening a result records an action. A hover may select the same row
+immediately before the click.
+
+<storycode:copy id="ranked-search-pointer-witness">
+it("opens a hovered result without a competing recorded selection", async () => {
+  const record = vi.fn(async () => {});
+  const registry = new UiActions({workspace: "search", window: "main"}, () => true, record);
+  const navigate = vi.fn();
+  const search = async () => ({semantic: false, hits: [
+    {path: "first.txt", start_line: 1, end_line: 1, score: 2, snippet: "first result"},
+    {path: "second.txt", start_line: 1, end_line: 1, score: 1, snippet: "second result"},
+  ]});
+  render(<UiActionContext.Provider value={registry}>
+    <SearchPanel search={search} folderOpen onNavigate={navigate} onClose={() => {}} />
+  </UiActionContext.Provider>);
+  fireEvent.change(screen.getByRole("searchbox"), {target: {value: "result"}});
+  const row = await screen.findByRole("option", {name: /second.txt/});
+  row.parentElement!.scrollIntoView = vi.fn();
+  fireEvent.mouseEnter(row);
+  expect(row.getAttribute("aria-selected")).toBe("true");
+  fireEvent.click(row);
+  await waitFor(() => expect(navigate).toHaveBeenCalledWith(expect.objectContaining({path: "second.txt"})));
+  // One requested/result pair, for the click only.
+  await waitFor(() => expect(record).toHaveBeenCalledTimes(2));
+});
+</storycode:copy>
+
 ### Assemble `apps/web/src/components/SearchPanel.test.tsx`
 
 The selections below preserve the original byte order. Narrative reading order does not change the output.
 
-<storycode:file path="apps/web/src/components/SearchPanel.test.tsx"><storycode:paste select="#f-e9f603b09f67-expression_statement"/><storycode:paste select="#f-e9f603b09f67-expression_statement-2"/><storycode:paste select="#f-e9f603b09f67-expression_statement-3"/></storycode:file>
+<storycode:file path="apps/web/src/components/SearchPanel.test.tsx"><storycode:paste select="#f-e9f603b09f67-expression_statement"/><storycode:paste select="#f-e9f603b09f67-expression_statement-2"/><storycode:paste select="#f-e9f603b09f67-expression_statement-3"/><storycode:paste select="#ranked-search-pointer-witness"/></storycode:file>
 
 
 </storycode:doc>

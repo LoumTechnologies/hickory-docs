@@ -31,6 +31,7 @@ import type {
   FileNode,
   OpenTerminal,
   PlainFile,
+  SearchHit,
   SearchResponse,
 } from "../api/types";
 import { WorkspaceChat } from "./deferredAgent";
@@ -45,7 +46,7 @@ import { EnvironmentNotice } from "../environments/EnvironmentPanel";
 import { PromptPanel, usePrompt } from "../components/PromptPanel";
 import { bufferEditor, openBufferTarget } from "../lib/editorBufferTargets";
 import { workspaceRibbonSources } from "./workspaceRibbonSources";
-import { openPlainSearchFiles, searchWorkspace } from "../lib/workspaceSearch";
+import { matchesRankedSearchHit, openPlainSearchFiles, searchWorkspace } from "../lib/workspaceSearch";
 import type { MenuAction } from "../lib/menuBridge";
 import { captureInsertion, insertionCurrent, insertCapturedElement } from "../editor/insertElement";
 import {
@@ -261,6 +262,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   );
   const focusedPathRef = useRef<string | null>(null);
   const workspaceSearchRef = useRef<(query: string, limit: number) => Promise<SearchResponse>>(async () => ({ semantic: false, hits: [] }));
+  const openSearchHitRef = useRef<(hit: SearchHit) => void>(() => {});
   // The tree and the outputs map are built further down; these let the
   // callbacks above read the current values without depending on declaration
   // order.
@@ -690,7 +692,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
           id: `${hit.path}:${index}`,
           label: hit.path,
           detail: hit.snippet,
-          run: () => openHitRef.current(hit.path, hit.start_line),
+          run: () => openSearchHitRef.current(hit),
         }));
       }
       // Rank all tree paths before capping the results.
@@ -767,9 +769,9 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   // activating a tab. Coverage can yield while hashing the text as well as
   // during the read. Recheck the report, the foreground and the live text at
   // the last point before activation. A source-only link leaves the caret alone.
-  const visitSource = useCallback(async ({path, line, character, expectedSource, originCurrent, report}: {
+  const visitSource = useCallback(async ({path, line, character, expectedSource, originCurrent, report, searchHit}: {
     path: string; line: number | null; character?: number; expectedSource?: string;
-    originCurrent?: () => boolean; report?: {sourceHash: string | null};
+    originCurrent?: () => boolean; report?: {sourceHash: string | null}; searchHit?: SearchHit;
   }) => {
     const request = beginSourceOpen(originCurrent);
     const {current, beforeOpen} = request;
@@ -788,7 +790,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       const firstNode = findNodeByPath(folderRootsRef.current, path);
       const documentId = (node: FileNode | undefined | null, target: ReturnType<typeof retained>) =>
         node?.doc_id ?? target.session?.docId ?? (target.tab?.kind === "document" ? target.tab.docId : undefined);
-      if (report && !listed(firstNode, first)) {
+      if ((report || searchHit) && !listed(firstNode, first)) {
         throw Error("Source no longer listed. Refresh the workspace.");
       }
       const id = documentId(firstNode, first);
@@ -806,10 +808,13 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       if (!beforeOpen()) return false;
       const latest = retained();
       const node = findNodeByPath(folderRootsRef.current, path);
-      if (report && !listed(node, latest)) throw Error("Source no longer listed. Refresh the workspace.");
+      if ((report || searchHit) && !listed(node, latest)) throw Error("Source no longer listed. Refresh the workspace.");
       const textChanged = latest.text === undefined ? first.text !== undefined : latest.text !== source;
       const row = line === null ? undefined : source.split("\n")[line - 1]?.replace(/\r$/, "");
       const column = character ?? 0;
+      if (searchHit && !matchesRankedSearchHit(source, searchHit)) {
+        throw Error("Search result changed. Search again to find its current location.");
+      }
       if (textChanged || documentId(node, latest) !== id || (expectedSource !== undefined && source !== expectedSource) ||
           (line !== null && (!Number.isInteger(line) || line < 1 || row === undefined || !Number.isInteger(column) || column < 0 || column > row.length)) ||
           (hash !== undefined && hash !== report?.sourceHash)) {
@@ -834,13 +839,22 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       throw error;
     }
   }, [beginSourceOpen, onSourceActivation, prepareDocument, registry]);
-  const navigateCoverage = useCallback<CoverageSurfaceClient["navigate"]>((location, current) => {
+  const captureReadingPosition = useCallback(() => {
     const editor = focusedEditor();
     const document = editor?.state.doc, selection = editor?.state.selection;
-    const originCurrent = () => current() && (!editor || (focusedEditor() === editor &&
-      editor.state.doc === document && editor.state.selection === selection));
+    return () => !editor || (focusedEditor() === editor &&
+      editor.state.doc === document && editor.state.selection === selection);
+  }, []);
+  const openSearchHit = useCallback((hit: SearchHit) => {
+    void visitSource({path: hit.path, line: hit.start_line, originCurrent: captureReadingPosition(), searchHit: hit})
+      .catch(error => setInsertNotice(error instanceof Error ? error.message : String(error)));
+  }, [captureReadingPosition, visitSource]);
+  openSearchHitRef.current = openSearchHit;
+  const navigateCoverage = useCallback<CoverageSurfaceClient["navigate"]>((location, current) => {
+    const readingCurrent = captureReadingPosition();
+    const originCurrent = () => current() && readingCurrent();
     return visitSource({path: location.path, line: location.line, originCurrent, report: {sourceHash: location.sourceHash}});
-  }, [visitSource]);
+  }, [captureReadingPosition, visitSource]);
   useEffect(() => {
     const stop = onOpenLocation(location => {
       const {path, line, character, expectedSource, originCurrent} = location;
@@ -2052,7 +2066,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         <SearchPanel
           search={workspaceSearch}
           folderOpen={folderOpen === true}
-          onNavigate={(hit) => openHit(hit.path, hit.start_line)}
+          onNavigate={openSearchHit}
           onClose={() => setSearchOpen(false)}
         />
       )}
