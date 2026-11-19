@@ -167,6 +167,23 @@ impl Live {
         location: &str,
         scope: &hick_observe::reading::Scope,
     ) -> anyhow::Result<u32> {
+        let thread = self
+            .thread_id
+            .lock()
+            .await
+            .ok_or_else(|| anyhow::anyhow!("no current stopped thread"))?;
+        let actual_frame = self.session.stack(thread).await?.first().map(|f| f.id);
+        self.resolve_location_at_frame(location, scope, actual_frame).await
+    }
+
+    // The interactive bridge already owns the published stack under its
+    // operation lock. Reading it again could replace the adapter's frame IDs.
+    pub(crate) async fn resolve_location_at_frame(
+        &self,
+        location: &str,
+        scope: &hick_observe::reading::Scope,
+        actual_frame: Option<i64>,
+    ) -> anyhow::Result<u32> {
         let held = self.reading.lock().await;
         let reading = held
             .as_ref()
@@ -176,12 +193,6 @@ impl Live {
         } else {
             std::fs::read(&reading.source.uri)?
         };
-        let thread = self
-            .thread_id
-            .lock()
-            .await
-            .ok_or_else(|| anyhow::anyhow!("no current stopped thread"))?;
-        let actual_frame = self.session.stack(thread).await?.first().map(|f| f.id);
         reading.resolve(location, scope, &current, actual_frame)
     }
 }

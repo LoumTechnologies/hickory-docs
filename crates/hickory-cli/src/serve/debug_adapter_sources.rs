@@ -1,5 +1,5 @@
 //! Adapter source content is a stopped-frame observation, not workspace authority.
-use super::{Failure, Response, observed_scope};
+use super::{Failure, Response, observed_frame, observed_scope};
 use crate::debug_sessions::Registry;
 use serde::Deserialize;
 use std::sync::Arc;
@@ -28,6 +28,7 @@ pub(super) async fn read(registry: &Arc<Registry>, request: Request) -> Result<V
         {
             let _admission = live.operation.lock().await;
             observed_scope(&live, Some(request.stop), Some(request.thread), Some(&request.request_id)).await?;
+            observed_frame(&live, request.stop, request.thread, Some(request.frame)).await?;
             require_reference(&*live.adapter_sources.lock().await, request.stop, request.thread, request.frame, request.reference)?;
         }
         // An optional source provider must not hold the movement gate. A late
@@ -36,6 +37,7 @@ pub(super) async fn read(registry: &Arc<Registry>, request: Request) -> Result<V
         let source_hash = super::super::workspace_fs::view::hash(content.as_bytes());
         let _confirmation = live.operation.try_lock().map_err(|_| anyhow::anyhow!("The debugger is changing or reading another frame. Read adapter source again after the current pause is confirmed."))?;
         observed_scope(&live, Some(request.stop), Some(request.thread), Some(&request.request_id)).await?;
+        observed_frame(&live, request.stop, request.thread, Some(request.frame)).await?;
         require_reference(&*live.adapter_sources.lock().await, request.stop, request.thread, request.frame, request.reference)?;
         Ok(vec![Response::AdapterSource {session:id.clone(),stop:request.stop,thread:request.thread,frame:request.frame,reference:request.reference,request_id:request.request_id,content,source_hash,mime_type}])
     }.await;

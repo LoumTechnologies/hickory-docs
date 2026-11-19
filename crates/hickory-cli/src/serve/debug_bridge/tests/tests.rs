@@ -865,3 +865,152 @@ async fn real_captured_literal_source_round_trips_through_debugpy_without_host_w
     assert!(!host_root.path().join(primary).exists());
     assert!(!host_root.path().join(distinct).exists());
 }
+#[cfg(unix)]
+#[tokio::test]
+async fn published_stack_keeps_churning_adapter_ids_bound_to_their_observation() {
+    use hick_dap::{Launch, Mapping, Session, Transport};
+
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("fixture.py");
+    let trace = root.path().join("dap-commands.jsonl");
+    std::fs::write(&path, "marker = 41\n").unwrap();
+    let adapter = r#"
+import json
+import sys
+
+trace, source = sys.argv[1:]
+seq, stack_reads = 0, 0
+top = None
+
+def send(**packet):
+    global seq
+    seq += 1
+    body = json.dumps(dict(packet, seq=seq)).encode()
+    sys.stdout.buffer.write(f"Content-Length: {len(body)}\r\n\r\n".encode() + body)
+    sys.stdout.buffer.flush()
+
+while line := sys.stdin.buffer.readline():
+    size = int(line.split(b":", 1)[1])
+    assert sys.stdin.buffer.readline() == b"\r\n"
+    request = json.loads(sys.stdin.buffer.read(size))
+    command = request["command"]
+    args = request.get("arguments") or {}
+    with open(trace, "a", encoding="utf-8") as out:
+        print(json.dumps([command, args]), file=out)
+    body = {}
+    if command == "stackTrace":
+        stack_reads += 1
+        top = 1000 + stack_reads
+        body = {"stackFrames": [
+            {"id": top, "name": "current", "line": 1, "source": {"path": source}},
+            {"id": 0, "name": "caller", "line": 1, "source": {"sourceReference": 91}},
+        ], "totalFrames": 2}
+    elif command == "threads":
+        body = {"threads": [{"id": 7, "name": "first"}, {"id": 8, "name": "second"}]}
+    elif command == "scopes":
+        assert args["frameId"] in (top, 0), args
+        body = {"scopes": [{"name": "Locals", "variablesReference": 10}]}
+    elif command == "variables":
+        assert args["variablesReference"] in (10, 11), args
+        body = {"variables": [{"name": "marker", "value": "41", "variablesReference": 11}]}
+    elif command == "evaluate":
+        assert args["frameId"] == top, args
+        body = {"result": "41", "variablesReference": 11}
+    elif command == "source":
+        assert args["sourceReference"] == 91, args
+        body = {"content": "adapter-owned caller", "mimeType": "text/plain"}
+    elif command == "setBreakpoints":
+        body = {"breakpoints": []}
+    send(type="response", request_seq=request["seq"], command=command, success=True, body=body)
+    if command == "launch":
+        send(type="event", event="initialized")
+    elif command == "configurationDone":
+        send(type="event", event="stopped",
+             body={"reason":"breakpoint", "threadId":7, "allThreadsStopped":True})
+    elif command == "disconnect":
+        break
+"#;
+    let (session, _) = Session::start_with_sources(
+        Launch {
+            adapter: vec![
+                "python3".into(), "-u".into(), "-c".into(), adapter.into(),
+                trace.to_string_lossy().into_owned(), path.to_string_lossy().into_owned(),
+            ],
+            transport: Transport::Stdio,
+            multi_session: false,
+            adapter_extra: json!({}),
+            program: path.clone(),
+            cwd: root.path().to_owned(),
+            extra: json!({}),
+        },
+        Arc::new(Mapping::identity(&path)),
+        &[],
+        &[],
+    )
+    .await
+    .unwrap();
+    let registry = Arc::new(Registry::new());
+    let (id, _) = registry.register_test_session(session).await.unwrap();
+
+    async fn event(registry: &Arc<Registry>, root: &std::path::Path, request: Value, kind: &str) -> Value {
+        let responses = handle(registry, root, serde_json::from_value(request).unwrap())
+            .await
+            .into_iter()
+            .map(|row| serde_json::to_value(row).unwrap())
+            .collect::<Vec<_>>();
+        responses.iter().find(|row| row["event"] == kind)
+            .unwrap_or_else(|| panic!("expected {kind} in {responses:?}")).clone()
+    }
+
+    let request = |op: &str| json!({"op":op,"session":id,"request_id":op});
+    let wire = || std::fs::read_to_string(&trace).unwrap();
+    let stacks = || wire().lines().filter(|line| line.starts_with("[\"stackTrace\"")).count();
+    let first = event(&registry, root.path(), request("state"), "stopped").await;
+    let first_stop = first["stop"].as_u64().unwrap();
+    assert_eq!(first["frames"][0]["id"], 1001);
+    assert!(first["frames"][0]["source_reference"].is_null());
+    assert_eq!(stacks(), 1);
+
+    let frame_request = |op: &str, stop, frame| json!({
+        "op":op,"session":id,"stop":stop,"thread":7,"frame":frame,"request_id":op,
+    });
+    let local = event(&registry, root.path(), frame_request("state", first_stop, 1001), "frame_variables").await;
+    assert_eq!(local["variables"][0]["value"], "41");
+    let mut evaluate = frame_request("eval", first_stop, 1001);
+    evaluate["expression"] = json!("marker");
+    let value = event(&registry, root.path(), evaluate.clone(), "value").await;
+    assert_eq!(value["value"], "41");
+    let mut children = frame_request("children", first_stop, 1001);
+    children["reference"] = json!(11);
+    event(&registry, root.path(), children.clone(), "children").await;
+    let mut source = frame_request("source", first_stop, 0);
+    source["reference"] = json!(91);
+    let received = event(&registry, root.path(), source.clone(), "adapter_source").await;
+    assert_eq!(received["content"], "adapter-owned caller");
+    assert_eq!(stacks(), 1);
+
+    let second = event(&registry, root.path(), request("state"), "stopped").await;
+    let second_stop = second["stop"].as_u64().unwrap();
+    assert!(second_stop > first_stop);
+    assert_eq!(second["frames"][0]["id"], 1002);
+    assert_eq!(second["frames"][1]["id"], 0);
+    let before_refusals = wire();
+    for mut stale in [evaluate.clone(), children, source.clone()] {
+        event(&registry, root.path(), stale.clone(), "failed").await;
+        if stale["frame"] == 1001 {
+            stale["stop"] = json!(second_stop);
+            event(&registry, root.path(), stale, "failed").await;
+        }
+    }
+    assert_eq!(wire(), before_refusals);
+    source["stop"] = json!(second_stop);
+    event(&registry, root.path(), source, "adapter_source").await;
+
+    let selection = json!({"op":"select_thread","session":id,"stop":second_stop,"thread":8,"request_id":"select"});
+    let selected = event(&registry, root.path(), selection, "stopped").await;
+    assert_eq!(selected["thread"], 8);
+    assert!(selected["stop"].as_u64().unwrap() > second_stop);
+    assert_eq!(selected["frames"][0]["id"], 1003);
+    assert_eq!(stacks(), 3);
+    assert!(registry.reap(&id).await);
+}

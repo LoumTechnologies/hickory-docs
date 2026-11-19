@@ -103,7 +103,15 @@ pub struct BreakpointIntent {
     pub source_hash: String,
 }
 
+pub(crate) struct PublishedStack {
+    pub stop: u64,
+    pub thread: i64,
+    pub frame_ids: Vec<i64>,
+}
+
 pub struct Live {
+    /// Exact frames from the last interactive stopped response.
+    pub(crate) published_stack: Mutex<Option<PublishedStack>>,
     /// Positive references actually reported in the current stopped stack.
     pub adapter_sources: Mutex<HashMap<(u64, i64, i64), i64>>,
     pub breakpoint_intents: std::sync::Mutex<HashMap<String, BreakpointIntent>>,
@@ -544,6 +552,12 @@ impl Registry {
         self.register(session, None, statuses).await
     }
 
+    #[cfg(test)]
+    pub(crate) async fn register_test_session(&self, session: Session) -> Result<(String, Arc<Live>)> {
+        let (id, live, _) = self.register(session, None, vec![]).await?;
+        Ok((id, live))
+    }
+
     async fn register(
         &self,
         session: Session,
@@ -581,6 +595,7 @@ impl Registry {
             .unwrap_or_default();
         let live = Arc::new(Live {
             breakpoint_intents: std::sync::Mutex::new(HashMap::new()),
+            published_stack: Mutex::new(None),
             adapter_sources: Mutex::new(HashMap::new()),
             value_references: Mutex::new(HashMap::new()),
             source_aliases,

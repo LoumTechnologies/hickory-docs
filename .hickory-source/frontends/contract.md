@@ -856,8 +856,12 @@ loopback endpoint. Two focused TCP fixtures passed. They checked ordinary
 single-connection attach, exact child configuration and stack reads on the
 child. Each connection sent a detach with target termination disabled. Both
 setups withheld saved-source authority. The tests compiled the current debugger
-crate against a consistent cached dependency graph. A rendered rerun with
-the genuine js-debug provider is still required.
+crate against a consistent cached dependency graph. A separate replay through
+that debugger crate and genuine js-debug paused an owned Node process, evaluated
+Watch as `41` and withheld saved-source authority. Both connections detached
+without terminating the target. It remained alive, then produced `42` and exit
+0 after the fixture released it. A rendered browser rerun is still required.
+See `target/dap-owned-js-attach-2026-11-19/`.
 The confined CodeLLDB 1.12.3 install and direct DAP initialize passed. Its
 first simple-host Rust attempt stopped before Started. A fresh browser replay
 started the actual adapter, stopped at line 3 and displayed the inline value
@@ -867,6 +871,15 @@ source line. A raw Watch on the latest frame returned 41, and raw Continue
 produced 42 and exit 0. A separate browser Continue attempt timed out during
 page load. The receipts are in `target/parity-codelldb-replay-xvhbeppi` and
 `target/parity-codelldb-frame-replay-noaumdne`.
+
+The interactive bridge now binds displayed frame IDs to the published
+stop and thread. It admits Locals, Watch, child values and adapter source
+from that same stack, then retires those references on refresh. A controlled
+adapter changed its frame IDs on every stack read. The focused bridge replay
+verified one stack fetch per observation, live reads on the published IDs and
+refusal of retired IDs or references before another adapter request. Two genuine
+debugpy checks also passed for thread selection and captured adapter source.
+A rendered CodeLLDB rerun is still required.
 
 Hickory's installer reported that it has no Delve recipe. The browser
 replay used independently installed Delve 1.26.3 and Go 1.26.8. The adapter

@@ -1293,6 +1293,23 @@ impl Live {
         location: &str,
         scope: &hick_observe::reading::Scope,
     ) -> anyhow::Result<u32> {
+        let thread = self
+            .thread_id
+            .lock()
+            .await
+            .ok_or_else(|| anyhow::anyhow!("no current stopped thread"))?;
+        let actual_frame = self.session.stack(thread).await?.first().map(|f| f.id);
+        self.resolve_location_at_frame(location, scope, actual_frame).await
+    }
+
+    // The interactive bridge already owns the published stack under its
+    // operation lock. Reading it again could replace the adapter's frame IDs.
+    pub(crate) async fn resolve_location_at_frame(
+        &self,
+        location: &str,
+        scope: &hick_observe::reading::Scope,
+        actual_frame: Option<i64>,
+    ) -> anyhow::Result<u32> {
         let held = self.reading.lock().await;
         let reading = held
             .as_ref()
@@ -1302,12 +1319,6 @@ impl Live {
         } else {
             std::fs::read(&reading.source.uri)?
         };
-        let thread = self
-            .thread_id
-            .lock()
-            .await
-            .ok_or_else(|| anyhow::anyhow!("no current stopped thread"))?;
-        let actual_frame = self.session.stack(thread).await?.first().map(|f| f.id);
         reading.resolve(location, scope, &current, actual_frame)
     }
 }
@@ -2281,7 +2292,168 @@ async fn real_captured_literal_source_round_trips_through_debugpy_without_host_w
 }
 </storycode:copy>
 
-<storycode:file path="crates/hickory-cli/src/serve/debug_bridge/tests/tests.rs"><storycode:paste select="#f-83c29f05f862-agent_action_fixture_uses_opaque_handles_without_display_line_arithmetic"/><storycode:paste select="#f-83c29f05f862-real_adapter_relocation_and_stale_actions_share_the_reading"/><storycode:paste select="#f-83c29f05f862-a_failed_build_reaches_the_client_before_the_failure"/><storycode:paste select="#f-83c29f05f862-a_build_line_is_shaped_like_a_transcript_event"/><storycode:paste select="#f-83c29f05f862-a_document_is_named_in_the_clients_scheme"/><storycode:paste select="#f-83c29f05f862-requests_parse_from_their_frame"/><storycode:paste select="#f-83c29f05f862-a_step_names_the_session_apis_own_verb"/><storycode:paste select="#f-83c29f05f862-a_response_frame_is_tagged_with_the_debug_channel"/><storycode:paste select="#f-83c29f05f862-a_failure_carries_words_rather_than_a_code"/><storycode:paste select="#f-83c29f05f862-a_failure_about_nothing_in_particular_carries_no_lines"/><storycode:paste select="#f-83c29f05f862-the_channel_carries_no_way_to_edit_anything"/><storycode:paste select="#debugger-thread-stop-witness"/></storycode:file>
+### Keep the published stack when the adapter rotates frame IDs
+
+The adapter in this test changes its top frame ID every time the engine asks for
+a stack and reuses the caller frame and source reference. Read locals, watch a
+value and read adapter-owned source while the first stack is published. Then
+refresh and verify that stale requests, including those whose numeric IDs recur,
+are refused before another adapter request. The changed thread must publish the
+single stack that established that it was readable.
+
+<storycode:copy id="debugger-published-stack-churn">
+#[cfg(unix)]
+#[tokio::test]
+async fn published_stack_keeps_churning_adapter_ids_bound_to_their_observation() {
+    use hick_dap::{Launch, Mapping, Session, Transport};
+
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("fixture.py");
+    let trace = root.path().join("dap-commands.jsonl");
+    std::fs::write(&path, "marker = 41\n").unwrap();
+    let adapter = r#"
+import json
+import sys
+
+trace, source = sys.argv[1:]
+seq, stack_reads = 0, 0
+top = None
+
+def send(**packet):
+    global seq
+    seq += 1
+    body = json.dumps(dict(packet, seq=seq)).encode()
+    sys.stdout.buffer.write(f"Content-Length: {len(body)}\r\n\r\n".encode() + body)
+    sys.stdout.buffer.flush()
+
+while line := sys.stdin.buffer.readline():
+    size = int(line.split(b":", 1)[1])
+    assert sys.stdin.buffer.readline() == b"\r\n"
+    request = json.loads(sys.stdin.buffer.read(size))
+    command = request["command"]
+    args = request.get("arguments") or {}
+    with open(trace, "a", encoding="utf-8") as out:
+        print(json.dumps([command, args]), file=out)
+    body = {}
+    if command == "stackTrace":
+        stack_reads += 1
+        top = 1000 + stack_reads
+        body = {"stackFrames": [
+            {"id": top, "name": "current", "line": 1, "source": {"path": source}},
+            {"id": 0, "name": "caller", "line": 1, "source": {"sourceReference": 91}},
+        ], "totalFrames": 2}
+    elif command == "threads":
+        body = {"threads": [{"id": 7, "name": "first"}, {"id": 8, "name": "second"}]}
+    elif command == "scopes":
+        assert args["frameId"] in (top, 0), args
+        body = {"scopes": [{"name": "Locals", "variablesReference": 10}]}
+    elif command == "variables":
+        assert args["variablesReference"] in (10, 11), args
+        body = {"variables": [{"name": "marker", "value": "41", "variablesReference": 11}]}
+    elif command == "evaluate":
+        assert args["frameId"] == top, args
+        body = {"result": "41", "variablesReference": 11}
+    elif command == "source":
+        assert args["sourceReference"] == 91, args
+        body = {"content": "adapter-owned caller", "mimeType": "text/plain"}
+    elif command == "setBreakpoints":
+        body = {"breakpoints": []}
+    send(type="response", request_seq=request["seq"], command=command, success=True, body=body)
+    if command == "launch":
+        send(type="event", event="initialized")
+    elif command == "configurationDone":
+        send(type="event", event="stopped",
+             body={"reason":"breakpoint", "threadId":7, "allThreadsStopped":True})
+    elif command == "disconnect":
+        break
+"#;
+    let (session, _) = Session::start_with_sources(
+        Launch {
+            adapter: vec![
+                "python3".into(), "-u".into(), "-c".into(), adapter.into(),
+                trace.to_string_lossy().into_owned(), path.to_string_lossy().into_owned(),
+            ],
+            transport: Transport::Stdio,
+            multi_session: false,
+            adapter_extra: json!({}),
+            program: path.clone(),
+            cwd: root.path().to_owned(),
+            extra: json!({}),
+        },
+        Arc::new(Mapping::identity(&path)),
+        &[],
+        &[],
+    )
+    .await
+    .unwrap();
+    let registry = Arc::new(Registry::new());
+    let (id, _) = registry.register_test_session(session).await.unwrap();
+
+    async fn event(registry: &Arc<Registry>, root: &std::path::Path, request: Value, kind: &str) -> Value {
+        let responses = handle(registry, root, serde_json::from_value(request).unwrap())
+            .await
+            .into_iter()
+            .map(|row| serde_json::to_value(row).unwrap())
+            .collect::<Vec<_>>();
+        responses.iter().find(|row| row["event"] == kind)
+            .unwrap_or_else(|| panic!("expected {kind} in {responses:?}")).clone()
+    }
+
+    let request = |op: &str| json!({"op":op,"session":id,"request_id":op});
+    let wire = || std::fs::read_to_string(&trace).unwrap();
+    let stacks = || wire().lines().filter(|line| line.starts_with("[\"stackTrace\"")).count();
+    let first = event(&registry, root.path(), request("state"), "stopped").await;
+    let first_stop = first["stop"].as_u64().unwrap();
+    assert_eq!(first["frames"][0]["id"], 1001);
+    assert!(first["frames"][0]["source_reference"].is_null());
+    assert_eq!(stacks(), 1);
+
+    let frame_request = |op: &str, stop, frame| json!({
+        "op":op,"session":id,"stop":stop,"thread":7,"frame":frame,"request_id":op,
+    });
+    let local = event(&registry, root.path(), frame_request("state", first_stop, 1001), "frame_variables").await;
+    assert_eq!(local["variables"][0]["value"], "41");
+    let mut evaluate = frame_request("eval", first_stop, 1001);
+    evaluate["expression"] = json!("marker");
+    let value = event(&registry, root.path(), evaluate.clone(), "value").await;
+    assert_eq!(value["value"], "41");
+    let mut children = frame_request("children", first_stop, 1001);
+    children["reference"] = json!(11);
+    event(&registry, root.path(), children.clone(), "children").await;
+    let mut source = frame_request("source", first_stop, 0);
+    source["reference"] = json!(91);
+    let received = event(&registry, root.path(), source.clone(), "adapter_source").await;
+    assert_eq!(received["content"], "adapter-owned caller");
+    assert_eq!(stacks(), 1);
+
+    let second = event(&registry, root.path(), request("state"), "stopped").await;
+    let second_stop = second["stop"].as_u64().unwrap();
+    assert!(second_stop > first_stop);
+    assert_eq!(second["frames"][0]["id"], 1002);
+    assert_eq!(second["frames"][1]["id"], 0);
+    let before_refusals = wire();
+    for mut stale in [evaluate.clone(), children, source.clone()] {
+        event(&registry, root.path(), stale.clone(), "failed").await;
+        if stale["frame"] == 1001 {
+            stale["stop"] = json!(second_stop);
+            event(&registry, root.path(), stale, "failed").await;
+        }
+    }
+    assert_eq!(wire(), before_refusals);
+    source["stop"] = json!(second_stop);
+    event(&registry, root.path(), source, "adapter_source").await;
+
+    let selection = json!({"op":"select_thread","session":id,"stop":second_stop,"thread":8,"request_id":"select"});
+    let selected = event(&registry, root.path(), selection, "stopped").await;
+    assert_eq!(selected["thread"], 8);
+    assert!(selected["stop"].as_u64().unwrap() > second_stop);
+    assert_eq!(selected["frames"][0]["id"], 1003);
+    assert_eq!(stacks(), 3);
+    assert!(registry.reap(&id).await);
+}
+</storycode:copy>
+
+<storycode:file path="crates/hickory-cli/src/serve/debug_bridge/tests/tests.rs"><storycode:paste select="#f-83c29f05f862-agent_action_fixture_uses_opaque_handles_without_display_line_arithmetic"/><storycode:paste select="#f-83c29f05f862-real_adapter_relocation_and_stale_actions_share_the_reading"/><storycode:paste select="#f-83c29f05f862-a_failed_build_reaches_the_client_before_the_failure"/><storycode:paste select="#f-83c29f05f862-a_build_line_is_shaped_like_a_transcript_event"/><storycode:paste select="#f-83c29f05f862-a_document_is_named_in_the_clients_scheme"/><storycode:paste select="#f-83c29f05f862-requests_parse_from_their_frame"/><storycode:paste select="#f-83c29f05f862-a_step_names_the_session_apis_own_verb"/><storycode:paste select="#f-83c29f05f862-a_response_frame_is_tagged_with_the_debug_channel"/><storycode:paste select="#f-83c29f05f862-a_failure_carries_words_rather_than_a_code"/><storycode:paste select="#f-83c29f05f862-a_failure_about_nothing_in_particular_carries_no_lines"/><storycode:paste select="#f-83c29f05f862-the_channel_carries_no_way_to_edit_anything"/><storycode:paste select="#debugger-thread-stop-witness"/><storycode:paste select="#debugger-published-stack-churn"/></storycode:file>
 
 ## Implementation review
 

@@ -332,21 +332,22 @@ async fn observed_scope(
 }
 async fn observed_frame(
     live: &crate::debug_sessions::Live,
+    stop: u64,
     thread: i64,
     frame: Option<i64>,
 ) -> anyhow::Result<i64> {
     let frame = frame.context("Select a current stopped frame before this operation.")?;
     anyhow::ensure!(
-        live.session
-            .stack(thread)
-            .await?
-            .iter()
-            .any(|entry| entry.id == frame),
-        "Frame does not belong to the current stopped thread. Read its stack again."
+        live.published_stack.lock().await.as_ref().is_some_and(|stack| {
+            stack.stop == stop && stack.thread == thread
+                && stack.frame_ids.contains(&frame)
+        }),
+        "Frame was not reported in the current stopped stack. Read its stack again."
     );
     Ok(frame)
 }
-async fn retire_values(live: &crate::debug_sessions::Live) {
+async fn retire_observation(live: &crate::debug_sessions::Live) {
+    *live.published_stack.lock().await = None;
     live.adapter_sources.lock().await.clear();
     *live.reading.lock().await = None;
     live.value_references.lock().await.clear();
@@ -403,19 +404,25 @@ async fn handle_inner(
                 .get(&session)
                 .await
                 .map_err(|e| (Some(session.clone()), e))?;
-            let line = live
-                .resolve_location(&location, &scope)
-                .await
-                .map_err(|e| (Some(session.clone()), e))?;
             let thread = (*live.thread_id.lock().await)
                 .context("Pause the debugger before a located action")
+                .map_err(|e| (Some(session.clone()), e))?;
+            let stop = *live.stop_generation.lock().await;
+            let frame = live.published_stack.lock().await.as_ref()
+                .filter(|stack| stack.stop == stop && stack.thread == thread)
+                .and_then(|stack| stack.frame_ids.first().copied())
+                .context("Read the current stopped stack before a located action")
+                .map_err(|e| (Some(session.clone()), e))?;
+            let line = live
+                .resolve_location_at_frame(&location, &scope, Some(frame))
+                .await
                 .map_err(|e| (Some(session.clone()), e))?;
             match how {
                 protocol::LocatedAction::RunTo => live.session.run_to(line, thread).await,
                 protocol::LocatedAction::Jump => live.session.jump_to(line, thread).await,
             }
             .map_err(|e| (Some(session.clone()), e))?;
-            retire_values(&live).await;
+            retire_observation(&live).await;
             if matches!(how, protocol::LocatedAction::RunTo) {
                 *live.stopped.lock().await = None;
             }
@@ -708,16 +715,25 @@ async fn handle_inner(
                     ),
                 ));
             }
-            // A reported thread may still be running. Require a real stack read
-            // before changing selection; adapter refusal leaves prior frames intact.
-            live.session
-                .stack(thread)
-                .await
-                .map_err(|error| (Some(session.clone()), error))?;
+            // The stack query may invalidate adapter IDs from the old stack.
+            // An adapter refusal keeps the selected thread but retires its old frames.
+            retire_observation(&live).await;
+            let frames = match live.session.stack(thread).await {
+                Ok(frames) => frames,
+                Err(error) => return Ok(vec![Response::Failed {
+                    scope_retired: true,
+                    request_id,
+                    session: Some(session),
+                    doc: None,
+                    message: format!("Cannot read the selected thread stack: {error:#}"),
+                    about: None,
+                    lines: Vec::new(),
+                    offer_install: None,
+                }]),
+            };
             *live.thread_id.lock().await = Some(thread);
-            retire_values(&live).await;
             let stop = *live.stop_generation.lock().await;
-            let mut replies = position_with(root, &session, &live, "thread selection").await;
+            let mut replies = publish_position(root, &session, &live, "thread selection", stop, thread, Ok(frames)).await;
             replies.push(Response::Threads {
                 session,
                 request_id,
@@ -743,19 +759,9 @@ async fn handle_inner(
                     observed_scope(&live, expected_stop, expected_thread, request_id.as_deref())
                         .await
                         .map_err(|e| (Some(session.clone()), e))?;
-                let frames = live
-                    .session
-                    .stack(thread)
+                observed_frame(&live, stop, thread, Some(frame))
                     .await
-                    .map_err(|error| (Some(session.clone()), error))?;
-                if !frames.iter().any(|entry| entry.id == frame) {
-                    return Err((
-                        Some(session),
-                        anyhow::anyhow!(
-                            "The requested locals frame is outside the selected thread. Read its stack again."
-                        ),
-                    ));
-                }
+                    .map_err(|e| (Some(session.clone()), e))?;
                 let variables = live
                     .session
                     .variables(frame)
@@ -805,7 +811,7 @@ async fn handle_inner(
                 observed_scope(&live, expected_stop, expected_thread, request_id.as_deref())
                     .await
                     .map_err(|e| (Some(session.clone()), e))?;
-            let frame = observed_frame(&live, thread, frame)
+            let frame = observed_frame(&live, stop, thread, frame)
                 .await
                 .map_err(|e| (Some(session.clone()), e))?;
             let value = live
@@ -853,12 +859,12 @@ async fn handle_inner(
                 .get(&session)
                 .await
                 .map_err(|e| (Some(session.clone()), e))?;
-            let (_, thread) = observed_scope(&live, stop, thread, request_id.as_deref())
+            let (stop, thread) = observed_scope(&live, stop, thread, request_id.as_deref())
                 .await
                 .map_err(|e| (Some(session.clone()), e))?;
             let frame = match frame {
                 Some(frame) => Some(
-                    observed_frame(&live, thread, Some(frame))
+                    observed_frame(&live, stop, thread, Some(frame))
                         .await
                         .map_err(|e| (Some(session.clone()), e))?,
                 ),
@@ -876,7 +882,7 @@ async fn handle_inner(
                 .step(how, thread, frame)
                 .await
                 .map_err(|e| (Some(session.clone()), e))?;
-            retire_values(&live).await;
+            retire_observation(&live).await;
             *live.stopped.lock().await = None;
             Ok(settle(registry, root, &session, &live).await)
         }
@@ -901,7 +907,7 @@ async fn handle_inner(
                 .jump_to(line, thread)
                 .await
                 .map_err(|e| (Some(session.clone()), e))?;
-            retire_values(&live).await;
+            retire_observation(&live).await;
             Ok(settle_in_place(root, &session, &live).await)
         }
         Request::RunTo {
@@ -925,7 +931,7 @@ async fn handle_inner(
                 .run_to(line, thread)
                 .await
                 .map_err(|e| (Some(session.clone()), e))?;
-            retire_values(&live).await;
+            retire_observation(&live).await;
             *live.stopped.lock().await = None;
             Ok(settle(registry, root, &session, &live).await)
         }
@@ -945,7 +951,7 @@ async fn handle_inner(
             let (stop, thread) = observed_scope(&live, stop, thread, request_id.as_deref())
                 .await
                 .map_err(|e| (Some(session.clone()), e))?;
-            let frame = observed_frame(&live, thread, frame)
+            let frame = observed_frame(&live, stop, thread, frame)
                 .await
                 .map_err(|e| (Some(session.clone()), e))?;
             live.require_reference(stop, thread, frame, reference)
@@ -986,7 +992,7 @@ async fn handle_inner(
             let (stop, thread) = observed_scope(&live, stop, thread, request_id.as_deref())
                 .await
                 .map_err(|e| (Some(session.clone()), e))?;
-            let frame = observed_frame(&live, thread, frame)
+            let frame = observed_frame(&live, stop, thread, frame)
                 .await
                 .map_err(|e| (Some(session.clone()), e))?;
             live.require_reference(stop, thread, frame, container)
@@ -1138,7 +1144,24 @@ async fn position_with(
             }];
         }
     };
-    let (frames, stack_error) = match live.session.stack(thread).await {
+    if live.published_stack.lock().await.is_some() {
+        retire_observation(live).await;
+    }
+    let stop = *live.stop_generation.lock().await;
+    let frames = live.session.stack(thread).await;
+    publish_position(root, session, live, reason, stop, thread, frames).await
+}
+
+async fn publish_position(
+    root: &std::path::Path,
+    session: &str,
+    live: &Arc<crate::debug_sessions::Live>,
+    reason: &str,
+    stop: u64,
+    thread: i64,
+    frames: anyhow::Result<Vec<hick_dap::Frame>>,
+) -> Vec<Response> {
+    let (frames, stack_error) = match frames {
         Ok(frames) => (
             frames
                 .into_iter()
@@ -1148,8 +1171,6 @@ async fn position_with(
         ),
         Err(error) => (Vec::new(), Some(error.to_string())),
     };
-    let source_stop = *live.stop_generation.lock().await;
-    *live.adapter_sources.lock().await = adapter_sources::reported(&frames, source_stop, thread);
     let (mut variables, mut variables_error) = match frames.first() {
         Some(frame) => match live.session.variables(frame.id).await {
             Ok(variables) => (variables, None),
@@ -1160,7 +1181,6 @@ async fn position_with(
     if variables_error.is_none()
         && let Some(frame) = frames.first()
     {
-        let stop = *live.stop_generation.lock().await;
         if let Err(error) = live
             .remember_values(stop, thread, frame.id, &variables)
             .await
@@ -1191,8 +1211,16 @@ async fn position_with(
         Response::Reading { reading, .. } => Some(reading.scope.clone()),
         _ => None,
     });
+    if stack_error.is_none() {
+        *live.adapter_sources.lock().await = adapter_sources::reported(&frames, stop, thread);
+        *live.published_stack.lock().await = Some(crate::debug_sessions::PublishedStack {
+            stop,
+            thread,
+            frame_ids: frames.iter().map(|frame| frame.id).collect(),
+        });
+    }
     out.push(Response::Stopped {
-        stop: *live.stop_generation.lock().await,
+        stop,
         thread,
         stack_error,
         variables_error,
@@ -1207,13 +1235,7 @@ async fn position_with(
 }
 #[cfg(test)]
 async fn top_frame(live: &Arc<crate::debug_sessions::Live>) -> Option<i64> {
-    let thread = (*live.thread_id.lock().await)?;
-    live.session
-        .stack(thread)
-        .await
-        .ok()?
-        .first()
-        .map(|frame| frame.id)
+    live.published_stack.lock().await.as_ref()?.frame_ids.first().copied()
 }
 /// The client names a document in its own scheme; this is where it lives.
 fn resolve(root: &std::path::Path, doc: &str) -> anyhow::Result<PathBuf> {
