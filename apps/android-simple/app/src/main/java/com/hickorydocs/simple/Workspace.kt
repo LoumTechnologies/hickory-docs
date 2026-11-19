@@ -237,7 +237,14 @@ class Workspace(private val backgroundScope: kotlinx.coroutines.CoroutineScope? 
         get()=templatesVisible
         set(value){if(!value&&templatesVisible)sourceTemplates.close();templatesVisible=value}
     var testSources by mutableStateOf(TestSourcesModel())
-    var coverage by mutableStateOf(SimpleCoverageState());var showCoverage by mutableStateOf(false)
+    var coverage by mutableStateOf(SimpleCoverageState())
+    private var coverageVisible by mutableStateOf(false)
+    var showCoverage: Boolean
+        get() = coverageVisible
+        set(value) {
+            if (!value && coverageVisible) coverage.retireSourceLink()
+            coverageVisible = value
+        }
     private var testsVisible by mutableStateOf(false)
     // Every dismissal retires admission, including Escape/outside-click paths.
     // Reopening a floating reading cannot resurrect its earlier launch choice.

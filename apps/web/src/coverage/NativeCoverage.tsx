@@ -24,7 +24,12 @@ export function mountNativeCoverage(host:HTMLElement,post:Post) {
     });
   }
   const close=()=>send({kind:"close"});
-  const client:CoverageSurfaceClient={call:body=>request("api",{body}),select:run=>send({kind:"select",id:run?.id??null}),navigate:location=>request<void>("navigate",{location})};
+  const client:CoverageSurfaceClient={
+    call:body=>request("api",{body}),
+    select:run=>send({kind:"select",id:run?.id??null}),
+    navigate:location=>request<boolean|void>("navigate",{location}),
+    retireNavigation:()=>{if(context&&!closed)send({kind:"retire-navigation"});},
+  };
   const retire=()=>{for(const value of pending.values()){clearTimeout(value.timer);value.reject(new Error("Tool context changed. Reopen the surface before retrying."));}pending.clear();};
   const surface={
     update(value:NativeCoverageContext){

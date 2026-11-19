@@ -7,7 +7,7 @@ import AppKit
 @testable import HickorySimple
 @MainActor final class CoverageViewTests:XCTestCase {
     func testLateReportSourceReadKeepsNewerEditorAndCanBeRetried() async throws {
-        for kind in ["coverage", "unbound", "test"] {
+        for kind in ["coverage", "unbound", "test", "report-choice"] {
             let arrived = expectation(description: "\(kind) destination read")
             let gate = DispatchSemaphore(value: 0)
             ResponseProtocol.status = 200
@@ -37,28 +37,30 @@ import AppKit
             retained.selection = NSRange(location: 2, length: 3)
             workspace.buffers[draft.path] = retained
             workspace.rootFiles = [draft, target]
-            workspace.showUtility(.agent)
+            if kind == "report-choice" { workspace.showSource(draft.path) } else { workspace.showUtility(.agent) }
             workspace.showTests = kind == "test"
             workspace.showCoverage = kind != "test"
 
             let hash = nativeSourceHash("first\nsecond\n")
-            func navigate() async throws {
+            func navigate() async throws -> Bool? {
                 if kind == "test" {
                     await workspace.navigateTestPoint(TestSourcePoint(path: target.path, line: 2, character: 0, hash: hash))
+                    return nil
                 } else {
                     let point: [String: Any] = kind == "unbound" ? ["path": target.path] : ["path": target.path, "line": 2, "sourceHash": hash]
-                    try await workspace.navigateCoverage(point, state: workspace.coverage)
+                    return try await workspace.navigateCoverage(point, state: workspace.coverage)
                 }
             }
             let pending = Task { try await navigate() }
             await fulfillment(of: [arrived], timeout: 3)
-            workspace.showSource(draft.path)
+            if kind == "report-choice" { workspace.coverage.retireNavigation() } else { workspace.showSource(draft.path) }
             if kind == "test" {
                 workspace.showTests = false
                 workspace.showTests = true
             }
             gate.signal()
-            try await pending.value
+            let retired = try await pending.value
+            if kind != "test" { XCTAssertEqual(retired, false, kind) }
 
             XCTAssertTrue(workspace.currentBuffer === retained, kind)
             XCTAssertEqual(retained.text, "unsaved draft", kind)
@@ -69,7 +71,8 @@ import AppKit
             let cached = try XCTUnwrap(workspace.buffers[target.path])
             var selected: NSRange?
             cached.selectSourceRange = { range, _ in selected = range; return true }
-            try await navigate()
+            let fresh = try await navigate()
+            if kind != "test" { XCTAssertEqual(fresh, true, kind) }
             XCTAssertTrue(workspace.currentBuffer === cached, kind)
             XCTAssertEqual(selected, kind == "unbound" ? nil : NSRange(location: 6, length: 0), kind)
             XCTAssertFalse(workspace.showTests, kind)
@@ -121,6 +124,7 @@ import AppKit
     }
     func testBundledCoverageSurfaceUsesWorkspaceBoundNativeMessages()throws {
         let workspace=Workspace(),state=workspace.coverage
+        workspace.engine = try Engine(address: "http://127.0.0.1:1")
         let source="let value = 1\n",file=FileNode(name:"draft.swift",path:"draft.swift",dir:false)
         let buffer=DocumentBuffer(file:file,text:FileText(path:file.path,content:source,hash:nativeSourceHash(source)))
         workspace.buffers[file.path]=buffer;buffer.text+="// unsaved\n";buffer.selection=NSRange(location:4,length:2)
@@ -129,7 +133,11 @@ import AppKit
         defer{coordinator.destroy();window.orderOut(nil)}
         func pump(_ condition:()->Bool){let deadline=Date().addingTimeInterval(15);while !condition()&&Date()<deadline{RunLoop.current.run(until:Date().addingTimeInterval(0.02))}}
         func evaluate(_ script:String)throws->Any?{var result:Result<Any?,Error>?;view.evaluateJavaScript(script){value,error in result=error.map(Result.failure) ?? .success(value)};pump{result != nil};return try XCTUnwrap(result).get()}
-        pump{coordinator.ready};XCTAssertTrue(coordinator.ready,"Bundled coverage renderer must load in actual WebKit")
+        pump{coordinator.ready}
+        if !coordinator.ready {
+            let state = try? evaluate("JSON.stringify({href:location.href,ready:document.readyState,bridge:typeof globalThis.hickoryCoverage})")
+            XCTFail("Bundled coverage renderer did not become ready in WebKit: \(String(describing: state))")
+        }
         guard coordinator.ready else{return}
         var rendered=false;pump{rendered=(try? evaluate("!!document.querySelector('[aria-label=\"Tests and code coverage\"]')")) as? Bool ?? false;return rendered};XCTAssertTrue(rendered)
         _ = try evaluate("webkit.messageHandlers.coverage.postMessage({kind:'select',workspace:'obsolete',id:'old'});null")

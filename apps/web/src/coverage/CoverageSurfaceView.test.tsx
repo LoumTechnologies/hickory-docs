@@ -37,8 +37,23 @@ it("new discovery replaces old result rows and routes navigation through the hos
   expect(screen.queryByText(/failed · old_case/)).toBeNull();expect(surface.select).toHaveBeenLastCalledWith(null);
   fireEvent.click(screen.getByText(/discovered · new_case/));fireEvent.click(screen.getByRole("button",{name:"Open source line 2"}));
   await screen.findByText("Error: Source changed. Refresh the report.");
-  expect(surface.navigate).toHaveBeenCalledWith(expect.objectContaining({path:"app.py",line:2,sourceHash:"a".repeat(64),runId:null}));
+  expect(surface.navigate).toHaveBeenCalledWith(expect.objectContaining({path:"app.py",line:2,sourceHash:"a".repeat(64),runId:null}),expect.any(Function));
   expect(screen.getByRole("dialog",{name:"Tests and code coverage"})).toBeTruthy();
+});
+
+it("keeps a report open after its host retires a source reveal",async()=>{
+  const run=record("a"),held=deferred<boolean>(),close=vi.fn();
+  run.tests=[{id:"case",status:"passed",output:"",path:"app.py",line:2,labels:[]}];
+  const surface=client(async body=>body.action==="list"?{runs:[run]}:run);
+  surface.navigate.mockReturnValueOnce(held.promise).mockResolvedValueOnce(true);
+  render(<CoveragePanel close={close} client={surface} embedded/>);
+  fireEvent.click(await screen.findByRole("button",{name:new RegExp(run.id)}));
+  fireEvent.click(await screen.findByText(/passed · case/));
+  fireEvent.click(screen.getByRole("button",{name:"Open source line 2"}));
+  await act(async()=>{held.resolve(false);await held.promise;});
+  expect(close).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button",{name:"Open source line 2"}));
+  await waitFor(()=>expect(close).toHaveBeenCalledTimes(1));
 });
 it("refreshes the selected collector body when its summary finishes without replacing a newer selection",async()=>{
   const first=record("a"),second=record("b");first.status="running";let done=false;const held=deferred<CoverageRun>();

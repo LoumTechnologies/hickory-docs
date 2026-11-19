@@ -2614,6 +2614,22 @@ position and closed Tests. Nine focused Swift cases and four focused Android
 cases passed. See `target/apple-bound-report-navigation-final.log` and
 `target/android-test-source-navigation-focused-receipt/`.
 
+Coverage uses a separate reply for a retired source link so the report stays
+open. A new report selection retires the old link before loading the new
+report, and the native hosts also retire a superseded link or editor choice.
+A real Simple Browser replay selected another hash-bound report while the
+source GET was held. The HTTP 200 left the newer report open and retained the
+editor, draft, selection and viewport. A fresh link closed the report and
+revealed the verified line 3. Saved files stayed exact and no source write
+occurred. See `target/coverage-navigation-held-browser-final/browser.json`.
+The Android bridge cases confirmed false replies for retired links and a
+true reply for a fresh exact reveal. Three focused Swift cases passed,
+including the actual bundled WebKit bridge on a connected workspace. Ten
+shared web cases and TypeScript checking passed. See
+`target/android-coverage-navigation-final-receipt/`,
+`target/apple-coverage-navigation-connected.log` and
+`target/coverage-navigation-outcomes-web-final.log`.
+
 Simple Browser binds opening, history, source reveal and follow-up inspectors
 to the same request for the pane. Selecting a retained tab retires an older
 request for that pane. Work in another pane can still complete its read

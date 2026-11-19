@@ -36,7 +36,12 @@ export function mountNativeCoverage(host:HTMLElement,post:Post) {
     });
   }
   const close=()=>send({kind:"close"});
-  const client:CoverageSurfaceClient={call:body=>request("api",{body}),select:run=>send({kind:"select",id:run?.id??null}),navigate:location=>request<void>("navigate",{location})};
+  const client:CoverageSurfaceClient={
+    call:body=>request("api",{body}),
+    select:run=>send({kind:"select",id:run?.id??null}),
+    navigate:location=>request<boolean|void>("navigate",{location}),
+    retireNavigation:()=>{if(context&&!closed)send({kind:"retire-navigation"});},
+  };
   const retire=()=>{for(const value of pending.values()){clearTimeout(value.timer);value.reject(new Error("Tool context changed. Reopen the surface before retrying."));}pending.clear();};
   const surface={
     update(value:NativeCoverageContext){
@@ -69,7 +74,11 @@ function fixture(){const host=document.createElement('div');document.body.append
 it('routes service and navigation replies by request identity',async()=>{
  const {surface,post,client}=fixture();const response=client.call({action:'list'});const message=post.mock.calls.at(-1)![0];expect(message).toMatchObject({kind:'api',workspace:'one',body:{action:'list'}});
  surface.reply(message.id+1,{wrong:true},null);surface.reply(message.id,{runs:[]},null);await expect(response).resolves.toEqual({runs:[]});
- const navigation=client.navigate({path:'app.py',line:1,sourceHash:'a'.repeat(64),sourceState:'current',runId:null});const next=post.mock.calls.at(-1)![0];expect(next.kind).toBe('navigate');surface.reply(next.id,null,'Source changed');await expect(navigation).rejects.toThrow('Source changed');act(()=>surface.dispose());
+ const location={path:'app.py',line:1,sourceHash:'a'.repeat(64),sourceState:'current' as const,runId:null};
+ const navigation=client.navigate(location,()=>true);const next=post.mock.calls.at(-1)![0];expect(next.kind).toBe('navigate');surface.reply(next.id,null,'Source changed');await expect(navigation).rejects.toThrow('Source changed');
+ const stale=client.navigate(location,()=>true);const previous=post.mock.calls.at(-1)![0];client.retireNavigation?.();
+ expect(post.mock.calls.at(-1)![0]).toEqual({kind:'retire-navigation',workspace:'one'});
+ surface.reply(previous.id,false,null);await expect(stale).resolves.toBe(false);act(()=>surface.dispose());
 });
 it('context replacement rejects pending requests and cannot reuse old replies',async()=>{
  const {surface,post,client}=fixture();const old=client.call({action:'get',id:'old'});const rejected=expect(old).rejects.toThrow('context changed');const first=post.mock.calls.at(-1)![0];

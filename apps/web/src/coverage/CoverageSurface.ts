@@ -3,7 +3,8 @@ export interface CoverageSourceNavigation {path:string;line:number|null;sourceHa
 export interface CoverageSurfaceClient {
   call:<T>(body:Record<string,unknown>)=>Promise<T>;
   select:(run:CoverageRun|null)=>void;
-  navigate:(location:CoverageSourceNavigation)=>void|Promise<void>;
+  navigate:(location:CoverageSourceNavigation,current:()=>boolean)=>boolean|void|Promise<boolean|void>;
+  retireNavigation?:()=>void;
 }
 export function coverageLanguage(language:string){return ["javascript","javascriptreact","typescriptreact","jsx","tsx"].includes(language)?"typescript":language;}
 /** A reported line needs a captured owner hash and no observed execution-source change. */

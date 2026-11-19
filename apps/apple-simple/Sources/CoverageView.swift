@@ -14,8 +14,16 @@ func coverageEngineMatches(_ current:Engine?,_ original:Engine?)->Bool {
     private var record:CoverageProjectionRecord?
     private var projected:[String:[CoverageProjectedLine]]=[:]
     private var ticket=UUID()
-    func stop(){ticket=UUID();digests.stop();record=nil;projected=[:]}
+    private var navigation = UUID()
+    func retireNavigation() { navigation = UUID() }
+    func beginNavigation() -> () -> Bool {
+        retireNavigation()
+        let intent = navigation
+        return { [weak self] in self?.navigation == intent }
+    }
+    func stop(){retireNavigation();ticket=UUID();digests.stop();record=nil;projected=[:]}
     func select(_ id:String?,workspace:Workspace){
+        retireNavigation()
         ticket=UUID();let read=ticket;selected=id;record=nil;projected=[:];notice=""
         guard let id,let engine=workspace.engine else{return}
         Task {do {let value:CoverageProjectionRecord=try await engine.request("POST","/api/tests/coverage",body:["action":"get","id":id])
@@ -35,31 +43,39 @@ extension DocumentBuffer {
     func readCoverageSource(){coverageSource?.observe(self)}
 }
 @MainActor extension Workspace {
-    func navigateCoverage(_ value:[String:Any],state:SimpleCoverageState,isCurrent:@escaping ()->Bool={true}) async throws {
+    @discardableResult
+    func navigateCoverage(_ value:[String:Any],state:SimpleCoverageState,isCurrent:@escaping ()->Bool={true},
+                          navigation: (() -> Bool)? = nil) async throws -> Bool {
         let server=engine,epoch=sourceNavigationEpoch
         let alive={isCurrent() && self.coverage === state && coverageEngineMatches(self.engine,server) && self.sourceNavigationEpoch==epoch}
         guard alive(),let path=value["path"] as? String else {throw EngineError(message:"Workspace or coverage reader changed. Reopen coverage.")}
+        if let run = value["runId"], (run as? String) != state.selected { return false }
+        let currentNavigation = navigation ?? state.beginNavigation()
+        guard currentNavigation() else { return false }
         let prepared = beginSourceNavigationPreparation()
         func find(_ files:[FileNode])->FileNode? {for file in files {if exactUTF8(file.path,path) {return file};if let child=find(file.children ?? []) {return child}};return nil}
         guard let file=buffers[path]?.file ?? find(rootFiles),!file.dir else {throw EngineError(message:"Source no longer listed. Refresh the workspace.")}
         let buffer: DocumentBuffer
         do { buffer = try await loadBuffer(file) }
-        catch { if prepared() { throw error }; return }
-        guard prepared() else { return }
+        catch { if prepared(), currentNavigation() { throw error }; return false }
+        guard prepared(), currentNavigation() else { return false }
         let source=buffer.text,identity=buffer.sourceEditIdentity,selection=buffer.selection
         guard alive(),buffers[path] === buffer else {throw EngineError(message:"Workspace or source editor changed. Reopen coverage.")}
-        let sourceCurrent={alive() && self.buffers[path] === buffer && buffer.sourceEditIdentity==identity && exactUTF8(buffer.text,source) && buffer.selection==selection}
+        let sourceCurrent={currentNavigation() && alive() && self.buffers[path] === buffer && buffer.sourceEditIdentity==identity && exactUTF8(buffer.text,source) && buffer.selection==selection}
         if value["line"]==nil || value["line"] is NSNull || value["sourceHash"]==nil || value["sourceHash"] is NSNull {
             guard sourceCurrent() else{throw EngineError(message:"Source or coverage reader changed. Reopen coverage.")}
-            let departed=currentSemanticLocation();showSource(path);if let arrived=currentSemanticLocation(){navigationTrail.record(from:departed,to:arrived)};showCoverage=false;return
+            let departed=currentSemanticLocation();showSource(path);if let arrived=currentSemanticLocation(){navigationTrail.record(from:departed,to:arrived)};showCoverage=false;return true
         }
         guard let line=sourceChangeInteger(value["line"]),let hash=value["sourceHash"] as? String else{throw EngineError(message:"Malformed coverage source position. Reopen the report.")}
         let actual=await Task.detached {nativeSourceHash(source)}.value
-        guard prepared() else { return }
+        guard prepared(), currentNavigation() else { return false }
         guard sourceCurrent(),actual==hash.lowercased(),line>0,line<=source.components(separatedBy:"\n").count else {throw EngineError(message:"Source changed or report position is unavailable. Refresh coverage before navigating.")}
         var revealed=false
         await openSemanticLocation(SemanticLocation(uri:languageURI(path),line:line-1,character:0),allowDirty:true,expectedSource:source,isCurrent:sourceCurrent,onRevealed:{revealed=true})
-        guard alive(),buffers[path] === buffer,revealed else{throw EngineError(message:"Coverage source navigation did not complete. The report remains readable.")};showCoverage=false
+        guard currentNavigation() else { return false }
+        guard alive(),buffers[path] === buffer,revealed else{throw EngineError(message:"Coverage source navigation did not complete. The report remains readable.")}
+        showCoverage=false
+        return true
     }
 }
 @MainActor final class CoverageWebCoordinator:NSObject,WKScriptMessageHandler,WKNavigationDelegate {
@@ -78,12 +94,17 @@ extension DocumentBuffer {
         guard event["workspace"] as? String==state.identity else{return}
         if kind=="close" {mounted=false;workspace.showCoverage=false;workspace.currentBuffer?.focusSource?();return}
         if kind=="select" {state.select(event["id"] as? String,workspace:workspace);return}
+        if kind=="retire-navigation" {state.retireNavigation();return}
         guard let id=sourceChangeInteger(event["id"]),id>0,!active.contains(id),active.count<64 else{return};active.insert(id)
+        let navigation = kind == "navigate" ? state.beginNavigation() : nil
         Task {[weak self] in guard let self else{return};defer{active.remove(id)}
             do {guard current else{return}
                 if kind=="api",let body=event["body"] as? [String:Any],let action=body["action"] as? String,["list","get","locations","inspect","discover","run","rerun-failed","manual-start","browser-checkpoint","checkpoint","stop","import","compare","annotate"].contains(action),let engine {
                     let result:NativeTableJSON=try await engine.request("POST","/api/tests/coverage",body:body);reply(id,result.object,nil)
-                }else if kind=="navigate",let location=event["location"] as? [String:Any] {try await workspace.navigateCoverage(location,state:state,isCurrent:{[weak self] in self?.current==true});reply(id,NSNull(),nil)}
+                }else if kind=="navigate",let location=event["location"] as? [String:Any] {
+                    let revealed=try await workspace.navigateCoverage(location,state:state,isCurrent:{[weak self] in self?.current==true},navigation:navigation)
+                    reply(id,revealed,nil)
+                }
                 else {throw EngineError(message:"Unsupported coverage request. Reopen the tool.")}
             }catch {reply(id,NSNull(),error.localizedDescription)}
         }

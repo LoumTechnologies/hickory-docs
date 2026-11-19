@@ -368,8 +368,8 @@ export function App() {
   },true), [workspaceFiles, layout, focused]);
   useEffect(()=>{const inspect=(event:Event)=>{const path=(event as CustomEvent<{path:string}>).detail.path,file=buffers.values.get(path)?.file??findPath(path),identity=workspaceIdentity.current;if(!file)return;void open(file,{current:()=>workspaceIdentity.current===identity}).then(opened=>{if(opened?.current())setShowCoverage(true);});};window.addEventListener(SOURCE_COVERAGE_INSPECTION,inspect);return()=>window.removeEventListener(SOURCE_COVERAGE_INSPECTION,inspect);},[workspaceFiles,layout,focused]);
   useEffect(()=>{const inspect=(event:Event)=>{const request=(event as CustomEvent<SourceTestInspection>).detail,owner=request.owner??buffers.values.get(request.path),namespace=buffers.workspace;const current=()=>!!owner&&!owner.resourceDeleted&&buffers.values.get(request.path)===owner&&owner.file.path===request.path&&owner.namespace===namespace&&buffers.workspace===namespace&&(request.revision===undefined||owner.sourceRevision===request.revision);const file=owner?.file;if(!file||!current())return;void open(file,{current}).then(opened=>{if(opened?.current()){setTestInspection(request);setShowTests(true);}});};window.addEventListener(SOURCE_TEST_INSPECTION,inspect);return()=>window.removeEventListener(SOURCE_TEST_INSPECTION,inspect);},[workspaceFiles,layout,focused]);
-  async function openFileVisit(file: FileNode) {
-    const departed = currentLocation(), opened = await open(file);
+  async function openFileVisit(file: FileNode, options?: OpenFileOptions) {
+    const departed = currentLocation(), opened = await open(file, options);
     if (!opened?.current()) return false;
     const target = opened.buffer, view = editorForBuffer(target)?.view;
     const start = view ? utf16ToPosition(target.text, authoredOffset(view.state,view.state.selection.main.head)) : { line: 0, character: 0 };
@@ -489,14 +489,14 @@ export function App() {
         if (next !== layout) { retireTabMove(tab, target); setLayout(next); setFocused(id); }
       }}
       resize={(id, ratio) => setLayout(current => update(current, id, node => isGroup(node) ? node : { ...node, ratio }))} /></div>
-    <SimpleCoverageView key={workspaceRoot} visible={showCoverage} workspace={workspaceRoot} path={buffer?.file.path??null} language={buffer?.file.language??"unsupported"} close={()=>{setShowCoverage(false);if(buffer)editorForBuffer(buffer)?.view.focus();}} navigate={async(location:CoverageSourceNavigation)=>{
+    <SimpleCoverageView key={workspaceRoot} visible={showCoverage} workspace={workspaceRoot} path={buffer?.file.path??null} language={buffer?.file.language??"unsupported"} close={navigated=>{setShowCoverage(false);if(!navigated&&buffer)editorForBuffer(buffer)?.view.focus();}} navigate={async(location:CoverageSourceNavigation,current)=>{
       const file=buffers.values.get(location.path)?.file??findPath(location.path);if(!file)throw new Error("Source no longer listed. Refresh the workspace.");
       const line=location.line;
-      if (line===null) { if (await openFileVisit(file)) setShowCoverage(false); return; }
-      if (await openLine(file,line,0,{verify:async target=>{
+      if (line===null) return openFileVisit(file,{originCurrent:current});
+      return openLine(file,line,0,{originCurrent:current,verify:async target=>{
         const source=target.text,digest=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(source)),hash=[...new Uint8Array(digest)].map(byte=>byte.toString(16).padStart(2,"0")).join("");
         if(target.text!==source||hash!==location.sourceHash||line<1||line>source.split("\n").length)throw new Error("Source changed or report position is unavailable. Refresh coverage before navigating.");
-      }})) setShowCoverage(false);
+      }});
     }}/>
     <SourceTemplatesView visible={showTemplates} close={()=>{setShowTemplates(false);if(buffer)editorForBuffer(buffer)?.view.focus();}} editor={()=>{const owner=buffer,held=owner?editorForBuffer(owner):undefined;if(!owner||!held)return null;const mount=held.mount;return {buffer:owner,buffers,view:held.view,mounted:()=>editorForBuffer(owner)===held&&held.mount===mount,interaction:()=>held.interaction};}} />
     <TestSourcesView inspectDebugger={owner=>{if(owner.namespace!==buffers.workspace)throw Error('The original debugger belongs to a different workspace namespace. Its record remains readable.');const tab=[...buffers.values,...retainedTabs.buffers].find(([,held])=>held===owner)?.[0];if(!tab)throw Error('The original debugger editor is no longer retained. No replacement path was opened.');openTab(sourceTab(tab));setShowTests(false);}} inspection={testInspection} buffers={buffers} visible={showTests} close={()=>{setShowTests(false);if(buffer)editorForBuffer(buffer)?.view.focus();}} current={entry=>buffer?{workspace:workspaceRoot,owner:buffer,namespace:buffers.workspace,revision:buffer.sourceRevision,executionCurrent:!buffer.dirty&&!buffer.saving&&!buffer.resourceDeleted&&buffer.namespace===buffers.workspace&&buffers.values.get(buffer.file.path)===buffer,request:{path:buffer.file.path,source:buffer.text,...(entry?{project_entry:entry}:{}),sources:Object.fromEntries([...buffers.values].filter(([,item])=>!item.readonly).map(([path,item])=>[path,item.text]))}}:null} navigate={async(point:TestSourcePoint)=>{

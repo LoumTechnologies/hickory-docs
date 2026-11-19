@@ -9,9 +9,16 @@ import org.json.JSONObject
 class SimpleCoverageState {
  val identity=java.util.UUID.randomUUID().toString();var selected by mutableStateOf<String?>(null);var notice by mutableStateOf("")
  private var record by mutableStateOf<JSONObject?>(null);private var projected by mutableStateOf<Map<String,List<CoverageProjectedLine>>>(emptyMap());private var ticket=java.util.UUID.randomUUID()
+ private var sourceLink = 0L
+ internal fun retireSourceLink() { sourceLink++ }
+ internal fun beginSourceLink(): () -> Boolean {
+  val opening = ++sourceLink
+  return { sourceLink == opening }
+ }
  var digests:SourceDigests?=null
  fun stop(){ticket=java.util.UUID.randomUUID();digests?.stop();record=null;projected=emptyMap()}
  fun select(id:String?,workspace:Workspace){
+  retireSourceLink()
   ticket=java.util.UUID.randomUUID();val read=ticket;selected=id;record=null;projected=emptyMap();notice=""
   if(id==null)return;val engine=workspace.engine ?: return
   workspace.runCommand {try{val reply=engine.request("POST","/api/tests/coverage",JSONObject().put("action","get").put("id",id));val value=reply
@@ -25,21 +32,33 @@ class SimpleCoverageState {
 }
 fun DocumentBuffer.coverageRows()=coverageSource?.rows(this).orEmpty()
 fun DocumentBuffer.readCoverageSource(){coverageSource?.observe(this)}
-suspend fun Workspace.navigateCoverage(value:JSONObject,state:SimpleCoverageState,isCurrent:()->Boolean={true}) {
+suspend fun Workspace.navigateCoverage(value:JSONObject,state:SimpleCoverageState,isCurrent:()->Boolean={true},
+    foreground:()->Boolean=captureForegroundNavigation()): Boolean {
     val server=engine;val epoch=sourceNavigationEpoch
     fun alive()=isCurrent()&&coverage===state&&engine===server&&sourceNavigationEpoch==epoch
-    check(alive()){"Workspace or coverage reader changed. Reopen coverage."};val path=value.getString("path")
+    if (!foreground() || !alive()) return false
+    if (value.has("runId") && !value.isNull("runId") && value.opt("runId") !is String) return false
+    if (value.has("runId") && (value.opt("runId") as? String) != state.selected) return false
+    val path=value.getString("path")
     fun find(files:List<FileNode>):FileNode? {for(file in files){if(file.path==path)return file;find(file.children)?.let{return it}};return null}
     val file=(buffers[path]?.file ?: find(rootFiles))?.takeUnless{it.dir} ?: error("Source no longer listed. Refresh the workspace.")
     val buffer=loadBuffer(file);val source=buffer.text;val revision=buffer.sourceRevision;val selection=buffer.state.selection
-    check(alive()&&buffers[path]===buffer){"Workspace or source editor changed. Reopen coverage."}
+    if (!foreground() || !alive() || buffers[path] !== buffer) return false
     fun sourceCurrent()=alive()&&buffers[path]===buffer&&buffer.sourceRevision==revision&&buffer.text==source&&buffer.state.selection==selection
-    if(value.isNull("line")||value.isNull("sourceHash")){check(sourceCurrent()){"Source or coverage reader changed. Reopen coverage."};val departed=currentSemanticLocation();show(sourceTab(path));currentSemanticLocation()?.let{navigationTrail=navigationTrail.record(departed,it)};showCoverage=false;return}
+    if(value.isNull("line")||value.isNull("sourceHash")){
+        if (!sourceCurrent()) return false
+        val departed=currentSemanticLocation();show(sourceTab(path));currentSemanticLocation()?.let{navigationTrail=navigationTrail.record(departed,it)}
+        showCoverage=false
+        return true
+    }
     val rawLine=value.opt("line") as? Number ?: error("Malformed coverage source position. Reopen the report.");val line=rawLine.toInt();check(rawLine.toDouble()==line.toDouble()){"Malformed coverage source position. Reopen the report."};val hash=value.opt("sourceHash") as? String ?: error("Malformed coverage source hash. Reopen the report.")
     val actual=withContext(Dispatchers.Default){java.security.MessageDigest.getInstance("SHA-256").digest(source.toByteArray(Charsets.UTF_8)).joinToString(""){"%02x".format(it)}}
-    check(sourceCurrent()&&actual==hash.lowercase()&&line>0&&line<=source.count{it=='\n'}+1){"Source changed or report position is unavailable. Refresh coverage before navigating."}
+    if (!foreground() || !sourceCurrent()) return false
+    check(actual==hash.lowercase()&&line>0&&line<=source.count{it=='\n'}+1){"Source changed or report position is unavailable. Refresh coverage before navigating."}
     var revealed=false;openSemanticLocation(SemanticLocation(languageURI(path),line-1,0),allowDirty=true,expectedSource=source,isCurrent=::sourceCurrent,onRevealed={revealed=true})
-    check(alive()&&buffers[path]===buffer&&revealed){"Coverage source navigation did not complete. The report remains readable."};showCoverage=false
+    if (!alive() || buffers[path] !== buffer || !revealed) return false
+    showCoverage=false
+    return true
 }
 internal class NativeCoverageController(val workspace:Workspace,val scope:CoroutineScope,private val attached:()->Boolean,private val sendReply:(Int,Any,String?)->Unit,private val display:()->Unit) {
     val state=workspace.coverage;val engine=workspace.engine;var ready=false;private var closed=false;private val active=mutableSetOf<Int>()
@@ -48,12 +67,19 @@ internal class NativeCoverageController(val workspace:Workspace,val scope:Corout
     fun receive(event:JSONObject){if(!current)return;val kind=event.optString("kind")
         if(kind=="ready"){ready=true;display();return};if(event.optString("workspace")!=state.identity)return
         if(kind=="close"){closed=true;workspace.showCoverage=false;workspace.currentBuffer?.focusSource?.invoke();return}
+        if(kind=="retire-navigation"){state.retireSourceLink();return}
         if(kind=="select"){state.select(if(event.isNull("id")) null else event.getString("id"),workspace);return}
         val rawID=event.opt("id") as? Number ?: return;val id=rawID.toInt();if(rawID.toDouble()!=id.toDouble()||id<=0||active.contains(id)||active.size>=64)return;active.add(id)
+        val link = if (kind == "navigate") state.beginSourceLink() else null
+        val foreground = workspace.captureForegroundNavigation()
         scope.launch{try{if(!current)return@launch
             if(kind=="api"){val body=event.getJSONObject("body");check(body.optString("action") in listOf("list","get","locations","inspect","discover","run","rerun-failed","manual-start","browser-checkpoint","checkpoint","stop","import","compare","annotate")){"Unsupported coverage request. Reopen the tool."}
                 val result=(engine ?: error("Connect to a workspace first.")).request("POST","/api/tests/coverage",body);reply(id,result,null)
-            }else if(kind=="navigate"){workspace.navigateCoverage(event.getJSONObject("location"),state){current};reply(id,JSONObject.NULL,null)}
+            }else if(link != null){
+                val revealed = workspace.navigateCoverage(event.getJSONObject("location"),state,
+                    isCurrent = { current && workspace.showCoverage && link() }, foreground = foreground)
+                reply(id,revealed,null)
+            }
             else error("Unsupported coverage request. Reopen the tool.")
         }catch(cancelled:CancellationException){throw cancelled}catch(error:Exception){reply(id,JSONObject.NULL,error.message)}finally{active.remove(id)}}
     }

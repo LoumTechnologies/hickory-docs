@@ -16,12 +16,12 @@ export function CoverageTools({ path }: { path?: string | null }) {
   return <><PerformanceTools path={path} /><button className="btn" onClick={() => { void invoke(id); }}>Tests &amp; coverage</button>{open && createPortal(<CoveragePanel initialPath={path ?? "."} close={() => setOpen(false)} />, document.body)}</>;
 }
 const browserSurface:CoverageSurfaceClient={call:coverageCall,select:selectCoverage,navigate:location=>openLocation(location.path,location.line??1)};
-export function CoveragePanel({ initialPath = ".", initialLanguage="python", initialSelectedId, close, client=browserSurface, embedded=false }: { initialPath?: string;initialLanguage?:string;initialSelectedId?:string|null; close: () => void;client?:CoverageSurfaceClient;embedded?:boolean }) {
-  const coverageCall=client.call,selectCoverage=client.select;
+export function CoveragePanel({ initialPath = ".", initialLanguage="python", initialSelectedId, close, client=browserSurface, embedded=false }: { initialPath?: string;initialLanguage?:string;initialSelectedId?:string|null; close: (navigated?: boolean) => void;client?:CoverageSurfaceClient;embedded?:boolean }) {
+  const coverageCall=client.call,selectCoverage=client.select,retireNavigation=client.retireNavigation;
   const live=useRef(true),ticket=useRef(0),selectedId=useRef<string|null>(null),listPending=useRef<Promise<void>|null>(null),listTicket=useRef(0);
   const current=useCallback((id:number)=>live.current&&ticket.current===id,[]);
   useEffect(()=>{live.current=true;return()=>{live.current=false;ticket.current++;listTicket.current++;listPending.current=null;};},[]);
-  const closeSurface=()=>{ticket.current++;close();};
+  const closeSurface=(navigated=false)=>{ticket.current++;close(navigated);};
   const [path, setPath] = useState(initialPath), [language, setLanguage] = useState(()=>coverageLanguage(initialLanguage));
   const [runs, setRuns] = useState<CoverageRun[]>([]), [selected, setSelected] = useState<CoverageRun | null>(null);
   const [group, setGroup] = useState(""), [label, setLabel] = useState(""), [filter, setFilter] = useState("");
@@ -45,6 +45,7 @@ export function CoveragePanel({ initialPath = ".", initialLanguage="python", ini
   const inputs=useRef("");inputs.current=path+"\0"+language;
   const install=(run:CoverageRun)=>{setSelected(run);selectedId.current=run.id;selectCoverage(run);setNotes(run.notes);setConfig(run.metadata);};
   const act=async(action:string,extra:Record<string,unknown>={})=>{
+    retireNavigation?.();
     const id=++ticket.current;setPending(true);setError("");setComparison(null);
     try {
       const value=await coverageCall<CoverageRun>({action,path,language,...(group?{group}:{}),labels:label.split(",").map(value=>value.trim()).filter(Boolean),...(selected?{id:["stop","checkpoint","browser-checkpoint"].includes(action)?selected.parent??selected.id:selected.id}:{}),...extra});
@@ -53,10 +54,11 @@ export function CoveragePanel({ initialPath = ".", initialLanguage="python", ini
     }catch(error){if(current(id))setError(String(error));}finally{if(current(id))setPending(false);}
   };
   const choose=useCallback(async(id:string)=>{
+    retireNavigation?.();
     const request=++ticket.current;setPending(true);setError("");
     try {const run=await coverageCall<CoverageRun>({action:"get",id});if(current(request)){setSelected(run);selectedId.current=run.id;setPath(run.project||".");setLanguage(coverageLanguage(run.language));setGroup(run.group??"");setConfig(run.metadata);setNotes(run.notes);selectCoverage(run);setComparison(null);}}
     catch(error){if(current(request))setError(String(error));}finally{if(current(request))setPending(false);}
-  },[coverageCall,selectCoverage,current]);
+  },[coverageCall,selectCoverage,retireNavigation,current]);
   useEffect(()=>{if(initialSelectedId&&initialSelectedId!==selectedId.current)void choose(initialSelectedId);},[initialSelectedId,choose]);
   // List rows omit report bodies. Refresh the selected body only when its observed
   // status/source state transitions, and never borrow a newer user operation.
@@ -75,6 +77,7 @@ export function CoveragePanel({ initialPath = ".", initialLanguage="python", ini
     catch(error){if(current(id))setError(String(error));}finally{if(current(id))setPending(false);}
   };
   const discover=async()=>{
+    retireNavigation?.();
     const id=++ticket.current,basis=inputs.current;setPending(true);setError("");setComparison(null);
     try {const value=await coverageCall<CoverageDiscovery>({action:"discover",path,language});if(current(id)&&inputs.current===basis){setDiscovered(value.tests);setConfig(value.metadata);setDiscovery(value.version===1?value:null);setSelected(null);selectedId.current=null;selectCoverage(null);}}
     catch(error){if(current(id))setError(String(error));}finally{if(current(id))setPending(false);}
@@ -94,10 +97,13 @@ export function CoveragePanel({ initialPath = ".", initialLanguage="python", ini
   const results = selected?.tests ?? discovered;
   const navigate=async(file:string,line:number|null)=>{
     const id=++ticket.current;setPending(true);setError("");
-    try {await client.navigate(coverageSourceNavigation(selected,file,line,discovery));if(current(id))closeSurface();}catch(error){if(current(id))setError(String(error));}finally{if(current(id))setPending(false);}
+    try {
+      const revealed=await client.navigate(coverageSourceNavigation(selected,file,line,discovery),()=>current(id));
+      if(revealed!==false&&current(id))closeSurface(true);
+    }catch(error){if(current(id))setError(String(error));}finally{if(current(id))setPending(false);}
   };
   return <div className={`coverage-backdrop${embedded?" coverage-embedded":""}`}><section className="coverage-panel" role="dialog" aria-label="Tests and code coverage" aria-modal={!embedded}>
-    <header><h2>Tests &amp; code coverage</h2><button className="btn" onClick={closeSurface} aria-label="Close coverage">Close</button></header>
+    <header><h2>Tests &amp; code coverage</h2><button className="btn" onClick={()=>closeSurface()} aria-label="Close coverage">Close</button></header>
     <p>Coverage measures executed code. Test results and manual workflow verdicts are separate. Uninstrumented or missing data is unknown. Runner discovery may build or import the saved project; it does not inspect unsaved drafts.</p>
     <div className="coverage-controls">
       <label>Project or source file<input value={path} onChange={e => {setPath(e.target.value);setConfig(null);setGroup("");setDiscovery(null);setDiscovered([]);}} /></label>

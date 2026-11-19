@@ -27,9 +27,98 @@ class CoverageBindingTest {
    val w=Workspace(this);val engine=Engine("http://127.0.0.1:1");val path="literal %?#.py";val f=FileNode(path,path,false,emptyList(),null,null);val source="first\nsecond\n";val b=DocumentBuffer(f,FileText(source,"base"));w.engine=engine;w.buffers[path]=b;w.show(sourceTab(path));w.showCoverage=true;b.state.edit{selection=androidx.compose.ui.text.TextRange(2)}
    val state=w.coverage;var calls=0;val value=JSONObject().put("path",path).put("line",2).put("sourceHash",debugHash(source));if(mode=="fraction")value.put("line",1.5);if(mode=="boolean")value.put("line",true);if(mode=="unbound"){value.put("line",JSONObject.NULL);value.put("sourceHash",JSONObject.NULL)}
    val current:()->Boolean={calls++;if(mode=="engine"&&calls==2)w.engine=Engine("http://127.0.0.1:2");if(calls==3){when(mode){"undo"->{b.state.edit{replace(0,length,"later")};b.advanceSourceRevision();b.state.edit{replace(0,length,source)};b.advanceSourceRevision()};"selection"->b.state.edit{selection=androidx.compose.ui.text.TextRange(1)};"owner"->w.buffers[path]=DocumentBuffer(f,FileText(source,"base"))}};mode!="closed"||calls<2}
-   val result=runCatching{w.navigateCoverage(value,state,current)};if(mode=="success"||mode=="unbound")assertTrue("$mode: "+result.exceptionOrNull(),result.isSuccess) else assertTrue(mode,result.isFailure)
+   val result=runCatching{w.navigateCoverage(value,state,current)};if(mode=="success"||mode=="unbound")assertEquals("$mode: "+result.exceptionOrNull(),true,result.getOrNull()) else assertNotEquals(mode,true,result.getOrNull())
    if(mode=="success"){assertEquals(6,b.state.selection.start);assertFalse(w.showCoverage)}else if(mode=="unbound"){assertEquals(2,b.state.selection.start);assertFalse(w.showCoverage)}else assertTrue(mode,w.showCoverage)
    assertEquals(source,b.text);assertEquals(source,b.base)
+  }
+ }
+
+ @Test fun heldCoverageLinksRespectLatestRequestAndForegroundChoice() = runBlocking {
+  val source = "first\nsecond\n"
+  val paths = listOf("older.py", "newer.py", "retired.py")
+  val arrived = paths.associateWith { CompletableDeferred<Unit>() }
+  val gates = paths.associateWith { java.util.concurrent.CountDownLatch(1) }
+  val listener = com.sun.net.httpserver.HttpServer.create(java.net.InetSocketAddress("127.0.0.1", 0), 0)
+  val requests = java.util.concurrent.Executors.newFixedThreadPool(3)
+  listener.executor = requests
+  listener.createContext("/api/file") { exchange ->
+   val path = exchange.requestURI.query.removePrefix("path=")
+   arrived.getValue(path).complete(Unit)
+   check(gates.getValue(path).await(8, java.util.concurrent.TimeUnit.SECONDS))
+   val bytes = JSONObject().put("content", source).put("hash", "saved").toString().toByteArray()
+   exchange.sendResponseHeaders(200, bytes.size.toLong())
+   exchange.responseBody.use { it.write(bytes) }
+  }
+  listener.start()
+  fun file(path: String) = FileNode(path, path, false, emptyList(), null, null)
+  val workspace = Workspace(this)
+  workspace.engine = Engine("http://127.0.0.1:${listener.address.port}")
+  val draft = DocumentBuffer(file("draft.py"), FileText("local", "saved"))
+  val other = DocumentBuffer(file("other.py"), FileText("other", "saved"))
+  val selection = androidx.compose.ui.text.TextRange(2, 4)
+  draft.state.edit { append(" draft"); this.selection = selection }
+  workspace.rootFiles = paths.map(::file)
+  workspace.buffers[draft.file.path] = draft
+  workspace.buffers[other.file.path] = other
+  workspace.show(sourceTab(other.file.path))
+  workspace.show(sourceTab(draft.file.path))
+  workspace.showCoverage = true
+  val state = workspace.coverage
+  val pending = mutableMapOf<Int, CompletableDeferred<Pair<Any, String?>>>()
+  val bridge = NativeCoverageController(workspace, this, { true }, { id, value, error ->
+   pending.getValue(id).complete(value to error)
+  }, {})
+  fun message(kind: String) = JSONObject().put("kind", kind).put("workspace", state.identity)
+  fun navigate(id: Int, path: String, runId: String? = null): CompletableDeferred<Pair<Any, String?>> {
+   val answer = CompletableDeferred<Pair<Any, String?>>()
+   pending[id] = answer
+   bridge.receive(message("navigate").put("id", id).put("location", JSONObject().put("path", path)
+    .put("line", 2).put("sourceHash", debugHash(source)).apply { if (runId != null) put("runId", runId) }))
+   return answer
+  }
+  try {
+   assertEquals(false to null, withTimeout(4000) { navigate(5, paths[0], "foreign-report").await() })
+   assertFalse(arrived.getValue(paths[0]).isCompleted)
+   val older = navigate(1, paths[0])
+   withTimeout(4000) { arrived.getValue(paths[0]).await() }
+   val newer = navigate(2, paths[1])
+   withTimeout(4000) { arrived.getValue(paths[1]).await() }
+   gates.getValue(paths[0]).countDown()
+   assertEquals(false to null, withTimeout(4000) { older.await() })
+   assertTrue(workspace.showCoverage)
+   assertSame(draft, workspace.currentBuffer)
+
+   workspace.show(sourceTab(other.file.path))
+   workspace.show(sourceTab(draft.file.path))
+   val layout = workspace.layout
+   val trail = workspace.navigationTrail
+   gates.getValue(paths[1]).countDown()
+   assertEquals(false to null, withTimeout(4000) { newer.await() })
+
+   val retired = navigate(3, paths[2])
+   withTimeout(4000) { arrived.getValue(paths[2]).await() }
+   bridge.receive(message("retire-navigation"))
+   gates.getValue(paths[2]).countDown()
+   assertEquals(false to null, withTimeout(4000) { retired.await() })
+   assertSame(layout, workspace.layout)
+   assertSame(trail, workspace.navigationTrail)
+   assertSame(draft, workspace.currentBuffer)
+   assertEquals("local draft", draft.text)
+   assertEquals(selection, draft.state.selection)
+   assertTrue(workspace.showCoverage)
+   paths.forEach { assertEquals(source, workspace.buffers.getValue(it).text) }
+
+   assertEquals(true to null, withTimeout(4000) { navigate(4, paths[1]).await() })
+   assertFalse(workspace.showCoverage)
+   assertSame(workspace.buffers.getValue(paths[1]), workspace.currentBuffer)
+   assertEquals(androidx.compose.ui.text.TextRange(6), workspace.currentBuffer?.state?.selection)
+   assertEquals(selection, draft.state.selection)
+  } finally {
+   gates.values.forEach { it.countDown() }
+   workspace.buffers.values.forEach { it.language?.close() }
+   workspace.coverage.stop()
+   listener.stop(0)
+   requests.shutdownNow()
   }
  }
 
