@@ -19,6 +19,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -42,7 +43,11 @@ class AgentSession {
     val draft = DocumentBuffer(FileNode("Message", "conversation/draft.md", false, emptyList(), null, null), FileText("", ""))
     var prompt: String
         get() = draft.text
-        set(value) { draft.state.edit { replace(0, length, value) } }
+        set(value) {
+            if (draft.text == value) return
+            draft.state.edit { replace(0, length, value) }
+            draft.advanceSourceRevision()
+        }
     private val documents = mutableMapOf<String, DocumentBuffer>()
     var debugger by mutableStateOf<NativeDebugger?>(null)
         internal set
@@ -127,6 +132,38 @@ flight. Terminal reads only follow the admitted id.
         } catch (cancelled: CancellationException) { throw cancelled }
         catch (failure: Exception) { if (current()) run.notice = failure.message.orEmpty() }
         finally { run.reading = false }
+    }
+
+</ui:copy>
+
+## Clear only the acknowledged composer revision
+
+Send captures the live editor revision before suspending. An edit followed by
+Undo can reproduce the same source bytes while representing new unsent work.
+The visible editor retains that revision, along with text edited during the
+request or an active composition. Only an unchanged, settled draft clears on
+acknowledgment. A refusal leaves the draft available for inspection.
+
+<ui:copy id="simple-android-agent-send">
+    internal suspend fun send(engine: Engine, captureContext: () -> JSONObject) {
+        val submitted = prompt
+        if (running || submitted.isBlank()) return
+        val revision = draft.sourceRevision
+        val parent = turns.lastOrNull()?.id
+        sending = true
+        error = ""
+        mutation++
+        try {
+            val id = engine.send(submitted, parent, provider, model, effort, captureContext())
+            turns = turns.filter { it.id != id } + AgentTurn(id, submitted, null, null, "running")
+            if (draft.sourceRevision == revision && prompt == submitted && draft.state.composition == null) prompt = ""
+        } catch (cancelled: CancellationException) { throw cancelled }
+        catch (failure: Exception) {
+            error = "${failure.message} The request was not retried. Refresh history before sending again."
+        } finally {
+            sending = false
+            mutation++
+        }
     }
 
     var sending by mutableStateOf(false)
@@ -338,16 +375,8 @@ polling cancels when hidden, while an acknowledged send continues independently.
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
             TextButton(enabled = engine != null && !running && session.prompt.isNotBlank(), onClick = {
-                val submitted = session.prompt
-                session.sending = true; session.error = ""; session.mutation++
-                scope.launch {
-                    try {
-                        val id = engine!!.send(submitted, session.turns.lastOrNull()?.id, session.provider, session.model, session.effort,simpleAgentContext(workspace))
-                        session.turns = session.turns.filter { it.id != id } + AgentTurn(id, submitted, null, null, "running")
-                        if (session.prompt == submitted) session.prompt = ""
-                    } catch (cancelled: CancellationException) { throw cancelled }
-                    catch (failure: Exception) { session.error = "${failure.message} The request was not retried. Refresh history before sending again." }
-                    finally { session.sending = false; session.mutation++ }
+                if (engine != null) scope.launch(start = CoroutineStart.UNDISPATCHED) {
+                    session.send(engine) { simpleAgentContext(workspace) }
                 }
             }) { Text("Send") }
             TextButton(enabled = running, onClick = { scope.launch {
@@ -415,6 +444,6 @@ move the conversation. Changing a selection retains the draft buffer.
 
 Keep construction order explicit; the explanations above describe the decisions at each boundary.
 
-<ui:file path="apps/android-simple/app/src/main/java/com/hickorydocs/simple/AgentPane.kt"><ui:paste select="#simple-716e739687-0"/><ui:paste select="#simple-android-recorded-run-controller"/><ui:paste select="#simple-android-recorded-run"/><ui:paste select="#simple-android-recorded-construction"/><ui:paste select="#simple-android-agent-pane"/><ui:paste select="#simple-android-agent-message-controls"/></ui:file>
+<ui:file path="apps/android-simple/app/src/main/java/com/hickorydocs/simple/AgentPane.kt"><ui:paste select="#simple-716e739687-0"/><ui:paste select="#simple-android-recorded-run-controller"/><ui:paste select="#simple-android-agent-send"/><ui:paste select="#simple-android-recorded-run"/><ui:paste select="#simple-android-recorded-construction"/><ui:paste select="#simple-android-agent-pane"/><ui:paste select="#simple-android-agent-message-controls"/></ui:file>
 
 </ui:doc>

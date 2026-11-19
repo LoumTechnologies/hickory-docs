@@ -750,6 +750,14 @@ The combined retry's emulator preflight saw 6.723 GiB free against its 7.200 GiB
 boot floor. The bounded recheck peaked at 6.890 GiB and no emulator was created.
 One native Send through Apply, Undo and Redo remains unverified on Android.
 
+The Android composer now clears an acknowledged submission only when the
+submitted editor revision is still current and no composition is active. The
+held loopback test exercised a later draft with different bytes, a later edit
+that returned to exactly the submitted bytes, unchanged success, and refusal.
+Both later drafts and the refused draft survived intact. The same buffer and
+native editor state were retained. See
+`target/android-agent-send-draft-revision-unit.77ugzt4j/`.
+
 The mounted AppKit native Send probe opened both original source editors and
 entered the exact prompt in the native composer. Its captured window showed an
 enabled Send beside Stop. The isolated click replay did not yield an Agent

@@ -696,6 +696,71 @@ class ParityTest {
         assertEquals("textDocument/prepareTypeHierarchy",SemanticQuery.Supertypes.method);assertEquals("typeHierarchy/supertypes",SemanticQuery.Supertypes.hierarchyFollowup);assertEquals("typeHierarchy/subtypes",SemanticQuery.Subtypes.hierarchyFollowup)
     }
 
+    @Test(timeout = 12000)
+    fun agentSendAcknowledgmentOnlyClearsItsExactDraftRevision() = kotlinx.coroutines.runBlocking {
+        val server = com.sun.net.httpserver.HttpServer.create(java.net.InetSocketAddress("127.0.0.1", 0), 0)
+        val requests = java.util.concurrent.CopyOnWriteArrayList<JSONObject>()
+        val release = List(4) { java.util.concurrent.CountDownLatch(1) }
+        val submitted = "# Ask\r\n\r\nOriginal é"
+        val parent = AgentTurn("previous", "Previous message", "Answered", null, "ok")
+        server.createContext("/api/docs/workspace/agent") { exchange ->
+            val address = JSONObject(exchange.requestBody.bufferedReader().use { it.readText() })
+            requests.add(address)
+            val index = requests.size - 1
+            release[index].await(3, java.util.concurrent.TimeUnit.SECONDS)
+            val reply = if (index == 3) JSONObject().put("error", "Owned refusal")
+                else JSONObject().put("session_id", "sent-$index")
+            val bytes = reply.toString().toByteArray()
+            exchange.sendResponseHeaders(if (index == 3) 409 else 202, bytes.size.toLong())
+            exchange.responseBody.use { it.write(bytes) }
+        }
+        server.start()
+        val engine = Engine("http://127.0.0.1:${server.address.port}")
+        val session = AgentSession()
+        val draft = session.draft
+        val state = draft.state
+        try {
+            repeat(4) { index ->
+                session.turns = listOf(parent)
+                session.prompt = submitted
+                val revision = draft.sourceRevision
+                val pending = launch { session.send(engine) { JSONObject().put("fixture", index) } }
+                withTimeout(3000) { while (requests.size <= index) delay(10) }
+                assertTrue(session.sending)
+                val sent = requests[index]
+                assertEquals(submitted, sent.getString("prompt"))
+                assertEquals(parent.id, sent.getString("parent_id"))
+                assertEquals(index, sent.getJSONObject("context").getInt("fixture"))
+                if (index < 2) {
+                    val replacement = "A newer draft"
+                    assertTrue(draft.applySourceEdits(listOf(NativeSourceEdit(0, submitted.length, replacement)), submitted))
+                    if (index == 1) {
+                        assertTrue(draft.applySourceEdits(listOf(NativeSourceEdit(0, replacement.length, submitted)), replacement))
+                        assertEquals(submitted, session.prompt)
+                        assertTrue(draft.sourceRevision > revision)
+                    }
+                }
+                release[index].countDown()
+                pending.join()
+                assertFalse(session.sending)
+                assertSame(draft, session.draft)
+                assertSame(state, draft.state)
+                assertEquals(listOf("A newer draft", submitted, "", submitted)[index], session.prompt)
+                if (index == 3) {
+                    assertEquals(listOf(parent), session.turns)
+                    assertTrue(session.error.contains("Owned refusal"))
+                } else {
+                    assertEquals("sent-$index", session.turns.last().id)
+                    assertEquals(submitted, session.turns.last().prompt)
+                    assertEquals("", session.error)
+                }
+            }
+        } finally {
+            release.forEach { it.countDown() }
+            server.stop(0)
+        }
+    }
+
     @Test fun agentMessagesUseLiterateBuffersWithoutFileOwnership() {
         // Contract: .hickory-source/frontends/contract.md
         val session = AgentSession()
