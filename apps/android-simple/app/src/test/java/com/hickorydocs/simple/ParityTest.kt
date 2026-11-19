@@ -711,7 +711,7 @@ class ParityTest {
         val buffer = DocumentBuffer(FileNode("main.py", "main.py", false, emptyList(), null, null), FileText("value = 1\nprint(value)", "base"))
         val language = NativeLanguage(Engine("http://127.0.0.1:1"), buffer, this)
         val location = SemanticLocation("hick:///other.py", 0, 0)
-        var opened = 0; buffer.openSemanticLocation = { opened++ }
+        var opened = 0; buffer.openSemanticLocation = { _, _ -> opened++ }
         language.locations = listOf(location); language.locationSource = buffer.text; language.locationSelection = buffer.state.selection
         buffer.state.edit { selection = androidx.compose.ui.text.TextRange(1) }; assertTrue(!language.open(location)); assertEquals(0, opened)
         buffer.state.edit { selection = language.locationSelection; append("\n# changed") }; assertTrue(!language.open(location)); assertEquals(0, opened)
@@ -720,6 +720,72 @@ class ParityTest {
         language.locations = listOf(local); assertTrue(language.open(local)); assertEquals(androidx.compose.ui.text.TextRange(2), buffer.state.selection)
         assertTrue(buffer.dirty); assertEquals(1, opened)
         language.close(); assertTrue(!language.open(local)); assertEquals(1, opened)
+    }
+
+    @Test fun retiredSemanticLocationDoesNotActivateLateFile() = kotlinx.coroutines.runBlocking {
+        val listener = com.sun.net.httpserver.HttpServer.create(java.net.InetSocketAddress("127.0.0.1", 0), 0)
+        val entered = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val release = java.util.concurrent.CountDownLatch(1)
+        listener.createContext("/api/file") { exchange ->
+            check(exchange.requestURI.query == "path=target.py")
+            entered.complete(Unit)
+            check(release.await(8, java.util.concurrent.TimeUnit.SECONDS))
+            val bytes = """{"content":"target value","hash":"saved"}""".toByteArray()
+            exchange.sendResponseHeaders(200, bytes.size.toLong())
+            exchange.responseBody.use { it.write(bytes) }
+        }
+        listener.start()
+        val workspace = Workspace(this)
+        val engine = Engine("http://127.0.0.1:${listener.address.port}")
+        workspace.engine = engine
+        val originFile = FileNode("origin.py", "origin.py", false, emptyList(), null, null)
+        val target = originFile.copy(name = "target.py", path = "target.py")
+        workspace.rootFiles = listOf(originFile, target)
+        val origin = workspace.retainBuffer(originFile, FileText("origin content", "saved"), engine)
+        origin.language?.close()
+        val language = NativeLanguage(engine, origin, this).also { origin.language = it }
+        val context = checkNotNull(origin.openSemanticLocation)
+        val checkedRetired = kotlinx.coroutines.CompletableDeferred<Unit>()
+        origin.openSemanticLocation = { location, current ->
+            context(location) { current().also { if (!it) checkedRetired.complete(Unit) } }
+        }
+        val destination = SemanticLocation(languageURI(target.path), 0, 7)
+        workspace.show(sourceTab(originFile.path))
+        origin.state.edit { append(" with draft") }
+        language.locationSource = origin.text
+        language.locationSelection = origin.state.selection
+        language.locations = listOf(destination)
+        val panes = workspace.layout
+        val focused = workspace.focused
+        val status = workspace.status
+        val trail = workspace.navigationTrail
+        val newerSelection = androidx.compose.ui.text.TextRange(2, 5)
+        try {
+            assertTrue(language.open(destination))
+            kotlinx.coroutines.withTimeout(4000) { entered.await() }
+            origin.state.edit { selection = newerSelection }
+            release.countDown()
+            kotlinx.coroutines.withTimeout(4000) { checkedRetired.await() }
+            assertSame(origin, workspace.currentBuffer)
+            assertSame(panes, workspace.layout)
+            assertEquals(focused, workspace.focused)
+            assertEquals(status, workspace.status)
+            assertSame(trail, workspace.navigationTrail)
+            assertEquals("origin content with draft", origin.text)
+            assertEquals(newerSelection, origin.state.selection)
+            val cached = workspace.buffers.getValue(target.path)
+            assertEquals("target value", cached.text)
+
+            language.locationSelection = newerSelection
+            assertTrue(language.open(destination))
+            kotlinx.coroutines.withTimeout(4000) { while (workspace.currentBuffer !== cached) delay(10) }
+            assertEquals(androidx.compose.ui.text.TextRange(7), cached.state.selection)
+            assertEquals(newerSelection, origin.state.selection)
+        } finally {
+            release.countDown()
+            workspace.buffers.values.forEach { it.language?.close() }
+            listener.stop(0)
+        }
     }
 
     @org.junit.Test fun semanticNavigationRevealsReservedSourceTabAndRetainsTheUtility() = kotlinx.coroutines.runBlocking {

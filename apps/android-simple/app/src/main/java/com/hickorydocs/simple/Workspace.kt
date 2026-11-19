@@ -79,7 +79,7 @@ class DocumentBuffer(file: FileNode, loaded: FileText, untitledDraft:Boolean=fal
     var tableSourceVisible by mutableStateOf(false)
     var inlineMarkup by mutableStateOf(InlineSnapshot(""))
     var rememberNavigation: ((SemanticLocation, SemanticLocation) -> Unit)? = null
-    var openSemanticLocation: ((SemanticLocation) -> Unit)? = null
+    var openSemanticLocation: ((SemanticLocation, () -> Boolean) -> Unit)? = null
     var coverageSource:SimpleCoverageState?=null
     var inspectCoverage:((Int)->Unit)?=null
     var testIndex:SourceTestIndex?=null
@@ -565,7 +565,9 @@ class Workspace(private val backgroundScope: kotlinx.coroutines.CoroutineScope? 
         val buffer = existing ?: DocumentBuffer(file, text)
         buffers[file.path] = buffer
         buffer.rememberNavigation = { from, to -> navigationTrail = navigationTrail.record(from, to) }
-        buffer.openSemanticLocation = { location -> workspaceScope.launch { openSemanticLocation(location) } }
+        buffer.openSemanticLocation = { location, current -> workspaceScope.launch {
+            openSemanticLocation(location, isCurrent = { buffers[buffer.file.path] === buffer && current() })
+        } }
         if(sourceTestIndex==null)sourceTestIndex=SourceTestIndex(workspaceScope){path,source->SourceTestScan.decode(server.request("POST","/api/tests/source-candidates",org.json.JSONObject().put("path",path).put("source",source)))}
         if(coverage.digests==null)coverage.digests=SourceDigests(workspaceScope)
         buffer.coverageSource=coverage
@@ -579,31 +581,40 @@ class Workspace(private val backgroundScope: kotlinx.coroutines.CoroutineScope? 
         return buffer
     }
     suspend fun open(file: FileNode, recordNavigation: Boolean = true) {
+        activateFile(file, recordNavigation)
+    }
+    private suspend fun activateFile(file: FileNode, recordNavigation: Boolean, isCurrent: (() -> Boolean)? = null): Boolean {
+        if (isCurrent?.invoke() == false) return false
         val departed = currentSemanticLocation()
         if (file.path in buffers) {
             show(sourceTab(file.path))
             if (recordNavigation) currentSemanticLocation()?.let { navigationTrail = navigationTrail.record(departed, it) }
             if (file.path == startupPreview?.source?.path) engine?.let { confirmStartupPreview(file, it, reopen = true) }
-            return
+            return true
         }
         val current = generation
         val target = layout.groups().firstOrNull {it.id==focused && "files" !in it.tabs}?.id
             ?: layout.groups().firstOrNull {"files" !in it.tabs}?.id ?: focused
         val request = Any()
         newestOpen[target] = request
-        focused = target
-        fun ownsGroup() = generation == current && newestOpen[target] === request && layout.groups().any { it.id == target }
-        try {
+        val startingPane = focused
+        if (isCurrent == null) focused = target
+        fun ownsGroup() = generation == current && newestOpen[target] === request && layout.groups().any { it.id == target } &&
+            (isCurrent == null || focused == startingPane && isCurrent())
+        return try {
             loadBuffer(file)
-            if (!ownsGroup()) return
+            if (!ownsGroup()) return false
             layout = layout.activate(sourceTab(file.path), target)
+            if (isCurrent != null) focused = target
             if (focused == target) {
                 status = file.path
                 if (recordNavigation) currentSemanticLocation()?.let { navigationTrail = navigationTrail.record(departed, it) }
             }
+            focused == target
         } catch(cancelled:CancellationException) {throw cancelled}
         catch(failure:Exception) {
-            if (ownsGroup() && focused == target) status = "${failure.message} Refresh files and try opening ${file.path} again."
+            if (ownsGroup() && (isCurrent != null || focused == target)) status = "${failure.message} Refresh files and try opening ${file.path} again."
+            false
         } finally {
             if (newestOpen[target] === request) newestOpen.remove(target)
         }
@@ -624,7 +635,7 @@ class Workspace(private val backgroundScope: kotlinx.coroutines.CoroutineScope? 
         fun find(nodes: List<FileNode>): FileNode? { nodes.forEach { if (it.path == path) return it; find(it.children)?.let { child -> return child } }; return null }
         val file = (buffers[path]?.file ?: find(rootFiles))?.takeUnless { it.dir } ?: run { status = "Location not found: $path. Refresh files and query again."; return }
         val current = generation
-        open(file, recordNavigation = false)
+        if (!activateFile(file, recordNavigation = false, isCurrent = isCurrent)) return
         if (!isCurrent() || generation != current || active != sourceTab(path)) return
         val buffer = buffers[path] ?: return
         if (buffer.dirty && !allowDirty && departed?.path != path) { status = "Save $path and query again before using a cross-file source position."; return }

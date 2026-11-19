@@ -768,6 +768,7 @@ class NativeLanguage(private val engine: Engine, private val buffer: DocumentBuf
     var locationSource by mutableStateOf("")
     var locationSelection by mutableStateOf(androidx.compose.ui.text.TextRange.Zero)
     private var navigation = 0
+    private var locationOpening = 0L
     var status by mutableStateOf("Language server connecting…")
     var tokens by mutableStateOf<List<NativeLanguageSpan>>(emptyList())
     var tokenSource by mutableStateOf("")
@@ -931,7 +932,22 @@ class NativeLanguage(private val engine: Engine, private val buffer: DocumentBuf
             val position = languagePosition(locationSource, locationSelection.min)
             buffer.rememberNavigation?.invoke(SemanticLocation(uri, position.getInt("line"), position.getInt("character")), location)
             buffer.focusSource?.invoke()
-        } else buffer.openSemanticLocation?.invoke(location)
+            locationOpening++
+        } else {
+            val opening = ++locationOpening
+            val query = navigation
+            val connection = epoch
+            val source = locationSource
+            val revision = buffer.sourceRevision
+            val selection = locationSelection
+            val symbols = locationSymbolQuery
+            val file = buffer.file
+            buffer.openSemanticLocation?.invoke(location) {
+                locationOpening == opening && navigation == query && epoch == connection && buffer.file === file &&
+                    buffer.sourceRevision == revision && buffer.text == source && buffer.state.selection == selection &&
+                    location in locations && (symbols == null || symbols == symbolQuery)
+            }
+        }
         return true
     }
     suspend fun inspect() {

@@ -2540,6 +2540,14 @@ Android HTTP fixture also verified scroll, redo, active-tab close and focus
 across panes. See `target/apple-delayed-tab-open-focused.log` and
 `target/android-delayed-open-focused-receipt/` for the controller replays.
 
+Android now carries the selected provider result's source and caret evidence
+through the destination read. The held HTTP regression changed the originating
+caret after selecting the result. The destination reply warmed the cache
+without activating its tab or recording a visit. Selecting a current result
+opened the cached source at the exact position. Three related native
+controller checks passed. See
+`target/android-semantic-navigation-focused-receipt/`.
+
 Simple Browser binds opening, history, source reveal and follow-up inspectors
 to the same request for the pane. Selecting a retained tab retires an older
 request for that pane. Work in another pane can still complete its read
