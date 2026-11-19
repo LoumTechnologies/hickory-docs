@@ -2707,6 +2707,19 @@ then reached the room and Undo restored the exact initial source. See
 also refused a missing save guard, an equal-text replacement guard and a
 workspace change during confirmation.
 
+An ordinary Main Files click now uses that managed preview as well. In the
+rendered Files replay, a held document read returned HTTP 200 after the user
+selected a peer. The peer stayed active, no late tab opened and no history
+entry was added. A fresh Files click created one entry and showed the
+entire saved document read-only while real room sync was held. Sync kept
+the same editor, nonempty selection, scroll offset and viewport position.
+The first edit reached the room and Undo restored the exact source. See
+`target/main-managed-tree-room-held-preview-v2/browser.json`. A separate
+source-link replay replaced the saved file with identical bytes and a new
+save guard during sync. The editor stayed read-only with the same viewport
+and sent no source update. See
+`target/main-managed-room-held-replaced-final-v2/browser.json`.
+
 Focused rebuilt-engine replays also passed for Python definition and
 Back/Forward, workspace search, delayed first-open authority and capabilities,
 and Debug and guarded patch review on both recorded Agent message sides.

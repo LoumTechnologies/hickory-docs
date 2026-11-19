@@ -374,6 +374,12 @@ the existing workspace routing opens the destination and hands it an exact
 source snapshot with its line and UTF-16 column. A new plain editor reuses
 the admitted read, and the destination consumes its position once.
 
+Opening a managed document from Files, recents or a route uses the same
+foreground check. Its first successful read is enough to mount the saved
+document preview. Update the browser route after the resulting tab is
+selected so the route does not start a competing read or revive a request
+whose original tab choice has been superseded.
+
 <storycode:copy id="f-47afe3575948-WorkspaceView">
 const WorkspaceTools = lazy(() => import("../shell/WorkspaceTools").then(module => ({ default: module.WorkspaceTools })));
 
@@ -430,6 +436,11 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     if (poll?.() && sourceActivation.current === poll) sourceActivation.current = undefined;
   }, []);
   useLayoutEffect(flushSourceActivation, [focusKey, flushSourceActivation]);
+  const onSourceActivation = useCallback((target: SourceRevealTab, current: () => boolean,
+      deliver: (stillFocused: () => boolean) => void) => {
+    sourceActivation.current = afterSourceTabActivation(target, () => focusIntent.current, current, deliver);
+    flushSourceActivation();
+  }, [flushSourceActivation]);
   const openHitRef = useRef<(path: string, line: number, into?: string, onOpen?: (target: SourceRevealTab)=>void) => boolean | void>(
     () => undefined,
   );
@@ -631,6 +642,19 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   const workspaceKey = JSON.stringify(folderRoots.map(root => [root.workspace_id, root.root_path ?? root.root]));
   const sourceWorkspace = useRef({key: workspaceKey});
   if (sourceWorkspace.current.key !== workspaceKey) sourceWorkspace.current = {key: workspaceKey};
+  const beginSourceOpen = useCallback((originCurrent?: () => boolean) => {
+    const ticket = ++sourceVisit.current;
+    const workspace = sourceWorkspace.current, focus = focusIntent.current;
+    const workspaceCurrent = () => sourceWorkspace.current === workspace;
+    const current = () => ticket === sourceVisit.current && workspaceCurrent();
+    const beforeOpen = () => current() && focusIntent.current === focus && (!originCurrent || originCurrent());
+    return {workspaceCurrent, current, beforeOpen};
+  }, []);
+  const prepareDocument = useCallback((doc: Doc, request: ReturnType<typeof beginSourceOpen>) => {
+    if (!docIdsIn(layoutRef.current).includes(doc.id)) {
+      preparedDocument.current = {doc, current: request.current, workspaceCurrent: request.workspaceCurrent};
+    }
+  }, []);
   const workspaceUi = useWorkspaceUi(layout, restored => setLayout(current => restoreFolderLayout(current, restored,
     folderOpen === true, introductionTab && untitledSourcesRef.current[introductionTab] === STARTUP_INTRODUCTION ? introductionTab : undefined)),
     folderOpen === null ? (folderError ? "window" : null) : folderOpen ? folderRoots[0]?.root_path ?? folderRoots[0]?.root ?? "folder" : "window",
@@ -717,42 +741,66 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     const tab = existing?.pane.tabs[existing.index];
     if (tab) flashTab("document", tab.target);
   }, []);
-  const ensureDocOpen = useCallback((id: string, into?: string) => {
-    if (findDocTab(layoutRef.current, id)) {
-      setLayout((current) => activateDocTab(current, id) ?? current);
+  const ensureDocOpen = useCallback((id: string, into?: string, recordHistory = false, revealAt?: number) => {
+    const request = beginSourceOpen();
+    const record = (target: string, source?: string) => {
+      if (recordHistory || revealAt !== undefined) {
+        onSourceActivation({kind: "document", target, docId: id}, request.current, stillFocused => {
+          if (recordHistory) navigate(`/docs/${id}`);
+          if (revealAt !== undefined && source !== undefined) {
+            revealLine(target, revealAt, undefined, {source, current: stillFocused});
+          }
+        });
+      }
+    };
+    const front = (target: string) => {
+      setLayout(current => activateDocTab(current, id) ?? current);
       flashDocTab(id);
+      record(target, registry.get(id)?.liveSource);
+    };
+    // A slow read can still finish, but only the original workspace and
+    // foreground choice can put its tab on screen. The fetched document also
+    // supplies that tab's read-only preview while the room connects.
+    const existing = findDocTab(layoutRef.current, id);
+    if (existing) {
+      front(existing.tab.target);
       return;
     }
-    void api.doc(id).then(
-      (doc) => {
-        const current = layoutRef.current;
-        if (findDocTab(current, id)) {
-          setLayout((l) => activateDocTab(l, id) ?? l);
-          flashDocTab(id);
+    const failed = () => {
+      if (!request.beforeOpen()) return;
+      // The session renders the load error in its own tab.
+      setLayout(l => findDocTab(l, id) ? l : openDocTab(l, id, id, into));
+      record(id);
+    };
+    const accept = (doc: Doc) => {
+      if (!request.beforeOpen()) return;
+      if (doc.id !== id) {
+        setInsertNotice("The server returned a different document. Open the file again.");
+        return;
+      }
+      const current = layoutRef.current;
+      const existing = findDocTab(current, id);
+      if (existing) {
+        front(existing.tab.target);
+        return;
+      }
+      prepareDocument(doc, request);
+      if (!into && isWorkspaceEmpty(current) && hickLangReady()) {
+        const declared = regionsOf(doc.source);
+        if (declared.length > 0) {
+          setRegions(declared);
+          setLayout(openIntoDeclared(declared, id, doc.path));
+          record(doc.path, doc.source);
           return;
         }
-        if (!into && isWorkspaceEmpty(current) && hickLangReady()) {
-          const declared = regionsOf(doc.source);
-          if (declared.length > 0) {
-            setRegions(declared);
-            setLayout(openIntoDeclared(declared, id, doc.path));
-            return;
-          }
-        }
-        setLayout((l) =>
-          findDocTab(l, id)
-            ? (activateDocTab(l, id) ?? l)
-            : openDocTab(l, id, doc.path, into),
-        );
-      },
-      () => {
-        // A document that will not load still gets a tab: the session's
-        // error, with its message, renders there — a workspace is not the
-        // right thing to take down over one bad id in a URL.
-        setLayout((l) => (findDocTab(l, id) ? l : openDocTab(l, id, id, into)));
-      },
-    );
-  }, []);
+      }
+      setLayout(l => activateDocTab(l, id) ?? openDocTab(l, id, doc.path, into));
+      record(doc.path, doc.source);
+    };
+    const retained = registry.get(id)?.doc;
+    if (retained) accept(retained);
+    else void api.doc(id).then(accept, failed);
+  }, [beginSourceOpen, flashDocTab, onSourceActivation, prepareDocument, registry]);
   /**
    * What the top field answers, in each of its modes.
    *
@@ -853,15 +901,14 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     (path: string, line: number, into?: string, onOpen?: (target: SourceRevealTab)=>void) => {
       const publish = onOpen ?? ((tab: SourceRevealTab) => revealLine(tab.target, line));
       if (!onOpen && openBufferTarget(path, line, layoutRef.current, setLayout, setInsertNotice)) return true;
-      const openDocument = (id: string, target: string) => {
+      const openDocument = (id: string, target: string, revealAt?: number) => {
         if (onOpen) {
           // The path is already verified. Let the session load in its own tab
           // rather than letting a second document request decide the focus.
           setLayout(current => activateDocTab(current, id) ?? openDocTab(current, id, target, into));
           onOpen({kind: "document", target, docId: id});
         } else {
-          ensureDocOpen(id, into);
-          navigate(`/docs/${id}`);
+          ensureDocOpen(id, into, true, revealAt);
         }
       };
       const document = registry.all().find((session) => session.doc && samePath(session.doc.path, path));
@@ -881,8 +928,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         ? fileAction(node, new Set(openableOutputsRef.current.keys()))
         : ({ kind: "file", path } as const);
       if (action.kind === "doc") {
-        openDocument(action.id, node?.path ?? path);
-        if (!onOpen) revealLine(path, line);
+        openDocument(action.id, node?.path ?? path, line);
       } else if (action.kind === "generated") {
         const owner =
           action.docId ?? openableOutputsRef.current.get(action.path);
@@ -910,11 +956,8 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     path: string; line: number | null; character?: number; expectedSource?: string;
     originCurrent?: () => boolean; report?: {sourceHash: string | null};
   }) => {
-    const ticket = ++sourceVisit.current;
-    const workspace = sourceWorkspace.current, focus = focusIntent.current;
-    const workspaceCurrent = () => sourceWorkspace.current === workspace;
-    const current = () => ticket === sourceVisit.current && workspaceCurrent();
-    const beforeOpen = () => current() && focusIntent.current === focus && (!originCurrent || originCurrent());
+    const request = beginSourceOpen(originCurrent);
+    const {current, beforeOpen} = request;
     if (!beforeOpen()) return false;
 
     const retained = () => {
@@ -961,21 +1004,18 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       if (file && !latest.tab && !latest.session && (!node || (!node.doc_id && !node.generated_by && !node.dir))) {
         preparedFile.current = {file, current};
       }
-      if (doc && !docIdsIn(layoutRef.current).includes(doc.id)) {
-        preparedDocument.current = {doc, current, workspaceCurrent};
-      }
+      if (doc) prepareDocument(doc, request);
       return openHitRef.current(path, line ?? 1, undefined, target => {
-        sourceActivation.current = afterSourceTabActivation(target, () => focusIntent.current, current, stillFocused => {
+        onSourceActivation(target, current, stillFocused => {
           if (target.kind === "document") navigate(`/docs/${target.docId}`);
           if (line !== null) revealLine(target.target, line, character, {source, current: stillFocused});
         });
-        flushSourceActivation();
       }) === true;
     } catch (error) {
       if (!beforeOpen()) return false;
       throw error;
     }
-  }, [registry, flushSourceActivation]);
+  }, [beginSourceOpen, onSourceActivation, prepareDocument, registry]);
   const navigateCoverage = useCallback<CoverageSurfaceClient["navigate"]>((location, current) => {
     const editor = focusedEditor();
     const document = editor?.state.doc, selection = editor?.state.selection;
@@ -1664,7 +1704,8 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     const onOpenPath = (e: Event) => {
       const absolute = (e as CustomEvent<string>).detail;
       if (typeof absolute !== "string" || absolute.length === 0) return;
-      void openSelectedFile(absolute, id => ensureDocOpen(id), openPlainFile, setInsertNotice);
+      const {beforeOpen} = beginSourceOpen();
+      void openSelectedFile(absolute, id => ensureDocOpen(id, undefined, true), openPlainFile, setInsertNotice, beforeOpen);
     };
     window.addEventListener("hickory-doc-command", onCommand);
     window.addEventListener("keydown", onKey);
@@ -1678,7 +1719,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       window.removeEventListener("hickory-show-agent", onAgent);
       window.removeEventListener("hickory-open-path", onOpenPath);
     };
-  }, [registry, openPlainFile, openInsert, openEditElement, saveUntitled]);
+  }, [registry, beginSourceOpen, ensureDocOpen, openPlainFile, openInsert, openEditElement, saveUntitled]);
   const terminals = useTerminals();
   // A terminal a pane started — a test run from the gutter — shown here,
   // because only the workspace can open a tab.
@@ -1902,16 +1943,19 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
           }}
           onAdopted={(adopted) => {
             // Adoption converts this tab in place and opens its new owner beside it.
-            setLayout((current) =>
+            const {current: currentRequest} = beginSourceOpen();
+            setLayout(current => openDocTab(
               adoptPlainFileTab(
                 current,
                 tab.target,
                 adopted.doc_id,
                 adopted.output_path,
               ),
-            );
-            ensureDocOpen(adopted.doc_id);
-            navigate(`/docs/${adopted.doc_id}`);
+              adopted.doc_id,
+              adopted.doc_path,
+            ));
+            onSourceActivation({kind: "document", target: adopted.doc_path, docId: adopted.doc_id},
+              currentRequest, () => navigate(`/docs/${adopted.doc_id}`));
             window.dispatchEvent(new Event(FILES_CHANGED_EVENT));
           }}
         />
@@ -1973,8 +2017,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
           actions={welcomeActions}
           recent={folderDocs}
           onOpenRecent={(id) => {
-            ensureDocOpen(id);
-            navigate(`/docs/${id}`);
+            ensureDocOpen(id, undefined, true);
           }}
         />
       );
@@ -2040,8 +2083,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
           onOpen={(action) => {
             // Documents open/front a tab; generated files open beside their owner.
             if (action.kind === "doc") {
-              ensureDocOpen(action.id);
-              navigate(`/docs/${action.id}`);
+              ensureDocOpen(action.id, undefined, true);
             } else if (action.kind === "generated") {
               // Prefer the server's owner; openableOutputs only knows open documents.
               const owner = action.docId ?? openableOutputs.get(action.path);
@@ -2255,7 +2297,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         provenance={{ layers, onToggle: toggleProvenance, continuity, onContinuity: setContinuityEnabled }} projectId={projectId ?? null}
         onGraph={() => navigate(`/projects/${encodeURIComponent(projectId ?? "")}/lineage`)}
         navigateCoverage={navigateCoverage} onOpen={(path, line) => openHit(path, line ?? 1)}
-        onOpenNote={id => { ensureDocOpen(id); navigate(`/docs/${id}`); }} close={() => setTool(null)}
+        onOpenNote={id => ensureDocOpen(id, undefined, true)} close={() => setTool(null)}
       /></Suspense>}
       <StatusBar
         git={git}
