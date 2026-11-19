@@ -351,7 +351,7 @@ export function WorkspaceChat({ layout, registry, untitledSources, plainSources,
     }} />
     {patchReview && matchesScope(scope, patchReview.review) && <RecordedPatchReview proposal={patchReview.review}
       anchor={patchReview.anchor} close={closePatchReview} model={draftHistory && model}
-      undo={draftHistory?.preview("undo") ? () => changeDraftHistory("undo") : undefined}
-      redo={draftHistory?.preview("redo") ? () => changeDraftHistory("redo") : undefined} />}
+      undo={draftHistory?.preview("undo")?.entry.kind === "draft" ? () => changeDraftHistory("undo") : undefined}
+      redo={draftHistory?.preview("redo")?.entry.kind === "draft" ? () => changeDraftHistory("redo") : undefined} />}
   </div>;
 }

@@ -343,10 +343,35 @@ export function PlainFilePane({
     const current = () => sourceMounted.current && viewRef.current === view && view.dom.isConnected
       && !mergeRef.current && view.state.doc === document && authoredSource(view.state) === text && sourceSignal.revision === revision
       && sourceNamespace.current === namespace && sourceWorkspace.current === workspace;
+    const writable = () => current() && plainOwnership.current && !adoptionPending.current && !recoveryPending.current &&
+      !view.composing && !view.state.readOnly && view.state.facet(EditorView.editable);
     return { path, text, base, guard, revision, scope: {namespace, workspace}, current,
+      prepareResource(after, saved) {
+        const plane = saver.prepareDetach(base, guard);
+        const ready = () => writable() && !!plane?.current();
+        if (!ready()) return null;
+        return {
+          current: ready,
+          adopt(authority) {
+            if (!ready()) throw Error("The open file changed during resource publication.");
+            // Install the confirmed saved baseline before displaying its
+            // draft. Programmatic adoption must never send a regular save.
+            const transaction = view.state.update({
+              ...plainSourceChanges(view.state, after), annotations: isolateHistory.of("full"),
+            });
+            if (authoredSource(transaction.state) !== after) throw Error("The open editor cannot adopt the complete resource source.");
+            saver.load(saved, authority.hash, authority.guard);
+            if (fileRef.current) setFile({...fileRef.current, content: saved, hash: authority.hash, save_guard: authority.guard});
+            if (after !== saved) {
+              saver.restoreDetached();
+              saver.changed(after);
+            }
+            if (text !== after) view.update([transaction]);
+            onUnsavedRef.current?.(saver.hasPendingEdits(), actionsRef.current);
+          },
+        };
+      },
       prepareDraft(after): WorkspaceDraftStage | null {
-        const writable = () => current() && plainOwnership.current && !adoptionPending.current && !recoveryPending.current &&
-          !view.composing && !view.state.readOnly && view.state.facet(EditorView.editable);
         if (!writable() || text === after) return null;
         const plane = saver.prepareDetach(base, guard);
         if (!plane) return null;

@@ -2972,16 +2972,27 @@ project editor and the saved files. See
 Main now opens the complete resource review for provider actions that
 create, move, or remove paths. The shared planner observes exact drafts,
 saved baselines, and physical guards, then reads construction consequences.
-Main displays each reviewed path in the existing floating preview. Resource
-publication and coordinated inverse restoration in Main still require
-editor adoption of confirmed saved identities.
+Main displays each reviewed path in the existing floating preview. Save
+reviewed source resources submits the exact guarded proposal once. After
+the engine confirms the saved result, Main adopts the new baseline in any
+affected open plain editor that keeps its path and identity. Review-based
+workspace Undo and Redo use the retained recovery identity and require a
+separate Save for each inverse. Changes that would move or delete an open
+editor, and changes to affected open managed editors, still require
+additional Main adoption support.
 
 A genuine TypeScript Move to a new file replay previewed the import in
 `move.ts` and the proposed `relocate.ts` export. Both saved and draft layers
 showed the exact changes, including the absent destination preimage. The
 original editor, full selection, and geometry stayed in place through
-Close. The browser sent no source writes. See
-`target/main-resource-move-preview-v3/browser.json`.
+Close. Then a publication replay used real reviewed Save, Undo, and Redo
+to create, remove, and recreate the destination while retaining the
+original editor. The engine issued a fresh guard after each publication.
+A competing file created after preview caused one guarded Save to refuse;
+both saved files and the editor stayed intact. See
+`target/main-resource-move-preview-v3/browser.json`,
+`target/main-resource-move-publish-history-v1/browser.json`, and
+`target/main-resource-move-stale-destination-v1/browser.json`.
 
 Focused rebuilt-engine replays also passed for Python definition and
 Back/Forward, workspace search, delayed first-open authority and capabilities,

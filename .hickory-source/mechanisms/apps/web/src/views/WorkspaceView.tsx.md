@@ -219,14 +219,14 @@ import { nextInQueue } from "../lib/attentionCursor";
 <storycode:copy id="f-47afe3575948-import_statement-3">
 import { DocTabBody, GeneratedTabBody, UntitledTab } from "./workspaceTabs";
 import type { RecordedPatchSource } from "../simple/AgentProposalAdapter";
-import { WorkspaceChangeHistory, planWorkspaceEdit, providerActionPaths, validateReferencedTargets, workspaceEditTargets, type ChangePlan } from "../simple/ChangePlan";
+import { WorkspaceChangeHistory, planWorkspaceEdit, providerActionPaths, validateReferencedTargets, workspaceEditTargets, type ChangePlan, type WorkspaceHistoryToken } from "../simple/ChangePlan";
 import { acquireReferenceSources, acquireSourceProposal } from "../simple/ReferenceSources";
 import { validateProviderSourceProofs, providerSourceProofPaths } from "../simple/ProviderSourceProofs";
 import { validateSourcePreparation } from "../simple/WorkspaceLanguages";
 import { sourceDigest } from "../lsp/diagnosticRevision";
 import { WsRealtime } from "../api/realtime";
 import { ChangePreview } from "../components/ChangePreview";
-import type { ResourceSaveReview, ResourceTransport } from "../simple/ResourceEditors";
+import type { ResourcePublicationReview, ResourceTransport } from "../simple/ResourceEditors";
 const ResourceConsequencesView = lazy(() => import("../simple/SourceRecovery").then(module => ({default: module.ResourceConsequencesView})));
 import type { WindowHistoryPlan } from "./WorkspaceChat";
 import type { UiOutcome } from "../lib/uiActions";
@@ -572,7 +572,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   const [changeReview, setChangeReview] = useState<{
     plan: ChangePlan; current: () => boolean; opensFiles: boolean; apply: () => Promise<void>;
   } | null>(null);
-  const [resourceReview, setResourceReview] = useState<ResourceSaveReview | null>(null);
+  const [resourceReview, setResourceReview] = useState<(ResourcePublicationReview & {history?: WorkspaceHistoryToken}) | null>(null);
   const [changePath, setChangePath] = useState(0);
   const [changePage, setChangePage] = useState(0);
   const [changePending, setChangePending] = useState(false);
@@ -1304,6 +1304,34 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     if (file.path !== path || !file.save_guard) throw Error(`Source authority changed: ${path}`);
     return {text: file.content, guard: file.save_guard, managed: false, docId: undefined};
   }, []);
+  const captureResourceWindow = useCallback((tools: Pick<typeof import("./WorkspaceChat"), "captureWorkspacePatch">,
+    scope: Parameters<typeof tools.captureWorkspacePatch>[1], current: () => boolean) => {
+    const tabs = () => panesOf(layoutRef.current.root).flatMap(pane => pane.tabs)
+      .filter(tab => tab.kind === "file" || tab.kind === "document" || tab.kind === "untitled");
+    const originalTabs = tabs();
+    const rosterCurrent = () => {
+      const retained = tabs();
+      return current() && retained.length === originalTabs.length &&
+        retained.every((tab, index) => tab.id === originalTabs[index].id && tab.target === originalTabs[index].target);
+    };
+    return tools.captureWorkspacePatch(originalTabs, scope, tab => {
+      const owner = readChangeOwner(tab.target);
+      return owner.tab?.id === tab.id ? owner.owner : undefined;
+    }, id => {
+      const view = bufferEditor(id);
+      if (!view?.dom.isConnected) return null;
+      const revision = untitledRevisions.current.get(id) ?? 0, doc = view.state.doc;
+      return {text: doc.toString(), revision, current: () => bufferEditor(id) === view &&
+        view.dom.isConnected && view.state.doc === doc && (untitledRevisions.current.get(id) ?? 0) === revision};
+    }, rosterCurrent);
+  }, [readChangeOwner]);
+  const observeResourceWindow = useCallback(async (capture: ReturnType<typeof captureResourceWindow>, edit: unknown,
+    targets: string[], context: string, load: ResourceTransport, observe: typeof import("../simple/ResourceEditors").observeResourceInputs) => {
+    const retained = await capture.retain();
+    const paths = new Set(targets);
+    const drafts = Object.fromEntries(Object.entries(retained.drafts).filter(([target]) => paths.has(target)));
+    return observe({context, edit, ...retained, drafts}, load, capture.current);
+  }, []);
   const prepareChangePreview = useCallback(async (request: ProviderPreviewRequest): Promise<UiOutcome> => {
     const operation = request.kind;
     const path = semanticPath(request.uri);
@@ -1437,38 +1465,18 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         : request.kind === "code action" ? request.action.title : "Format document";
       if (isResourceEdit(proposal.value.edit)) {
         const edit = proposal.value.edit;
-        const tabs = () => panesOf(layoutRef.current.root).flatMap(pane => pane.tabs)
-          .filter(tab => tab.kind === "file" || tab.kind === "document" || tab.kind === "untitled");
-        const originalTabs = tabs();
-        const rosterCurrent = () => {
-          const retained = tabs();
-          return current() && retained.length === originalTabs.length &&
-            retained.every((tab, index) => tab.id === originalTabs[index].id && tab.target === originalTabs[index].target);
-        };
-        const captured = captureWorkspacePatch(originalTabs, scope, tab => {
-          const owner = readChangeOwner(tab.target);
-          return owner.tab?.id === tab.id ? owner.owner : undefined;
-        }, id => {
-          const view = bufferEditor(id);
-          if (!view?.dom.isConnected) return null;
-          const revision = untitledRevisions.current.get(id) ?? 0, doc = view.state.doc;
-          return {text: doc.toString(), revision, current: () => bufferEditor(id) === view &&
-            view.dom.isConnected && view.state.doc === doc && (untitledRevisions.current.get(id) ?? 0) === revision};
-        }, rosterCurrent);
+        const captured = captureResourceWindow({captureWorkspacePatch}, scope, current);
         const review = await prepareResourceReview(title, edit, crypto.randomUUID().replaceAll("-", ""), async target => {
           const source = proposal.sources.get(target);
           if (!source || !requiredProofs.has(target)) throw Error(`Resource source lacks an exact provider proof: ${target}`);
           return source.text;
         }, async (targets, context) => {
-          const retained = await captured.retain();
-          const drafts = Object.fromEntries(targets.filter(target => Object.hasOwn(retained.drafts, target))
-            .map(target => [target, retained.drafts[target]]));
-          const observation = await observeResourceInputs({context, edit, ...retained, drafts}, load, captured.current);
+          const observation = await observeResourceWindow(captured, edit, targets, context, load, observeResourceInputs);
           if (observation.inputs.workspace !== scope.workspace) throw Error("Resource workspace changed. Prepare again.");
           return observation;
         }, load, captured.current);
         if (!review.current()) throw Error("Resource sources changed. Prepare the preview again.");
-        setChangePath(0); setChangePage(0); setResourceReview(review);
+        setChangePath(0); setChangePage(0); setResourceReview({...review, operation: "save"});
         return {status: "completed", value: {preview_ready: true, source_files: review.patches.length, source_changed: false}};
       }
       const plan = planWorkspaceEdit(title, proposal.value.edit, proposal.sources);
@@ -1541,10 +1549,94 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       temporary?.close();
       if (visible()) setChangePending(false);
     }
-  }, [activeSourceEditor, readChangeOwner, readChangeDisk, recordedDraftHistory]);
+  }, [activeSourceEditor, captureResourceWindow, observeResourceWindow, readChangeOwner, readChangeDisk, recordedDraftHistory]);
+  const saveResourceReview = async (review: NonNullable<typeof resourceReview>) => {
+    if (changeApplying.current || !review.current()) {
+      setChangeError("Source changed after review. Prepare the resource change again.");
+      return;
+    }
+    changeApplying.current = true;
+    setChangePending(true);
+    setChangeError(null);
+    const load: ResourceTransport = (route, body) => callApi("POST", route, body);
+    try {
+      const {confirmedResourceFiles, publishReviewedResources} = await import("../simple/ResourceEditors");
+      const token = review.history;
+      const current = () => review.current() && (!token || recordedDraftHistory.current(token));
+      if (!current()) throw Error("Workspace history or source changed. Open a fresh preview.");
+      // Closed paths need no editor adoption. A live path needs an editor
+      // which can install the new saved baseline in place after confirmation.
+      const stages = review.patches.flatMap(patch => {
+        const {tab, owner} = readChangeOwner(patch.path);
+        if (!tab) return [];
+        const saved = review.saved[patch.path];
+        if (!owner || !patch.before || !patch.after || patch.before.identity !== patch.after.identity || saved?.kind !== "file") {
+          throw Error(`The open editor for ${patch.path} cannot adopt this resource transition in place.`);
+        }
+        const stage = owner.text === patch.before.text && owner.prepareResource?.(patch.after.text, saved.text);
+        if (!stage || !stage.current()) throw Error(`The open editor for ${patch.path} is unavailable for resource publication.`);
+        return [{path: patch.path, stage}];
+      });
+      const owned = () => current() && stages.every(({stage}) => stage.current());
+      // Retain the same review identity so a dispatched request can't be retried.
+      if (!owned()) throw Error("Source changed after review. Prepare the resource change again.");
+      const {recovery} = await publishReviewedResources(review, load, (receipt, expected) => {
+        const files = confirmedResourceFiles(review.patches, receipt, expected);
+        if (!owned()) throw Error("Open editors changed during publication.");
+        const adoptions = stages.map(({path, stage}) => {
+          const file = files.get(path);
+          if (!file?.save_guard) throw Error(`The saved source has no current editor guard: ${path}`);
+          return {stage, authority: {hash: file.hash, guard: file.save_guard}};
+        });
+        for (const {stage, authority} of adoptions) stage.adopt(authority);
+      });
+      const entry = {kind: "resource" as const, recovery};
+      if (token) recordedDraftHistory.commit(token, entry);
+      else recordedDraftHistory.record(entry);
+      setResourceReview(null);
+      setInsertNotice("Saved reviewed source resources.");
+      window.dispatchEvent(new Event(FILES_CHANGED_EVENT));
+    } catch (error) {
+      setChangeError(error instanceof Error ? error.message : String(error));
+    } finally {
+      changeApplying.current = false;
+      setChangePending(false);
+    }
+  };
   changeHistoryRef.current = direction => {
     const token = recordedDraftHistory.preview(direction), workspace = sourceWorkspace.current;
-    if (!token) return;
+    if (!token || changeApplying.current) return;
+    if (token.entry.kind === "resource") {
+      const recovery = token.entry.recovery, ticket = ++changeTicket.current;
+      const visible = () => ticket === changeTicket.current && sourceWorkspace.current === workspace;
+      const current = () => visible() && recordedDraftHistory.current(token) && workspaceIsVisible();
+      setChangeKind("code action");
+      setChangePending(true); setChangeReview(null); setResourceReview(null); setChangeError(null);
+      const load: ResourceTransport = (route, body) => callApi("POST", route, body);
+      void (async () => {
+        const [tools, resources] = await Promise.all([import("./WorkspaceChat"), import("../simple/ResourceEditors")]);
+        const files = folderRootsRef.current[0] ?? await api.files();
+        const scope = tools.patchScope(files);
+        if (!scope || !current()) throw Error("Open the original workspace before preparing resource history.");
+        const record = await callApi<import("../simple/SourceRecovery").RecoveryReading>("GET",
+          "/api/changes/resource-recovery?id=" + encodeURIComponent(recovery));
+        if (!current() || record.id !== recovery || record.workspace !== scope.workspace || record.entry_transition ||
+            !record.paths.length || record.paths.length > 1000 || !/^[0-9a-f]{64}$/.test(record.fingerprint)) {
+          throw Error("Current resource recovery evidence is unavailable.");
+        }
+        const capture = captureResourceWindow(tools, scope, current);
+        const paths = record.paths.map(item => item.path);
+        const edit = {changes: Object.fromEntries(paths.map(path => [documentUri(path), []]))};
+        const observation = await observeResourceWindow(capture, edit, paths, crypto.randomUUID().replaceAll("-", ""), load, resources.observeResourceInputs);
+        if (observation.inputs.workspace !== scope.workspace) throw Error("Resource workspace changed.");
+        const review = await resources.prepareReviewedResourceRestoration(record, observation, load);
+        if (!review.current()) throw Error("Resource history changed. Open a fresh preview.");
+        setChangePath(0); setChangePage(0);
+        setResourceReview({...review, operation: "restore", fingerprint: record.fingerprint, history: token});
+      })().catch(error => { if (visible()) setInsertNotice(String(error)); })
+        .finally(() => { if (visible()) setChangePending(false); });
+      return;
+    }
     void import("./WorkspaceChat").then(async ({matchesScope, patchScope, stageDrafts, commitWorkspaceDrafts, invertWindowDraft}) => {
       const files = folderRootsRef.current[0] ?? await api.files();
       const plan = recordedDraftHistory.readDraft(token) as WindowHistoryPlan;
@@ -2903,7 +2995,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         }}>
         <button type="button" aria-label={`Close ${changeKind} preview`} disabled={changeApplying.current}
           onClick={() => { changeTicket.current++; setChangeReview(null); setResourceReview(null); setChangePending(false); }}>×</button>
-        {changePending && <p role="status">{changeApplying.current ? "Checking and applying source drafts…" : `Preparing ${changeKind} preview…`}</p>}
+        {changePending && <p role="status">{changeApplying.current ? (resourceReview ? "Saving reviewed source resources…" : "Checking and applying source drafts…") : `Preparing ${changeKind} preview…`}</p>}
         {resourceReview && (() => {
           const patch = resourceReview.patches[changePath];
           const savedBefore = resourceReview.savedBefore[patch.path], savedAfter = resourceReview.saved[patch.path];
@@ -2931,7 +3023,9 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
                 <ResourceConsequencesView review={resourceReview} />
               </Suspense>
             </ChangePreview>
-            <p role="status">Source resource review is read-only in this window.</p>
+            {changeError && <p role="alert">{changeError}</p>}
+            <button type="button" disabled={changePending || !!changeError}
+              onClick={() => { void saveResourceReview(resourceReview); }}>Save reviewed source resources</button>
           </section>;
         })()}
         {changeReview && (() => {

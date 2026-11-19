@@ -31,6 +31,12 @@ Pending group rollback restores the original editor state and the original save
 plane. A marked recovery draft reenters the private plane when the window has
 enabled draft recovery.
 
+After the engine confirms a resource publication, the same-path editor
+installs the fresh saved guard before changing the visible source. The
+programmatic edit leaves the mounted editor and its history in place. If
+the reviewed draft differs from the saved result, it stays in the private
+save plane until the reader explicitly saves it.
+
 <storycode:copy id="f-2f891a49445f-PlainFilePane">
 import { performanceInline } from "../performance/inline";
 import { coverageGutter } from "../coverage/gutter";
@@ -377,10 +383,35 @@ export function PlainFilePane({
     const current = () => sourceMounted.current && viewRef.current === view && view.dom.isConnected
       && !mergeRef.current && view.state.doc === document && authoredSource(view.state) === text && sourceSignal.revision === revision
       && sourceNamespace.current === namespace && sourceWorkspace.current === workspace;
+    const writable = () => current() && plainOwnership.current && !adoptionPending.current && !recoveryPending.current &&
+      !view.composing && !view.state.readOnly && view.state.facet(EditorView.editable);
     return { path, text, base, guard, revision, scope: {namespace, workspace}, current,
+      prepareResource(after, saved) {
+        const plane = saver.prepareDetach(base, guard);
+        const ready = () => writable() && !!plane?.current();
+        if (!ready()) return null;
+        return {
+          current: ready,
+          adopt(authority) {
+            if (!ready()) throw Error("The open file changed during resource publication.");
+            // Install the confirmed saved baseline before displaying its
+            // draft. Programmatic adoption must never send a regular save.
+            const transaction = view.state.update({
+              ...plainSourceChanges(view.state, after), annotations: isolateHistory.of("full"),
+            });
+            if (authoredSource(transaction.state) !== after) throw Error("The open editor cannot adopt the complete resource source.");
+            saver.load(saved, authority.hash, authority.guard);
+            if (fileRef.current) setFile({...fileRef.current, content: saved, hash: authority.hash, save_guard: authority.guard});
+            if (after !== saved) {
+              saver.restoreDetached();
+              saver.changed(after);
+            }
+            if (text !== after) view.update([transaction]);
+            onUnsavedRef.current?.(saver.hasPendingEdits(), actionsRef.current);
+          },
+        };
+      },
       prepareDraft(after): WorkspaceDraftStage | null {
-        const writable = () => current() && plainOwnership.current && !adoptionPending.current && !recoveryPending.current &&
-          !view.composing && !view.state.readOnly && view.state.facet(EditorView.editable);
         if (!writable() || text === after) return null;
         const plane = saver.prepareDetach(base, guard);
         if (!plane) return null;
@@ -1233,6 +1264,33 @@ describe("reopening a file that had unsaved changes", () => {
     }));
     expect(read()?.base).toBe(after);
     expect(read()?.guard).toBe("next-guard");
+    expect(api.saveFile).not.toHaveBeenCalled();
+  });
+
+  it("adopts a confirmed saved resource baseline and retains its separate draft in place", async () => {
+    const path = "notes.md", base = "first\r\nsecond\r\n";
+    const saved = "first\r\nsaved\r\n", draftText = "first\r\nprivate 😀\r\n";
+    serve({content: base, drafts: []});
+    vi.mocked(api.file).mockResolvedValue({path, content: base, language: "markdown", hash: "before-hash", save_guard: "before-guard"});
+    vi.mocked(api.files).mockResolvedValue({root: "notebook", root_path: "/workspace", workspace_id: "a".repeat(32),
+      tree: [{path, name: path, dir: false}]});
+    let read = (): RecordedPatchSource | null => null;
+    let dirty = false;
+    const mounted = render(<PlainFilePane path={path} proposalTabId="file"
+      proposalOwner={(_tab, owner) => { read = owner; return () => {}; }}
+      onUnsaved={value => { dirty = value; }} />);
+    await waitFor(() => expect(read()?.prepareResource?.(draftText, saved)?.current()).toBe(true));
+    const editor = EditorView.findFromDOM(mounted.container.querySelector<HTMLElement>(".cm-editor")!)!;
+    act(() => editor.dispatch({selection: {anchor: 1}}));
+    const staged = read()!.prepareResource!(draftText, saved)!;
+    act(() => staged.adopt({hash: "confirmed-hash", guard: "confirmed-guard"}));
+    expect(staged.current()).toBe(false);
+    expect(authoredSource(editor.state)).toBe(draftText);
+    expect(editor.state.selection.main.anchor).toBe(1);
+    expect(EditorView.findFromDOM(mounted.container.querySelector<HTMLElement>(".cm-editor")!)).toBe(editor);
+    expect(read()).toMatchObject({base: saved, guard: "confirmed-guard", text: draftText});
+    expect(dirty).toBe(true);
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 650)); });
     expect(api.saveFile).not.toHaveBeenCalled();
   });
 

@@ -163,6 +163,33 @@ describe("reopening a file that had unsaved changes", () => {
     expect(api.saveFile).not.toHaveBeenCalled();
   });
 
+  it("adopts a confirmed saved resource baseline and retains its separate draft in place", async () => {
+    const path = "notes.md", base = "first\r\nsecond\r\n";
+    const saved = "first\r\nsaved\r\n", draftText = "first\r\nprivate 😀\r\n";
+    serve({content: base, drafts: []});
+    vi.mocked(api.file).mockResolvedValue({path, content: base, language: "markdown", hash: "before-hash", save_guard: "before-guard"});
+    vi.mocked(api.files).mockResolvedValue({root: "notebook", root_path: "/workspace", workspace_id: "a".repeat(32),
+      tree: [{path, name: path, dir: false}]});
+    let read = (): RecordedPatchSource | null => null;
+    let dirty = false;
+    const mounted = render(<PlainFilePane path={path} proposalTabId="file"
+      proposalOwner={(_tab, owner) => { read = owner; return () => {}; }}
+      onUnsaved={value => { dirty = value; }} />);
+    await waitFor(() => expect(read()?.prepareResource?.(draftText, saved)?.current()).toBe(true));
+    const editor = EditorView.findFromDOM(mounted.container.querySelector<HTMLElement>(".cm-editor")!)!;
+    act(() => editor.dispatch({selection: {anchor: 1}}));
+    const staged = read()!.prepareResource!(draftText, saved)!;
+    act(() => staged.adopt({hash: "confirmed-hash", guard: "confirmed-guard"}));
+    expect(staged.current()).toBe(false);
+    expect(authoredSource(editor.state)).toBe(draftText);
+    expect(editor.state.selection.main.anchor).toBe(1);
+    expect(EditorView.findFromDOM(mounted.container.querySelector<HTMLElement>(".cm-editor")!)).toBe(editor);
+    expect(read()).toMatchObject({base: saved, guard: "confirmed-guard", text: draftText});
+    expect(dirty).toBe(true);
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 650)); });
+    expect(api.saveFile).not.toHaveBeenCalled();
+  });
+
   it("puts the unsaved text back, without asking", () => {
     // The common case by a wide margin. A dialog here would train people to
     // dismiss dialogs, and the work is theirs — nothing was lost or decided.

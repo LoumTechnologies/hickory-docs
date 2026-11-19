@@ -127,28 +127,61 @@ export async function prepareResourceRestore(buffers:Buffers,record:{id:string;w
  const edit=entryIntent?.edit??{changes:Object.fromEntries(record.paths.map(item=>['hick:///'+item.path.split('/').map(encodeURIComponent).join('/'),[]]))};
  const {inputs,capture,current}=await captureResourceInputs(buffers,[...paths],context,edit,load,original,hash,entryIntent);
  if(inputs.workspace!==record.workspace)throw new Error('Current source acquisition refused or changed. Prepare restoration again.');
- const proposal={recovery_id:record.id,inputs,capture};
- const prepared=await load<{version:number;restoration:{recovery_fingerprint:string;workspace:string;context:string;plan:ResourceWirePlan;saved_before:Record<string,ResourceSaved>;saved_after:Record<string,ResourceSaved>};consequences:ResourceConstructionFacts}>('/api/changes/prepare-restoration',proposal);
- if(!current()||prepared.version!==1||prepared.restoration.workspace!==record.workspace||prepared.restoration.context!==context||prepared.restoration.recovery_fingerprint!==record.fingerprint||!currentResourceFacts(prepared.consequences,record.workspace,context))throw new Error('Recovery evidence or source ownership changed. Read and prepare again.');
- const patches=resourceWirePatches(prepared.restoration.plan),restoring=new Map<string,Buffer>();
- for(const patch of patches)if(patch.after&&!patches.some(item=>item.before?.identity===patch.after!.identity)){const held=buffers.retainedResources.get(patch.after.identity);if(held)restoring.set(patch.after.identity,held);}
+ const review = await prepareReviewedResourceRestoration(record, {inputs, capture, current}, load);
+ const {patches} = review, restoring = new Map<string, Buffer>();
+ for (const patch of patches) if (patch.after && !patches.some(item => item.before?.identity === patch.after!.identity)) {
+  const held = buffers.retainedResources.get(patch.after.identity);
+  if (held) restoring.set(patch.after.identity, held);
+ }
  const live=new Map<string,ResourceEditorCapture<Buffer>>();for(const patch of patches)if(patch.before){const buffer=buffers.values.get(patch.path);if(!buffer||buffer.text!==patch.before.text)throw new Error("Current resource source does not match the reviewed restoration. Preserve drafts and prepare again.");live.set(patch.before.identity,{editor:buffer,source:buffer.text});}
  routeResourceEditors(patches,live,new Map([...restoring].map(([identity,editor])=>[identity,{editor,source:editor.text}])));
  const editorCurrent=captureResourceEditors(buffers,patches,restoring);
- return {operation:'restore',facts:prepared.consequences,record:record.id,fingerprint:record.fingerprint,consequence:prepared.consequences.fingerprint,workspace:record.workspace,context,plan:prepared.restoration.plan,patches,saved:prepared.restoration.saved_after,savedBefore:prepared.restoration.saved_before,proposal,current:()=>current()&&editorCurrent(),restoring,entryIntent};
+ return {...review, operation:"restore", record:record.id, fingerprint:record.fingerprint,
+  current:()=>review.current()&&editorCurrent(),restoring,entryIntent};
 }
-const resourceAttempts=new WeakMap<ResourceRestoreReview,string>();
+/** Obtain the complete inverse from the retained recovery identity and current resource inputs. */
+export async function prepareReviewedResourceRestoration(
+  record: {id: string; workspace: string; fingerprint: string},
+  observation: Awaited<ReturnType<typeof observeResourceInputs>>,
+  load: ResourceTransport,
+): Promise<ResourceSaveReview> {
+  const {inputs, capture, current} = observation;
+  const {context} = inputs;
+  const proposal = {recovery_id: record.id, inputs, capture};
+  const prepared = await load<{version: number; restoration: {
+    recovery_fingerprint: string; workspace: string; context: string; plan: ResourceWirePlan;
+    saved_before: Record<string, ResourceSaved>; saved_after: Record<string, ResourceSaved>;
+  }; consequences: ResourceConstructionFacts}>("/api/changes/prepare-restoration", proposal);
+  const restoration = prepared.restoration;
+  if (!current() || prepared.version !== 1 || restoration.workspace !== record.workspace || restoration.context !== context ||
+      restoration.recovery_fingerprint !== record.fingerprint || !currentResourceFacts(prepared.consequences, record.workspace, context)) {
+    throw Error("Recovery evidence or source ownership changed. Read and prepare again.");
+  }
+  return {
+    facts: prepared.consequences, consequence: prepared.consequences.fingerprint, workspace: record.workspace, context,
+    plan: restoration.plan, patches: resourceWirePatches(restoration.plan), saved: restoration.saved_after,
+    savedBefore: restoration.saved_before, proposal, current,
+  };
+}
+
+export type ResourcePublicationReview = ResourceSaveReview & {
+  operation: "save" | "restore";
+  fingerprint?: string;
+  entryIntent?: EntryIntent;
+};
+const resourceAttempts = new WeakMap<ResourcePublicationReview, string>();
 export class EntryPublicationNoEffect extends Error {
  constructor(){super('Publication ended before any source write. Your draft and history are retained. Prepare a fresh review.');}
 }
-/** Never retry a failed/uncertain write here. The caller requires a new review. */
-export async function publishResourceRestore(buffers:Buffers,review:ResourceRestoreReview,load:ResourceTransport):Promise<{routes:ResourceEditorRoute<Buffer>[];recovery:string}>{
+/** Dispatch once. The host checks the exact receipt before adopting its editor state. */
+export async function publishReviewedResources<T>(review: ResourcePublicationReview, load: ResourceTransport,
+  adopt: (receipt: ResourceReceipt, expected: ResourceExpectation) => T,
+  validateEditors?: () => void): Promise<{result: T; recovery: string}> {
  const earlier=resourceAttempts.get(review);if(earlier)throw new Error('This review already has publication request '+earlier+'. Inspect its retained recovery; it will not be retried.');
  if(!review.current())throw new Error('Source changed after review. Prepare restoration again.');
- for(const patch of review.patches)if(patch.before){const buffer=buffers.values.get(patch.path),view=buffer&&editorForBuffer(buffer)?.view;if(!buffer||view&&(view.composing||authoredSource(view.state)!==buffer.text||view.state.readOnly||!view.state.facet(EditorView.editable)))throw new Error('Finish composition and restore current source before publication.');}
+ validateEditors?.();
  const request=crypto.randomUUID().replaceAll('-','');resourceAttempts.set(review,request);
  let receipt:ResourceReceipt;try{receipt=await load<ResourceReceipt>(review.operation==='save'?'/api/changes/resource-save':'/api/changes/restore-resources',{request_id:request,reviewed_fingerprint:review.consequence,...(review.operation==='restore'?{reviewed_recovery_fingerprint:review.fingerprint}:{}),proposal:review.proposal});}catch(error){throw new Error(String(error)+' Publication request '+request+' is not confirmed. Inspect Source recovery using this identity before another review.');}
- let routes:ResourceEditorRoute<Buffer>[];
  try {
   if (entryPublicationHadNoEffect(receipt.entry_outcome,request,review.entryIntent)) {
    if (receipt.version!==2 || receipt.request_id!==request || receipt.workspace!==review.workspace || receipt.context!==review.context ||
@@ -160,11 +193,27 @@ export async function publishResourceRestore(buffers:Buffers,review:ResourceRest
    throw new EntryPublicationNoEffect();
   }
   confirmEntryOutcome(receipt.entry_outcome,request,review.entryIntent);
-  const interrupted=review.entryIntent?.interrupted;
-  routes=adoptResourceReceipt(buffers,review.patches,receipt,{request,workspace:review.workspace,context:review.context,saved:new Map(Object.entries(review.saved))},review.current,review.restoring,interrupted?.missingOriginal?interrupted.source:undefined);
+  if (!review.current()) throw Error("Editor drafts or baselines changed during publication.");
+  const match = receipt.outcome.recovery.match(/(?:^|\/)resource-changes\/([0-9a-f]{32})\/[^/]+$/);
+  if (!match) throw Error("Source publication has no inverse recovery identity.");
+  const expected = {request, workspace: review.workspace, context: review.context, saved: new Map(Object.entries(review.saved))};
+  return {result: adopt(receipt, expected), recovery: match[1]};
  }catch(error){if(error instanceof EntryPublicationNoEffect)throw error;throw new Error(String(error)+" Publication request "+request+"; retained recovery "+(receipt.outcome?.recovery??"unknown")+". Preserve local drafts while inspecting the result.");}
- const match=receipt.outcome.recovery.match(/(?:^|\/)resource-changes\/([0-9a-f]{32})\/[^/]+$/);if(!match)throw new Error('Source restored but inverse recovery identity is unavailable. Inspect Source recovery.');
- return {routes,recovery:match[1]};
+}
+
+
+export async function publishResourceRestore(buffers:Buffers,review:ResourceRestoreReview,load:ResourceTransport):Promise<{routes:ResourceEditorRoute<Buffer>[];recovery:string}>{
+ const interrupted=review.entryIntent?.interrupted;
+ const {result, recovery}=await publishReviewedResources(review,load,(receipt,expected)=>
+  adoptResourceReceipt(buffers,review.patches,receipt,expected,review.current,review.restoring,interrupted?.missingOriginal?interrupted.source:undefined), () => {
+   for (const patch of review.patches) if (patch.before) {
+    const buffer = buffers.values.get(patch.path), view = buffer && editorForBuffer(buffer)?.view;
+    if (!buffer || view && (view.composing || authoredSource(view.state) !== buffer.text || view.state.readOnly || !view.state.facet(EditorView.editable))) {
+     throw Error("Finish composition and restore current source before publication.");
+    }
+   }
+  });
+ return {routes:result,recovery};
 }
 
 
