@@ -38,7 +38,7 @@ export interface ApiRoutes {
    * file with. Nothing is read or written here — the OS association decides. */
   openExternal(path: string): POST<"/api/open-external", { ok: true }>;
 /** Any text file in the folder, whole, with the hash a save passes back. */
-  openFile(path: string): POST<"/api/open-file", { path: string; doc_id?: string }>;
+  openFile(path: string): POST<"/api/open-file", { path: string; doc_id?: string; source_scope?: { root_path: string; workspace_id: string } }>;
   /** Observe an exact workspace file before ownership and guarded editing arrive. */
   startupSource(path: string): GET<"/api/startup-source?path={path:url}", { version: 1; path: string; content: string; root_path: string; workspace_id: string | null; doc_id?: string }>;
   file(path: string): GET<"/api/file?path={path:url}", Types.PlainFile>;

@@ -83,6 +83,8 @@ Explicitly open a selected text file without replacing this workspace.
 
 <storycode:copy id="f-128423f88fa6-open_file">
 /// Explicitly open a selected text file without replacing this workspace.
+/// A scoped selection can identify readable startup text before Files
+/// arrives. The scope describes the selection, not permission to save.
 pub async fn open_file(
     State(state): State<LocalState>,
     Json(q): Json<PlainFileQuery>,
@@ -106,17 +108,27 @@ pub async fn open_file(
         .unwrap_or(&path)
         .to_string_lossy()
         .replace('\\', "/");
+    let mut reply = json!({ "path": target });
+    let root = state.index.root();
+    if state.folder_open && path.starts_with(root)
+        && let Ok(workspace_id) = state.resource_root.check(root)
+        && let Ok(root_path) = root.canonicalize()
+    {
+        reply["source_scope"] = json!({
+            "root_path": root_path.to_string_lossy(), "workspace_id": workspace_id,
+        });
+    }
     if path.extension().is_some_and(|ext| ext == "md") {
         let id = state.index.add(&target);
-        Ok(Json(json!({ "path": target, "doc_id": id })))
+        reply["doc_id"] = json!(id);
     } else {
         state
             .opened_files
             .write()
             .map_err(|_| ApiError::internal("file registry unavailable"))?
             .insert(path);
-        Ok(Json(json!({ "path": target })))
     }
+    Ok(Json(reply))
 }
 
 </storycode:copy>

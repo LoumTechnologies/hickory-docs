@@ -46,6 +46,7 @@ export function useFolderPane(
 }
 
 type StartupSource = Awaited<ReturnType<typeof api.startupSource>>;
+type OpenFileSelection = Awaited<ReturnType<typeof api.openFile>>;
 export type StartupPlainFile = {
   source: StartupSource;
   current: () => boolean;
@@ -124,6 +125,32 @@ function scopedStartupText(requested: string, files: FilesResponse, path: string
   return {version: 1 as const, path, content, root_path: root, workspace_id: workspace, doc_id};
 }
 
+// Open File can bind the selected path to its workspace before the tree
+// arrives. Its scope is enough to show the exact text read-only; the separate
+// Files response still has to confirm ownership before editing.
+function readStartupSelection<T>(request: Promise<OpenFileSelection>, load: (opened: OpenFileSelection) => Promise<T>) {
+  const text = request.then(async opened => ({opened, value: await load(opened)}));
+  const files = request.then(() => api.files());
+  void files.catch(() => {});
+  return {text, files};
+}
+
+function selectedStartupText(requested: string, opened: OpenFileSelection, files: Promise<FilesResponse>, content: string) {
+  const scope = opened.source_scope;
+  if (!scope) {
+    return files.then(tree => scopedStartupText(requested, tree, opened.path, content, opened.doc_id));
+  }
+  const {root_path, workspace_id} = scope;
+  if (!root_path || !/^[a-f0-9]{32}$/.test(workspace_id)
+    || !matchesRequested(requested, root_path, opened.path)) return null;
+  return {version: 1 as const, path: opened.path, content, root_path, workspace_id, doc_id: opened.doc_id};
+}
+
+function selectionMatchesSource(opened: OpenFileSelection, source: StartupSource) {
+  const scope = opened.source_scope;
+  return !scope || (scope.root_path === source.root_path && scope.workspace_id === source.workspace_id);
+}
+
 function ownsStartupSource(files: FilesResponse, source: StartupSource) {
   const workspace = files.workspace_id, namespace = files.root_path;
   return !!namespace && namespace === source.root_path && !!workspace && /^[a-f0-9]{32}$/.test(workspace)
@@ -137,23 +164,23 @@ export async function observePlainStartup(
   const path = startupPath(requested, hint);
   if (!path || path.endsWith(".md")) return null;
   const refuse = () => Error("The requested file no longer matches the startup observation. Reopen it to check the current source.");
-  const read = (request: typeof selected) => request.then(async opened => {
+  const read = (request: typeof selected) => readStartupSelection(request, async opened => {
     if (!current() || opened.doc_id || opened.path !== path) throw refuse();
-    const [files, file] = await Promise.all([api.files(), api.file(path)]);
-    return {files, file};
+    return api.file(path);
   });
   const initial = read(selected);
   const source = await firstStartupSource(
     readStartupSource(requested, path, current).then(raw => raw?.doc_id ? null : raw),
-    initial.then(({files, file}) => file.path === path ? scopedStartupText(requested, files, path, file.content) : null),
+    initial.text.then(({opened, value: file}) => file.path === path
+      ? selectedStartupText(requested, opened, initial.files, file.content) : null),
   );
   if (!source || !current()) return null;
   const authorize = (request: typeof initial) => {
-    const authority = request.then(({files, file}) => {
+    const authority = Promise.all([request.text, request.files]).then(([{opened, value: file}, files]) => {
       const workspace = files.workspace_id, namespace = files.root_path;
       const node = findNodeByPath([files], path);
       if (!current() || !namespace || !workspace
-        || !ownsStartupSource(files, source) || !node || node.dir || node.doc_id
+        || !selectionMatchesSource(opened, source) || !ownsStartupSource(files, source) || !node || node.dir || node.doc_id
         || file.path !== path || file.content !== source.content) {
         throw refuse();
       }
@@ -178,25 +205,24 @@ export async function observeManagedStartup(
   const path = startupPath(requested, hint);
   if (!path || !path.endsWith(".md")) return null;
   const validDocId = (id?: string) => !!id && /^[a-f0-9]{16}$/.test(id);
-  const read = (request: typeof selected) => request.then(async opened => {
+  const read = (request: typeof selected) => readStartupSelection(request, async opened => {
     const docId = opened.doc_id;
     if (!current() || opened.path !== path || !docId || !validDocId(docId)) throw Error("The selected document changed.");
-    const [doc, files] = await Promise.all([api.doc(docId), api.files()]);
-    return {doc, files, docId};
+    return api.doc(docId);
   });
   const initial = read(selected);
   const source = await firstStartupSource(
     readStartupSource(requested, path, current).then(raw => validDocId(raw?.doc_id) ? raw : null),
-    initial.then(({doc, files, docId}) => doc.path === path && doc.id === docId
-      ? scopedStartupText(requested, files, path, doc.source, docId) : null),
+    initial.text.then(({opened, value: doc}) => doc.path === path && doc.id === opened.doc_id
+      ? selectedStartupText(requested, opened, initial.files, doc.source) : null),
   );
   const docId = source?.doc_id;
   if (!source || !docId || !current()) return null;
   const authorize = (request: typeof initial) => {
-    const authority = request.then(({doc, files, docId: selectedId}) => {
+    const authority = Promise.all([request.text, request.files]).then(([{opened, value: doc}, files]) => {
       const refuse = () => Error("The requested document no longer matches its startup observation. Reopen it to check the current source.");
       const node = findNodeByPath([files], path);
-      if (!current() || selectedId !== docId || !ownsStartupSource(files, source) || !node || node.dir
+      if (!current() || opened.doc_id !== docId || !selectionMatchesSource(opened, source) || !ownsStartupSource(files, source) || !node || node.dir
         || node.generated_by || node.doc_id !== docId || doc.id !== docId || doc.path !== path || doc.source !== source.content) throw refuse();
       if (!doc.save_guard) throw Error(doc.save_guard_reason || "The document's saved source authority is unavailable. Reopen it to check again.");
       return doc;

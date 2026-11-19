@@ -76,6 +76,26 @@ it("presents raw startup text after selection while the guarded file read is pen
   expect(read).toHaveBeenCalledTimes(1);
 });
 
+it.each(["plain", "managed"])("shows selected %s text while Files and the raw read are pending", async kind => {
+  const root = "/workspace", workspace = "a".repeat(32);
+  const doc_id = kind === "managed" ? "b".repeat(16) : undefined;
+  const name = doc_id ? "wanted.md" : "wanted.txt", path = "nested/" + name;
+  const content = "Exact selected text\n";
+  const tree = {root, root_path: root, workspace_id: workspace, tree: [{name, path, dir: false, doc_id}]};
+  vi.spyOn(api, "startupSource").mockReturnValue(new Promise(() => {}));
+  let release!: (value: typeof tree) => void;
+  vi.spyOn(api, "files").mockReturnValue(new Promise(resolve => { release = resolve; }));
+  const selected = Promise.resolve({path, doc_id, source_scope: {root_path: root, workspace_id: workspace}});
+  if (doc_id) vi.spyOn(api, "doc").mockResolvedValue({id: doc_id, path, updated_at: "", source: content, save_guard: "guard"});
+  else vi.spyOn(api, "file").mockResolvedValue({path, content, language: "text", hash: "base", save_guard: "guard"});
+  const observe = doc_id ? observeManagedStartup : observePlainStartup;
+  const preview = await observe(root + "/" + path, path, selected, () => true);
+  expect(preview?.source.content).toBe(content);
+  expect(preview?.source.workspace_id).toBe(workspace);
+  release({...tree, workspace_id: "c".repeat(32)});
+  await expect(preview?.authority).rejects.toThrow(/no longer matches/);
+});
+
 it("keeps the first scoped text when a different raw startup response arrives later", async () => {
   const path = "nested/wanted.txt", root = "/workspace", workspace = "a".repeat(32);
   const content = "Current file text\n";

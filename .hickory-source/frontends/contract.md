@@ -277,6 +277,20 @@ document rechecked authority when its room became available. See
 `target/main-startup-authority-race-fixed-plain-guardless-retry/browser.json`
 and `target/main-startup-authority-race-fixed-managed-guardless-retry/browser.json`.
 
+Open File now identifies the workspace for a contained selection. This
+lets Main show exact text from its scoped read while Files and raw
+startup source are both pending. With the real engine, plain and managed
+editors rendered read-only and refused typing during those holds. Files
+release preserved the same editor, nonempty selection, scroll position,
+and first visible row. The managed editor then stayed read-only
+through its held room sync. Promotion sent no source writes or room
+updates. A later raw reply preserved an edit, and Undo restored the
+exact bytes. See
+`target/main-startup-authority-race-v10-plain-listing-held-retry/browser.json`
+and `target/main-startup-authority-race-v10-managed-listing-held-retry/browser.json`.
+An explicit selection outside the workspace retained its absolute path
+and did not acquire the workspace scope. See `target/open-file-startup-scope-v10.json`.
+
 Mounted AppKit repeated both cases against the freshly linked engine. A held
 Files response let the exact startup bytes appear first. Releasing Files and
 the guarded read kept the original editor, its selection and viewport, and
