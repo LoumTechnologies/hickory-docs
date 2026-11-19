@@ -213,6 +213,25 @@ The exact terminal request addressed the first folder. The full app replay
 passed in Chromium. The isolated Files tree also passed in WebKit and Firefox. See the
 [Files browser witness](../guarantees/authoring/the-workspace-tree-edits-like-an-editor/contract.md#files-recipe-overflow-browser).
 
+### Native editor gutter overflow
+
+The mounted Mac app opened the two-action grid with app-local AppKit pointer
+events after both adjacent equation lines reached their final layout. Both
+actions on the following line kept their exact frames. Selecting Equation
+from the grid opened its inspector. The main editor, viewport, nonempty
+selection, draft text, Undo manager, and saved bytes stayed intact. The
+replay used the owned app's event loop while the console was locked.
+See `target/appkit-gutter-overflow.o1k99ksz/receipt.json`.
+
+The iPhone simulator exercised adjacent occupied rows and a second
+overflow button in a lower slot. The baseline used a centered sheet and
+anchored the lower case one slot above its trigger. The rebuilt app opened
+both grids as compact popovers attached to the exact trigger bounds. Both
+replays kept the next action, editor frame, scroll, selection, undo history,
+and saved source intact while opening the grid. Native taps on an excess
+action revealed its exact equation source. See
+`target/ios-gutter-overflow-native-replay-settled/{baseline,candidate}/receipt.json`.
+
 ### Requested files and capability arrival
 
 The shared Simple launcher now passes the exact workspace-relative requested
@@ -3686,7 +3705,7 @@ Compiler-owned primary-source locations expose inspection hints through the exis
 
 Right-gutter actions use one vertical column at every width. Existing slot reservation keeps each later populated row anchored; overflow remains a floating grid. Line-action menus close before opening another surface. No new permanent editor chrome or width reservation is introduced.
 
-Verification: focused asynchronous index witnesses pass on TypeScript, Swift and Kotlin for the two-read bound, coalescing, duplicate suppression, stale refusal, independent failure, stop, primary/foreign ownership and position bounds. The real browser flow uses adjacent one-line tests with an existing debug action, checks unchanged later-row coordinates while opening the gutter menu, and reaches the fresh source inspection. Its existing real-run, exact-caret, admission-history, retained-draft/editor and stale-save checks also pass. Focused shared rail/slot checks, TypeScript checking, macOS/Android compilation, iOS simulator build and reconstruction/audit pass. Native pointer/overflow-grid acceptance remains unverified.
+Verification: focused asynchronous index witnesses pass on TypeScript, Swift and Kotlin for the two-read bound, coalescing, duplicate suppression, stale refusal, independent failure, stop, primary/foreign ownership and position bounds. The real browser flow uses adjacent one-line tests with an existing debug action, checks unchanged later-row coordinates while opening the gutter menu, and reaches the fresh source inspection. Its existing real-run, exact-caret, admission-history, retained-draft/editor and stale-save checks also pass. Focused shared rail/slot checks, TypeScript checking, macOS/Android compilation, iOS simulator build and reconstruction/audit pass. Mac and iPhone pointer receipts in [Native editor gutter overflow](#native-editor-gutter-overflow) exercise adjacent geometry with equation actions. The combined native test/coverage action still needs its own rendered witness.
 
 ## Saved-revision runner discovery
 

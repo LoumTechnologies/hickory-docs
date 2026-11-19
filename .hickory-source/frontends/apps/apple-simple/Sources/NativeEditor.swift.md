@@ -2669,7 +2669,7 @@ struct LanguageEditor: View {
 
 ## Anchor debug actions to the native text layout
 
-The fixed right rail measures actual visible logical lines, including wrapped text and scroll offset. Each line owns one button; the paused line uses a ⋯ popover with an adaptive grid of controls, so a tall action stack cannot move the next line's icon. Values appear as an overlay beside the stopped line and never enter the editable string. The same SwiftUI rail serves macOS and iOS. Native editor instances, selection and undo are untouched when debug events arrive.
+The fixed right rail measures actual visible logical lines, including wrapped text and scroll offset. Each line owns a vertical stack inside the space below its anchor. The last available slot holds ⋯ when actions would reach the next occupied line. Anchor the adaptive grid at that slot, including when earlier controls are visible above it. On compact iPhone layouts the grid stays a popover so a short group of actions can open beside its source. Values appear as an overlay beside the stopped line and never enter the editable string. The same SwiftUI rail serves macOS and iOS. Native editor instances, selection and undo are untouched when debug events arrive.
 
 A successful gutter launch leaves the detail popover closed: the clicked line already supplied the target. Open details only when preparation needs a choice or reports a refusal; inspection controls remain explicitly available beside the line.
 
@@ -2889,6 +2889,7 @@ struct NativeDebugRail: View {
                     ForEach(0..<visible, id: \.self) { slot in
                         icon(items[slot], line: row.line).position(x: CGFloat(slot % columns) * 22 + 11, y: row.y + 9 + CGFloat(slot / columns) * 20)
                     }
+                    let overflowSlot = visible < items.count ? visible : 0
                     if visible < items.count {
                         Button("⋯") { opened = opened == row.line ? nil : row.line }
                             .buttonStyle(.bordered).frame(width: 22, height: 18).help("More line actions")
@@ -2912,9 +2913,10 @@ struct NativeDebugRail: View {
                                     ForEach(Array(items.dropFirst(visible)), id: \.self) { action in icon(action, line: row.line) }
                                 }.padding(6).frame(width: CGFloat(min(4, items.count - visible)) * 24 + 12, height: CGFloat((items.count - visible + 3) / 4) * 20 + 12)
                                     .accessibilityElement(children: .contain).accessibilityLabel("More actions on line \(row.line + 1)")
+                                    .presentationCompactAdaptation(.popover)
                             }
                         }
-                        .position(x: 11, y: row.y + 9)
+                        .position(x: 11, y: row.y + 9 + CGFloat(overflowSlot) * 20)
                 }
             }
         }.background(.quaternary.opacity(0.2))

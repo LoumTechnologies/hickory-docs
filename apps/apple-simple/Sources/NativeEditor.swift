@@ -2682,6 +2682,7 @@ struct NativeDebugRail: View {
                     ForEach(0..<visible, id: \.self) { slot in
                         icon(items[slot], line: row.line).position(x: CGFloat(slot % columns) * 22 + 11, y: row.y + 9 + CGFloat(slot / columns) * 20)
                     }
+                    let overflowSlot = visible < items.count ? visible : 0
                     if visible < items.count {
                         Button("⋯") { opened = opened == row.line ? nil : row.line }
                             .buttonStyle(.bordered).frame(width: 22, height: 18).help("More line actions")
@@ -2705,9 +2706,10 @@ struct NativeDebugRail: View {
                                     ForEach(Array(items.dropFirst(visible)), id: \.self) { action in icon(action, line: row.line) }
                                 }.padding(6).frame(width: CGFloat(min(4, items.count - visible)) * 24 + 12, height: CGFloat((items.count - visible + 3) / 4) * 20 + 12)
                                     .accessibilityElement(children: .contain).accessibilityLabel("More actions on line \(row.line + 1)")
+                                    .presentationCompactAdaptation(.popover)
                             }
                         }
-                        .position(x: 11, y: row.y + 9)
+                        .position(x: 11, y: row.y + 9 + CGFloat(overflowSlot) * 20)
                 }
             }
         }.background(.quaternary.opacity(0.2))
