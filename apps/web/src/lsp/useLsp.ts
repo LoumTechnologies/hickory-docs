@@ -31,14 +31,16 @@ export interface LspSession {
 const SYNC_DEBOUNCE_MS = 300;
 
 export function useLsp(realtime: Realtime, docPath: string, text: string, projectContext = "new"): LspSession {
-  const client = useMemo(() => {
+  const [connection, setConnection] = useState<{realtime: Realtime; client: LspClient | null}>();
+  const client = connection?.realtime === realtime ? connection.client : null;
+  const session = useLspOver(client, docPath, text, projectContext);
+  useEffect(() => {
     const channel = realtime.lsp();
-    return channel ? new LspClient(channel) : null;
+    const next = channel ? new LspClient(channel) : null;
+    setConnection({realtime, client: next});
+    return () => next?.dispose();
   }, [realtime]);
-  // This session owns its client: the document's socket goes with the
-  // document, and so does everything asked over it.
-  useEffect(() => () => client?.dispose(), [client]);
-  return useLspOver(client, docPath, text, projectContext);
+  return session;
 }
 
 // The workspace's one client, shared by every plain file.

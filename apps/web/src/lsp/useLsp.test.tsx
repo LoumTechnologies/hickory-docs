@@ -1,3 +1,4 @@
+import { StrictMode } from "react";
 import { act, cleanup, renderHook } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { createLspChannel, encodeLspFrame, type JsonRpcMessage } from "./channel";
@@ -6,6 +7,24 @@ import * as revisionProof from "./diagnosticRevision";
 import { useLsp } from "./useLsp";
 
 afterEach(() => { cleanup(); vi.useRealTimers(); });
+
+it("keeps the mounted managed language client usable across Strict Mode effect replay", async () => {
+  const methods: string[] = [];
+  const channel = createLspChannel({send: frame => {
+    const message = JSON.parse(new TextDecoder().decode(frame.subarray(1)));
+    methods.push(message.method);
+    if (message.id !== undefined) channel.handleFrame(encodeLspFrame({jsonrpc: "2.0", id: message.id, result: []}));
+  }});
+  const realtime = {lsp: () => channel} as unknown as Realtime;
+  const hook = renderHook(() => useLsp(realtime, "outline.md", "# Source"), {wrapper: StrictMode});
+  const {client, uri, ready} = hook.result.current;
+  expect(ready).toBe(true);
+  await expect(client?.documentSymbols(uri)).resolves.toEqual([]);
+  expect(methods).toEqual(["textDocument/didOpen", "textDocument/documentSymbol"]);
+  hook.unmount();
+  expect(methods.at(-1)).toBe("textDocument/didClose");
+  await expect(client?.documentSymbols(uri)).rejects.toThrow("disposed");
+});
 
 it("keeps messages immediate while binding engine hashes independently of client counters and retiring obsolete proof", async () => {
   // Contract: .hickory-source/frontends/contract.md

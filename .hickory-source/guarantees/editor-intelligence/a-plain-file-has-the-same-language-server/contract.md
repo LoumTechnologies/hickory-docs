@@ -235,16 +235,24 @@ const SYNC_DEBOUNCE_MS = 300;
 <a id="f-5ad96644c888-useLsp"></a>
 ### `useLsp`
 
+A managed document owns its language client for each effect lifetime.
+React can clean up and restart that effect without replacing the editor.
+Construct the client in the effect so the restarted session does not
+inherit the permanently disposed instance. Register document cleanup
+first so it can send its close notification before client disposal.
+
 <storycode:copy id="f-5ad96644c888-useLsp">
 export function useLsp(realtime: Realtime, docPath: string, text: string, projectContext = "new"): LspSession {
-  const client = useMemo(() => {
+  const [connection, setConnection] = useState<{realtime: Realtime; client: LspClient | null}>();
+  const client = connection?.realtime === realtime ? connection.client : null;
+  const session = useLspOver(client, docPath, text, projectContext);
+  useEffect(() => {
     const channel = realtime.lsp();
-    return channel ? new LspClient(channel) : null;
+    const next = channel ? new LspClient(channel) : null;
+    setConnection({realtime, client: next});
+    return () => next?.dispose();
   }, [realtime]);
-  // This session owns its client: the document's socket goes with the
-  // document, and so does everything asked over it.
-  useEffect(() => () => client?.dispose(), [client]);
-  return useLspOver(client, docPath, text, projectContext);
+  return session;
 }
 
 </storycode:copy>

@@ -13,7 +13,12 @@ Present and edit the shared engine state. Browser-side revisions, pending reques
 <a id="f-2902d775e6f7-expression_statement"></a>
 ### `expression_statement`
 
+Mount the managed session under Strict Mode. A request must still make a
+round trip after React replays effect setup, and unmount must close the
+authored document before the retired client refuses further requests.
+
 <storycode:copy id="f-2902d775e6f7-expression_statement">
+import { StrictMode } from "react";
 import { act, cleanup, renderHook } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { createLspChannel, encodeLspFrame, type JsonRpcMessage } from "./channel";
@@ -22,6 +27,24 @@ import * as revisionProof from "./diagnosticRevision";
 import { useLsp } from "./useLsp";
 
 afterEach(() => { cleanup(); vi.useRealTimers(); });
+
+it("keeps the mounted managed language client usable across Strict Mode effect replay", async () => {
+  const methods: string[] = [];
+  const channel = createLspChannel({send: frame => {
+    const message = JSON.parse(new TextDecoder().decode(frame.subarray(1)));
+    methods.push(message.method);
+    if (message.id !== undefined) channel.handleFrame(encodeLspFrame({jsonrpc: "2.0", id: message.id, result: []}));
+  }});
+  const realtime = {lsp: () => channel} as unknown as Realtime;
+  const hook = renderHook(() => useLsp(realtime, "outline.md", "# Source"), {wrapper: StrictMode});
+  const {client, uri, ready} = hook.result.current;
+  expect(ready).toBe(true);
+  await expect(client?.documentSymbols(uri)).resolves.toEqual([]);
+  expect(methods).toEqual(["textDocument/didOpen", "textDocument/documentSymbol"]);
+  hook.unmount();
+  expect(methods.at(-1)).toBe("textDocument/didClose");
+  await expect(client?.documentSymbols(uri)).rejects.toThrow("disposed");
+});
 
 </storycode:copy>
 <a id="f-2902d775e6f7-expression_statement-2"></a>
