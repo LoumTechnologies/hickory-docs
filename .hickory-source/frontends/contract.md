@@ -150,6 +150,8 @@ viewport. AppKit also declined the activation request for the exact owned
 process. The rendered viewport through the four gates remains unverified.
 See `target/main-macos-packaged-startup.to8jhtpo/packaged-viewport-layout.Gss7MS/`
 and `target/main-macos-packaged-startup.to8jhtpo/packaged-viewport-activated.HIW2pd/`.
+The next preflight confirmed that the macOS console session was locked. A
+foreground signed-app replay requires an unlocked console session.
 
 AppKit and UIKit each passed the transient Files failure and same-server retry.
 Both kept their provisional editor, selection and viewport through confirmation.
@@ -243,6 +245,11 @@ both sides. A direct engine replay compiled and ran the selected C fence and
 interpreted the selected JavaScript fence. It retained the same recorded
 bytes and the workspace received no program files. See
 `target/recorded-run-engine.T0OdmJ/compiled-and-interpreted-receipt.json`.
+A fresh main Chromium replay repeated Run and mapped Debug on both recorded
+sides. It rejected the wrong message hash without adding a terminal, stepped
+from the original mapped breakpoint, evaluated Watch and continued to exit.
+The original message editor, composer draft and archive bytes stayed intact.
+See `target/main-recorded-debug-both-sides.fQQtyu/replay.log`.
 Rendered Android passed both sides with their exact opening-line requests.
 Opening the gutter menu started no process. Explicit Run returned `42` and
 `53` with process exit 0 in the native floating terminal. The editor frame,
