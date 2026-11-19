@@ -320,6 +320,11 @@ document. Separate replays bound the assistant declaration to `response.md`
 and the user declaration to `request.md`. Each returned the selected local
 transition, supplied no write action, and left the archive and working file
 byte-identical. See `target/recorded-construction-both-sides.1P3Iop/`.
+The iPhone simulator repeated both cases by tapping each recorded card's
+gutter. It showed the owning document and the selected `old` to `middle`
+transition. Closing the reading preserved the same card text and frame.
+The saved bytes stayed unchanged and the disposable simulator was deleted.
+See `target/apple-recorded-construction-both-sides.5j8K0C/`.
 
 ### Mounted iOS Paste, Cleanup and selected Rust Debug
 
