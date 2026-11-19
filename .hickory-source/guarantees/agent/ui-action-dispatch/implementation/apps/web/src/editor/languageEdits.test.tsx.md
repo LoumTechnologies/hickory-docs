@@ -112,6 +112,26 @@ it("applies a provider rename addressed to the encoded spelling of a spaced docu
     expect(onMessage).toHaveBeenCalledWith("Index results do not match current content");
   } finally { view.destroy(); }
 });
+
+it("routes Main rename into review and refuses a displaced originating caret", async () => {
+  const host = document.body.appendChild(document.createElement("div"));
+  const client = {...quiet, prepareRename: vi.fn().mockResolvedValue(range(0, 6)), rename: vi.fn()} as unknown as LspClient;
+  const view = new EditorView({state: EditorState.create({doc: "square"}), parent: host});
+  const onRenamePreview = vi.fn().mockResolvedValue({status: "completed", value: {preview_ready: true}});
+  const opts = {client, uri: "hick:///a.py", positionAt: (p: number) => ({line: 0, character: p}),
+    offsetAt: (p: {character: number}) => p.character, onRenamePreview};
+  try {
+    expect(await renameSymbol(view, opts, async () => "squared")).toMatchObject({status: "completed", value: {preview_ready: true}});
+    expect(onRenamePreview).toHaveBeenCalledWith(expect.objectContaining({view, previous: "square", name: "squared"}));
+    expect(await renameSymbol(view, opts, async () => {
+      view.dispatch({selection: {anchor: 2}});
+      return "another";
+    })).toMatchObject({status: "unavailable"});
+    expect(onRenamePreview).toHaveBeenCalledOnce();
+    expect(client.rename).not.toHaveBeenCalled();
+    expect(view.state.doc.toString()).toBe("square");
+  } finally { view.destroy(); host.remove(); }
+});
 </storycode:copy>
 
 ### Assemble `apps/web/src/editor/languageEdits.test.tsx`

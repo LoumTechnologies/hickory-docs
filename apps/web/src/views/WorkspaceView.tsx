@@ -29,6 +29,7 @@ import type {
   Doc,
   DocSummary,
   FileNode,
+  FilesResponse,
   OpenTerminal,
   PlainFile,
   SearchHit,
@@ -164,7 +165,15 @@ import { sessionById, useTerminals } from "../terminal/useTerminals";
 import { nextInQueue } from "../lib/attentionCursor";
 import { DocTabBody, GeneratedTabBody, UntitledTab } from "./workspaceTabs";
 import type { RecordedPatchSource } from "../simple/AgentProposalAdapter";
-import { WorkspaceChangeHistory } from "../simple/ChangePlan";
+import { WorkspaceChangeHistory, planWorkspaceEdit, providerActionPaths, validateReferencedTargets, workspaceEditTargets, type ChangePlan } from "../simple/ChangePlan";
+import { acquireReferenceSources, acquireSourceProposal } from "../simple/ReferenceSources";
+import { validateProviderSourceProofs, providerSourceProofPaths } from "../simple/ProviderSourceProofs";
+import { validateSourcePreparation } from "../simple/WorkspaceLanguages";
+import { sourceDigest } from "../lsp/diagnosticRevision";
+import { WsRealtime } from "../api/realtime";
+import { ChangePreview } from "../components/ChangePreview";
+import type { WindowHistoryPlan } from "./WorkspaceChat";
+import type { UiOutcome } from "../lib/uiActions";
 import { useUntitledRecovery } from "./useUntitledRecovery";
 import { restoreFolderLayout } from "./restoreFolderLayout";
 import { useWorkspaceUi } from "./useWorkspaceUi";
@@ -197,8 +206,8 @@ import type { CoverageSurfaceClient } from "../coverage/CoverageSurface";
 import { rankFiles } from "../lib/fileRanking";
 import { allFileProblems, useFileProblemsVersion } from "../lib/fileProblems";
 import { formatOnSave, loadFormatOnSave } from "../lib/formatOnSave";
-import { formatView } from "../lsp/cmLspFeatures";
-import type { LspLocation } from "../lsp/client";
+import { formatView, type RenamePreviewRequest } from "../lsp/cmLspFeatures";
+import { LspClient, type CodeAction, type LspLocation } from "../lsp/client";
 import { printText, printTitleFor } from "../lib/printing";
 
 /** The routes the workspace answers. Everything else is App's. */
@@ -278,7 +287,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   // The tree and the outputs map are built further down; these let the
   // callbacks above read the current values without depending on declaration
   // order.
-  const folderRootsRef = useRef<readonly { tree: FileNode[] }[]>([]);
+  const folderRootsRef = useRef<readonly FilesResponse[]>([]);
   const openableOutputsRef = useRef<ReadonlyMap<string, string>>(new Map());
   // The regions of a declared layout, when one was applied — only ever at a
   // fresh launch, into an empty workspace (see ensure below). They keep
@@ -349,6 +358,16 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   const plainSources = useRef(new Map<string, string>());
   const plainPatchOwners = useRef(new Map<string, () => RecordedPatchSource | null>());
   const [recordedDraftHistory] = useState(() => new WorkspaceChangeHistory());
+  const renameTicket = useRef(0);
+  const [renameReview, setRenameReview] = useState<{
+    plan: ChangePlan; current: () => boolean; canApply: boolean; apply: () => Promise<void>;
+  } | null>(null);
+  const [renamePath, setRenamePath] = useState(0);
+  const [renamePage, setRenamePage] = useState(0);
+  const [renamePending, setRenamePending] = useState(false);
+  const [renameError, setRenameError] = useState<string | null>(null);
+  const renameApplying = useRef(false);
+  const renameHistoryRef = useRef<(direction: "undo" | "redo") => void>(() => {});
   const untitledRevisions = useRef(new Map<string, number>());
   const registerPlainPatchOwner = useCallback((id: string, read: () => RecordedPatchSource | null) => {
     plainPatchOwners.current.set(id, read);
@@ -738,6 +757,10 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         }
         const all: CommandItem[] = [...documentCommands(registry.get(focusedDocId(layoutRef.current))),
           ...editorCommands,
+          ...(["undo", "redo"] as const).filter(direction => recordedDraftHistory.preview(direction)).map(direction => ({
+            id: `workspace-drafts:${direction}`, label: direction === "undo" ? "Undo workspace change" : "Redo workspace change",
+            run: () => renameHistoryRef.current(direction),
+          })),
           ...([[history.trail.canBack, -1, "back", "Navigate Back"], [history.trail.canForward, 1, "forward", "Navigate Forward"]] as const)
             .flatMap(([available, direction, id, label]): CommandItem[] => available ? [{
               id: `navigation.${id}`, label, agentAllowed: true, run: current => {
@@ -798,7 +821,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         run: () => openHitRef.current(node.path, 1),
       }));
     },
-    [welcomeActions, registry, projectId, activeSourceEditor, recordLocalNavigation],
+    [welcomeActions, registry, projectId, activeSourceEditor, recordLocalNavigation, recordedDraftHistory],
   );
   /**
    * Open a path and put the caret on a line.
@@ -1042,6 +1065,156 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
+  // A rename first discovers its targets, then captures each exact input.
+  // The sealed provider answer supplies coordinate proofs for the final edits.
+  // Review uses those same bytes. Apply also needs a current draft owner for
+  // every patch, and stages the whole group before any editor is changed.
+  const readRenameOwner = useCallback((path: string) => {
+    const tabs = panesOf(layoutRef.current.root).flatMap(pane => pane.tabs)
+      .filter(tab => (tab.kind === "document" || tab.kind === "file") && tab.target === path);
+    if (tabs.length > 1) throw Error(`More than one tab owns ${path}. Close the duplicate first.`);
+    const tab = tabs[0];
+    const read = tab?.kind === "document" ? registry.get(tab.docId)?.recordedPatchSource
+      : tab ? plainPatchOwners.current.get(tab.id) : undefined;
+    return {tab, owner: read?.() ?? undefined};
+  }, [registry]);
+  const readRenameDisk = useCallback(async (path: string) => {
+    const node = findNodeByPath(folderRootsRef.current, path);
+    if (!node || node.dir || node.generated_by) throw Error(`Choose listed authored source for rename: ${path}`);
+    if (node.doc_id) {
+      const doc = await api.doc(node.doc_id);
+      if (doc.id !== node.doc_id || doc.path !== path || !doc.save_guard) throw Error(`Source authority changed: ${path}`);
+      return {text: doc.source, guard: doc.save_guard, managed: true};
+    }
+    const file = await api.file(path);
+    if (file.path !== path || !file.save_guard) throw Error(`Source authority changed: ${path}`);
+    return {text: file.content, guard: file.save_guard, managed: false};
+  }, []);
+  const prepareRenamePreview = useCallback(async (request: RenamePreviewRequest): Promise<UiOutcome> => {
+    const path = semanticPath(request.uri);
+    if (renameApplying.current) throw Error("Wait for the current draft Apply to finish.");
+    if (!path || !workspaceIsVisible() || activeSourceEditor()?.view !== request.view || !request.current()) {
+      throw Error("Select a current authored symbol before preparing rename.");
+    }
+    const ticket = ++renameTicket.current, workspace = sourceWorkspace.current;
+    const visible = () => renameTicket.current === ticket && sourceWorkspace.current === workspace;
+    const snapshots = new Map<string, {text: string; base: string; guard: string; managed: boolean;
+      tabId?: string; owner?: RecordedPatchSource}>();
+    const current = () => visible() && request.current() && [...snapshots.values()].every(snapshot => !snapshot.owner || snapshot.owner.current());
+    const check = () => { if (!current()) throw Error("Source or editor changed. Prepare rename again."); };
+    setRenamePending(true); setRenameReview(null); setRenameError(null);
+    let temporary: WsRealtime | undefined, secondary: LspClient | undefined;
+    const capture = async (client: LspClient, uri: string, text: string, managed: boolean) => {
+      check();
+      const digest = await sourceDigest(text);
+      check();
+      const receipt = await client.request("hick/captureDocument", {textDocument: {uri, languageId: "hick", version: 1, text}});
+      check();
+      validateSourcePreparation(receipt, digest, managed);
+      return {source_hash: digest, source_revision: (receipt as {source_revision: string}).source_revision};
+    };
+    try {
+      const {matchesScope, patchScope, stageDrafts, commitWorkspaceDrafts, invertWindowDraft} = await import("./WorkspaceChat");
+      const scope = patchScope(folderRootsRef.current[0]);
+      if (!scope) throw Error("Open the workspace folder before renaming.");
+      const initial = readRenameOwner(path);
+      if (!initial.tab || !initial.owner || !matchesScope(scope, initial.owner.scope) || initial.owner.text !== authoredSource(request.view.state)) {
+        throw Error("The originating editor has no exact guarded source. Reopen it and retry.");
+      }
+      const origin = {text: initial.owner.text, base: initial.owner.base, guard: initial.owner.guard,
+        managed: initial.tab.kind === "document", tabId: initial.tab.id, owner: initial.owner};
+      snapshots.set(path, origin);
+      const acquire = async (target: string) => {
+        const known = snapshots.get(target);
+        if (known) return {text: known.text, writable: true};
+        const retained = readRenameOwner(target);
+        const disk = await readRenameDisk(target);
+        check();
+        if (retained.owner && (!matchesScope(scope, retained.owner.scope) || retained.owner.guard !== disk.guard || !retained.owner.current())) {
+          throw Error(`The saved source changed: ${target}. Refresh its editor.`);
+        }
+        const text = retained.owner?.text ?? disk.text;
+        const held = retained.tab && plainSources.current.get(retained.tab.id);
+        if (!retained.owner && held !== undefined && held !== disk.text) throw Error(`Open the retained draft for ${target} before renaming.`);
+        snapshots.set(target, {text, base: disk.text, guard: disk.guard, managed: disk.managed,
+          tabId: retained.tab?.id, owner: retained.owner});
+        if (!secondary) {
+          temporary = new WsRealtime("workspace");
+          secondary = new LspClient(temporary.lsp());
+        }
+        const uri = documentUri(target);
+        if (!retained.owner) secondary.didOpen(uri, text);
+        await capture(secondary, uri, text, disk.managed);
+        return {text, writable: true};
+      };
+      await capture(request.client, request.uri, origin.text, origin.managed);
+      const sources = new Map([[path, {text: origin.text, writable: true}]]);
+      const reference = await acquireReferenceSources(sources, async () =>
+        (await request.client.references(request.uri, request.position)).map(location => {
+          const target = semanticPath(location.uri);
+          if (!target) throw Error("A reported reference has no editable workspace source.");
+          return target;
+        }), acquire, current);
+      const proposal = await acquireSourceProposal(reference.sources, async () => {
+        const expected = await capture(request.client, request.uri, origin.text, origin.managed);
+        const value = await request.client.request("hick/rename", {
+          textDocument: {uri: request.uri}, position: request.position, newName: request.name, expected,
+        }) as CodeAction & {source_files_modified?: boolean};
+        check();
+        if (!value || value.source_files_modified !== false || value.command || value.disabled) {
+          throw Error(value?.disabled?.reason ?? "The provider did not confirm a complete rename preview.");
+        }
+        return {paths: [...providerActionPaths(value), ...providerSourceProofPaths(value)], value};
+      }, acquire, current);
+      const targets = new Set(workspaceEditTargets(proposal.value.edit).map(target => target.path));
+      await validateProviderSourceProofs(proposal.value, proposal.sources, targets);
+      check();
+      const plan = planWorkspaceEdit(`Rename ${request.previous} to ${request.name}`, proposal.value.edit, proposal.sources);
+      validateReferencedTargets(plan, reference.references);
+      const bindings = new Map(plan.patches.flatMap(({path: target}) => {
+        const snapshot = snapshots.get(target);
+        return snapshot?.tabId && snapshot.owner?.prepareDraft ? [[target, {tabId: snapshot.tabId, guard: snapshot.guard}] as const] : [];
+      }));
+      const canApply = bindings.size === plan.patches.length;
+      const apply = async () => {
+        if (!canApply) throw Error("Open each affected file, then prepare rename again.");
+        for (const patch of plan.patches) {
+          const snapshot = snapshots.get(patch.path)!;
+          const disk = await readRenameDisk(patch.path);
+          check();
+          if (disk.text !== snapshot.base || disk.guard !== snapshot.guard) throw Error(`Saved source changed: ${patch.path}. Prepare rename again.`);
+        }
+        check();
+        const historyPlan = {...plan, scope, bindings};
+        commitWorkspaceDrafts(stageDrafts(historyPlan, target => snapshots.get(target)?.owner));
+        const inverse = invertWindowDraft(historyPlan);
+        recordedDraftHistory.record({kind: "draft", plan: inverse, read: () => inverse});
+      };
+      setRenamePath(0); setRenamePage(0); setRenameReview({plan, current, canApply, apply});
+      return {status: "completed", value: {preview_ready: true, source_files: plan.patches.length, source_changed: false}};
+    } finally {
+      secondary?.dispose();
+      temporary?.close();
+      if (visible()) setRenamePending(false);
+    }
+  }, [activeSourceEditor, readRenameOwner, readRenameDisk, recordedDraftHistory]);
+  renameHistoryRef.current = direction => {
+    const token = recordedDraftHistory.preview(direction), workspace = sourceWorkspace.current;
+    if (!token) return;
+    void import("./WorkspaceChat").then(({matchesScope, patchScope, stageDrafts, commitWorkspaceDrafts, invertWindowDraft}) => {
+      const plan = recordedDraftHistory.readDraft(token) as WindowHistoryPlan;
+      if (sourceWorkspace.current !== workspace || !matchesScope(patchScope(folderRootsRef.current[0]), plan.scope)) {
+        throw Error("Open the original workspace before changing these drafts.");
+      }
+      commitWorkspaceDrafts(stageDrafts(plan, path => {
+        const {tab, owner} = readRenameOwner(path), binding = plan.bindings.get(path);
+        return tab?.id === binding?.tabId && owner?.guard === binding?.guard ? owner : null;
+      }));
+      const inverse = invertWindowDraft(plan);
+      recordedDraftHistory.commit(token, {kind: "draft", plan: inverse, read: () => inverse});
+      setInsertNotice(direction === "undo" ? "Workspace change undone in drafts." : "Workspace change redone in drafts.");
+    }).catch(error => setInsertNotice(String(error)));
+  };
   readSymbolCandidates.current = async term => {
     const client = workspaceLspClient();
     if (!client) return [];
@@ -2037,6 +2210,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
           captureNavigationContext={captureNavigationContext}
           onRelatedLocations={showRelatedLocations}
           onLocalNavigation={recordLocalNavigation}
+          onRenamePreview={prepareRenamePreview}
           askText={shellPrompt.askText}
           askChoice={shellPrompt.askChoice}
           retainUnsaved={retainSavedDrafts}
@@ -2227,6 +2401,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
               captureNavigationContext={captureNavigationContext}
               onRelatedLocations={showRelatedLocations}
               onLocalNavigation={recordLocalNavigation}
+              onRenamePreview={prepareRenamePreview}
               openGenerated={openGeneratedFor}
               retainUnsaved={retainSavedDrafts}
             />
@@ -2374,6 +2549,51 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         <PromptPanel prompt={focused.prompt} onSettle={focused.settle} />
       )}
       <PromptPanel prompt={shellPrompt.prompt} onSettle={shellPrompt.settle} />
+      {(renamePending || renameReview) && <aside className="prompt-panel prompt-panel--filtered" role="dialog" aria-label="Rename preview"
+        onKeyDown={event => {
+          if (event.key !== "Escape" || renameApplying.current) return;
+          renameTicket.current++;
+          setRenameReview(null);
+          setRenamePending(false);
+        }}>
+        <button type="button" aria-label="Close rename preview" disabled={renameApplying.current}
+          onClick={() => { renameTicket.current++; setRenameReview(null); setRenamePending(false); }}>×</button>
+        {renamePending && <p role="status">{renameApplying.current ? "Checking and applying source drafts…" : "Preparing rename preview…"}</p>}
+        {renameReview && (() => {
+          const patch = renameReview.plan.patches[renamePath];
+          const before = patch.before.split("\n"), after = patch.after.split("\n");
+          const pageCount = Math.max(1, Math.ceil(Math.max(before.length, after.length) / 100));
+          const offset = renamePage * 100;
+          return <>
+            <ChangePreview heading={renameReview.plan.title}>
+              <p>Provider-reported changes in {renameReview.plan.patches.length} source {renameReview.plan.patches.length === 1 ? "file" : "files"}.</p>
+              <label>Preview source file <select aria-label="Preview source file" value={renamePath}
+                onChange={event => { setRenamePath(Number(event.target.value)); setRenamePage(0); }}>
+                {renameReview.plan.patches.map((item, index) => <option key={item.path} value={index}>{item.path}</option>)}
+              </select></label>
+              <strong>Before</strong><pre aria-label="Before">{before.slice(offset, offset + 100).join("\n")}</pre>
+              <strong>After</strong><pre aria-label="After">{after.slice(offset, offset + 100).join("\n")}</pre>
+              {pageCount > 1 && <>
+                <button type="button" disabled={!renamePage} onClick={() => setRenamePage(page => page - 1)}>Previous lines</button>
+                <button type="button" disabled={renamePage + 1 >= pageCount} onClick={() => setRenamePage(page => page + 1)}>Next lines</button>
+              </>}
+            </ChangePreview>
+            {!renameReview.canApply && <p>Open each affected file, then prepare rename again to apply the whole change.</p>}
+            {renameError && <p role="alert">{renameError}</p>}
+            <button type="button" disabled={renamePending || !renameReview.canApply} onClick={() => {
+              if (renameApplying.current) return;
+              if (!renameReview.current()) { setRenameError("Source or editor changed. Prepare rename again."); return; }
+              renameApplying.current = true;
+              setRenamePending(true); setRenameError(null);
+              void renameReview.apply().then(() => {
+                setRenameReview(null);
+                setInsertNotice("Rename applied to source drafts. Use Save All to publish or Undo workspace change to revert.");
+              }, error => setRenameError(error instanceof Error ? error.message : String(error)))
+                .finally(() => { renameApplying.current = false; setRenamePending(false); });
+            }}>Apply to source drafts</button>
+          </>;
+        })()}
+      </aside>}
       {/* The dock: things that run so you can work. Always visible, never
           focused, amber when one of them has fallen over. */}
       <MonitorDock

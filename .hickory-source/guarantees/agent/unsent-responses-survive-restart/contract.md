@@ -682,9 +682,9 @@ group. The host report records draft application separately from publication.
 <storycode:copy id="f-c910953d9e7f-WorkspaceChat">
 /** A conversation belongs to the window, independent of which editor is active. */
 type UntitledPatchSource = Pick<RecordedPatchSource, "text" | "revision" | "current">;
-const matchesScope = (left: ProposalScope | null, right: ProposalScope) =>
+export const matchesScope = (left: ProposalScope | null, right: ProposalScope) =>
   left?.namespace === right.namespace && left.workspace === right.workspace;
-const patchScope = (root: FilesResponse | undefined): ProposalScope | null =>
+export const patchScope = (root: FilesResponse | undefined): ProposalScope | null =>
   root?.root_path && root.workspace_id && /^[a-f0-9]{32}$/.test(root.workspace_id)
     ? {namespace: root.root_path, workspace: root.workspace_id} : null;
 
@@ -749,10 +749,10 @@ export function captureWorkspacePatch(
 type DraftOwner = (path: string) => RecordedPatchSource | null | undefined;
 type CapturedPatch = ReturnType<typeof captureWorkspacePatch>;
 type DraftBinding = { tabId: string; guard: string };
-type WindowHistoryPlan = ChangePlan & { scope: ProposalScope; bindings: ReadonlyMap<string, DraftBinding> };
+export type WindowHistoryPlan = ChangePlan & { scope: ProposalScope; bindings: ReadonlyMap<string, DraftBinding> };
 type PreparedWindowDraft = PreparedProposal & { plan: WindowHistoryPlan; stages: WorkspaceDraftStage[] };
 
-function stageDrafts(plan: ChangePlan, readOwner: DraftOwner): WorkspaceDraftStage[] {
+export function stageDrafts(plan: ChangePlan, readOwner: DraftOwner): WorkspaceDraftStage[] {
   return plan.patches.map(patch => {
     const owner = readOwner(patch.path);
     const stage = owner?.text === patch.before && owner.current() ? owner.prepareDraft?.(patch.after) : null;
@@ -800,7 +800,7 @@ async function prepareWindowDraft(proposal: VerifiedProposal, capture: CapturedP
     after_hashes, plan: {...plan, scope: {workspace: proposal.workspace, namespace: proposal.namespace}, bindings}, stages};
 }
 
-function invertWindowDraft(plan: WindowHistoryPlan): WindowHistoryPlan {
+export function invertWindowDraft(plan: WindowHistoryPlan): WindowHistoryPlan {
   return {...invertChangePlan(plan), scope: plan.scope, bindings: plan.bindings};
 }
 

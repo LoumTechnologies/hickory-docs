@@ -198,7 +198,8 @@ import { validProblemPosition } from "../shell/nextWorkspaceProblem";
 ### `import_statement`
 
 <storycode:copy id="f-bfb59577f48b-import_statement-22">
-import { lspFeatures } from "../lsp/cmLspFeatures";
+import { lspFeatures, type RenamePreviewRequest } from "../lsp/cmLspFeatures";
+import type { UiOutcome } from "../lib/uiActions";
 </storycode:copy>
 <a id="f-bfb59577f48b-import_statement-23"></a>
 ### `import_statement`
@@ -524,6 +525,7 @@ export const DocSessionHost = memo(function DocSessionHost({
   captureNavigationContext,
   onRelatedLocations,
   onLocalNavigation,
+  onRenamePreview,
 }: {
   registry: SessionRegistry;
   docId: string;
@@ -532,6 +534,7 @@ export const DocSessionHost = memo(function DocSessionHost({
   captureNavigationContext?: () => () => boolean;
   onRelatedLocations?: (reading: RelatedLocationReading) => void;
   onLocalNavigation?: LocalSourceNavigation;
+  onRenamePreview?: (request: RenamePreviewRequest) => Promise<UiOutcome>;
   /** Open one of THIS document's generated files in the layout. */
   openGenerated: (docId: string, path: string) => void;
   retainUnsaved?: boolean;
@@ -542,7 +545,7 @@ export const DocSessionHost = memo(function DocSessionHost({
   // editing confirmation belongs to the session and its original workspace.
   const [preview] = useState(() => admitted && admittedManagedPreview(admitted.doc, admitted.workspaceCurrent));
   const session = useDocumentSession(docId, openGenerated, retainUnsaved, startupAtOpen ?? preview, admitted?.doc,
-    captureNavigationContext, onRelatedLocations, onLocalNavigation);
+    captureNavigationContext, onRelatedLocations, onLocalNavigation, onRenamePreview);
   useEffect(() => {
     registry.publish(preview && !session.startupRoomReady ? {...session, admittedPreview: preview} : session);
   });
@@ -602,6 +605,7 @@ function useDocumentSession(
   captureNavigationContext?: () => () => boolean,
   onRelatedLocations?: (reading: RelatedLocationReading) => void,
   onLocalNavigation?: LocalSourceNavigation,
+  onRenamePreview?: (request: RenamePreviewRequest) => Promise<UiOutcome>,
 ): DocSession {
   const openGenerated = useCallback(
     (path: string) => openGeneratedFor(docId, path),
@@ -1292,6 +1296,8 @@ function useDocumentSession(
   liveSourceRef.current = liveSource;
   const localNavigationRef = useRef(onLocalNavigation);
   localNavigationRef.current = onLocalNavigation;
+  const renamePreviewRef = useRef(onRenamePreview);
+  renamePreviewRef.current = onRenamePreview;
 
   const openTarget = useCallback(
     (target: LspNavigationTarget | LspLocation, current?: () => boolean, view?: EditorView) => {
@@ -1396,6 +1402,8 @@ function useDocumentSession(
         offsetAt: (position, view) => positionToOffset(view.state.doc, position),
         inlayHints: true,
         onRename: (current) => askText(`Rename "${current}" to:`, current, { agent: true, currentRevision: () => editorRef.current?.state.doc }),
+        captureRenameContext: captureNavigationContext,
+        onRenamePreview: renamePreviewRef.current ? request => renamePreviewRef.current!(request) : undefined,
         onCodeActions: (actions) =>
           askChoice(
             "Code actions",

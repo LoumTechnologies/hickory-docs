@@ -2873,6 +2873,24 @@ The cross-file definition history replay also passed on this revision,
 including source change refusal and retry. See
 `target/main-local-history-cross-file-v1/browser.json`.
 
+Main F2 now opens a guarded rename preview. The workflow synchronizes the
+authored inputs the provider discovers, requests a source-bound rename
+and verifies the returned hashes before rendering the before and after
+text. The preview can include an unopened target. Draft Apply currently
+requires an open editor for each target. The existing draft transaction
+stages every edit against its original editor and saved guard before
+committing the group. Commands exposes coordinated Undo and Redo.
+
+A genuine basedpyright replay previewed a closed consumer, explicitly
+applied a single-file rename, and applied, undid and redid a two-file rename
+with both editors open. Changing the originating caret after preview refused
+Apply. The browser retained the original editors and made no source writes.
+The provider can return an origin-only result while indexing. After
+basedpyright exposed the consumer, a fresh query returned its edits and
+hash. Applying to an unopened target remains open. See
+`target/main-rename-commit-v2/browser.json` and
+`target/main-rename-bound-wire-v2/wire.json`.
+
 Focused rebuilt-engine replays also passed for Python definition and
 Back/Forward, workspace search, delayed first-open authority and capabilities,
 and Debug and guarded patch review on both recorded Agent message sides.

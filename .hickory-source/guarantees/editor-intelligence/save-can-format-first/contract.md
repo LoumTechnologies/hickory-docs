@@ -1321,6 +1321,8 @@ export interface LspFeatureOptions {
   inlayHints?: boolean;
   /** Ask the user for a new name; null cancels. */
   onRename?: (current: string) => Promise<string | null> | string | null;
+  onRenamePreview?: (request: RenamePreviewRequest) => Promise<UiOutcome>;
+  captureRenameContext?: () => () => boolean;
   /** Offer a list of code actions; the chosen one is applied. */
   onCodeActions?: (actions: CodeAction[]) => Promise<CodeAction | null> | CodeAction | null;
   /** Report something the user needs to know (a refused rename, say). */
@@ -1784,10 +1786,18 @@ function renameAt(view: EditorView, opts: LspFeatureOptions): boolean {
 ### `renameSymbol`
 
 <storycode:copy id="f-a12307572b4c-renameSymbol">
+export type RenamePreviewRequest = {
+  client: LspClient; uri: string; position: LspPosition; view: EditorView;
+  previous: string; name: string; current: () => boolean;
+};
+
 export async function renameSymbol(view: EditorView, opts: LspFeatureOptions, askName: NonNullable<LspFeatureOptions["onRename"]>, signal?: AbortSignal): Promise<UiOutcome> {
   const original = view.state.doc;
+  const selection = view.state.selection;
+  const context = opts.onRenamePreview ? opts.captureRenameContext?.() : undefined;
   const { client, uri, positionAt, offsetAt, onMessage } = opts;
-  const current = () => view.state.doc === original && !view.state.readOnly && view.state.facet(EditorView.editable) && !signal?.aborted;
+  const current = () => view.state.doc === original && !view.state.readOnly && view.state.facet(EditorView.editable) && !signal?.aborted &&
+    (!opts.onRenamePreview || (view.dom.isConnected && !view.composing && view.state.selection === selection && (!context || context())));
   const refuse = (reason: string): UiOutcome => { onMessage?.(reason); return { status: "unavailable", reason }; };
   const position = positionAt(view.state.selection.main.head, view);
   if (!client || !current() || !position) return refuse("Rename needs a writable mapped source position.");
@@ -1801,6 +1811,9 @@ export async function renameSymbol(view: EditorView, opts: LspFeatureOptions, as
     const next = await askName(previous);
     if (!current()) return refuse("The buffer changed. Request rename again.");
     if (!next || next === previous) return { status: "completed", value: { source_changed: false, cancelled_or_unchanged: true } };
+    if (opts.onRenamePreview) {
+      return await opts.onRenamePreview({client, uri, position, view, previous, name: next, current});
+    }
     const edit = await client.rename(uri, position, next);
     if (!current()) return refuse("The buffer changed. Request rename again.");
     if (urisInEdit(edit).some(other => !sameDocumentUri(other, uri))) return refuse("A workspace preview is required before applying this multi-document rename. No edits were applied.");
