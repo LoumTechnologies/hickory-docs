@@ -11,7 +11,7 @@
 //    owning document's editor flashes.
 
 import { afterEach, describe, expect, it } from "vitest";
-import { act, cleanup, render, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import type { EditorView } from "@codemirror/view";
 import { EditorState } from "@codemirror/state";
 import { installMockHandler } from "../api/client";
@@ -279,7 +279,12 @@ it("keeps disk contents readable when generated provenance fails", async () => {
   expect(mounted.getByRole("status").textContent).toContain("weave failed");
   expect(mounted.container.querySelector(".cm-content")?.getAttribute("contenteditable")).toBe("false");
 });
-it.each(["x = 1\n", "x = 2\n"])("checks the projection %j against the preloaded source", async woven => {
+it.each([
+  {preloaded: true, woven: "x = 1\n"},
+  {preloaded: true, woven: "x = 2\n"},
+  {preloaded: false, woven: "x = 1\n"},
+  {preloaded: false, woven: "x = 2\n"},
+])("checks the projection $woven against disk with preloaded source $preloaded", async ({preloaded, woven}) => {
   const content = "x = 1\n";
   let release!: (output: OutputFile) => void;
   const held = new Promise<OutputFile>(resolve => { release = resolve; });
@@ -290,7 +295,9 @@ it.each(["x = 1\n", "x = 2\n"])("checks the projection %j against the preloaded 
     if (method === "GET" && path.endsWith("/diverged")) return {diverged: {}};
     throw Error(`unexpected ${method} ${path}`);
   });
-  const mounted = render(<GeneratedFileView docId="preview" path="src/hello.py" initialDiskFile={{...file(content), hash: "disk"}} />);
+  const disk = {...file(content), hash: "disk"};
+  const mounted = render(<GeneratedFileView docId="preview" path={disk.path} initialDiskFile={preloaded ? disk : undefined} />);
+  await waitFor(() => expect(mounted.container.querySelector(".cm-editor")).toBeTruthy());
   const dom = mounted.container.querySelector<HTMLElement>(".cm-editor")!;
   const view = (await import("@codemirror/view")).EditorView.findFromDOM(dom)!;
   expect(view.state.doc.toString()).toBe(content);
@@ -301,5 +308,54 @@ it.each(["x = 1\n", "x = 2\n"])("checks the projection %j against the preloaded 
   expect(view.state.doc.toString()).toBe(content);
   expect(view.state.selection.main).toMatchObject({anchor: 1, head: 4});
   expect(mounted.container.querySelector(".cm-editor")).toBe(dom);
-  expect(diskReads).toBe(0);
+  expect(diskReads).toBe(preloaded ? 0 : 1);
+});
+
+it("keeps the woven editor authoritative when an older disk read arrives later", async () => {
+  let release!: (output: OutputFile) => void;
+  const held = new Promise<OutputFile>(resolve => { release = resolve; });
+  const woven = file("x = 2\n");
+  installMockHandler(async (method, path) => {
+    if (method === "GET" && path.startsWith("/api/file?")) return held;
+    if (method === "GET" && path.includes("/outputs/file")) return woven;
+    if (method === "GET" && path.endsWith("/diverged")) return {diverged: {}};
+    throw Error(`unexpected ${method} ${path}`);
+  });
+  const mounted = render(<GeneratedFileView docId="woven-first" path={woven.path} />);
+  await waitFor(() => expect(mounted.container.querySelector(".cm-content")?.getAttribute("contenteditable")).toBe("true"));
+  const dom = mounted.container.querySelector<HTMLElement>(".cm-editor")!;
+  const view = (await import("@codemirror/view")).EditorView.findFromDOM(dom)!;
+  await act(async () => { release(file("x = 1\n")); await held; });
+  expect(view.state.doc.toString()).toBe(woven.content);
+  expect(view.state.readOnly).toBe(false);
+  expect(mounted.container.querySelector(".cm-editor")).toBe(dom);
+});
+
+it("uses the reviewed disk bytes for explicit regeneration and rereads the applied output", async () => {
+  const original = file("original disk\n"), woven = file("reproduced output\n");
+  let disk = original;
+  let sent: unknown;
+  let release!: (output: OutputFile) => void;
+  const held = new Promise<OutputFile>(resolve => { release = resolve; });
+  installMockHandler(async (method, path, body) => {
+    if (method === "GET" && path.startsWith("/api/file?")) return {...disk, hash: "disk"};
+    if (method === "GET" && path.includes("/outputs/file")) return held;
+    if (method === "GET" && path.endsWith("/diverged")) return {diverged: {
+      [original.path]: {kind: "held", reason: "Changed on disk", base: "old", theirs: woven.content},
+    }};
+    if (method === "POST" && path.endsWith("/outputs/regenerate")) {
+      sent = body;
+      disk = woven;
+      return {ok: true, applied: true, path: original.path, carried_back: false};
+    }
+    throw Error(`unexpected ${method} ${path}`);
+  });
+  const mounted = render(<GeneratedFileView docId="diverged" path={original.path} />);
+  await waitFor(() => expect(mounted.container.querySelector(".cm-content")?.textContent).toBe(original.content.trim()));
+  await act(async () => { release(woven); await held; });
+  fireEvent.click(mounted.getByLabelText("Resolve generated output differences"));
+  fireEvent.click(await mounted.findByRole("button", {name: "Regenerate from document"}));
+  await waitFor(() => expect(mounted.container.querySelector(".cm-content")?.textContent).toBe(woven.content.trim()));
+  expect(sent).toEqual({path: original.path, expected_current: original.content, expected_produced: woven.content});
+  expect(mounted.container.querySelector(".cm-content")?.getAttribute("contenteditable")).toBe("true");
 });

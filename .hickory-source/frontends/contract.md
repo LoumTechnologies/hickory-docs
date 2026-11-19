@@ -2731,6 +2731,17 @@ visible row's screen position held. See
 `target/main-generated-provenance-mismatch-layout-v1/browser.json`.
 Focused tests also preserve a queued position across editor mount replay.
 
+Direct Files opens use the same rule once disk text is visible. Two
+browser replays held real generated provenance after Files showed the
+complete source. Matching provenance enabled editing. Different
+provenance left the original source read-only and refused a keypress.
+Both preserved the same editor, nonempty selection, scroll offset,
+viewport and first visible row's screen position. Saved bytes stayed
+unchanged. See `target/main-generated-files-provenance-matching-v1/browser.json`
+and `target/main-generated-files-provenance-mismatch-v1/browser.json`.
+A focused test also exercises explicit regeneration from the reviewed disk
+and produced versions and rereads the applied result before enabling edits.
+
 Focused rebuilt-engine replays also passed for Python definition and
 Back/Forward, workspace search, delayed first-open authority and capabilities,
 and Debug and guarded patch review on both recorded Agent message sides.

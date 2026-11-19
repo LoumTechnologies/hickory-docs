@@ -16,7 +16,7 @@ import { languageFromPath } from "../editor/languages";
 //
 // See docs/specs/freeform/shell-layouts.md.
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Extension } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 
@@ -33,6 +33,19 @@ import { SamplePicker, selectedLines, type LineRange } from "./SamplePicker";
 const pendingOutputs = new Map<string, { contents: string; base: string }>();
 const pendingWrites = new Map<string, Promise<unknown>>();
 const bufferOwners = new Map<string, OutputSaver>();
+
+interface GeneratedReading {
+  disk: OutputFile | null;
+  woven: OutputFile | null;
+}
+
+function diskReading(file: PlainFile): OutputFile {
+  return {path: file.path, content: file.content, language: file.language, provenance: []};
+}
+
+function acceptProvenance(reading: GeneratedReading, woven: OutputFile): GeneratedReading {
+  return {woven, disk: reading.disk?.content === woven.content ? null : reading.disk};
+}
 
 /** One generated file, live, with its provenance carried into the LSP. */
 export function GeneratedFileView({
@@ -73,19 +86,12 @@ export function GeneratedFileView({
    */
   onReady?: (target: { view: EditorView; file: OutputFile } | null) => void;
 }) {
-  const [wovenFile, setFile] = useState<OutputFile | null>(null);
-  // Disk is an independent reading, not a substitute for write provenance.
   const admittedDisk = useRef(initialDiskFile?.path === path ? initialDiskFile : undefined).current;
-  const [diskFile, setDiskFile] = useState<OutputFile | null>(() => admittedDisk ? {
-    path: admittedDisk.path, language: admittedDisk.language, content: admittedDisk.content, provenance: [],
-  } : null);
-  const [confirmingDisk, setConfirmingDisk] = useState(!!admittedDisk);
-  const sourceMismatch = confirmingDisk && !!wovenFile &&
-    (wovenFile.path !== admittedDisk?.path || wovenFile.content !== admittedDisk?.content);
-  const file = sourceMismatch ? null : wovenFile;
-  useLayoutEffect(() => {
-    if (confirmingDisk && file) setConfirmingDisk(false);
-  }, [confirmingDisk, file]);
+  const [reading, setReading] = useState<GeneratedReading>(() => ({
+    disk: admittedDisk ? diskReading(admittedDisk) : null, woven: null,
+  }));
+  const file = reading.disk ? null : reading.woven;
+  const sourceMismatch = !!reading.disk && !!reading.woven;
   const [error, setError] = useState<string | null>(null);
   const outputView = useRef<EditorView | null>(null);
   const [debugView,setDebugView] = useState<EditorView|null>(null);
@@ -102,7 +108,9 @@ export function GeneratedFileView({
     if (admittedDisk?.path === path) return;
     let live = true;
     void api.file(path).then(loaded => {
-      if (live) setDiskFile({ path: loaded.path, language: loaded.language, content: loaded.content, provenance: [] });
+      if (live && loaded.path === path) {
+        setReading(current => current.woven || current.disk ? current : {...current, disk: diskReading(loaded)});
+      }
     }, () => { /* The provenance request can still supply an output absent on disk. */ });
     return () => { live = false; };
   }, [path, admittedDisk]);
@@ -112,9 +120,13 @@ export function GeneratedFileView({
     api.outputFile(docId, path).then(
       (loaded) => {
         if (live) {
+          if (loaded.path !== path) {
+            setError("The server returned source information for a different file.");
+            return;
+          }
           // The session's copy may have arrived first (liveFile effect);
           // never step back to an older fetch.
-          setFile((current) => current ?? loaded);
+          setReading(current => current.woven ? current : acceptProvenance(current, loaded));
           setError(null);
         }
       },
@@ -226,14 +238,13 @@ export function GeneratedFileView({
   // wipe text the user just typed; their round-trip re-weave follows shortly
   // and is adopted then.
   useEffect(() => {
-    if (!liveFile) return;
-    setFile((current) => {
-      if (!current) return liveFile;
-      if (current === liveFile) return current;
+    if (!liveFile || liveFile.path !== path) return;
+    setReading((current) => {
+      if (current.woven === liveFile) return current;
       if (saver.hasPendingEdits()) return current;
-      return liveFile;
+      return acceptProvenance(current, liveFile);
     });
-  }, [liveFile, saver]);
+  }, [liveFile, path, saver]);
 
   // Axis 3: whether the disk holds what the document produces, and if not,
   // why and the versions a merge needs. Read on mount and whenever files
@@ -257,7 +268,19 @@ export function GeneratedFileView({
     };
   }, [path]);
 
-  const displayFile = file ?? diskFile;
+  const displayFile = file ?? reading.disk;
+  // An explicit resolution can replace a disk preview. Read back the result
+  // and advance only the preview that the user reviewed for that resolution.
+  const refreshResolvedDisk = (previous: OutputFile) => {
+    void api.file(path).then(loaded => {
+      if (loaded.path !== path) return;
+      const disk = diskReading(loaded);
+      setReading(current => {
+        if (current.disk !== previous) return current;
+        return {woven: current.woven, disk: current.woven?.content === disk.content ? null : disk};
+      });
+    }, error => setWayError(String(error)));
+  };
   useEffect(() => {
     if (!debugView || !file) return;
     // A retained edit is restored only after the matching provenance is loaded.
@@ -269,9 +292,9 @@ export function GeneratedFileView({
     return () => onReady?.(null);
   }, [debugView, file, pendingKey, onReady]);
 
-  const sourceError = error ? `Source information could not load. Reopen this tab to retry. ${error}`
-    : sourceMismatch ? "The generated source changed while source information loaded. Reopen this tab to read the current file." : null;
-  useUiReading("generated file load and save status", { doc_id: docId, path, loading: !displayFile && !sourceError, loaded: !!displayFile, provenance_loaded: !!file, error: error ?? sourceError, save_state: saveState, save_error: saveError, recovery_error: wayError, message: sourceError || (!displayFile ? `Loading ${path}…` : null), source_read: false });
+  const sourceError = sourceMismatch ? "Source information describes different bytes. The saved preview remains read-only."
+    : !reading.woven && error ? `Source information could not load. Reopen this tab to retry. ${error}` : null;
+  useUiReading("generated file load and save status", { doc_id: docId, path, loading: !displayFile && !sourceError, loaded: !!displayFile, provenance_loaded: !!file, error: sourceMismatch ? sourceError : reading.woven ? null : error, save_state: saveState, save_error: saveError, recovery_error: wayError, message: sourceError || (!displayFile ? `Loading ${path}…` : null), source_read: false });
   if (!displayFile) return error ? <p className="error">{error}</p> : <p className="muted">Loading {path}…</p>;
 
   return (
@@ -283,10 +306,11 @@ export function GeneratedFileView({
       {saveState && <PaneHeaderContent part="info">
         <span className="save-state" role="status">{saveState === "saving" ? "Saving…" : saveState === "saved" ? "Saved to owning document" : "Unsaved changes"}</span>
       </PaneHeaderContent>}
-      {file && diverged && dismissed !== diverged.reason && !merging && (
+      {reading.woven && diverged && dismissed !== diverged.reason && !merging && (
+        <PaneHeaderContent part="actions"><MoreActions label="Resolve generated output differences" glyph="⚠" retainOnAction>
         <DivergedBanner
           what={path}
-          sourceRevision={() => [docId, file?.content, diverged, outputView.current?.state.doc.toString()]}
+          sourceRevision={() => [docId, displayFile?.content, diverged, outputView.current?.state.doc.toString()]}
           reason={diverged.reason}
           mine="what is on disk"
           theirs="what the document produces"
@@ -294,31 +318,41 @@ export function GeneratedFileView({
           keepLabel="Leave disk unchanged" keepEffect="Dismisses this warning; the document and disk still differ."
           takeLabel="Regenerate from document" takeEffect="Replaces disk contents with the document’s output."
           onTakeTheirs={
-            diverged.kind === "held" && file
+            diverged.kind === "held"
               ? () =>
-                  api.regenerateOutput(path, file.content, diverged.theirs).then(
-                    reply => { setWayError(null); return { ...reply, scope: "Actual output-file application reply; not source verification" }; },
+                  api.regenerateOutput(path, displayFile.content, diverged.theirs).then(
+                    reply => {
+                      setWayError(null);
+                      if (reading.disk && reply.applied && reply.path === path) refreshResolvedDisk(reading.disk);
+                      return { ...reply, scope: "Actual output-file application reply; not source verification" };
+                    },
                     (e) => { setWayError(e instanceof Error ? e.message : String(e)); throw e; },
                   )
               : undefined
           }
           takeTheirsHint={
-            diverged.kind === "kept" ? "Run the document to have a version to take." : !file ? "Loading the disk version before regeneration." : undefined
+            diverged.kind === "kept" ? "Run the document to have a version to take." : undefined
           }
           onMerge={diverged.kind === "held" ? () => setMerging(true) : undefined}
           error={wayError}
         />
+        </MoreActions></PaneHeaderContent>
       )}
-      {diverged && merging && file && (
+      {diverged && merging && reading.woven && (
         <MergeView
           path={path}
           base={diverged.base}
-          ours={file.content}
+          ours={displayFile.content}
           theirs={diverged.theirs}
           oursLabel="What is on disk"
           theirsLabel="What the document produces"
           onAccept={async (text) => {
-            try { const reply = await api.resolveOutput(path, text, file.content, diverged.theirs); setWayError(null); setMerging(false); return reply; }
+            try {
+              const reply = await api.resolveOutput(path, text, displayFile.content, diverged.theirs);
+              setWayError(null); setMerging(false);
+              if (reading.disk && reply.applied && reply.path === path) refreshResolvedDisk(reading.disk);
+              return reply;
+            }
             catch (e) { setWayError(e instanceof Error ? e.message : String(e)); throw e; }
           }}
           onCancel={() => setMerging(false)}
