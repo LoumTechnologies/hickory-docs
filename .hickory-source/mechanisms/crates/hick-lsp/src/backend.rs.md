@@ -213,6 +213,7 @@ struct DocEntry {
     source_hash: Option<String>,
     source_text: String,
     project_dependencies: std::collections::HashSet<Url>,
+    staged_imports: HashMap<String, StagedImport>,
     preparing: bool,
     preparation: Arc<Mutex<()>>,
     /// The parsed document state (None if parse failed).
@@ -557,6 +558,36 @@ impl HickBackend {
             }
         } else {
             copy_manifests(&self.staging, hick_uri);
+        }
+        let workspace = self.workspace_root.read().await.clone();
+        let mut imports = HashMap::new();
+        if state.evaluated_project.is_none()
+            && let Some(root) = workspace.and_then(|uri| uri.to_file_path().ok())
+            && hick_uri.to_file_path().is_ok_and(|path| path.starts_with(&root))
+        {
+            imports = collect_staged_imports(&root, service_files.iter().map(|(vf, (text, _))|
+                (vf.path.as_str(), vf.language_id, text.as_str())));
+        }
+        let previous_imports = self.documents.read().await.get(hick_uri)
+            .map(|entry| entry.staged_imports.clone()).unwrap_or_default();
+        for name in previous_imports.keys().filter(|name| !imports.contains_key(*name)) {
+            if let Ok(path) = self.staging.vfile_path(hick_uri, name) {
+                let _ = std::fs::remove_file(path);
+            }
+        }
+        let mut staged = HashMap::new();
+        for (name, (target, text)) in imports {
+            let existing = self.staging.vfile_path(hick_uri, &name).ok();
+            let unchanged = previous_imports.get(&name).is_some_and(|old| old.hash == target.hash)
+                && existing.as_ref().is_some_and(|path| path.is_file());
+            if unchanged || self.staging.write_vfile(hick_uri, &name, &text).is_ok() {
+                staged.insert(name, target);
+            } else if let Some(path) = existing {
+                let _ = std::fs::remove_file(path);
+            }
+        }
+        if let Some(entry) = self.documents.write().await.get_mut(hick_uri) {
+            entry.staged_imports = staged;
         }
         for (vf, (content, _)) in &service_files {
             if state.evaluated_project.is_some() && state.project_maps.contains_key(&vf.path) {
@@ -1096,12 +1127,52 @@ impl HickBackend {
         method: &str,
         uri: &Url,
         pos: Position,
+        extra: Option<serde_json::Value>,
     ) -> Option<serde_json::Value> {
+        let revision = {
+            let docs = self.documents.read().await;
+            docs.get(uri).filter(|entry| !entry.preparing)?.source_revision
+        };
         let (vf_uri, lang, vpos) = self.virtual_read_target(uri, pos).await?;
-        let result = self
-            .child_request(method, &vf_uri, &lang, vpos, None)
-            .await?;
-        let index = self.index_snapshot().await;
+        let mut result = self.child_request(method, &vf_uri, &lang, vpos, extra).await?;
+        let imports = {
+            let docs = self.documents.read().await;
+            let origin = docs.get(uri).filter(|entry| !entry.preparing && entry.source_revision == revision)?;
+            origin.staged_imports.clone()
+        };
+        let mut index = self.index_snapshot().await;
+        let stage = self.staging.document_dir(uri).ok();
+        let mut retired = std::collections::HashSet::new();
+        let location_uri = |location: &serde_json::Value| location.get("uri").or_else(|| location.get("targetUri"))
+            .and_then(serde_json::Value::as_str).map(uri_key);
+        let wanted: std::collections::HashSet<_> = match &result {
+            serde_json::Value::Array(items) => items.iter().filter_map(location_uri).collect(),
+            one => location_uri(one).into_iter().collect(),
+        };
+        for (name, target) in &imports {
+            let staged_uri = self.staging.vfile_uri(uri, name);
+            let key = uri_key(staged_uri.as_str());
+            if !wanted.contains(&key) { continue; }
+            let held = self.documents.read().await.get(&target.uri)
+                .is_none_or(|entry| !entry.preparing && entry.source_hash.as_deref() == Some(target.hash.as_str()));
+            let matches = |root: &std::path::Path| read_staged_import(root, name)
+                .is_some_and(|text| diagnostic_source_digest(&text) == target.hash);
+            if held && matches(&target.workspace) && stage.as_deref().is_some_and(matches) {
+                index.entry(key).or_insert_with(|| (target.uri.clone(), PositionMap::identity(u32::MAX)));
+            } else {
+                retired.insert(key);
+            }
+        }
+        let current = self.documents.read().await.get(uri)
+            .is_some_and(|entry| !entry.preparing && entry.source_revision == revision);
+        if !current { return None; }
+        let retained = |location: &serde_json::Value| location.get("uri").or_else(|| location.get("targetUri"))
+            .and_then(serde_json::Value::as_str).is_none_or(|uri| !retired.contains(&uri_key(uri)));
+        if let Some(items) = result.as_array_mut() {
+            items.retain(retained);
+        } else if !retained(&result) {
+            return None;
+        }
         Some(translate_locations(result, &index))
     }
 
@@ -1928,20 +1999,16 @@ pub(crate) fn translate_bare_ranges(
 Files that tell a language server "this is a project of mine".
 Only manifests, and only these: they are small, they are read rather than
 executed, and each one is what its ecosystem's server looks for before it
-will answer anything semantic. Source files are deliberately NOT copied —
-the virtual file is the document's code, and dragging the surrounding
-repository in would make the server answer about files the document does
-not contain.
+will answer anything semantic. Ordinary source dependencies are projected
+only when explicitly imported by supported generated language code.
 
 <storycode:copy id="f-c936496a03c1-MANIFESTS">
 /// Files that tell a language server "this is a project of mine".
 ///
 /// Only manifests, and only these: they are small, they are read rather than
 /// executed, and each one is what its ecosystem's server looks for before it
-/// will answer anything semantic. Source files are deliberately NOT copied —
-/// the virtual file is the document's code, and dragging the surrounding
-/// repository in would make the server answer about files the document does
-/// not contain.
+/// will answer anything semantic. Ordinary source dependencies use the
+/// separate literal-import projection.
 const MANIFESTS: &[&str] = &[
     "Cargo.toml",
     "Cargo.lock",
@@ -1959,6 +2026,177 @@ const MANIFESTS: &[&str] = &[
 ];
 
 </storycode:copy>
+### Stage the saved modules explicitly imported by a woven file
+
+A child analyzes an isolated output tree. Give it bounded copies of the
+workspace's literal relative modules before opening the generated text.
+Generated outputs keep their own paths and provenance. Saved aliases are
+kept outside the editable file index. A positional location can use an
+alias only while the saved bytes and originating editor revision agree.
+
+<storycode:copy id="typescript-saved-import-projection">
+#[derive(Clone)]
+struct StagedImport {
+    uri: Url,
+    workspace: std::path::PathBuf,
+    hash: String,
+}
+const STAGED_IMPORT_LIMIT: usize = 512 * 1024;
+
+fn import_relative_path(origin: &str, specifier: &str) -> Option<String> {
+    if origin.starts_with('/') || origin.contains('\\') || origin.split('/').any(|part| part == "..") {
+        return None;
+    }
+    let mut parts = origin.split('/').filter(|part| !part.is_empty() && *part != ".").collect::<Vec<_>>();
+    parts.pop()?;
+    for part in specifier.split('/') {
+        match part {
+            "." => {}
+            ".." => { parts.pop()?; }
+            "" => return None,
+            name => parts.push(name),
+        }
+    }
+    (!parts.is_empty() && parts.iter().all(|part| !part.is_empty() && !part.starts_with('.')
+        && *part != "node_modules" && !part.contains(['\\', ':', '?', '#']) && !part.chars().any(char::is_control)))
+        .then(|| parts.join("/"))
+}
+
+fn read_staged_import(workspace: &std::path::Path, relative: &str) -> Option<String> {
+    use std::io::Read;
+    fn same_file(before: &std::fs::Metadata, after: &std::fs::Metadata) -> bool {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            before.dev() == after.dev() && before.ino() == after.ino()
+        }
+        #[cfg(not(unix))]
+        {
+            before.created().ok() == after.created().ok()
+        }
+    }
+    let path = workspace.join(relative);
+    if std::fs::canonicalize(&path).ok()? != path { return None; }
+    let before = std::fs::symlink_metadata(&path).ok()?;
+    if !before.is_file() || before.len() > STAGED_IMPORT_LIMIT as u64 { return None; }
+    let file = std::fs::File::open(&path).ok()?;
+    let opened = file.metadata().ok()?;
+    if !opened.is_file() || !same_file(&before, &opened) { return None; }
+    let mut raw = Vec::new();
+    file.take(STAGED_IMPORT_LIMIT as u64 + 1).read_to_end(&mut raw).ok()?;
+    let after = std::fs::symlink_metadata(&path).ok()?;
+    if raw.len() > STAGED_IMPORT_LIMIT || !after.is_file() || !same_file(&after, &opened) || after.len() != before.len()
+        || after.modified().ok()? != before.modified().ok()? || std::fs::canonicalize(&path).ok()? != path
+    { return None; }
+    String::from_utf8(raw).ok()
+}
+
+fn collect_staged_imports<'a>(
+    workspace: &std::path::Path,
+    outputs: impl Iterator<Item = (&'a str, Option<&'a str>, &'a str)>,
+) -> HashMap<String, (StagedImport, String)> {
+    let outputs: Vec<_> = outputs.collect();
+    let generated: std::collections::HashSet<_> = outputs.iter().map(|(path, _, _)|
+        path.split(['/', '\\']).filter(|part| !part.is_empty() && *part != ".")
+            .collect::<Vec<_>>().join("/").to_lowercase()).collect();
+    let mut pending = std::collections::VecDeque::new();
+    let enqueue = |queue: &mut std::collections::VecDeque<String>, path: &str, language: &str, source: &str| {
+        if source.len() > STAGED_IMPORT_LIMIT || queue.len() >= 128 { return; }
+        queue.extend(hick_plugins::relative_ecmascript_imports(language, source).into_iter()
+            .filter_map(|literal| import_relative_path(path, &literal)).take(128 - queue.len()));
+    };
+    for (path, language, text) in outputs {
+        if let Some(language) = language { enqueue(&mut pending, path, language, text); }
+    }
+    let mut seen = std::collections::HashSet::new();
+    let mut result = HashMap::new();
+    let mut bytes = 0;
+    while let Some(reference) = pending.pop_front() {
+        if seen.len() >= 128 || result.len() >= 64 || bytes >= 2 * 1024 * 1024 { break; }
+        if !seen.insert(reference.clone()) { continue; }
+        let path = std::path::Path::new(&reference);
+        let mut candidates = Vec::new();
+        match path.extension().and_then(|ext| ext.to_str()) {
+            Some("ts" | "tsx" | "mts" | "cts" | "js" | "jsx" | "mjs" | "cjs") => {
+                let replacements: &[&str] = match path.extension().and_then(|ext| ext.to_str()) {
+                    Some("js") => &["ts", "tsx"],
+                    Some("mjs") => &["mts"],
+                    Some("cjs") => &["cts"],
+                    Some("jsx") => &["tsx"],
+                    _ => &[],
+                };
+                candidates.extend(replacements.iter().map(|ext| path.with_extension(ext).to_string_lossy().into_owned()));
+                candidates.push(reference);
+            }
+            None => candidates.extend([".ts", ".tsx", ".js", ".jsx", "/index.ts", "/index.tsx", "/index.js"]
+                .map(|suffix| format!("{reference}{suffix}"))),
+            _ => continue,
+        }
+        for name in candidates {
+            if generated.contains(&name.to_lowercase()) || result.contains_key(&name) { break; }
+            let Some(text) = read_staged_import(workspace, &name) else { continue };
+            if bytes + text.len() > 2 * 1024 * 1024 { break; }
+            let Ok(uri) = Url::from_file_path(workspace.join(&name)) else { break };
+            let language = if name.ends_with(".tsx") { "typescriptreact" }
+                else if name.ends_with(".js") || name.ends_with(".mjs") || name.ends_with(".cjs") { "javascript" }
+                else { "typescript" };
+            enqueue(&mut pending, &name, language, &text);
+            bytes += text.len();
+            result.insert(name, (StagedImport { uri, workspace: workspace.into(), hash: diagnostic_source_digest(&text) }, text));
+            break;
+        }
+    }
+    result
+}
+
+#[cfg(test)]
+mod staged_import_projection_tests {
+    use super::*;
+
+    #[test]
+    fn literal_relative_imports_use_only_saved_workspace_modules() {
+        let temp = tempfile::tempdir().unwrap();
+        let workspace = temp.path().canonicalize().unwrap();
+        std::fs::create_dir(workspace.join("src")).unwrap();
+        std::fs::write(workspace.join("src/real.ts"), "export { symbol } from './leaf.js';").unwrap();
+        std::fs::write(workspace.join("src/leaf.ts"), "export const symbol = 1;").unwrap();
+        std::fs::write(workspace.join("fake.ts"), "secret which must not be read").unwrap();
+        std::fs::write(workspace.join("shadow.ts"), "saved, but owned by generated content").unwrap();
+        let origin = r#"
+            // import './fake';
+            const sample = "import './fake'";
+            import { symbol } from './src/real';
+            export * from './shadow';
+            export * from '../outside';
+        "#;
+        let projected = collect_staged_imports(&workspace,
+            [("main.ts", Some("typescript"), origin), ("./shadow.ts", Some("typescript"), "")].into_iter());
+        assert_eq!(projected.len(), 2);
+        assert_eq!(projected["src/leaf.ts"].1, "export const symbol = 1;");
+        assert_eq!(projected["src/real.ts"].0.uri, Url::from_file_path(workspace.join("src/real.ts")).unwrap());
+        std::fs::remove_file(workspace.join("src/leaf.ts")).unwrap();
+        assert!(read_staged_import(&workspace, "src/leaf.ts").is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn stage_refuses_symlinks_and_outside_workspace_paths() {
+        let home = tempfile::tempdir().unwrap();
+        let root = home.path().canonicalize().unwrap().join("workspace");
+        std::fs::create_dir(&root).unwrap();
+        let outside = home.path().join("outside.ts");
+        std::fs::write(&outside, "export const outside = 2;").unwrap();
+        std::os::unix::fs::symlink(&outside, root.join("alias.ts")).unwrap();
+        let result = collect_staged_imports(&root, [
+            ("main.ts", Some("typescript"), "import './alias'; import '../outside';"),
+        ].into_iter());
+        assert!(result.is_empty());
+        assert!(import_relative_path("../../invalid.ts", "./other").is_none());
+        assert!(import_relative_path("/absolute.ts", "./other").is_none());
+    }
+}
+</storycode:copy>
+
 <a id="f-c936496a03c1-copy_manifests"></a>
 ### `copy_manifests`
 
@@ -2962,18 +3200,8 @@ impl LanguageServer for HickBackend {
             return Ok(Some(GotoDefinitionResponse::Scalar(loc)));
         }
 
-        let Some((vf_uri, lang, vpos)) = self.virtual_read_target(&uri, pos).await else {
-            return Ok(None);
-        };
-        let Some(result) = self
-            .child_request("textDocument/definition", &vf_uri, &lang, vpos, None)
-            .await
-        else {
-            return Ok(None);
-        };
-        let index = self.index_snapshot().await;
-        let result = translate_locations(result, &index);
-        Ok(serde_json::from_value(result).ok())
+        Ok(self.positional_locations("textDocument/definition", &uri, pos, None).await
+            .and_then(|result| serde_json::from_value(result).ok()))
     }
 
     async fn references(&self, params: ReferenceParams) -> Result<Option<Vec<Location>>> {
@@ -2992,25 +3220,13 @@ impl LanguageServer for HickBackend {
             )
             .await;
 
-        // Child references, translated back to .md coordinates, merged in.
-        if let Some((vf_uri, lang, vpos)) = self.virtual_read_target(&uri, pos).await
-            && let Some(result) = self
-                .child_request(
-                    "textDocument/references",
-                    &vf_uri,
-                    &lang,
-                    vpos,
-                    Some(serde_json::json!({
-                        "context": { "includeDeclaration": include_declaration }
-                    })),
-                )
-                .await
+        if let Some(result) = self.positional_locations(
+            "textDocument/references", &uri, pos,
+            Some(serde_json::json!({"context": {"includeDeclaration": include_declaration}})),
+        ).await
+            && let Ok(locations) = serde_json::from_value::<Vec<Location>>(result)
         {
-            let index = self.index_snapshot().await;
-            let translated = translate_locations(result, &index);
-            if let Ok(locs) = serde_json::from_value::<Vec<Location>>(translated) {
-                out.extend(locs);
-            }
+            out.extend(locations);
         }
 
         out.sort_by(|a, b| {
@@ -3145,7 +3361,7 @@ impl LanguageServer for HickBackend {
         let uri = params.text_document_position_params.text_document.uri;
         let pos = params.text_document_position_params.position;
         let Some(result) = self
-            .positional_locations("textDocument/typeDefinition", &uri, pos)
+            .positional_locations("textDocument/typeDefinition", &uri, pos, None)
             .await
         else {
             return Ok(None);
@@ -3160,7 +3376,7 @@ impl LanguageServer for HickBackend {
         let uri = params.text_document_position_params.text_document.uri;
         let pos = params.text_document_position_params.position;
         let Some(result) = self
-            .positional_locations("textDocument/implementation", &uri, pos)
+            .positional_locations("textDocument/implementation", &uri, pos, None)
             .await
         else {
             return Ok(None);
@@ -3175,7 +3391,7 @@ impl LanguageServer for HickBackend {
         let uri = params.text_document_position_params.text_document.uri;
         let pos = params.text_document_position_params.position;
         let Some(result) = self
-            .positional_locations("textDocument/declaration", &uri, pos)
+            .positional_locations("textDocument/declaration", &uri, pos, None)
             .await
         else {
             return Ok(None);
@@ -3700,6 +3916,7 @@ impl DocEntry {
             source_hash: None,
             source_text: String::new(),
             project_dependencies: Default::default(),
+            staged_imports: HashMap::new(),
             preparing: false,
             preparation: Arc::new(Mutex::new(())),
             state: None,
@@ -3929,6 +4146,6 @@ mod fenced_reading_lifetime_tests {
     }
 }
 </storycode:copy>
-<storycode:file path="crates/hick-lsp/src/backend.rs"><storycode:paste select="#f-c936496a03c1-diagnostic_context"/><storycode:paste select="#f-c936496a03c1-use_declaration"/><storycode:paste select="#f-c936496a03c1-captured"/><storycode:paste select="#f-c936496a03c1-use_declaration-2"/><storycode:paste select="#f-c936496a03c1-use_declaration-3"/><storycode:paste select="#f-c936496a03c1-use_declaration-4"/><storycode:paste select="#f-c936496a03c1-use_declaration-5"/><storycode:paste select="#f-c936496a03c1-use_declaration-6"/><storycode:paste select="#f-c936496a03c1-use_declaration-7"/><storycode:paste select="#f-c936496a03c1-use_declaration-8"/><storycode:paste select="#f-c936496a03c1-use_declaration-9"/><storycode:paste select="#f-c936496a03c1-use_declaration-10"/><storycode:paste select="#f-c936496a03c1-use_declaration-11"/><storycode:paste select="#f-c936496a03c1-use_declaration-12"/><storycode:paste select="#f-c936496a03c1-use_declaration-13"/><storycode:paste select="#f-c936496a03c1-use_declaration-14"/><storycode:paste select="#f-c936496a03c1-ChildDiagnosticsStore"/><storycode:paste select="#f-c936496a03c1-PreparedHierarchyItem"/><storycode:paste select="#f-c936496a03c1-uuid_ish"/><storycode:paste select="#f-c936496a03c1-HickBackend"/><storycode:paste select="#f-c936496a03c1-DocEntry"/><storycode:paste select="#provider-document-source-lifetime"/><storycode:paste select="#project-overlay-root-refresh"/><storycode:paste select="#project-overlay-backend-witness"/><storycode:paste select="#f-c936496a03c1-VFileMapping"/><storycode:paste select="#yaml-frontmatter-projection"/><storycode:paste select="#f-c936496a03c1-impl-HickBackend"/><storycode:paste select="#static-language-capture-readiness"/><storycode:paste select="#f-c936496a03c1-StructuralKind"/><storycode:paste select="#f-c936496a03c1-drive_lowercased"/><storycode:paste select="#f-c936496a03c1-uri_key"/><storycode:paste select="#f-c936496a03c1-translate_edit_uris"/><storycode:paste select="#f-c936496a03c1-translate_bare_ranges"/><storycode:paste select="#f-c936496a03c1-MANIFESTS"/><storycode:paste select="#f-c936496a03c1-copy_manifests"/><storycode:paste select="#f-c936496a03c1-child_request_error"/><storycode:paste select="#f-c936496a03c1-handle_child_diagnostics"/><storycode:paste select="#f-c936496a03c1-static-diagnostics"/><storycode:paste select="#f-c936496a03c1-impl-LanguageServer-for-HickBackend"/><storycode:paste select="#f-c936496a03c1-translate_edits"/><storycode:paste select="#f-c936496a03c1-reindent"/><storycode:paste select="#f-c936496a03c1-is_hick_document"/><storycode:paste select="#f-c936496a03c1-plain_language"/><storycode:paste select="#f-c936496a03c1-parse_error_location"/><storycode:paste select="#f-c936496a03c1-tests"/><storycode:paste select="#diagnostic-source-revision-envelope"/><storycode:paste select="#provider-action-module"/><storycode:paste select="#fenced-backend-readings"/></storycode:file>
+<storycode:file path="crates/hick-lsp/src/backend.rs"><storycode:paste select="#f-c936496a03c1-diagnostic_context"/><storycode:paste select="#f-c936496a03c1-use_declaration"/><storycode:paste select="#f-c936496a03c1-captured"/><storycode:paste select="#f-c936496a03c1-use_declaration-2"/><storycode:paste select="#f-c936496a03c1-use_declaration-3"/><storycode:paste select="#f-c936496a03c1-use_declaration-4"/><storycode:paste select="#f-c936496a03c1-use_declaration-5"/><storycode:paste select="#f-c936496a03c1-use_declaration-6"/><storycode:paste select="#f-c936496a03c1-use_declaration-7"/><storycode:paste select="#f-c936496a03c1-use_declaration-8"/><storycode:paste select="#f-c936496a03c1-use_declaration-9"/><storycode:paste select="#f-c936496a03c1-use_declaration-10"/><storycode:paste select="#f-c936496a03c1-use_declaration-11"/><storycode:paste select="#f-c936496a03c1-use_declaration-12"/><storycode:paste select="#f-c936496a03c1-use_declaration-13"/><storycode:paste select="#f-c936496a03c1-use_declaration-14"/><storycode:paste select="#f-c936496a03c1-ChildDiagnosticsStore"/><storycode:paste select="#f-c936496a03c1-PreparedHierarchyItem"/><storycode:paste select="#f-c936496a03c1-uuid_ish"/><storycode:paste select="#f-c936496a03c1-HickBackend"/><storycode:paste select="#f-c936496a03c1-DocEntry"/><storycode:paste select="#provider-document-source-lifetime"/><storycode:paste select="#project-overlay-root-refresh"/><storycode:paste select="#project-overlay-backend-witness"/><storycode:paste select="#f-c936496a03c1-VFileMapping"/><storycode:paste select="#yaml-frontmatter-projection"/><storycode:paste select="#f-c936496a03c1-impl-HickBackend"/><storycode:paste select="#static-language-capture-readiness"/><storycode:paste select="#f-c936496a03c1-StructuralKind"/><storycode:paste select="#f-c936496a03c1-drive_lowercased"/><storycode:paste select="#f-c936496a03c1-uri_key"/><storycode:paste select="#f-c936496a03c1-translate_edit_uris"/><storycode:paste select="#f-c936496a03c1-translate_bare_ranges"/><storycode:paste select="#f-c936496a03c1-MANIFESTS"/><storycode:paste select="#typescript-saved-import-projection"/><storycode:paste select="#f-c936496a03c1-copy_manifests"/><storycode:paste select="#f-c936496a03c1-child_request_error"/><storycode:paste select="#f-c936496a03c1-handle_child_diagnostics"/><storycode:paste select="#f-c936496a03c1-static-diagnostics"/><storycode:paste select="#f-c936496a03c1-impl-LanguageServer-for-HickBackend"/><storycode:paste select="#f-c936496a03c1-translate_edits"/><storycode:paste select="#f-c936496a03c1-reindent"/><storycode:paste select="#f-c936496a03c1-is_hick_document"/><storycode:paste select="#f-c936496a03c1-plain_language"/><storycode:paste select="#f-c936496a03c1-parse_error_location"/><storycode:paste select="#f-c936496a03c1-tests"/><storycode:paste select="#diagnostic-source-revision-envelope"/><storycode:paste select="#provider-action-module"/><storycode:paste select="#fenced-backend-readings"/></storycode:file>
 
 </storycode:doc>

@@ -1,3 +1,32 @@
+pub fn relative_ecmascript_imports(language: &str, source: &str) -> Vec<String> {
+    let grammar = match language {
+        "typescript" => tree_sitter_typescript::LANGUAGE_TYPESCRIPT,
+        "typescriptreact" => tree_sitter_typescript::LANGUAGE_TSX,
+        "javascript" => tree_sitter_javascript::LANGUAGE,
+        _ => return Vec::new(),
+    };
+    let mut parser = tree_sitter::Parser::new();
+    if parser.set_language(&grammar.into()).is_err() {
+        return Vec::new();
+    }
+    let Some(tree) = parser.parse(source, None) else { return Vec::new() };
+    let root = tree.root_node();
+    let mut cursor = root.walk();
+    root.named_children(&mut cursor)
+        .filter(|node| matches!(node.kind(), "import_statement" | "export_statement") && !node.has_error())
+        .filter_map(|node| {
+            let text = node.child_by_field_name("source")?.utf8_text(source.as_bytes()).ok()?;
+            let first = *text.as_bytes().first()?;
+            if text.len() < 2 || !matches!(first, b'\'' | b'"') || text.as_bytes().last() != Some(&first) {
+                return None;
+            }
+            let specifier = &text[1..text.len() - 1];
+            ((specifier.starts_with("./") || specifier.starts_with("../")) && !specifier.contains('\\'))
+                .then(|| specifier.to_owned())
+        })
+        .take(128)
+        .collect()
+}
 use super::{dap, dap_install, index_install, lsp, lsp_install};
 use crate::*;
 pub static PLUGIN: Plugin = Plugin {

@@ -10,6 +10,7 @@ mod install;
 pub mod java;
 pub mod java_debug;
 mod languages;
+pub use languages::relative_ecmascript_imports;
 pub mod lsp_discovery;
 pub mod metadata;
 pub mod routing;

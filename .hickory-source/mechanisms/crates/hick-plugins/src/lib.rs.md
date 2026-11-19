@@ -68,6 +68,7 @@ pub mod java_debug;
 
 <storycode:copy id="f-ff0c576452e2-languages">
 mod languages;
+pub use languages::relative_ecmascript_imports;
 </storycode:copy>
 <a id="f-ff0c576452e2-lsp_discovery"></a>
 ### `lsp_discovery`

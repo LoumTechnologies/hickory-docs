@@ -117,6 +117,45 @@ pub(super) fn test_command(root:&std::path::Path,file:&std::path::Path,name:&str
 
 The selections below preserve the original byte order. Narrative reading order does not change the output.
 
-<storycode:file path="crates/hick-plugins/src/languages/typescript.rs"><storycode:paste select="#f-1d2ae9a2e366-PLUGIN"/><storycode:paste select="#f-1d2ae9a2e366-test_command"/></storycode:file>
+### Read literal relative module references
+
+The language service can use saved sibling modules for a woven source. Recognize
+actual import and re-export syntax so comments, strings and computed expressions
+cannot request a filesystem read. The workspace decides which literal paths it
+can project.
+
+<storycode:copy id="typescript-relative-imports">
+pub fn relative_ecmascript_imports(language: &str, source: &str) -> Vec<String> {
+    let grammar = match language {
+        "typescript" => tree_sitter_typescript::LANGUAGE_TYPESCRIPT,
+        "typescriptreact" => tree_sitter_typescript::LANGUAGE_TSX,
+        "javascript" => tree_sitter_javascript::LANGUAGE,
+        _ => return Vec::new(),
+    };
+    let mut parser = tree_sitter::Parser::new();
+    if parser.set_language(&grammar.into()).is_err() {
+        return Vec::new();
+    }
+    let Some(tree) = parser.parse(source, None) else { return Vec::new() };
+    let root = tree.root_node();
+    let mut cursor = root.walk();
+    root.named_children(&mut cursor)
+        .filter(|node| matches!(node.kind(), "import_statement" | "export_statement") && !node.has_error())
+        .filter_map(|node| {
+            let text = node.child_by_field_name("source")?.utf8_text(source.as_bytes()).ok()?;
+            let first = *text.as_bytes().first()?;
+            if text.len() < 2 || !matches!(first, b'\'' | b'"') || text.as_bytes().last() != Some(&first) {
+                return None;
+            }
+            let specifier = &text[1..text.len() - 1];
+            ((specifier.starts_with("./") || specifier.starts_with("../")) && !specifier.contains('\\'))
+                .then(|| specifier.to_owned())
+        })
+        .take(128)
+        .collect()
+}
+</storycode:copy>
+
+<storycode:file path="crates/hick-plugins/src/languages/typescript.rs"><storycode:paste select="#typescript-relative-imports"/><storycode:paste select="#f-1d2ae9a2e366-PLUGIN"/><storycode:paste select="#f-1d2ae9a2e366-test_command"/></storycode:file>
 
 </storycode:doc>

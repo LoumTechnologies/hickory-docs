@@ -33,6 +33,7 @@ mod swift;
 mod terraform;
 mod toml;
 mod typescript;
+pub use typescript::relative_ecmascript_imports;
 mod vb;
 mod xml;
 mod yaml;

@@ -217,6 +217,7 @@ mod toml;
 
 <storycode:copy id="f-0786fc45b7c7-typescript">
 mod typescript;
+pub use typescript::relative_ecmascript_imports;
 </storycode:copy>
 <a id="f-0786fc45b7c7-vb"></a>
 ### `vb`
