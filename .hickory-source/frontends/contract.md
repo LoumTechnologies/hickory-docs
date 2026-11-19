@@ -940,6 +940,14 @@ The same editor, its dimensions and exact saved bytes survived. See
 `target/mobile-provider-followup/go-browser-opnyelru/` and
 `target/mobile-provider-followup/go-rendered-current-remote-output/`.
 
+The installed js-debug adapter also passed a rendered Node.js project with
+a separate copy contributor. Step Into moved from authored `launch.md:7`
+to the exact captured source at `helper.md:6`. Scoped Watch read `seed = 41`.
+Continue retained stdout `42` in the launch tab. Reselecting it kept the same
+editor and viewport dimensions. Both authored files kept their exact bytes,
+and the generated JavaScript stayed unpublished. See
+`target/js-contributor-browser.RuI2FP/receipt/`.
+
 Java Debug now asks the installed language server for its hosted DAP endpoint.
 The main class must match the selected source file. The adapter receives the
 profile's arguments in its string format and the session owns the temporary
