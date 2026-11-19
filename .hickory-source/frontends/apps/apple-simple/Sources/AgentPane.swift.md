@@ -44,6 +44,10 @@ Use the same gutter for ordinary recorded code fences, with their immutable
 Agent turn and message-side identity supplied separately from the buffer path.
 Running assistant text and error text have no recorded answer authority. The
 composer keeps its own buffer and editing history across capability changes.
+On iPhone, the keyboard can consume the conversation viewport. Once Send is
+acknowledged, release the composer's native focus only when clearing the same
+submitted draft revision. A newer draft keeps its focus. If the user already
+focused another control, the composer leaves that focus alone.
 
 Opening Run sends one request tied to the archived side, source hash, and
 opening line. A receipt can feed the gutter terminal only while the mounted
@@ -351,12 +355,22 @@ Capture the prompt before sending and clear it only if the user has not typed a 
     private func send() async {
         guard let engine, !session.running, !session.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         let submitted = session.prompt
+        #if os(iOS)
+        let submittedDraft = session.draft.sourceEditIdentity
+        #endif
         session.sending = true; session.error = ""; session.mutation += 1
         defer { session.sending = false; session.mutation += 1 }
         do {
             let started = try await engine.send(submitted, parent: session.turns.last?.id, provider: session.provider, model: session.model, effort: session.effort,context:try session.captureContext?())
             session.turns.append(AgentTurn(id: started.session_id, prompt: submitted, status: "running"))
+            #if os(iOS)
+            if session.draft.sourceEditIdentity == submittedDraft && exactUTF8(session.prompt, submitted) {
+                session.prompt = ""
+                session.draft.releaseSourceFocus?()
+            }
+            #else
             if session.prompt == submitted { session.prompt = "" }
+            #endif
         } catch { session.error = "\(error.localizedDescription) The request was not retried. Refresh history before sending again." }
     }
 }

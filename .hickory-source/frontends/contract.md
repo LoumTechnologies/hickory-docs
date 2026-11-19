@@ -741,7 +741,7 @@ with an already submitted request. See
 `target/main-macos-packaged-startup.to8jhtpo/apple-native-proposal-send-xcb43d7a/`.
 
 The maintained AppKit replay then passed the complete native Send journey.
-Keyboard text entered through the mounted composer and a native click produced
+The mounted text view accepted the exact prompt and a native click produced
 one accepted request with the two original editor IDs, revisions and guards.
 An isolated relay changed only the backend name to the scripted local ACP
 provider. The mounted review applied the sealed batch, and the native editor
@@ -749,6 +749,14 @@ views reflected coordinated Undo and Redo through the workspace commands. The
 original editor identities, selections, frames, guards and saved/generated
 bytes remained intact. The host report recorded draft application and no
 publication or executed checks. See `target/apple-appkit-send-maintained.MUyXom/`.
+
+On iPhone, the accepted Send clears and releases focus from the submitted
+composer only while that exact draft revision is current. The prior replay
+left the empty composer focused and the conversation at zero height. On the
+rebuilt app, the simulator keyboard entered the exact prompt, Send returned
+HTTP 202, the keyboard dismissed, and the recorded user card displayed that
+prompt in the existing conversation. The relay routed the request to the
+same owned local ACP fixture. See `target/apple-native-send-uikit-focus.xmfyVX/`.
 
 ### Provider admission
 

@@ -134,6 +134,9 @@ struct StartupSourceObservation {
     }
     var visibleDebugLines: [DebugLine] = []
     @ObservationIgnored var focusSource: (() -> Void)?
+    #if os(iOS)
+    @ObservationIgnored var releaseSourceFocus: (() -> Void)?
+    #endif
     func closeFind() { showFind = false; focusSource?() }
     var multiSource = ""
     var multiRanges: [NSRange] = [] {

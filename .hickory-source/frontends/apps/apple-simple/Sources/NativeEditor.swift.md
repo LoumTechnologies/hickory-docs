@@ -1761,6 +1761,10 @@ import UIKit
         text.layoutManager.delegate = folding
         buffer.toggleFold = { [weak self] line in self?.toggleFold(line) }
         buffer.focusSource = { [weak self] in self?.text.becomeFirstResponder() }
+        buffer.releaseSourceFocus = { [weak self] in
+            guard let text = self?.text, text.isFirstResponder else { return }
+            _ = text.resignFirstResponder()
+        }
         buffer.captureRecoveryViewport={ [weak self] in self?.text.contentOffset ?? .zero }
         buffer.sourceEditorState={ [weak self] in guard let self else{return nil};return NativeSourceEditorState(identity:self.sourceEditorIdentity,source:self.text.text ?? "",selection:self.text.selectedRange,composing:self.text.markedTextRange != nil,editable:self.text.isEditable && !self.buffer.readOnly && !self.buffer.saving,attached:self.text.window != nil,selections:max(1,self.buffer.multiRanges.count))}
         buffer.applyCompletionDraft = { [weak self] draft,initial in

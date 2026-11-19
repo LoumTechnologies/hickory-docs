@@ -316,12 +316,22 @@ struct AgentPane: View {
     private func send() async {
         guard let engine, !session.running, !session.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         let submitted = session.prompt
+        #if os(iOS)
+        let submittedDraft = session.draft.sourceEditIdentity
+        #endif
         session.sending = true; session.error = ""; session.mutation += 1
         defer { session.sending = false; session.mutation += 1 }
         do {
             let started = try await engine.send(submitted, parent: session.turns.last?.id, provider: session.provider, model: session.model, effort: session.effort,context:try session.captureContext?())
             session.turns.append(AgentTurn(id: started.session_id, prompt: submitted, status: "running"))
+            #if os(iOS)
+            if session.draft.sourceEditIdentity == submittedDraft && exactUTF8(session.prompt, submitted) {
+                session.prompt = ""
+                session.draft.releaseSourceFocus?()
+            }
+            #else
             if session.prompt == submitted { session.prompt = "" }
+            #endif
         } catch { session.error = "\(error.localizedDescription) The request was not retried. Refresh history before sending again." }
     }
 }
