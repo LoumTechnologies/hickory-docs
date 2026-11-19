@@ -185,12 +185,13 @@ On a fresh simulator, Xcode reached its 410-second startup timeout before
 the test runner registered. A standalone replay reused a settled simulator,
 verified the installed candidate, and opened the real repository sheet.
 The simulator acknowledged a touch pair at the measured button center.
-Hickory sent no diff request in the observation window. The input receipt
-does not establish whether UIKit delivered those events to Hickory.
-Working tree center activation remains open. See
-`target/apple-git-working-tree-uikit-v10-probe/receipt.json`,
-`target/apple-git-working-tree-uikit-v10-center-fix-retry/`, and
-`target/apple-git-working-tree-uikit-v10-settled-center/`.
+Hickory sent no diff request in the observation window. A subsequent
+replay verified delivery in the same foreground UIKit window. Refresh
+issued a second Changes request. The center received both touch phases
+without issuing a diff request. The upper-right tap issued the exact
+Working tree diff request and returned HTTP 200. Source and index bytes
+stayed exact. The style change did not repair center activation. See
+`target/apple-git-working-tree-uikit-v10-window-observed-handoff/receipt.json`.
 
 ### Files gutter overflow
 
@@ -1396,8 +1397,15 @@ and side edges stayed fixed. The TypeScript editor held its full frame.
 See the rendered receipts in
 `target/parity-rendered-android.sgYIt7/continuation-receipts/final-android-v_z3avk0/fenced-definition/`
 and `target/parity-rendered-android.sgYIt7/continuation-receipts/final-android-jjuqbi_2/fenced-definition/`.
-iOS runtime, physical input and assistive technology remain unverified for
-this flow.
+The standalone iPhone replay opened the same fixture and placed the native
+caret at the first code unit of each Python and TypeScript caller identifier.
+The same editor and source stayed mounted when Language tools opened. Both
+providers received the exact fenced text. The replay observed no Definition
+request or rendered result after the command tap. The menu moved during
+opening, and the reported socket closure followed fixture shutdown.
+Command activation and exact destination navigation remain open on iOS.
+See `target/ios-fenced-definition-direct-symbol-both/`. Physical input and
+assistive technology remain unverified for this flow.
 
 ## Debug a saved Rust test selection through Cargo and LLDB
 
