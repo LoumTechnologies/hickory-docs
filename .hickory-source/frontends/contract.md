@@ -3042,8 +3042,33 @@ and its final independent room read matched the saved document. The
 Android controller preserved the authored block and dirty suffix, and
 the resulting TypeScript passed strict compilation. See
 `target/appkit-staged-refactor-managed-v2-2026-11-19/receipt.json` and
-`target/android-managed-move-rebuilt-2shfvobf/junit.xml`. This managed
-move still needs mounted iOS and rendered Android acceptance.
+`target/android-managed-move-rebuilt-2shfvobf/junit.xml`.
+
+Native editors now apply a localized changed span and map selection
+through it. Mounted macOS and iOS replayed the genuine managed Move
+after that change. Save and Redo selected the import and its inserted
+newline. Undo restored the exact declaration selection. The mounted
+editor, viewport geometry, surrounding prose, and generated output
+were retained. The iOS case also checked the same native undo manager,
+the original dirty draft on Undo, and the exact saved source before
+and after publication. See
+`target/appkit-managed-resource-selection-2026-11-19/receipt.json` and
+`target/apple-managed-typescript-move-uikit-2026-11-19/typescript-managed-move-receipt.json`.
+The Android controller additionally verified a reversed selection
+through each inverse and confirmed draft byte identity. See
+`target/native-reviewed-selection-v1/android-focused.xml`.
+
+Rendered Android completed the genuine managed Move with the current APK.
+Save, reviewed Undo, and reviewed Redo each received a successful
+publication receipt. The complete history cycled between the original
+saved source with its retained dirty draft and the reviewed import plus
+new module. The physical generated file stayed byte-exact, and strict
+TypeScript validation passed. The editor top and horizontal bounds stayed
+aligned as the keyboard inset changed. Android accessibility returned
+no numeric selection offsets. The provider trace binds the original
+declaration selection, and the focused controller supplies exact
+post-publication range evidence. See
+`target/parity-rendered-android.sgYIt7/continuation-receipts/final-android-as2rvfq1/managed-ts-move/rendered-result.json`.
 
 Simple Browser replayed the same move in the rendered editor. Its first
 publication expanded the selection to the entire buffer. Resource adoption
@@ -3054,6 +3079,14 @@ inside the authored block. The mounted editor, viewport dimensions, and
 scroll position stayed in place. The resulting code passed strict TypeScript
 compilation. See `target/simple-managed-resource-genuine-move-v1/browser.json`
 and `target/simple-managed-resource-genuine-move-v2/browser.json`.
+
+A focused follow-up tried Go to definition on the moved call after Redo.
+TypeScript's staged analysis could see the original generated output, but
+its staged directory was missing the newly saved module. The returned
+location was the local import in the authored block. Opening the newly
+created workspace module from that call remains unverified. The provider
+also returned method-not-found for the separate Go to declaration request.
+See `target/main-managed-resource-genuine-navigation-v1/browser.json`.
 
 A focused Main replay with clangd also passed managed formatting after
 the position shift. See
