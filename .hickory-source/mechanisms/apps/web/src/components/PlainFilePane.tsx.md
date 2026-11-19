@@ -96,6 +96,7 @@ import {
   setLspDiagnostics,
   type LspNavigationTarget,
   type RelatedLocationReading,
+  type LocalSourceNavigation,
 } from "../lsp/cmLsp";
 import { lspFeatures } from "../lsp/cmLspFeatures";
 import type { CodeAction, LspLocation } from "../lsp/client";
@@ -145,6 +146,7 @@ export function PlainFilePane({
   onReferences,
   captureNavigationContext,
   onRelatedLocations,
+  onLocalNavigation,
   askText,
   askChoice,
   retainUnsaved = false,
@@ -165,6 +167,7 @@ export function PlainFilePane({
   onReferences?: (references: ReferenceReading) => void;
   captureNavigationContext?: () => () => boolean;
   onRelatedLocations?: (reading: RelatedLocationReading) => void;
+  onLocalNavigation?: LocalSourceNavigation;
   /** The window's prompt, for a rename's new name. */
   askText?: ReturnType<typeof usePrompt>["askText"];
   /** The window's prompt, for choosing a code action. */
@@ -234,6 +237,8 @@ export function PlainFilePane({
   onReferencesRef.current = onReferences;
   const onRelatedLocationsRef = useRef(onRelatedLocations);
   onRelatedLocationsRef.current = onRelatedLocations;
+  const onLocalNavigationRef = useRef(onLocalNavigation);
+  onLocalNavigationRef.current = onLocalNavigation;
   const askTextRef = useRef(askText);
   askTextRef.current = askText;
   const askChoiceRef = useRef(askChoice);
@@ -631,6 +636,7 @@ export function PlainFilePane({
             navigationIntent: true,
             captureNavigationContext,
             onRelatedLocations: onRelatedLocationsRef.current ? reading => onRelatedLocationsRef.current?.(reading) : undefined,
+            onLocalNavigation: (view, departure) => onLocalNavigationRef.current?.(view, departure),
             chooseOutline: askChoiceRef.current ? (options, current) =>
               askChoiceRef.current?.("Structure", options, {agent: true, filterable: true, onlyWhenIdle: true, currentRevision: current}) ?? Promise.resolve(null) : undefined,
             onNavigate: goTo,

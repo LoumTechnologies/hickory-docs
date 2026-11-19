@@ -172,7 +172,7 @@ import { observeManagedStartup, observePlainStartup, openSelectedFile, useFolder
 import { hickLangReady, useHickLangStatus } from "../editor/hickLang";
 import { activeEditor, focusedEditor } from "../editor/activeEditor";
 import { editorLanguageActions } from "../editor/languageActions";
-import { offsetToPosition, type RelatedLocationReading } from "../lsp/cmLsp";
+import { offsetToPosition, type LocalSourceNavigation, type RelatedLocationReading } from "../lsp/cmLsp";
 import { useZoom } from "./useZoom";
 import { StatusBar } from "../shell/StatusBar";
 import { WelcomePane, type WelcomeAction } from "./WelcomePane";
@@ -393,41 +393,10 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   // on its session; a file has no session, so the workspace holds it.
   const [fileReferences, setFileReferences] = useState<ReferenceReading | null>(null);
   const providerNavigation = useRef(0);
-  /** Put the caret on the next error or warning in the focused document. */
   // The list behind the status bar's count. Open/closed is all that is held;
   // the rows are read from the sessions when it draws, so a diagnostic that
   // arrives while it is open appears without a subscription of its own.
   const [problemsOpen, setProblemsOpen] = useState(false);
-  const goToNextProblem = useCallback(() => {
-    const tab = focusIntent.current.tab;
-    if (tab?.kind === "file") {
-      const diagnostics = allFileProblems().find(file => file.path === tab.target)?.diagnostics ?? [];
-      nextWorkspaceProblem(plainSearchEditor(tab.target), diagnostics);
-    } else if (tab?.kind === "document") {
-      const session = registry.get(tab.docId);
-      nextWorkspaceProblem(session?.docEditor, session?.lspDiagnostics ?? []);
-    }
-  }, [registry]);
-  // F8 — "go to the next problem" in every editor that has the idea, and the
-  // verb the status-bar click used to be. Keeping it as a key rather than
-  // dropping it is the point: the click now answers "what is wrong", and this
-  // still answers "take me to the next one".
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (!workspaceIsVisible()) return;
-      // The first stroke of any chord is swallowed here so it reaches no
-      // editor as a stray Ctrl+K; the second completes the action.
-      if (beginsChord(event)) {
-        event.preventDefault();
-        return;
-      }
-      if (!isAction(event, "view.problems")) return;
-      event.preventDefault();
-      goToNextProblem();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [goToNextProblem]);
   // The branch, for the status bar. Refetched when files change — a commit,
   // a checkout, or a save can all move it.
   const [git, setGit] = useState<{ branch: string; dirty: number } | null>(
@@ -495,9 +464,10 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     const view = node && EditorView.findFromDOM(node);
     return view ? {tab, view} : null;
   }, [shellBox]);
-  const makeHistoryPoint = useCallback((path: string, source: string, line: number, character: number): HistoryPoint => {
+  const makeHistoryPoint = useCallback((path: string, source: string, line: number, character: number,
+    sourceHash = historySourceHash(source).catch(() => null)): HistoryPoint => {
     const start = {line, character};
-    return {uri: documentUri(path), range: {start, end: start}, sourceHash: historySourceHash(source).catch(() => null)};
+    return {uri: documentUri(path), range: {start, end: start}, sourceHash};
   }, []);
   const readDeparture = useCallback(() => {
     const editor = activeSourceEditor();
@@ -506,6 +476,43 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     const {line, character} = offsetToPosition(state.doc, state.selection.main.head);
     return makeHistoryPoint(tab.target, authoredSource(state), line, character);
   }, [activeSourceEditor, makeHistoryPoint]);
+  const recordLocalNavigation = useCallback<LocalSourceNavigation>((view, departure) => {
+    const editor = activeSourceEditor();
+    const {doc, selection} = view.state;
+    if (editor?.view !== view || departure === selection.main.head) return;
+    const from = offsetToPosition(doc, departure), to = offsetToPosition(doc, selection.main.head);
+    const path = editor.tab.target, source = authoredSource(view.state);
+    const entry = makeHistoryPoint(path, source, from.line, from.character);
+    sourceVisit.current++;
+    historyRef.current.trail.record(entry, makeHistoryPoint(path, source, to.line, to.character, entry.sourceHash));
+  }, [activeSourceEditor, makeHistoryPoint]);
+  const goToNextProblem = useCallback(() => {
+    const active = activeSourceEditor();
+    if (!active) return;
+    const {tab, view} = active;
+    const diagnostics = tab.kind === "file" ? allFileProblems().find(file => file.path === tab.target)?.diagnostics
+      : tab.kind === "document" ? registry.get(tab.docId)?.lspDiagnostics : undefined;
+    if (!diagnostics?.length) return;
+    const departure = view.state.selection.main.head;
+    nextWorkspaceProblem(view, diagnostics);
+    recordLocalNavigation(view, departure);
+  }, [activeSourceEditor, registry, recordLocalNavigation]);
+  // F8 moves within the current source. The status-bar button opens Problems.
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (!workspaceIsVisible()) return;
+      // Reserve the first stroke of a workspace chord for its second stroke.
+      if (beginsChord(event)) {
+        event.preventDefault();
+        return;
+      }
+      if (!isAction(event, "view.problems")) return;
+      event.preventDefault();
+      goToNextProblem();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [goToNextProblem]);
   const captureNavigationContext = useCallback(() => {
     const ticket = ++providerNavigation.current;
     const workspace = sourceWorkspace.current, focus = focusIntent.current;
@@ -686,12 +693,15 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         if (!Number.isFinite(line) || line < 1) return [];
         const view = focusedEditor();
         if (!view) return [];
+        const focus = focusIntent.current;
         return [
           {
             id: `line-${line}`,
             label: `Go to line ${line}`,
             detail: focusedPathRef.current ?? "",
             run: () => {
+              if (!view.dom.isConnected || focusIntent.current !== focus || focusedEditor() !== view) return;
+              const departure = view.state.selection.main.head;
               const target = view.state.doc.line(
                 Math.min(Math.floor(line), view.state.doc.lines),
               );
@@ -701,6 +711,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
                   y: "center",
                 }),
               });
+              recordLocalNavigation(view, departure);
               view.focus();
             },
           },
@@ -787,7 +798,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         run: () => openHitRef.current(node.path, 1),
       }));
     },
-    [welcomeActions, registry, projectId, activeSourceEditor],
+    [welcomeActions, registry, projectId, activeSourceEditor, recordLocalNavigation],
   );
   /**
    * Open a path and put the caret on a line.
@@ -2025,6 +2036,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
           onReferences={setFileReferences}
           captureNavigationContext={captureNavigationContext}
           onRelatedLocations={showRelatedLocations}
+          onLocalNavigation={recordLocalNavigation}
           askText={shellPrompt.askText}
           askChoice={shellPrompt.askChoice}
           retainUnsaved={retainSavedDrafts}
@@ -2214,6 +2226,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
               initialDocument={admittedDocument?.doc.id === docId && admittedDocument.current() ? admittedDocument : undefined}
               captureNavigationContext={captureNavigationContext}
               onRelatedLocations={showRelatedLocations}
+              onLocalNavigation={recordLocalNavigation}
               openGenerated={openGeneratedFor}
               retainUnsaved={retainSavedDrafts}
             />

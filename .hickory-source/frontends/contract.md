@@ -2857,6 +2857,22 @@ and a generated disk preview reveal at offset 3017 before provenance became
 available. See `target/main-caret-trail-managed-guard-v1/browser.json` and
 `target/main-caret-trail-output-provenance-v1/browser.json`.
 
+Main also adds same-editor File Structure, Go to line, Next Problem and
+managed Go to Definition visits after the editor applies the move. A real
+basedpyright replay restored the plain Structure carets at offsets 32 and
+85. A managed Structure replay restored offsets 152 and 205. In that managed
+editor, the initial definition jump selected the full identifier at offsets
+255 through 271. Back returned to the invocation at 329 and Forward returned
+to the selection head at 271. A separate genuine diagnostic replay covered
+F8 and Go to line through keyboard Back and Forward. The same editor stayed
+mounted throughout each flow. See
+`target/main-local-history-plain-fixed-v1/browser.json`,
+`target/main-local-history-managed-fixed-v1/browser.json` and
+`target/main-problems-local-history-v1/browser.json`.
+The cross-file definition history replay also passed on this revision,
+including source change refusal and retry. See
+`target/main-local-history-cross-file-v1/browser.json`.
+
 Focused rebuilt-engine replays also passed for Python definition and
 Back/Forward, workspace search, delayed first-open authority and capabilities,
 and Debug and guarded patch review on both recorded Agent message sides.

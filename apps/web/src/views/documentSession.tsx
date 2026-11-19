@@ -51,7 +51,9 @@ import {
   positionToOffset,
   type LspNavigationTarget,
   type RelatedLocationReading,
+  type LocalSourceNavigation,
 } from "../lsp/cmLsp";
+import { validProblemPosition } from "../shell/nextWorkspaceProblem";
 import { lspFeatures } from "../lsp/cmLspFeatures";
 import { useDebugger } from "../debug/useDebugger";
 import {documentUri} from "../lsp/documentUri";
@@ -256,6 +258,7 @@ export const DocSessionHost = memo(function DocSessionHost({
   initialDocument,
   captureNavigationContext,
   onRelatedLocations,
+  onLocalNavigation,
 }: {
   registry: SessionRegistry;
   docId: string;
@@ -263,6 +266,7 @@ export const DocSessionHost = memo(function DocSessionHost({
   initialDocument?: {doc: Doc; workspaceCurrent: () => boolean};
   captureNavigationContext?: () => () => boolean;
   onRelatedLocations?: (reading: RelatedLocationReading) => void;
+  onLocalNavigation?: LocalSourceNavigation;
   /** Open one of THIS document's generated files in the layout. */
   openGenerated: (docId: string, path: string) => void;
   retainUnsaved?: boolean;
@@ -273,7 +277,7 @@ export const DocSessionHost = memo(function DocSessionHost({
   // editing confirmation belongs to the session and its original workspace.
   const [preview] = useState(() => admitted && admittedManagedPreview(admitted.doc, admitted.workspaceCurrent));
   const session = useDocumentSession(docId, openGenerated, retainUnsaved, startupAtOpen ?? preview, admitted?.doc,
-    captureNavigationContext, onRelatedLocations);
+    captureNavigationContext, onRelatedLocations, onLocalNavigation);
   useEffect(() => {
     registry.publish(preview && !session.startupRoomReady ? {...session, admittedPreview: preview} : session);
   });
@@ -313,6 +317,7 @@ function useDocumentSession(
   initialDocument?: Doc,
   captureNavigationContext?: () => () => boolean,
   onRelatedLocations?: (reading: RelatedLocationReading) => void,
+  onLocalNavigation?: LocalSourceNavigation,
 ): DocSession {
   const openGenerated = useCallback(
     (path: string) => openGeneratedFor(docId, path),
@@ -1001,9 +1006,11 @@ function useDocumentSession(
   // is published by identity (see SessionRegistry.publish).
   const liveSourceRef = useRef(liveSource);
   liveSourceRef.current = liveSource;
+  const localNavigationRef = useRef(onLocalNavigation);
+  localNavigationRef.current = onLocalNavigation;
 
   const openTarget = useCallback(
-    (target: LspNavigationTarget | LspLocation, current?: () => boolean) => {
+    (target: LspNavigationTarget | LspLocation, current?: () => boolean, view?: EditorView) => {
       if (current && !current()) return;
       const {line, character} = target.range.start;
       setReferences(null);
@@ -1020,13 +1027,28 @@ function useDocumentSession(
       // `src/lib.rs`, or in another document. This session cannot open a
       // tab; the workspace can, and its pane takes the line from there.
       const targetPath = pathOfDocUri(target.uri);
+      if (targetPath === null) return;
       const ownPath = (docPathRef.current ?? "").replace(/^\/+/, "");
-      if (targetPath !== null && targetPath.replace(/^\/+/, "") !== ownPath) {
+      if (targetPath.replace(/^\/+/, "") !== ownPath || (current && view !== editorRef.current)) {
         if (current) openProviderLocation(targetPath, line + 1, character, current);
         else openLocation(targetPath, line + 1, character);
         return;
       }
       const text = liveSourceRef.current;
+      if (current && view) {
+        const lines = text.split("\n");
+        if (authoredSource(view.state) !== text || !validProblemPosition(lines, target.range.start) ||
+            !validProblemPosition(lines, target.range.end)) return;
+        const {doc, selection} = view.state;
+        const from = positionToOffset(doc, target.range.start);
+        const to = positionToOffset(doc, target.range.end);
+        if (to < from) return;
+        revealRange(view, [from, to]);
+        if (view.state.doc === doc && view.state.selection.main.head === to) {
+          localNavigationRef.current?.(view, selection.main.head);
+        }
+        return;
+      }
       const from = positionToUtf16(text, target.range.start);
       const to = positionToUtf16(text, target.range.end);
       setSelectSpan([from, Math.max(to, from)]);
@@ -1052,6 +1074,7 @@ function useDocumentSession(
         navigationIntent: true,
         captureNavigationContext,
         onRelatedLocations,
+        onLocalNavigation: (view, departure) => localNavigationRef.current?.(view, departure),
         chooseOutline: (options, current) =>
           askChoice("Structure", options, {agent: true, filterable: true, onlyWhenIdle: true, currentRevision: current}),
         onNavigate: openTarget,

@@ -37,7 +37,7 @@ it("tracks late language providers, shares mapped navigation and retains bounded
     const run = async (label: string, args = {}) => { let reply: unknown; await act(async () => { reply = await registry.act(registry.scope, { id: "python:turn", kind: "agent" }, { handle: actions().find(a => a.label === label)!.handle, arguments: args, request_id: String(++id) }); }); return reply; };
     expect(await run("Go to definition at editor cursor (mapped.py)")).toMatchObject({ status: "result", outcome: { status: "completed", value: { total: 1, navigation_requested: true } } });
     expect(client.definition).toHaveBeenCalledWith("mapped.py", { line: 2, character: 1 });
-    expect(navigate).toHaveBeenCalledWith(location, expect.any(Function));
+    expect(navigate).toHaveBeenCalledWith(location, expect.any(Function), view);
     await run("Find references at editor cursor (mapped.py)");
     expect(references).toHaveBeenCalledWith([location], expect.objectContaining({ uri: "mapped.py" }), expect.any(Function));
     const resultIsCurrent = references.mock.calls[0][2] as () => boolean;
@@ -108,8 +108,9 @@ it("reveals only a current authored Structure position", async () => {
   ])} as unknown as LspClient;
   let choose!: (offset: number) => void;
   const chooseOutline = vi.fn((_options, _current) => new Promise<number | null>(resolve => { choose = resolve; }));
+  const onLocalNavigation = vi.fn((view: EditorView, departure: number) => [departure, view.state.selection.main.head]);
   const view = new EditorView({parent: host, state: EditorState.create({doc: "x😀member", extensions: lspSupport({
-    client, uri, navigationIntent: true, chooseOutline, positionAt: () => null, onNavigate: vi.fn(),
+    client, uri, navigationIntent: true, chooseOutline, onLocalNavigation, positionAt: () => null, onNavigate: vi.fn(),
   })})});
   try {
     const action = view.state.facet(editorLanguageActions).find(action => action.id.endsWith(":outline"))!;
@@ -120,10 +121,12 @@ it("reveals only a current authored Structure position", async () => {
     choose(3);
     await Promise.resolve();
     expect(view.state.selection.main.head).toBe(1);
+    expect(onLocalNavigation).not.toHaveBeenCalled();
     await run();
     choose(3);
     await Promise.resolve();
     expect(view.state.selection.main.head).toBe(3);
+    expect(onLocalNavigation.mock.results.map(result => result.value)).toEqual([[1, 3]]);
     expect(view.state.doc.toString()).toBe("x😀member");
   } finally { view.destroy(); host.remove(); }
 });

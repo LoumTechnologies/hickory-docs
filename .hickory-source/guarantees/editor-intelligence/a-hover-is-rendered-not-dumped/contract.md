@@ -82,6 +82,8 @@ export interface RelatedLocationReading {
   current: () => boolean;
 }
 
+export type LocalSourceNavigation = (view: EditorView, departure: number) => void;
+
 const relatedQueries = semanticQueries.filter(({kind}) =>
   !["definition", "references", "outline", "symbols"].includes(kind));
 
@@ -103,7 +105,7 @@ export interface CmLspOptions {
   /** Resolve a local construction byte into its selected complete endpoint. */
   targetAt?: (offset: number, view: EditorView) => { uri: string; position: LspPosition } | null;
   /** Open a definition/reference target. */
-  onNavigate: (target: LspNavigationTarget, current?: () => boolean) => void;
+  onNavigate: (target: LspNavigationTarget, current?: () => boolean, view?: EditorView) => void;
   navigationIntent?: true | ((view: EditorView) => () => boolean);
   /** The host can retire navigation when the workspace or active tab changes. */
   captureNavigationContext?: () => () => boolean;
@@ -111,6 +113,7 @@ export interface CmLspOptions {
   onReferences?: (locations: LspLocation[], from: LspNavigationTarget, current: () => boolean) => void;
   /** Only install Structure on editors whose text is in the request URI's coordinates. */
   chooseOutline?: (options: {label: string; value: number}[], current: () => boolean) => Promise<number | null>;
+  onLocalNavigation?: LocalSourceNavigation;
   onRelatedLocations?: (reading: RelatedLocationReading) => void;
   /**
    * What this identifier currently HOLDS, when a debugger is paused.
@@ -306,6 +309,8 @@ Structure requests symbols for the whole authored source. The result uses
 each named symbol's selection start and rejects foreign URIs or positions
 outside that editor. A request and its later selection share the same
 navigation guard, so choosing a result never reopens a departed editor.
+Report a local visit only after the editor reaches the chosen position. This
+lets the host retain the departure caret while refusing obsolete choices.
 Position-based hierarchy commands reuse the mapped caret. If the caret or
 foreground changes while the first provider request is outstanding, the
 hierarchy follow-up is skipped. Both the palette and explicit editor
@@ -346,7 +351,7 @@ export function lspSupport(opts: CmLspOptions): Extension[] {
       const locations = await (what === "definition" ? client.definition(uri, position) : client.references(uri, position));
       if (!current()) return { status: "unavailable", reason: "Navigation source changed, editor closed or request cancelled" };
       if (what === "definition" && locations.length) {
-        if (opts.navigationIntent) onNavigate(locations[0], current);
+        if (opts.navigationIntent) onNavigate(locations[0], current, view);
         else onNavigate(locations[0]);
       }
       if (what === "references") onReferences?.(locations, from, current);
@@ -368,7 +373,11 @@ export function lspSupport(opts: CmLspOptions): Extension[] {
       });
       void chooseOutline(options, current).then(offset => {
         if (offset === null || !current()) return;
+        const departure = view.state.selection.main.head;
         view.dispatch({selection: {anchor: offset}, effects: EditorView.scrollIntoView(offset, {y: "center"})});
+        if (view.state.doc === original && view.state.selection.main.head === offset) {
+          opts.onLocalNavigation?.(view, departure);
+        }
         view.focus();
       });
       return {status: "completed", value: {total: options.length, structure_requested: true}};
