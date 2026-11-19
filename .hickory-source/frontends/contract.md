@@ -100,7 +100,7 @@ the same complete Git identity and exact committed blob. The unsaved draft,
 editor frame, saved file, HEAD and index stayed unchanged. See
 `target/apple-git-history-uikit-2026-11-19/`.
 
-### Main Git conflict inspection
+### Git conflict comparison and resolution
 
 The existing Main Git pane lists an unmerged path once in Changes. Opening
 that row gives the shared immutable Git stage reader. The real-engine replay
@@ -109,9 +109,36 @@ and incoming bytes and object IDs, then retired the observation when another
 file was selected. The conflict row withheld ordinary Stage and Discard.
 The replay made only Git reads and preserved the saved working file and
 index byte-for-byte. The focused pane tests also exercise an add/add
-conflict and the whole-index action boundary. Main still needs its own
-guarded complete-group preview, draft Apply, Save and separate Stage.
-See `target/main-git-conflict-v10/browser.json`.
+conflict and the whole-index action boundary. See
+`target/main-git-conflict-v10/browser.json`.
+
+Main now uses the complete-group composer in the existing Git pane. The
+rendered text replay applied the chosen source as a private draft, undid
+and redid it in the original editor, then prepared a fresh guarded Save.
+Draft history preserved the saved file and index. Save published only the
+chosen resolution with the index still byte-identical. Separate Stage
+resolved only the selected literal path. A second real conflict kept its
+exact stage entries and source bytes. See
+`target/main-complete-conflict-v10-isolated-final/browser.json`.
+
+The rendered rename replay acquired the unopened member in the background
+and showed the explicit three-member group and chosen stage before Save.
+The reviewed Save retargeted the original live editor to
+`resolved λ %?#.py` with the same text, selection, and viewport. It left
+the unresolved index byte-identical. Separate Stage resolved the complete
+group and preserved an unrelated file's distinct index and working bytes.
+See `target/main-complete-conflict-rename-v10-isolated/browser.json`.
+
+The shared editor hold also passed the ordinary managed Move replay through
+Save, reviewed Undo, Redo, and a subsequent edit. The same editor and
+selection stayed mounted. Retired room sockets closed, and the later edit
+updated only the final room and saved path. See
+`target/main-managed-resource-command-v10-common-extraction/browser.json`.
+
+The text fixture's generic Git Changes list exposed untracked publication
+recovery records in a repository without an ignore rule. Complete-group
+Stage left those records untracked. Ordinary index operations still need
+a separate boundary for those private records.
 
 The Simple Browser complete-group composer now binds approval to the row
 that opened it. A live Git replay prepared a review, selected an unrelated
@@ -137,6 +164,14 @@ resolved only the literal conflicted path to the selected incoming bytes.
 The unrelated file and its index entry stayed exact. Reopening source showed
 the reviewed bytes in the same editor frame. See
 `target/parity-rendered-android.sgYIt7/continuation-receipts/final-android-s6d8t3vp/git-conflict/rendered-conflict-result.json`.
+
+The iPhone simulator opened the same literal conflict through its Staged
+detail and displayed the exact mode, object ID, and text of all three Git
+stages. Native review and Save preserved the index byte-for-byte. Separate
+Stage resolved the selected path to the exact incoming blob. The unrelated
+staged and working bytes, HEAD, and the source editor frame were preserved.
+The Working tree control did not open the detail in either attempt. See
+`target/apple-git-conflict-uikit-v10-coordinates/receipt.json`.
 
 ### Requested files and capability arrival
 

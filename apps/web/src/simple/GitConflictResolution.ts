@@ -6,10 +6,16 @@ export interface ConflictOutput {path:string;identity_from:string|null;mode:'100
 export interface ConflictPreview {version:number;resolution_protocol:number;token:string;fingerprint:string;members:string[];remaining_conflicts:string[];plan:ResourceWirePlan;consequences:ResourceConstructionFacts;saved_sources:Record<string,ResourceSaved>;needs_save:boolean;stage_available:boolean;stage_unavailable:string|null;source_files_modified:boolean;index_modified:boolean}
 export interface HeldConflict {value:ConflictPreview;patches:ResourceEditorPatch[];current:()=>boolean}
 export interface ConflictCapture {inputs:unknown;capture:unknown;current:()=>boolean}
+export interface ConflictEditorHold {
+ adopt:(receipt:ResourceReceipt,request:string)=>void|Promise<void>;
+ release:()=>void;
+}
 export interface ConflictPorts {
  load:<T>(method:'GET'|'POST',path:string,body?:unknown)=>Promise<T>;
- capture:(paths:string[],edit:unknown)=>Promise<ConflictCapture>;
- adopt:(review:HeldConflict,receipt:ResourceReceipt,request:string)=>void;
+ capture:(paths:string[],edit:unknown,current:()=>boolean)=>Promise<ConflictCapture>;
+ adopt?:(review:HeldConflict,receipt:ResourceReceipt,request:string)=>void|Promise<void>;
+ holdSave?:(review:HeldConflict)=>ConflictEditorHold;
+ staged?:()=>void;
  draft:(review:HeldConflict)=>void;
  lease:()=>()=>boolean;
 }
@@ -26,7 +32,10 @@ export function conflictDraftable(review:HeldConflict){return review.patches.som
 interface PendingConflict {id:string;review:HeldConflict;stage:boolean;receipt?:ResourceReceipt}
 export class ConflictResolutionModel {
  anchor:string|null=null;reading:ConflictReading|null=null;members:string[]=[];outputs:ConflictOutput[]=[];review:HeldConflict|null=null;notice='';busy=false;saved=false;pending:PendingConflict|null=null;private ticket=0;
- constructor(private ports:ConflictPorts,private changed:()=>void=()=>{}){}
+ private listeners=new Set<()=>void>();
+ constructor(private ports:ConflictPorts,private notify:()=>void=()=>{}){}
+ subscribe(listener:()=>void){this.listeners.add(listener);return ()=>{this.listeners.delete(listener);};}
+ private changed(){this.notify();for(const listener of this.listeners)listener();}
  close(){
   if(this.pending)return;
   this.ticket++;
@@ -46,13 +55,58 @@ export class ConflictResolutionModel {
   }catch(error){if(ticket===this.ticket)this.notice=String(error);}finally{if(ticket===this.ticket){this.busy=false;this.changed();}}
  }
  async prepare(){if(this.busy||this.pending||!this.reading)return;const ticket=++this.ticket,reading=structuredClone(this.reading),members=[...this.members].sort(),outputs=structuredClone(this.outputs);this.busy=true;this.review=null;this.saved=false;this.changed();
-  try{if(!members.length||new Set(members).size!==members.length||outputs.some(row=>!row.path))throw Error('Choose complete conflict members and every destination explicitly.');const paths=[...new Set([...members,...outputs.map(row=>row.path)])].sort(),edit={changes:Object.fromEntries(paths.map(path=>['hick:///'+path.split('/').map(encodeURIComponent).join('/'),[]]))};const captured=await this.ports.capture(paths,edit);if(ticket!==this.ticket||!captured.current())throw Error('Source editor changed during acquisition.');const raw=await this.ports.load<ConflictPreview>('POST','/api/git/conflict-resolution/prepare',{version:1,reading,members,outputs,inputs:captured.inputs,capture:captured.capture});if(ticket!==this.ticket||!captured.current())throw Error('Source editor changed during conflict review.');const value=decodeConflictPreview(raw);if(JSON.stringify(value.members)!==JSON.stringify(members))throw Error('Reviewed conflict members changed.');this.review={value,patches:value.plan.patches.length?resourceWirePatches(value.plan):[],current:()=>ticket===this.ticket&&captured.current()};this.notice='Review all source and generated consequences. Draft, Save and Stage are separate actions.';
+  try{if(!members.length||new Set(members).size!==members.length||outputs.some(row=>!row.path))throw Error('Choose complete conflict members and every destination explicitly.');const paths=[...new Set([...members,...outputs.map(row=>row.path)])].sort(),edit={changes:Object.fromEntries(paths.map(path=>['hick:///'+path.split('/').map(encodeURIComponent).join('/'),[]]))};const captured=await this.ports.capture(paths,edit,()=>ticket===this.ticket);if(ticket!==this.ticket||!captured.current())throw Error('Source editor changed during acquisition.');const raw=await this.ports.load<ConflictPreview>('POST','/api/git/conflict-resolution/prepare',{version:1,reading,members,outputs,inputs:captured.inputs,capture:captured.capture});if(ticket!==this.ticket||!captured.current())throw Error('Source editor changed during conflict review.');const value=decodeConflictPreview(raw);if(JSON.stringify(value.members)!==JSON.stringify(members))throw Error('Reviewed conflict members changed.');this.review={value,patches:value.plan.patches.length?resourceWirePatches(value.plan):[],current:()=>ticket===this.ticket&&captured.current()};this.notice='Review all source and generated consequences. Draft, Save and Stage are separate actions.';
   }catch(error){if(ticket===this.ticket)this.notice=String(error);}finally{if(ticket===this.ticket){this.busy=false;this.changed();}}
  }
  private body(review:HeldConflict){return {version:1,token:review.value.token,fingerprint:review.value.fingerprint};}
  private async validate(review:HeldConflict,stage=false){if(!review.current())throw Error('Source editor changed after review.');const result=await this.ports.load<{version:number;token:string;fingerprint:string;stage:boolean;current:boolean;source_files_modified:boolean;index_modified:boolean;plan:ResourceWirePlan;saved_sources:Record<string,ResourceSaved>}>('POST','/api/git/conflict-resolution/validate',{...this.body(review),stage});if(result.version!==1||result.token!==review.value.token||result.fingerprint!==review.value.fingerprint||result.source_files_modified!==false||result.index_modified!==false||result.current!==true||result.stage!==stage||JSON.stringify(result.plan)!==JSON.stringify(review.value.plan)||JSON.stringify(result.saved_sources)!==JSON.stringify(review.value.saved_sources)||!review.current())throw Error('Conflict stages, reviewed plan or source authority changed.');}
- async draft(){const review=this.review;if(!review||this.busy||this.pending)return;this.busy=true;this.changed();try{if(!conflictDraftable(review))throw Error('Address changes require guarded resource Save; drafts were retained.');await this.validate(review);this.ports.draft(review);this.review=null;this.notice='Applied coordinated source drafts. Nothing saved or staged. Prepare again before saving.';}catch(error){this.notice=String(error);}finally{this.busy=false;this.changed();}}
- async act(stage:boolean){const review=this.review;if(!review||this.busy||this.pending)return;this.busy=true;this.changed();try{if(!review.current())throw Error('Source editor or workspace changed after review. Prepare the complete group again.');if(stage? !review.value.stage_available||review.value.needs_save&&!this.saved : !review.value.needs_save||this.saved)throw Error('Save the complete current review before staging; a consumed review cannot repeat.');if(!stage)await this.validate(review);const pending={id:crypto.randomUUID().replaceAll('-',''),review,stage};this.pending=pending;const result=await this.ports.load<unknown>('POST','/api/git/conflict-resolution/'+(stage?'stage':'save'),{...this.body(review),request_id:pending.id});this.accept(result);}catch(error){this.notice=String(error)+(this.pending?' Outcome unconfirmed. Inspect the original request; it will not be retried.':'');}finally{this.busy=false;this.changed();}}
- async status(){const pending=this.pending;if(!pending||this.busy)return;this.busy=true;this.changed();try{const value=await this.ports.load<{version:number;request_id:string;state:string;outcome?:unknown;error?:string}>('GET','/api/git/conflict-resolution/status?request_id='+encodeURIComponent(pending.id));if(value.version!==1||value.request_id!==pending.id)throw Error('Retained conflict request identity changed.');if(value.state==='completed'&&value.outcome)this.accept(value.outcome);else if(value.state==='completed'&&value.error){await this.validate(pending.review,pending.stage);this.pending=null;this.review=null;this.notice='The retained request was refused and the original complete preimage is current. Read and prepare a new review.';}else this.notice='The original request is pending or unknown. Preserve drafts and inspect Source recovery; no new request is authorized.';}catch(error){this.notice=String(error);}finally{this.busy=false;this.changed();}}
- private accept(raw:unknown){const pending=this.pending;if(!pending)throw Error('No owned conflict publication.');const review=pending.review,value=raw as Record<string,unknown>;if(pending.stage){if(value.version!==1||value.operation!=='git_conflict_stage'||value.complete!==true||value.index_modified!==true||value.index_uncertain!==false||value.source_files_modified!==false||value.request_id!==pending.id||value.token!==review.value.token||value.review_fingerprint!==review.value.fingerprint||!sameMembers(value.resolved_members,review.value.members)||!sameMembers(value.remaining_conflicts,review.value.remaining_conflicts)||typeof value.fingerprint!=='string'||!/^[a-f0-9]{64}$/.test(value.fingerprint))throw Error('Complete staged group was not confirmed.');this.pending=null;this.review=null;this.notice='Complete saved conflict group staged. Unsaved drafts remain separate. No tests were run.';}else{const receipt=structuredClone(raw) as ResourceReceipt;pending.receipt=receipt;this.ports.adopt(review,receipt,pending.id);this.pending=null;this.saved=true;this.review={...review,current:this.ports.lease()};this.notice='Complete saved group confirmed. Choose Stage separately.';}}
+ async draft(){
+  const review=this.review;if(!review||this.busy||this.pending)return;
+  const ticket=this.ticket;this.busy=true;this.changed();
+  try{
+   if(!conflictDraftable(review))throw Error('Address changes require guarded resource Save; drafts were retained.');
+   await this.validate(review);
+   this.ports.draft(review);this.review=null;
+   this.notice='Applied coordinated source drafts. Nothing saved or staged. Prepare again before saving.';
+  }catch(error){if(ticket===this.ticket)this.notice=String(error);}
+  finally{if(ticket===this.ticket){this.busy=false;this.changed();}}
+ }
+ async act(stage:boolean){
+  const review=this.review;if(!review||this.busy||this.pending)return;
+  const ticket=this.ticket;this.busy=true;this.changed();
+  let hold:ConflictEditorHold|undefined;
+  try{
+   if(!review.current())throw Error('Source editor or workspace changed after review. Prepare the complete group again.');
+   if(stage? !review.value.stage_available||review.value.needs_save&&!this.saved : !review.value.needs_save||this.saved)throw Error('Save the complete current review before staging; a consumed review cannot repeat.');
+   if(!stage){await this.validate(review);hold=this.ports.holdSave?.(review);}
+   const pending={id:crypto.randomUUID().replaceAll('-',''),review,stage};this.pending=pending;
+   const result=await this.ports.load<unknown>('POST','/api/git/conflict-resolution/'+(stage?'stage':'save'),{...this.body(review),request_id:pending.id});
+   const editors=hold;hold=undefined;
+   await this.accept(result,editors);
+  }catch(error){if(ticket===this.ticket)this.notice=String(error)+(this.pending?' Outcome unconfirmed. Inspect the original request; it will not be retried.':'');}
+  finally{hold?.release();if(ticket===this.ticket){this.busy=false;this.changed();}}
+ }
+ async status(){const pending=this.pending;if(!pending||this.busy)return;this.busy=true;this.changed();try{const value=await this.ports.load<{version:number;request_id:string;state:string;outcome?:unknown;error?:string}>('GET','/api/git/conflict-resolution/status?request_id='+encodeURIComponent(pending.id));if(value.version!==1||value.request_id!==pending.id)throw Error('Retained conflict request identity changed.');if(value.state==='completed'&&value.outcome)await this.accept(value.outcome);else if(value.state==='completed'&&value.error){await this.validate(pending.review,pending.stage);this.pending=null;this.review=null;this.notice='The retained request was refused and the original complete preimage is current. Read and prepare a new review.';}else this.notice='The original request is pending or unknown. Preserve drafts and inspect Source recovery; no new request is authorized.';}catch(error){this.notice=String(error);}finally{this.busy=false;this.changed();}}
+ private async accept(raw:unknown,hold?:ConflictEditorHold){
+  const pending=this.pending;
+  if(!pending){hold?.release();throw Error('No owned conflict publication.');}
+  const review=pending.review,value=raw as Record<string,unknown>;
+  if(pending.stage){
+   if(value.version!==1||value.operation!=='git_conflict_stage'||value.complete!==true||value.index_modified!==true||value.index_uncertain!==false||value.source_files_modified!==false||value.request_id!==pending.id||value.token!==review.value.token||value.review_fingerprint!==review.value.fingerprint||!sameMembers(value.resolved_members,review.value.members)||!sameMembers(value.remaining_conflicts,review.value.remaining_conflicts)||typeof value.fingerprint!=='string'||!/^[a-f0-9]{64}$/.test(value.fingerprint))throw Error('Complete staged group was not confirmed.');
+   this.pending=null;this.review=null;this.notice='Complete saved conflict group staged. Unsaved drafts remain separate. No tests were run.';this.ports.staged?.();return;
+  }
+  let editors=hold;
+  try{
+   const receipt=structuredClone(raw) as ResourceReceipt;pending.receipt=receipt;
+   editors??=this.ports.holdSave?.(review);
+   if(editors)await editors.adopt(receipt,pending.id);
+   else if(this.ports.adopt)await this.ports.adopt(review,receipt,pending.id);
+   else throw Error('The original editor adoption is unavailable.');
+  }finally{editors?.release();}
+  this.pending=null;this.saved=true;this.review=null;
+  try{
+   const current=this.ports.lease();
+   this.review={...review,current};this.notice='Complete saved group confirmed. Choose Stage separately.';
+  }catch(error){this.notice='Complete saved group confirmed. Prepare a fresh preview before staging. '+String(error);}
+ }
 }

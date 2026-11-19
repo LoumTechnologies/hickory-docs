@@ -172,7 +172,8 @@ import { validateSourcePreparation } from "../simple/WorkspaceLanguages";
 import { sourceDigest } from "../lsp/diagnosticRevision";
 import { WsRealtime } from "../api/realtime";
 import { ChangePreview } from "../components/ChangePreview";
-import type { ResourcePublicationReview, ResourceTransport } from "../simple/ResourceEditors";
+import type { ResourceExpectation, ResourcePublicationReview, ResourceReceipt, ResourceTransport } from "../simple/ResourceEditors";
+import { ConflictResolutionModel, type HeldConflict } from "../simple/GitConflictResolution";
 const ResourceConsequencesView = lazy(() => import("../simple/SourceRecovery").then(module => ({default: module.ResourceConsequencesView})));
 import type { WindowHistoryPlan } from "./WorkspaceChat";
 import type { UiOutcome } from "../lib/uiActions";
@@ -1108,12 +1109,14 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     return {text: file.content, guard: file.save_guard, managed: false, docId: undefined};
   }, []);
   const captureResourceWindow = useCallback((tools: Pick<typeof import("./WorkspaceChat"), "captureWorkspacePatch">,
-    scope: Parameters<typeof tools.captureWorkspacePatch>[1], current: () => boolean) => {
+    scope: Parameters<typeof tools.captureWorkspacePatch>[1], current: () => boolean, additional?: ReadonlyMap<string, string>) => {
     const tabs = () => panesOf(layoutRef.current.root).flatMap(pane => pane.tabs)
       .filter(tab => tab.kind === "file" || tab.kind === "document" || tab.kind === "untitled");
     const originalTabs = tabs();
     const rosterCurrent = () => {
-      const retained = tabs();
+      const currentTabs = tabs();
+      if (currentTabs.some(tab => additional?.has(tab.id) && additional.get(tab.id) !== tab.target)) return false;
+      const retained = currentTabs.filter(tab => !additional?.has(tab.id));
       return current() && retained.length === originalTabs.length &&
         retained.every((tab, index) => tab.id === originalTabs[index].id && tab.target === originalTabs[index].target);
     };
@@ -1402,6 +1405,98 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     })().catch(error => { if (visible()) setInsertNotice(String(error)); })
       .finally(() => { if (visible()) setChangePending(false); });
   };
+  // Source publication and Git resolution both hold the same mounted editors.
+  // The caller chooses a guarded route. The receipt and editor ownership
+  // decide if this window can adopt the result and retarget open tabs.
+  const holdResourceEditors = useCallback((review: Pick<ResourcePublicationReview, "patches" | "saved">,
+    current: () => boolean) => {
+    const held: ResourceAdoptionStage[] = [];
+    if (!current()) throw Error("Workspace history or source changed. Open a fresh preview.");
+    // Match the before and after addresses of each resource identity.
+    // Closed files need no editor adoption, but any live editor must
+    // remain attached to the same source through the reviewed move.
+    const destinations = new Map(review.patches.flatMap(patch => patch.after ? [[patch.after.identity, {
+      path: patch.path, text: patch.after.text,
+    }] as const] : []));
+    const retained = panesOf(layoutRef.current.root).flatMap(pane => pane.tabs)
+      .filter(tab => tab.retainedResource);
+    const stages = review.patches.flatMap(patch => {
+      const live = readChangeOwner(patch.path);
+      const restored = !patch.before && patch.after
+        ? retained.find(tab => tab.retainedResource?.identity === patch.after?.identity) : undefined;
+      const tab = live.tab ?? restored;
+      if (!tab) return [];
+      const identity = patch.before?.identity ?? restored?.retainedResource?.identity;
+      const destination = identity ? destinations.get(identity) : undefined;
+      const saved = destination && review.saved[destination.path];
+      const owner = restored && !live.tab
+        ? restored.kind === "document" ? registry.get(restored.docId)?.recordedPatchSource() : plainPatchOwners.current.get(restored.id)?.()
+        : live.owner;
+      const moved = destination && destination.path !== patch.path;
+      const managed = tab.kind === "document";
+      const canRetarget = !moved || (destination.path.endsWith(".md") === managed &&
+        !readChangeOwner(destination.path).tab && (!managed || !retained.some(other =>
+          other.id !== tab.id && other.kind === "document" && other.retainedResource?.path === destination.path)));
+      if (!owner || !identity || (!patch.before && live.tab) || !canRetarget ||
+          (destination ? saved?.kind !== "file" : tab.kind !== "file" && tab.kind !== "document")) {
+        throw Error(`The open editor for ${patch.path} cannot adopt this resource transition in place.`);
+      }
+      const before = patch.before?.text ?? destination?.text;
+      const stage = owner.text === before && owner.prepareResource?.(destination?.text ?? owner.text,
+        saved?.kind === "file" ? saved.text : owner.base, destination?.path ?? null);
+      if (!stage || !stage.current()) throw Error(`The open editor for ${patch.path} is unavailable for resource publication.`);
+      return [{from: patch.path, to: destination?.path ?? null, identity, tab, stage}];
+    });
+    const owned = () => current() && stages.every(({stage}) => stage.current());
+    const begin = () => {
+      for (const {stage} of stages) if (stage.begin) {
+        held.push(stage);
+        stage.begin();
+      }
+      if (!owned()) throw Error("Open editors changed before resource publication.");
+    };
+    const adopt = async (receipt: ResourceReceipt, expected: ResourceExpectation) => {
+      const {confirmedResourceFiles} = await import("../simple/ResourceEditors");
+      const files = confirmedResourceFiles(review.patches, receipt, expected);
+      if (!owned()) throw Error("Open editors changed during publication.");
+      const adoptions = stages.map(({from, to, tab, stage, identity}) => {
+        if (to === null) return {from, to, tab, stage, identity, authority: null};
+        const file = files.get(to);
+        const docId = file?.file.doc_id;
+        if (!file?.save_guard || (tab.kind === "document") !== !!docId ||
+            (from === to && docId !== tab.docId)) {
+          throw Error(`The saved source has no matching editor authority: ${to}`);
+        }
+        return {from, to, tab, stage, identity, authority: {hash: file.hash, guard: file.save_guard, docId}};
+      });
+      await Promise.all(adoptions.map(({stage, authority}) => stage.waitForSavedSource?.(authority)));
+      if (!owned()) throw Error("Open editors changed while confirming the saved resource sources.");
+      const moved = new Map<string, Pick<Tab, "target" | "retainedResource" | "docId">>();
+      for (const {from, to, tab, stage, identity, authority} of adoptions) {
+        stage.adopt(authority);
+        if (from === to && !tab.retainedResource) continue;
+        if (to === null) {
+          moved.set(tab.id, {target: `\0retained-file:${tab.id}`, retainedResource: {path: from, identity}});
+          continue;
+        }
+        const docId = authority?.docId;
+        if (tab.docId && docId && tab.docId !== docId) {
+          const slot = documentSlots.current.get(tab.docId);
+          if (slot) {
+            documentSlots.current.delete(tab.docId);
+            documentSlots.current.set(docId, slot);
+          }
+        }
+        moved.set(tab.id, {target: to, docId});
+      }
+      if (moved.size) {
+        providerNavigation.current++;
+        setFileReferences(null);
+        setLayout(layout => retargetResourceTabs(layout, moved));
+      }
+    };
+    return {begin, adopt, release: () => {for (const stage of held.splice(0)) stage.release?.();}};
+  }, [readChangeOwner, registry]);
   const saveResourceReview = async (review: NonNullable<typeof resourceReview>) => {
     if (changeApplying.current || !review.current()) {
       setChangeError("Source changed after review. Prepare the resource change again.");
@@ -1410,96 +1505,13 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     changeApplying.current = true;
     setChangePending(true);
     setChangeError(null);
-    const held: ResourceAdoptionStage[] = [];
+    let editors: ReturnType<typeof holdResourceEditors> | undefined;
     const load: ResourceTransport = (route, body) => callApi("POST", route, body);
     try {
-      const {confirmedResourceFiles, publishReviewedResources} = await import("../simple/ResourceEditors");
+      const {publishReviewedResources} = await import("../simple/ResourceEditors");
       const token = review.history;
-      const current = () => review.current() && (!token || recordedDraftHistory.current(token));
-      if (!current()) throw Error("Workspace history or source changed. Open a fresh preview.");
-      // Match the before and after addresses of each resource identity.
-      // Closed files need no editor adoption, but any live editor must
-      // remain attached to the same source through the reviewed move.
-      const destinations = new Map(review.patches.flatMap(patch => patch.after ? [[patch.after.identity, {
-        path: patch.path, text: patch.after.text,
-      }] as const] : []));
-      const retained = panesOf(layoutRef.current.root).flatMap(pane => pane.tabs)
-        .filter(tab => tab.retainedResource);
-      const stages = review.patches.flatMap(patch => {
-        const live = readChangeOwner(patch.path);
-        const restored = !patch.before && patch.after
-          ? retained.find(tab => tab.retainedResource?.identity === patch.after?.identity) : undefined;
-        const tab = live.tab ?? restored;
-        if (!tab) return [];
-        const identity = patch.before?.identity ?? restored?.retainedResource?.identity;
-        const destination = identity ? destinations.get(identity) : undefined;
-        const saved = destination && review.saved[destination.path];
-        const owner = restored && !live.tab
-          ? restored.kind === "document" ? registry.get(restored.docId)?.recordedPatchSource() : plainPatchOwners.current.get(restored.id)?.()
-          : live.owner;
-        const moved = destination && destination.path !== patch.path;
-        const managed = tab.kind === "document";
-        const canRetarget = !moved || (destination.path.endsWith(".md") === managed &&
-          !readChangeOwner(destination.path).tab && (!managed || !retained.some(other =>
-            other.id !== tab.id && other.kind === "document" && other.retainedResource?.path === destination.path)));
-        if (!owner || !identity || (!patch.before && live.tab) || !canRetarget ||
-            (destination ? saved?.kind !== "file" : tab.kind !== "file" && tab.kind !== "document")) {
-          throw Error(`The open editor for ${patch.path} cannot adopt this resource transition in place.`);
-        }
-        const before = patch.before?.text ?? destination?.text;
-        const stage = owner.text === before && owner.prepareResource?.(destination?.text ?? owner.text,
-          saved?.kind === "file" ? saved.text : owner.base, destination?.path ?? null);
-        if (!stage || !stage.current()) throw Error(`The open editor for ${patch.path} is unavailable for resource publication.`);
-        return [{from: patch.path, to: destination?.path ?? null, identity, tab, stage}];
-      });
-      const owned = () => current() && stages.every(({stage}) => stage.current());
-      // Retain the same review identity so a dispatched request can't be retried.
-      if (!owned()) throw Error("Source changed after review. Prepare the resource change again.");
-      const {recovery} = await publishReviewedResources(review, load, async (receipt, expected) => {
-        const files = confirmedResourceFiles(review.patches, receipt, expected);
-        if (!owned()) throw Error("Open editors changed during publication.");
-        const adoptions = stages.map(({from, to, tab, stage, identity}) => {
-          if (to === null) return {from, to, tab, stage, identity, authority: null};
-          const file = files.get(to);
-          const docId = file?.file.doc_id;
-          if (!file?.save_guard || (tab.kind === "document") !== !!docId ||
-              (from === to && docId !== tab.docId)) {
-            throw Error(`The saved source has no matching editor authority: ${to}`);
-          }
-          return {from, to, tab, stage, identity, authority: {hash: file.hash, guard: file.save_guard, docId}};
-        });
-        await Promise.all(adoptions.map(({stage, authority}) => stage.waitForSavedSource?.(authority)));
-        if (!owned()) throw Error("Open editors changed while confirming the saved resource sources.");
-        const moved = new Map<string, Pick<Tab, "target" | "retainedResource" | "docId">>();
-        for (const {from, to, tab, stage, identity, authority} of adoptions) {
-          stage.adopt(authority);
-          if (from === to && !tab.retainedResource) continue;
-          if (to === null) {
-            moved.set(tab.id, {target: `\0retained-file:${tab.id}`, retainedResource: {path: from, identity}});
-            continue;
-          }
-          const docId = authority?.docId;
-          if (tab.docId && docId && tab.docId !== docId) {
-            const slot = documentSlots.current.get(tab.docId);
-            if (slot) {
-              documentSlots.current.delete(tab.docId);
-              documentSlots.current.set(docId, slot);
-            }
-          }
-          moved.set(tab.id, {target: to, docId});
-        }
-        if (moved.size) {
-          providerNavigation.current++;
-          setFileReferences(null);
-          setLayout(layout => retargetResourceTabs(layout, moved));
-        }
-      }, () => {
-        for (const {stage} of stages) if (stage.begin) {
-          held.push(stage);
-          stage.begin();
-        }
-        if (!owned()) throw Error("Open editors changed before resource publication.");
-      });
+      editors = holdResourceEditors(review, () => review.current() && (!token || recordedDraftHistory.current(token)));
+      const {recovery} = await publishReviewedResources(review, load, editors.adopt, editors.begin);
       const entry = {kind: "resource" as const, recovery};
       if (token) recordedDraftHistory.commit(token, entry);
       else recordedDraftHistory.record(entry);
@@ -1511,13 +1523,130 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       window.dispatchEvent(new Event(FILES_CHANGED_EVENT));
     } finally {
       try {
-        for (const stage of held) stage.release?.();
+        editors?.release();
       } finally {
         changeApplying.current = false;
         setChangePending(false);
       }
     }
   };
+  // A Git pane can close while a mutation is in flight. Retain its model
+  // at workspace scope so a reopened pane can inspect the original request.
+  const gitConflict = useMemo(() => {
+    const root = folderRootsRef.current[0], workspace = sourceWorkspace.current;
+    if (!root?.root_path || !root.workspace_id || !/^[a-f0-9]{32}$/.test(root.workspace_id)) return undefined;
+    const scope = {namespace: root.root_path, workspace: root.workspace_id};
+    const alive = () => sourceWorkspace.current === workspace && workspaceIsVisible();
+    const load: ResourceTransport = (route, body) => callApi("POST", route, body);
+    let tools: typeof import("./WorkspaceChat") | undefined;
+    const confirmReview = (review: HeldConflict) => {
+      if (!alive() || !review.current() || review.value.consequences.workspace !== scope.workspace) {
+        throw Error("The original workspace or reviewed sources changed.");
+      }
+    };
+    return new ConflictResolutionModel({
+      load: callApi,
+      lease: () => tools ? captureResourceWindow(tools, scope, alive).current : alive,
+      capture: async (paths, edit, selected) => {
+        const [patch, resources] = await Promise.all([import("./WorkspaceChat"), import("../simple/ResourceEditors")]);
+        tools = patch;
+        const current = () => alive() && selected();
+        // Acquisition may add only the previously observed guarded targets.
+        // Original tabs and their captured source authority stay checked.
+        const added = new Map<string, string>();
+        const original = captureResourceWindow(patch, scope, current, added);
+        const context = crypto.randomUUID().replaceAll("-", "");
+        const read = (capture: typeof original) => observeResourceWindow(capture, edit, paths, context, load, resources.observeResourceInputs);
+        const initial = await read(original);
+        if (initial.inputs.workspace !== scope.workspace) throw Error("The reviewed conflict belongs to a different workspace.");
+        const background: Tab[] = [];
+        for (const path of paths) {
+          if (original.named.has(path) || initial.inputs.sources[path]?.kind !== "file") continue;
+          const saved = await readChangeDisk(path);
+          if (!original.current() || saved.guard !== initial.inputs.saved_guards[path] ||
+              saved.text !== initial.inputs.sources[path].text) throw Error("Saved conflict source changed during acquisition.");
+          const tab = makeTab(saved.managed ? "document" : "file", path, path.split("/").pop(), saved.docId);
+          added.set(tab.id, path);
+          background.push(tab);
+        }
+        if (!background.length) return initial;
+        setLayout(layout => original.current() ? openInBackground(layout, background) : layout);
+        const deadline = Date.now() + 15_000;
+        while (true) {
+          if (!original.current()) throw Error("The conflict selection or original editor changed.");
+          if (background.every(tab => {
+            const {tab: retained, owner} = readChangeOwner(tab.target);
+            return retained?.id === tab.id && owner?.current() && owner.guard === initial.inputs.saved_guards[tab.target] &&
+              owner.text === initial.inputs.sources[tab.target].text;
+          })) break;
+          if (Date.now() >= deadline) throw Error("An affected source editor is still unavailable. Retry the preview when it loads.");
+          await new Promise(resolve => window.setTimeout(resolve, 50));
+        }
+        const captured = await read(captureResourceWindow(patch, scope, current));
+        for (const path of paths) {
+          const before = initial.inputs.sources[path], after = captured.inputs.sources[path];
+          if (before?.kind !== after?.kind || before?.text !== after?.text ||
+              JSON.stringify(initial.inputs.saved_sources[path]) !== JSON.stringify(captured.inputs.saved_sources[path])) {
+            throw Error("Conflict source changed during editor acquisition.");
+          }
+        }
+        if (!original.current() || captured.inputs.workspace !== scope.workspace ||
+            JSON.stringify(initial.inputs.saved_guards) !== JSON.stringify(captured.inputs.saved_guards)) {
+          throw Error("Conflict saved authority changed during editor acquisition.");
+        }
+        return captured;
+      },
+      draft: review => {
+        confirmReview(review);
+        if (!tools || changeApplying.current) throw Error("Wait for the current source operation to finish.");
+        const bindings = new Map<string, {tabId: string; guard: string}>();
+        const plan: WindowHistoryPlan = {
+          title: "Compose Git conflict group", scope, bindings,
+          patches: review.patches.map(({path, before, after}) => {
+            const {tab, owner} = readChangeOwner(path);
+            if (!tab || !owner || !before || !after || before.identity !== after.identity) {
+              throw Error("A conflict draft requires every original authored editor.");
+            }
+            bindings.set(path, {tabId: tab.id, guard: owner.guard});
+            return {path, before: before.text, after: after.text, edits: [{from:0,to:before.text.length,text:after.text}]};
+          }),
+        };
+        const stages = tools.stageDrafts(plan, path => readChangeOwner(path).owner);
+        confirmReview(review);
+        tools.commitWorkspaceDrafts(stages);
+        const inverse = tools.invertWindowDraft(plan);
+        recordedDraftHistory.record({kind: "draft", plan: inverse, read: () => inverse});
+      },
+      holdSave: review => {
+        confirmReview(review);
+        if (changeApplying.current) throw Error("Wait for the current source operation to finish.");
+        const saved = review.value.saved_sources;
+        const editors = holdResourceEditors({patches: review.patches, saved}, () => alive() && review.current());
+        changeApplying.current = true;
+        let held = true;
+        const release = () => {
+          if (!held) return;
+          held = false;
+          try {editors.release();} finally {changeApplying.current = false;}
+        };
+        try {editors.begin();} catch (error) {release();throw error;}
+        return {
+          release,
+          adopt: async (receipt, request) => {
+            const recovery = receipt.outcome?.recovery?.match(/(?:^|\/)resource-changes\/([0-9a-f]{32})\/[^/]+$/)?.[1];
+            if (!recovery) throw Error("The confirmed conflict Save has no source recovery identity.");
+            await editors.adopt(receipt, {request, workspace: scope.workspace, context: review.value.plan.context,
+              saved: new Map(Object.entries(saved))});
+            recordedDraftHistory.record({kind: "resource", recovery});
+            // A path-changing adoption retargets tabs before the saved Stage lease is sampled.
+            await new Promise(resolve => window.requestAnimationFrame(resolve));
+            window.dispatchEvent(new Event(FILES_CHANGED_EVENT));
+          },
+        };
+      },
+      staged: () => window.dispatchEvent(new Event(FILES_CHANGED_EVENT)),
+    });
+  }, [workspaceKey, captureResourceWindow, observeResourceWindow, readChangeDisk, readChangeOwner, holdResourceEditors, recordedDraftHistory]);
   changeHistoryRef.current = direction => {
     const token = recordedDraftHistory.preview(direction), workspace = sourceWorkspace.current;
     if (!token || changeApplying.current) return;
@@ -2671,7 +2800,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         </div>
       );
     }
-    const review = reviewTool(tab, path => openHit(path, 1), () => setLayout(openStoryTab), openLiterateLibrary);
+    const review = reviewTool(tab, path => openHit(path, 1), () => setLayout(openStoryTab), openLiterateLibrary, gitConflict);
     if (review) return review;
     if (tab.kind === "tool" && tab.target === FLEET_TAB) {
       return <FleetPane />;

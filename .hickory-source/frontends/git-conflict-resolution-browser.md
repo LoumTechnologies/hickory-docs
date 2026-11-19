@@ -14,7 +14,10 @@ outcomes remain owned across closing the floating view and cannot be retried.
 Retained status distinguishes completed refusal from pending and unknown. A
 completed refusal can retire only after the original complete review preimage is
 revalidated. Source receipt adoption and coordinated undo remain host adapters;
-policy does not belong to the React renderer.
+policy does not belong to the React renderer. A host that publishes from live
+editors can hold them before the request. Release the hold on every outcome.
+Recovery of a dispatched Save must reacquire the original still-current
+editors before adopting its retained receipt.
 
 Bind the composition to the row that opened it. A different selection retires
 approval and hides that composition. Returning to its row restores the typed
@@ -31,10 +34,16 @@ export interface ConflictOutput {path:string;identity_from:string|null;mode:'100
 export interface ConflictPreview {version:number;resolution_protocol:number;token:string;fingerprint:string;members:string[];remaining_conflicts:string[];plan:ResourceWirePlan;consequences:ResourceConstructionFacts;saved_sources:Record<string,ResourceSaved>;needs_save:boolean;stage_available:boolean;stage_unavailable:string|null;source_files_modified:boolean;index_modified:boolean}
 export interface HeldConflict {value:ConflictPreview;patches:ResourceEditorPatch[];current:()=>boolean}
 export interface ConflictCapture {inputs:unknown;capture:unknown;current:()=>boolean}
+export interface ConflictEditorHold {
+ adopt:(receipt:ResourceReceipt,request:string)=>void|Promise<void>;
+ release:()=>void;
+}
 export interface ConflictPorts {
  load:<T>(method:'GET'|'POST',path:string,body?:unknown)=>Promise<T>;
- capture:(paths:string[],edit:unknown)=>Promise<ConflictCapture>;
- adopt:(review:HeldConflict,receipt:ResourceReceipt,request:string)=>void;
+ capture:(paths:string[],edit:unknown,current:()=>boolean)=>Promise<ConflictCapture>;
+ adopt?:(review:HeldConflict,receipt:ResourceReceipt,request:string)=>void|Promise<void>;
+ holdSave?:(review:HeldConflict)=>ConflictEditorHold;
+ staged?:()=>void;
  draft:(review:HeldConflict)=>void;
  lease:()=>()=>boolean;
 }
@@ -51,7 +60,10 @@ export function conflictDraftable(review:HeldConflict){return review.patches.som
 interface PendingConflict {id:string;review:HeldConflict;stage:boolean;receipt?:ResourceReceipt}
 export class ConflictResolutionModel {
  anchor:string|null=null;reading:ConflictReading|null=null;members:string[]=[];outputs:ConflictOutput[]=[];review:HeldConflict|null=null;notice='';busy=false;saved=false;pending:PendingConflict|null=null;private ticket=0;
- constructor(private ports:ConflictPorts,private changed:()=>void=()=>{}){}
+ private listeners=new Set<()=>void>();
+ constructor(private ports:ConflictPorts,private notify:()=>void=()=>{}){}
+ subscribe(listener:()=>void){this.listeners.add(listener);return ()=>{this.listeners.delete(listener);};}
+ private changed(){this.notify();for(const listener of this.listeners)listener();}
  close(){
   if(this.pending)return;
   this.ticket++;
@@ -71,15 +83,60 @@ export class ConflictResolutionModel {
   }catch(error){if(ticket===this.ticket)this.notice=String(error);}finally{if(ticket===this.ticket){this.busy=false;this.changed();}}
  }
  async prepare(){if(this.busy||this.pending||!this.reading)return;const ticket=++this.ticket,reading=structuredClone(this.reading),members=[...this.members].sort(),outputs=structuredClone(this.outputs);this.busy=true;this.review=null;this.saved=false;this.changed();
-  try{if(!members.length||new Set(members).size!==members.length||outputs.some(row=>!row.path))throw Error('Choose complete conflict members and every destination explicitly.');const paths=[...new Set([...members,...outputs.map(row=>row.path)])].sort(),edit={changes:Object.fromEntries(paths.map(path=>['hick:///'+path.split('/').map(encodeURIComponent).join('/'),[]]))};const captured=await this.ports.capture(paths,edit);if(ticket!==this.ticket||!captured.current())throw Error('Source editor changed during acquisition.');const raw=await this.ports.load<ConflictPreview>('POST','/api/git/conflict-resolution/prepare',{version:1,reading,members,outputs,inputs:captured.inputs,capture:captured.capture});if(ticket!==this.ticket||!captured.current())throw Error('Source editor changed during conflict review.');const value=decodeConflictPreview(raw);if(JSON.stringify(value.members)!==JSON.stringify(members))throw Error('Reviewed conflict members changed.');this.review={value,patches:value.plan.patches.length?resourceWirePatches(value.plan):[],current:()=>ticket===this.ticket&&captured.current()};this.notice='Review all source and generated consequences. Draft, Save and Stage are separate actions.';
+  try{if(!members.length||new Set(members).size!==members.length||outputs.some(row=>!row.path))throw Error('Choose complete conflict members and every destination explicitly.');const paths=[...new Set([...members,...outputs.map(row=>row.path)])].sort(),edit={changes:Object.fromEntries(paths.map(path=>['hick:///'+path.split('/').map(encodeURIComponent).join('/'),[]]))};const captured=await this.ports.capture(paths,edit,()=>ticket===this.ticket);if(ticket!==this.ticket||!captured.current())throw Error('Source editor changed during acquisition.');const raw=await this.ports.load<ConflictPreview>('POST','/api/git/conflict-resolution/prepare',{version:1,reading,members,outputs,inputs:captured.inputs,capture:captured.capture});if(ticket!==this.ticket||!captured.current())throw Error('Source editor changed during conflict review.');const value=decodeConflictPreview(raw);if(JSON.stringify(value.members)!==JSON.stringify(members))throw Error('Reviewed conflict members changed.');this.review={value,patches:value.plan.patches.length?resourceWirePatches(value.plan):[],current:()=>ticket===this.ticket&&captured.current()};this.notice='Review all source and generated consequences. Draft, Save and Stage are separate actions.';
   }catch(error){if(ticket===this.ticket)this.notice=String(error);}finally{if(ticket===this.ticket){this.busy=false;this.changed();}}
  }
  private body(review:HeldConflict){return {version:1,token:review.value.token,fingerprint:review.value.fingerprint};}
  private async validate(review:HeldConflict,stage=false){if(!review.current())throw Error('Source editor changed after review.');const result=await this.ports.load<{version:number;token:string;fingerprint:string;stage:boolean;current:boolean;source_files_modified:boolean;index_modified:boolean;plan:ResourceWirePlan;saved_sources:Record<string,ResourceSaved>}>('POST','/api/git/conflict-resolution/validate',{...this.body(review),stage});if(result.version!==1||result.token!==review.value.token||result.fingerprint!==review.value.fingerprint||result.source_files_modified!==false||result.index_modified!==false||result.current!==true||result.stage!==stage||JSON.stringify(result.plan)!==JSON.stringify(review.value.plan)||JSON.stringify(result.saved_sources)!==JSON.stringify(review.value.saved_sources)||!review.current())throw Error('Conflict stages, reviewed plan or source authority changed.');}
- async draft(){const review=this.review;if(!review||this.busy||this.pending)return;this.busy=true;this.changed();try{if(!conflictDraftable(review))throw Error('Address changes require guarded resource Save; drafts were retained.');await this.validate(review);this.ports.draft(review);this.review=null;this.notice='Applied coordinated source drafts. Nothing saved or staged. Prepare again before saving.';}catch(error){this.notice=String(error);}finally{this.busy=false;this.changed();}}
- async act(stage:boolean){const review=this.review;if(!review||this.busy||this.pending)return;this.busy=true;this.changed();try{if(!review.current())throw Error('Source editor or workspace changed after review. Prepare the complete group again.');if(stage? !review.value.stage_available||review.value.needs_save&&!this.saved : !review.value.needs_save||this.saved)throw Error('Save the complete current review before staging; a consumed review cannot repeat.');if(!stage)await this.validate(review);const pending={id:crypto.randomUUID().replaceAll('-',''),review,stage};this.pending=pending;const result=await this.ports.load<unknown>('POST','/api/git/conflict-resolution/'+(stage?'stage':'save'),{...this.body(review),request_id:pending.id});this.accept(result);}catch(error){this.notice=String(error)+(this.pending?' Outcome unconfirmed. Inspect the original request; it will not be retried.':'');}finally{this.busy=false;this.changed();}}
- async status(){const pending=this.pending;if(!pending||this.busy)return;this.busy=true;this.changed();try{const value=await this.ports.load<{version:number;request_id:string;state:string;outcome?:unknown;error?:string}>('GET','/api/git/conflict-resolution/status?request_id='+encodeURIComponent(pending.id));if(value.version!==1||value.request_id!==pending.id)throw Error('Retained conflict request identity changed.');if(value.state==='completed'&&value.outcome)this.accept(value.outcome);else if(value.state==='completed'&&value.error){await this.validate(pending.review,pending.stage);this.pending=null;this.review=null;this.notice='The retained request was refused and the original complete preimage is current. Read and prepare a new review.';}else this.notice='The original request is pending or unknown. Preserve drafts and inspect Source recovery; no new request is authorized.';}catch(error){this.notice=String(error);}finally{this.busy=false;this.changed();}}
- private accept(raw:unknown){const pending=this.pending;if(!pending)throw Error('No owned conflict publication.');const review=pending.review,value=raw as Record<string,unknown>;if(pending.stage){if(value.version!==1||value.operation!=='git_conflict_stage'||value.complete!==true||value.index_modified!==true||value.index_uncertain!==false||value.source_files_modified!==false||value.request_id!==pending.id||value.token!==review.value.token||value.review_fingerprint!==review.value.fingerprint||!sameMembers(value.resolved_members,review.value.members)||!sameMembers(value.remaining_conflicts,review.value.remaining_conflicts)||typeof value.fingerprint!=='string'||!/^[a-f0-9]{64}$/.test(value.fingerprint))throw Error('Complete staged group was not confirmed.');this.pending=null;this.review=null;this.notice='Complete saved conflict group staged. Unsaved drafts remain separate. No tests were run.';}else{const receipt=structuredClone(raw) as ResourceReceipt;pending.receipt=receipt;this.ports.adopt(review,receipt,pending.id);this.pending=null;this.saved=true;this.review={...review,current:this.ports.lease()};this.notice='Complete saved group confirmed. Choose Stage separately.';}}
+ async draft(){
+  const review=this.review;if(!review||this.busy||this.pending)return;
+  const ticket=this.ticket;this.busy=true;this.changed();
+  try{
+   if(!conflictDraftable(review))throw Error('Address changes require guarded resource Save; drafts were retained.');
+   await this.validate(review);
+   this.ports.draft(review);this.review=null;
+   this.notice='Applied coordinated source drafts. Nothing saved or staged. Prepare again before saving.';
+  }catch(error){if(ticket===this.ticket)this.notice=String(error);}
+  finally{if(ticket===this.ticket){this.busy=false;this.changed();}}
+ }
+ async act(stage:boolean){
+  const review=this.review;if(!review||this.busy||this.pending)return;
+  const ticket=this.ticket;this.busy=true;this.changed();
+  let hold:ConflictEditorHold|undefined;
+  try{
+   if(!review.current())throw Error('Source editor or workspace changed after review. Prepare the complete group again.');
+   if(stage? !review.value.stage_available||review.value.needs_save&&!this.saved : !review.value.needs_save||this.saved)throw Error('Save the complete current review before staging; a consumed review cannot repeat.');
+   if(!stage){await this.validate(review);hold=this.ports.holdSave?.(review);}
+   const pending={id:crypto.randomUUID().replaceAll('-',''),review,stage};this.pending=pending;
+   const result=await this.ports.load<unknown>('POST','/api/git/conflict-resolution/'+(stage?'stage':'save'),{...this.body(review),request_id:pending.id});
+   const editors=hold;hold=undefined;
+   await this.accept(result,editors);
+  }catch(error){if(ticket===this.ticket)this.notice=String(error)+(this.pending?' Outcome unconfirmed. Inspect the original request; it will not be retried.':'');}
+  finally{hold?.release();if(ticket===this.ticket){this.busy=false;this.changed();}}
+ }
+ async status(){const pending=this.pending;if(!pending||this.busy)return;this.busy=true;this.changed();try{const value=await this.ports.load<{version:number;request_id:string;state:string;outcome?:unknown;error?:string}>('GET','/api/git/conflict-resolution/status?request_id='+encodeURIComponent(pending.id));if(value.version!==1||value.request_id!==pending.id)throw Error('Retained conflict request identity changed.');if(value.state==='completed'&&value.outcome)await this.accept(value.outcome);else if(value.state==='completed'&&value.error){await this.validate(pending.review,pending.stage);this.pending=null;this.review=null;this.notice='The retained request was refused and the original complete preimage is current. Read and prepare a new review.';}else this.notice='The original request is pending or unknown. Preserve drafts and inspect Source recovery; no new request is authorized.';}catch(error){this.notice=String(error);}finally{this.busy=false;this.changed();}}
+ private async accept(raw:unknown,hold?:ConflictEditorHold){
+  const pending=this.pending;
+  if(!pending){hold?.release();throw Error('No owned conflict publication.');}
+  const review=pending.review,value=raw as Record<string,unknown>;
+  if(pending.stage){
+   if(value.version!==1||value.operation!=='git_conflict_stage'||value.complete!==true||value.index_modified!==true||value.index_uncertain!==false||value.source_files_modified!==false||value.request_id!==pending.id||value.token!==review.value.token||value.review_fingerprint!==review.value.fingerprint||!sameMembers(value.resolved_members,review.value.members)||!sameMembers(value.remaining_conflicts,review.value.remaining_conflicts)||typeof value.fingerprint!=='string'||!/^[a-f0-9]{64}$/.test(value.fingerprint))throw Error('Complete staged group was not confirmed.');
+   this.pending=null;this.review=null;this.notice='Complete saved conflict group staged. Unsaved drafts remain separate. No tests were run.';this.ports.staged?.();return;
+  }
+  let editors=hold;
+  try{
+   const receipt=structuredClone(raw) as ResourceReceipt;pending.receipt=receipt;
+   editors??=this.ports.holdSave?.(review);
+   if(editors)await editors.adopt(receipt,pending.id);
+   else if(this.ports.adopt)await this.ports.adopt(review,receipt,pending.id);
+   else throw Error('The original editor adoption is unavailable.');
+  }finally{editors?.release();}
+  this.pending=null;this.saved=true;this.review=null;
+  try{
+   const current=this.ports.lease();
+   this.review={...review,current};this.notice='Complete saved group confirmed. Choose Stage separately.';
+  }catch(error){this.notice='Complete saved group confirmed. Prepare a fresh preview before staging. '+String(error);}
+ }
 }
 </ui:copy>
 ## Reuse authoritative resource capture and retained editor adoption
@@ -126,13 +183,13 @@ inspection rather than an automatic second write.
 import {useEffect,useState} from 'react';
 import {conflictDraftable,type ConflictOutput,type ConflictReading,type ConflictResolutionModel} from './GitConflictResolution';
 function outputText(output:ConflictOutput,reading:ConflictReading){const content=output.content;return content.kind==='text'?content.text:reading.paths.find(row=>row.path===content.path)?.stages.find(stage=>stage.stage===content.stage&&stage.oid===content.oid)?.text??'';}
-export function GitResolutionView({path,model}:{path:string|null;model:ConflictResolutionModel}){
+export function GitResolutionView({path,model,canCompose=path!==null}:{path:string|null;model:ConflictResolutionModel;canCompose?:boolean}){
  const [page,setPage]=useState(0);
  useEffect(()=>()=>model.close(),[model]);
  const update=(index:number,value:ConflictOutput|null)=>model.change(model.members,model.outputs.flatMap((row,at)=>at===index?value?[value]:[]:[row]));
  const selected=path!==null&&model.anchor===path;
- const blocked=model.busy||!!model.pending,reading=selected?model.reading:null,review=selected?model.review:null,raw=review?JSON.stringify(review.value,null,2):'',last=Math.max(0,Math.ceil(raw.length/8000)-1),shown=Math.min(page,last);
- return <section aria-label="Complete conflict resolution">{path&&<button disabled={blocked} onClick={()=>void model.read([path],path)}>Compose conflict group…</button>}<p role="status">{(selected||model.pending)&&model.notice}</p>{model.pending?.receipt&&<p>Retained publication {model.pending.receipt.request_id} · historical completion {String(model.pending.receipt.outcome?.complete)} · current adoption {String(model.pending.receipt.adoption_current)}. {model.pending.receipt.adoption_reason}</p>}{model.pending&&<button disabled={model.busy} onClick={()=>void model.status()}>Inspect original resolution request</button>}
+ const blocked=model.busy||!!model.pending,reading=selected&&canCompose?model.reading:null,review=selected&&canCompose?model.review:null,raw=review?JSON.stringify(review.value,null,2):'',last=Math.max(0,Math.ceil(raw.length/8000)-1),shown=Math.min(page,last);
+ return <section aria-label="Complete conflict resolution">{path&&canCompose&&<button disabled={blocked} onClick={()=>void model.read([path],path)}>Compose conflict group…</button>}<p role="status">{(selected||model.pending)&&model.notice}</p>{model.pending?.receipt&&<p>Retained publication {model.pending.receipt.request_id} · historical completion {String(model.pending.receipt.outcome?.complete)} · current adoption {String(model.pending.receipt.adoption_current)}. {model.pending.receipt.adoption_reason}</p>}{model.pending&&<button disabled={model.busy} onClick={()=>void model.status()}>Inspect original resolution request</button>}
  {reading&&<><p>Select every member in this resolution. Rename relationships and retained identities are explicit choices.</p>{reading.paths.map(row=><div key={row.path}><label><input type="checkbox" disabled={blocked} checked={model.members.includes(row.path)} onChange={()=>model.change(model.members.includes(row.path)?model.members.filter(path=>path!==row.path):[...model.members,row.path],model.outputs)}/>{JSON.stringify(row.path)}</label>{row.unavailable&&<p>{row.unavailable}</p>}</div>)}<button disabled={blocked||!model.members.length} onClick={()=>void model.read(model.members,path)}>Read selected group stages</button>
  {model.outputs.map((output,index)=><article key={index}><label>Destination<input aria-label={`Conflict destination ${index+1}`} disabled={blocked} value={output.path} onChange={event=>update(index,{...output,path:event.target.value})}/></label><label>Retained source identity<select aria-label={`Retained identity ${index+1}`} disabled={blocked} value={output.identity_from??''} onChange={event=>update(index,{...output,identity_from:event.target.value||null})}><option value="">New source identity</option>{model.members.map(member=><option key={member} value={member}>{JSON.stringify(member)}</option>)}</select></label>
  <label>Composed resolution<textarea aria-label={`Composed resolution ${index+1}`} rows={5} disabled={blocked} value={outputText(output,reading)} onChange={event=>update(index,{...output,content:{kind:'text',text:event.target.value}})}/></label>
@@ -160,9 +217,61 @@ beforeAll(async()=>{const name='node:'+'crypto';const {webcrypto}=await import(n
 function reading():ConflictReading{return {version:1,resolution_protocol:1,members:['a.py'],paths:[{path:'a.py',working:null,stages:[],unavailable:null}],observation:{fingerprint:'index'},source_files_modified:false,index_modified:false};}
 function preview(noop=false):ConflictPreview{return {version:1,resolution_protocol:1,token:'a'.repeat(32),fingerprint:'b'.repeat(64),members:['a.py'],remaining_conflicts:[],plan:{version:1,context:'context',title:'Resolve',patches:noop?[]:[{path:'a.py',before:{kind:'file',identity:'a',text:'before'},after:{kind:'file',identity:'a',text:'after'}}]},consequences:{version:1,workspace:'workspace',context:'context',fingerprint:'c'.repeat(64),protected_targets:[],saved:{entries:[],removed_entries:[],output_paths:[]},draft:{entries:[],removed_entries:[],output_paths:[]}},saved_sources:{'a.py':{kind:'file',text:'after',sha256:'d'.repeat(64),readonly:false,executable:false,mode:420}},needs_save:!noop,stage_available:true,stage_unavailable:null,source_files_modified:false,index_modified:false};}
 const output:ConflictOutput={path:'a.py',identity_from:'a.py',mode:'100644',content:{kind:'text',text:'after'}};
-function fixture(noop=false){const value=preview(noop),calls:{path:string;body:unknown}[]=[],draft=vi.fn(),adopt=vi.fn();let current=true,failStage=false,unknown=false;const ports:ConflictPorts={lease:()=>()=>current,capture:async()=>({inputs:{workspace:'workspace'},capture:{},current:()=>current}),draft,adopt,load:async<T>(_method:string,path:string,body?:unknown)=>{calls.push({path,body});const input=body as Record<string,unknown>;let result:unknown;if(path.endsWith('/read'))result=reading();else if(path.endsWith('/prepare'))result=value;else if(path.endsWith('/validate'))result={version:1,current:true,stage:input.stage??false,token:value.token,fingerprint:value.fingerprint,plan:value.plan,saved_sources:value.saved_sources,source_files_modified:false,index_modified:false};else if(path.endsWith('/save'))result={version:2,adoption_current:true,request_id:input.request_id};else if(path.endsWith('/stage'))result={version:1,operation:'git_conflict_stage',complete:true,index_modified:true,index_uncertain:false,source_files_modified:false,request_id:failStage?'foreign':input.request_id,token:value.token,review_fingerprint:value.fingerprint,resolved_members:value.members,remaining_conflicts:value.remaining_conflicts,fingerprint:'e'.repeat(64)};else result={version:1,request_id:path.split('request_id=')[1],state:unknown?'unknown':'completed',outcome:null,error:'refused'};return result as T;}};const model=new ConflictResolutionModel(ports);return {model,value,calls,draft,adopt,stale:()=>{current=false;},foreignStage:()=>{failStage=true;},unknown:()=>{unknown=true;}};}
+function fixture(noop=false){const value=preview(noop),calls:{path:string;body:unknown}[]=[],draft=vi.fn(),adopt=vi.fn();let current=true,failStage=false,unknown=false;const ports:ConflictPorts={lease:()=>()=>current,capture:async()=>({inputs:{workspace:'workspace'},capture:{},current:()=>current}),draft,adopt,load:async<T>(_method:string,path:string,body?:unknown)=>{calls.push({path,body});const input=body as Record<string,unknown>;let result:unknown;if(path.endsWith('/read'))result=reading();else if(path.endsWith('/prepare'))result=value;else if(path.endsWith('/validate'))result={version:1,current:true,stage:input.stage??false,token:value.token,fingerprint:value.fingerprint,plan:value.plan,saved_sources:value.saved_sources,source_files_modified:false,index_modified:false};else if(path.endsWith('/save'))result={version:2,adoption_current:true,request_id:input.request_id};else if(path.endsWith('/stage'))result={version:1,operation:'git_conflict_stage',complete:true,index_modified:true,index_uncertain:false,source_files_modified:false,request_id:failStage?'foreign':input.request_id,token:value.token,review_fingerprint:value.fingerprint,resolved_members:value.members,remaining_conflicts:value.remaining_conflicts,fingerprint:'e'.repeat(64)};else result={version:1,request_id:path.split('request_id=')[1],state:unknown?'unknown':'completed',outcome:null,error:'refused'};return result as T;}};const model=new ConflictResolutionModel(ports);return {model,value,calls,draft,adopt,ports,stale:()=>{current=false;},foreignStage:()=>{failStage=true;},unknown:()=>{unknown=true;}};}
 async function prepared(f:ReturnType<typeof fixture>){await f.model.read(['a.py']);f.model.change(['a.py'],[output]);await f.model.prepare();expect(f.model.review).not.toBeNull();}
 it('keeps composition, draft application, source Save and explicit Stage separate',async()=>{const f=fixture();await prepared(f);await f.model.act(true);expect(f.calls.some(call=>call.path.endsWith('/stage'))).toBe(false);await f.model.draft();expect(f.draft).toHaveBeenCalledOnce();expect(f.adopt).not.toHaveBeenCalled();expect(f.calls.some(call=>call.path.endsWith('/save'))).toBe(false);await prepared(f);await f.model.act(false);expect(f.adopt).toHaveBeenCalledOnce();expect(f.model.saved).toBe(true);await f.model.act(true);expect(f.model.pending).toBeNull();expect(f.model.notice).toContain('group staged');});
+it('holds Main editors before Save and releases them before the separate Stage lease',async()=>{
+ const f=fixture(),steps:string[]=[];
+ const load=f.ports.load,lease=f.ports.lease;
+ f.ports.load=async<T>(method:'GET'|'POST',path:string,body?:unknown)=>{
+  if(path.endsWith('/save'))steps.push('save');
+  return load<T>(method,path,body);
+ };
+ f.ports.lease=()=>{steps.push('lease');return lease();};
+ f.ports.holdSave=()=>{
+  steps.push('hold');
+  return {adopt:async()=>{steps.push('adopt');},release:()=>{steps.push('release');}};
+ };
+ await prepared(f);steps.length=0;
+ await f.model.act(false);
+ expect(steps).toEqual(['hold','save','adopt','release','lease']);
+ expect(f.model.pending).toBeNull();
+ expect(f.model.saved).toBe(true);
+ expect(f.adopt).not.toHaveBeenCalled();
+});
+it('releases a failed Save hold and recovers only the original request',async()=>{
+ const f=fixture(),release=vi.fn(),adopt=vi.fn();
+ const original=f.ports.load;
+ f.ports.holdSave=()=>({adopt,release});
+ f.ports.load=async<T>(method:'GET'|'POST',path:string,body?:unknown)=>{
+  if(path.endsWith('/save'))throw Error('connection ended');
+  if(path.includes('/status?')){
+   const request_id=path.split('request_id=')[1];
+   return {version:1,request_id,state:'completed',outcome:{version:2,request_id}} as T;
+  }
+  return original<T>(method,path,body);
+ };
+ await prepared(f);await f.model.act(false);
+ const request=f.model.pending?.id;
+ expect(request).toBeTruthy();
+ expect(release).toHaveBeenCalledOnce();
+ expect(adopt).not.toHaveBeenCalled();
+ f.model.close();await f.model.status();
+ expect(f.model.pending).toBeNull();
+ expect(adopt).toHaveBeenCalledWith({version:2,request_id:request},request);
+ expect(release).toHaveBeenCalledTimes(2);
+});
+it('requires a fresh editor lease for Stage after adopting the saved group',async()=>{
+ const f=fixture();await prepared(f);
+ f.ports.lease=()=>{throw Error('The current editor lease is unavailable.');};
+ await f.model.act(false);
+ expect(f.adopt).toHaveBeenCalledOnce();
+ expect(f.model.pending).toBeNull();
+ expect(f.model.review).toBeNull();
+ expect(f.model.notice).toContain('Complete saved group confirmed');
+ await f.model.act(true);
+ expect(f.calls.some(call=>call.path.endsWith('/stage'))).toBe(false);
+});
 it('stages an already-saved complete group without a no-op Save',async()=>{const f=fixture(true);await prepared(f);expect(conflictDraftable(f.model.review!)).toBe(false);const same=preview();same.plan.patches[0].after.text='before';expect(conflictDraftable({value:same,patches:[{path:'a.py',before:{identity:'a',text:'before'},after:{identity:'a',text:'before'}}],current:()=>true})).toBe(false);await f.model.act(true);expect(f.calls.some(call=>call.path.endsWith('/save'))).toBe(false);expect(f.model.notice).toContain('group staged');});
 it('retains uncertain request identity across close and refuses a second mutation',async()=>{const f=fixture(true);await prepared(f);f.foreignStage();await f.model.act(true);const id=f.model.pending?.id;expect(id).toBeTruthy();f.model.close();await f.model.act(true);expect(f.model.pending?.id).toBe(id);expect(f.calls.filter(call=>call.path.endsWith('/stage'))).toHaveLength(1);f.unknown();await f.model.status();expect(f.model.pending?.id).toBe(id);expect(f.adopt).not.toHaveBeenCalled();});
 it('retires only a confirmed refused request whose complete original preimage is current',async()=>{for(const stale of [false,true]){const f=fixture(true);await prepared(f);f.foreignStage();await f.model.act(true);if(stale)f.stale();await f.model.status();expect(!!f.model.pending).toBe(stale);if(!stale)expect(f.model.notice).toContain('original complete preimage');}});

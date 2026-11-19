@@ -32,6 +32,8 @@ import { graphWidth, laneColor, layout } from "../lib/gitGraph";
 import { FILES_CHANGED_EVENT } from "../shell/FolderTreePane";
 import { DiffView } from "../components/DiffView";
 import { GitConflictView } from "../simple/GitConflict";
+import { GitResolutionView } from "../simple/GitConflictResolutionView";
+import type { ConflictResolutionModel } from "../simple/GitConflictResolution";
 import { BisectPane } from "./BisectPane";
 import { openLiterate } from "../lib/openRepresentation";
 
@@ -45,11 +47,13 @@ export function GitPane({
   onOpenFile,
   onOpenStory,
   onOpenLiterate,
+  conflict,
 }: {
   onOpenFile?: (path: string) => void;
   /** The same repository, read as a story: the history lens. */
   onOpenStory?: () => void;
   onOpenLiterate?: () => void;
+  conflict?: ConflictResolutionModel;
 }) {
   const [log, setLog] = useState<GitLog | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -116,7 +120,7 @@ export function GitPane({
     <div className="git-pane">
       <BisectPane />
       {onOpenLiterate && <button className="btn" onClick={() => void historyAction("literate")}>Literate views</button>}
-      <WorkingTree tick={tick} refresh={refresh} onOpenFile={onOpenFile} head={log.commits[0]} />
+      <WorkingTree conflict={conflict} tick={tick} refresh={refresh} onOpenFile={onOpenFile} head={log.commits[0]} />
       {/* The publication floor, stated rather than felt. Below it commits are
           records — someone else may be holding them; above it they are
           drafts, and re-emission may replace them. Merging moves the line,
@@ -362,11 +366,13 @@ export function sides(files: readonly GitChangeFile[]): { staged: SideFile[]; un
 }
 
 function WorkingTree({
+  conflict,
   tick,
   refresh,
   onOpenFile,
   head,
 }: {
+  conflict?: ConflictResolutionModel;
   tick: number;
   refresh: () => void;
   onOpenFile?: (path: string) => void;
@@ -384,6 +390,12 @@ function WorkingTree({
   const [newBranch, setNewBranch] = useState("");
   // Two clicks to discard: the first turns the button into the question.
   const [confirmDiscard, setConfirmDiscard] = useState<string | null>(null);
+  const [, paintConflict] = useState(0);
+  useEffect(() => {
+    if (!conflict) return;
+    const unsubscribe = conflict.subscribe(() => paintConflict(n => n + 1));
+    return () => {unsubscribe();conflict.close();};
+  }, [conflict]);
 
   useEffect(() => {
     let live = true;
@@ -473,7 +485,10 @@ function WorkingTree({
   const workingAction = useGitWorkingActions({ changes, busy, notice, selected, diff, message, amend, branches, newBranch, confirmDiscard,
     staged: staged.map(f => f.path), unstaged: unstaged.map(f => f.path), conflicts, run, openBranches,
     setMessage, setAmend: toggleAmend, setNewBranch, setDiscard: setConfirmDiscard,
-    pick: (path, staged) => { setDiff(null); setSelected({ path, staged }); }, openFile: onOpenFile,
+    pick: (path, staged) => {
+      if (path !== selected?.path) conflict?.close();
+      setDiff(null); setSelected({ path, staged });
+    }, openFile: onOpenFile,
     operations: { pull: () => api.gitPull(), push: () => api.gitPush(), stash: pop => api.gitStash(pop ? "pop" : "push"),
       stage: paths => api.gitStage(paths ? { paths } : { all: true }), unstage: paths => api.gitUnstage(paths ? { paths } : { all: true }),
       discard: path => api.gitDiscard([path]), checkout: (name, create) => create ? api.gitCheckout(name, true) : api.gitCheckout(name), commit: () => api.gitCommit(message.trim(), amend),
@@ -652,6 +667,8 @@ function WorkingTree({
       </form>
 
       {selectedConflict && <GitConflictView key={JSON.stringify([tick, selectedConflict])} path={selectedConflict} />}
+      {conflict && (selectedConflict || conflict.pending || selected?.path && conflict.anchor === selected.path) &&
+        <GitResolutionView model={conflict} path={selected?.path ?? null} canCompose={!!selectedConflict} />}
       {selected && diff && !selectedConflict && (
         <button className="btn" onClick={() => void workingAction("review")}>Review in the main editor</button>
       )}
