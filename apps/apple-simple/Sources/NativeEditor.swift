@@ -2684,8 +2684,13 @@ struct NativeDebugRail: View {
                     }
                     let overflowSlot = visible < items.count ? visible : 0
                     if visible < items.count {
-                        Button("⋯") { opened = opened == row.line ? nil : row.line }
-                            .buttonStyle(.bordered).frame(width: 22, height: 18).help("More line actions")
+                        Button {
+                            opened = opened == row.line ? nil : row.line
+                        } label: {
+                            Image(systemName: "ellipsis").font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(Color.primary).frame(width: 22, height: 18)
+                        }
+                            .buttonStyle(SimpleChromeButtonStyle()).help("More line actions")
                             .accessibilityLabel("More gutter icons on line \(row.line + 1)")
                             .position(x: CGFloat(visible % columns) * 22 + 11, y: row.y + 9 + CGFloat(visible / columns) * 20)
                     }

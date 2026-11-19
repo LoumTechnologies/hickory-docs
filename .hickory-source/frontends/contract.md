@@ -221,7 +221,9 @@ actions on the following line kept their exact frames. Selecting Equation
 from the grid opened its inspector. The main editor, viewport, nonempty
 selection, draft text, Undo manager, and saved bytes stayed intact. The
 replay used the owned app's event loop while the console was locked.
-See `target/appkit-gutter-overflow.o1k99ksz/receipt.json`.
+A follow-up verified the visible three-dot trigger in the same 22 × 18
+point slot and repeated the native click sequence. See
+`target/appkit-gutter-overflow.0mp10_c3/receipt.json`.
 
 The iPhone simulator exercised adjacent occupied rows and a second
 overflow button in a lower slot. The baseline used a centered sheet and
@@ -231,6 +233,21 @@ replays kept the next action, editor frame, scroll, selection, undo history,
 and saved source intact while opening the grid. Native taps on an excess
 action revealed its exact equation source. See
 `target/ios-gutter-overflow-native-replay-settled/{baseline,candidate}/receipt.json`.
+
+The final iPhone build drew a visible ellipsis inside each of three
+unchanged 22 × 18 point slots. Native taps opened fully visible grids and
+selected excess actions from both adjacent rows and the lower slot. The
+trigger anchors, following controls, editor state, and saved bytes stayed
+exact. See `target/ios-gutter-overflow-native-visible-trigger/visible-trigger/receipt.json`.
+
+On Android 37, a native tap opened the recorded-fence Run and Debug grid
+directly above an occupied breakpoint line. The following breakpoint and
+source editor kept their exact positions, identities, scroll and selection.
+Selecting Run dispatched the addressed user fence and displayed `42` with
+exit code 0. Dismissal kept the transcript and saved source byte-exact.
+The stock APK showed the same grid with identical editor pixels. A separate
+build logged passive Compose coordinates beneath the open popup. See
+`target/parity-rendered-android.sgYIt7/continuation-receipts/final-android-ly84u3ir/gutter-overflow/rendered-android-gutter-overflow.json`.
 
 ### Requested files and capability arrival
 

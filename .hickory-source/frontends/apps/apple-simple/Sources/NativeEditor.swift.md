@@ -2669,7 +2669,7 @@ struct LanguageEditor: View {
 
 ## Anchor debug actions to the native text layout
 
-The fixed right rail measures actual visible logical lines, including wrapped text and scroll offset. Each line owns a vertical stack inside the space below its anchor. The last available slot holds ⋯ when actions would reach the next occupied line. Anchor the adaptive grid at that slot, including when earlier controls are visible above it. On compact iPhone layouts the grid stays a popover so a short group of actions can open beside its source. Values appear as an overlay beside the stopped line and never enter the editable string. The same SwiftUI rail serves macOS and iOS. Native editor instances, selection and undo are untouched when debug events arrive.
+The fixed right rail measures actual visible logical lines, including wrapped text and scroll offset. Each line owns a vertical stack inside the space below its anchor. The last available slot holds ⋯ when actions would reach the next occupied line. Anchor the adaptive grid at that slot, including when earlier controls are visible above it. On compact iPhone layouts the grid stays a popover so a short group of actions can open beside its source. Size the ellipsis label inside its reserved slot and use the rail’s button style. The system bordered style could draw an empty background across adjacent slots on iPhone. Values appear as an overlay beside the stopped line and never enter the editable string. The same SwiftUI rail serves macOS and iOS. Native editor instances, selection and undo are untouched when debug events arrive.
 
 A successful gutter launch leaves the detail popover closed: the clicked line already supplied the target. Open details only when preparation needs a choice or reports a refusal; inspection controls remain explicitly available beside the line.
 
@@ -2891,8 +2891,13 @@ struct NativeDebugRail: View {
                     }
                     let overflowSlot = visible < items.count ? visible : 0
                     if visible < items.count {
-                        Button("⋯") { opened = opened == row.line ? nil : row.line }
-                            .buttonStyle(.bordered).frame(width: 22, height: 18).help("More line actions")
+                        Button {
+                            opened = opened == row.line ? nil : row.line
+                        } label: {
+                            Image(systemName: "ellipsis").font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(Color.primary).frame(width: 22, height: 18)
+                        }
+                            .buttonStyle(SimpleChromeButtonStyle()).help("More line actions")
                             .accessibilityLabel("More gutter icons on line \(row.line + 1)")
                             .position(x: CGFloat(visible % columns) * 22 + 11, y: row.y + 9 + CGFloat(visible / columns) * 20)
                     }
