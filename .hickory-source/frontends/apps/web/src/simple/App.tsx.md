@@ -9,7 +9,10 @@ The shell owns layout and commands. Documents remain in the buffer store when
 hidden or moved. A new file request or explicit tab selection retires an older
 request for the same pane. A completed read may warm the buffer store. Opening
 the tab, recording a visit, and revealing a line require the same current
-request. Other panes can finish their own reads independently. Once focus
+request. A provider result also carries its originating source and caret check
+while the destination loads. A successful tab change can detach its origin,
+so the destination uses the admitted pane request to reveal the result.
+Other panes can finish their own reads independently. Once focus
 moves away, their late replies can only update their own tab layout.
 
 Pane content classifies internal tab drags before embedded text controls can consume their payload. An edge drop invokes docking; the center appends the existing tab to this group without adding a split. The half-pane preview is pointer-transparent and never reflows the content. Recompute the edge at drop time rather than trusting an old hover position.
@@ -103,6 +106,7 @@ function EditorSettings() {
 }
 type OpenFileOptions = {
   current?: () => boolean;
+  originCurrent?: () => boolean;
   observed?: Buffer;
   verify?: (buffer: Buffer) => Promise<void>;
 };
@@ -306,8 +310,8 @@ export function App() {
     const owner = groups(liveLayout.current).find(group => group.tabs.includes(tab));
     activateTab(owner?.id ?? currentGroup.id, tab);
   }
-  async function open(file: FileNode, {current: isCurrent = () => true, observed, verify}: OpenFileOptions = {}): Promise<OpenedFile | null> {
-    if (!isCurrent()) return null;
+  async function open(file: FileNode, {current: isCurrent = () => true, originCurrent = () => true, observed, verify}: OpenFileOptions = {}): Promise<OpenedFile | null> {
+    if (!isCurrent() || !originCurrent()) return null;
     const path = file.path, tab = sourceTab(path), panes = groups(liveLayout.current);
     const target = panes.find(group => group.tabs.includes(tab))?.id
       ?? panes.find(group => group.id === focused && !group.tabs.includes("files"))?.id
@@ -327,20 +331,21 @@ export function App() {
     const foreground = () => recoveryFocus.current === target && focusEpoch.current === focus;
     try {
       const owner = observed ?? await buffers.open(file);
-      if (!pending()) return null;
+      if (!pending() || !originCurrent()) return null;
       const revision = owner.sourceRevision;
       if (verify) await verify(owner);
       const admitted = () => pending() && buffers.values.get(path) === owner
         && owner.file.path === path && (!verify || owner.sourceRevision === revision);
-      if (!admitted()) return null;
+      // Admit the origin before handing the reveal to its destination.
+      if (!admitted() || !originCurrent()) return null;
       setLayout(layout => admitted() ? activate(layout, target, tab) : layout);
       const current = () => admitted() && foreground();
       if (current()) setStatus(status => current() ? owner.file.generated_by ? "Generated file · read-only" : path : status);
       return {buffer: owner, current};
     } catch (error) {
-      if (!pending() || !foreground()) return null;
+      if (!pending() || !foreground() || !originCurrent()) return null;
       if (verify) throw error;
-      setNotice(notice => pending() && foreground() ? `${String(error)} Refresh files and try opening ${path} again.` : notice);
+      setNotice(notice => pending() && foreground() && originCurrent() ? `${String(error)} Refresh files and try opening ${path} again.` : notice);
       return null;
     }
   }
@@ -373,13 +378,13 @@ export function App() {
   useEffect(() => onOpenLocation(location => {
     const departed = currentLocation(),workspace=workspaceIdentity.current,origin=buffer&&editorForBuffer(buffer),originInteraction=origin?.interaction??0;
     const current=()=>workspaceIdentity.current===workspace&&(!location.capture||location.capture.current()&&(!origin||origin.interaction===originInteraction));
-    if(!current())return;
+    if (!current() || location.originCurrent && !location.originCurrent()) return;
     const find = (nodes: FileNode[]): FileNode | undefined => {
       for (const node of nodes) { if (node.path === location.path) return node; const child = find(node.children ?? []); if (child) return child; }
     };
     const file = buffers.values.get(location.path)?.file ?? find(workspaceFiles);
     let accepted: OpenedFile | null = null;
-    if (file) { void open(file, {current}).then(async opened => {
+    if (file) { void open(file, {current, originCurrent: location.originCurrent}).then(async opened => {
       if (!opened?.current()) return;
       accepted = opened;
       const target = opened.buffer;

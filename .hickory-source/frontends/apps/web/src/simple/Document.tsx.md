@@ -114,7 +114,7 @@ import { DebugStrip } from "../debug/DebugStrip";
 import { observationSourceChanged } from "../debug/observations";
 import { api } from "../api/client";
 import { launchWithProfiles } from "../debug/launchProfiles";
-import { claimRevealPosition, onRevealLine, openLocation,openCapturedLocation } from "../lib/revealLine";
+import { claimRevealPosition, onRevealLine, openProviderLocation, openCapturedLocation } from "../lib/revealLine";
 async function loadCsvGrid() {
   const [{ TablePanel }, css] = await Promise.all([import("../components/TablePanel"), import("../styles.css?inline")]);
   return { TablePanel, css: css.default.replaceAll(":root", ":host") };
@@ -310,6 +310,15 @@ export function Document({ buffer, current, renderTools }: {
   const workspaceLanguages = useHasWorkspaceLanguages();
   const [semanticResult, setSemanticResult] = useState<{ source: string; anchor: number; head: number; ticket: number; message: string; locations: SemanticLocation[] } | null>(null);
   const semanticTicket = useRef(0);
+  function semanticOrigin(view: EditorView, ticket: number, source: string, anchor: number, head: number) {
+    const {file, namespace, sourceRevision} = buffer;
+    const owner = editorForBuffer(buffer), mount = owner?.mount;
+    return () => semanticTicket.current === ticket && view.dom.isConnected && !!owner && owner.view === view
+      && editorForBuffer(buffer) === owner && owner.mount === mount
+      && buffer.file === file && buffer.namespace === namespace && buffer.sourceRevision === sourceRevision
+      && !buffer.resourceDeleted && authoredSource(view.state) === source
+      && view.state.selection.main.anchor === anchor && view.state.selection.main.head === head;
+  }
   const semanticPanel = useRef<HTMLDivElement>(null);
   useEffect(() => { if (semanticResult) semanticPanel.current?.focus(); }, [semanticResult !== null]);
   const [, refreshSemanticSelection] = useState(0);
@@ -318,7 +327,7 @@ export function Document({ buffer, current, renderTools }: {
     const query = async (kind: SemanticQuery, text = "") => {
       const id = ++semanticTicket.current, client = session.client, source = authoredSource(view.state);
       const { anchor, head } = view.state.selection.main;
-      const current = () => id === semanticTicket.current && view.dom.isConnected && authoredSource(view.state) === source && view.state.selection.main.anchor === anchor && view.state.selection.main.head === head;
+      const current = semanticOrigin(view, id, source, anchor, head);
       const result = { source, anchor, head, ticket: id, message: "Searching…", locations: [] as SemanticLocation[] };
       setSemanticResult(result);
       if (!client || !session.ready) { setSemanticResult({ ...result, message: "Language services unavailable. Install a server for this workspace, then retry." }); return; }
@@ -408,12 +417,17 @@ export function Document({ buffer, current, renderTools }: {
           const { anchor, head } = view.state.selection.main;
           setSemanticResult({ source: authoredSource(view.state), anchor, head, ticket: ++semanticTicket.current, message: `${locations.length} locations`, locations: semanticLocations(locations) });
         },
-        onNavigate: target => { if (!providerCurrent) return; if (sameDocumentUri(target.uri, session.uri)) {
+        navigationIntent: editor => {
+          const {anchor, head} = editor.state.selection.main;
+          const current = semanticOrigin(editor, ++semanticTicket.current, authoredSource(editor.state), anchor, head);
+          return () => providerCurrent && current();
+        },
+        onNavigate: (target, originCurrent) => { if (!providerCurrent || !originCurrent?.()) return; if (sameDocumentUri(target.uri, session.uri)) {
           const anchor = offsetAt(target.range.start, view);
           view.dispatch({ selection: { anchor }, effects: EditorView.scrollIntoView(anchor, { y: "center" }) });
         } else {
           const path = semanticPath(target.uri);
-          if (path) openLocation(path, target.range.start.line + 1, target.range.start.character);
+          if (path) openProviderLocation(path, target.range.start.line + 1, target.range.start.character, originCurrent);
           else { const { anchor, head } = view.state.selection.main; setSemanticResult({ source: authoredSource(view.state), anchor, head, ticket: ++semanticTicket.current, message: "Provider target is outside authored workspace files.", locations: [target] }); }
         } } }),
       ...lspFeatures({ client: session.client, uri: session.uri, positionAt, offsetAt, inlayHints: true }),
@@ -487,11 +501,13 @@ export function Document({ buffer, current, renderTools }: {
       <button type="button" aria-label="Close semantic locations" onClick={() => { semanticTicket.current++; setSemanticResult(null); view?.focus(); }}>×</button>
       <p role="status">{semanticCurrent ? semanticResult.message : "Source or cursor changed. Run the query again."}</p>
       {semanticResult.locations.map(location => { const path = semanticPath(location.uri); return <button type="button" key={JSON.stringify(location)} disabled={!path || !semanticCurrent} onClick={() => {
-        if (!path || !view || semanticResult.ticket !== semanticTicket.current || buffer.text !== semanticResult.source || view.state.selection.main.anchor !== semanticResult.anchor || view.state.selection.main.head !== semanticResult.head) return;
+        if (!path || !view) return;
+        const originCurrent = semanticOrigin(view, semanticResult.ticket, semanticResult.source, semanticResult.anchor, semanticResult.head);
+        if (!originCurrent()) return;
         if (!workspaceLanguages && sameDocumentUri(location.uri, session.uri)) {
           const anchor = positionToUtf16(buffer.text, location.range.start);
           view.dispatch({ selection: { anchor }, effects: EditorView.scrollIntoView(anchor, { y: "center" }) }); view.focus();
-        } else openLocation(path, location.range.start.line + 1, location.range.start.character);
+        } else openProviderLocation(path, location.range.start.line + 1, location.range.start.character, originCurrent);
         setSemanticResult(null);
       }}>{location.name ? `${location.name} · ` : ""}{path ?? location.uri}:{location.range.start.line + 1}:{location.range.start.character + 1}{!path ? " (unsupported target)" : ""}</button>; })}
     </div>}

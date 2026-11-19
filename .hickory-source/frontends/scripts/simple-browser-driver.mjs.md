@@ -402,6 +402,39 @@ try {
         case "semantic-open":
           await page.getByRole("dialog", { name: "Semantic locations" }).getByRole("button", { name: request.label, exact: true }).click();
           await editor(request.path).waitFor(); break;
+        case "semantic-retire-origin": {
+          const read = url => url.pathname === "/api/file" && url.searchParams.get("path") === request.target;
+          let release;
+          const gate = new Promise(resolve => { release = resolve; });
+          const handle = async route => { await gate; await route.continue(); };
+          await page.route(read, handle);
+          try {
+            const requested = page.waitForRequest(item => item.method() === "GET" && read(new URL(item.url())));
+            await page.getByRole("dialog", {name: "Semantic locations"}).getByRole("button", {name: request.label, exact: true}).click();
+            await requested;
+            const origin = editor(request.path);
+            await origin.focus();
+            await page.keyboard.press("ArrowRight");
+            const replied = page.waitForResponse(item => item.request().method() === "GET" && read(new URL(item.url())));
+            release();
+            const reply = await replied;
+            await reply.finished();
+            await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+            const originTab = page.getByRole("tab", {name: request.path, exact: true});
+            const targetTab = page.getByRole("tab", {name: request.target, exact: true});
+            await page.locator("nav").getByText("Edit", {exact: true}).click();
+            const back = await page.getByRole("button", {name: "Navigate back", exact: true}).isEnabled();
+            await page.locator("nav").getByText("Edit", {exact: true}).click();
+            const retained = await origin.count() === 1 && await origin.evaluate((node, old) => node === old, rememberedEditors.get(request.path));
+            const caret = retained ? await origin.evaluate(async node => {
+              const {EditorView} = await import("/node_modules/@codemirror/view/dist/index.js");
+              return EditorView.findFromDOM(node).state.selection.main.head;
+            }) : null;
+            value = {status: reply.status(), targetTabs: await targetTab.count(), back, caret, retained,
+              active: await originTab.getAttribute("aria-selected") === "true"};
+          } finally { release(); await page.unroute(read, handle); }
+          break;
+        }
         case "completion-open": {
           const content=editor(request.path);await content.focus();
           if(request.selection){await content.evaluate(async(node,selection)=>{const {EditorView}=await import('/node_modules/@codemirror/view/dist/index.js'),{editorOffset}=await import('/src/simple/SourceText.ts');const view=EditorView.findFromDOM(node);view.dispatch({selection:{anchor:editorOffset(view.state,selection.anchor),head:editorOffset(view.state,selection.head)},userEvent:'select'});view.focus();},request.selection);}

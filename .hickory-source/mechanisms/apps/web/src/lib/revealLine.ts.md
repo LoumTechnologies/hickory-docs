@@ -150,6 +150,7 @@ export interface OpenLocation {
   character?: number;
   recordHistory?: boolean;
   expectedSource?: string;
+  originCurrent?: () => boolean;
   capture?:{hash:string|null;current:()=>boolean;sourceReference?:number|null;positionKnown?:boolean};
 }
 
@@ -187,6 +188,12 @@ export function openLocation(path: string, line: number, character?: number, rec
 The workspace's side. Returns the unsubscribe.
 
 <storycode:copy id="f-bca672428db0-onOpenLocation">
+/** Keep the provider's viewed source and caret current until the host opens the target. */
+export function openProviderLocation(path: string, line: number, character: number, originCurrent: () => boolean): void {
+  if (!originCurrent()) return;
+  window.dispatchEvent(new CustomEvent<OpenLocation>(OPEN_LOCATION_EVENT, {detail: {path, line, character, originCurrent}}));
+}
+
 /** Unknown captured source identities open text without asserting any line position. */
 export function openCapturedLocation(path:string,line:number|null,hash:string|null,current:()=>boolean,sourceReference?:number|null){
  const positionKnown=line!==null&&Number.isInteger(line)&&line>=1;

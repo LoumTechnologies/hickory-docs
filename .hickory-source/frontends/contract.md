@@ -2576,6 +2576,14 @@ tab or a history entry. A fresh visit opened the target with its original
 caret, and a fresh location reveal reached the requested authored column.
 See `target/simple-tab-open-focus.IMjINF/`.
 
+Simple Browser also carries the originating provider result's source, caret
+and query through the target read. With real basedpyright, a definition read
+was held while only the origin caret moved from UTF-16 offset 41 to 42.
+The HTTP reply completed without adding a tab or a navigation entry. A fresh definition
+reached the exact target position and Back restored the retained origin at
+41. The saved files kept their exact bytes. See
+`target/simple-provider-origin-held.f6SsrA/replay.log`.
+
 Focused rebuilt-engine replays also passed for Python definition and
 Back/Forward, workspace search, delayed first-open authority and capabilities,
 and Debug and guarded patch review on both recorded Agent message sides.

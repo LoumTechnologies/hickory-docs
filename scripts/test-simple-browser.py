@@ -363,7 +363,7 @@ def problems_acceptance(driver, folder):
     driver.act("problems-close"); driver.act("undo", path=path)
 
 
-def semantic_navigation_acceptance(driver, folder):
+def semantic_navigation_acceptance(driver, folder, held_origin=False):
     # Contract: .hickory-source/frontends/contract.md. Real provider and visible menu/results.
     path = "navigation.py"
     original = {name: (folder / name).read_text() for name in [path, "semantic_target.py"]}
@@ -380,12 +380,20 @@ def semantic_navigation_acceptance(driver, folder):
         result = driver.act("semantic-query", path=path, query="Go to definition", offset=41)
     assert result["size"] == size, "Semantic results resized the editor"
     assert "semantic_target.py:1:13" in result["text"], result
+    if held_origin:
+        held = driver.act("semantic-retire-origin", path=path, target="semantic_target.py", label="semantic_target.py:1:13")
+        assert held == {"status": 200, "targetTabs": 0, "back": False, "caret": 42, "active": True, "retained": True}, held
+        result = driver.act("semantic-query", path=path, query="Go to definition", offset=41)
+        assert "semantic_target.py:1:13" in result["text"], result
     driver.act("semantic-open", path="semantic_target.py", label="semantic_target.py:1:13")
     assert "value = 42" in driver.act("content", path="semantic_target.py")
     eventually(lambda: driver.act("caret-offset", path="semantic_target.py"), 12)
     driver.act("navigate-history", direction="back", path=path)
     eventually(lambda: driver.act("caret-offset", path=path), 41)
     assert driver.act("editor-is-retained", path=path), "History replaced the retained source editor"
+    if held_origin:
+        assert original == {name: (folder / name).read_text() for name in original}
+        return
     driver.act("navigate-history", direction="forward", path="semantic_target.py")
     eventually(lambda: driver.act("caret-offset", path="semantic_target.py"), 12)
     result = driver.act("semantic-query", path="semantic_target.py", query="Find usages", offset=13)
@@ -969,7 +977,12 @@ if __name__ == "__main__":
         (folder / "problem.py").write_text('amount: int = "wrong"\n')
         (folder / "navigation.py").write_text("from semantic_target import value\nprint(value)\n\ndef calculate(amount):\n    return adjust(amount)\n\ndef adjust(amount):\n    return amount + 1\n\ncalculate(value)\n")
         (folder / "semantic_target.py").write_text("prefix = 0; value = 42\n")
-        if "--semantic-navigation-only" in sys.argv or "--problems-only" in sys.argv or "--workspace-changes-only" in sys.argv or "--workspace-analysis-only" in sys.argv or "--search-everywhere-only" in sys.argv:
+        if "--semantic-origin-only" in sys.argv:
+            provider = Path(os.environ["HICKORY_SIMPLE_TEST_PYTHON_PROVIDER"]).resolve(strict=True)
+            if not provider.is_file():
+                raise RuntimeError("The installed basedpyright language server script must be a file.")
+            (folder / ".hick-lsp.json").write_text(json.dumps({"servers": {"python": {"command": ["node", str(provider), "--stdio"]}}}))
+        elif "--semantic-navigation-only" in sys.argv or "--problems-only" in sys.argv or "--workspace-changes-only" in sys.argv or "--workspace-analysis-only" in sys.argv or "--search-everywhere-only" in sys.argv:
             subprocess.run([str(ROOT / "target/debug/hick"), "lsp", "install", "python", "--root", str(folder)], check=True, timeout=180)
         (folder / "cache.py").write_text("counter = 1\nprint(counter)\n")
         (folder / "debug.py").write_text("value = 1\nvalue += 1\nprint(value)\n")
@@ -1123,6 +1136,9 @@ raise RuntimeError('wrong assistant fence')
             elif "--problems-only" in sys.argv:
                 problems_acceptance(driver, folder)
                 print("Browser: source-hash-bound provider Problems, precise next-problem navigation, status/menu access, stationary geometry, retained draft and unchanged disk passed")
+            elif "--semantic-origin-only" in sys.argv:
+                semantic_navigation_acceptance(driver, folder, held_origin=True)
+                print("Browser: genuine definition retired after a same-tab caret move during HTTP, fresh definition and Back preserved exact authored positions and saved bytes")
             elif "--semantic-navigation-only" in sys.argv:
                 semantic_navigation_acceptance(driver, folder)
                 print("Browser: real symbols/calls, Back/Forward with retained editors, exact columns, stationary geometry and unchanged disk passed")

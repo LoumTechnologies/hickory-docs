@@ -91,7 +91,8 @@ export interface CmLspOptions {
   /** Resolve a local construction byte into its selected complete endpoint. */
   targetAt?: (offset: number, view: EditorView) => { uri: string; position: LspPosition } | null;
   /** Open a definition/reference target. */
-  onNavigate: (target: LspNavigationTarget) => void;
+  onNavigate: (target: LspNavigationTarget, current?: () => boolean) => void;
+  navigationIntent?: (view: EditorView) => () => boolean;
   /** Show a reference list (empty array means "none found"). */
   onReferences?: (locations: LspLocation[], from: LspNavigationTarget) => void;
   /**
@@ -301,10 +302,16 @@ export function lspSupport(opts: CmLspOptions): Extension[] {
     if (!location) return { status: "unavailable", reason: "Position has no mapped language source" };
     const {uri,position} = location;
     const from: LspNavigationTarget = { uri, range: { start: position, end: position } };
+    const intent = opts.navigationIntent?.(view);
+    const current = () => !signal?.aborted && view.state.doc === original
+      && view.dom.isConnected && (!intent || intent());
     try {
       const locations = await (what === "definition" ? client.definition(uri, position) : client.references(uri, position));
-      if (signal?.aborted || view.state.doc !== original || !view.dom.isConnected) return { status: "unavailable", reason: "Navigation source changed, editor closed or request cancelled" };
-      if (what === "definition" && locations.length) onNavigate(locations[0]);
+      if (!current()) return { status: "unavailable", reason: "Navigation source changed, editor closed or request cancelled" };
+      if (what === "definition" && locations.length) {
+        if (intent) onNavigate(locations[0], current);
+        else onNavigate(locations[0]);
+      }
       if (what === "references") onReferences?.(locations, from);
       return { status: "completed", value: { kind: what, total: locations.length, navigation_requested: what === "definition" && locations.length > 0, references_requested: what === "references" && !!onReferences, scope: "Actual language-provider response and shared navigation callback; navigation is not an execution witness" } };
     } catch (e) { return { status: "unavailable", reason: e instanceof Error ? e.message : String(e) }; }
