@@ -225,6 +225,16 @@ A follow-up verified the visible three-dot trigger in the same 22 × 18
 point slot and repeated the native click sequence. See
 `target/appkit-gutter-overflow.0mp10_c3/receipt.json`.
 
+A mounted AppKit replay used real pytest-cov results for two adjacent
+declarations. Both tests passed and both executable lines were covered.
+App-local mouse events opened each excess action in the two-icon grid and
+reached its retained coverage report or fresh source-test inspection. Both
+following controls kept their frames. The editor, selection, scroll position
+and Undo manager survived, and an undoable draft edit retired the coverage
+marks while retaining the report and saved bytes. Coverage was requested
+through the engine and selected through workspace state. See
+`target/appkit-shared-test-coverage.bg_4cxwz/receipt.json`.
+
 The iPhone simulator exercised adjacent occupied rows and a second
 overflow button in a lower slot. The baseline used a centered sheet and
 anchored the lower case one slot above its trigger. The rebuilt app opened
@@ -281,7 +291,20 @@ confirmation and unavailable-tree replays against controlled endpoint
 responses. The original editor and its selection, source anchor and frame
 survived confirmation. The unavailable branch retained readable source without
 edit authority. Chromium passed the same ownership transition with controlled
-receipts. Android's loopback controller passed independent raw, Files and
+receipts.
+
+An iPhone replay opened the requested Python file and enabled edits after
+Files arrived, but source-test markers never appeared. The mounted editor
+had already observed the unchanged source bytes before the workspace
+attached its readers. Confirmation now explicitly asks the existing
+test index and coverage reader to observe the retained buffer. A mounted
+AppKit comparison held the real Files response while the raw Python source
+was readable. The baseline sent no source-test query. The rebuilt app sent
+one query after confirmation and indexed both adjacent declarations. The
+same editor, selection, scroll, Undo manager and saved source survived.
+See `target/apple-requested-test-index-witness/{baseline,candidate}.json`.
+
+Android's loopback controller passed independent raw, Files and
 guarded-source gates, including mismatched bytes and exact same-editor
 promotion. Rendered Android reached raw text before Files at nonzero scroll,
 then its controlled host replay timed out before the guarded document read.
@@ -3722,7 +3745,7 @@ Compiler-owned primary-source locations expose inspection hints through the exis
 
 Right-gutter actions use one vertical column at every width. Existing slot reservation keeps each later populated row anchored; overflow remains a floating grid. Line-action menus close before opening another surface. No new permanent editor chrome or width reservation is introduced.
 
-Verification: focused asynchronous index witnesses pass on TypeScript, Swift and Kotlin for the two-read bound, coalescing, duplicate suppression, stale refusal, independent failure, stop, primary/foreign ownership and position bounds. The real browser flow uses adjacent one-line tests with an existing debug action, checks unchanged later-row coordinates while opening the gutter menu, and reaches the fresh source inspection. Its existing real-run, exact-caret, admission-history, retained-draft/editor and stale-save checks also pass. Focused shared rail/slot checks, TypeScript checking, macOS/Android compilation, iOS simulator build and reconstruction/audit pass. Mac and iPhone pointer receipts in [Native editor gutter overflow](#native-editor-gutter-overflow) exercise adjacent geometry with equation actions. The combined native test/coverage action still needs its own rendered witness.
+Verification: focused asynchronous index witnesses pass on TypeScript, Swift and Kotlin for the two-read bound, coalescing, duplicate suppression, stale refusal, independent failure, stop, primary/foreign ownership and position bounds. The real browser flow uses adjacent one-line tests with an existing debug action, checks unchanged later-row coordinates while opening the gutter menu, and reaches the fresh source inspection. Its existing real-run, exact-caret, admission-history, retained-draft/editor and stale-save checks also pass. Focused shared rail/slot checks, TypeScript checking, macOS/Android compilation, iOS simulator build and reconstruction/audit pass. Mac and iPhone pointer receipts in [Native editor gutter overflow](#native-editor-gutter-overflow) exercise adjacent geometry with equation actions. The mounted AppKit receipt also exercises combined test and coverage actions in the native grid.
 
 ## Saved-revision runner discovery
 

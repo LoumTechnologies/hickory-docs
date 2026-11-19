@@ -495,6 +495,10 @@ struct StartupSourceObservation {
         buffer.saveGuardReason = text.save_guard_reason
         buffer.startupObservation = nil
         _ = retainBuffer(file, text: text, engine: engine, existing: buffer)
+        // The first text frame may have mounted before these readers were attached.
+        // Confirming the same bytes does not emit another source revision.
+        buffer.readTestSources()
+        buffer.readCoverageSource()
         notice(file.path)
     }
     func connect(opening explicitPath: String? = nil) async -> Bool {

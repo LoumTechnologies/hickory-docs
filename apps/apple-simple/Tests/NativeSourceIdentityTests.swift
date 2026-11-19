@@ -157,6 +157,13 @@ final class NativeSourceIdentityTests:XCTestCase {
             XCTAssertNil(buffer.startupObservation)
             XCTAssertEqual(buffer.savedGuard, "owned-startup-guard")
             XCTAssertEqual(Set(workspace.files.map(\.path)), [path, "nested/sibling.txt"])
+            let sourceIndex = try XCTUnwrap(buffer.testIndex)
+            try await wait("The mounted editor never attempted source-test discovery after confirmation") {
+                exactUTF8(sourceIndex.records[path]?.source, source)
+            }
+            XCTAssertTrue(editor(in: host) === view)
+            XCTAssertEqual(view.selectedRange(), selection)
+            XCTAssertEqual(scroll.contentView.bounds.origin, viewport)
             XCTAssertTrue(window.makeFirstResponder(view))
             view.insertText("draft", replacementRange: view.selectedRange())
             XCTAssertTrue(buffer.dirty)
