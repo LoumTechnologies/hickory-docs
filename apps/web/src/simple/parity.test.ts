@@ -1359,3 +1359,86 @@ describe('strict Save As copies',()=>{
  it('keeps a retired caller lease from adopting or fresh-retrying a confirmed copy',async()=>{const {buffers,source}=setup();let current=true;const send=vi.fn(async(_m,_p,body)=>{current=false;return receipt(body);});await expect(createSourceCopy(buffers,source,'copy.py',send as typeof request,()=>current)).rejects.toThrow('not confirmed');await expect(createSourceCopy(buffers,source,'copy.py',send as typeof request,()=>true)).rejects.toThrow('context changed');expect(send).toHaveBeenCalledOnce();expect(buffers.values.has('copy.py')).toBe(false);});
  it('rejects same-object address mutation and a newly retained draft while a reply is held',async()=>{for(const change of [(_buffers:Buffers,source:Buffer)=>{source.file.path='moved.py';},(buffers:Buffers)=>{buffers.retainedResources.set('retained',new Buffer({path:'gone.py',name:'gone.py',dir:false},'draft','',()=>{}));}]){const {buffers,source}=setup();let resolve!:(value:unknown)=>void;const pending=new Promise(resolveValue=>{resolve=resolveValue;});let body:unknown;const send=vi.fn(async(_m,_p,value)=>{body=value;return pending;});const result=createSourceCopy(buffers,source,'copy.py',send as typeof request);await waitFor(()=>expect(send).toHaveBeenCalledOnce());change(buffers,source);resolve(await receipt(body));await expect(result).rejects.toThrow('not confirmed');expect(buffers.values.has('copy.py')).toBe(false);}});
 });
+describe("simple closed saved source", () => {
+  const leaf = { path: "leaf.ts", name: "leaf.ts", dir: false };
+  const scope = { workspace: "/owned", id: "a".repeat(32) };
+  const saved = { path: leaf.path, content: "export const leaf = 1;\n", hash: "first", save_guard: "first-guard", language: "typescript" };
+  async function closedBuffer() {
+    const buffers = new Buffers(() => {});
+    buffers.workspace = scope.workspace;
+    buffers.workspaceId = scope.id;
+    vi.mocked(api.file).mockReset().mockResolvedValueOnce(saved);
+    const original = await buffers.open(leaf);
+    buffers.closeSavedPlainSource(original);
+    expect(original.languageSuspended).toBe(true);
+    return { buffers, original };
+  }
+
+  it("suspends only an explicitly closed source and reuses its editor and history for unchanged bytes", async () => {
+    const other = { path: "other.txt", name: "other.txt", dir: false };
+    vi.mocked(api.files).mockResolvedValue({ root: "workspace", root_path: scope.workspace, workspace_id: scope.id, tree: [leaf, other] });
+    vi.mocked(api.file).mockReset().mockImplementation(async path => path === leaf.path ? saved
+      : { path, content: "other", hash: "other-hash", save_guard: "other-guard", language: "text" });
+    const screen = render(createElement(App));
+    try {
+      fireEvent.click(await screen.findByRole("button", { name: leaf.path, exact: true }));
+      const view = EditorView.findFromDOM(await screen.findByLabelText(leaf.path))!;
+      act(() => {
+        view.dispatch({ changes: { from: 0, insert: "// unsaved\n" }, userEvent: "input.type" });
+        expect(undo(view)).toBe(true);
+        view.dispatch({ selection: { anchor: 5 } });
+      });
+      fireEvent.click(screen.getByRole("button", { name: other.path, exact: true }));
+      await screen.findByLabelText(other.path);
+      fireEvent.click(screen.getByRole("tab", { name: leaf.path, exact: true }));
+      expect(EditorView.findFromDOM(await screen.findByLabelText(leaf.path))).toBe(view);
+      expect(vi.mocked(api.file).mock.calls.filter(([path]) => path === leaf.path)).toHaveLength(1);
+
+      vi.mocked(useWorkspaceLsp).mockClear();
+      fireEvent.click(screen.getByRole("button", { name: "Close leaf.ts", exact: true }));
+      expect(screen.queryByRole("tab", { name: leaf.path, exact: true })).toBeNull();
+      expect(vi.mocked(useWorkspaceLsp).mock.calls).toContainEqual(["", saved.content]);
+      expect(vi.mocked(useWorkspaceLsp).mock.calls.some(([path]) => path === leaf.path)).toBe(false);
+
+      fireEvent.click(screen.getByRole("button", { name: leaf.path, exact: true }));
+      expect(EditorView.findFromDOM(await screen.findByLabelText(leaf.path))).toBe(view);
+      expect(vi.mocked(api.file).mock.calls.filter(([path]) => path === leaf.path)).toHaveLength(2);
+      expect(view.state.selection.main.head).toBe(5);
+      act(() => { expect(redo(view)).toBe(true); });
+      expect(view.state.doc.toString()).toBe("// unsaved\n" + saved.content);
+    } finally { screen.unmount(); vi.mocked(api.file).mockReset(); }
+  });
+
+  it("admits a different saved revision as a new clean buffer", async () => {
+    const { buffers, original } = await closedBuffer();
+    const updated = { ...saved, content: "// shifted\n" + saved.content, hash: "again", save_guard: "new-guard" };
+    vi.mocked(api.file).mockResolvedValueOnce(updated);
+    const reopened = await buffers.open(leaf);
+    expect(reopened).not.toBe(original);
+    expect(buffers.values.get(leaf.path)).toBe(reopened);
+    expect(reopened.text).toBe(updated.content);
+    expect(reopened.dirty).toBe(false);
+    expect(reopened.saveGuard).toBe(updated.save_guard);
+    expect(original.text).toBe(saved.content);
+    expect(original.languageSuspended).toBe(true);
+  });
+
+  it.each(["draft", "workspace", "path"])("refuses a held reopen after a %s change", async reason => {
+    const { buffers, original } = await closedBuffer();
+    let finish!: (value: typeof saved) => void;
+    vi.mocked(api.file).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    const pending = buffers.open(leaf);
+    if (reason === "draft") original.edit("retained draft");
+    if (reason === "workspace") buffers.workspaceId = "b".repeat(32);
+    finish({ ...saved, path: reason === "path" ? "wrong.ts" : leaf.path, content: "another saved file" });
+    await expect(pending).rejects.toThrow("cached source changed");
+    expect(buffers.values.get(leaf.path)).toBe(original);
+    expect(original.text).toBe(reason === "draft" ? "retained draft" : saved.content);
+    expect(original.saveGuard).toBe(saved.save_guard);
+    if (reason === "draft") {
+      expect(original.languageSuspended).toBe(false);
+      expect(await buffers.open(leaf)).toBe(original);
+      expect(original.text).toBe("retained draft");
+    }
+  });
+});

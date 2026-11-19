@@ -5,10 +5,10 @@ import type { Buffer, Buffers } from "./buffers";
 import {sourceDigest} from "../lsp/diagnosticRevision";
 import { diagnosticBoundSource } from "../lsp/diagnosticRevision";
 import { reportedProblems, semanticLocations } from "./Intelligence";
-// Buffer lifetime owns language knowledge; a pane only borrows its session.
+const inactive: LspSession = { client: null, uri: "", ready: false, diagnostics: [] };
 class LanguageEntry {
   constructor(private changed: () => void = () => {}) {}
-  value: LspSession = { client: null, uri: "", ready: false, diagnostics: [] };
+  value = inactive;
   private problemCache?: { source: string; diagnostics: LspSession["diagnostics"]; diagnosticSource?: string; reports: ReturnType<typeof reportedProblems> };
   problems(buffer: Buffer) {
     const session = this.value, cached = this.problemCache;
@@ -44,11 +44,12 @@ const languageContext = createContext<WorkspaceLanguages | null>(null);
 const emptyLanguageEntry = new LanguageEntry();
 function LanguageOwner({ buffer, registry }: { buffer: Buffer; registry: WorkspaceLanguages }) {
   useSyncExternalStore(buffer.subscribe, buffer.snapshot);
-  const session = useWorkspaceLsp(buffer.transient ? "" : buffer.file.path, buffer.text);
+  const suspended = buffer.languageSuspended;
+  const session = useWorkspaceLsp(buffer.transient || suspended ? "" : buffer.file.path, buffer.text);
   useEffect(() => {
-    registry.entry(buffer).publish(session,buffer.text);
-  }, [buffer, registry, session.client, session.uri, session.ready, session.diagnostics, session.diagnosticSource, buffer.text]);
-  useEffect(() => () => registry.entry(buffer).publish({ client: null, uri: "", ready: false, diagnostics: [] }), [buffer, registry]);
+    registry.entry(buffer).publish(suspended ? inactive : session,buffer.text);
+  }, [buffer, registry, suspended, session.client, session.uri, session.ready, session.diagnostics, session.diagnosticSource, buffer.text]);
+  useEffect(() => () => registry.entry(buffer).publish(inactive), [buffer, registry]);
   return null;
 }
 export function SimpleLanguages({ buffers, children }: { buffers: Buffers; children: React.ReactNode }) {

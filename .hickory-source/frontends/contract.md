@@ -3221,6 +3221,24 @@ the old provider process group had exited and an unrelated provider and
 the replacement were still running. See
 `target/main-staged-barrel-navigation-v8-live-shifted-timeout/browser.json`.
 
+Mounted AppKit followed the first Definition to the shifted saved leaf and
+restored the exact authored caret with Back in the same Markdown buffer and
+native text view. The private provider restarted without a caller update or
+fixture write. See
+`target/appkit-saved-import-refresh-v8-settled-2026-11-19/receipt.json`.
+
+Rendered Simple Browser passed rewrite, deletion, restoration, and initial
+creation with the caller still open. In a separate replay, closing the
+clean leaf initially left its old source registered, so the engine refused
+the shifted destination. Closing a clean saved plain tab now releases that
+registration. Reopening equal saved bytes retains the editor and its history.
+Reopening changed bytes requires a fresh scoped read. The rendered replay
+opened the shifted leaf on the first Definition and Back restored the same
+caller and caret. Navigation sent no source writes or room updates. See
+`target/simple-staged-barrel-navigation-v8-live-existing/browser.json`,
+`target/simple-staged-barrel-navigation-v8-live-unresolved/browser.json`, and
+`target/simple-staged-barrel-navigation-v8-live-shifted-fixed/browser.json`.
+
 Go to Declaration tries the provider's dedicated method. When it
 returns method-not-found, the engine asks for Definition at the same
 captured position and applies the same revision and saved-target checks.

@@ -439,6 +439,7 @@ export function App() {
     if (candidate?.saving || candidate?.dirty&&!retainedTabs.copied(candidate)) { setNotice("Unsaved edits retained. Save this document before closing its tab."); return; }
     if (candidate?.startupWorkspace !== undefined && buffers.values.get(candidate.file.path) === candidate) buffers.values.delete(candidate.file.path);
     if(candidate?.resourceDeleted&&retainedTabs.copied(candidate)&&!hasActivePlainDebugSession(candidate)){retireCopiedBuffer(buffers,candidate,candidate.text);retirePlainDebugIdentity(candidate);retainedTabs.retire(candidate);}
+    if (candidate) buffers.closeSavedPlainSource(candidate);
     const activePane = groups(liveLayout.current).find(pane => pane.active === tab);
     for (const [group, ticket] of requested.current) {
       if (sourceTab(ticket.path) === tab || activePane?.id === group) requested.current.delete(group);

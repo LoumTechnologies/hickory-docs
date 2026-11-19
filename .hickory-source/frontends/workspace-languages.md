@@ -5,6 +5,11 @@ For maintainers changing workspace services independently of the editor renderer
 
 The workspace retains language sessions when panes hide. A small per-buffer subscription publishes provider state; a workspace subscription indexes all reported messages. Text changes retire positional results immediately, independently of provider response time. Editors and Problems borrow this state instead of owning transport lifetimes. Standalone conversation/document surfaces retain their existing session behavior.
 
+An explicitly closed clean plain source releases its provider document. It
+stays cached so reopening the same saved revision can reuse the editor.
+Removing the provider document lets another source navigate to a newer saved
+revision without treating the detached cache as a draft.
+
 Cache each buffer's problem projection by its available text and diagnostic snapshot. A report arriving for one source must not re-split all other open sources. Digest completion publishes a fresh diagnostic array, so newly verified per-report evidence invalidates exactly that projection.
 
 Before reading an outline, the engine must acknowledge the exact UTF-8 snapshot. Session readiness alone can precede its debounced source synchronization. The acknowledgement rejects stale revisions and source effects; a plain source need not parse as a literate document. This preparation is independent of editor selection.
@@ -17,10 +22,10 @@ import type { Buffer, Buffers } from "./buffers";
 import {sourceDigest} from "../lsp/diagnosticRevision";
 import { diagnosticBoundSource } from "../lsp/diagnosticRevision";
 import { reportedProblems, semanticLocations } from "./Intelligence";
-// Buffer lifetime owns language knowledge; a pane only borrows its session.
+const inactive: LspSession = { client: null, uri: "", ready: false, diagnostics: [] };
 class LanguageEntry {
   constructor(private changed: () => void = () => {}) {}
-  value: LspSession = { client: null, uri: "", ready: false, diagnostics: [] };
+  value = inactive;
   private problemCache?: { source: string; diagnostics: LspSession["diagnostics"]; diagnosticSource?: string; reports: ReturnType<typeof reportedProblems> };
   problems(buffer: Buffer) {
     const session = this.value, cached = this.problemCache;
@@ -56,11 +61,12 @@ const languageContext = createContext<WorkspaceLanguages | null>(null);
 const emptyLanguageEntry = new LanguageEntry();
 function LanguageOwner({ buffer, registry }: { buffer: Buffer; registry: WorkspaceLanguages }) {
   useSyncExternalStore(buffer.subscribe, buffer.snapshot);
-  const session = useWorkspaceLsp(buffer.transient ? "" : buffer.file.path, buffer.text);
+  const suspended = buffer.languageSuspended;
+  const session = useWorkspaceLsp(buffer.transient || suspended ? "" : buffer.file.path, buffer.text);
   useEffect(() => {
-    registry.entry(buffer).publish(session,buffer.text);
-  }, [buffer, registry, session.client, session.uri, session.ready, session.diagnostics, session.diagnosticSource, buffer.text]);
-  useEffect(() => () => registry.entry(buffer).publish({ client: null, uri: "", ready: false, diagnostics: [] }), [buffer, registry]);
+    registry.entry(buffer).publish(suspended ? inactive : session,buffer.text);
+  }, [buffer, registry, suspended, session.client, session.uri, session.ready, session.diagnostics, session.diagnosticSource, buffer.text]);
+  useEffect(() => () => registry.entry(buffer).publish(inactive), [buffer, registry]);
   return null;
 }
 export function SimpleLanguages({ buffers, children }: { buffers: Buffers; children: React.ReactNode }) {
