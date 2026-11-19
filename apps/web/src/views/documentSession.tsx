@@ -59,7 +59,8 @@ import { positionToUtf16 } from "../lsp/positions";
 import { sourcePositionAt, type OutputProvenance } from "../lsp/outputMapping";
 import type { LspLocation } from "../lsp/client";
 import { FILES_CHANGED_EVENT } from "../shell/FolderTreePane";
-import { openLocation, pathOfDocUri } from "../lib/revealLine";
+import { claimRevealPosition, onRevealLine, openLocation, openProviderLocation, pathOfDocUri } from "../lib/revealLine";
+import { authoredSource } from "../simple/SourceText";
 import { publishPausedElsewhere } from "../lib/pausedElsewhere";
 import { navigate } from "../router";
 
@@ -975,13 +976,17 @@ function useDocumentSession(
   liveSourceRef.current = liveSource;
 
   const openTarget = useCallback(
-    (target: LspNavigationTarget | LspLocation) => {
+    (target: LspNavigationTarget | LspLocation, current?: () => boolean) => {
+      if (current && !current()) return;
+      const {line, character} = target.range.start;
       setReferences(null);
       if (target.uri.startsWith("hick-output:///")) {
         // The bridge could not map this position back to prose — open the
         // generated file itself, positioned on the hit.
-        const path = target.uri.slice("hick-output:///".length);
-        openGenerated(path);
+        const path = pathOfDocUri(target.uri.replace(/^hick-output:/,"hick:"));
+        if (!path) return;
+        if (current) openProviderLocation(path, line + 1, character, current);
+        else openGenerated(path);
         return;
       }
       // Another file altogether — a definition in the repository's own
@@ -990,7 +995,8 @@ function useDocumentSession(
       const targetPath = pathOfDocUri(target.uri);
       const ownPath = (docPathRef.current ?? "").replace(/^\/+/, "");
       if (targetPath !== null && targetPath.replace(/^\/+/, "") !== ownPath) {
-        openLocation(targetPath, target.range.start.line + 1);
+        if (current) openProviderLocation(targetPath, line + 1, character, current);
+        else openLocation(targetPath, line + 1, character);
         return;
       }
       const text = liveSourceRef.current;
@@ -1016,6 +1022,7 @@ function useDocumentSession(
         client: lsp.client,
         uri: lsp.uri,
         positionAt: (offset, view) => offsetToPosition(view.state.doc, offset),
+        navigationIntent: true,
         onNavigate: openTarget,
         onReferences: (locations, from) =>
           setReferences({
@@ -1073,6 +1080,7 @@ function useDocumentSession(
         uri: lsp.uri,
         positionAt: (offset) =>
           sourcePositionAt(offset, provenance, docPathRef.current ?? "", liveSourceRef.current),
+        navigationIntent: true,
         onNavigate: openTarget,
         onReferences: (locations) => setReferences({ locations, query: "" }),
       }),
@@ -1100,6 +1108,21 @@ function useDocumentSession(
     editorRef.current = view;
     setDocEditor(view);
   }, [docId]);
+  useEffect(() => {
+    if (!docEditor || !doc?.path) return;
+    const path = doc.path;
+    const jump = (target: string) => {
+      if (target !== path) return;
+      const position = claimRevealPosition(path, authoredSource(docEditor.state));
+      if (!position) return;
+      const row = docEditor.state.doc.line(Math.min(position.line, docEditor.state.doc.lines));
+      const offset = Math.min(row.to, row.from + (position.character ?? 0));
+      revealRange(docEditor, [offset, offset]);
+    };
+    const stop = onRevealLine(jump);
+    jump(path);
+    return stop;
+  }, [docEditor, doc?.path]);
 
   const adoptDiskSource = useCallback(async (disk: Doc, text: string, expected: string) => {
     const before = editorRef.current?.state.doc.toString() ?? liveSourceRef.current;

@@ -2651,6 +2651,13 @@ reached the exact target position and Back restored the retained origin at
 route passed the same held-read and fresh-reveal sequence. See
 `target/direct-provider-origin.VjdUUT/receipt/`.
 
+Main Hickory Docs carries the originating caret and UTF-16 column through
+destination loading too. In a rendered basedpyright F12 replay, a held file
+read received HTTP 200 after the origin caret moved from offset 41 to 42.
+The original editor and caret remained active, and no target tab opened.
+A fresh F12 reached offset 12 in the target. Both saved files kept their
+exact bytes. See `target/main-definition-held-browser-v1/`.
+
 Focused rebuilt-engine replays also passed for Python definition and
 Back/Forward, workspace search, delayed first-open authority and capabilities,
 and Debug and guarded patch review on both recorded Agent message sides.

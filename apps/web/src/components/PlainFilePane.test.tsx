@@ -68,6 +68,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  vi.unstubAllGlobals();
 });
 
 it("promotes the same startup editor and includes its physical guard in later saves", async () => {
@@ -424,23 +425,40 @@ describe("a plain file and the debugger", () => {
 
   it("starts from the gutter at the file's own path and exposes stepping", async () => {
     const { sent, deliver } = debugWire();
+    // The debugger hashes the current saved buffer and checks its workspace
+    // before sending Start. Use the same namespace in the tree and catalog.
+    const cryptoModule = "node:" + "crypto";
+    const { webcrypto } = await import(cryptoModule);
+    vi.stubGlobal("crypto", webcrypto);
+    const workspace = "/repo";
     vi.spyOn(apiClient, "request").mockResolvedValue({
-      fingerprint: "plain-project", viewed: "tools/app.py", workspace: "repo",
+      debug_protocol: 3,
+      fingerprint: "plain-project", viewed: "tools/app.py", workspace,
       configuration: ".hick-launch.json",
-      profiles: [{id: "app:tools/app.py", name: "Application", can_debug: true}],
+      profiles: [{
+        id: "app:tools/app.py", name: "Application", origin: "configured",
+        program: "tools/app.py", command: [], args: [], env: {}, cwd: "repo",
+        build: [], default: true, can_debug: true,
+      }],
     });
     serveFile("tools/app.py", "python", APP);
+    vi.mocked(api.files).mockResolvedValue({root: "repo", root_path: workspace,
+      tree: [{name: "app.py", path: "tools/app.py", dir: false}]});
     render(<><PlainDebugHosts /><PlainFilePane path="tools/app.py" /></>);
     const button = await screen.findByRole("button", { name: "Debug tools/app.py" });
     button.click();
     await waitFor(() =>
       expect(sent[0]).toMatchObject({ op: "start", doc: "hick:///tools/app.py", breakpoints: [], profile: {id: "app:tools/app.py", fingerprint: "plain-project"} }),
     );
+    // The current engine identifies both the caller of Start and its saved bytes.
+    const { request_id, source_hash } = sent[0];
     // An answer for ANOTHER pane's file is not this pane's business.
     deliver({
       event: "started",
       session: "dbg-7",
       doc: "hick:///other.py",
+      request_id,
+      source_hash,
       capabilities: {},
       breakpoints: [],
     });
@@ -448,12 +466,16 @@ describe("a plain file and the debugger", () => {
       event: "started",
       session: "dbg-0",
       doc: "hick:///tools/app.py",
+      request_id,
+      source_hash,
       capabilities: {},
       breakpoints: [],
     });
     deliver({
       event: "stopped",
       session: "dbg-0",
+      stop: 1,
+      thread: 1,
       reason: "breakpoint",
       line: 3,
       frames: [{ id: 1, name: "main", line: 3, source: "tools/app.py", in_document: true }],

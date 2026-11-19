@@ -43,7 +43,7 @@ export interface CmLspOptions {
   targetAt?: (offset: number, view: EditorView) => { uri: string; position: LspPosition } | null;
   /** Open a definition/reference target. */
   onNavigate: (target: LspNavigationTarget, current?: () => boolean) => void;
-  navigationIntent?: (view: EditorView) => () => boolean;
+  navigationIntent?: true | ((view: EditorView) => () => boolean);
   /** Show a reference list (empty array means "none found"). */
   onReferences?: (locations: LspLocation[], from: LspNavigationTarget) => void;
   /**
@@ -189,6 +189,7 @@ export function identifierAt(text: string, offset: number): string | null {
 
 export function lspSupport(opts: CmLspOptions): Extension[] {
   const { client, uri, positionAt, targetAt, onNavigate, onReferences, runtimeValue } = opts;
+  let navigationRevision = 0;
   const target = (offset: number, view: EditorView) => targetAt ? targetAt(offset, view) : (() => { const position = positionAt(offset, view); return position ? {uri,position} : null; })();
   if (!client) return [lspDiagnosticField];
 
@@ -203,7 +204,10 @@ export function lspSupport(opts: CmLspOptions): Extension[] {
     if (!location) return { status: "unavailable", reason: "Position has no mapped language source" };
     const {uri,position} = location;
     const from: LspNavigationTarget = { uri, range: { start: position, end: position } };
-    const intent = opts.navigationIntent?.(view);
+    const revision = ++navigationRevision;
+    const intent = opts.navigationIntent === true
+      ? () => navigationRevision === revision
+      : opts.navigationIntent?.(view);
     const current = () => !signal?.aborted && view.state.doc === original
       && view.dom.isConnected && (!intent || intent());
     try {
@@ -314,6 +318,9 @@ export function lspSupport(opts: CmLspOptions): Extension[] {
         },
       };
     }),
+    ...(opts.navigationIntent === true ? [EditorView.updateListener.of(update => {
+      if (update.docChanged || update.selectionSet) navigationRevision++;
+    })] : []),
     keymap.of([
       ...([ ["editor.definition", "definition"], ["editor.references", "references"] ] as const).flatMap(([action,what]) => {
         const key = cmKeyOf(action);

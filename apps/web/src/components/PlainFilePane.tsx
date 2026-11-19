@@ -64,11 +64,11 @@ import {
 } from "../lsp/cmLsp";
 import { lspFeatures } from "../lsp/cmLspFeatures";
 import type { CodeAction, LspLocation } from "../lsp/client";
-import { openLocation, pathOfDocUri } from "../lib/revealLine";
+import { openLocation, openProviderLocation, pathOfDocUri } from "../lib/revealLine";
 import { forgetFileProblems, setFileProblems } from "../lib/fileProblems";
 import { blameGutter } from "../editor/blameGutter";
 import { useBlame } from "../editor/useBlame";
-import { claimReveal, onRevealLine } from "../lib/revealLine";
+import { claimRevealPosition, onRevealLine } from "../lib/revealLine";
 import { wrapGutterMarkers } from "../editor/wrapGutter";
 import { createPlainSaver, type PlainSaveState } from "../lib/plainFileSave";
 import { draftDisposition, useDraftKeeper } from "../lib/drafts";
@@ -112,13 +112,14 @@ export function PlainFilePane({
   retainUnsaved = false,
   onUnsaved,
   onSource,
-  proposalOwner, proposalTabId, startup,
+  proposalOwner, proposalTabId, startup, takePreparedSource,
 }: {
   path: string;
   onSource?: (path: string, source: string) => void;
   proposalOwner?: (tabId: string, read: () => RecordedPatchSource | null) => () => void;
   proposalTabId?: string;
   startup?: StartupPlainFile;
+  takePreparedSource?: (path: string) => PlainFile | undefined;
   /** Adoption succeeded: the file now has an owning document. The workspace
    * converts this very tab into a generated tab and opens the document. */
   onAdopted?: (adopted: AdoptResponse) => void;
@@ -372,13 +373,16 @@ export function PlainFilePane({
   // The initial read. The pane renders its refusals — binary, too large,
   // missing — as text where the editor would be: the tab is still an honest
   // place, it just has nothing to edit.
+  const preparedRead = useRef<PlainFile | undefined>(undefined);
   useEffect(() => {
     let live = true;
     recoveryPending.current = retainUnsaved;
     plainOwnership.current = false;
+    if (!startup && preparedRead.current?.path !== path) preparedRead.current = takePreparedSource?.(path);
+    const prepared = !startup && preparedRead.current?.path === path ? preparedRead.current : undefined;
     const read = startup
       ? startup.authority.then(authority => ({file: authority.file, authority}))
-      : api.file(path).then(file => ({file, authority: null}));
+      : (prepared ? Promise.resolve(prepared) : api.file(path)).then(file => ({file, authority: null}));
     read.then(
       ({file: loaded, authority}) => {
         if (!live) return;
@@ -468,7 +472,7 @@ export function PlainFilePane({
     return () => {
       live = false;
     };
-  }, [path, saver, retainUnsaved, startup]);
+  }, [path, saver, retainUnsaved, startup, takePreparedSource]);
 
   // The view is created ONCE, when the first load lands. Later content
   // arrives through syncPlainSource below — rebuilding the editor would throw
@@ -485,7 +489,8 @@ export function PlainFilePane({
 
     // Where a definition landed. This file: select it. Another: the
     // workspace opens that tab, and its pane does the rest.
-    const goTo = (target: LspNavigationTarget | LspLocation) => {
+    const goTo = (target: LspNavigationTarget | LspLocation, current?: () => boolean) => {
+      if (current && !current()) return;
       const live = viewRef.current;
       if (target.uri === lspRef.current.uri && live) {
         const from = positionToOffset(live.state.doc, target.range.start);
@@ -497,8 +502,11 @@ export function PlainFilePane({
         live.focus();
         return;
       }
-      const other = pathOfDocUri(target.uri) ?? target.uri.replace(/^hick-output:\/\/\//, "");
-      openLocation(other, target.range.start.line + 1);
+      const path = pathOfDocUri(target.uri.replace(/^hick-output:/,"hick:"));
+      if (!path) return;
+      const {line, character} = target.range.start;
+      if (current) openProviderLocation(path, line + 1, character, current);
+      else openLocation(path, line + 1, character);
     };
     const lspClient = lspRef.current.client;
     const lspUri = documentUri(path);
@@ -578,6 +586,7 @@ export function PlainFilePane({
             client: lspClient,
             uri: lspUri,
             positionAt: (offset, view) => offsetToPosition(view.state.doc, offset),
+            navigationIntent: true,
             onNavigate: goTo,
             onReferences: (locations, from) => {
               const live = viewRef.current;
@@ -762,14 +771,15 @@ export function PlainFilePane({
     const jump = () => {
       const view = viewRef.current;
       if (!view) return;
-      const line = claimReveal(path);
-      if (line === null) return;
-      const target = view.state.doc.line(Math.min(line, view.state.doc.lines));
+      const position = claimRevealPosition(path, authoredSource(view.state));
+      if (!position) return;
+      const target = view.state.doc.line(Math.min(position.line, view.state.doc.lines));
+      const anchor = Math.min(target.to, target.from + (position.character ?? 0));
       view.dispatch({
-        selection: { anchor: target.from },
+        selection: { anchor },
         // `center`, not `nearest`: a hit that lands on the last visible row
         // is technically shown and practically missed.
-        effects: EditorView.scrollIntoView(target.from, { y: "center" }),
+        effects: EditorView.scrollIntoView(anchor, { y: "center" }),
       });
       view.focus();
     };

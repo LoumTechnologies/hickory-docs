@@ -43,7 +43,8 @@ import { completions } from "../lsp/completion";
 import { api } from "../api/client";
 import { blameGutter } from "../editor/blameGutter";
 import { useBlame } from "../editor/useBlame";
-import { claimReveal, onRevealLine } from "../lib/revealLine";
+import { claimRevealPosition, onRevealLine } from "../lib/revealLine";
+import { authoredSource } from "../simple/SourceText";
 import { byteToChar } from "../lib/offsets";
 
 export interface HighlightRange {
@@ -360,14 +361,15 @@ export function OutputEditorPane({
     const jump = () => {
       const view = viewRef.current;
       if (!view) return;
-      const line = claimReveal(file.path);
-      if (line === null) return;
-      const target = view.state.doc.line(Math.min(line, view.state.doc.lines));
+      const position = claimRevealPosition(file.path, authoredSource(view.state));
+      if (!position) return;
+      const target = view.state.doc.line(Math.min(position.line, view.state.doc.lines));
+      const anchor = Math.min(target.to, target.from + (position.character ?? 0));
       view.dispatch({
-        selection: { anchor: target.from },
+        selection: { anchor },
         // `center`, not `nearest`: a hit that lands on the last visible row
         // is technically shown and practically missed.
-        effects: EditorView.scrollIntoView(target.from, { y: "center" }),
+        effects: EditorView.scrollIntoView(anchor, { y: "center" }),
       });
       view.focus();
     };

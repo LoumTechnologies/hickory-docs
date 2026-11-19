@@ -28,6 +28,7 @@ import type {
   DocSummary,
   FileNode,
   OpenTerminal,
+  PlainFile,
   SearchResponse,
 } from "../api/types";
 import { WorkspaceChat } from "./deferredAgent";
@@ -218,11 +219,26 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   useEffect(() => onLensChange(() => setLensTick((n) => n + 1)), []);
   const layoutRef = useRef(layout);
   layoutRef.current = layout;
+  const focusedPane = paneById(layout, layout.focus);
+  const activeTab = focusedPane?.tabs[focusedPane.active];
+  const focusKey = JSON.stringify([layout.focus, activeTab?.id]);
+  const focusIntent = useRef({key: focusKey});
+  const preparedFile = useRef<{file: PlainFile; current: ()=>boolean} | undefined>(undefined);
+  if (focusIntent.current.key !== focusKey) {
+    focusIntent.current = {key: focusKey};
+    if (preparedFile.current?.file.path !== activeTab?.target) preparedFile.current = undefined;
+  }
+  const takePreparedSource = useCallback((path: string) => {
+    const prepared = preparedFile.current;
+    if (prepared?.file.path !== path) return undefined;
+    preparedFile.current = undefined;
+    return prepared.current() ? prepared.file : undefined;
+  }, []);
   // Refs let welcome and search actions reach callbacks declared later.
   const openTerminalRef = useRef<() => Promise<unknown> | void>(
     () => undefined,
   );
-  const openHitRef = useRef<(path: string, line: number) => void>(
+  const openHitRef = useRef<(path: string, line: number, into?: string, reveal?: (path: string)=>void) => void>(
     () => undefined,
   );
   const focusedPathRef = useRef<string | null>(null);
@@ -420,6 +436,8 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   );
   const { roots: folderRoots, error: folderError, folderOpen } = useFolderTrees();
   folderRootsRef.current = folderRoots;
+  const sourceWorkspace = useRef("");
+  sourceWorkspace.current = JSON.stringify(folderRoots.map(root => [root.workspace_id, root.root_path ?? root.root]));
   const workspaceUi = useWorkspaceUi(layout, restored => setLayout(current => restoreFolderLayout(current, restored,
     folderOpen === true, introductionTab && untitledSourcesRef.current[introductionTab] === STARTUP_INTRODUCTION ? introductionTab : undefined)),
     folderOpen === null ? (folderError ? "window" : null) : folderOpen ? folderRoots[0]?.root_path ?? folderRoots[0]?.root ?? "folder" : "window",
@@ -639,19 +657,21 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
    * would eventually disagree.
    */
   const openHit = useCallback(
-    (path: string, line: number, into?: string) => {
+    (path: string, line: number, into?: string, reveal?: (path: string)=>void) => {
+      const publish = reveal ?? (target=>revealLine(target,line));
       if (openBufferTarget(path, line, layoutRef.current, setLayout, setInsertNotice)) return;
       const document = registry.all().find((session) => session.doc && samePath(session.doc.path, path));
       if (document) {
         ensureDocOpen(document.docId, into);
         navigate(`/docs/${document.docId}`);
-        document.revealDocLine(Math.max(0, line - 1));
+        if (reveal) reveal(document.doc?.path ?? path);
+        else document.revealDocLine(Math.max(0, line - 1));
         return;
       }
       const output = registry.all().find((session) => session.openOutputs.has(path));
       if (output) {
         openGeneratedFor(output.docId, path, into);
-        revealLine(path, line);
+        publish(path);
         return;
       }
       const node = findNodeByPath(folderRootsRef.current, path);
@@ -668,7 +688,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       } else if (action.kind === "file") {
         openPlainFile(action.path, into);
       }
-      revealLine(path, line);
+      publish(path);
     },
     [registry, ensureDocOpen, openGeneratedFor, openPlainFile],
   );
@@ -677,12 +697,50 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   useEffect(() => {
     void loadFormatOnSave();
   }, []);
-  // A definition that landed in another file, asked from an editor that
-  // cannot open tabs. The workspace can. See lib/revealLine.ts.
-  useEffect(
-    () => onOpenLocation(({ path, line }) => openHitRef.current?.(path, line)),
-    [],
-  );
+  // Read a provider's destination before activating its tab. The originating
+  // caret and focused pane can retire the request while the read is held.
+  // After activation only the destination's exact text owns the queued reveal.
+  useEffect(() => {
+    let live = true;
+    let request = 0;
+    const stop = onOpenLocation(location => {
+      const {path, line, character, expectedSource, originCurrent} = location;
+      const ticket = ++request;
+      if (character === undefined && expectedSource === undefined && !originCurrent) {
+        openHitRef.current(path, line);
+        return;
+      }
+      if (originCurrent && !originCurrent()) return;
+      const workspace = sourceWorkspace.current, focus = focusIntent.current;
+      const current = () => live && ticket === request && sourceWorkspace.current === workspace;
+      const beforeOpen = () => current() && focusIntent.current === focus && (!originCurrent || originCurrent());
+      const session = registry.all().find(item => item.doc?.path === path);
+      const tab = panesOf(layoutRef.current.root).flatMap(item=>item.tabs)
+        .find(item=>(item.kind === "file" || item.kind === "generated") && item.target === path);
+      const available = session?.liveSource ?? (tab && plainSources.current.get(tab.id));
+      const destination = available !== undefined ? Promise.resolve({source: available, file: undefined})
+        : api.file(path).then(file => {
+            if (file.path !== path) throw Error("The server returned a different source. Select the exact location again.");
+            return {source: file.content, file};
+          });
+      void destination.then(({source,file})=>{
+        if (!beforeOpen()) return;
+        const row = source.split("\n")[line-1]?.replace(/\r$/,"");
+        const column = character ?? 0;
+        if ((expectedSource !== undefined && expectedSource !== source) || !Number.isInteger(line) || line < 1
+            || row === undefined || !Number.isInteger(column) || column < 0 || column > row.length) {
+          setInsertNotice("Source or position changed. Query the location again.");
+          return;
+        }
+        const node = findNodeByPath(folderRootsRef.current,path);
+        if (file && !tab && !session && (!node || (!node.doc_id && !node.generated_by && !node.dir))) {
+          preparedFile.current = {file,current};
+        }
+        openHitRef.current(path,line,undefined,target=>revealLine(target,line,character,{source,current}));
+      }).catch(error=>{if(beforeOpen())setInsertNotice(String(error));});
+    });
+    return () => { live = false; preparedFile.current = undefined; stop(); };
+  }, [registry]);
   // The route is a REQUEST against the workspace, not its owner:
   // `#/docs/<id>` means "make sure this document is open and frontmost",
   // `#/new` means "make sure there is an untitled buffer". Back and forward
@@ -1562,6 +1620,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
           path={tab.target}
           proposalTabId={tab.id} proposalOwner={registerPlainPatchOwner}
           startup={plainStartup?.id === tab.id ? plainStartup.observation : undefined}
+          takePreparedSource={takePreparedSource}
           onSource={(_, source) => plainSources.current.set(tab.id, source)}
           onReferences={setFileReferences}
           askText={shellPrompt.askText}
