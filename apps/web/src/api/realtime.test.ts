@@ -56,6 +56,29 @@ describe("a room that is closed and opened again", () => {
     expect(FakeSocket.made[1].url).toContain("doc%3Aabc");
   });
 
+  it("ignores a retired socket's delayed close after reopening", () => {
+    const realtime = new WsRealtime("doc:abc");
+    const first = FakeSocket.made[0];
+    const delayedClose = first.onclose;
+    first.onclose = null;
+    realtime.close();
+    realtime.reopen();
+    delayedClose?.();
+    vi.advanceTimersByTime(1600);
+    expect(FakeSocket.made).toHaveLength(2);
+    realtime.close();
+    expect(FakeSocket.made[1].closed).toBe(true);
+  });
+
+  it("cancels an older connection's queued retry across a deliberate reopen", () => {
+    const realtime = new WsRealtime("doc:abc");
+    FakeSocket.made[0].close();
+    realtime.close();
+    realtime.reopen();
+    vi.advanceTimersByTime(1600);
+    expect(FakeSocket.made).toHaveLength(2);
+  });
+
   it("does nothing to a room that was never closed", () => {
     const realtime = new WsRealtime("doc:abc");
     realtime.reopen();

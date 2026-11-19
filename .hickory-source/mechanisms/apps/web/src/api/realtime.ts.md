@@ -120,6 +120,11 @@ const REFUSALS_BEFORE_GIVING_UP = 3;
 <a id="f-a1d7e0cf41e3-WsRealtime"></a>
 ### `WsRealtime`
 
+Each connection owns its event handlers and reconnect timer. A deliberate
+reopen can replace a socket before its asynchronous close arrives. The old
+socket then loses authority over document frames and retries, so closing
+the room later can retire every connection that still belongs to it.
+
 Desktop keeps its browser WebSocket by default. Mobile supplies a socket factory
 that carries exactly these frames through native Iroh. Sync, awareness and the
 server-authoritative initial document stay in one implementation. The factory
@@ -155,15 +160,19 @@ export class WsRealtime implements Realtime {
     const ws = this.socket(`${proto}//${location.host}/api/ws?${params}`);
     ws.binaryType = "arraybuffer";
     this.ws = ws;
+    const current = () => !this.closed && this.ws === ws;
     ws.onopen = () => {
+      if (!current()) return;
       this.everOpened = true;
       this.refusals = 0;
       for (const frame of this.queue.splice(0)) ws.send(frame);
       if (this.doc && this.awareness) this.sendSyncStep1();
     };
-    ws.onmessage = (ev) => this.handleFrame(new Uint8Array(ev.data as ArrayBuffer));
+    ws.onmessage = (ev) => {
+      if (current()) this.handleFrame(new Uint8Array(ev.data as ArrayBuffer));
+    };
     ws.onclose = () => {
-      if (this.closed) return;
+      if (!current()) return;
       // A room the server refuses is refused forever: retrying it every 1.5
       // seconds fills the console with hundreds of identical failures and
       // buries whatever went wrong for real. A room that was open and then
@@ -175,7 +184,7 @@ export class WsRealtime implements Realtime {
         );
         return;
       }
-      setTimeout(() => this.connect(), 1500);
+      setTimeout(() => { if (current()) this.connect(); }, 1500);
     };
   }
 
@@ -514,6 +523,29 @@ describe("a room that is closed and opened again", () => {
     realtime.reopen();
     expect(FakeSocket.made).toHaveLength(2);
     expect(FakeSocket.made[1].url).toContain("doc%3Aabc");
+  });
+
+  it("ignores a retired socket's delayed close after reopening", () => {
+    const realtime = new WsRealtime("doc:abc");
+    const first = FakeSocket.made[0];
+    const delayedClose = first.onclose;
+    first.onclose = null;
+    realtime.close();
+    realtime.reopen();
+    delayedClose?.();
+    vi.advanceTimersByTime(1600);
+    expect(FakeSocket.made).toHaveLength(2);
+    realtime.close();
+    expect(FakeSocket.made[1].closed).toBe(true);
+  });
+
+  it("cancels an older connection's queued retry across a deliberate reopen", () => {
+    const realtime = new WsRealtime("doc:abc");
+    FakeSocket.made[0].close();
+    realtime.close();
+    realtime.reopen();
+    vi.advanceTimersByTime(1600);
+    expect(FakeSocket.made).toHaveLength(2);
   });
 
   it("does nothing to a room that was never closed", () => {
