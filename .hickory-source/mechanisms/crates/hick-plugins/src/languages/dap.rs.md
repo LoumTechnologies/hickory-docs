@@ -62,6 +62,10 @@ pub const C_NODE: &[Candidate] = &[Candidate {
 (DAP)" — delve's own help. `dlv dap` with no `--listen` picks its own port
 and tells nobody; given one, it is an ordinary DAP server.
 
+Delve normally writes the Go program's output to its host process. Request
+remote output so the debugger pane can retain the program's stdout and stderr
+as observed process output.
+
 <storycode:copy id="f-3fdb9991751a-C_GO">
 // "Starts a headless TCP server communicating via Debug Adaptor Protocol
 // (DAP)" — delve's own help. `dlv dap` with no `--listen` picks its own port
@@ -74,7 +78,7 @@ pub const C_GO: &[Candidate] = &[Candidate {
     },
     transport: Transport::Tcp,
     hosted: false,
-    launch: "{}",
+    launch: r#"{"outputMode":"remote"}"#,
     multi_session: false,
 }];
 </storycode:copy>

@@ -39,7 +39,7 @@ pub const C_GO: &[Candidate] = &[Candidate {
     },
     transport: Transport::Tcp,
     hosted: false,
-    launch: "{}",
+    launch: r#"{"outputMode":"remote"}"#,
     multi_session: false,
 }];
 pub const C_NATIVE: &[Candidate] = &[

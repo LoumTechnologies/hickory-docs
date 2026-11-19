@@ -917,6 +917,15 @@ The rendered Java Debug profile failed before adapter startup with
 receipts are under `target/mobile-provider-followup/go-browser-q5oorx5j` and
 `target/mobile-provider-followup/java-browser-lcvkp401`.
 
+A later rendered Go session with Go 1.26.8 and Delve 1.26.3 verified the
+saved breakpoint, showed Watch `41` and finished, while the program's
+`42` appeared in Delve's host output. Hickory now requests Delve's remote
+output mode. A direct Delve 1.26.3 replay with a precompiled Go executable
+confirmed DAP stdout and termination after Continue. The rendered session
+still needs a replay with the updated engine. See
+`target/mobile-provider-followup/go-rendered-v4-delve-trace/` and
+`target/mobile-provider-followup/go-dap-remote-stdout-delv1263-exact/`.
+
 Java Debug now asks the installed language server for its hosted DAP endpoint.
 The main class must match the selected source file. The adapter receives the
 profile's arguments in its string format and the session owns the temporary
