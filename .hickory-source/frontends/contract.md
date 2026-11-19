@@ -3168,6 +3168,20 @@ same child and private root, with no source writes or text updates. See
 `target/main-staged-barrel-navigation-fixed-v4-rewritten/browser.json`,
 `target/main-staged-barrel-navigation-fixed-v4-deleted/browser.json`,
 and `target/main-staged-barrel-navigation-v4-reopen/browser.json`.
+
+Automatic refresh with the caller still open remains an acceptance gap. An
+experimental refresh rebuilt the private files without editing the caller.
+When a previously missing module appeared, the newly started TypeScript
+provider routed the first Definition to its syntax-only process and returned
+the local import. Its semantic process found the saved declaration after
+loading the project. A fixture-only initialization setting disabled syntax
+routing and made the first lookup reach the saved declaration. The experiment
+also exposed a provider shutdown wait that could stall preparation, so the
+automatic refresh is still pending bounded provider replacement. See
+`target/main-staged-barrel-navigation-v6-unresolved-tsserver-trace/`
+and
+`target/main-staged-barrel-navigation-v6-unresolved-single-server-retry/browser.json`.
+
 Go to Declaration tries the provider's dedicated method. When it
 returns method-not-found, the engine asks for Definition at the same
 captured position and applies the same revision and saved-target checks.
