@@ -172,11 +172,16 @@ final class ParityTests: XCTestCase {
         let buffer = DocumentBuffer(file: file, text: FileText(path: file.path, content: "value = 1\nprint(value)", hash: "base"))
         let language = NativeLanguage(engine: try Engine(address: "http://127.0.0.1:1"), buffer: buffer)
         let location = SemanticLocation(uri: "hick:///other.py", line: 0, character: 0)
-        var opened = 0; buffer.openSemanticLocation = { _ in opened += 1 }
+        var opened = 0; var current: (() -> Bool)?
+        buffer.openSemanticLocation = { _, guardResult in opened += 1; current = guardResult }
         language.locations = [location]; language.locationSource = buffer.text; language.locationSelection = buffer.selection
         buffer.selection = NSRange(location: 1, length: 0); language.open(location); XCTAssertEqual(opened, 0)
         buffer.selection = language.locationSelection; buffer.text += "\n# changed"; language.open(location); XCTAssertEqual(opened, 0)
         language.locationSource = buffer.text; language.open(location); XCTAssertEqual(opened, 1)
+        XCTAssertEqual(current?(), true)
+        buffer.selection = NSRange(location: 1, length: 0)
+        XCTAssertEqual(current?(), false)
+        buffer.selection = language.locationSelection
         let local = SemanticLocation(uri: "hick:///main.py", line: 0, character: 2)
         language.locations = [local]; var selected: NSRange?
         buffer.selectSourceRange = { range, source in XCTAssertEqual(source, buffer.text); selected = range; return true }

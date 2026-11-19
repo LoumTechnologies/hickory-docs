@@ -214,6 +214,135 @@ Hold the earlier file request until the user has selected a retained draft. Comp
         XCTAssertEqual(draft.selection, NSRange(location: 3, length: 2))
         XCTAssertEqual(workspace.buffers[earlier.path]?.text, "saved earlier")
     }
+
+    // Retiring a provider result permits a cached read and leaves the chosen tab in place.
+    @MainActor func testRetiredSemanticResultDoesNotActivateLateSource() async throws {
+        let arrived = expectation(description: "semantic target read")
+        let gate = DispatchSemaphore(value: 0)
+        ResponseProtocol.status = 200
+        ResponseProtocol.responsesByPath = [:]
+        ResponseProtocol.response = Data(#"{"path":"target.py","content":"value = 1","hash":"disk"}"#.utf8)
+        ResponseProtocol.beforeResponse = { request in
+            guard request.url?.path == "/api/file" else { return }
+            arrived.fulfill()
+            _ = gate.wait(timeout: .now() + 5)
+        }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [ResponseProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let workspace = Workspace()
+        workspace.engine = try Engine(address: "http://fixture.invalid", session: session)
+        defer {
+            gate.signal()
+            ResponseProtocol.beforeResponse = nil
+            workspace.buffers.values.forEach { $0.language?.close() }
+            session.invalidateAndCancel()
+        }
+        let caller = FileNode(name: "caller.py", path: "caller.py", dir: false)
+        let target = FileNode(name: "target.py", path: "target.py", dir: false)
+        let buffer = DocumentBuffer(file: caller, text: FileText(path: caller.path, content: "value", hash: "caller"))
+        workspace.buffers[caller.path] = buffer
+        workspace.rootFiles = [caller, target]
+        workspace.showSource(caller.path)
+        let language = NativeLanguage(engine: try XCTUnwrap(workspace.engine), buffer: buffer)
+        defer { language.close() }
+        let location = SemanticLocation(uri: languageURI(target.path), line: 0, character: 2)
+        language.locations = [location]
+        language.locationSource = buffer.text
+        language.locationSelection = buffer.selection
+        var pending: Task<Void, Never>?
+        buffer.openSemanticLocation = { location, current in
+            pending = Task { await workspace.openSemanticLocation(location, isCurrent: current) }
+        }
+        language.open(location)
+        await fulfillment(of: [arrived], timeout: 3)
+        buffer.selection = NSRange(location: 1, length: 0)
+        gate.signal()
+        await pending?.value
+        buffer.openSemanticLocation = nil
+
+        XCTAssertTrue(workspace.currentBuffer === buffer)
+        XCTAssertEqual(buffer.selection.location, 1)
+        XCTAssertEqual(workspace.buffers[target.path]?.text, "value = 1")
+        XCTAssertFalse(workspace.layout.groups().contains { $0.tabs.containsTab(nativeSourceTab(target.path)) })
+        XCTAssertFalse(workspace.navigationTrail.canBack)
+    }
+
+    // Leaving and reselecting the same tab while mounting retires its old position request.
+    @MainActor func testSemanticMountDoesNotRevealAfterTabReselection() async {
+        let workspace = Workspace()
+        let target = FileNode(name: "target.txt", path: "target.txt", dir: false)
+        let buffer = DocumentBuffer(file: target, text: FileText(path: target.path, content: "abcdef", hash: "target"))
+        workspace.buffers[target.path] = buffer
+        let firstAttempt = expectation(description: "target editor awaiting mount")
+        buffer.selectSourceRange = { _, _ in firstAttempt.fulfill(); return false }
+        let location = SemanticLocation(uri: languageURI(target.path), line: 0, character: 4)
+        let pending = Task { await workspace.openSemanticLocation(location) }
+        await fulfillment(of: [firstAttempt], timeout: 3)
+        workspace.showUtility(.agent)
+        workspace.showSource(target.path)
+        var selected: NSRange?
+        buffer.selectSourceRange = { range, _ in selected = range; return true }
+        await pending.value
+        XCTAssertNil(selected)
+        XCTAssertTrue(workspace.currentBuffer === buffer)
+        XCTAssertFalse(workspace.navigationTrail.canBack)
+
+        await workspace.openSemanticLocation(location)
+        XCTAssertEqual(selected, NSRange(location: 4, length: 0))
+    }
+
+    // A newer row in the same saved search owns navigation while the first row reads.
+    @MainActor func testNewerWorkspaceSearchRowKeepsItsEditor() async throws {
+        let arrived = expectation(description: "earlier search result file read")
+        let gate = DispatchSemaphore(value: 0)
+        ResponseProtocol.status = 200
+        ResponseProtocol.responsesByPath = [:]
+        ResponseProtocol.response = Data(#"{"path":"earlier.txt","content":"first","hash":"disk"}"#.utf8)
+        ResponseProtocol.beforeResponse = { request in
+            guard request.url?.path == "/api/file" else { return }
+            arrived.fulfill()
+            _ = gate.wait(timeout: .now() + 5)
+        }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [ResponseProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let workspace = Workspace()
+        workspace.engine = try Engine(address: "http://fixture.invalid", session: session)
+        defer {
+            gate.signal()
+            ResponseProtocol.beforeResponse = nil
+            workspace.buffers.values.forEach { $0.language?.close() }
+            session.invalidateAndCancel()
+        }
+        let earlier = FileNode(name: "earlier.txt", path: "earlier.txt", dir: false)
+        let latter = FileNode(name: "latter.txt", path: "latter.txt", dir: false)
+        workspace.rootFiles = [earlier, latter]
+        let retained = DocumentBuffer(file: latter, text: FileText(path: latter.path, content: "second", hash: "saved"))
+        workspace.buffers[latter.path] = retained
+        workspace.showSource(latter.path)
+        var selected: NSRange?
+        retained.selectSourceRange = { range, _ in selected = range; return true }
+        func row(_ file: FileNode, _ source: String) -> WorkspaceSearchHit {
+            WorkspaceSearchHit(path: file.path, line: 1, text: source, column: 2, sourceHash: nativeSourceHash(source), generatedBy: nil)
+        }
+        workspace.showWorkspaceSearch = true
+        let pending = Task { await workspace.openSearchHit(row(earlier, "first")) }
+        await fulfillment(of: [arrived], timeout: 3)
+        await workspace.openSearchHit(WorkspaceSearchHit(path: latter.path, line: 1, text: "second", column: 2, sourceHash: nil, generatedBy: nil))
+        gate.signal()
+        await pending.value
+
+        XCTAssertTrue(workspace.currentBuffer === retained)
+        XCTAssertNil(selected)
+        XCTAssertTrue(workspace.showWorkspaceSearch)
+        XCTAssertEqual(workspace.buffers[earlier.path]?.text, "first")
+        XCTAssertFalse(workspace.layout.groups().contains { $0.tabs.containsTab(nativeSourceTab(earlier.path)) })
+
+        await workspace.openSearchHit(row(latter, "second"))
+        XCTAssertEqual(selected, NSRange(location: 2, length: 0))
+        XCTAssertFalse(workspace.showWorkspaceSearch)
+    }
 </ui:copy>
 
 ## Check source writes and agent request encoding

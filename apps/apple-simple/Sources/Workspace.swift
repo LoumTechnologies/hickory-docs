@@ -189,7 +189,7 @@ struct StartupSourceObservation {
     @ObservationIgnored var toggleFold: ((Int) -> Void)?
     @ObservationIgnored var revealDebugLine: ((Int) -> Bool)?
     @ObservationIgnored var rememberNavigation: ((SemanticLocation, SemanticLocation) -> Void)?
-    @ObservationIgnored var openSemanticLocation: ((SemanticLocation) -> Void)?
+    @ObservationIgnored var openSemanticLocation: ((SemanticLocation, @escaping () -> Bool) -> Void)?
     @ObservationIgnored var coverageSource:SimpleCoverageState?
     @ObservationIgnored var inspectCoverage:((Int)->Void)?
     @ObservationIgnored var testIndex:SourceTestIndex?
@@ -225,22 +225,24 @@ struct StartupSourceObservation {
     let changes = WorkspaceChanges()
     var showWorkspaceSearch = false
     var search = WorkspaceSearch()
+    @ObservationIgnored private var searchOpening = UUID()
     func openSearchHit(_ hit: WorkspaceSearchHit) async {
-        guard let engine else { return }
-        let current = generation, request = search.revision
+        guard engine != nil else { return }
+        let current = generation, request = search.revision, interaction = paneInteraction, choice = UUID()
+        searchOpening = choice
+        let stillSearching = { self.generation == current && self.search.revision == request && self.searchOpening == choice }
         func find(_ nodes: [FileNode]) -> FileNode? { for node in nodes { if exactUTF8(node.path,hit.path) { return node }; if let child = find(node.children ?? []) { return child } }; return nil }
         guard let file = buffers[hit.path]?.file ?? find(rootFiles), !file.dir else { search.notice = "File no longer listed. Refresh files and search again."; return }
         do {
-            let source: String
-            if let buffer = buffers[hit.path] { source = buffer.text } else { source = try await engine.file(file).content }
+            let source = try await loadBuffer(file).text
             let observedHash = await Task.detached { nativeSourceHash(source) }.value
             let rows = source.components(separatedBy: "\n")
-            guard generation == current, search.revision == request else { return }
+            guard stillSearching(), paneInteraction == interaction else { return }
             guard let hash = hit.sourceHash, observedHash == hash.replacingOccurrences(of: "sha256:", with: "").lowercased(), let character = hit.character,
                   hit.line > 0, rows.indices.contains(hit.line - 1), rows[hit.line - 1].trimmingCharacters(in: .newlines) == hit.text.trimmingCharacters(in: .newlines) else { search.notice = "Search source changed or its revision is unknown. Save edits and search again."; return }
-            await openSemanticLocation(SemanticLocation(uri: languageURI(hit.path), line: hit.line - 1, character: character), allowDirty: true, expectedSource: source)
-            if generation == current, search.revision == request { showWorkspaceSearch = false }
-        } catch { if generation == current, search.revision == request { search.notice = error.localizedDescription } }
+            await openSemanticLocation(SemanticLocation(uri: languageURI(hit.path), line: hit.line - 1, character: character),
+                allowDirty: true, expectedSource: source, isCurrent: stillSearching, onRevealed: { showWorkspaceSearch = false })
+        } catch { if stillSearching(), paneInteraction == interaction { search.notice = error.localizedDescription } }
     }
     var analysis = WorkspaceAnalysis()
     var sourceTestIndex:SourceTestIndex?
@@ -302,7 +304,10 @@ struct StartupSourceObservation {
     }
     var navigationTrail = NavigationTrail()
     var layout = PaneLayout()
-    var focused = "document-group"
+    var focused = "document-group" {
+        didSet { if oldValue != focused { paneInteraction = UUID() } }
+    }
+    @ObservationIgnored private var paneInteraction = UUID()
     var rootFiles: [FileNode] = []
     var files: [FileNode] = []
     private var displayedFolder: NativeSourceKey?
@@ -552,8 +557,13 @@ struct StartupSourceObservation {
             }
         }
         buffer.rememberNavigation = { [weak self] from, to in self?.navigationTrail.record(from: from, to: to) }
-        buffer.openSemanticLocation = { [weak self] location in
-            Task { await self?.openSemanticLocation(location) }
+        buffer.openSemanticLocation = { [weak self, weak buffer] location, current in
+            Task {
+                guard let self, let buffer else { return }
+                await self.openSemanticLocation(location, isCurrent: {
+                    self.buffers[buffer.file.path] === buffer && current()
+                })
+            }
         }
         if sourceTestIndex==nil {sourceTestIndex=SourceTestIndex {path,source in try await engine.request("POST","/api/tests/source-candidates",body:["path":path,"source":source])}}
         buffer.coverageSource=coverage
@@ -568,34 +578,47 @@ struct StartupSourceObservation {
     // A read can populate the buffer cache after its pane selects another tab.
     // Only the pane's current open request can activate the newly read buffer.
     func open(_ file: FileNode, recordNavigation: Bool = true) async {
+        _ = await activateFile(file, recordNavigation: recordNavigation)
+    }
+    private func activateFile(_ file: FileNode, recordNavigation: Bool, isCurrent: (() -> Bool)? = nil) async -> Bool {
+        guard isCurrent?() != false else { return false }
         let departed = currentSemanticLocation()
         if let existing = buffers[file.path] {
             showSource(file.path)
+            let interaction = paneInteraction
             if recordNavigation, let arrived = currentSemanticLocation() { navigationTrail.record(from:departed,to:arrived) }
             if existing.startupObservation != nil { await bindRequestedReading(existing, file: file, acceptNewerSource: true) }
-            return
+            return isCurrent?() != false && paneInteraction == interaction && currentBuffer === existing
         }
         let current = generation
         let target = layout.groups().first(where: { $0.id == focused && !$0.tabs.containsUtility(.files) })?.id
             ?? layout.groups().first(where: { !$0.tabs.containsUtility(.files) })?.id ?? focused
-        let request = UUID()
+        let request = UUID(), startingInteraction = paneInteraction
         newestOpen[target] = request
-        focused = target
+        if isCurrent == nil {
+            paneInteraction = UUID()
+            focused = target
+        }
         func ownsPane() -> Bool {
             generation == current && newestOpen[target] == request && layout.groups().contains { $0.id == target }
+                && (isCurrent == nil || (paneInteraction == startingInteraction && isCurrent?() == true))
         }
         defer { if newestOpen[target] == request { newestOpen.removeValue(forKey: target) } }
         do {
             _ = try await loadBuffer(file)
-            guard ownsPane() else { return }
+            guard ownsPane() else { return false }
+            if isCurrent != nil { focused = target }
+            if focused == target { paneInteraction = UUID() }
             layout.activateSource(file.path, in: target)
             if focused == target {
                 status = file.path
                 if recordNavigation, let arrived = currentSemanticLocation() { navigationTrail.record(from:departed,to:arrived) }
             }
-        } catch is CancellationError { return }
+            return focused == target
+        } catch is CancellationError { return false }
         catch {
-            if ownsPane(), focused == target { status = "\(error.localizedDescription) Refresh files and try opening \(file.path) again." }
+            if ownsPane(), isCurrent != nil || focused == target { status = "\(error.localizedDescription) Refresh files and try opening \(file.path) again." }
+            return false
         }
     }
     func currentSemanticLocation() -> SemanticLocation? {
@@ -607,27 +630,40 @@ struct StartupSourceObservation {
         guard let location = navigationTrail.step(direction, current: currentSemanticLocation()) else { return }
         await openSemanticLocation(location, recordHistory: false, allowDirty: true)
     }
-    func openSemanticLocation(_ location: SemanticLocation, recordHistory: Bool = true, allowDirty: Bool = false, expectedSource: String? = nil, isCurrent: () -> Bool = {true}, onRevealed: () -> Void = {}) async {
-        guard isCurrent() else {return}
+    @ObservationIgnored private var semanticReveal = UUID()
+    func openSemanticLocation(_ location: SemanticLocation, recordHistory: Bool = true, allowDirty: Bool = false, expectedSource: String? = nil, isCurrent: @escaping () -> Bool = {true}, onRevealed: () -> Void = {}) async {
+        guard isCurrent(), !Task.isCancelled else { return }
         let departed = currentSemanticLocation()
         guard let path = location.path else { return }
         func find(_ nodes: [FileNode]) -> FileNode? {
             for node in nodes { if exactUTF8(node.path,path) { return node }; if let child = find(node.children ?? []) { return child } }; return nil
         }
         guard let file = buffers[path]?.file ?? find(rootFiles), !file.dir else { status = "Location not found: \(path). Refresh files and query again."; return }
-        let current = generation
-        await open(file, recordNavigation: false)
-        guard isCurrent(), generation == current, exactUTF8(active,path), let buffer = buffers[path] else { return }
+        let current = generation, ticket = UUID()
+        semanticReveal = ticket
+        func ownsRequest() -> Bool {
+            isCurrent() && !Task.isCancelled && generation == current && semanticReveal == ticket
+        }
+        guard await activateFile(file, recordNavigation: false, isCurrent: ownsRequest),
+              ownsRequest(), exactUTF8(active,path), let buffer = buffers[path] else { return }
         if buffer.dirty && !allowDirty && departed?.path != path { status = "Save \(path) and query again before using a cross-file source position."; return }
         let source = buffer.text
         if let expectedSource, !exactUTF8(source,expectedSource) { status = "Source changed. Refresh the query before navigating."; return }
         guard let offset = languageOffset(source, ["line": location.line, "character": location.character]) else { status = "Location no longer fits \(path). Query again."; return }
+        let interaction = paneInteraction, selection = buffer.selection, revision = buffer.sourceEditIdentity
+        let viewport = buffer.sourceEditorState?()?.attached == true ? buffer.captureRecoveryViewport?() : nil
+        func ownsEditor() -> Bool {
+            ownsRequest() && paneInteraction == interaction && currentBuffer === buffer && buffers[path] === buffer
+                && buffer.sourceEditIdentity == revision && exactUTF8(buffer.text, source) && buffer.selection == selection
+                && (viewport == nil || buffer.captureRecoveryViewport?() == viewport)
+                && (!buffer.dirty || allowDirty || exactUTF8(departed?.path, path))
+        }
         for _ in 0..<20 {
-            guard isCurrent(), generation == current, exactUTF8(buffer.text,source), (!buffer.dirty || allowDirty || exactUTF8(departed?.path,path)) else { return }
+            guard ownsEditor() else { return }
             if buffer.selectSourceRange?(NSRange(location: offset, length: 0), source) == true { if recordHistory { navigationTrail.record(from: departed, to: location) }; buffer.focusSource?(); onRevealed(); return }
             try? await Task.sleep(for: .milliseconds(25))
         }
-        status = "Opened \(path); editor could not reveal the position. Query again once it is ready."
+        if ownsEditor() { status = "Opened \(path); editor could not reveal the position. Query again once it is ready." }
     }
     private var debugReveal=UUID()
     func revealDebug(_ location:NativeDebugLocation,debug:NativeDebugger)async {
@@ -671,6 +707,7 @@ struct StartupSourceObservation {
                 ?? groups.first(where: { !$0.tabs.containsUtility(.files) })?.id : nil) ?? focused
         guard groups.contains(where: { $0.id == target }) else { return }
         newestOpen.removeValue(forKey: target)
+        paneInteraction = UUID()
         layout.activate(tab, in: target); focused = target
     }
     private func adoptTabLayout(_ next: PaneLayout, focus group: String? = nil) {
@@ -679,6 +716,7 @@ struct StartupSourceObservation {
         newestOpen = newestOpen.filter { id, _ in
             id != group && retained.contains(id) && exactUTF8(next.nodes[id]?.active, layout.nodes[id]?.active)
         }
+        if group != nil || !exactUTF8(activeTab, next.nodes[focused]?.active) { paneInteraction = UUID() }
         layout = next
         focused = group ?? (retained.contains(focused) ? focused : groups[0].id)
     }

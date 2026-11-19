@@ -2556,6 +2556,15 @@ opened the cached source at the exact position. Three related native
 controller checks passed. See
 `target/android-semantic-navigation-focused-receipt/`.
 
+Apple now carries the originating provider result through tab admission and
+checks the destination editor again while waiting for it to mount. A held
+provider read whose originating caret changed only warmed the cache. Leaving
+and reselecting a tab retired its pending reveal. A newer saved-search choice
+retired an older held row, and a fresh valid choice reached the exact position.
+Seven focused Swift cases passed and the arm64 iPhone app and UI test bundle
+compiled. See `target/apple-semantic-navigation-leases-final.log` and
+`target/ios-semantic-navigation-leases-arm64.log`.
+
 Simple Browser binds opening, history, source reveal and follow-up inspectors
 to the same request for the pane. Selecting a retained tab retires an older
 request for that pane. Work in another pane can still complete its read

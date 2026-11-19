@@ -257,6 +257,7 @@ func validateNativeSourcePreparation(_ raw:Any,source:String,requireParsed:Bool=
     var locationSource:String {get {locationSourceRevision.text} set {locationSourceRevision=ExactSourceText(newValue)}}
     var locationSelection = NSRange(location: 0, length: 0)
     private var navigationID = UUID()
+    private var locationOpening = UUID()
     var status = "Language server connecting…"
     var tokens: [NativeSemanticToken] = []
     private var tokenSourceRevision=ExactSourceText("")
@@ -430,6 +431,8 @@ func validateNativeSourcePreparation(_ raw:Any,source:String,requireParsed:Bool=
               locations.contains(location), location.path != nil, locationSymbolQuery == nil || exactUTF8(locationSymbolQuery,symbolQuery) else {
             locationStatus = "Location is stale or outside authored workspace files. Run the query again."; return
         }
+        let opening = UUID()
+        locationOpening = opening
         if exactUTF8(location.path,buffer.file.path) {
             guard let offset = languageOffset(buffer.text, ["line": location.line, "character": location.character]),
                   buffer.selectSourceRange?(NSRange(location: offset, length: 0), buffer.text) == true else {
@@ -438,7 +441,18 @@ func validateNativeSourcePreparation(_ raw:Any,source:String,requireParsed:Bool=
             let position = languagePosition(locationSource, locationSelection.location)
             buffer.rememberNavigation?(SemanticLocation(uri: uri, line: position["line"]!, character: position["character"]!), location)
             buffer.focusSource?()
-        } else { buffer.openSemanticLocation?(location) }
+        } else {
+            // A cross-file result can wait on disk after the menu accepts it.
+            let query = navigationID, provider = epoch, revision = buffer.sourceEditIdentity
+            buffer.openSemanticLocation?(location) { [weak self, weak buffer] in
+                guard let self, let buffer else { return false }
+                return self.locationOpening == opening && self.navigationID == query && self.epoch == provider
+                    && exactUTF8(languageURI(buffer.file.path), self.uri) && buffer.sourceEditIdentity == revision
+                    && exactUTF8(buffer.text, self.locationSource) && buffer.selection == self.locationSelection
+                    && self.locations.contains(location)
+                    && (self.locationSymbolQuery == nil || exactUTF8(self.locationSymbolQuery, self.symbolQuery))
+            }
+        }
         showingSuggestions = false
     }
     func inspect() async {

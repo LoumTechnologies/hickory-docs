@@ -302,6 +302,7 @@ func validateNativeSourcePreparation(_ raw:Any,source:String,requireParsed:Bool=
     var locationSource:String {get {locationSourceRevision.text} set {locationSourceRevision=ExactSourceText(newValue)}}
     var locationSelection = NSRange(location: 0, length: 0)
     private var navigationID = UUID()
+    private var locationOpening = UUID()
     var status = "Language server connecting…"
     var tokens: [NativeSemanticToken] = []
     private var tokenSourceRevision=ExactSourceText("")
@@ -391,6 +392,10 @@ An empty semantic-token or completion response establishes only that the bridge 
 Typing rebases cached colors onto unchanged UTF-16 regions and schedules a quiet-period refresh. A single-line edit contained within one token keeps that tentative classification with a resized range; edits crossing token boundaries discard affected spans. Unchanged prefix and suffix colors stay visible. A null/error response retains that cache; an explicit empty token array can replace it after the bounded startup retries. Language-tool text and suggestions remain visible as cached results, while exact source/selection guards still control navigation and completion acceptance. Inspection replies replace each capability independently; the panel labels their contents as last received information rather than claiming that cached text describes the current cursor. Providers can start late, so semantic reads retry a bounded number of times without delaying text opening. Completion requests are debounced after synchronization, filter unsupported edit shapes and retain their exact source/selection snapshot. The native edit callback makes the final permission and revision check. No language result saves a file.
 
 Rename and formatting first prepare the exact captured source through `hick/captureDocument`. Their custom queries carry its hash and opaque preparation revision, then return the complete action envelope to workspace review. The language adapter does not turn a provider response into edit authority: the review model validates all source proofs. Local monotonic edit identity, source address, selection, provider epoch and writable state remain fixed across both waits, so an edit followed by Undo cannot renew an earlier query. Other read/action queries retain their existing result shapes.
+
+A selected cross-file location carries its query, provider and originating
+editor snapshot into the workspace read. A newer result choice, source edit,
+caret or provider change can retire it while the destination is being read.
 
 <ui:copy id="simple-apple-language-snapshots">
     private func sync() {
@@ -486,6 +491,8 @@ Rename and formatting first prepare the exact captured source through `hick/capt
               locations.contains(location), location.path != nil, locationSymbolQuery == nil || exactUTF8(locationSymbolQuery,symbolQuery) else {
             locationStatus = "Location is stale or outside authored workspace files. Run the query again."; return
         }
+        let opening = UUID()
+        locationOpening = opening
         if exactUTF8(location.path,buffer.file.path) {
             guard let offset = languageOffset(buffer.text, ["line": location.line, "character": location.character]),
                   buffer.selectSourceRange?(NSRange(location: offset, length: 0), buffer.text) == true else {
@@ -494,7 +501,18 @@ Rename and formatting first prepare the exact captured source through `hick/capt
             let position = languagePosition(locationSource, locationSelection.location)
             buffer.rememberNavigation?(SemanticLocation(uri: uri, line: position["line"]!, character: position["character"]!), location)
             buffer.focusSource?()
-        } else { buffer.openSemanticLocation?(location) }
+        } else {
+            // A cross-file result can wait on disk after the menu accepts it.
+            let query = navigationID, provider = epoch, revision = buffer.sourceEditIdentity
+            buffer.openSemanticLocation?(location) { [weak self, weak buffer] in
+                guard let self, let buffer else { return false }
+                return self.locationOpening == opening && self.navigationID == query && self.epoch == provider
+                    && exactUTF8(languageURI(buffer.file.path), self.uri) && buffer.sourceEditIdentity == revision
+                    && exactUTF8(buffer.text, self.locationSource) && buffer.selection == self.locationSelection
+                    && self.locations.contains(location)
+                    && (self.locationSymbolQuery == nil || exactUTF8(self.locationSymbolQuery, self.symbolQuery))
+            }
+        }
         showingSuggestions = false
     }
     func inspect() async {
