@@ -135,10 +135,15 @@ selection stayed mounted. Retired room sockets closed, and the later edit
 updated only the final room and saved path. See
 `target/main-managed-resource-command-v10-common-extraction/browser.json`.
 
-The text fixture's generic Git Changes list exposed untracked publication
-recovery records in a repository without an ignore rule. Complete-group
-Stage left those records untracked. Ordinary index operations still need
-a separate boundary for those private records.
+The text fixture's generic Git Changes list previously exposed untracked
+publication recovery records when the repository had no ignore rule.
+The generic Git pane reserves `.hick-cache` in Changes, Diff, Stage,
+Discard and Stash Push. Commit and Stash Push refuse externally staged
+private additions or modifications without mutating the index. The
+focused repository test compares exact staged and stashed paths, checks
+a nested recovery directory during folder discard, and verifies that a
+diff request cannot read a recovery record through a symlinked folder.
+See the [Git pane contract](../guarantees/collaboration/the-git-pane-does-the-daily-loop/contract.md#f-900059e12d12-stage).
 
 The Simple Browser complete-group composer now binds approval to the row
 that opened it. A live Git replay prepared a review, selected an unrelated

@@ -279,13 +279,29 @@ use super::api::{ApiError, ApiResult};
 
 /// Run git in `dir`, never letting it prompt.
 fn git(dir: &Path, args: &[&str]) -> Result<std::process::Output, ApiError> {
+    run_git(dir, args, true)
+}
+
+fn run_git(
+    dir: &Path,
+    args: &[&str],
+    literal_pathspecs: bool,
+) -> Result<std::process::Output, ApiError> {
     let mut command = Command::new("git");
-    command
-        .arg("-C")
-        .arg(dir)
-        .arg("--literal-pathspecs")
-        .args(args)
-        .env("GIT_TERMINAL_PROMPT", "0");
+    command.arg("-C").arg(dir);
+    if literal_pathspecs {
+        command.arg("--literal-pathspecs");
+    } else {
+        for variable in [
+            "GIT_LITERAL_PATHSPECS",
+            "GIT_GLOB_PATHSPECS",
+            "GIT_NOGLOB_PATHSPECS",
+            "GIT_ICASE_PATHSPECS",
+        ] {
+            command.env_remove(variable);
+        }
+    }
+    command.args(args).env("GIT_TERMINAL_PROMPT", "0");
     // The user's own ssh command wins; without one, batch mode so an unknown
     // host key or a passphrase fails instead of waiting for a terminal.
     if std::env::var_os("GIT_SSH_COMMAND").is_none() {
@@ -308,7 +324,10 @@ Run git and turn a non-zero exit into git's own explanation.
 <storycode:copy id="f-900059e12d12-git_ok">
 /// Run git and turn a non-zero exit into git's own explanation.
 fn git_ok(dir: &Path, args: &[&str]) -> Result<String, ApiError> {
-    let out = git(dir, args)?;
+    git_result(git(dir, args)?, args)
+}
+
+fn git_result(out: std::process::Output, args: &[&str]) -> Result<String, ApiError> {
     if out.status.success() {
         return Ok(String::from_utf8_lossy(&out.stdout).into_owned());
     }
@@ -356,9 +375,23 @@ fn not_a_repository() -> ApiError {
 A path the browser sent, kept inside the repository.
 
 <storycode:copy id="f-900059e12d12-checked_path">
-/// A path the browser sent, kept inside the repository.
+fn is_recovery_path(path: impl AsRef<Path>) -> bool {
+    path.as_ref()
+        .components()
+        .any(|part| part.as_os_str().eq_ignore_ascii_case(".hick-cache"))
+}
+
 fn checked_path(path: &str) -> Result<&str, ApiError> {
-    if path.is_empty() || Path::new(path).is_absolute() || path.split('/').any(|part| part == "..")
+    if is_recovery_path(path) {
+        return Err(ApiError::bad_request(
+            "Hickory recovery files are private to the workspace.",
+        ));
+    }
+    use std::path::Component::{ParentDir, Prefix, RootDir};
+    if path.is_empty()
+        || Path::new(path)
+            .components()
+            .any(|part| matches!(part, Prefix(_) | RootDir | ParentDir))
     {
         return Err(ApiError::bad_request(format!(
             "{path:?} is not a path inside this repository"
@@ -432,7 +465,7 @@ fn parse_status_zero(text: &str, prefix: &str) -> Result<(String, Vec<Value>), S
         let Some(local) = path.strip_prefix(prefix) else {
             continue;
         };
-        if local.is_empty() {
+        if local.is_empty() || is_recovery_path(&path) || from.is_some_and(is_recovery_path) {
             continue;
         }
         item["path"] = json!(local);
@@ -579,11 +612,21 @@ pub async fn diff(
             if params.staged {
                 args.push("--cached");
             }
-            args.extend(["--", path.as_str()]);
-            git(&root, &args)?
+            git_workspace_paths(&root, &args, &[&path])?
         } else {
             if params.staged {
                 return Ok(Json(json!({"path": path, "diff": "", "binary": false})));
+            }
+            // Git's no-index diff follows symlinked parent directories.
+            // Resolve the parent and leave the final entry for Git to read.
+            let in_workspace = |path: &str| -> Option<bool> {
+                let root = root.canonicalize().ok()?;
+                let parent = root.join(path).parent()?.canonicalize().ok()?;
+                let relative = parent.strip_prefix(&root).ok()?;
+                Some(!is_recovery_path(relative))
+            };
+            if in_workspace(&path) != Some(true) {
+                return Err(ApiError::bad_request("Choose a user file inside this repository."));
             }
             // `--no-index` exits 1 when the files differ, which they do.
             let null = if cfg!(windows) { "NUL" } else { "/dev/null" };
@@ -659,9 +702,53 @@ where
 
 </storycode:copy>
 <a id="f-900059e12d12-stage"></a>
-### `stage`
+### Stage user files and leave recovery files in place
+
+Hickory stores unfinished source publication in `.hick-cache`. Git can
+discover those records even when a repository has no ignore rule. Use
+repository-wide exclusions for the reserved directory, including when the
+workspace is opened below the repository root. Git interprets each chosen
+path literally before applying the exclusions, so selecting a folder stages
+its user files and selecting a filename with Git syntax stages that file.
+
+Commit and Stash Push also check for recovery data put in the index by an
+external Git client. They refuse while a private addition or modification
+is staged. A staged deletion is allowed so the user can remove a file
+already in the repository.
 
 <storycode:copy id="f-900059e12d12-stage">
+fn git_workspace_paths(
+    root: &Path,
+    command: &[&str],
+    paths: &[&str],
+) -> Result<std::process::Output, ApiError> {
+    let literals: Vec<_> = paths.iter().map(|path| format!(":(literal){path}")).collect();
+    let mut args = command.to_vec();
+    args.push("--");
+    args.extend(literals.iter().map(String::as_str));
+    args.extend([
+        ":(top,exclude,glob,icase)**/.hick-cache",
+        ":(top,exclude,glob,icase)**/.hick-cache/**",
+    ]);
+    run_git(root, &args, false)
+}
+
+fn ensure_recovery_is_not_staged(root: &Path) -> ApiResult<()> {
+    let names = git_ok(
+        root,
+        &[
+            "diff", "--cached", "--no-relative", "--no-renames", "--diff-filter=d",
+            "--name-only", "-z",
+        ],
+    )?;
+    if names.split('\0').any(is_recovery_path) {
+        return Err(ApiError::conflict(
+            "Hickory recovery files are staged. Unstage them before committing or stashing.",
+        ));
+    }
+    Ok(())
+}
+
 /// `POST /api/git/stage` — `git add`.
 pub async fn stage(
     State(state): State<LocalState>,
@@ -669,14 +756,13 @@ pub async fn stage(
 ) -> ApiResult<Json<Value>> {
     on_repo(state, move |root| {
         if legacy_unmerged(root, &body.paths, body.all)? { return Err(ApiError::conflict("Unmerged paths require a complete guarded conflict-group review. Inspect conflicts and stage the confirmed group; individual stage/unstage will not resolve it partially.")); }
-        if body.all {
-            git_ok(root, &["add", "-A"])?;
+        let paths = if body.all {
+            Vec::new()
         } else {
-            let paths = paths_of(&body.paths)?;
-            let mut args = vec!["add", "-A", "--"];
-            args.extend(paths);
-            git_ok(root, &args)?;
-        }
+            paths_of(&body.paths)?
+        };
+        let command = ["add", "-A"];
+        git_result(git_workspace_paths(root, &command, &paths)?, &command)?;
         Ok(json!({ "ok": true }))
     })
     .await
@@ -726,7 +812,9 @@ pub async fn unstage(
 
 `POST /api/git/discard` — throw the working-tree changes to these files
 away: a tracked file goes back to the index, an untracked one is deleted.
-The pane confirms first; this does not, because it is the pane's verb.
+The pane confirms first. Git Clean treats an explicitly selected directory
+as a candidate for recursive removal, so its ignore pattern must protect
+recovery data inside that directory.
 
 <storycode:copy id="f-900059e12d12-discard">
 /// `POST /api/git/discard` — throw the working-tree changes to these files
@@ -751,12 +839,12 @@ pub async fn discard(
             }
         }
         if !tracked.is_empty() {
-            let mut args = vec!["checkout", "--"];
-            args.extend(tracked);
-            git_ok(root, &args)?;
+            let command = ["checkout"];
+            git_result(git_workspace_paths(root, &command, &tracked)?, &command)?;
         }
         if !untracked.is_empty() {
-            let mut args = vec!["clean", "-f", "-q", "--"];
+            let recovery_pattern = ".[hH][iI][cC][kK]-[cC][aA][cC][hH][eE]";
+            let mut args = vec!["clean", "-f", "-q", "-e", recovery_pattern, "--"];
             args.extend(untracked);
             git_ok(root, &args)?;
         }
@@ -824,6 +912,7 @@ pub async fn commit(
                 ));
             }
         }
+        ensure_recovery_is_not_staged(root)?;
         let mut args = vec!["commit", "-q", "-m", message];
         if body.amend {
             args.push("--amend");
@@ -990,7 +1079,11 @@ pub async fn stash(
 ) -> ApiResult<Json<Value>> {
     on_repo(state, move |root| {
         let said = match body.action.as_str() {
-            "push" => git_ok(root, &["stash", "push", "--include-untracked"])?,
+            "push" => {
+                ensure_recovery_is_not_staged(root)?;
+                let command = ["stash", "push", "--include-untracked"];
+                git_result(git_workspace_paths(root, &command, &[])?, &command)?
+            }
             "pop" => git_ok(root, &["stash", "pop"])?,
             other => {
                 return Err(ApiError::bad_request(format!(

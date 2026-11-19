@@ -462,3 +462,82 @@ async fn commit_reading_preserves_messages_blobs_and_the_working_tree() {
     let (status, _) = get(&session, "/api/git/reading?sha=--all").await;
     assert_eq!(status, 422);
 }
+#[tokio::test]
+async fn git_pane_keeps_workspace_recovery_private() {
+    let session = start(true).await;
+    let private = ["./.hick-cache/recovery", "nested/.HICK-CACHE/recovery"];
+    let literal = if cfg!(windows) { "nested/[one].txt" } else { "nested/:(glob)*.txt" };
+    let other = "nested/safe.txt";
+    for path in private.iter().copied().chain([literal, other]) {
+        let file = session.root.join(path);
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        std::fs::write(file, path).unwrap();
+    }
+
+    let (status, changes) = get(&session, "/api/git/changes").await;
+    assert_eq!(status, 200, "{changes}");
+    let files = changes["files"].as_array().unwrap();
+    assert_eq!(files.len(), 2, "{files:?}");
+    assert!(files.iter().any(|file| file["path"] == literal));
+    assert!(files.iter().any(|file| file["path"] == other));
+    assert_eq!(get(&session, "/api/git/diff?path=./.hick-cache/recovery").await.0, 400);
+    #[cfg(unix)]
+    {
+        let alias = session.root.join("recovery-alias");
+        std::os::unix::fs::symlink(".hick-cache", &alias).unwrap();
+        let (status, body) = get(&session, "/api/git/diff?path=recovery-alias/recovery").await;
+        assert_eq!(status, 400, "{body}");
+        std::fs::remove_file(alias).unwrap();
+    }
+
+    let stage = "/api/git/stage";
+    let unstage = "/api/git/unstage";
+    let stash = "/api/git/stash";
+    let (status, body) = post(&session, stage, json!({"paths": [private[0]]})).await;
+    assert_eq!(status, 400, "{body}");
+    let (status, body) = post(&session, stage, json!({"paths": [literal]})).await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(git(&session.root, &["diff", "--cached", "--name-only"]).trim(), literal);
+    let (status, body) = post(&session, stage, json!({"paths": ["nested"]})).await;
+    assert_eq!(status, 200, "{body}");
+    let staged = git(&session.root, &["diff", "--cached", "--name-only"]);
+    assert_eq!(staged.lines().collect::<Vec<_>>(), [literal, other]);
+    let (status, body) = post(&session, unstage, json!({"all": true})).await;
+    assert_eq!(status, 200, "{body}");
+    let (status, body) = post(&session, stage, json!({"all": true})).await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(git(&session.root, &["diff", "--cached", "--name-only"]), staged);
+
+    let (status, body) = post(&session, unstage, json!({"all": true})).await;
+    assert_eq!(status, 200, "{body}");
+    let (status, body) = post(&session, stash, json!({"action": "push"})).await;
+    assert_eq!(status, 200, "{body}");
+    let stashed = git(&session.root, &["ls-tree", "-r", "--name-only", "stash@{0}^3"]);
+    assert_eq!(stashed.lines().collect::<Vec<_>>(), [literal, other]);
+    for path in private {
+        assert_eq!(std::fs::read_to_string(session.root.join(path)).unwrap(), path);
+    }
+    assert!(!session.root.join(other).exists());
+    let (status, body) = post(&session, stash, json!({"action": "pop"})).await;
+    assert_eq!(status, 200, "{body}");
+
+    git(&session.root, &["add", "--", private[0], other]);
+    let index = git(&session.root, &["ls-files", "--stage"]);
+    let head = git(&session.root, &["rev-parse", "HEAD"]);
+    let (status, body) = post(&session, "/api/git/commit", json!({"message": "Test"})).await;
+    assert_eq!(status, 409, "{body}");
+    let (status, body) = post(&session, stash, json!({"action": "push"})).await;
+    assert_eq!(status, 409, "{body}");
+    assert_eq!(git(&session.root, &["ls-files", "--stage"]), index);
+    assert_eq!(git(&session.root, &["rev-parse", "HEAD"]), head);
+    assert!(git(&session.root, &["stash", "list"]).is_empty());
+
+    let (status, body) = post(&session, unstage, json!({"all": true})).await;
+    assert_eq!(status, 200, "{body}");
+    let (status, body) = post(&session, "/api/git/discard", json!({"paths": ["nested"]})).await;
+    assert_eq!(status, 200, "{body}");
+    assert!(!session.root.join(other).exists());
+    for path in private {
+        assert_eq!(std::fs::read_to_string(session.root.join(path)).unwrap(), path);
+    }
+}
