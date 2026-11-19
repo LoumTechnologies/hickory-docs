@@ -182,10 +182,15 @@ diff route. Four other points, including the center, opened no detail.
 Source and index bytes stayed exact. The center-hit candidate built.
 XCTest stopped while loading Accessibility before the test case started.
 On a fresh simulator, Xcode reached its 410-second startup timeout before
-the test runner registered. Reliable tapping across the side button remains
-open. See `target/apple-git-conflict-uikit-v10-coordinates/receipt.json`,
-`target/apple-git-working-tree-uikit-v10-probe/receipt.json`, and
-`target/apple-git-working-tree-uikit-v10-center-fix-retry/`.
+the test runner registered. A standalone replay reused a settled simulator,
+verified the installed candidate, and opened the real repository sheet.
+The simulator acknowledged a touch pair at the measured button center.
+Hickory sent no diff request in the observation window. The input receipt
+does not establish whether UIKit delivered those events to Hickory.
+Working tree center activation remains open. See
+`target/apple-git-working-tree-uikit-v10-probe/receipt.json`,
+`target/apple-git-working-tree-uikit-v10-center-fix-retry/`, and
+`target/apple-git-working-tree-uikit-v10-settled-center/`.
 
 ### Files gutter overflow
 
