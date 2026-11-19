@@ -306,6 +306,8 @@ import { requestFlushSaves } from "../lib/flushSaves";
 
 <storycode:copy id="f-47afe3575948-import_statement-22">
 import { onOpenLocation, onShowTerminal, pathOfDocUri, revealLine } from "../lib/revealLine";
+import { historySourceHash } from "../simple/SourceHistory";
+import type { CoverageSurfaceClient } from "../coverage/CoverageSurface";
 </storycode:copy>
 <a id="f-47afe3575948-import_statement-23"></a>
 ### `import_statement`
@@ -418,7 +420,8 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   const openTerminalRef = useRef<() => Promise<unknown> | void>(
     () => undefined,
   );
-  const openHitRef = useRef<(path: string, line: number, into?: string, reveal?: (path: string)=>void) => void>(
+  const sourceVisit = useRef(0);
+  const openHitRef = useRef<(path: string, line: number, into?: string, reveal?: ((path: string)=>void) | null) => boolean | void>(
     () => undefined,
   );
   const focusedPathRef = useRef<string | null>(null);
@@ -616,8 +619,9 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   );
   const { roots: folderRoots, error: folderError, folderOpen } = useFolderTrees();
   folderRootsRef.current = folderRoots;
-  const sourceWorkspace = useRef("");
-  sourceWorkspace.current = JSON.stringify(folderRoots.map(root => [root.workspace_id, root.root_path ?? root.root]));
+  const workspaceKey = JSON.stringify(folderRoots.map(root => [root.workspace_id, root.root_path ?? root.root]));
+  const sourceWorkspace = useRef({key: workspaceKey});
+  if (sourceWorkspace.current.key !== workspaceKey) sourceWorkspace.current = {key: workspaceKey};
   const workspaceUi = useWorkspaceUi(layout, restored => setLayout(current => restoreFolderLayout(current, restored,
     folderOpen === true, introductionTab && untitledSourcesRef.current[introductionTab] === STARTUP_INTRODUCTION ? introductionTab : undefined)),
     folderOpen === null ? (folderError ? "window" : null) : folderOpen ? folderRoots[0]?.root_path ?? folderRoots[0]?.root ?? "folder" : "window",
@@ -837,22 +841,22 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
    * would eventually disagree.
    */
   const openHit = useCallback(
-    (path: string, line: number, into?: string, reveal?: (path: string)=>void) => {
-      const publish = reveal ?? (target=>revealLine(target,line));
-      if (openBufferTarget(path, line, layoutRef.current, setLayout, setInsertNotice)) return;
+    (path: string, line: number, into?: string, reveal?: ((path: string)=>void) | null) => {
+      const publish = reveal === undefined ? (target: string) => revealLine(target, line) : reveal;
+      if (openBufferTarget(path, line, layoutRef.current, setLayout, setInsertNotice)) return true;
       const document = registry.all().find((session) => session.doc && samePath(session.doc.path, path));
       if (document) {
         ensureDocOpen(document.docId, into);
         navigate(`/docs/${document.docId}`);
         if (reveal) reveal(document.doc?.path ?? path);
-        else document.revealDocLine(Math.max(0, line - 1));
-        return;
+        else if (reveal === undefined) document.revealDocLine(Math.max(0, line - 1));
+        return true;
       }
       const output = registry.all().find((session) => session.openOutputs.has(path));
       if (output) {
         openGeneratedFor(output.docId, path, into);
-        publish(path);
-        return;
+        publish?.(path);
+        return true;
       }
       const node = findNodeByPath(folderRootsRef.current, path);
       const action = node
@@ -864,11 +868,13 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       } else if (action.kind === "generated") {
         const owner =
           action.docId ?? openableOutputsRef.current.get(action.path);
-        if (owner) openGeneratedFor(owner, action.path, into);
+        if (!owner) return false;
+        openGeneratedFor(owner, action.path, into);
       } else if (action.kind === "file") {
         openPlainFile(action.path, into);
-      }
-      publish(path);
+      } else return false;
+      publish?.(path);
+      return true;
     },
     [registry, ensureDocOpen, openGeneratedFor, openPlainFile],
   );
@@ -877,50 +883,81 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   useEffect(() => {
     void loadFormatOnSave();
   }, []);
-  // Read a provider's destination before activating its tab. The originating
-  // caret and focused pane can retire the request while the read is held.
-  // After activation only the destination's exact text owns the queued reveal.
+  // Provider results and coverage reports both acquire the destination before
+  // activating a tab. Coverage can yield while hashing the text as well as
+  // during the read. Recheck the report, the foreground and the live text at
+  // the last point before activation. A source-only link leaves the caret alone.
+  const visitSource = useCallback(async ({path, line, character, expectedSource, originCurrent, report}: {
+    path: string; line: number | null; character?: number; expectedSource?: string;
+    originCurrent?: () => boolean; report?: {sourceHash: string | null};
+  }) => {
+    const ticket = ++sourceVisit.current;
+    const workspace = sourceWorkspace.current, focus = focusIntent.current;
+    const current = () => ticket === sourceVisit.current && sourceWorkspace.current === workspace;
+    const beforeOpen = () => current() && focusIntent.current === focus && (!originCurrent || originCurrent());
+    if (!beforeOpen()) return false;
+
+    const retained = () => {
+      const session = registry.all().find(item => item.doc?.path === path);
+      const tab = panesOf(layoutRef.current.root).flatMap(item => item.tabs)
+        .find(item => (item.kind === "file" || item.kind === "generated") && item.target === path);
+      return {session, tab, text: session?.liveSource ?? (tab && plainSources.current.get(tab.id))};
+    };
+    try {
+      const first = retained();
+      const listed = (node: FileNode | undefined | null, target: ReturnType<typeof retained>) =>
+        !node?.dir && !!(node || target.tab || target.session);
+      if (report && !listed(findNodeByPath(folderRootsRef.current, path), first)) {
+        throw Error("Source no longer listed. Refresh the workspace.");
+      }
+      const file = first.text === undefined ? await api.file(path) : undefined;
+      if (!beforeOpen()) return false;
+      if (file && file.path !== path) throw Error("The server returned a different source. Select the exact location again.");
+      const source = file?.content ?? first.text;
+      if (source === undefined) return false;
+      const hash = report && line !== null ? await historySourceHash(source) : undefined;
+      if (!beforeOpen()) return false;
+      const latest = retained();
+      const node = findNodeByPath(folderRootsRef.current, path);
+      if (report && !listed(node, latest)) throw Error("Source no longer listed. Refresh the workspace.");
+      const textChanged = latest.text === undefined ? first.text !== undefined : latest.text !== source;
+      const row = line === null ? undefined : source.split("\n")[line - 1]?.replace(/\r$/, "");
+      const column = character ?? 0;
+      if (textChanged || (expectedSource !== undefined && source !== expectedSource) ||
+          (line !== null && (!Number.isInteger(line) || line < 1 || row === undefined || !Number.isInteger(column) || column < 0 || column > row.length)) ||
+          (hash !== undefined && hash !== report?.sourceHash)) {
+        throw Error(report ? "Source changed or report position is unavailable. Refresh coverage before navigating."
+          : "Source or position changed. Query the location again.");
+      }
+      if (file && !latest.tab && !latest.session && (!node || (!node.doc_id && !node.generated_by && !node.dir))) {
+        preparedFile.current = {file, current};
+      }
+      return openHitRef.current(path, line ?? 1, undefined, line === null ? null :
+        target => revealLine(target, line, character, {source, current})) === true;
+    } catch (error) {
+      if (!beforeOpen()) return false;
+      throw error;
+    }
+  }, [registry]);
+  const navigateCoverage = useCallback<CoverageSurfaceClient["navigate"]>((location, current) => {
+    const editor = focusedEditor();
+    const document = editor?.state.doc, selection = editor?.state.selection;
+    const originCurrent = () => current() && (!editor || (focusedEditor() === editor &&
+      editor.state.doc === document && editor.state.selection === selection));
+    return visitSource({path: location.path, line: location.line, originCurrent, report: {sourceHash: location.sourceHash}});
+  }, [visitSource]);
   useEffect(() => {
-    let live = true;
-    let request = 0;
     const stop = onOpenLocation(location => {
       const {path, line, character, expectedSource, originCurrent} = location;
-      const ticket = ++request;
       if (character === undefined && expectedSource === undefined && !originCurrent) {
+        sourceVisit.current++;
         openHitRef.current(path, line);
-        return;
+      } else {
+        void visitSource(location).catch(error => setInsertNotice(String(error)));
       }
-      if (originCurrent && !originCurrent()) return;
-      const workspace = sourceWorkspace.current, focus = focusIntent.current;
-      const current = () => live && ticket === request && sourceWorkspace.current === workspace;
-      const beforeOpen = () => current() && focusIntent.current === focus && (!originCurrent || originCurrent());
-      const session = registry.all().find(item => item.doc?.path === path);
-      const tab = panesOf(layoutRef.current.root).flatMap(item=>item.tabs)
-        .find(item=>(item.kind === "file" || item.kind === "generated") && item.target === path);
-      const available = session?.liveSource ?? (tab && plainSources.current.get(tab.id));
-      const destination = available !== undefined ? Promise.resolve({source: available, file: undefined})
-        : api.file(path).then(file => {
-            if (file.path !== path) throw Error("The server returned a different source. Select the exact location again.");
-            return {source: file.content, file};
-          });
-      void destination.then(({source,file})=>{
-        if (!beforeOpen()) return;
-        const row = source.split("\n")[line-1]?.replace(/\r$/,"");
-        const column = character ?? 0;
-        if ((expectedSource !== undefined && expectedSource !== source) || !Number.isInteger(line) || line < 1
-            || row === undefined || !Number.isInteger(column) || column < 0 || column > row.length) {
-          setInsertNotice("Source or position changed. Query the location again.");
-          return;
-        }
-        const node = findNodeByPath(folderRootsRef.current,path);
-        if (file && !tab && !session && (!node || (!node.doc_id && !node.generated_by && !node.dir))) {
-          preparedFile.current = {file,current};
-        }
-        openHitRef.current(path,line,undefined,target=>revealLine(target,line,character,{source,current}));
-      }).catch(error=>{if(beforeOpen())setInsertNotice(String(error));});
     });
-    return () => { live = false; preparedFile.current = undefined; stop(); };
-  }, [registry]);
+    return () => { sourceVisit.current++; preparedFile.current = undefined; stop(); };
+  }, [visitSource]);
   // The route is a REQUEST against the workspace, not its owner:
   // `#/docs/<id>` means "make sure this document is open and frontmost",
   // `#/new` means "make sure there is an untitled buffer". Back and forward
@@ -2168,7 +2205,8 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         key={`${tool}:${toolTarget.path}`} tool={tool} {...toolTarget}
         provenance={{ layers, onToggle: toggleProvenance, continuity, onContinuity: setContinuityEnabled }} projectId={projectId ?? null}
         onGraph={() => navigate(`/projects/${encodeURIComponent(projectId ?? "")}/lineage`)}
-        onOpen={(path, line) => openHit(path, line ?? 1)} onOpenNote={id => { ensureDocOpen(id); navigate(`/docs/${id}`); }} close={() => setTool(null)}
+        navigateCoverage={navigateCoverage} onOpen={(path, line) => openHit(path, line ?? 1)}
+        onOpenNote={id => { ensureDocOpen(id); navigate(`/docs/${id}`); }} close={() => setTool(null)}
       /></Suspense>}
       <StatusBar
         git={git}

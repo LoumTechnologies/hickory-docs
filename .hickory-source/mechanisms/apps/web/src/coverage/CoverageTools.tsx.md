@@ -15,32 +15,38 @@ Present and edit the shared engine state. Browser-side revisions, pending reques
 <a id="f-3a1d89696711-CoverageTools"></a>
 ### `CoverageTools`
 
+The workspace owns file navigation. Keep the report open until the host
+accepts the source link, so the reader can select a different report while
+a destination read is in flight.
+
 <storycode:copy id="f-3a1d89696711-CoverageTools">
 import { PerformanceTools } from "../performance/PerformanceTools";
 import { createPortal } from "react-dom";
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { coverageCall } from "./client";
 import type { CoverageComparison, CoverageDiscovery, CoverageRun } from "./types";
 import {coverageSourceNavigation,coverageLanguage,type CoverageSurfaceClient} from "./CoverageSurface";
 import { selectCoverage } from "./selection";
-import { openLocation } from "../lib/revealLine";
 import { useUiCommands, useUiRevision } from "../lib/uiActionBridge";
 import "./coverage.css";
 
-export function CoverageTools({ path }: { path?: string | null }) {
+export function CoverageTools({ path, navigate }: { path?: string | null; navigate: CoverageSurfaceClient["navigate"] }) {
   const [open, setOpen] = useState(false);
+  const client = useMemo(() => ({ ...browserSurface, navigate }), [navigate]);
   const id = `coverage:${useId()}`, revision = useUiRevision(() => [open, path]);
   const invoke = useUiCommands([{ key: id, command: { subject: id, parent: id, label: open ? "Close test and code coverage tools" : "Open test and code coverage tools", parameters: {}, prerequisites: [], read: () => ({ revision: revision(), enabled: true, value: { open, path: path ?? null } }), execute: async () => { setOpen(value => !value); return { status: "completed", value: { panel_open: !open } }; } } }]);
-  return <><PerformanceTools path={path} /><button className="btn" onClick={() => { void invoke(id); }}>Tests &amp; coverage</button>{open && createPortal(<CoveragePanel initialPath={path ?? "."} close={() => setOpen(false)} />, document.body)}</>;
+  return <><PerformanceTools path={path} /><button className="btn" onClick={() => { void invoke(id); }}>Tests &amp; coverage</button>{open && createPortal(<CoveragePanel initialPath={path ?? "."} client={client} close={() => setOpen(false)} />, document.body)}</>;
 }
 </storycode:copy>
 <a id="f-3a1d89696711-CoveragePanel"></a>
 ### `CoveragePanel`
 
-Inject transport, editor selection and navigation through one adapter while preserving the existing browser default. UI-only input state remains local. Closing the surface retires request authority; initial retained selection can be restored by ID.
+Inject transport, editor selection and navigation through one adapter. The
+default can list and collect reports. Only an attached workspace can reveal
+a source link. Closing the surface retires request authority.
 
 <storycode:copy id="f-3a1d89696711-CoveragePanel">
-const browserSurface:CoverageSurfaceClient={call:coverageCall,select:selectCoverage,navigate:location=>openLocation(location.path,location.line??1)};
+const browserSurface:CoverageSurfaceClient={call:coverageCall,select:selectCoverage,navigate:()=>false};
 export function CoveragePanel({ initialPath = ".", initialLanguage="python", initialSelectedId, close, client=browserSurface, embedded=false }: { initialPath?: string;initialLanguage?:string;initialSelectedId?:string|null; close: (navigated?: boolean) => void;client?:CoverageSurfaceClient;embedded?:boolean }) {
   const coverageCall=client.call,selectCoverage=client.select,retireNavigation=client.retireNavigation;
   const live=useRef(true),ticket=useRef(0),selectedId=useRef<string|null>(null),listPending=useRef<Promise<void>|null>(null),listTicket=useRef(0);

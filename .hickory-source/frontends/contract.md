@@ -2638,6 +2638,17 @@ shared web cases and TypeScript checking passed. See
 `target/apple-coverage-navigation-connected.log` and
 `target/coverage-navigation-outcomes-web-final.log`.
 
+Main Hickory Docs uses the same coverage link contract in its Tests &
+coverage dialog. The workspace validates the captured hash before it opens
+a precise link. In a rendered replay using imported LCOV reports, a held
+file read received HTTP 200 after another report was selected. The newer
+report and originating editor stayed in place, including the selection and
+editor dimensions. A link with an incorrect historical hash was refused.
+A fresh matching link closed the dialog and opened line 3 at UTF-16 offset
+27. Saved source stayed exact. The replay exercised a plain source file.
+Forty-two focused web tests and TypeScript checking passed. See
+`target/main-coverage-navigation-held-browser-final/browser.json`.
+
 Simple Browser binds opening, history, source reveal and follow-up inspectors
 to the same request for the pane. Selecting a retained tab retires an older
 request for that pane. Work in another pane can still complete its read

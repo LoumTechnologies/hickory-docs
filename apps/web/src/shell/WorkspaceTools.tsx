@@ -19,10 +19,11 @@ export const TOOL_LABELS: Record<WorkspaceTool, string> = {
   import: "Import meeting", export: "Export document snapshot", help: "Workflow help",
 };
 
-export function WorkspaceTools({ tool, path, document, source, view, provenance, projectId, onGraph, onOpen, onOpenNote, close }: {
+export function WorkspaceTools({ tool, path, document, source, view, provenance, projectId, onGraph, onOpen, onOpenNote, navigateCoverage, close }: {
   tool: WorkspaceTool; path: string | null; document?: string; source?: string; view?: EditorView | null;
   provenance: ComponentProps<typeof ProvenanceToggles>; projectId: string | null;
   onGraph: () => void; onOpen: (path: string, line?: number) => void; onOpenNote: (id: string) => void; close: () => void;
+  navigateCoverage: import("../coverage/CoverageSurface").CoverageSurfaceClient["navigate"];
 }) {
   const panel = useRef<HTMLElement>(null);
   useEffect(() => {
@@ -36,7 +37,7 @@ export function WorkspaceTools({ tool, path, document, source, view, provenance,
   }}>
     <header><strong>{TOOL_LABELS[tool]}</strong>{path && <small title={path}>{path}</small>}<button type="button" aria-label="Close workspace tool" onClick={close}>Close</button></header>
     {tool === "connections" && <><ProvenanceToggles {...provenance} /><LineageSettings />{projectId && <button type="button" onClick={() => { void invoke("workspace-tool:graph"); }}>Show document connections graph</button>}</>}
-    {tool === "execution" && <><CoverageTools path={path} /><NativeRuntimeHistory path={path ?? undefined} source={source} view={view} /></>}
+    {tool === "execution" && <><CoverageTools path={path} navigate={navigateCoverage} /><NativeRuntimeHistory path={path ?? undefined} source={source} view={view} /></>}
     {tool === "review" && <ReviewPanel document={path ?? undefined} source={source} view={view} initialOpen />}
     {tool === "import" && <MeetingImport onOpen={onOpen} onOpenNote={onOpenNote} />}
     {tool === "export" && <SnapshotExport docId={document} />}

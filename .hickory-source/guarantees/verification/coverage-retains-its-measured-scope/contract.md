@@ -40,9 +40,9 @@ Related contracts: [Coverage retains its measured scope](contract.md).
 ### `expression_statement`
 
 <storycode:copy id="f-814b32909c24-expression_statement">
-import { cleanup, render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { CoveragePanel } from "./CoverageTools";
+import { CoveragePanel, CoverageTools } from "./CoverageTools";
 import { coverageCall } from "./client";
 vi.mock("./client", () => ({ coverageCall: vi.fn() }));
 </storycode:copy>
@@ -50,7 +50,7 @@ vi.mock("./client", () => ({ coverageCall: vi.fn() }));
 ### `expression_statement`
 
 <storycode:copy id="f-814b32909c24-expression_statement-2">
-vi.mock("../lib/revealLine", () => ({ openLocation: vi.fn() }));
+import type { CoverageSurfaceClient } from "./CoverageSurface";
 </storycode:copy>
 <a id="f-814b32909c24-run"></a>
 ### `run`
@@ -100,11 +100,40 @@ it("offers human and AI browser collection through the same service", async () =
 });
 </storycode:copy>
 
+### Main workspace source-link handoff
+
+The Main launcher carries the exact mapped source hash into the workspace.
+A held request must leave the report readable, and a retired request must
+leave it open for a fresh click.
+
+<storycode:copy id="coverage-main-source-link-witness">
+it("passes source identity through Main coverage and closes only for an accepted navigation", async () => {
+  const sourceHash = "b".repeat(64);
+  const report = {...run, source_changed_during_run: false, identity: {...run.identity, source_hashes: {"app.py": sourceHash}},
+    tests: [{id: "case", status: "passed", output: "", path: "app.py", line: 2, labels: []}]};
+  vi.mocked(coverageCall).mockImplementation(async body => (body.action === "list" ? {runs: [report]} : report) as never);
+  let release!: (value: boolean) => void;
+  const held = new Promise<boolean>(resolve => { release = resolve; });
+  const navigate = vi.fn<CoverageSurfaceClient["navigate"]>().mockReturnValueOnce(held).mockResolvedValueOnce(true);
+  render(<CoverageTools path="app.py" navigate={navigate} />);
+  fireEvent.click(screen.getByRole("button", {name: "Tests & coverage"}));
+  fireEvent.click(await screen.findByRole("button", {name: /manual · completed/}));
+  fireEvent.click(await screen.findByText(/passed · case/));
+  const link = screen.getByRole("button", {name: "Open source line 2"});
+  fireEvent.click(link);
+  expect(navigate).toHaveBeenCalledWith({path: "app.py", line: 2, sourceHash, sourceState: "historical", runId: report.id}, expect.any(Function));
+  expect(screen.getByRole("dialog", {name: "Tests and code coverage"})).toBeTruthy();
+  await act(async () => { release(false); await held; });
+  fireEvent.click(link);
+  await waitFor(() => expect(screen.queryByRole("dialog", {name: "Tests and code coverage"})).toBeNull());
+});
+</storycode:copy>
+
 ### Assemble `apps/web/src/coverage/CoverageTools.test.tsx`
 
 The selections below preserve the original byte order. Narrative reading order does not change the output.
 
-<storycode:file path="apps/web/src/coverage/CoverageTools.test.tsx"><storycode:paste select="#f-814b32909c24-expression_statement"/><storycode:paste select="#f-814b32909c24-expression_statement-2"/><storycode:paste select="#f-814b32909c24-run"/><storycode:paste select="#f-814b32909c24-expression_statement-3"/><storycode:paste select="#f-814b32909c24-expression_statement-4"/><storycode:paste select="#f-814b32909c24-expression_statement-5"/><storycode:paste select="#f-814b32909c24-expression_statement-6"/></storycode:file>
+<storycode:file path="apps/web/src/coverage/CoverageTools.test.tsx"><storycode:paste select="#f-814b32909c24-expression_statement"/><storycode:paste select="#f-814b32909c24-expression_statement-2"/><storycode:paste select="#f-814b32909c24-run"/><storycode:paste select="#f-814b32909c24-expression_statement-3"/><storycode:paste select="#f-814b32909c24-expression_statement-4"/><storycode:paste select="#f-814b32909c24-expression_statement-5"/><storycode:paste select="#f-814b32909c24-expression_statement-6"/><storycode:paste select="#coverage-main-source-link-witness"/></storycode:file>
 
 <a id="output-043842eaed53"></a>
 ## `apps/web/src/coverage/gutter.test.ts`
