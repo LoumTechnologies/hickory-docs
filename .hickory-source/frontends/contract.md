@@ -1014,6 +1014,13 @@ reply stream fails a waiting initialization before its timeout. See the
 `canonical-installation-stop` receipt under
 `target/mobile-provider-followup/java-hosted-current-literal # % λ/`.
 
+A real Apple clangd 21.0.0 Simple Browser replay opened the exact authored
+missing-semicolon position from Problems, previewed the single insertion,
+and applied it to the draft. Undo and Redo retained the same CodeMirror
+editor and viewport, with the caret following the edit. The saved bytes
+remained exact and the browser made no source writes. See
+`target/clangd-quick-fix-browser-v2/browser.json`.
+
 Configured csharp-ls 0.28.0 on .NET 10.0.401 supplied rendered browser
 definitions, usages, back navigation and a two-file rename. Review applied the
 rename to drafts and coordinated Undo restored both original texts. Its plain
