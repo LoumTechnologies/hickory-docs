@@ -37,13 +37,39 @@ struct GitReviewView:View {
  private func refresh()async {guard let engine=workspace.engine else{model.notice="Connect to a workspace server first.";return};await model.refresh{try await engine.request("GET","/api/git/changes")}}
  private func select(_ path:String,_ staged:Bool)async {guard let engine=workspace.engine else{return};await model.select(path,staged:staged){path,staged in try await engine.request("GET","/api/git/diff",query:[URLQueryItem(name:"path",value:path),URLQueryItem(name:"staged",value:String(staged))])}}
  private func changeIndex(_ path:String,_ unstage:Bool)async {guard let engine=workspace.engine else{return};await model.changeIndex(path,unstage:unstage,write:{paths,unstage in let result:ReviewIndexResult=try await engine.request("POST",unstage ? "/api/git/unstage":"/api/git/stage",body:["paths":paths]);return result.ok},load:{try await engine.request("GET","/api/git/changes")})}
+ private var reviewRowSpacing: CGFloat? {
+    #if os(iOS)
+    2
+    #else
+    nil
+    #endif
+ }
+
+ @ViewBuilder
+ private func sideControl(for file: ReviewFile, staged: Bool) -> some View {
+    let side = staged ? "Staged" : "Working tree"
+    let title = "\(side) \(staged ? file.index : file.tree)"
+    let name = "\(side) \(file.path)"
+    let action: () -> Void = { Task { await select(file.path, staged) } }
+    #if os(iOS)
+    GitReviewSideButton(title: title, name: name, action: action)
+    #else
+    Button(title, action: action).accessibilityLabel(name)
+    #endif
+ }
  var body:some View {
   VStack(alignment:.leading,spacing:8){
    HStack{Text("Repository changes \(model.branch)").font(.headline);Spacer();Button("Refresh"){Task{await refresh()}};Button("Close"){workspace.showReview=false;workspace.currentBuffer?.focusSource?()}}
    Text(model.notice).font(.caption).textSelection(.enabled)
    Text("Saved working tree and index. Unsaved editor drafts are not included.").font(.caption)
    ScrollView{VStack(alignment:.leading){ForEach(Array(model.files.dropFirst(model.page*20).prefix(20))){file in
-    VStack(alignment:.leading){Text(file.from.map{"\($0) → \(file.path)"} ?? file.path).textSelection(.enabled);HStack{Button("Working tree \(file.tree)"){Task{await select(file.path,false)}}.accessibilityLabel("Working tree \(file.path)");Button("Staged \(file.index)"){Task{await select(file.path,true)}}.accessibilityLabel("Staged \(file.path)")}}
+    VStack(alignment:.leading, spacing: reviewRowSpacing) {
+     Text(file.from.map{"\($0) → \(file.path)"} ?? file.path).textSelection(.enabled)
+     HStack {
+      sideControl(for: file, staged: false)
+      sideControl(for: file, staged: true)
+     }
+    }
    }}}
    HStack{Button("Previous"){model.page-=1}.disabled(model.page==0);Text("\(model.files.count) changed files · page \(model.page+1)");Button("Next"){model.page+=1}.disabled((model.page+1)*20>=model.files.count)}.font(.caption)
    if model.needsRefresh && !model.indexPending{Text("Refresh Git state before another index action.").font(.caption)}
@@ -51,3 +77,41 @@ struct GitReviewView:View {
   }.padding().frame(idealWidth:640,idealHeight:520).task{await refresh()}.onDisappear{model.close()}
  }
 }
+
+#if os(iOS)
+import UIKit
+
+private struct GitReviewSideButton: UIViewRepresentable {
+    var title: String
+    var name: String
+    var action: () -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(action) }
+
+    func makeUIView(context: Context) -> UIButton {
+        let button = UIButton(type: .system)
+        button.titleLabel?.adjustsFontForContentSizeCategory = true
+        button.titleLabel?.lineBreakMode = .byTruncatingTail
+        button.addTarget(context.coordinator, action: #selector(Coordinator.activate), for: .primaryActionTriggered)
+        return button
+    }
+
+    func updateUIView(_ button: UIButton, context: Context) {
+        context.coordinator.action = action
+        button.setTitle(title, for: .normal)
+        button.titleLabel?.font = .preferredFont(forTextStyle: .body, compatibleWith: button.traitCollection)
+        button.accessibilityLabel = name
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView: UIButton, context: Context) -> CGSize? {
+        guard let natural = uiView.titleLabel?.intrinsicContentSize else { return nil }
+        return CGSize(width: min(proposal.width ?? natural.width, natural.width), height: natural.height)
+    }
+
+    final class Coordinator: NSObject {
+        var action: () -> Void
+        init(_ action: @escaping () -> Void) { self.action = action }
+        @objc func activate() { action() }
+    }
+}
+#endif

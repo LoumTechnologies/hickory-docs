@@ -263,7 +263,10 @@ extension RecordedRunUITests {
             XCTAssertTrue(label.waitForExistence(timeout: 12), phrase)
         }
         func diff(_ side: String) {
-            tap("\(side) \(path)")
+            let button = app.buttons["\(side) \(path)"].firstMatch
+            XCTAssertTrue(button.waitForExistence(timeout: 15), side)
+            XCTAssertTrue(button.isHittable && button.isEnabled, side)
+            button.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
             let removed = "-" + baseline.trimmingCharacters(in: .newlines)
             let added = "+" + saved.trimmingCharacters(in: .newlines)
             let exact = app.descendants(matching: .any).matching(NSPredicate(format:

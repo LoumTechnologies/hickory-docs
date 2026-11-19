@@ -1958,7 +1958,7 @@ extension RecordedRunUITests {
 </ui:copy>
 ## Review and stage the saved file without publishing the iPhone draft
 
-Use three distinct texts for the commit, saved working tree and native draft. The review must compare the first two and must never stage the third. After Unstage, confirm the index is back at the commit and the original editor still shows its exact draft at the same frame. The test reads the real index after each explicit button dispatch.
+Use separate texts for the commit, saved working tree and native draft. The review compares the commit and saved text. Stage uses the saved text. After Unstage, verify that the index matches the commit and the original editor keeps its exact draft and frame. Select each side at the measured center of its button. UIKit had previously delivered center taps without opening Working tree, even though an upper-right tap worked. The test reads the real index after each explicit button dispatch.
 
 <ui:copy id="ios-native-git-review-ui-test">
 extension RecordedRunUITests {
@@ -1986,7 +1986,10 @@ extension RecordedRunUITests {
             XCTAssertTrue(label.waitForExistence(timeout: 12), phrase)
         }
         func diff(_ side: String) {
-            tap("\(side) \(path)")
+            let button = app.buttons["\(side) \(path)"].firstMatch
+            XCTAssertTrue(button.waitForExistence(timeout: 15), side)
+            XCTAssertTrue(button.isHittable && button.isEnabled, side)
+            button.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
             let removed = "-" + baseline.trimmingCharacters(in: .newlines)
             let added = "+" + saved.trimmingCharacters(in: .newlines)
             let exact = app.descendants(matching: .any).matching(NSPredicate(format:

@@ -193,6 +193,16 @@ Working tree diff request and returned HTTP 200. Source and index bytes
 stayed exact. The style change did not repair center activation. See
 `target/apple-git-working-tree-uikit-v10-window-observed-handoff/receipt.json`.
 
+The rebuilt app gives both side actions native UIKit buttons in the original
+compact row. The simulator delivered both exact center taps to the named
+buttons. Working tree and Staged each displayed their matching HTTP 200
+diff. The selected row and source editor kept their original frames. The
+editor selection, saved source, and index stayed exact. System spacing
+placed the second file row four and one-third points lower. Forcing the
+old gap reproduced the missed center tap. See
+`target/apple-git-working-tree-uikit-native-buttons-compact/receipt.json`
+and `target/apple-git-working-tree-uikit-native-buttons-compact-both-rows/receipt.json`.
+
 ### Files gutter overflow
 
 The Main browser Files tree now keeps each recipe rail inside the row's
