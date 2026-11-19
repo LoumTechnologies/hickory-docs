@@ -37,7 +37,7 @@ export function useSourceTestLineActions(buffer:Buffer,view:EditorView|null) {
   if(buffer.resourceDeleted||!view||authoredSource(view.state)!==buffer.text)return [];
   const grouped=new Map<number,string[]>();
   for(const row of indexedTestRows(record)){const names=grouped.get(row.line)??[];names.push(row.candidate.name);grouped.set(row.line,names);}
-  return [...grouped].filter(([line])=>line<view.state.doc.lines).map(([line,names])=>({at:view.state.doc.line(line+1).from,label:`Inspect source tests: ${names.join(", ")}`,run:()=>{
+  return [...grouped].filter(([line])=>line<view.state.doc.lines).map(([line,names])=>({at:view.state.doc.line(line+1).from,glyph:"▷",label:`Inspect source tests: ${names.join(", ")}`,run:()=>{
     if(buffer.resourceDeleted||!index?.current(buffer.file.path,buffer.text))return;
     window.dispatchEvent(new CustomEvent(SOURCE_TEST_INSPECTION,{detail:{path:buffer.file.path,name:names.length===1?names[0]:"",serial:Date.now(),owner:buffer,revision:buffer.sourceRevision}}));
   }}));

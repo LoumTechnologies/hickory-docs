@@ -42,7 +42,7 @@ def main():
                     raise
                 return
             driver.act("open",path=path);driver.act("remember-editor",path=path);size=driver.act("editor-size",path=path)
-            gutter=driver.act("source-tests-gutter",path=path,line=1)
+            gutter=driver.act("source-tests-gutter",name="ui_source_witness")
             assert gutter["before"]==gutter["after"],gutter
             assert "ui_source_witness" in gutter["text"],gutter
             assert driver.act("editor-size",path=path)==size
@@ -91,11 +91,10 @@ def debug_flow(driver,root,path,source,fixture):
             time.sleep(.1)
         raise AssertionError({"state":state,"diagnostic":driver.act("debug-diagnostics")})
     marker=next(index for index,line in enumerate(source.splitlines(),1) if "source-test-breakpoint" in line)
-    declaration=next(index for index,line in enumerate(source.splitlines(),1) if "def test_selected" in line)
     driver.act("open",path=path);driver.act("remember-editor",path=path);size=driver.act("editor-size",path=path)
     fixture.eventually(lambda:driver.act("editor-write-state",path=path),{"readOnly":False,"editable":True})
     driver.act("debug-breakpoint",line=marker)
-    gutter=driver.act("source-tests-gutter",path=path,line=declaration)
+    gutter=driver.act("source-tests-gutter",name="test_selected")
     assert gutter["before"]==gutter["after"],gutter
     record=driver.act("source-tests-debug",filter="test_selected")
     assert "Process state and exit code are not collected test verdicts" in record,record

@@ -28,6 +28,7 @@ export const gutterIconLayout = ViewPlugin.fromClass(class {
     view.dom.ownerDocument.addEventListener("keydown", this.keyboard);
     for (const type of ["mousedown", "click", "dblclick"]) view.dom.addEventListener(type, this.retarget, true);
     view.dom.ownerDocument.addEventListener("pointerdown", this.outside, true);
+    view.dom.ownerDocument.addEventListener("click", this.choose, true);
     view.scrollDOM.addEventListener("scroll", this.scroll);
     this.observeRail();
     this.measure();
@@ -59,6 +60,12 @@ export const gutterIconLayout = ViewPlugin.fromClass(class {
   };
   outside = (event: PointerEvent) => {
     if (this.panel && event.target instanceof Node && !this.panel.contains(event.target) && !this.popupIcons.some(icon => icon.node.contains(event.target as Node)) && !this.trigger?.contains(event.target)) this.close(false);
+  };
+  choose = (event: MouseEvent) => {
+    const target = event.target;
+    if (target instanceof Node && this.popupIcons.some(icon => icon.node.matches("button") && icon.node.contains(target))) {
+      this.close(true);
+    }
   };
   forwarded = new WeakSet<Event>();
   retarget = (event: Event) => {
@@ -192,6 +199,8 @@ export const gutterIconLayout = ViewPlugin.fromClass(class {
           button.setAttribute("aria-label", `Show ${overflow} more gutter icons`);
           button.setAttribute("aria-haspopup", "dialog"); button.setAttribute("aria-expanded", "false");
           const external = row.gutter.classList.contains("cm-debug-rail");
+          const sourceOffset = row.icons[0].cell.dataset.sourceOffset;
+          if (external && sourceOffset !== undefined) button.dataset.sourceOffset = sourceOffset;
           const parent = external ? row.gutter : this.view.dom;
           const host = parent.getBoundingClientRect();
           button.style.cssText = `position:absolute;left:${row.left - host.left + (visible % columns) * this.size}px;top:${row.top - host.top + Math.floor(visible / columns) * this.size}px;width:${this.size}px;height:${this.size}px;padding:0;line-height:${this.size}px;z-index:201;background:var(--bg-raised);color:var(--fg);border:0;border-radius:3px;cursor:pointer`;
@@ -214,6 +223,7 @@ export const gutterIconLayout = ViewPlugin.fromClass(class {
     this.view.dom.ownerDocument.removeEventListener("keydown", this.keyboard);
     for (const type of ["mousedown", "click", "dblclick"]) this.view.dom.removeEventListener(type, this.retarget, true);
     this.view.dom.ownerDocument.removeEventListener("pointerdown", this.outside, true);
+    this.view.dom.ownerDocument.removeEventListener("click", this.choose, true);
     this.view.scrollDOM.removeEventListener("scroll", this.scroll);
   }
 });

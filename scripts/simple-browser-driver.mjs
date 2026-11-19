@@ -14,6 +14,48 @@ async function menu(name, action) {
   await page.getByRole("button", { name: action, exact: true }).click();
 }
 const editor = path => page.locator(".cm-content").and(page.locator(`[aria-label=${JSON.stringify(path)}]`));
+const debugRail = () => page.locator(".cm-debug-rail");
+const sourceTestAction = name => debugRail().getByRole("button", {
+  name: `Inspect source tests: ${name}`, exact: true, includeHidden: true,
+});
+
+async function selectGutterAction(action) {
+  await action.and(page.locator("[data-gutter-icon]")).waitFor({ state: "attached" });
+  const group = action.locator("xpath=ancestor::div[contains(@class,'cm-debug-rail__group')][1]");
+  const offset = await group.getAttribute("data-source-offset");
+  const grid = page.getByRole("dialog", { name: "Gutter icons", exact: true });
+  const positions = () => debugRail().evaluate((rail, selectedOffset) => {
+    const box = element => {
+      const { x, y, width, height } = element.getBoundingClientRect();
+      return { x, y, width, height };
+    };
+    const groups = [...rail.querySelectorAll(".cm-debug-rail__group")];
+    return {
+      groups: groups.map(box),
+      following: groups.filter(group => Number(group.dataset.sourceOffset) > Number(selectedOffset)).map(group => {
+        const trigger = rail.querySelector(`.cm-gutter-more[data-source-offset="${group.dataset.sourceOffset}"]`);
+        const buttons = [...group.querySelectorAll("button")].filter(button => getComputedStyle(button).visibility === "visible");
+        if (trigger) buttons.push(trigger);
+        return buttons.map(box);
+      }),
+    };
+  }, offset);
+
+  const before = await positions();
+  let icons = [];
+  if (!await action.isVisible()) {
+    await debugRail().locator(`.cm-gutter-more[data-source-offset=${JSON.stringify(offset)}]`).click();
+    icons = await grid.evaluate(dialog => dialog.getAttribute("aria-owns").split(" ").map(id => {
+      const button = dialog.ownerDocument.getElementById(id);
+      const { x, y } = button.getBoundingClientRect();
+      return { label: button.getAttribute("aria-label"), x, y };
+    }));
+  }
+  const after = await positions();
+  await action.click();
+  await grid.waitFor({ state: "detached" });
+  return { before, after, icons };
+}
 try {
   for await (const line of lines) {
     try {
@@ -69,7 +111,7 @@ try {
         case "capability-ui": {
           const content = editor(request.path);
           if (request.kind === "markdown") value = await content.locator(".cm-md-h1").count() > 0;
-          else if (request.kind === "test") value = await page.locator(".cm-debug-rail").getByText(`Inspect source tests: ${request.name}`, { exact: true }).count() > 0;
+          else if (request.kind === "test") value = await sourceTestAction(request.name).count() > 0;
           else {
             const button = page.getByRole("button", { name: "Edit table as grid", exact: true });
             value = { available: await button.isEnabled(), reason: await button.getAttribute("title") };
@@ -169,22 +211,17 @@ try {
           await page.locator("nav").getByText("Edit", { exact: true }).click(); break;
 
         case "source-tests-gutter": {
-          const rail=page.locator(".cm-debug-rail"),summary=rail.locator(`summary[aria-label="Line actions on line ${request.line}"]`);
-          await summary.waitFor();const groups=rail.locator(".cm-debug-rail__group");
-          await page.waitForFunction(()=>[...document.querySelectorAll(".cm-debug-rail__group")].every(node=>node.style.top));
-          await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
-          const before=await groups.evaluateAll(nodes=>nodes.map(node=>({at:node.dataset.sourceOffset,top:node.getBoundingClientRect().top,left:node.getBoundingClientRect().left})));
-          await summary.click();
-          const after=await groups.evaluateAll(nodes=>nodes.map(node=>({at:node.dataset.sourceOffset,top:node.getBoundingClientRect().top,left:node.getBoundingClientRect().left})));
-          await summary.locator("..").getByRole("button",{name:/^Inspect source tests:/}).click();
-          const panel=page.getByRole("dialog",{name:"Source tests",exact:true});await panel.waitFor();await panel.getByText(/^Source observation/).waitFor();
-          value={text:await panel.innerText(),before,after};break;
+          const reading = await selectGutterAction(sourceTestAction(request.name));
+          const panel = page.getByRole("dialog", { name: "Source tests", exact: true });
+          await panel.getByText(/^Source observation/).waitFor();
+          value = { text: await panel.innerText(), ...reading };
+          break;
         }
-        case "coverage-marks": value=await page.locator('.cm-debug-rail button[title^="Coverage "]').count();break;
+        case "coverage-marks": value = await debugRail().locator('button[title^="Coverage "]').count(); break;
         case "coverage-gutter": {
-          const mark=page.locator('.cm-debug-rail button[title^="Coverage "]').first(),details=mark.locator('xpath=ancestor::details[1]');const groups=page.locator('.cm-debug-rail__group');await page.waitForFunction(()=>[...document.querySelectorAll('.cm-debug-rail__group')].every(node=>node.style.top));await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
-          const positions=()=>groups.evaluateAll(nodes=>nodes.map(node=>({at:node.dataset.sourceOffset,top:node.getBoundingClientRect().top,left:node.getBoundingClientRect().left})));
-          const before=await positions();if(await details.count())await details.locator('summary').click();const after=await positions();await mark.click();await page.getByRole("dialog",{name:"Tests and code coverage",exact:true}).waitFor();value={before,after};break;
+          value = await selectGutterAction(debugRail().locator('button[title^="Coverage "]').first());
+          await page.getByRole("dialog", { name: "Tests and code coverage", exact: true }).waitFor();
+          break;
         }
         case "coverage-open": await menu("Edit","Tests and coverage");await page.getByRole("dialog",{name:"Tests and code coverage",exact:true}).waitFor();break;
         case "coverage-close": await page.getByRole("button",{name:"Close coverage",exact:true}).click();break;

@@ -70,12 +70,12 @@ export function DebugRailGroup({ view, at, sticky = false, children }: {
 
 /** A single right-hand action column shared by launch icons and live controls.
 
-Optional source-line actions use the same anchored menu as a launch on that line. Close that menu before invoking an action, so opening another floating surface does not leave an old line menu over the editor. The action adapter remains responsible for current-source and execution admission. */
+Source tests, coverage, and Debug contribute individual glyph buttons to one measured row. The gutter layout reserves the last available slot for overflow and moves only the excess buttons into its floating grid. Each button keeps its existing current-source or launch guard. */
 // Optional line actions share the launch slot instead of creating a second column.
-// A single anchored overflow button opens the floating grid, so folding controls
+// A single anchored overflow button opens the floating grid, so opening the grid
 // cannot push the next line's icon down or change the editor's width.
 export function DebugLaunchRail({ view, onStart, onProfiles, plainPath, enabled = true, actions = [] }: {
-  view: EditorView | null; onStart?: (path: string, at?: number) => void; onProfiles?: (path: string, at?: number) => void; plainPath?: string; enabled?: boolean; actions?: { at: number; label: string; run: () => void;glyph?:string;tone?:string }[];
+  view: EditorView | null; onStart?: (path: string, at?: number) => void; onProfiles?: (path: string, at?: number) => void; plainPath?: string; enabled?: boolean; actions?: { at: number; label: string; run: () => void; glyph: string; tone?: string }[];
 }) {
   const targets: { path: string; at: number; end: number }[] = [];
   if (view && onStart && enabled) {
@@ -112,14 +112,12 @@ export function DebugLaunchRail({ view, onStart, onProfiles, plainPath, enabled 
   return <div className="cm-debug-rail" aria-label="Script debugging">
     {controls.error && <p role="alert" style={{position:"absolute",right:"100%",top:0,margin:0,minWidth:"16rem",maxWidth:"24rem",maxHeight:"40vh",overflow:"auto",padding:4,background:"Canvas",border:"1px solid GrayText"}}>{controls.error}</p>}
     {view && [...lineActions].map(([at,items]) => {
-      const launch = targets.find(target => target.at === at),single=items.length===1?items[0]:null;
-      return <DebugRailGroup key={`fold:${at}`} view={view} at={at}>
-        {single?.glyph&&!launch?<button type="button" className="debug-icon" title={single.label} aria-label={single.label} style={{color:single.tone}} onClick={single.run}>{single.glyph}</button>:<details className="more-actions"><summary aria-label={`Line actions on line ${view.state.doc.lineAt(at).number}`} style={{ height: view.defaultLineHeight }}>⋯</summary>
-          <div className="more-actions__items">
-            {items.map((action,index)=><button key={index} type="button" title={action.glyph?action.label:undefined} style={{color:action.tone}} onClick={event=>{event.currentTarget.closest("details")?.removeAttribute("open");action.run();}}>{action.glyph} {action.label}</button>)}
-            {launch && <button type="button" onClick={() => start(launch)}>Debug {launch.path}</button>}
-          </div>
-        </details>}
+      const launch = targets.find(target => target.at === at);
+      return <DebugRailGroup key={`actions:${at}`} view={view} at={at}>
+        {items.map(action => <button key={action.label} type="button" className="debug-icon"
+          title={action.label} aria-label={action.label} style={{ color: action.tone }} onClick={action.run}>{action.glyph}</button>)}
+        {launch && <button type="button" className="cm-debug-start debug-icon" aria-label={`Debug ${launch.path}`}
+          data-tip={`Debug ${launch.path} · installs the debugger if needed`} onClick={() => start(launch)}>▷</button>}
       </DebugRailGroup>;
     })}
     {view && targets.filter(target => !actions.some(action => action.at === target.at)).map(target => <DebugRailGroup key={`${target.path}:${target.at}`} view={view} at={target.at}>
