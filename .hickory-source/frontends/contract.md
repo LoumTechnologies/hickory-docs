@@ -3080,13 +3080,42 @@ scroll position stayed in place. The resulting code passed strict TypeScript
 compilation. See `target/simple-managed-resource-genuine-move-v1/browser.json`
 and `target/simple-managed-resource-genuine-move-v2/browser.json`.
 
-A focused follow-up tried Go to definition on the moved call after Redo.
-TypeScript's staged analysis could see the original generated output, but
-its staged directory was missing the newly saved module. The returned
-location was the local import in the authored block. Opening the newly
-created workspace module from that call remains unverified. The provider
-also returned method-not-found for the separate Go to declaration request.
-See `target/main-managed-resource-genuine-navigation-v1/browser.json`.
+After Redo, Main used Go to Definition on the moved call and opened the
+saved declaration in workspace `relocate.ts`. Back restored the authored
+caret in the same Markdown editor. Forward restored the updated caret
+in the destination. Find References listed the exact import and call in
+`notes.md` and the declaration in `relocate.ts`. Selecting that row
+opened the saved declaration at the same coordinate.
+
+The staged analysis now includes bounded saved copies of literal relative
+imports, including supported transitive imports and re-exports. Location
+mapping checks the originating revision plus the exact saved and staged
+bytes. These copies confer no edit authority. Removing `relocate.ts`
+after staging left a stale child result. Main suppressed that result
+for both Definition and Find References, retained valid local references,
+and sent no writes. See
+`target/main-managed-resource-genuine-navigation-fixed-engine-v2/browser.json`,
+`target/main-managed-resource-genuine-navigation-removed-engine-v2/browser.json`,
+`target/main-managed-resource-genuine-navigation-references-engine-v2/browser.json`,
+and `target/main-managed-resource-genuine-navigation-references-removed-engine-v2/browser.json`.
+
+Simple Browser repeated the move through reviewed Save, Undo, and Redo.
+Once the provider had prepared the updated source, F12 opened the saved
+declaration at UTF-16 offset 16. Back recovered the authored caret, and
+Forward recovered the updated destination caret. See
+`target/simple-managed-resource-genuine-move-navigation-v2/browser.json`.
+
+A mounted AppKit editor repeated Move, Save, Definition, Back, and
+Forward through the native command controller and result opener.
+The original Markdown editor was retained and both native carets matched
+their source coordinates. See
+`target/appkit-managed-definition-v2-bundled-2026-11-19/receipt.json`.
+
+Staged imports refresh when the authored document is prepared. Independent
+dependency changes retire stale locations until the next preparation.
+The provider still returned method-not-found for the separate Go to
+Declaration command. See
+`target/main-managed-resource-genuine-navigation-v1/browser.json`.
 
 A focused Main replay with clangd also passed managed formatting after
 the position shift. See
