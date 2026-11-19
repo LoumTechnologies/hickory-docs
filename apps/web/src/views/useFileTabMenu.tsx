@@ -39,7 +39,7 @@ export function useFileTabMenu(roots: readonly FolderTree[], activeDocId: string
   useEffect(() => { setWebMenu(null); setHistory(null); }, [owner]);
   useEffect(() => { if (menu && menu.owner !== owner) setMenu(null); }, [menu, owner]);
   const open = (tab: Tab, position: { x: number; y: number }) => {
-    if (!["document", "generated", "file"].includes(tab.kind) || (tabs.length > 0 && !tabs.some(current => current.id === tab.id && current.kind === tab.kind && current.target === tab.target && current.docId === tab.docId))) return false;
+    if (tab.retainedResource || !["document", "generated", "file"].includes(tab.kind) || (tabs.length > 0 && !tabs.some(current => current.id === tab.id && current.kind === tab.kind && current.target === tab.target && current.docId === tab.docId))) return false;
     for (const folder of roots) {
       const path = tab.kind === "document" && tab.docId ? docPathOf(folder.tree, tab.docId) ?? tab.target : tab.target;
       const node = findFile(folder.tree, path);
@@ -82,7 +82,7 @@ export function useFileTabMenu(roots: readonly FolderTree[], activeDocId: string
     };
   }, [owner, roots, openable]);
   const parent = `file-tab-menus:${useId()}`;
-  const targets = tabs.filter(tab => ["document", "generated", "file"].includes(tab.kind));
+  const targets = tabs.filter(tab => !tab.retainedResource && ["document", "generated", "file"].includes(tab.kind));
   const revision = useUiRevision(() => [roots, activeDocId, [...openable], targets, menu]);
   useUiCommands([{ key: `${parent}:read`, command: { parent, subject: `${parent}:reading`, label: "Read file tab menu targets", parameters: { first: { type: "number", integer: true, minimum: 0, maximum: 100000000 }, count: { type: "number", integer: true, minimum: 1, maximum: 64 } }, prerequisites: [],
     read: () => ({ revision: revision(), enabled: true }), execute: async args => {

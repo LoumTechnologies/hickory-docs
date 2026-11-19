@@ -512,6 +512,7 @@ function useDocumentSession(
             }
           },
           adopt(authority) {
+            if (!authority) throw Error("The managed editor needs confirmed saved authority.");
             const adoption = binding.prepare(text, after, {published: true});
             if (!hold || !ready() || !adoption?.current() || binding.roomSource() !== saved) {
               throw Error("The managed editor changed during resource publication.");

@@ -60,6 +60,8 @@ export interface PlainSaver {
   isDetached(): boolean;
   /** Suspend writes while the engine owns a resource transition. */
   holdWrites(): ((keepPrivate: boolean) => void) | null;
+  /** Restore the prior ordinary save mode after a confirmed clean restoration. */
+  resumeOrdinaryWrites(): void;
   /** Restore the private publication mode before applying retained text. */
   restoreDetached(): void;
   /** Validate and prepare the plane switch without changing the saver. */
@@ -186,6 +188,11 @@ export function createPlainSaver(options: PlainSaverOptions): PlainSaver {
         }
         if (!detached && dirty()) schedule();
       };
+    },
+    resumeOrdinaryWrites() {
+      if (queued || dirty() || !baseGuard || attempt || conflicted) throw Error("The restored source has no clean saved baseline.");
+      detached = false;
+      revision++;
     },
     restoreDetached() {
       if (queued) throw Error("Wait for the current save before restoring this private draft.");

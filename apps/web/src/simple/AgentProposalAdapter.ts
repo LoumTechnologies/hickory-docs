@@ -30,7 +30,7 @@ export interface ResourceAdoptionStage {
  begin?: () => void;
  waitForSavedSource?: () => Promise<void>;
  release?: () => void;
- adopt: (authority: {hash: string; guard: string}) => void;
+ adopt: (authority: {hash: string; guard: string} | null) => void;
 }
 export type RecordedPatchSource = {
  path: string;
@@ -41,7 +41,7 @@ export type RecordedPatchSource = {
  scope: ProposalScope;
  current: () => boolean;
  prepareDraft?: (after: string) => WorkspaceDraftStage | null;
- prepareResource?: (after: string, saved: string, destination?: string) => ResourceAdoptionStage | null;
+ prepareResource?: (after: string, saved: string, destination?: string | null) => ResourceAdoptionStage | null;
 };
 type RecordedPatchInputs = Pick<VerifiedProposal['value']['intention']['capture'], 'ownership_sources' | 'unaddressed_sources' | 'saved_guards'> & {drafts: Record<string, unknown>};
 type RecordedPatchEditor = Omit<ProposalEditorSnapshot['buffers'][number], 'source_hash'> & {text: string};

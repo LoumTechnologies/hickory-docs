@@ -43,6 +43,12 @@ The saver pauses writes before the move and uses the destination's guard
 after confirmation. If adoption fails after newer typing, keep that text
 private at the held address.
 
+A confirmed deletion removes the live address and keeps the editor readable.
+The retained tab owns no saved file. Only a matching reviewed restoration can
+reattach the same editor, clear its read-only access and install a fresh
+physical guard. Before reattaching, the existing source bytes remain visible
+with their native selection and history.
+
 <storycode:copy id="f-2f891a49445f-PlainFilePane">
 import { performanceInline } from "../performance/inline";
 import { coverageGutter } from "../coverage/gutter";
@@ -155,6 +161,7 @@ function syncPlainSource(view: EditorView, text: string) {
 
 export function PlainFilePane({
   path,
+  retainedResource = false,
   onAdopted,
   onReferences,
   captureNavigationContext,
@@ -169,6 +176,7 @@ export function PlainFilePane({
   proposalOwner, proposalTabId, startup, takePreparedSource,
 }: {
   path: string;
+  retainedResource?: boolean;
   onSource?: (path: string, source: string) => void;
   proposalOwner?: (tabId: string, read: () => RecordedPatchSource | null) => () => void;
   proposalTabId?: string;
@@ -280,7 +288,8 @@ export function PlainFilePane({
   const [liveText, setLiveTextState] = useState<string | null>(() => startup?.source.content ?? null);
   const sourceSignal=useMemo(()=>new DebugSourceSignal(),[]),sourceIdentity=useMemo(()=>({path}),[path]),sourceNamespace=useRef<string|null>(null),sourceWorkspace=useRef<string|null>(null),sourceMounted=useRef(true);
   const adoptionPending = useRef(false), recoveryPending = useRef(retainUnsaved), plainOwnership = useRef(false);
-  const addressRef = useRef({path, guarded: false});
+  const addressRef = useRef({path, guarded: false, retained: false, resumeOrdinary: false});
+  const retainedAccess = useMemo(() => new Compartment(), []);
   const startupRef = useRef(startup);
   startupRef.current = startup;
   const addressBinding = useMemo(() => new Compartment(), []);
@@ -302,7 +311,7 @@ export function PlainFilePane({
     onSourceRef.current?.(addressRef.current.path, text);
     setLiveTextState(text);
   }, [sourceSignal]);
-  const lsp = useWorkspaceLsp(file === null ? "" : path, liveText ?? "");
+  const lsp = useWorkspaceLsp(file === null || retainedResource ? "" : path, liveText ?? "");
   const lspRef = useRef(lsp);
   lspRef.current = lsp;
 
@@ -314,8 +323,8 @@ export function PlainFilePane({
   // and a session held here would die the moment another tab was fronted.
   // The pane reads the session through a ref inside the editor's callbacks,
   // which were built once and must see the current state.
-  const sourceCapability=useMemo<DebugSourceCapability>(()=>({read:uri=>{const text=lastTextRef.current,workspace=sourceNamespace.current,revision=sourceSignal.revision;if(!workspace||uri!==documentUri(path))throw Error('This source namespace is still loading or changed.');return {uri,workspace,namespace:workspace,identity:sourceIdentity,text,saved:!saver.hasPendingEdits()&&saver.baseContent()===text,current:()=>sourceMounted.current&&sourceNamespace.current===workspace&&sourceSignal.revision===revision&&lastTextRef.current===text};},subscribe:sourceSignal.subscribe}),[path,sourceIdentity,sourceSignal]);
-  const debug = useFollowingDebugSession(path,undefined,undefined,undefined,sourceCapability) ?? IDLE_SESSION;
+  const sourceCapability=useMemo<DebugSourceCapability>(()=>({read:uri=>{const text=lastTextRef.current,workspace=sourceNamespace.current,revision=sourceSignal.revision;if(addressRef.current.retained||!workspace||uri!==documentUri(path))throw Error('This source namespace is still loading or changed.');return {uri,workspace,namespace:workspace,identity:sourceIdentity,text,saved:!saver.hasPendingEdits()&&saver.baseContent()===text,current:()=>!addressRef.current.retained&&sourceMounted.current&&sourceNamespace.current===workspace&&sourceSignal.revision===revision&&lastTextRef.current===text};},subscribe:sourceSignal.subscribe}),[path,sourceIdentity,sourceSignal]);
+  const debug = useFollowingDebugSession(retainedResource ? "" : path,undefined,undefined,undefined,sourceCapability) ?? IDLE_SESSION;
   const debugRef = useRef(debug);
   debugRef.current = debug;
   // Selecting a frame is asking to go there. A frame in this file is
@@ -341,7 +350,8 @@ export function PlainFilePane({
     () =>
       createPlainSaver({
         put: (content, baseHash, force, guard) => {
-          const {path, guarded} = addressRef.current;
+          const {path, guarded, retained} = addressRef.current;
+          if (retained) throw Error("This source has been deleted. Restore it before saving.");
           if (!startupRef.current && !guarded) return api.saveFile(path, content, baseHash, force);
           if (!guard) throw Error("Saved source authority is unavailable. Reload the exact file before saving.");
           return api.saveFile(path, content, baseHash, force, guard);
@@ -349,7 +359,7 @@ export function PlainFilePane({
         publish: async ({content, baseHash, guard, id}, saverCurrent) => {
           const namespace = sourceNamespace.current, workspace = sourceWorkspace.current;
           const address = addressRef.current, {path} = address;
-          const current = () => !!namespace && !!workspace && sourceMounted.current && plainOwnership.current &&
+          const current = () => !address.retained && !!namespace && !!workspace && sourceMounted.current && plainOwnership.current &&
             sourceNamespace.current === namespace && sourceWorkspace.current === workspace &&
             addressRef.current === address && saverCurrent();
           const hash = await historySourceHash(content);
@@ -377,7 +387,7 @@ export function PlainFilePane({
   );
   actionsRef.current = {
     revision: () => viewRef.current ? authoredSource(viewRef.current.state) : lastTextRef.current, isDirty: () => saver.hasPendingEdits(),
-    save: () => sourceMounted.current && viewRef.current?.dom.isConnected ? saver.saveNow() : Promise.resolve(!saver.hasPendingEdits()),
+    save: () => !addressRef.current.retained && sourceMounted.current && viewRef.current?.dom.isConnected ? saver.saveNow() : Promise.resolve(!saver.hasPendingEdits()),
     discard: () => {
       const base = saver.discardPending();
       const view = viewRef.current;
@@ -385,7 +395,7 @@ export function PlainFilePane({
     },
     retain: async () => {
       const contents = viewRef.current ? authoredSource(viewRef.current.state) : lastTextRef.current;
-      if (startupReadOnly) return;
+      if (startupReadOnly || addressRef.current.retained) return;
       await api.saveDraft({ path, contents, base: saver.baseContent(), saved_at: Date.now(), ...(saver.isDetached() ? {detached: true as const} : {}) });
     },
   };
@@ -393,18 +403,22 @@ export function PlainFilePane({
   useEffect(() => proposalTabId && proposalOwner ? proposalOwner(proposalTabId, () => {
     const view = viewRef.current, namespace = sourceNamespace.current, workspace = sourceWorkspace.current;
     const guard = saver.baseGuard(), base = saver.baseContent(), revision = sourceSignal.revision;
-    if (!view?.dom.isConnected || view.state.readOnly || !namespace || !workspace || !guard || mergeRef.current) return null;
+    const address = addressRef.current;
+    if (!view?.dom.isConnected || (view.state.readOnly && !address.retained) ||
+        !namespace || !workspace || !guard || mergeRef.current) return null;
     const document = view.state.doc, text = authoredSource(view.state);
     const current = () => sourceMounted.current && viewRef.current === view && view.dom.isConnected
       && !mergeRef.current && view.state.doc === document && authoredSource(view.state) === text && sourceSignal.revision === revision
-      && sourceNamespace.current === namespace && sourceWorkspace.current === workspace;
+      && sourceNamespace.current === namespace && sourceWorkspace.current === workspace && addressRef.current === address;
     const writable = () => current() && plainOwnership.current && !adoptionPending.current && !recoveryPending.current &&
       !view.composing && !view.state.readOnly && view.state.facet(EditorView.editable);
     return { path, text, base, guard, revision, scope: {namespace, workspace}, current,
       prepareResource(after, saved, destination = path) {
         const plane = saver.prepareDetach(base, guard);
+        const resumeOrdinary = !saver.isDetached();
         let releaseWrites: ((keepPrivate: boolean) => void) | null = null;
-        const ready = () => writable() && (releaseWrites
+        const ownsEditor = () => address.retained ? destination !== null && current() && !view.composing : writable();
+        const ready = () => ownsEditor() && (releaseWrites
           ? saver.baseContent() === base && saver.baseGuard() === guard
           : !!plane?.current());
         if (!ready()) return null;
@@ -419,6 +433,20 @@ export function PlainFilePane({
           release() { releaseWrites?.(!adopted); },
           adopt(authority) {
             if (!ready()) throw Error("The open file changed during resource publication.");
+            if (destination === null) {
+              if (authority) throw Error("The deleted editor received a live file guard.");
+              addressRef.current = {path, guarded: true, retained: true, resumeOrdinary};
+              sourceSignal.changed();
+              saver.restoreDetached();
+              installedAddress.current = null;
+              view.dispatch({effects: [
+                retainedAccess.reconfigure([EditorState.readOnly.of(true), EditorView.editable.of(false)]),
+                addressBinding.reconfigure(languageExtensions(fileRef.current?.language ?? "text")),
+              ]});
+              adopted = true;
+              return;
+            }
+            if (!authority) throw Error("The restored editor needs a confirmed saved guard.");
             // Install the confirmed saved baseline before displaying its
             // draft. Programmatic adoption must never send a regular save.
             const transaction = view.state.update({
@@ -426,11 +454,12 @@ export function PlainFilePane({
               annotations: [isolateHistory.of("full"), Transaction.addToHistory.of(false)],
             });
             if (authoredSource(transaction.state) !== after) throw Error("The open editor cannot adopt the complete resource source.");
-            if (destination !== path) {
-              addressRef.current = {path: destination, guarded: true};
+            if (destination !== path || address.retained) {
+              addressRef.current = {path: destination, guarded: true, retained: false, resumeOrdinary: false};
               installedAddress.current = null;
             }
             saver.load(saved, authority.hash, authority.guard);
+            if (address.retained && address.resumeOrdinary && after === saved) saver.resumeOrdinaryWrites();
             if (fileRef.current) {
               const next = {...fileRef.current, path: destination, content: saved,
                 language: destination === path ? fileRef.current.language : languageFromPath(destination) ?? "text",
@@ -443,7 +472,9 @@ export function PlainFilePane({
               saver.changed(after);
             }
             if (text !== after) view.update([transaction]);
-            if (destination !== path) view.dispatch({effects: addressBinding.reconfigure([])});
+            if (destination !== path || address.retained) view.dispatch({
+              effects: [retainedAccess.reconfigure([]), addressBinding.reconfigure([])],
+            });
             onUnsavedRef.current?.(saver.hasPendingEdits(), actionsRef.current);
             adopted = true;
           },
@@ -483,10 +514,11 @@ export function PlainFilePane({
         };
       },
     };
-  }) : undefined, [path, proposalOwner, proposalTabId, saver, setLiveText, sourceSignal, addressBinding]);
+  }) : undefined, [path, proposalOwner, proposalTabId, saver, setLiveText, sourceSignal, addressBinding, retainedAccess]);
   // File > Save All: this pane owns its saver, so it answers for its own
   // buffer. See lib/flushSaves.ts.
   useEffect(() => onFlushSaves(includeDetached => {
+    if (addressRef.current.retained) return;
     if (includeDetached) void saver.saveNow();
     else void saver.flushNow();
   }), [saver]);
@@ -512,7 +544,7 @@ export function PlainFilePane({
           setLoadError("The original file request changed. Reopen this read-only preview to check its current source.");
           return;
         }
-        if (addressRef.current.path !== path) addressRef.current = {path, guarded: false};
+        if (addressRef.current.path !== path) addressRef.current = {path, guarded: false, retained: false, resumeOrdinary: false};
         setFile(loaded);
         setLoadError(null);
         setLiveText(loaded.content);
@@ -762,6 +794,7 @@ export function PlainFilePane({
           blameGutter(),
           lineNumbers(),
           history(),
+          retainedAccess.of([]),
           addressBinding.of(addressExtensions(initial.path, initial.language, lspRef.current.client)),
           paneSearch("file"),
           search({ top: true }),
@@ -824,14 +857,14 @@ export function PlainFilePane({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loaded, saver]);
   useLayoutEffect(() => {
-    if (!railView || addressRef.current.path !== path) return;
+    if (!railView || addressRef.current.path !== path || addressRef.current.retained) return;
     const language = file?.language ?? languageFromPath(path) ?? "text";
     const installed = installedAddress.current;
     if (installed?.path === path && installed.language === language && installed.client === lsp.client) return;
     railView.dispatch({effects: addressBinding.reconfigure(addressExtensions(path, language, lsp.client))});
     installedAddress.current = {path, language, client: lsp.client};
-  }, [addressBinding, addressExtensions, file?.language, lsp.client, path, railView]);
-  useLayoutEffect(() => railView ? registerSearchEditor(path, railView) : undefined, [path, railView]);
+  }, [addressBinding, addressExtensions, file?.language, lsp.client, path, railView, retainedResource]);
+  useLayoutEffect(() => railView && !retainedResource ? registerSearchEditor(path, railView) : undefined, [path, railView, retainedResource]);
 
   /** Put text into the buffer and treat it as an unsaved edit — which is
    * exactly what it is: restored work that the file does not have yet. */
@@ -865,7 +898,7 @@ export function PlainFilePane({
   // Write the buffer down while it differs from the file. Read through a
   // callback so this costs nothing on the typing path — see lib/drafts.ts.
   useDraftKeeper({
-    path,
+    path: retainedResource ? null : path,
     enabled: file !== null && !startupReadOnly && retainUnsaved,
     read: () => ({
       // The view when it exists; what it last held when it does not. An
@@ -877,7 +910,7 @@ export function PlainFilePane({
   });
 
   // Who last touched each line, when the column is on.
-  useBlame(railView, path);
+  useBlame(railView, retainedResource ? null : path);
 
   // And the other side: a session owned by ANOTHER pane is paused in this
   // file. Drawn as the paused line here, because for reading it is one.
@@ -1006,34 +1039,37 @@ export function PlainFilePane({
 
   return (
     <div className="plain-file-pane">
-      <SurfaceInfo name={`File · ${path}`} editable={!startupReadOnly} destination={startupReadOnly
+      <SurfaceInfo name={`File · ${path}`} editable={!startupReadOnly && !retainedResource}
+        destination={retainedResource ? "Deleted source. Restore it through Undo workspace change." : startupReadOnly
         ? "Read-only source preview." : saver.isDetached() ? "Use Save All to publish this private draft." : "Edits save automatically to this file on disk."} />
       <PaneHeaderContent part="actions"><div className="doc-tab-toolbar" role="toolbar" aria-label={`Actions for ${path}`}>
-        <MoreActions label={`More actions for ${path}`}>
-        <PlainFileActions path={path} loaded={!!file && !startupReadOnly} generatedBy={generatedBy} saveKind={saveState.kind} adopting={adopting}
-          sourceRevision={() => [fileRef.current?.hash, viewRef.current?.state.doc.toString()]} adopt={adopt} onError={setNotice} />
-        </MoreActions>
-        {notice && (
-          <span className="muted plain-file__notice" role="status">
-            {notice}
-          </span>
-        )}
-        {saveState.kind === "draft" && <span className="save-state" role="status">Unsaved draft</span>}
-        {(saveState.kind === "saving" || saveState.kind === "saved") && (
-          <span
-            className={`save-state save-state-${saveState.kind === "saving" ? "editing" : "saved"}`}
-            role="status"
-          >
-            {saveState.kind === "saving" ? "Saving…" : "Saved"}
-          </span>
-        )}
+        {retainedResource ? <span className="save-state" role="status">Deleted source</span> : <>
+          <MoreActions label={`More actions for ${path}`}>
+            <PlainFileActions path={path} loaded={!!file && !startupReadOnly} generatedBy={generatedBy} saveKind={saveState.kind} adopting={adopting}
+              sourceRevision={() => [fileRef.current?.hash, viewRef.current?.state.doc.toString()]} adopt={adopt} onError={setNotice} />
+          </MoreActions>
+          {notice && (
+            <span className="muted plain-file__notice" role="status">
+              {notice}
+            </span>
+          )}
+          {saveState.kind === "draft" && <span className="save-state" role="status">Unsaved draft</span>}
+          {(saveState.kind === "saving" || saveState.kind === "saved") && (
+            <span
+              className={`save-state save-state-${saveState.kind === "saving" ? "editing" : "saved"}`}
+              role="status"
+            >
+              {saveState.kind === "saving" ? "Saving…" : "Saved"}
+            </span>
+          )}
+        </>}
       </div></PaneHeaderContent>
       {adoptError && (
         <div className="banner banner-fail" role="alert">
           Could not adopt {path}: {adoptError}
         </div>
       )}
-      {file && !startupReadOnly && <DiskChangeNotice key={path} path={path} base={saver.baseContent()} source={liveText ?? file.content}
+      {file && !startupReadOnly && !retainedResource && <DiskChangeNotice key={path} path={path} base={saver.baseContent()} source={liveText ?? file.content}
         read={async () => { const disk = await api.file(path); return { ...disk, source: disk.content }; }}
         apply={(disk, text) => {
           saver.resolve("reload"); adoptDiskCopy(disk);

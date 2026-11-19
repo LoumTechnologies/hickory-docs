@@ -122,6 +122,7 @@ const str = (v: unknown): string | undefined => (typeof v === "string" ? v : und
  */
 function readTab(raw: unknown): Tab | null {
   if (!isRecord(raw)) return null;
+  if (raw.retainedResource !== undefined) return null;
   const kind = str(raw.kind);
   const target = str(raw.target);
   const id = str(raw.id);

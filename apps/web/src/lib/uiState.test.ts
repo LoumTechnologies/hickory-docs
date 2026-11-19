@@ -38,6 +38,18 @@ describe("reading a stored layout back", () => {
     expect(restored[0].tabs[0].docId).toBe("d1");
   });
 
+  it("does not reopen a retained deletion as a live file on restart", () => {
+    const ui = normalizeUi(stored({
+      ...onePane,
+      root: {...onePane.root, tabs: [
+        {id: "deleted", kind: "file", target: "\0retained-file:deleted",
+          retainedResource: {path: "notes.md", identity: "old"}},
+        ...onePane.root.tabs,
+      ]},
+    }));
+    expect(panes(ui.layout!.root)[0].tabs.map(tab => tab.target)).toEqual(["notes.md"]);
+  });
+
   it("mints fresh ids, so the session's counter cannot hand one out twice", () => {
     // Ids come from a counter that restarts at zero every session. A restored
     // `pane-1` plus the next split's `pane-1` is two panes with one id, and

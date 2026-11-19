@@ -622,7 +622,8 @@ export async function editorContext(
   const buffers = await Promise.all(tabs.map(async tab => {
     const session = registry.get(tab.docId);
     let content: string;
-    if (tab.kind === "untitled") content = untitled[tab.id] ?? "";
+    if (tab.retainedResource) content = plain.get(tab.id) ?? "";
+    else if (tab.kind === "untitled") content = untitled[tab.id] ?? "";
     else if (tab.kind === "document") {
       content = session?.docEditor?.state.doc.toString() ?? session?.liveSource
         ?? (await api.doc(tab.docId!)).source;
@@ -631,8 +632,8 @@ export async function editorContext(
         ?? visiblePlain.get(tab.target)
         ?? session?.outputs.get(tab.target)?.content ?? (await api.file(tab.target)).content;
     }
-    return { id: tab.id, kind: tab.kind, ...(tab.kind === "untitled" ? { provenance_uri: bufferTarget(tab.id) } : {}), ...(tab.kind === "generated" ? { document: session?.doc?.path ?? tabs.find(t => t.kind === "document" && t.docId === tab.docId)?.target } : {}), name: tab.title ?? tab.target, path: tab.kind === "untitled" ? null : tab.target,
-      observations: [...observationContext(tab.target, content), ...providerObservationContext(tab.target, content)], content, focused: tab.id === focused };
+    return { id: tab.id, kind: tab.kind, ...(tab.kind === "untitled" ? { provenance_uri: bufferTarget(tab.id) } : {}), ...(tab.kind === "generated" ? { document: session?.doc?.path ?? tabs.find(t => t.kind === "document" && t.docId === tab.docId)?.target } : {}), name: tab.title ?? tab.target, path: tab.kind === "untitled" || tab.retainedResource ? null : tab.target,
+      observations: tab.retainedResource ? [] : [...observationContext(tab.target, content), ...providerObservationContext(tab.target, content)], content, focused: tab.id === focused };
   }));
   const documents: ReadingProjection["documents"] = [];
   for (const buffer of buffers) {
@@ -704,8 +705,11 @@ export function captureWorkspacePatch(
     if (tab.kind === "generated") continue;
     if (ids.has(tab.id)) throw Error("The original authored tab identity is ambiguous.");
     ids.add(tab.id);
-    if (tab.kind === "untitled") {
-      const source = readUntitled(tab.id);
+    if (tab.kind === "untitled" || tab.retainedResource) {
+      const retained = tab.retainedResource ? readNamed(tab) : null;
+      const source = tab.retainedResource
+        ? retained && matchesScope(retained.scope, scope) && retained.path === tab.retainedResource.path ? retained : null
+        : readUntitled(tab.id);
       if (!source || !Number.isSafeInteger(source.revision) || source.revision < 0) {
         throw Error("An unnamed draft is still loading. Open it before reviewing this patch.");
       }

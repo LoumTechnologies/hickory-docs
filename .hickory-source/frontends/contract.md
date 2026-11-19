@@ -2982,8 +2982,11 @@ adoption. Review-based workspace Undo and Redo use the retained
 recovery identity and require a separate Save for each inverse. A move
 to an unoccupied editor address retargets the same open plain tab and
 replaces its path-specific services. Later saves use the new path and
-guard. Moving an open managed editor or deleting any open editor still
-requires Main editor adoption support.
+guard. Deleting an open plain file removes its live address and keeps its
+editor readable in the window. Reviewed restoration matches the retained
+resource identity and reinstalls its file guard. The window arrangement
+does not reopen this session-only tab as a live file after restart. Moving
+or deleting an open managed document still requires Main adoption support.
 
 A genuine TypeScript Move to a new file replay previewed the import in
 `move.ts` and the proposed `relocate.ts` export. Both saved and draft layers
@@ -3023,6 +3026,19 @@ after the disk move. The new text stayed in the editor and in private
 draft recovery with retention enabled. Main sent no old-path writes
 and withheld its workspace history entry. See
 `target/main-resource-renamefile-late-local-v2/browser.json`.
+
+A controlled provider's DeleteFile passed through Save, reviewed Undo, and
+reviewed Redo in Chromium. All three publications retained the original
+editor, text, selection, and viewport. Delete and Redo removed the path
+from Files and disk and blocked ordinary typing in the retained tab.
+Undo restored the exact saved bytes and editability in the same editor.
+The browser made no standalone source writes. An independent file
+created at the deleted path after Undo review made the engine refuse
+restoration. Files refreshed automatically and opened the new occupant
+in a separate editor. Returning to the old tab preserved its read-only
+text, selection, and viewport. See
+`target/main-resource-deletefile-final-v1/browser.json` and
+`target/main-resource-deletefile-stale-undo-refresh-v4/browser.json`.
 
 Focused rebuilt-engine replays also passed for Python definition and
 Back/Forward, workspace search, delayed first-open authority and capabilities,

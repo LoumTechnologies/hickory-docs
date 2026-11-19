@@ -686,7 +686,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   const navigateHistoryRef = useRef<(direction: -1 | 1, current?: () => boolean) => void>(() => {});
   const activeSourceEditor = useCallback(() => {
     const tab = focusIntent.current.tab;
-    if (!tab || !["file", "document", "generated"].includes(tab.kind)) return null;
+    if (!tab || tab.retainedResource || !["file", "document", "generated"].includes(tab.kind)) return null;
     const body = [...(shellBox?.querySelectorAll<HTMLElement>("[data-workspace-tab]") ?? [])]
       .find(element => element.dataset.workspaceTab === tab.id);
     const focused = focusedEditor();
@@ -1315,6 +1315,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         retained.every((tab, index) => tab.id === originalTabs[index].id && tab.target === originalTabs[index].target);
     };
     return tools.captureWorkspacePatch(originalTabs, scope, tab => {
+      if (tab.retainedResource) return plainPatchOwners.current.get(tab.id)?.();
       const owner = readChangeOwner(tab.target);
       return owner.tab?.id === tab.id ? owner.owner : undefined;
     }, id => {
@@ -1571,20 +1572,30 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       const destinations = new Map(review.patches.flatMap(patch => patch.after ? [[patch.after.identity, {
         path: patch.path, text: patch.after.text,
       }] as const] : []));
+      const retained = panesOf(layoutRef.current.root).flatMap(pane => pane.tabs)
+        .filter(tab => tab.retainedResource);
       const stages = review.patches.flatMap(patch => {
-        const {tab, owner} = readChangeOwner(patch.path);
+        const live = readChangeOwner(patch.path);
+        const restored = !patch.before && patch.after
+          ? retained.find(tab => tab.retainedResource?.identity === patch.after?.identity) : undefined;
+        const tab = live.tab ?? restored;
         if (!tab) return [];
-        const destination = patch.before && destinations.get(patch.before.identity);
+        const identity = patch.before?.identity ?? restored?.retainedResource?.identity;
+        const destination = identity ? destinations.get(identity) : undefined;
         const saved = destination && review.saved[destination.path];
+        const owner = restored && !live.tab ? plainPatchOwners.current.get(restored.id)?.() : live.owner;
         const moved = destination && destination.path !== patch.path;
         const canRetarget = !moved || (tab.kind === "file" && !destination.path.endsWith(".md") &&
           !readChangeOwner(destination.path).tab);
-        if (!owner || !patch.before || !destination || !saved || saved.kind !== "file" || !canRetarget) {
+        if (!owner || !identity || (!patch.before && live.tab) || !canRetarget ||
+            (destination ? saved?.kind !== "file" : tab.kind !== "file")) {
           throw Error(`The open editor for ${patch.path} cannot adopt this resource transition in place.`);
         }
-        const stage = owner.text === patch.before.text && owner.prepareResource?.(destination.text, saved.text, destination.path);
+        const before = patch.before?.text ?? destination?.text;
+        const stage = owner.text === before && owner.prepareResource?.(destination?.text ?? owner.text,
+          saved?.kind === "file" ? saved.text : owner.base, destination?.path ?? null);
         if (!stage || !stage.current()) throw Error(`The open editor for ${patch.path} is unavailable for resource publication.`);
-        return [{from: patch.path, to: destination.path, tab, stage}];
+        return [{from: patch.path, to: destination?.path ?? null, identity, tab, stage}];
       });
       const owned = () => current() && stages.every(({stage}) => stage.current());
       // Retain the same review identity so a dispatched request can't be retried.
@@ -1593,6 +1604,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         const files = confirmedResourceFiles(review.patches, receipt, expected);
         if (!owned()) throw Error("Open editors changed during publication.");
         const adoptions = stages.map(({to, tab, stage}) => {
+          if (to === null) return {stage, authority: null};
           const file = files.get(to);
           if (!file?.save_guard || file.file.doc_id !== tab.docId) {
             throw Error(`The saved source has no matching editor authority: ${to}`);
@@ -1602,7 +1614,10 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         await Promise.all(adoptions.map(({stage}) => stage.waitForSavedSource?.()));
         if (!owned()) throw Error("Open editors changed while confirming the saved resource sources.");
         for (const {stage, authority} of adoptions) stage.adopt(authority);
-        const moved = new Map(stages.filter(({from, to}) => from !== to).map(({tab, to}) => [tab.id, to]));
+        const moved = new Map(stages.filter(({from, to, tab}) => from !== to || tab.retainedResource)
+          .map(({from, to, identity, tab}) => [tab.id, to === null
+            ? {target: `\0retained-file:${tab.id}`, retainedResource: {path: from, identity}}
+            : {target: to}]));
         if (moved.size) {
           providerNavigation.current++;
           setFileReferences(null);
@@ -1623,6 +1638,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       window.dispatchEvent(new Event(FILES_CHANGED_EVENT));
     } catch (error) {
       setChangeError(error instanceof Error ? error.message : String(error));
+      window.dispatchEvent(new Event(FILES_CHANGED_EVENT));
     } finally {
       try {
         for (const stage of held) stage.release?.();
@@ -2667,7 +2683,8 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       return (
         <PlainFilePane
           key={tab.id}
-          path={tab.target}
+          path={tab.retainedResource?.path ?? tab.target}
+          retainedResource={!!tab.retainedResource}
           proposalTabId={tab.id} proposalOwner={registerPlainPatchOwner}
           startup={plainStartup?.id === tab.id && plainStartup.observation.source.path === tab.target ? plainStartup.observation : undefined}
           takePreparedSource={takePreparedSource}
