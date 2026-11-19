@@ -31,7 +31,7 @@ an earlier open item only for the behavior it actually exercises.
 
 | Required outcome | Current usable evidence and remaining acceptance |
 | --- | --- |
-| Navigation and code intelligence | Search Everywhere, file and saved-text search, outlines, semantic locations and back/forward have focused receipts. The genuine Python browser witness covers cross-file definitions/usages and caller/callee queries. Configured csharp-ls adds browser definitions, usages and history. A controlled child covers standard LSP type hierarchy, including browser rendering and native protocol/model checks. Installed basedpyright and TypeScript Language Server read ordinary Markdown fences on browser, mounted macOS and rendered Android. Mounted iOS passed real basedpyright cross-file Definition and native Back and Forward. An Android controller navigated into a literal source tab while Agent was open. Index breadth depends on the installed provider. Unavailable capabilities and unsupported fence actions leave authored text readable. |
+| Navigation and code intelligence | Search Everywhere, file and saved-text search, outlines, semantic locations and back/forward have focused receipts. The genuine Python browser witness covers cross-file definitions/usages and caller/callee queries. Configured csharp-ls adds browser definitions, usages and history. A controlled child covers standard LSP type hierarchy, including browser rendering and native protocol/model checks. Installed basedpyright and TypeScript Language Server read ordinary Markdown fences on browser, mounted macOS, iPhone simulator and rendered Android. Mounted iOS passed real basedpyright cross-file Definition and native Back and Forward. An Android controller navigated into a literal source tab while Agent was open. Index breadth depends on the installed provider. Unavailable capabilities and unsupported fence actions leave authored text readable. |
 | Refactoring, cleanup, generation, templates and history | Genuine basedpyright and configured csharp-ls cover cross-file rename in the browser. TypeScript Language Server 6.1.0 with TypeScript 6.0.3 covers extraction, accessor generation, cleanup and Move to a new file on browser, mounted macOS and the Android controller. Guarded native action and formatting receipts include controlled providers. Preview holds the complete edit. Missing preimages, commands without supported effects and changed owner revisions refuse the group. Later template receipts close the earlier embedded and multi-caret catalog gaps. Expanded regex and source-bound variable programs retain their syntax and work bounds. Mounted iOS and rendered Android covered reviewed Cleanup. Mounted iOS also replayed native Paste, coordinated Cleanup Undo/Redo and the genuine CRLF and LF TypeScript extraction. |
 | Diagnostics and contextual fixes | Genuine basedpyright browser and rendered Android Problems, configured csharp-ls browser Problems, and clangd mounted iOS Problems exercised exact source navigation. Real clangd engine coverage includes the missing-semicolon quick fix. Controlled-child receipts cover complete-file `source.fixAll` acquisition, review, draft Apply and Undo/Redo on browser, mounted macOS and the Android controller, including a prose-origin action that acquires its copy contributor. Stale and unversioned diagnostics stay readable. Precise navigation and application require matching authority. Mounted iOS and rendered Android exercised the genuine clangd missing-semicolon Quick Fix through guarded review, draft Apply and coordinated Undo/Redo. Provider workspace completeness and additional source mappings remain open. |
 | Testing and coverage | Discovery, failed results, coverage and failed-only reruns have provider receipts for pytest, Jest, Vitest, Cargo with cargo-llvm-cov, and .NET with Coverlet. Connected pytest runs on browser, macOS and the Android controller. Mounted iOS executed selected pytest and rendered a collected failure and coverage. Rendered Android ran the saved Rust case and retained exit 0. Rendered Android discovered both pytest cases, retained a coverage run and reran only the deliberate failure. Source-adjacent Run and Debug distinguish process exit from a provider verdict. Unsupported runners and stale, missing or ambiguous test identities refuse selection. Coverage navigation requires matching source hashes. |
@@ -1405,15 +1405,16 @@ and side edges stayed fixed. The TypeScript editor held its full frame.
 See the rendered receipts in
 `target/parity-rendered-android.sgYIt7/continuation-receipts/final-android-v_z3avk0/fenced-definition/`
 and `target/parity-rendered-android.sgYIt7/continuation-receipts/final-android-jjuqbi_2/fenced-definition/`.
-The standalone iPhone replay opened the same fixture and placed the native
-caret at the first code unit of each Python and TypeScript caller identifier.
-The same editor and source stayed mounted when Language tools opened. Both
-providers received the exact fenced text. The replay observed no Definition
-request or rendered result after the command tap. The menu moved during
-opening, and the reported socket closure followed fixture shutdown.
-Command activation and exact destination navigation remain open on iOS.
-See `target/ios-fenced-definition-direct-symbol-both/`. Physical input and
-assistive technology remain unverified for this flow.
+The standalone iPhone replay opened the same fixture in two launches on
+one owned simulator. Measured native taps invoked Go to Definition at each
+author's caller caret. The floating Language tools panel scrolled to reveal
+the rendered results `notes.md:5:7` and `notes.md:11:31`. Native selection
+moved the same UIKit editor to each authored declaration. A second request
+from that caret reached the exact declaration in the private provider
+document. The saved source, provider configuration, workspace entries and
+Undo manager stayed intact. Earlier attempts tapped during menu movement.
+See `target/ios-fenced-definition-direct-stable-both/{python,typescript}/receipt.json`.
+Physical device input and assistive technology remain unverified for this flow.
 
 ## Debug a saved Rust test selection through Cargo and LLDB
 
