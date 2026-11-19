@@ -63,19 +63,6 @@ retires the request.
  var acquiring by remember{mutableStateOf(false)}
  fun retireReading(){readingIntent++;acquiring=false;model.close();workspace.behaviorReading.close();model.notice=""}
  DisposableEffect(model){onDispose{readingIntent++;model.close();workspace.behaviorReading.close()}}
- suspend fun openPoint(point:TestSourcePoint){
-  val current=model.sourceLink();val epoch=workspace.sourceNavigationEpoch
-  fun valid()=current()&&workspace.showConstruction&&workspace.sourceNavigationEpoch==epoch
-  fun find(files:List<FileNode>):FileNode?{for(file in files){if(file.path==point.path)return file;find(file.children)?.let{return it}};return null}
-  try{
-   val file=(workspace.buffers[point.path]?.file ?: find(workspace.rootFiles))?.takeUnless{it.dir} ?: error("Source no longer listed. Refresh the construction reading.")
-   val buffer=workspace.loadBuffer(file);val source=buffer.text
-   val hash=kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default){java.security.MessageDigest.getInstance("SHA-256").digest(source.toByteArray(Charsets.UTF_8)).joinToString(""){"%02x".format(it)}}
-   if(!valid())return
-   check(buffer.text==source&&constructionPointOffset(source,point,hash)!=null){"Source changed or position is unavailable. Refresh the construction reading."}
-   workspace.openSemanticLocation(SemanticLocation(languageURI(point.path),point.line-1,point.character),allowDirty=true,expectedSource=source,isCurrent=::valid,onRevealed={if(valid())workspace.showConstruction=false})
-  }catch(error:CancellationException){throw error}catch(error:Exception){if(valid())model.notice=error.message.orEmpty()}
- }
  suspend fun read(connectedOnly:Boolean=false) {
   val engine=workspace.engine ?: run{model.notice="Connect to a workspace server first.";return}
   val id=++readingIntent
@@ -128,7 +115,7 @@ retires the request.
  value.outputs.forEach{output->TextButton(onClick={model.selected=output.path}){Text("${output.change} · ${output.path}")}}
  (value.outputs.firstOrNull{it.path==model.selected} ?: value.outputs.firstOrNull())?.let{output->Text("${output.change} · ${output.path}",style=MaterialTheme.typography.titleSmall);Text("Contributors: ${output.contributors.joinToString()}",fontSize=12.sp);Row{TextButton(onClick={model.after=false}){Text("Saved construction")};TextButton(onClick={model.after=true}){Text("Draft construction")}}
  val snapshot=if(model.after)output.after else output.before;if(snapshot==null)Text("Output absent from this construction.")else{Text("${snapshot.kind} · ${snapshot.size} bytes · executable ${snapshot.executable}",fontSize=12.sp);SelectionContainer{Text(snapshot.preview ?: "Binary output; text preview unavailable.",fontFamily=FontFamily.Monospace,fontSize=12.sp)};if(snapshot.abbreviated)Text("Preview abbreviated.",fontSize=12.sp)}
- Text("Compiler contribution ranges",style=MaterialTheme.typography.titleSmall);output.origins.forEach{origin->Text("${origin.phase} · ${origin.path} bytes ${origin.source.joinToString("–")} → output bytes ${origin.output.joinToString("–")} · ${if(origin.exact)"equal byte slices" else "reported origin; exact bytes unconfirmed"}",fontSize=12.sp);origin.fragment?.let{Text("Declared ${it.kind} #${it.name}",fontSize=12.sp)};origin.point?.let{point->TextButton(onClick={scope.launch{openPoint(point)}}){Text("Open ${origin.phase} contributor ${origin.path}")}}};if(output.truncated)Text("First 100 origins shown.",fontSize=12.sp)}
+ Text("Compiler contribution ranges",style=MaterialTheme.typography.titleSmall);output.origins.forEach{origin->Text("${origin.phase} · ${origin.path} bytes ${origin.source.joinToString("–")} → output bytes ${origin.output.joinToString("–")} · ${if(origin.exact)"equal byte slices" else "reported origin; exact bytes unconfirmed"}",fontSize=12.sp);origin.fragment?.let{Text("Declared ${it.kind} #${it.name}",fontSize=12.sp)};origin.point?.let{point->TextButton(onClick={val navigate=model.sourceNavigation(workspace,point);scope.launch{navigate()}}){Text("Open ${origin.phase} contributor ${origin.path}")}}};if(output.truncated)Text("First 100 origins shown.",fontSize=12.sp)}
  Text("Detected test declarations",style=MaterialTheme.typography.titleSmall);value.tests.forEach{Text(it,fontSize=12.sp)}
  }
  }
@@ -137,9 +124,51 @@ retires the request.
 
 ## Validate a captured point before moving the editor
 
-A source link needs a matching SHA-256 value computed over the acquired text. Require a positive line, an in-range UTF-16 column and a scalar boundary; never clamp a stale point into the document. File identity, workspace lifetime and captured-reading lifetime are checked separately by the navigation adapter.
+A source link captures the current foreground tab choice and reading before it
+starts loading. If the user chooses another tab during the read or hash, the
+source can remain cached without switching the editor. A current link still
+requires exact SHA-256, an in-range UTF-16 column and a scalar boundary before
+revealing the source and closing the reading.
 
 <ui:copy id="construction-reading-android-source-point">
+internal fun ConstructionReadingModel.sourceNavigation(workspace: Workspace, point: TestSourcePoint): suspend () -> Unit {
+ val currentLink = sourceLink()
+ val epoch = workspace.sourceNavigationEpoch
+ val reading = value
+ val engine = workspace.engine
+ val foreground = workspace.captureForegroundNavigation()
+ fun current() = currentLink() && value === reading && workspace.showConstruction &&
+  workspace.sourceNavigationEpoch == epoch && workspace.engine === engine
+ return navigate@{
+  if (!current() || !foreground()) return@navigate
+  fun find(files: List<FileNode>): FileNode? {
+   for (file in files) {
+    if (file.path == point.path) return file
+    find(file.children)?.let { return it }
+   }
+   return null
+  }
+  try {
+   val file = (workspace.buffers[point.path]?.file ?: find(workspace.rootFiles))?.takeUnless { it.dir }
+    ?: error("Source no longer listed. Refresh the construction reading.")
+   val buffer = workspace.loadBuffer(file)
+   val source = buffer.text
+   val revision = buffer.sourceRevision
+   val selection = buffer.state.selection
+   val hash = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { debugHash(source) }
+   if (!current() || !foreground()) return@navigate
+   fun sourceCurrent() = current() && workspace.buffers[point.path] === buffer && buffer.text == source &&
+    buffer.sourceRevision == revision && buffer.state.selection == selection
+   check(sourceCurrent() && constructionPointOffset(source, point, hash) != null) {
+    "Source changed or position is unavailable. Refresh the construction reading."
+   }
+   workspace.openSemanticLocation(SemanticLocation(languageURI(point.path), point.line - 1, point.character),
+    allowDirty = true, expectedSource = source, isCurrent = ::sourceCurrent, onRevealed = { workspace.showConstruction = false })
+  } catch (cancelled: CancellationException) { throw cancelled }
+  catch (error: Exception) { if (current() && foreground()) notice = error.message.orEmpty() }
+ }
+}
+
 fun constructionPointOffset(source:String,point:TestSourcePoint,actualHash:String):Int? {
  if(!point.hash.matches(Regex("[0-9a-f]{64}"))||point.hash!=actualHash||point.line<1||point.character<0)return null
  val rows=source.split('\n');if(point.line>rows.size||point.character>rows[point.line-1].length)return null
@@ -152,12 +181,13 @@ fun constructionPointOffset(source:String,point:TestSourcePoint,actualHash:Strin
 <ui:file path="apps/android-simple/app/src/main/java/com/hickorydocs/simple/ConstructionReading.kt"><ui:paste select="#construction-reading-android-model"/><ui:paste select="#construction-reading-android-view"/><ui:paste select="#construction-reading-android-source-point"/></ui:file>
 ## Retire replaced and closed readings
 
-Release held compiler replies after a newer reading or after closing. Neither may replace the retained result. A different entry refuses instead of appearing under the selected construction. Source-point cases also require exact hashes and Unicode scalar boundaries, and a newer link retires an older link. These service witnesses do not establish native physical input or assistive technology acceptance.
+Release held compiler replies after a newer reading or after closing. A different entry refuses instead of appearing under the selected construction. The source-link witness decodes a captured contribution, holds its ordinary file response, and chooses another tab before returning to the same dirty editor. A newly clicked link can then reveal the exact UTF-16 position in the cached file. These service witnesses cover the native model and HTTP route.
 
 <ui:copy id="construction-reading-android-lifetime-witness">
 package com.hickorydocs.simple
 import org.junit.Test
 import org.junit.Assert.*
+import org.json.JSONObject
 import kotlinx.coroutines.*
 class ConstructionReadingTest {
  @Test fun boundEntryOverridePreservesLiteralAddress()=kotlinx.coroutines.runBlocking {
@@ -183,6 +213,91 @@ class ConstructionReadingTest {
   assertEquals(source.indexOf("code"),constructionPointOffset(source,point,hash))
   assertNull(constructionPointOffset(source,point.copy(character=2),hash));assertNull(constructionPointOffset(source,point.copy(line=0),hash));assertNull(constructionPointOffset(source,point.copy(character=99),hash));assertNull(constructionPointOffset(source,point,"b".repeat(64)))
   val model=ConstructionReadingModel();model.read{_,_->value()};val old=model.sourceLink();val latest=model.sourceLink();assertFalse(old());assertTrue(latest());model.close();assertFalse(latest())
+ }
+
+ @Test fun heldConstructionSourceRespectsNewerForegroundChoice() = runBlocking {
+  val source = "first\né😀code\n"
+  val path = "part.md"
+  val arrived = CompletableDeferred<Unit>()
+  val release = java.util.concurrent.CountDownLatch(1)
+  val listener = com.sun.net.httpserver.HttpServer.create(java.net.InetSocketAddress("127.0.0.1", 0), 0)
+  fun respond(exchange: com.sun.net.httpserver.HttpExchange, body: JSONObject) {
+   val bytes = body.toString().toByteArray(Charsets.UTF_8)
+   exchange.sendResponseHeaders(200, bytes.size.toLong())
+   exchange.responseBody.use { it.write(bytes) }
+  }
+  listener.createContext("/api/construction/reading") { exchange ->
+   check(exchange.requestMethod == "POST")
+   check(JSONObject(exchange.requestBody.bufferedReader().use { it.readText() }).getString("entry") == "project.md")
+   respond(exchange, JSONObject("""{
+    "version":1,"entry":"project.md","focus":null,"materialized":false,"output_count":1,"outputs_truncated":false,
+    "test_count":0,"tests_truncated":false,"test_relationship":"declaration","evidence_status":"not_queried",
+    "notices":[],"unused_sources":[],"tests":[],"outputs":[{"path":"output.txt","change":"modified",
+    "contributors":["$path"],"origins_truncated":false,"origins":[{"phase":"draft","path":"$path",
+    "source_bytes":[0,1],"output_bytes":[0,1],"exact":true,"source_point":{
+    "path":"$path","line":2,"character":3,"hash":"${debugHash(source)}"}}]}]}
+   """))
+  }
+  listener.createContext("/api/file") { exchange ->
+   check(exchange.requestURI.query == "path=$path")
+   arrived.complete(Unit)
+   check(release.await(8, java.util.concurrent.TimeUnit.SECONDS))
+   respond(exchange, JSONObject().put("content", source).put("hash", "saved"))
+  }
+  listener.start()
+  fun file(path: String) = FileNode(path, path, false, emptyList(), null, null)
+  val engine = Engine("http://127.0.0.1:${listener.address.port}")
+  val workspace = Workspace(this)
+  workspace.engine = engine
+  workspace.rootFiles = listOf(file(path))
+  val draft = DocumentBuffer(file("project.md"), FileText("local", "saved"))
+  val other = DocumentBuffer(file("other.md"), FileText("other tab", "saved"))
+  val selection = androidx.compose.ui.text.TextRange(2, 4)
+  draft.state.edit { append(" draft"); this.selection = selection }
+  draft.sourceScroll.scrollTo(9)
+  workspace.buffers[draft.file.path] = draft
+  workspace.buffers[other.file.path] = other
+  workspace.show(sourceTab(other.file.path))
+  workspace.show(sourceTab(draft.file.path))
+  workspace.showConstruction = true
+  val model = ConstructionReadingModel()
+  try {
+   model.read { entry, focus ->
+    val body = JSONObject().put("entry", entry).put("focus", focus ?: JSONObject.NULL)
+    constructionReading(engine.request("POST", "/api/construction/reading", body), entry, focus)
+   }
+   val reading = checkNotNull(model.value)
+   val point = checkNotNull(reading.outputs.single().origins.single().point)
+   val navigate = model.sourceNavigation(workspace, point)
+   val pending = async { navigate() }
+   withTimeout(4000) { arrived.await() }
+   workspace.show(sourceTab(other.file.path))
+   workspace.show(sourceTab(draft.file.path))
+   val layout = workspace.layout
+   val trail = workspace.navigationTrail
+   release.countDown()
+   pending.await()
+   assertSame(draft, workspace.currentBuffer)
+   assertSame(layout, workspace.layout)
+   assertSame(trail, workspace.navigationTrail)
+   assertSame(reading, model.value)
+   assertTrue(workspace.showConstruction)
+   assertEquals("local draft", draft.text)
+   assertEquals(selection, draft.state.selection)
+   assertEquals(9, draft.sourceScroll.value)
+   val cached = workspace.buffers.getValue(path)
+   assertEquals(source, cached.text)
+
+   model.sourceNavigation(workspace, point)()
+   assertSame(cached, workspace.currentBuffer)
+   assertEquals(androidx.compose.ui.text.TextRange(source.indexOf("code")), cached.state.selection)
+   assertFalse(workspace.showConstruction)
+   assertEquals(selection, draft.state.selection)
+  } finally {
+   release.countDown()
+   workspace.buffers.values.forEach { it.language?.close() }
+   listener.stop(0)
+  }
  }
 
 }

@@ -2614,6 +2614,14 @@ position and closed Tests. Nine focused Swift cases and four focused Android
 cases passed. See `target/apple-bound-report-navigation-final.log` and
 `target/android-test-source-navigation-focused-receipt/`.
 
+Android Construction Reading now captures the foreground editor choice when
+the contributor link is clicked. A focused native controller test held the
+file read, switched away from the draft and back, then released the response.
+The draft, selection, scroll, history and reading stayed in place. A fresh
+click opened the cached, hash-verified source at its exact UTF-16 position.
+Five focused Android tests passed across Construction Reading, Coverage and
+Test Sources. See `target/android-construction-navigation-focused-receipt/`.
+
 Coverage uses a separate reply for a retired source link so the report stays
 open. A new report selection retires the old link before loading the new
 report, and the native hosts also retire a superseded link or editor choice.

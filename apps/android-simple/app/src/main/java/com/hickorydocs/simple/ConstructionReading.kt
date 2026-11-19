@@ -40,19 +40,6 @@ class ConstructionReadingModel {
  var acquiring by remember{mutableStateOf(false)}
  fun retireReading(){readingIntent++;acquiring=false;model.close();workspace.behaviorReading.close();model.notice=""}
  DisposableEffect(model){onDispose{readingIntent++;model.close();workspace.behaviorReading.close()}}
- suspend fun openPoint(point:TestSourcePoint){
-  val current=model.sourceLink();val epoch=workspace.sourceNavigationEpoch
-  fun valid()=current()&&workspace.showConstruction&&workspace.sourceNavigationEpoch==epoch
-  fun find(files:List<FileNode>):FileNode?{for(file in files){if(file.path==point.path)return file;find(file.children)?.let{return it}};return null}
-  try{
-   val file=(workspace.buffers[point.path]?.file ?: find(workspace.rootFiles))?.takeUnless{it.dir} ?: error("Source no longer listed. Refresh the construction reading.")
-   val buffer=workspace.loadBuffer(file);val source=buffer.text
-   val hash=kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default){java.security.MessageDigest.getInstance("SHA-256").digest(source.toByteArray(Charsets.UTF_8)).joinToString(""){"%02x".format(it)}}
-   if(!valid())return
-   check(buffer.text==source&&constructionPointOffset(source,point,hash)!=null){"Source changed or position is unavailable. Refresh the construction reading."}
-   workspace.openSemanticLocation(SemanticLocation(languageURI(point.path),point.line-1,point.character),allowDirty=true,expectedSource=source,isCurrent=::valid,onRevealed={if(valid())workspace.showConstruction=false})
-  }catch(error:CancellationException){throw error}catch(error:Exception){if(valid())model.notice=error.message.orEmpty()}
- }
  suspend fun read(connectedOnly:Boolean=false) {
   val engine=workspace.engine ?: run{model.notice="Connect to a workspace server first.";return}
   val id=++readingIntent
@@ -105,11 +92,49 @@ class ConstructionReadingModel {
  value.outputs.forEach{output->TextButton(onClick={model.selected=output.path}){Text("${output.change} · ${output.path}")}}
  (value.outputs.firstOrNull{it.path==model.selected} ?: value.outputs.firstOrNull())?.let{output->Text("${output.change} · ${output.path}",style=MaterialTheme.typography.titleSmall);Text("Contributors: ${output.contributors.joinToString()}",fontSize=12.sp);Row{TextButton(onClick={model.after=false}){Text("Saved construction")};TextButton(onClick={model.after=true}){Text("Draft construction")}}
  val snapshot=if(model.after)output.after else output.before;if(snapshot==null)Text("Output absent from this construction.")else{Text("${snapshot.kind} · ${snapshot.size} bytes · executable ${snapshot.executable}",fontSize=12.sp);SelectionContainer{Text(snapshot.preview ?: "Binary output; text preview unavailable.",fontFamily=FontFamily.Monospace,fontSize=12.sp)};if(snapshot.abbreviated)Text("Preview abbreviated.",fontSize=12.sp)}
- Text("Compiler contribution ranges",style=MaterialTheme.typography.titleSmall);output.origins.forEach{origin->Text("${origin.phase} · ${origin.path} bytes ${origin.source.joinToString("–")} → output bytes ${origin.output.joinToString("–")} · ${if(origin.exact)"equal byte slices" else "reported origin; exact bytes unconfirmed"}",fontSize=12.sp);origin.fragment?.let{Text("Declared ${it.kind} #${it.name}",fontSize=12.sp)};origin.point?.let{point->TextButton(onClick={scope.launch{openPoint(point)}}){Text("Open ${origin.phase} contributor ${origin.path}")}}};if(output.truncated)Text("First 100 origins shown.",fontSize=12.sp)}
+ Text("Compiler contribution ranges",style=MaterialTheme.typography.titleSmall);output.origins.forEach{origin->Text("${origin.phase} · ${origin.path} bytes ${origin.source.joinToString("–")} → output bytes ${origin.output.joinToString("–")} · ${if(origin.exact)"equal byte slices" else "reported origin; exact bytes unconfirmed"}",fontSize=12.sp);origin.fragment?.let{Text("Declared ${it.kind} #${it.name}",fontSize=12.sp)};origin.point?.let{point->TextButton(onClick={val navigate=model.sourceNavigation(workspace,point);scope.launch{navigate()}}){Text("Open ${origin.phase} contributor ${origin.path}")}}};if(output.truncated)Text("First 100 origins shown.",fontSize=12.sp)}
  Text("Detected test declarations",style=MaterialTheme.typography.titleSmall);value.tests.forEach{Text(it,fontSize=12.sp)}
  }
  }
 }
+internal fun ConstructionReadingModel.sourceNavigation(workspace: Workspace, point: TestSourcePoint): suspend () -> Unit {
+ val currentLink = sourceLink()
+ val epoch = workspace.sourceNavigationEpoch
+ val reading = value
+ val engine = workspace.engine
+ val foreground = workspace.captureForegroundNavigation()
+ fun current() = currentLink() && value === reading && workspace.showConstruction &&
+  workspace.sourceNavigationEpoch == epoch && workspace.engine === engine
+ return navigate@{
+  if (!current() || !foreground()) return@navigate
+  fun find(files: List<FileNode>): FileNode? {
+   for (file in files) {
+    if (file.path == point.path) return file
+    find(file.children)?.let { return it }
+   }
+   return null
+  }
+  try {
+   val file = (workspace.buffers[point.path]?.file ?: find(workspace.rootFiles))?.takeUnless { it.dir }
+    ?: error("Source no longer listed. Refresh the construction reading.")
+   val buffer = workspace.loadBuffer(file)
+   val source = buffer.text
+   val revision = buffer.sourceRevision
+   val selection = buffer.state.selection
+   val hash = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { debugHash(source) }
+   if (!current() || !foreground()) return@navigate
+   fun sourceCurrent() = current() && workspace.buffers[point.path] === buffer && buffer.text == source &&
+    buffer.sourceRevision == revision && buffer.state.selection == selection
+   check(sourceCurrent() && constructionPointOffset(source, point, hash) != null) {
+    "Source changed or position is unavailable. Refresh the construction reading."
+   }
+   workspace.openSemanticLocation(SemanticLocation(languageURI(point.path), point.line - 1, point.character),
+    allowDirty = true, expectedSource = source, isCurrent = ::sourceCurrent, onRevealed = { workspace.showConstruction = false })
+  } catch (cancelled: CancellationException) { throw cancelled }
+  catch (error: Exception) { if (current() && foreground()) notice = error.message.orEmpty() }
+ }
+}
+
 fun constructionPointOffset(source:String,point:TestSourcePoint,actualHash:String):Int? {
  if(!point.hash.matches(Regex("[0-9a-f]{64}"))||point.hash!=actualHash||point.line<1||point.character<0)return null
  val rows=source.split('\n');if(point.line>rows.size||point.character>rows[point.line-1].length)return null
