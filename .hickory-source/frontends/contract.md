@@ -964,13 +964,13 @@ The installer returned HTTP 200, and the retry started the workspace's new
 the retry's terminal response. It establishes first installation and adapter
 discovery. See `target/delve-install-browser-receipt-v1/`.
 
-With the verified Go 1.26.8 SDK on PATH, another clean browser run completed
-installation, retried once, admitted the saved breakpoint and paused the real
-debugger at `main.main`, line 5. The test stopped at its frame-label assertion,
-which expected the filename in a label that shows the function and line. The
-corrected replay through Continue still awaits disk headroom. See
-`target/delve-install-browser-live-v1/`. The focused Rust discovery and
-browser setup tests passed separately.
+With the verified Go 1.26.8 SDK on PATH, the final clean browser replay
+installed the official Delve 1.26.3 binary and retried once. The real
+debugger paused at the saved breakpoint in `main.main`, line 5. Continue
+displayed `42` and retained Finished. The adapter did not report a numeric
+exit code. The same editor and exact saved bytes survived. See
+`target/delve-install-browser-completion-proof/`. The focused Rust discovery
+and browser setup tests passed separately.
 
 The installed js-debug adapter also passed a rendered Node.js project with
 a separate copy contributor. Step Into moved from authored `launch.md:7`
