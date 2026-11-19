@@ -408,7 +408,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   const focusKey = JSON.stringify([layout.focus, activeTab?.id, activeTab?.kind, activeTab?.target, activeTab?.docId]);
   const focusIntent = useRef({key: focusKey, tab: activeTab});
   const preparedFile = useRef<{file: PlainFile; current: ()=>boolean} | undefined>(undefined);
-  const preparedDocument = useRef<{doc: Doc; current: ()=>boolean} | undefined>(undefined);
+  const preparedDocument = useRef<{doc: Doc; current: ()=>boolean; workspaceCurrent: ()=>boolean} | undefined>(undefined);
   if (focusIntent.current.key !== focusKey) {
     focusIntent.current = {key: focusKey, tab: activeTab};
     if (preparedFile.current?.file.path !== activeTab?.target) preparedFile.current = undefined;
@@ -912,7 +912,8 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   }) => {
     const ticket = ++sourceVisit.current;
     const workspace = sourceWorkspace.current, focus = focusIntent.current;
-    const current = () => ticket === sourceVisit.current && sourceWorkspace.current === workspace;
+    const workspaceCurrent = () => sourceWorkspace.current === workspace;
+    const current = () => ticket === sourceVisit.current && workspaceCurrent();
     const beforeOpen = () => current() && focusIntent.current === focus && (!originCurrent || originCurrent());
     if (!beforeOpen()) return false;
 
@@ -961,7 +962,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         preparedFile.current = {file, current};
       }
       if (doc && !docIdsIn(layoutRef.current).includes(doc.id)) {
-        preparedDocument.current = {doc, current};
+        preparedDocument.current = {doc, current, workspaceCurrent};
       }
       return openHitRef.current(path, line ?? 1, undefined, target => {
         sourceActivation.current = afterSourceTabActivation(target, () => focusIntent.current, current, stillFocused => {
@@ -2072,7 +2073,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
               registry={registry}
               docId={docId}
               startup={attachedManagedStartup?.docId === docId ? attachedManagedStartup : undefined}
-              initialDocument={admittedDocument?.doc.id === docId && admittedDocument.current() ? admittedDocument.doc : undefined}
+              initialDocument={admittedDocument?.doc.id === docId && admittedDocument.current() ? admittedDocument : undefined}
               openGenerated={openGeneratedFor}
               retainUnsaved={retainSavedDrafts}
             />

@@ -49,7 +49,7 @@ import { RefactorBadge, useBaseline } from "../components/RefactorBadge";
 import type { Baseline } from "../components/RefactorBadge";
 import { GeneratedFileView } from "../shell/views";
 import { registerBufferEditor } from "../lib/editorBufferTargets";
-import type { StartupManagedDocument } from "./folderPane";
+import type { ManagedDocumentPreview, StartupManagedDocument } from "./folderPane";
 import { markUntitledEditor } from "../editor/activeEditor";
 import { focusWhenShown } from "../lib/focusWhenShown";
 import { useDocSession, type SessionRegistry } from "./documentSession";
@@ -179,7 +179,7 @@ export function DocTabBody({
   onWrapColumn,
   tableLayouts,
   onTableLayout,
-  startup,
+  startup: startupPreview,
 }: {
   registry: SessionRegistry;
   docId: string;
@@ -194,6 +194,12 @@ export function DocTabBody({
   onTableLayout?: (key: string, size: TableLayout) => void;
 }) {
   const session = useDocSession(registry, docId);
+  // Keep the first preview for the editor that mounted from it. When a
+  // generated tab keeps the session alive, a later document open can use
+  // the now-confirmed room instead of replaying the old preview.
+  const admittedPreview = useRef<ManagedDocumentPreview | null | undefined>(undefined);
+  if (session && admittedPreview.current === undefined) admittedPreview.current = session.admittedPreview ?? null;
+  const startup = startupPreview ?? admittedPreview.current ?? undefined;
   // Before the early returns: hooks may not be conditional, and the baseline
   // outlives whatever the session is doing.
   const baseline = useBaseline(docId);
@@ -273,8 +279,10 @@ export function DocTabBody({
         onToggleExceptionFilter={debug.toggleExceptionFilter}
         onRemoveWatch={debug.removeWatch}
       />
-      </> : <p className="muted" role="status">{session.fatalError ??
-        (doc ? "Waiting for the document room…" : "Checking saved source authority…")}</p>}
+      </> : <PaneHeaderContent part="info">
+        <span className="save-state" role="status">{session.fatalError ??
+          (doc ? "Waiting for the document room…" : "Checking saved source authority…")}</span>
+      </PaneHeaderContent>}
       {/* A session file opens in the same editor as every other document —
           drawn as the conversation it is (bubbles, the agent's work folded;
           see editor/wysiwyg.ts and editor/folding.ts) with every byte on
@@ -496,6 +504,7 @@ import type { Doc } from "../api/types";
 import { api } from "../api/client";
 import { SessionRegistry, type DocSession } from "./documentSession";
 import { DocTabBody, GeneratedTabBody, UntitledTab } from "./workspaceTabs";
+import { admittedManagedPreview } from "./folderPane";
 
 const readyEditor = vi.hoisted(() => ({ view: null as import("@codemirror/view").EditorView | null }));
 
@@ -797,11 +806,46 @@ it("starts a generated-file pane even when its owner session never arrives", () 
 });
 </storycode:copy>
 
+### Confirming a readable document preview
+
+The document bytes can be displayed before a room attaches. A preview with
+matching bytes can still lose write authority if the saved file or workspace
+changes during confirmation.
+
+<storycode:copy id="managed-preview-authority-witness">
+it("requires the captured save guard and a current workspace before confirming a document preview", async () => {
+  const original = {...doc, save_guard: "original"};
+  const reread = vi.spyOn(api, "doc").mockResolvedValueOnce({...original, save_guard: "replacement"});
+  try {
+    const unguarded = admittedManagedPreview({...original, save_guard: undefined}, () => true);
+    expect(unguarded.source.content).toBe(original.source);
+    await expect(unguarded.confirmRoom()).rejects.toThrow("saved source authority is unavailable");
+    expect(reread).not.toHaveBeenCalled();
+
+    let current = true;
+    const preview = admittedManagedPreview(original, () => current);
+    await expect(preview.confirmRoom()).rejects.toThrow("saved authority changed");
+    let release!: (doc: Doc) => void;
+    const held = new Promise<Doc>(resolve => { release = resolve; });
+    reread.mockReturnValueOnce(held);
+    const confirmation = preview.confirmRoom();
+    await Promise.resolve();
+    expect(reread).toHaveBeenCalledTimes(2);
+    current = false;
+    release(original);
+    await expect(confirmation).rejects.toThrow("saved authority changed");
+    expect(preview.source.content).toBe(original.source);
+  } finally {
+    reread.mockRestore();
+  }
+});
+</storycode:copy>
+
 ### Assemble `apps/web/src/views/workspaceTabs.test.tsx`
 
 The selections below preserve the original byte order. Narrative reading order does not change the output.
 
-<storycode:file path="apps/web/src/views/workspaceTabs.test.tsx"><storycode:paste select="#f-5370130a675d-readyEditor"/><storycode:paste select="#f-5370130a675d-expression_statement"/><storycode:paste select="#f-5370130a675d-expression_statement-2"/><storycode:paste select="#f-5370130a675d-expression_statement-3"/><storycode:paste select="#f-5370130a675d-expression_statement-4"/><storycode:paste select="#f-5370130a675d-doc"/><storycode:paste select="#f-5370130a675d-makeSession"/><storycode:paste select="#f-5370130a675d-mount"/><storycode:paste select="#f-5370130a675d-expression_statement-5"/><storycode:paste select="#f-5370130a675d-expression_statement-6"/><storycode:paste select="#f-5370130a675d-expression_statement-7"/><storycode:paste select="#f-5370130a675d-expression_statement-8"/><storycode:paste select="#f-5370130a675d-expression_statement-9"/></storycode:file>
+<storycode:file path="apps/web/src/views/workspaceTabs.test.tsx"><storycode:paste select="#f-5370130a675d-readyEditor"/><storycode:paste select="#f-5370130a675d-expression_statement"/><storycode:paste select="#f-5370130a675d-expression_statement-2"/><storycode:paste select="#f-5370130a675d-expression_statement-3"/><storycode:paste select="#f-5370130a675d-expression_statement-4"/><storycode:paste select="#f-5370130a675d-doc"/><storycode:paste select="#f-5370130a675d-makeSession"/><storycode:paste select="#f-5370130a675d-mount"/><storycode:paste select="#f-5370130a675d-expression_statement-5"/><storycode:paste select="#f-5370130a675d-expression_statement-6"/><storycode:paste select="#f-5370130a675d-expression_statement-7"/><storycode:paste select="#f-5370130a675d-expression_statement-8"/><storycode:paste select="#f-5370130a675d-expression_statement-9"/><storycode:paste select="#managed-preview-authority-witness"/></storycode:file>
 
 
 </storycode:doc>

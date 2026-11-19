@@ -29,7 +29,8 @@ import { yCollab, ySyncFacet } from "y-codemirror.next";
 import type { Extension } from "@codemirror/state";
 import { EnvRegistry, parserBecameReady, setVerifiedExpects, structureOf, wysiwyg } from "./wysiwyg";
 import { hickLangReady, useHickLangStatus } from "./hickLang";
-import type { StartupManagedDocument } from "../views/folderPane";
+import type { ManagedDocumentPreview } from "../views/folderPane";
+import { PaneHeaderContent } from "../shell/PaneHeader";
 import { taskCheckboxes } from "./taskList";
 import { renderedMath } from "./mathRender";
 import { completions } from "../lsp/completion";
@@ -104,7 +105,7 @@ export interface DocumentEditorProps {
   docId: string;
   /** Initial .md source, used to seed the Y.Doc when it is empty. */
   initialSource: string;
-  startup?: StartupManagedDocument;
+  startup?: ManagedDocumentPreview;
   startupAuthorized?: boolean;
   onStartupRoomReady?: () => void;
   realtime: Realtime;
@@ -1021,7 +1022,9 @@ export function DocumentEditor({
       {/* Inside a table the ruler stops measuring prose and names the
           table's columns instead, so A1 is readable off the same stick that
           is already there rather than out of a second row of furniture. */}
-      {startupRoomError && <p role="status" className="muted">{startupRoomError}</p>}
+      {startupRoomError && <PaneHeaderContent part="info">
+        <span role="status" className="save-state save-state-failed" title={startupRoomError}>{startupRoomError}</span>
+      </PaneHeaderContent>}
       {assetError && (
         <div className="editor-asset-error" role="status">
           <span>{assetError}</span>

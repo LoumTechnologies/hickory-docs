@@ -2695,6 +2695,18 @@ position tests also verify that leaving a selected destination retires its
 queued position, including an eventual return to the same tab. See
 `target/main-managed-reveal-held-final-v3/browser.json`.
 
+A guarded managed source link now draws the saved text as a read-only preview
+while the live document room loads. In the browser replay, the full
+4,705-byte source appeared at UTF-16 offset 1877 while real room sync frames
+were held. The reader selected a range and scrolled. Typing was refused
+until the room and saved-file authority were confirmed. On release, the
+same editor kept its selection, scroll offset, viewport dimensions and
+first visible row at the same screen position. A genuine editor input
+then reached the room and Undo restored the exact initial source. See
+`target/main-managed-room-held-preview-final/browser.json`. Focused tests
+also refused a missing save guard, an equal-text replacement guard and a
+workspace change during confirmation.
+
 Focused rebuilt-engine replays also passed for Python definition and
 Back/Forward, workspace search, delayed first-open authority and capabilities,
 and Debug and guarded patch review on both recorded Agent message sides.

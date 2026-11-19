@@ -84,13 +84,35 @@ export type StartupPlainFile = {
   authority: Promise<{file: PlainFile; namespace: string; workspace: string; generatedBy: string | null}>;
 };
 
-export type StartupManagedDocument = {
-  source: StartupSource;
+export type ManagedDocumentPreview = {
+  source: Pick<StartupSource, "path" | "content">;
   docId: string;
   current: () => boolean;
   authority: Promise<Doc>;
   confirmRoom: () => Promise<void>;
 };
+
+export type StartupManagedDocument = ManagedDocumentPreview & {source: StartupSource};
+
+// A verified navigation already has a normal document response. Show its
+// source while the editor waits for the same saved authority and room bytes
+// that a native startup preview has to confirm before it can edit.
+export function admittedManagedPreview(doc: Doc, current: () => boolean): ManagedDocumentPreview {
+  const authority = Promise.resolve(doc);
+  return {source: {path: doc.path, content: doc.source}, docId: doc.id, current, authority,
+    confirmRoom: () => confirmManagedRoom(authority, current)};
+}
+
+async function confirmManagedRoom(authority: Promise<Doc>, current: () => boolean): Promise<void> {
+  const original = await authority;
+  if (!current()) throw Error("The original document request changed.");
+  if (!original.save_guard) throw Error(original.save_guard_reason || "The document's saved source authority is unavailable. Reopen it to check again.");
+  const latest = await api.doc(original.id);
+  if (!current() || latest.path !== original.path || latest.id !== original.id || latest.source !== original.source
+      || latest.save_guard !== original.save_guard) {
+    throw Error("The document's saved authority changed while its room loaded. Reopen the read-only preview.");
+  }
+}
 
 async function readStartupSource(requested: string, hint: string | null, current: () => boolean): Promise<StartupSource | null> {
   const path = hint ?? requested;
@@ -154,15 +176,7 @@ export async function observeManagedStartup(
     if (!doc.save_guard) throw Error(doc.save_guard_reason || "The document's saved source authority is unavailable. Reopen it to check again.");
     return doc;
   });
-  const confirmRoom = async () => {
-    const original = await authority;
-    if (!current()) throw Error("The original document request changed.");
-    const latest = await api.doc(docId);
-    if (!current() || latest.path !== path || latest.id !== docId || latest.source !== original.source
-      || latest.save_guard !== original.save_guard) {
-      throw Error("The document's saved authority changed while its room loaded. Reopen the read-only preview.");
-    }
-  };
+  const confirmRoom = () => confirmManagedRoom(authority, current);
   void authority.catch(() => {});
   return {source, docId, current, authority, confirmRoom};
 }

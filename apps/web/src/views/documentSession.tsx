@@ -14,7 +14,7 @@ import { useDocumentPersistence, type SyncState } from "./useDocumentPersistence
 import type { RecordedPatchSource } from "../simple/AgentProposalAdapter";
 import { historySourceHash } from "../simple/SourceHistory";
 import { documentDraftBinding } from "../editor/DocumentEditor";
-import type { StartupManagedDocument } from "./folderPane";
+import { admittedManagedPreview, type ManagedDocumentPreview, type StartupManagedDocument } from "./folderPane";
 import { useHickLangStatus } from "../editor/hickLang";
 // One document's machinery, alive for as long as the workspace holds any of
 // its tabs.
@@ -114,6 +114,7 @@ export interface DocSession {
   needsDraftReconciliation: boolean;
   recordedPatchSource: () => RecordedPatchSource | null;
   startupRoomReady: boolean;
+  admittedPreview?: ManagedDocumentPreview;
   onStartupRoomReady: () => void;
   runningCells: Set<string>;
   execBlocks: ExecBlock[];
@@ -255,16 +256,19 @@ export const DocSessionHost = memo(function DocSessionHost({
   registry: SessionRegistry;
   docId: string;
   startup?: StartupManagedDocument;
-  initialDocument?: Doc;
+  initialDocument?: {doc: Doc; workspaceCurrent: () => boolean};
   /** Open one of THIS document's generated files in the layout. */
   openGenerated: (docId: string, path: string) => void;
   retainUnsaved?: boolean;
 }) {
   const startupAtOpen = useRef(startup).current;
-  const docAtOpen = useRef(initialDocument).current;
-  const session = useDocumentSession(docId, openGenerated, retainUnsaved, startupAtOpen, docAtOpen);
+  const admitted = useRef(startup ? undefined : initialDocument).current;
+  // A link chooses whether to open the tab. Once mounted, the document's
+  // editing confirmation belongs to the session and its original workspace.
+  const [preview] = useState(() => admitted && admittedManagedPreview(admitted.doc, admitted.workspaceCurrent));
+  const session = useDocumentSession(docId, openGenerated, retainUnsaved, startupAtOpen ?? preview, admitted?.doc);
   useEffect(() => {
-    registry.publish(session);
+    registry.publish(preview && !session.startupRoomReady ? {...session, admittedPreview: preview} : session);
   });
   useEffect(() => () => registry.drop(docId), [registry, docId]);
   return null;
@@ -298,7 +302,7 @@ function useDocumentSession(
   docId: string,
   openGeneratedFor: (docId: string, path: string) => void,
   retainUnsaved: boolean,
-  startup?: StartupManagedDocument,
+  startup?: ManagedDocumentPreview,
   initialDocument?: Doc,
 ): DocSession {
   const openGenerated = useCallback(
@@ -308,7 +312,11 @@ function useDocumentSession(
   const sourceSignal=useMemo(()=>new DebugSourceSignal(),[docId]),debugDoc=useRef<Doc|null>(initialDocument ?? null),debugNamespace=useRef<string|null>(null),proposalWorkspace=useRef<string|null>(null),debugDirty=useRef<string|null>(null);
   const [doc,setDocState]=useState<Doc|null>(initialDocument ?? null);
   const [startupRoomReady, setStartupRoomReady] = useState(false);
-  const onStartupRoomReady = useCallback(() => setStartupRoomReady(true), []);
+  const previewConfirmed = useRef(false);
+  const onStartupRoomReady = useCallback(() => {
+    previewConfirmed.current = true;
+    setStartupRoomReady(true);
+  }, []);
   const startRoom = !startup || !!doc;
   const parserStatus = useHickLangStatus();
   const setDoc=useCallback((next:Doc|null)=>{debugDoc.current=next;sourceSignal.changed();setDocState(next);},[sourceSignal]);
@@ -498,7 +506,7 @@ function useDocumentSession(
   }, [docId, refreshRender]);
 
   useEffect(() => {
-    if (!startup && initialDocument) {
+    if (initialDocument) {
       // The workspace already fetched this document to verify the source
       // location. Its text can mount while the independent rendering arrives.
       void refreshRender(initialDocument.source);
@@ -806,7 +814,7 @@ function useDocumentSession(
   // room observations. A retry keeps the submitted bytes and request ID.
   const menuSave = useCallback(async () => {
     const { doc, dirtySource } = menuStateRef.current;
-    if (!doc || editorRef.current?.state.readOnly) return false;
+    if (!doc || (startup && (!previewConfirmed.current || !editorRef.current)) || editorRef.current?.state.readOnly) return false;
     const draft = managedDraft.current;
     if (draft) {
       if (publishing.current) return false;
@@ -878,10 +886,10 @@ function useDocumentSession(
       setBanner({ kind: "fail", text: e instanceof Error ? e.message : String(e), retry: { label: "Retry Save", run: () => { void menuSave(); } } });
       return false;
     } finally { publishing.current--; }
-  }, [realtime, refreshRender, setDoc]);
+  }, [realtime, refreshRender, setDoc, startup]);
   const discardUnsaved = useCallback(async () => {
     const current = menuStateRef.current.doc;
-    if (!current || savedSource === null || editorRef.current?.state.readOnly) return;
+    if (!current || savedSource === null || (startup && (!previewConfirmed.current || !editorRef.current)) || editorRef.current?.state.readOnly) return;
     const draft = managedDraft.current;
     if (draft) {
       if (publishing.current) return;
@@ -900,7 +908,7 @@ function useDocumentSession(
       setSyncState("saved");
       void api.discardDraft(current.path).catch(() => {});
     } finally { publishing.current--; }
-  }, [savedSource, setDirtySource, setDoc]);
+  }, [savedSource, setDirtySource, setDoc, startup]);
   const menuSaveAs = useCallback(() => {
     const { doc, dirtySource } = menuStateRef.current;
     if (!doc) return;
@@ -1125,7 +1133,7 @@ function useDocumentSession(
     // initial room contents before asking it to claim an exact source jump.
     // An explicit startup preview already carries its readable source.
     let live = true;
-    let readable = !!startup || !realtime.serverAuthoritative;
+    let readable = (!!startup && !previewConfirmed.current) || !realtime.serverAuthoritative;
     const jump = (target: string) => {
       if (!readable || target !== path) return;
       const position = claimRevealPosition(path, authoredSource(docEditor.state));

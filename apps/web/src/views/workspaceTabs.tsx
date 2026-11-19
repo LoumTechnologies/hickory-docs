@@ -29,7 +29,7 @@ import { RefactorBadge, useBaseline } from "../components/RefactorBadge";
 import type { Baseline } from "../components/RefactorBadge";
 import { GeneratedFileView } from "../shell/views";
 import { registerBufferEditor } from "../lib/editorBufferTargets";
-import type { StartupManagedDocument } from "./folderPane";
+import type { ManagedDocumentPreview, StartupManagedDocument } from "./folderPane";
 import { markUntitledEditor } from "../editor/activeEditor";
 import { focusWhenShown } from "../lib/focusWhenShown";
 import { useDocSession, type SessionRegistry } from "./documentSession";
@@ -146,7 +146,7 @@ export function DocTabBody({
   onWrapColumn,
   tableLayouts,
   onTableLayout,
-  startup,
+  startup: startupPreview,
 }: {
   registry: SessionRegistry;
   docId: string;
@@ -161,6 +161,12 @@ export function DocTabBody({
   onTableLayout?: (key: string, size: TableLayout) => void;
 }) {
   const session = useDocSession(registry, docId);
+  // Keep the first preview for the editor that mounted from it. When a
+  // generated tab keeps the session alive, a later document open can use
+  // the now-confirmed room instead of replaying the old preview.
+  const admittedPreview = useRef<ManagedDocumentPreview | null | undefined>(undefined);
+  if (session && admittedPreview.current === undefined) admittedPreview.current = session.admittedPreview ?? null;
+  const startup = startupPreview ?? admittedPreview.current ?? undefined;
   // Before the early returns: hooks may not be conditional, and the baseline
   // outlives whatever the session is doing.
   const baseline = useBaseline(docId);
@@ -240,8 +246,10 @@ export function DocTabBody({
         onToggleExceptionFilter={debug.toggleExceptionFilter}
         onRemoveWatch={debug.removeWatch}
       />
-      </> : <p className="muted" role="status">{session.fatalError ??
-        (doc ? "Waiting for the document room…" : "Checking saved source authority…")}</p>}
+      </> : <PaneHeaderContent part="info">
+        <span className="save-state" role="status">{session.fatalError ??
+          (doc ? "Waiting for the document room…" : "Checking saved source authority…")}</span>
+      </PaneHeaderContent>}
       {/* A session file opens in the same editor as every other document —
           drawn as the conversation it is (bubbles, the agent's work folded;
           see editor/wysiwyg.ts and editor/folding.ts) with every byte on

@@ -13,6 +13,7 @@ import type { Doc } from "../api/types";
 import { api } from "../api/client";
 import { SessionRegistry, type DocSession } from "./documentSession";
 import { DocTabBody, GeneratedTabBody, UntitledTab } from "./workspaceTabs";
+import { admittedManagedPreview } from "./folderPane";
 
 const readyEditor = vi.hoisted(() => ({ view: null as import("@codemirror/view").EditorView | null }));
 
@@ -242,4 +243,30 @@ it("starts a generated-file pane even when its owner session never arrives", () 
   const mounted = render(<GeneratedTabBody registry={new SessionRegistry()} docId="absent" path="portfolio.toml" />);
   expect(mounted.getByTestId("generated")).toBeTruthy();
   expect(mounted.queryByText("Loading portfolio.toml…")).toBeNull();
+});
+it("requires the captured save guard and a current workspace before confirming a document preview", async () => {
+  const original = {...doc, save_guard: "original"};
+  const reread = vi.spyOn(api, "doc").mockResolvedValueOnce({...original, save_guard: "replacement"});
+  try {
+    const unguarded = admittedManagedPreview({...original, save_guard: undefined}, () => true);
+    expect(unguarded.source.content).toBe(original.source);
+    await expect(unguarded.confirmRoom()).rejects.toThrow("saved source authority is unavailable");
+    expect(reread).not.toHaveBeenCalled();
+
+    let current = true;
+    const preview = admittedManagedPreview(original, () => current);
+    await expect(preview.confirmRoom()).rejects.toThrow("saved authority changed");
+    let release!: (doc: Doc) => void;
+    const held = new Promise<Doc>(resolve => { release = resolve; });
+    reread.mockReturnValueOnce(held);
+    const confirmation = preview.confirmRoom();
+    await Promise.resolve();
+    expect(reread).toHaveBeenCalledTimes(2);
+    current = false;
+    release(original);
+    await expect(confirmation).rejects.toThrow("saved authority changed");
+    expect(preview.source.content).toBe(original.source);
+  } finally {
+    reread.mockRestore();
+  }
 });
