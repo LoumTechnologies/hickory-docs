@@ -700,6 +700,14 @@ exact intended bytes and rejected an incomplete native Send before forwarding
 it. The checkpoint-based Apply and draft history evidence remains current. See
 `target/parity-rendered-android.sgYIt7/continuation-receipts/final-android-tgm6itzy/managed-native/`.
 
+The mounted AppKit native Send probe opened both original source editors and
+entered the exact prompt in the native composer. Its captured window showed an
+enabled Send beside Stop. The isolated click replay did not yield an Agent
+request or archived turn, so the complete AppKit Send-through-draft-history
+journey still needs acceptance. Earlier engine-managed review receipts begin
+with an already submitted request. See
+`target/main-macos-packaged-startup.to8jhtpo/apple-native-proposal-send-xcb43d7a/`.
+
 ### Provider admission
 
 Language tools use the installed provider's capabilities and exact source
