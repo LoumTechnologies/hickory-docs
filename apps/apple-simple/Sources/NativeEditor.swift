@@ -2507,6 +2507,25 @@ struct NativeDebugRail: View {
     @State private var recordedConstruction = NativeRecordedConstruction()
     @State private var opened: Int?
     @State private var details: Int?
+    @State private var pendingLineReading: LineReading?
+
+    private struct LineReading {
+        let action: String
+        let line: Int
+        let path: String
+        let revision: UUID
+    }
+
+    private func showLineReading(_ reading: LineReading) {
+        guard !buffer.resourceDeleted, reading.revision == buffer.sourceEditIdentity,
+              exactUTF8(reading.path, buffer.file.path) else { return }
+        if reading.action == "tests" {
+            buffer.inspectTests?(reading.line)
+        } else {
+            buffer.inspectCoverage?(reading.line)
+        }
+    }
+
     private var paused: Int? { debug.sourceMatches(buffer) ? debug.line(in: buffer.file.path) : nil }
     private var showsSession: Bool { debug.hasSessionReading && (recordedDebug == nil || exactUTF8(debug.owner, buffer.file.path)) }
     private var recordedFences: [Int: RecordedDebugFence] { recordedDebugFences(buffer, source: recordedDebug) }
@@ -2563,13 +2582,25 @@ struct NativeDebugRail: View {
         if action == "recorded-construction" { return "Inspect recorded construction patch" }
         return action == "tests" ? "Inspect source tests" : action.hasPrefix("source:") ? "Toggle source text" : action.capitalized
     }
-    @ViewBuilder private func icon(_ action: String, line: Int) -> some View {
+    @ViewBuilder private func icon(_ action: String, line: Int, fromOverflow: Bool = false) -> some View {
         Button {
+            if action == "tests" || action.hasPrefix("coverage:") {
+                let reading = LineReading(action: action, line: line, path: buffer.file.path,
+                                          revision: buffer.sourceEditIdentity)
+#if os(iOS)
+                if fromOverflow {
+                    pendingLineReading = reading
+                    opened = nil
+                    return
+                }
+#endif
+                opened = nil
+                showLineReading(reading)
+                return
+            }
             if action != "recorded-run" && action != "recorded-construction" { opened = nil }
-            if action.hasPrefix("coverage:"){buffer.inspectCoverage?(line);return}
             if action.hasPrefix("source:"), let anchor = Int(action.dropFirst(7)) { buffer.sourceTable = buffer.sourceTable == anchor ? nil : anchor; return }
             switch action {
-            case "tests":buffer.inspectTests?(line)
             case "debug":
                 if showsSession {inspect(line)}
                 else {Task {await debug.prepare(buffer,line:line); if !debug.active { inspect(line) }}}
@@ -2708,10 +2739,17 @@ struct NativeDebugRail: View {
                                 constructionReading.presentationCompactAdaptation(.popover)
                             } else {
                                 LazyVGrid(columns: Array(repeating: GridItem(.fixed(22), spacing: 2), count: max(1, min(4, items.count - visible))), spacing: 2) {
-                                    ForEach(Array(items.dropFirst(visible)), id: \.self) { action in icon(action, line: row.line) }
+                                    ForEach(Array(items.dropFirst(visible)), id: \.self) { action in
+                                        icon(action, line: row.line, fromOverflow: true)
+                                    }
                                 }.padding(6).frame(width: CGFloat(min(4, items.count - visible)) * 24 + 12, height: CGFloat((items.count - visible + 3) / 4) * 20 + 12)
                                     .accessibilityElement(children: .contain).accessibilityLabel("More actions on line \(row.line + 1)")
                                     .presentationCompactAdaptation(.popover)
+                                    .onDisappear {
+                                        guard let reading = pendingLineReading, reading.line == row.line else { return }
+                                        pendingLineReading = nil
+                                        showLineReading(reading)
+                                    }
                             }
                         }
                         .position(x: 11, y: row.y + 9 + CGFloat(overflowSlot) * 20)

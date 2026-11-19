@@ -250,6 +250,28 @@ selected excess actions from both adjacent rows and the lower slot. The
 trigger anchors, following controls, editor state, and saved bytes stayed
 exact. See `target/ios-gutter-overflow-native-visible-trigger/visible-trigger/receipt.json`.
 
+A real pytest-cov run added coverage and source tests to two adjacent iPhone
+rows. The first row's compact grid opened at its reserved slot and kept
+the next row's two controls in place. Native taps dispatched both first-row
+actions, but the grid and the requested workspace panel competed for
+presentation. Both actions reached their views from the inline second row.
+The iOS grid now delivers its selected reading after dismissal, while the
+same source address and edit revision still match. An AppKit comparison
+found that its grid can dismiss without the SwiftUI disappearance callback,
+so AppKit delivers the action immediately. The final AppKit replay opened
+both readings with unchanged following controls and editor state. See
+`target/ios-test-coverage-native/iphone-27-selected-run/attempt-2/`,
+`target/appkit-deferred-test-coverage.11idmnef/appkit.log` and
+`target/appkit-platform-test-coverage.hwjv_88d/receipt.json`.
+
+The final iPhone replay selected a real pytest-cov run through the fixture.
+Native taps reopened its report with both measured rows and refreshed only
+the first declaration in source tests. Both actions used the first row's
+overflow. The editor, selection, scroll, Undo manager and following controls
+held their positions. A native unsaved edit retired both coverage marks
+while the saved bytes and file identity stayed intact. See
+`target/ios-test-coverage-native/iphone-27-handoff/attempt-2/receipt.json`.
+
 On Android 37, a native tap opened the recorded-fence Run and Debug grid
 directly above an occupied breakpoint line. The following breakpoint and
 source editor kept their exact positions, identities, scroll and selection.
@@ -302,7 +324,11 @@ AppKit comparison held the real Files response while the raw Python source
 was readable. The baseline sent no source-test query. The rebuilt app sent
 one query after confirmation and indexed both adjacent declarations. The
 same editor, selection, scroll, Undo manager and saved source survived.
-See `target/apple-requested-test-index-witness/{baseline,candidate}.json`.
+The rebuilt iPhone app showed both test actions on first open, before any
+edit. The maintained AppKit witness passed staged confirmation, unavailable
+Files, retry and Files-first guard retry. See
+`target/apple-requested-test-index-witness/{baseline,candidate}.json` and
+`target/appkit-startup-index-xcode-20261119-172349/`.
 
 Android's loopback controller passed independent raw, Files and
 guarded-source gates, including mismatched bytes and exact same-editor
