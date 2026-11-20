@@ -56,6 +56,15 @@ device IME and assistive technology need their own acceptance. The emulator
 originally refused userdata allocation. An owned API 36 emulator booted after
 inactive compiler caches were reclaimed, and the checkpoint Android APK built.
 
+Current acceptance still needs guarded provider snippet and import completion
+in the main Hickory Docs editors. The managed and plain editor entry points
+still use the ordinary language completion adapter. The complete-file
+`source.fixAll` flow has native Android controller evidence and an iPhone
+build, with rendered review, Apply and Undo/Redo still due on both mobile
+hosts. The iPhone has retained pytest failures, coverage and source navigation.
+Its rendered failed-only rerun and configured debugger Attach still need
+their own replays.
+
 ### iPhone Python definition and navigation history
 
 The basedpyright fixture resolved the caller in `main.py` to
@@ -4200,6 +4209,26 @@ shared edits, delayed or invalid context, clipboard admission and linked
 field history. AppKit mounted the source-equal path and kept prior Undo
 history. Android exercised the exact editor text state and complete roster
 through Undo and Redo. These checks used controlled provider replies.
+
+The rebuilt engine rejected a foreign caret and a changed clipboard retry,
+then accepted the captured retry without repeating child resolution.
+Simple Browser selected a visible completion and restored both ordinal
+fields through one Undo and Redo. Mounted AppKit used Add cursor below,
+selected the same provider choice, and received two independent resolutions.
+Both hosts inserted one shared import, kept the same editor and frame, and
+updated both sets of mirrors after Redo. AppKit also kept its scroll offset.
+The saved source stayed unchanged.
+See `target/grouped-snippet-integration/protocol.log`,
+`target/grouped-snippet-integration/browser-grouped.log` and
+`target/appkit-live-grouped-snippet.c14lbk30/receipt.json`.
+
+The iPhone simulator applied the exact two provider expansions and one
+shared import. Native Undo restored both original carets, and Redo restored
+both ordinal fields. A native `r` keystroke updated all four mirrors.
+Editor identity, frame, scroll, Undo manager and saved file metadata survived.
+The replay also exposed the selection controls covering part of the first
+source row. See
+`target/ios-grouped-provider-snippets/iphone-27/attempt-1/receipt.json`.
 
 Installed TypeScript completed both prefixes and inserted one shared
 import in Simple Browser and mounted AppKit. The Browser replay used the
