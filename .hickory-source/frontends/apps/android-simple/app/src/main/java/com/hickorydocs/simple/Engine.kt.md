@@ -800,7 +800,41 @@ Rename and formatting first prepare the exact captured source through `hick/capt
 <ui:copy id="simple-android-language-service">
 data class NativeLanguageSpan(val from: Int, val to: Int, val kind: String)
 data class NativeLanguageDiagnostic(val message: String, val from: Int?, val to: Int?, val severity: Int = 1, val location: SemanticLocation? = null)
-data class NativeLanguageCompletion(val label: String, val detail: String, val edit: NativeSourceEdit, val source: String, val selection: androidx.compose.ui.text.TextRange,val original:JSONObject?=null,val sourceRevision:Long?=null)
+data class NativeLanguageCompletion(val label: String, val detail: String, val edit: NativeSourceEdit, val source: String, val selection: androidx.compose.ui.text.TextRange,val original:JSONObject?=null,val sourceRevision:Long?=null,val group:NativeCompletionGroupCapture?=null)
+data class NativeCompletionGroupCapture(val ranges:List<NativeSourceEdit>,val revision:Long,val file:FileNode,val epoch:Int,val snippetIntent:Int)
+
+private fun nativeCompletionPrefix(source:String,at:Int):Int {
+    var offset=at
+    while(offset>0){
+        val codePoint=source.codePointBefore(offset)
+        if(!Character.isLetterOrDigit(codePoint)&&codePoint!='_'.code)break
+        offset-=Character.charCount(codePoint)
+    }
+    return offset
+}
+
+private fun completionOfferIdentity(item:JSONObject):List<Any?> {
+    val details=item.optJSONObject("labelDetails")
+    fun field(value:Any?)=value.takeUnless { it==JSONObject.NULL }
+    return listOf(item.opt("label"),item.opt("kind"),item.opt("detail"),details?.opt("detail"),details?.opt("description"))
+        .map(::field)
+}
+
+private data class OrdinaryCompletionProof(val token:String,val revision:String)
+private fun ordinaryCompletionProof(item:JSONObject,hash:String,revision:String?=null):OrdinaryCompletionProof {
+    check((!item.has("insertTextFormat")||item.opt("insertTextFormat")==1)&&item.opt("kind")!=15&&item.isNull("command")){
+        "Completion groups require ordinary provider edits."
+    }
+    val data=item.optJSONObject("data")
+    val proof=data?.optJSONObject("hickory_context")
+    val token=data?.opt("hickory_completion") as? String
+    val currentRevision=proof?.opt("source_revision") as? String
+    check(!token.isNullOrEmpty()&&proof?.opt("source_hash")==hash&&currentRevision!=null&&
+        currentRevision.matches(Regex("[a-f0-9]{64}"))&&(revision==null||revision==currentRevision)){
+        "Completion proof changed across carets. Request the completions again."
+    }
+    return OrdinaryCompletionProof(token,currentRevision)
+}
 fun languageURI(path: String): String = java.net.URI("hick", "", "/" + path.trimStart('/'), null).toASCIIString()
 fun languageOffset(source: String, position: JSONObject): Int? {
     val line = position.optInt("line", -1); val column = position.optInt("character", -1)
@@ -1117,32 +1151,63 @@ Resolution synchronizes the originating document and retains its exact source, s
 Continue the independent completion service after the action-resolution boundary.
 
 <ui:copy id="native-language-after-action-resolution-android">
+    private fun completionRanges(source:String):List<NativeSourceEdit> =
+        if(buffer.multiSource==source&&buffer.multiRanges.size>1)buffer.multiRanges else emptyList()
+
+    private suspend fun queryCompletionItems(source:String,at:Int):List<JSONObject>? {
+        val result = request("hick/completion",JSONObject().put("textDocument",doc())
+            .put("position",languagePosition(source,at))
+            .put("transform_program_versions",JSONArray(supportedSnippetTransformPrograms)))
+        if(result==JSONObject.NULL)return null
+        val items = result as? JSONArray ?: (result as? JSONObject)?.optJSONArray("items") ?: JSONArray()
+        return items.objects()
+    }
+
     suspend fun complete() {
-        if (!opened || buffer.readOnly) return
-        sync(); val source = buffer.text; val selection = buffer.state.selection; val current = epoch;val revision=buffer.sourceRevision; val id = ++completion
+        if (!opened || buffer.readOnly || buffer.saving || buffer.state.composition != null || buffer.snippets.inMarkedInput) return
+        sync()
+        val source=buffer.text;val selection=buffer.state.selection;val identity=epoch;val revision=buffer.sourceRevision
+        val id=++completion;val owner=buffer.file
+        val ranges=completionRanges(source)
+        val group=ranges.takeIf { it.isNotEmpty() }?.let { NativeCompletionGroupCapture(it,buffer.multiSelectionRevision,owner,identity,buffer.snippets.intent) }
+        fun current() = epoch==identity&&completion==id&&buffer.sourceRevision==revision&&buffer.file===owner&&
+            !buffer.readOnly&&!buffer.saving&&!buffer.resourceDeleted&&languageURI(buffer.file.path)==uri&&
+            buffer.text==source&&buffer.state.selection==selection&&completionRanges(source)==ranges&&
+            (group==null||buffer.multiSelectionRevision==group.revision&&buffer.snippets.intent==group.snippetIntent)&&buffer.state.composition==null&&!buffer.snippets.inMarkedInput
         try {
             kotlinx.coroutines.delay(350)
-            if(epoch!=current||completion!=id||buffer.sourceRevision!=revision||buffer.resourceDeleted||languageURI(buffer.file.path)!=uri||buffer.text!=source||buffer.state.selection!=selection)return
-            val result = request("hick/completion", JSONObject().put("textDocument", doc()).put("position", languagePosition(source, selection.min)).put("transform_program_versions",JSONArray(supportedSnippetTransformPrograms)))
-            if (epoch != current || completion != id || buffer.sourceRevision!=revision||buffer.resourceDeleted||languageURI(buffer.file.path)!=uri||buffer.text != source || buffer.state.selection != selection) return
-            if (result == JSONObject.NULL) return
-            val items = result as? JSONArray ?: (result as? JSONObject)?.optJSONArray("items") ?: JSONArray()
-            var prefix = selection.min
-            while (prefix > 0 && (source[prefix - 1].isLetterOrDigit() || source[prefix - 1] == '_')) prefix--
-            val typed = source.substring(prefix, selection.min).lowercase()
-            suggestions = items.objects().mapNotNull { item ->
+            if(!current())return
+            if(group!=null&&(ranges.size !in 2..16||buffer.snippets.isActive)){
+                suggestions=emptyList()
+                completionNotice="Choose 2 to 16 ordinary carets outside template editing for a completion group."
+                return
+            }
+            val at=group?.ranges?.first()?.to ?: selection.min
+            val prefix=nativeCompletionPrefix(source,selection.min)
+            val typed=if(group!=null&&!selection.collapsed)"" else source.substring(prefix,selection.min).lowercase()
+            val items=queryCompletionItems(source,at) ?: return
+            if(!current())return
+            val duplicates=if(group!=null)items.groupingBy(::completionOfferIdentity).eachCount() else emptyMap()
+            suggestions=items.mapNotNull { item ->
                 val label=item.opt("label") as? String ?: return@mapNotNull null
                 if(!(item.opt("filterText") as? String ?: label).lowercase().startsWith(typed))return@mapNotNull null
-                NativeLanguageCompletion(label,item.optString("detail"),NativeSourceEdit(prefix,selection.max,item.optString("insertText",label)),source,selection,JSONObject(item.toString()),revision)
+                if(group!=null&&duplicates[completionOfferIdentity(item)]!=1)return@mapNotNull null
+                NativeLanguageCompletion(label,item.optString("detail"),NativeSourceEdit(prefix,selection.max,item.optString("insertText",label)),source,selection,JSONObject(item.toString()),revision,group)
             }.take(100)
         } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
-        catch (error: Exception) { if (epoch == current&&completion==id&&buffer.sourceRevision==revision&&buffer.text==source&&buffer.state.selection==selection) status = "Completion unavailable: ${error.message}. Retry language services." }
+        catch (error: Exception) { if(current())status="Completion unavailable: ${error.message}. Retry language services." }
     }
 </ui:copy>
 
 ## Accept complete android source proposals
 
 Retain each offered provider item and its source/selection. Resolve before planning, keep a latest acceptance identity and reject changed source, selection, provider, saving or permissions. Dismissal retires pending acceptance. Commit the complete source/import edit and resulting selection through the existing editor batch boundary; no command or save is executed. Source-local legacy suggestions retain their guarded eager path.
+
+A multi-caret choice captures the logical roster when the popup receives
+the primary offer. Resolve the exact matching offer at each peer's head.
+Every token must be distinct and bound to the same source hash and
+provider revision. Source, caret and composition checks run after every
+provider suspension so a changed secondary range cannot enter the draft.
 
 <ui:copy id="native-completion-acceptance-android">
     var completionNotice by mutableStateOf("")
@@ -1156,16 +1221,86 @@ Retain each offered provider item and its source/selection. Resolve before plann
         fun current()=opened&&epoch==identity&&acceptingCompletion==acceptance&&buffer.file===owner&&buffer.sourceRevision==revision&&!buffer.readOnly&&!buffer.saving&&!buffer.resourceDeleted&&languageURI(buffer.file.path)==uri&&buffer.text==source&&buffer.state.selection==selection
         return resolveSnippetCompletion(item,source,selection.min,selection.max,::current,request={item->val result=request("completionItem/resolve",JSONObject(item.toString()).put("textDocument",doc()));check(result is JSONObject&&result.opt("label") is String){"Provider did not resolve this completion. Request again."};result},clipboard=engine.snippetClipboardReader)
     }
-    suspend fun accept(item:NativeLanguageCompletion,resolution:(suspend (JSONObject)->JSONObject)?=null):Boolean {
-        if(buffer.readOnly||buffer.saving||buffer.resourceDeleted||item.sourceRevision?.let{it!=buffer.sourceRevision}==true||buffer.text!=item.source||buffer.state.selection!=item.selection){completionNotice="Suggestion is out of date. Request completions again.";return false}
-        if(buffer.multiSource==buffer.text&&buffer.multiRanges.size>1){completionNotice="Choose one caret before accepting this source completion.";return false}
+    internal fun canAcceptCompletion(item:NativeLanguageCompletion):Boolean {
+        val group=item.group
+        if(buffer.language!==this||buffer.readOnly||buffer.saving||buffer.resourceDeleted||buffer.state.composition!=null||buffer.snippets.inMarkedInput||
+            item.sourceRevision?.let{it!=buffer.sourceRevision}==true||buffer.text!=item.source||buffer.state.selection!=item.selection)return false
+        val ranges=completionRanges(item.source)
+        if(group==null)return ranges.isEmpty()
+        val primary=ranges.firstOrNull() ?: return false
+        return ranges.size in 2..16&&group.ranges==ranges&&buffer.multiSelectionRevision==group.revision&&
+            buffer.file===group.file&&epoch==group.epoch&&buffer.snippets.intent==group.snippetIntent&&!buffer.snippets.isActive&&
+            item.selection.min==primary.from&&item.selection.max==primary.to
+    }
+
+    private suspend fun resolveCompletionGroup(
+        item:NativeLanguageCompletion,original:JSONObject,valid:()->Boolean,
+        query:suspend (Int)->List<JSONObject>,resolve:suspend (JSONObject)->JSONObject,
+    ):AndroidCompletionGroup {
+        val ranges=checkNotNull(item.group).ranges
+        val hash="sha256:"+debugHash(item.source)
+        val identity=completionOfferIdentity(original)
+        val revision=ordinaryCompletionProof(original,hash).revision
+        val tokens=mutableSetOf<String>()
+        fun requireCurrent(){check(valid()){"Source, carets or provider changed. Request completions again."}}
+        val resolved=ranges.mapIndexed { index,range ->
+            requireCurrent()
+            sourceChangeOffset(item.source,languagePosition(item.source,range.from))
+            sourceChangeOffset(item.source,languagePosition(item.source,range.to))
+            val matches=if(index==0)listOf(original) else query(range.to).filter{completionOfferIdentity(it)==identity}
+            requireCurrent()
+            check(matches.size==1){"A caret has no unique matching completion. Choose a different completion."}
+            val offer=matches.single()
+            val proof=ordinaryCompletionProof(offer,hash,revision)
+            check(tokens.add(proof.token)){"Each caret requires its own provider completion offer."}
+            val result=resolve(JSONObject(offer.toString()))
+            requireCurrent()
+            check(ordinaryCompletionProof(result,hash,revision).token==proof.token&&result.opt("label")==item.label){
+                "The provider returned a different completion. Request the completions again."
+            }
+            CapturedAndroidCompletion(result,range.from,range.to,
+                nativeCompletionPrefix(item.source,range.from).takeIf{range.from==range.to})
+        }
+        return planCompletionGroup(uri,SourceSnapshot(item.source,true),resolved)
+    }
+
+    suspend fun accept(item:NativeLanguageCompletion,resolution:(suspend (JSONObject)->JSONObject)?=null):Boolean =
+        accept(item,resolution,null)
+
+    internal suspend fun accept(item:NativeLanguageCompletion,resolution:(suspend (JSONObject)->JSONObject)?,
+                                query:(suspend (Int)->List<JSONObject>)?):Boolean {
+        if(!canAcceptCompletion(item)){completionNotice="Suggestion is out of date. Request completions again.";return false}
         val original=item.original
-        if(original==null){cancelCompletion();val applied=if(buffer.snippets.active!=null)buffer.snippets.applyInput(item.source,item.edit.from,item.edit.to,item.edit.text) else buffer.applySourceEdits(listOf(item.edit),item.source);completionNotice=if(applied)"Completion selected" else "Editor refused the completion. Finish composition or request again.";return applied}
-        val request=++acceptingCompletion;val identity=epoch;val revision=buffer.sourceRevision;val snippetIntent=buffer.snippets.intent;completionPending=true;completionNotice="Resolving completion…"
+        if(original==null){
+            if(item.group!=null){completionNotice="Each caret requires a provider completion offer.";return false}
+            cancelCompletion()
+            val applied=if(buffer.snippets.active!=null)buffer.snippets.applyInput(item.source,item.edit.from,item.edit.to,item.edit.text)
+                else buffer.applySourceEdits(listOf(item.edit),item.source)
+            completionNotice=if(applied)"Completion selected" else "Editor refused the completion. Finish composition or request again."
+            return applied
+        }
+        val requestID=++acceptingCompletion;val identity=epoch;val revision=buffer.sourceRevision
+        val snippetIntent=buffer.snippets.intent;val owner=buffer.file
+        fun current()=acceptingCompletion==requestID&&epoch==identity&&buffer.sourceRevision==revision&&buffer.file===owner&&
+            languageURI(buffer.file.path)==uri&&buffer.snippets.intent==snippetIntent&&canAcceptCompletion(item)
+        completionPending=true;completionNotice="Resolving completion…"
         try {
+            if(item.group!=null){
+                val group=resolveCompletionGroup(item,original,::current,query ?: { queryCompletionItems(item.source,it).orEmpty() },
+                    resolution ?: { offer ->
+                        val result=request("completionItem/resolve",offer.put("textDocument",doc()))
+                        result as? JSONObject ?: error("Provider did not resolve this completion. Request again.")
+                    })
+                check(current()){"Source, carets or provider changed. Request completions again."}
+                check(buffer.snippets.applyOrdinaryCompletionGroup(group,item.source)){
+                    "Editor refused the completion group. Finish composition or request again."
+                }
+                completionNotice=if(group.plan.patches.isEmpty())"Completion selected" else "Completion applied · draft"
+                return true
+            }
             val resolved=(resolution ?: {resolveCompletion(it)})(original)
-            if(acceptingCompletion!=request)return false
-            check(epoch==identity&&buffer.sourceRevision==revision&&!buffer.resourceDeleted&&languageURI(buffer.file.path)==uri&&buffer.snippets.intent==snippetIntent&&buffer.language===this&&!buffer.readOnly&&!buffer.saving&&buffer.text==item.source&&buffer.state.selection==item.selection&&!(buffer.multiSource==buffer.text&&buffer.multiRanges.size>1)){"Source, cursor or provider changed. Request completions again."}
+            if(acceptingCompletion!=requestID)return false
+            check(current()){"Source, cursor or provider changed. Request completions again."}
             val contextNotice=snippetContextNotice(resolved)
             val initialDraft=planCompletion(uri,resolved,SourceSnapshot(item.source,!buffer.readOnly&&!buffer.saving),item.edit.from,item.edit.to,completionExpansion(resolved))
             val draft=buffer.snippets.prepareCompletion(initialDraft)
@@ -1173,10 +1308,11 @@ Retain each offered provider item and its source/selection. Resolve before plann
             val snippetBefore=buffer.snippets.captureBefore(draft.before,buffer.state.selection,true)!!;val snippetRecord=buffer.snippets.recordSerial
             check(buffer.applySourceEdits(edits,draft.before,androidx.compose.ui.text.TextRange(draft.selection.from,draft.selection.to))){"Editor refused the complete completion. Finish composition or request again."}
             buffer.snippets.attachCompletionContext(snippetBefore,draft.continuing ?: beginSnippet(buffer.text,draft.fields),snippetRecord)
-            completionPending=false;completionNotice=(if(draft.plan.patches.isEmpty())"Completion selected" else "Completion applied · draft")+(if(contextNotice.isEmpty())"" else " · "+contextNotice);return true
-        }catch(cancelled:kotlinx.coroutines.CancellationException){if(acceptingCompletion==request)completionNotice="Completion cancelled.";throw cancelled}
-        catch(error:Exception){if(acceptingCompletion==request)completionNotice=error.message.orEmpty();return false}
-        finally{if(acceptingCompletion==request)completionPending=false}
+            completionNotice=(if(draft.plan.patches.isEmpty())"Completion selected" else "Completion applied · draft")+(if(contextNotice.isEmpty())"" else " · "+contextNotice)
+            return true
+        }catch(cancelled:kotlinx.coroutines.CancellationException){if(acceptingCompletion==requestID)completionNotice="Completion cancelled.";throw cancelled}
+        catch(error:Exception){if(acceptingCompletion==requestID)completionNotice=error.message.orEmpty();return false}
+        finally{if(acceptingCompletion==requestID)completionPending=false}
     }
 </ui:copy>
 

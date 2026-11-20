@@ -1221,7 +1221,7 @@ Attach the grid only to an inline snapshot that still matches the field. Measure
                         TextButton(enabled = location.path != null && source == service.locationSource && buffer.state.selection == service.locationSelection, onClick = { if (service.open(location)) menu = false }) { Text(location.label) }
                     }
                     service?.suggestions?.forEach { item ->
-                        TextButton(enabled = !buffer.readOnly && item.source == source && item.selection == buffer.state.selection, onClick = { scope.launch {if (service.accept(item)) menu = false} }) {
+                        TextButton(enabled = service.canAcceptCompletion(item), onClick = { scope.launch {if (service.accept(item)) menu = false} }) {
                             Column { Text(item.label, fontFamily = FontFamily.Monospace); Text(item.detail, fontSize = 11.sp) }
                         }
                     }

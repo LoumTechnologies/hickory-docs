@@ -196,6 +196,24 @@ class SourceSnippetController(private val buffer:DocumentBuffer) {
   restore(after)
  }
 
+
+ internal fun applyOrdinaryCompletionGroup(draft:AndroidCompletionGroup,source:String):Boolean {
+  if(isActive||inMarkedInput||buffer.state.composition!=null||buffer.resourceDeleted)return false
+  val before=captureBefore(source,buffer.state.selection,true) ?: return false
+  val serial=recordSerial
+  val ranges=draft.carets.map { NativeSourceEdit(it,it,"") }
+  val edits=draft.plan.patches.singleOrNull()?.edits.orEmpty().map { NativeSourceEdit(it.from,it.to,it.text) }
+  val selected=TextRange(ranges.first().from)
+  if(!buffer.applySourceEdits(edits,source,selected))return false
+  buffer.multiSource=buffer.text
+  buffer.multiRanges=ranges
+  if(buffer.text!=source){
+   val after=SourceUndoSnapshot<AndroidSnippetHistory?>(buffer.text,selected.start,selected.end,AndroidSnippetHistory(null,null,ranges))
+   if(!contexts.replaceLastAfter(source,after,serial))contexts.record(before,after)
+  }
+  return true
+ }
+
  private fun moveNativeHistory(backwards:Boolean):Boolean {
   val native=buffer.state.undoState
   if(backwards&&native.canUndo){native.undo();return true}

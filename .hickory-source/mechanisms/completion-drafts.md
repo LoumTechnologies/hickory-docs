@@ -252,6 +252,13 @@ func combineCompletionDrafts(_ drafts:[CompletionDraft],carets:[NSRange],snapsho
 
 Prepare the complete source change before touching a view. A completion explicitly names its primary edit, so additional insertions at its start precede that insertion in declared provider order. Deduplicate identical imports, validate all other replacements through the shared source planner, and map the final selection and every retained snippet field through earlier edits. Commands and unavailable snippet expansion refuse the whole proposal. Retain the primary replacement and deduplicated additions separately from their assembled patch. An active template can then mirror only the primary text and apply imports once; renderer code must not reverse-engineer those roles from a merged edit. The retained before snapshot also guards selection-only acceptance.
 
+Each caret supplies a separately resolved ordinary edit. The planner checks
+that each replacement covers its original selection. If a reply omits a
+range, all carets must be collapsed at identical identifier prefixes. The
+group reuses the existing source planner after deduplicating shared imports.
+It computes every resulting caret from the full edit order before the editor
+can change.
+
 <ui:copy id="completion-draft-android">
 package com.hickorydocs.simple
 import org.json.JSONObject
@@ -297,6 +304,59 @@ fun planCompletion(uri:String,item:JSONObject,snapshot:SourceSnapshot,initialFro
  val selection=inserted.selection ?: CompletionSelection(inserted.text.length,inserted.text.length);validateOffset(inserted.text,selection.from);validateOffset(inserted.text,selection.to);check(selection.from<=selection.to){"Completion selection runs backwards"}
  val fields=inserted.fields.map {field->validateOffset(inserted.text,field.from);validateOffset(inserted.text,field.to);check(field.from<=field.to){"Invalid snippet field"};field.copy(from=insertionFrom+field.from,to=insertionFrom+field.to)}
  return CompletionDraft(path,source,plan,insertionFrom,CompletionSelection(insertionFrom+selection.from,insertionFrom+selection.to),fields,primary=SourceReplacement(from,to,inserted.text),additional=additions)
+}
+
+internal data class CapturedAndroidCompletion(val item:JSONObject,val from:Int,val to:Int,val prefixFrom:Int?)
+internal data class AndroidCompletionGroup(val plan:ChangePlan,val carets:List<Int>)
+
+internal fun planCompletionGroup(uri:String,snapshot:SourceSnapshot,captures:List<CapturedAndroidCompletion>):AndroidCompletionGroup {
+    require(captures.size in 2..16) { "Select 2 to 16 carets for a completion group." }
+    val source = snapshot.text
+    if (captures.any { !it.item.has("textEdit") }) {
+        val prefixes = captures.map { (_,from,to,prefixFrom) ->
+            require(from == to && prefixFrom != null && prefixFrom in 0..to && to <= source.length) {
+                "Implicit completion ranges require the same identifier prefix at each caret."
+            }
+            source.substring(prefixFrom,to)
+        }
+        require(prefixes.distinct().size == 1) { "Implicit completion ranges require the same identifier prefix at each caret." }
+    }
+    val drafts = captures.map { (item,from,to,prefixFrom) ->
+        require((!item.has("insertTextFormat") || item.opt("insertTextFormat") == 1) && item.opt("kind") != 15) {
+            "Each caret requires an ordinary completion edit."
+        }
+        planCompletion(uri,item,snapshot,prefixFrom ?: from,to).also { draft ->
+            val edit = checkNotNull(draft.primary)
+            require(edit.from <= from && edit.to >= to) { "A completion range does not cover its captured selection." }
+        }
+    }
+    val first = drafts.first()
+    val primary = drafts.map { checkNotNull(it.primary) }
+    require(drafts.all { it.primary?.text == primary.first().text && it.additional == first.additional }) {
+        "The completions disagree about their replacement or shared edits."
+    }
+    val byStart = primary.withIndex().associate { it.value.from to it.index }
+    require(byStart.size == primary.size) { "Completion ranges overlap." }
+    val prefixes = first.additional.filter { it.from == it.to && it.from in byStart }.groupBy { it.from }
+    val edits = (first.additional.filter { it.from != it.to || it.from !in byStart } + primary.map { edit ->
+        edit.copy(text = prefixes[edit.from].orEmpty().joinToString("") { it.text } + edit.text)
+    }).sortedWith(compareBy({it.from},{it.to}))
+    require(edits.zipWithNext().none { (left,right) -> left.from == right.from || left.to > right.from }) {
+        "Completion ranges overlap with another completion or shared edit."
+    }
+    val raw = JSONArray()
+    val carets = IntArray(primary.size)
+    var delta = 0
+    for (edit in edits) {
+        raw.put(JSONObject().put("range",JSONObject().put("start",languagePosition(source,edit.from))
+            .put("end",languagePosition(source,edit.to))).put("newText",edit.text))
+        byStart[edit.from]?.let { index -> carets[index] = edit.from + delta + edit.text.length }
+        delta += edit.text.length - (edit.to - edit.from)
+    }
+    require(carets.distinct().size == primary.size) { "The completion would merge distinct carets." }
+    val plan = planWorkspaceEdit("Complete ${captures.first().item.getString("label")}",
+        JSONObject().put("changes",JSONObject().put(uri,raw)),mapOf(first.path to snapshot),allowNoop=true)
+    return AndroidCompletionGroup(plan,carets.toList())
 }
 </ui:copy>
 
@@ -943,6 +1003,19 @@ class CompletionPlanTest {
    draft.plan.patches.firstOrNull()?.let{patch->val inverse=invertChangePlan(draft.plan);assertEquals(name,source,inverse.patches.first().after);assertNull(name,validateChangePlan(inverse,mapOf("a.py" to SourceSnapshot(patch.after,true))))}
   }
  }
+ @Test fun ordinaryGroupChecksExactImplicitPrefixesAndRetainsEveryMappedCaret() {
+  val uri="hick:///a.py"
+  fun item()=JSONObject().put("label","value").put("insertText","value")
+  fun group(source:String,secondFrom:Int,secondTo:Int,secondPrefix:Int?)=planCompletionGroup(uri,SourceSnapshot(source,true),listOf(
+   CapturedAndroidCompletion(item(),2,2,0),CapturedAndroidCompletion(item(),secondFrom,secondTo,secondPrefix)))
+  val accepted=group("va\nva\n",5,5,3)
+  assertEquals("value\nvalue\n",accepted.plan.patches.single().after)
+  assertEquals(listOf(5,11),accepted.carets)
+  assertTrue(runCatching{group("va\nvo\n",5,5,3)}.isFailure)
+  assertTrue(runCatching{group("va\nva\n",3,5,null)}.isFailure)
+  assertTrue(runCatching{group("va\nva\n",2,2,0)}.isFailure)
+ }
+
 }
 </ui:copy>
 

@@ -20,4 +20,17 @@ class CompletionPlanTest {
    draft.plan.patches.firstOrNull()?.let{patch->val inverse=invertChangePlan(draft.plan);assertEquals(name,source,inverse.patches.first().after);assertNull(name,validateChangePlan(inverse,mapOf("a.py" to SourceSnapshot(patch.after,true))))}
   }
  }
+ @Test fun ordinaryGroupChecksExactImplicitPrefixesAndRetainsEveryMappedCaret() {
+  val uri="hick:///a.py"
+  fun item()=JSONObject().put("label","value").put("insertText","value")
+  fun group(source:String,secondFrom:Int,secondTo:Int,secondPrefix:Int?)=planCompletionGroup(uri,SourceSnapshot(source,true),listOf(
+   CapturedAndroidCompletion(item(),2,2,0),CapturedAndroidCompletion(item(),secondFrom,secondTo,secondPrefix)))
+  val accepted=group("va\nva\n",5,5,3)
+  assertEquals("value\nvalue\n",accepted.plan.patches.single().after)
+  assertEquals(listOf(5,11),accepted.carets)
+  assertTrue(runCatching{group("va\nvo\n",5,5,3)}.isFailure)
+  assertTrue(runCatching{group("va\nva\n",3,5,null)}.isFailure)
+  assertTrue(runCatching{group("va\nva\n",2,2,0)}.isFailure)
+ }
+
 }

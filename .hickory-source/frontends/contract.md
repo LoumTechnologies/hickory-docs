@@ -4128,7 +4128,7 @@ exporting file stayed unopened, and the saved files and configuration kept
 their bytes and file metadata. See
 `target/parity-rendered-android.sgYIt7/continuation-receipts/final-android-bic8r2xt/typescript-completion/rendered-android-typescript-completion.json`.
 
-Simple Browser and Apple group ordinary completion for 2–16 captured
+Simple Browser, Apple and Android group ordinary completion for 2–16 captured
 carets. Each caret queries and resolves a unique matching offer with its
 own token on the exact source revision. The group requires an agreed plain
 replacement, the same additional edits and disjoint primary ranges. An
@@ -4146,6 +4146,12 @@ imports and a late reply after a secondary caret round trip. Run
 `python3 scripts/test-source-completion-browser.py --typescript-group`
 with the installed provider. See
 `target/appkit-live-caret-completion.g594rhqw/receipt.json`.
+
+Android's focused editor tests apply the two independently resolved edits
+and shared import in one native text-state transaction. They restore the
+full caret roster through Undo and Redo, and preserve the entire draft when
+a selection, provider proof, composition state or edit range invalidates
+the group.
 
 ## Shared snippet expansion foundation
 
