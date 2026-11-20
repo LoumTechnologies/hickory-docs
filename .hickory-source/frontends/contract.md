@@ -56,10 +56,10 @@ device IME and assistive technology need their own acceptance. The emulator
 originally refused userdata allocation. An owned API 36 emulator booted after
 inactive compiler caches were reclaimed, and the checkpoint Android APK built.
 
-The reusable Insert template catalog has guarded Preview, Apply and history
-in the main and Simple browsers, mounted AppKit, rendered UIKit and the
-Android controller. Stock Android has rendered Preview, Apply, Undo and
-Redo. Its catalog-linked input replay remains open.
+The reusable Insert template catalog has guarded Preview, Apply, linked
+editing and native history in the main and Simple browsers, mounted AppKit,
+rendered UIKit and stock Android. On Android, Edit selections applied the
+same input to both linked template carets and their mirrors.
 
 The signed iPhone simulator build sent exact whole-author `source.fixAll`
 ranges and retained the distinct opaque provider choices across acquisition.
@@ -4334,6 +4334,16 @@ restored the expansion. The same editor, selection and saved metadata
 survived. A later input dispatch left the active field and draft as they
 were. See
 `target/parity-rendered-android.sgYIt7/continuation-receipts/final-android-kk5fl1v7/template-catalog/rendered-template-application-history.json`.
+
+Stock Android also opened the local catalog with two source carets. The
+guarded preview preserved the original draft, and Apply placed two linked
+template fields in the same editor. The focused native Edit selections field
+accepted `r` through Android's accessibility text action. Apply to selections
+changed both `old + old` expansions to `r + r`. Native Edit menu Undo and
+Redo restored both drafts and the corresponding primary selections. The
+editor stayed mounted, with no writes to the saved source or catalog. Both
+kept their bytes, inodes and modification times. See
+`target/parity-rendered-android.sgYIt7/continuation-receipts/final-android-fp4hh2y5/template-catalog-batch/rendered-template-catalog.json`.
 
 Installed TypeScript completed both prefixes and inserted one shared
 import in Simple Browser and mounted AppKit. The Browser replay used the
