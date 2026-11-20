@@ -1581,11 +1581,13 @@ control stayed visible beside line 7. See
 The line-number gesture now stays attached while the layout updates and
 checks the current authored source before toggling a breakpoint. Stock
 Android painted line 7 on the first press, admitted the selected Rust test
-after the delayed build, and stopped at that line. Returning from the panel
+after 38.43 seconds of preparation, and stopped at that line with `n=41`.
+Returning from the panel
 kept the editor frame and the visible Continue control with the keyboard
 closed. One native tap sent Continue for the paused session, which then
-exited 0. See
-`target/parity-rendered-android.sgYIt7/continuation-receipts/final-android-o_pz8w83/rust-debug-unwrapped/native-continue-and-exit.json`.
+exited 0. The sibling was filtered out, and the editor identity and saved
+file metadata stayed fixed. See
+`target/parity-rendered-android.sgYIt7/continuation-receipts/final-android-o_pz8w83/rust-debug-unwrapped/receipt.json`.
 
 The stock startup replay also exposed a discovery race. The editor could
 compose before its test index attached, then keep the same source text
