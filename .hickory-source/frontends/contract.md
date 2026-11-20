@@ -281,6 +281,25 @@ The stock APK showed the same grid with identical editor pixels. A separate
 build logged passive Compose coordinates beneath the open popup. See
 `target/parity-rendered-android.sgYIt7/continuation-receipts/final-android-ly84u3ir/gutter-overflow/rendered-android-gutter-overflow.json`.
 
+A separate Android 37 run collected two passing pytest cases and measured
+three authored lines through the embedded panel. Native taps at the measured
+Compose centers selected the first line's coverage and test actions from
+overflow. Coverage reopened the retained run and source tests showed only its
+first declaration. The editor frame, identity, scroll, selection and next
+control stayed fixed with the grid open. The fixture used the settled Gboard
+viewport and passive measurements. See
+`target/parity-rendered-android.sgYIt7/continuation-receipts/final-android-ff6ifu4x/coverage-overflow/rendered-android-coverage-overflow.json`.
+
+The dirty-source replay preselected a real pytest-cov run through the
+fixture. Native Select All and Delete made the buffer an empty draft.
+Coverage stayed absent after fresh source-test indexing, and the engine
+received no source write. Saved source and project bytes matched their
+initial digests. Some fresh emulator replays had stalled at the report's
+opening screen, so this draft check used fixture selection and the prior
+receipt supplies the rendered collector and report-navigation evidence.
+See
+`target/parity-rendered-android.sgYIt7/continuation-receipts/final-android-zqxs3v3w/coverage-overflow/rendered-android-coverage-overflow.json`.
+
 ### Requested files and capability arrival
 
 The shared Simple launcher now passes the exact workspace-relative requested
