@@ -54,7 +54,7 @@ grid can never take focus from a person already editing the file.
 
 ## Separate semantic questions from their controls
 
-A provider can answer with locations, nested document symbols, flat workspace symbols or call-hierarchy items. Normalize those shapes to named source locations once. Outlines inherit the queried document identity; workspace symbols and calls must carry their own identity. Caller/callee reads prepare provider items before asking for incoming/outgoing calls. Bound ambiguous preparation and nesting, retain explicit limits, and do not infer absent call relationships.
+A provider can answer with locations, nested document symbols, flat workspace symbols or call-hierarchy items. Normalize those shapes to named source locations once. Outlines inherit the queried document identity; workspace symbols and calls must carry their own identity. Caller/callee reads prepare provider items before asking for incoming and outgoing calls. The origin lease stays current through preparation so an obsolete reply cannot start the follow-up. A simple identifier from a named result travels with its source position. The host checks the exact identifier and its boundaries on a different file before activating it.
 
 The workspace buffer owns its language session, matching Apple and Android. Hiding a tab must not close the provider's document and erase usages or unsaved semantic knowledge. A small per-buffer subscription lets a mounted editor borrow current capabilities and diagnostics without owning their lifecycle; standalone document surfaces retain their existing local session. Provider attachment still follows readable text, and removing a buffer or unmounting the workspace closes its owner.
 
@@ -332,7 +332,7 @@ export function Document({ buffer, current, renderTools }: {
       setSemanticResult(result);
       if (!client || !session.ready) { setSemanticResult({ ...result, message: "Language services unavailable. Install a server for this workspace, then retry." }); return; }
       try {
-        const locations = await querySemanticLocations(client, session.uri, utf16ToPosition(source, authoredOffset(view.state,head)), kind, text);
+        const locations = await querySemanticLocations(client, session.uri, utf16ToPosition(source, authoredOffset(view.state,head)), kind, text, current);
         if (current()) setSemanticResult({ ...result, locations, message: locations.length ? `${locations.length} locations` : "No results. The provider may still be indexing or may not support this query. Retry or choose another symbol." });
       } catch (error) { if (current()) setSemanticResult({ ...result, message: `${String(error)}. Retry language services.` }); }
     };
@@ -507,7 +507,11 @@ export function Document({ buffer, current, renderTools }: {
         if (!workspaceLanguages && sameDocumentUri(location.uri, session.uri)) {
           const anchor = positionToUtf16(buffer.text, location.range.start);
           view.dispatch({ selection: { anchor }, effects: EditorView.scrollIntoView(anchor, { y: "center" }) }); view.focus();
-        } else openProviderLocation(path, location.range.start.line + 1, location.range.start.character, originCurrent);
+        } else {
+          const name = location.name;
+          const providerName = name && /^[\p{ID_Start}_$][\p{ID_Continue}$]*$/u.test(name) ? name : undefined;
+          openProviderLocation(path, location.range.start.line + 1, location.range.start.character, originCurrent, providerName);
+        }
         setSemanticResult(null);
       }}>{location.name ? `${location.name} · ` : ""}{path ?? location.uri}:{location.range.start.line + 1}:{location.range.start.character + 1}{!path ? " (unsupported target)" : ""}</button>; })}
     </div>}

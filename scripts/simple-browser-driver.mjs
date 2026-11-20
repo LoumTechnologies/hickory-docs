@@ -411,6 +411,13 @@ try {
         case "semantic-open":
           await page.getByRole("dialog", { name: "Semantic locations" }).getByRole("button", { name: request.label, exact: true }).click();
           await editor(request.path).waitFor(); break;
+        case "semantic-refuse-name": {
+          const panel = page.getByRole("dialog", { name: "Semantic locations" });
+          await panel.getByRole("button", { name: request.label, exact: true }).click();
+          await page.locator("footer").getByText(/The reported symbol has moved or changed/).waitFor();
+          value = { sourceVisible: await editor(request.path).isVisible(), targetVisible: await editor(request.target).isVisible() };
+          break;
+        }
         case "semantic-retire-origin": {
           const read = url => url.pathname === "/api/file" && url.searchParams.get("path") === request.target;
           let release;

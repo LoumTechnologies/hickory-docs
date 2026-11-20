@@ -260,7 +260,7 @@ export function Document({ buffer, current, renderTools }: {
       setSemanticResult(result);
       if (!client || !session.ready) { setSemanticResult({ ...result, message: "Language services unavailable. Install a server for this workspace, then retry." }); return; }
       try {
-        const locations = await querySemanticLocations(client, session.uri, utf16ToPosition(source, authoredOffset(view.state,head)), kind, text);
+        const locations = await querySemanticLocations(client, session.uri, utf16ToPosition(source, authoredOffset(view.state,head)), kind, text, current);
         if (current()) setSemanticResult({ ...result, locations, message: locations.length ? `${locations.length} locations` : "No results. The provider may still be indexing or may not support this query. Retry or choose another symbol." });
       } catch (error) { if (current()) setSemanticResult({ ...result, message: `${String(error)}. Retry language services.` }); }
     };
@@ -435,7 +435,11 @@ export function Document({ buffer, current, renderTools }: {
         if (!workspaceLanguages && sameDocumentUri(location.uri, session.uri)) {
           const anchor = positionToUtf16(buffer.text, location.range.start);
           view.dispatch({ selection: { anchor }, effects: EditorView.scrollIntoView(anchor, { y: "center" }) }); view.focus();
-        } else openProviderLocation(path, location.range.start.line + 1, location.range.start.character, originCurrent);
+        } else {
+          const name = location.name;
+          const providerName = name && /^[\p{ID_Start}_$][\p{ID_Continue}$]*$/u.test(name) ? name : undefined;
+          openProviderLocation(path, location.range.start.line + 1, location.range.start.character, originCurrent, providerName);
+        }
         setSemanticResult(null);
       }}>{location.name ? `${location.name} · ` : ""}{path ?? location.uri}:{location.range.start.line + 1}:{location.range.start.character + 1}{!path ? " (unsupported target)" : ""}</button>; })}
     </div>}

@@ -24,6 +24,7 @@ import {GitReviewView} from "./GitReview";
 import { SimpleLanguages } from "./WorkspaceLanguages";
 import { WorkspaceProblems, requestProblemNavigation } from "./Problems";
 import { NavigationTrail, semanticPath, type SemanticLocation } from "./Intelligence";
+import { matchesWorkspaceSymbol } from "../lib/workspaceSearch";
 import { documentUri } from "../lsp/documentUri";
 import { utf16ToPosition } from "../lsp/positions";
 import { editorForBuffer } from "./Document";
@@ -359,7 +360,14 @@ export function App() {
     };
     const file = buffers.values.get(location.path)?.file ?? find(workspaceFiles);
     let accepted: OpenedFile | null = null;
-    if (file) { void open(file, {current, originCurrent: location.originCurrent}).then(async opened => {
+    const name = location.providerName;
+    const verify = name && file?.path !== buffer?.file.path ? async (target: Buffer) => {
+      const row = target.text.split("\n")[location.line - 1];
+      if (!matchesWorkspaceSymbol(row, location.character ?? -1, name)) {
+        throw new Error("The reported symbol has moved or changed. Query the location again.");
+      }
+    } : undefined;
+    if (file) { void open(file, {current, originCurrent: location.originCurrent, verify}).then(async opened => {
       if (!opened?.current()) return;
       accepted = opened;
       const target = opened.buffer;
@@ -378,7 +386,13 @@ export function App() {
       if (location.expectedSource !== undefined && target.text !== location.expectedSource) { setNotice("Source changed. Refresh the query before navigating."); return; }
       if (location.expectedSource === undefined && location.recordHistory !== false && location.character !== undefined && target.dirty && file.path !== buffer?.file.path) { setNotice(`Save ${file.path} and query again before using a cross-file source position.`); return; }
       revealVisit(opened, departed, location.line, location.character, location.recordHistory !== false);
-    }).catch(error=>{if(accepted?.current())setNotice(String(error)+" Source text remains available; no precise location was applied.");}); } else setNotice(location.capture?.sourceReference&&location.capture.sourceReference>0?"This frame uses adapter-owned source; no matching workspace text is available.":`Location not found: ${location.path}. Refresh files and query again.`);
+    }).catch(error => {
+      if (accepted?.current()) {
+        setNotice(String(error) + " Source text remains available; no precise location was applied.");
+      } else if (verify && current() && location.originCurrent?.()) {
+        setNotice(error instanceof Error ? error.message : String(error));
+      }
+    }); } else setNotice(location.capture?.sourceReference&&location.capture.sourceReference>0?"This frame uses adapter-owned source; no matching workspace text is available.":`Location not found: ${location.path}. Refresh files and query again.`);
   },true), [workspaceFiles, layout, focused]);
   useEffect(()=>{const inspect=(event:Event)=>{const path=(event as CustomEvent<{path:string}>).detail.path,file=buffers.values.get(path)?.file??findPath(path),identity=workspaceIdentity.current;if(!file)return;void open(file,{current:()=>workspaceIdentity.current===identity}).then(opened=>{if(opened?.current())setShowCoverage(true);});};window.addEventListener(SOURCE_COVERAGE_INSPECTION,inspect);return()=>window.removeEventListener(SOURCE_COVERAGE_INSPECTION,inspect);},[workspaceFiles,layout,focused]);
   useEffect(()=>{const inspect=(event:Event)=>{const request=(event as CustomEvent<SourceTestInspection>).detail,owner=request.owner??buffers.values.get(request.path),namespace=buffers.workspace;const current=()=>!!owner&&!owner.resourceDeleted&&buffers.values.get(request.path)===owner&&owner.file.path===request.path&&owner.namespace===namespace&&buffers.workspace===namespace&&(request.revision===undefined||owner.sourceRevision===request.revision);const file=owner?.file;if(!file||!current())return;void open(file,{current}).then(opened=>{if(opened?.current()){setTestInspection(request);setShowTests(true);}});};window.addEventListener(SOURCE_TEST_INSPECTION,inspect);return()=>window.removeEventListener(SOURCE_TEST_INSPECTION,inspect);},[workspaceFiles,layout,focused]);

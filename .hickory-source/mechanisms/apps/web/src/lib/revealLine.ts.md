@@ -204,6 +204,11 @@ export const OPEN_LOCATION_EVENT = "hickory:open-location";
 <a id="f-bca672428db0-OpenLocation"></a>
 ### `OpenLocation`
 
+A provider result can carry an ordinary identifier alongside its source lease.
+The host uses the identifier to check an inferred cross-file coordinate after
+reading the destination. Explicit source and debugger captures carry their own
+authority.
+
 <storycode:copy id="f-bca672428db0-OpenLocation">
 export interface OpenLocation {
   path: string;
@@ -212,6 +217,7 @@ export interface OpenLocation {
   recordHistory?: boolean;
   expectedSource?: string;
   originCurrent?: () => boolean;
+  providerName?: string;
   capture?:{hash:string|null;current:()=>boolean;sourceReference?:number|null;positionKnown?:boolean};
 }
 
@@ -249,10 +255,12 @@ export function openLocation(path: string, line: number, character?: number, rec
 The workspace's side. Returns the unsubscribe.
 
 <storycode:copy id="f-bca672428db0-onOpenLocation">
-/** Keep the provider's viewed source and caret current until the host opens the target. */
-export function openProviderLocation(path: string, line: number, character: number, originCurrent: () => boolean): void {
+/** Carry the source lease and any exact provider name until the host checks the target. */
+export function openProviderLocation(path: string, line: number, character: number, originCurrent: () => boolean, providerName?: string): void {
   if (!originCurrent()) return;
-  window.dispatchEvent(new CustomEvent<OpenLocation>(OPEN_LOCATION_EVENT, {detail: {path, line, character, originCurrent}}));
+  window.dispatchEvent(new CustomEvent<OpenLocation>(OPEN_LOCATION_EVENT, {
+    detail: {path, line, character, originCurrent, ...(providerName === undefined ? {} : {providerName})},
+  }));
 }
 
 /** Unknown captured source identities open text without asserting any line position. */

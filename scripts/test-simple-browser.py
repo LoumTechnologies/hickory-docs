@@ -421,6 +421,64 @@ def semantic_navigation_acceptance(driver, folder, held_origin=False):
     for name, source in original.items(): assert (folder / name).read_text() == source
 
 
+CALL_HIERARCHY_SOURCE = {
+    "origin.py": "from dependency import owned_leaf\n\ndef owned_middle() -> int:\n    return owned_leaf()\n",
+    "caller.py": "from origin import owned_middle\n\n# Owned caller 🧪.\ndef owned_foreign_caller() -> int:\n    return owned_middle()\n",
+    "dependency.py": "# Owned dependency 🧪.\n\ndef owned_leaf() -> int:\n    return 42\n",
+    "stale_caller.py": "from origin import owned_middle\n\ndef owned_stale_caller() -> int:\n    return owned_middle()\n",
+}
+
+
+def call_hierarchy_acceptance(driver, folder):
+    path = "origin.py"
+    source = CALL_HIERARCHY_SOURCE[path]
+    offset = source.index("owned_middle") + 2
+    change = "# unsaved caller inquiry\n"
+    driver.act("open", path=path)
+    driver.act("source-tests-edit", path=path, text=change)
+    assert driver.act("search-source", path=path) == source + change
+    driver.act("remember-editor", path=path)
+    size = driver.act("editor-size", path=path)
+
+    def read(query, label):
+        deadline = time.monotonic() + 25
+        while True:
+            result = driver.act("semantic-query", path=path, offset=offset, query=query)
+            if label in result["text"]:
+                assert result["size"] == size, result
+                return
+            driver.act("semantic-close")
+            assert time.monotonic() < deadline, result
+            time.sleep(.2)
+
+    for query, target, symbol, position in (
+        ("Find callers", "caller.py", "owned_foreign_caller", "4:5"),
+        ("Find callees", "dependency.py", "owned_leaf", "3:5"),
+    ):
+        label = f"{symbol} · {target}:{position}"
+        read(query, label)
+        driver.act("semantic-open", path=target, label=label)
+        before = CALL_HIERARCHY_SOURCE[target].split(symbol, 1)[0]
+        eventually(lambda: driver.act("caret-offset", path=target), len(before.encode("utf-16-le")) // 2)
+        driver.act("navigate-history", direction="back", path=path)
+        eventually(lambda: driver.act("caret-offset", path=path), offset)
+        assert driver.act("editor-is-retained", path=path)
+
+    target = "stale_caller.py"
+    label = "owned_stale_caller · stale_caller.py:3:5"
+    read("Find callers", label)
+    renamed = CALL_HIERARCHY_SOURCE[target].replace("owned_stale_caller()", "owned_stale_caller_new()")
+    (folder / target).write_text(renamed)
+    assert driver.act("semantic-refuse-name", path=path, target=target, label=label) == {
+        "sourceVisible": True, "targetVisible": False,
+    }
+    assert driver.act("editor-is-retained", path=path)
+    assert driver.act("editor-size", path=path) == size
+    assert driver.act("search-source", path=path) == source + change
+    for name, expected in {**CALL_HIERARCHY_SOURCE, target: renamed}.items():
+        assert (folder / name).read_bytes() == expected.encode()
+
+
 def language_cache_acceptance(driver, folder):
     # Requires the real Python language server; never substitutes canned tokens.
     path = "cache.py"
@@ -977,7 +1035,11 @@ if __name__ == "__main__":
         (folder / "problem.py").write_text('amount: int = "wrong"\n')
         (folder / "navigation.py").write_text("from semantic_target import value\nprint(value)\n\ndef calculate(amount):\n    return adjust(amount)\n\ndef adjust(amount):\n    return amount + 1\n\ncalculate(value)\n")
         (folder / "semantic_target.py").write_text("prefix = 0; value = 42\n")
-        if "--semantic-origin-only" in sys.argv:
+        if "--call-hierarchy-only" in sys.argv:
+            subprocess.run(["git", "init", "-q", str(folder)], check=True, timeout=10)
+            for path, source in CALL_HIERARCHY_SOURCE.items():
+                (folder / path).write_text(source)
+        if any(flag in sys.argv for flag in ("--semantic-origin-only", "--call-hierarchy-only")):
             provider = Path(os.environ["HICKORY_SIMPLE_TEST_PYTHON_PROVIDER"]).resolve(strict=True)
             if not provider.is_file():
                 raise RuntimeError("The installed basedpyright language server script must be a file.")
@@ -1136,6 +1198,9 @@ raise RuntimeError('wrong assistant fence')
             elif "--problems-only" in sys.argv:
                 problems_acceptance(driver, folder)
                 print("Browser: source-hash-bound provider Problems, precise next-problem navigation, status/menu access, stationary geometry, retained draft and unchanged disk passed")
+            elif "--call-hierarchy-only" in sys.argv:
+                call_hierarchy_acceptance(driver, folder)
+                print("Browser: real cross-file callers and callees, exact UTF-16 carets, Back, retained draft and renamed-target refusal passed")
             elif "--semantic-origin-only" in sys.argv:
                 semantic_navigation_acceptance(driver, folder, held_origin=True)
                 print("Browser: genuine definition retired after a same-tab caret move during HTTP, fresh definition and Back preserved exact authored positions and saved bytes")

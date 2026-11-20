@@ -117,6 +117,7 @@ export interface OpenLocation {
   recordHistory?: boolean;
   expectedSource?: string;
   originCurrent?: () => boolean;
+  providerName?: string;
   capture?:{hash:string|null;current:()=>boolean;sourceReference?:number|null;positionKnown?:boolean};
 }
 
@@ -138,10 +139,12 @@ export function openLocation(path: string, line: number, character?: number, rec
   );
 }
 
-/** Keep the provider's viewed source and caret current until the host opens the target. */
-export function openProviderLocation(path: string, line: number, character: number, originCurrent: () => boolean): void {
+/** Carry the source lease and any exact provider name until the host checks the target. */
+export function openProviderLocation(path: string, line: number, character: number, originCurrent: () => boolean, providerName?: string): void {
   if (!originCurrent()) return;
-  window.dispatchEvent(new CustomEvent<OpenLocation>(OPEN_LOCATION_EVENT, {detail: {path, line, character, originCurrent}}));
+  window.dispatchEvent(new CustomEvent<OpenLocation>(OPEN_LOCATION_EVENT, {
+    detail: {path, line, character, originCurrent, ...(providerName === undefined ? {} : {providerName})},
+  }));
 }
 
 /** Unknown captured source identities open text without asserting any line position. */
