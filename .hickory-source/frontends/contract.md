@@ -56,7 +56,6 @@ device IME and assistive technology need their own acceptance. The emulator
 originally refused userdata allocation. An owned API 36 emulator booted after
 inactive compiler caches were reclaimed, and the checkpoint Android APK built.
 
-The complete-file `source.fixAll` flow still needs a rendered Android replay.
 The iPhone has retained pytest failures, coverage and source navigation.
 Its rendered failed-only rerun and configured debugger Attach still need
 their own replays.
@@ -74,6 +73,13 @@ one step. The second author stayed unopened until the changes were reviewed.
 Opening it afterward showed the exact applied draft. The first editor kept
 its frame and history, and saved bytes and file metadata stayed intact. See
 `target/ios-complete-file-fix/combined-literal-1/complete-file-fixes/attempt-2/receipt.json`.
+
+Stock Android repeated the exact whole-file acquisition and two-source
+preview. Apply, Undo and Redo changed both drafts and mapped the original
+caret from 8 to 15, back to 8, then to 15. The exact editor frame survived
+all three review dismissals with Gboard closed. The second author first
+opened as a tab after Redo. Both saved files kept their bytes and metadata.
+See `target/parity-rendered-android.sgYIt7/continuation-receipts/final-android-dkecc9z6/complete-file-fix/rendered-complete-file-fix.json`.
 
 ### iPhone Python definition and navigation history
 

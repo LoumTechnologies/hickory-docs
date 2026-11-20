@@ -27,6 +27,10 @@ Complete-file source cleanup retains only the standard `source` family through
 query and resolution. Unavailable or changed actions refuse while preserving the
 ordinary editor; the existing source lease and history authority still apply.
 
+Closing a review retires its pending replies and dismisses its dialog. The
+dialog's native focus handoff restores the previous surface. Requesting source
+focus here opens Gboard even when the reader left the editor unfocused.
+
 <ui:copy id="simple-android-workspace-changes">
 package com.hickorydocs.simple
 import androidx.compose.runtime.*
@@ -95,7 +99,7 @@ class WorkspaceChanges {
     fun close(workspace: Workspace) {
         revision++
         if(mode=="entryMove")workspace.resourceChanges.dismiss()
-        retireEntryMove();mode=null;workspace.currentBuffer?.focusSource?.invoke()
+        retireEntryMove();mode=null
     }
     internal fun retireEntryMove() {
         entryScope++

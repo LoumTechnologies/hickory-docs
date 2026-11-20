@@ -65,7 +65,7 @@ class WorkspaceChanges {
     fun close(workspace: Workspace) {
         revision++
         if(mode=="entryMove")workspace.resourceChanges.dismiss()
-        retireEntryMove();mode=null;workspace.currentBuffer?.focusSource?.invoke()
+        retireEntryMove();mode=null
     }
     internal fun retireEntryMove() {
         entryScope++
