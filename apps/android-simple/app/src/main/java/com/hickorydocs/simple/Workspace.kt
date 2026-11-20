@@ -80,9 +80,9 @@ class DocumentBuffer(file: FileNode, loaded: FileText, untitledDraft:Boolean=fal
     var inlineMarkup by mutableStateOf(InlineSnapshot(""))
     var rememberNavigation: ((SemanticLocation, SemanticLocation) -> Unit)? = null
     var openSemanticLocation: ((SemanticLocation, () -> Boolean) -> Unit)? = null
-    var coverageSource:SimpleCoverageState?=null
+    var coverageSource by mutableStateOf<SimpleCoverageState?>(null)
     var inspectCoverage:((Int)->Unit)?=null
-    var testIndex:SourceTestIndex?=null
+    var testIndex by mutableStateOf<SourceTestIndex?>(null)
     var inspectTests:((Int)->Unit)?=null
     var language: NativeLanguage? = null
     val state = TextFieldState(loaded.content)

@@ -1557,6 +1557,22 @@ sibling test and preserved editor state and saved bytes. The existing real
 pytest Debug path also passed. This receipt uses qualified name-filter
 selection. The later declaration-to-artifact witness adds the guard below.
 
+Stock Android opened the saved Rust source from Files, chose the exact
+`test_selected` row and kept the same readable editor while Cargo prepared.
+The native preview showed preparation, and the engine admitted the debugger
+after 40.48 seconds. The selected test passed, its sibling was filtered and
+the retained process exited 0. The launch request carried an empty
+breakpoint list. A rendered stop at the authored line and Continue remain
+open for this slow fixture. See
+`target/parity-rendered-android.sgYIt7/continuation-receipts/final-android-t5aatbe0/rust-debug/debug-wire.json`.
+
+The stock startup replay also exposed a discovery race. The editor could
+compose before its test index attached, then keep the same source text
+through promotion without running discovery again. Test discovery and
+coverage now observe their own attachment and use the source address in
+their effect keys. A focused Compose witness observed those handles arrive
+separately at the same source and selection.
+
 ### Match the saved Rust test declaration to the emitted function
 
 Before Cargo lists a harness, the launcher checks its root against the captured

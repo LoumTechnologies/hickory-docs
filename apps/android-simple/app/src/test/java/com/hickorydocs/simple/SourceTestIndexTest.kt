@@ -1,11 +1,46 @@
 package com.hickorydocs.simple
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.snapshots.Snapshot
+import androidx.compose.ui.text.TextRange
 import org.junit.Assert.*
 import org.junit.Test
 import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.take
+import kotlinx.coroutines.flow.toList
 class SourceTestIndexTest {
     private fun facts(path:String)=SourceTestScan(1,path,"scan",mapOf(path to "hash"),emptyList(),"plain",true,emptyList(),emptyList(),emptyList(),emptyList())
     private data class Read(val path:String,val source:String,val result:CompletableDeferred<SourceTestScan>)
     private suspend fun settle(condition:()->Boolean){withTimeout(2000){while(!condition())yield()}}
+    @Test fun observesIndependentLateCapabilitiesOnTheSameStartupEditor()=runBlocking {
+        val source = "fn test_selected() {}\n"
+        val path = "src/lib.rs"
+        val buffer = DocumentBuffer(FileNode("lib.rs",path,false,emptyList(),null,null),FileText(source,"hash"),startupObservation=true)
+        val selection = TextRange(3,7)
+        buffer.state.edit { this.selection = selection }
+        val index = SourceTestIndex(this,0){name,_->facts(name)}
+        val coverage = SimpleCoverageState()
+        val seen = mutableListOf<Pair<SourceTestIndex?,SimpleCoverageState?>>()
+        val observer = launch(start=CoroutineStart.UNDISPATCHED) {
+            snapshotFlow { buffer.testIndex to buffer.coverageSource }.take(3).toList(seen)
+        }
+        try {
+            assertEquals(listOf(null to null),seen.toList())
+            buffer.coverageSource = coverage
+            Snapshot.sendApplyNotifications()
+            settle { seen.size == 2 }
+            assertEquals(null to coverage,seen.last())
+            buffer.testIndex = index
+            Snapshot.sendApplyNotifications()
+            withTimeout(2000) { observer.join() }
+            assertEquals(index to coverage,seen.last())
+            assertEquals(path,buffer.file.path)
+            assertEquals(source,buffer.text)
+            assertEquals(selection,buffer.state.selection)
+        } finally {
+            observer.cancel()
+            index.stop()
+        }
+    }
     @Test fun coalescesDraftsAndDrainsAfterIndependentFailure()=runBlocking {
         val texts=mutableMapOf("a" to "first","b" to "source","c" to "source");val reads=mutableListOf<Read>()
         val index=SourceTestIndex(this,0){path,source->val result=CompletableDeferred<SourceTestScan>();reads+=Read(path,source,result);result.await()}

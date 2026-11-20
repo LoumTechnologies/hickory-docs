@@ -7,6 +7,10 @@ For maintainers iterating on the equivalent Apple, Android and browser editor fr
 
 Each document owns a TextFieldState, including selection and undo, while the ViewModel owns connections and layout. Background requests retain a workspace generation so stale replies cannot populate a newly connected workspace.
 
+The editor observes test discovery and coverage attachment separately. Startup
+can promote the same buffer at the same address and text revision, so an
+attachment must be observable before its first source-bound read can run.
+
 File commands act on the connected workspace: path entry opens a file or directory, New Tab keeps an unnamed buffer, and Save As sends one strict, no-clobber complete-source request with captured construction ownership and physical guards. A confirmed receipt initializes its copy directly; no empty-create/read/legacy-write sequence remains. Existing destinations are never overwritten by Save As. Save All visits each named buffer; unnamed drafts ask for a path and failed saves retain their original edits. Refresh observes the tree without replacing open buffers.
 
 Reconnect clears the terminal session identity; the current terminal renderer owns its replay and has no workspace `screen` buffer to reset.
@@ -123,9 +127,9 @@ class DocumentBuffer(file: FileNode, loaded: FileText, untitledDraft:Boolean=fal
     var inlineMarkup by mutableStateOf(InlineSnapshot(""))
     var rememberNavigation: ((SemanticLocation, SemanticLocation) -> Unit)? = null
     var openSemanticLocation: ((SemanticLocation, () -> Boolean) -> Unit)? = null
-    var coverageSource:SimpleCoverageState?=null
+    var coverageSource by mutableStateOf<SimpleCoverageState?>(null)
     var inspectCoverage:((Int)->Unit)?=null
-    var testIndex:SourceTestIndex?=null
+    var testIndex by mutableStateOf<SourceTestIndex?>(null)
     var inspectTests:((Int)->Unit)?=null
     var language: NativeLanguage? = null
     val state = TextFieldState(loaded.content)

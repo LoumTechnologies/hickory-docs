@@ -825,7 +825,8 @@ Attach the grid only to an inline snapshot that still matches the field. Measure
     // so that frame uses the cache instead of briefly showing uncolored text.
     val semantic = service?.let { rebaseNativeTokens(it.tokens, it.tokenSource, source) }.orEmpty()
     val inline = buffer.inlineMarkup
-    LaunchedEffect(buffer,source) {buffer.readTestSources();buffer.readCoverageSource()}
+    LaunchedEffect(buffer,buffer.file.path,source,buffer.testIndex) {buffer.readTestSources()}
+    LaunchedEffect(buffer,buffer.file.path,source,buffer.coverageSource) {buffer.readCoverageSource()}
     LaunchedEffect(buffer, source, recorded != null) {
         val result = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { computeInlineMarkup(source, buffer.file.path, recorded != null) }
         if (buffer.text == source) buffer.inlineMarkup = result
