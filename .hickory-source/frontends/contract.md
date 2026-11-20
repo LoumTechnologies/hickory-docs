@@ -294,11 +294,20 @@ The dirty-source replay preselected a real pytest-cov run through the
 fixture. Native Select All and Delete made the buffer an empty draft.
 Coverage stayed absent after fresh source-test indexing, and the engine
 received no source write. Saved source and project bytes matched their
-initial digests. Some fresh emulator replays had stalled at the report's
-opening screen, so this draft check used fixture selection and the prior
-receipt supplies the rendered collector and report-navigation evidence.
-See
+initial digests. This draft check used fixture selection after the
+automation client reported an opening screen. The prior receipt supplies
+the rendered collector and report-navigation evidence. See
 `target/parity-rendered-android.sgYIt7/continuation-receipts/final-android-zqxs3v3w/coverage-overflow/rendered-android-coverage-overflow.json`.
+
+In the focused cold-process probe, the coverage WebView mounted all 12
+buttons and received HTTP 200 for its initial list request. The same-frame
+screenshot showed those controls while UiAutomation still reported the
+opening placeholder. Clearing only the UiAutomation client cache exposed
+the controls on the next ordinary read, with byte-identical screenshots
+before and after. Earlier runs reported as stalls also show the controls in
+their captured pixels. The first observer APK omitted its generated JS and
+CSS, and its assets were restored before the later probes. See
+`target/parity-rendered-android.sgYIt7/continuation-receipts/final-android-riuq1s_4/coverage-overflow/cold-process-1/outcome.json`.
 
 ### Requested files and capability arrival
 
