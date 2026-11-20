@@ -51,8 +51,9 @@ the address, contributor, or captured source retires the pending reading.
 
 Label the entry, focus, preview side, binary output and every truncation.
 Only service-supplied source points with matching acquired source hashes and
-valid scalar positions enable navigation. Closing restores source focus and
-retires the request.
+valid scalar positions enable navigation. Closing retires the pending reading
+and leaves the current editor's focus, selection and viewport intact. A focus
+request on Close can reopen the keyboard and scroll the editor to its caret.
 
 <ui:copy id="construction-reading-android-view">
 @Composable fun ConstructionReadingView(workspace:Workspace){
@@ -108,7 +109,7 @@ retires the request.
  Column(Modifier.widthIn(max=680.dp).heightIn(max=680.dp).padding(16.dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)){
  TextButton(enabled=!workspace.behaviorReading.loading&&!acquiring,onClick={scope.launch{read(connectedOnly=true)}}){Text("Read connected behavior and change impact")}
  BehaviorReadingView(workspace)
- Text("Construction reading",style=MaterialTheme.typography.titleMedium);TextButton(onClick={workspace.showConstruction=false;workspace.currentBuffer?.focusSource?.invoke()}){Text("Close")}
+ Text("Construction reading",style=MaterialTheme.typography.titleMedium);TextButton(onClick={workspace.showConstruction=false}){Text("Close")}
  OutlinedTextField(value=address,onValueChange={retireReading();address=it},label={Text("Construction entry")},placeholder={Text("Current workspace entry")})
  OutlinedTextField(value=model.focus,onValueChange={retireReading();model.focus=it},label={Text("Contributor or output (optional)")});TextButton(enabled=!model.loading&&!acquiring,onClick={scope.launch{read()}}){Text("Read captured drafts")};Text(model.notice,fontSize=12.sp)
  model.value?.let{value->Text("Captured entry: ${value.entry} · focus: ${value.focus ?: "all"}",fontSize=12.sp);Text("${value.count} related outputs${if(value.truncated)" · first 300 shown" else ""}. ${value.testCount} detected tests${if(value.testsTruncated)" · test list truncated" else ""}. Evidence: ${value.evidence}. Outputs have not been written.",fontSize=12.sp);Text(value.relationship,fontSize=12.sp);value.notices.forEach{Text(it,fontSize=12.sp)};if(value.unused>0)Text("${value.unused} supplied drafts did not contribute to this entry.",fontSize=12.sp)

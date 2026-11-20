@@ -41,6 +41,15 @@ an earlier open item only for the behavior it actually exercises.
 | Change impact and relevant verification | Browser, mounted macOS and Android controller have scoped compiler consequences, bounded declared relationships, selected checks/profiles and retained process-only results. Mounted iOS reached the selected process-only receipt from its connected reading. Undeclared dependencies remain unknown. A command exit supplies process evidence. Independent verification requires a source-bound receipt. |
 | Agent proposal review and guarded application | Owned managed-provider flows on browser, macOS and the Android controller cover a sealed complete review, original-context application, coordinated draft history and separate resource publication. Rendered Android and mounted iOS read sealed historical material without restoring application authority. Mounted iOS also completed a guarded resource rename and its reviewed inverse. AppKit, iPhone simulator and rendered Android completed native Send through coordinated draft history using a local ACP fixture. External provider breadth remains open. |
 
+Stock Android opened the connected reading from the native View menu, followed
+the captured source proof to the full Answer contract and ran the selected
+related `test_selected` case. The retained process-only result matched the
+original request and exited 0. The unrelated case stayed outside the run.
+Both explicit Close and Android Back preserved the exact editor frame, buffer,
+selection, viewport, focus and saved file metadata without opening the keyboard.
+The rendered receipt is in
+`target/parity-rendered-android.sgYIt7/continuation-receipts/final-android-qq140t6k/connected-behavior/receipt.json`.
+
 Across all rows, the evidence distinguishes engine protocols, native controllers,
 mounted AppKit/UIKit, rendered browser and rendered Android. Physical input,
 device IME and assistive technology need their own acceptance. The emulator

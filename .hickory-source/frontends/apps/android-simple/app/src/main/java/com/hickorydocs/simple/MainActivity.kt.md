@@ -20,6 +20,10 @@ dialog can take keyboard input. Android can otherwise leave Gboard targeting
 the previous editor after the dialog displays a caret. Releasing focus
 preserves the editor's buffer and layout.
 
+Android Back or outside dismissal of Construction reading closes the dialog
+through the same visibility flag as its Close button. This leaves the existing
+editor's text focus alone.
+
 <ui:copy id="simple-d8c991adb6-0">
 package com.hickorydocs.simple
 
@@ -112,7 +116,7 @@ class MainActivity : ComponentActivity() {
     if(workspace.editorRecovery.showing) androidx.compose.ui.window.Dialog(onDismissRequest={workspace.editorRecovery.close();workspace.currentBuffer?.focusSource?.invoke()}) {Surface {EditorRecoveryView(workspace)}}
     if(workspace.showRecovery) androidx.compose.ui.window.Dialog(onDismissRequest={workspace.showRecovery=false;workspace.currentBuffer?.focusSource?.invoke()}) {Surface {SourceRecoveryView(workspace)}}
     if(workspace.agentProposals.showing) androidx.compose.ui.window.Dialog(onDismissRequest={workspace.agentProposals.close();workspace.currentBuffer?.focusSource?.invoke()}) {Surface {AgentProposalView(workspace)}}
-    if(workspace.showConstruction) androidx.compose.ui.window.Dialog(onDismissRequest={workspace.showConstruction=false;workspace.currentBuffer?.focusSource?.invoke()}) {Surface {ConstructionReadingView(workspace)}}
+    if(workspace.showConstruction) androidx.compose.ui.window.Dialog(onDismissRequest={workspace.showConstruction=false}) {Surface {ConstructionReadingView(workspace)}}
     if(workspace.showAttribution) androidx.compose.ui.window.Dialog(onDismissRequest={workspace.showAttribution=false;workspace.currentBuffer?.focusSource?.invoke()}) {Surface {GitAttributionView(workspace,workspace.gitAttribution)}}
     if(workspace.showHistory) androidx.compose.ui.window.Dialog(onDismissRequest={workspace.showHistory=false;workspace.currentBuffer?.focusSource?.invoke()}) {Surface {GitHistoryView(workspace)}}
     if(workspace.showReview) androidx.compose.ui.window.Dialog(onDismissRequest={workspace.showReview=false;workspace.currentBuffer?.focusSource?.invoke()}) {Surface {GitReviewView(workspace)}}
