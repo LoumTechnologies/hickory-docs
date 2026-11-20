@@ -32,7 +32,7 @@ an earlier open item only for the behavior it actually exercises.
 | Required outcome | Current usable evidence and remaining acceptance |
 | --- | --- |
 | Navigation and code intelligence | Search Everywhere, file and saved-text search, outlines, semantic locations and back/forward have focused receipts. Genuine basedpyright covers callers and callees in Simple Browser, mounted AppKit, the iPhone simulator and stock Android. Browser and Android reached exact cross-file results while retaining the unsaved origin. Configured csharp-ls adds browser definitions, usages and history. Genuine clangd supplied both type relationships in Simple Browser, mounted AppKit, the iPhone simulator and stock Android. The focused replays retained unsaved source and reached exact names. Installed basedpyright and TypeScript Language Server read ordinary Markdown fences on browser, mounted macOS, iPhone simulator and rendered Android. Mounted iOS passed real basedpyright cross-file Definition and native Back and Forward. An Android controller navigated into a literal source tab while Agent was open. Index breadth depends on the installed provider. Unavailable capabilities and unsupported fence actions leave authored text readable. |
-| Refactoring, cleanup, generation, templates and history | Genuine basedpyright covers grouped cross-file Rename through preview, draft Apply, coordinated Undo and Redo in Simple Browser, mounted AppKit, the iPhone simulator and stock Android. Configured csharp-ls also covers browser rename. TypeScript Language Server 6.1.0 with TypeScript 6.0.3 covers extraction, accessor generation, cleanup and Move to a new file on browser, mounted macOS and the Android controller. Guarded native action and formatting receipts include controlled providers. Preview holds the complete edit. Missing preimages, commands without supported effects and changed owner revisions refuse the group. Later template receipts close the earlier embedded and multi-caret catalog gaps. Expanded regex and source-bound variable programs retain their syntax and work bounds. Mounted iOS and rendered Android covered reviewed Cleanup. Mounted iOS also replayed native Paste, coordinated Cleanup Undo/Redo and the genuine CRLF and LF TypeScript extraction. |
+| Refactoring, cleanup, generation, templates and history | Genuine basedpyright covers grouped cross-file Rename through preview, draft Apply, coordinated Undo and Redo in Simple Browser, mounted AppKit, the iPhone simulator and stock Android. Configured csharp-ls also covers browser rename. Genuine clangd formatting through review, Apply and workspace Undo/Redo covers CRLF Markdown-owned C++ in Simple Browser and mounted AppKit, plus ordinary C++ in the iPhone simulator. TypeScript Language Server 6.1.0 with TypeScript 6.0.3 covers extraction, accessor generation, cleanup and Move to a new file on browser, mounted macOS and the Android controller. Guarded native action and formatting receipts include controlled providers. Preview holds the complete edit. Missing preimages, commands without supported effects and changed owner revisions refuse the group. Later template receipts close the earlier embedded and multi-caret catalog gaps. Expanded regex and source-bound variable programs retain their syntax and work bounds. Mounted iOS and rendered Android covered reviewed Cleanup. Mounted iOS also replayed native Paste, coordinated Cleanup Undo/Redo and the genuine CRLF and LF TypeScript extraction. |
 | Diagnostics and contextual fixes | Genuine basedpyright browser and rendered Android Problems, configured csharp-ls browser Problems, and clangd mounted iOS Problems exercised exact source navigation. Real clangd engine coverage includes the missing-semicolon quick fix. Controlled-child receipts cover complete-file `source.fixAll` acquisition, review, draft Apply and Undo/Redo on browser, mounted macOS and the Android controller, including a prose-origin action that acquires its copy contributor. Stale and unversioned diagnostics stay readable. Precise navigation and application require matching authority. Mounted iOS and rendered Android exercised the genuine clangd missing-semicolon Quick Fix through guarded review, draft Apply and coordinated Undo/Redo. Provider workspace completeness and additional source mappings remain open. |
 | Testing and coverage | Discovery, failed results, coverage and failed-only reruns have provider receipts for pytest, Jest, Vitest, Cargo with cargo-llvm-cov, and .NET with Coverlet. Connected pytest runs on browser, macOS and the Android controller. Mounted iOS executed selected pytest and rendered a collected failure and coverage. Rendered Android ran the saved Rust case and retained exit 0. Rendered Android discovered both pytest cases, retained a coverage run and reran only the deliberate failure. Source-adjacent Run and Debug distinguish process exit from a provider verdict. Unsupported runners and stale, missing or ambiguous test identities refuse selection. Coverage navigation requires matching source hashes. |
 | Review, staging, attribution, conflicts and recovery | Browser, macOS and Android controller receipts cover Git status/diffs, history, attribution, shared conflict composition including deletion/rename, staging, local source history and guarded Save As. Rendered Android compared all three conflict stages and kept reviewed Save separate from Stage. Later complete 32-session recovery management and three exact revisions supersede the earlier capacity gap. Browser reload, native restart and mounted iOS compact recovery cover retained drafts, layout and view state. Shared publisher Move and interruption have rendered browser, mounted macOS and Android controller receipts. Mounted iOS completed cold recovery with the original path present and deleted, plus the six-publication older Move chain. Rendered Android completed cold recovery with the original path present and already deleted. Rendered Android completed both dirty Moves and both pairs of workspace Undo and Redo, preserving exact saved bytes, draft text, entry identity and editor frame. A separate API 36 replay entered both destinations with Gboard and confirmed the full reviewed Move, Undo and Redo chain. |
@@ -3895,6 +3895,32 @@ to read the renamed text. Both saved files kept their bytes, inodes and
 modification times, and the replay sent zero source writes. See
 `target/parity-rendered-android.sgYIt7/continuation-receipts/final-android-5stjo0_w/basedpyright-rename/rendered-android-basedpyright-rename.json`.
 
+
+## Managed C++ formatting in Simple
+
+Installed Apple clangd 21 formatted C++ owned by a CRLF Markdown document
+through the Simple Browser's Preview formatting command. The review left the
+active source and its independent unsaved prose edit intact. Apply retained
+the prose and used CRLF for the newly inserted C++ lines. Workspace Undo and
+Redo restored the exact before and after drafts in the same editor. The saved
+entry and owner kept their exact bytes, and no generated file appeared. Run
+`python3 scripts/test-simple-browser.py --managed-formatting-only` with
+clangd on PATH to replay this case with the LLVM fallback style.
+
+Mounted AppKit used Search Everywhere to open the clangd review, inspected
+the mapped C++ lines and applied, undid and redid the draft change. App-local
+events drove the mounted view while the console was locked. The same editor,
+undo manager and nonzero viewport survived, and the saved Markdown, project
+entry and existing generated C++ retained their bytes, inodes and modification
+times. The receipt includes the two genuine formatting requests and replies.
+See `target/appkit-clangd-format.vkl3zwf9/receipt.json`.
+
+The iPhone simulator replay used an ordinary C++ tab with an unsaved comment
+typed through UIKit. Both guarded calls to Apple clangd 21 read that exact
+draft and returned six identical edits. The visible review, Apply, workspace
+Undo and Redo preserved the comment, editor identity, bounds, scroll and undo
+manager. The saved file kept its bytes, inode and modification time. See
+`target/ios-clangd-format/iphone-27/attempt-3/receipt.json`.
 
 ## Engine-held provider actions
 

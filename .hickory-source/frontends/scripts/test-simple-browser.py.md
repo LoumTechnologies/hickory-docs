@@ -72,6 +72,12 @@ Undo from replacing any of those drafts. The assertions compare all saved
 files after every batch. Set `HICKORY_SIMPLE_TEST_PYTHON_PROVIDER` to reuse
 an installed basedpyright server script.
 
+The `--managed-formatting-only` flow uses installed clangd with its LLVM
+fallback to format C++ owned by a CRLF Markdown document. It types a separate
+prose draft before opening the visible review. Apply, workspace Undo and Redo
+must preserve that draft and the authored line endings, including CRLF on
+lines inserted by clangd. The saved sources and editor geometry stay intact.
+
 <ui:copy id="simple-0799b7d31b-0">
 # Contract: .hickory-source/frontends/contract.md
 """Focused real-engine browser acceptance for the independent frontend."""
@@ -81,6 +87,7 @@ from pathlib import Path
 import queue
 import re
 import signal
+import shutil
 import socket
 import subprocess
 import sys
@@ -368,6 +375,85 @@ def workspace_changes_acceptance(driver, folder):
     driver.act("open", path=first)
     assert driver.act("editor-is-retained", path=first)
     assert driver.act("editor-size", path=first) == size
+
+
+FORMAT_OWNER = "format-owner.md"
+FORMAT_OUTPUT = "format-output.cpp"
+FORMAT_ENTRY = (
+    '<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">\n'
+    f'<hick:project sources="{FORMAT_OWNER}"/>\n'
+    '</hick:doc>\n'
+)
+FORMAT_BEFORE = "int square( int value ){return value*value;}\nint main(){if(true){return square(3);}return 0;}\n"
+FORMAT_AFTER = (
+    "int square(int value) { return value * value; }\n"
+    "int main() {\n  if (true) {\n    return square(3);\n  }\n  return 0;\n}\n"
+)
+FORMAT_PROSE = "Leave this line alone."
+FORMAT_SOURCE = (
+    '<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">\n'
+    f'\n# Owned prose 🧪\n\n{FORMAT_PROSE}\n\n'
+    f'<hick:file id="source" path="{FORMAT_OUTPUT}">\n'
+    f'{FORMAT_BEFORE}</hick:file>\n\nRetain this paragraph too.\n\n</hick:doc>\n'
+).replace("\n", "\r\n")
+
+
+def managed_formatting_fixture(folder):
+    clangd = shutil.which("clangd")
+    if clangd is None:
+        raise RuntimeError("The managed formatting witness requires clangd on PATH.")
+    subprocess.run(["git", "init", "-q", str(folder)], check=True, timeout=10)
+    (folder / "project.md").write_bytes(FORMAT_ENTRY.encode())
+    (folder / FORMAT_OWNER).write_bytes(FORMAT_SOURCE.encode())
+    command = [clangd, "--background-index=false", "--fallback-style=LLVM", "--log=error"]
+    (folder / ".hick-lsp.json").write_text(json.dumps({"servers": {"cpp": {"command": command}}}))
+
+
+def managed_formatting_acceptance(driver, folder):
+    def source_state():
+        return driver.act("source-text-state", path=FORMAT_OWNER)
+
+    driver.act("open", path=FORMAT_OWNER)
+    assert source_state()["source"] == FORMAT_SOURCE
+    prefix = FORMAT_SOURCE.split(FORMAT_PROSE, 1)[0]
+    offset = len(prefix.encode("utf-16-le")) // 2
+    driver.act("source-text-select", path=FORMAT_OWNER, anchor=offset, head=offset)
+    driver.act("source-text-type", path=FORMAT_OWNER, text="Draft: ")
+    draft = FORMAT_SOURCE.replace(FORMAT_PROSE, "Draft: " + FORMAT_PROSE, 1)
+    formatted = draft.replace(FORMAT_BEFORE.replace("\n", "\r\n"), FORMAT_AFTER.replace("\n", "\r\n"), 1)
+    draft_state = source_state()
+    assert draft_state["source"] == draft
+    driver.act("remember-editor", path=FORMAT_OWNER)
+    size = driver.act("editor-size", path=FORMAT_OWNER)
+
+    driver.act("change-open", command="Preview formatting")
+    deadline = time.monotonic() + 35
+    while True:
+        preview = driver.act("change-prepare", command="Prepare formatting")
+        if "Apply to source drafts" in preview:
+            break
+        assert time.monotonic() < deadline, preview
+        time.sleep(0.3)
+    assert FORMAT_OWNER in preview and "return square(3);" in preview
+    assert source_state() == draft_state
+    driver.act("change-apply")
+    apply_notice = driver.act("change-state", path=FORMAT_OWNER)["text"]
+    assert "Applied 1 source drafts" in apply_notice, apply_notice
+    driver.act("change-close")
+    assert source_state()["source"] == formatted
+
+    for command, expected in (("Undo", draft), ("Redo", formatted)):
+        driver.act("change-open", command=f"{command} workspace change")
+        history_notice = driver.act("change-state", path=FORMAT_OWNER)["text"]
+        assert f"Workspace {command.lower()} applied to 1 drafts" in history_notice, history_notice
+        driver.act("change-close")
+        assert source_state()["source"] == expected
+
+    assert driver.act("editor-is-retained", path=FORMAT_OWNER)
+    assert driver.act("editor-size", path=FORMAT_OWNER) == size
+    assert (folder / FORMAT_OWNER).read_bytes() == FORMAT_SOURCE.encode()
+    assert (folder / "project.md").read_bytes() == FORMAT_ENTRY.encode()
+    assert not (folder / FORMAT_OUTPUT).exists()
 
 
 def workspace_search_acceptance(driver, folder):
@@ -1151,6 +1237,8 @@ if __name__ == "__main__":
             subprocess.run(["git", "init", "-q", str(folder)], check=True, timeout=10)
             for path, source in CALL_HIERARCHY_SOURCE.items():
                 (folder / path).write_text(source)
+        if "--managed-formatting-only" in sys.argv:
+            managed_formatting_fixture(folder)
         installed_provider = os.environ.get("HICKORY_SIMPLE_TEST_PYTHON_PROVIDER")
         if (any(flag in sys.argv for flag in ("--semantic-origin-only", "--call-hierarchy-only"))
                 or "--workspace-changes-only" in sys.argv and installed_provider):
@@ -1300,6 +1388,9 @@ raise RuntimeError('wrong assistant fence')
             elif "--workspace-changes-only" in sys.argv:
                 workspace_changes_acceptance(driver, folder)
                 print("Browser: genuine three-file rename, stale Apply and Undo refusal, retained editor, coordinated Undo/Redo and unchanged saved bytes passed")
+            elif "--managed-formatting-only" in sys.argv:
+                managed_formatting_acceptance(driver, folder)
+                print("Browser: genuine clangd formatting preserved CRLF, the prose draft, editor identity and saved bytes through Apply, Undo and Redo")
             elif "--workspace-search-only" in sys.argv:
                 workspace_search_acceptance(driver, folder)
                 print("Browser: exhaustive workspace regex search, Unicode columns, stationary geometry, retained editor, stale-source refusal and unchanged disk passed")
