@@ -170,6 +170,7 @@ export type RecordedPatchSource = {
  revision: number;
  scope: ProposalScope;
  current: () => boolean;
+ captureCompletion?: (view: import('@codemirror/view').EditorView, uri: string) => import('../editor/DocumentEditor').DocumentCompletionLease | null;
  prepareDraft?: (after: string) => WorkspaceDraftStage | null;
  prepareResource?: (after: string, saved: string, destination?: string | null) => ResourceAdoptionStage | null;
 };

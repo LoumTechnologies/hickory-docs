@@ -298,7 +298,7 @@ function reflectParallelSnippetInput(tr: Transaction, session: ParallelSnippet):
 
 export function applyParallelSourceSnippet(
   view: EditorView, source: string, expansions: readonly ParallelExpansion[], primary: number,
-  intent: symbol, admitted: () => boolean,
+  intent: symbol, admitted: () => boolean, commit?: NonNullable<import('./SourceCompletion').SourceCompletionAdapter['commit']>,
 ): boolean {
   if (!admitted() || readSourceEditorIntent(view.state) !== intent || view.composing ||
       view.state.readOnly || !view.state.facet(EditorView.editable) ||
@@ -319,7 +319,13 @@ export function applyParallelSourceSnippet(
   if (!plan) return false;
   const prepared = prepareParallelSourceBatch(view.state, plan);
   if (!prepared || !admitted() || readSourceEditorIntent(view.state) !== intent) return false;
-  view.dispatch({...prepared.spec, annotations: isolateHistory.of('full'), userEvent: 'input.snippet.parallel'});
+  const spec = {...prepared.spec, annotations: isolateHistory.of('full'), userEvent: 'input.snippet.parallel'};
+  if (commit) {
+    const edit = view.state.update({...spec, filter: false});
+    const selection = edit.docChanged ? edit.state.update({selection: edit.newSelection, userEvent: 'select.snippet'}) : null;
+    if (authoredSource(edit.state) !== plan.state.source || readParallelSourceSnippet(edit.state) !== plan.state) return false;
+    commit(view, selection ? [edit, selection] : [edit], true);
+  } else view.dispatch(spec);
   return authoredSource(view.state) === plan.state.source && readParallelSourceSnippet(view.state) === plan.state;
 }
 

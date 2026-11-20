@@ -54,6 +54,9 @@ import { workspaceRibbonSources } from "./workspaceRibbonSources";
 import { matchesRankedSearchHit, matchesWorkspaceSymbol, openPlainSearchFiles, searchWorkspace } from "../lib/workspaceSearch";
 import { NavigationTrail, searchCharacter, semanticLocations, semanticPath, type SemanticLocation } from "../simple/Intelligence";
 import { authoredSource } from "../simple/SourceText";
+import type { HostedTemplateEditor } from "../simple/SourceTemplates";
+import { readSourceEditorIntent } from "../simple/SourceSnippets";
+import { readFrozenEntrySelection } from "../simple/WorkspaceEntrySelection";
 import { documentUri } from "../lsp/documentUri";
 import { workspaceLspClient } from "../lsp/useLsp";
 import type { MenuAction } from "../lib/menuBridge";
@@ -175,6 +178,7 @@ import { ChangePreview } from "../components/ChangePreview";
 import type { ResourceExpectation, ResourcePublicationReview, ResourceReceipt, ResourceTransport } from "../simple/ResourceEditors";
 import { ConflictResolutionModel, type HeldConflict } from "../simple/GitConflictResolution";
 const ResourceConsequencesView = lazy(() => import("../simple/SourceRecovery").then(module => ({default: module.ResourceConsequencesView})));
+const SourceTemplatesView = lazy(() => import("../simple/SourceTemplatesView").then(module => ({default: module.SourceTemplatesView})));
 import type { WindowHistoryPlan } from "./WorkspaceChat";
 import type { UiOutcome } from "../lib/uiActions";
 import { useUntitledRecovery } from "./useUntitledRecovery";
@@ -491,6 +495,86 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     const view = node && EditorView.findFromDOM(node);
     return view ? {tab, view} : null;
   }, [shellBox]);
+  const [showTemplates, setShowTemplates] = useState<HostedTemplateEditor | null>(null);
+  const closeTemplates = useCallback(() => {setShowTemplates(null); activeSourceEditor()?.view.focus();}, [activeSourceEditor]);
+  const templateEditor = useCallback((): HostedTemplateEditor | null => {
+    const active = activeSourceEditor(), focus = focusIntent.current, workspace = sourceWorkspace.current;
+    if (!active || (active.tab.kind !== "file" && active.tab.kind !== "document")) return null;
+    const {view, tab: selected} = active;
+    const opening = view.state, intent = readSourceEditorIntent(opening);
+    let first = true;
+    const mounted = () => workspaceIsVisible() && sourceWorkspace.current === workspace && focusIntent.current === focus &&
+      view.dom.isConnected && activeSourceEditor()?.view === view;
+    return {id: crypto.randomUUID(), view, mounted, capture() {
+      if (first) {
+        first = false;
+        if (view.state.doc !== opening.doc || !view.state.selection.eq(opening.selection) || readSourceEditorIntent(view.state) !== intent) {
+          throw Error("The original source or selection changed while opening templates. Read again from the current selection.");
+        }
+      }
+      const namedOwner = (tab: Tab) => tab.kind === "document" ? registry.get(tab.docId)?.recordedPatchSource()
+        : plainPatchOwners.current.get(tab.id)?.();
+      const owner = namedOwner(selected);
+      const root = folderRootsRef.current.find(root => owner
+        ? root.root_path === owner.scope.namespace && root.workspace_id === owner.scope.workspace
+        : !!findNodeByPath([root], selected.target));
+      const namespace = root?.root_path, workspaceId = root?.workspace_id;
+      if (!root || !namespace || !workspaceId || !/^[a-f0-9]{32}$/.test(workspaceId) || !mounted()) {
+        throw Error("The current workspace source is unavailable. Refresh Files and reopen templates.");
+      }
+      const readTabs = () => panesOf(layoutRef.current.root).flatMap(pane => pane.tabs)
+        .filter(tab => tab.kind === "file" || tab.kind === "document" || tab.kind === "untitled");
+      const identity = (tab: Tab) => JSON.stringify([tab.id, tab.kind, tab.target, tab.docId, tab.retainedResource?.path]);
+      const tabs = readTabs(), identities = tabs.map(identity);
+      const sources: Record<string, string> = Object.create(null), unaddressed: Record<string, string> = Object.create(null);
+      const missing = new Set<string>(), contributors: (() => boolean)[] = [];
+      const encoder = new TextEncoder();
+      let bytes = 0;
+      if (tabs.length > 4096) throw Error("Too many open template contributors.");
+      for (const tab of tabs) {
+        const captured = tab.id === selected.id ? owner : tab.kind !== "untitled" ? namedOwner(tab) : undefined;
+        if (captured && (captured.scope.namespace !== namespace || captured.scope.workspace !== workspaceId)) {
+          throw Error("A template contributor belongs to another workspace.");
+        }
+        const retained = tab.retainedResource;
+        const read = () => tab.kind === "untitled" ? untitledSourcesRef.current[tab.id] ?? bufferEditor(tab.id)?.state.doc.toString()
+          : tab.kind === "document" ? registry.get(tab.docId)?.liveSource : plainSources.current.get(tab.id);
+        const text = captured?.text ?? read();
+        if (text === undefined || (!captured && tab.kind !== "untitled" && !retained && !findNodeByPath([root], tab.target))) {
+          throw Error("An open template contributor is still attaching: " + tab.target);
+        }
+        const size = encoder.encode(text).length;
+        if (size > 8 * 1024 * 1024 || (bytes += size) > 32 * 1024 * 1024) throw Error("Template contributor capture exceeds its interactive budget.");
+        if (tab.kind === "untitled" || retained) {
+          unaddressed[tab.id] = text;
+          if (retained) missing.add(retained.path);
+        } else {
+          if (Object.hasOwn(sources, tab.target)) throw Error("More than one editor owns this template contributor: " + tab.target);
+          sources[tab.target] = text;
+        }
+        const unnamedRevision = untitledRevisions.current.get(tab.id);
+        contributors.push(captured?.current ?? (() => read() === text && untitledRevisions.current.get(tab.id) === unnamedRevision));
+      }
+      if (sources[selected.target] !== authoredSource(view.state)) throw Error("This editor cannot capture exact authored source for templates.");
+      for (const path of Object.keys(sources)) missing.delete(path);
+      const current = () => {
+        const now = readTabs();
+        return mounted() && now.length === identities.length && now.every((tab, index) => identity(tab) === identities[index]) &&
+          contributors.every(check => check());
+      };
+      const write = owner?.captureCompletion?.(view, documentUri(selected.target));
+      return {path: selected.target, workspaceRoot: namespace,
+        contributors: Object.freeze({version: 1, project_entry: null, sources: Object.freeze(sources),
+          unaddressed_sources: Object.freeze(unaddressed), missing_sources: Object.freeze([...missing].sort())}),
+        current: (writable = false) => current() && (!writable || write?.current() === true),
+        entrySelection: () => readFrozenEntrySelection(() => callApi("GET", "/api/workspace/entry"), {workspace: workspaceId, namespace, current}),
+        commit(editor, transactions, privateDraft) {
+          if (editor !== view || !current() || !write?.current()) throw Error("The original template source changed. Refresh before applying.");
+          write.commit(transactions, privateDraft);
+        },
+      };
+    }};
+  }, [activeSourceEditor, registry]);
   const makeHistoryPoint = useCallback((path: string, source: string, line: number, character: number,
     sourceHash = historySourceHash(source).catch(() => null)): HistoryPoint => {
     const start = {line, character};
@@ -765,6 +849,11 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         }
         const all: CommandItem[] = [...documentCommands(registry.get(focusedDocId(layoutRef.current))),
           ...editorCommands,
+          ...(view && (focus.tab?.kind === "file" || focus.tab?.kind === "document") ? [{
+            id: "source.templates", label: "Insert reusable template", run: (current?: () => boolean) => {
+              if (current?.() && focusIntent.current === focus && activeSourceEditor()?.view === view) setShowTemplates(templateEditor());
+            },
+          }] : []),
           ...(view && focus.tab && (focus.tab.kind === "file" || focus.tab.kind === "document") && !view.state.readOnly
             ? (["delete", "move"] as const).map(kind => ({
               id: `workspace-resources:${kind}`,
@@ -837,7 +926,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         run: () => openHitRef.current(node.path, 1),
       }));
     },
-    [welcomeActions, registry, projectId, activeSourceEditor, recordLocalNavigation, recordedDraftHistory],
+    [welcomeActions, registry, projectId, activeSourceEditor, templateEditor, recordLocalNavigation, recordedDraftHistory],
   );
   /**
    * Open a path and put the caret on a line.
@@ -3066,6 +3155,12 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         <PromptPanel prompt={focused.prompt} onSettle={focused.settle} />
       )}
       <PromptPanel prompt={shellPrompt.prompt} onSettle={shellPrompt.settle} />
+      {showTemplates && <Suspense fallback={<aside className="prompt-panel prompt-panel--filtered" onKeyDown={event => {
+        if (event.key === "Escape") closeTemplates();
+      }}><button aria-label="Close source templates" onClick={closeTemplates}>×</button><p role="status">Loading templates…</p></aside>}>
+        <SourceTemplatesView key={showTemplates.id} visible close={closeTemplates} editor={() => showTemplates.mounted() ? showTemplates : null}
+          className="prompt-panel prompt-panel--filtered" />
+      </Suspense>}
       {(changePending || changeReview || resourceReview) && <aside className="prompt-panel prompt-panel--filtered" role="dialog" aria-label={`${changeKind[0].toUpperCase()}${changeKind.slice(1)} preview`}
         onKeyDown={event => {
           if (event.key !== "Escape" || changeApplying.current) return;

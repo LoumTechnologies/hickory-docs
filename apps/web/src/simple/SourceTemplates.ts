@@ -12,18 +12,23 @@ import {parallelSelections,planParallelSnippet,type ParallelSnippet,type Paralle
 import {supportedSnippetTransformPrograms,type SnippetTransformBudget} from './SnippetTransform';
 import {captureSnippetVariables,captureSnippetClipboard,type SnippetVariableSnapshot} from './SnippetContext';
 import {readFrozenEntrySelection} from './WorkspaceEntrySelection';
-import {acceptSourceCompletion} from './SourceCompletion';
+import {acceptSourceCompletion,type SourceCompletionAdapter} from './SourceCompletion';
 import {readSourceSnippet,continueSourceSnippetCompletion,readSourceEditorIntent,readParallelSourceSnippet,applyParallelSourceSnippet} from './SourceSnippets';
 import {authoredSource,authoredOffset} from './SourceText';
-export interface TemplateEditor {buffer:Buffer;buffers:Buffers;view:EditorView;mounted:()=>boolean;interaction:()=>number;entrySelection?:()=>Promise<TemplateEntrySelection>}
+export interface SimpleTemplateEditor {buffer:Buffer;buffers:Buffers;view:EditorView;mounted:()=>boolean;interaction:()=>number;entrySelection?:()=>Promise<TemplateEntrySelection>}
+export interface HostedTemplateEditor {
+ id:string;view:EditorView;mounted:()=>boolean;
+ capture:()=>{path:string;workspaceRoot:string;contributors:TemplateReadingContext;current:(writable?:boolean)=>boolean;entrySelection:()=>Promise<TemplateEntrySelection>;commit:NonNullable<SourceCompletionAdapter['commit']>};
+}
+export type TemplateEditor=SimpleTemplateEditor|HostedTemplateEditor;
 export interface TemplateContext {version:1|2;path:string;source:string;selection:{from:number;to:number};variable_context?:SnippetVariableSnapshot;reading_context?:TemplateReadingContext;transform_program_versions?:readonly number[];carets?:Readonly<TemplateCaretRoster>}
-export interface TemplateSnapshot {editor:TemplateEditor;view:EditorView;context:Readonly<TemplateContext>;selection:EditorView['state']['selection'];parallel?:ParallelSnippet|null;intent?:symbol;current:(writable?:boolean)=>boolean}
+export interface TemplateSnapshot {editor:TemplateEditor & {entrySelection?:()=>Promise<TemplateEntrySelection>};view:EditorView;context:Readonly<TemplateContext>;selection:EditorView['state']['selection'];parallel?:ParallelSnippet|null;intent?:symbol;workspaceRoot?:string;commit?:NonNullable<SourceCompletionAdapter['commit']>;current:(writable?:boolean)=>boolean}
 import {captureResourceRoster} from './ResourceEditors';
 export interface TemplateEntrySelection {entryPath:string|null;proof:unknown;current:()=>boolean}
 export interface TemplateReadingContext {version:1;project_entry:string|null;project_endpoint?:string;sources:Readonly<Record<string,string>>;unaddressed_sources:Readonly<Record<string,string>>;missing_sources:readonly string[];entry_selection?:unknown}
 export interface TemplateSourceContext {version:1;scope:string;language:string|null;languages:readonly string[];targets:readonly string[];reason:string|null;project_entry:string|null;source_hashes:Readonly<Record<string,string>>;graph_fingerprint:string;fingerprint:string}
 export interface TemplateCatalogReading {snapshot:TemplateSnapshot;catalog:Readonly<TemplateCatalog>}
-export function captureTemplateContributors(editor:TemplateEditor):{context:TemplateReadingContext;current:()=>boolean}{
+export function captureTemplateContributors(editor:SimpleTemplateEditor):{context:TemplateReadingContext;current:()=>boolean}{
  const roster=captureResourceRoster(editor.buffers),sources:Record<string,string>=Object.create(null),missing=new Set<string>();let bytes=0;
  for(const row of roster.captures){if(row.deleted){if(row.path)missing.add(row.path);continue}if(row.transient||row.untitled||editor.buffers.values.get(row.path)!==row.buffer)continue;if(row.namespace&&row.namespace!==editor.buffers.workspace)throw Error('Template source context belongs to another workspace.');if(Object.hasOwn(sources,row.path))throw Error('Template contributor addresses are ambiguous.');const size=new TextEncoder().encode(row.text).length;if(size>8*1024*1024||(bytes+=size)>32*1024*1024)throw Error('Template contributor capture exceeds its interactive budget.');sources[row.path]=row.text;}
  for(const path of Object.keys(sources))missing.delete(path);if(Object.keys(sources).length>4096||missing.size>4096)throw Error('Too many template contributors.');
@@ -66,8 +71,10 @@ function templateCaretIdentity(row:Record<string,unknown>,snapshot:TemplateSnaps
 }
 
 async function resolveTemplateCatalog(snapshot:TemplateSnapshot,provider:TemplateProvider,alive:()=>boolean=()=>true):Promise<TemplateCatalogReading>{
- const hash=await templateSourceHash(snapshot.context.source);for(let attempt=0;attempt<2;attempt++){
-  if(!alive()||!snapshot.current())throw Error('Source or contributor context changed. Refresh templates.');const raw=await provider.catalog(snapshot.context);const row=inputIdentity(raw,snapshot,hash);if(!alive()||!snapshot.current())throw Error('Source or contributor context changed. Refresh templates.');
+ // The template protocol hashes the canonical root spelling. The separate
+ // short Files workspace ID remains part of the construction-entry proof.
+ const [hash,workspace]=await Promise.all([templateSourceHash(snapshot.context.source),snapshot.workspaceRoot===undefined?undefined:templateSourceHash(snapshot.workspaceRoot)]);for(let attempt=0;attempt<2;attempt++){
+  if(!alive()||!snapshot.current())throw Error('Source or contributor context changed. Refresh templates.');const raw=await provider.catalog(snapshot.context);const row=inputIdentity(raw,snapshot,hash,workspace);if(!alive()||!snapshot.current())throw Error('Source or contributor context changed. Refresh templates.');
   if(!Object.prototype.hasOwnProperty.call(row,'reading_context_request')){const catalog=validateCatalogRow(row,snapshot,hash);return Object.freeze({snapshot,catalog})}
   const requirement=row.reading_context_request as {version?:unknown;kind?:unknown}|null;if(attempt!==0||!requirement||typeof requirement!=='object'||Array.isArray(requirement)||Object.keys(requirement).length!==2||requirement.version!==1||requirement.kind!=='construction_entry'||row.available!==false||!Array.isArray(row.entries)||row.entries.length!==0||snapshot.context.reading_context?.entry_selection!==undefined)throw Error('Unsupported or repeated construction context request.');
   const read=snapshot.editor.entrySelection;if(!read)throw Error("The construction entry reader is unavailable. Source remains editable.");const entry=await read();if(!alive()||!snapshot.current()||!entry.current())throw Error('Original construction entry or contributors changed while reading templates.');const original=snapshot;
@@ -77,6 +84,14 @@ async function resolveTemplateCatalog(snapshot:TemplateSnapshot,provider:Templat
 }
 
 export function captureTemplateEditor(editor:TemplateEditor):TemplateSnapshot {
+ if('capture' in editor){
+  const captured=editor.capture(),{view}=editor,{doc,selection}=view.state,source=authoredSource(view.state),intent=readSourceEditorIntent(view.state),snippet=readSourceSnippet(view),parallel=readParallelSourceSnippet(view.state);
+  const carets=capturedTemplateCarets(view,source,parallel);
+  const current=(writable=false)=>editor.mounted()&&view.dom.isConnected&&view.state.doc===doc&&authoredSource(view.state)===source&&view.state.selection.eq(selection)&&readSourceEditorIntent(view.state)===intent&&readSourceSnippet(view)===snippet&&readParallelSourceSnippet(view.state)===parallel&&captured.current(writable)&&(!writable||!view.composing&&!view.state.readOnly&&view.state.facet(EditorView.editable)&&(carets?!!intent&&view.state.facet(EditorState.allowMultipleSelections):selection.ranges.length===1));
+  if(!current())throw Error('The original source editor is unavailable. Reopen templates from its current editor.');
+  const context=Object.freeze({version:2 as const,path:captured.path,source,selection:Object.freeze({from:authoredOffset(view.state,selection.main.from),to:authoredOffset(view.state,selection.main.to)}),variable_context:captureSnippetVariables(),reading_context:captured.contributors,transform_program_versions:Object.freeze([...supportedSnippetTransformPrograms]),...(carets?{carets}:{})});
+  return Object.freeze({editor:Object.freeze({...editor,entrySelection:captured.entrySelection}),view,context,selection,parallel,intent,current,workspaceRoot:captured.workspaceRoot,commit:captured.commit});
+ }
  const {buffer,buffers,view}=editor,file=buffer.file,path=file.path,namespace=buffers.workspace,revision=buffer.sourceRevision,doc=view.state.doc,selection=view.state.selection,interactionNow=editor.interaction,mounted=editor.mounted,interaction=interactionNow(),snippet=readSourceSnippet(view),source=authoredSource(view.state),intent=readSourceEditorIntent(view.state),parallel=readParallelSourceSnippet(view.state),carets=capturedTemplateCarets(view,source,parallel),contributors=captureTemplateContributors(editor);
  const context=Object.freeze({version:2 as const,path,source,selection:Object.freeze({from:authoredOffset(view.state,selection.main.from),to:authoredOffset(view.state,selection.main.to)}),variable_context:captureSnippetVariables(),reading_context:contributors.context,transform_program_versions:Object.freeze([...supportedSnippetTransformPrograms]),...(carets?{carets}:{})});
  const current=(writable=false)=>contributors.current()&&!!namespace&&buffers.workspace===namespace&&buffer.namespace===namespace&&buffers.values.get(path)===buffer&&buffer.file===file&&file.path===path&&buffer.sourceRevision===revision&&buffer.text===source&&mounted()&&view.dom.isConnected&&view.state.doc===doc&&view.state.selection.eq(selection)&&interactionNow()===interaction&&readSourceSnippet(view)===snippet&&readParallelSourceSnippet(view.state)===parallel&&readSourceEditorIntent(view.state)===intent&&(!writable||!buffer.readonly&&!buffer.saving&&!buffer.resourceDeleted&&!view.composing&&!view.state.readOnly&&view.state.facet(EditorView.editable)&&(carets?!!intent&&view.state.facet(EditorState.allowMultipleSelections):selection.ranges.length===1));
@@ -169,10 +184,10 @@ export async function applyTemplate(preview:TemplatePreview,current:()=>boolean,
  const refreshed=await prepareTemplate(snapshot,preview.catalog,preview.entry.id,preview.provider,current);if(!current()||!snapshot.current(true))throw Error('Template preview is obsolete. Refresh before applying.');if(refreshed.kind!==preview.kind||!sameTemplateData(refreshed.notices,preview.notices)||(refreshed.kind==='single'&&preview.kind==='single'&&!sameTemplateData(refreshed.item,preview.item))||(refreshed.kind==='batch'&&preview.kind==='batch'&&(!sameTemplateData(refreshed.items,preview.items)||!sameTemplateData(refreshed.plan,preview.plan))))throw Error('The template provider changed the reviewed expansion. Refresh and review it again.');
  if(preview.kind==='batch'){
   if(!snapshot.context.carets||!snapshot.intent||readParallelSourceSnippet(view.state)!==(snapshot.parallel??null))throw Error('The original template group changed. Refresh before applying.');
-  const applied=applyParallelSourceSnippet(view,snapshot.context.source,preview.expansions,snapshot.context.carets.primary,snapshot.intent,()=>current()&&snapshot.current(true));if(!applied||authoredSource(view.state)!==preview.plan.state.source)throw Error('The editor refused the complete reviewed template group. No replacement request was sent.');notice('Template applied to all captured selections · unsaved draft');if(current()&&snapshot.editor.mounted())view.focus();return true;
+  const applied=applyParallelSourceSnippet(view,snapshot.context.source,preview.expansions,snapshot.context.carets.primary,snapshot.intent,()=>current()&&snapshot.current(true),snapshot.commit);if(!applied||authoredSource(view.state)!==preview.plan.state.source)throw Error('The editor refused the complete reviewed template group. No replacement request was sent.');notice('Template applied to all captured selections · unsaved draft');if(current()&&snapshot.editor.mounted())view.focus();return true;
  }
  const before=readCompletionAcceptance(view),after=preview.draft.plan.patches[0]?.after??snapshot.context.source;let message='Template was not applied.';
- await acceptSourceCompletion(view,structuredClone(preview.item),snapshot.context.source,snapshot.selection,snapshot.context.selection.from,snapshot.context.selection.to,{uri:documentUri(snapshot.context.path),resolve:async item=>item,current:()=>current()&&snapshot.current(true),writable:()=>snapshot.current(true),notice:value=>{message=value;notice(value.replace(/^Completion/,'Template'));}});
+ await acceptSourceCompletion(view,structuredClone(preview.item),snapshot.context.source,snapshot.selection,snapshot.context.selection.from,snapshot.context.selection.to,{uri:documentUri(snapshot.context.path),resolve:async item=>item,current:()=>current()&&snapshot.current(true),writable:()=>snapshot.current(true),commit:snapshot.commit,notice:value=>{message=value;notice(value.replace(/^Completion/,'Template'));}});
  const acceptance=readCompletionAcceptance(view),applied=acceptance?.job!==before?.job&&acceptance?.phase==='applied'&&acceptance.applied&&authoredSource(view.state)===after;
  if(!applied)throw Error(message);if(current()&&snapshot.editor.mounted())view.focus();return true;
 }

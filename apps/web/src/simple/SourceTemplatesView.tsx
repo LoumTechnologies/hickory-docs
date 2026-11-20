@@ -1,12 +1,13 @@
 import {useEffect,useRef,useState,useSyncExternalStore} from 'react';
 import {createPortal} from 'react-dom';
 import {captureTemplateEditor,readTemplateCatalog,prepareTemplate,applyTemplate,engineTemplateProvider,type TemplateEditor,type TemplateSnapshot,type TemplateCatalog,type TemplatePreview,type TemplateProvider} from './SourceTemplates';
-export function SourceTemplatesView({visible,close,editor,provider=engineTemplateProvider}:{visible:boolean;close:()=>void;editor:()=>TemplateEditor|null;provider?:TemplateProvider}){
+export function SourceTemplatesView({visible,close,editor,provider=engineTemplateProvider,className='simple-workspace-problems simple-source-templates'}:{visible:boolean;close:()=>void;editor:()=>TemplateEditor|null;provider?:TemplateProvider;className?:string}){
  const [snapshot,setSnapshot]=useState<TemplateSnapshot|null>(null),[catalog,setCatalog]=useState<Readonly<TemplateCatalog>|null>(null),[preview,setPreview]=useState<TemplatePreview|null>(null),[query,setQuery]=useState(''),[notice,setNotice]=useState(''),[loading,setLoading]=useState(false);
  const ticket=useRef(0),shown=useRef(visible),latest=useRef(editor),providers=useRef(provider),catalogProvider=useRef<TemplateProvider|null>(null),panel=useRef<HTMLElement>(null);shown.current=visible;latest.current=editor;providers.current=provider;
  const [,paint]=useState(0);
- useSyncExternalStore(listener=>snapshot?snapshot.editor.buffer.subscribe(listener):()=>{},()=>snapshot?.editor.buffer.snapshot()??0);
- function sameEditor(held:TemplateSnapshot){const current=latest.current();return !!current&&current.buffer===held.editor.buffer&&current.buffers===held.editor.buffers&&current.view===held.view;}
+ const owner=snapshot&&'buffer' in snapshot.editor?snapshot.editor.buffer:null;
+ useSyncExternalStore(listener=>owner?.subscribe(listener)??(()=>{}),()=>owner?.snapshot()??0);
+ function sameEditor(held:TemplateSnapshot){const current=latest.current();if(!current||current.view!==held.view)return false;const original=held.editor;return 'capture' in current?'capture' in original&&current.id===original.id:'buffer' in original&&current.buffer===original.buffer&&current.buffers===original.buffers;}
  function dismiss(){ticket.current++;setLoading(false);close();}
  useEffect(()=>{if(!visible){ticket.current++;setLoading(false);setSnapshot(null);setCatalog(null);setPreview(null);return;}panel.current?.focus();void read();},[visible,provider]);
  useEffect(()=>()=>{ticket.current++;},[]);
@@ -24,7 +25,7 @@ export function SourceTemplatesView({visible,close,editor,provider=engineTemplat
   catch(error){if(id===ticket.current)setNotice(error instanceof Error?error.message:String(error));}finally{if(id===ticket.current)setLoading(false);}
  }
  if(!visible)return null;const current=!!snapshot&&sameEditor(snapshot)&&snapshot.current()&&(!catalog||catalogProvider.current===providers.current),writable=current&&snapshot!.current(true),entries=(catalog?.entries??[]).filter(entry=>`${entry.label} ${entry.description} ${entry.language}`.toLowerCase().includes(query.toLowerCase()));
- return createPortal(<section ref={panel} tabIndex={-1} role="dialog" aria-label="Source templates" className="simple-workspace-problems simple-source-templates" onKeyDown={event=>{if(event.key==='Escape'){event.preventDefault();dismiss();}}}>
+ return createPortal(<section ref={panel} tabIndex={-1} role="dialog" aria-label="Source templates" className={className} onKeyDown={event=>{if(event.key==='Escape'){event.preventDefault();dismiss();}}}>
   <button aria-label="Close source templates" onClick={dismiss}>×</button><strong>Source templates</strong><p>{snapshot?.context.path??'No source editor selected'}</p>
   <p>Choose a reusable template, inspect its insertion, then apply it to this draft. Tab moves through linked fields. Files are saved separately.</p>
   <button disabled={loading} onClick={()=>{void read();}}>Read templates</button><label>Find template<input aria-label="Find template" value={query} onChange={event=>{setQuery(event.target.value);}}/></label>

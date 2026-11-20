@@ -81,7 +81,7 @@ import { blameGutter } from "../editor/blameGutter";
 import { useBlame } from "../editor/useBlame";
 import { claimRevealPosition, onRevealLine } from "../lib/revealLine";
 import { wrapGutterMarkers } from "../editor/wrapGutter";
-import { createPlainSaver, type PlainSaveState } from "../lib/plainFileSave";
+import { createPlainSaver, type PlainSaver, type PlainSaveState } from "../lib/plainFileSave";
 import { draftDisposition, useDraftKeeper } from "../lib/drafts";
 import { onFlushSaves } from "../lib/flushSaves";
 import { DiskChangeNotice, MergeView } from "./MergeView";
@@ -112,6 +112,24 @@ function syncPlainSource(view: EditorView, text: string) {
   const ranges: {from: number; to: number}[] = [];
   transaction.changes.iterChanges((_from, _to, from, to) => ranges.push({from, to}));
   flashSpans(view, ranges);
+}
+
+function commitPlainSourceBatch(editor: EditorView, transactions: readonly Transaction[], privateDraft: boolean,
+  current: () => boolean, saver: PlainSaver, base: string, guard: string | null) {
+  const before = editor.state;
+  if (!current() || transactions[0]?.startState !== before) throw Error("The plain editor changed before Apply.");
+  if (!privateDraft) { editor.update(transactions); return; }
+  const plane = guard ? saver.prepareDetach(base, guard) : null;
+  if (!plane?.current()) throw Error("The plain file save changed. Wait for it to finish and prepare the source again.");
+  plane.commit();
+  try {
+    editor.update(transactions);
+    if (editor.state !== transactions.at(-1)!.state) throw Error("The plain editor did not install the prepared source.");
+    if (authoredSource(before) === authoredSource(editor.state)) saver.changed(authoredSource(before));
+  } catch (error) {
+    if (editor.state === before) plane.rollback();
+    throw error;
+  }
 }
 
 export function PlainFilePane({
@@ -369,6 +387,13 @@ export function PlainFilePane({
     const writable = () => current() && plainOwnership.current && !adoptionPending.current && !recoveryPending.current &&
       !view.composing && !view.state.readOnly && view.state.facet(EditorView.editable);
     return { path, text, base, guard, revision, scope: {namespace, workspace}, current,
+      captureCompletion(editor, uri) {
+        const admitted = () => editor === view && uri === documentUri(path) && !address.retained && writable() &&
+          saver.baseContent() === base && saver.baseGuard() === guard;
+        return admitted() ? {current: admitted,
+          commit: (transactions, privateDraft) => commitPlainSourceBatch(view, transactions, privateDraft, admitted, saver, base, guard),
+        } : null;
+      },
       prepareResource(after, saved, destination = path) {
         const plane = saver.prepareDetach(base, guard);
         const resumeOrdinary = !saver.isDetached();
@@ -700,21 +725,8 @@ export function PlainFilePane({
                 {triggerKind: 1}, supportedSnippetTransformPrograms),
               resolve: requestResolve,
             },
-            commit: (editor, transactions, requiresPrivateDraft) => {
-              if (!requiresPrivateDraft) { editor.update(transactions); return; }
-              const before = editor.state;
-              const plane = current() && writable() && guard ? saver.prepareDetach(base, guard) : null;
-              if (!plane?.current()) throw Error("The plain file save changed. Wait for it to finish and request completions again.");
-              plane.commit();
-              try {
-                editor.update(transactions);
-                if (editor.state !== transactions.at(-1)!.state) throw Error("The plain editor did not install the prepared completion.");
-                if (authoredSource(before) === authoredSource(editor.state)) saver.changed(authoredSource(before));
-              } catch (error) {
-                if (editor.state === before) plane.rollback();
-                throw error;
-              }
-            },
+            commit: (editor, transactions, requiresPrivateDraft) =>
+              commitPlainSourceBatch(editor, transactions, requiresPrivateDraft, () => current() && writable(), saver, base, guard),
           });
         } : undefined,
         project: (prefix, around) =>

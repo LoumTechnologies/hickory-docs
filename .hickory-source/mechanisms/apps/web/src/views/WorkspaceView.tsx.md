@@ -31,6 +31,12 @@ Same-editor commands report their departure after the installed editor has
 moved. The workspace checks that editor still owns the active tab and shares
 one digest between the two positions in the same source.
 
+Insert reusable template uses the active authored tab and freezes the current
+contributor roster. Other open sources contribute their exact draft readings;
+unnamed and removed tabs stay outside the named source graph. The engine's
+entry demand reads that same held workspace. Apply uses only the selected
+tab's current private draft writer.
+
 Related contracts: [Trace conversation passages without confusing context with support](../../../../../guarantees/agent/an-answer-in-the-agent-pane-has-ribbons/contract.md), [A Folder Remembers Its Window](../../../../../guarantees/authoring/a-folder-remembers-its-window/contract.md), [A Keystroke Redraws Only The Editor](../../../../../guarantees/authoring/a-keystroke-redraws-only-the-editor/contract.md), [Inserting An Element Writes Hick You Could Have Typed Yourself](../../../../../guarantees/authoring/inserting-an-element-writes-hick-you-could-have-typed/contract.md), [New Document Creates Another Unnamed Buffer](../../../../../guarantees/authoring/new-document-is-an-act/contract.md), [Open File Tabs Follow Renames](../../../../../guarantees/authoring/open-file-tabs-follow-renames/contract.md), [Shared print requests do not attest physical output](../../../../../guarantees/authoring/print-requests-do-not-attest-physical-output/contract.md), [Settings preserves the open workspace](../../../../../guarantees/authoring/settings-preserves-the-open-workspace/contract.md), [The App Starts As A Lightweight Editor](../../../../../guarantees/authoring/the-app-starts-as-a-lightweight-editor/contract.md), [The engineer tour distinguishes replay from execution](../../../../../guarantees/authoring/the-engineer-tour-distinguishes-replay-from-execution/contract.md), [The Measure Says What It Measures](../../../../../guarantees/authoring/the-measure-says-what-it-measures/contract.md), [Close or recover a document without losing the wrong draft](../../../../../guarantees/authoring/unsaved-work-survives-closing-the-app/contract.md), [Pair identity without silently granting execution](../../../../../guarantees/collaboration/a-machine-is-a-keypair/contract.md), [A Plain File Has The Same Language Server A Document Has](../../../../../guarantees/editor-intelligence/a-plain-file-has-the-same-language-server/contract.md), [A Typed Path Opens That File](../../../../../guarantees/editor-intelligence/a-typed-path-opens-that-file/contract.md), [Keep editor actions attached to the view they affect](../../../../../guarantees/editor-intelligence/actions-belong-to-their-subject/contract.md), [Every Shortcut Is A Setting](../../../../../guarantees/editor-intelligence/every-shortcut-is-a-setting/contract.md), [Save Can Format First, With The File's Own Formatter](../../../../../guarantees/editor-intelligence/save-can-format-first/contract.md), [Run and test from the pane menu without adding a toolbar row](../../../../../guarantees/editor-intelligence/the-toolbar-uses-words-an-ide-user-knows/contract.md), [A Test Runs From The Line It Is Written On](../../../../../guarantees/execution/a-test-runs-from-the-line-it-is-written-on/contract.md), [The History Lens Reads The Repository As A Story](../../../../../guarantees/lenses/the-history-lens-reads-the-repository-as-a-story/contract.md), [Trace a ribbon to the visible part of its source](../../../../../guarantees/lineage/a-ribbon-crosses-documents/contract.md), [Show the requested connections without changing their meaning](../../../../../guarantees/lineage/a-ribbon-is-drawn-where-it-is-asked-for/contract.md), [Three Provenances Are Drawn Apart, And Any Subset Can Be Shown](../../../../../guarantees/lineage/three-provenances-are-drawn-apart/contract.md), [A Local Install Is a Launchable macOS App](../../../../../guarantees/release/a-local-install-is-a-launchable-macos-app/contract.md), [Spatial Views Preserve The Editor](../../../../../guarantees/shell/spatial-views-preserve-the-editor/contract.md), [A Session Appears Where It Is Working](../../../../../guarantees/terminal/a-session-appears-where-it-is-working/contract.md).
 
 <a id="f-47afe3575948-TerminalPane"></a>
@@ -93,6 +99,9 @@ import { workspaceRibbonSources } from "./workspaceRibbonSources";
 import { matchesRankedSearchHit, matchesWorkspaceSymbol, openPlainSearchFiles, searchWorkspace } from "../lib/workspaceSearch";
 import { NavigationTrail, searchCharacter, semanticLocations, semanticPath, type SemanticLocation } from "../simple/Intelligence";
 import { authoredSource } from "../simple/SourceText";
+import type { HostedTemplateEditor } from "../simple/SourceTemplates";
+import { readSourceEditorIntent } from "../simple/SourceSnippets";
+import { readFrozenEntrySelection } from "../simple/WorkspaceEntrySelection";
 import { documentUri } from "../lsp/documentUri";
 import { workspaceLspClient } from "../lsp/useLsp";
 import type { MenuAction } from "../lib/menuBridge";
@@ -229,6 +238,7 @@ import { ChangePreview } from "../components/ChangePreview";
 import type { ResourceExpectation, ResourcePublicationReview, ResourceReceipt, ResourceTransport } from "../simple/ResourceEditors";
 import { ConflictResolutionModel, type HeldConflict } from "../simple/GitConflictResolution";
 const ResourceConsequencesView = lazy(() => import("../simple/SourceRecovery").then(module => ({default: module.ResourceConsequencesView})));
+const SourceTemplatesView = lazy(() => import("../simple/SourceTemplatesView").then(module => ({default: module.SourceTemplatesView})));
 import type { WindowHistoryPlan } from "./WorkspaceChat";
 import type { UiOutcome } from "../lib/uiActions";
 </storycode:copy>
@@ -698,6 +708,86 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     const view = node && EditorView.findFromDOM(node);
     return view ? {tab, view} : null;
   }, [shellBox]);
+  const [showTemplates, setShowTemplates] = useState<HostedTemplateEditor | null>(null);
+  const closeTemplates = useCallback(() => {setShowTemplates(null); activeSourceEditor()?.view.focus();}, [activeSourceEditor]);
+  const templateEditor = useCallback((): HostedTemplateEditor | null => {
+    const active = activeSourceEditor(), focus = focusIntent.current, workspace = sourceWorkspace.current;
+    if (!active || (active.tab.kind !== "file" && active.tab.kind !== "document")) return null;
+    const {view, tab: selected} = active;
+    const opening = view.state, intent = readSourceEditorIntent(opening);
+    let first = true;
+    const mounted = () => workspaceIsVisible() && sourceWorkspace.current === workspace && focusIntent.current === focus &&
+      view.dom.isConnected && activeSourceEditor()?.view === view;
+    return {id: crypto.randomUUID(), view, mounted, capture() {
+      if (first) {
+        first = false;
+        if (view.state.doc !== opening.doc || !view.state.selection.eq(opening.selection) || readSourceEditorIntent(view.state) !== intent) {
+          throw Error("The original source or selection changed while opening templates. Read again from the current selection.");
+        }
+      }
+      const namedOwner = (tab: Tab) => tab.kind === "document" ? registry.get(tab.docId)?.recordedPatchSource()
+        : plainPatchOwners.current.get(tab.id)?.();
+      const owner = namedOwner(selected);
+      const root = folderRootsRef.current.find(root => owner
+        ? root.root_path === owner.scope.namespace && root.workspace_id === owner.scope.workspace
+        : !!findNodeByPath([root], selected.target));
+      const namespace = root?.root_path, workspaceId = root?.workspace_id;
+      if (!root || !namespace || !workspaceId || !/^[a-f0-9]{32}$/.test(workspaceId) || !mounted()) {
+        throw Error("The current workspace source is unavailable. Refresh Files and reopen templates.");
+      }
+      const readTabs = () => panesOf(layoutRef.current.root).flatMap(pane => pane.tabs)
+        .filter(tab => tab.kind === "file" || tab.kind === "document" || tab.kind === "untitled");
+      const identity = (tab: Tab) => JSON.stringify([tab.id, tab.kind, tab.target, tab.docId, tab.retainedResource?.path]);
+      const tabs = readTabs(), identities = tabs.map(identity);
+      const sources: Record<string, string> = Object.create(null), unaddressed: Record<string, string> = Object.create(null);
+      const missing = new Set<string>(), contributors: (() => boolean)[] = [];
+      const encoder = new TextEncoder();
+      let bytes = 0;
+      if (tabs.length > 4096) throw Error("Too many open template contributors.");
+      for (const tab of tabs) {
+        const captured = tab.id === selected.id ? owner : tab.kind !== "untitled" ? namedOwner(tab) : undefined;
+        if (captured && (captured.scope.namespace !== namespace || captured.scope.workspace !== workspaceId)) {
+          throw Error("A template contributor belongs to another workspace.");
+        }
+        const retained = tab.retainedResource;
+        const read = () => tab.kind === "untitled" ? untitledSourcesRef.current[tab.id] ?? bufferEditor(tab.id)?.state.doc.toString()
+          : tab.kind === "document" ? registry.get(tab.docId)?.liveSource : plainSources.current.get(tab.id);
+        const text = captured?.text ?? read();
+        if (text === undefined || (!captured && tab.kind !== "untitled" && !retained && !findNodeByPath([root], tab.target))) {
+          throw Error("An open template contributor is still attaching: " + tab.target);
+        }
+        const size = encoder.encode(text).length;
+        if (size > 8 * 1024 * 1024 || (bytes += size) > 32 * 1024 * 1024) throw Error("Template contributor capture exceeds its interactive budget.");
+        if (tab.kind === "untitled" || retained) {
+          unaddressed[tab.id] = text;
+          if (retained) missing.add(retained.path);
+        } else {
+          if (Object.hasOwn(sources, tab.target)) throw Error("More than one editor owns this template contributor: " + tab.target);
+          sources[tab.target] = text;
+        }
+        const unnamedRevision = untitledRevisions.current.get(tab.id);
+        contributors.push(captured?.current ?? (() => read() === text && untitledRevisions.current.get(tab.id) === unnamedRevision));
+      }
+      if (sources[selected.target] !== authoredSource(view.state)) throw Error("This editor cannot capture exact authored source for templates.");
+      for (const path of Object.keys(sources)) missing.delete(path);
+      const current = () => {
+        const now = readTabs();
+        return mounted() && now.length === identities.length && now.every((tab, index) => identity(tab) === identities[index]) &&
+          contributors.every(check => check());
+      };
+      const write = owner?.captureCompletion?.(view, documentUri(selected.target));
+      return {path: selected.target, workspaceRoot: namespace,
+        contributors: Object.freeze({version: 1, project_entry: null, sources: Object.freeze(sources),
+          unaddressed_sources: Object.freeze(unaddressed), missing_sources: Object.freeze([...missing].sort())}),
+        current: (writable = false) => current() && (!writable || write?.current() === true),
+        entrySelection: () => readFrozenEntrySelection(() => callApi("GET", "/api/workspace/entry"), {workspace: workspaceId, namespace, current}),
+        commit(editor, transactions, privateDraft) {
+          if (editor !== view || !current() || !write?.current()) throw Error("The original template source changed. Refresh before applying.");
+          write.commit(transactions, privateDraft);
+        },
+      };
+    }};
+  }, [activeSourceEditor, registry]);
   const makeHistoryPoint = useCallback((path: string, source: string, line: number, character: number,
     sourceHash = historySourceHash(source).catch(() => null)): HistoryPoint => {
     const start = {line, character};
@@ -972,6 +1062,11 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         }
         const all: CommandItem[] = [...documentCommands(registry.get(focusedDocId(layoutRef.current))),
           ...editorCommands,
+          ...(view && (focus.tab?.kind === "file" || focus.tab?.kind === "document") ? [{
+            id: "source.templates", label: "Insert reusable template", run: (current?: () => boolean) => {
+              if (current?.() && focusIntent.current === focus && activeSourceEditor()?.view === view) setShowTemplates(templateEditor());
+            },
+          }] : []),
           ...(view && focus.tab && (focus.tab.kind === "file" || focus.tab.kind === "document") && !view.state.readOnly
             ? (["delete", "move"] as const).map(kind => ({
               id: `workspace-resources:${kind}`,
@@ -1044,7 +1139,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         run: () => openHitRef.current(node.path, 1),
       }));
     },
-    [welcomeActions, registry, projectId, activeSourceEditor, recordLocalNavigation, recordedDraftHistory],
+    [welcomeActions, registry, projectId, activeSourceEditor, templateEditor, recordLocalNavigation, recordedDraftHistory],
   );
   /**
    * Open a path and put the caret on a line.
@@ -3273,6 +3368,12 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         <PromptPanel prompt={focused.prompt} onSettle={focused.settle} />
       )}
       <PromptPanel prompt={shellPrompt.prompt} onSettle={shellPrompt.settle} />
+      {showTemplates && <Suspense fallback={<aside className="prompt-panel prompt-panel--filtered" onKeyDown={event => {
+        if (event.key === "Escape") closeTemplates();
+      }}><button aria-label="Close source templates" onClick={closeTemplates}>×</button><p role="status">Loading templates…</p></aside>}>
+        <SourceTemplatesView key={showTemplates.id} visible close={closeTemplates} editor={() => showTemplates.mounted() ? showTemplates : null}
+          className="prompt-panel prompt-panel--filtered" />
+      </Suspense>}
       {(changePending || changeReview || resourceReview) && <aside className="prompt-panel prompt-panel--filtered" role="dialog" aria-label={`${changeKind[0].toUpperCase()}${changeKind.slice(1)} preview`}
         onKeyDown={event => {
           if (event.key !== "Escape" || changeApplying.current) return;

@@ -61,6 +61,12 @@ The iPhone has retained pytest failures, coverage and source navigation.
 Its rendered failed-only rerun and configured debugger Attach still need
 their own replays.
 
+The reusable Insert template catalog has guarded Preview, Apply and history
+in the main and Simple browsers, mounted AppKit and the Android controller.
+Rendered UIKit and Android still need the same catalog flow. Android's
+configured debugger Attach has genuine controller evidence and still needs
+a rendered replay.
+
 The signed iPhone simulator build sent exact whole-author `source.fixAll`
 ranges and retained the distinct opaque provider choices across acquisition.
 Native review, Apply and workspace Undo and Redo changed both drafts in
@@ -4273,6 +4279,15 @@ file stayed byte-identical. A separate replay refused the same provider's
 virtual EOF insertion because it crossed the authored boundary. See
 `target/main-plain-snippet-acceptance/managed-final-3/` and
 `target/main-plain-snippet-acceptance/managed-candidate-2/`.
+
+Main's Insert reusable template command opened the actual workspace catalog
+for a CRLF plain file and an LF managed code body. Each grouped preview
+preserved both carets and saved source, and Apply rechecked the identical
+two-caret plan. Native Undo and Redo restored both fields, and typing updated
+their mirrors. The managed prose, scaffolds and generated file stayed exact.
+The editor stayed mounted without source writes or collaboration updates until
+explicit Save. See
+`target/main-plain-snippet-acceptance/{plain-template-3,managed-template-3}/`.
 
 Installed TypeScript completed both prefixes and inserted one shared
 import in Simple Browser and mounted AppKit. The Browser replay used the
