@@ -4057,6 +4057,17 @@ Acceptance changes only the draft, with one undo/redo step and no implicit save 
 
 Verification: five focused browser controller/actual-popup agent checks pass, including held replies, replacement choices, composition, cancellation and settled application reporting. The actual-engine browser witness resolves imports, checks one-step undo/redo, retained editor identity/geometry and unchanged disk, then dismisses a held resolution and releases it without a late write. Two AppKit/controller checks pass for compound import edits, final redo selection, undo during saving, stale-history retirement and latest/dismissed replies. Two Android tests pass using the actual text state and compound undo/redo. TypeScript checking, the iOS simulator build, source reconstruction and audit pass. These are not native gesture, IME or accessibility acceptance results. Broad regression runs remain user-owned.
 
+Simple Browser used TypeScript Language Server 6.1.0 with TypeScript 6.0.3
+to select an unresolved identifier's completion from an unopened module.
+The child received its original resolve data and returned the import edit.
+The draft received the exact replacement and import in one ordinary undo
+step. Redo restored the completed caret in the same editor, the module tab
+stayed closed and both saved files retained their bytes. Run
+`python3 scripts/test-source-completion-browser.py --typescript` with
+`HICKORY_SIMPLE_TEST_TYPESCRIPT_PROVIDER` set to the installed server entry
+point. A separate controlled replay still covers nested fields, linked
+typing and cancellation while resolution is held.
+
 ## Shared snippet expansion foundation
 
 The engine now exposes one renderer-independent snippet plan for completion and source-owned live-template services. It retains literal text, every numbered or unknown-variable field occurrence, UTF-16 ranges, choice alternatives and numeric visit order ending at the exit. Forward references share collected defaults, including nested fields; repeated unknown variable names become linked editable positions. Known variable values remain literal, while unset values use defaults. Cyclic/conflicting defaults, malformed or excessive input and unsupported transforms refuse without producing a partial proposal. This common non-transform subset does not establish full snippet syntax or advertise full host support.
