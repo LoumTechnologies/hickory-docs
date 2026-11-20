@@ -1573,6 +1573,13 @@ coverage now observe their own attachment and use the source address in
 their effect keys. A focused Compose witness observed those handles arrive
 separately at the same source and selection.
 
+The rebuilt stock Android app opened the requested Rust file and its
+containing folder while the saved-source guard was held for 8.09 seconds.
+When the guard settled, one discovery request populated both authored test
+rows on the same editor without reopening the file. The editor ID, viewport
+bounds, saved bytes, inode and modification time stayed fixed. See
+`target/parity-rendered-android.sgYIt7/continuation-receipts/final-android-d7rnxm3e/startup-discovery/receipt.json`.
+
 ### Match the saved Rust test declaration to the emitted function
 
 Before Cargo lists a harness, the launcher checks its root against the captured
@@ -4162,6 +4169,16 @@ and shared import in one native text-state transaction. They restore the
 full caret roster through Undo and Redo, and preserve the entire draft when
 a selection, provider proof, composition state or edit range invalidates
 the group.
+
+Stock Android API 37 used Add cursor below and selected the visible
+TypeScript choice from `./answers`. The provider received two queries and
+two resolutions. The changes produced both exact replacements and one
+shared import. Native Undo and Redo restored both text versions and
+both caret rosters, checked through production recovery and the painted
+secondary caret. The same editor and source bounds survived. The module
+stayed unopened and the saved bytes, inodes and modification times stayed
+fixed. See
+`target/parity-rendered-android.sgYIt7/continuation-receipts/final-android-4i301xke/typescript-group/rendered-android-typescript-group.json`.
 
 ## Shared snippet expansion foundation
 
