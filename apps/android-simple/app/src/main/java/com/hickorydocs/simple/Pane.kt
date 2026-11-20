@@ -803,20 +803,21 @@ private class NativeTableController(val buffer: DocumentBuffer, val scope: kotli
             val numberPaint = remember { Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 typeface = Typeface.MONOSPACE; textAlign = Paint.Align.RIGHT
             } }
+            val lineNumberPadding = with(LocalDensity.current) { 8.dp.toPx() }
+            val toggleBreakpointAtPoint by rememberUpdatedState<(Float) -> Unit> { y ->
+                val layout = textLayout
+                if (layout != null && layout.layoutInput.text.text == display && buffer.text == source) {
+                    val visual = layout.getLineForVerticalPosition(y + scroll.value - lineNumberPadding)
+                    val offset = editorSourceOffset(layout.getLineStart(visual), replacements)
+                    val snapshot = buffer.inlineMarkup
+                    val line = if (snapshot.source == source) inlineLineAt(offset, snapshot.lineStarts) else source.take(offset).count { it == '\n' }
+                    val candidate = if (snapshot.source == source) snapshot.debug.code[line] else if (recorded == null) inlineDebugPath(source, buffer.file.path, line) else null
+                    if (candidate != null) debug?.toggle(buffer, line)
+                }
+            }
             Canvas(Modifier.width((maxOf(3, (source.count { it == '\n' } + 1).toString().length) * 8 + 12).dp)
-                .fillMaxHeight().clipToBounds().pointerInput(source, textLayout, replacements, debug, recorded != null) {
-                    detectTapGestures { point ->
-                        val current = textLayout
-                        if (current != null && current.layoutInput.text.text == display) {
-                            val visual = current.getLineForVerticalPosition(point.y + scroll.value - with(density) { 8.dp.toPx() })
-                            val offset = editorSourceOffset(current.getLineStart(visual), replacements)
-                            val snapshot = buffer.inlineMarkup
-                            if (buffer.text != source) return@detectTapGestures
-                            val line = if (snapshot.source == source) inlineLineAt(offset, snapshot.lineStarts) else source.take(offset).count { it == '\n' }
-                            val candidate = if (snapshot.source == source) snapshot.debug.code[line] else if (recorded == null) inlineDebugPath(source, buffer.file.path, line) else null
-                            if (candidate != null) debug?.toggle(buffer, line)
-                        }
-                    }
+                .fillMaxHeight().clipToBounds().pointerInput(buffer) {
+                    detectTapGestures { point -> toggleBreakpointAtPoint(point.y) }
                 }) {
                 val layout = textLayout
                 if (layout != null && layout.layoutInput.text.text == display) {

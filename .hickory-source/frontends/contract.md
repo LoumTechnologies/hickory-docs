@@ -1561,9 +1561,8 @@ Stock Android opened the saved Rust source from Files, chose the exact
 `test_selected` row and kept the same readable editor while Cargo prepared.
 The native preview showed preparation, and the engine admitted the debugger
 after 40.48 seconds. The selected test passed, its sibling was filtered and
-the retained process exited 0. The launch request carried an empty
-breakpoint list. A rendered stop at the authored line and Continue remain
-open for this slow fixture. See
+the retained process exited 0. This replay measured preparation and
+selected execution with an empty breakpoint list. See
 `target/parity-rendered-android.sgYIt7/continuation-receipts/final-android-t5aatbe0/rust-debug/debug-wire.json`.
 
 A compact Rust fixture then painted the exact native line 7 breakpoint.
@@ -1571,14 +1570,22 @@ Cargo admitted the genuine LLDB session after 40.75 seconds, and execution
 stopped at that bound line. Returning from the test panel opened the
 keyboard and scrolled to the typing caret below the stop. The Return to
 editor debugger controls button now dismisses the panel without requesting
-text input focus. A continued run from the revealed line needs a replay.
-See
+text input focus. See
 `target/parity-rendered-android.sgYIt7/continuation-receipts/final-android-dduu3k15/rust-debug-unwrapped/debug-wire.json`.
 
 The rebuilt app returned after a genuine line 7 stop with the keyboard
 closed. The source filled its original frame and the enabled Continue
 control stayed visible beside line 7. See
 `target/parity-rendered-android.sgYIt7/continuation-receipts/final-android-iff63q2p/rust-debug-unwrapped/failure-rendered-state.png`.
+
+The line-number gesture now stays attached while the layout updates and
+checks the current authored source before toggling a breakpoint. Stock
+Android painted line 7 on the first press, admitted the selected Rust test
+after the delayed build, and stopped at that line. Returning from the panel
+kept the editor frame and the visible Continue control with the keyboard
+closed. One native tap sent Continue for the paused session, which then
+exited 0. See
+`target/parity-rendered-android.sgYIt7/continuation-receipts/final-android-o_pz8w83/rust-debug-unwrapped/native-continue-and-exit.json`.
 
 The stock startup replay also exposed a discovery race. The editor could
 compose before its test index attached, then keep the same source text
