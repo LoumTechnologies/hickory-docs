@@ -3889,6 +3889,14 @@ manager. Native Undo restored the original clean text and both the source
 bytes and file identity stayed intact. The harness scrolled the floating
 results into view. See `target/appkit-clangd-type-draft.e_r23gyu/receipt.json`.
 
+The iPhone simulator entered an unsaved space through native hardware key
+input. Genuine clangd received the exact draft and both standard hierarchy
+follow-ups. Native result taps reached the displayed C++ base and derived
+names at UTF-16 offsets 7 and 42. Both reads retained the same editor,
+viewport, Undo manager and exact draft, with saved bytes and file identity
+unchanged. See
+`target/ios-clangd-hierarchy/iphone-27-visible-replay/attempt-1/receipt.json`.
+
 ## Retained completion provider context
 
 Completion offers now use the same installed source/ownership revision model as actions and type relationships. Each token retains the actual producing child, original query cursor and standards-expanded provider item. List defaults materialize explicit edits and opaque data before retention; caller mutations cannot select another provider or alter its payload. Resolution handles eager providers without an unsupported RPC, retains complete import edits and refuses stale/foreign artifacts or late source changes. Only known edit fields are projected, so range-shaped opaque data remains untouched. Primary replacements must contain the original cursor on one line; exact source projection refuses edits crossing fragments or authored owners.
