@@ -56,15 +56,12 @@ device IME and assistive technology need their own acceptance. The emulator
 originally refused userdata allocation. An owned API 36 emulator booted after
 inactive compiler caches were reclaimed, and the checkpoint Android APK built.
 
-The iPhone has retained pytest failures, coverage and source navigation.
-Its rendered failed-only rerun and configured debugger Attach still need
-their own replays.
+The iPhone's configured debugger Attach still needs its rendered Step and
+Stop replay.
 
 The reusable Insert template catalog has guarded Preview, Apply and history
 in the main and Simple browsers, mounted AppKit and the Android controller.
-Rendered UIKit and Android still need the same catalog flow. Android's
-configured debugger Attach has genuine controller evidence and still needs
-a rendered replay.
+Rendered UIKit and Android still need the same catalog flow.
 
 The signed iPhone simulator build sent exact whole-author `source.fixAll`
 ranges and retained the distinct opaque provider choices across acquisition.
@@ -80,6 +77,21 @@ caret from 8 to 15, back to 8, then to 15. The exact editor frame survived
 all three review dismissals with Gboard closed. The second author first
 opened as a tab after Redo. Both saved files kept their bytes and metadata.
 See `target/parity-rendered-android.sgYIt7/continuation-receipts/final-android-dkecc9z6/complete-file-fix/rendered-complete-file-fix.json`.
+
+Stock Android also selected the named configured Attach profile for an
+owned debugpy target. The real adapter paused at line 8, then native Step
+over reached line 9 in the same session. Native Stop detached and left the
+external process running until the fixture released it. The editor frame,
+saved source and profile metadata stayed exact. See
+`target/parity-rendered-android.sgYIt7/continuation-receipts/final-android-dkecc9z6/configured-attach/receipt.json`.
+
+The iPhone coverage sheet selected the original mixed pytest result. Its
+native failed-only action sent that exact run identity. The successor
+executed and displayed only the failed case, and the original still showed
+the passing case when reopened. The same editor, caret, scroll, Undo
+manager and saved-file metadata survived. Frame sampling straddled a keyboard
+transition during this replay. See
+`target/ios-failed-pytest-rerun/iphone-3/failed-only-pytest/attempt-1/partial-product-receipt.json`.
 
 ### iPhone Python definition and navigation history
 
@@ -4294,6 +4306,13 @@ their mirrors. The managed prose, scaffolds and generated file stayed exact.
 The editor stayed mounted without source writes or collaboration updates until
 explicit Save. See
 `target/main-plain-snippet-acceptance/{plain-template-3,managed-template-3}/`.
+The rebuilt managed editor retired its preview after a secondary caret moved
+away and back. Source, both selections and the frame stayed exact, and no
+second plan or write was sent. The rebuilt Simple Browser repeated ordinary
+catalog and program 3 embedded-group workflows, including refusal after a
+catalog revision or secondary caret change. See
+`target/main-plain-snippet-acceptance/managed-template-stale-current/` and
+`target/grouped-snippet-integration/{simple-catalog-current,simple-catalog-program3-current}.log`.
 
 Installed TypeScript completed both prefixes and inserted one shared
 import in Simple Browser and mounted AppKit. The Browser replay used the
