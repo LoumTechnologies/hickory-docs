@@ -56,13 +56,10 @@ device IME and assistive technology need their own acceptance. The emulator
 originally refused userdata allocation. An owned API 36 emulator booted after
 inactive compiler caches were reclaimed, and the checkpoint Android APK built.
 
-The iPhone's configured debugger Attach still needs its rendered Step and
-Stop replay.
-
 The reusable Insert template catalog has guarded Preview, Apply and history
 in the main and Simple browsers, mounted AppKit, rendered UIKit and the
-Android controller. Rendered Android still needs its linked typing and
-history replay through the catalog.
+Android controller. Stock Android has rendered Preview, Apply, Undo and
+Redo. Its catalog-linked input replay remains open.
 
 The signed iPhone simulator build sent exact whole-author `source.fixAll`
 ranges and retained the distinct opaque provider choices across acquisition.
@@ -85,6 +82,14 @@ over reached line 9 in the same session. Native Stop detached and left the
 external process running until the fixture released it. The editor frame,
 saved source and profile metadata stayed exact. See
 `target/parity-rendered-android.sgYIt7/continuation-receipts/final-android-dkecc9z6/configured-attach/receipt.json`.
+
+The iPhone simulator selected the same named Attach profile through its
+native chooser. A real debugpy breakpoint at line 8 paused the target,
+and native Step over used the captured thread and stop to reach line 9.
+Native Stop ended the session. The external program resumed with value 42
+and exited only after the fixture released it. The editor and Undo manager
+stayed mounted, and the saved source and launch profile kept their bytes and
+metadata. See `target/ios-configured-attach/iphone-stable/attempt-2/receipt.json`.
 
 The iPhone coverage sheet selected the original mixed pytest result. Its
 native failed-only action sent that exact run identity. The successor
@@ -4322,6 +4327,13 @@ inserted and linked drafts and their exact selections in the same editor.
 Its frame and history stayed in place, and the source and template manifest
 kept their bytes and metadata. See
 `target/ios-failed-pytest-rerun/iphone-3/reusable-template/attempt-1/receipt.json`.
+
+Stock Android reviewed a local selected-text template and applied its two
+mirrors. One native Undo restored the original source, and one Redo
+restored the expansion. The same editor, selection and saved metadata
+survived. A later input dispatch left the active field and draft as they
+were. See
+`target/parity-rendered-android.sgYIt7/continuation-receipts/final-android-kk5fl1v7/template-catalog/rendered-template-application-history.json`.
 
 Installed TypeScript completed both prefixes and inserted one shared
 import in Simple Browser and mounted AppKit. The Browser replay used the
