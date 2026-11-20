@@ -2497,6 +2497,7 @@ struct NativeFindPanel: View {
 }
 
 struct LanguageEditor: View {
+    var showRunTerminal: ((String) -> Void)? = nil
     @State private var railWidth: CGFloat = 24
     @State private var resizeStart: CGFloat?
     var buffer: DocumentBuffer
@@ -2614,7 +2615,7 @@ struct LanguageEditor: View {
                         railWidth = min(220, max(24, (resizeStart ?? 24) - value.translation.width))
                     }.onEnded { _ in resizeStart = nil })
                     .accessibilityLabel("Resize right gutter").accessibilityAdjustableAction { direction in railWidth = min(220, max(24, railWidth + (direction == .increment ? 22 : -22))) }
-                NativeDebugRail(buffer: buffer, debug: debugger, recordedDebug: recordedDebug, recordedRunEngine: recordedRunEngine, recordedPatchReview: recordedPatchReview, presentRecordedInspection: presentRecordedInspection).frame(width: railWidth)
+                NativeDebugRail(buffer: buffer, debug: debugger, showRunTerminal: showRunTerminal, recordedDebug: recordedDebug, recordedRunEngine: recordedRunEngine, recordedPatchReview: recordedPatchReview, presentRecordedInspection: presentRecordedInspection).frame(width: railWidth)
             } else if buffer.startupObservation != nil {
                 Color.clear.frame(width: railWidth + 4)
             }
@@ -2750,6 +2751,7 @@ struct InlineCellControl: View {
 struct NativeDebugRail: View {
     var buffer: DocumentBuffer
     var debug: NativeDebugger
+    var showRunTerminal: ((String) -> Void)? = nil
     var recordedDebug: NativeRecordedMessageSource? = nil
     var recordedRunEngine: Engine? = nil
     var recordedPatchReview: ((Int) -> Void)? = nil
@@ -3009,7 +3011,7 @@ struct NativeDebugRail: View {
         }.background(.quaternary.opacity(0.2))
         .popover(isPresented: Binding(get: { details != nil }, set: { if !$0 { details = nil } })) {
             if let details {
-                NativeDebugInspector(buffer: buffer, debug: debug, recordedDebug: recordedDebug, line: details)
+                NativeDebugInspector(buffer: buffer, debug: debug, recordedDebug: recordedDebug, line: details, showRunTerminal: showRunTerminal)
             }
         }.onChange(of:buffer.debugInspection){_,_ in if showsSession{inspect(0)}}
         .onChange(of: recordedDebug?.current() == true) { _, current in
@@ -3026,6 +3028,7 @@ struct NativeDebugInspector: View, Identifiable {
     let debug: NativeDebugger
     let recordedDebug: NativeRecordedMessageSource?
     let line: Int
+    var showRunTerminal: ((String) -> Void)? = nil
     @State private var adapterInspection:UUID?
     @State private var expression = ""
     @State private var condition = ""
@@ -3090,7 +3093,7 @@ struct NativeDebugInspector: View, Identifiable {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 86))], spacing: 5) {
                 if ordinaryLaunch {
                     Button("Debug",systemImage:"play"){Task{await debug.prepare(buffer,line:line)}}.disabled(debug.active || buffer.dirty || buffer.saving)
-                    Button("Choose Debug profile",systemImage:"list.bullet"){Task{await debug.prepare(buffer,line:line,chooseProfile:true)}}.disabled(debug.active || buffer.dirty || buffer.saving)
+                    Button("Launch profiles",systemImage:"list.bullet"){Task{await debug.prepare(buffer,line:line,chooseProfile:true)}}.disabled(debug.active || buffer.dirty || buffer.saving)
                 }
                 if let recordedDebug, let fence = recordedFences[line] {
                     Button("Debug recorded fence", systemImage: "play") { Task { await debug.prepareRecordedFence(buffer, source: recordedDebug, fence: fence) } }.disabled(debug.active)
@@ -3106,6 +3109,12 @@ struct NativeDebugInspector: View, Identifiable {
             if exactUTF8(debug.owner,buffer.file.path) { ForEach(debug.targets) { target in Button("Debug file \(target.path)") { Task { await debug.prepare(buffer, program: target.path) } } } }
             ForEach(debug.profiles,id: \.exactID) { profile in
                 Button {debug.launch(profile)} label:{VStack(alignment:.leading){Text(profile.actionLabel);if let notice=profile.attachNotice{Text(notice).font(.caption).fixedSize(horizontal:false,vertical:true)}}}.accessibilityLabel(profile.actionLabel+" · "+(profile.attachNotice ?? ""))
+            }
+            if let showRunTerminal {
+                ForEach(debug.commandProfiles, id: \.exactID) { profile in
+                    Button("Run \(profile.name)") { Task { await debug.runProfile(profile, buffer: buffer, terminal: showRunTerminal) } }
+                        .disabled(debug.runningProfile || debug.active || buffer.dirty || buffer.saving)
+                }
             }
             if let notice=debug.attachReading{Text(notice).font(.caption).textSelection(.enabled)}
             if debug.offer != nil { Button("Install debugger", systemImage: "arrow.down.to.line") { Task { await debug.install() } } }

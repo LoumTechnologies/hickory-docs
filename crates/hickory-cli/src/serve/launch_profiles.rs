@@ -57,13 +57,15 @@ pub async fn list(
                 "viewed":query.uri,"workspace":state.index.root(),"configuration":crate::launch_profiles::CONFIG})));
         }
     }
-    let context = context(&state, &query).map_err(|e| ApiError::unprocessable(format!("{e:#}")))?;
-    let profiles = context
-        .profiles()
-        .map_err(|e| ApiError::unprocessable(format!("{e:#}")))?;
-    Ok(Json(
-        json!({"debug_protocol":3,"test_debug_protocol":1,"notices":context.notices(),"profiles":profiles,"fingerprint":context.fingerprint(),"viewed":context.viewed,"workspace":state.index.root(),"configuration":crate::launch_profiles::CONFIG}),
-    ))
+    tokio::task::spawn_blocking(move || {
+        let context = context(&state, &query).map_err(|e| ApiError::unprocessable(format!("{e:#}")))?;
+        let profiles = context.profiles().map_err(|e| ApiError::unprocessable(format!("{e:#}")))?;
+        Ok(Json(json!({"debug_protocol":3,"test_debug_protocol":1,"notices":context.notices(),
+            "profiles":profiles,"fingerprint":context.fingerprint(),"viewed":context.viewed,
+            "workspace":state.index.root(),"configuration":crate::launch_profiles::CONFIG})))
+    })
+    .await
+    .map_err(|error| ApiError::internal(error.to_string()))?
 }
 #[derive(Deserialize)]
 pub struct Run {
@@ -72,15 +74,23 @@ pub struct Run {
     pub profile: ProfileSelection,
 }
 pub async fn run(State(state): State<LocalState>, Json(body): Json<Run>) -> ApiResult<Json<Value>> {
-    let result = (|| -> anyhow::Result<_> {
-        let context = context(&state, &body.context)?;
+    let prep_state = state.clone();
+    let (workspace, profile, root, scratch, root_lease) = tokio::task::spawn_blocking(move || {
+        let root_lease = prep_state.resource_root.check(prep_state.index.root()).map_err(anyhow::Error::msg)?.to_owned();
+        let context = context(&prep_state, &body.context)?;
         let profile = context.selected(&body.profile)?;
         let (root, scratch) = context.prepare()?;
-        open_run(&state, &profile, &context.root, &root, scratch, None)
-    })();
-    result
-        .map(|s| Json(json!(s)))
-        .map_err(|e| ApiError::unprocessable(format!("{e:#}")))
+        Ok::<_, anyhow::Error>((context.root, profile, root, scratch, root_lease))
+    })
+    .await
+    .map_err(|error| ApiError::internal(error.to_string()))?
+    .map_err(|error| ApiError::unprocessable(format!("{error:#}")))?;
+    if state.resource_root.check(state.index.root()).map_err(ApiError::conflict)? != root_lease {
+        return Err(ApiError::conflict("Workspace changed during launch preparation. Choose the profile again."));
+    }
+    open_run(&state, &profile, &workspace, &root, scratch, None)
+        .map(|session| Json(json!(session)))
+        .map_err(|error| ApiError::unprocessable(format!("{error:#}")))
 }
 /// A terminal is the single Run mechanism for both profiles and test gutters.
 pub(super) fn open_run(

@@ -3,13 +3,59 @@
 
 For: Authors using completion, diagnostics and refactoring inside literate source.
 
-Given a host project identified as uv, npm or pnpm by its manifest,
+Given a host project identified as uv, npm, pnpm, Bun or a configured
+package.json manager by its manifest,
 configuration or lockfile, when Hickory checks its environment, then it
 reports a typed finding and offers only a repair the selected provider can
 plan. An ambiguous manager offers an explicit choice, saved in the user's
 workspace state, before it offers installation.
 
 The existing requirement is retained. Its original detail is below; implementation evidence has not been renewed merely by reorganizing it.
+
+## Add a package.json manager on the workspace host
+
+Set `HICKORY_PACKAGE_MANAGERS` to a trusted local JSON file before starting
+the engine. Its top-level array accepts entries like this.
+
+```json
+[
+  {
+    "name": "example-pm",
+    "lockfiles": ["example.lock"],
+    "install": ["install"],
+    "locked_install": ["install", "--frozen"]
+  }
+]
+```
+
+Put the same name in the project's `packageManager` field or commit the
+manager's lockfile. The name is also the host executable and package script
+profiles use `example-pm run <script>`. A manager with its own workspace YAML
+can name that file with `workspace_yaml` when it uses a `packages` list. Other
+managers use the `workspaces` field in `package.json`. An empty install recipe
+keeps the manager available for script profiles only.
+
+In a Simple editor, open a saved TypeScript file and choose **Launch profiles**
+from its launch controls. Select the package script to open its output in
+Terminal. The environment inspection and install actions use the existing
+**Project environments** workspace surface.
+
+The manager catalog is loaded on demand and stays fixed until the host
+restarts. Opening files and typing do not read it. Package-script discovery
+checks lockfile presence from the existing launch inventory. Environment
+inspection probes Node package-managers by executable presence and reuses one
+member scan for its finding and revision. It reports a missing installation
+and leaves freshness unknown when `node_modules` already exists.
+
+Focused checks exercise a Bun workspace with dependencies in a member,
+refusal of colliding catalog entries, and the metadata lookup budget. The
+Browser editor witness opens and edits source before any profile request. It
+then selects Launch profiles and retires the choice after an edit and undo.
+These checks establish where provider work happens. They do not measure
+end-to-end editor latency.
+
+[Manager catalog and inspection](../../../mechanisms/crates/hick-project-env/src/providers/node.rs.md)
+[Package-script profiles](../../debugging/launch-profiles-choose-targets-within-the-viewed-project/contract.md#f-01e001976095-impl-Provider-for-PackageScripts)
 
 ## Read the detailed requirements
 

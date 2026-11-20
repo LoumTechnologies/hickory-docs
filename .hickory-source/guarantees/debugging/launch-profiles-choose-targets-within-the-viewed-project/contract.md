@@ -1021,6 +1021,8 @@ impl Registry {
         // Workspace discovery respects gitignore, never follows directory symlinks,
         // and reads source/manifests only. It does not materialize a second workspace.
         let mut tree = PhysicalSources::default();
+        let lockfiles: std::collections::HashSet<_> = hick_project_env::providers::node::managers()
+            .iter().flat_map(|manager| manager.lockfiles.iter().map(String::as_str)).collect();
         for item in ignore::WalkBuilder::new(root)
             .hidden(false)
             .follow_links(false)
@@ -1063,7 +1065,12 @@ impl Registry {
                     "pytest.ini",
                 ]
                 .contains(&item.file_name().to_string_lossy().as_ref());
-            if relevant {
+            if !relevant && item.file_name().to_str().is_some_and(|name| lockfiles.contains(name)) {
+                // Launch discovery needs only the lockfile's presence. Include
+                // the exact name in the capture without reading lockfile bytes.
+                tree.insert(&relative, ProjectEntry::file(Vec::new()))
+                    .map_err(anyhow::Error::msg)?;
+            } else if relevant {
                 match std::fs::read(item.path()) {
                     Ok(bytes) => {
                         tree.insert(&relative, ProjectEntry::file(bytes))
@@ -1612,9 +1619,12 @@ impl Provider for Applications {
 <a id="f-01e001976095-impl-Provider-for-PackageScripts"></a>
 ### `impl-Provider for PackageScripts`
 
+Package scripts use the manager selected by the captured manifest or lockfile. An undeclared project with no recognized lockfile retains its npm profiles. Conflicting evidence suppresses inferred profiles, while explicit launch profiles remain available.
+
 <storycode:copy id="f-01e001976095-impl-Provider-for-PackageScripts">
 impl Provider for PackageScripts {
     fn discover(&self, tree: &dyn SourceInventory) -> Result<Vec<Profile>, String> {
+        use hick_project_env::providers::node;
         let mut found = vec![];
         for path in tree
             .entries()
@@ -1627,13 +1637,23 @@ impl Provider for PackageScripts {
             let manifest: serde_json::Value =
                 serde_json::from_str(source).map_err(|e| format!("Cannot read {path}: {e}"))?;
             let cwd = path.rsplit_once('/').map_or(".", |(p, _)| p);
+            let Ok(manager) = node::resolve(&manifest, |lock| {
+                let lock = if cwd == "." { lock.to_owned() } else { format!("{cwd}/{lock}") };
+                tree.get(&lock).is_some_and(|entry| entry.kind == hick_lang::EntryKind::File)
+            }) else {
+                continue;
+            };
+            let manager = manager.unwrap_or("npm");
+            if !node::managers().iter().any(|entry| entry.name == manager) {
+                continue;
+            }
             if let Some(scripts) = manifest["scripts"].as_object() {
-                for name in scripts.keys() {
+                for name in scripts.keys().filter(|name| !name.is_empty() && !name.starts_with('-')) {
                     found.push(profile(
-                        format!("npm:{path}:{name}"),
-                        format!("{cwd} · npm run {name}"),
+                        format!("{manager}:{path}:{name}"),
+                        format!("{cwd} · {manager} run {name}"),
                         None,
-                        vec!["npm".into(), "run".into(), name.clone()],
+                        vec![manager.into(), "run".into(), name.clone()],
                         cwd.into(),
                         "package script",
                     ));
@@ -1643,6 +1663,27 @@ impl Provider for PackageScripts {
         Ok(found)
     }
 }
+
+#[cfg(test)]
+mod package_provider_tests {
+    use super::*;
+
+    #[test]
+    fn launch_profiles_use_captured_manager_evidence() {
+        let mut tree = PhysicalSources::default();
+        tree.insert("app/package.json", hick_lang::ProjectEntry::file(
+            br#"{"scripts":{"dev":"fixture","--help":"fixture"}}"#.to_vec(),
+        )).unwrap();
+        tree.insert("app/bun.lock", hick_lang::ProjectEntry::file(Vec::new())).unwrap();
+        let profiles = PackageScripts.discover(&tree).unwrap();
+        assert_eq!(profiles.len(), 1);
+        assert_eq!(profiles[0].definition.command, ["bun", "run", "dev"]);
+        assert_eq!(profiles[0].definition.cwd, "app");
+        tree.insert("app/pnpm-lock.yaml", hick_lang::ProjectEntry::file(Vec::new())).unwrap();
+        assert!(PackageScripts.discover(&tree).unwrap().is_empty());
+    }
+}
+
 </storycode:copy>
 <a id="f-01e001976095-impl-Provider-for-PythonTests"></a>
 ### `impl-Provider for PythonTests`
@@ -1972,13 +2013,15 @@ pub async fn list(
                 "viewed":query.uri,"workspace":state.index.root(),"configuration":crate::launch_profiles::CONFIG})));
         }
     }
-    let context = context(&state, &query).map_err(|e| ApiError::unprocessable(format!("{e:#}")))?;
-    let profiles = context
-        .profiles()
-        .map_err(|e| ApiError::unprocessable(format!("{e:#}")))?;
-    Ok(Json(
-        json!({"debug_protocol":3,"test_debug_protocol":1,"notices":context.notices(),"profiles":profiles,"fingerprint":context.fingerprint(),"viewed":context.viewed,"workspace":state.index.root(),"configuration":crate::launch_profiles::CONFIG}),
-    ))
+    tokio::task::spawn_blocking(move || {
+        let context = context(&state, &query).map_err(|e| ApiError::unprocessable(format!("{e:#}")))?;
+        let profiles = context.profiles().map_err(|e| ApiError::unprocessable(format!("{e:#}")))?;
+        Ok(Json(json!({"debug_protocol":3,"test_debug_protocol":1,"notices":context.notices(),
+            "profiles":profiles,"fingerprint":context.fingerprint(),"viewed":context.viewed,
+            "workspace":state.index.root(),"configuration":crate::launch_profiles::CONFIG})))
+    })
+    .await
+    .map_err(|error| ApiError::internal(error.to_string()))?
 }
 </storycode:copy>
 <a id="f-97a426cc0869-Run"></a>
@@ -1997,15 +2040,23 @@ pub struct Run {
 
 <storycode:copy id="f-97a426cc0869-run">
 pub async fn run(State(state): State<LocalState>, Json(body): Json<Run>) -> ApiResult<Json<Value>> {
-    let result = (|| -> anyhow::Result<_> {
-        let context = context(&state, &body.context)?;
+    let prep_state = state.clone();
+    let (workspace, profile, root, scratch, root_lease) = tokio::task::spawn_blocking(move || {
+        let root_lease = prep_state.resource_root.check(prep_state.index.root()).map_err(anyhow::Error::msg)?.to_owned();
+        let context = context(&prep_state, &body.context)?;
         let profile = context.selected(&body.profile)?;
         let (root, scratch) = context.prepare()?;
-        open_run(&state, &profile, &context.root, &root, scratch, None)
-    })();
-    result
-        .map(|s| Json(json!(s)))
-        .map_err(|e| ApiError::unprocessable(format!("{e:#}")))
+        Ok::<_, anyhow::Error>((context.root, profile, root, scratch, root_lease))
+    })
+    .await
+    .map_err(|error| ApiError::internal(error.to_string()))?
+    .map_err(|error| ApiError::unprocessable(format!("{error:#}")))?;
+    if state.resource_root.check(state.index.root()).map_err(ApiError::conflict)? != root_lease {
+        return Err(ApiError::conflict("Workspace changed during launch preparation. Choose the profile again."));
+    }
+    open_run(&state, &profile, &workspace, &root, scratch, None)
+        .map(|session| Json(json!(session)))
+        .map_err(|error| ApiError::unprocessable(format!("{error:#}")))
 }
 </storycode:copy>
 <a id="f-97a426cc0869-open_run"></a>

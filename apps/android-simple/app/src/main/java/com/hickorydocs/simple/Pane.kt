@@ -678,6 +678,7 @@ private class NativeTableController(val buffer: DocumentBuffer, val scope: kotli
     buffer: DocumentBuffer, debug: NativeDebugger?, modifier: Modifier = Modifier,
     recorded: AgentFenceReading? = null, reviewPatch: ((Int) -> Unit)? = null,
     recordedRun: RecordedRunActions? = null, recordedConstruction: RecordedConstructionReader? = null,
+    showRunTerminal: ((String) -> Unit)? = null,
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val editorPreferences = remember(context) { context.getSharedPreferences("editor", android.content.Context.MODE_PRIVATE) }
@@ -1060,7 +1061,7 @@ private class NativeTableController(val buffer: DocumentBuffer, val scope: kotli
                 val total = scroll.maxValue.toFloat() + scroll.viewportSize
                 if (total > 0) drawRect(color.copy(alpha = .15f), Offset(0f, scroll.value / total * size.height), Size(size.width, maxOf(4f, scroll.viewportSize / total * size.height)))
             }
-            if (debug != null) NativeDebugRail(buffer, debug, textLayout, scroll, recorded, reviewPatch, recordedRun, recordedConstruction)
+            if (debug != null) NativeDebugRail(buffer, debug, textLayout, scroll, recorded, reviewPatch, recordedRun, recordedConstruction, showRunTerminal)
             else if (buffer.startupObservation) Spacer(Modifier.width(28.dp))
         }
         Box(Modifier.align(androidx.compose.ui.Alignment.TopEnd).padding(end = if (debug != null || buffer.startupObservation) 66.dp else 42.dp)) {
@@ -1131,7 +1132,15 @@ private class NativeTableController(val buffer: DocumentBuffer, val scope: kotli
         null -> Text("Open a file or move a tab here", modifier = Modifier.padding(16.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
         else -> workspace.bufferForTab(tab)?.let { buffer ->
             Column(Modifier.fillMaxSize()) {
-                LanguageEditor(buffer, workspace.debugger.takeUnless { buffer.startupObservation }, Modifier.weight(1f).fillMaxWidth().onFocusChanged { if (it.isFocused) workspace.focused = group })
+                val server = workspace.engine
+                LanguageEditor(buffer, workspace.debugger.takeUnless { buffer.startupObservation },
+                    Modifier.weight(1f).fillMaxWidth().onFocusChanged { if (it.isFocused) workspace.focused = group },
+                    showRunTerminal = { id ->
+                        if (server != null && workspace.engine === server) {
+                            workspace.terminal.id = id
+                            workspace.show("terminal")
+                        }
+                    })
                 if (buffer.error.isNotEmpty()) Text(buffer.error, color = MaterialTheme.colorScheme.error, fontSize = 12.sp, modifier = Modifier.padding(6.dp))
             }
         }
@@ -1211,6 +1220,7 @@ private class ConstructionDisclosure(val line: Int) {
     buffer: DocumentBuffer, debug: NativeDebugger, layout: TextLayoutResult?, scroll: ScrollState,
     recorded: AgentFenceReading?, reviewPatch: ((Int) -> Unit)?, recordedRun: RecordedRunActions?,
     recordedConstruction: RecordedConstructionReader?,
+    showRunTerminal: ((String) -> Unit)?,
 ) {
     val density = LocalDensity.current
     val scope = rememberCoroutineScope()
@@ -1422,7 +1432,7 @@ private class ConstructionDisclosure(val line: Int) {
                             if (buffer.dirty) Text("Save edited text before launching. Values belong to the source that ran.", fontSize = 12.sp)
                             FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                                 if (recorded == null || launchesHere) TextButton(enabled = !debug.active && !buffer.dirty && !buffer.saving, onClick = { scope.launch { launch(line) } }) { Text("▷ Debug") }
-                                if (recorded == null) TextButton(enabled=!debug.active&&!buffer.dirty&&!buffer.saving,onClick={scope.launch{debug.prepare(buffer,line,chooseProfile=true)}}){Text("Choose debug profile…")}
+                                if (recorded == null) TextButton(enabled=!debug.active&&!buffer.dirty&&!buffer.saving,onClick={scope.launch{debug.prepare(buffer,line,chooseProfile=true)}}){Text("Launch profiles…")}
                                 if (codeHere) TextButton(onClick = { debug.toggle(buffer, line) }) { Text("● Breakpoint") }
                                 if (debug.status == "paused") {
                                     listOf("Continue" to "continue", "Step over" to "over", "Step in" to "in", "Step out" to "out").forEach { (label, how) -> TextButton(onClick = { debug.step(how) }) { Text(label) } }
@@ -1439,6 +1449,12 @@ private class ConstructionDisclosure(val line: Int) {
                             }
                             if (debug.owner == buffer.file.path) debug.targets.forEach { target -> TextButton(onClick = { scope.launch { debug.prepare(buffer, program = target.path) } }) { Text("Debug file ${target.path}") } }
                             debug.profiles.forEach { profile -> TextButton(onClick = { scope.launch{debug.launch(profile); opened = null} }) { Text(nativeDebugProfileLabel(profile)) } }
+                            if (showRunTerminal != null) debug.commandProfiles.forEach { profile ->
+                                TextButton(enabled = !debug.runningProfile && !debug.active && !buffer.dirty && !buffer.saving,
+                                    onClick = { scope.launch { debug.runProfile(profile, buffer, showRunTerminal) } }) {
+                                    Text("Run ${profile.optString("name")}")
+                                }
+                            }
                             if (debug.offer != null) TextButton(onClick = { scope.launch { debug.install() } }) { Text("⇩ Install debugger") }
                             if (debug.message.isNotBlank()) Text(debug.message, fontSize = 12.sp)
                             debug.catalogNotices.forEach{Text(it,fontSize=12.sp)}

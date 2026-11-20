@@ -380,7 +380,12 @@ struct PaneView: View {
             }).onAppear{workspace.configureAgentContext()}
         } else if let tab, let buffer = workspace.bufferForTab(tab) {
             VStack(spacing: 0) {
-                LanguageEditor(buffer: buffer, debugger: workspace.debugger).id(buffer.id)
+                let session = workspace.engine?.session
+                LanguageEditor(showRunTerminal: { id in
+                    guard let session, workspace.engine?.session === session else { return }
+                    workspace.terminal.id = id
+                    workspace.showUtility(.terminal)
+                }, buffer: buffer, debugger: workspace.debugger).id(buffer.id)
                 if !buffer.error.isEmpty { Text(buffer.error).font(.caption).foregroundStyle(.red).padding(6).textSelection(.enabled) }
             }
         } else {

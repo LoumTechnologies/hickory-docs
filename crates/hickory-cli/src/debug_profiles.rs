@@ -185,6 +185,8 @@ impl Registry {
         // Workspace discovery respects gitignore, never follows directory symlinks,
         // and reads source/manifests only. It does not materialize a second workspace.
         let mut tree = PhysicalSources::default();
+        let lockfiles: std::collections::HashSet<_> = hick_project_env::providers::node::managers()
+            .iter().flat_map(|manager| manager.lockfiles.iter().map(String::as_str)).collect();
         for item in ignore::WalkBuilder::new(root)
             .hidden(false)
             .follow_links(false)
@@ -227,7 +229,12 @@ impl Registry {
                     "pytest.ini",
                 ]
                 .contains(&item.file_name().to_string_lossy().as_ref());
-            if relevant {
+            if !relevant && item.file_name().to_str().is_some_and(|name| lockfiles.contains(name)) {
+                // Launch discovery needs only the lockfile's presence. Include
+                // the exact name in the capture without reading lockfile bytes.
+                tree.insert(&relative, ProjectEntry::file(Vec::new()))
+                    .map_err(anyhow::Error::msg)?;
+            } else if relevant {
                 match std::fs::read(item.path()) {
                     Ok(bytes) => {
                         tree.insert(&relative, ProjectEntry::file(bytes))

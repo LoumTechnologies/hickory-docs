@@ -189,6 +189,7 @@ impl Provider for Applications {
 }
 impl Provider for PackageScripts {
     fn discover(&self, tree: &dyn SourceInventory) -> Result<Vec<Profile>, String> {
+        use hick_project_env::providers::node;
         let mut found = vec![];
         for path in tree
             .entries()
@@ -201,13 +202,23 @@ impl Provider for PackageScripts {
             let manifest: serde_json::Value =
                 serde_json::from_str(source).map_err(|e| format!("Cannot read {path}: {e}"))?;
             let cwd = path.rsplit_once('/').map_or(".", |(p, _)| p);
+            let Ok(manager) = node::resolve(&manifest, |lock| {
+                let lock = if cwd == "." { lock.to_owned() } else { format!("{cwd}/{lock}") };
+                tree.get(&lock).is_some_and(|entry| entry.kind == hick_lang::EntryKind::File)
+            }) else {
+                continue;
+            };
+            let manager = manager.unwrap_or("npm");
+            if !node::managers().iter().any(|entry| entry.name == manager) {
+                continue;
+            }
             if let Some(scripts) = manifest["scripts"].as_object() {
-                for name in scripts.keys() {
+                for name in scripts.keys().filter(|name| !name.is_empty() && !name.starts_with('-')) {
                     found.push(profile(
-                        format!("npm:{path}:{name}"),
-                        format!("{cwd} · npm run {name}"),
+                        format!("{manager}:{path}:{name}"),
+                        format!("{cwd} · {manager} run {name}"),
                         None,
-                        vec!["npm".into(), "run".into(), name.clone()],
+                        vec![manager.into(), "run".into(), name.clone()],
                         cwd.into(),
                         "package script",
                     ));
@@ -217,6 +228,27 @@ impl Provider for PackageScripts {
         Ok(found)
     }
 }
+
+#[cfg(test)]
+mod package_provider_tests {
+    use super::*;
+
+    #[test]
+    fn launch_profiles_use_captured_manager_evidence() {
+        let mut tree = PhysicalSources::default();
+        tree.insert("app/package.json", hick_lang::ProjectEntry::file(
+            br#"{"scripts":{"dev":"fixture","--help":"fixture"}}"#.to_vec(),
+        )).unwrap();
+        tree.insert("app/bun.lock", hick_lang::ProjectEntry::file(Vec::new())).unwrap();
+        let profiles = PackageScripts.discover(&tree).unwrap();
+        assert_eq!(profiles.len(), 1);
+        assert_eq!(profiles[0].definition.command, ["bun", "run", "dev"]);
+        assert_eq!(profiles[0].definition.cwd, "app");
+        tree.insert("app/pnpm-lock.yaml", hick_lang::ProjectEntry::file(Vec::new())).unwrap();
+        assert!(PackageScripts.discover(&tree).unwrap().is_empty());
+    }
+}
+
 impl Provider for PythonTests {
     fn discover(&self, tree: &dyn SourceInventory) -> Result<Vec<Profile>, String> {
         let mut found = vec![];

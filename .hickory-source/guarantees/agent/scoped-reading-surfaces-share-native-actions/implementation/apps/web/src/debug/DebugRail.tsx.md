@@ -152,6 +152,8 @@ export function DebugLaunchRail({ view, onStart, onProfiles, plainPath, enabled 
           title={action.label} aria-label={action.label} style={{ color: action.tone }} onClick={action.run}>{action.glyph}</button>)}
         {launch && <button type="button" className="cm-debug-start debug-icon" aria-label={`Debug ${launch.path}`}
           data-tip={`Debug ${launch.path} · installs the debugger if needed`} onClick={() => start(launch)}>▷</button>}
+        {launch && onProfiles && <button type="button" className="debug-icon"
+          aria-label={`Launch profiles for ${launch.path}`} data-tip="Choose a Run or Debug profile" onClick={() => start(launch, true)}>⋯</button>}
       </DebugRailGroup>;
     })}
     {view && targets.filter(target => !actions.some(action => action.at === target.at)).map(target => <DebugRailGroup key={`${target.path}:${target.at}`} view={view} at={target.at}>

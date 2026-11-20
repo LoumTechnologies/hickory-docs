@@ -110,26 +110,26 @@ pub struct Status {
 <a id="f-532a6a243ee2-scan"></a>
 ### `scan`
 
+The HTTP adapter revalidates a saved selection against the choices in the new provider reading. The same registry used in the background scan performs inspection.
+
 <storycode:copy id="f-532a6a243ee2-scan">
 async fn scan(root: &Path, host: &Host) -> ApiResult<Vec<Finding>> {
     let root = root.to_path_buf();
-    let projects = tokio::task::spawn_blocking(move || {
-        hick_plugins::registry()
-            .environment_registry()
-            .discover(&root)
+    let (registry, projects) = tokio::task::spawn_blocking(move || {
+        let registry = hick_plugins::registry().environment_registry();
+        let projects = registry.discover(&root);
+        (registry, projects)
     })
     .await
     .map_err(|e| ApiError::internal(e.to_string()))?;
-    let registry = hick_plugins::registry().environment_registry();
     let mut findings = Vec::new();
     for mut project in projects {
         if let Some(manager) = hick_project_env::selected_manager(&project.root, &project.manager)
-            && project.ambiguity.is_some()
-            && (project.manager == "uv" && manager == "uv"
-                || project.manager != "uv" && matches!(manager.as_str(), "npm" | "pnpm"))
+            && project.manager_choices.contains(&manager)
         {
             project.manager = manager;
             project.ambiguity = None;
+            project.manager_choices.clear();
         }
         findings.push(registry.inspect(&project, host).await);
     }

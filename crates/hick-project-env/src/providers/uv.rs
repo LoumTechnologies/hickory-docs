@@ -153,9 +153,16 @@ impl Provider for Uv {
             }
         }
         Some(Project { root: directory.to_path_buf(), manager: "uv".into(), evidence,
+            manager_choices: conflict.map(|_| vec!["uv".into()]).unwrap_or_default(),
             ambiguity: conflict.map(|lock| format!("Both uv configuration and {lock} are present. Choose the intended package manager before installing dependencies.")) })
     }
 
+    fn markers(&self) -> &'static [&'static str] {
+        &["pyproject.toml"]
+    }
+    fn owns(&self, project: &Project, boundary: &Path) -> bool {
+        owner(&project.root, boundary).is_none_or(|owner| owner == project.root)
+    }
     fn supports(&self, manager: &str) -> bool {
         manager == "uv"
     }

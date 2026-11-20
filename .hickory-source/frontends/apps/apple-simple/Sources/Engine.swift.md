@@ -9,6 +9,11 @@ Read managed Markdown through its document ID, using the source response without
 
 Source revisions below use the [exact UTF-8 mechanism](../../../../mechanisms/native-source-revisions.md). Swift linguistic equality does not establish identical program bytes. The buffer and language snapshots retain their String-facing renderer API, while exact revision values drive observation and source-derived work.
 
+The Launch profiles control requests the catalog only when invoked. Command
+profiles use the same source and catalog revision as Debug, then hand the
+new session to the workspace terminal. Opening and typing in a source buffer
+do not request the catalog.
+
 <ui:copy id="simple-ff9425b170-0">
 import Foundation
 import CryptoKit
@@ -1098,6 +1103,11 @@ Keep renderer handles out of the runtime model. It retains exact source relation
     private var launchProgramKey:NativeSourceKey?
     private var launchProgram:String? {get{launchProgramKey?.string}set{launchProgramKey=newValue.map(NativeSourceKey.init)}}
     var catalog: NativeDebugCatalog?
+    var commandProfiles: [NativeDebugProfile] {
+        commandProfileRevision == nil ? [] : catalog?.profiles.filter { !$0.can_debug && $0.attach == nil } ?? []
+    }
+    private var commandProfileRevision: UUID?
+    private(set) var runningProfile = false
     var catalogNotices:[String]=[]
     private(set) var attachReading:String?
     @ObservationIgnored var sourceBuffers:(()->[DocumentBuffer])?
@@ -1358,6 +1368,7 @@ Keep renderer handles out of the runtime model. It retains exact source relation
         guard !buffer.resourceDeleted else{message="Deleted source is retained history. Restore its proven identity or save a copy before a new launch.";return}
         guard !buffer.dirty, !buffer.saving else { message = "Save this file before debugging so the adapter runs the displayed text."; return }
         close(); let current = epoch;preparationNamespace=sourceNamespace;catalogNotices=[]
+        commandProfileRevision = chooseProfile ? buffer.sourceEditIdentity : nil
         owner = buffer.file.path; launchBuffer = buffer;breakpointBuffers[Data(owner.utf8)]=NativeDebugBufferRef(buffer); launchSource = buffer.text; sourceHashes = [Data(owner.utf8):nativeSourceHash(launchSource)];ambiguousSources=[]; message = "Resolving launch targets…"; profiles = []; targets = []
         do {
             let literate = buffer.file.doc_id != nil || ["md", "markdown"].contains((owner as NSString).pathExtension.lowercased())
@@ -1385,8 +1396,32 @@ Keep renderer handles out of the runtime model. It retains exact source relation
             guard compatibleDebugger(result) else{return}
             catalogNotices=result.notices ?? [];catalog = result; profiles = result.profiles.filter(\.can_debug)
             if !chooseProfile,let automatic = profiles.first(where: { exactUTF8($0.program,target ?? result.viewed ?? owner) }) ?? profiles.first(where:{$0.default_profile==true && $0.attach != nil}) ?? (profiles.count == 1 ? profiles.first : nil) { launch(automatic); return }
-            message = profiles.isEmpty ? "No debug launch targets. Configure a debug profile in this project and try again." : "Choose a debug target."
+            if chooseProfile, !commandProfiles.isEmpty { message = "Choose a launch target." }
+            else { message = profiles.isEmpty ? "No debug launch targets. Configure a debug profile in this project and try again." : "Choose a debug target." }
         } catch { if epoch == current { message = "\(error.localizedDescription) Save or refresh this file and try debugging again." } }
+    }
+    func runProfile(_ profile: NativeDebugProfile, buffer: DocumentBuffer, terminal: (String) -> Void) async {
+        guard !runningProfile else { return }
+        guard let catalog, launchBuffer === buffer, commandProfiles.contains(where: { exactUTF8($0.id, profile.id) }),
+              commandProfileRevision == buffer.sourceEditIdentity, preparationNamespace == sourceNamespace,
+              exactUTF8(owner, buffer.file.path), exactUTF8(launchSource, buffer.text),
+              !buffer.resourceDeleted, !buffer.dirty, !buffer.saving, !active else {
+            message = "The source or launch target changed. Save and choose Launch profiles again."
+            return
+        }
+        runningProfile = true
+        defer { runningProfile = false }
+        var body: [String: Any] = [
+            "uri": nativeDebugURI(owner),
+            "profile": ["id": profile.id, "fingerprint": catalog.fingerprint],
+        ]
+        let literate = buffer.file.doc_id != nil || ["md", "markdown"].contains((owner as NSString).pathExtension.lowercased())
+        body[literate ? "expected_document" : "expected_source"] = launchSource
+        if let launchProgram { body["program"] = launchProgram }
+        do {
+            let reply: TerminalOpened = try await engine.request("POST", "/api/launch-profiles/run", body: body)
+            terminal(reply.id)
+        } catch { message = error.localizedDescription }
     }
     func launch(_ profile: NativeDebugProfile) {
         guard let catalog else{message="Resolve a current scoped launch profile before Debug. No Start command was sent.";return}
@@ -1494,6 +1529,7 @@ Keep renderer handles out of the runtime model. It retains exact source relation
     private func retireTestReadings(_ notice:String){let readings=testOutcomes;testOutcomes=[:];for (session,callback) in readings{callback(session,notice,nil)}}
     private func fail(_ detail: String) { retireRecordedCapture();retireTestReadings("debugger reading failed / process outcome unknown");let test=pendingSourceTest;pendingSourceTest=nil;test?.rejected(detail);retireLaunches();resetThreads();status = "failed"; message = detail; sessionID = nil; pausedLine = nil; variables = []; frames = []; values = [:] }
     func close() {
+        commandProfileRevision = nil
         retireRecordedCapture()
         retireTestReadings("debugger reading closed / process outcome unknown")
         pendingSourceTest=nil

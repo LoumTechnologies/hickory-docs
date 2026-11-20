@@ -492,6 +492,28 @@ describe("simple line numbers", () => {
 // Inline runtime values require a captured frame whose source hash matches the
 // retained draft. An unbound attach receipt must never acquire line authority.
 describe("simple inline DAP debugging", () => {
+  it("loads package launch profiles only on explicit request and retires a changed source", async () => {
+    vi.mocked(launchWithProfiles).mockClear();
+    const buffer = new Buffer({ path: "sample.ts", name: "sample.ts", dir: false }, "let value = 41", "hash", () => {});
+    const screen = render(createElement(Document, { buffer }));
+    const view = EditorView.findFromDOM(screen.container.querySelector(".cm-editor")!)!;
+    try {
+      act(() => view.dispatch({ changes: { from: 0, insert: "// temporary\n" } }));
+      expect(launchWithProfiles).not.toHaveBeenCalled();
+      act(() => { undo(view); });
+      expect(buffer.dirty).toBe(false);
+      fireEvent.click(await screen.findByRole("button", { name: "Launch profiles for sample.ts" }));
+      const options = vi.mocked(launchWithProfiles).mock.lastCall?.[2];
+      expect(options?.choose).toBe(true);
+      expect(options?.isCurrent?.()).toBe(true);
+      act(() => view.dispatch({ changes: { from: 0, insert: "// temporary\n" } }));
+      act(() => { undo(view); });
+      expect(buffer.dirty).toBe(false);
+      expect(options?.isCurrent?.()).toBe(false);
+      expect(EditorView.findFromDOM(screen.container.querySelector(".cm-editor")!)).toBe(view);
+    } finally { screen.unmount(); }
+  });
+
   it("launches the generated target from a literate file block", async () => {
     const start = vi.fn();
     vi.mocked(useFollowingDebugSession).mockReturnValue({ ...IDLE_SESSION, start });

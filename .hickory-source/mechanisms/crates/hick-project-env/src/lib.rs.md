@@ -67,6 +67,7 @@ pub struct Project {
     pub manager: String,
     pub evidence: Vec<PathBuf>,
     pub ambiguity: Option<String>,
+    pub manager_choices: Vec<String>,
 }
 
 </storycode:copy>
@@ -140,15 +141,7 @@ impl Finding {
             actions: Vec::new(),
             install_url: None,
             interpreter: None,
-            manager_choices: if project.ambiguity.is_some() {
-                if project.manager == "uv" {
-                    vec!["uv".into()]
-                } else {
-                    vec!["npm".into(), "pnpm".into()]
-                }
-            } else {
-                Vec::new()
-            },
+            manager_choices: project.manager_choices.clone(),
         }
     }
 }
@@ -157,11 +150,20 @@ impl Finding {
 <a id="f-0a1bae4be7ba-Provider"></a>
 ### `Provider`
 
+Each provider declares discovery markers and decides whether a detected directory belongs to a parent project. The registry can scan once and dispatch candidates without naming a language or package manager.
+
 <storycode:copy id="f-0a1bae4be7ba-Provider">
 #[async_trait]
 pub trait Provider: Send + Sync {
     fn detects(&self, directory: &Path) -> Option<Project>;
+    fn markers(&self) -> &'static [&'static str];
+    fn owns(&self, _project: &Project, _boundary: &Path) -> bool {
+        true
+    }
     fn supports(&self, manager: &str) -> bool;
+    fn additional_evidence(&self, _project: &Project) -> Vec<PathBuf> {
+        Vec::new()
+    }
     async fn inspect(&self, project: &Project, host: &host::Host) -> Finding;
 }
 
@@ -200,6 +202,8 @@ impl Registry {
 
     /// Bounded, gitignore-aware discovery; never follow directory symlinks.
     pub fn discover(&self, root: &Path) -> Vec<Project> {
+        let markers: std::collections::HashSet<_> =
+            self.providers.iter().flat_map(|provider| provider.markers().iter().copied()).collect();
         let mut directories = std::collections::BTreeSet::new();
         directories.insert(root.to_path_buf());
         for entry in ignore::WalkBuilder::new(root)
@@ -224,10 +228,7 @@ impl Registry {
             .flatten()
         {
             if entry.file_type().is_some_and(|t| t.is_file())
-                && matches!(
-                    entry.file_name().to_str(),
-                    Some("pyproject.toml" | "package.json")
-                )
+                && entry.file_name().to_str().is_some_and(|name| markers.contains(name))
                 && let Some(parent) = entry.path().parent()
             {
                 directories.insert(parent.to_path_buf());
@@ -236,15 +237,9 @@ impl Registry {
         let mut projects = Vec::new();
         for directory in directories {
             for provider in &self.providers {
-                if let Some(project) = provider.detects(&directory) {
-                    if project.manager == "uv"
-                        && providers::uv::owner(&directory, root).is_some_and(|p| p != directory)
-                    {
-                        continue;
-                    }
-                    if providers::node::is_member(&project, root) {
-                        continue;
-                    }
+                if let Some(project) = provider.detects(&directory)
+                    && provider.owns(&project, root)
+                {
                     projects.push(project);
                 }
             }
@@ -254,14 +249,17 @@ impl Registry {
     }
 
     pub async fn inspect(&self, project: &Project, host: &host::Host) -> Finding {
+        let mut project = project.clone();
         let mut finding = if let Some(reason) = &project.ambiguity {
-            Finding::new(project, Readiness::Ambiguous, reason)
+            Finding::new(&project, Readiness::Ambiguous, reason)
         } else if let Some(provider) = self.providers.iter().find(|p| p.supports(&project.manager))
         {
-            provider.inspect(project, host).await
+            let additional = provider.additional_evidence(&project);
+            project.evidence.extend(additional);
+            provider.inspect(&project, host).await
         } else {
             Finding::new(
-                project,
+                &project,
                 Readiness::Unknown,
                 "This package manager has no environment provider yet.",
             )

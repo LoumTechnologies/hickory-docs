@@ -196,7 +196,12 @@ class NativeDebugger(private val engine: Engine, private val scope: CoroutineSco
     private var sourceSnapshots by mutableStateOf<Map<String, String>>(emptyMap())
     var targets by mutableStateOf<List<NativeDebugTarget>>(emptyList()); private set
     private var launchProgram: String? = null
-    private var catalog: JSONObject? = null
+    private var catalog: JSONObject? by mutableStateOf(null)
+    private var commandProfileRevision: Long? by mutableStateOf(null)
+    var runningProfile by mutableStateOf(false); private set
+    val commandProfiles: List<JSONObject>
+        get() = if (commandProfileRevision == null) emptyList()
+        else catalog?.optJSONArray("profiles")?.objects()?.filter { it.opt("can_debug") == false && it.isNull("attach") }.orEmpty()
     private var launchBuffer: DocumentBuffer? = null
     private var pausedLine: Int? = null
     private var selectedFrame by mutableStateOf<Long?>(null)
@@ -293,6 +298,7 @@ class NativeDebugger(private val engine: Engine, private val scope: CoroutineSco
         if (active) { message = "Stop the current debugger before launching another program."; return }
         if (buffer.dirty || buffer.saving) { message = "Save this file before debugging so the adapter runs the displayed text."; return }
         close(); val current = epoch;val namespace=sourceLineage.epoch
+        commandProfileRevision = if (chooseProfile) buffer.sourceRevision else null
         registerSource(buffer)
         owner = buffer.file.path; launchBuffer = buffer; launchSource = buffer.text; sourceSnapshots = mapOf(owner to launchSource); message = "Resolving launch targets…"; targets = emptyList()
         try {
@@ -321,7 +327,11 @@ class NativeDebugger(private val engine: Engine, private val scope: CoroutineSco
             catalog = result; profiles = result.getJSONArray("profiles").objects().filter { it.opt("can_debug")==true }.onEach{nativeAttachProfile(it)}
             val automatic = profiles.firstOrNull { it.optString("program") == (target ?: result.optString("viewed", owner)) } ?: profiles.firstOrNull{it.opt("default")==true&&nativeAttachProfile(it)!=null} ?: profiles.singleOrNull()
             if (!chooseProfile&&automatic != null) { launch(automatic); return }
-            message = if (profiles.isEmpty()) "No debug launch targets. Configure a debug profile in this project and try again." else "Choose a debug target."
+            message = when {
+                chooseProfile && commandProfiles.isNotEmpty() -> "Choose a launch target."
+                profiles.isEmpty() -> "No debug launch targets. Configure a debug profile in this project and try again."
+                else -> "Choose a debug target."
+            }
         } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
         catch (failure: Exception) { if (epoch == current) message = "${failure.message} Save or refresh this file and try debugging again." }
     }
@@ -401,6 +411,31 @@ class NativeDebugger(private val engine: Engine, private val scope: CoroutineSco
         }
     }
 
+    suspend fun runProfile(profile: JSONObject, buffer: DocumentBuffer, terminal: (String) -> Unit) {
+        if (runningProfile) return
+        val reading = catalog
+        if (reading == null || launchBuffer !== buffer || commandProfiles.none { it.optString("id") == profile.optString("id") } ||
+            commandProfileRevision != buffer.sourceRevision || buffer.file.path != owner || buffer.text != launchSource ||
+            buffer.resourceDeleted || buffer.dirty || buffer.saving || active) {
+            message = "The source or launch target changed. Save and choose Launch profiles again."
+            return
+        }
+        runningProfile = true
+        try {
+            val literate = buffer.file.docID != null || owner.substringAfterLast('.').lowercase() in listOf("md", "markdown")
+            val body = JSONObject().put("uri", debugURI(owner))
+                .put(if (literate) "expected_document" else "expected_source", launchSource)
+                .put("profile", JSONObject().put("id", profile.getString("id")).put("fingerprint", reading.getString("fingerprint")))
+            launchProgram?.let { body.put("program", it) }
+            terminal(engine.request("POST", "/api/launch-profiles/run", body).getString("id"))
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            message = failure.message.orEmpty()
+        } finally {
+            runningProfile = false
+        }
+    }
     suspend fun launch(profile:JSONObject)=launch(profile,null)
     private suspend fun launch(profile: JSONObject,test:SourceTestLaunch?) {
         val buffer = launchBuffer; val catalog = catalog
@@ -486,7 +521,7 @@ class NativeDebugger(private val engine: Engine, private val scope: CoroutineSco
         return true
     }
     private fun fail(detail: String) { releaseRecordedContext();sourceTestDeadline?.cancel();sourceTestDeadline=null;val pending=sourceTestLaunch;sourceTestLaunch=null;pending?.rejected?.invoke(detail);sessionID?.let{sourceTestOutcome?.invoke(it,"failed",null)};sourceTestOutcome=null;sourceLineage.clear();movement=null;retireLaunch();retireThreads(true);breakpointModel.retireSession();runSourceHashes=emptyMap();status = "failed"; message = detail; sessionID = null; pausedLine = null; variables = emptyList(); frames = emptyList(); values = emptyMap() }
-    fun close() { releaseRecordedContext();recordedLaunch=null;attaching=false;attachReading=null;sourceTestDeadline?.cancel();sourceTestDeadline=null;sourceTestLaunch?.rejected?.invoke("Test Debug preparation closed. No replacement was requested.");sourceTestLaunch=null;sessionID?.let{sourceTestOutcome?.invoke(it,"closed",null)};sourceTestOutcome=null;sourceLineage.clear();catalogNotices=emptyList();movement=null;launchTicket++;retireLaunch();retireThreads(true);breakpointModel.retireSession();runSourceHashes=emptyMap();stopPending = false; epoch = UUID.randomUUID(); socket?.cancel(); socket = null; sessionID = null; status = "idle"; pausedLine = null; frames = emptyList(); variables = emptyList(); values = emptyMap(); profiles = emptyList() }
+    fun close() { commandProfileRevision=null;releaseRecordedContext();recordedLaunch=null;attaching=false;attachReading=null;sourceTestDeadline?.cancel();sourceTestDeadline=null;sourceTestLaunch?.rejected?.invoke("Test Debug preparation closed. No replacement was requested.");sourceTestLaunch=null;sessionID?.let{sourceTestOutcome?.invoke(it,"closed",null)};sourceTestOutcome=null;sourceLineage.clear();catalogNotices=emptyList();movement=null;launchTicket++;retireLaunch();retireThreads(true);breakpointModel.retireSession();runSourceHashes=emptyMap();stopPending = false; epoch = UUID.randomUUID(); socket?.cancel(); socket = null; sessionID = null; status = "idle"; pausedLine = null; frames = emptyList(); variables = emptyList(); values = emptyMap(); profiles = emptyList() }
     fun receive(event: JSONObject) {
         val kind = event.optString("event")
         if(kind=="test_preparing"){

@@ -416,14 +416,14 @@ export function Document({ buffer, current, renderTools }: {
     };
     reveal(); return onRevealLine(path => { if (path === buffer.file.path) reveal(); });
   }, [view, buffer]);
-  const start = async (program?: string) => {
+  const start = async (program?: string, choose = false) => {
     if(buffer.resourceDeleted){setDebugNotice("This retained source was deleted. Its existing debugger still addresses the captured launch; save a copy before starting a new session.");return;}
     if (buffer.dirty || buffer.saving) { setDebugNotice("Save this file before debugging so the debugger runs the text shown here."); return; }
     setDebugNotice("");
-    const source = buffer.text, target = literate ? program : undefined;
+    const source = buffer.text, revision = buffer.sourceRevision, target = literate ? program : undefined;
     await launchWithProfiles({ uri: documentUri(buffer.file.path), program: target, ...(literate ? { expected_document: source } : { expected_source: source }) },
       profile => debugRef.current.start(target, {}, undefined, profile),
-      { preferProgram: true, isCurrent: () => !!view?.dom.isConnected && buffer.text === source && !buffer.dirty && !buffer.saving });
+      { choose, preferProgram: true, isCurrent: () => !!view?.dom.isConnected && buffer.sourceRevision === revision && buffer.text === source && !buffer.resourceDeleted && !buffer.dirty && !buffer.saving });
   };
   const sourceTestActions=useSourceTestLineActions(buffer,view);
   const coverageActions=useCoverageLineActions(buffer,view);
@@ -455,7 +455,8 @@ export function Document({ buffer, current, renderTools }: {
         onKeyDown={event => { if (event.key === "ArrowLeft" || event.key === "ArrowRight") { event.preventDefault(); setRailWidth(width => Math.max(24, Math.min(220, width + (event.key === "ArrowLeft" ? 22 : -22)))); } }}
         onPointerDown={event => { event.currentTarget.setPointerCapture(event.pointerId); }}
         onPointerMove={event => { if (event.currentTarget.hasPointerCapture(event.pointerId)) setRailWidth(width => Math.max(24, Math.min(220, width - event.movementX))); }} />
-      <DebugLaunchRail actions={[...sourceTestActions,...coverageActions]} view={view} plainPath={debuggable && !literate ? buffer.file.path : undefined} enabled={["idle", "finished", "failed"].includes(debug.status)} onStart={debuggable && (!literate || parserReady) ? start : undefined} />
+      <DebugLaunchRail actions={[...sourceTestActions,...coverageActions]} view={view} plainPath={debuggable && !literate ? buffer.file.path : undefined} enabled={["idle", "finished", "failed"].includes(debug.status)} onStart={debuggable && (!literate || parserReady) ? program => start(program) : undefined}
+        onProfiles={debuggable && (!literate || parserReady) ? program => start(program, true) : undefined} />
     </div>
     {debuggable && view && (!literate || parserReady) && <DebugStrip editorView={view} pausedLine={positionCurrent?positionLine:null}
       status={debug.status} program={debug.program} message={debug.message} offerInstall={debug.offerInstall}
