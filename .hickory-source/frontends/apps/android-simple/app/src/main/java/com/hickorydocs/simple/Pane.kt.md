@@ -791,6 +791,10 @@ republished while a finger is down. Resolve the completed tap against the
 latest authored source, layout and visible line, while keeping the gesture
 listener attached to the same buffer.
 
+Multiple selections render as field highlights or carets. The Edit menu opens
+the existing selection-editing dialog, including linked template input, so the
+first source lines and their accessibility bounds stay visible.
+
 <ui:copy id="simple-android-table-editor">
 @OptIn(ExperimentalFoundationApi::class)
 @Composable internal fun LanguageEditor(
@@ -1235,10 +1239,6 @@ listener attached to the same buffer.
                     TextButton(onClick = { service?.start() }) { Text("Retry language services") }
                 }
             }
-        }
-        if (buffer.multiSource == source && buffer.multiRanges.size > 1) Row(Modifier.align(Alignment.TopStart).background(MaterialTheme.colorScheme.surface)) {
-            TextButton(onClick = { buffer.showMulti = true }) { Text("${buffer.multiRanges.size} selections") }
-            TextButton(onClick = { buffer.clearMulti() }) { Text("Clear selections") }
         }
         if (buffer.showMulti) AlertDialog(onDismissRequest = { buffer.showMulti = false }, title = { Text("Edit selections") }, text = {
             OutlinedTextField(buffer.multiText, { buffer.multiText = it }, label = { Text("Insert at selections") })

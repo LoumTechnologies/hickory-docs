@@ -1065,9 +1065,13 @@ class NativeLanguage(private val engine: Engine, private val buffer: DocumentBuf
         try {
             kotlinx.coroutines.delay(350)
             if(!current())return
-            if(group!=null&&(ranges.size !in 2..16||buffer.snippets.isActive)){
+            if(group!=null&&buffer.snippets.isActive){
                 suggestions=emptyList()
-                completionNotice="Choose 2 to 16 ordinary carets outside template editing for a completion group."
+                return
+            }
+            if(group!=null&&ranges.size !in 2..16){
+                suggestions=emptyList()
+                completionNotice="Choose 2 to 16 ordinary carets for a completion group."
                 return
             }
             val at=group?.ranges?.first()?.to ?: selection.min

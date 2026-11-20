@@ -1149,6 +1149,10 @@ Resolution synchronizes the originating document and retains its exact source, s
 
 Continue the independent completion service after the action-resolution boundary.
 
+A delayed grouped completion read can arrive after acceptance starts a linked
+template. Clear the old suggestions and keep the applied or active template
+status. An unsupported ordinary selection count still needs its own message.
+
 <ui:copy id="native-language-after-action-resolution-android">
     private fun completionRanges(source:String):List<NativeSourceEdit> =
         if(buffer.multiSource==source&&buffer.multiRanges.size>1)buffer.multiRanges else emptyList()
@@ -1176,9 +1180,13 @@ Continue the independent completion service after the action-resolution boundary
         try {
             kotlinx.coroutines.delay(350)
             if(!current())return
-            if(group!=null&&(ranges.size !in 2..16||buffer.snippets.isActive)){
+            if(group!=null&&buffer.snippets.isActive){
                 suggestions=emptyList()
-                completionNotice="Choose 2 to 16 ordinary carets outside template editing for a completion group."
+                return
+            }
+            if(group!=null&&ranges.size !in 2..16){
+                suggestions=emptyList()
+                completionNotice="Choose 2 to 16 ordinary carets for a completion group."
                 return
             }
             val at=group?.ranges?.first()?.to ?: selection.min

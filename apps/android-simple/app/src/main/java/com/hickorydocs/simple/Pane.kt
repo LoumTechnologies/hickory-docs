@@ -1117,10 +1117,6 @@ private class NativeTableController(val buffer: DocumentBuffer, val scope: kotli
                 }
             }
         }
-        if (buffer.multiSource == source && buffer.multiRanges.size > 1) Row(Modifier.align(Alignment.TopStart).background(MaterialTheme.colorScheme.surface)) {
-            TextButton(onClick = { buffer.showMulti = true }) { Text("${buffer.multiRanges.size} selections") }
-            TextButton(onClick = { buffer.clearMulti() }) { Text("Clear selections") }
-        }
         if (buffer.showMulti) AlertDialog(onDismissRequest = { buffer.showMulti = false }, title = { Text("Edit selections") }, text = {
             OutlinedTextField(buffer.multiText, { buffer.multiText = it }, label = { Text("Insert at selections") })
         }, confirmButton = { TextButton(enabled = !buffer.readOnly, onClick = { if(!buffer.snippets.inputParallel(buffer.multiText))buffer.replaceMultiple(buffer.multiText); buffer.showMulti = false; buffer.focusSource?.invoke() }) { Text("Apply to selections") } }, dismissButton = { TextButton(onClick = { buffer.showMulti = false }) { Text("Cancel") } })

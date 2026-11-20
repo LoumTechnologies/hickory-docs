@@ -24,6 +24,11 @@ Android Back or outside dismissal of Construction reading closes the dialog
 through the same visibility flag as its Close button. This leaves the existing
 editor's text focus alone.
 
+The Edit menu offers selection commands only while the active editor holds a
+current group. Before dispatch, check that the same editor still owns that
+source and selection revision. The actions can therefore live in the menu
+without covering the first source lines.
+
 <ui:copy id="simple-d8c991adb6-0">
 package com.hickorydocs.simple
 
@@ -89,7 +94,7 @@ class MainActivity : ComponentActivity() {
     }) {
         Row(Modifier.fillMaxWidth().height(32.dp)) {
             CommandMenu("File",commands.filter {it.group=="File"})
-            CommandMenu("Edit",commands.filter {it.group=="Edit"})
+            CommandMenu("Edit",commands.filter {it.group=="Edit"} + multipleSelectionCommands(workspace))
             CommandMenu("View",commands.filter {it.group=="View"})
         }
         HorizontalDivider()
@@ -143,6 +148,23 @@ class MainActivity : ComponentActivity() {
             commands.forEach { command -> DropdownMenuItem(text = { Text(command.label) },enabled=command.reason==null,onClick = { expanded = false; command.run() }) }
         }
     }
+}
+
+private fun multipleSelectionCommands(workspace: Workspace): List<WorkspaceCommand> {
+    val buffer = workspace.currentBuffer ?: return emptyList()
+    val source = buffer.text
+    if (buffer.multiSource != source || buffer.multiRanges.size < 2) return emptyList()
+    val revision = buffer.multiSelectionRevision
+    fun current() = workspace.currentBuffer === buffer && buffer.text == source &&
+        buffer.multiSource == source && buffer.multiSelectionRevision == revision
+    return listOf(
+        WorkspaceCommand("editor.editSelections", "Edit selections", "Edit", null) {
+            if (current()) buffer.showMulti = true
+        },
+        WorkspaceCommand("editor.clearSelections", "Clear selections", "Edit", null) {
+            if (current()) buffer.clearMulti()
+        },
+    )
 }
 
 @Composable private fun WorkspaceProblemsView(workspace: Workspace) {

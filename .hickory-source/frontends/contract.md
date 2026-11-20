@@ -4242,6 +4242,17 @@ group while preserving the draft. The same editor, Undo manager and frame
 survived, with saved bytes and metadata intact. See
 `target/ios-complete-file-fix/combined-literal-1/grouped-edit-selections/attempt-1/receipt.json`.
 
+The stock Android rebuild used the Edit menu for selection actions and
+painted both fields on the first two source rows after Apply and Redo.
+The replay placed the first caret through native accessibility, added the
+second through Edit, and resolved two independent offers. One Undo restored
+both original carets. The replacement dialog updated all four mirrors
+with lowercase `r`. Gboard appeared during that explicit input. The same
+editor and source width survived, and the saved file kept its bytes, inode
+and modification time. An automatic completion refresh left the applied
+status intact. See
+`target/parity-rendered-android.sgYIt7/continuation-receipts/final-android-ebkrzvwq/grouped-snippets-menu/rendered-android-grouped-snippets-edit-menu.json`.
+
 The main Hickory Docs plain-file editor chose the grouped completion from
 its visible popup in a CRLF fixture. Two independent provider resolves
 inserted both ordinal fields and one shared import. Native Undo and Redo
