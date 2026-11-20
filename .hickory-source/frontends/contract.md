@@ -4147,6 +4147,16 @@ imports and a late reply after a secondary caret round trip. Run
 with the installed provider. See
 `target/appkit-live-caret-completion.g594rhqw/receipt.json`.
 
+The first iPhone run exposed UIKit changing the import's closing quote
+during the guarded edit. Draft-history edits now use literal TextKit
+storage. The rebuilt iPhone used native Add cursor below and chose the
+visible TypeScript completion. Two genuine queries and two resolutions
+produced both replacements and one import with exact ASCII quotes.
+Native Undo and Redo restored both UTF-16 carets from offsets 34 and 69
+to 84 and 123 and back with the same editor, viewport and undo manager.
+The saved files kept their bytes, inodes and modification times. See
+`target/ios-caret-completion-native/iphone-27-exact/confirmed-literal/receipt.json`.
+
 Android's focused editor tests apply the two independently resolved edits
 and shared import in one native text-state transaction. They restore the
 full caret roster through Undo and Redo, and preserve the entire draft when

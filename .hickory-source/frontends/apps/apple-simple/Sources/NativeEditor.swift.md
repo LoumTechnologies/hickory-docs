@@ -30,6 +30,12 @@ the source and every scalar boundary. UIKit's interactive text ranges depend on
 the current layout and input state, which can change while another source tab
 is active. The draft history owns Undo and Redo registration for this path.
 
+Provider completion and other edits registered by draft history also use
+literal text storage. UIKit's interactive replacement can apply smart
+punctuation to a provider edit. Write the already checked replacements in
+reverse source order, then restore the captured selection and viewport through
+the existing history path.
+
 A coordinated workspace change already committed the source model before
 UIKit reflects it. Map the existing UTF-16 selection through the same ordered
 replacements, retain the viewport and update the widget without revealing a
@@ -1944,7 +1950,7 @@ import UIKit
         }
         let resultLength=source.utf16.count+edits.reduce(0){$0+$1.text.utf16.count-$1.range.length}
         if let selected=resultingSelection,!validSourceEdits([NativeSourceEdit(range:selected,text:"")],length:resultLength){return false}
-        let exactStorage = userInput || expectedModelSource != nil || reviewedResource
+        let exactStorage = !manageUndo || userInput || expectedModelSource != nil || reviewedResource
         let replacements: [(UITextRange, String)]
         if exactStorage {
             func scalarBoundary(_ offset: Int) -> Bool {

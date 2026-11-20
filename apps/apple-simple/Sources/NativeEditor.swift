@@ -1700,7 +1700,7 @@ import UIKit
         }
         let resultLength=source.utf16.count+edits.reduce(0){$0+$1.text.utf16.count-$1.range.length}
         if let selected=resultingSelection,!validSourceEdits([NativeSourceEdit(range:selected,text:"")],length:resultLength){return false}
-        let exactStorage = userInput || expectedModelSource != nil || reviewedResource
+        let exactStorage = !manageUndo || userInput || expectedModelSource != nil || reviewedResource
         let replacements: [(UITextRange, String)]
         if exactStorage {
             func scalarBoundary(_ offset: Int) -> Bool {
