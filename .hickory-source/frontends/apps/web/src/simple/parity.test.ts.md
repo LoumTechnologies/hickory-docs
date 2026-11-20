@@ -1060,12 +1060,22 @@ describe("simple semantic navigation", () => {
   it("queries the real bridge protocol and refuses obsolete locations without replacing the editor", async () => {
     // Contract: .hickory-source/frontends/contract.md
     let answer: (() => void) | undefined;
+    let incomingRequests = 0;
     const channel = createLspChannel({ send(frame) {
       const message = decodeLspFrame(frame);
       if (!message || !("method" in message) || !("id" in message)) return;
       const reply = () => channel.handleFrame(encodeLspFrame({ jsonrpc: "2.0", id: message.id, result: [{ uri: "hick:///other.py", range: { start: { line: 1, character: 0 }, end: { line: 1, character: 4 } } }] }));
       if (message.method === "textDocument/references") { expect(message.params).toMatchObject({ textDocument: { uri: "hick:///sample.py" }, context: { includeDeclaration: true } }); answer = reply; }
-      else queueMicrotask(() => channel.handleFrame(encodeLspFrame({ jsonrpc: "2.0", id: message.id, result: null })));
+      else if (message.method === "textDocument/prepareCallHierarchy") {
+        const range = { start: { line: 0, character: 0 }, end: { line: 0, character: 5 } };
+        answer = () => channel.handleFrame(encodeLspFrame({
+          jsonrpc: "2.0", id: message.id,
+          result: [{ name: "value", kind: 12, uri: "hick:///sample.py", range, selectionRange: range }],
+        }));
+      } else {
+        if (message.method === "callHierarchy/incomingCalls") incomingRequests++;
+        queueMicrotask(() => channel.handleFrame(encodeLspFrame({ jsonrpc: "2.0", id: message.id, result: null })));
+      }
     } });
     const client = new LspClient(channel);
     vi.mocked(useWorkspaceLsp).mockReturnValue({ client, uri: "hick:///sample.py", ready: true, diagnostics: [] });
@@ -1086,6 +1096,15 @@ describe("simple semantic navigation", () => {
       act(() => { answer!(); });
       await waitFor(() => expect(screen.getByRole("dialog", { name: "Semantic locations" }).textContent).toContain("Source or cursor changed"));
       act(() => { undo(view); }); expect(buffer.text).toBe("value = 1");
+
+      // An obsolete preparation must not start a second provider request.
+      answer = undefined;
+      act(() => openSemanticQuery(buffer, "callers"));
+      await waitFor(() => expect(answer).toBeDefined());
+      act(() => view.dispatch({ selection: { anchor: view.state.selection.main.head === 0 ? 1 : 0 } }));
+      await act(async () => { answer!(); });
+      expect(incomingRequests).toBe(0);
+      expect(screen.getByRole("dialog", { name: "Semantic locations" }).textContent).toContain("Source or cursor changed");
     } finally { screen.unmount(); client.dispose(); vi.mocked(useWorkspaceLsp).mockReturnValue({ client: null, uri: "hick:///sample.ts", ready: false, diagnostics: [] }); }
   });
 });

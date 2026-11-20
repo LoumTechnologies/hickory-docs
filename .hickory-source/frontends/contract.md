@@ -3882,6 +3882,9 @@ longer name at the old column. The rebuilt app refused the precise jump,
 kept the origin visible, and asked for a fresh query. The maintained test is
 `python3 scripts/test-simple-browser.py --call-hierarchy-only` with
 `HICKORY_SIMPLE_TEST_PYTHON_PROVIDER` pointing at the installed server script.
+A held-preparation test moves the caret before delivering the provider reply.
+The previous browser sent an incoming-call follow-up for that obsolete
+preparation. The current browser retires it before issuing the follow-up.
 
 The Simple hosts check an ordinary reported identifier at its exact UTF-16
 position in a cross-file destination they just read. An adjacent identifier
@@ -3906,6 +3909,11 @@ The iPhone simulator used native touches to select the caller and callee at
 UTF-16 offsets 61 and 4 in its dirty Python editor. It kept the same editor,
 viewport, Undo manager and saved bytes. See
 `target/ios-basedpyright-calls/iphone-27/attempt-1/receipt.json`.
+A separate iPhone replay selected the old cross-file caller after the
+fixture renamed it from `outer` to `outerRevised`. The app opened the new
+bytes, displayed the stale-name refusal and withheld the reported caret.
+The origin and the renamed file kept their saved bytes and file identity.
+See `target/ios-basedpyright-stale-call/iphone-27/attempt-1/receipt.json`.
 
 Stock Android selected the genuine cross-file caller and callee at UTF-16
 offsets 56 and 28. Production recovery checkpoints confirmed the exact
