@@ -60,8 +60,9 @@ The iPhone's configured debugger Attach still needs its rendered Step and
 Stop replay.
 
 The reusable Insert template catalog has guarded Preview, Apply and history
-in the main and Simple browsers, mounted AppKit and the Android controller.
-Rendered UIKit and Android still need the same catalog flow.
+in the main and Simple browsers, mounted AppKit, rendered UIKit and the
+Android controller. Rendered Android still needs its linked typing and
+history replay through the catalog.
 
 The signed iPhone simulator build sent exact whole-author `source.fixAll`
 ranges and retained the distinct opaque provider choices across acquisition.
@@ -4313,6 +4314,14 @@ catalog and program 3 embedded-group workflows, including refusal after a
 catalog revision or secondary caret change. See
 `target/main-plain-snippet-acceptance/managed-template-stale-current/` and
 `target/grouped-snippet-integration/{simple-catalog-current,simple-catalog-program3-current}.log`.
+
+The iPhone simulator opened Insert reusable template from Edit, reviewed
+both ordinal fields and applied the identical captured plan. Native typing
+updated every mirror. Two Undo and two Redo actions restored the original,
+inserted and linked drafts and their exact selections in the same editor.
+Its frame and history stayed in place, and the source and template manifest
+kept their bytes and metadata. See
+`target/ios-failed-pytest-rerun/iphone-3/reusable-template/attempt-1/receipt.json`.
 
 Installed TypeScript completed both prefixes and inserted one shared
 import in Simple Browser and mounted AppKit. The Browser replay used the
