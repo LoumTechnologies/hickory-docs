@@ -63,6 +63,15 @@ the exact sealed proposal. For the authored construction, the same review
 lists its generated output. Neither review nor draft Apply rewrites the
 conversation, publishes saved bytes or materializes its generated consequence.
 
+The focused `--workspace-changes-only` flow uses a declaration and two
+initially unopened consumers, including an aliased import. The preview keeps
+both consumer tabs closed. A later edit to one consumer retires the entire
+review. After a fresh review, one Apply and one workspace Undo or Redo each
+affect all three drafts. A later independent edit also prevents workspace
+Undo from replacing any of those drafts. The assertions compare all saved
+files after every batch. Set `HICKORY_SIMPLE_TEST_PYTHON_PROVIDER` to reuse
+an installed basedpyright server script.
+
 <ui:copy id="simple-0799b7d31b-0">
 # Contract: .hickory-source/frontends/contract.md
 """Focused real-engine browser acceptance for the independent frontend."""
@@ -283,47 +292,82 @@ def delayed_capabilities_acceptance(driver, folder):
         assert (folder / path).read_text() == source
 
 def workspace_changes_acceptance(driver, folder):
-    # Contract: .hickory-source/frontends/contract.md. Real provider, initially unopened consumer, no disk writes.
-    first, second = "renamea.py", "renameb.py"
-    originals = {path:(folder/path).read_text() for path in [first,second]}
-    driver.act("open",path=first);driver.act("remember-editor",path=first)
-    assert not any(second in name for name in driver.act("tabs")),"Consumer must start unopened"
-    size=driver.act("editor-size",path=first)
-    driver.act("change-open")
-    result=driver.act("change-prepare",name="renamed_value")
-    deadline=time.monotonic()+20
-    while ("2 source files" not in result or "Apply to source drafts" not in result) and time.monotonic()<deadline:
-        time.sleep(.25); result=driver.act("change-prepare",name="renamed_value")
-    assert "2 source files" in result and "Apply to source drafts" in result,result
-    assert not any(second in name for name in driver.act("tabs")),"Acquisition opened a consumer tab"
-    assert driver.act("editor-is-retained",path=first)
-    assert driver.act("change-state",path=first)["size"]==size,"Change preview resized code"
-    driver.act("change-file",path=second)
-    assert "renamed_value" in driver.act("change-state",path=first)["text"]
-    for path,source in originals.items(): assert (folder/path).read_text()==source,"Preparing a rename saved source"
+    first, second, third = "renamea.py", "renameb.py", "renamec.py"
+    originals = {path: (folder / path).read_text() for path in (first, second, third)}
+    renamed = {path: source.replace("value", "renamed_value") for path, source in originals.items()}
+
+    def assert_drafts(expected):
+        for path, source in expected.items():
+            driver.act("open", path=path)
+            actual = driver.act("search-source", path=path)
+            assert actual == source, (path, actual, source)
+        for path, source in originals.items():
+            assert (folder / path).read_bytes() == source.encode()
+
+    def prepare_rename():
+        driver.act("change-open")
+        deadline = time.monotonic() + 20
+        while True:
+            result = driver.act("change-prepare", name="renamed_value")
+            if "3 source files" in result and "Apply to source drafts" in result:
+                return
+            assert time.monotonic() < deadline, result
+            time.sleep(.25)
+
+    driver.act("open", path=first)
+    driver.act("remember-editor", path=first)
+    size = driver.act("editor-size", path=first)
+    initially_open = driver.act("tabs")
+    assert not any(path in label for path in (second, third) for label in initially_open)
+    prepare_rename()
+    reviewed_tabs = driver.act("tabs")
+    assert not any(path in label for path in (second, third) for label in reviewed_tabs)
+    assert driver.act("editor-is-retained", path=first)
+    assert driver.act("change-state", path=first)["size"] == size
+    for target in (second, third):
+        driver.act("change-file", path=target)
+        assert "renamed_value" in driver.act("change-state", path=first)["text"]
+    for path, source in originals.items():
+        assert (folder / path).read_bytes() == source.encode()
+
+    # A target changed after review cannot lend its old authority to the batch.
+    intervening = "# intervening draft\n"
+    driver.act("open", path=second)
+    driver.act("append", path=second, text=intervening)
     driver.act("change-apply")
-    assert "Applied 2 source drafts" in driver.act("change-state",path=first)["text"]
+    refused = driver.act("change-state", path=second)["text"]
+    assert "changed" in refused and "Applied 3 source drafts" not in refused, refused
     driver.act("change-close")
-    for path,source in originals.items():
-        driver.act("open",path=path); assert driver.act("search-source",path=path)==source.replace("value","renamed_value")
-        assert (folder/path).read_text()==source,"Refactoring implicitly saved source"
-    driver.act("change-open",command="Undo workspace change")
-    assert "Workspace undo applied to 2 drafts" in driver.act("change-state",path=second)["text"]
+    assert_drafts({**originals, second: originals[second] + intervening})
+    driver.act("open", path=second)
+    driver.act("undo", path=second)
+    assert driver.act("search-source", path=second) == originals[second]
+
+    driver.act("open", path=first)
+    prepare_rename()
+    driver.act("change-apply")
+    assert "Applied 3 source drafts" in driver.act("change-state", path=first)["text"]
     driver.act("change-close")
-    for path,source in originals.items():
-        driver.act("open",path=path); assert driver.act("search-source",path=path)==source
-    driver.act("change-open",command="Redo workspace change")
-    assert "Workspace redo applied to 2 drafts" in driver.act("change-state",path=second)["text"]
+    assert_drafts(renamed)
+    for command in ("Undo", "Redo"):
+        driver.act("change-open", command=f"{command} workspace change")
+        assert f"Workspace {command.lower()} applied to 3 drafts" in driver.act("change-state", path=third)["text"]
+        driver.act("change-close")
+        assert_drafts(originals if command == "Undo" else renamed)
+
+    # A later edit also protects the complete redo batch from coordinated Undo.
+    later = "\n# later draft"
+    driver.act("open", path=second)
+    driver.act("append", path=second, text=later)
+    later_draft = driver.act("search-source", path=second)
+    assert later_draft in {renamed[second] + later, renamed[second].rstrip("\n") + later}
+    driver.act("change-open", command="Undo workspace change")
+    assert "Source changed" in driver.act("change-state", path=second)["text"]
     driver.act("change-close")
-    for path,source in originals.items():
-        driver.act("open",path=path); assert driver.act("search-source",path=path)==source.replace("value","renamed_value")
-    # A later local edit prevents coordinated undo from overwriting either draft.
-    driver.act("append",path=second,text="\n# later draft")
-    driver.act("change-open",command="Undo workspace change")
-    assert "Source changed" in driver.act("change-state",path=second)["text"]
-    driver.act("change-close")
-    driver.act("open",path=first); assert "renamed_value" in driver.act("search-source",path=first)
-    for path,source in originals.items(): assert (folder/path).read_text()==source
+    assert_drafts({**renamed, second: later_draft})
+    driver.act("open", path=first)
+    assert driver.act("editor-is-retained", path=first)
+    assert driver.act("editor-size", path=first) == size
 
 
 def workspace_search_acceptance(driver, folder):
@@ -1096,6 +1140,8 @@ if __name__ == "__main__":
         (folder / "caret.csv").write_text("Label,Count\nabcdefghijk,1\nx,2\nabcdefghijklm,3\n")
         (folder / "renamea.py").write_text("value = 42\n")
         (folder / "renameb.py").write_text("from renamea import value\nprint(value)\n")
+        if "--workspace-changes-only" in sys.argv:
+            (folder / "renamec.py").write_text("from renamea import value as kept\nprint(kept)\n")
         (folder / "symbols.py").write_text("class Widget:\n    def render(self):\n        return 1\n")
         (folder / "background.py").write_text('def background():\n    amount: int = "wrong"\n    return amount\n')
         (folder / "problem.py").write_text('amount: int = "wrong"\n')
@@ -1105,7 +1151,9 @@ if __name__ == "__main__":
             subprocess.run(["git", "init", "-q", str(folder)], check=True, timeout=10)
             for path, source in CALL_HIERARCHY_SOURCE.items():
                 (folder / path).write_text(source)
-        if any(flag in sys.argv for flag in ("--semantic-origin-only", "--call-hierarchy-only")):
+        installed_provider = os.environ.get("HICKORY_SIMPLE_TEST_PYTHON_PROVIDER")
+        if (any(flag in sys.argv for flag in ("--semantic-origin-only", "--call-hierarchy-only"))
+                or "--workspace-changes-only" in sys.argv and installed_provider):
             provider = Path(os.environ["HICKORY_SIMPLE_TEST_PYTHON_PROVIDER"]).resolve(strict=True)
             if not provider.is_file():
                 raise RuntimeError("The installed basedpyright language server script must be a file.")
@@ -1251,7 +1299,7 @@ raise RuntimeError('wrong assistant fence')
                 print("Browser: inline table grid, real saved Markdown, source reveal and undo passed")
             elif "--workspace-changes-only" in sys.argv:
                 workspace_changes_acceptance(driver, folder)
-                print("Browser: real-provider two-file rename preview, stationary geometry, draft-only application, coordinated undo/redo and stale restore refusal passed")
+                print("Browser: genuine three-file rename, stale Apply and Undo refusal, retained editor, coordinated Undo/Redo and unchanged saved bytes passed")
             elif "--workspace-search-only" in sys.argv:
                 workspace_search_acceptance(driver, folder)
                 print("Browser: exhaustive workspace regex search, Unicode columns, stationary geometry, retained editor, stale-source refusal and unchanged disk passed")

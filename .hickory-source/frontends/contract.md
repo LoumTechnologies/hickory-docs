@@ -3847,7 +3847,24 @@ Rename preparation now acquires previously unopened authored reference targets o
 
 The reviewed plan and coordinated draft undo remain the application boundary; acquisition and provider queries do not save files. The observed reference set still does not establish exhaustive project analysis. Provider actions and resource operations retain their separately stated limitations. Each native preparation now holds its own request-validity closure, so a late older result cannot borrow the authority of a newer request; byte-distinct Unicode rename names retire the older preview too.
 
-Verification: two acquisition witnesses per platform prove bounded reads, deduplication, fresh queries, unchanged original draft snapshots and stale/expanding refusal. Focused native witnesses complete a newer rename before an older reply and preserve the newer preview. The Apple witness additionally checks Unicode name retirement. The real-provider browser flow starts with an unopened consumer, keeps its tab closed during preparation, previews and applies both source drafts, preserves editor identity/geometry and disk, and checks coordinated undo/redo and later-edit refusal. TypeScript checking, native compilation, the iOS simulator build and reconstruction/audit pass. Native pointer/IME acceptance remains unverified.
+Verification: two acquisition witnesses per platform prove bounded reads, deduplication, fresh queries, unchanged original draft snapshots and stale/expanding refusal. Focused native witnesses complete a newer rename before an older reply and preserve the newer preview. The Apple witness additionally checks Unicode name retirement. TypeScript checking, native compilation, the iOS simulator build and reconstruction/audit pass.
+
+The Simple Browser basedpyright replay starts with two unopened consumers,
+including an aliased import. Both tabs stay closed during background
+acquisition and three-file review. Editing one consumer after review
+causes Apply to refuse all three drafts. A fresh review applies the group;
+one workspace Undo and one Redo each restore all three drafts. A subsequent
+independent edit also causes workspace Undo to refuse the complete group.
+The origin editor, its dimensions and all saved bytes survive.
+
+Mounted AppKit used Search Everywhere and the native name field to prepare
+a genuine basedpyright Rename. The unopened consumer joined the review
+after fresh references and remained tab-closed through Apply, Undo and
+Redo. The exact two-file drafts, the origin's independent native comment,
+editor, viewport and Undo manager were retained. Both saved files kept
+their bytes, inodes and modification times. The fixture selected each
+native preview page and used app-local clicks for the commands. See
+`target/appkit-basedpyright-rename._wwz4igb/receipt.json`.
 
 ## Engine-held provider actions
 
