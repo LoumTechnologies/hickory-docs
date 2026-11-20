@@ -12,7 +12,9 @@ import { CLI_BLOCKS } from "../mock/mockData";
 import { parseHickDoc } from "./hickDoc";
 import { ICON_SIZE } from "../lib/cardRail";
 import type { ExecBlock } from "../api/types";
-import { undo } from "@codemirror/commands";
+import { isolateHistory, redo, undo } from "@codemirror/commands";
+import { sourceSnippetEffect, readSourceSnippet } from "../simple/SourceSnippets";
+import { planCompletion } from "../simple/CompletionPlan";
 import { saveUnwrapParagraphs, UNWRAP_PARAGRAPHS_KEY } from "../lib/unwrapParagraphs";
 
 // The real engine wants a live browser; these tests are about what the editor
@@ -110,6 +112,68 @@ describe("DocumentEditor (WYSIWYG over raw source)", () => {
     act(() => { expect(undo(view)).toBe(true); });
     expect(view.state.doc.toString()).toBe("# Heading\nnew body\n");
     expect(binding.roomSource()).toBe(view.state.doc.toString());
+  });
+
+  it("keeps prepared provider fields and native history in the private draft", async () => {
+    const source = "old\n", after = "val + val\n", realtime = new LocalRealtime();
+    render(<DocumentEditor docId="completion" initialSource={source} realtime={realtime} reflowOnOpen={false}
+      execBlocks={[]} runningCells={new Set()} onRunCell={() => {}} />);
+    const view = (window as unknown as {__hickoryView: EditorViewType}).__hickoryView;
+    const binding = documentDraftBinding(view)!;
+    await waitFor(() => expect(view.state.doc.toString()).toBe(source));
+    act(() => view.dispatch({selection: {anchor: 3}}));
+    const draft = planCompletion("hick:///notes.md", {label: "value", insertTextFormat: 2}, {text: source, writable: true}, 0, 3,
+      {text: "val + val", selection: {from: 0, to: 3}, fields: [
+        {index: 1, from: 0, to: 3, choices: [], id: 0}, {index: 1, from: 6, to: 9, choices: [], id: 1},
+        {index: 0, from: 9, to: 9, choices: [], id: 2},
+      ]});
+    const edit = view.state.update({changes: {from: 0, to: 3, insert: "val + val"}, selection: {anchor: 0, head: 3},
+      effects: sourceSnippetEffect(draft, after), annotations: isolateHistory.of("full"), userEvent: "input.complete", filter: false});
+    const selection = edit.state.update({selection: edit.newSelection, userEvent: "select.complete", filter: false});
+    const stage = binding.prepareCompletion([edit, selection], true)!;
+    act(() => stage.commit());
+    expect(view.state.doc.toString()).toBe(after);
+    expect(view.state.selection.eq(edit.newSelection)).toBe(true);
+    expect(readSourceSnippet(view)?.source).toBe(after);
+    expect(binding.roomSource()).toBe(source);
+    act(() => { expect(undo(view)).toBe(true); });
+    expect(view.state.doc.toString()).toBe(source);
+    expect(view.state.selection.main.head).toBe(3);
+    expect(readSourceSnippet(view)).toBeNull();
+    act(() => { expect(redo(view)).toBe(true); });
+    expect(view.state.selection.eq(edit.newSelection)).toBe(true);
+    expect(readSourceSnippet(view)?.source).toBe(after);
+    act(() => view.dispatch({changes: {from: 0, to: 3, insert: "new"}, selection: {anchor: 3}, userEvent: "input.type"}));
+    expect(view.state.doc.toString()).toBe("new + new\n");
+    expect(binding.roomSource()).toBe(source);
+    act(() => { expect(undo(view)).toBe(true); });
+    expect(view.state.doc.toString()).toBe(after);
+    expect(view.state.selection.eq(edit.newSelection)).toBe(true);
+    expect(readSourceSnippet(view)?.source).toBe(after);
+  });
+
+  it("refuses a prepared edit and a linked mirror that would rewrite a scaffold", async () => {
+    const source = `old\n<hick:ingested sha256="capture">\n<hick:file path="main.rs">\nold\n</hick:file>\n</hick:ingested>\n`;
+    const right = source.lastIndexOf("old"), realtime = new LocalRealtime();
+    render(<DocumentEditor docId="protected" initialSource={source} realtime={realtime} reflowOnOpen={false}
+      execBlocks={[]} runningCells={new Set()} onRunCell={() => {}} />);
+    const view = (window as unknown as {__hickoryView: EditorViewType}).__hickoryView;
+    const binding = documentDraftBinding(view)!;
+    await waitFor(() => expect(view.state.doc.toString()).toBe(source));
+    const unsafe = view.state.update({changes: [{from: 0, to: 3, insert: "new"}, {from: right, to: right + 3, insert: "new"}],
+      userEvent: "input.complete", filter: false});
+    expect(binding.prepareCompletion([unsafe], true)).toBeNull();
+    expect(view.state).toBe(unsafe.startState);
+    const draft = {...planCompletion("hick:///notes.md", {label: "old"}, {text: source, writable: true}, 0, 3), fields: [
+      {index: 1, from: 0, to: 3, choices: [], id: 0}, {index: 1, from: right, to: right + 3, choices: [], id: 1},
+      {index: 0, from: source.length, to: source.length, choices: [], id: 2},
+    ]};
+    const install = view.state.update({effects: sourceSnippetEffect(draft, source), selection: {anchor: 0, head: 3}, filter: false});
+    act(() => binding.prepareCompletion([install], true)!.commit());
+    expect(readSourceSnippet(view)?.source).toBe(source);
+    act(() => view.dispatch({changes: {from: 0, to: 3, insert: "new"}, selection: {anchor: 3}, userEvent: "input.type"}));
+    expect(view.state.doc.toString()).toBe(source);
+    expect(binding.roomSource()).toBe(source);
   });
 
   it("joins a fresh restored room without replaying the retired replica or remounting the editor", async () => {

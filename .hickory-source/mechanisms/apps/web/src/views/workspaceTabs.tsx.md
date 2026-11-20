@@ -324,6 +324,7 @@ export function DocTabBody({
         lspExtensions={session.lspExtensions}
         lspDiagnostics={session.lspDiagnostics}
         lspCompletion={session.lspCompletion}
+        captureProviderCompletion={session.captureProviderCompletion}
         onDebugFile={session.retainedResource ? undefined : session.startDebugFile}
         onViewReady={session.onDocViewReady}
         wrapColumn={wrapColumn}

@@ -7,6 +7,12 @@ This page owns the output construction and the explained fragments below. Source
 
 When an exact Agent proposal changes a managed draft, prepare the edit against the current editor state. Detach the view from Yjs before the source transaction so Apply and Undo stay local. The same room still observes external changes for Save admission. If another owner refuses the group during commit, restore this view's state and viewport before anything is published.
 
+Provider completion supplies a batch with exact source changes, fields and
+selection history. Capture the mounted editor and saved-source lease once per
+query, so every offered row uses the same proof. Rebuild the batch on the detached state through Main's
+filters before installing it. Scaffold protection checks the resulting changes
+after linked input has expanded to its mirrors.
+
 <a id="output-aab82870e517"></a>
 ## `apps/web/src/editor/DocumentEditor.tsx`
 
@@ -27,7 +33,8 @@ import { useEditorEditing } from "./useEditorEditing";
 import { DebugLaunchRail } from "../debug/DebugRail";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Compartment, EditorSelection, EditorState, Transaction } from "@codemirror/state";
+import { Compartment, EditorSelection, EditorState, Prec, Transaction } from "@codemirror/state";
+import type { CompletionContext } from "@codemirror/autocomplete";
 import { comparisonField, setComparison } from "./comparison";
 import { EditorView, keymap, placeholder } from "@codemirror/view";
 import {
@@ -54,6 +61,13 @@ import { PaneHeaderContent } from "../shell/PaneHeader";
 import { taskCheckboxes } from "./taskList";
 import { renderedMath } from "./mathRender";
 import { completions } from "../lsp/completion";
+import { readCompletionAcceptance } from "../lsp/completionAcceptance";
+import { utf16ToPosition } from "../lsp/positions";
+import { sourceCompletion } from "../simple/SourceCompletion";
+import { resolveSnippetCompletion } from "../simple/SnippetContext";
+import { dispatchSourceSnippetTransactions, readSourceEditorIntent, sourceSnippets } from "../simple/SourceSnippets";
+import { supportedSnippetTransformPrograms } from "../simple/SnippetTransform";
+import { authoredOffset, authoredSource } from "../simple/SourceText";
 import { useUiCommands, useUiRevision } from "../lib/uiActionBridge";
 import { WRAP_DEFAULT, WRAP_MIN, WRAP_MAX, proseWrap } from "./wrapColumn";
 import { editorChrome, paneSearch } from "./chrome";
@@ -66,7 +80,7 @@ import {
   positionToOffset,
   setLspDiagnostics,
 } from "../lsp/cmLsp";
-import type { LspClient, LspDiagnostic } from "../lsp/client";
+import type { CompletionItem, LspClient, LspDiagnostic } from "../lsp/client";
 import { multipleCursors } from "./multiCursor";
 import { hickoryFolding, ingestedFolds, sessionWorkFolds } from "./folding";
 import {
@@ -153,6 +167,7 @@ export interface DocumentEditorProps {
    * own text. Read once, when the editor is built: a session's client is
    * stable for the session's life. */
   lspCompletion?: { client: LspClient; uri: string } | null;
+  captureProviderCompletion?: (view: EditorView, uri: string) => DocumentCompletionLease | null;
   /** Dim hint shown while the buffer is empty (the untitled document). */
   placeholderText?: string;
   /** Where PROSE wraps, in columns. Owned by the tab (so it is per-document
@@ -272,16 +287,22 @@ rail's never skip. See editor/CardRail.tsx.
  * action rail beside the editor, so the left gutter's numbers and the right
  * rail's never skip. See editor/CardRail.tsx.
  */
+type DocumentDraftStage = {
+  current: () => boolean;
+  commit: () => void;
+  rollback: () => void;
+};
+export type DocumentCompletionLease = {
+  current: () => boolean;
+  commit: (transactions: readonly Transaction[], privateDraft: boolean) => void;
+};
 type DocumentDraftBinding = {
   roomSource: () => string;
   setRetained: (retained: boolean) => void;
   prepareRoom: (realtime: Realtime) => {source: () => string; install: (attach: boolean) => void; discard: () => void};
   suspendRoom: () => {attached: boolean; resume: (expected: string) => boolean};
-  prepare: (before: string, after: string, options?: {published: boolean; restoring?: boolean}) => {
-    current: () => boolean;
-    commit: () => void;
-    rollback: () => void;
-  } | null;
+  prepare: (before: string, after: string, options?: {published: boolean; restoring?: boolean}) => DocumentDraftStage | null;
+  prepareCompletion: (transactions: readonly Transaction[], privateDraft: boolean) => DocumentDraftStage | null;
 };
 const documentDraftBindings = new WeakMap<EditorView, DocumentDraftBinding>();
 export function documentDraftBinding(view: EditorView) {
@@ -312,6 +333,7 @@ export function DocumentEditor({
   lspExtensions,
   lspDiagnostics,
   lspCompletion,
+  captureProviderCompletion,
   onDebugFile,
   placeholderText,
   wrapColumn = WRAP_DEFAULT,
@@ -352,13 +374,63 @@ export function DocumentEditor({
     }),
   ], [explicitReadOnly, readOnly, startup, startupRoomReady]);
   const completionClient = lspCompletion?.client, completionUri = lspCompletion?.uri;
-  const completionExtension = useMemo(() => completions({
-    lsp: completionClient && completionUri ? {
-      client: completionClient, uri: completionUri,
-      positionAt: (offset, state) => offsetToPosition(state.doc, offset),
-    } : undefined,
-    project: (prefix, around) => api.complete(prefix, around).then(answer => answer.suggestions),
-  }), [completionClient, completionUri]);
+  const completionSession = useRef(lspCompletion);
+  completionSession.current = lspCompletion;
+  const [completionNotice, setCompletionNotice] = useState("");
+  const completionExtension = useMemo(() => {
+    const captures = new WeakMap<CompletionContext, {view: EditorView | null; lease: DocumentCompletionLease | null}>();
+    return completions({
+      lsp: completionClient && completionUri ? {
+        client: completionClient, uri: completionUri,
+        transformPrograms: supportedSnippetTransformPrograms,
+        positionAt: (offset, state) => offsetToPosition(state.doc, offset),
+      } : undefined,
+      lspItem: completionClient && completionUri ? (item, context) => {
+        let captured = captures.get(context);
+        if (!captured) {
+          const view = viewRef.current;
+          captured = {view, lease: view ? captureProviderCompletion?.(view, completionUri) ?? null : null};
+          captures.set(context, captured);
+        }
+        const {view, lease} = captured;
+        const current = () => !!view?.dom.isConnected && viewRef.current === view &&
+          completionSession.current?.client === completionClient && completionSession.current?.uri === completionUri &&
+          lease?.current() === true;
+        const writable = () => !!view && current() && !view.state.readOnly && view.state.facet(EditorView.editable) && !view.composing;
+        const request = async (original: CompletionItem) =>
+          await completionClient.request("completionItem/resolve", {...original, textDocument: {uri: completionUri}}) as CompletionItem;
+        return sourceCompletion(item, context, {
+          uri: completionUri, current, writable, notice: setCompletionNotice,
+          resolve: original => {
+            if (!view || !writable() || !original.data || typeof original.data !== "object" ||
+                !("hickory_context" in original.data) || !("hickory_completion" in original.data) ||
+                typeof original.data.hickory_completion !== "string" || !original.data.hickory_completion) {
+              throw Error("Request completion again from the current managed source.");
+            }
+            const state = view.state, selection = state.selection;
+            const intent = readSourceEditorIntent(state), job = readCompletionAcceptance(view)?.job;
+            return resolveSnippetCompletion(original, {
+              source: authoredSource(state), from: authoredOffset(state, selection.main.from),
+              to: authoredOffset(state, selection.main.to), request,
+              current: () => writable() && view.state.doc === state.doc && view.state.selection.eq(selection) &&
+                readSourceEditorIntent(view.state) === intent && readCompletionAcceptance(view)?.job === job &&
+                readCompletionAcceptance(view)?.phase === "resolving",
+            });
+          },
+          group: {
+            query: (offset, source) => completionClient.completion(completionUri, utf16ToPosition(source, offset),
+              {triggerKind: 1}, supportedSnippetTransformPrograms),
+            resolve: request,
+          },
+          commit: (editor, transactions, privateDraft) => {
+            if (!lease || editor !== view || !writable()) throw Error("The managed source changed. Request completions again.");
+            lease.commit(transactions, privateDraft);
+          },
+        });
+      } : undefined,
+      project: (prefix, around) => api.complete(prefix, around).then(answer => answer.suggestions),
+    });
+  }, [completionClient, completionUri, captureProviderCompletion]);
   // The live view AS STATE, for the right rail — a ref never re-renders.
   const [railView, setRailView] = useState<EditorView | null>(null);
   useEditorActions(railView, `document:${docId}`);
@@ -526,6 +598,7 @@ export function DocumentEditor({
     };
 
     const view = new EditorView({
+      dispatchTransactions: dispatchSourceSnippetTransactions,
       parent: host,
       state: EditorState.create({
         doc: startup?.source.content ?? ytext.toString(),
@@ -590,6 +663,7 @@ export function DocumentEditor({
           // what is in scope; the project index knows what this codebase
           // calls things. Neither subsumes the other — see lsp/completion.ts.
           completionServices.of(completionExtension),
+          sourceSnippets({writable: () => !!viewRef.current && !viewRef.current.state.facet(ySyncFacet), notice: setCompletionNotice}),
           ...multipleCursors(),
           // Inline and display maths written in PROSE. The verbatim ranges of
           // the document are excluded, so `$PATH` in a shell cell stays a
@@ -610,7 +684,9 @@ export function DocumentEditor({
           sessionWorkFolds(),
           // A scaffold opens as a tree: one line per ingested file.
           ingestedFolds(),
-          parserProtection.of(parserAtOpen ? immutableScaffolds() : []),
+          // CodeMirror runs transaction filters from last to first. Check the
+          // fully expanded linked snippet edit after its filters add mirrors.
+          parserProtection.of(parserAtOpen ? Prec.high(immutableScaffolds()) : []),
           collaboration.of(startup ? [] : yCollab(ytext, awareness)),
           ...(placeholderText ? [placeholder(placeholderText)] : []),
           languageServices.of(lspExtensions ?? []),
@@ -712,6 +788,32 @@ export function DocumentEditor({
       }),
     });
     viewRef.current = view;
+    function stageDraft(state: EditorState, detach: Transaction | null, edits: readonly Transaction[]): DocumentDraftStage {
+      const current = () => viewRef.current === view && view.dom.isConnected && view.state === state;
+      let undo: (() => void) | undefined;
+      return {
+        current,
+        commit() {
+          if (!current()) throw Error("The document editor changed before the draft was applied.");
+          const top = view.scrollDOM.scrollTop, left = view.scrollDOM.scrollLeft, opened = openRef.current;
+          undo = () => {
+            // Keep the same editor, history and selection. Its open-time reflow
+            // must not edit the restored view or reach a reattached room.
+            restoringDraft.current++;
+            try { view.setState(state); }
+            finally { queueMicrotask(() => { restoringDraft.current--; }); }
+            view.scrollDOM.scrollTop = top; view.scrollDOM.scrollLeft = left;
+            setCards(cardsOf(structureOf(state), {text: state.doc.toString()}));
+            setOpen(opened);
+          };
+          // Destroy the Yjs observer before presenting any source transaction.
+          if (detach) view.dispatch(detach);
+          view.update(edits);
+          if (view.state !== edits.at(-1)!.state) throw Error("The document editor refused the prepared draft.");
+        },
+        rollback() { undo?.(); undo = undefined; },
+      };
+    }
     documentDraftBindings.set(view, {
       roomSource: () => activeRoom.text.toString(),
       setRetained(retained) {
@@ -771,31 +873,32 @@ export function DocumentEditor({
           annotations: isolateHistory.of("full"),
         });
         if (edit.newDoc.toString() !== after) return null;
-        const current = () => viewRef.current === view && view.dom.isConnected && view.state === state;
-        let undo: (() => void) | undefined;
-        return {
-          current,
-          commit() {
-            if (!current()) throw Error("The document editor changed before the draft was applied.");
-            const top = view.scrollDOM.scrollTop, left = view.scrollDOM.scrollLeft, opened = openRef.current;
-            undo = () => {
-              // setState restores the same history and selection, but it also
-              // restarts the open-time reflow plugin. Its queued edit must not
-              // change the restored view or reach the reattached room.
-              restoringDraft.current++;
-              try { view.setState(state); }
-              finally { queueMicrotask(() => { restoringDraft.current--; }); }
-              view.scrollDOM.scrollTop = top; view.scrollDOM.scrollLeft = left;
-              setCards(cardsOf(structureOf(state), {text: before}));
-              setOpen(opened);
-            };
-            // Remove the observer before dispatching a source change. The room
-            // stays connected, but the view no longer sends or applies its edits.
-            if (detach) view.dispatch(detach);
-            view.dispatch(edit);
-          },
-          rollback() { undo?.(); undo = undefined; },
-        };
+        return stageDraft(state, detach, [edit]);
+      },
+      prepareCompletion(transactions, privateDraft) {
+        const state = view.state;
+        if (!transactions.length || !view.dom.isConnected || view.composing || state.readOnly ||
+            !state.facet(EditorView.editable) || parserInstalled.current !== view ||
+            (!privateDraft && transactions.some(tr => tr.docChanged || tr.effects.some(effect => effect.value != null)))) return null;
+        const detach = privateDraft && state.facet(ySyncFacet) ? state.update({effects: collaboration.reconfigure([])}) : null;
+        // Simple prepares an exact batch with filters disabled. Re-run the
+        // same transactions through Main's filters without the room facet.
+        let original = state, filtered = detach?.state ?? state;
+        const edits: Transaction[] = [];
+        for (const proposed of transactions) {
+          if (proposed.startState !== original) return null;
+          const checked = filtered.update(proposed);
+          if (authoredSource(checked.state) !== authoredSource(proposed.state) ||
+              !checked.newSelection.eq(proposed.newSelection, true) ||
+              JSON.stringify(checked.changes.toJSON()) !== JSON.stringify(proposed.changes.toJSON()) ||
+              checked.effects.length !== proposed.effects.length ||
+              checked.effects.some((effect, index) => effect !== proposed.effects[index]) ||
+              (privateDraft && !!checked.state.facet(ySyncFacet))) return null;
+          original = proposed.state;
+          filtered = checked.state;
+          edits.push(checked);
+        }
+        return stageDraft(state, detach, edits);
       },
     });
     parserInstalled.current = parserAtOpen ? view : null;
@@ -875,7 +978,7 @@ export function DocumentEditor({
   useEffect(() => {
     if (!railView || parserStatus !== "ready" || parserInstalled.current === railView) return;
     parserInstalled.current = railView;
-    railView.dispatch({effects: [parserBecameReady.of(null), parserProtection.reconfigure(immutableScaffolds()), railView.scrollSnapshot()],
+    railView.dispatch({effects: [parserBecameReady.of(null), parserProtection.reconfigure(Prec.high(immutableScaffolds())), railView.scrollSnapshot()],
       annotations: Transaction.addToHistory.of(false)});
   }, [railView, parserStatus, parserProtection]);
 
@@ -1146,6 +1249,9 @@ export function DocumentEditor({
           is already there rather than out of a second row of furniture. */}
       {startupRoomError && <PaneHeaderContent part="info">
         <span role="status" className="save-state save-state-failed" title={startupRoomError}>{startupRoomError}</span>
+      </PaneHeaderContent>}
+      {completionNotice && <PaneHeaderContent part="info">
+        <span role="status" className="save-state" title={completionNotice}>{completionNotice}</span>
       </PaneHeaderContent>}
       {assetError && (
         <div className="editor-asset-error" role="status">

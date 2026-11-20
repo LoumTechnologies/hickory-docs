@@ -12,6 +12,12 @@ Present and edit the shared engine state. Browser-side revisions, pending reques
 
 A staged managed draft keeps the saved file guard and its room and disk baselines. Explicit Save compares those observations and confirms the exact submitted bytes through the guarded history route. Private recovery stores the draft text and its original base. A reopened private draft needs reconciliation before it can publish because its archive grants no current saved-source authority.
 
+The provider row captures the same managed draft authority when it offers a
+completion. Its client, source, room and editor must stay current through
+resolution. Starting a private draft requires a synchronized LF room with its
+current saved guard. Existing private drafts retain that guard across further
+completion and history until an explicit Save confirms their new bytes.
+
 Related contracts: [A Keystroke Redraws Only The Editor](../../../../../guarantees/authoring/a-keystroke-redraws-only-the-editor/contract.md), [Saved means the displayed bytes reached the file](../../../../../guarantees/authoring/saved-means-the-displayed-bytes-reached-the-file/contract.md), [Debug the latest atomic project that still contains the displayed bytes](../../../../../guarantees/debugging/debug-uses-the-latest-project-containing-the-displayed-code/contract.md), [A failed action keeps its editor](../../../../../guarantees/execution/a-failed-action-keeps-its-editor/contract.md), [An Element Is Drawn By Its View](../../../../../guarantees/language/an-element-is-drawn-by-its-view/contract.md).
 
 <a id="f-bfb59577f48b-export_statement"></a>
@@ -78,7 +84,7 @@ import { usePublishDebugSession } from "../debug/plainDebugHosts";
 import { useDocumentPersistence, type SyncState } from "./useDocumentPersistence";
 import type { RecordedPatchSource } from "../simple/AgentProposalAdapter";
 import { historySourceHash } from "../simple/SourceHistory";
-import { documentDraftBinding } from "../editor/DocumentEditor";
+import { documentDraftBinding, type DocumentCompletionLease } from "../editor/DocumentEditor";
 import { admittedManagedPreview, type ManagedDocumentPreview, type StartupManagedDocument } from "./folderPane";
 import type { ReferenceReading } from "../components/ReferencesPanel";
 import { useHickLangStatus } from "../editor/hickLang";
@@ -365,6 +371,7 @@ export interface DocSession {
   lspExtensions: Extension[];
   /** The session's client and URI, for the editor's completion source. */
   lspCompletion: { client: import("../lsp/client").LspClient; uri: string } | null;
+  captureProviderCompletion: (view: EditorView, uri: string) => DocumentCompletionLease | null;
 
   refresh: () => void;
   runCell: (execId: string) => void;
@@ -789,7 +796,9 @@ function useDocumentSession(
     () => dirtySource ?? doc?.source ?? null, setBlocks,
     error => { setRenderError(error); if (error) setBlocks(previous => previous ?? []); });
 
-  const recordedPatchSource = useCallback((): RecordedPatchSource | null => {
+  const recordedPatchSource = useCallback((): (RecordedPatchSource & {
+    captureCompletion: (view: EditorView, uri: string) => DocumentCompletionLease | null;
+  }) | null => {
     const source = debugDoc.current, view = editorRef.current, revision = sourceSignal.revision;
     const namespace = debugNamespace.current, workspace = proposalWorkspace.current;
     const draft = managedDraft.current, retired = retainedRoom.current;
@@ -803,8 +812,63 @@ function useDocumentSession(
       retainedRoom.current === retired && (retired || proposalRoom.current === realtime)
       && debugNamespace.current === namespace && proposalWorkspace.current === workspace
       && managedDraft.current === draft && !publishing.current;
+    const binding = documentDraftBinding(view);
+    const preparePrivateDraft = (editor: ReturnType<NonNullable<typeof binding>["prepare"]>, room: string, after: string) => {
+      if (!editor || !binding || retired || !current() || resourceHold.current ||
+          (retainUnsaved && !recoveryObserved.current) || room !== (draft?.authority?.room ?? text)) return null;
+      const stageCurrent = () => current() && editor.current() && binding.roomSource() === room;
+      const previousDirty = debugDirty.current;
+      const next: ManagedDraft = draft ?? {view, disk: source.source, recoveryBase: source.source,
+        authority: {room, guard: source.save_guard!, scope}};
+      let staged = false;
+      return {
+        current: stageCurrent,
+        commit() {
+          if (!stageCurrent()) throw Error("The managed source changed before Apply.");
+          staged = true;
+          managedDraft.current = next;
+          setDetached(true);
+          setDetachedSync(after === next.disk ? "saved" : "editing");
+          editor.commit();
+        },
+        rollback() {
+          if (!staged) return;
+          editor.rollback();
+          managedDraft.current = draft;
+          setDetached(!!draft);
+          setDetachedSync(draft && text !== draft.disk ? "editing" : "idle");
+          setDirtySource(previousDirty);
+          staged = false;
+        },
+      };
+    };
     return { path: source.path, text, base: source.source, guard: source.save_guard,
       revision, scope, current,
+      captureCompletion(editor, uri) {
+        const room = binding?.roomSource(), authority = draft?.authority;
+        if (editor !== view || !binding || room === undefined || retired || uri !== documentUri(source.path) ||
+            room !== (authority?.room ?? source.source) || (!draft && text !== room) ||
+            (draft && (!authority || draft.view !== view || authority.guard !== source.save_guard ||
+              authority.scope.namespace !== namespace || authority.scope.workspace !== workspace || draft.disk !== source.source)) ||
+            text.includes("\r") || source.source.includes("\r") || room.includes("\r")) return null;
+        const writable = () => current() && !resourceHold.current && (!startup || previewConfirmed.current) &&
+          (!retainUnsaved || recoveryObserved.current) && !view.composing && !view.state.readOnly &&
+          view.state.facet(EditorView.editable) && binding.roomSource() === room &&
+          (!draft || draft.authority === authority && !draft.attempt);
+        if (!writable()) return null;
+        return {
+          current: writable,
+          commit(transactions, privateDraft) {
+            if (!writable()) throw Error("The managed source changed before Apply.");
+            const after = transactions.at(-1)?.newDoc.toString();
+            const prepared = binding.prepareCompletion(transactions, privateDraft);
+            const stage = privateDraft && after !== undefined ? preparePrivateDraft(prepared, room, after) : prepared;
+            if (!stage?.current()) throw Error("The guarded completion was refused by the managed editor.");
+            try { stage.commit(); }
+            catch (error) { stage.rollback(); throw error; }
+          },
+        };
+      },
       prepareResource(after, saved, destination = source.path) {
         const relocating = destination !== null && destination !== source.path;
         const binding = documentDraftBinding(view);
@@ -915,38 +979,14 @@ function useDocumentSession(
         };
       },
       prepareDraft(after) {
-        const binding = documentDraftBinding(view), room = binding?.roomSource();
+        const room = binding?.roomSource();
         if (retired || !current() || resourceHold.current || (retainUnsaved && !recoveryObserved.current) ||
             room === undefined || room !== (draft?.authority?.room ?? text)) return null;
-        const editor = binding?.prepare(text, after);
-        if (!editor) return null;
-        const stageCurrent = () => current() && editor.current() && binding?.roomSource() === room;
-        const previousDirty = debugDirty.current;
-        const next: ManagedDraft = draft ?? {view, disk: source.source, recoveryBase: source.source,
-          authority: {room, guard: source.save_guard!, scope}};
-        let staged = false;
-        return {
-          current: stageCurrent,
-          commit() {
-            if (!stageCurrent()) throw Error("The managed source changed before Apply.");
-            staged = true;
-            managedDraft.current = next;
-            setDetached(true);
-            setDetachedSync(after === next.disk ? "saved" : "editing");
-            editor.commit();
-          },
-          rollback() {
-            if (!staged) return;
-            editor.rollback();
-            managedDraft.current = draft;
-            setDetached(!!draft);
-            setDetachedSync(draft && text !== draft.disk ? "editing" : "idle");
-            setDirtySource(previousDirty);
-            staged = false;
-          },
-        };
+        return preparePrivateDraft(binding?.prepare(text, after) ?? null, room, after);
       } };
-  }, [docId, realtime, sourceSignal, setDirtySource, retainUnsaved, refreshRender, setDoc, setSavedSource, setSyncState]);
+  }, [docId, realtime, sourceSignal, setDirtySource, retainUnsaved, startup, refreshRender, setDoc, setSavedSource, setSyncState]);
+  const captureProviderCompletion = useCallback((view: EditorView, uri: string) =>
+    recordedPatchSource()?.captureCompletion(view, uri) ?? null, [recordedPatchSource]);
   const loadedDoc = useRef(doc); loadedDoc.current = doc;
   const refresh = useCallback(() => {
     if (retainedRoom.current) return;
@@ -1743,7 +1783,8 @@ function useDocumentSession(
     askText,
     lspDiagnostics: lsp.diagnostics,
     lspExtensions,
-    lspCompletion: lsp.client ? { client: lsp.client, uri: lsp.uri } : null,
+    lspCompletion: lsp.client && lsp.ready ? { client: lsp.client, uri: lsp.uri } : null,
+    captureProviderCompletion,
     refresh,
     runCell,
     runAll,

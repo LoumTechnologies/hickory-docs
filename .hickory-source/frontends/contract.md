@@ -56,14 +56,18 @@ device IME and assistive technology need their own acceptance. The emulator
 originally refused userdata allocation. An owned API 36 emulator booted after
 inactive compiler caches were reclaimed, and the checkpoint Android APK built.
 
-Current acceptance still needs guarded provider snippet and import completion
-in the main Hickory Docs managed document editor. The plain editor now has
-an exact CRLF browser replay through its guarded draft and Save All. The
-complete-file `source.fixAll` flow has native Android controller evidence and an iPhone
-build, with rendered review, Apply and Undo/Redo still due on both mobile
-hosts. The iPhone has retained pytest failures, coverage and source navigation.
+The complete-file `source.fixAll` flow still needs a rendered Android replay.
+The iPhone has retained pytest failures, coverage and source navigation.
 Its rendered failed-only rerun and configured debugger Attach still need
 their own replays.
+
+The signed iPhone simulator build sent exact whole-author `source.fixAll`
+ranges and retained the distinct opaque provider choices across acquisition.
+Native review, Apply and workspace Undo and Redo changed both drafts in
+one step. The second author stayed unopened until the changes were reviewed.
+Opening it afterward showed the exact applied draft. The first editor kept
+its frame and history, and saved bytes and file metadata stayed intact. See
+`target/ios-complete-file-fix/combined-literal-1/complete-file-fixes/attempt-2/receipt.json`.
 
 ### iPhone Python definition and navigation history
 
@@ -4246,6 +4250,18 @@ and frame survived. The saved bytes, inode and modification time held past
 the ordinary autosave delay. Explicit Save All then published through the
 guarded source-history route, preserving the CRLF rows and the provider's
 literal import. See `target/main-plain-snippet-acceptance/candidate-1/`.
+
+The main managed-document replay chose one completion for two provider
+resolves in an LF `hick:file` body. It inserted the shared addition within
+that author, kept the surrounding prose and scaffolds exact, and restored both field
+selections with native Undo and Redo. Linked typing updated all mirrors.
+The editor and viewport stayed in place, with zero collaboration update
+frames or source writes before explicit Save. Save published only the
+managed draft through its original source-history guard. The generated
+file stayed byte-identical. A separate replay refused the same provider's
+virtual EOF insertion because it crossed the authored boundary. See
+`target/main-plain-snippet-acceptance/managed-final-3/` and
+`target/main-plain-snippet-acceptance/managed-candidate-2/`.
 
 Installed TypeScript completed both prefixes and inserted one shared
 import in Simple Browser and mounted AppKit. The Browser replay used the
