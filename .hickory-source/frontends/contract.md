@@ -3868,7 +3868,17 @@ Browser, macOS, iOS and Android expose Find supertypes and Find subtypes through
 
 The pinned server library lacks a standard type-hierarchy capability field. Both stdio and workspace sockets now use explicit standard trait handlers and one service factory for custom capture; initialization marks support through the experimental Hickory capability and simple clients invoke it explicitly. Other clients must opt into these methods until the dependency can advertise the standard field. The pinned typed response schema also cannot represent standard tag arrays; those arrays remain intact in held provider payloads, while type-list deprecated-tag styling is not supplied. A language provider may still return no relationships or an unsupported-method error; no inference fills the gap.
 
-Verification: the actual-engine controlled-child witness prepares Python and TypeScript items before following the older Python result, preserves each original provider payload including tag arrays, rejects caller substitutions and foreign/stale tokens, follows a newly returned item, and refuses a held answer after source changes. The browser menu flow checks both relationships, exact type-name navigation, retained editor/draft/dimensions and unchanged disk. Native shared-connection witnesses check both follow-ups and cursor-change refusal; focused command/semantic models, TypeScript checking and the iOS simulator build pass. Source reconstruction, ownership audit and Rust formatting are checked separately. These controlled providers do not establish language-server analysis completeness or native pointer/IME acceptance.
+Verification: the actual-engine controlled-child witness prepares Python and TypeScript items before following the older Python result, preserves each original provider payload including tag arrays, rejects caller substitutions and foreign/stale tokens, follows a newly returned item, and refuses a held answer after source changes. The controlled browser menu flow checks both relationships, exact type-name navigation, retained editor/draft/dimensions and unchanged disk. Native shared-connection witnesses check both follow-ups and cursor-change refusal. Focused command and semantic models, TypeScript checking, the iOS simulator build, source reconstruction, ownership audit and Rust formatting pass.
+
+In the Simple Browser replay with installed Apple clangd 21, Find supertypes opened the exact type name in a previously closed C++ header. Back returned to the original C++ editor. Find subtypes selected the derived type name in that editor. The draft, editor identity, dimensions and both saved files were retained. The maintained case is `python3 scripts/test-type-navigation-browser.py --clangd`.
+
+Mounted AppKit used the same genuine provider with a native unsaved comment.
+App-local input invoked both Language tools commands and selected their
+results at UTF-16 offsets 25 and 85. The provider received the exact draft
+before either query. Both jumps kept the same draft, editor, scroll and Undo
+manager. Native Undo restored the original clean text and both the source
+bytes and file identity stayed intact. The harness scrolled the floating
+results into view. See `target/appkit-clangd-type-draft.e_r23gyu/receipt.json`.
 
 ## Retained completion provider context
 
