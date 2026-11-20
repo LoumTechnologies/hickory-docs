@@ -42,6 +42,12 @@ export class Buffer {
   error = "";
   completionNotice="";
   setCompletionNotice(value:string){if(this.completionNotice===value)return;this.completionNotice=value;this.publish();this.shellChanged();}
+  inlineRenderNotice = "";
+  setInlineRenderNotice(value: string) {
+    if (this.inlineRenderNotice === value) return;
+    this.inlineRenderNotice = value;
+    this.shellChanged();
+  }
   version = 0;
   sourceRevision=0;
   private listeners = new Set<() => void>();

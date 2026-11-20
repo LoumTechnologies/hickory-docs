@@ -139,9 +139,10 @@ export function Agent({ session, reviewProposals, reviewRecordedPatch }: {
     if (following.current && conversation.current) conversation.current.scrollTop = conversation.current.scrollHeight;
   }, [tail?.id, tail?.answer, tail?.error]);
   const running = session.running;
+  const inlineRenderNotice = [...session.documents.values.values()].find(buffer => buffer.inlineRenderNotice)?.inlineRenderNotice;
   return <div className="agent-body">
     <RichOwners buffers={session.documents} recorded />
-    <header className="agent-heading"><strong>Workspace agent</strong><span>Hickory · Python execution only</span>{reviewProposals&&<button onClick={reviewProposals}>Review pending proposals</button>}</header>
+    <header className="agent-heading"><strong>Workspace agent</strong><span role="status" title={inlineRenderNotice}>{inlineRenderNotice ? "Inline rendering unavailable" : "Hickory · Python execution only"}</span>{reviewProposals&&<button onClick={reviewProposals}>Review pending proposals</button>}</header>
     <div ref={conversation} className="conversation" role="log" aria-label="Conversation" onScroll={event => { const node = event.currentTarget; following.current = node.scrollHeight - node.clientHeight - node.scrollTop < 48; }}>
       {!turns.length && <div className="agent-empty"><h2>What shall we work on?</h2><p>Write a literate document below. Code, tables and explanations belong together.</p></div>}
       {turns.map(turn => <article key={turn.id}>

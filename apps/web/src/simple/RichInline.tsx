@@ -8,6 +8,8 @@ import type { RenderedSlot } from "../editor/rendered";
 import type { Block, ExecBlock, DiagramBlock } from "../api/types";
 import { request } from "../api/client";
 
+const inlineUnavailable = "Inline rendering unavailable. Continue editing source or reload to retry.";
+
 // The owners live above pane layout. Moving a cached editor cannot unmount a
 // table's uncommitted cell editor or lose a rendered widget's own local state.
 export function RichOwners({ buffers, recorded = false }: { buffers: Buffers; recorded?: boolean }) {
@@ -23,8 +25,10 @@ class RichBoundary extends Component<{ buffer: Buffer; view: EditorView; childre
   static getDerivedStateFromError() { return { failed: true }; }
   componentDidCatch() {
     const cached = editorForBuffer(this.props.buffer);
-    if (cached?.view === this.props.view) { cached.richAttached = false; cached.view.dispatch({ effects: cached.prose.reconfigure([]) }); }
-    this.props.buffer.error = "Inline rendering unavailable. Continue editing source or reload to retry."; this.props.buffer.publish();
+    if (cached?.view !== this.props.view) return;
+    cached.richAttached = false;
+    cached.view.dispatch({ effects: [cached.prose.reconfigure([]), cached.view.scrollSnapshot()] });
+    this.props.buffer.setInlineRenderNotice(inlineUnavailable);
   }
   render() { return this.state.failed ? null : this.props.children; }
 }
@@ -58,6 +62,7 @@ function RichOwner({ buffer, view, keepPatchSource }: { buffer: Buffer; view: Ed
         !(keepPatchSource && block.name === "patch") && !libs.elements.slotKindOf(block)?.startsWith("session-")
         && !(buffer.dirty && view.state.selection.ranges.some(range => range.from >= block.from && range.to <= block.to)));
       view.dispatch({ effects: [libs.rendered.setRenderedBlocks.of(initial.map(block => block.from)), scroll] });
+      buffer.setInlineRenderNotice("");
       setSlots(registry.list()); setModules(libs);
       };
       if (view.dom.isConnected) install();
@@ -66,7 +71,9 @@ function RichOwner({ buffer, view, keepPatchSource }: { buffer: Buffer; view: Ed
         window.addEventListener(SIMPLE_EDITOR_ATTACHED, attached);
         stopWaiting = () => window.removeEventListener(SIMPLE_EDITOR_ATTACHED, attached);
       }
-    }).catch(error => { buffer.error = "Inline rendering unavailable: " + (error instanceof Error ? error.message : String(error)); buffer.publish(); });
+    }).catch(() => {
+      if (!disposed && editorForBuffer(buffer)?.view === view) buffer.setInlineRenderNotice(inlineUnavailable);
+    });
     return () => { disposed = true; stopWaiting?.(); off?.(); const cached = editorForBuffer(buffer); if (cached?.view === view) { cached.richAttached = false; view.dispatch({ effects: cached.prose.reconfigure([]) }); } };
   }, [buffer, view, keepPatchSource, buffer.text.length > 200_000]);
   useEffect(() => {

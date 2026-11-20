@@ -123,6 +123,8 @@ try {
           break;
         }
         case "capability-held": value = !!capabilityGates.get(request.name)?.route; break;
+        case "workspace-status": value = await page.locator("footer[role=status]").innerText(); break;
+        case "agent-render-status": value = await page.locator(".agent-heading [role=status]").innerText(); break;
         case "capability-release": {
           const gate = capabilityGates.get(request.name);
           if (!gate?.route) throw Error(`No held ${request.name} request`);

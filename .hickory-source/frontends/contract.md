@@ -3769,6 +3769,14 @@ Back/Forward, workspace search, delayed first-open authority and capabilities,
 and Debug and guarded patch review on both recorded Agent message sides.
 See `target/browser-tab-open-*-safety.log`.
 
+The Simple Browser delayed-capability replay also aborts an inline rendering
+stylesheet after the user has typed and selected source. The workspace
+status bar reports the optional failure while the same editor keeps its
+dimensions, scroll, selection, draft and Undo history. A separate Agent
+replay aborts the asset with an open draft and keeps the failure in the
+existing heading. See `scripts/test-simple-browser.py` modes
+`--delayed-capabilities-only` and `--agent-only`.
+
 ## Native source sessions share workspace transport
 
 Apple and Android retain per-buffer language knowledge while borrowing one workspace-owned language connection. The transport assigns unique request IDs, routes each reply to its requester and diagnostics to their source URI, and cancels only a detached source's pending requests. A duplicate URI cannot overwrite the held source or borrow its request authority. Transport failure invalidates source captures before resuming pending reads; a later read can reconnect and replay every held full-text document, including changes retained while offline. Closing the last source releases the idle wire; reconnecting a workspace closes its old transport. Server-initiated applyEdit requests are refused because source changes require a retained preview.

@@ -139,30 +139,42 @@ def delayed_capabilities_acceptance(driver, folder):
 
     path, sibling = "nested/README #é.md", "nested/peer.txt"
     source = (folder / path).read_text()
-    launch(path, sibling, parser="**/hick_lang_bg.wasm*", render="**/api/docs/*/render")
-    held("parser")
-    held("render")
-    assert not driver.act("capability-ui", path=path, kind="markdown")
-    assert driver.act("source-text-state", path=path)["source"] == source
-    start = source.index("Readable paragraph 48")
-    driver.act("source-text-select", path=path, anchor=start, head=start)
-    driver.act("source-text-type", path=path, text="draft ")
-    driver.act("source-text-select", path=path, anchor=start + 6, head=start + 14)
-    position = driver.act("editor-position", path=path, y=1260)
-    visible = driver.act("visible-document-line", path=path)
-    draft = driver.act("source-text-state", path=path)
-    geometry = driver.act("editor-size", path=path)
-    assert position["y"] > 0 and visible, (position, visible, geometry)
-    assert draft["source"] == source[:start] + "draft " + source[start:]
-    release("parser")
-    eventually(lambda: driver.act("capability-ui", path=path, kind="markdown"), True)
-    release("render")
-    retain(path, draft)
-    assert driver.act("visible-document-line", path=path).lstrip("# ") == visible.lstrip("# ")
-    assert driver.act("editor-size", path=path) == geometry
-    driver.act("undo", path=path)
-    assert driver.act("source-text-state", path=path)["source"] == source
-    assert (folder / path).read_text() == source
+    for render_fails in (False, True):
+        render_gate = {"stylesheet": "**/katex.min.css?inline*"} if render_fails else {"render": "**/api/docs/*/render"}
+        launch(path, sibling, parser="**/hick_lang_bg.wasm*", **render_gate)
+        held("parser")
+        if not render_fails:
+            held("render")
+        assert not driver.act("capability-ui", path=path, kind="markdown")
+        assert driver.act("source-text-state", path=path)["source"] == source
+        start = source.index("Readable paragraph 48")
+        driver.act("source-text-select", path=path, anchor=start, head=start)
+        driver.act("source-text-type", path=path, text="draft ")
+        driver.act("source-text-select", path=path, anchor=start + 6, head=start + 14)
+        position = driver.act("editor-position", path=path, y=1260)
+        visible = driver.act("visible-document-line", path=path)
+        draft = driver.act("source-text-state", path=path)
+        geometry = driver.act("editor-size", path=path)
+        assert position["y"] > 0 and visible, (position, visible, geometry)
+        assert draft["source"] == source[:start] + "draft " + source[start:]
+
+        release("parser")
+        eventually(lambda: driver.act("capability-ui", path=path, kind="markdown"), True)
+        if render_fails:
+            held("stylesheet")
+            parsed_position = driver.act("editor-position", path=path)
+            release("stylesheet", fail=True)
+            eventually(lambda: "Inline rendering unavailable" in driver.act("workspace-status"), True)
+            assert driver.act("capability-ui", path=path, kind="markdown")
+            assert driver.act("editor-position", path=path) == parsed_position
+        else:
+            release("render")
+        retain(path, draft)
+        assert driver.act("visible-document-line", path=path).lstrip("# ") == visible.lstrip("# ")
+        assert driver.act("editor-size", path=path) == geometry
+        driver.act("undo", path=path)
+        assert driver.act("source-text-state", path=path)["source"] == source
+        assert (folder / path).read_text() == source
 
     path, sibling = "nested/test_delay.py", "nested/peer.txt"
     source = (folder / path).read_text()
@@ -871,9 +883,25 @@ def agent_acceptance(driver, folder):
     assert state["retained"] == text, state
     assert state["payload"] == {"backend": "python", "prompt": text,
         "parent_id": "agent-history", "provider": "claude-subscription",
+        "context": {"live": False, "buffers": []},
         "model": "unavailable-model", "effort": "high"}, state
     assert "# Previous question" in state["history"], state
     driver.act("screenshot", path=str(ROOT / "target/simple-agent.png"))
+
+    path = "conversation/draft.md"
+    driver.act("startup-held", url=driver.url, gates={"stylesheet": "**/katex.min.css?inline*"})
+    driver.act("agent")
+    eventually(lambda: driver.act("capability-held", name="stylesheet"), True)
+    driver.act("source-text-type", path=path, text=text)
+    driver.act("remember-editor", path=path)
+    draft = driver.act("source-text-state", path=path)
+    assert draft["source"] == text
+    geometry = driver.act("editor-size", path=path)
+    driver.act("capability-release", name="stylesheet", fail=True)
+    eventually(lambda: driver.act("agent-render-status"), "Inline rendering unavailable")
+    assert driver.act("editor-is-retained", path=path)
+    assert driver.act("editor-size", path=path) == geometry
+    assert driver.act("source-text-state", path=path) == draft
 
 def recorded_patch_acceptance(driver, folder):
     paths = [("user", "author.md", "value = 41", "generated.py"),
