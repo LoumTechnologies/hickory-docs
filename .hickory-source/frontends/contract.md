@@ -1566,6 +1566,15 @@ breakpoint list. A rendered stop at the authored line and Continue remain
 open for this slow fixture. See
 `target/parity-rendered-android.sgYIt7/continuation-receipts/final-android-t5aatbe0/rust-debug/debug-wire.json`.
 
+A compact Rust fixture then painted the exact native line 7 breakpoint.
+Cargo admitted the genuine LLDB session after 40.75 seconds, and execution
+stopped at that bound line. Returning from the test panel opened the
+keyboard and scrolled to the typing caret below the stop. The Return to
+editor debugger controls button now dismisses the panel without requesting
+text input focus. A continued run from the revealed line needs a replay.
+See
+`target/parity-rendered-android.sgYIt7/continuation-receipts/final-android-dduu3k15/rust-debug-unwrapped/debug-wire.json`.
+
 The stock startup replay also exposed a discovery race. The editor could
 compose before its test index attached, then keep the same source text
 through promotion without running discovery again. Test discovery and

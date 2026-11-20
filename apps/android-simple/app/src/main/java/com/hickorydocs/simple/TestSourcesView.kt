@@ -170,7 +170,7 @@ internal fun Workspace.testPointNavigation(point: TestSourcePoint): suspend () -
                 Text("${run.framework} · ${run.inputPath} · ${run.inputHash}\nCandidate ${run.candidateID}\nProcess outcome only; no collected case verdict.\n${run.fingerprint}\n"+run.contributors.entries.joinToString("\n"){"${it.key}: ${it.value}"},fontSize=12.sp)
                 androidx.compose.foundation.text.selection.SelectionContainer{Text(run.output.ifEmpty{"No retained debugger process output."},fontSize=12.sp)}
             }
-            TextButton(onClick={workspace.showTests=false;workspace.currentBuffer?.focusSource?.invoke()}){Text("Return to editor debugger controls")}
+            TextButton(onClick={workspace.showTests=false}){Text("Return to editor debugger controls")}
         }
         HorizontalDivider();Text("Retained test runs (${model.runs.size})")
         model.runs.forEach {run->TextButton(onClick={model.selected=run.id;workspace.runCommand {model.refreshRun(run.id,workspace)}}){Text("${run.name} · ${run.scope} · ${run.state}${run.exit?.let {" · exit $it"} ?: ""}")}}
