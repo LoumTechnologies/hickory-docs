@@ -10,7 +10,7 @@ import {planCompletion,planCompletionGroup,type CapturedCompletion,type Completi
 import {sourceDigest} from '../lsp/diagnosticRevision';
 import {completionExpansion} from './SnippetExpansion';
 import {snippetContextNotice} from './SnippetContext';
-import {sourceSnippetEffect,continueSourceSnippetCompletion,readSourceSnippet,readSourceEditorIntent} from './SourceSnippets';
+import {sourceSnippetEffect,continueSourceSnippetCompletion,readSourceSnippet,readParallelSourceSnippet,readSourceEditorIntent} from './SourceSnippets';
 import {authoredSource,authoredOffset,editorOffsetIn,authoredChanges} from './SourceText';
 export interface SourceCompletionAdapter {
  uri:string;resolve:(item:CompletionItem)=>Promise<CompletionItem>;current:()=>boolean;writable:()=>boolean;notice:(text:string)=>void;
@@ -80,8 +80,9 @@ async function resolveCompletionGroup(state:EditorState,source:string,item:Compl
 
 export async function acceptSourceCompletion(view:EditorView,item:CompletionItem,source:string,selection:EditorState['selection'],from:number,to:number,adapter:SourceCompletionAdapter,completion?:Completion):Promise<void> {
  const request=beginCompletionAcceptance(view,adapter.notice),snippetContext=readSourceSnippet(view),document=view.state.doc,intent=readSourceEditorIntent(view.state);
+ const parallelContext=readParallelSourceSnippet(view.state);
  let expectedAfter:string|undefined;
- const valid=()=>!request.cancelled()&&request.current()&&readSourceSnippet(view)===snippetContext&&view.state.doc===document&&readSourceEditorIntent(view.state)===intent&&adapter.current()&&view.dom.isConnected&&authoredSource(view.state)===source&&view.state.selection.eq(selection)&&adapter.writable()&&!view.composing&&!view.state.readOnly&&view.state.facet(EditorView.editable);
+ const valid=()=>!request.cancelled()&&request.current()&&readSourceSnippet(view)===snippetContext&&readParallelSourceSnippet(view.state)===parallelContext&&view.state.doc===document&&readSourceEditorIntent(view.state)===intent&&adapter.current()&&view.dom.isConnected&&authoredSource(view.state)===source&&view.state.selection.eq(selection)&&adapter.writable()&&!view.composing&&!view.state.readOnly&&view.state.facet(EditorView.editable);
  const report=(text:string)=>{if(request.current())adapter.notice(text);};
  try {
   if(request.cancelled())return;
@@ -90,7 +91,7 @@ export async function acceptSourceCompletion(view:EditorView,item:CompletionItem
   report('Resolving completion…');
   let draft:CompletionDraft|undefined,group:Awaited<ReturnType<typeof resolveCompletionGroup>>|undefined,contextNotice='';
   if (selection.ranges.length > 1) {
-   if (snippetContext) throw new Error('Finish editing the template before accepting a completion group.');
+   if (snippetContext || parallelContext) throw new Error('Finish editing the template before accepting a completion group.');
    group = await resolveCompletionGroup(view.state,source,item,adapter,valid);
   } else {
    const resolved=await adapter.resolve(structuredClone(item));

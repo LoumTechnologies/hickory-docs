@@ -7,7 +7,7 @@ import {readCompletionAcceptance,waitCompletionAcceptance,cancelCompletionAccept
 import type {CompletionItem} from '../lsp/client';
 import {sourceDigest} from '../lsp/diagnosticRevision';
 import {CompletionContext} from '@codemirror/autocomplete';
-import {sourceSnippets,dispatchSourceSnippetTransactions} from './SourceSnippets';
+import {sourceSnippets,dispatchSourceSnippetTransactions,applyParallelSourceSnippet,readParallelSourceSnippet,readSourceEditorIntent} from './SourceSnippets';
 import {sourceText,authoredSource,editorOffsetIn} from './SourceText';
 import snippetVectors from '../../../simple-contract/snippet-expansion-cases.json';
 function held(){let resolve!:(value:CompletionItem)=>void;const promise=new Promise<CompletionItem>(done=>{resolve=done;});return {promise,resolve};}
@@ -76,6 +76,30 @@ it('retires a held peer completion after changing and restoring the secondary ca
   expect(view.state.selection.eq(original)).toBe(true);
   expect(readCompletionAcceptance(view)?.phase).toBe('unavailable');
   expect(undo(view)).toBe(false);
+ } finally {close();}
+});
+it('retains the active template group when an ordinary completion is chosen',async()=>{
+ const source='va\nva\n',{view,close}=fixture(source);
+ try {
+  const ranges=[{from:0,to:2},{from:3,to:5}];
+  view.dispatch({selection:EditorSelection.create(ranges.map(range=>EditorSelection.range(range.from,range.to)))});
+  const fields=[
+   {index:1,from:0,to:5,choices:[],id:0,parent:null},
+   {index:0,from:5,to:5,choices:[],id:1,parent:null},
+  ];
+  expect(applyParallelSourceSnippet(view,source,ranges.map(range=>({...range,text:'value',fields})),0,readSourceEditorIntent(view.state)!,()=>true)).toBe(true);
+  const parallel=readParallelSourceSnippet(view.state),draft=authoredSource(view.state),selection=view.state.selection;
+  let calls=0;
+  const resolve=async()=>{calls++;return resolved();};
+  await acceptSourceCompletion(view,raw,draft,selection,0,5,{
+   uri:'hick:///a.py',current:()=>true,writable:()=>true,notice:()=>{},resolve,
+   group:{query:async()=>{calls++;return [raw];},resolve},
+  });
+  expect(calls).toBe(0);
+  expect(authoredSource(view.state)).toBe(draft);
+  expect(readParallelSourceSnippet(view.state)).toBe(parallel);
+  expect(view.state.selection.eq(selection)).toBe(true);
+  expect(readCompletionAcceptance(view)?.message).toContain('Finish editing the template');
  } finally {close();}
 });
 it('Escape cancellation and an agent abort settle observers before the late provider reply',async()=>{

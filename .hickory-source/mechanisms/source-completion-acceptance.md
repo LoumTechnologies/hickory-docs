@@ -41,6 +41,9 @@ The drafts planner requires disjoint primary edits and a single agreed set
 of additional edits. Submit the resulting text and all carets through the
 same editor transaction.
 
+An active template group retains its own selections and linked fields. A
+separate ordinary completion waits until that template has finished.
+
 Provider edits, snippet fields and retained source hashes use authored UTF-16 coordinates. The browser converts popup replacement offsets to authored positions once, prepares the entire raw edit with its line-ending proof, then maps only the final caret back into the display. Applied status and Undo/Redo checks compare exact authored bytes, including mixed line endings.
 
 <ui:copy id="completion-acceptance-browser">
@@ -56,7 +59,7 @@ import {planCompletion,planCompletionGroup,type CapturedCompletion,type Completi
 import {sourceDigest} from '../lsp/diagnosticRevision';
 import {completionExpansion} from './SnippetExpansion';
 import {snippetContextNotice} from './SnippetContext';
-import {sourceSnippetEffect,continueSourceSnippetCompletion,readSourceSnippet,readSourceEditorIntent} from './SourceSnippets';
+import {sourceSnippetEffect,continueSourceSnippetCompletion,readSourceSnippet,readParallelSourceSnippet,readSourceEditorIntent} from './SourceSnippets';
 import {authoredSource,authoredOffset,editorOffsetIn,authoredChanges} from './SourceText';
 export interface SourceCompletionAdapter {
  uri:string;resolve:(item:CompletionItem)=>Promise<CompletionItem>;current:()=>boolean;writable:()=>boolean;notice:(text:string)=>void;
@@ -126,8 +129,9 @@ async function resolveCompletionGroup(state:EditorState,source:string,item:Compl
 
 export async function acceptSourceCompletion(view:EditorView,item:CompletionItem,source:string,selection:EditorState['selection'],from:number,to:number,adapter:SourceCompletionAdapter,completion?:Completion):Promise<void> {
  const request=beginCompletionAcceptance(view,adapter.notice),snippetContext=readSourceSnippet(view),document=view.state.doc,intent=readSourceEditorIntent(view.state);
+ const parallelContext=readParallelSourceSnippet(view.state);
  let expectedAfter:string|undefined;
- const valid=()=>!request.cancelled()&&request.current()&&readSourceSnippet(view)===snippetContext&&view.state.doc===document&&readSourceEditorIntent(view.state)===intent&&adapter.current()&&view.dom.isConnected&&authoredSource(view.state)===source&&view.state.selection.eq(selection)&&adapter.writable()&&!view.composing&&!view.state.readOnly&&view.state.facet(EditorView.editable);
+ const valid=()=>!request.cancelled()&&request.current()&&readSourceSnippet(view)===snippetContext&&readParallelSourceSnippet(view.state)===parallelContext&&view.state.doc===document&&readSourceEditorIntent(view.state)===intent&&adapter.current()&&view.dom.isConnected&&authoredSource(view.state)===source&&view.state.selection.eq(selection)&&adapter.writable()&&!view.composing&&!view.state.readOnly&&view.state.facet(EditorView.editable);
  const report=(text:string)=>{if(request.current())adapter.notice(text);};
  try {
   if(request.cancelled())return;
@@ -136,7 +140,7 @@ export async function acceptSourceCompletion(view:EditorView,item:CompletionItem
   report('Resolving completion…');
   let draft:CompletionDraft|undefined,group:Awaited<ReturnType<typeof resolveCompletionGroup>>|undefined,contextNotice='';
   if (selection.ranges.length > 1) {
-   if (snippetContext) throw new Error('Finish editing the template before accepting a completion group.');
+   if (snippetContext || parallelContext) throw new Error('Finish editing the template before accepting a completion group.');
    group = await resolveCompletionGroup(view.state,source,item,adapter,valid);
   } else {
    const resolved=await adapter.resolve(structuredClone(item));
@@ -182,7 +186,7 @@ import {readCompletionAcceptance,waitCompletionAcceptance,cancelCompletionAccept
 import type {CompletionItem} from '../lsp/client';
 import {sourceDigest} from '../lsp/diagnosticRevision';
 import {CompletionContext} from '@codemirror/autocomplete';
-import {sourceSnippets,dispatchSourceSnippetTransactions} from './SourceSnippets';
+import {sourceSnippets,dispatchSourceSnippetTransactions,applyParallelSourceSnippet,readParallelSourceSnippet,readSourceEditorIntent} from './SourceSnippets';
 import {sourceText,authoredSource,editorOffsetIn} from './SourceText';
 import snippetVectors from '../../../simple-contract/snippet-expansion-cases.json';
 function held(){let resolve!:(value:CompletionItem)=>void;const promise=new Promise<CompletionItem>(done=>{resolve=done;});return {promise,resolve};}
@@ -251,6 +255,30 @@ it('retires a held peer completion after changing and restoring the secondary ca
   expect(view.state.selection.eq(original)).toBe(true);
   expect(readCompletionAcceptance(view)?.phase).toBe('unavailable');
   expect(undo(view)).toBe(false);
+ } finally {close();}
+});
+it('retains the active template group when an ordinary completion is chosen',async()=>{
+ const source='va\nva\n',{view,close}=fixture(source);
+ try {
+  const ranges=[{from:0,to:2},{from:3,to:5}];
+  view.dispatch({selection:EditorSelection.create(ranges.map(range=>EditorSelection.range(range.from,range.to)))});
+  const fields=[
+   {index:1,from:0,to:5,choices:[],id:0,parent:null},
+   {index:0,from:5,to:5,choices:[],id:1,parent:null},
+  ];
+  expect(applyParallelSourceSnippet(view,source,ranges.map(range=>({...range,text:'value',fields})),0,readSourceEditorIntent(view.state)!,()=>true)).toBe(true);
+  const parallel=readParallelSourceSnippet(view.state),draft=authoredSource(view.state),selection=view.state.selection;
+  let calls=0;
+  const resolve=async()=>{calls++;return resolved();};
+  await acceptSourceCompletion(view,raw,draft,selection,0,5,{
+   uri:'hick:///a.py',current:()=>true,writable:()=>true,notice:()=>{},resolve,
+   group:{query:async()=>{calls++;return [raw];},resolve},
+  });
+  expect(calls).toBe(0);
+  expect(authoredSource(view.state)).toBe(draft);
+  expect(readParallelSourceSnippet(view.state)).toBe(parallel);
+  expect(view.state.selection.eq(selection)).toBe(true);
+  expect(readCompletionAcceptance(view)?.message).toContain('Finish editing the template');
  } finally {close();}
 });
 it('Escape cancellation and an agent abort settle observers before the late provider reply',async()=>{
