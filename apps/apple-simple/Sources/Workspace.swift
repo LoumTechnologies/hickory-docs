@@ -119,8 +119,10 @@ struct StartupSourceObservation {
         }
     }
     var multiRects: [CGRect] = []
+    #if os(macOS)
     var showMulti = false
     var multiText = ""
+    #endif
     @ObservationIgnored var applyingMulti = false
     func selectRectangle() {
         let start = languagePosition(text, selection.location), end = languagePosition(text, NSMaxRange(selection))

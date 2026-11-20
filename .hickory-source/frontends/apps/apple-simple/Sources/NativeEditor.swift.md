@@ -2438,6 +2438,9 @@ number. The button exposes a line-specific accessibility action and uses the
 current parsed source and recorded-message lease again at activation. Prose and
 stale rows remain readable while the breakpoint action is unavailable.
 
+The iOS Edit menu holds the multiple-selection commands so the first source row
+stays visible. AppKit keeps its editor-contained selection control.
+
 <ui:copy id="simple-apple-language-preview">
 struct NativeFindPanel: View {
     @Bindable var buffer: DocumentBuffer
@@ -2678,7 +2681,9 @@ struct LanguageEditor: View {
                     }.padding() }.frame(width: 350, height: 420)
                 }
             }
-        }.overlay(alignment: .topLeading) {
+        }
+        #if os(macOS)
+        .overlay(alignment: .topLeading) {
             if exactUTF8(buffer.multiSource,buffer.text) && buffer.multiRanges.count > 1 {
                 HStack {
                     Button("\(buffer.multiRanges.count) selections") { buffer.showMulti = true }
@@ -2690,7 +2695,9 @@ struct LanguageEditor: View {
                         }.padding().frame(width: 280)
                     }
             }
-        }.overlay(alignment: .topTrailing) {
+        }
+        #endif
+        .overlay(alignment: .topTrailing) {
             if buffer.showFind {
                 GeometryReader { geometry in
                     ScrollView { NativeFindPanel(buffer: buffer) }

@@ -4230,6 +4230,14 @@ The replay also exposed the selection controls covering part of the first
 source row. See
 `target/ios-grouped-provider-snippets/iphone-27/attempt-1/receipt.json`.
 
+The iPhone now puts selection actions in Edit. The signed rebuild showed
+both painted fields on their original rows after Apply and Redo. A native
+lowercase `r` in the selection sheet reached all four mirrors exactly.
+Undo and Redo restored both selections, and Clear removed the selection
+group while preserving the draft. The same editor, Undo manager and frame
+survived, with saved bytes and metadata intact. See
+`target/ios-complete-file-fix/combined-literal-1/grouped-edit-selections/attempt-1/receipt.json`.
+
 The main Hickory Docs plain-file editor chose the grouped completion from
 its visible popup in a CRLF fixture. Two independent provider resolves
 inserted both ordinal fields and one shared import. Native Undo and Redo

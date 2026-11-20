@@ -2470,7 +2470,9 @@ struct LanguageEditor: View {
                     }.padding() }.frame(width: 350, height: 420)
                 }
             }
-        }.overlay(alignment: .topLeading) {
+        }
+        #if os(macOS)
+        .overlay(alignment: .topLeading) {
             if exactUTF8(buffer.multiSource,buffer.text) && buffer.multiRanges.count > 1 {
                 HStack {
                     Button("\(buffer.multiRanges.count) selections") { buffer.showMulti = true }
@@ -2482,7 +2484,9 @@ struct LanguageEditor: View {
                         }.padding().frame(width: 280)
                     }
             }
-        }.overlay(alignment: .topTrailing) {
+        }
+        #endif
+        .overlay(alignment: .topTrailing) {
             if buffer.showFind {
                 GeometryReader { geometry in
                     ScrollView { NativeFindPanel(buffer: buffer) }

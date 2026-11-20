@@ -13,6 +13,10 @@ struct WorkspaceView: View {
     @Bindable var workspace: Workspace
     var launchFile = ProcessInfo.processInfo.environment["HICKORY_OPEN_FILE"]
     @State private var connection = false
+    #if os(iOS)
+    @State private var selectionEdit: MobileSelectionEdit?
+    @State private var selectionReplacement = ""
+    #endif
     private var menuCommands:[WorkspaceCommand] {workspace.commands(ui:["file.window":{openWindow(id:"workspace")},"file.connect":{connection=true}])}
     var body: some View {
         VStack(spacing: 0) {
@@ -22,6 +26,20 @@ struct WorkspaceView: View {
                 Menu("Edit") {
                     EditorNavigationSettings()
                     ForEach(menuCommands.filter {$0.group=="Edit"}) {WorkspaceCommandButton(command:$0)}
+                    #if os(iOS)
+                    if let selections = MobileSelectionEdit(workspace) {
+                        Button("Edit selections") {
+                            guard selections.canEdit(in: workspace) else { return }
+                            selectionReplacement = ""
+                            selectionEdit = selections
+                        }.disabled(!selections.canEdit(in: workspace))
+                        Button("Clear selections") {
+                            guard selections.isCurrent(in: workspace) else { return }
+                            if selections.buffer.snippets.parallel != nil { selections.buffer.snippets.finish() }
+                            selections.buffer.clearMulti()
+                        }
+                    }
+                    #endif
                 }
                 Menu("View") {ForEach(menuCommands.filter {$0.group=="View"}) {WorkspaceCommandButton(command:$0)}}
                 Spacer()
@@ -44,6 +62,31 @@ struct WorkspaceView: View {
                 Button("⋯") { connection = true }.help("Workspace connection")
             }.font(.system(size: 11)).padding(.horizontal, 8).frame(height: 24)
         }
+        #if os(iOS)
+        .sheet(item: $selectionEdit) { selections in
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Edit selections").font(.headline)
+                TextField("Insert at selections", text: $selectionReplacement).textFieldStyle(.roundedBorder)
+                    .textInputAutocapitalization(.never).autocorrectionDisabled()
+                HStack {
+                    Button("Cancel") { selectionEdit = nil }
+                    Spacer()
+                    Button("Apply to selections") {
+                        guard selections.canEdit(in: workspace) else { return }
+                        let buffer = selections.buffer
+                        let applied: Bool
+                        if buffer.snippets.parallel != nil {
+                            applied = buffer.snippets.inputParallel(source: buffer.text, primaryRange: buffer.selection,
+                                                                    text: selectionReplacement)
+                        } else {
+                            applied = buffer.replaceMultiple(selectionReplacement)
+                        }
+                        if applied { selectionEdit = nil }
+                    }.disabled(!selections.canEdit(in: workspace))
+                }
+            }.padding().presentationDetents([.height(200)])
+        }
+        #endif
         .task{await workspace.editorRecovery.captureLoop(workspace)}
         .popover(isPresented:Binding(get:{workspace.editorRecovery.showing},set:{if !$0{workspace.editorRecovery.close()}})){EditorRecoveryView(workspace:workspace).onKeyPress(.escape){workspace.editorRecovery.close();return .handled}}
         .popover(isPresented:$workspace.showCoverage) {SimpleCoverageView(workspace:workspace).onKeyPress(.escape){workspace.showCoverage=false;workspace.currentBuffer?.focusSource?();return .handled}}
@@ -93,6 +136,52 @@ struct WorkspaceView: View {
         #endif
     }
 }
+#if os(iOS)
+@MainActor
+private struct MobileSelectionEdit: Identifiable {
+    let id = UUID()
+    let buffer: DocumentBuffer
+    private let workspaceEpoch: UUID
+    private let sourceRevision: UUID
+    private let selectionRevision: UUID
+    private let snippetIntent: Int
+    private let editorIdentity: UUID
+
+    init?(_ workspace: Workspace) {
+        guard let buffer = workspace.currentBuffer, Self.selectionsMatch(buffer),
+              let editor = buffer.sourceEditorState?(), Self.editorMatches(editor, buffer) else { return nil }
+        self.buffer = buffer
+        workspaceEpoch = workspace.sourceNavigationEpoch
+        sourceRevision = buffer.sourceEditIdentity
+        selectionRevision = buffer.selectionIdentity
+        snippetIntent = buffer.snippets.intent
+        editorIdentity = editor.identity
+    }
+
+    func isCurrent(in workspace: Workspace) -> Bool { currentEditor(in: workspace) != nil }
+
+    func canEdit(in workspace: Workspace) -> Bool {
+        currentEditor(in: workspace)?.editable == true && !buffer.readOnly && !buffer.saving
+    }
+
+    private func currentEditor(in workspace: Workspace) -> NativeSourceEditorState? {
+        guard workspace.currentBuffer === buffer, workspace.sourceNavigationEpoch == workspaceEpoch,
+              buffer.sourceEditIdentity == sourceRevision, buffer.selectionIdentity == selectionRevision,
+              buffer.snippets.intent == snippetIntent, Self.selectionsMatch(buffer),
+              let editor = buffer.sourceEditorState?(), editor.identity == editorIdentity,
+              Self.editorMatches(editor, buffer) else { return nil }
+        return editor
+    }
+
+    private static func selectionsMatch(_ buffer: DocumentBuffer) -> Bool {
+        !buffer.resourceDeleted && buffer.multiRanges.count > 1 && exactUTF8(buffer.multiSource, buffer.text)
+    }
+
+    private static func editorMatches(_ editor: NativeSourceEditorState, _ buffer: DocumentBuffer) -> Bool {
+        editor.attached && !editor.composing && editor.selection == buffer.selection && exactUTF8(editor.source, buffer.text)
+    }
+}
+#endif
 struct PaneMenu: View {
     var workspace: Workspace
     var body: some View {
