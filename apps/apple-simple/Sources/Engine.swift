@@ -352,13 +352,17 @@ func validateNativeSourcePreparation(_ raw:Any,source:String,requireParsed:Bool=
             buffer.renderLanguage?(tokens, buffer.text)
         }
         let current = epoch
+        let completionAtChange = completionID
         refreshTask = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(300))
             guard let self, !Task.isCancelled, self.epoch == current else { return }
             self.sync()
             if self.showingSuggestions {
                 Task { [weak self] in await self?.inspect() }
-                Task { [weak self] in await self?.complete() }
+                Task { [weak self] in
+                    guard let self, self.showingSuggestions, self.completionID == completionAtChange else { return }
+                    await self.complete()
+                }
             }
             guard let source = self.buffer?.text else { return }
             for attempt in 0..<5 {

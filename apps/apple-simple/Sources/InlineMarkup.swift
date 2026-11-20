@@ -380,7 +380,11 @@ func computeInlineMarkup(_ source: String, path: String) -> InlineSnapshot {
     if (path as NSString).pathExtension.lowercased() == "csv", source.utf16.count <= 200_000 {
         result.cells = source.isEmpty ? [InlineCell(line: 0, column: 0, range: NSRange(location: 0, length: 0), value: "", format: "csv")] : inlineCSVCells(source, line: 0, offset: 0, delimiter: ","); return result
     }
-    guard ["md", "markdown"].contains((path as NSString).pathExtension.lowercased()), source.utf16.count <= 200_000 else { return result }
+    guard source.utf16.count <= 200_000 else { return result }
+    guard ["md", "markdown"].contains((path as NSString).pathExtension.lowercased()) else {
+        result.marks = inlineSyntaxMarks(source, path: path)
+        return result
+    }
     let rows = source.components(separatedBy: "\n")
     let separator = try! NSRegularExpression(pattern: #"^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$"#)
     let heading = try! NSRegularExpression(pattern: #"^(#{1,6})\s+"#)

@@ -1341,6 +1341,19 @@ private struct EquationLayout: Equatable {
         let restore = preserveViewport(); defer { restore() }
         storage.beginEditing()
         storage.addAttribute(.foregroundColor, value: NSColor.textColor, range: NSRange(location: 0, length: storage.length))
+        // Foreground colors reset on every paint, including provider-only refreshes.
+        if exactUTF8(buffer.inlineMarkup.source,source), source.utf16.count <= 200_000 {
+            for mark in buffer.inlineMarkup.marks where mark.kind.hasPrefix("syntax-") && NSMaxRange(mark.range) <= storage.length {
+                let color: NSColor
+                switch mark.kind {
+                case "syntax-keyword": color = .systemPurple
+                case "syntax-string": color = .systemGreen
+                case "syntax-number": color = .systemOrange
+                default: color = .secondaryLabelColor
+                }
+                storage.addAttribute(.foregroundColor, value: color, range: mark.range)
+            }
+        }
         for token in tokens where NSMaxRange(token.range) <= storage.length {
             let color: NSColor
             switch token.kind {
@@ -1366,11 +1379,6 @@ private struct EquationLayout: Equatable {
                     default: font = .monospacedSystemFont(ofSize: 13, weight: .regular)
                     }
                     storage.addAttribute(.font, value: font, range: mark.range)
-                    if mark.kind.hasPrefix("syntax-"), !tokens.contains(where: { NSIntersectionRange($0.range, mark.range).length > 0 }) {
-                        let color: NSColor
-                        switch mark.kind { case "syntax-keyword": color = .systemPurple; case "syntax-string": color = .systemGreen; case "syntax-number": color = .systemOrange; default: color = .secondaryLabelColor }
-                        storage.addAttribute(.foregroundColor, value: color, range: mark.range)
-                    }
                     if mark.kind == "code" { storage.addAttribute(.backgroundColor, value: NSColor.quaternaryLabelColor, range: mark.range) }
                     if mark.kind == "diff-add" || mark.kind == "diff-remove" { storage.addAttribute(.backgroundColor, value: (mark.kind == "diff-add" ? NSColor.systemGreen : NSColor.systemRed).withAlphaComponent(0.15), range: mark.range) }
                 }
@@ -2083,6 +2091,19 @@ import UIKit
         let restore = preserveViewport(); defer { restore() }
         storage.beginEditing()
         storage.addAttribute(.foregroundColor, value: UIColor.label, range: NSRange(location: 0, length: storage.length))
+        // Foreground colors reset on every paint, including provider-only refreshes.
+        if exactUTF8(buffer.inlineMarkup.source,source), source.utf16.count <= 200_000 {
+            for mark in buffer.inlineMarkup.marks where mark.kind.hasPrefix("syntax-") && NSMaxRange(mark.range) <= storage.length {
+                let color: UIColor
+                switch mark.kind {
+                case "syntax-keyword": color = .systemPurple
+                case "syntax-string": color = .systemGreen
+                case "syntax-number": color = .systemOrange
+                default: color = .secondaryLabel
+                }
+                storage.addAttribute(.foregroundColor, value: color, range: mark.range)
+            }
+        }
         for token in tokens where NSMaxRange(token.range) <= storage.length {
             let color: UIColor
             switch token.kind {
@@ -2108,11 +2129,6 @@ import UIKit
                     default: font = .monospacedSystemFont(ofSize: 13, weight: .regular)
                     }
                     storage.addAttribute(.font, value: font, range: mark.range)
-                    if mark.kind.hasPrefix("syntax-"), !tokens.contains(where: { NSIntersectionRange($0.range, mark.range).length > 0 }) {
-                        let color: UIColor
-                        switch mark.kind { case "syntax-keyword": color = .systemPurple; case "syntax-string": color = .systemGreen; case "syntax-number": color = .systemOrange; default: color = .secondaryLabel }
-                        storage.addAttribute(.foregroundColor, value: color, range: mark.range)
-                    }
                     if mark.kind == "code" { storage.addAttribute(.backgroundColor, value: UIColor.secondarySystemBackground, range: mark.range) }
                     if mark.kind == "diff-add" || mark.kind == "diff-remove" { storage.addAttribute(.backgroundColor, value: (mark.kind == "diff-add" ? UIColor.systemGreen : UIColor.systemRed).withAlphaComponent(0.15), range: mark.range) }
                 }
@@ -2466,7 +2482,6 @@ struct LanguageEditor: View {
                                 }.frame(maxWidth: .infinity, alignment: .leading)
                             }.frame(height: 180)
                             Button("Retry language services") { language.start() }
-                            Text("For Python, run hick lsp install python from the workspace folder, then choose Retry language services. This installs basedpyright for colors and IntelliSense. Completions can update the current draft and required imports; unsupported changes show a retry message.").font(.caption)
                         }
                     }.padding() }.frame(width: 350, height: 420)
                 }

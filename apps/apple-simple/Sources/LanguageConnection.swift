@@ -17,6 +17,7 @@ private struct NativeLanguageJSONFrame:@unchecked Sendable {let object:[String:A
     private var pending: [Int:Pending] = [:]
     private var nextID = 1
     private var epoch = UUID()
+    private var capabilityAnnouncement: [String: Any]?
     private var retryAfter = Date.distantPast
     private var socket: URLSessionWebSocketTask?
     private var receiveTask: Task<Void,Never>?
@@ -30,7 +31,10 @@ private struct NativeLanguageJSONFrame:@unchecked Sendable {let object:[String:A
         subscribers[token]=Subscriber(uri:uri,receive:receive,failed:failed);documents[uri]=Document(text:source,version:version)
         do {
             let replayed=try startIfNeeded()
-            if !replayed { sendDocument(uri,change:existing) }
+            if !replayed {
+                sendDocument(uri,change:existing)
+                if let capabilityAnnouncement { receive(capabilityAnnouncement) }
+            }
         } catch { failed(error) }
         return token
     }
@@ -62,6 +66,7 @@ private struct NativeLanguageJSONFrame:@unchecked Sendable {let object:[String:A
         }
     }
     func close() {
+        capabilityAnnouncement = nil
         epoch=UUID();receiveTask?.cancel();sendTask?.cancel();receiveTask=nil;sendTask=nil
         socket?.cancel(with:.normalClosure,reason:nil);socket=nil;retryAfter = .distantPast
         let listeners=Array(subscribers.values);subscribers.removeAll();documents.removeAll()
@@ -113,11 +118,13 @@ private struct NativeLanguageJSONFrame:@unchecked Sendable {let object:[String:A
             if object["method"] as? String == "workspace/applyEdit" {send(["jsonrpc":"2.0","id":id,"result":["applied":false,"failureReason":"A source preview is required."]])}
             else {send(["jsonrpc":"2.0","id":id,"error":["code":-32601,"message":"Client method unavailable"]])};return
         }
+        if object["method"] as? String == "hick/serverCapabilities" { capabilityAnnouncement = object }
         let target = object["method"] as? String == "textDocument/publishDiagnostics" ? (object["params"] as? [String:Any])?["uri"] as? String : nil
         let listeners=Array(subscribers.values)
         for listener in listeners where target==nil || exactUTF8(target,listener.uri) {listener.receive(object)}
     }
     private func fail(_ error: Error) {
+        capabilityAnnouncement = nil
         epoch=UUID();receiveTask?.cancel();sendTask?.cancel();socket?.cancel(with:.goingAway,reason:nil);socket=nil;retryAfter=Date().addingTimeInterval(1)
         // Source-bound captures retire before request continuations resume.
         for listener in Array(subscribers.values) {listener.failed(error)}

@@ -402,6 +402,8 @@ A selected cross-file location carries its query, provider and originating
 editor snapshot into the workspace read. A newer result choice, source edit,
 caret or provider change can retire it while the destination is being read.
 
+A source edit schedules a background refresh of an open completion list. If the author explicitly requests completion before that refresh starts, leave the newer request in charge of the list. The live Python witness changes the draft and immediately awaits completion through this path.
+
 <ui:copy id="simple-apple-language-snapshots">
     private func sync() {
         guard let text = buffer?.text, !exactUTF8(text,sent) else { return }
@@ -417,13 +419,17 @@ caret or provider change can retire it while the destination is being read.
             buffer.renderLanguage?(tokens, buffer.text)
         }
         let current = epoch
+        let completionAtChange = completionID
         refreshTask = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(300))
             guard let self, !Task.isCancelled, self.epoch == current else { return }
             self.sync()
             if self.showingSuggestions {
                 Task { [weak self] in await self?.inspect() }
-                Task { [weak self] in await self?.complete() }
+                Task { [weak self] in
+                    guard let self, self.showingSuggestions, self.completionID == completionAtChange else { return }
+                    await self.complete()
+                }
             }
             guard let source = self.buffer?.text else { return }
             for attempt in 0..<5 {

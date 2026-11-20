@@ -3,7 +3,7 @@
 
 For maintainers changing workspace services independently of the editor renderer.
 
-Language knowledge belongs to source buffers, while wire lifetime belongs to the workspace. One shared connection owns request IDs, pending replies, document snapshots and reconnection replay. Notifications route by source URI; capability announcements fan out. Each URI has one source session in a workspace; views borrow it. Detaching a source cancels only its requests and closes its document. Duplicate sessions cannot overwrite the held source or borrow another owner's request authority. A failed connection invalidates every subscriber before replies resume, retaining readable source. The next read may reconnect and replay all held full-text documents. This ordinary transport object can be replaced without rewriting editor widgets.
+Language knowledge belongs to source buffers, while wire lifetime belongs to the workspace. One shared connection owns request IDs, pending replies, document snapshots and reconnection replay. Notifications route by source URI; capability announcements fan out and are replayed to tabs that join the open connection later. The semantic token legend belongs to that connection, so close and failure discard the cached announcement. Each URI has one source session in a workspace; views borrow it. Detaching a source cancels only its requests and closes its document. Duplicate sessions cannot overwrite the held source or borrow another owner's request authority. A failed connection invalidates every subscriber before replies resume, retaining readable source. The next read may reconnect and replay all held full-text documents. This ordinary transport object can be replaced without rewriting editor widgets.
 
 Audit raw object keys before Foundation decodes a provider frame. Canonically equivalent contributor keys cannot merge into a partial edit; invalid identities retire only the optional language connection and pending proposals. Unrelated provider version metadata is not a source-test protocol version. Retained document URIs and notification routing use exact bytes, independently of their display spelling. Raw-key checking and Foundation parsing run on a worker; a changed connection epoch rejects the result before any listener or pending proposal sees it.
 
@@ -27,6 +27,7 @@ private struct NativeLanguageJSONFrame:@unchecked Sendable {let object:[String:A
     private var pending: [Int:Pending] = [:]
     private var nextID = 1
     private var epoch = UUID()
+    private var capabilityAnnouncement: [String: Any]?
     private var retryAfter = Date.distantPast
     private var socket: URLSessionWebSocketTask?
     private var receiveTask: Task<Void,Never>?
@@ -40,7 +41,10 @@ private struct NativeLanguageJSONFrame:@unchecked Sendable {let object:[String:A
         subscribers[token]=Subscriber(uri:uri,receive:receive,failed:failed);documents[uri]=Document(text:source,version:version)
         do {
             let replayed=try startIfNeeded()
-            if !replayed { sendDocument(uri,change:existing) }
+            if !replayed {
+                sendDocument(uri,change:existing)
+                if let capabilityAnnouncement { receive(capabilityAnnouncement) }
+            }
         } catch { failed(error) }
         return token
     }
@@ -72,6 +76,7 @@ private struct NativeLanguageJSONFrame:@unchecked Sendable {let object:[String:A
         }
     }
     func close() {
+        capabilityAnnouncement = nil
         epoch=UUID();receiveTask?.cancel();sendTask?.cancel();receiveTask=nil;sendTask=nil
         socket?.cancel(with:.normalClosure,reason:nil);socket=nil;retryAfter = .distantPast
         let listeners=Array(subscribers.values);subscribers.removeAll();documents.removeAll()
@@ -123,11 +128,13 @@ private struct NativeLanguageJSONFrame:@unchecked Sendable {let object:[String:A
             if object["method"] as? String == "workspace/applyEdit" {send(["jsonrpc":"2.0","id":id,"result":["applied":false,"failureReason":"A source preview is required."]])}
             else {send(["jsonrpc":"2.0","id":id,"error":["code":-32601,"message":"Client method unavailable"]])};return
         }
+        if object["method"] as? String == "hick/serverCapabilities" { capabilityAnnouncement = object }
         let target = object["method"] as? String == "textDocument/publishDiagnostics" ? (object["params"] as? [String:Any])?["uri"] as? String : nil
         let listeners=Array(subscribers.values)
         for listener in listeners where target==nil || exactUTF8(target,listener.uri) {listener.receive(object)}
     }
     private func fail(_ error: Error) {
+        capabilityAnnouncement = nil
         epoch=UUID();receiveTask?.cancel();sendTask?.cancel();socket?.cancel(with:.goingAway,reason:nil);socket=nil;retryAfter=Date().addingTimeInterval(1)
         // Source-bound captures retire before request continuations resume.
         for listener in Array(subscribers.values) {listener.failed(error)}

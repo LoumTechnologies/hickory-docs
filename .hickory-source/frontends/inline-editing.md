@@ -3,7 +3,7 @@
 
 For maintainers implementing rich source editing on native platforms.
 
-Compute a line-start index and presentation against immutable UTF-16 text. Visible gutters use binary search into the current snapshot instead of repeatedly copying and counting the entire prefix on every scrolled line. Keep Markdown delimiters and original bytes in the editor, skip fenced and Hickory payload bodies, and expose exact cell/equation ranges for guarded contextual edits. Large documents retain plain source while this optional scanner is bounded to 200,000 UTF-16 units.
+Compute a line-start index and presentation against immutable UTF-16 text. Visible gutters use binary search into the current snapshot instead of repeatedly copying and counting the entire prefix on every scrolled line. Keep Markdown delimiters and original bytes in the editor, skip fenced and Hickory payload bodies, and expose exact cell/equation ranges for guarded contextual edits. The same bounded scan supplies local syntax colors for standalone source files and embedded code. Standalone files skip Markdown presentation rules. Large files retain readable text while the optional scanner is bounded to 200,000 UTF-16 units.
 
 Ordinary executable-language fences in a recorded message need an opening-line
 action and breakpoint targets in their body. Unified diff examples need their
@@ -435,7 +435,11 @@ func computeInlineMarkup(_ source: String, path: String) -> InlineSnapshot {
     if (path as NSString).pathExtension.lowercased() == "csv", source.utf16.count <= 200_000 {
         result.cells = source.isEmpty ? [InlineCell(line: 0, column: 0, range: NSRange(location: 0, length: 0), value: "", format: "csv")] : inlineCSVCells(source, line: 0, offset: 0, delimiter: ","); return result
     }
-    guard ["md", "markdown"].contains((path as NSString).pathExtension.lowercased()), source.utf16.count <= 200_000 else { return result }
+    guard source.utf16.count <= 200_000 else { return result }
+    guard ["md", "markdown"].contains((path as NSString).pathExtension.lowercased()) else {
+        result.marks = inlineSyntaxMarks(source, path: path)
+        return result
+    }
     let rows = source.components(separatedBy: "\n")
     let separator = try! NSRegularExpression(pattern: #"^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$"#)
     let heading = try! NSRegularExpression(pattern: #"^(#{1,6})\s+"#)

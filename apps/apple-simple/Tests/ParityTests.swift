@@ -565,7 +565,11 @@ final class ParityTests: XCTestCase {
         XCTAssertEqual(result.equations.count, 1)
         XCTAssertEqual((source as NSString).substring(with: result.equations[0].range), "\r\nx^2\r\n")
         XCTAssertTrue(computeInlineMarkup("$5 and $6", path: "money.md").equations.isEmpty)
-        XCTAssertTrue(computeInlineMarkup(source, path: "code.py").marks.isEmpty)
+        let plainCode = computeInlineMarkup(source, path: "code.py")
+        XCTAssertTrue(plainCode.marks.contains { $0.kind == "syntax-comment" })
+        XCTAssertTrue(plainCode.marks.allSatisfy { $0.kind.hasPrefix("syntax-") })
+        XCTAssertTrue(plainCode.cells.isEmpty)
+        XCTAssertTrue(plainCode.equations.isEmpty)
         XCTAssertEqual(inlineCellText("a|b"), "a\\|b")
         let csv = "\nName,Value\r\n\"a,b\",\"two\nlines\"\r\nlast,"
         let cells = inlineCSVCells(csv, line: 0, offset: 10, delimiter: ",")
@@ -912,6 +916,12 @@ final class ParityTests: XCTestCase {
         editor.text.undoManager?.undo()
         XCTAssertEqual(editor.text.string, original)
         XCTAssertEqual(editor.text.textStorage?.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor, NSColor.systemPurple)
+        buffer.inlineMarkup = computeInlineMarkup(original, path: file.path)
+        buffer.renderMarkup?()
+        buffer.renderLanguage?([], original)
+        XCTAssertEqual(editor.text.textStorage?.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor, NSColor.systemPurple)
+        let returnOffset = (original as NSString).range(of: "return").location
+        XCTAssertEqual(editor.text.textStorage?.attribute(.foregroundColor, at: returnOffset, effectiveRange: nil) as? NSColor, NSColor.systemPurple)
     }
     // Cached display is provisional; writes still require the exact snapshot.
     @MainActor func testLanguageCacheSurvivesEditsAndRejectsStaleCompletion() async throws {
@@ -1271,10 +1281,21 @@ final class ParityTests: XCTestCase {
     }
     @MainActor func testRealNativeLiterateLanguageChannel() async throws {
         guard let origin = ProcessInfo.processInfo.environment["HICKORY_NATIVE_LSP_ORIGIN"] else { throw XCTSkip("Set HICKORY_NATIVE_LSP_ORIGIN for the focused real-server witness") }
+        let engine = try Engine(address: origin)
+        let connection = NativeLanguageConnection(engine: engine)
+        defer { connection.close() }
+        let plainFile = FileNode(name: "native-late-tab-first.py", path: "native-late-tab-first.py", dir: false)
+        let plainBuffer = DocumentBuffer(file: plainFile, text: FileText(path: plainFile.path, content: "counter = 1\nprint(counter)\n", hash: "base"))
+        let plainLanguage = NativeLanguage(engine: engine, buffer: plainBuffer, connection: connection)
+        plainBuffer.language = plainLanguage
+        plainLanguage.start()
+        defer { plainLanguage.close() }
+        for _ in 0..<100 { if !plainLanguage.tokens.isEmpty { break }; try await Task.sleep(for: .milliseconds(100)) }
+        XCTAssertFalse(plainLanguage.tokens.isEmpty, plainLanguage.status)
         let file = FileNode(name: "native-literate-check.md", path: "native-literate-check.md", dir: false)
         let source = "<h:doc xmlns:h=\"http://www.hickorydocs.com/1.0\">\n<h:file path=\"probe.py\" language=\"python\">\ncounter = 1\nprint(counter)\n</h:file>\n</h:doc>\n"
         let buffer = DocumentBuffer(file: file, text: FileText(path: file.path, content: source, hash: "base"))
-        let service = NativeLanguage(engine: try Engine(address: origin), buffer: buffer); buffer.language = service
+        let service = NativeLanguage(engine: engine, buffer: buffer, connection: connection); buffer.language = service
         service.start(); defer { service.close() }
         for _ in 0..<100 { if !service.tokens.isEmpty { break }; try await Task.sleep(for: .milliseconds(100)) }
         XCTAssertTrue(service.tokens.contains { (source as NSString).substring(with: $0.range) == "counter" }, service.status)
