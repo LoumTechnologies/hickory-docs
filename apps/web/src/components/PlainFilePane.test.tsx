@@ -1,6 +1,7 @@
 import { UiActions } from "../lib/uiActions";
 import { UiActionContext } from "../lib/uiActionBridge";
 import { EditorView } from "@codemirror/view";
+import { acceptCompletion, completionStatus, startCompletion } from "@codemirror/autocomplete";
 // Unsaved work coming back, and what happens when the file moved on while the
 // app was closed.
 //
@@ -25,6 +26,7 @@ import type { StartupPlainFile } from "../views/folderPane";
 import { setSharedRealtime, type Realtime } from "../api/realtime";
 import { createLspChannel, encodeLspFrame, type JsonRpcMessage } from "../lsp/channel";
 import { resetWorkspaceLsp } from "../lsp/useLsp";
+import { readCompletionAcceptance } from "../lsp/completionAcceptance";
 import { resetWorkspaceDebugger } from "../debug/useDebugger";
 import { publishPausedElsewhere, resetPausedElsewhere } from "../lib/pausedElsewhere";
 import { PlainDebugHosts, resetPlainDebugHosts } from "../debug/plainDebugHosts";
@@ -319,6 +321,49 @@ describe("a plain file and the language server", () => {
         params: { textDocument: { uri: "hick:///notes.md", text: ON_DISK } },
       });
     });
+  });
+
+  it.each([false, true])("keeps source-equal completion typing private only for linked fields (%s)", async (linked) => {
+    const { outbound, inject } = wire();
+    const path = "fixture.py", uri = `hick:///${path}`, content = "a + a\r\n";
+    serve({content, drafts: []});
+    vi.mocked(api.file).mockResolvedValue({path, content, language: "python", hash: "original-hash", save_guard: "original-guard"});
+    vi.mocked(api.files).mockResolvedValue({root: "notebook", root_path: "/workspace", workspace_id: "a".repeat(32), tree: [{name: path, path, dir: false}]});
+    vi.spyOn(api, "complete").mockResolvedValue({suggestions: []});
+    const mounted = render(<PlainFilePane path={path} />);
+    const requestId = async (method: string) => {
+      await waitFor(() => expect(outbound.some(message => "method" in message && message.method === method && "id" in message)).toBe(true));
+      const message = outbound.find(message => "method" in message && message.method === method && "id" in message);
+      if (!message || !("id" in message)) throw Error(`Missing ${method}`);
+      return message.id;
+    };
+    await waitFor(() => expect(outbound.some(message => "method" in message && message.method === "textDocument/didOpen")).toBe(true));
+    const editor = EditorView.findFromDOM(mounted.container.querySelector<HTMLElement>(".cm-editor")!)!;
+    act(() => { editor.dispatch({selection: {anchor: 1}}); expect(startCompletion(editor)).toBe(true); });
+    const query = await requestId("hick/completion");
+    const offered = {label: "a", data: {opaque: "provider offer"}};
+    act(() => inject({jsonrpc: "2.0", id: query, result: [offered]}));
+    await waitFor(() => expect(completionStatus(editor.state)).toBe("active"));
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 85)); expect(acceptCompletion(editor)).toBe(true); });
+    const resolveId = await requestId("completionItem/resolve");
+    expect(outbound.find(message => "id" in message && message.id === resolveId)).toMatchObject({params: {...offered, textDocument: {uri}}});
+    const range = {start: {line: 0, character: 0}, end: {line: 0, character: 5}};
+    const syntax = "${1:a} + $1$0";
+    const result = linked ? {...offered, insertTextFormat: 2, textEdit: {range, newText: syntax}, data: {
+      ...offered.data, hickory_snippet: {version: 2, syntax, text: "a + a", fields: [
+        {index: 1, from: 0, to: 1, choices: [], id: 0, parent: null},
+        {index: 1, from: 4, to: 5, choices: [], id: 1, parent: null},
+        {index: 0, from: 5, to: 5, choices: [], id: 2, parent: null},
+      ]},
+    }} : {...offered, textEdit: {range, newText: "a + a"}};
+    await act(async () => inject({jsonrpc: "2.0", id: resolveId, result}));
+    expect(readCompletionAcceptance(editor)).toMatchObject({phase: "applied", applied: true, source_changed: false});
+    expect(authoredSource(editor.state)).toBe(content);
+    act(() => editor.dispatch({changes: {from: 0, to: 1, insert: "b"}, selection: {anchor: 1}, userEvent: "input.type"}));
+    expect(authoredSource(editor.state)).toBe(linked ? "b + b\r\n" : "b + a\r\n");
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 650)); });
+    if (linked) expect(api.saveFile).not.toHaveBeenCalled();
+    else expect(api.saveFile).toHaveBeenCalledWith(path, "b + a\r\n", "original-hash", false);
   });
 
   it("puts what the server says is wrong into the file-problems store", async () => {

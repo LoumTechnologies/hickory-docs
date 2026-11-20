@@ -57,9 +57,9 @@ originally refused userdata allocation. An owned API 36 emulator booted after
 inactive compiler caches were reclaimed, and the checkpoint Android APK built.
 
 Current acceptance still needs guarded provider snippet and import completion
-in the main Hickory Docs editors. The managed and plain editor entry points
-still use the ordinary language completion adapter. The complete-file
-`source.fixAll` flow has native Android controller evidence and an iPhone
+in the main Hickory Docs managed document editor. The plain editor now has
+an exact CRLF browser replay through its guarded draft and Save All. The
+complete-file `source.fixAll` flow has native Android controller evidence and an iPhone
 build, with rendered review, Apply and Undo/Redo still due on both mobile
 hosts. The iPhone has retained pytest failures, coverage and source navigation.
 Its rendered failed-only rerun and configured debugger Attach still need
@@ -4229,6 +4229,15 @@ Editor identity, frame, scroll, Undo manager and saved file metadata survived.
 The replay also exposed the selection controls covering part of the first
 source row. See
 `target/ios-grouped-provider-snippets/iphone-27/attempt-1/receipt.json`.
+
+The main Hickory Docs plain-file editor chose the grouped completion from
+its visible popup in a CRLF fixture. Two independent provider resolves
+inserted both ordinal fields and one shared import. Native Undo and Redo
+restored the exact rosters, and typing updated all mirrors. The same editor
+and frame survived. The saved bytes, inode and modification time held past
+the ordinary autosave delay. Explicit Save All then published through the
+guarded source-history route, preserving the CRLF rows and the provider's
+literal import. See `target/main-plain-snippet-acceptance/candidate-1/`.
 
 Installed TypeScript completed both prefixes and inserted one shared
 import in Simple Browser and mounted AppKit. The Browser replay used the

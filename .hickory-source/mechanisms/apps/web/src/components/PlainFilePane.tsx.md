@@ -31,6 +31,13 @@ Pending group rollback restores the original editor state and the original save
 plane. A marked recovery draft reenters the private plane when the window has
 enabled draft recovery.
 
+The language-server popup binds an offer to its original plain source and
+provider. It resolves in authored coordinates and prepares the import and
+linked fields together. Before dispatch, the saver seals the same saved guard
+and pauses autosave. This includes a source-equal offer that activates linked
+typing. CodeMirror owns Undo and Redo, and the private plane keeps both local
+until an explicit Save confirms the authored bytes.
+
 After the engine confirms a resource publication, the same-path editor
 installs the fresh saved guard before changing the visible source. The
 programmatic edit leaves the mounted editor and its history in place. If
@@ -69,7 +76,11 @@ import { SurfaceInfo } from "./SurfaceInfo";
 import { registerSearchEditor } from "../lib/workspaceSearch";
 import type { RecordedPatchSource, WorkspaceDraftStage } from "../simple/AgentProposalAdapter";
 import type { StartupPlainFile } from "../views/folderPane";
-import { authoredChanges, authoredSource, normalizedSource, sourceText } from "../simple/SourceText";
+import { authoredChanges, authoredOffset, authoredSource, normalizedSource, sourceText } from "../simple/SourceText";
+import { sourceCompletion } from "../simple/SourceCompletion";
+import { dispatchSourceSnippetTransactions, readSourceEditorIntent, sourceSnippets } from "../simple/SourceSnippets";
+import { resolveSnippetCompletion } from "../simple/SnippetContext";
+import { supportedSnippetTransformPrograms } from "../simple/SnippetTransform";
 import { historySourceHash } from "../simple/SourceHistory";
 import { computeEdits } from "../lib/diff";
 // A plain file, in a pane: any text file in the folder that is neither a
@@ -105,6 +116,8 @@ import { multipleCursors } from "../editor/multiCursor";
 import { testGutter } from "../editor/testGutter";
 import { showTerminalRequest } from "../lib/revealLine";
 import { completions } from "../lsp/completion";
+import { readCompletionAcceptance } from "../lsp/completionAcceptance";
+import { utf16ToPosition } from "../lsp/positions";
 import { useWorkspaceLsp } from "../lsp/useLsp";
 import {
   diagnosticRanges,
@@ -119,7 +132,7 @@ import {
 } from "../lsp/cmLsp";
 import { lspFeatures, type ProviderPreviewRequest } from "../lsp/cmLspFeatures";
 import type { UiOutcome } from "../lib/uiActions";
-import type { CodeAction, LspLocation } from "../lsp/client";
+import type { CodeAction, CompletionItem, LspLocation } from "../lsp/client";
 import type { ReferenceReading } from "./ReferencesPanel";
 import { openLocation, openProviderLocation, pathOfDocUri } from "../lib/revealLine";
 import { forgetFileProblems, setFileProblems } from "../lib/fileProblems";
@@ -641,6 +654,8 @@ export function PlainFilePane({
   const loaded = !!(file || startup);
   const fileRef = useRef(file);
   fileRef.current = file;
+  const plainSourceWritable = useCallback(() => !addressRef.current.retained && plainOwnership.current &&
+    !mergeRef.current && !adoptionPending.current && !recoveryPending.current, []);
   const addressExtensions = useCallback((path: string, language: string, lspClient: typeof lsp.client) => {
     // Where a definition landed. This file: select it. Another: the
     // workspace opens that tab, and its pane does the rest.
@@ -708,9 +723,59 @@ export function PlainFilePane({
           ? {
               client: lspClient,
               uri: lspUri,
-              positionAt: (offset, state) => offsetToPosition(state.doc, offset),
+              transformPrograms: supportedSnippetTransformPrograms,
+              positionAt: (offset, state) => utf16ToPosition(authoredSource(state), authoredOffset(state, offset)),
             }
           : undefined,
+        lspItem: lspClient ? (item, context) => {
+          const view = viewRef.current, address = addressRef.current, revision = sourceSignal.revision;
+          const namespace = sourceNamespace.current, workspace = sourceWorkspace.current;
+          const base = saver.baseContent(), guard = saver.baseGuard();
+          const current = () => sourceMounted.current && !!view?.dom.isConnected && viewRef.current === view &&
+            !!namespace && sourceNamespace.current === namespace && !!workspace && sourceWorkspace.current === workspace &&
+            addressRef.current === address && address.path === path && sourceSignal.revision === revision &&
+            saver.baseContent() === base && saver.baseGuard() === guard &&
+            lspRef.current.ready && lspRef.current.client === lspClient && lspRef.current.uri === lspUri;
+          const writable = () => !!guard && plainSourceWritable();
+          const requestResolve = async (original: CompletionItem) =>
+            await lspClient.request("completionItem/resolve", {...original, textDocument: {uri: lspUri}}) as CompletionItem;
+          return sourceCompletion(item, context, {
+            uri: lspUri, current, writable, notice: setNotice,
+            resolve: original => {
+              if (!view) throw Error("The original plain editor is unavailable.");
+              const state = view.state, selection = state.selection;
+              const intent = readSourceEditorIntent(state), job = readCompletionAcceptance(view)?.job;
+              return resolveSnippetCompletion(original, {
+                source: authoredSource(state), from: authoredOffset(state, selection.main.from),
+                to: authoredOffset(state, selection.main.to), request: requestResolve,
+                current: () => current() && writable() && !view.composing &&
+                  !view.state.readOnly && view.state.facet(EditorView.editable) && view.state.doc === state.doc &&
+                  view.state.selection.eq(selection) && readSourceEditorIntent(view.state) === intent &&
+                  readCompletionAcceptance(view)?.job === job && readCompletionAcceptance(view)?.phase === "resolving",
+              });
+            },
+            group: {
+              query: (offset, source) => lspClient.completion(lspUri, utf16ToPosition(source, offset),
+                {triggerKind: 1}, supportedSnippetTransformPrograms),
+              resolve: requestResolve,
+            },
+            commit: (editor, transactions, requiresPrivateDraft) => {
+              if (!requiresPrivateDraft) { editor.update(transactions); return; }
+              const before = editor.state;
+              const plane = current() && writable() && guard ? saver.prepareDetach(base, guard) : null;
+              if (!plane?.current()) throw Error("The plain file save changed. Wait for it to finish and request completions again.");
+              plane.commit();
+              try {
+                editor.update(transactions);
+                if (editor.state !== transactions.at(-1)!.state) throw Error("The plain editor did not install the prepared completion.");
+                if (authoredSource(before) === authoredSource(editor.state)) saver.changed(authoredSource(before));
+              } catch (error) {
+                if (editor.state === before) plane.rollback();
+                throw error;
+              }
+            },
+          });
+        } : undefined,
         project: (prefix, around) =>
           api.complete(prefix, around).then((answer) => answer.suggestions),
       }),
@@ -770,7 +835,7 @@ export function PlainFilePane({
           : [[0, state.doc.length] as [number, number]],
       ),
     ];
-  }, [captureNavigationContext, saver, selectFrameAndReveal]);
+  }, [captureNavigationContext, plainSourceWritable, saver, selectFrameAndReveal, sourceSignal]);
   useEffect(() => {
     const host = hostRef.current;
     const initial = fileRef.current ?? (startup && {
@@ -780,10 +845,12 @@ export function PlainFilePane({
 
     const view = new EditorView({
       parent: host,
+      dispatchTransactions: dispatchSourceSnippetTransactions,
       state: EditorState.create({
         doc: normalizedSource(initial.content),
         extensions: [
           sourceText(initial.content),
+          sourceSnippets({writable: () => plainSourceWritable() && saver.isDetached(), notice: setNotice}),
           startupAccess.of(startup && !fileRef.current ? protectStartupSource : []),
           // The same chrome every editor wears; `code` is the look a
           // `hick:file` body has inside a document, so opening the file and
@@ -1175,6 +1242,7 @@ Related contracts: [Explicit UI action dispatch checks scope, state, policy and 
 import { UiActions } from "../lib/uiActions";
 import { UiActionContext } from "../lib/uiActionBridge";
 import { EditorView } from "@codemirror/view";
+import { acceptCompletion, completionStatus, startCompletion } from "@codemirror/autocomplete";
 // Unsaved work coming back, and what happens when the file moved on while the
 // app was closed.
 //
@@ -1199,6 +1267,7 @@ import type { StartupPlainFile } from "../views/folderPane";
 import { setSharedRealtime, type Realtime } from "../api/realtime";
 import { createLspChannel, encodeLspFrame, type JsonRpcMessage } from "../lsp/channel";
 import { resetWorkspaceLsp } from "../lsp/useLsp";
+import { readCompletionAcceptance } from "../lsp/completionAcceptance";
 import { resetWorkspaceDebugger } from "../debug/useDebugger";
 import { publishPausedElsewhere, resetPausedElsewhere } from "../lib/pausedElsewhere";
 import { PlainDebugHosts, resetPlainDebugHosts } from "../debug/plainDebugHosts";
@@ -1490,6 +1559,10 @@ describe("a file that is already the output of a document", () => {
 
 Protects docs/guarantees/editor-intelligence/a-plain-file-has-the-same-language-server.md
 
+The source-equal cases distinguish an ordinary popup choice from a snippet that
+already matches the file. Only a linked activation needs to stop autosave, so
+the first keystroke can update its mirror in the private draft.
+
 <storycode:copy id="f-d923b2fdae48-expression_statement-5">
 // Protects docs/guarantees/editor-intelligence/a-plain-file-has-the-same-language-server.md
 describe("a plain file and the language server", () => {
@@ -1530,6 +1603,49 @@ describe("a plain file and the language server", () => {
         params: { textDocument: { uri: "hick:///notes.md", text: ON_DISK } },
       });
     });
+  });
+
+  it.each([false, true])("keeps source-equal completion typing private only for linked fields (%s)", async (linked) => {
+    const { outbound, inject } = wire();
+    const path = "fixture.py", uri = `hick:///${path}`, content = "a + a\r\n";
+    serve({content, drafts: []});
+    vi.mocked(api.file).mockResolvedValue({path, content, language: "python", hash: "original-hash", save_guard: "original-guard"});
+    vi.mocked(api.files).mockResolvedValue({root: "notebook", root_path: "/workspace", workspace_id: "a".repeat(32), tree: [{name: path, path, dir: false}]});
+    vi.spyOn(api, "complete").mockResolvedValue({suggestions: []});
+    const mounted = render(<PlainFilePane path={path} />);
+    const requestId = async (method: string) => {
+      await waitFor(() => expect(outbound.some(message => "method" in message && message.method === method && "id" in message)).toBe(true));
+      const message = outbound.find(message => "method" in message && message.method === method && "id" in message);
+      if (!message || !("id" in message)) throw Error(`Missing ${method}`);
+      return message.id;
+    };
+    await waitFor(() => expect(outbound.some(message => "method" in message && message.method === "textDocument/didOpen")).toBe(true));
+    const editor = EditorView.findFromDOM(mounted.container.querySelector<HTMLElement>(".cm-editor")!)!;
+    act(() => { editor.dispatch({selection: {anchor: 1}}); expect(startCompletion(editor)).toBe(true); });
+    const query = await requestId("hick/completion");
+    const offered = {label: "a", data: {opaque: "provider offer"}};
+    act(() => inject({jsonrpc: "2.0", id: query, result: [offered]}));
+    await waitFor(() => expect(completionStatus(editor.state)).toBe("active"));
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 85)); expect(acceptCompletion(editor)).toBe(true); });
+    const resolveId = await requestId("completionItem/resolve");
+    expect(outbound.find(message => "id" in message && message.id === resolveId)).toMatchObject({params: {...offered, textDocument: {uri}}});
+    const range = {start: {line: 0, character: 0}, end: {line: 0, character: 5}};
+    const syntax = "${1:a} + $1$0";
+    const result = linked ? {...offered, insertTextFormat: 2, textEdit: {range, newText: syntax}, data: {
+      ...offered.data, hickory_snippet: {version: 2, syntax, text: "a + a", fields: [
+        {index: 1, from: 0, to: 1, choices: [], id: 0, parent: null},
+        {index: 1, from: 4, to: 5, choices: [], id: 1, parent: null},
+        {index: 0, from: 5, to: 5, choices: [], id: 2, parent: null},
+      ]},
+    }} : {...offered, textEdit: {range, newText: "a + a"}};
+    await act(async () => inject({jsonrpc: "2.0", id: resolveId, result}));
+    expect(readCompletionAcceptance(editor)).toMatchObject({phase: "applied", applied: true, source_changed: false});
+    expect(authoredSource(editor.state)).toBe(content);
+    act(() => editor.dispatch({changes: {from: 0, to: 1, insert: "b"}, selection: {anchor: 1}, userEvent: "input.type"}));
+    expect(authoredSource(editor.state)).toBe(linked ? "b + b\r\n" : "b + a\r\n");
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 650)); });
+    if (linked) expect(api.saveFile).not.toHaveBeenCalled();
+    else expect(api.saveFile).toHaveBeenCalledWith(path, "b + a\r\n", "original-hash", false);
   });
 
   it("puts what the server says is wrong into the file-problems store", async () => {

@@ -17,7 +17,11 @@ import { SurfaceInfo } from "./SurfaceInfo";
 import { registerSearchEditor } from "../lib/workspaceSearch";
 import type { RecordedPatchSource, WorkspaceDraftStage } from "../simple/AgentProposalAdapter";
 import type { StartupPlainFile } from "../views/folderPane";
-import { authoredChanges, authoredSource, normalizedSource, sourceText } from "../simple/SourceText";
+import { authoredChanges, authoredOffset, authoredSource, normalizedSource, sourceText } from "../simple/SourceText";
+import { sourceCompletion } from "../simple/SourceCompletion";
+import { dispatchSourceSnippetTransactions, readSourceEditorIntent, sourceSnippets } from "../simple/SourceSnippets";
+import { resolveSnippetCompletion } from "../simple/SnippetContext";
+import { supportedSnippetTransformPrograms } from "../simple/SnippetTransform";
 import { historySourceHash } from "../simple/SourceHistory";
 import { computeEdits } from "../lib/diff";
 // A plain file, in a pane: any text file in the folder that is neither a
@@ -53,6 +57,8 @@ import { multipleCursors } from "../editor/multiCursor";
 import { testGutter } from "../editor/testGutter";
 import { showTerminalRequest } from "../lib/revealLine";
 import { completions } from "../lsp/completion";
+import { readCompletionAcceptance } from "../lsp/completionAcceptance";
+import { utf16ToPosition } from "../lsp/positions";
 import { useWorkspaceLsp } from "../lsp/useLsp";
 import {
   diagnosticRanges,
@@ -67,7 +73,7 @@ import {
 } from "../lsp/cmLsp";
 import { lspFeatures, type ProviderPreviewRequest } from "../lsp/cmLspFeatures";
 import type { UiOutcome } from "../lib/uiActions";
-import type { CodeAction, LspLocation } from "../lsp/client";
+import type { CodeAction, CompletionItem, LspLocation } from "../lsp/client";
 import type { ReferenceReading } from "./ReferencesPanel";
 import { openLocation, openProviderLocation, pathOfDocUri } from "../lib/revealLine";
 import { forgetFileProblems, setFileProblems } from "../lib/fileProblems";
@@ -589,6 +595,8 @@ export function PlainFilePane({
   const loaded = !!(file || startup);
   const fileRef = useRef(file);
   fileRef.current = file;
+  const plainSourceWritable = useCallback(() => !addressRef.current.retained && plainOwnership.current &&
+    !mergeRef.current && !adoptionPending.current && !recoveryPending.current, []);
   const addressExtensions = useCallback((path: string, language: string, lspClient: typeof lsp.client) => {
     // Where a definition landed. This file: select it. Another: the
     // workspace opens that tab, and its pane does the rest.
@@ -656,9 +664,59 @@ export function PlainFilePane({
           ? {
               client: lspClient,
               uri: lspUri,
-              positionAt: (offset, state) => offsetToPosition(state.doc, offset),
+              transformPrograms: supportedSnippetTransformPrograms,
+              positionAt: (offset, state) => utf16ToPosition(authoredSource(state), authoredOffset(state, offset)),
             }
           : undefined,
+        lspItem: lspClient ? (item, context) => {
+          const view = viewRef.current, address = addressRef.current, revision = sourceSignal.revision;
+          const namespace = sourceNamespace.current, workspace = sourceWorkspace.current;
+          const base = saver.baseContent(), guard = saver.baseGuard();
+          const current = () => sourceMounted.current && !!view?.dom.isConnected && viewRef.current === view &&
+            !!namespace && sourceNamespace.current === namespace && !!workspace && sourceWorkspace.current === workspace &&
+            addressRef.current === address && address.path === path && sourceSignal.revision === revision &&
+            saver.baseContent() === base && saver.baseGuard() === guard &&
+            lspRef.current.ready && lspRef.current.client === lspClient && lspRef.current.uri === lspUri;
+          const writable = () => !!guard && plainSourceWritable();
+          const requestResolve = async (original: CompletionItem) =>
+            await lspClient.request("completionItem/resolve", {...original, textDocument: {uri: lspUri}}) as CompletionItem;
+          return sourceCompletion(item, context, {
+            uri: lspUri, current, writable, notice: setNotice,
+            resolve: original => {
+              if (!view) throw Error("The original plain editor is unavailable.");
+              const state = view.state, selection = state.selection;
+              const intent = readSourceEditorIntent(state), job = readCompletionAcceptance(view)?.job;
+              return resolveSnippetCompletion(original, {
+                source: authoredSource(state), from: authoredOffset(state, selection.main.from),
+                to: authoredOffset(state, selection.main.to), request: requestResolve,
+                current: () => current() && writable() && !view.composing &&
+                  !view.state.readOnly && view.state.facet(EditorView.editable) && view.state.doc === state.doc &&
+                  view.state.selection.eq(selection) && readSourceEditorIntent(view.state) === intent &&
+                  readCompletionAcceptance(view)?.job === job && readCompletionAcceptance(view)?.phase === "resolving",
+              });
+            },
+            group: {
+              query: (offset, source) => lspClient.completion(lspUri, utf16ToPosition(source, offset),
+                {triggerKind: 1}, supportedSnippetTransformPrograms),
+              resolve: requestResolve,
+            },
+            commit: (editor, transactions, requiresPrivateDraft) => {
+              if (!requiresPrivateDraft) { editor.update(transactions); return; }
+              const before = editor.state;
+              const plane = current() && writable() && guard ? saver.prepareDetach(base, guard) : null;
+              if (!plane?.current()) throw Error("The plain file save changed. Wait for it to finish and request completions again.");
+              plane.commit();
+              try {
+                editor.update(transactions);
+                if (editor.state !== transactions.at(-1)!.state) throw Error("The plain editor did not install the prepared completion.");
+                if (authoredSource(before) === authoredSource(editor.state)) saver.changed(authoredSource(before));
+              } catch (error) {
+                if (editor.state === before) plane.rollback();
+                throw error;
+              }
+            },
+          });
+        } : undefined,
         project: (prefix, around) =>
           api.complete(prefix, around).then((answer) => answer.suggestions),
       }),
@@ -718,7 +776,7 @@ export function PlainFilePane({
           : [[0, state.doc.length] as [number, number]],
       ),
     ];
-  }, [captureNavigationContext, saver, selectFrameAndReveal]);
+  }, [captureNavigationContext, plainSourceWritable, saver, selectFrameAndReveal, sourceSignal]);
   useEffect(() => {
     const host = hostRef.current;
     const initial = fileRef.current ?? (startup && {
@@ -728,10 +786,12 @@ export function PlainFilePane({
 
     const view = new EditorView({
       parent: host,
+      dispatchTransactions: dispatchSourceSnippetTransactions,
       state: EditorState.create({
         doc: normalizedSource(initial.content),
         extensions: [
           sourceText(initial.content),
+          sourceSnippets({writable: () => plainSourceWritable() && saver.isDetached(), notice: setNotice}),
           startupAccess.of(startup && !fileRef.current ? protectStartupSource : []),
           // The same chrome every editor wears; `code` is the look a
           // `hick:file` body has inside a document, so opening the file and

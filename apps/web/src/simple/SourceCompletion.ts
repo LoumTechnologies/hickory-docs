@@ -1,5 +1,5 @@
 import {isolateHistory} from '@codemirror/commands';
-import {EditorSelection,EditorState} from '@codemirror/state';
+import {EditorSelection,EditorState,type Transaction} from '@codemirror/state';
 import {EditorView} from '@codemirror/view';
 import {closeCompletion,pickedCompletion,CompletionContext,type Completion} from '@codemirror/autocomplete';
 import type {CompletionItem} from '../lsp/client';
@@ -15,6 +15,7 @@ import {authoredSource,authoredOffset,editorOffsetIn,authoredChanges} from './So
 export interface SourceCompletionAdapter {
  uri:string;resolve:(item:CompletionItem)=>Promise<CompletionItem>;current:()=>boolean;writable:()=>boolean;notice:(text:string)=>void;
  group?:{query:(offset:number,source:string)=>Promise<CompletionItem[]>;resolve:(item:CompletionItem)=>Promise<CompletionItem>};
+ commit?:(view:EditorView,transactions:readonly Transaction[],requiresPrivateDraft:boolean)=>void;
 }
 const querySnapshots=new WeakMap<EditorState,{source:string;selection:EditorState['selection'];document:EditorState['doc'];intent:symbol|undefined}>();
 export function sourceCompletion(item:CompletionItem,context:CompletionContext,adapter:SourceCompletionAdapter):Completion {
@@ -124,7 +125,7 @@ async function resolveCompletionGroup(state:EditorState,source:string,item:Compl
 export async function acceptSourceCompletion(view:EditorView,item:CompletionItem,source:string,selection:EditorState['selection'],from:number,to:number,adapter:SourceCompletionAdapter,completion?:Completion):Promise<void> {
  const request=beginCompletionAcceptance(view,adapter.notice),snippetContext=readSourceSnippet(view),document=view.state.doc,intent=readSourceEditorIntent(view.state);
  const parallelContext=readParallelSourceSnippet(view.state);
- let expectedAfter:string|undefined;
+ let expectedAfter:string|undefined,preparedState:EditorState|undefined;
  const valid=()=>!request.cancelled()&&request.current()&&readSourceSnippet(view)===snippetContext&&readParallelSourceSnippet(view.state)===parallelContext&&view.state.doc===document&&readSourceEditorIntent(view.state)===intent&&adapter.current()&&view.dom.isConnected&&authoredSource(view.state)===source&&view.state.selection.eq(selection)&&adapter.writable()&&!view.composing&&!view.state.readOnly&&view.state.facet(EditorView.editable);
  const report=(text:string)=>{if(request.current())adapter.notice(text);};
  try {
@@ -160,9 +161,12 @@ export async function acceptSourceCompletion(view:EditorView,item:CompletionItem
   // CodeMirror records the redo selection from a following selection event;
   // otherwise it maps the old caret through the replacement and loses fields.
   const retainedSelection=after!==source?transaction.state.update({selection:transaction.newSelection,userEvent:'select.complete',filter:false}):null;
-  expectedAfter=after;request.update({phase:'applying'});view.update(retainedSelection?[transaction,retainedSelection]:[transaction]);
+  const transactions=retainedSelection?[transaction,retainedSelection]:[transaction];
+  expectedAfter=after;preparedState=transactions.at(-1)!.state;request.update({phase:'applying'});
+  if(adapter.commit)adapter.commit(view,transactions,after!==source||effect?.value!=null);
+  else view.update(transactions);
   const applied=authoredSource(view.state)===after;
   request.update({phase:applied?'applied':'unavailable',applied,source_changed:applied&&source!==after,message:applied?'Completion applied to draft.':'Editor could not reflect the complete completion. Inspect the current draft.'});
   report(applied?((source!==after?'Completion applied · draft':'Completion selected')+(contextNotice?' · '+contextNotice:'')):'Editor could not reflect the complete completion. Inspect the current draft.');
- }catch(error){if((request.current()||expectedAfter!==undefined)&&!request.cancelled()){const applied=expectedAfter!==undefined&&authoredSource(view.state)===expectedAfter,message=error instanceof Error?error.message:String(error);request.update({phase:'unavailable',message,applied,source_changed:applied&&source!==expectedAfter});report(message);}}
+ }catch(error){if((request.current()||expectedAfter!==undefined)&&!request.cancelled()){const applied=expectedAfter!==undefined&&authoredSource(view.state)===expectedAfter&&(expectedAfter!==source||view.state===preparedState),message=error instanceof Error?error.message:String(error);request.update({phase:'unavailable',message,applied,source_changed:applied&&source!==expectedAfter});report(message);}}
 }
