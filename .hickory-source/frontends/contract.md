@@ -4093,6 +4093,17 @@ events drove the mounted menus with the console locked. The saved origin,
 module and TypeScript configuration retained their bytes and file metadata.
 See `target/appkit-ts-auto-import.at2vr5o_/receipt.json`.
 
+The mounted iPhone used the controlled lazy Python provider to review a
+completion with a Unicode linked placeholder and an additional import edit.
+A native tap applied both edits at once and selected the first placeholder
+at UTF-16 range `[0, 8)`. One native Undo and Redo restored the exact text
+and selection. Hardware typing changed both linked occurrences together and
+had its own Undo and Redo. The compact sheet's dismissal swipe cancelled a
+held resolution, and the released reply left the restored draft and caret
+intact. The mounted editor, frame, scroll, undo manager and saved file
+metadata survived. See
+`target/ios-source-completion-native/iphone-27/attempt-1/receipt.json`.
+
 ## Shared snippet expansion foundation
 
 The engine now exposes one renderer-independent snippet plan for completion and source-owned live-template services. It retains literal text, every numbered or unknown-variable field occurrence, UTF-16 ranges, choice alternatives and numeric visit order ending at the exit. Forward references share collected defaults, including nested fields; repeated unknown variable names become linked editable positions. Known variable values remain literal, while unset values use defaults. Cyclic/conflicting defaults, malformed or excessive input and unsupported transforms refuse without producing a partial proposal. This common non-transform subset does not establish full snippet syntax or advertise full host support.
