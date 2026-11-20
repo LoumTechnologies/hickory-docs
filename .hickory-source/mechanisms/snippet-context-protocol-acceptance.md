@@ -32,6 +32,7 @@ while True:
   uri=params.get('data',{}).get('opaque',{}).get('uri');assert params==issued.get(uri),'Original opaque provider item was changed';record({'resolve':uri})
   syntax='${TM_SELECTED_TEXT:${CLIPBOARD}}$0' if uri.endswith('/unused.py') else '${CLIPBOARD:fallback}$0' if uri.endswith('/denied.py') else '${TM_FILENAME}|${CURRENT_YEAR}|${RANDOM_HEX}|${1:${TM_SELECTED_TEXT}}|$1|${1/(.*)/${1:/upcase}/}|${CLIPBOARD:fallback}$0'
   if uri.endswith('/browser.py'):syntax=syntax.rsplit('|${CLIPBOARD:fallback}',1)[0]+'$0'
+  if uri.endswith('/grouped.py'):syntax='${CURSOR_NUMBER}|${TM_SELECTED_TEXT}|${CLIPBOARD:fallback}$0'
   result={**params,'insertTextFormat':2,'textEdit':{'range':{'start':{'line':0,'character':0},'end':{'line':0,'character':3}},'newText':syntax}}
  elif method=='shutdown':result=None
  else:result=None
@@ -51,7 +52,7 @@ function send(body){const data=new TextEncoder().encode(JSON.stringify({jsonrpc:
 function request(method,params){return new Promise((resolve,reject)=>{const id=++sequence,timer=setTimeout(()=>{pending.delete(id);reject(Error(method+' timed out'));},20000);pending.set(id,{resolve,reject,timer,method});send({id,method,params});});}
 socket.addEventListener('message',event=>{if(!(event.data instanceof ArrayBuffer))return;const raw=new Uint8Array(event.data);if(raw[0]!==2)return;const body=JSON.parse(new TextDecoder().decode(raw.subarray(1))),held=pending.get(body.id);if(!held)return;pending.delete(body.id);clearTimeout(held.timer);body.error?held.reject(Error(held.method+": "+body.error.message)):held.resolve(body.result);});
 const source='old\r\nsecond\n',snapshot={clock:{unix_millis:1709228107000,utc_offset_minutes:330},random_hex:'000102030405060708090a0b0c0d0e0f',clipboard:null};
-function bind(item,clipboard=null){return {...item,data:{...item.data,hickory_context:{version:1,expected:item.data.hickory_context,selection:{from:0,to:3},...snapshot,clipboard}}};}
+function bind(item,clipboard=null,carets){return {...item,data:{...item.data,hickory_context:{version:1,expected:item.data.hickory_context,selection:{from:0,to:3},...snapshot,clipboard,...(carets?{carets}:{})}}};}
 function first(result){return Array.isArray(result)?result[0]:result?.items?.[0];}
 async function completeCurrent(uri){const deadline=Date.now()+20000,expectedHash='sha256:'+createHash('sha256').update(source).digest('hex');let heldRevision;
  while(Date.now()<deadline){
@@ -76,7 +77,21 @@ try{
   const events=(await readFile(process.argv[3],'utf8')).split('\n').filter(Boolean).map(JSON.parse);assert.equal(events.filter(event=>event.resolve===pathToFileURL(join(process.argv[4],name)).href).length,1,'Clipboard retry must reuse resolved child data');
   const forged=bind(original);forged.data.hickory_context.expected={...forged.data.hickory_context.expected,source_revision:'b'.repeat(64)};await assert.rejects(request('completionItem/resolve',forged),/source|stamp|changed/i);
  }
- console.log('PASS: source-bound v2 variables/transforms, demand-only clipboard retry, denied fallback, unused default privacy, cached child resolve and foreign proof refusal');
+ const uri='hick:///grouped.py',carets={index:1,count:2},denied={available:false,text:null};
+ const original=await completeCurrent(uri);
+ const foreignPosition=bind(original,null,carets);
+ foreignPosition.data.hickory_context.selection={from:5,to:11};
+ await assert.rejects(request('completionItem/resolve',foreignPosition),/captured caret/);
+ const pending=await request('completionItem/resolve',bind(original,null,carets));
+ assert.deepEqual(pending.data.hickory_context_request,{version:1,variables:['CLIPBOARD']});
+ assert.notEqual(pending.data.hickory_completion,original.data.hickory_completion);
+ await assert.rejects(request('completionItem/resolve',bind(pending,denied,{index:0,count:2})),/captured context/);
+ const resolved=await request('completionItem/resolve',bind(pending,denied,carets));
+ assert.equal(resolved.data.hickory_snippet.text,'2|old|fallback');
+ assert.equal(resolved.data.hickory_context_request,undefined);
+ const groupedEvents=(await readFile(process.argv[3],'utf8')).split('\n').filter(Boolean).map(JSON.parse);
+ assert.equal(groupedEvents.filter(event=>event.resolve===pathToFileURL(join(process.argv[4],'grouped.py')).href).length,1);
+ console.log('PASS: source-bound variables, demand-only clipboard retry, grouped caret and retry identity, cached child resolve and foreign proof refusal');
 }finally{for(const held of pending.values()){clearTimeout(held.timer);held.reject(Error('Closed'));}pending.clear();socket.close();}
 </ui:copy>
 <ui:file path="scripts/snippet-context-protocol-driver.mjs"><ui:paste select="#snippet-context-protocol-driver"/></ui:file>
@@ -89,11 +104,11 @@ ROOT=Path(__file__).resolve().parents[1]
 spec=importlib.util.spec_from_file_location('simple_fixture',ROOT/'scripts/test-simple-browser.py');fixture=importlib.util.module_from_spec(spec);spec.loader.exec_module(fixture)
 def main():
  with tempfile.TemporaryDirectory(prefix='snippet-context-',dir=ROOT/'target') as temporary:
-  folder=Path(temporary);root=folder/'workspace';root.mkdir();events=folder/'events.jsonl';source='old\r\nsecond\n';paths=['variables.py','unused.py','denied.py']
+  folder=Path(temporary);root=folder/'workspace';root.mkdir();events=folder/'events.jsonl';source='old\r\nsecond\n';paths=['variables.py','unused.py','denied.py','grouped.py']
   for path in paths:(root/path).write_bytes(source.encode())
   provider=ROOT/'scripts/snippet-context-controlled-provider.py';driver=ROOT/'scripts/snippet-context-protocol-driver.mjs'
   (root/'.hick-lsp.json').write_text(json.dumps({'servers':{'python':{'command':[sys.executable,str(provider),str(events)]}}}))
-  engine=fixture.start([os.environ.get('HICKORY_SIMPLE_TEST_ENGINE',str(ROOT/'target/source-edit-focus/debug/examples/engine_client')),str(root),'window','http://127.0.0.1:1'],env={**os.environ,'HICKORY_STATE_DIR':str(folder/'state')})
+  engine=fixture.start([os.environ.get('HICKORY_SIMPLE_TEST_ENGINE',str(ROOT/'target/debug/examples/engine_client')),str(root),'window','http://127.0.0.1:1'],env={**os.environ,'HICKORY_STATE_DIR':str(folder/'state')})
   try:
    subprocess.run(['node',str(driver),fixture.origin(engine),str(events),str(root)],check=True,timeout=90)
    for path in paths:assert (root/path).read_bytes()==source.encode(),'Context resolution wrote source bytes'

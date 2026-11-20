@@ -6,11 +6,11 @@ import type {CompletionItem} from '../lsp/client';
 import {lspCompletion,wordBefore} from '../lsp/completion';
 import {beginCompletionAcceptance} from '../lsp/completionAcceptance';
 import {prepareEditorChanges} from '../editor/textInput';
-import {planCompletion,planCompletionGroup,type CapturedCompletion,type CompletionDraft} from './CompletionPlan';
+import {planCompletion,planCompletionGroup,preflightSnippetGroup,type CapturedCompletion,type CompletionDraft} from './CompletionPlan';
 import {sourceDigest} from '../lsp/diagnosticRevision';
 import {completionExpansion} from './SnippetExpansion';
-import {snippetContextNotice} from './SnippetContext';
-import {sourceSnippetEffect,continueSourceSnippetCompletion,readSourceSnippet,readParallelSourceSnippet,readSourceEditorIntent} from './SourceSnippets';
+import {bindSnippetVariables,captureSnippetClipboard,captureSnippetVariables,snippetContextNotice,snippetRequestsClipboard,type SnippetVariableSnapshot} from './SnippetContext';
+import {sourceSnippetEffect,continueSourceSnippetCompletion,readSourceSnippet,readParallelSourceSnippet,readSourceEditorIntent,parallelCompletionSelection} from './SourceSnippets';
 import {authoredSource,authoredOffset,editorOffsetIn,authoredChanges} from './SourceText';
 export interface SourceCompletionAdapter {
  uri:string;resolve:(item:CompletionItem)=>Promise<CompletionItem>;current:()=>boolean;writable:()=>boolean;notice:(text:string)=>void;
@@ -30,16 +30,16 @@ function offerIdentity(item:CompletionItem) {
  return JSON.stringify([item.label,item.kind,item.detail,details?.detail,details?.description]);
 }
 
-function ordinaryProof(item:CompletionItem,hash:string,revision?:string) {
+function groupProof(item:CompletionItem,hash:string,revision?:string) {
  const data = item.data as {hickory_completion?:unknown;hickory_context?:{source_hash?:unknown;source_revision?:unknown}} | undefined;
  const token = data?.hickory_completion, context = data?.hickory_context;
  const currentRevision = context?.source_revision;
- if ((item.insertTextFormat ?? 1) !== 1 || item.kind === 15 || item.command != null) throw new Error("Completion groups require ordinary provider edits.");
+ if (item.command != null) throw new Error("Completion groups require provider edits without commands.");
  if (typeof token !== "string" || !token || context?.source_hash !== hash || typeof currentRevision !== "string"
    || !/^[a-f0-9]{64}$/.test(currentRevision) || (revision !== undefined && currentRevision !== revision)) {
   throw new Error("Completion proof changed across carets. Request the completions again.");
  }
- return {token,revision:currentRevision};
+ return {token,revision:currentRevision,context};
 }
 
 async function resolveCompletionGroup(state:EditorState,source:string,item:CompletionItem,adapter:SourceCompletionAdapter,valid:()=>boolean) {
@@ -52,30 +52,73 @@ async function resolveCompletionGroup(state:EditorState,source:string,item:Compl
    ...(prefix ? {prefixFrom:authoredOffset(state,prefix.from)} : {}),
   };
  });
+ const snapshot = captureSnippetVariables();
  const hash = await sourceDigest(source);
  const requireCurrent = () => { if (!valid()) throw new Error("Source, carets or provider changed. Request completions again."); };
  requireCurrent();
- const proof = ordinaryProof(item,hash);
+ const proof = groupProof(item,hash);
  const seen = new Set<string>();
  const captures: CapturedCompletion[] = [];
+ const demands = new Map<number,CompletionItem>();
  const main = state.selection.mainIndex;
  const identity = offerIdentity(item);
+ async function resolvePeer(offered:CompletionItem,index:number,values:SnippetVariableSnapshot) {
+  const {from,to} = selections[index];
+  const offeredProof = groupProof(offered,hash,proof.revision);
+  const context = await bindSnippetVariables(source,from,to,offeredProof.context,values,{index,count:selections.length});
+  requireCurrent();
+  const data = offered.data as Record<string,unknown>;
+  const resolved = await session!.resolve({...structuredClone(offered),data:{...data,hickory_context:context}});
+  requireCurrent();
+  const returned = groupProof(resolved,hash,proof.revision);
+  const demand = snippetRequestsClipboard(resolved);
+  if (resolved.label !== item.label || (demand
+    ? resolved.insertTextFormat !== 2 || values.clipboard !== null || seen.has(returned.token)
+      || Object.hasOwn(resolved.data as object,'hickory_snippet')
+    : returned.token !== offeredProof.token)) {
+   throw new Error("The provider returned a different completion. Request the completions again.");
+  }
+  if (demand) {
+   seen.add(returned.token);
+   demands.set(index,resolved);
+  }
+  return resolved;
+ }
  for (const index of [main,...selections.keys()].filter((index,offset) => offset === 0 || index !== main)) {
   const selection = selections[index];
   const matching = index === main ? [item] : (await session.query(selection.head,source)).filter(candidate => offerIdentity(candidate) === identity);
   requireCurrent();
   if (matching.length !== 1) throw new Error("A caret has no unique matching completion. Choose a different completion.");
-  const offer = ordinaryProof(matching[0],hash,proof.revision);
+  const offer = groupProof(matching[0],hash,proof.revision);
   if (seen.has(offer.token)) throw new Error("Each caret requires its own provider completion offer.");
   seen.add(offer.token);
-  const resolved = await session.resolve(structuredClone(matching[0]));
-  requireCurrent();
-  if (ordinaryProof(resolved,hash,proof.revision).token !== offer.token || resolved.label !== item.label) {
-   throw new Error("The provider returned a different completion. Request the completions again.");
-  }
+  const resolved = await resolvePeer(matching[0],index,snapshot);
   captures[index] = {item:resolved,...selection};
  }
- return planCompletionGroup(adapter.uri,{text:source,writable:adapter.writable()},captures);
+ const format = captures[0].item.insertTextFormat ?? 1;
+ if ((format !== 1 && format !== 2) || captures.some(({item}) => (item.insertTextFormat ?? 1) !== format)) {
+  throw new Error("The carets must agree on the completion format.");
+ }
+ const budget = {work:0};
+ for (const [index,capture] of captures.entries()) {
+  if (!demands.has(index)) capture.expansion = completionExpansion(capture.item,budget);
+ }
+ if (demands.size) {
+  preflightSnippetGroup(adapter.uri,{text:source,writable:adapter.writable()},captures);
+  const clipboard = await captureSnippetClipboard();
+  requireCurrent();
+  const edit = (item:CompletionItem) => JSON.stringify([item.textEdit,item.insertText,item.additionalTextEdits]);
+  for (const [index,pending] of demands) {
+   const resolved = await resolvePeer(pending,index,{...snapshot,clipboard});
+   if (resolved.insertTextFormat !== format || edit(resolved) !== edit(pending)) {
+    throw new Error("The clipboard reply changed the completion edit.");
+   }
+   captures[index].item = resolved;
+   captures[index].expansion = completionExpansion(resolved,budget);
+  }
+ }
+ const notice = [...new Set(captures.map(({item}) => snippetContextNotice(item)).filter(Boolean))].join(' · ');
+ return {...planCompletionGroup(adapter.uri,{text:source,writable:adapter.writable()},captures,main),notice};
 }
 
 export async function acceptSourceCompletion(view:EditorView,item:CompletionItem,source:string,selection:EditorState['selection'],from:number,to:number,adapter:SourceCompletionAdapter,completion?:Completion):Promise<void> {
@@ -93,6 +136,7 @@ export async function acceptSourceCompletion(view:EditorView,item:CompletionItem
   if (selection.ranges.length > 1) {
    if (snippetContext || parallelContext) throw new Error('Finish editing the template before accepting a completion group.');
    group = await resolveCompletionGroup(view.state,source,item,adapter,valid);
+   contextNotice = group.notice;
   } else {
    const resolved=await adapter.resolve(structuredClone(item));
    if(!request.current()||request.cancelled())return;
@@ -105,11 +149,14 @@ export async function acceptSourceCompletion(view:EditorView,item:CompletionItem
   const input=prepareEditorChanges(source,changes);if('reason' in input)throw new Error(input.reason);
   if(!valid())throw new Error('Source, cursor or provider changed. Request completions again.');
   const raw=authoredChanges(view.state,changes),rawEffects=raw.effects?[raw.effects].flat():[];
-  const resultSelection = group
+  const linked = group?.parallel ? parallelCompletionSelection(group.parallel) : null;
+  if (group?.parallel && !linked) throw new Error('The editor cannot retain every snippet selection.');
+  const resultSelection = linked?.selection ?? (group
    ? EditorSelection.create(group.carets.map(caret=>EditorSelection.cursor(editorOffsetIn(after,caret))),selection.mainIndex)
-   : EditorSelection.single(editorOffsetIn(after,draft!.selection.from),editorOffsetIn(after,draft!.selection.to));
-  const transaction=view.state.update({...raw,selection:resultSelection,effects:draft?[...rawEffects,sourceSnippetEffect(draft,after)]:rawEffects,annotations:[isolateHistory.of('full'),...(completion?[pickedCompletion.of(completion)]:[])],userEvent:'input.complete',filter:false});
-  if(authoredSource(transaction.state)!==after)throw new Error('Editor could not prepare the complete completion. Request again.');
+   : EditorSelection.single(editorOffsetIn(after,draft!.selection.from),editorOffsetIn(after,draft!.selection.to)));
+  const effect = linked?.effect ?? (draft ? sourceSnippetEffect(draft,after) : undefined);
+  const transaction=view.state.update({...raw,selection:resultSelection,effects:effect?[...rawEffects,effect]:rawEffects,annotations:[isolateHistory.of('full'),...(completion?[pickedCompletion.of(completion)]:[])],userEvent:'input.complete',filter:false});
+  if(authoredSource(transaction.state)!==after || (group?.parallel && readParallelSourceSnippet(transaction.state)!==group.parallel))throw new Error('Editor could not prepare the complete completion. Request again.');
   // CodeMirror records the redo selection from a following selection event;
   // otherwise it maps the old caret through the replacement and loses fields.
   const retainedSelection=after!==source?transaction.state.update({selection:transaction.newSelection,userEvent:'select.complete',filter:false}):null;

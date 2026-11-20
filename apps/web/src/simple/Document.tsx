@@ -368,7 +368,7 @@ export function Document({ buffer, current, renderTools }: {
             return await resolveSnippetCompletion(original,{source,from:authoredOffset(view.state,selection.main.from),to:authoredOffset(view.state,selection.main.to),current,request:async item=>await client.request("completionItem/resolve",{...item,textDocument:{uri}}) as import("../lsp/client").CompletionItem});
           },
           group:{
-            query:(offset,source)=>session.client!.completion(session.uri,utf16ToPosition(source,offset),{triggerKind:1}),
+            query:(offset,source)=>session.client!.completion(session.uri,utf16ToPosition(source,offset),{triggerKind:1},supportedSnippetTransformPrograms),
             resolve:item=>session.client!.resolveCompletion(item),
           },
           notice:text=>buffer.setCompletionNotice(text)}) }) : completions({}))] });

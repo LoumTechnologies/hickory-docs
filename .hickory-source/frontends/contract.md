@@ -4134,7 +4134,7 @@ Verification: all three models pass the same 21 source/import/selection/refusal 
 
 Browser, macOS, iOS and Android use the existing completion popup or language menu to resolve the retained provider choice before applying its primary replacement and imports together. The source draft model supplies the complete change and final selection. Source, selection, attachment, permissions, saving and latest-choice checks reject obsolete replies. Dismissal cancels pending acceptance; a newer choice owns its own status. Source text stays readable while resolution runs. Browser choices share one immutable query snapshot rather than copying the document for each offered item.
 
-Acceptance changes only the draft, with one undo/redo step and no implicit save or provider command. The native Apple bridge records the complete source and final selection together; stale source or permissions retire incompatible history after the active undo notification, preserving the current draft. Existing status areas display progress and refusal without adding a toolbar or resizing the editor. Supported snippets use one caret. Cross-owner generated completions still require exact writable projection.
+Acceptance changes only the draft, with one undo/redo step for a text change and no implicit save or provider command. The native Apple bridge records the complete source and final selection together; stale source or permissions retire incompatible history after the active undo notification, preserving the current draft. Existing status areas display progress and refusal without adding a toolbar or resizing the editor. Cross-owner generated completions still require exact writable projection.
 
 Verification: five focused browser controller/actual-popup agent checks pass, including held replies, replacement choices, composition, cancellation and settled application reporting. The actual-engine browser witness resolves imports, checks one-step undo/redo, retained editor identity/geometry and unchanged disk, then dismisses a held resolution and releases it without a late write. Two AppKit/controller checks pass for compound import edits, final redo selection, undo during saving, stale-history retirement and latest/dismissed replies. Two Android tests pass using the actual text state and compound undo/redo. TypeScript checking, the iOS simulator build, source reconstruction and audit pass. These are not native gesture, IME or accessibility acceptance results. Broad regression runs remain user-owned.
 
@@ -4182,8 +4182,24 @@ own token on the exact source revision. The group requires an agreed plain
 replacement, the same additional edits and disjoint primary ranges. An
 implicit edit also requires matching identifier prefixes at collapsed
 carets. The source transaction restores the complete caret roster with one
-Undo and Redo. Grouped completion with snippets remains a separate parity
-case.
+Undo and Redo.
+
+The Simple hosts also prepare a group of independently resolved snippet
+offers. The engine binds each caret context to the captured position and
+uses its authored ordinal for cursor variables. A group shares one clock
+and random capture. It validates all first replies and planned edit ranges
+before a requested clipboard read, then sends the result only to the
+tokens that requested it. The engine keeps retry context bound to that
+caret and snapshot. Shared additions are applied once before the complete
+field roster enters history. Source-equal groups select their fields and
+keep the existing text history. Starting a group inside actively linked
+template fields remains a guarded refusal.
+
+Focused browser, AppKit and Android checks cover separate caret offers,
+shared edits, delayed or invalid context, clipboard admission and linked
+field history. AppKit mounted the source-equal path and kept prior Undo
+history. Android exercised the exact editor text state and complete roster
+through Undo and Redo. These checks used controlled provider replies.
 
 Installed TypeScript completed both prefixes and inserted one shared
 import in Simple Browser and mounted AppKit. The Browser replay used the

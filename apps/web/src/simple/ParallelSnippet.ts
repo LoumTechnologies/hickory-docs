@@ -92,6 +92,22 @@ export function parallelSelections(state: ParallelSnippet): {
   };
 }
 
+// The completion planner has already combined and checked the shared edits.
+// Map the peer envelopes into that final draft and verify their literal text.
+export function rebaseParallelSnippet(
+  state: ParallelSnippet, source: string, starts: readonly number[],
+): ParallelSnippet | null {
+  if (starts.length !== state.peers.length) return null;
+  const peers = state.peers.map(peer => ({
+    ...peer, from: starts[peer.id], to: starts[peer.id] + peer.text.length,
+  }));
+  const rebased = {...state, source, peers};
+  const {ranges} = parallelSelections(rebased);
+  if (ranges.some((range, index) => index > 0 &&
+      (ranges[index - 1].to > range.from || sameRange(ranges[index - 1], range)))) return null;
+  return current(rebased, source) ? rebased : null;
+}
+
 export function beginParallelSnippet(
   source: string, expansions: readonly ParallelExpansion[], primary: number,
 ): ParallelSnippetChange | null {

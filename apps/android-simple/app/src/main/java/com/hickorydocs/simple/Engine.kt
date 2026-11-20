@@ -721,11 +721,10 @@ private fun completionOfferIdentity(item:JSONObject):List<Any?> {
         .map(::field)
 }
 
-private data class OrdinaryCompletionProof(val token:String,val revision:String)
-private fun ordinaryCompletionProof(item:JSONObject,hash:String,revision:String?=null):OrdinaryCompletionProof {
-    check((!item.has("insertTextFormat")||item.opt("insertTextFormat")==1)&&item.opt("kind")!=15&&item.isNull("command")){
-        "Completion groups require ordinary provider edits."
-    }
+private data class CompletionGroupProof(val token:String,val revision:String)
+private fun completionGroupProof(item:JSONObject,hash:String,revision:String?=null):CompletionGroupProof {
+    check(item.isNull("command")){"A grouped completion cannot execute a provider command."}
+    groupCompletionFormat(item)
     val data=item.optJSONObject("data")
     val proof=data?.optJSONObject("hickory_context")
     val token=data?.opt("hickory_completion") as? String
@@ -734,7 +733,7 @@ private fun ordinaryCompletionProof(item:JSONObject,hash:String,revision:String?
         currentRevision.matches(Regex("[a-f0-9]{64}"))&&(revision==null||revision==currentRevision)){
         "Completion proof changed across carets. Request the completions again."
     }
-    return OrdinaryCompletionProof(token,currentRevision)
+    return CompletionGroupProof(token,currentRevision)
 }
 fun languageURI(path: String): String = java.net.URI("hick", "", "/" + path.trimStart('/'), null).toASCIIString()
 fun languageOffset(source: String, position: JSONObject): Int? {
@@ -1112,32 +1111,73 @@ class NativeLanguage(private val engine: Engine, private val buffer: DocumentBuf
     private suspend fun resolveCompletionGroup(
         item:NativeLanguageCompletion,original:JSONObject,valid:()->Boolean,
         query:suspend (Int)->List<JSONObject>,resolve:suspend (JSONObject)->JSONObject,
-    ):AndroidCompletionGroup {
+    ):Pair<AndroidCompletionGroup,String> {
         val ranges=checkNotNull(item.group).ranges
         val hash="sha256:"+debugHash(item.source)
         val identity=completionOfferIdentity(original)
-        val revision=ordinaryCompletionProof(original,hash).revision
+        val revision=completionGroupProof(original,hash).revision
         val tokens=mutableSetOf<String>()
         fun requireCurrent(){check(valid()){"Source, carets or provider changed. Request completions again."}}
-        val resolved=ranges.mapIndexed { index,range ->
+
+        val ordinals=ranges.indices.sortedWith(compareBy({ranges[it].from},{ranges[it].to}))
+            .withIndex().associate { (ordinal,index)->index to ordinal }
+        val snapshot=SnippetVariableSnapshot.capture()
+        suspend fun resolveCaret(index:Int,held:JSONObject,token:String,context:SnippetVariableSnapshot):JSONObject {
             requireCurrent()
-            sourceChangeOffset(item.source,languagePosition(item.source,range.from))
-            sourceChangeOffset(item.source,languagePosition(item.source,range.to))
+            val range=ranges[index]
+            val params=bindSnippetCompletionItem(held,item.source,range.from,range.to,context,
+                SnippetCompletionCaret(ordinals.getValue(index),ranges.size))
+            val result=resolve(params)
+            requireCurrent()
+            val proof=completionGroupProof(result,hash,revision)
+            val data=result.getJSONObject("data")
+            val demand=data.has("hickory_context_request")
+            check(result.opt("label")==item.label&&(if(demand)proof.token!=token else proof.token==token)){
+                "The provider returned a different completion. Request the completions again."
+            }
+            if(demand)check(context.clipboard==null&&groupCompletionFormat(result)==2&&!data.has("hickory_snippet")&&
+                validSnippetClipboardRequest(data)&&tokens.add(proof.token)){
+                "Unsupported or repeated completion context request. No edits were applied."
+            }
+            return result
+        }
+        val staged=ranges.mapIndexed { index,range ->
+            requireCurrent()
+            check(validSnippetContextSelection(item.source,range.from,range.to)){
+                "A completion caret is outside a valid source boundary."
+            }
             val matches=if(index==0)listOf(original) else query(range.to).filter{completionOfferIdentity(it)==identity}
             requireCurrent()
             check(matches.size==1){"A caret has no unique matching completion. Choose a different completion."}
             val offer=matches.single()
-            val proof=ordinaryCompletionProof(offer,hash,revision)
+            val proof=completionGroupProof(offer,hash,revision)
             check(tokens.add(proof.token)){"Each caret requires its own provider completion offer."}
-            val result=resolve(JSONObject(offer.toString()))
-            requireCurrent()
-            check(ordinaryCompletionProof(result,hash,revision).token==proof.token&&result.opt("label")==item.label){
-                "The provider returned a different completion. Request the completions again."
-            }
-            CapturedAndroidCompletion(result,range.from,range.to,
+            resolveCaret(index,offer,proof.token,snapshot)
+        }
+        fun needsClipboard(result:JSONObject)=result.getJSONObject("data").has("hickory_context_request")
+        fun capture(index:Int,result:JSONObject):CapturedAndroidCompletion {
+            val range=ranges[index]
+            return CapturedAndroidCompletion(result,range.from,range.to,
                 nativeCompletionPrefix(item.source,range.from).takeIf{range.from==range.to})
         }
-        return planCompletionGroup(uri,SourceSnapshot(item.source,true),resolved)
+        val clipboardCarets=staged.indices.filter {needsClipboard(staged[it])}.toSet()
+        val source=SourceSnapshot(item.source,true)
+        val preserving=if(clipboardCarets.isEmpty())null else
+            preflightCompletionGroup(uri,source,staged.mapIndexed(::capture),clipboardCarets)
+        val context=if(preserving!=null){
+            requireCurrent()
+            snapshot.copy(clipboard=captureSnippetClipboard(engine.snippetClipboardReader)).also{requireCurrent()}
+        }else snapshot
+        val resolved=staged.mapIndexed { index,held ->
+            val result=if(needsClipboard(held))
+                resolveCaret(index,held,completionGroupProof(held,hash,revision).token,context) else held
+            check(groupCompletionFormat(result)==groupCompletionFormat(held)){
+                "The provider changed a completion during context negotiation."
+            }
+            capture(index,result)
+        }
+        val notice=resolved.map {snippetContextNotice(it.item)}.filter {it.isNotEmpty()}.distinct().joinToString(" ")
+        return planCompletionGroup(uri,source,resolved,preserving) to notice
     }
 
     suspend fun accept(item:NativeLanguageCompletion,resolution:(suspend (JSONObject)->JSONObject)?=null):Boolean =
@@ -1162,16 +1202,17 @@ class NativeLanguage(private val engine: Engine, private val buffer: DocumentBuf
         completionPending=true;completionNotice="Resolving completion…"
         try {
             if(item.group!=null){
-                val group=resolveCompletionGroup(item,original,::current,query ?: { queryCompletionItems(item.source,it).orEmpty() },
+                val (group,contextNotice)=resolveCompletionGroup(item,original,::current,query ?: { queryCompletionItems(item.source,it).orEmpty() },
                     resolution ?: { offer ->
                         val result=request("completionItem/resolve",offer.put("textDocument",doc()))
                         result as? JSONObject ?: error("Provider did not resolve this completion. Request again.")
                     })
                 check(current()){"Source, carets or provider changed. Request completions again."}
-                check(buffer.snippets.applyOrdinaryCompletionGroup(group,item.source)){
+                check(buffer.snippets.applyCompletionGroup(group,item.source)){
                     "Editor refused the completion group. Finish composition or request again."
                 }
-                completionNotice=if(group.plan.patches.isEmpty())"Completion selected" else "Completion applied · draft"
+                completionNotice=(if(group.plan.patches.isEmpty())"Completion selected" else "Completion applied · draft")+
+                    if(contextNotice.isEmpty())"" else " · "+contextNotice
                 return true
             }
             val resolved=(resolution ?: {resolveCompletion(it)})(original)

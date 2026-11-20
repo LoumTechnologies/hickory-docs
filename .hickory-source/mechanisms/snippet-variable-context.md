@@ -148,7 +148,8 @@ impl SnippetVariableSnapshot {
         })
     }
 }
-/// Editor context is data, never new source authority. Callers supply the held exact stamp.
+/// The optional grouped row provides a zero-based ordinal for variables.
+/// It carries no source authority. The producing offer still owns the position.
 #[derive(Debug)]
 </ui:copy>
 
@@ -160,6 +161,7 @@ A returned completion proof must describe the same source revision and exact aut
 pub struct SnippetEditorContext {
     pub from: usize,
     pub to: usize,
+    pub caret: Option<(usize, usize)>,
     pub snapshot: SnippetVariableSnapshot,
     pub transform_program_versions:Vec<u32>,
 }
@@ -182,7 +184,9 @@ impl SnippetEditorContext {
         let programs=if let Some(raw)=raw.get("transform_program_versions"){let values=raw.as_array().ok_or("Malformed snippet transform program versions")?;if values.len()>2{return Err("Excessive snippet transform program versions".into())};values.iter().map(|n|n.as_u64().and_then(|n|u32::try_from(n).ok()).ok_or_else(||"Malformed snippet transform program version".to_owned())).collect::<Result<Vec<_>,_>>()?}else{vec![2]};
         crate::snippet_transform::validate_program_versions(&programs)?;
         let mut allowed=vec!["version","expected","selection","clock","random_hex","clipboard"];
-        if raw.get("transform_program_versions").is_some(){allowed.push("transform_program_versions")};keys(raw,&allowed)?;
+        if raw.get("transform_program_versions").is_some(){allowed.push("transform_program_versions")};
+        if raw.get("carets").is_some(){allowed.push("carets")};
+        keys(raw,&allowed)?;
         if raw["version"].as_u64() != Some(1) {
             return Err("Unsupported editor snippet context version".into());
         }
@@ -218,9 +222,17 @@ impl SnippetEditorContext {
         if from > to {
             return Err("Backwards snippet selection".into());
         }
+        let caret = raw.get("carets").map(|row| {
+            keys(row, &["index", "count"])?;
+            let count = row["count"].as_u64().filter(|count| (2..=16).contains(count))
+                .ok_or("Malformed snippet caret count")?;
+            let index = row["index"].as_u64().filter(|index| *index < count)
+                .ok_or("Malformed snippet caret index")?;
+            Ok::<_, String>((index as usize, count as usize))
+        }).transpose()?;
         let snapshot =
             SnippetVariableSnapshot::read(&raw["clock"], &raw["random_hex"], &raw["clipboard"])?;
-        Ok(Self { from, to, snapshot, transform_program_versions:programs })
+        Ok(Self { from, to, caret, snapshot, transform_program_versions:programs })
     }
 }
 </ui:copy>
@@ -726,6 +738,23 @@ mod tests {
         let context =
             SnippetEditorContext::read(&raw, source, "sha256:held", "held-revision").unwrap();
         assert_eq!(&source[context.from..context.to], "😀");
+        assert_eq!(context.caret, None);
+        let mut grouped = raw.clone();
+        grouped["carets"] = serde_json::json!({"index":1,"count":2});
+        assert_eq!(
+            SnippetEditorContext::read(&grouped, source, "sha256:held", "held-revision")
+                .unwrap().caret,
+            Some((1, 2))
+        );
+        for invalid in [
+            serde_json::json!({"index":2,"count":2}),
+            serde_json::json!({"index":0,"count":1}),
+            serde_json::json!({"index":0,"count":17}),
+            serde_json::json!({"index":false,"count":2}),
+        ] {
+            grouped["carets"] = invalid;
+            assert!(SnippetEditorContext::read(&grouped, source, "sha256:held", "held-revision").is_err());
+        }
         assert_eq!(
             context.snapshot.date.unwrap().offset().local_minus_utc(),
             19800
@@ -930,13 +959,21 @@ export function validSnippetContextSelection(source:string,from:number,to:number
  const boundary=(at:number)=>Number.isSafeInteger(at)&&at>=0&&at<=source.length&&!(at>0&&at<source.length&&(source.charCodeAt(at-1)>=0xD800&&source.charCodeAt(at-1)<=0xDBFF&&source.charCodeAt(at)>=0xDC00&&source.charCodeAt(at)<=0xDFFF||source[at-1]==='\r'&&source[at]==='\n'));
  return from<=to&&boundary(from)&&boundary(to)&&!/[\uD800-\uDFFF]/u.test(source);
 }
-export async function bindSnippetVariables(source:string,from:number,to:number,proof:unknown,snapshot:SnippetVariableSnapshot=captureSnippetVariables()):Promise<Record<string,unknown>> {
+export interface SnippetCaret {readonly index:number;readonly count:number}
+export async function bindSnippetVariables(source:string,from:number,to:number,proof:unknown,snapshot:SnippetVariableSnapshot=captureSnippetVariables(),caret?:SnippetCaret):Promise<Record<string,unknown>> {
  if(!validSnippetContextSelection(source,from,to)||!proof||typeof proof!=='object'||Array.isArray(proof))throw Error('Snippet source context is unavailable. Request completions again.');const expected=proof as Record<string,unknown>;
  if(typeof expected.source_hash!=='string'||!/^sha256:[a-f0-9]{64}$/.test(expected.source_hash)||typeof expected.source_revision!=='string'||! /^[a-f0-9]{64}$/.test(expected.source_revision)||expected.source_hash!=='sha256:'+await sha256(source))throw Error('Snippet source context changed. Request completions again.');
- return Object.freeze({version:1,expected:Object.freeze({source_hash:expected.source_hash,source_revision:expected.source_revision}),selection:Object.freeze({from,to}),clock:snapshot.clock,random_hex:snapshot.random_hex,clipboard:snapshot.clipboard,transform_program_versions:supportedSnippetTransformPrograms});
+ return Object.freeze({version:1,expected:Object.freeze({source_hash:expected.source_hash,source_revision:expected.source_revision}),selection:Object.freeze({from,to}),clock:snapshot.clock,random_hex:snapshot.random_hex,clipboard:snapshot.clipboard,transform_program_versions:supportedSnippetTransformPrograms,...(caret?{carets:caret}:{})});
 }
 
 function snippetRecord(value:unknown):value is Record<string,unknown>{return !!value&&typeof value==='object'&&!Array.isArray(value);}
+export function snippetRequestsClipboard(item:unknown):boolean {
+ const data=snippetRecord(item)&&snippetRecord(item.data)?item.data:{};
+ if(!Object.prototype.hasOwnProperty.call(data,'hickory_context_request'))return false;
+ const request=data.hickory_context_request;
+ if(!snippetRecord(request)||Object.keys(request).length!==2||request.version!==1||!Array.isArray(request.variables)||request.variables.length!==1||request.variables[0]!=='CLIPBOARD')throw Error('Unsupported completion context request. No edits were applied.');
+ return true;
+}
 export async function resolveSnippetCompletion<T extends {label:string;data?:unknown}>(original:T,adapter:{source:string;from:number;to:number;current:()=>boolean;request:(item:T)=>Promise<T>;clipboard?:()=>Promise<Readonly<SnippetClipboard>>}):Promise<T>{
  const current=()=>{if(!adapter.current())throw Error('Source, cursor or provider changed. Request completions again.');};current();
  if(!snippetRecord(original.data)||!Object.prototype.hasOwnProperty.call(original.data,'hickory_context')){const result=await adapter.request(original);current();return result;}
@@ -944,14 +981,20 @@ export async function resolveSnippetCompletion<T extends {label:string;data?:unk
  for(let attempt=0;attempt<2;attempt++){
   current();if(!snippetRecord(item.data))throw Error('Completion context proof is unavailable. Request again.');const bound=await bindSnippetVariables(adapter.source,adapter.from,adapter.to,item.data.hickory_context,snapshot);current();
   const result=await adapter.request({...item,data:{...item.data,hickory_context:bound}} as T);current();const data=snippetRecord(result.data)?result.data:{};const expected=bound.expected as Record<string,unknown>,proof=data.hickory_context;if(!snippetRecord(proof)||proof.source_hash!==expected.source_hash||proof.source_revision!==expected.source_revision)throw Error('Completion source context changed. Request again.');
-  if(!Object.prototype.hasOwnProperty.call(data,'hickory_context_request'))return result;
-  const request=data.hickory_context_request;if(attempt!==0||!snippetRecord(request)||Object.keys(request).length!==2||request.version!==1||!Array.isArray(request.variables)||request.variables.length!==1||request.variables[0]!=='CLIPBOARD')throw Error('Unsupported or repeated completion context request. No edits were applied.');
+  if(!snippetRequestsClipboard(result))return result;
+  if(attempt!==0)throw Error('Unsupported or repeated completion context request. No edits were applied.');
   const clipboard=await(adapter.clipboard??captureSnippetClipboard)();current();snapshot=Object.freeze({clock:snapshot.clock,random_hex:snapshot.random_hex,clipboard:Object.freeze({available:clipboard.available,text:clipboard.text})});item=result;
  }
  throw Error('Completion context is unavailable. No edits were applied.');
 }
 export function snippetContextNotice(item:unknown):string{const data=snippetRecord(item)&&snippetRecord(item.data)?item.data:{};if(!Object.prototype.hasOwnProperty.call(data,'hickory_context_unavailable'))return '';const values=data.hickory_context_unavailable;if(!Array.isArray(values)||values.length>40||!values.every(value=>typeof value==='string'&&value.length<=64))throw Error('Malformed completion context availability');return values.length?values.every(value=>value==='CLIPBOARD')?'Clipboard unavailable; its fallback or empty text was used.':'Some requested context values were unavailable; their fallback or empty text was used.':'';}
 </ui:copy>
+
+Apple grouped completion binds each current selection and its authored order to
+its own retained offer. The group captures one clock and random seed. Each offer
+starts without clipboard content, and a verified demand can reuse the group's
+one captured result, including denial. A retry must return the token issued for
+that demand.
 
 <ui:copy id="snippet-variable-context-apple">
 import Foundation
@@ -992,18 +1035,102 @@ func bindSnippetVariables(_ source:String,from:Int,to:Int,proof:Any,snapshot:Sni
  return snapshot.body.merging(["version":1,"expected":["source_hash":hash,"source_revision":revision],"selection":["from":from,"to":to],"transform_program_versions":supportedSnippetTransformPrograms]){_,new in new}
 }
 
-@MainActor func resolveSnippetCompletion(_ original:[String:Any],source:String,from:Int,to:Int,current:()->Bool,request:([String:Any])async throws->[String:Any],clipboard:(()->String?)?=nil)async throws->[String:Any]{
- func check()throws{guard current() else{throw EngineError(message:"Source, cursor or provider changed. Request completions again.")}};try check()
- guard let initialData=original["data"] as? [String:Any],initialData.keys.contains("hickory_context") else{let result=try await request(original);try check();return result}
- var snapshot=SnippetVariableSnapshot.capture(),item=original
- for attempt in 0..<2{try check();guard let data=item["data"] as? [String:Any],let proof=data["hickory_context"] else{throw EngineError(message:"Completion context proof is unavailable. Request again.")};let bound=try bindSnippetVariables(source,from:from,to:to,proof:proof,snapshot:snapshot);try check();var params=item,wire=data;wire["hickory_context"]=bound;params["data"]=wire;let result=try await request(params);try check();let reply=result["data"] as? [String:Any] ?? [:]
-  guard let expected=bound["expected"] as? [String:Any],let proof=reply["hickory_context"] as? [String:Any],let hash=proof["source_hash"] as? String,let revision=proof["source_revision"] as? String,hash==expected["source_hash"] as? String,revision==expected["source_revision"] as? String else{throw EngineError(message:"Completion source context changed. Request again.")}
-  guard let raw=reply["hickory_context_request"] else{return result};guard attempt==0,let requested=raw as? [String:Any],requested.count==2,sourceChangeInteger(requested["version"])==1,let names=requested["variables"] as? [String],names==["CLIPBOARD"] else{throw EngineError(message:"Unsupported or repeated completion context request. No edits were applied.")};snapshot.clipboard=captureSnippetClipboard(read:clipboard);try check();item=result
- }
- throw EngineError(message:"Completion context is unavailable. No edits were applied.")
+@MainActor final class GroupedSnippetContext {
+    let snapshot=SnippetVariableSnapshot.capture()
+    private var tokens=Set<String>()
+
+    func claimToken(_ data:[String:Any])->Bool {
+        guard let token=data["hickory_completion"] as? String,!token.isEmpty else{return false}
+        return tokens.insert(token).inserted
+    }
+
+}
+
+enum SnippetCompletionReply {
+    case ready([String:Any])
+    case needsClipboard([String:Any])
+
+    var item:[String:Any] {
+        switch self {
+        case .ready(let item),.needsClipboard(let item): return item
+        }
+    }
+}
+
+@MainActor func requestSnippetCompletion(
+    _ item:[String:Any],source:String,from:Int,to:Int,current:()->Bool,
+    request:([String:Any])async throws->[String:Any],snapshot:SnippetVariableSnapshot,
+    group:(context:GroupedSnippetContext,index:Int,count:Int)?=nil
+)async throws->SnippetCompletionReply {
+    func check()throws {
+        guard current() else{throw EngineError(message:"Source, cursor or provider changed. Request completions again.")}
+    }
+    try check()
+    guard let data=item["data"] as? [String:Any],data.keys.contains("hickory_context") else {
+        guard group==nil else{throw EngineError(message:"Completion context proof is unavailable. Request again.")}
+        let result=try await request(item);try check();return .ready(result)
+    }
+    guard let proof=data["hickory_context"] else {
+        throw EngineError(message:"Completion context proof is unavailable. Request again.")
+    }
+    if let group,snapshot.clipboard==nil,!group.context.claimToken(data) {
+        throw EngineError(message:"Completion token was reused across carets. Request again.")
+    }
+    var bound=try bindSnippetVariables(source,from:from,to:to,proof:proof,snapshot:snapshot)
+    if let group {bound["carets"]=["index":group.index,"count":group.count]}
+    try check()
+    var params=item,wire=data;wire["hickory_context"]=bound;params["data"]=wire
+    let result=try await request(params);try check()
+    let reply=result["data"] as? [String:Any] ?? [:]
+    guard let expected=bound["expected"] as? [String:Any],let proof=reply["hickory_context"] as? [String:Any],
+          let hash=proof["source_hash"] as? String,let revision=proof["source_revision"] as? String,
+          hash==expected["source_hash"] as? String,revision==expected["source_revision"] as? String else {
+        throw EngineError(message:"Completion source context changed. Request again.")
+    }
+    let demand=reply["hickory_context_request"]
+    if group != nil {
+        guard let sent=data["hickory_completion"] as? String,!sent.isEmpty,
+              let returned=reply["hickory_completion"] as? String,!returned.isEmpty,
+              exactUTF8(result["label"] as? String,item["label"] as? String),
+              (demand==nil ? exactUTF8(sent,returned) : !exactUTF8(sent,returned)) else {
+            throw EngineError(message:"Completion token changed. Request again.")
+        }
+    }
+    guard let raw=demand else{return .ready(result)}
+    guard snapshot.clipboard==nil,let requested=raw as? [String:Any],requested.count==2,
+          sourceChangeInteger(requested["version"])==1,let names=requested["variables"] as? [String],names==["CLIPBOARD"],
+          group==nil || (sourceChangeInteger(result["insertTextFormat"])==2 &&
+              (result["command"]==nil || result["command"] is NSNull) && reply["hickory_snippet"]==nil) else {
+        throw EngineError(message:"Unsupported or repeated completion context request. No edits were applied.")
+    }
+    if let group,!group.context.claimToken(reply) {
+        throw EngineError(message:"Completion token was reused across carets. Request again.")
+    }
+    return .needsClipboard(result)
+}
+
+@MainActor func resolveSnippetCompletion(
+    _ original:[String:Any],source:String,from:Int,to:Int,current:()->Bool,
+    request:([String:Any])async throws->[String:Any],clipboard:(()->String?)?=nil
+)async throws->[String:Any] {
+    var snapshot=SnippetVariableSnapshot.capture()
+    let first=try await requestSnippetCompletion(original,source:source,from:from,to:to,current:current,
+        request:request,snapshot:snapshot)
+    switch first {
+    case .ready(let result):return result
+    case .needsClipboard(let item):
+        snapshot.clipboard=captureSnippetClipboard(read:clipboard)
+        let retry=try await requestSnippetCompletion(item,source:source,from:from,to:to,current:current,
+            request:request,snapshot:snapshot)
+        return retry.item
+    }
 }
 func snippetContextNotice(_ item:[String:Any])throws->String {guard let data=item["data"] as? [String:Any],let raw=data["hickory_context_unavailable"] else{return ""};guard let names=raw as? [String],names.count<=40,names.allSatisfy({$0.utf8.count<=64}) else{throw EngineError(message:"Malformed completion context availability")};guard !names.isEmpty else{return ""};return names.allSatisfy({$0=="CLIPBOARD"}) ? "Clipboard unavailable; its fallback or empty text was used.":"Some requested context values were unavailable; their fallback or empty text was used."}
 </ui:copy>
+
+Android binds each grouped caret to its authored selection and ordinal. A
+single completion leaves the ordinal field absent. Both routes validate the
+same clipboard request shape before reading the clipboard.
 
 <ui:copy id="snippet-variable-context-android">
 package com.hickorydocs.simple
@@ -1021,14 +1148,32 @@ internal fun validSnippetContextSelection(source:String,from:Int,to:Int):Boolean
  fun boundary(at:Int)=at in 0..source.length&&!(at>0&&at<source.length&&(source[at-1].isHighSurrogate()&&source[at].isLowSurrogate()||source[at-1]=='\r'&&source[at]=='\n'))
  var at=0;while(at<source.length){val ch=source[at++];if(ch.isHighSurrogate()){if(at==source.length||!source[at++].isLowSurrogate())return false}else if(ch.isLowSurrogate())return false};return from<=to&&boundary(from)&&boundary(to)
 }
-internal fun bindSnippetVariables(source:String,from:Int,to:Int,proof:Any?,snapshot:SnippetVariableSnapshot=SnippetVariableSnapshot.capture()):JSONObject {
+internal data class SnippetCompletionCaret(val index:Int,val count:Int) {
+ init { require(count in 2..16&&index in 0 until count){"Invalid grouped snippet caret."} }
+ internal fun body()=JSONObject().put("index",index).put("count",count)
+}
+internal fun bindSnippetVariables(source:String,from:Int,to:Int,proof:Any?,snapshot:SnippetVariableSnapshot=SnippetVariableSnapshot.capture(),caret:SnippetCompletionCaret?=null):JSONObject {
  check(validSnippetContextSelection(source,from,to)&&proof is JSONObject&&proof.opt("source_hash")=="sha256:"+debugHash(source)&&(proof.opt("source_revision") as? String)?.matches(Regex("[a-f0-9]{64}"))==true){"Snippet source context changed. Request completions again."}
  return snapshot.body().put("version",1).put("expected",JSONObject().put("source_hash",proof.getString("source_hash")).put("source_revision",proof.getString("source_revision"))).put("selection",JSONObject().put("from",from).put("to",to)).put("transform_program_versions",org.json.JSONArray(supportedSnippetTransformPrograms))
+  .apply { if(caret!=null)put("carets",caret.body()) }
+}
+
+internal fun bindSnippetCompletionItem(item:JSONObject,source:String,from:Int,to:Int,snapshot:SnippetVariableSnapshot,caret:SnippetCompletionCaret?=null):JSONObject {
+ val data=item.optJSONObject("data") ?: error("Completion context proof is unavailable. Request again.")
+ return JSONObject(item.toString()).put("data",JSONObject(data.toString()).put("hickory_context",
+  bindSnippetVariables(source,from,to,data.opt("hickory_context"),snapshot,caret)))
+}
+
+internal fun validSnippetClipboardRequest(reply:JSONObject):Boolean {
+ val request=reply.optJSONObject("hickory_context_request") ?: return false
+ val names=request.optJSONArray("variables") ?: return false
+ return request.length()==2&&(request.opt("version") as? Number)?.toString()=="1"&&
+  names.length()==1&&names.opt(0)=="CLIPBOARD"
 }
 
 internal suspend fun resolveSnippetCompletion(original:JSONObject,source:String,from:Int,to:Int,current:()->Boolean,request:suspend (JSONObject)->JSONObject,clipboard:(()->String?)?=null):JSONObject {
  fun valid(){check(current()){"Source, cursor or provider changed. Request completions again."}};valid();if(original.optJSONObject("data")?.has("hickory_context")!=true){val result=request(original);valid();return result};var snapshot=SnippetVariableSnapshot.capture();var item=original
- for(attempt in 0 until 2){valid();val data=item.optJSONObject("data") ?: error("Completion context proof is unavailable. Request again.");val bound=bindSnippetVariables(source,from,to,data.opt("hickory_context"),snapshot);valid();val params=JSONObject(item.toString());params.put("data",JSONObject(data.toString()).put("hickory_context",bound));val result=request(params);valid();val reply=result.optJSONObject("data") ?: JSONObject();val expected=bound.getJSONObject("expected");val proof=reply.optJSONObject("hickory_context");check(proof!=null&&proof.opt("source_hash")==expected.opt("source_hash")&&proof.opt("source_revision")==expected.opt("source_revision")){"Completion source context changed. Request again."};if(!reply.has("hickory_context_request"))return result;val requested=reply.optJSONObject("hickory_context_request");val names=requested?.optJSONArray("variables");check(attempt==0&&requested!=null&&requested.length()==2&&(requested.opt("version") as? Number)?.toString()=="1"&&names?.length()==1&&names.opt(0)=="CLIPBOARD"){"Unsupported or repeated completion context request. No edits were applied."};snapshot=snapshot.copy(clipboard=captureSnippetClipboard(clipboard));valid();item=result}
+ for(attempt in 0 until 2){valid();val params=bindSnippetCompletionItem(item,source,from,to,snapshot);valid();val result=request(params);valid();val reply=result.optJSONObject("data") ?: JSONObject();val expected=params.getJSONObject("data").getJSONObject("hickory_context").getJSONObject("expected");val proof=reply.optJSONObject("hickory_context");check(proof!=null&&proof.opt("source_hash")==expected.opt("source_hash")&&proof.opt("source_revision")==expected.opt("source_revision")){"Completion source context changed. Request again."};if(!reply.has("hickory_context_request"))return result;check(attempt==0&&validSnippetClipboardRequest(reply)){"Unsupported or repeated completion context request. No edits were applied."};snapshot=snapshot.copy(clipboard=captureSnippetClipboard(clipboard));valid();item=result}
  error("Completion context is unavailable. No edits were applied.")
 }
 internal fun snippetContextNotice(item:JSONObject):String {val data=item.optJSONObject("data")?:return "";if(!data.has("hickory_context_unavailable"))return "";val names=data.optJSONArray("hickory_context_unavailable")?:error("Malformed completion context availability");check(names.length()<=40&&(0 until names.length()).all{names.opt(it) is String&&names.getString(it).length<=64}){"Malformed completion context availability"};if(names.length()==0)return "";return if((0 until names.length()).all{names.getString(it)=="CLIPBOARD"})"Clipboard unavailable; its fallback or empty text was used." else "Some requested context values were unavailable; their fallback or empty text was used."}

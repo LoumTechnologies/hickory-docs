@@ -13,14 +13,32 @@ internal fun validSnippetContextSelection(source:String,from:Int,to:Int):Boolean
  fun boundary(at:Int)=at in 0..source.length&&!(at>0&&at<source.length&&(source[at-1].isHighSurrogate()&&source[at].isLowSurrogate()||source[at-1]=='\r'&&source[at]=='\n'))
  var at=0;while(at<source.length){val ch=source[at++];if(ch.isHighSurrogate()){if(at==source.length||!source[at++].isLowSurrogate())return false}else if(ch.isLowSurrogate())return false};return from<=to&&boundary(from)&&boundary(to)
 }
-internal fun bindSnippetVariables(source:String,from:Int,to:Int,proof:Any?,snapshot:SnippetVariableSnapshot=SnippetVariableSnapshot.capture()):JSONObject {
+internal data class SnippetCompletionCaret(val index:Int,val count:Int) {
+ init { require(count in 2..16&&index in 0 until count){"Invalid grouped snippet caret."} }
+ internal fun body()=JSONObject().put("index",index).put("count",count)
+}
+internal fun bindSnippetVariables(source:String,from:Int,to:Int,proof:Any?,snapshot:SnippetVariableSnapshot=SnippetVariableSnapshot.capture(),caret:SnippetCompletionCaret?=null):JSONObject {
  check(validSnippetContextSelection(source,from,to)&&proof is JSONObject&&proof.opt("source_hash")=="sha256:"+debugHash(source)&&(proof.opt("source_revision") as? String)?.matches(Regex("[a-f0-9]{64}"))==true){"Snippet source context changed. Request completions again."}
  return snapshot.body().put("version",1).put("expected",JSONObject().put("source_hash",proof.getString("source_hash")).put("source_revision",proof.getString("source_revision"))).put("selection",JSONObject().put("from",from).put("to",to)).put("transform_program_versions",org.json.JSONArray(supportedSnippetTransformPrograms))
+  .apply { if(caret!=null)put("carets",caret.body()) }
+}
+
+internal fun bindSnippetCompletionItem(item:JSONObject,source:String,from:Int,to:Int,snapshot:SnippetVariableSnapshot,caret:SnippetCompletionCaret?=null):JSONObject {
+ val data=item.optJSONObject("data") ?: error("Completion context proof is unavailable. Request again.")
+ return JSONObject(item.toString()).put("data",JSONObject(data.toString()).put("hickory_context",
+  bindSnippetVariables(source,from,to,data.opt("hickory_context"),snapshot,caret)))
+}
+
+internal fun validSnippetClipboardRequest(reply:JSONObject):Boolean {
+ val request=reply.optJSONObject("hickory_context_request") ?: return false
+ val names=request.optJSONArray("variables") ?: return false
+ return request.length()==2&&(request.opt("version") as? Number)?.toString()=="1"&&
+  names.length()==1&&names.opt(0)=="CLIPBOARD"
 }
 
 internal suspend fun resolveSnippetCompletion(original:JSONObject,source:String,from:Int,to:Int,current:()->Boolean,request:suspend (JSONObject)->JSONObject,clipboard:(()->String?)?=null):JSONObject {
  fun valid(){check(current()){"Source, cursor or provider changed. Request completions again."}};valid();if(original.optJSONObject("data")?.has("hickory_context")!=true){val result=request(original);valid();return result};var snapshot=SnippetVariableSnapshot.capture();var item=original
- for(attempt in 0 until 2){valid();val data=item.optJSONObject("data") ?: error("Completion context proof is unavailable. Request again.");val bound=bindSnippetVariables(source,from,to,data.opt("hickory_context"),snapshot);valid();val params=JSONObject(item.toString());params.put("data",JSONObject(data.toString()).put("hickory_context",bound));val result=request(params);valid();val reply=result.optJSONObject("data") ?: JSONObject();val expected=bound.getJSONObject("expected");val proof=reply.optJSONObject("hickory_context");check(proof!=null&&proof.opt("source_hash")==expected.opt("source_hash")&&proof.opt("source_revision")==expected.opt("source_revision")){"Completion source context changed. Request again."};if(!reply.has("hickory_context_request"))return result;val requested=reply.optJSONObject("hickory_context_request");val names=requested?.optJSONArray("variables");check(attempt==0&&requested!=null&&requested.length()==2&&(requested.opt("version") as? Number)?.toString()=="1"&&names?.length()==1&&names.opt(0)=="CLIPBOARD"){"Unsupported or repeated completion context request. No edits were applied."};snapshot=snapshot.copy(clipboard=captureSnippetClipboard(clipboard));valid();item=result}
+ for(attempt in 0 until 2){valid();val params=bindSnippetCompletionItem(item,source,from,to,snapshot);valid();val result=request(params);valid();val reply=result.optJSONObject("data") ?: JSONObject();val expected=params.getJSONObject("data").getJSONObject("hickory_context").getJSONObject("expected");val proof=reply.optJSONObject("hickory_context");check(proof!=null&&proof.opt("source_hash")==expected.opt("source_hash")&&proof.opt("source_revision")==expected.opt("source_revision")){"Completion source context changed. Request again."};if(!reply.has("hickory_context_request"))return result;check(attempt==0&&validSnippetClipboardRequest(reply)){"Unsupported or repeated completion context request. No edits were applied."};snapshot=snapshot.copy(clipboard=captureSnippetClipboard(clipboard));valid();item=result}
  error("Completion context is unavailable. No edits were applied.")
 }
 internal fun snippetContextNotice(item:JSONObject):String {val data=item.optJSONObject("data")?:return "";if(!data.has("hickory_context_unavailable"))return "";val names=data.optJSONArray("hickory_context_unavailable")?:error("Malformed completion context availability");check(names.length()<=40&&(0 until names.length()).all{names.opt(it) is String&&names.getString(it).length<=64}){"Malformed completion context availability"};if(names.length()==0)return "";return if((0 until names.length()).all{names.getString(it)=="CLIPBOARD"})"Clipboard unavailable; its fallback or empty text was used." else "Some requested context values were unavailable; their fallback or empty text was used."}

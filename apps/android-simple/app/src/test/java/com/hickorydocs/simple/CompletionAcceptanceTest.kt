@@ -43,9 +43,13 @@ class CompletionAcceptanceTest {
  private fun groupItem(buffer:DocumentBuffer)=NativeLanguageCompletion("value","fixture value",NativeSourceEdit(0,2,"value"),
   buffer.text,buffer.state.selection,groupOffer(buffer.text,"primary"),buffer.sourceRevision,
   NativeCompletionGroupCapture(buffer.multiRanges,buffer.multiSelectionRevision,buffer.file,0,buffer.snippets.intent))
- private fun resolveGroupOffer(offer:JSONObject,importText:String="# import\n"):JSONObject =
-  offer.put("textEdit",edit(if(offer.getJSONObject("data").getString("hickory_completion")=="primary")0 else 1,0,2,"value"))
+ private fun resolveGroupOffer(offer:JSONObject,importText:String="# import\n"):JSONObject {
+  val data=offer.getJSONObject("data")
+  val expected=data.getJSONObject("hickory_context").optJSONObject("expected")
+  if(expected!=null)data.put("hickory_context",expected)
+  return offer.put("textEdit",edit(if(offer.getJSONObject("data").getString("hickory_completion")=="primary")0 else 1,0,2,"value"))
    .put("additionalTextEdits",JSONArray().put(edit(0,0,0,importText)))
+ }
  private fun roster(vararg pairs:Pair<Int,Int>)=pairs.map { (from,to)->NativeSourceEdit(from,to,"") }
 
  @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
@@ -108,6 +112,180 @@ class CompletionAcceptanceTest {
     if(buffer.snippets.inMarkedInput)buffer.snippets.leavingMarkedEvent()
     service.close()
    }
+  }
+ }
+
+ private val sharedSnippetSyntax="${'$'}{1:x} + ${'$'}1 / ${'$'}CURSOR_NUMBER / ${'$'}CLIPBOARD${'$'}0"
+
+ private fun groupSnippetReply(source:String,token:String,index:Int,clip:String?):JSONObject {
+  val indent=" ".repeat(index)
+  val syntax=indent+sharedSnippetSyntax
+  val item=groupOffer(source,token).put("insertTextFormat",2)
+   .put("textEdit",edit(index,0,2,syntax))
+   .put("additionalTextEdits",JSONArray().put(edit(0,0,0,"# import\n")))
+  val data=item.getJSONObject("data")
+  if(clip==null){
+   data.put("hickory_context_request",JSONObject().put("version",1).put("variables",JSONArray().put("CLIPBOARD")))
+   return item
+  }
+  val expanded=indent+"x + x / ${index+1} / $clip"
+  fun field(index:Int,from:Int,to:Int,id:Int)=JSONObject().put("index",index).put("from",from)
+   .put("to",to).put("id",id).put("parent",JSONObject.NULL).put("choices",JSONArray())
+  data.put("hickory_snippet",JSONObject().put("version",1).put("syntax",syntax)
+   .put("text",expanded).put("fields",JSONArray().put(field(1,index,index+1,0)).put(field(1,index+4,index+5,1))
+    .put(field(0,expanded.length,expanded.length,2))))
+  return item
+ }
+
+ @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+ @Test fun groupedLazySnippetsShareOneContextAndClipboardWithExactNativeHistory()=runBlocking {
+  val source="va\nva\n";val initial=roster(0 to 2,3 to 5)
+  val buffer=DocumentBuffer(FileNode("a.py","a.py",false,emptyList(),null,null),FileText(source,"base"))
+  val engine=Engine("http://127.0.0.1:1")
+  var clipboardReads=0
+  engine.snippetClipboardReader={clipboardReads++;"clipboard"}
+  val service=NativeLanguage(engine,buffer,this);buffer.language=service
+  val captured=mutableListOf<JSONObject>()
+  try{
+   assertTrue(buffer.selectMultiple(initial,source))
+   assertTrue(service.accept(groupItem(buffer),query={ offset ->
+    assertEquals(5,offset)
+    assertEquals("Resolve the current offer before querying the next caret",1,captured.size)
+    listOf(groupOffer(source,"peer"))
+   },resolution={item->
+    assertEquals(source,buffer.text)
+    val data=item.getJSONObject("data");val ctx=data.getJSONObject("hickory_context")
+    captured.add(ctx)
+    val ordinal=ctx.getJSONObject("carets")
+    val index=ordinal.getInt("index")
+    val selection=ctx.getJSONObject("selection")
+    assertEquals(2,ordinal.getInt("count"))
+    assertEquals(initial[index].from,selection.getInt("from"));assertEquals(initial[index].to,selection.getInt("to"))
+    val token=data.getString("hickory_completion")
+    val expected=if(index==0)"primary" else "peer"
+    if(ctx.isNull("clipboard")){
+     assertEquals(0,clipboardReads);assertEquals(expected,token)
+     groupSnippetReply(source,"$expected-negotiation",index,null)
+    }else{
+     assertEquals(1,clipboardReads);assertEquals("$expected-negotiation",token)
+     assertTrue(ctx.getJSONObject("clipboard").getBoolean("available"))
+     groupSnippetReply(source,token,index,ctx.getJSONObject("clipboard").getString("text"))
+    }
+   }))
+   assertEquals(1,clipboardReads)
+   assertEquals(listOf(0,1,0,1),captured.map {it.getJSONObject("carets").getInt("index")})
+   assertEquals(1,captured.map {it.getJSONObject("clock").toString()}.distinct().size)
+   assertEquals(1,captured.map {it.getString("random_hex")}.distinct().size)
+   val draft="# import\nx + x / 1 / clipboard\n x + x / 2 / clipboard\n"
+   assertEquals(draft,buffer.text)
+   val next=draft.indexOf('\n',9)+1
+   val active=roster(9 to 10,next+1 to next+2)
+   assertEquals(active,buffer.multiRanges);assertNotNull(buffer.snippets.parallel)
+   assertTrue(buffer.snippets.inputParallel("done"))
+   assertEquals("# import\ndone + done / 1 / clipboard\n done + done / 2 / clipboard\n",buffer.text)
+   assertTrue(buffer.snippets.undoSource());assertEquals(draft,buffer.text);assertEquals(active,buffer.multiRanges)
+   assertTrue(buffer.snippets.undoSource());assertEquals(source,buffer.text);assertEquals(initial,buffer.multiRanges)
+   assertNull(buffer.snippets.parallel);assertFalse(buffer.snippets.canUndo)
+   assertTrue(buffer.snippets.redoSource());assertEquals(draft,buffer.text);assertEquals(active,buffer.multiRanges)
+   assertNotNull(buffer.snippets.parallel);assertEquals(source,buffer.base)
+  }finally{service.close()}
+ }
+
+ @Test fun groupedClipboardStaysUnreadIfAnyFirstReplyCannotEnterTheGroup()=runBlocking {
+  val source="va\nva\n";val initial=roster(0 to 2,3 to 5)
+  for(failure in listOf("mixed","reused","malformed","conflicting imports","overlap")){
+   val buffer=DocumentBuffer(FileNode("a.py","a.py",false,emptyList(),null,null),FileText(source,"base"))
+   val engine=Engine("http://127.0.0.1:1")
+   var clipboardReads=0
+   engine.snippetClipboardReader={clipboardReads++;"private"}
+   val service=NativeLanguage(engine,buffer,this);buffer.language=service
+   try{
+    assertTrue(buffer.selectMultiple(initial,source))
+    assertFalse(service.accept(groupItem(buffer),query={ listOf(groupOffer(source,"peer")) },resolution={item->
+     val data=item.getJSONObject("data")
+     val token=data.getString("hickory_completion")
+     if(token=="primary")groupSnippetReply(source,"rotated",0,null).apply {
+      if(failure=="overlap")put("additionalTextEdits",JSONArray().put(edit(1,0,2,"replacement")))
+     }
+     else when(failure){
+      "mixed" -> resolveGroupOffer(groupOffer(source,token))
+      "reused" -> groupSnippetReply(source,"rotated",1,null)
+      "conflicting imports" -> groupSnippetReply(source,"different",1,null).put("additionalTextEdits",JSONArray().put(edit(0,0,0,"# other\n")))
+      "overlap" -> groupSnippetReply(source,"different",1,null).put("additionalTextEdits",JSONArray().put(edit(1,0,2,"replacement")))
+      else -> groupSnippetReply(source,"different",1,null).apply {
+       getJSONObject("data").getJSONObject("hickory_context_request").put("variables",JSONArray().put("wrong"))
+      }
+     }
+    }))
+    assertEquals(failure,0,clipboardReads);assertEquals(failure,source,buffer.text)
+    assertEquals(failure,initial,buffer.multiRanges);assertNull(buffer.snippets.parallel)
+    assertFalse(failure,buffer.snippets.canUndo)
+   } finally {service.close()}
+  }
+ }
+
+ @Test fun groupedClipboardRetryMustPreserveEachProjectedEditRole()=runBlocking {
+  val source="va!\nva!\n";val initial=roster(0 to 2,4 to 6)
+  for(failure in listOf("syntax","range","imports")){
+   val buffer=DocumentBuffer(FileNode("a.py","a.py",false,emptyList(),null,null),FileText(source,"base"))
+   val engine=Engine("http://127.0.0.1:1")
+   var clipboardReads=0
+   engine.snippetClipboardReader={clipboardReads++;"clipboard"}
+   val service=NativeLanguage(engine,buffer,this);buffer.language=service
+   try{
+    assertTrue(buffer.selectMultiple(initial,source))
+    assertFalse(service.accept(groupItem(buffer),query={listOf(groupOffer(source,"peer"))},resolution={item->
+     val data=item.getJSONObject("data");val ctx=data.getJSONObject("hickory_context")
+     val index=ctx.getJSONObject("carets").getInt("index")
+     val token=data.getString("hickory_completion")
+     if(ctx.isNull("clipboard"))groupSnippetReply(source,"$token-rotation",index,null)
+     else groupSnippetReply(source,token,index,"clipboard").apply {
+      val textEdit=getJSONObject("textEdit")
+      when(failure){
+       "syntax" -> if(index==0){
+        val syntax=textEdit.getString("newText")+"!"
+        textEdit.put("newText",syntax)
+        getJSONObject("data").getJSONObject("hickory_snippet").put("syntax",syntax)
+       }
+       "range" -> if(index==0)textEdit.getJSONObject("range").getJSONObject("end").put("character",3)
+       "imports" -> put("additionalTextEdits",JSONArray().put(edit(0,0,0,"# replaced\n")))
+      }
+     }
+    }))
+    assertTrue(service.completionNotice,service.completionNotice.contains("edits changed"))
+    assertEquals(failure,1,clipboardReads);assertEquals(failure,source,buffer.text)
+    assertEquals(failure,initial,buffer.multiRanges);assertNull(buffer.snippets.parallel)
+    assertFalse(failure,buffer.snippets.canUndo)
+   }finally{service.close()}
+  }
+ }
+
+ @Test fun sourceEqualGroupSelectsCaretsOrFieldsWithoutTextHistory()=runBlocking {
+  val source="va\nva\n";val initial=roster(0 to 2,3 to 5)
+  for(snippet in listOf(false,true)){
+   val buffer=DocumentBuffer(FileNode("a.py","a.py",false,emptyList(),null,null),FileText(source,"base"))
+   val service=NativeLanguage(Engine("http://127.0.0.1:1"),buffer,this);buffer.language=service
+   try{
+    assertTrue(buffer.selectMultiple(initial,source))
+    assertTrue(service.accept(groupItem(buffer),query={listOf(groupOffer(source,"peer"))},resolution={item->
+     val token=item.getJSONObject("data").getString("hickory_completion")
+     val row=if(token=="primary")0 else 1
+     val syntax=if(snippet)"${'$'}{1:va}${'$'}0" else "va"
+     val result=groupOffer(source,token).put("textEdit",edit(row,0,2,syntax))
+     if(snippet){
+      fun field(index:Int,from:Int,to:Int,id:Int)=JSONObject().put("index",index).put("from",from)
+       .put("to",to).put("id",id).put("parent",JSONObject.NULL).put("choices",JSONArray())
+      result.put("insertTextFormat",2).getJSONObject("data").put("hickory_snippet",
+       JSONObject().put("version",1).put("syntax",syntax).put("text","va")
+        .put("fields",JSONArray().put(field(1,0,2,0)).put(field(0,2,2,1))))
+     }
+     result
+    }))
+    assertEquals(source,buffer.text);assertEquals("Completion selected",service.completionNotice)
+    assertEquals(if(snippet)initial else roster(2 to 2,5 to 5),buffer.multiRanges)
+    assertEquals(snippet,buffer.snippets.parallel!=null);assertFalse(buffer.snippets.canUndo)
+    assertFalse(buffer.snippets.canRedo)
+   }finally{service.close()}
   }
  }
 

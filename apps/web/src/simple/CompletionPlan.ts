@@ -2,10 +2,11 @@ import {planWorkspaceEdit,sourceChangeOffset,type ChangePlan,type SourceReplacem
 import {semanticPath} from './Intelligence';
 import type {SnippetField} from './SnippetExpansion';
 import type {SnippetSession} from './SnippetSession';
+import {beginParallelSnippet,rebaseParallelSnippet,type ParallelSnippet} from './ParallelSnippet';
 import {utf16ToPosition} from '../lsp/positions';
 export interface CompletionExpansion {text:string;selection?:{from:number;to:number};fields?:SnippetField[]}
 export interface CompletionDraft {path:string;before:string;plan:ChangePlan;insertionFrom:number;selection:{from:number;to:number};fields:SnippetField[];continuing?:SnippetSession;primary?:SourceReplacement;additional?:SourceReplacement[]}
-export interface CapturedCompletion {item:Record<string, unknown>;from:number;to:number;prefixFrom?:number}
+export interface CapturedCompletion {item:Record<string, unknown>;from:number;to:number;prefixFrom?:number;expansion?:CompletionExpansion}
 export function completionInsertion(item:unknown):string {
  const value=item as Record<string,unknown>|null;if(!value||typeof value!=='object'||typeof value.label!=='string')throw new Error('Malformed completion');
  const edit=value.textEdit as Record<string,unknown>|undefined;
@@ -40,10 +41,11 @@ export function planCompletion(uri:string,item:unknown,snapshot:SourceSnapshot,f
  const fields=(inserted.fields??[]).map(field=>{validateOffset(inserted.text,field.from);validateOffset(inserted.text,field.to);if(field.from>field.to)throw new Error('Invalid snippet field');return {...field,from:insertionFrom+field.from,to:insertionFrom+field.to};});
  return {path,before:source,plan,insertionFrom,fields,primary:{from,to,text:inserted.text},additional:unique,selection:{from:insertionFrom+selected.from,to:insertionFrom+selected.to}};
 }
-export function planCompletionGroup(uri:string,snapshot:SourceSnapshot,captures:readonly CapturedCompletion[]): {plan:ChangePlan;carets:number[]} {
+function prepareCompletionGroup(uri:string,snapshot:SourceSnapshot,captures:readonly CapturedCompletion[]) {
  const first = captures[0];
  if (!first || captures.length < 2 || captures.length > 16) throw new Error("Select 2 to 16 carets for a completion group.");
  const source = snapshot.text;
+ const snippets = first.item.insertTextFormat === 2;
  if (captures.some(({item}) => item.textEdit === undefined)) {
   const prefix = first.prefixFrom === undefined ? undefined : source.slice(first.prefixFrom,first.to);
   if (prefix === undefined || captures.some(({from,to,prefixFrom}) =>
@@ -51,16 +53,18 @@ export function planCompletionGroup(uri:string,snapshot:SourceSnapshot,captures:
    throw new Error("Implicit completion ranges require the same identifier prefix at each caret.");
   }
  }
- const drafts = captures.map(({item,from,to,prefixFrom}) => {
-  if ((item.insertTextFormat ?? 1) !== 1 || item.kind === 15) throw new Error("Each caret requires an ordinary completion edit.");
-  const draft = planCompletion(uri,item,snapshot,prefixFrom ?? from,to);
+ const drafts = captures.map(({item,from,to,prefixFrom,expansion}) => {
+  if ((item.insertTextFormat === 2) !== snippets || (!snippets && item.kind === 15)) {
+   throw new Error("The carets must agree on the completion format.");
+  }
+  const draft = planCompletion(uri,item,snapshot,prefixFrom ?? from,to,expansion);
   const primary = draft.primary!;
   if (primary.from > from || primary.to < to) throw new Error("A completion range does not cover its captured selection.");
-  return {primary,additional:draft.additional!,path:draft.path};
+  return {primary,additional:draft.additional!,path:draft.path,fields:expansion?.fields ?? []};
  });
  const expected = drafts[0];
  const additional = JSON.stringify(expected.additional);
- if (drafts.some(draft => draft.primary.text !== expected.primary.text || JSON.stringify(draft.additional) !== additional)) {
+ if (drafts.some(draft => (!snippets && draft.primary.text !== expected.primary.text) || JSON.stringify(draft.additional) !== additional)) {
   throw new Error("The completions disagree about their replacement or shared edits.");
  }
  const byStart = new Map(drafts.map((draft,index) => [draft.primary.from,index]));
@@ -82,11 +86,32 @@ export function planCompletionGroup(uri:string,snapshot:SourceSnapshot,captures:
  }));
  const plan = planWorkspaceEdit(`Complete ${first.item.label}`,{changes:{[uri]:changes}},new Map([[expected.path,snapshot]]),true);
  const carets: number[] = [];
+ const starts: number[] = [];
  let delta = 0;
  for (const edit of edits) {
   const index = byStart.get(edit.from);
-  if (index !== undefined) carets[index] = edit.from + delta + edit.text.length;
+  if (index !== undefined) {
+   starts[index] = edit.from + delta + (prefixes.get(edit.from)?.length ?? 0);
+   carets[index] = edit.from + delta + edit.text.length;
+  }
   delta += edit.text.length - (edit.to - edit.from);
+ }
+ return {plan,carets,starts,drafts,snippets};
+}
+
+export function preflightSnippetGroup(uri:string,snapshot:SourceSnapshot,captures:readonly CapturedCompletion[]):void {
+ // Only the provider edit roles are needed before the optional clipboard read.
+ // Field expansion and final caret geometry are admitted against the full draft later.
+ prepareCompletionGroup(uri,snapshot,captures.map(capture=>({...capture,expansion:{text:''}})));
+}
+
+export function planCompletionGroup(uri:string,snapshot:SourceSnapshot,captures:readonly CapturedCompletion[],primaryIndex=0): {plan:ChangePlan;carets:number[];parallel?:ParallelSnippet} {
+ const {plan,carets,starts,drafts,snippets} = prepareCompletionGroup(uri,snapshot,captures);
+ if (snippets) {
+  const prepared = beginParallelSnippet(snapshot.text,drafts.map(({primary,fields}) => ({...primary,fields})),primaryIndex);
+  const parallel = prepared && rebaseParallelSnippet(prepared.state,plan.patches[0]?.after ?? snapshot.text,starts);
+  if (!parallel) throw new Error("The complete snippet group cannot retain its fields and selections.");
+  return {plan,carets,parallel};
  }
  if (new Set(carets).size !== drafts.length) throw new Error("The completion would merge distinct carets.");
  return {plan,carets};

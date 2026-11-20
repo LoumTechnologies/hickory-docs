@@ -34,12 +34,16 @@ export function beginCompletionAcceptance(view:EditorView,notice:(message:string
 
 An optional source-editor adapter retains the actual native choice and query selection, resolves through its producing client and rechecks attachment, source, selection, provider, permissions, saving and composition before planning. An offered query and its pending acceptance retain the original document object and the shared editor-input intent token. Source edits, undo and cursor round trips advance that token; harmless popup/capability effects preserve it. Equal bytes or a restored cursor cannot revive an old query. The whole source/import plan passes the shared input guard and transaction preparation before one synchronous update with isolated undo. A following selection-only transaction in that same update records the final selection for CodeMirror redo; it adds no second document edit or separate undo step. Guarded no-op selection is supported; a late or replaced job cannot write source or overwrite a newer status.
 
-For an ordinary completion at up to 16 carets, retain the main popup choice
+For a completion at up to 16 carets, retain the main popup choice
 and independently query and resolve the unique matching offer at every peer.
 Check the exact source hash, revision and distinct opaque provider tokens.
 The drafts planner requires disjoint primary edits and a single agreed set
 of additional edits. Submit the resulting text and all carets through the
-same editor transaction.
+same editor transaction. Snippet offers share one clock and random capture.
+Each selection receives its authored ordinal. Validate the first replies
+before sharing one clipboard read with the peers whose tokens requested
+it. The transaction installs one parallel field session and the editor's
+history retains the full original and resulting selections.
 
 An active template group retains its own selections and linked fields. A
 separate ordinary completion waits until that template has finished.
@@ -55,11 +59,11 @@ import type {CompletionItem} from '../lsp/client';
 import {lspCompletion,wordBefore} from '../lsp/completion';
 import {beginCompletionAcceptance} from '../lsp/completionAcceptance';
 import {prepareEditorChanges} from '../editor/textInput';
-import {planCompletion,planCompletionGroup,type CapturedCompletion,type CompletionDraft} from './CompletionPlan';
+import {planCompletion,planCompletionGroup,preflightSnippetGroup,type CapturedCompletion,type CompletionDraft} from './CompletionPlan';
 import {sourceDigest} from '../lsp/diagnosticRevision';
 import {completionExpansion} from './SnippetExpansion';
-import {snippetContextNotice} from './SnippetContext';
-import {sourceSnippetEffect,continueSourceSnippetCompletion,readSourceSnippet,readParallelSourceSnippet,readSourceEditorIntent} from './SourceSnippets';
+import {bindSnippetVariables,captureSnippetClipboard,captureSnippetVariables,snippetContextNotice,snippetRequestsClipboard,type SnippetVariableSnapshot} from './SnippetContext';
+import {sourceSnippetEffect,continueSourceSnippetCompletion,readSourceSnippet,readParallelSourceSnippet,readSourceEditorIntent,parallelCompletionSelection} from './SourceSnippets';
 import {authoredSource,authoredOffset,editorOffsetIn,authoredChanges} from './SourceText';
 export interface SourceCompletionAdapter {
  uri:string;resolve:(item:CompletionItem)=>Promise<CompletionItem>;current:()=>boolean;writable:()=>boolean;notice:(text:string)=>void;
@@ -79,16 +83,16 @@ function offerIdentity(item:CompletionItem) {
  return JSON.stringify([item.label,item.kind,item.detail,details?.detail,details?.description]);
 }
 
-function ordinaryProof(item:CompletionItem,hash:string,revision?:string) {
+function groupProof(item:CompletionItem,hash:string,revision?:string) {
  const data = item.data as {hickory_completion?:unknown;hickory_context?:{source_hash?:unknown;source_revision?:unknown}} | undefined;
  const token = data?.hickory_completion, context = data?.hickory_context;
  const currentRevision = context?.source_revision;
- if ((item.insertTextFormat ?? 1) !== 1 || item.kind === 15 || item.command != null) throw new Error("Completion groups require ordinary provider edits.");
+ if (item.command != null) throw new Error("Completion groups require provider edits without commands.");
  if (typeof token !== "string" || !token || context?.source_hash !== hash || typeof currentRevision !== "string"
    || !/^[a-f0-9]{64}$/.test(currentRevision) || (revision !== undefined && currentRevision !== revision)) {
   throw new Error("Completion proof changed across carets. Request the completions again.");
  }
- return {token,revision:currentRevision};
+ return {token,revision:currentRevision,context};
 }
 
 async function resolveCompletionGroup(state:EditorState,source:string,item:CompletionItem,adapter:SourceCompletionAdapter,valid:()=>boolean) {
@@ -101,30 +105,73 @@ async function resolveCompletionGroup(state:EditorState,source:string,item:Compl
    ...(prefix ? {prefixFrom:authoredOffset(state,prefix.from)} : {}),
   };
  });
+ const snapshot = captureSnippetVariables();
  const hash = await sourceDigest(source);
  const requireCurrent = () => { if (!valid()) throw new Error("Source, carets or provider changed. Request completions again."); };
  requireCurrent();
- const proof = ordinaryProof(item,hash);
+ const proof = groupProof(item,hash);
  const seen = new Set<string>();
  const captures: CapturedCompletion[] = [];
+ const demands = new Map<number,CompletionItem>();
  const main = state.selection.mainIndex;
  const identity = offerIdentity(item);
+ async function resolvePeer(offered:CompletionItem,index:number,values:SnippetVariableSnapshot) {
+  const {from,to} = selections[index];
+  const offeredProof = groupProof(offered,hash,proof.revision);
+  const context = await bindSnippetVariables(source,from,to,offeredProof.context,values,{index,count:selections.length});
+  requireCurrent();
+  const data = offered.data as Record<string,unknown>;
+  const resolved = await session!.resolve({...structuredClone(offered),data:{...data,hickory_context:context}});
+  requireCurrent();
+  const returned = groupProof(resolved,hash,proof.revision);
+  const demand = snippetRequestsClipboard(resolved);
+  if (resolved.label !== item.label || (demand
+    ? resolved.insertTextFormat !== 2 || values.clipboard !== null || seen.has(returned.token)
+      || Object.hasOwn(resolved.data as object,'hickory_snippet')
+    : returned.token !== offeredProof.token)) {
+   throw new Error("The provider returned a different completion. Request the completions again.");
+  }
+  if (demand) {
+   seen.add(returned.token);
+   demands.set(index,resolved);
+  }
+  return resolved;
+ }
  for (const index of [main,...selections.keys()].filter((index,offset) => offset === 0 || index !== main)) {
   const selection = selections[index];
   const matching = index === main ? [item] : (await session.query(selection.head,source)).filter(candidate => offerIdentity(candidate) === identity);
   requireCurrent();
   if (matching.length !== 1) throw new Error("A caret has no unique matching completion. Choose a different completion.");
-  const offer = ordinaryProof(matching[0],hash,proof.revision);
+  const offer = groupProof(matching[0],hash,proof.revision);
   if (seen.has(offer.token)) throw new Error("Each caret requires its own provider completion offer.");
   seen.add(offer.token);
-  const resolved = await session.resolve(structuredClone(matching[0]));
-  requireCurrent();
-  if (ordinaryProof(resolved,hash,proof.revision).token !== offer.token || resolved.label !== item.label) {
-   throw new Error("The provider returned a different completion. Request the completions again.");
-  }
+  const resolved = await resolvePeer(matching[0],index,snapshot);
   captures[index] = {item:resolved,...selection};
  }
- return planCompletionGroup(adapter.uri,{text:source,writable:adapter.writable()},captures);
+ const format = captures[0].item.insertTextFormat ?? 1;
+ if ((format !== 1 && format !== 2) || captures.some(({item}) => (item.insertTextFormat ?? 1) !== format)) {
+  throw new Error("The carets must agree on the completion format.");
+ }
+ const budget = {work:0};
+ for (const [index,capture] of captures.entries()) {
+  if (!demands.has(index)) capture.expansion = completionExpansion(capture.item,budget);
+ }
+ if (demands.size) {
+  preflightSnippetGroup(adapter.uri,{text:source,writable:adapter.writable()},captures);
+  const clipboard = await captureSnippetClipboard();
+  requireCurrent();
+  const edit = (item:CompletionItem) => JSON.stringify([item.textEdit,item.insertText,item.additionalTextEdits]);
+  for (const [index,pending] of demands) {
+   const resolved = await resolvePeer(pending,index,{...snapshot,clipboard});
+   if (resolved.insertTextFormat !== format || edit(resolved) !== edit(pending)) {
+    throw new Error("The clipboard reply changed the completion edit.");
+   }
+   captures[index].item = resolved;
+   captures[index].expansion = completionExpansion(resolved,budget);
+  }
+ }
+ const notice = [...new Set(captures.map(({item}) => snippetContextNotice(item)).filter(Boolean))].join(' · ');
+ return {...planCompletionGroup(adapter.uri,{text:source,writable:adapter.writable()},captures,main),notice};
 }
 
 export async function acceptSourceCompletion(view:EditorView,item:CompletionItem,source:string,selection:EditorState['selection'],from:number,to:number,adapter:SourceCompletionAdapter,completion?:Completion):Promise<void> {
@@ -142,6 +189,7 @@ export async function acceptSourceCompletion(view:EditorView,item:CompletionItem
   if (selection.ranges.length > 1) {
    if (snippetContext || parallelContext) throw new Error('Finish editing the template before accepting a completion group.');
    group = await resolveCompletionGroup(view.state,source,item,adapter,valid);
+   contextNotice = group.notice;
   } else {
    const resolved=await adapter.resolve(structuredClone(item));
    if(!request.current()||request.cancelled())return;
@@ -154,11 +202,14 @@ export async function acceptSourceCompletion(view:EditorView,item:CompletionItem
   const input=prepareEditorChanges(source,changes);if('reason' in input)throw new Error(input.reason);
   if(!valid())throw new Error('Source, cursor or provider changed. Request completions again.');
   const raw=authoredChanges(view.state,changes),rawEffects=raw.effects?[raw.effects].flat():[];
-  const resultSelection = group
+  const linked = group?.parallel ? parallelCompletionSelection(group.parallel) : null;
+  if (group?.parallel && !linked) throw new Error('The editor cannot retain every snippet selection.');
+  const resultSelection = linked?.selection ?? (group
    ? EditorSelection.create(group.carets.map(caret=>EditorSelection.cursor(editorOffsetIn(after,caret))),selection.mainIndex)
-   : EditorSelection.single(editorOffsetIn(after,draft!.selection.from),editorOffsetIn(after,draft!.selection.to));
-  const transaction=view.state.update({...raw,selection:resultSelection,effects:draft?[...rawEffects,sourceSnippetEffect(draft,after)]:rawEffects,annotations:[isolateHistory.of('full'),...(completion?[pickedCompletion.of(completion)]:[])],userEvent:'input.complete',filter:false});
-  if(authoredSource(transaction.state)!==after)throw new Error('Editor could not prepare the complete completion. Request again.');
+   : EditorSelection.single(editorOffsetIn(after,draft!.selection.from),editorOffsetIn(after,draft!.selection.to)));
+  const effect = linked?.effect ?? (draft ? sourceSnippetEffect(draft,after) : undefined);
+  const transaction=view.state.update({...raw,selection:resultSelection,effects:effect?[...rawEffects,effect]:rawEffects,annotations:[isolateHistory.of('full'),...(completion?[pickedCompletion.of(completion)]:[])],userEvent:'input.complete',filter:false});
+  if(authoredSource(transaction.state)!==after || (group?.parallel && readParallelSourceSnippet(transaction.state)!==group.parallel))throw new Error('Editor could not prepare the complete completion. Request again.');
   // CodeMirror records the redo selection from a following selection event;
   // otherwise it maps the old caret through the replacement and loses fields.
   const retainedSelection=after!==source?transaction.state.update({selection:transaction.newSelection,userEvent:'select.complete',filter:false}):null;
@@ -241,7 +292,7 @@ it('retires a held peer completion after changing and restoring the secondary ca
    uri:'hick:///a.py',current:()=>true,writable:()=>true,notice:()=>{},
    resolve:async()=>{throw new Error('Single-caret resolution was unexpected');},
    group:{query:async offset=>{expect(offset).toBe(5);return [peer];},resolve:async item=>{
-    if((item.data as {hickory_completion:string}).hickory_completion==='first') return item;
+    if((item.data as {hickory_completion:string}).hickory_completion==='first') return first;
     beginPeer();
     return pending.promise;
    }},
@@ -256,6 +307,55 @@ it('retires a held peer completion after changing and restoring the secondary ca
   expect(readCompletionAcceptance(view)?.phase).toBe('unavailable');
   expect(undo(view)).toBe(false);
  } finally {close();}
+});
+it('reads the clipboard once after validating both grouped demands and shared edits',async()=>{
+ const source='va\nva\n';
+ const descriptor=Object.getOwnPropertyDescriptor(navigator,'clipboard');
+ const phases:string[]=[];
+ Object.defineProperty(navigator,'clipboard',{configurable:true,value:{readText:async()=>{phases.push('clipboard');return 'shared';}}});
+ try {
+  const hash=await sourceDigest(source),context={source_hash:hash,source_revision:'a'.repeat(64)};
+  const offer=(token:string):CompletionItem=>({label:'value',data:{hickory_completion:token,hickory_context:context}});
+  const syntax='${1:${CLIPBOARD}}$0';
+  for(const conflict of [true,false]){
+   const {view,close}=fixture(source);
+   try {
+    phases.length=0;
+    const selection=EditorSelection.create([EditorSelection.cursor(2),EditorSelection.cursor(5)],1);
+    view.dispatch({selection});
+    await acceptSourceCompletion(view,offer('second'),source,selection,3,5,{
+     uri:'hick:///a.py',current:()=>true,writable:()=>true,notice:()=>{},
+     resolve:async()=>{throw new Error('Unexpected single resolution');},
+     group:{query:async()=>[offer('first')],resolve:async item=>{
+      const data=item.data as {hickory_completion:string;hickory_context:{selection:{from:number;to:number};carets:{index:number;count:number};clipboard:unknown}};
+      const {index,count}=data.hickory_context.carets;
+      expect(count).toBe(2);
+      expect(data.hickory_context.selection).toEqual(index===0?{from:2,to:2}:{from:5,to:5});
+      const retry=data.hickory_completion.endsWith('-retry');
+      phases.push(`${retry?'retry':'first'}-${index}`);
+      const text=index===0?'one':'two';
+      const resultData={hickory_completion:retry?data.hickory_completion:data.hickory_completion+'-retry',hickory_context:context};
+      if(retry) expect(data.hickory_context.clipboard).toEqual({available:true,text:'shared'});
+      else expect(data.hickory_context.clipboard).toBeNull();
+      return {
+       label:item.label,insertTextFormat:2,
+       textEdit:{range:{start:{line:index,character:0},end:{line:index,character:2}},newText:syntax},
+       additionalTextEdits:[{range:{start:{line:0,character:0},end:{line:0,character:0}},newText:conflict&&index?'# other\n':'# import\n'}],
+       data:retry?{...resultData,hickory_snippet:{version:2,syntax,text,fields:[
+        {index:1,from:0,to:3,choices:[],id:0,parent:null},{index:0,from:3,to:3,choices:[],id:1,parent:null},
+       ]}}:{...resultData,hickory_context_request:{version:1,variables:['CLIPBOARD']}},
+      };
+     }},
+    });
+    expect(phases).toEqual(conflict?['first-1','first-0']:['first-1','first-0','clipboard','retry-1','retry-0']);
+    expect(authoredSource(view.state)).toBe(conflict?source:'# import\none\ntwo\n');
+    expect(readParallelSourceSnippet(view.state)?.peers.length ?? 0).toBe(conflict?0:2);
+   } finally {close();}
+  }
+ } finally {
+  if(descriptor)Object.defineProperty(navigator,'clipboard',descriptor);
+  else Reflect.deleteProperty(navigator,'clipboard');
+ }
 });
 it('retains the active template group when an ordinary completion is chosen',async()=>{
  const source='va\nva\n',{view,close}=fixture(source);
@@ -351,6 +451,14 @@ it('agent native-popup acceptance completes only after resolution and the whole 
 
 The actual AppKit editor applies a compound completion with the intended caret and one undo/redo group. Independent controller witnesses hold competing replies and dismiss a pending choice; older work must not write source or replace the newer notice. These checks do not establish native popover pointer or IME acceptance.
 
+The grouped snippet witness retains two different source selections through
+resolution and supplies one clipboard refusal after both peers ask. Its two
+Unicode field sets stay independently editable under linked input. A single
+Undo restores the prepared selections, and Redo restores the group.
+The source-equal case selects the fields and starts the same linked session.
+The editor creates a text Undo entry only after actual linked typing changes
+the draft.
+
 For background reads, a null reply leaves the last rows readable. A held
 error after source authority is lost leaves the newer status alone, while
 a current provider failure still appears.
@@ -422,6 +530,16 @@ import AppKit
          ]]]
     }
 
+    private func resolvedCaretProof(_ offer:[String:Any]) throws -> [String:Any] {
+        var resolved=offer
+        var data=try XCTUnwrap(offer["data"] as? [String:Any])
+        let context=try XCTUnwrap(data["hickory_context"] as? [String:Any])
+        data["hickory_context"]=try XCTUnwrap(context["expected"] as? [String:String])
+        data.removeValue(forKey:"hickory_context_request")
+        resolved["data"]=data
+        return resolved
+    }
+
     func testActualMacMultiCaretCompletionSharesImportAndRestoresEveryCaret() async throws {
         #if os(macOS)
         let source="😀\nva\nva\n",file=FileNode(name:"a.py",path:"a.py",dir:false)
@@ -444,7 +562,7 @@ import AppKit
         },resolution:{offer in
             let data=try XCTUnwrap(offer["data"] as? [String:Any])
             tokens.append(try XCTUnwrap(data["hickory_completion"] as? String))
-            var resolved=offer
+            var resolved=try self.resolvedCaretProof(offer)
             resolved["additionalTextEdits"]=[self.edit(0,0,0,"import x\n")]
             return resolved
         })
@@ -462,6 +580,163 @@ import AppKit
         XCTAssertEqual(buffer.text,after);XCTAssertEqual(buffer.multiRanges,carets)
         XCTAssertEqual(editor.text.selectedRange(),carets[0])
         #endif
+    }
+
+    func testActualMacGroupedSnippetKeepsIndependentFieldsAndOneClipboardOutcome() async throws {
+        #if os(macOS)
+        let source="header\nva\nvo\n",file=FileNode(name:"a.py",path:"a.py",dir:false)
+        let buffer=DocumentBuffer(file:file,text:FileText(path:file.path,content:source,hash:"base"))
+        let service=NativeLanguage(engine:try Engine(address:"http://fixture.invalid"),buffer:buffer)
+        buffer.language=service
+        let editor=MacEditor(buffer),window=NSWindow(contentRect:NSRect(x:0,y:0,width:500,height:300),styleMask:[.titled],backing:.buffered,defer:false)
+        window.contentView=editor.scroll
+        defer{service.close();window.contentView=nil}
+        let before=[NSRange(location:7,length:2),NSRange(location:10,length:2)]
+        XCTAssertTrue(buffer.selectMultiple(before,source:source))
+        let syntax="${1:${TM_SELECTED_TEXT}}+$1!$0${CLIPBOARD:}"
+        var reads=0,requests:[String]=[],randoms:[String]=[],clocks:[[String:Int64]]=[]
+        service.snippetClipboardReader={reads+=1;return nil}
+        await service.complete(fetch:{_ in [self.caretOffer(source,token:"primary")]})
+        let choice=try XCTUnwrap(service.suggestions.first)
+        let accepted=await service.accept(choice,fetch:{params in
+            XCTAssertEqual(params["position"] as? [String:Int],["line":2,"character":0])
+            return [self.caretOffer(source,token:"peer")]
+        },resolution:{offer in
+            let data=try XCTUnwrap(offer["data"] as? [String:Any])
+            let token=try XCTUnwrap(data["hickory_completion"] as? String)
+            let context=try XCTUnwrap(data["hickory_context"] as? [String:Any])
+            let row=token.hasPrefix("primary") ? 0 : 1
+            let original=before[row]
+            XCTAssertEqual(context["selection"] as? [String:Int],["from":original.location,"to":NSMaxRange(original)])
+            XCTAssertEqual(context["carets"] as? [String:Int],["index":row,"count":2])
+            randoms.append(try XCTUnwrap(context["random_hex"] as? String))
+            clocks.append(try XCTUnwrap(context["clock"] as? [String:Int64]))
+            requests.append(token)
+            var result=try self.resolvedCaretProof(offer)
+            var reply=try XCTUnwrap(result["data"] as? [String:Any])
+            result["insertTextFormat"]=2
+            result["textEdit"]=self.edit(row+1,0,2,syntax)
+            result["additionalTextEdits"]=[self.edit(0,0,0,"import x\n")]
+            if !token.hasSuffix("-retry") {
+                XCTAssertEqual(reads,0)
+                XCTAssertTrue(context["clipboard"] is NSNull)
+                reply["hickory_completion"]=token+"-retry"
+                reply["hickory_context_request"]=["version":1,"variables":["CLIPBOARD"]]
+            }else{
+                let clipboard=try XCTUnwrap(context["clipboard"] as? [String:Any])
+                XCTAssertEqual(clipboard["available"] as? Bool,false)
+                XCTAssertTrue(clipboard["text"] is NSNull)
+                let value=row==0 ? "😀" : "β",width=value.utf16.count,exit=2*width+2
+                let fields:[[String:Any]]=[
+                    ["index":1,"from":0,"to":width,"choices":[],"id":0,"parent":NSNull()],
+                    ["index":1,"from":width+1,"to":2*width+1,"choices":[],"id":1,"parent":NSNull()],
+                    ["index":0,"from":exit,"to":exit,"choices":[],"id":2,"parent":NSNull()],
+                ]
+                reply["hickory_context_unavailable"]=["CLIPBOARD"]
+                reply["hickory_snippet"]=["version":1,"syntax":syntax,"text":"\(value)+\(value)!","fields":fields]
+            }
+            result["data"]=reply
+            return result
+        })
+        let expanded="import x\nheader\n😀+😀!\nβ+β!\n"
+        let initialFields=[NSRange(location:16,length:2),NSRange(location:23,length:1)]
+        guard accepted else{XCTFail(service.completionNotice);return}
+        XCTAssertTrue(service.completionNotice.contains("Clipboard unavailable"))
+        XCTAssertEqual(reads,1)
+        XCTAssertEqual(requests,["primary","peer","primary-retry","peer-retry"])
+        XCTAssertEqual(Set(randoms).count,1);XCTAssertTrue(clocks.allSatisfy{$0==clocks.first})
+        XCTAssertEqual(buffer.text,expanded);XCTAssertEqual(buffer.multiRanges,initialFields)
+        XCTAssertEqual(buffer.snippets.parallel?.selections,initialFields)
+        editor.text.insertText("Z",replacementRange:editor.text.selectedRange())
+        let typed="import x\nheader\nZ+Z!\nZ+Z!\n"
+        XCTAssertEqual(buffer.text,typed)
+        XCTAssertTrue(buffer.snippets.move(1))
+        XCTAssertEqual(buffer.multiRanges,[20,25].map{NSRange(location:$0,length:0)})
+        let manager=try XCTUnwrap(editor.text.undoManager)
+        manager.undo();XCTAssertEqual(buffer.text,expanded);XCTAssertEqual(buffer.multiRanges,initialFields)
+        manager.undo();XCTAssertEqual(buffer.text,source);XCTAssertEqual(buffer.multiRanges,before);XCTAssertNil(buffer.snippets.parallel)
+        manager.redo();XCTAssertEqual(buffer.text,expanded);XCTAssertEqual(buffer.multiRanges,initialFields);XCTAssertNotNil(buffer.snippets.parallel)
+        manager.redo();XCTAssertEqual(buffer.text,typed);XCTAssertNotNil(buffer.snippets.parallel)
+        XCTAssertEqual(buffer.base,source);XCTAssertEqual(buffer.hash,"base")
+        #endif
+    }
+
+    func testActualMacSourceEqualGroupedSnippetStartsFieldsWithoutTextUndo() async throws {
+        #if os(macOS)
+        let source="va\nva\n",file=FileNode(name:"a.py",path:"a.py",dir:false)
+        let buffer=DocumentBuffer(file:file,text:FileText(path:file.path,content:source,hash:"base"))
+        let service=NativeLanguage(engine:try Engine(address:"http://fixture.invalid"),buffer:buffer)
+        buffer.language=service
+        let editor=MacEditor(buffer),window=NSWindow(contentRect:NSRect(x:0,y:0,width:500,height:300),styleMask:[.titled],backing:.buffered,defer:false)
+        window.contentView=editor.scroll
+        defer{service.close();window.contentView=nil}
+        let before=[2,5].map{NSRange(location:$0,length:0)},fields=[0,3].map{NSRange(location:$0,length:2)}
+        XCTAssertTrue(buffer.selectMultiple(before,source:source))
+        let manager=try XCTUnwrap(editor.text.undoManager)
+        manager.removeAllActions()
+        await service.complete(fetch:{_ in [self.caretOffer(source,token:"primary")]})
+        let choice=try XCTUnwrap(service.suggestions.first)
+        let accepted=await service.accept(choice,fetch:{_ in [self.caretOffer(source,token:"peer")]},resolution:{offer in
+            var reply=try self.resolvedCaretProof(offer)
+            var data=try XCTUnwrap(reply["data"] as? [String:Any])
+            let row=data["hickory_completion"] as? String=="primary" ? 0 : 1
+            let syntax="${1:va}$0"
+            let fields:[[String:Any]]=[
+                ["index":1,"from":0,"to":2,"choices":[],"id":0,"parent":NSNull()],
+                ["index":0,"from":2,"to":2,"choices":[],"id":1,"parent":NSNull()],
+            ]
+            data["hickory_snippet"]=["version":1,"syntax":syntax,"text":"va","fields":fields]
+            reply["insertTextFormat"]=2;reply["textEdit"]=self.edit(row,0,2,syntax);reply["data"]=data
+            return reply
+        })
+        guard accepted else{XCTFail(service.completionNotice);return}
+        XCTAssertEqual(buffer.text,source);XCTAssertFalse(buffer.dirty);XCTAssertFalse(manager.canUndo)
+        XCTAssertEqual(buffer.multiRanges,fields);XCTAssertEqual(buffer.snippets.parallel?.selections,fields)
+        editor.text.insertText("edited",replacementRange:editor.text.selectedRange())
+        XCTAssertEqual(buffer.text,"edited\nedited\n");XCTAssertTrue(manager.canUndo)
+        manager.undo()
+        XCTAssertEqual(buffer.text,source);XCTAssertEqual(buffer.multiRanges,fields)
+        XCTAssertEqual(buffer.snippets.parallel?.selections,fields);XCTAssertFalse(manager.canUndo)
+        #endif
+    }
+
+    func testInvalidGroupedPeerPreventsClipboardAndCommit() async throws {
+        let source="//\nva\nva\n",file=FileNode(name:"a.py",path:"a.py",dir:false)
+        let buffer=DocumentBuffer(file:file,text:FileText(path:file.path,content:source,hash:"base"))
+        let service=NativeLanguage(engine:try Engine(address:"http://fixture.invalid"),buffer:buffer)
+        buffer.language=service
+        defer{service.close()}
+        let before=[5,8].map{NSRange(location:$0,length:0)},editorID=UUID()
+        buffer.selection=before[0];buffer.multiSource=source;buffer.multiRanges=before
+        buffer.sourceEditorState={ [weak buffer] in buffer.map {
+            NativeSourceEditorState(identity:editorID,source:$0.text,selection:$0.selection,composing:false,editable:true,attached:true,selections:$0.multiRanges.count)
+        }}
+        var reads=0,commits=0
+        service.snippetClipboardReader={reads+=1;return "private clipboard"}
+        buffer.applyCompletionDraft={_,_ in commits+=1;return true}
+        for mixed in [true,false] {
+            await service.complete(fetch:{_ in [self.caretOffer(source,token:"primary")]})
+            let choice=try XCTUnwrap(service.suggestions.first)
+            var requests:[String]=[]
+            let accepted=await service.accept(choice,fetch:{_ in [self.caretOffer(source,token:"peer")]},resolution:{offer in
+                var reply=try self.resolvedCaretProof(offer)
+                var data=try XCTUnwrap(reply["data"] as? [String:Any])
+                let token=try XCTUnwrap(data["hickory_completion"] as? String)
+                requests.append(token)
+                if token=="peer",mixed{return reply}
+                data["hickory_completion"]=token+"-retry"
+                data["hickory_context_request"]=["version":1,"variables":["CLIPBOARD"]]
+                reply["data"]=data
+                reply["insertTextFormat"]=2
+                reply["textEdit"]=self.edit(token=="primary" ? 1 : 2,0,2,"$1$0${CLIPBOARD:}")
+                reply["additionalTextEdits"]=[self.edit(0,0,0,token=="primary" ? "import x\n" : "import y\n")]
+                return reply
+            })
+            XCTAssertFalse(accepted)
+            XCTAssertEqual(requests,["primary","peer"])
+            XCTAssertEqual(reads,0);XCTAssertEqual(commits,0)
+            XCTAssertEqual(buffer.text,source);XCTAssertEqual(buffer.multiRanges,before)
+        }
     }
 
     func testSecondaryCaretRoundTripAndAmbiguousPeerRefuseTheWholeCompletion() async throws {
@@ -489,7 +764,7 @@ import AppKit
                     buffer.multiRanges=[origin[0],NSRange(location:4,length:0)]
                     buffer.multiRanges=origin
                 }
-                return offer
+                return try self.resolvedCaretProof(offer)
             })
             XCTAssertFalse(accepted)
             XCTAssertEqual(buffer.text,source);XCTAssertEqual(buffer.multiRanges,origin)
@@ -547,6 +822,12 @@ The Compose witness offers independent proof tokens at two native ranges.
 It checks one import, the full caret roster in both history directions, and
 an unchanged draft when proofs, ranges, imports or composition disagree.
 
+The grouped snippet case starts with lazy ordinary-looking offers. It
+checks each ordinal and selection, the shared clock and random values, one
+validated clipboard read, linked input, and restoration of the original
+and expanded field rosters through native Undo and Redo. A mismatched
+first reply leaves the clipboard unread.
+
 <ui:copy id="source-completion-android-witness">
 package com.hickorydocs.simple
 import org.junit.Test
@@ -593,9 +874,13 @@ class CompletionAcceptanceTest {
  private fun groupItem(buffer:DocumentBuffer)=NativeLanguageCompletion("value","fixture value",NativeSourceEdit(0,2,"value"),
   buffer.text,buffer.state.selection,groupOffer(buffer.text,"primary"),buffer.sourceRevision,
   NativeCompletionGroupCapture(buffer.multiRanges,buffer.multiSelectionRevision,buffer.file,0,buffer.snippets.intent))
- private fun resolveGroupOffer(offer:JSONObject,importText:String="# import\n"):JSONObject =
-  offer.put("textEdit",edit(if(offer.getJSONObject("data").getString("hickory_completion")=="primary")0 else 1,0,2,"value"))
+ private fun resolveGroupOffer(offer:JSONObject,importText:String="# import\n"):JSONObject {
+  val data=offer.getJSONObject("data")
+  val expected=data.getJSONObject("hickory_context").optJSONObject("expected")
+  if(expected!=null)data.put("hickory_context",expected)
+  return offer.put("textEdit",edit(if(offer.getJSONObject("data").getString("hickory_completion")=="primary")0 else 1,0,2,"value"))
    .put("additionalTextEdits",JSONArray().put(edit(0,0,0,importText)))
+ }
  private fun roster(vararg pairs:Pair<Int,Int>)=pairs.map { (from,to)->NativeSourceEdit(from,to,"") }
 
  @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
@@ -661,6 +946,180 @@ class CompletionAcceptanceTest {
   }
  }
 
+ private val sharedSnippetSyntax="${'$'}{1:x} + ${'$'}1 / ${'$'}CURSOR_NUMBER / ${'$'}CLIPBOARD${'$'}0"
+
+ private fun groupSnippetReply(source:String,token:String,index:Int,clip:String?):JSONObject {
+  val indent=" ".repeat(index)
+  val syntax=indent+sharedSnippetSyntax
+  val item=groupOffer(source,token).put("insertTextFormat",2)
+   .put("textEdit",edit(index,0,2,syntax))
+   .put("additionalTextEdits",JSONArray().put(edit(0,0,0,"# import\n")))
+  val data=item.getJSONObject("data")
+  if(clip==null){
+   data.put("hickory_context_request",JSONObject().put("version",1).put("variables",JSONArray().put("CLIPBOARD")))
+   return item
+  }
+  val expanded=indent+"x + x / ${index+1} / $clip"
+  fun field(index:Int,from:Int,to:Int,id:Int)=JSONObject().put("index",index).put("from",from)
+   .put("to",to).put("id",id).put("parent",JSONObject.NULL).put("choices",JSONArray())
+  data.put("hickory_snippet",JSONObject().put("version",1).put("syntax",syntax)
+   .put("text",expanded).put("fields",JSONArray().put(field(1,index,index+1,0)).put(field(1,index+4,index+5,1))
+    .put(field(0,expanded.length,expanded.length,2))))
+  return item
+ }
+
+ @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+ @Test fun groupedLazySnippetsShareOneContextAndClipboardWithExactNativeHistory()=runBlocking {
+  val source="va\nva\n";val initial=roster(0 to 2,3 to 5)
+  val buffer=DocumentBuffer(FileNode("a.py","a.py",false,emptyList(),null,null),FileText(source,"base"))
+  val engine=Engine("http://127.0.0.1:1")
+  var clipboardReads=0
+  engine.snippetClipboardReader={clipboardReads++;"clipboard"}
+  val service=NativeLanguage(engine,buffer,this);buffer.language=service
+  val captured=mutableListOf<JSONObject>()
+  try{
+   assertTrue(buffer.selectMultiple(initial,source))
+   assertTrue(service.accept(groupItem(buffer),query={ offset ->
+    assertEquals(5,offset)
+    assertEquals("Resolve the current offer before querying the next caret",1,captured.size)
+    listOf(groupOffer(source,"peer"))
+   },resolution={item->
+    assertEquals(source,buffer.text)
+    val data=item.getJSONObject("data");val ctx=data.getJSONObject("hickory_context")
+    captured.add(ctx)
+    val ordinal=ctx.getJSONObject("carets")
+    val index=ordinal.getInt("index")
+    val selection=ctx.getJSONObject("selection")
+    assertEquals(2,ordinal.getInt("count"))
+    assertEquals(initial[index].from,selection.getInt("from"));assertEquals(initial[index].to,selection.getInt("to"))
+    val token=data.getString("hickory_completion")
+    val expected=if(index==0)"primary" else "peer"
+    if(ctx.isNull("clipboard")){
+     assertEquals(0,clipboardReads);assertEquals(expected,token)
+     groupSnippetReply(source,"$expected-negotiation",index,null)
+    }else{
+     assertEquals(1,clipboardReads);assertEquals("$expected-negotiation",token)
+     assertTrue(ctx.getJSONObject("clipboard").getBoolean("available"))
+     groupSnippetReply(source,token,index,ctx.getJSONObject("clipboard").getString("text"))
+    }
+   }))
+   assertEquals(1,clipboardReads)
+   assertEquals(listOf(0,1,0,1),captured.map {it.getJSONObject("carets").getInt("index")})
+   assertEquals(1,captured.map {it.getJSONObject("clock").toString()}.distinct().size)
+   assertEquals(1,captured.map {it.getString("random_hex")}.distinct().size)
+   val draft="# import\nx + x / 1 / clipboard\n x + x / 2 / clipboard\n"
+   assertEquals(draft,buffer.text)
+   val next=draft.indexOf('\n',9)+1
+   val active=roster(9 to 10,next+1 to next+2)
+   assertEquals(active,buffer.multiRanges);assertNotNull(buffer.snippets.parallel)
+   assertTrue(buffer.snippets.inputParallel("done"))
+   assertEquals("# import\ndone + done / 1 / clipboard\n done + done / 2 / clipboard\n",buffer.text)
+   assertTrue(buffer.snippets.undoSource());assertEquals(draft,buffer.text);assertEquals(active,buffer.multiRanges)
+   assertTrue(buffer.snippets.undoSource());assertEquals(source,buffer.text);assertEquals(initial,buffer.multiRanges)
+   assertNull(buffer.snippets.parallel);assertFalse(buffer.snippets.canUndo)
+   assertTrue(buffer.snippets.redoSource());assertEquals(draft,buffer.text);assertEquals(active,buffer.multiRanges)
+   assertNotNull(buffer.snippets.parallel);assertEquals(source,buffer.base)
+  }finally{service.close()}
+ }
+
+ @Test fun groupedClipboardStaysUnreadIfAnyFirstReplyCannotEnterTheGroup()=runBlocking {
+  val source="va\nva\n";val initial=roster(0 to 2,3 to 5)
+  for(failure in listOf("mixed","reused","malformed","conflicting imports","overlap")){
+   val buffer=DocumentBuffer(FileNode("a.py","a.py",false,emptyList(),null,null),FileText(source,"base"))
+   val engine=Engine("http://127.0.0.1:1")
+   var clipboardReads=0
+   engine.snippetClipboardReader={clipboardReads++;"private"}
+   val service=NativeLanguage(engine,buffer,this);buffer.language=service
+   try{
+    assertTrue(buffer.selectMultiple(initial,source))
+    assertFalse(service.accept(groupItem(buffer),query={ listOf(groupOffer(source,"peer")) },resolution={item->
+     val data=item.getJSONObject("data")
+     val token=data.getString("hickory_completion")
+     if(token=="primary")groupSnippetReply(source,"rotated",0,null).apply {
+      if(failure=="overlap")put("additionalTextEdits",JSONArray().put(edit(1,0,2,"replacement")))
+     }
+     else when(failure){
+      "mixed" -> resolveGroupOffer(groupOffer(source,token))
+      "reused" -> groupSnippetReply(source,"rotated",1,null)
+      "conflicting imports" -> groupSnippetReply(source,"different",1,null).put("additionalTextEdits",JSONArray().put(edit(0,0,0,"# other\n")))
+      "overlap" -> groupSnippetReply(source,"different",1,null).put("additionalTextEdits",JSONArray().put(edit(1,0,2,"replacement")))
+      else -> groupSnippetReply(source,"different",1,null).apply {
+       getJSONObject("data").getJSONObject("hickory_context_request").put("variables",JSONArray().put("wrong"))
+      }
+     }
+    }))
+    assertEquals(failure,0,clipboardReads);assertEquals(failure,source,buffer.text)
+    assertEquals(failure,initial,buffer.multiRanges);assertNull(buffer.snippets.parallel)
+    assertFalse(failure,buffer.snippets.canUndo)
+   } finally {service.close()}
+  }
+ }
+
+ @Test fun groupedClipboardRetryMustPreserveEachProjectedEditRole()=runBlocking {
+  val source="va!\nva!\n";val initial=roster(0 to 2,4 to 6)
+  for(failure in listOf("syntax","range","imports")){
+   val buffer=DocumentBuffer(FileNode("a.py","a.py",false,emptyList(),null,null),FileText(source,"base"))
+   val engine=Engine("http://127.0.0.1:1")
+   var clipboardReads=0
+   engine.snippetClipboardReader={clipboardReads++;"clipboard"}
+   val service=NativeLanguage(engine,buffer,this);buffer.language=service
+   try{
+    assertTrue(buffer.selectMultiple(initial,source))
+    assertFalse(service.accept(groupItem(buffer),query={listOf(groupOffer(source,"peer"))},resolution={item->
+     val data=item.getJSONObject("data");val ctx=data.getJSONObject("hickory_context")
+     val index=ctx.getJSONObject("carets").getInt("index")
+     val token=data.getString("hickory_completion")
+     if(ctx.isNull("clipboard"))groupSnippetReply(source,"$token-rotation",index,null)
+     else groupSnippetReply(source,token,index,"clipboard").apply {
+      val textEdit=getJSONObject("textEdit")
+      when(failure){
+       "syntax" -> if(index==0){
+        val syntax=textEdit.getString("newText")+"!"
+        textEdit.put("newText",syntax)
+        getJSONObject("data").getJSONObject("hickory_snippet").put("syntax",syntax)
+       }
+       "range" -> if(index==0)textEdit.getJSONObject("range").getJSONObject("end").put("character",3)
+       "imports" -> put("additionalTextEdits",JSONArray().put(edit(0,0,0,"# replaced\n")))
+      }
+     }
+    }))
+    assertTrue(service.completionNotice,service.completionNotice.contains("edits changed"))
+    assertEquals(failure,1,clipboardReads);assertEquals(failure,source,buffer.text)
+    assertEquals(failure,initial,buffer.multiRanges);assertNull(buffer.snippets.parallel)
+    assertFalse(failure,buffer.snippets.canUndo)
+   }finally{service.close()}
+  }
+ }
+
+ @Test fun sourceEqualGroupSelectsCaretsOrFieldsWithoutTextHistory()=runBlocking {
+  val source="va\nva\n";val initial=roster(0 to 2,3 to 5)
+  for(snippet in listOf(false,true)){
+   val buffer=DocumentBuffer(FileNode("a.py","a.py",false,emptyList(),null,null),FileText(source,"base"))
+   val service=NativeLanguage(Engine("http://127.0.0.1:1"),buffer,this);buffer.language=service
+   try{
+    assertTrue(buffer.selectMultiple(initial,source))
+    assertTrue(service.accept(groupItem(buffer),query={listOf(groupOffer(source,"peer"))},resolution={item->
+     val token=item.getJSONObject("data").getString("hickory_completion")
+     val row=if(token=="primary")0 else 1
+     val syntax=if(snippet)"${'$'}{1:va}${'$'}0" else "va"
+     val result=groupOffer(source,token).put("textEdit",edit(row,0,2,syntax))
+     if(snippet){
+      fun field(index:Int,from:Int,to:Int,id:Int)=JSONObject().put("index",index).put("from",from)
+       .put("to",to).put("id",id).put("parent",JSONObject.NULL).put("choices",JSONArray())
+      result.put("insertTextFormat",2).getJSONObject("data").put("hickory_snippet",
+       JSONObject().put("version",1).put("syntax",syntax).put("text","va")
+        .put("fields",JSONArray().put(field(1,0,2,0)).put(field(0,2,2,1))))
+     }
+     result
+    }))
+    assertEquals(source,buffer.text);assertEquals("Completion selected",service.completionNotice)
+    assertEquals(if(snippet)initial else roster(2 to 2,5 to 5),buffer.multiRanges)
+    assertEquals(snippet,buffer.snippets.parallel!=null);assertFalse(buffer.snippets.canUndo)
+    assertFalse(buffer.snippets.canRedo)
+   }finally{service.close()}
+  }
+ }
+
 }
 </ui:copy>
 
@@ -678,6 +1137,12 @@ replacement enter the draft together between one Undo and Redo. Set
 and run `python3 scripts/test-source-completion-browser.py --typescript`.
 Use `--typescript-group` to offer the same import independently at two
 carets and check their one-step source and selection history.
+
+Build the current engine with
+`cargo build --locked -p hickory-cli --example engine_client`.
+Then run `python3 scripts/test-source-completion-browser.py --snippet-group`
+to check two ordinal expansions, one shared import, linked typing and
+restored fields through the existing popup and the controlled child.
 
 <ui:copy id="source-completion-browser-engine-witness">
 """Exercise the completion popup through the actual engine and child providers."""
@@ -758,6 +1223,37 @@ def typescript_acceptance(driver, root, saved, size, grouped):
     print("PASS: installed TypeScript provider resolved one shared import, with one Undo/Redo and unchanged saved bytes")
 
 
+def grouped_snippet_acceptance(driver, root, path, source, size, events):
+    original = {"ranges": [{"from": 3, "to": 3}, {"from": 13, "to": 13}], "primary": 1}
+    driver.act("editor-selections", path=path, **original)
+    deadline = time.monotonic() + 20
+    while True:
+        choices = driver.act("completion-open", path=path, keepSelection=True)
+        if any("python completion" in choice for choice in choices):
+            break
+        assert time.monotonic() < deadline, choices
+    notice = driver.act("completion-choose", title="python completion")
+    assert "Completion applied" in notice, notice
+    after = "1:😀 + 1:😀 = 1\n2:😀 + 2:😀 = 2\n# imported\n"
+    fields = {"ranges": [{"from": 0, "to": 4}, {"from": 16, "to": 20}], "primary": 1}
+    assert driver.act("source-text-state", path=path)["source"] == after
+    assert driver.act("editor-selections", path=path) == fields
+    driver.act("undo", path=path)
+    assert driver.act("source-text-state", path=path)["source"] == source
+    assert driver.act("editor-selections", path=path) == original
+    driver.act("redo", path=path)
+    assert driver.act("source-text-state", path=path)["source"] == after
+    assert driver.act("editor-selections", path=path) == fields
+    driver.act("type-source-selection", path=path, text="linked")
+    assert driver.act("source-text-state", path=path)["source"] == "linked + linked = 1\nlinked + linked = 2\n# imported\n"
+    assert driver.act("editor-is-retained", path=path)
+    assert driver.act("editor-size", path=path) == size
+    assert (root / path).read_bytes() == source.encode()
+    observed = [json.loads(line) for line in events.read_text().splitlines()]
+    assert sum("completion_resolved" in row for row in observed) == 2, observed
+    print("PASS: grouped snippets retained both ordinal fields and mirrors through one Undo/Redo with one shared import")
+
+
 def main():
     spec=importlib.util.spec_from_file_location("simple_fixture",ROOT/"scripts/test-simple-browser.py")
     fixture=importlib.util.module_from_spec(spec);spec.loader.exec_module(fixture)
@@ -766,6 +1262,7 @@ def main():
         root = folder / "workspace"
         root.mkdir()
         grouped = "--typescript-group" in sys.argv
+        snippet_group = "--snippet-group" in sys.argv
         typescript = grouped or "--typescript" in sys.argv
         if typescript:
             path = TYPESCRIPT_PATH
@@ -773,8 +1270,8 @@ def main():
         else:
             nested = "--nested" in sys.argv
             snippet = "--snippet" in sys.argv or nested
-            path = "nested.py" if nested else "snippet.py" if snippet else "a.py"
-            source = "value = 1\n"
+            path = "grouped_snippet.py" if snippet_group else "nested.py" if nested else "snippet.py" if snippet else "a.py"
+            source = "value = 1\nvalue = 2\n" if snippet_group else "value = 1\n"
             (root / path).write_text(source)
             events = folder / "events.jsonl"
             gate = folder / "release"
@@ -785,11 +1282,14 @@ def main():
         try:
             with socket.socket() as reservation:reservation.bind(("127.0.0.1",0));port=reservation.getsockname()[1]
             ui=f"http://127.0.0.1:{port}"
-            engine=fixture.start([os.environ.get("HICKORY_SIMPLE_TEST_ENGINE",str(ROOT/"target/source-edit-focus/debug/examples/engine_client")),str(root),"window",ui],env=environment);processes.append(engine);backend=fixture.origin(engine)
+            engine=fixture.start([os.environ.get("HICKORY_SIMPLE_TEST_ENGINE",str(ROOT/"target/debug/examples/engine_client")),str(root),"window",ui],env=environment);processes.append(engine);backend=fixture.origin(engine)
             vite=fixture.start(["node","node_modules/vite/bin/vite.js","--config","vite.simple.config.ts","--host","127.0.0.1","--port",str(port),"--strictPort"],cwd=ROOT/"apps/web",env={**environment,"HICKORY_API_ORIGIN":backend});processes.append(vite)
             driver=fixture.BrowserDriver(fixture.origin(vite)+"/simple.html");driver.act("open",path=path);driver.act("remember-editor",path=path);size=driver.act("editor-size",path=path);deadline=time.monotonic()+20
             if typescript:
                 typescript_acceptance(driver, root, saved, size, grouped)
+                return
+            if snippet_group:
+                grouped_snippet_acceptance(driver, root, path, source, size, events)
                 return
             while True:
                 options=driver.act("completion-open",path=path,offset=3)

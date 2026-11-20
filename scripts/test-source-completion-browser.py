@@ -76,6 +76,37 @@ def typescript_acceptance(driver, root, saved, size, grouped):
     print("PASS: installed TypeScript provider resolved one shared import, with one Undo/Redo and unchanged saved bytes")
 
 
+def grouped_snippet_acceptance(driver, root, path, source, size, events):
+    original = {"ranges": [{"from": 3, "to": 3}, {"from": 13, "to": 13}], "primary": 1}
+    driver.act("editor-selections", path=path, **original)
+    deadline = time.monotonic() + 20
+    while True:
+        choices = driver.act("completion-open", path=path, keepSelection=True)
+        if any("python completion" in choice for choice in choices):
+            break
+        assert time.monotonic() < deadline, choices
+    notice = driver.act("completion-choose", title="python completion")
+    assert "Completion applied" in notice, notice
+    after = "1:😀 + 1:😀 = 1\n2:😀 + 2:😀 = 2\n# imported\n"
+    fields = {"ranges": [{"from": 0, "to": 4}, {"from": 16, "to": 20}], "primary": 1}
+    assert driver.act("source-text-state", path=path)["source"] == after
+    assert driver.act("editor-selections", path=path) == fields
+    driver.act("undo", path=path)
+    assert driver.act("source-text-state", path=path)["source"] == source
+    assert driver.act("editor-selections", path=path) == original
+    driver.act("redo", path=path)
+    assert driver.act("source-text-state", path=path)["source"] == after
+    assert driver.act("editor-selections", path=path) == fields
+    driver.act("type-source-selection", path=path, text="linked")
+    assert driver.act("source-text-state", path=path)["source"] == "linked + linked = 1\nlinked + linked = 2\n# imported\n"
+    assert driver.act("editor-is-retained", path=path)
+    assert driver.act("editor-size", path=path) == size
+    assert (root / path).read_bytes() == source.encode()
+    observed = [json.loads(line) for line in events.read_text().splitlines()]
+    assert sum("completion_resolved" in row for row in observed) == 2, observed
+    print("PASS: grouped snippets retained both ordinal fields and mirrors through one Undo/Redo with one shared import")
+
+
 def main():
     spec=importlib.util.spec_from_file_location("simple_fixture",ROOT/"scripts/test-simple-browser.py")
     fixture=importlib.util.module_from_spec(spec);spec.loader.exec_module(fixture)
@@ -84,6 +115,7 @@ def main():
         root = folder / "workspace"
         root.mkdir()
         grouped = "--typescript-group" in sys.argv
+        snippet_group = "--snippet-group" in sys.argv
         typescript = grouped or "--typescript" in sys.argv
         if typescript:
             path = TYPESCRIPT_PATH
@@ -91,8 +123,8 @@ def main():
         else:
             nested = "--nested" in sys.argv
             snippet = "--snippet" in sys.argv or nested
-            path = "nested.py" if nested else "snippet.py" if snippet else "a.py"
-            source = "value = 1\n"
+            path = "grouped_snippet.py" if snippet_group else "nested.py" if nested else "snippet.py" if snippet else "a.py"
+            source = "value = 1\nvalue = 2\n" if snippet_group else "value = 1\n"
             (root / path).write_text(source)
             events = folder / "events.jsonl"
             gate = folder / "release"
@@ -103,11 +135,14 @@ def main():
         try:
             with socket.socket() as reservation:reservation.bind(("127.0.0.1",0));port=reservation.getsockname()[1]
             ui=f"http://127.0.0.1:{port}"
-            engine=fixture.start([os.environ.get("HICKORY_SIMPLE_TEST_ENGINE",str(ROOT/"target/source-edit-focus/debug/examples/engine_client")),str(root),"window",ui],env=environment);processes.append(engine);backend=fixture.origin(engine)
+            engine=fixture.start([os.environ.get("HICKORY_SIMPLE_TEST_ENGINE",str(ROOT/"target/debug/examples/engine_client")),str(root),"window",ui],env=environment);processes.append(engine);backend=fixture.origin(engine)
             vite=fixture.start(["node","node_modules/vite/bin/vite.js","--config","vite.simple.config.ts","--host","127.0.0.1","--port",str(port),"--strictPort"],cwd=ROOT/"apps/web",env={**environment,"HICKORY_API_ORIGIN":backend});processes.append(vite)
             driver=fixture.BrowserDriver(fixture.origin(vite)+"/simple.html");driver.act("open",path=path);driver.act("remember-editor",path=path);size=driver.act("editor-size",path=path);deadline=time.monotonic()+20
             if typescript:
                 typescript_acceptance(driver, root, saved, size, grouped)
+                return
+            if snippet_group:
+                grouped_snippet_acceptance(driver, root, path, source, size, events)
                 return
             while True:
                 options=driver.act("completion-open",path=path,offset=3)

@@ -31,3 +31,17 @@ it('combines independently resolved identifier edits and a single shared import'
  expect(()=>prepare([first,{...second,item:{...item,additionalTextEdits:[]}}])).toThrow('disagree');
  expect(()=>prepare([first,first])).toThrow('overlap');
 });
+it('keeps fields for a source-equal snippet group without a text patch',()=>{
+ const source='va\nva\n',item={label:'value',insertTextFormat:2,insertText:'${1:va}$0'};
+ const expansion={text:'va',fields:[
+  {index:1,from:0,to:2,choices:[],id:0,parent:null},
+  {index:0,from:2,to:2,choices:[],id:1,parent:null},
+ ]};
+ const draft=planCompletionGroup('hick:///a.py',{text:source,writable:true},[
+  {item,from:2,to:2,prefixFrom:0,expansion},{item,from:5,to:5,prefixFrom:3,expansion},
+ ],1);
+ expect(draft.plan.patches).toEqual([]);
+ expect(draft.parallel?.source).toBe(source);
+ expect(draft.parallel?.primary).toBe(1);
+ expect(draft.parallel?.peers.map(peer=>[peer.from,peer.selection.from,peer.selection.to])).toEqual([[0,0,2],[3,0,2]]);
+});

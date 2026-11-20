@@ -120,6 +120,22 @@ export function parallelSelections(state: ParallelSnippet): {
   };
 }
 
+// The completion planner has already combined and checked the shared edits.
+// Map the peer envelopes into that final draft and verify their literal text.
+export function rebaseParallelSnippet(
+  state: ParallelSnippet, source: string, starts: readonly number[],
+): ParallelSnippet | null {
+  if (starts.length !== state.peers.length) return null;
+  const peers = state.peers.map(peer => ({
+    ...peer, from: starts[peer.id], to: starts[peer.id] + peer.text.length,
+  }));
+  const rebased = {...state, source, peers};
+  const {ranges} = parallelSelections(rebased);
+  if (ranges.some((range, index) => index > 0 &&
+      (ranges[index - 1].to > range.from || sameRange(ranges[index - 1], range)))) return null;
+  return current(rebased, source) ? rebased : null;
+}
+
 export function beginParallelSnippet(
   source: string, expansions: readonly ParallelExpansion[], primary: number,
 ): ParallelSnippetChange | null {
@@ -332,6 +348,9 @@ export function moveParallelSnippet(
 
 Keep native UTF-16 ranges without letting NSString conversion or Swift's
 canonical string equality weaken exact authored-byte comparisons.
+Shared provider edits sit outside the peer fields. Apply each once and shift
+only the peer envelopes that follow it, leaving their local field offsets
+available for linked typing and history.
 
 <ui:copy id="parallel-snippet-session-apple">
 import Foundation
@@ -403,7 +422,8 @@ struct ParallelSnippet {
         return true
     }
 
-    static func begin(_ source: String, expansions: [ParallelSnippetExpansion], primary: Int) -> ParallelSnippetChange? {
+    static func begin(_ source: String, expansions: [ParallelSnippetExpansion], primary: Int,
+                      additional: [NativeSourceEdit] = []) -> ParallelSnippetChange? {
         guard (2...maxCarets).contains(expansions.count), expansions.indices.contains(primary),
               source.utf8.count <= 8 * maxBytes else { return nil }
         let original = source as NSString
@@ -411,18 +431,36 @@ struct ParallelSnippet {
             ($0.element.edit.range.location, $0.element.edit.range.length) <
                 ($1.element.edit.range.location, $1.element.edit.range.length)
         }
+        let imports = additional.sorted { $0.range.location < $1.range.location }
+        let all = (ordered.map { $0.element.edit } + imports).sorted {
+            ($0.range.location, $0.range.length) < ($1.range.location, $1.range.length)
+        }
+        guard imports.isEmpty || (all.allSatisfy({ valid(original, $0.range) }) &&
+              zip(all, all.dropFirst()).allSatisfy({ left, right in
+                  NSMaxRange(left.range) <= right.range.location && left.range.location != right.range.location
+              })) else { return nil }
         var edits: [NativeSourceEdit] = []
         var peers: [Peer] = []
         var shift = 0
         var bytes = 0
+        for edit in imports {
+            guard edit.text.utf8.count <= maxBytes - bytes else { return nil }
+            bytes += edit.text.utf8.count
+        }
         var metadata = 0
         var fields = 0
         var budget = SnippetTransformBudget()
+        var nextImport = 0
         for (id, expansion) in ordered {
             let edit = expansion.edit
             guard valid(original, edit.range) else { return nil }
             if let previous = edits.last,
                NSMaxRange(previous.range) > edit.range.location || previous.range == edit.range { return nil }
+            while nextImport < imports.count, imports[nextImport].range.location < edit.range.location {
+                let change = imports[nextImport]
+                shift += change.text.utf16.count - change.range.length
+                nextImport += 1
+            }
             bytes += edit.text.utf8.count
             fields += expansion.fields.count
             guard bytes <= maxBytes, fields <= maxFields,
@@ -443,9 +481,9 @@ struct ParallelSnippet {
             edits.append(edit)
             shift += length - edit.range.length
         }
-        let after = replace(source, edits)
+        let after = replace(source, all)
         let state = ParallelSnippet(source: after, peers: peers, primary: primary)
-        return state.matches(after) ? ParallelSnippetChange(edits: edits, state: state) : nil
+        return state.matches(after) ? ParallelSnippetChange(edits: all, state: state) : nil
     }
 
     private func localSelection(_ absolute: NSRange, in peer: Peer) -> NSRange? {
@@ -612,6 +650,10 @@ struct ParallelSnippet {
 The same local ranges describe independent, whole replacements. Compose
 receives a plan only after every peer has passed validation.
 
+Grouped provider completions position the inserted peers after applying shared
+imports. Moving each peer as a unit keeps its local fields and transforms
+independent of the surrounding import edits.
+
 <ui:copy id="parallel-snippet-session-android">
 package com.hickorydocs.simple
 
@@ -731,6 +773,15 @@ internal data class ParallelSnippet(
             previous = peer.to
         }
         return true
+    }
+
+    fun placing(after: String, insertionStarts: List<Int>): ParallelSnippet? {
+        if (insertionStarts.size != peers.size) return null
+        val rebased = copy(source = after, peers = peers.map { peer ->
+            val start = insertionStarts[peer.id]
+            peer.copy(from = start, to = start + peer.text.length)
+        })
+        return rebased.takeIf { it.matches(after) }
     }
 
     private fun localSelection(peer: Peer, absolute: CompletionSelection): CompletionSelection? {

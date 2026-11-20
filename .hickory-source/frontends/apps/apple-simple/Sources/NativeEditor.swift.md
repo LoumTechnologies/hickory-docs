@@ -1150,7 +1150,7 @@ private struct EquationLayout: Equatable {
             if let batch=draft.caretBatch {
                 guard exactUTF8(self.buffer.multiSource,draft.before),self.buffer.multiRanges==batch.before,
                       batch.before.first==initial,batch.after.first==selection else{return false}
-                after=SourceSnippetHistoryContext(fields:[],active:0,current:0,ranges:batch.after)
+                after=SourceSnippetHistoryContext(fields:[],active:0,current:0,parallel:batch.parallel,ranges:batch.after)
             }else{
                 after=(draft.continuing ?? beginSnippet(draft.plan.patches.first?.after ?? draft.before,fields:draft.fields))
                     .map{SourceSnippetHistoryContext(fields:$0.fields,active:$0.active,current:$0.current,scopes:$0.scopes)}
@@ -1801,7 +1801,7 @@ import UIKit
             if let batch=draft.caretBatch {
                 guard exactUTF8(self.buffer.multiSource,draft.before),self.buffer.multiRanges==batch.before,
                       batch.before.first==initial,batch.after.first==selection else{return false}
-                after=SourceSnippetHistoryContext(fields:[],active:0,current:0,ranges:batch.after)
+                after=SourceSnippetHistoryContext(fields:[],active:0,current:0,parallel:batch.parallel,ranges:batch.after)
             }else{
                 after=(draft.continuing ?? beginSnippet(draft.plan.patches.first?.after ?? draft.before,fields:draft.fields))
                     .map{SourceSnippetHistoryContext(fields:$0.fields,active:$0.active,current:$0.current,scopes:$0.scopes)}

@@ -53,20 +53,27 @@ Supply list defaults with opaque, Unicode and range-shaped data. A lazy resolver
     elif method=="textDocument/completion":
         uri=params["textDocument"]["uri"];opaque={"producer":language,"uri":uri,"range":{"start":{"line":91,"character":2},"end":{"line":91,"character":4}},"unicode":"é😀"}
         if params["position"]["character"]==2:opaque["slow"]=True
-        edit_range={"start":{"line":0,"character":0},"end":{"line":0,"character":5}}
+        row=params["position"]["line"] if uri.endswith("/grouped_snippet.py") else 0
+        if uri.endswith("/grouped_snippet.py"):opaque["group_row"]=row
+        edit_range={"start":{"line":row,"character":0},"end":{"line":row,"character":5}}
         item={"label":language+" completion","filterText":"value","textEditText":language+"_initial"}
         original={**item,"data":opaque,"insertTextFormat":1,"textEdit":{"range":edit_range,"newText":item["textEditText"]}}
-        issued_completions[uri]=original
+        issued_completions[(uri,opaque.get("group_row"))]=original
         result={"isIncomplete":False,"itemDefaults":{"editRange":edit_range,"data":opaque,"insertTextFormat":1},"items":[item]}
         event({"completion_query":language,"context":params.get("context")})
     elif method=="completionItem/resolve":
         uri=params.get("data",{}).get("uri")
-        if language!="python" or params!=issued_completions.get(uri):
+        if language!="python" or params!=issued_completions.get((uri,params.get("data",{}).get("group_row"))):
             event({"error":"altered completion or wrong provider","language":language});send({"jsonrpc":"2.0","id":identity,"error":{"code":-32602,"message":"Original completion payload was not preserved"}});continue
         event({"completion_resolved":language,"slow_completion":params["data"].get("slow",False)})
         result={**params,"textEdit":{**params["textEdit"],"newText":"python_completed"},"additionalTextEdits":[{"range":{"start":{"line":1,"character":0},"end":{"line":1,"character":0}},"newText":"# imported\n"}]}
         if uri.endswith("/snippet.py"):result.update(insertTextFormat=2,textEdit={**params["textEdit"],"newText":"${1:😀 value} + $1$0"})
         if uri.endswith("/nested.py"):result.update(insertTextFormat=2,textEdit={**params["textEdit"],"newText":"${1:value} + $1$0"})
+        if uri.endswith("/grouped_snippet.py"):
+            result.update(insertTextFormat=2,textEdit={**params["textEdit"],"newText":"${1:${CURSOR_NUMBER}:😀} + $1$0"})
+            lines=documents[uri].split("\n")
+            eof={"line":len(lines)-1,"character":len(lines[-1].encode("utf-16-le"))//2}
+            result["additionalTextEdits"][0]["range"]={"start":eof,"end":eof}
         if params["data"].get("slow"):
             def release_completion(identity=identity,result=result):
                 deadline=time.monotonic()+10

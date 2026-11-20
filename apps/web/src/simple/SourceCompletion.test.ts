@@ -62,7 +62,7 @@ it('retires a held peer completion after changing and restoring the secondary ca
    uri:'hick:///a.py',current:()=>true,writable:()=>true,notice:()=>{},
    resolve:async()=>{throw new Error('Single-caret resolution was unexpected');},
    group:{query:async offset=>{expect(offset).toBe(5);return [peer];},resolve:async item=>{
-    if((item.data as {hickory_completion:string}).hickory_completion==='first') return item;
+    if((item.data as {hickory_completion:string}).hickory_completion==='first') return first;
     beginPeer();
     return pending.promise;
    }},
@@ -77,6 +77,55 @@ it('retires a held peer completion after changing and restoring the secondary ca
   expect(readCompletionAcceptance(view)?.phase).toBe('unavailable');
   expect(undo(view)).toBe(false);
  } finally {close();}
+});
+it('reads the clipboard once after validating both grouped demands and shared edits',async()=>{
+ const source='va\nva\n';
+ const descriptor=Object.getOwnPropertyDescriptor(navigator,'clipboard');
+ const phases:string[]=[];
+ Object.defineProperty(navigator,'clipboard',{configurable:true,value:{readText:async()=>{phases.push('clipboard');return 'shared';}}});
+ try {
+  const hash=await sourceDigest(source),context={source_hash:hash,source_revision:'a'.repeat(64)};
+  const offer=(token:string):CompletionItem=>({label:'value',data:{hickory_completion:token,hickory_context:context}});
+  const syntax='${1:${CLIPBOARD}}$0';
+  for(const conflict of [true,false]){
+   const {view,close}=fixture(source);
+   try {
+    phases.length=0;
+    const selection=EditorSelection.create([EditorSelection.cursor(2),EditorSelection.cursor(5)],1);
+    view.dispatch({selection});
+    await acceptSourceCompletion(view,offer('second'),source,selection,3,5,{
+     uri:'hick:///a.py',current:()=>true,writable:()=>true,notice:()=>{},
+     resolve:async()=>{throw new Error('Unexpected single resolution');},
+     group:{query:async()=>[offer('first')],resolve:async item=>{
+      const data=item.data as {hickory_completion:string;hickory_context:{selection:{from:number;to:number};carets:{index:number;count:number};clipboard:unknown}};
+      const {index,count}=data.hickory_context.carets;
+      expect(count).toBe(2);
+      expect(data.hickory_context.selection).toEqual(index===0?{from:2,to:2}:{from:5,to:5});
+      const retry=data.hickory_completion.endsWith('-retry');
+      phases.push(`${retry?'retry':'first'}-${index}`);
+      const text=index===0?'one':'two';
+      const resultData={hickory_completion:retry?data.hickory_completion:data.hickory_completion+'-retry',hickory_context:context};
+      if(retry) expect(data.hickory_context.clipboard).toEqual({available:true,text:'shared'});
+      else expect(data.hickory_context.clipboard).toBeNull();
+      return {
+       label:item.label,insertTextFormat:2,
+       textEdit:{range:{start:{line:index,character:0},end:{line:index,character:2}},newText:syntax},
+       additionalTextEdits:[{range:{start:{line:0,character:0},end:{line:0,character:0}},newText:conflict&&index?'# other\n':'# import\n'}],
+       data:retry?{...resultData,hickory_snippet:{version:2,syntax,text,fields:[
+        {index:1,from:0,to:3,choices:[],id:0,parent:null},{index:0,from:3,to:3,choices:[],id:1,parent:null},
+       ]}}:{...resultData,hickory_context_request:{version:1,variables:['CLIPBOARD']}},
+      };
+     }},
+    });
+    expect(phases).toEqual(conflict?['first-1','first-0']:['first-1','first-0','clipboard','retry-1','retry-0']);
+    expect(authoredSource(view.state)).toBe(conflict?source:'# import\none\ntwo\n');
+    expect(readParallelSourceSnippet(view.state)?.peers.length ?? 0).toBe(conflict?0:2);
+   } finally {close();}
+  }
+ } finally {
+  if(descriptor)Object.defineProperty(navigator,'clipboard',descriptor);
+  else Reflect.deleteProperty(navigator,'clipboard');
+ }
 });
 it('retains the active template group when an ordinary completion is chosen',async()=>{
  const source='va\nva\n',{view,close}=fixture(source);

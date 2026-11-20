@@ -24,6 +24,7 @@ while True:
   uri=params.get('data',{}).get('opaque',{}).get('uri');assert params==issued.get(uri),'Original opaque provider item was changed';record({'resolve':uri})
   syntax='${TM_SELECTED_TEXT:${CLIPBOARD}}$0' if uri.endswith('/unused.py') else '${CLIPBOARD:fallback}$0' if uri.endswith('/denied.py') else '${TM_FILENAME}|${CURRENT_YEAR}|${RANDOM_HEX}|${1:${TM_SELECTED_TEXT}}|$1|${1/(.*)/${1:/upcase}/}|${CLIPBOARD:fallback}$0'
   if uri.endswith('/browser.py'):syntax=syntax.rsplit('|${CLIPBOARD:fallback}',1)[0]+'$0'
+  if uri.endswith('/grouped.py'):syntax='${CURSOR_NUMBER}|${TM_SELECTED_TEXT}|${CLIPBOARD:fallback}$0'
   result={**params,'insertTextFormat':2,'textEdit':{'range':{'start':{'line':0,'character':0},'end':{'line':0,'character':3}},'newText':syntax}}
  elif method=='shutdown':result=None
  else:result=None

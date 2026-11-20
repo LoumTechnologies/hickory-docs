@@ -186,6 +186,12 @@ function parallelSelection(session: ParallelSnippet): EditorSelection {
   );
 }
 
+export function parallelCompletionSelection(session: ParallelSnippet) {
+  const selection = parallelSelection(session);
+  if (selection.ranges.length !== session.peers.length) return null;
+  return {selection,effect:setParallelSourceSnippet.of(session)};
+}
+
 export function readParallelSourceSnippet(state: EditorState): ParallelSnippet | null {
   return state.field(parallelSnippetState, false) ?? null;
 }

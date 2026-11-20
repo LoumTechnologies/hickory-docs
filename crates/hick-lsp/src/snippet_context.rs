@@ -129,11 +129,13 @@ impl SnippetVariableSnapshot {
         })
     }
 }
-/// Editor context is data, never new source authority. Callers supply the held exact stamp.
+/// The optional grouped row provides a zero-based ordinal for variables.
+/// It carries no source authority. The producing offer still owns the position.
 #[derive(Debug)]
 pub struct SnippetEditorContext {
     pub from: usize,
     pub to: usize,
+    pub caret: Option<(usize, usize)>,
     pub snapshot: SnippetVariableSnapshot,
     pub transform_program_versions:Vec<u32>,
 }
@@ -156,7 +158,9 @@ impl SnippetEditorContext {
         let programs=if let Some(raw)=raw.get("transform_program_versions"){let values=raw.as_array().ok_or("Malformed snippet transform program versions")?;if values.len()>2{return Err("Excessive snippet transform program versions".into())};values.iter().map(|n|n.as_u64().and_then(|n|u32::try_from(n).ok()).ok_or_else(||"Malformed snippet transform program version".to_owned())).collect::<Result<Vec<_>,_>>()?}else{vec![2]};
         crate::snippet_transform::validate_program_versions(&programs)?;
         let mut allowed=vec!["version","expected","selection","clock","random_hex","clipboard"];
-        if raw.get("transform_program_versions").is_some(){allowed.push("transform_program_versions")};keys(raw,&allowed)?;
+        if raw.get("transform_program_versions").is_some(){allowed.push("transform_program_versions")};
+        if raw.get("carets").is_some(){allowed.push("carets")};
+        keys(raw,&allowed)?;
         if raw["version"].as_u64() != Some(1) {
             return Err("Unsupported editor snippet context version".into());
         }
@@ -192,9 +196,17 @@ impl SnippetEditorContext {
         if from > to {
             return Err("Backwards snippet selection".into());
         }
+        let caret = raw.get("carets").map(|row| {
+            keys(row, &["index", "count"])?;
+            let count = row["count"].as_u64().filter(|count| (2..=16).contains(count))
+                .ok_or("Malformed snippet caret count")?;
+            let index = row["index"].as_u64().filter(|index| *index < count)
+                .ok_or("Malformed snippet caret index")?;
+            Ok::<_, String>((index as usize, count as usize))
+        }).transpose()?;
         let snapshot =
             SnippetVariableSnapshot::read(&raw["clock"], &raw["random_hex"], &raw["clipboard"])?;
-        Ok(Self { from, to, snapshot, transform_program_versions:programs })
+        Ok(Self { from, to, caret, snapshot, transform_program_versions:programs })
     }
 }
 fn comments(
@@ -675,6 +687,23 @@ mod tests {
         let context =
             SnippetEditorContext::read(&raw, source, "sha256:held", "held-revision").unwrap();
         assert_eq!(&source[context.from..context.to], "😀");
+        assert_eq!(context.caret, None);
+        let mut grouped = raw.clone();
+        grouped["carets"] = serde_json::json!({"index":1,"count":2});
+        assert_eq!(
+            SnippetEditorContext::read(&grouped, source, "sha256:held", "held-revision")
+                .unwrap().caret,
+            Some((1, 2))
+        );
+        for invalid in [
+            serde_json::json!({"index":2,"count":2}),
+            serde_json::json!({"index":0,"count":1}),
+            serde_json::json!({"index":0,"count":17}),
+            serde_json::json!({"index":false,"count":2}),
+        ] {
+            grouped["carets"] = invalid;
+            assert!(SnippetEditorContext::read(&grouped, source, "sha256:held", "held-revision").is_err());
+        }
         assert_eq!(
             context.snapshot.date.unwrap().offset().local_minus_utc(),
             19800

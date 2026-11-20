@@ -10,8 +10,18 @@ struct HeldCompletion {
     virtual_uri: Url,
     origin: Url,
     position: Position,
+    authored_position: Position,
     source: CompletionSourceCapture,
     programs:Vec<u32>,
+    grouped_clipboard_retry: Option<Value>,
+}
+
+// A grouped retry can add a clipboard result to an already admitted editor
+// context. The held token keeps the selection, caret ordinal and snapshot.
+fn grouped_clipboard_identity(raw: &Value) -> Value {
+    let mut identity = raw.clone();
+    identity["clipboard"] = Value::Null;
+    identity
 }
 #[derive(Clone)]
 struct CompletionSourceCapture {
@@ -92,6 +102,7 @@ impl HickBackend {
         origin: &Url,
         capture: &CompletionSourceCapture,
         raw: &Value,
+        position: Position,
     ) -> Result<crate::snippet_context::SnippetEditorContext> {
         self.require_completion_source(origin, capture).await?;
         let documents = self.documents.read().await;
@@ -100,13 +111,22 @@ impl HickBackend {
             .filter(|entry| capture.matches(entry))
             .ok_or_else(|| completion_error("Completion source changed. Request again."))?;
         let proof = capture.proof(origin);
-        crate::snippet_context::SnippetEditorContext::read(
+        let context = crate::snippet_context::SnippetEditorContext::read(
             raw,
             &entry.source_text,
             proof["source_hash"].as_str().unwrap(),
             proof["source_revision"].as_str().unwrap(),
         )
-        .map_err(completion_error)
+        .map_err(completion_error)?;
+        if context.caret.is_some()
+            && ![context.from, context.to].into_iter().any(|offset| {
+                crate::structural::byte_to_position(&entry.source_text, offset)
+                    == (position.line, position.character)
+            })
+        {
+            return Err(completion_error("Grouped completion selection does not match its captured caret."));
+        }
+        Ok(context)
     }
     async fn completion_variables(
         &self,
@@ -135,7 +155,7 @@ impl HickBackend {
         } else {
             crate::snippet_context::variables_with_budget
         };
-        read(
+        let mut values = read(
             &crate::snippet_context::SnippetVariableContext {
                 source: &entry.source_text,
                 from: context.from,
@@ -148,7 +168,12 @@ impl HickBackend {
             requested,
             budget,
         )
-        .map_err(completion_error)
+        .map_err(completion_error)?;
+        if let Some((index, _)) = context.caret {
+            crate::snippet_context::bind_cursor_variables(&mut values, requested, index)
+                .map_err(completion_error)?;
+        }
+        Ok(values)
     }
 }
 pub(super) struct PreparedCompletions {
@@ -507,8 +532,10 @@ impl HickBackend {
                     virtual_uri: virtual_uri.clone(),
                     origin: origin.clone(),
                     position,
+                    authored_position: source.position,
                     source: source_capture.clone(),
                     programs:programs.clone(),
+                    grouped_clipboard_retry: None,
                 },
             );
             *item = mapped;
@@ -548,9 +575,17 @@ impl HickBackend {
             .as_ref()
             .and_then(|data| data.get("hickory_context"))
             .filter(|raw| raw.get("version").is_some());
+        if let Some(expected) = &held.grouped_clipboard_retry {
+            if !raw_context.is_some_and(|raw| {
+                raw.get("clipboard").is_some_and(Value::is_object)
+                    && grouped_clipboard_identity(raw) == *expected
+            }) {
+                return Err(completion_error("Grouped clipboard reply changed its captured context."));
+            }
+        }
         let editor_context = match raw_context {
             Some(raw) => Some(
-                self.read_completion_context(&held.origin, &held.source, raw)
+                self.read_completion_context(&held.origin, &held.source, raw, held.authored_position)
                     .await?,
             ),
             None => None,
@@ -604,6 +639,9 @@ impl HickBackend {
                     let mut cached = held.clone();
                     cached.original = original;
                     cached.resolve = false;
+                    if context.caret.is_some() {
+                        cached.grouped_clipboard_retry = raw_context.map(grouped_clipboard_identity);
+                    }
                     response_token = self.prepared_completions.lock().await.items.insert(
                         Instant::now(),
                         revision.clone(),

@@ -662,11 +662,11 @@ Retain each offered provider item and its source/selection. Resolve before plann
 
 The popup still reads the primary caret first. If the user has two to sixteen
 carets, accepting the visible item reads the other positions without moving
-the native selection. Each position must return one matching ordinary offer.
-Resolve the actual held item for that position before asking for another list.
-Check the authored source proof on every offer and response. A completion that
-needs a snippet, a provider command or another context leaves the whole group
-intact.
+the native selection. Each position must return one matching offer. Resolve its
+held token with the original selection and one shared variable snapshot. An
+offer may first declare snippet format during resolution. Apply only a complete
+group of plain edits or a complete group of validated snippets. A provider
+command, stale proof or mixed group leaves the original draft intact.
 
 <ui:copy id="native-completion-acceptance-apple">
     var completionNotice=""
@@ -704,18 +704,19 @@ intact.
         func current()->Bool{self.buffer === buffer && epoch==identity && acceptingCompletion==acceptance && buffer.sourceEditIdentity==revision && buffer.selectionIdentity==selectionRevision && !buffer.readOnly && !buffer.saving && !buffer.resourceDeleted && exactUTF8(languageURI(buffer.file.path),uri) && exactUTF8(buffer.text,source) && buffer.selection==selection}
         return try await resolveSnippetCompletion(item,source:source,from:selection.location,to:NSMaxRange(selection),current:current,request:{try await self.requestResolvedCompletion($0)},clipboard:snippetClipboardReader)
     }
-    private func completionProof(_ item:[String:Any],hash:String)->(token:String,revision:String)? {
+    private func completionRevision(_ item:[String:Any],hash:String)->String? {
         guard let data=item["data"] as? [String:Any],let token=data["hickory_completion"] as? String,!token.isEmpty,
               let proof=data["hickory_context"] as? [String:Any],exactUTF8(proof["source_hash"] as? String,hash),
               let revision=proof["source_revision"] as? String,revision.utf8.count==64,
               revision.utf8.allSatisfy({(48...57).contains($0)||(97...102).contains($0)}) else{return nil}
-        return (token,revision)
+        return revision
     }
-    private func ordinaryCompletion(_ item:[String:Any])->Bool {
-        let data=item["data"] as? [String:Any]
-        return (item["insertTextFormat"]==nil || sourceChangeInteger(item["insertTextFormat"])==1)
-            && (item["command"]==nil || item["command"] is NSNull)
-            && data?["hickory_snippet"]==nil && data?["hickory_context_request"]==nil
+    private func groupedCompletionFormat(_ item:[String:Any],allowsDemand:Bool=false)->Int? {
+        guard item["command"]==nil || item["command"] is NSNull,
+              allowsDemand || (item["data"] as? [String:Any])?["hickory_context_request"]==nil else{return nil}
+        guard let raw=item["insertTextFormat"] else{return 1}
+        guard let format=sourceChangeInteger(raw),(1...2).contains(format) else{return nil}
+        return format
     }
     private func matchingCompletionOffer(_ choice:[String:Any],_ other:[String:Any])->Bool {
         let choiceLabel=choice["labelDetails"] as? [String:Any],otherLabel=other["labelDetails"] as? [String:Any]
@@ -723,18 +724,52 @@ intact.
             && ["detail","description"].allSatisfy {exactUTF8(choiceLabel?[$0] as? String,otherLabel?[$0] as? String)}
             && sourceChangeInteger(choice["kind"])==sourceChangeInteger(other["kind"])
     }
-    private func planCaretCompletion(_ original:[String:Any],source:String,carets:[NSRange],current:()->Bool,fetch:(([String:Any]) async throws->Any)?,resolution:(([String:Any]) async throws->[String:Any])?) async throws -> CompletionDraft {
+    private func planCaretCompletion(_ original:[String:Any],source:String,carets:[NSRange],current:()->Bool,fetch:(([String:Any]) async throws->Any)?,resolution:(([String:Any]) async throws->[String:Any])?) async throws -> (draft:CompletionDraft,notice:String) {
         func requireCurrent()throws {
             guard current() else {throw EngineError(message:"Source, carets or provider changed. Request completions again.")}
         }
         let hash="sha256:"+nativeSourceHash(source)
-        guard ordinaryCompletion(original),let initial=completionProof(original,hash:hash) else {
-            throw EngineError(message:"Choose an ordinary provider completion for these carets.")
+        guard groupedCompletionFormat(original) != nil,let initial=completionRevision(original,hash:hash) else {
+            throw EngineError(message:"Choose a current provider completion for these carets.")
         }
         let snapshot=SourceSnapshot(text:source,writable:true)
         let prefixes=carets.map {completionPrefix(source,at:$0.location)}
         let prefixTexts=prefixes.map {(source as NSString).substring(with:$0)}
-        var drafts:[CompletionDraft]=[],tokens=Set<String>()
+        let authoredOrder=carets.sorted {$0.location<$1.location}
+        let context=GroupedSnippetContext()
+        var budget=SnippetTransformBudget()
+        var notices:[String]=[]
+        var groupFormat:Int?
+        var drafts:[CompletionDraft]=[]
+        var demands:[(index:Int,item:[String:Any])]=[]
+        func resolve(_ item:[String:Any],at index:Int,using variables:SnippetVariableSnapshot) async throws -> SnippetCompletionReply {
+            let caret=carets[index]
+            guard let authoredIndex=authoredOrder.firstIndex(of:caret) else {
+                throw EngineError(message:"The authored caret roster changed. Request completions again.")
+            }
+            return try await requestSnippetCompletion(item,source:source,from:caret.location,to:NSMaxRange(caret),current:current,
+                request:{item in
+                    if let resolution{return try await resolution(item)}
+                    return try await self.requestResolvedCompletion(item)
+                },snapshot:variables,group:(context,authoredIndex,carets.count))
+        }
+        func draft(_ item:[String:Any],at index:Int,needsClipboard:Bool=false)throws->CompletionDraft {
+            guard let format=groupedCompletionFormat(item,allowsDemand:needsClipboard),groupFormat==nil || groupFormat==format,
+                  format==2 || (item["data"] as? [String:Any])?["hickory_snippet"]==nil else {
+                throw EngineError(message:"The provider did not resolve a compatible completion at every caret.")
+            }
+            groupFormat=format
+            if item["textEdit"]==nil {
+                guard carets.allSatisfy({$0.length==0}),
+                      prefixTexts.allSatisfy({exactUTF8($0,prefixTexts.first)}) else {
+                    throw EngineError(message:"Implicit completion needs the same typed prefix at every collapsed caret.")
+                }
+            }
+            let notice=try snippetContextNotice(item)
+            if !notice.isEmpty,!notices.contains(notice){notices.append(notice)}
+            let expansion=needsClipboard ? CompletionExpansion(text:"") : try completionExpansion(item,budget:&budget)
+            return try planCompletion(uri,item:item,snapshot:snapshot,from:prefixes[index].location,to:NSMaxRange(carets[index]),expansion:expansion)
+        }
         for (index,caret) in carets.enumerated() {
             try requireCurrent()
             let offer:[String:Any]
@@ -749,27 +784,35 @@ intact.
                 guard matches.count==1 else {throw EngineError(message:"The selected completion must match one offer at every caret.")}
                 offer=matches[0]
             }
-            guard ordinaryCompletion(offer),let proof=completionProof(offer,hash:hash),proof.revision==initial.revision,
-                  tokens.insert(proof.token).inserted else {
+            guard groupedCompletionFormat(offer) != nil,completionRevision(offer,hash:hash)==initial else {
                 throw EngineError(message:"Completion offers did not share the same current authored source.")
             }
-            let resolved:[String:Any]
-            if let resolution {resolved=try await resolution(offer)} else {resolved=try await requestResolvedCompletion(offer)}
-            try requireCurrent()
-            guard ordinaryCompletion(resolved),exactUTF8(resolved["label"] as? String,original["label"] as? String),
-                  let returned=completionProof(resolved,hash:hash),returned.revision==initial.revision,
-                  exactUTF8(returned.token,proof.token) else {
-                throw EngineError(message:"The provider did not resolve the same ordinary completion at every caret.")
+            switch try await resolve(offer,at:index,using:context.snapshot) {
+            case .ready(let item):drafts.append(try draft(item,at:index))
+            case .needsClipboard(let item):
+                drafts.append(try draft(item,at:index,needsClipboard:true))
+                demands.append((index,item))
             }
-            if resolved["textEdit"]==nil {
-                guard carets.allSatisfy({$0.length==0}),
-                      prefixTexts.allSatisfy({exactUTF8($0,prefixTexts.first)}) else {
-                    throw EngineError(message:"Implicit completion needs the same typed prefix at every collapsed caret.")
-                }
-            }
-            drafts.append(try planCompletion(uri,item:resolved,snapshot:snapshot,from:prefixes[index].location,to:NSMaxRange(caret)))
         }
-        return try combineCompletionDrafts(drafts,carets:carets,snapshot:snapshot)
+        if !demands.isEmpty {
+            _=try completionGroupEdits(drafts,carets:carets,snapshot:snapshot,snippet:true)
+            try requireCurrent()
+            var variables=context.snapshot
+            variables.clipboard=captureSnippetClipboard(read:snippetClipboardReader)
+            try requireCurrent()
+            for demand in demands {
+                let retry=try await resolve(demand.item,at:demand.index,using:variables)
+                let original=drafts[demand.index]
+                let resolved=try draft(retry.item,at:demand.index)
+                guard exactUTF8(try completionInsertion(retry.item),try completionInsertion(demand.item)),
+                      resolved.primary?.from==original.primary?.from,resolved.primary?.to==original.primary?.to,
+                      resolved.additional==original.additional else {
+                    throw EngineError(message:"Completion edits changed after requesting context. Request completions again.")
+                }
+                drafts[demand.index]=resolved
+            }
+        }
+        return (try combineCompletionDrafts(drafts,carets:carets,snapshot:snapshot),notices.joined(separator:" · "))
     }
     @discardableResult func accept(_ completion:NativeCompletion,fetch:(([String:Any]) async throws->Any)?=nil,resolution:(([String:Any]) async throws->[String:Any])?=nil) async->Bool {
         guard let buffer,!buffer.readOnly,!buffer.saving,!buffer.resourceDeleted,completion.sourceIdentity.map({$0==buffer.sourceEditIdentity}) ?? true,completion.selectionIdentity.map({$0==buffer.selectionIdentity}) ?? true,exactUTF8(buffer.text,completion.source),buffer.selection==completion.selection else{completionNotice="Suggestion is out of date. Request completions again.";return false}
@@ -811,8 +854,8 @@ intact.
         do {
             let draft:CompletionDraft,contextNotice:String
             if multiple {
-                draft=try await planCaretCompletion(original,source:completion.source,carets:carets,current:current,fetch:fetch,resolution:resolution)
-                contextNotice=""
+                let grouped=try await planCaretCompletion(original,source:completion.source,carets:carets,current:current,fetch:fetch,resolution:resolution)
+                draft=grouped.draft;contextNotice=grouped.notice
             }else {
                 let resolved=try await (resolution ?? {try await self.resolveCompletion($0)})(original)
                 guard current() else{throw EngineError(message:"Source, cursor or provider changed. Request completions again.")}

@@ -21,10 +21,11 @@ import {planWorkspaceEdit,sourceChangeOffset,type ChangePlan,type SourceReplacem
 import {semanticPath} from './Intelligence';
 import type {SnippetField} from './SnippetExpansion';
 import type {SnippetSession} from './SnippetSession';
+import {beginParallelSnippet,rebaseParallelSnippet,type ParallelSnippet} from './ParallelSnippet';
 import {utf16ToPosition} from '../lsp/positions';
 export interface CompletionExpansion {text:string;selection?:{from:number;to:number};fields?:SnippetField[]}
 export interface CompletionDraft {path:string;before:string;plan:ChangePlan;insertionFrom:number;selection:{from:number;to:number};fields:SnippetField[];continuing?:SnippetSession;primary?:SourceReplacement;additional?:SourceReplacement[]}
-export interface CapturedCompletion {item:Record<string, unknown>;from:number;to:number;prefixFrom?:number}
+export interface CapturedCompletion {item:Record<string, unknown>;from:number;to:number;prefixFrom?:number;expansion?:CompletionExpansion}
 export function completionInsertion(item:unknown):string {
  const value=item as Record<string,unknown>|null;if(!value||typeof value!=='object'||typeof value.label!=='string')throw new Error('Malformed completion');
  const edit=value.textEdit as Record<string,unknown>|undefined;
@@ -59,10 +60,11 @@ export function planCompletion(uri:string,item:unknown,snapshot:SourceSnapshot,f
  const fields=(inserted.fields??[]).map(field=>{validateOffset(inserted.text,field.from);validateOffset(inserted.text,field.to);if(field.from>field.to)throw new Error('Invalid snippet field');return {...field,from:insertionFrom+field.from,to:insertionFrom+field.to};});
  return {path,before:source,plan,insertionFrom,fields,primary:{from,to,text:inserted.text},additional:unique,selection:{from:insertionFrom+selected.from,to:insertionFrom+selected.to}};
 }
-export function planCompletionGroup(uri:string,snapshot:SourceSnapshot,captures:readonly CapturedCompletion[]): {plan:ChangePlan;carets:number[]} {
+function prepareCompletionGroup(uri:string,snapshot:SourceSnapshot,captures:readonly CapturedCompletion[]) {
  const first = captures[0];
  if (!first || captures.length < 2 || captures.length > 16) throw new Error("Select 2 to 16 carets for a completion group.");
  const source = snapshot.text;
+ const snippets = first.item.insertTextFormat === 2;
  if (captures.some(({item}) => item.textEdit === undefined)) {
   const prefix = first.prefixFrom === undefined ? undefined : source.slice(first.prefixFrom,first.to);
   if (prefix === undefined || captures.some(({from,to,prefixFrom}) =>
@@ -70,16 +72,18 @@ export function planCompletionGroup(uri:string,snapshot:SourceSnapshot,captures:
    throw new Error("Implicit completion ranges require the same identifier prefix at each caret.");
   }
  }
- const drafts = captures.map(({item,from,to,prefixFrom}) => {
-  if ((item.insertTextFormat ?? 1) !== 1 || item.kind === 15) throw new Error("Each caret requires an ordinary completion edit.");
-  const draft = planCompletion(uri,item,snapshot,prefixFrom ?? from,to);
+ const drafts = captures.map(({item,from,to,prefixFrom,expansion}) => {
+  if ((item.insertTextFormat === 2) !== snippets || (!snippets && item.kind === 15)) {
+   throw new Error("The carets must agree on the completion format.");
+  }
+  const draft = planCompletion(uri,item,snapshot,prefixFrom ?? from,to,expansion);
   const primary = draft.primary!;
   if (primary.from > from || primary.to < to) throw new Error("A completion range does not cover its captured selection.");
-  return {primary,additional:draft.additional!,path:draft.path};
+  return {primary,additional:draft.additional!,path:draft.path,fields:expansion?.fields ?? []};
  });
  const expected = drafts[0];
  const additional = JSON.stringify(expected.additional);
- if (drafts.some(draft => draft.primary.text !== expected.primary.text || JSON.stringify(draft.additional) !== additional)) {
+ if (drafts.some(draft => (!snippets && draft.primary.text !== expected.primary.text) || JSON.stringify(draft.additional) !== additional)) {
   throw new Error("The completions disagree about their replacement or shared edits.");
  }
  const byStart = new Map(drafts.map((draft,index) => [draft.primary.from,index]));
@@ -101,11 +105,32 @@ export function planCompletionGroup(uri:string,snapshot:SourceSnapshot,captures:
  }));
  const plan = planWorkspaceEdit(`Complete ${first.item.label}`,{changes:{[uri]:changes}},new Map([[expected.path,snapshot]]),true);
  const carets: number[] = [];
+ const starts: number[] = [];
  let delta = 0;
  for (const edit of edits) {
   const index = byStart.get(edit.from);
-  if (index !== undefined) carets[index] = edit.from + delta + edit.text.length;
+  if (index !== undefined) {
+   starts[index] = edit.from + delta + (prefixes.get(edit.from)?.length ?? 0);
+   carets[index] = edit.from + delta + edit.text.length;
+  }
   delta += edit.text.length - (edit.to - edit.from);
+ }
+ return {plan,carets,starts,drafts,snippets};
+}
+
+export function preflightSnippetGroup(uri:string,snapshot:SourceSnapshot,captures:readonly CapturedCompletion[]):void {
+ // Only the provider edit roles are needed before the optional clipboard read.
+ // Field expansion and final caret geometry are admitted against the full draft later.
+ prepareCompletionGroup(uri,snapshot,captures.map(capture=>({...capture,expansion:{text:''}})));
+}
+
+export function planCompletionGroup(uri:string,snapshot:SourceSnapshot,captures:readonly CapturedCompletion[],primaryIndex=0): {plan:ChangePlan;carets:number[];parallel?:ParallelSnippet} {
+ const {plan,carets,starts,drafts,snippets} = prepareCompletionGroup(uri,snapshot,captures);
+ if (snippets) {
+  const prepared = beginParallelSnippet(snapshot.text,drafts.map(({primary,fields}) => ({...primary,fields})),primaryIndex);
+  const parallel = prepared && rebaseParallelSnippet(prepared.state,plan.patches[0]?.after ?? snapshot.text,starts);
+  if (!parallel) throw new Error("The complete snippet group cannot retain its fields and selections.");
+  return {plan,carets,parallel};
  }
  if (new Set(carets).size !== drafts.length) throw new Error("The completion would merge distinct carets.");
  return {plan,carets};
@@ -116,11 +141,15 @@ export function planCompletionGroup(uri:string,snapshot:SourceSnapshot,captures:
 
 ## Apple completion draft
 
-Apple combines independently resolved ordinary completions against one exact
-source snapshot. Each primary edit must cover its captured caret. Every
-proposal must agree on the complete list of additional edits, so an import
-shared by two completions appears once in the source plan. Keep the original
-and resulting caret ranges together for native Undo and Redo.
+Apple combines independently resolved completions against one exact source
+snapshot. Each primary edit must cover its captured caret, and every proposal
+must agree on the complete list of additional edits. A shared import appears
+once in the source plan. Snippet text and fields can vary with each selection's
+context. Each peer keeps its own field tree, with its placement adjusted for
+earlier replacements and imports. Native Undo restores the original caret
+ranges, and Redo restores the parallel field session when text changes. An
+identical expansion may establish its selections and fields through the same
+guarded editor transaction without adding a text Undo entry.
 
 Prepare the complete source change before touching a view. A completion explicitly names its primary edit, so additional insertions at its start precede that insertion in declared provider order. Deduplicate identical imports, validate all other replacements through the shared source planner, and map the final selection and every retained snippet field through earlier edits. Commands and unavailable snippet expansion refuse the whole proposal. Retain the primary replacement and deduplicated additions separately from their assembled patch. An active template can then mirror only the primary text and apply imports once; renderer code must not reverse-engineer those roles from a merged edit. The retained before snapshot also guards selection-only acceptance.
 
@@ -130,7 +159,7 @@ Offset rebasing preserves every field property, including its computed program. 
 import Foundation
 struct CompletionSelection {var from:Int;var to:Int}
 struct CompletionExpansion {var text:String;var selection:CompletionSelection?=nil;var fields:[SnippetField]=[]}
-struct CompletionCaretBatch {var before:[NSRange];var after:[NSRange]}
+struct CompletionCaretBatch {var before:[NSRange];var after:[NSRange];var parallel:ParallelSnippet?=nil}
 struct CompletionDraft {var path:String;var before:String;var plan:ChangePlan;var insertionFrom:Int;var selection:CompletionSelection;var fields:[SnippetField]=[];var continuing:SnippetSession?=nil;var primary:SourceReplacement?=nil;var additional:[SourceReplacement]=[];var caretBatch:CompletionCaretBatch?=nil}
 func completionInsertion(_ item:[String:Any])throws->String {
     guard let label=item["label"] as? String else{throw EngineError(message:"Malformed completion")}
@@ -202,7 +231,8 @@ func validCompletionCarets(_ carets:[NSRange],primary:NSRange,source:String)->Bo
     }
 }
 
-func combineCompletionDrafts(_ drafts:[CompletionDraft],carets:[NSRange],snapshot:SourceSnapshot)throws->CompletionDraft {
+func completionGroupEdits(_ drafts:[CompletionDraft],carets:[NSRange],snapshot:SourceSnapshot,snippet:Bool)throws
+    -> (primary:[SourceReplacement],shared:[SourceReplacement],ordered:[SourceReplacement]) {
     func refuse(_ message:String)->EngineError {EngineError(message:message)}
     guard let first=drafts.first,let caret=carets.first,drafts.count==carets.count,
           snapshot.writable,validCompletionCarets(carets,primary:caret,source:snapshot.text) else {
@@ -212,13 +242,13 @@ func combineCompletionDrafts(_ drafts:[CompletionDraft],carets:[NSRange],snapsho
     func ordered(_ edits:[SourceReplacement])->[SourceReplacement] {edits.sorted {($0.from,$0.to)<($1.from,$1.to)}}
     let shared=ordered(first.additional)
     let primary=try zip(drafts,carets).map {draft,range in
-        guard exactUTF8(draft.path,first.path),exactUTF8(draft.before,source),draft.fields.isEmpty,
+        guard exactUTF8(draft.path,first.path),exactUTF8(draft.before,source),
               draft.continuing==nil,ordered(draft.additional)==shared,let edit=draft.primary,
-              exactUTF8(edit.text,first.primary?.text), edit.from>=0,edit.from<=range.location,
+              snippet || exactUTF8(edit.text,first.primary?.text), edit.from>=0,edit.from<=range.location,
               NSMaxRange(range)<=edit.to,edit.to<=source.utf16.count,
               languagePosition(source,edit.from)["line"]==languagePosition(source,range.location)["line"],
               languagePosition(source,edit.to)["line"]==languagePosition(source,range.location)["line"] else {
-            throw refuse("The provider did not offer the same ordinary completion and additional edits at every caret.")
+            throw refuse("The provider did not offer a compatible completion and the same additional edits at every caret.")
         }
         return edit
     }
@@ -226,11 +256,49 @@ func combineCompletionDrafts(_ drafts:[CompletionDraft],carets:[NSRange],snapsho
     for (left,right) in zip(edits,edits.dropFirst()) where right.from<left.to || right.from==left.from {
         throw refuse("Completion edits overlap across carets or with an additional edit.")
     }
+    return (primary,shared,edits)
+}
+
+func combineCompletionDrafts(_ drafts:[CompletionDraft],carets:[NSRange],snapshot:SourceSnapshot)throws->CompletionDraft {
+    func refuse(_ message:String)->EngineError {EngineError(message:message)}
+    guard let first=drafts.first else {throw refuse("The complete set of completion drafts is unavailable.")}
+    let snippet = !first.fields.isEmpty
+    guard drafts.allSatisfy({(!$0.fields.isEmpty)==snippet}) else {throw refuse("The completion group mixes plain edits with snippets.")}
+    let (primary,shared,edits)=try completionGroupEdits(drafts,carets:carets,snapshot:snapshot,snippet:snippet)
+    let source=snapshot.text
     let wire=edits.map {
         ["range":["start":languagePosition(source,$0.from),"end":languagePosition(source,$0.to)],"newText":$0.text] as [String:Any]
     }
     let uri=languageURI(first.path)
     let plan=try planWorkspaceEdit(first.plan.title,raw:["changes":[uri:wire]],sources:[first.path:snapshot],allowNoop:true)
+    if snippet {
+        let afterSource=plan.patches.first?.after ?? source
+        func nativeEdit(_ edit:SourceReplacement)->NativeSourceEdit {
+            NativeSourceEdit(range:NSRange(location:edit.from,length:edit.to-edit.from),text:edit.text)
+        }
+        let expansions=zip(drafts,primary).map {draft,edit in
+            ParallelSnippetExpansion(edit:nativeEdit(edit),fields:draft.fields.map {field in
+                var local=field
+                local.from -= draft.insertionFrom;local.to -= draft.insertionFrom
+                return local
+            })
+        }
+        guard let prepared=ParallelSnippet.begin(source,expansions:expansions,primary:0,additional:shared.map(nativeEdit)),
+              exactUTF8(prepared.state.source,afterSource) else {
+            throw refuse("The complete snippet group could not be prepared as one draft edit.")
+        }
+        let group=prepared.state
+        let selections=group.selections
+        let selected=selections[group.primaryIndex]
+        let after=[selected]+selections.enumerated().compactMap {$0.offset==group.primaryIndex ? nil : $0.element}
+        guard validCompletionCarets(after,primary:selected,source:afterSource),
+              after.allSatisfy({validSnippetContextSelection(afterSource,$0.location,NSMaxRange($0))}) else {
+            throw refuse("Completion could not keep all resulting fields distinct.")
+        }
+        let session=group.peers.contains {$0.session != nil} ? group : nil
+        return CompletionDraft(path:first.path,before:source,plan:plan,insertionFrom:group.peers[group.primaryIndex].range.location,
+            selection:CompletionSelection(from:selected.location,to:NSMaxRange(selected)),caretBatch:CompletionCaretBatch(before:carets,after:after,parallel:session))
+    }
     var ends:[Int:Int]=[:],delta=0
     for edit in edits {
         let count=edit.text.utf16.count
@@ -258,6 +326,14 @@ range, all carets must be collapsed at identical identifier prefixes. The
 group reuses the existing source planner after deduplicating shared imports.
 It computes every resulting caret from the full edit order before the editor
 can change.
+
+Each snippet can have its own provider syntax, indentation, and expanded
+context. The existing parallel planner validates the local fields together.
+Their insertion starts place the peers after shared imports while keeping
+the import text outside the editable fields. A pending clipboard request
+uses a placeholder expansion in this same edit composer. Only the projected
+edit roles survive that preflight. Retrying a token must preserve its
+syntax, primary range and ordered shared edits.
 
 <ui:copy id="completion-draft-android">
 package com.hickorydocs.simple
@@ -307,9 +383,31 @@ fun planCompletion(uri:String,item:JSONObject,snapshot:SourceSnapshot,initialFro
 }
 
 internal data class CapturedAndroidCompletion(val item:JSONObject,val from:Int,val to:Int,val prefixFrom:Int?)
-internal data class AndroidCompletionGroup(val plan:ChangePlan,val carets:List<Int>)
+internal data class AndroidCompletionGroup(val plan:ChangePlan,val carets:List<Int>,val snippet:ParallelSnippet?=null)
 
-internal fun planCompletionGroup(uri:String,snapshot:SourceSnapshot,captures:List<CapturedAndroidCompletion>):AndroidCompletionGroup {
+internal fun groupCompletionFormat(item:JSONObject):Int {
+    val number=(if(!item.has("insertTextFormat"))1 else item.opt("insertTextFormat")) as? Number
+    return when(number?.toDouble()){
+        1.0 -> 1
+        2.0 -> 2
+        else -> error("Unsupported grouped completion format.")
+    }
+}
+
+internal data class AndroidCompletionRole(val syntax:String,val from:Int,val to:Int,val additions:List<SourceReplacement>)
+
+private data class ComposedAndroidCompletion(val group:AndroidCompletionGroup?,val roles:List<AndroidCompletionRole>)
+
+internal fun preflightCompletionGroup(uri:String,snapshot:SourceSnapshot,captures:List<CapturedAndroidCompletion>,
+                                      waitingForClipboard:Set<Int>):List<AndroidCompletionRole> =
+    composeCompletionGroup(uri,snapshot,captures,clipboardPreflight=waitingForClipboard).roles
+
+internal fun planCompletionGroup(uri:String,snapshot:SourceSnapshot,captures:List<CapturedAndroidCompletion>,
+                                 preserving:List<AndroidCompletionRole>?=null):AndroidCompletionGroup =
+    checkNotNull(composeCompletionGroup(uri,snapshot,captures,preserving=preserving).group)
+
+private fun composeCompletionGroup(uri:String,snapshot:SourceSnapshot,captures:List<CapturedAndroidCompletion>,
+                                   clipboardPreflight:Set<Int>?=null,preserving:List<AndroidCompletionRole>?=null):ComposedAndroidCompletion {
     require(captures.size in 2..16) { "Select 2 to 16 carets for a completion group." }
     val source = snapshot.text
     if (captures.any { !it.item.has("textEdit") }) {
@@ -321,18 +419,33 @@ internal fun planCompletionGroup(uri:String,snapshot:SourceSnapshot,captures:Lis
         }
         require(prefixes.distinct().size == 1) { "Implicit completion ranges require the same identifier prefix at each caret." }
     }
-    val drafts = captures.map { (item,from,to,prefixFrom) ->
-        require((!item.has("insertTextFormat") || item.opt("insertTextFormat") == 1) && item.opt("kind") != 15) {
-            "Each caret requires an ordinary completion edit."
+    val format=captures.map { groupCompletionFormat(it.item) }.distinct().singleOrNull()
+        ?: error("The completions mix ordinary edits and templates.")
+    require(format==2||captures.none {it.item.opt("kind")==15}){"A template did not return a snippet expansion."}
+    val snippet=format==2
+    val budget=SnippetTransformBudget()
+    val expansions=captures.mapIndexed { index,capture ->
+        when {
+            !snippet -> null
+            clipboardPreflight?.contains(index)==true -> CompletionExpansion("")
+            else -> checkNotNull(completionExpansion(capture.item,budget))
         }
-        planCompletion(uri,item,snapshot,prefixFrom ?: from,to).also { draft ->
+    }
+    val drafts = captures.mapIndexed { index,(item,from,to,prefixFrom) ->
+        planCompletion(uri,item,snapshot,prefixFrom ?: from,to,expansions[index]).also { draft ->
             val edit = checkNotNull(draft.primary)
             require(edit.from <= from && edit.to >= to) { "A completion range does not cover its captured selection." }
         }
     }
     val first = drafts.first()
     val primary = drafts.map { checkNotNull(it.primary) }
-    require(drafts.all { it.primary?.text == primary.first().text && it.additional == first.additional }) {
+    val roles=drafts.mapIndexed { index,draft ->
+        AndroidCompletionRole(completionInsertion(captures[index].item),primary[index].from,primary[index].to,draft.additional)
+    }
+    require(preserving==null||roles==preserving){
+        "Completion edits changed after requesting context. Request completions again."
+    }
+    require(drafts.all { (snippet || it.primary?.text == primary.first().text) && it.additional == first.additional }) {
         "The completions disagree about their replacement or shared edits."
     }
     val byStart = primary.withIndex().associate { it.value.from to it.index }
@@ -345,18 +458,34 @@ internal fun planCompletionGroup(uri:String,snapshot:SourceSnapshot,captures:Lis
         "Completion ranges overlap with another completion or shared edit."
     }
     val raw = JSONArray()
+    val insertionStarts=IntArray(primary.size)
     val carets = IntArray(primary.size)
     var delta = 0
     for (edit in edits) {
         raw.put(JSONObject().put("range",JSONObject().put("start",languagePosition(source,edit.from))
             .put("end",languagePosition(source,edit.to))).put("newText",edit.text))
-        byStart[edit.from]?.let { index -> carets[index] = edit.from + delta + edit.text.length }
+        byStart[edit.from]?.let { index ->
+            carets[index]=edit.from+delta+edit.text.length
+            insertionStarts[index]=carets[index]-primary[index].text.length
+        }
         delta += edit.text.length - (edit.to - edit.from)
     }
-    require(carets.distinct().size == primary.size) { "The completion would merge distinct carets." }
+
     val plan = planWorkspaceEdit("Complete ${captures.first().item.getString("label")}",
         JSONObject().put("changes",JSONObject().put(uri,raw)),mapOf(first.path to snapshot),allowNoop=true)
-    return AndroidCompletionGroup(plan,carets.toList())
+    if(clipboardPreflight!=null)return ComposedAndroidCompletion(null,roles)
+    if(!snippet){
+        require(carets.distinct().size==primary.size){"The completion would merge distinct carets."}
+        return ComposedAndroidCompletion(AndroidCompletionGroup(plan,carets.toList()),roles)
+    }
+    val peers=primary.mapIndexed { index,edit ->
+        ParallelSnippetExpansion(NativeSourceEdit(edit.from,edit.to,edit.text),checkNotNull(expansions[index]).fields)
+    }
+    val after=plan.patches.singleOrNull()?.after ?: source
+    val group=ParallelSnippet.begin(source,peers,0)?.state?.placing(after,insertionStarts.toList())
+        ?: error("The parallel snippet fields overlap or exceed their bounds.")
+    require(group.selections.distinct().size==primary.size){"The completion would merge distinct template fields."}
+    return ComposedAndroidCompletion(AndroidCompletionGroup(plan,carets.toList(),group),roles)
 }
 </ui:copy>
 
@@ -907,6 +1036,20 @@ it('combines independently resolved identifier edits and a single shared import'
  expect(()=>prepare([first,{...second,prefixFrom:7}])).toThrow('same identifier prefix');
  expect(()=>prepare([first,{...second,item:{...item,additionalTextEdits:[]}}])).toThrow('disagree');
  expect(()=>prepare([first,first])).toThrow('overlap');
+});
+it('keeps fields for a source-equal snippet group without a text patch',()=>{
+ const source='va\nva\n',item={label:'value',insertTextFormat:2,insertText:'${1:va}$0'};
+ const expansion={text:'va',fields:[
+  {index:1,from:0,to:2,choices:[],id:0,parent:null},
+  {index:0,from:2,to:2,choices:[],id:1,parent:null},
+ ]};
+ const draft=planCompletionGroup('hick:///a.py',{text:source,writable:true},[
+  {item,from:2,to:2,prefixFrom:0,expansion},{item,from:5,to:5,prefixFrom:3,expansion},
+ ],1);
+ expect(draft.plan.patches).toEqual([]);
+ expect(draft.parallel?.source).toBe(source);
+ expect(draft.parallel?.primary).toBe(1);
+ expect(draft.parallel?.peers.map(peer=>[peer.from,peer.selection.from,peer.selection.to])).toEqual([[0,0,2],[3,0,2]]);
 });
 </ui:copy>
 

@@ -205,6 +205,12 @@ function parallelSelection(session: ParallelSnippet): EditorSelection {
   );
 }
 
+export function parallelCompletionSelection(session: ParallelSnippet) {
+  const selection = parallelSelection(session);
+  if (selection.ranges.length !== session.peers.length) return null;
+  return {selection,effect:setParallelSourceSnippet.of(session)};
+}
+
 export function readParallelSourceSnippet(state: EditorState): ParallelSnippet | null {
   return state.field(parallelSnippetState, false) ?? null;
 }
@@ -792,10 +798,10 @@ func markedSourceEdit(from before: String, to after: String) -> NativeSourceEdit
 
 The plain controller core stages a complete next session synchronously within an input transformation, so a second keystroke never waits on a UI callback. Observable revision and status publish after the text transaction; late publication cannot replace a newer session. Navigation and choices use existing source selection and edit operations.
 
-Ordinary completion groups also retain a source-bound caret roster. The
-prepared draft enters one native text edit, and the history context records
-the original and resulting rosters for Undo and Redo. The context carries no
-template scope.
+Completion groups retain a source-bound caret roster. The prepared draft
+enters one native text edit. Undo restores the original roster. Redo restores
+the resulting roster and any parallel snippet fields through the existing
+template history.
 
 <ui:copy id="source-snippets-android">
 package com.hickorydocs.simple
@@ -997,12 +1003,13 @@ class SourceSnippetController(private val buffer:DocumentBuffer) {
  }
 
 
- internal fun applyOrdinaryCompletionGroup(draft:AndroidCompletionGroup,source:String):Boolean {
+ internal fun applyCompletionGroup(draft:AndroidCompletionGroup,source:String):Boolean {
   if(isActive||inMarkedInput||buffer.state.composition!=null||buffer.resourceDeleted)return false
+  val edits=draft.plan.patches.singleOrNull()?.edits.orEmpty().map { NativeSourceEdit(it.from,it.to,it.text) }
+  draft.snippet?.let { return commitParallel(ParallelSnippetChange(edits,it),source) }
   val before=captureBefore(source,buffer.state.selection,true) ?: return false
   val serial=recordSerial
   val ranges=draft.carets.map { NativeSourceEdit(it,it,"") }
-  val edits=draft.plan.patches.singleOrNull()?.edits.orEmpty().map { NativeSourceEdit(it.from,it.to,it.text) }
   val selected=TextRange(ranges.first().from)
   if(!buffer.applySourceEdits(edits,source,selected))return false
   buffer.multiSource=buffer.text

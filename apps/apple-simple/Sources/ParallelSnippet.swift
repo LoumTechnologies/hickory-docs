@@ -67,7 +67,8 @@ struct ParallelSnippet {
         return true
     }
 
-    static func begin(_ source: String, expansions: [ParallelSnippetExpansion], primary: Int) -> ParallelSnippetChange? {
+    static func begin(_ source: String, expansions: [ParallelSnippetExpansion], primary: Int,
+                      additional: [NativeSourceEdit] = []) -> ParallelSnippetChange? {
         guard (2...maxCarets).contains(expansions.count), expansions.indices.contains(primary),
               source.utf8.count <= 8 * maxBytes else { return nil }
         let original = source as NSString
@@ -75,18 +76,36 @@ struct ParallelSnippet {
             ($0.element.edit.range.location, $0.element.edit.range.length) <
                 ($1.element.edit.range.location, $1.element.edit.range.length)
         }
+        let imports = additional.sorted { $0.range.location < $1.range.location }
+        let all = (ordered.map { $0.element.edit } + imports).sorted {
+            ($0.range.location, $0.range.length) < ($1.range.location, $1.range.length)
+        }
+        guard imports.isEmpty || (all.allSatisfy({ valid(original, $0.range) }) &&
+              zip(all, all.dropFirst()).allSatisfy({ left, right in
+                  NSMaxRange(left.range) <= right.range.location && left.range.location != right.range.location
+              })) else { return nil }
         var edits: [NativeSourceEdit] = []
         var peers: [Peer] = []
         var shift = 0
         var bytes = 0
+        for edit in imports {
+            guard edit.text.utf8.count <= maxBytes - bytes else { return nil }
+            bytes += edit.text.utf8.count
+        }
         var metadata = 0
         var fields = 0
         var budget = SnippetTransformBudget()
+        var nextImport = 0
         for (id, expansion) in ordered {
             let edit = expansion.edit
             guard valid(original, edit.range) else { return nil }
             if let previous = edits.last,
                NSMaxRange(previous.range) > edit.range.location || previous.range == edit.range { return nil }
+            while nextImport < imports.count, imports[nextImport].range.location < edit.range.location {
+                let change = imports[nextImport]
+                shift += change.text.utf16.count - change.range.length
+                nextImport += 1
+            }
             bytes += edit.text.utf8.count
             fields += expansion.fields.count
             guard bytes <= maxBytes, fields <= maxFields,
@@ -107,9 +126,9 @@ struct ParallelSnippet {
             edits.append(edit)
             shift += length - edit.range.length
         }
-        let after = replace(source, edits)
+        let after = replace(source, all)
         let state = ParallelSnippet(source: after, peers: peers, primary: primary)
-        return state.matches(after) ? ParallelSnippetChange(edits: edits, state: state) : nil
+        return state.matches(after) ? ParallelSnippetChange(edits: all, state: state) : nil
     }
 
     private func localSelection(_ absolute: NSRange, in peer: Peer) -> NSRange? {

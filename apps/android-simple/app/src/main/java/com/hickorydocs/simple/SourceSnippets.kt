@@ -197,12 +197,13 @@ class SourceSnippetController(private val buffer:DocumentBuffer) {
  }
 
 
- internal fun applyOrdinaryCompletionGroup(draft:AndroidCompletionGroup,source:String):Boolean {
+ internal fun applyCompletionGroup(draft:AndroidCompletionGroup,source:String):Boolean {
   if(isActive||inMarkedInput||buffer.state.composition!=null||buffer.resourceDeleted)return false
+  val edits=draft.plan.patches.singleOrNull()?.edits.orEmpty().map { NativeSourceEdit(it.from,it.to,it.text) }
+  draft.snippet?.let { return commitParallel(ParallelSnippetChange(edits,it),source) }
   val before=captureBefore(source,buffer.state.selection,true) ?: return false
   val serial=recordSerial
   val ranges=draft.carets.map { NativeSourceEdit(it,it,"") }
-  val edits=draft.plan.patches.singleOrNull()?.edits.orEmpty().map { NativeSourceEdit(it.from,it.to,it.text) }
   val selected=TextRange(ranges.first().from)
   if(!buffer.applySourceEdits(edits,source,selected))return false
   buffer.multiSource=buffer.text

@@ -9,7 +9,7 @@ function send(body){const data=new TextEncoder().encode(JSON.stringify({jsonrpc:
 function request(method,params){return new Promise((resolve,reject)=>{const id=++sequence,timer=setTimeout(()=>{pending.delete(id);reject(Error(method+' timed out'));},20000);pending.set(id,{resolve,reject,timer,method});send({id,method,params});});}
 socket.addEventListener('message',event=>{if(!(event.data instanceof ArrayBuffer))return;const raw=new Uint8Array(event.data);if(raw[0]!==2)return;const body=JSON.parse(new TextDecoder().decode(raw.subarray(1))),held=pending.get(body.id);if(!held)return;pending.delete(body.id);clearTimeout(held.timer);body.error?held.reject(Error(held.method+": "+body.error.message)):held.resolve(body.result);});
 const source='old\r\nsecond\n',snapshot={clock:{unix_millis:1709228107000,utc_offset_minutes:330},random_hex:'000102030405060708090a0b0c0d0e0f',clipboard:null};
-function bind(item,clipboard=null){return {...item,data:{...item.data,hickory_context:{version:1,expected:item.data.hickory_context,selection:{from:0,to:3},...snapshot,clipboard}}};}
+function bind(item,clipboard=null,carets){return {...item,data:{...item.data,hickory_context:{version:1,expected:item.data.hickory_context,selection:{from:0,to:3},...snapshot,clipboard,...(carets?{carets}:{})}}};}
 function first(result){return Array.isArray(result)?result[0]:result?.items?.[0];}
 async function completeCurrent(uri){const deadline=Date.now()+20000,expectedHash='sha256:'+createHash('sha256').update(source).digest('hex');let heldRevision;
  while(Date.now()<deadline){
@@ -34,5 +34,19 @@ try{
   const events=(await readFile(process.argv[3],'utf8')).split('\n').filter(Boolean).map(JSON.parse);assert.equal(events.filter(event=>event.resolve===pathToFileURL(join(process.argv[4],name)).href).length,1,'Clipboard retry must reuse resolved child data');
   const forged=bind(original);forged.data.hickory_context.expected={...forged.data.hickory_context.expected,source_revision:'b'.repeat(64)};await assert.rejects(request('completionItem/resolve',forged),/source|stamp|changed/i);
  }
- console.log('PASS: source-bound v2 variables/transforms, demand-only clipboard retry, denied fallback, unused default privacy, cached child resolve and foreign proof refusal');
+ const uri='hick:///grouped.py',carets={index:1,count:2},denied={available:false,text:null};
+ const original=await completeCurrent(uri);
+ const foreignPosition=bind(original,null,carets);
+ foreignPosition.data.hickory_context.selection={from:5,to:11};
+ await assert.rejects(request('completionItem/resolve',foreignPosition),/captured caret/);
+ const pending=await request('completionItem/resolve',bind(original,null,carets));
+ assert.deepEqual(pending.data.hickory_context_request,{version:1,variables:['CLIPBOARD']});
+ assert.notEqual(pending.data.hickory_completion,original.data.hickory_completion);
+ await assert.rejects(request('completionItem/resolve',bind(pending,denied,{index:0,count:2})),/captured context/);
+ const resolved=await request('completionItem/resolve',bind(pending,denied,carets));
+ assert.equal(resolved.data.hickory_snippet.text,'2|old|fallback');
+ assert.equal(resolved.data.hickory_context_request,undefined);
+ const groupedEvents=(await readFile(process.argv[3],'utf8')).split('\n').filter(Boolean).map(JSON.parse);
+ assert.equal(groupedEvents.filter(event=>event.resolve===pathToFileURL(join(process.argv[4],'grouped.py')).href).length,1);
+ console.log('PASS: source-bound variables, demand-only clipboard retry, grouped caret and retry identity, cached child resolve and foreign proof refusal');
 }finally{for(const held of pending.values()){clearTimeout(held.timer);held.reject(Error('Closed'));}pending.clear();socket.close();}

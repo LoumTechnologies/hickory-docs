@@ -64,6 +64,16 @@ import AppKit
          ]]]
     }
 
+    private func resolvedCaretProof(_ offer:[String:Any]) throws -> [String:Any] {
+        var resolved=offer
+        var data=try XCTUnwrap(offer["data"] as? [String:Any])
+        let context=try XCTUnwrap(data["hickory_context"] as? [String:Any])
+        data["hickory_context"]=try XCTUnwrap(context["expected"] as? [String:String])
+        data.removeValue(forKey:"hickory_context_request")
+        resolved["data"]=data
+        return resolved
+    }
+
     func testActualMacMultiCaretCompletionSharesImportAndRestoresEveryCaret() async throws {
         #if os(macOS)
         let source="😀\nva\nva\n",file=FileNode(name:"a.py",path:"a.py",dir:false)
@@ -86,7 +96,7 @@ import AppKit
         },resolution:{offer in
             let data=try XCTUnwrap(offer["data"] as? [String:Any])
             tokens.append(try XCTUnwrap(data["hickory_completion"] as? String))
-            var resolved=offer
+            var resolved=try self.resolvedCaretProof(offer)
             resolved["additionalTextEdits"]=[self.edit(0,0,0,"import x\n")]
             return resolved
         })
@@ -104,6 +114,163 @@ import AppKit
         XCTAssertEqual(buffer.text,after);XCTAssertEqual(buffer.multiRanges,carets)
         XCTAssertEqual(editor.text.selectedRange(),carets[0])
         #endif
+    }
+
+    func testActualMacGroupedSnippetKeepsIndependentFieldsAndOneClipboardOutcome() async throws {
+        #if os(macOS)
+        let source="header\nva\nvo\n",file=FileNode(name:"a.py",path:"a.py",dir:false)
+        let buffer=DocumentBuffer(file:file,text:FileText(path:file.path,content:source,hash:"base"))
+        let service=NativeLanguage(engine:try Engine(address:"http://fixture.invalid"),buffer:buffer)
+        buffer.language=service
+        let editor=MacEditor(buffer),window=NSWindow(contentRect:NSRect(x:0,y:0,width:500,height:300),styleMask:[.titled],backing:.buffered,defer:false)
+        window.contentView=editor.scroll
+        defer{service.close();window.contentView=nil}
+        let before=[NSRange(location:7,length:2),NSRange(location:10,length:2)]
+        XCTAssertTrue(buffer.selectMultiple(before,source:source))
+        let syntax="${1:${TM_SELECTED_TEXT}}+$1!$0${CLIPBOARD:}"
+        var reads=0,requests:[String]=[],randoms:[String]=[],clocks:[[String:Int64]]=[]
+        service.snippetClipboardReader={reads+=1;return nil}
+        await service.complete(fetch:{_ in [self.caretOffer(source,token:"primary")]})
+        let choice=try XCTUnwrap(service.suggestions.first)
+        let accepted=await service.accept(choice,fetch:{params in
+            XCTAssertEqual(params["position"] as? [String:Int],["line":2,"character":0])
+            return [self.caretOffer(source,token:"peer")]
+        },resolution:{offer in
+            let data=try XCTUnwrap(offer["data"] as? [String:Any])
+            let token=try XCTUnwrap(data["hickory_completion"] as? String)
+            let context=try XCTUnwrap(data["hickory_context"] as? [String:Any])
+            let row=token.hasPrefix("primary") ? 0 : 1
+            let original=before[row]
+            XCTAssertEqual(context["selection"] as? [String:Int],["from":original.location,"to":NSMaxRange(original)])
+            XCTAssertEqual(context["carets"] as? [String:Int],["index":row,"count":2])
+            randoms.append(try XCTUnwrap(context["random_hex"] as? String))
+            clocks.append(try XCTUnwrap(context["clock"] as? [String:Int64]))
+            requests.append(token)
+            var result=try self.resolvedCaretProof(offer)
+            var reply=try XCTUnwrap(result["data"] as? [String:Any])
+            result["insertTextFormat"]=2
+            result["textEdit"]=self.edit(row+1,0,2,syntax)
+            result["additionalTextEdits"]=[self.edit(0,0,0,"import x\n")]
+            if !token.hasSuffix("-retry") {
+                XCTAssertEqual(reads,0)
+                XCTAssertTrue(context["clipboard"] is NSNull)
+                reply["hickory_completion"]=token+"-retry"
+                reply["hickory_context_request"]=["version":1,"variables":["CLIPBOARD"]]
+            }else{
+                let clipboard=try XCTUnwrap(context["clipboard"] as? [String:Any])
+                XCTAssertEqual(clipboard["available"] as? Bool,false)
+                XCTAssertTrue(clipboard["text"] is NSNull)
+                let value=row==0 ? "😀" : "β",width=value.utf16.count,exit=2*width+2
+                let fields:[[String:Any]]=[
+                    ["index":1,"from":0,"to":width,"choices":[],"id":0,"parent":NSNull()],
+                    ["index":1,"from":width+1,"to":2*width+1,"choices":[],"id":1,"parent":NSNull()],
+                    ["index":0,"from":exit,"to":exit,"choices":[],"id":2,"parent":NSNull()],
+                ]
+                reply["hickory_context_unavailable"]=["CLIPBOARD"]
+                reply["hickory_snippet"]=["version":1,"syntax":syntax,"text":"\(value)+\(value)!","fields":fields]
+            }
+            result["data"]=reply
+            return result
+        })
+        let expanded="import x\nheader\n😀+😀!\nβ+β!\n"
+        let initialFields=[NSRange(location:16,length:2),NSRange(location:23,length:1)]
+        guard accepted else{XCTFail(service.completionNotice);return}
+        XCTAssertTrue(service.completionNotice.contains("Clipboard unavailable"))
+        XCTAssertEqual(reads,1)
+        XCTAssertEqual(requests,["primary","peer","primary-retry","peer-retry"])
+        XCTAssertEqual(Set(randoms).count,1);XCTAssertTrue(clocks.allSatisfy{$0==clocks.first})
+        XCTAssertEqual(buffer.text,expanded);XCTAssertEqual(buffer.multiRanges,initialFields)
+        XCTAssertEqual(buffer.snippets.parallel?.selections,initialFields)
+        editor.text.insertText("Z",replacementRange:editor.text.selectedRange())
+        let typed="import x\nheader\nZ+Z!\nZ+Z!\n"
+        XCTAssertEqual(buffer.text,typed)
+        XCTAssertTrue(buffer.snippets.move(1))
+        XCTAssertEqual(buffer.multiRanges,[20,25].map{NSRange(location:$0,length:0)})
+        let manager=try XCTUnwrap(editor.text.undoManager)
+        manager.undo();XCTAssertEqual(buffer.text,expanded);XCTAssertEqual(buffer.multiRanges,initialFields)
+        manager.undo();XCTAssertEqual(buffer.text,source);XCTAssertEqual(buffer.multiRanges,before);XCTAssertNil(buffer.snippets.parallel)
+        manager.redo();XCTAssertEqual(buffer.text,expanded);XCTAssertEqual(buffer.multiRanges,initialFields);XCTAssertNotNil(buffer.snippets.parallel)
+        manager.redo();XCTAssertEqual(buffer.text,typed);XCTAssertNotNil(buffer.snippets.parallel)
+        XCTAssertEqual(buffer.base,source);XCTAssertEqual(buffer.hash,"base")
+        #endif
+    }
+
+    func testActualMacSourceEqualGroupedSnippetStartsFieldsWithoutTextUndo() async throws {
+        #if os(macOS)
+        let source="va\nva\n",file=FileNode(name:"a.py",path:"a.py",dir:false)
+        let buffer=DocumentBuffer(file:file,text:FileText(path:file.path,content:source,hash:"base"))
+        let service=NativeLanguage(engine:try Engine(address:"http://fixture.invalid"),buffer:buffer)
+        buffer.language=service
+        let editor=MacEditor(buffer),window=NSWindow(contentRect:NSRect(x:0,y:0,width:500,height:300),styleMask:[.titled],backing:.buffered,defer:false)
+        window.contentView=editor.scroll
+        defer{service.close();window.contentView=nil}
+        let before=[2,5].map{NSRange(location:$0,length:0)},fields=[0,3].map{NSRange(location:$0,length:2)}
+        XCTAssertTrue(buffer.selectMultiple(before,source:source))
+        let manager=try XCTUnwrap(editor.text.undoManager)
+        manager.removeAllActions()
+        await service.complete(fetch:{_ in [self.caretOffer(source,token:"primary")]})
+        let choice=try XCTUnwrap(service.suggestions.first)
+        let accepted=await service.accept(choice,fetch:{_ in [self.caretOffer(source,token:"peer")]},resolution:{offer in
+            var reply=try self.resolvedCaretProof(offer)
+            var data=try XCTUnwrap(reply["data"] as? [String:Any])
+            let row=data["hickory_completion"] as? String=="primary" ? 0 : 1
+            let syntax="${1:va}$0"
+            let fields:[[String:Any]]=[
+                ["index":1,"from":0,"to":2,"choices":[],"id":0,"parent":NSNull()],
+                ["index":0,"from":2,"to":2,"choices":[],"id":1,"parent":NSNull()],
+            ]
+            data["hickory_snippet"]=["version":1,"syntax":syntax,"text":"va","fields":fields]
+            reply["insertTextFormat"]=2;reply["textEdit"]=self.edit(row,0,2,syntax);reply["data"]=data
+            return reply
+        })
+        guard accepted else{XCTFail(service.completionNotice);return}
+        XCTAssertEqual(buffer.text,source);XCTAssertFalse(buffer.dirty);XCTAssertFalse(manager.canUndo)
+        XCTAssertEqual(buffer.multiRanges,fields);XCTAssertEqual(buffer.snippets.parallel?.selections,fields)
+        editor.text.insertText("edited",replacementRange:editor.text.selectedRange())
+        XCTAssertEqual(buffer.text,"edited\nedited\n");XCTAssertTrue(manager.canUndo)
+        manager.undo()
+        XCTAssertEqual(buffer.text,source);XCTAssertEqual(buffer.multiRanges,fields)
+        XCTAssertEqual(buffer.snippets.parallel?.selections,fields);XCTAssertFalse(manager.canUndo)
+        #endif
+    }
+
+    func testInvalidGroupedPeerPreventsClipboardAndCommit() async throws {
+        let source="//\nva\nva\n",file=FileNode(name:"a.py",path:"a.py",dir:false)
+        let buffer=DocumentBuffer(file:file,text:FileText(path:file.path,content:source,hash:"base"))
+        let service=NativeLanguage(engine:try Engine(address:"http://fixture.invalid"),buffer:buffer)
+        buffer.language=service
+        defer{service.close()}
+        let before=[5,8].map{NSRange(location:$0,length:0)},editorID=UUID()
+        buffer.selection=before[0];buffer.multiSource=source;buffer.multiRanges=before
+        buffer.sourceEditorState={ [weak buffer] in buffer.map {
+            NativeSourceEditorState(identity:editorID,source:$0.text,selection:$0.selection,composing:false,editable:true,attached:true,selections:$0.multiRanges.count)
+        }}
+        var reads=0,commits=0
+        service.snippetClipboardReader={reads+=1;return "private clipboard"}
+        buffer.applyCompletionDraft={_,_ in commits+=1;return true}
+        for mixed in [true,false] {
+            await service.complete(fetch:{_ in [self.caretOffer(source,token:"primary")]})
+            let choice=try XCTUnwrap(service.suggestions.first)
+            var requests:[String]=[]
+            let accepted=await service.accept(choice,fetch:{_ in [self.caretOffer(source,token:"peer")]},resolution:{offer in
+                var reply=try self.resolvedCaretProof(offer)
+                var data=try XCTUnwrap(reply["data"] as? [String:Any])
+                let token=try XCTUnwrap(data["hickory_completion"] as? String)
+                requests.append(token)
+                if token=="peer",mixed{return reply}
+                data["hickory_completion"]=token+"-retry"
+                data["hickory_context_request"]=["version":1,"variables":["CLIPBOARD"]]
+                reply["data"]=data
+                reply["insertTextFormat"]=2
+                reply["textEdit"]=self.edit(token=="primary" ? 1 : 2,0,2,"$1$0${CLIPBOARD:}")
+                reply["additionalTextEdits"]=[self.edit(0,0,0,token=="primary" ? "import x\n" : "import y\n")]
+                return reply
+            })
+            XCTAssertFalse(accepted)
+            XCTAssertEqual(requests,["primary","peer"])
+            XCTAssertEqual(reads,0);XCTAssertEqual(commits,0)
+            XCTAssertEqual(buffer.text,source);XCTAssertEqual(buffer.multiRanges,before)
+        }
     }
 
     func testSecondaryCaretRoundTripAndAmbiguousPeerRefuseTheWholeCompletion() async throws {
@@ -131,7 +298,7 @@ import AppKit
                     buffer.multiRanges=[origin[0],NSRange(location:4,length:0)]
                     buffer.multiRanges=origin
                 }
-                return offer
+                return try self.resolvedCaretProof(offer)
             })
             XCTAssertFalse(accepted)
             XCTAssertEqual(buffer.text,source);XCTAssertEqual(buffer.multiRanges,origin)

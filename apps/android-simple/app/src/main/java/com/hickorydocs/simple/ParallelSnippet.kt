@@ -118,6 +118,15 @@ internal data class ParallelSnippet(
         return true
     }
 
+    fun placing(after: String, insertionStarts: List<Int>): ParallelSnippet? {
+        if (insertionStarts.size != peers.size) return null
+        val rebased = copy(source = after, peers = peers.map { peer ->
+            val start = insertionStarts[peer.id]
+            peer.copy(from = start, to = start + peer.text.length)
+        })
+        return rebased.takeIf { it.matches(after) }
+    }
+
     private fun localSelection(peer: Peer, absolute: CompletionSelection): CompletionSelection? {
         if (absolute.from < peer.from || absolute.to > peer.to) return null
         val range = CompletionSelection(absolute.from - peer.from, absolute.to - peer.from)

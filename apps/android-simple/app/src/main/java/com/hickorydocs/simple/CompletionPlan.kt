@@ -45,9 +45,31 @@ fun planCompletion(uri:String,item:JSONObject,snapshot:SourceSnapshot,initialFro
 }
 
 internal data class CapturedAndroidCompletion(val item:JSONObject,val from:Int,val to:Int,val prefixFrom:Int?)
-internal data class AndroidCompletionGroup(val plan:ChangePlan,val carets:List<Int>)
+internal data class AndroidCompletionGroup(val plan:ChangePlan,val carets:List<Int>,val snippet:ParallelSnippet?=null)
 
-internal fun planCompletionGroup(uri:String,snapshot:SourceSnapshot,captures:List<CapturedAndroidCompletion>):AndroidCompletionGroup {
+internal fun groupCompletionFormat(item:JSONObject):Int {
+    val number=(if(!item.has("insertTextFormat"))1 else item.opt("insertTextFormat")) as? Number
+    return when(number?.toDouble()){
+        1.0 -> 1
+        2.0 -> 2
+        else -> error("Unsupported grouped completion format.")
+    }
+}
+
+internal data class AndroidCompletionRole(val syntax:String,val from:Int,val to:Int,val additions:List<SourceReplacement>)
+
+private data class ComposedAndroidCompletion(val group:AndroidCompletionGroup?,val roles:List<AndroidCompletionRole>)
+
+internal fun preflightCompletionGroup(uri:String,snapshot:SourceSnapshot,captures:List<CapturedAndroidCompletion>,
+                                      waitingForClipboard:Set<Int>):List<AndroidCompletionRole> =
+    composeCompletionGroup(uri,snapshot,captures,clipboardPreflight=waitingForClipboard).roles
+
+internal fun planCompletionGroup(uri:String,snapshot:SourceSnapshot,captures:List<CapturedAndroidCompletion>,
+                                 preserving:List<AndroidCompletionRole>?=null):AndroidCompletionGroup =
+    checkNotNull(composeCompletionGroup(uri,snapshot,captures,preserving=preserving).group)
+
+private fun composeCompletionGroup(uri:String,snapshot:SourceSnapshot,captures:List<CapturedAndroidCompletion>,
+                                   clipboardPreflight:Set<Int>?=null,preserving:List<AndroidCompletionRole>?=null):ComposedAndroidCompletion {
     require(captures.size in 2..16) { "Select 2 to 16 carets for a completion group." }
     val source = snapshot.text
     if (captures.any { !it.item.has("textEdit") }) {
@@ -59,18 +81,33 @@ internal fun planCompletionGroup(uri:String,snapshot:SourceSnapshot,captures:Lis
         }
         require(prefixes.distinct().size == 1) { "Implicit completion ranges require the same identifier prefix at each caret." }
     }
-    val drafts = captures.map { (item,from,to,prefixFrom) ->
-        require((!item.has("insertTextFormat") || item.opt("insertTextFormat") == 1) && item.opt("kind") != 15) {
-            "Each caret requires an ordinary completion edit."
+    val format=captures.map { groupCompletionFormat(it.item) }.distinct().singleOrNull()
+        ?: error("The completions mix ordinary edits and templates.")
+    require(format==2||captures.none {it.item.opt("kind")==15}){"A template did not return a snippet expansion."}
+    val snippet=format==2
+    val budget=SnippetTransformBudget()
+    val expansions=captures.mapIndexed { index,capture ->
+        when {
+            !snippet -> null
+            clipboardPreflight?.contains(index)==true -> CompletionExpansion("")
+            else -> checkNotNull(completionExpansion(capture.item,budget))
         }
-        planCompletion(uri,item,snapshot,prefixFrom ?: from,to).also { draft ->
+    }
+    val drafts = captures.mapIndexed { index,(item,from,to,prefixFrom) ->
+        planCompletion(uri,item,snapshot,prefixFrom ?: from,to,expansions[index]).also { draft ->
             val edit = checkNotNull(draft.primary)
             require(edit.from <= from && edit.to >= to) { "A completion range does not cover its captured selection." }
         }
     }
     val first = drafts.first()
     val primary = drafts.map { checkNotNull(it.primary) }
-    require(drafts.all { it.primary?.text == primary.first().text && it.additional == first.additional }) {
+    val roles=drafts.mapIndexed { index,draft ->
+        AndroidCompletionRole(completionInsertion(captures[index].item),primary[index].from,primary[index].to,draft.additional)
+    }
+    require(preserving==null||roles==preserving){
+        "Completion edits changed after requesting context. Request completions again."
+    }
+    require(drafts.all { (snippet || it.primary?.text == primary.first().text) && it.additional == first.additional }) {
         "The completions disagree about their replacement or shared edits."
     }
     val byStart = primary.withIndex().associate { it.value.from to it.index }
@@ -83,16 +120,32 @@ internal fun planCompletionGroup(uri:String,snapshot:SourceSnapshot,captures:Lis
         "Completion ranges overlap with another completion or shared edit."
     }
     val raw = JSONArray()
+    val insertionStarts=IntArray(primary.size)
     val carets = IntArray(primary.size)
     var delta = 0
     for (edit in edits) {
         raw.put(JSONObject().put("range",JSONObject().put("start",languagePosition(source,edit.from))
             .put("end",languagePosition(source,edit.to))).put("newText",edit.text))
-        byStart[edit.from]?.let { index -> carets[index] = edit.from + delta + edit.text.length }
+        byStart[edit.from]?.let { index ->
+            carets[index]=edit.from+delta+edit.text.length
+            insertionStarts[index]=carets[index]-primary[index].text.length
+        }
         delta += edit.text.length - (edit.to - edit.from)
     }
-    require(carets.distinct().size == primary.size) { "The completion would merge distinct carets." }
+
     val plan = planWorkspaceEdit("Complete ${captures.first().item.getString("label")}",
         JSONObject().put("changes",JSONObject().put(uri,raw)),mapOf(first.path to snapshot),allowNoop=true)
-    return AndroidCompletionGroup(plan,carets.toList())
+    if(clipboardPreflight!=null)return ComposedAndroidCompletion(null,roles)
+    if(!snippet){
+        require(carets.distinct().size==primary.size){"The completion would merge distinct carets."}
+        return ComposedAndroidCompletion(AndroidCompletionGroup(plan,carets.toList()),roles)
+    }
+    val peers=primary.mapIndexed { index,edit ->
+        ParallelSnippetExpansion(NativeSourceEdit(edit.from,edit.to,edit.text),checkNotNull(expansions[index]).fields)
+    }
+    val after=plan.patches.singleOrNull()?.after ?: source
+    val group=ParallelSnippet.begin(source,peers,0)?.state?.placing(after,insertionStarts.toList())
+        ?: error("The parallel snippet fields overlap or exceed their bounds.")
+    require(group.selections.distinct().size==primary.size){"The completion would merge distinct template fields."}
+    return ComposedAndroidCompletion(AndroidCompletionGroup(plan,carets.toList(),group),roles)
 }

@@ -1,7 +1,7 @@
 import Foundation
 struct CompletionSelection {var from:Int;var to:Int}
 struct CompletionExpansion {var text:String;var selection:CompletionSelection?=nil;var fields:[SnippetField]=[]}
-struct CompletionCaretBatch {var before:[NSRange];var after:[NSRange]}
+struct CompletionCaretBatch {var before:[NSRange];var after:[NSRange];var parallel:ParallelSnippet?=nil}
 struct CompletionDraft {var path:String;var before:String;var plan:ChangePlan;var insertionFrom:Int;var selection:CompletionSelection;var fields:[SnippetField]=[];var continuing:SnippetSession?=nil;var primary:SourceReplacement?=nil;var additional:[SourceReplacement]=[];var caretBatch:CompletionCaretBatch?=nil}
 func completionInsertion(_ item:[String:Any])throws->String {
     guard let label=item["label"] as? String else{throw EngineError(message:"Malformed completion")}
@@ -73,7 +73,8 @@ func validCompletionCarets(_ carets:[NSRange],primary:NSRange,source:String)->Bo
     }
 }
 
-func combineCompletionDrafts(_ drafts:[CompletionDraft],carets:[NSRange],snapshot:SourceSnapshot)throws->CompletionDraft {
+func completionGroupEdits(_ drafts:[CompletionDraft],carets:[NSRange],snapshot:SourceSnapshot,snippet:Bool)throws
+    -> (primary:[SourceReplacement],shared:[SourceReplacement],ordered:[SourceReplacement]) {
     func refuse(_ message:String)->EngineError {EngineError(message:message)}
     guard let first=drafts.first,let caret=carets.first,drafts.count==carets.count,
           snapshot.writable,validCompletionCarets(carets,primary:caret,source:snapshot.text) else {
@@ -83,13 +84,13 @@ func combineCompletionDrafts(_ drafts:[CompletionDraft],carets:[NSRange],snapsho
     func ordered(_ edits:[SourceReplacement])->[SourceReplacement] {edits.sorted {($0.from,$0.to)<($1.from,$1.to)}}
     let shared=ordered(first.additional)
     let primary=try zip(drafts,carets).map {draft,range in
-        guard exactUTF8(draft.path,first.path),exactUTF8(draft.before,source),draft.fields.isEmpty,
+        guard exactUTF8(draft.path,first.path),exactUTF8(draft.before,source),
               draft.continuing==nil,ordered(draft.additional)==shared,let edit=draft.primary,
-              exactUTF8(edit.text,first.primary?.text), edit.from>=0,edit.from<=range.location,
+              snippet || exactUTF8(edit.text,first.primary?.text), edit.from>=0,edit.from<=range.location,
               NSMaxRange(range)<=edit.to,edit.to<=source.utf16.count,
               languagePosition(source,edit.from)["line"]==languagePosition(source,range.location)["line"],
               languagePosition(source,edit.to)["line"]==languagePosition(source,range.location)["line"] else {
-            throw refuse("The provider did not offer the same ordinary completion and additional edits at every caret.")
+            throw refuse("The provider did not offer a compatible completion and the same additional edits at every caret.")
         }
         return edit
     }
@@ -97,11 +98,49 @@ func combineCompletionDrafts(_ drafts:[CompletionDraft],carets:[NSRange],snapsho
     for (left,right) in zip(edits,edits.dropFirst()) where right.from<left.to || right.from==left.from {
         throw refuse("Completion edits overlap across carets or with an additional edit.")
     }
+    return (primary,shared,edits)
+}
+
+func combineCompletionDrafts(_ drafts:[CompletionDraft],carets:[NSRange],snapshot:SourceSnapshot)throws->CompletionDraft {
+    func refuse(_ message:String)->EngineError {EngineError(message:message)}
+    guard let first=drafts.first else {throw refuse("The complete set of completion drafts is unavailable.")}
+    let snippet = !first.fields.isEmpty
+    guard drafts.allSatisfy({(!$0.fields.isEmpty)==snippet}) else {throw refuse("The completion group mixes plain edits with snippets.")}
+    let (primary,shared,edits)=try completionGroupEdits(drafts,carets:carets,snapshot:snapshot,snippet:snippet)
+    let source=snapshot.text
     let wire=edits.map {
         ["range":["start":languagePosition(source,$0.from),"end":languagePosition(source,$0.to)],"newText":$0.text] as [String:Any]
     }
     let uri=languageURI(first.path)
     let plan=try planWorkspaceEdit(first.plan.title,raw:["changes":[uri:wire]],sources:[first.path:snapshot],allowNoop:true)
+    if snippet {
+        let afterSource=plan.patches.first?.after ?? source
+        func nativeEdit(_ edit:SourceReplacement)->NativeSourceEdit {
+            NativeSourceEdit(range:NSRange(location:edit.from,length:edit.to-edit.from),text:edit.text)
+        }
+        let expansions=zip(drafts,primary).map {draft,edit in
+            ParallelSnippetExpansion(edit:nativeEdit(edit),fields:draft.fields.map {field in
+                var local=field
+                local.from -= draft.insertionFrom;local.to -= draft.insertionFrom
+                return local
+            })
+        }
+        guard let prepared=ParallelSnippet.begin(source,expansions:expansions,primary:0,additional:shared.map(nativeEdit)),
+              exactUTF8(prepared.state.source,afterSource) else {
+            throw refuse("The complete snippet group could not be prepared as one draft edit.")
+        }
+        let group=prepared.state
+        let selections=group.selections
+        let selected=selections[group.primaryIndex]
+        let after=[selected]+selections.enumerated().compactMap {$0.offset==group.primaryIndex ? nil : $0.element}
+        guard validCompletionCarets(after,primary:selected,source:afterSource),
+              after.allSatisfy({validSnippetContextSelection(afterSource,$0.location,NSMaxRange($0))}) else {
+            throw refuse("Completion could not keep all resulting fields distinct.")
+        }
+        let session=group.peers.contains {$0.session != nil} ? group : nil
+        return CompletionDraft(path:first.path,before:source,plan:plan,insertionFrom:group.peers[group.primaryIndex].range.location,
+            selection:CompletionSelection(from:selected.location,to:NSMaxRange(selected)),caretBatch:CompletionCaretBatch(before:carets,after:after,parallel:session))
+    }
     var ends:[Int:Int]=[:],delta=0
     for edit in edits {
         let count=edit.text.utf16.count
