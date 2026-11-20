@@ -31,7 +31,7 @@ an earlier open item only for the behavior it actually exercises.
 
 | Required outcome | Current usable evidence and remaining acceptance |
 | --- | --- |
-| Navigation and code intelligence | Search Everywhere, file and saved-text search, outlines, semantic locations and back/forward have focused receipts. The genuine Python browser witness covers cross-file definitions/usages and caller/callee queries. Configured csharp-ls adds browser definitions, usages and history. Genuine clangd supplied both type relationships in Simple Browser, mounted AppKit, the iPhone simulator and stock Android. The focused replays retained unsaved source and reached exact names. Installed basedpyright and TypeScript Language Server read ordinary Markdown fences on browser, mounted macOS, iPhone simulator and rendered Android. Mounted iOS passed real basedpyright cross-file Definition and native Back and Forward. An Android controller navigated into a literal source tab while Agent was open. Index breadth depends on the installed provider. Unavailable capabilities and unsupported fence actions leave authored text readable. |
+| Navigation and code intelligence | Search Everywhere, file and saved-text search, outlines, semantic locations and back/forward have focused receipts. Genuine basedpyright covers callers and callees in Simple Browser, mounted AppKit, the iPhone simulator and stock Android. Browser and Android reached exact cross-file results while retaining the unsaved origin. Configured csharp-ls adds browser definitions, usages and history. Genuine clangd supplied both type relationships in Simple Browser, mounted AppKit, the iPhone simulator and stock Android. The focused replays retained unsaved source and reached exact names. Installed basedpyright and TypeScript Language Server read ordinary Markdown fences on browser, mounted macOS, iPhone simulator and rendered Android. Mounted iOS passed real basedpyright cross-file Definition and native Back and Forward. An Android controller navigated into a literal source tab while Agent was open. Index breadth depends on the installed provider. Unavailable capabilities and unsupported fence actions leave authored text readable. |
 | Refactoring, cleanup, generation, templates and history | Genuine basedpyright and configured csharp-ls cover cross-file rename in the browser. TypeScript Language Server 6.1.0 with TypeScript 6.0.3 covers extraction, accessor generation, cleanup and Move to a new file on browser, mounted macOS and the Android controller. Guarded native action and formatting receipts include controlled providers. Preview holds the complete edit. Missing preimages, commands without supported effects and changed owner revisions refuse the group. Later template receipts close the earlier embedded and multi-caret catalog gaps. Expanded regex and source-bound variable programs retain their syntax and work bounds. Mounted iOS and rendered Android covered reviewed Cleanup. Mounted iOS also replayed native Paste, coordinated Cleanup Undo/Redo and the genuine CRLF and LF TypeScript extraction. |
 | Diagnostics and contextual fixes | Genuine basedpyright browser and rendered Android Problems, configured csharp-ls browser Problems, and clangd mounted iOS Problems exercised exact source navigation. Real clangd engine coverage includes the missing-semicolon quick fix. Controlled-child receipts cover complete-file `source.fixAll` acquisition, review, draft Apply and Undo/Redo on browser, mounted macOS and the Android controller, including a prose-origin action that acquires its copy contributor. Stale and unversioned diagnostics stay readable. Precise navigation and application require matching authority. Mounted iOS and rendered Android exercised the genuine clangd missing-semicolon Quick Fix through guarded review, draft Apply and coordinated Undo/Redo. Provider workspace completeness and additional source mappings remain open. |
 | Testing and coverage | Discovery, failed results, coverage and failed-only reruns have provider receipts for pytest, Jest, Vitest, Cargo with cargo-llvm-cov, and .NET with Coverlet. Connected pytest runs on browser, macOS and the Android controller. Mounted iOS executed selected pytest and rendered a collected failure and coverage. Rendered Android ran the saved Rust case and retained exit 0. Rendered Android discovered both pytest cases, retained a coverage run and reran only the deliberate failure. Source-adjacent Run and Debug distinguish process exit from a provider verdict. Unsupported runners and stale, missing or ambiguous test identities refuse selection. Coverage navigation requires matching source hashes. |
@@ -3870,6 +3870,52 @@ Verification: six focused browser resolver/controller checks pass, including the
 All simple change previews now discover unknown workspace-local action targets without inventing authored range mappings. The backend returns acquisition identities with no edit or command. Hosts load listed writable source through the existing background buffer path, synchronize its provider, and re-query at the fixed originating source and selection. A unique title and kind must match the chosen intent before fresh resolution; changed or ambiguous choices refuse. Acquired source joins the original immutable snapshot set; no tab is activated, draft applied or file saved by acquisition. The final complete planner still checks source revisions, ownership, scalar positions, overlap and unsupported operations before preview or application. This does not establish exhaustive semantic analysis or authorize resource operations.
 
 Verification: the controlled-child browser witness starts with only the origin open, confirms the second tab stays closed during acquisition, observes two child resolutions and a complete two-file preview, then checks explicit draft application, coordinated undo, retained editor identity/geometry and unchanged disk. The protocol witness also rejects caller substitutions, foreign/stale tokens and child metadata masquerading as acquisition metadata. Focused native witnesses cover acquisition metadata, fresh querying, ambiguity, late choices and changed-target application refusal. Shared planner safety cases, TypeScript checking, native compilation, the iOS build, reconstruction and audit pass. Controlled child responses establish protocol behavior, not language-server semantic completeness; native pointer/IME acceptance remains unverified.
+
+## Read callers and callees beside suspended drafts
+
+Simple Browser opened a genuine basedpyright caller and callee in two
+previously unopened Python files. Both carets matched the returned UTF-16
+positions, including offsets after an emoji. Back restored the origin caret,
+the original editor, and its unsaved draft. A second incoming result named a
+caller that the fixture renamed after the query. The baseline jumped into the
+longer name at the old column. The rebuilt app refused the precise jump,
+kept the origin visible, and asked for a fresh query. The maintained test is
+`python3 scripts/test-simple-browser.py --call-hierarchy-only` with
+`HICKORY_SIMPLE_TEST_PYTHON_PROVIDER` pointing at the installed server script.
+
+The Simple hosts check an ordinary reported identifier at its exact UTF-16
+position in a cross-file destination they just read. An adjacent identifier
+character prevents an old prefix from authorizing a jump. Browser refuses
+before activating the destination. Apple and Android can open destination
+text while withholding the proposed caret and visit history. Existing
+captured-source and history paths keep their own checks.
+
+The mounted AppKit replay sent an exact unsaved comment to basedpyright,
+then reached the local caller and callee at UTF-16 offsets 112 and 193 with
+app-local mouse events. The same editor, viewport and Undo manager stayed in
+place. Native Undo restored the original text. See
+`target/appkit-basedpyright-call.i1lmufq0/receipt.json`. In a separate
+mounted replay, the fixture renamed an unread callee after genuine
+basedpyright returned it. The loaded destination showed its new name. The
+old offset and history entry were withheld and the dirty origin remained
+intact. The focused Swift test also covered exact UTF-16 matching, both
+identifier boundaries and captured-source compatibility. See
+`target/appkit-named-cross-file.o3fd8tc1/receipt.json`.
+
+The iPhone simulator used native touches to select the caller and callee at
+UTF-16 offsets 61 and 4 in its dirty Python editor. It kept the same editor,
+viewport, Undo manager and saved bytes. See
+`target/ios-basedpyright-calls/iphone-27/attempt-1/receipt.json`.
+
+Stock Android selected the genuine cross-file caller and callee at UTF-16
+offsets 56 and 28. Production recovery checkpoints confirmed the exact
+carets and retained origin draft. No source write occurred, and saved
+bytes, inodes and modification times matched. See
+`target/parity-rendered-android.sgYIt7/continuation-receipts/final-android-d0y_jghg/basedpyright-call-hierarchy/rendered-android-basedpyright-call-hierarchy.json`.
+The focused Android workspace test kept a stale destination readable and
+withheld its caret and history entry. It covered both identifier boundaries
+with supplementary Unicode characters, the UTF-16 offset after an emoji,
+and compatibility with qualified labels and explicit source evidence.
 
 ## Type relationships through the existing language menu
 

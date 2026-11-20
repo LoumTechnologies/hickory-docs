@@ -916,6 +916,55 @@ class ParityTest {
         assertNull(workspace.currentBuffer)
     }
 
+    @Test fun inferredCrossFileNamesMustStillMatchTheCompleteIdentifier() = kotlinx.coroutines.runBlocking {
+        val name = "owned_caller"
+        suspend fun reveal(text: String, label: String?, allowsReveal: Boolean, explicitSource: Boolean = false) {
+            val workspace = Workspace(this)
+            val sourceFile = FileNode("origin.py", "origin.py", false, emptyList(), null, null)
+            val targetFile = sourceFile.copy(name = "target.py", path = "target.py")
+            val source = DocumentBuffer(sourceFile, FileText("origin", "base"))
+            val target = DocumentBuffer(targetFile, FileText(text, "base"))
+            source.state.edit { append(" draft") }
+            target.state.edit { selection = androidx.compose.ui.text.TextRange(0) }
+            workspace.buffers[sourceFile.path] = source
+            workspace.buffers[targetFile.path] = target
+            workspace.show(sourceTab(sourceFile.path))
+            assertSame(source, workspace.currentBuffer)
+            val trail = workspace.navigationTrail
+            val column = text.indexOf(name)
+            var revealed = 0
+
+            workspace.openSemanticLocation(
+                SemanticLocation(languageURI(targetFile.path), 0, column, label),
+                expectedSource = if (explicitSource) text else null,
+            ) { revealed++ }
+
+            assertSame(target, workspace.currentBuffer)
+            assertEquals(text, target.text)
+            assertEquals("origin draft", source.text)
+            assertEquals(if (allowsReveal) 1 else 0, revealed)
+            assertEquals(androidx.compose.ui.text.TextRange(if (allowsReveal) column else 0), target.state.selection)
+            if (allowsReveal) {
+                assertEquals(column, workspace.navigationTrail.entries.last().character)
+            } else {
+                assertSame(trail, workspace.navigationTrail)
+                assertTrue(workspace.status.contains("query", ignoreCase = true))
+            }
+        }
+
+        val exact = "🧪 owned_caller()"
+        val suffix = "🧪 owned_caller_renamed()"
+        assertEquals(3, exact.indexOf(name))
+        reveal(exact, name, allowsReveal = true)
+        reveal(suffix, name, allowsReveal = false)
+        reveal("🧪 prefix_owned_caller()", name, allowsReveal = false)
+        reveal("🧪 𐐀owned_caller()", name, allowsReveal = false)
+        reveal("🧪 owned_caller𐐀()", name, allowsReveal = false)
+        reveal(suffix, "module::owned_caller", allowsReveal = true)
+        reveal(suffix, null, allowsReveal = true)
+        reveal(suffix, name, allowsReveal = true, explicitSource = true)
+    }
+
     @org.junit.Test fun semanticSymbolsAndCallTreesRetainNamesAndPositions() {
         // Contract: .hickory-source/frontends/contract.md
         val range = JSONObject().put("start", JSONObject().put("line", 2).put("character", 4)).put("end", JSONObject().put("line", 2).put("character", 8))

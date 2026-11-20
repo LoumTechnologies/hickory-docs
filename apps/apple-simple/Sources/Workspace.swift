@@ -711,6 +711,23 @@ struct StartupSourceObservation {
                 && (viewport == nil || visible?.captureRecoveryViewport?() == viewport)
         }
     }
+    private func matchesReportedIdentifier(_ name: String, in source: String, at offset: Int) -> Bool {
+        func continuesIdentifier(_ scalar: Unicode.Scalar) -> Bool {
+            scalar.properties.isIDContinue || scalar == "_" || scalar == "$"
+        }
+        let nameScalars = name.unicodeScalars
+        guard let first = nameScalars.first,
+              first.properties.isIDStart || first == "_" || first == "$",
+              nameScalars.dropFirst().allSatisfy(continuesIdentifier) else { return true }
+        let units = source.utf16, scalars = source.unicodeScalars
+        guard let startUnit = units.index(units.startIndex, offsetBy: offset, limitedBy: units.endIndex),
+              let endUnit = units.index(startUnit, offsetBy: name.utf16.count, limitedBy: units.endIndex),
+              let start = startUnit.samePosition(in: scalars), let end = endUnit.samePosition(in: scalars),
+              scalars[start..<end].elementsEqual(nameScalars) else { return false }
+        let startsIdentifier = start == scalars.startIndex || !continuesIdentifier(scalars[scalars.index(before: start)])
+        let endsIdentifier = end == scalars.endIndex || !continuesIdentifier(scalars[end])
+        return startsIdentifier && endsIdentifier
+    }
     func openSemanticLocation(_ location: SemanticLocation, recordHistory: Bool = true, allowDirty: Bool = false, expectedSource: String? = nil, isCurrent: @escaping () -> Bool = {true}, onRevealed: () -> Void = {}) async {
         guard isCurrent(), !Task.isCancelled else { return }
         sourcePreparation = UUID()
@@ -731,6 +748,11 @@ struct StartupSourceObservation {
         let source = buffer.text
         if let expectedSource, !exactUTF8(source,expectedSource) { status = "Source changed. Refresh the query before navigating."; return }
         guard let offset = languageOffset(source, ["line": location.line, "character": location.character]) else { status = "Location no longer fits \(path). Query again."; return }
+        if recordHistory, expectedSource == nil, !exactUTF8(departed?.path, path), let name = location.name,
+           !matchesReportedIdentifier(name, in: source, at: offset) {
+            status = "Opened \(path). The reported symbol no longer matches. Query again."
+            return
+        }
         let interaction = paneInteraction, selection = buffer.selection, revision = buffer.sourceEditIdentity
         let viewport = buffer.sourceEditorState?()?.attached == true ? buffer.captureRecoveryViewport?() : nil
         func ownsEditor() -> Bool {

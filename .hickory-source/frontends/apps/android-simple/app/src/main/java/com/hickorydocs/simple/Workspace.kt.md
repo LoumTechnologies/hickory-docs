@@ -672,6 +672,8 @@ Opening reads raw text once. Closing dirty tabs refuses, matching the other fron
 
 Foreground file opening and background intelligence share one acquisition path. A pending read is keyed by workspace generation and path; after it returns, prefer any already available buffer so unsaved text cannot be overwritten. Retaining text attaches capabilities without activating a pane. Only the foreground request changes layout and records navigation. Reconnecting cancels old acquisitions and prevents late results from entering the new workspace.
 
+Open the destination before checking a cross-file provider name. If the current source no longer has that identifier at the reported position, keep the file readable and leave its caret and history alone. Source-backed navigation already checks the expected text.
+
 <ui:copy id="simple-f6fdc8535c-1">
     suspend fun loadBuffer(file: FileNode, forStartup: Boolean = false): DocumentBuffer {
         buffers[file.path]?.let { return it }
@@ -800,6 +802,10 @@ Foreground file opening and background intelligence share one acquisition path. 
         if (expectedSource != null && source != expectedSource) { status = "Source changed. Refresh the query before navigating."; return }
         val offset = languageOffset(source, org.json.JSONObject().put("line", location.line).put("character", location.character))
             ?: run { status = "Location no longer fits $path. Query again."; return }
+        if (recordHistory && expectedSource == null && departed?.path != path && !location.matchesInferredSourceName(source, offset)) {
+            status = "Source changed. Refresh the query before navigating."
+            return
+        }
         if (buffer.selectSourceRange(offset, offset, source)) { if (recordHistory) navigationTrail = navigationTrail.record(departed, location); buffer.focusSource?.invoke(); onRevealed() }
     }
     private var debugRevealTicket=0L

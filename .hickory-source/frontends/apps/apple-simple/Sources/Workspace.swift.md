@@ -632,6 +632,15 @@ editor and pane before reading, then hand off to the normal reveal only while
 that choice is current. The handoff has its own editor identity because a
 successful reveal deliberately changes tabs and selection.
 
+A cross-file provider result can outlive a rename in a destination we have yet
+to read. For an ordinary identifier without a captured destination revision,
+compare the reported name and its boundaries at the returned UTF-16 coordinate
+after opening the file. A longer renamed identifier can share the same prefix
+and column. Keep the destination readable and ask for a fresh query if the name
+fails this check. A captured source revision still supplies the check for
+callers that already have one. Qualified labels keep their provider position
+because they may describe names across several source tokens.
+
 ## Retain source before choosing a pane
 
 Foreground file opening and background intelligence share one acquisition path. A pending read is keyed by workspace generation and path; after it returns, prefer any already available buffer so unsaved text cannot be overwritten. Confirm an intervening startup preview with that same authoritative response. If the response supplies text without a save guard for a first-open source, retain the text in a read-only preview so Refresh Files can retry permission. Retaining source attaches available capabilities without activating a pane. Only the foreground request changes layout and records navigation. Reconnecting cancels old acquisitions and prevents late results from entering the new workspace.
@@ -777,6 +786,23 @@ Foreground file opening and background intelligence share one acquisition path. 
                 && (viewport == nil || visible?.captureRecoveryViewport?() == viewport)
         }
     }
+    private func matchesReportedIdentifier(_ name: String, in source: String, at offset: Int) -> Bool {
+        func continuesIdentifier(_ scalar: Unicode.Scalar) -> Bool {
+            scalar.properties.isIDContinue || scalar == "_" || scalar == "$"
+        }
+        let nameScalars = name.unicodeScalars
+        guard let first = nameScalars.first,
+              first.properties.isIDStart || first == "_" || first == "$",
+              nameScalars.dropFirst().allSatisfy(continuesIdentifier) else { return true }
+        let units = source.utf16, scalars = source.unicodeScalars
+        guard let startUnit = units.index(units.startIndex, offsetBy: offset, limitedBy: units.endIndex),
+              let endUnit = units.index(startUnit, offsetBy: name.utf16.count, limitedBy: units.endIndex),
+              let start = startUnit.samePosition(in: scalars), let end = endUnit.samePosition(in: scalars),
+              scalars[start..<end].elementsEqual(nameScalars) else { return false }
+        let startsIdentifier = start == scalars.startIndex || !continuesIdentifier(scalars[scalars.index(before: start)])
+        let endsIdentifier = end == scalars.endIndex || !continuesIdentifier(scalars[end])
+        return startsIdentifier && endsIdentifier
+    }
     func openSemanticLocation(_ location: SemanticLocation, recordHistory: Bool = true, allowDirty: Bool = false, expectedSource: String? = nil, isCurrent: @escaping () -> Bool = {true}, onRevealed: () -> Void = {}) async {
         guard isCurrent(), !Task.isCancelled else { return }
         sourcePreparation = UUID()
@@ -797,6 +823,11 @@ Foreground file opening and background intelligence share one acquisition path. 
         let source = buffer.text
         if let expectedSource, !exactUTF8(source,expectedSource) { status = "Source changed. Refresh the query before navigating."; return }
         guard let offset = languageOffset(source, ["line": location.line, "character": location.character]) else { status = "Location no longer fits \(path). Query again."; return }
+        if recordHistory, expectedSource == nil, !exactUTF8(departed?.path, path), let name = location.name,
+           !matchesReportedIdentifier(name, in: source, at: offset) {
+            status = "Opened \(path). The reported symbol no longer matches. Query again."
+            return
+        }
         let interaction = paneInteraction, selection = buffer.selection, revision = buffer.sourceEditIdentity
         let viewport = buffer.sourceEditorState?()?.attached == true ? buffer.captureRecoveryViewport?() : nil
         func ownsEditor() -> Bool {

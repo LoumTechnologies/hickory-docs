@@ -253,6 +253,63 @@ final class SaveTests: XCTestCase {
         XCTAssertFalse(workspace.navigationTrail.canBack)
     }
 
+    @MainActor func testNamedCrossFileLocationChecksTheLoadedIdentifier() async throws {
+        let path = "target.py", source = "header\n🧪; old_name_suffix = 1\n"
+        ResponseProtocol.status = 200
+        ResponseProtocol.beforeResponse = nil
+        ResponseProtocol.responsesByPath = [:]
+        ResponseProtocol.response = try JSONSerialization.data(withJSONObject: ["path": path, "content": source, "hash": "disk"])
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [ResponseProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let workspace = Workspace()
+        workspace.engine = try Engine(address: "http://fixture.invalid", session: session)
+        defer {
+            workspace.buffers.values.forEach { $0.language?.close() }
+            session.invalidateAndCancel()
+        }
+        let origin = FileNode(name: "origin.py", path: "origin.py", dir: false)
+        let target = FileNode(name: path, path: path, dir: false)
+        workspace.rootFiles = [origin, target]
+        workspace.buffers[origin.path] = DocumentBuffer(file: origin, text: FileText(path: origin.path, content: "print(old_name)", hash: "origin"))
+        workspace.showSource(origin.path)
+        XCTAssertNil(workspace.buffers[path])
+        func at(_ name: String, character: Int = 4) -> SemanticLocation {
+            SemanticLocation(uri: languageURI(path), line: 1, character: character, name: name)
+        }
+        var revealed = 0
+        await workspace.openSemanticLocation(at("old_name")) { revealed += 1 }
+        let loaded = try XCTUnwrap(workspace.buffers[path])
+        XCTAssertTrue(workspace.currentBuffer === loaded)
+        XCTAssertEqual(loaded.text, source)
+        XCTAssertEqual(loaded.selection, NSRange(location: 0, length: 0))
+        XCTAssertTrue(workspace.status.contains("The reported symbol no longer matches"))
+        XCTAssertEqual(revealed, 0)
+        XCTAssertFalse(workspace.navigationTrail.canBack)
+
+        var selections: [NSRange] = []
+        loaded.selectSourceRange = { range, available in
+            XCTAssertTrue(exactUTF8(available, source))
+            selections.append(range)
+            return true
+        }
+        workspace.showSource(origin.path)
+        await workspace.openSemanticLocation(at("name_suffix", character: 8)) { revealed += 1 }
+        XCTAssertTrue(selections.isEmpty)
+        XCTAssertFalse(workspace.navigationTrail.canBack)
+
+        workspace.showSource(origin.path)
+        await workspace.openSemanticLocation(at("old_name_suffix")) { revealed += 1 }
+        workspace.showSource(origin.path)
+        await workspace.openSemanticLocation(at("Module.old_name")) { revealed += 1 }
+        workspace.showSource(origin.path)
+        await workspace.openSemanticLocation(at("old_name"), expectedSource: source) { revealed += 1 }
+        let nameRange = (source as NSString).range(of: "old_name_suffix")
+        XCTAssertEqual(selections, Array(repeating: NSRange(location: nameRange.location, length: 0), count: 3))
+        XCTAssertEqual(revealed, 3)
+        XCTAssertTrue(workspace.navigationTrail.canBack)
+    }
+
     // Leaving and reselecting the same tab while mounting retires its old position request.
     @MainActor func testSemanticMountDoesNotRevealAfterTabReselection() async {
         let workspace = Workspace()

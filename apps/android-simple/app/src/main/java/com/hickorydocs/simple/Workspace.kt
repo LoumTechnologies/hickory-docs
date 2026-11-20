@@ -702,6 +702,10 @@ class Workspace(private val backgroundScope: kotlinx.coroutines.CoroutineScope? 
         if (expectedSource != null && source != expectedSource) { status = "Source changed. Refresh the query before navigating."; return }
         val offset = languageOffset(source, org.json.JSONObject().put("line", location.line).put("character", location.character))
             ?: run { status = "Location no longer fits $path. Query again."; return }
+        if (recordHistory && expectedSource == null && departed?.path != path && !location.matchesInferredSourceName(source, offset)) {
+            status = "Source changed. Refresh the query before navigating."
+            return
+        }
         if (buffer.selectSourceRange(offset, offset, source)) { if (recordHistory) navigationTrail = navigationTrail.record(departed, location); buffer.focusSource?.invoke(); onRevealed() }
     }
     private var debugRevealTicket=0L

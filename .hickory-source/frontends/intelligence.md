@@ -174,6 +174,8 @@ func semanticLocations(_ result: Any, defaultURI: String? = nil) -> [SemanticLoc
 
 The Kotlin model depends on JSON and URI decoding, not Compose or a text widget. It uses the same named-location identity, one-time path decoding, symbol-tree traversal and call-item normalization. Native sessions supply snapshots and workspaces supply navigation. This keeps renderer replacement independent of language-provider behavior.
 
+For an inferred cross-file jump, compare a simple provider name with the complete identifier at the resolved UTF-16 offset. Check both adjacent Unicode scalars so a renamed prefix does not look like the previous declaration.
+
 <ui:copy id="simple-android-semantic-locations">
 package com.hickorydocs.simple
 
@@ -212,6 +214,21 @@ data class SemanticLocation(val uri: String, val line: Int, val character: Int, 
     }.getOrNull()
     val label: String get() = (name?.let { "$it · " } ?: "") + "${path ?: uri}:${line + 1}:${character + 1}"
 }
+private fun isSemanticIdentifierContinue(point: Int): Boolean =
+    point == '_'.code || point == '$'.code ||
+        Character.isUnicodeIdentifierPart(point) && !Character.isIdentifierIgnorable(point)
+
+internal fun SemanticLocation.matchesInferredSourceName(source: String, offset: Int): Boolean {
+    val name = name?.takeIf { it.isNotEmpty() } ?: return true
+    val start = name.codePointAt(0)
+    if (start != '_'.code && start != '$'.code && !Character.isUnicodeIdentifierStart(start)) return true
+    if (name.codePoints().skip(1).anyMatch { !isSemanticIdentifierContinue(it) }) return true
+    if (!source.startsWith(name, offset)) return false
+    val end = offset + name.length
+    return (offset == 0 || !isSemanticIdentifierContinue(source.codePointBefore(offset))) &&
+        (end == source.length || !isSemanticIdentifierContinue(source.codePointAt(end)))
+}
+
 fun semanticLocations(result: Any, defaultURI: String? = null): List<SemanticLocation> {
     val locations = linkedMapOf<String, SemanticLocation>()
     fun visit(value: Any?, depth: Int) {

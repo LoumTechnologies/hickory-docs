@@ -28,6 +28,11 @@ while a provider destination loads. It checks that the file is cached and the
 visible draft, selection and navigation history stay unchanged. Choosing a
 current result then reuses the cached file and reveals its exact position.
 
+The named-location witness opens a destination whose identifier grew before
+or after the reported name. Its source remains readable and the caret and
+history stay put. The same route accepts the exact name after an emoji,
+a qualified display label and an explicit source snapshot.
+
 A held file response exercises the same activation calls used by Files and the
 tab strip. A newer tab selection preserves its draft, selection, scroll and
 redo history. An independent pane can still accept its read in the background
@@ -973,6 +978,55 @@ class ParityTest {
         assertFalse(buffer.dirty)
         workspace.show("agent")
         assertNull(workspace.currentBuffer)
+    }
+
+    @Test fun inferredCrossFileNamesMustStillMatchTheCompleteIdentifier() = kotlinx.coroutines.runBlocking {
+        val name = "owned_caller"
+        suspend fun reveal(text: String, label: String?, allowsReveal: Boolean, explicitSource: Boolean = false) {
+            val workspace = Workspace(this)
+            val sourceFile = FileNode("origin.py", "origin.py", false, emptyList(), null, null)
+            val targetFile = sourceFile.copy(name = "target.py", path = "target.py")
+            val source = DocumentBuffer(sourceFile, FileText("origin", "base"))
+            val target = DocumentBuffer(targetFile, FileText(text, "base"))
+            source.state.edit { append(" draft") }
+            target.state.edit { selection = androidx.compose.ui.text.TextRange(0) }
+            workspace.buffers[sourceFile.path] = source
+            workspace.buffers[targetFile.path] = target
+            workspace.show(sourceTab(sourceFile.path))
+            assertSame(source, workspace.currentBuffer)
+            val trail = workspace.navigationTrail
+            val column = text.indexOf(name)
+            var revealed = 0
+
+            workspace.openSemanticLocation(
+                SemanticLocation(languageURI(targetFile.path), 0, column, label),
+                expectedSource = if (explicitSource) text else null,
+            ) { revealed++ }
+
+            assertSame(target, workspace.currentBuffer)
+            assertEquals(text, target.text)
+            assertEquals("origin draft", source.text)
+            assertEquals(if (allowsReveal) 1 else 0, revealed)
+            assertEquals(androidx.compose.ui.text.TextRange(if (allowsReveal) column else 0), target.state.selection)
+            if (allowsReveal) {
+                assertEquals(column, workspace.navigationTrail.entries.last().character)
+            } else {
+                assertSame(trail, workspace.navigationTrail)
+                assertTrue(workspace.status.contains("query", ignoreCase = true))
+            }
+        }
+
+        val exact = "🧪 owned_caller()"
+        val suffix = "🧪 owned_caller_renamed()"
+        assertEquals(3, exact.indexOf(name))
+        reveal(exact, name, allowsReveal = true)
+        reveal(suffix, name, allowsReveal = false)
+        reveal("🧪 prefix_owned_caller()", name, allowsReveal = false)
+        reveal("🧪 𐐀owned_caller()", name, allowsReveal = false)
+        reveal("🧪 owned_caller𐐀()", name, allowsReveal = false)
+        reveal(suffix, "module::owned_caller", allowsReveal = true)
+        reveal(suffix, null, allowsReveal = true)
+        reveal(suffix, name, allowsReveal = true, explicitSource = true)
     }
 
     @org.junit.Test fun semanticSymbolsAndCallTreesRetainNamesAndPositions() {
