@@ -895,7 +895,17 @@ private struct EquationLayout: Equatable {
         buffer.sourceEditorState={ [weak self] in guard let self else{return nil};return NativeSourceEditorState(identity:self.sourceEditorIdentity,source:self.text.string,selection:self.text.selectedRange(),composing:self.text.hasMarkedText(),editable:self.text.isEditable && !self.buffer.readOnly && !self.buffer.saving,attached:self.text.window != nil,selections:max(self.text.selectedRanges.count,self.buffer.multiRanges.count))}
         buffer.applyCompletionDraft = { [weak self] draft,initial in
             guard let self,self.text.selectedRange()==initial,self.text.selectedRanges.count==1,exactUTF8(draft.path,self.buffer.file.path) else{return false}
-            return self.sourceDraftHistory.commit(draft.plan,path:draft.path,before:draft.before,selectionBefore:initial,selectionAfter:NSRange(location:draft.selection.from,length:draft.selection.to-draft.selection.from),contextBefore:self.buffer.snippets.historyContext,contextAfter:(draft.continuing ?? beginSnippet(draft.plan.patches.first?.after ?? draft.before,fields:draft.fields)).map{SourceSnippetHistoryContext(fields:$0.fields,active:$0.active,current:$0.current,scopes:$0.scopes)},manager:self.text.undoManager,
+            let selection=NSRange(location:draft.selection.from,length:draft.selection.to-draft.selection.from)
+            let after:SourceSnippetHistoryContext?
+            if let batch=draft.caretBatch {
+                guard exactUTF8(self.buffer.multiSource,draft.before),self.buffer.multiRanges==batch.before,
+                      batch.before.first==initial,batch.after.first==selection else{return false}
+                after=SourceSnippetHistoryContext(fields:[],active:0,current:0,ranges:batch.after)
+            }else{
+                after=(draft.continuing ?? beginSnippet(draft.plan.patches.first?.after ?? draft.before,fields:draft.fields))
+                    .map{SourceSnippetHistoryContext(fields:$0.fields,active:$0.active,current:$0.current,scopes:$0.scopes)}
+            }
+            return self.sourceDraftHistory.commit(draft.plan,path:draft.path,before:draft.before,selectionBefore:initial,selectionAfter:selection,contextBefore:self.buffer.snippets.historyContext,contextAfter:after,manager:self.text.undoManager,
                 read:{[weak self] in self?.buffer.text ?? ""},apply:{[weak self] edits,source,selected in self?.applySourceEdits(edits,source:source,resultSelection:selected,manageUndo:false) ?? false},notice:{[weak self] text in self?.buffer.snippets.reportFailure(text)},restoreContext:{[weak self] value in self?.buffer.snippets.restoreHistory(value)},contextCost:snippetHistoryCost,discardContext:{[weak self] in _ = self?.buffer.snippets.finish()})
         }
         buffer.canUndoSource={ [weak self] in guard let self else{return false};return !self.buffer.readOnly && !self.text.hasMarkedText()&&self.text.undoManager?.canUndo==true }
@@ -1536,7 +1546,17 @@ import UIKit
         buffer.sourceEditorState={ [weak self] in guard let self else{return nil};return NativeSourceEditorState(identity:self.sourceEditorIdentity,source:self.text.text ?? "",selection:self.text.selectedRange,composing:self.text.markedTextRange != nil,editable:self.text.isEditable && !self.buffer.readOnly && !self.buffer.saving,attached:self.text.window != nil,selections:max(1,self.buffer.multiRanges.count))}
         buffer.applyCompletionDraft = { [weak self] draft,initial in
             guard let self,self.text.selectedRange==initial,exactUTF8(draft.path,self.buffer.file.path) else{return false}
-            return self.sourceDraftHistory.commit(draft.plan,path:draft.path,before:draft.before,selectionBefore:initial,selectionAfter:NSRange(location:draft.selection.from,length:draft.selection.to-draft.selection.from),contextBefore:self.buffer.snippets.historyContext,contextAfter:(draft.continuing ?? beginSnippet(draft.plan.patches.first?.after ?? draft.before,fields:draft.fields)).map{SourceSnippetHistoryContext(fields:$0.fields,active:$0.active,current:$0.current,scopes:$0.scopes)},manager:self.text.undoManager,
+            let selection=NSRange(location:draft.selection.from,length:draft.selection.to-draft.selection.from)
+            let after:SourceSnippetHistoryContext?
+            if let batch=draft.caretBatch {
+                guard exactUTF8(self.buffer.multiSource,draft.before),self.buffer.multiRanges==batch.before,
+                      batch.before.first==initial,batch.after.first==selection else{return false}
+                after=SourceSnippetHistoryContext(fields:[],active:0,current:0,ranges:batch.after)
+            }else{
+                after=(draft.continuing ?? beginSnippet(draft.plan.patches.first?.after ?? draft.before,fields:draft.fields))
+                    .map{SourceSnippetHistoryContext(fields:$0.fields,active:$0.active,current:$0.current,scopes:$0.scopes)}
+            }
+            return self.sourceDraftHistory.commit(draft.plan,path:draft.path,before:draft.before,selectionBefore:initial,selectionAfter:selection,contextBefore:self.buffer.snippets.historyContext,contextAfter:after,manager:self.text.undoManager,
                 read:{[weak self] in self?.buffer.text ?? ""},apply:{[weak self] edits,source,selected in self?.applySourceEdits(edits,source:source,resultSelection:selected,manageUndo:false) ?? false},notice:{[weak self] text in self?.buffer.snippets.reportFailure(text)},restoreContext:{[weak self] value in self?.buffer.snippets.restoreHistory(value)},contextCost:snippetHistoryCost,discardContext:{[weak self] in _ = self?.buffer.snippets.finish()})
         }
         buffer.canUndoSource={ [weak self] in guard let self else{return false};return !self.buffer.readOnly&&self.text.markedTextRange==nil&&self.text.undoManager?.canUndo==true }

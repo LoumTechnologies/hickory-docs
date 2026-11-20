@@ -484,7 +484,7 @@ try {
         case "completion-open": {
           const content=editor(request.path);await content.focus();
           if(request.selection){await content.evaluate(async(node,selection)=>{const {EditorView}=await import('/node_modules/@codemirror/view/dist/index.js'),{editorOffset}=await import('/src/simple/SourceText.ts');const view=EditorView.findFromDOM(node);view.dispatch({selection:{anchor:editorOffset(view.state,selection.anchor),head:editorOffset(view.state,selection.head)},userEvent:'select'});view.focus();},request.selection);}
-          else{await page.keyboard.press(process.platform==="darwin"?"Meta+ArrowUp":"Control+Home");for(let count=0;count<request.offset;count++)await page.keyboard.press("ArrowRight");}
+          else if(!request.keepSelection){await page.keyboard.press(process.platform==="darwin"?"Meta+ArrowUp":"Control+Home");for(let count=0;count<request.offset;count++)await page.keyboard.press("ArrowRight");}
           await page.keyboard.press("Control+Space");
           const choices=page.locator(".cm-tooltip-autocomplete li");await choices.first().waitFor({timeout:1500}).catch(()=>{});value=await choices.allTextContents();break;
         }

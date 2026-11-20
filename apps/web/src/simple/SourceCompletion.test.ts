@@ -1,16 +1,17 @@
 import {expect,it} from 'vitest';
-import {EditorState} from '@codemirror/state';
+import {EditorSelection,EditorState} from '@codemirror/state';
 import {EditorView} from '@codemirror/view';
 import {history,undo,redo} from '@codemirror/commands';
 import {acceptSourceCompletion,sourceCompletion,type SourceCompletionAdapter} from './SourceCompletion';
 import {readCompletionAcceptance,waitCompletionAcceptance,cancelCompletionAcceptance,withCompletionAcceptanceSignal} from '../lsp/completionAcceptance';
 import type {CompletionItem} from '../lsp/client';
+import {sourceDigest} from '../lsp/diagnosticRevision';
 import {CompletionContext} from '@codemirror/autocomplete';
 import {sourceSnippets,dispatchSourceSnippetTransactions} from './SourceSnippets';
 import {sourceText,authoredSource,editorOffsetIn} from './SourceText';
 import snippetVectors from '../../../simple-contract/snippet-expansion-cases.json';
 function held(){let resolve!:(value:CompletionItem)=>void;const promise=new Promise<CompletionItem>(done=>{resolve=done;});return {promise,resolve};}
-function fixture(source='va\n',caret=2){const parent=document.body.appendChild(document.createElement('div'));const view=new EditorView({dispatchTransactions:dispatchSourceSnippetTransactions,state:EditorState.create({doc:source,selection:{anchor:editorOffsetIn(source,caret)},extensions:[history(),sourceText(source),sourceSnippets({writable:()=>true,notice:()=>{}})]}),parent});return {view,close:()=>{view.destroy();parent.remove();}};}
+function fixture(source='va\n',caret=2){const parent=document.body.appendChild(document.createElement('div'));const view=new EditorView({dispatchTransactions:dispatchSourceSnippetTransactions,state:EditorState.create({doc:source,selection:{anchor:editorOffsetIn(source,caret)},extensions:[EditorState.allowMultipleSelections.of(true),history(),sourceText(source),sourceSnippets({writable:()=>true,notice:()=>{}})]}),parent});return {view,close:()=>{view.destroy();parent.remove();}};}
 const raw={label:'value',data:{hickory_completion:'held'}};
 function resolved(text='value'):CompletionItem {return {...raw,textEdit:{range:{start:{line:0,character:0},end:{line:0,character:2}},newText:text},additionalTextEdits:[{range:{start:{line:0,character:0},end:{line:0,character:0}},newText:'# import\n'}]};}
 it('waits for the whole resolved import edit, commits one undo and maps the caret',async()=>{
@@ -45,6 +46,37 @@ it('source edits and composition refuse both the primary and import portions',as
  try{const work=acceptSourceCompletion(view,raw,'va\n',view.state.selection,0,2,adapter);view.dispatch({changes:{from:0,insert:'# user\n'}});pending.resolve(resolved());await work;expect(view.state.doc.toString()).toBe('# user\nva\n');expect(readCompletionAcceptance(view)?.phase).toBe('unavailable');
   Object.defineProperty(view,'composing',{value:true,configurable:true});const before=view.state.doc.toString();await acceptSourceCompletion(view,raw,before,view.state.selection,0,2,adapter);expect(calls).toBe(1);expect(view.state.doc.toString()).toBe(before);
  }finally{close();}
+});
+it('retires a held peer completion after changing and restoring the secondary caret',async()=>{
+ const source='va\nva\n',{view,close}=fixture(source),pending=held();
+ try {
+  const hash=await sourceDigest(source),context={source_hash:hash,source_revision:'a'.repeat(64)};
+  const offer=(token:string):CompletionItem=>({label:'value',data:{hickory_completion:token,hickory_context:context}});
+  const first=offer('first'),peer=offer('peer');
+  const selections=(end:number)=>EditorSelection.create([EditorSelection.cursor(2),EditorSelection.cursor(end)]);
+  const original=selections(5);
+  view.dispatch({selection:original});
+  let beginPeer!:()=>void;
+  const resolvingPeer=new Promise<void>(resolve=>{beginPeer=resolve;});
+  const work=acceptSourceCompletion(view,first,source,original,0,2,{
+   uri:'hick:///a.py',current:()=>true,writable:()=>true,notice:()=>{},
+   resolve:async()=>{throw new Error('Single-caret resolution was unexpected');},
+   group:{query:async offset=>{expect(offset).toBe(5);return [peer];},resolve:async item=>{
+    if((item.data as {hickory_completion:string}).hickory_completion==='first') return item;
+    beginPeer();
+    return pending.promise;
+   }},
+  });
+  await resolvingPeer;
+  view.dispatch({selection:selections(4)});
+  view.dispatch({selection:original});
+  pending.resolve(peer);
+  await work;
+  expect(authoredSource(view.state)).toBe(source);
+  expect(view.state.selection.eq(original)).toBe(true);
+  expect(readCompletionAcceptance(view)?.phase).toBe('unavailable');
+  expect(undo(view)).toBe(false);
+ } finally {close();}
 });
 it('Escape cancellation and an agent abort settle observers before the late provider reply',async()=>{
  for(const agent of[false,true]){const {view,close}=fixture(),pending=held(),signal=new AbortController();try{

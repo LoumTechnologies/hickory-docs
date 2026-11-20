@@ -636,15 +636,13 @@ another capability has already updated the shared status, keep its notice.
                 }
                 return
             }
-            let items = result as? [[String: Any]] ?? (result as? [String: Any])?["items"] as? [[String: Any]] ?? []
-            let ns = source as NSString
-            var prefix = min(selection.location, ns.length)
-            while prefix > 0, let scalar = UnicodeScalar(ns.character(at: prefix - 1)), CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "_")).contains(scalar) { prefix -= 1 }
-            let typed = ns.substring(with: NSRange(location: prefix, length: max(0, selection.location - prefix))).lowercased()
+            let items = completionItems(result)
+            let prefix=completionPrefix(source,at:selection.location)
+            let typed=(source as NSString).substring(with:prefix).lowercased()
             var fresh: [NativeCompletion] = []
             for (index, item) in items.enumerated() {
                 guard let label=item["label"] as? String,(item["filterText"] as? String ?? label).lowercased().hasPrefix(typed) else{continue}
-                let range=NSRange(location:prefix,length:NSMaxRange(selection)-prefix)
+                let range=NSRange(location:prefix.location,length:NSMaxRange(selection)-prefix.location)
                 fresh.append(NativeCompletion(id:index,label:label,detail:item["detail"] as? String ?? "Language server",range:range,insert:item["insertText"] as? String ?? label,source:source,selection:selection,original:item,sourceIdentity:revision,selectionIdentity:selectionRevision))
                 if fresh.count >= 100 { break }
             }
@@ -662,6 +660,14 @@ another capability has already updated the shared status, keep its notice.
 
 Retain each offered provider item and its source/selection. Resolve before planning, keep a latest acceptance identity and reject changed source, selection, provider, saving or permissions. Dismissal retires pending acceptance. Commit the complete source/import edit and resulting selection through the existing editor batch boundary; no command or save is executed. Source-local legacy suggestions retain their guarded eager path.
 
+The popup still reads the primary caret first. If the user has two to sixteen
+carets, accepting the visible item reads the other positions without moving
+the native selection. Each position must return one matching ordinary offer.
+Resolve the actual held item for that position before asking for another list.
+Check the authored source proof on every offer and response. A completion that
+needs a snippet, a provider command or another context leaves the whole group
+intact.
+
 <ui:copy id="native-completion-acceptance-apple">
     var completionNotice=""
     private var acceptingCompletion=UUID()
@@ -672,16 +678,114 @@ Retain each offered provider item and its source/selection. Resolve before plann
         completionPending=false
     }
     var snippetClipboardReader:(()->String?)?=nil
+    private func completionItems(_ value:Any)->[[String:Any]] {
+        value as? [[String:Any]] ?? (value as? [String:Any])?["items"] as? [[String:Any]] ?? []
+    }
+    private func completionPrefix(_ source:String,at caret:Int)->NSRange {
+        let text=source as NSString,end=min(caret,text.length)
+        var start=end
+        while start>0,let scalar=UnicodeScalar(text.character(at:start-1)),
+              CharacterSet.alphanumerics.union(CharacterSet(charactersIn:"_")).contains(scalar) {start-=1}
+        return NSRange(location:start,length:end-start)
+    }
+    private func requestResolvedCompletion(_ item:[String:Any]) async throws -> [String:Any] {
+        var params=item
+        params["textDocument"]=["uri":uri]
+        let result=try await request("completionItem/resolve",params)
+        guard let value=result as? [String:Any],value["label"] is String else {
+            throw EngineError(message:"Provider did not resolve this completion. Request again.")
+        }
+        return value
+    }
     func resolveCompletion(_ item:[String:Any]) async throws->[String:Any] {
         if item["data"]==nil || item["data"] is NSNull{return item}
         guard let buffer,!buffer.readOnly,!buffer.saving,!buffer.resourceDeleted,subscription != nil else{throw EngineError(message:"Choose writable source with a connected language provider.")}
         sync();let source=buffer.text,selection=buffer.selection,identity=epoch,revision=buffer.sourceEditIdentity,selectionRevision=buffer.selectionIdentity,acceptance=acceptingCompletion
         func current()->Bool{self.buffer === buffer && epoch==identity && acceptingCompletion==acceptance && buffer.sourceEditIdentity==revision && buffer.selectionIdentity==selectionRevision && !buffer.readOnly && !buffer.saving && !buffer.resourceDeleted && exactUTF8(languageURI(buffer.file.path),uri) && exactUTF8(buffer.text,source) && buffer.selection==selection}
-        return try await resolveSnippetCompletion(item,source:source,from:selection.location,to:NSMaxRange(selection),current:current,request:{item in var params=item;params["textDocument"]=["uri":self.uri];let result=try await self.request("completionItem/resolve",params);guard let value=result as? [String:Any],value["label"] is String else{throw EngineError(message:"Provider did not resolve this completion. Request again.")};return value},clipboard:snippetClipboardReader)
+        return try await resolveSnippetCompletion(item,source:source,from:selection.location,to:NSMaxRange(selection),current:current,request:{try await self.requestResolvedCompletion($0)},clipboard:snippetClipboardReader)
     }
-    @discardableResult func accept(_ completion:NativeCompletion,resolution:(([String:Any]) async throws->[String:Any])?=nil) async->Bool {
+    private func completionProof(_ item:[String:Any],hash:String)->(token:String,revision:String)? {
+        guard let data=item["data"] as? [String:Any],let token=data["hickory_completion"] as? String,!token.isEmpty,
+              let proof=data["hickory_context"] as? [String:Any],exactUTF8(proof["source_hash"] as? String,hash),
+              let revision=proof["source_revision"] as? String,revision.utf8.count==64,
+              revision.utf8.allSatisfy({(48...57).contains($0)||(97...102).contains($0)}) else{return nil}
+        return (token,revision)
+    }
+    private func ordinaryCompletion(_ item:[String:Any])->Bool {
+        let data=item["data"] as? [String:Any]
+        return (item["insertTextFormat"]==nil || sourceChangeInteger(item["insertTextFormat"])==1)
+            && (item["command"]==nil || item["command"] is NSNull)
+            && data?["hickory_snippet"]==nil && data?["hickory_context_request"]==nil
+    }
+    private func matchingCompletionOffer(_ choice:[String:Any],_ other:[String:Any])->Bool {
+        let choiceLabel=choice["labelDetails"] as? [String:Any],otherLabel=other["labelDetails"] as? [String:Any]
+        return ["label","detail","filterText"].allSatisfy {exactUTF8(choice[$0] as? String,other[$0] as? String)}
+            && ["detail","description"].allSatisfy {exactUTF8(choiceLabel?[$0] as? String,otherLabel?[$0] as? String)}
+            && sourceChangeInteger(choice["kind"])==sourceChangeInteger(other["kind"])
+    }
+    private func planCaretCompletion(_ original:[String:Any],source:String,carets:[NSRange],current:()->Bool,fetch:(([String:Any]) async throws->Any)?,resolution:(([String:Any]) async throws->[String:Any])?) async throws -> CompletionDraft {
+        func requireCurrent()throws {
+            guard current() else {throw EngineError(message:"Source, carets or provider changed. Request completions again.")}
+        }
+        let hash="sha256:"+nativeSourceHash(source)
+        guard ordinaryCompletion(original),let initial=completionProof(original,hash:hash) else {
+            throw EngineError(message:"Choose an ordinary provider completion for these carets.")
+        }
+        let snapshot=SourceSnapshot(text:source,writable:true)
+        let prefixes=carets.map {completionPrefix(source,at:$0.location)}
+        let prefixTexts=prefixes.map {(source as NSString).substring(with:$0)}
+        var drafts:[CompletionDraft]=[],tokens=Set<String>()
+        for (index,caret) in carets.enumerated() {
+            try requireCurrent()
+            let offer:[String:Any]
+            if index==0 {offer=original}
+            else {
+                let params:[String:Any]=["textDocument":["uri":uri],"position":languagePosition(source,caret.location),
+                                         "transform_program_versions":supportedSnippetTransformPrograms]
+                let reply:Any
+                if let fetch {reply=try await fetch(params)} else {reply=try await request("hick/completion",params)}
+                try requireCurrent()
+                let matches=completionItems(reply).filter {matchingCompletionOffer(original,$0)}
+                guard matches.count==1 else {throw EngineError(message:"The selected completion must match one offer at every caret.")}
+                offer=matches[0]
+            }
+            guard ordinaryCompletion(offer),let proof=completionProof(offer,hash:hash),proof.revision==initial.revision,
+                  tokens.insert(proof.token).inserted else {
+                throw EngineError(message:"Completion offers did not share the same current authored source.")
+            }
+            let resolved:[String:Any]
+            if let resolution {resolved=try await resolution(offer)} else {resolved=try await requestResolvedCompletion(offer)}
+            try requireCurrent()
+            guard ordinaryCompletion(resolved),exactUTF8(resolved["label"] as? String,original["label"] as? String),
+                  let returned=completionProof(resolved,hash:hash),returned.revision==initial.revision,
+                  exactUTF8(returned.token,proof.token) else {
+                throw EngineError(message:"The provider did not resolve the same ordinary completion at every caret.")
+            }
+            if resolved["textEdit"]==nil {
+                guard carets.allSatisfy({$0.length==0}),
+                      prefixTexts.allSatisfy({exactUTF8($0,prefixTexts.first)}) else {
+                    throw EngineError(message:"Implicit completion needs the same typed prefix at every collapsed caret.")
+                }
+            }
+            drafts.append(try planCompletion(uri,item:resolved,snapshot:snapshot,from:prefixes[index].location,to:NSMaxRange(caret)))
+        }
+        return try combineCompletionDrafts(drafts,carets:carets,snapshot:snapshot)
+    }
+    @discardableResult func accept(_ completion:NativeCompletion,fetch:(([String:Any]) async throws->Any)?=nil,resolution:(([String:Any]) async throws->[String:Any])?=nil) async->Bool {
         guard let buffer,!buffer.readOnly,!buffer.saving,!buffer.resourceDeleted,completion.sourceIdentity.map({$0==buffer.sourceEditIdentity}) ?? true,completion.selectionIdentity.map({$0==buffer.selectionIdentity}) ?? true,exactUTF8(buffer.text,completion.source),buffer.selection==completion.selection else{completionNotice="Suggestion is out of date. Request completions again.";return false}
-        if exactUTF8(buffer.multiSource,buffer.text),buffer.multiRanges.count>1{completionNotice="Choose one caret before accepting this source completion.";return false}
+        let carets=exactUTF8(buffer.multiSource,buffer.text) ? buffer.multiRanges : []
+        let multiple=carets.count>1
+        let editor=multiple ? buffer.sourceEditorState?() : nil
+        if multiple {
+            guard completion.original != nil,completion.sourceIdentity==buffer.sourceEditIdentity,
+                  completion.selectionIdentity==buffer.selectionIdentity,!buffer.snippets.isActive,
+                  validCompletionCarets(carets,primary:completion.selection,source:completion.source),
+                  let editor,editor.attached,editor.editable,!editor.composing,editor.selection==completion.selection,
+                  editor.selections==carets.count,exactUTF8(editor.source,completion.source) else {
+                completionNotice="Choose two to sixteen current carets in writable source and finish template editing or composition before completing."
+                return false
+            }
+        }
         guard let original=completion.original else {
             cancelCompletion()
             let accepted=buffer.snippets.active != nil ? buffer.snippets.input(source:completion.source,range:completion.range,text:completion.insert)==true:buffer.applyLanguageCompletion?(completion.range,completion.insert,completion.source,completion.selection)==true
@@ -690,13 +794,33 @@ Retain each offered provider item and its source/selection. Resolve before plann
         }
         let request=UUID(),identity=epoch,revision=buffer.sourceEditIdentity,selectionRevision=buffer.selectionIdentity,snippetIntent=buffer.snippets.intent;acceptingCompletion=request;completionPending=true;completionNotice="Resolving completion…"
         defer{if acceptingCompletion==request{completionPending=false}}
+        func current()->Bool {
+            guard acceptingCompletion==request,self.buffer===buffer,epoch==identity,buffer.sourceEditIdentity==revision,
+                  buffer.selectionIdentity==selectionRevision,!buffer.resourceDeleted,exactUTF8(languageURI(buffer.file.path),uri),
+                  buffer.snippets.intent==snippetIntent,buffer.language===self,!buffer.readOnly,!buffer.saving,
+                  exactUTF8(buffer.text,completion.source),buffer.selection==completion.selection else{return false}
+            if multiple {
+                return exactUTF8(buffer.multiSource,completion.source) && buffer.multiRanges==carets && !buffer.snippets.isActive
+                    && buffer.sourceEditorState?().map {state in
+                        state.identity==editor?.identity && state.attached && state.editable && !state.composing
+                            && exactUTF8(state.source,completion.source) && state.selection==completion.selection && state.selections==carets.count
+                    }==true
+            }
+            return !(exactUTF8(buffer.multiSource,buffer.text) && buffer.multiRanges.count>1)
+        }
         do {
-            let resolved=try await (resolution ?? {try await self.resolveCompletion($0)})(original)
-            guard acceptingCompletion==request else{return false}
-            guard self.buffer === buffer,epoch==identity,buffer.sourceEditIdentity==revision,buffer.selectionIdentity==selectionRevision,!buffer.resourceDeleted,exactUTF8(languageURI(buffer.file.path),uri),buffer.snippets.intent==snippetIntent,buffer.language===self,!buffer.readOnly,!buffer.saving,exactUTF8(buffer.text,completion.source),buffer.selection==completion.selection,!(exactUTF8(buffer.multiSource,buffer.text)&&buffer.multiRanges.count>1) else{throw EngineError(message:"Source, cursor or provider changed. Request completions again.")}
-            let contextNotice=try snippetContextNotice(resolved)
-            let initialDraft=try planCompletion(uri,item:resolved,snapshot:SourceSnapshot(text:completion.source,writable:!buffer.readOnly && !buffer.saving),from:completion.range.location,to:NSMaxRange(completion.range),expansion:try completionExpansion(resolved))
-            let draft=try buffer.snippets.prepareCompletion(initialDraft)
+            let draft:CompletionDraft,contextNotice:String
+            if multiple {
+                draft=try await planCaretCompletion(original,source:completion.source,carets:carets,current:current,fetch:fetch,resolution:resolution)
+                contextNotice=""
+            }else {
+                let resolved=try await (resolution ?? {try await self.resolveCompletion($0)})(original)
+                guard current() else{throw EngineError(message:"Source, cursor or provider changed. Request completions again.")}
+                contextNotice=try snippetContextNotice(resolved)
+                let initialDraft=try planCompletion(uri,item:resolved,snapshot:SourceSnapshot(text:completion.source,writable:!buffer.readOnly && !buffer.saving),from:completion.range.location,to:NSMaxRange(completion.range),expansion:try completionExpansion(resolved))
+                draft=try buffer.snippets.prepareCompletion(initialDraft)
+            }
+            guard current() else{throw EngineError(message:"Source, cursor or provider changed. Request completions again.")}
             guard exactUTF8(draft.path,buffer.file.path),buffer.applyCompletionDraft?(draft,completion.selection)==true else{throw EngineError(message:"Editor refused the complete completion. Finish composition or request again.")}
             completionPending=false;completionNotice=(draft.plan.patches.isEmpty ? "Completion selected":"Completion applied · draft")+(contextNotice.isEmpty ? "":" · "+contextNotice);showingSuggestions=false;return true
         }catch{if acceptingCompletion==request{completionNotice=error.localizedDescription};return false}

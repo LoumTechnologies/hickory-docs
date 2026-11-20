@@ -4070,7 +4070,7 @@ Verification: all three models pass the same 21 source/import/selection/refusal 
 
 Browser, macOS, iOS and Android use the existing completion popup or language menu to resolve the retained provider choice before applying its primary replacement and imports together. The source draft model supplies the complete change and final selection. Source, selection, attachment, permissions, saving and latest-choice checks reject obsolete replies. Dismissal cancels pending acceptance; a newer choice owns its own status. Source text stays readable while resolution runs. Browser choices share one immutable query snapshot rather than copying the document for each offered item.
 
-Acceptance changes only the draft, with one undo/redo step and no implicit save or provider command. The native Apple bridge records the complete source and final selection together; stale source or permissions retire incompatible history after the active undo notification, preserving the current draft. Existing status areas display progress and refusal without adding a toolbar or resizing the editor. Multiple carets and snippet syntax outside the supported expansion currently refuse the whole choice and retain the draft; both remain required parity work. Cross-owner generated completions still require exact writable projection.
+Acceptance changes only the draft, with one undo/redo step and no implicit save or provider command. The native Apple bridge records the complete source and final selection together; stale source or permissions retire incompatible history after the active undo notification, preserving the current draft. Existing status areas display progress and refusal without adding a toolbar or resizing the editor. Supported snippets use one caret. Cross-owner generated completions still require exact writable projection.
 
 Verification: five focused browser controller/actual-popup agent checks pass, including held replies, replacement choices, composition, cancellation and settled application reporting. The actual-engine browser witness resolves imports, checks one-step undo/redo, retained editor identity/geometry and unchanged disk, then dismisses a held resolution and releases it without a late write. Two AppKit/controller checks pass for compound import edits, final redo selection, undo during saving, stale-history retirement and latest/dismissed replies. Two Android tests pass using the actual text state and compound undo/redo. TypeScript checking, the iOS simulator build, source reconstruction and audit pass. These are not native gesture, IME or accessibility acceptance results. Broad regression runs remain user-owned.
 
@@ -4103,6 +4103,33 @@ held resolution, and the released reply left the restored draft and caret
 intact. The mounted editor, frame, scroll, undo manager and saved file
 metadata survived. See
 `target/ios-source-completion-native/iphone-27/attempt-1/receipt.json`.
+
+Stock Android API 37 offered the genuine TypeScript auto-import from
+`./answers` and used one native Undo and Redo for the replacement and
+import. The same visible editor retained its frame while its authored
+caret moved from UTF-16 offset 34 to 85, back to 34, then to 85. The
+exporting file stayed unopened, and the saved files and configuration kept
+their bytes and file metadata. See
+`target/parity-rendered-android.sgYIt7/continuation-receipts/final-android-bic8r2xt/typescript-completion/rendered-android-typescript-completion.json`.
+
+Simple Browser and Apple group ordinary completion for 2–16 captured
+carets. Each caret queries and resolves a unique matching offer with its
+own token on the exact source revision. The group requires an agreed plain
+replacement, the same additional edits and disjoint primary ranges. An
+implicit edit also requires matching identifier prefixes at collapsed
+carets. The source transaction restores the complete caret roster with one
+Undo and Redo. Grouped completion with snippets remains a separate parity
+case.
+
+Installed TypeScript completed both prefixes and inserted one shared
+import in Simple Browser and mounted AppKit. The Browser replay used the
+existing popup with two exact editor selections. AppKit used Add cursor
+below and Language tools, then native Undo and Redo. Both retained their
+editors and saved bytes. Browser focused cases also rejected conflicting
+imports and a late reply after a secondary caret round trip. Run
+`python3 scripts/test-source-completion-browser.py --typescript-group`
+with the installed provider. See
+`target/appkit-live-caret-completion.g594rhqw/receipt.json`.
 
 ## Shared snippet expansion foundation
 

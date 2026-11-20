@@ -1,6 +1,6 @@
 import {expect,it} from 'vitest';
 import cases from '../../../simple-contract/completion-plan-cases.json';
-import {planCompletion,type CompletionExpansion} from './CompletionPlan';
+import {planCompletion,planCompletionGroup,type CompletionExpansion} from './CompletionPlan';
 import derived from '../../../simple-contract/snippet-derived-cases.json';
 import {readSnippetTransform} from './SnippetTransform';
 import {beginSnippet,editSnippet} from './SnippetSession';
@@ -17,4 +17,17 @@ it('prepares source, import order, UTF16 selection and refusal from shared compl
 it('preserves rebased computed programs through import edits and usable linked input',()=>{
  const transform=readSnippetTransform(derived.programs.upper),fields=[{index:1,from:0,to:3,choices:[],id:0,parent:null},{index:1,from:4,to:7,choices:[],id:1,parent:null,transform},{index:0,from:7,to:7,choices:[],id:2,parent:null}],draft=planCompletion('hick:///a.py',{label:'derived',insertTextFormat:2,insertText:'${1:foo} ${1/(.*)/${1:/upcase}/}$0',additionalTextEdits:[{range:{start:{line:0,character:0},end:{line:0,character:0}},newText:'import\n'}]},{text:'😀 old\n',writable:true},3,6,{text:'foo FOO',selection:{from:0,to:3},fields}),after=draft.plan.patches[0].after;
  expect(after).toBe('import\n😀 foo FOO\n');expect(draft.fields![1].from).toBe(14);expect(draft.fields![1].transform).toBe(transform);const session=beginSnippet(after,draft.fields!)!;expect(session).not.toBeNull();expect(editSnippet(session,after,draft.selection.from,draft.selection.to,'ßa')?.session.source).toBe('import\n😀 ßa SSA\n');
+});
+it('combines independently resolved identifier edits and a single shared import',()=>{
+ const source='😀 va\nva\n';
+ const item={label:'value',additionalTextEdits:[{range:{start:{line:0,character:0},end:{line:0,character:0}},newText:'# import\n'}]};
+ const first={item,from:5,to:5,prefixFrom:3},second={item,from:8,to:8,prefixFrom:6};
+ const prepare=(captures:Parameters<typeof planCompletionGroup>[2])=>planCompletionGroup('hick:///a.py',{text:source,writable:true},captures);
+ const result=prepare([first,second]);
+ expect(result.plan.patches[0].after).toBe('# import\n😀 value\nvalue\n');
+ expect(result.plan.patches[0].edits).toHaveLength(3);
+ expect(result.carets).toEqual([17,23]);
+ expect(()=>prepare([first,{...second,prefixFrom:7}])).toThrow('same identifier prefix');
+ expect(()=>prepare([first,{...second,item:{...item,additionalTextEdits:[]}}])).toThrow('disagree');
+ expect(()=>prepare([first,first])).toThrow('overlap');
 });

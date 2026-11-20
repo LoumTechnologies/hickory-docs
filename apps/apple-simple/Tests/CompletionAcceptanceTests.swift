@@ -57,6 +57,88 @@ import AppKit
         XCTAssertEqual(buffer.text,"external");XCTAssertEqual(editor.text.string,"external");XCTAssertTrue(service.completionNotice.contains("history retired"));XCTAssertFalse(editor.text.undoManager?.canUndo ?? false)
         #endif
     }
+    private func caretOffer(_ source:String,token:String)->[String:Any] {
+        ["label":"value","kind":6,"detail":"./dep",
+         "data":["hickory_completion":token,"hickory_context":[
+            "source_hash":"sha256:"+nativeSourceHash(source),"source_revision":String(repeating:"a",count:64)
+         ]]]
+    }
+
+    func testActualMacMultiCaretCompletionSharesImportAndRestoresEveryCaret() async throws {
+        #if os(macOS)
+        let source="😀\nva\nva\n",file=FileNode(name:"a.py",path:"a.py",dir:false)
+        let buffer=DocumentBuffer(file:file,text:FileText(path:file.path,content:source,hash:"base"))
+        let service=NativeLanguage(engine:try Engine(address:"http://fixture.invalid"),buffer:buffer)
+        buffer.language=service
+        let editor=MacEditor(buffer),window=NSWindow(contentRect:NSRect(x:0,y:0,width:500,height:300),styleMask:[.titled],backing:.buffered,defer:false)
+        window.contentView=editor.scroll
+        defer{service.close();window.contentView=nil}
+        let before=[5,8].map{NSRange(location:$0,length:0)}
+        XCTAssertTrue(buffer.selectMultiple(before,source:source))
+        await service.complete(fetch:{_ in [self.caretOffer(source,token:"primary")]})
+        let choice=try XCTUnwrap(service.suggestions.first)
+        var queries:[Int]=[],tokens:[String]=[]
+        let accepted=await service.accept(choice,fetch:{params in
+            let position=try XCTUnwrap(params["position"] as? [String:Int])
+            queries.append(try XCTUnwrap(position["line"]))
+            XCTAssertEqual(position["character"],2)
+            return [self.caretOffer(source,token:"peer")]
+        },resolution:{offer in
+            let data=try XCTUnwrap(offer["data"] as? [String:Any])
+            tokens.append(try XCTUnwrap(data["hickory_completion"] as? String))
+            var resolved=offer
+            resolved["additionalTextEdits"]=[self.edit(0,0,0,"import x\n")]
+            return resolved
+        })
+        let after="import x\n😀\nvalue\nvalue\n"
+        let carets=[17,23].map{NSRange(location:$0,length:0)}
+        XCTAssertTrue(accepted,service.completionNotice)
+        XCTAssertEqual(queries,[2]);XCTAssertEqual(tokens,["primary","peer"])
+        XCTAssertEqual(buffer.text,after);XCTAssertEqual(editor.text.string,after)
+        XCTAssertEqual(buffer.multiRanges,carets);XCTAssertEqual(editor.text.selectedRange(),carets[0])
+        XCTAssertEqual(buffer.base,source);XCTAssertEqual(buffer.hash,"base")
+        editor.text.undoManager?.undo()
+        XCTAssertEqual(buffer.text,source);XCTAssertEqual(buffer.multiRanges,before)
+        XCTAssertEqual(editor.text.selectedRange(),before[0])
+        editor.text.undoManager?.redo()
+        XCTAssertEqual(buffer.text,after);XCTAssertEqual(buffer.multiRanges,carets)
+        XCTAssertEqual(editor.text.selectedRange(),carets[0])
+        #endif
+    }
+
+    func testSecondaryCaretRoundTripAndAmbiguousPeerRefuseTheWholeCompletion() async throws {
+        let source="va\nva\n",file=FileNode(name:"a.py",path:"a.py",dir:false)
+        let buffer=DocumentBuffer(file:file,text:FileText(path:file.path,content:source,hash:"base"))
+        let service=NativeLanguage(engine:try Engine(address:"http://fixture.invalid"),buffer:buffer)
+        buffer.language=service
+        defer{service.close()}
+        let origin=[2,5].map{NSRange(location:$0,length:0)},editorID=UUID()
+        buffer.selection=origin[0];buffer.multiSource=source;buffer.multiRanges=origin
+        buffer.sourceEditorState={ [weak buffer] in buffer.map {
+            NativeSourceEditorState(identity:editorID,source:$0.text,selection:$0.selection,composing:false,editable:true,attached:true,selections:$0.multiRanges.count)
+        }}
+        var commits=0
+        buffer.applyCompletionDraft={_,_ in commits+=1;return true}
+        for ambiguous in [true,false] {
+            await service.complete(fetch:{_ in [self.caretOffer(source,token:"primary")]})
+            let choice=try XCTUnwrap(service.suggestions.first)
+            let accepted=await service.accept(choice,fetch:{_ in
+                var offers=[self.caretOffer(source,token:"peer")]
+                if ambiguous {offers.append(self.caretOffer(source,token:"competitor"))}
+                return offers
+            },resolution:{offer in
+                if (offer["data"] as? [String:Any])?["hickory_completion"] as? String=="peer" {
+                    buffer.multiRanges=[origin[0],NSRange(location:4,length:0)]
+                    buffer.multiRanges=origin
+                }
+                return offer
+            })
+            XCTAssertFalse(accepted)
+            XCTAssertEqual(buffer.text,source);XCTAssertEqual(buffer.multiRanges,origin)
+            XCTAssertEqual(commits,0)
+        }
+    }
+
     func testActualMacSnippetSelectionAndImportsUndoTogether()async throws {
         #if os(macOS)
         let apps=URL(fileURLWithPath:#filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()

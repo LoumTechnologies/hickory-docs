@@ -32,26 +32,35 @@ export function beginCompletionAcceptance(view:EditorView,notice:(message:string
 
 ## Prepare and commit one complete browser transaction
 
-An optional source-editor adapter retains the actual native choice and query selection, resolves through its producing client and rechecks attachment, source, selection, provider, permissions, saving and composition before planning. This bridge currently requires one caret; multiple-carets are retained and refused until independently captured proposals can be combined. An offered query and its pending acceptance retain the original document object and the shared editor-input intent token. Source edits, undo and cursor round trips advance that token; harmless popup/capability effects preserve it. Equal bytes or a restored cursor cannot revive an old query. The whole source/import plan passes the shared input guard and transaction preparation before one synchronous update with isolated undo. A following selection-only transaction in that same update records the final selection for CodeMirror redo; it adds no second document edit or separate undo step. Guarded no-op selection is supported; a late or replaced job cannot write source or overwrite a newer status.
+An optional source-editor adapter retains the actual native choice and query selection, resolves through its producing client and rechecks attachment, source, selection, provider, permissions, saving and composition before planning. An offered query and its pending acceptance retain the original document object and the shared editor-input intent token. Source edits, undo and cursor round trips advance that token; harmless popup/capability effects preserve it. Equal bytes or a restored cursor cannot revive an old query. The whole source/import plan passes the shared input guard and transaction preparation before one synchronous update with isolated undo. A following selection-only transaction in that same update records the final selection for CodeMirror redo; it adds no second document edit or separate undo step. Guarded no-op selection is supported; a late or replaced job cannot write source or overwrite a newer status.
+
+For an ordinary completion at up to 16 carets, retain the main popup choice
+and independently query and resolve the unique matching offer at every peer.
+Check the exact source hash, revision and distinct opaque provider tokens.
+The drafts planner requires disjoint primary edits and a single agreed set
+of additional edits. Submit the resulting text and all carets through the
+same editor transaction.
 
 Provider edits, snippet fields and retained source hashes use authored UTF-16 coordinates. The browser converts popup replacement offsets to authored positions once, prepares the entire raw edit with its line-ending proof, then maps only the final caret back into the display. Applied status and Undo/Redo checks compare exact authored bytes, including mixed line endings.
 
 <ui:copy id="completion-acceptance-browser">
 import {isolateHistory} from '@codemirror/commands';
-import {EditorState} from '@codemirror/state';
+import {EditorSelection,EditorState} from '@codemirror/state';
 import {EditorView} from '@codemirror/view';
-import {closeCompletion,pickedCompletion,type Completion,type CompletionContext} from '@codemirror/autocomplete';
+import {closeCompletion,pickedCompletion,CompletionContext,type Completion} from '@codemirror/autocomplete';
 import type {CompletionItem} from '../lsp/client';
-import {lspCompletion} from '../lsp/completion';
+import {lspCompletion,wordBefore} from '../lsp/completion';
 import {beginCompletionAcceptance} from '../lsp/completionAcceptance';
 import {prepareEditorChanges} from '../editor/textInput';
-import {planCompletion} from './CompletionPlan';
+import {planCompletion,planCompletionGroup,type CapturedCompletion,type CompletionDraft} from './CompletionPlan';
+import {sourceDigest} from '../lsp/diagnosticRevision';
 import {completionExpansion} from './SnippetExpansion';
 import {snippetContextNotice} from './SnippetContext';
 import {sourceSnippetEffect,continueSourceSnippetCompletion,readSourceSnippet,readSourceEditorIntent} from './SourceSnippets';
 import {authoredSource,authoredOffset,editorOffsetIn,authoredChanges} from './SourceText';
 export interface SourceCompletionAdapter {
  uri:string;resolve:(item:CompletionItem)=>Promise<CompletionItem>;current:()=>boolean;writable:()=>boolean;notice:(text:string)=>void;
+ group?:{query:(offset:number,source:string)=>Promise<CompletionItem[]>;resolve:(item:CompletionItem)=>Promise<CompletionItem>};
 }
 const querySnapshots=new WeakMap<EditorState,{source:string;selection:EditorState['selection'];document:EditorState['doc'];intent:symbol|undefined}>();
 export function sourceCompletion(item:CompletionItem,context:CompletionContext,adapter:SourceCompletionAdapter):Completion {
@@ -61,6 +70,60 @@ export function sourceCompletion(item:CompletionItem,context:CompletionContext,a
  const label=typeof item.filterText==='string'?item.filterText:item.label;
  return {...lspCompletion(item),label,...(label!==item.label?{displayLabel:item.label}:{}),apply:(view,completion,from,to)=>{closeCompletion(view);try{void acceptSourceCompletion(view,original,source,selection,authoredOffset(view.state,from),authoredOffset(view.state,to),{...adapter,current:()=>adapter.current()&&view.state.doc===document&&readSourceEditorIntent(view.state)===intent},completion);}catch(error){adapter.notice(error instanceof Error?error.message:String(error));}}};
 }
+
+function offerIdentity(item:CompletionItem) {
+ const details = item.labelDetails as {detail?:unknown;description?:unknown} | undefined;
+ return JSON.stringify([item.label,item.kind,item.detail,details?.detail,details?.description]);
+}
+
+function ordinaryProof(item:CompletionItem,hash:string,revision?:string) {
+ const data = item.data as {hickory_completion?:unknown;hickory_context?:{source_hash?:unknown;source_revision?:unknown}} | undefined;
+ const token = data?.hickory_completion, context = data?.hickory_context;
+ const currentRevision = context?.source_revision;
+ if ((item.insertTextFormat ?? 1) !== 1 || item.kind === 15 || item.command != null) throw new Error("Completion groups require ordinary provider edits.");
+ if (typeof token !== "string" || !token || context?.source_hash !== hash || typeof currentRevision !== "string"
+   || !/^[a-f0-9]{64}$/.test(currentRevision) || (revision !== undefined && currentRevision !== revision)) {
+  throw new Error("Completion proof changed across carets. Request the completions again.");
+ }
+ return {token,revision:currentRevision};
+}
+
+async function resolveCompletionGroup(state:EditorState,source:string,item:CompletionItem,adapter:SourceCompletionAdapter,valid:()=>boolean) {
+ const session = adapter.group;
+ if (!session || state.selection.ranges.length > 16) throw new Error("Choose 2 to 16 supported carets for a completion group.");
+ const selections = state.selection.ranges.map(range => {
+  const prefix = range.empty ? wordBefore(new CompletionContext(state,range.head,true)) : null;
+  return {
+   from:authoredOffset(state,range.from),to:authoredOffset(state,range.to),head:authoredOffset(state,range.head),
+   ...(prefix ? {prefixFrom:authoredOffset(state,prefix.from)} : {}),
+  };
+ });
+ const hash = await sourceDigest(source);
+ const requireCurrent = () => { if (!valid()) throw new Error("Source, carets or provider changed. Request completions again."); };
+ requireCurrent();
+ const proof = ordinaryProof(item,hash);
+ const seen = new Set<string>();
+ const captures: CapturedCompletion[] = [];
+ const main = state.selection.mainIndex;
+ const identity = offerIdentity(item);
+ for (const index of [main,...selections.keys()].filter((index,offset) => offset === 0 || index !== main)) {
+  const selection = selections[index];
+  const matching = index === main ? [item] : (await session.query(selection.head,source)).filter(candidate => offerIdentity(candidate) === identity);
+  requireCurrent();
+  if (matching.length !== 1) throw new Error("A caret has no unique matching completion. Choose a different completion.");
+  const offer = ordinaryProof(matching[0],hash,proof.revision);
+  if (seen.has(offer.token)) throw new Error("Each caret requires its own provider completion offer.");
+  seen.add(offer.token);
+  const resolved = await session.resolve(structuredClone(matching[0]));
+  requireCurrent();
+  if (ordinaryProof(resolved,hash,proof.revision).token !== offer.token || resolved.label !== item.label) {
+   throw new Error("The provider returned a different completion. Request the completions again.");
+  }
+  captures[index] = {item:resolved,...selection};
+ }
+ return planCompletionGroup(adapter.uri,{text:source,writable:adapter.writable()},captures);
+}
+
 export async function acceptSourceCompletion(view:EditorView,item:CompletionItem,source:string,selection:EditorState['selection'],from:number,to:number,adapter:SourceCompletionAdapter,completion?:Completion):Promise<void> {
  const request=beginCompletionAcceptance(view,adapter.notice),snippetContext=readSourceSnippet(view),document=view.state.doc,intent=readSourceEditorIntent(view.state);
  let expectedAfter:string|undefined;
@@ -68,20 +131,29 @@ export async function acceptSourceCompletion(view:EditorView,item:CompletionItem
  const report=(text:string)=>{if(request.current())adapter.notice(text);};
  try {
   if(request.cancelled())return;
-  if(selection.ranges.length!==1)throw new Error('Choose one caret before accepting this source completion.');
   if(view.composing)throw new Error('Finish composition before accepting this completion.');
   if(!valid())throw new Error('Completion is out of date or source is unavailable. Request completions again.');
-  report('Resolving completion…');const resolved=await adapter.resolve(structuredClone(item));
-  if(!request.current()||request.cancelled())return;
-  if(view.composing)throw new Error('Finish composition, then request completions again.');
-  if(!valid())throw new Error('Source, cursor or provider changed. Request completions again.');
-  const contextNotice=snippetContextNotice(resolved);
-  const draft=continueSourceSnippetCompletion(view,planCompletion(adapter.uri,resolved,{text:source,writable:adapter.writable()},from,to,completionExpansion(resolved)));
-  const patch=draft.plan.patches[0],after=patch?.after??source,changes=(patch?.edits??[]).map(edit=>({from:edit.from,to:edit.to,insert:edit.text}));
+  report('Resolving completion…');
+  let draft:CompletionDraft|undefined,group:Awaited<ReturnType<typeof resolveCompletionGroup>>|undefined,contextNotice='';
+  if (selection.ranges.length > 1) {
+   if (snippetContext) throw new Error('Finish editing the template before accepting a completion group.');
+   group = await resolveCompletionGroup(view.state,source,item,adapter,valid);
+  } else {
+   const resolved=await adapter.resolve(structuredClone(item));
+   if(!request.current()||request.cancelled())return;
+   if(view.composing)throw new Error('Finish composition, then request completions again.');
+   if(!valid())throw new Error('Source, cursor or provider changed. Request completions again.');
+   contextNotice=snippetContextNotice(resolved);
+   draft=continueSourceSnippetCompletion(view,planCompletion(adapter.uri,resolved,{text:source,writable:adapter.writable()},from,to,completionExpansion(resolved)));
+  }
+  const patch=(group?.plan ?? draft!.plan).patches[0],after=patch?.after??source,changes=(patch?.edits??[]).map(edit=>({from:edit.from,to:edit.to,insert:edit.text}));
   const input=prepareEditorChanges(source,changes);if('reason' in input)throw new Error(input.reason);
   if(!valid())throw new Error('Source, cursor or provider changed. Request completions again.');
   const raw=authoredChanges(view.state,changes),rawEffects=raw.effects?[raw.effects].flat():[];
-  const transaction=view.state.update({...raw,selection:{anchor:editorOffsetIn(after,draft.selection.from),head:editorOffsetIn(after,draft.selection.to)},effects:[...rawEffects,sourceSnippetEffect(draft,after)],annotations:[isolateHistory.of('full'),...(completion?[pickedCompletion.of(completion)]:[])],userEvent:'input.complete',filter:false});
+  const resultSelection = group
+   ? EditorSelection.create(group.carets.map(caret=>EditorSelection.cursor(editorOffsetIn(after,caret))),selection.mainIndex)
+   : EditorSelection.single(editorOffsetIn(after,draft!.selection.from),editorOffsetIn(after,draft!.selection.to));
+  const transaction=view.state.update({...raw,selection:resultSelection,effects:draft?[...rawEffects,sourceSnippetEffect(draft,after)]:rawEffects,annotations:[isolateHistory.of('full'),...(completion?[pickedCompletion.of(completion)]:[])],userEvent:'input.complete',filter:false});
   if(authoredSource(transaction.state)!==after)throw new Error('Editor could not prepare the complete completion. Request again.');
   // CodeMirror records the redo selection from a following selection event;
   // otherwise it maps the old caret through the replacement and loses fields.
@@ -102,18 +174,19 @@ Held resolvers keep the source readable and unchanged until complete. Apply prim
 
 <ui:copy id="source-completion-browser-witness">
 import {expect,it} from 'vitest';
-import {EditorState} from '@codemirror/state';
+import {EditorSelection,EditorState} from '@codemirror/state';
 import {EditorView} from '@codemirror/view';
 import {history,undo,redo} from '@codemirror/commands';
 import {acceptSourceCompletion,sourceCompletion,type SourceCompletionAdapter} from './SourceCompletion';
 import {readCompletionAcceptance,waitCompletionAcceptance,cancelCompletionAcceptance,withCompletionAcceptanceSignal} from '../lsp/completionAcceptance';
 import type {CompletionItem} from '../lsp/client';
+import {sourceDigest} from '../lsp/diagnosticRevision';
 import {CompletionContext} from '@codemirror/autocomplete';
 import {sourceSnippets,dispatchSourceSnippetTransactions} from './SourceSnippets';
 import {sourceText,authoredSource,editorOffsetIn} from './SourceText';
 import snippetVectors from '../../../simple-contract/snippet-expansion-cases.json';
 function held(){let resolve!:(value:CompletionItem)=>void;const promise=new Promise<CompletionItem>(done=>{resolve=done;});return {promise,resolve};}
-function fixture(source='va\n',caret=2){const parent=document.body.appendChild(document.createElement('div'));const view=new EditorView({dispatchTransactions:dispatchSourceSnippetTransactions,state:EditorState.create({doc:source,selection:{anchor:editorOffsetIn(source,caret)},extensions:[history(),sourceText(source),sourceSnippets({writable:()=>true,notice:()=>{}})]}),parent});return {view,close:()=>{view.destroy();parent.remove();}};}
+function fixture(source='va\n',caret=2){const parent=document.body.appendChild(document.createElement('div'));const view=new EditorView({dispatchTransactions:dispatchSourceSnippetTransactions,state:EditorState.create({doc:source,selection:{anchor:editorOffsetIn(source,caret)},extensions:[EditorState.allowMultipleSelections.of(true),history(),sourceText(source),sourceSnippets({writable:()=>true,notice:()=>{}})]}),parent});return {view,close:()=>{view.destroy();parent.remove();}};}
 const raw={label:'value',data:{hickory_completion:'held'}};
 function resolved(text='value'):CompletionItem {return {...raw,textEdit:{range:{start:{line:0,character:0},end:{line:0,character:2}},newText:text},additionalTextEdits:[{range:{start:{line:0,character:0},end:{line:0,character:0}},newText:'# import\n'}]};}
 it('waits for the whole resolved import edit, commits one undo and maps the caret',async()=>{
@@ -148,6 +221,37 @@ it('source edits and composition refuse both the primary and import portions',as
  try{const work=acceptSourceCompletion(view,raw,'va\n',view.state.selection,0,2,adapter);view.dispatch({changes:{from:0,insert:'# user\n'}});pending.resolve(resolved());await work;expect(view.state.doc.toString()).toBe('# user\nva\n');expect(readCompletionAcceptance(view)?.phase).toBe('unavailable');
   Object.defineProperty(view,'composing',{value:true,configurable:true});const before=view.state.doc.toString();await acceptSourceCompletion(view,raw,before,view.state.selection,0,2,adapter);expect(calls).toBe(1);expect(view.state.doc.toString()).toBe(before);
  }finally{close();}
+});
+it('retires a held peer completion after changing and restoring the secondary caret',async()=>{
+ const source='va\nva\n',{view,close}=fixture(source),pending=held();
+ try {
+  const hash=await sourceDigest(source),context={source_hash:hash,source_revision:'a'.repeat(64)};
+  const offer=(token:string):CompletionItem=>({label:'value',data:{hickory_completion:token,hickory_context:context}});
+  const first=offer('first'),peer=offer('peer');
+  const selections=(end:number)=>EditorSelection.create([EditorSelection.cursor(2),EditorSelection.cursor(end)]);
+  const original=selections(5);
+  view.dispatch({selection:original});
+  let beginPeer!:()=>void;
+  const resolvingPeer=new Promise<void>(resolve=>{beginPeer=resolve;});
+  const work=acceptSourceCompletion(view,first,source,original,0,2,{
+   uri:'hick:///a.py',current:()=>true,writable:()=>true,notice:()=>{},
+   resolve:async()=>{throw new Error('Single-caret resolution was unexpected');},
+   group:{query:async offset=>{expect(offset).toBe(5);return [peer];},resolve:async item=>{
+    if((item.data as {hickory_completion:string}).hickory_completion==='first') return item;
+    beginPeer();
+    return pending.promise;
+   }},
+  });
+  await resolvingPeer;
+  view.dispatch({selection:selections(4)});
+  view.dispatch({selection:original});
+  pending.resolve(peer);
+  await work;
+  expect(authoredSource(view.state)).toBe(source);
+  expect(view.state.selection.eq(original)).toBe(true);
+  expect(readCompletionAcceptance(view)?.phase).toBe('unavailable');
+  expect(undo(view)).toBe(false);
+ } finally {close();}
 });
 it('Escape cancellation and an agent abort settle observers before the late provider reply',async()=>{
  for(const agent of[false,true]){const {view,close}=fixture(),pending=held(),signal=new AbortController();try{
@@ -283,6 +387,88 @@ import AppKit
         XCTAssertEqual(buffer.text,"external");XCTAssertEqual(editor.text.string,"external");XCTAssertTrue(service.completionNotice.contains("history retired"));XCTAssertFalse(editor.text.undoManager?.canUndo ?? false)
         #endif
     }
+    private func caretOffer(_ source:String,token:String)->[String:Any] {
+        ["label":"value","kind":6,"detail":"./dep",
+         "data":["hickory_completion":token,"hickory_context":[
+            "source_hash":"sha256:"+nativeSourceHash(source),"source_revision":String(repeating:"a",count:64)
+         ]]]
+    }
+
+    func testActualMacMultiCaretCompletionSharesImportAndRestoresEveryCaret() async throws {
+        #if os(macOS)
+        let source="😀\nva\nva\n",file=FileNode(name:"a.py",path:"a.py",dir:false)
+        let buffer=DocumentBuffer(file:file,text:FileText(path:file.path,content:source,hash:"base"))
+        let service=NativeLanguage(engine:try Engine(address:"http://fixture.invalid"),buffer:buffer)
+        buffer.language=service
+        let editor=MacEditor(buffer),window=NSWindow(contentRect:NSRect(x:0,y:0,width:500,height:300),styleMask:[.titled],backing:.buffered,defer:false)
+        window.contentView=editor.scroll
+        defer{service.close();window.contentView=nil}
+        let before=[5,8].map{NSRange(location:$0,length:0)}
+        XCTAssertTrue(buffer.selectMultiple(before,source:source))
+        await service.complete(fetch:{_ in [self.caretOffer(source,token:"primary")]})
+        let choice=try XCTUnwrap(service.suggestions.first)
+        var queries:[Int]=[],tokens:[String]=[]
+        let accepted=await service.accept(choice,fetch:{params in
+            let position=try XCTUnwrap(params["position"] as? [String:Int])
+            queries.append(try XCTUnwrap(position["line"]))
+            XCTAssertEqual(position["character"],2)
+            return [self.caretOffer(source,token:"peer")]
+        },resolution:{offer in
+            let data=try XCTUnwrap(offer["data"] as? [String:Any])
+            tokens.append(try XCTUnwrap(data["hickory_completion"] as? String))
+            var resolved=offer
+            resolved["additionalTextEdits"]=[self.edit(0,0,0,"import x\n")]
+            return resolved
+        })
+        let after="import x\n😀\nvalue\nvalue\n"
+        let carets=[17,23].map{NSRange(location:$0,length:0)}
+        XCTAssertTrue(accepted,service.completionNotice)
+        XCTAssertEqual(queries,[2]);XCTAssertEqual(tokens,["primary","peer"])
+        XCTAssertEqual(buffer.text,after);XCTAssertEqual(editor.text.string,after)
+        XCTAssertEqual(buffer.multiRanges,carets);XCTAssertEqual(editor.text.selectedRange(),carets[0])
+        XCTAssertEqual(buffer.base,source);XCTAssertEqual(buffer.hash,"base")
+        editor.text.undoManager?.undo()
+        XCTAssertEqual(buffer.text,source);XCTAssertEqual(buffer.multiRanges,before)
+        XCTAssertEqual(editor.text.selectedRange(),before[0])
+        editor.text.undoManager?.redo()
+        XCTAssertEqual(buffer.text,after);XCTAssertEqual(buffer.multiRanges,carets)
+        XCTAssertEqual(editor.text.selectedRange(),carets[0])
+        #endif
+    }
+
+    func testSecondaryCaretRoundTripAndAmbiguousPeerRefuseTheWholeCompletion() async throws {
+        let source="va\nva\n",file=FileNode(name:"a.py",path:"a.py",dir:false)
+        let buffer=DocumentBuffer(file:file,text:FileText(path:file.path,content:source,hash:"base"))
+        let service=NativeLanguage(engine:try Engine(address:"http://fixture.invalid"),buffer:buffer)
+        buffer.language=service
+        defer{service.close()}
+        let origin=[2,5].map{NSRange(location:$0,length:0)},editorID=UUID()
+        buffer.selection=origin[0];buffer.multiSource=source;buffer.multiRanges=origin
+        buffer.sourceEditorState={ [weak buffer] in buffer.map {
+            NativeSourceEditorState(identity:editorID,source:$0.text,selection:$0.selection,composing:false,editable:true,attached:true,selections:$0.multiRanges.count)
+        }}
+        var commits=0
+        buffer.applyCompletionDraft={_,_ in commits+=1;return true}
+        for ambiguous in [true,false] {
+            await service.complete(fetch:{_ in [self.caretOffer(source,token:"primary")]})
+            let choice=try XCTUnwrap(service.suggestions.first)
+            let accepted=await service.accept(choice,fetch:{_ in
+                var offers=[self.caretOffer(source,token:"peer")]
+                if ambiguous {offers.append(self.caretOffer(source,token:"competitor"))}
+                return offers
+            },resolution:{offer in
+                if (offer["data"] as? [String:Any])?["hickory_completion"] as? String=="peer" {
+                    buffer.multiRanges=[origin[0],NSRange(location:4,length:0)]
+                    buffer.multiRanges=origin
+                }
+                return offer
+            })
+            XCTAssertFalse(accepted)
+            XCTAssertEqual(buffer.text,source);XCTAssertEqual(buffer.multiRanges,origin)
+            XCTAssertEqual(commits,0)
+        }
+    }
+
     func testActualMacSnippetSelectionAndImportsUndoTogether()async throws {
         #if os(macOS)
         let apps=URL(fileURLWithPath:#filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
@@ -384,6 +570,8 @@ the module's visible completion to check that its resolved import and primary
 replacement enter the draft together between one Undo and Redo. Set
 `HICKORY_SIMPLE_TEST_TYPESCRIPT_PROVIDER` to the installed server entry point
 and run `python3 scripts/test-source-completion-browser.py --typescript`.
+Use `--typescript-group` to offer the same import independently at two
+carets and check their one-step source and selection history.
 
 <ui:copy id="source-completion-browser-engine-witness">
 """Exercise the completion popup through the actual engine and child providers."""
@@ -391,6 +579,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import re
 import socket
 import sys
 import tempfile
@@ -399,6 +588,7 @@ ROOT=Path(__file__).resolve().parents[1]
 
 TYPESCRIPT_PATH = "main.ts"
 TYPESCRIPT_FRAGMENT = "export const result = hickUniqueAn\n"
+TYPESCRIPT_GROUP_FRAGMENT = TYPESCRIPT_FRAGMENT + "export const second = hickUniqueAn\n"
 TYPESCRIPT_MODULE = "export function hickUniqueAnswer() { return 42; }\n"
 TYPESCRIPT_COMPLETION = (
     'import { hickUniqueAnswer } from "./answers";\n\n'
@@ -406,11 +596,12 @@ TYPESCRIPT_COMPLETION = (
 )
 
 
-def typescript_fixture(root):
+def typescript_fixture(root, grouped):
     provider = Path(os.environ["HICKORY_SIMPLE_TEST_TYPESCRIPT_PROVIDER"]).resolve(strict=True)
     if not provider.is_file():
         raise RuntimeError("The installed TypeScript language server entry point must be a file.")
-    saved = {TYPESCRIPT_PATH: TYPESCRIPT_FRAGMENT, "answers.ts": TYPESCRIPT_MODULE}
+    fragment = TYPESCRIPT_GROUP_FRAGMENT if grouped else TYPESCRIPT_FRAGMENT
+    saved = {TYPESCRIPT_PATH: fragment, "answers.ts": TYPESCRIPT_MODULE}
     for path, source in saved.items():
         (root / path).write_bytes(source.encode())
     (root / "tsconfig.json").write_text(json.dumps({
@@ -419,30 +610,46 @@ def typescript_fixture(root):
     return saved, {"typescript": {"command": ["node", str(provider), "--stdio"]}}
 
 
-def typescript_acceptance(driver, root, saved, size):
+def typescript_acceptance(driver, root, saved, size, grouped):
+    def carets(source, identifier):
+        return [{"from": match.end(), "to": match.end()} for match in re.finditer(rf"\b{identifier}$", source, re.MULTILINE)]
+
     path = TYPESCRIPT_PATH
+    before = saved[path]
+    after = TYPESCRIPT_COMPLETION
+    if grouped:
+        after = after.replace(";", "", 1) + "export const second = hickUniqueAnswer\n"
+    before_carets = carets(before, "hickUniqueAn")
+    after_carets = carets(after, "hickUniqueAnswer")
+    primary = 1 if grouped else 0
+    if grouped:
+        assert driver.act("editor-selections", path=path, ranges=before_carets, primary=primary) == {
+            "ranges": before_carets, "primary": primary,
+        }
     assert not any("answers.ts" in label for label in driver.act("tabs"))
     deadline = time.monotonic() + 20
     while True:
-        choices = driver.act("completion-open", path=path, offset=len(TYPESCRIPT_FRAGMENT.rstrip("\n")))
+        choices = driver.act("completion-open", path=path, offset=before_carets[primary]["to"], keepSelection=grouped)
         if any("hickUniqueAnswer" in choice and "./answers" in choice for choice in choices):
             break
         assert time.monotonic() < deadline, choices
-    assert driver.act("search-source", path=path) == TYPESCRIPT_FRAGMENT
+    assert driver.act("search-source", path=path) == before
     notice = driver.act("completion-choose", title="hickUniqueAnswer")
     assert "Completion applied" in notice, notice
-    assert driver.act("search-source", path=path) == TYPESCRIPT_COMPLETION
+    assert driver.act("search-source", path=path) == after
+    assert driver.act("editor-selections", path=path) == {"ranges": after_carets, "primary": primary}
     driver.act("undo", path=path)
-    assert driver.act("search-source", path=path) == TYPESCRIPT_FRAGMENT
+    assert driver.act("search-source", path=path) == before
+    assert driver.act("editor-selections", path=path) == {"ranges": before_carets, "primary": primary}
     driver.act("redo", path=path)
-    assert driver.act("search-source", path=path) == TYPESCRIPT_COMPLETION
-    assert driver.act("caret-offset", path=path) == len(TYPESCRIPT_COMPLETION.rstrip("\n"))
+    assert driver.act("search-source", path=path) == after
+    assert driver.act("editor-selections", path=path) == {"ranges": after_carets, "primary": primary}
     assert driver.act("editor-is-retained", path=path)
     assert driver.act("editor-size", path=path) == size
     assert not any("answers.ts" in label for label in driver.act("tabs"))
     for name, source in saved.items():
         assert (root / name).read_bytes() == source.encode()
-    print("PASS: installed TypeScript provider resolved an unopened module's import, with one Undo/Redo and unchanged saved bytes")
+    print("PASS: installed TypeScript provider resolved one shared import, with one Undo/Redo and unchanged saved bytes")
 
 
 def main():
@@ -452,10 +659,11 @@ def main():
         folder = Path(temporary)
         root = folder / "workspace"
         root.mkdir()
-        typescript = "--typescript" in sys.argv
+        grouped = "--typescript-group" in sys.argv
+        typescript = grouped or "--typescript" in sys.argv
         if typescript:
             path = TYPESCRIPT_PATH
-            saved, servers = typescript_fixture(root)
+            saved, servers = typescript_fixture(root, grouped)
         else:
             nested = "--nested" in sys.argv
             snippet = "--snippet" in sys.argv or nested
@@ -475,7 +683,7 @@ def main():
             vite=fixture.start(["node","node_modules/vite/bin/vite.js","--config","vite.simple.config.ts","--host","127.0.0.1","--port",str(port),"--strictPort"],cwd=ROOT/"apps/web",env={**environment,"HICKORY_API_ORIGIN":backend});processes.append(vite)
             driver=fixture.BrowserDriver(fixture.origin(vite)+"/simple.html");driver.act("open",path=path);driver.act("remember-editor",path=path);size=driver.act("editor-size",path=path);deadline=time.monotonic()+20
             if typescript:
-                typescript_acceptance(driver, root, saved, size)
+                typescript_acceptance(driver, root, saved, size, grouped)
                 return
             while True:
                 options=driver.act("completion-open",path=path,offset=3)

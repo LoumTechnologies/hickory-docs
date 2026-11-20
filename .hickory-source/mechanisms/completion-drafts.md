@@ -9,6 +9,13 @@ A completion is a primary replacement plus a complete set of import edits and a 
 
 Prepare the complete source change before touching a view. A completion explicitly names its primary edit, so additional insertions at its start precede that insertion in declared provider order. Deduplicate identical imports, validate all other replacements through the shared source planner, and map the final selection and every retained snippet field through earlier edits. Commands and unavailable snippet expansion refuse the whole proposal. Retain the primary replacement and deduplicated additions separately from their assembled patch. An active template can then mirror only the primary text and apply imports once; renderer code must not reverse-engineer those roles from a merged edit. The retained before snapshot also guards selection-only acceptance.
 
+An ordinary completion group derives each primary edit from its own resolved
+offer. The offers must agree on replacement text and ordered additional edits.
+Each primary range contains its captured selection. Apply the shared additions
+once, then use the complete source plan to locate every resulting caret.
+When an ordinary offer supplies insertion text without a range, use the
+editor's identifier prefix at each collapsed caret and compare those prefixes.
+
 <ui:copy id="completion-draft-browser">
 import {planWorkspaceEdit,sourceChangeOffset,type ChangePlan,type SourceReplacement,type SourceSnapshot} from './ChangePlan';
 import {semanticPath} from './Intelligence';
@@ -17,6 +24,7 @@ import type {SnippetSession} from './SnippetSession';
 import {utf16ToPosition} from '../lsp/positions';
 export interface CompletionExpansion {text:string;selection?:{from:number;to:number};fields?:SnippetField[]}
 export interface CompletionDraft {path:string;before:string;plan:ChangePlan;insertionFrom:number;selection:{from:number;to:number};fields:SnippetField[];continuing?:SnippetSession;primary?:SourceReplacement;additional?:SourceReplacement[]}
+export interface CapturedCompletion {item:Record<string, unknown>;from:number;to:number;prefixFrom?:number}
 export function completionInsertion(item:unknown):string {
  const value=item as Record<string,unknown>|null;if(!value||typeof value!=='object'||typeof value.label!=='string')throw new Error('Malformed completion');
  const edit=value.textEdit as Record<string,unknown>|undefined;
@@ -51,11 +59,68 @@ export function planCompletion(uri:string,item:unknown,snapshot:SourceSnapshot,f
  const fields=(inserted.fields??[]).map(field=>{validateOffset(inserted.text,field.from);validateOffset(inserted.text,field.to);if(field.from>field.to)throw new Error('Invalid snippet field');return {...field,from:insertionFrom+field.from,to:insertionFrom+field.to};});
  return {path,before:source,plan,insertionFrom,fields,primary:{from,to,text:inserted.text},additional:unique,selection:{from:insertionFrom+selected.from,to:insertionFrom+selected.to}};
 }
+export function planCompletionGroup(uri:string,snapshot:SourceSnapshot,captures:readonly CapturedCompletion[]): {plan:ChangePlan;carets:number[]} {
+ const first = captures[0];
+ if (!first || captures.length < 2 || captures.length > 16) throw new Error("Select 2 to 16 carets for a completion group.");
+ const source = snapshot.text;
+ if (captures.some(({item}) => item.textEdit === undefined)) {
+  const prefix = first.prefixFrom === undefined ? undefined : source.slice(first.prefixFrom,first.to);
+  if (prefix === undefined || captures.some(({from,to,prefixFrom}) =>
+   from !== to || prefixFrom === undefined || source.slice(prefixFrom,to) !== prefix)) {
+   throw new Error("Implicit completion ranges require the same identifier prefix at each caret.");
+  }
+ }
+ const drafts = captures.map(({item,from,to,prefixFrom}) => {
+  if ((item.insertTextFormat ?? 1) !== 1 || item.kind === 15) throw new Error("Each caret requires an ordinary completion edit.");
+  const draft = planCompletion(uri,item,snapshot,prefixFrom ?? from,to);
+  const primary = draft.primary!;
+  if (primary.from > from || primary.to < to) throw new Error("A completion range does not cover its captured selection.");
+  return {primary,additional:draft.additional!,path:draft.path};
+ });
+ const expected = drafts[0];
+ const additional = JSON.stringify(expected.additional);
+ if (drafts.some(draft => draft.primary.text !== expected.primary.text || JSON.stringify(draft.additional) !== additional)) {
+  throw new Error("The completions disagree about their replacement or shared edits.");
+ }
+ const byStart = new Map(drafts.map((draft,index) => [draft.primary.from,index]));
+ if (byStart.size !== drafts.length) throw new Error("Completion ranges overlap.");
+ const prefixes = new Map<number,string>();
+ const edits = expected.additional.filter(edit => {
+  if (edit.from !== edit.to || !byStart.has(edit.from)) return true;
+  prefixes.set(edit.from,(prefixes.get(edit.from) ?? "") + edit.text);
+  return false;
+ });
+ for (const {primary} of drafts) {
+  const text = (prefixes.get(primary.from) ?? "") + primary.text;
+  if (edits.some(edit => edit.from === primary.from)) throw new Error("Completion ranges overlap with a shared edit.");
+  edits.push({...primary,text});
+ }
+ edits.sort((a,b) => a.from - b.from || a.to - b.to);
+ const changes = edits.map(edit => ({
+  range:{start:utf16ToPosition(source,edit.from),end:utf16ToPosition(source,edit.to)},newText:edit.text,
+ }));
+ const plan = planWorkspaceEdit(`Complete ${first.item.label}`,{changes:{[uri]:changes}},new Map([[expected.path,snapshot]]),true);
+ const carets: number[] = [];
+ let delta = 0;
+ for (const edit of edits) {
+  const index = byStart.get(edit.from);
+  if (index !== undefined) carets[index] = edit.from + delta + edit.text.length;
+  delta += edit.text.length - (edit.to - edit.from);
+ }
+ if (new Set(carets).size !== drafts.length) throw new Error("The completion would merge distinct carets.");
+ return {plan,carets};
+}
 </ui:copy>
 
 <ui:file path="apps/web/src/simple/CompletionPlan.ts"><ui:paste select="#completion-draft-browser"/></ui:file>
 
 ## Apple completion draft
+
+Apple combines independently resolved ordinary completions against one exact
+source snapshot. Each primary edit must cover its captured caret. Every
+proposal must agree on the complete list of additional edits, so an import
+shared by two completions appears once in the source plan. Keep the original
+and resulting caret ranges together for native Undo and Redo.
 
 Prepare the complete source change before touching a view. A completion explicitly names its primary edit, so additional insertions at its start precede that insertion in declared provider order. Deduplicate identical imports, validate all other replacements through the shared source planner, and map the final selection and every retained snippet field through earlier edits. Commands and unavailable snippet expansion refuse the whole proposal. Retain the primary replacement and deduplicated additions separately from their assembled patch. An active template can then mirror only the primary text and apply imports once; renderer code must not reverse-engineer those roles from a merged edit. The retained before snapshot also guards selection-only acceptance.
 
@@ -65,7 +130,8 @@ Offset rebasing preserves every field property, including its computed program. 
 import Foundation
 struct CompletionSelection {var from:Int;var to:Int}
 struct CompletionExpansion {var text:String;var selection:CompletionSelection?=nil;var fields:[SnippetField]=[]}
-struct CompletionDraft {var path:String;var before:String;var plan:ChangePlan;var insertionFrom:Int;var selection:CompletionSelection;var fields:[SnippetField]=[];var continuing:SnippetSession?=nil;var primary:SourceReplacement?=nil;var additional:[SourceReplacement]=[]}
+struct CompletionCaretBatch {var before:[NSRange];var after:[NSRange]}
+struct CompletionDraft {var path:String;var before:String;var plan:ChangePlan;var insertionFrom:Int;var selection:CompletionSelection;var fields:[SnippetField]=[];var continuing:SnippetSession?=nil;var primary:SourceReplacement?=nil;var additional:[SourceReplacement]=[];var caretBatch:CompletionCaretBatch?=nil}
 func completionInsertion(_ item:[String:Any])throws->String {
     guard let label=item["label"] as? String else{throw EngineError(message:"Malformed completion")}
     if let edit=item["textEdit"] {guard let object=edit as? [String:Any],let text=object["newText"] as? String else{throw EngineError(message:"Missing completion insertion text")};return text}
@@ -119,6 +185,64 @@ func planCompletion(_ uri:String,item:[String:Any],snapshot:SourceSnapshot,from 
         return SnippetField(index:field.index,from:insertionFrom+field.from,to:insertionFrom+field.to,choices:field.choices,id:field.id,parent:field.parent,transform:field.transform)
     }
     return CompletionDraft(path:path,before:source,plan:plan,insertionFrom:insertionFrom,selection:CompletionSelection(from:insertionFrom+selection.from,to:insertionFrom+selection.to),fields:fields,primary:SourceReplacement(from:from,to:to,text:inserted.text),additional:additions)
+}
+
+func validCompletionCarets(_ carets:[NSRange],primary:NSRange,source:String)->Bool {
+    let length=source.utf16.count
+    func aligned(_ offset:Int)->Bool {
+        String.Index(utf16Offset:offset,in:source).samePosition(in:source.unicodeScalars) != nil
+    }
+    guard (2...16).contains(carets.count),carets.first==primary,carets.allSatisfy({ range in
+        (0...length).contains(range.location) && (0...(length-range.location)).contains(range.length)
+            && aligned(range.location) && aligned(NSMaxRange(range))
+    }) else {return false}
+    let ordered=carets.sorted {$0.location<$1.location}
+    return zip(ordered,ordered.dropFirst()).allSatisfy {left,right in
+        right.location >= NSMaxRange(left) && right.location != left.location
+    }
+}
+
+func combineCompletionDrafts(_ drafts:[CompletionDraft],carets:[NSRange],snapshot:SourceSnapshot)throws->CompletionDraft {
+    func refuse(_ message:String)->EngineError {EngineError(message:message)}
+    guard let first=drafts.first,let caret=carets.first,drafts.count==carets.count,
+          snapshot.writable,validCompletionCarets(carets,primary:caret,source:snapshot.text) else {
+        throw refuse("The complete set of writable completion carets is unavailable.")
+    }
+    let source=snapshot.text
+    func ordered(_ edits:[SourceReplacement])->[SourceReplacement] {edits.sorted {($0.from,$0.to)<($1.from,$1.to)}}
+    let shared=ordered(first.additional)
+    let primary=try zip(drafts,carets).map {draft,range in
+        guard exactUTF8(draft.path,first.path),exactUTF8(draft.before,source),draft.fields.isEmpty,
+              draft.continuing==nil,ordered(draft.additional)==shared,let edit=draft.primary,
+              exactUTF8(edit.text,first.primary?.text), edit.from>=0,edit.from<=range.location,
+              NSMaxRange(range)<=edit.to,edit.to<=source.utf16.count,
+              languagePosition(source,edit.from)["line"]==languagePosition(source,range.location)["line"],
+              languagePosition(source,edit.to)["line"]==languagePosition(source,range.location)["line"] else {
+            throw refuse("The provider did not offer the same ordinary completion and additional edits at every caret.")
+        }
+        return edit
+    }
+    let edits=ordered(primary+shared)
+    for (left,right) in zip(edits,edits.dropFirst()) where right.from<left.to || right.from==left.from {
+        throw refuse("Completion edits overlap across carets or with an additional edit.")
+    }
+    let wire=edits.map {
+        ["range":["start":languagePosition(source,$0.from),"end":languagePosition(source,$0.to)],"newText":$0.text] as [String:Any]
+    }
+    let uri=languageURI(first.path)
+    let plan=try planWorkspaceEdit(first.plan.title,raw:["changes":[uri:wire]],sources:[first.path:snapshot],allowNoop:true)
+    var ends:[Int:Int]=[:],delta=0
+    for edit in edits {
+        let count=edit.text.utf16.count
+        ends[edit.from]=edit.from+delta+count
+        delta += count-(edit.to-edit.from)
+    }
+    let after=primary.compactMap {edit in ends[edit.from].map {NSRange(location:$0,length:0)}}
+    guard let selected=after.first,after.count==carets.count,Set(after).count==after.count else{
+        throw refuse("Completion could not keep all resulting carets distinct.")
+    }
+    return CompletionDraft(path:first.path,before:source,plan:plan,insertionFrom:first.insertionFrom,
+        selection:CompletionSelection(from:selected.location,to:selected.location),caretBatch:CompletionCaretBatch(before:carets,after:after))
 }
 </ui:copy>
 
@@ -693,7 +817,7 @@ Require exact before/after source and UTF-16 selection, verify the inverse draft
 <ui:copy id="completion-draft-browser-witness">
 import {expect,it} from 'vitest';
 import cases from '../../../simple-contract/completion-plan-cases.json';
-import {planCompletion,type CompletionExpansion} from './CompletionPlan';
+import {planCompletion,planCompletionGroup,type CompletionExpansion} from './CompletionPlan';
 import derived from '../../../simple-contract/snippet-derived-cases.json';
 import {readSnippetTransform} from './SnippetTransform';
 import {beginSnippet,editSnippet} from './SnippetSession';
@@ -711,6 +835,19 @@ it('preserves rebased computed programs through import edits and usable linked i
  const transform=readSnippetTransform(derived.programs.upper),fields=[{index:1,from:0,to:3,choices:[],id:0,parent:null},{index:1,from:4,to:7,choices:[],id:1,parent:null,transform},{index:0,from:7,to:7,choices:[],id:2,parent:null}],draft=planCompletion('hick:///a.py',{label:'derived',insertTextFormat:2,insertText:'${1:foo} ${1/(.*)/${1:/upcase}/}$0',additionalTextEdits:[{range:{start:{line:0,character:0},end:{line:0,character:0}},newText:'import\n'}]},{text:'😀 old\n',writable:true},3,6,{text:'foo FOO',selection:{from:0,to:3},fields}),after=draft.plan.patches[0].after;
  expect(after).toBe('import\n😀 foo FOO\n');expect(draft.fields![1].from).toBe(14);expect(draft.fields![1].transform).toBe(transform);const session=beginSnippet(after,draft.fields!)!;expect(session).not.toBeNull();expect(editSnippet(session,after,draft.selection.from,draft.selection.to,'ßa')?.session.source).toBe('import\n😀 ßa SSA\n');
 });
+it('combines independently resolved identifier edits and a single shared import',()=>{
+ const source='😀 va\nva\n';
+ const item={label:'value',additionalTextEdits:[{range:{start:{line:0,character:0},end:{line:0,character:0}},newText:'# import\n'}]};
+ const first={item,from:5,to:5,prefixFrom:3},second={item,from:8,to:8,prefixFrom:6};
+ const prepare=(captures:Parameters<typeof planCompletionGroup>[2])=>planCompletionGroup('hick:///a.py',{text:source,writable:true},captures);
+ const result=prepare([first,second]);
+ expect(result.plan.patches[0].after).toBe('# import\n😀 value\nvalue\n');
+ expect(result.plan.patches[0].edits).toHaveLength(3);
+ expect(result.carets).toEqual([17,23]);
+ expect(()=>prepare([first,{...second,prefixFrom:7}])).toThrow('same identifier prefix');
+ expect(()=>prepare([first,{...second,item:{...item,additionalTextEdits:[]}}])).toThrow('disagree');
+ expect(()=>prepare([first,first])).toThrow('overlap');
+});
 </ui:copy>
 
 <ui:file path="apps/web/src/simple/CompletionPlan.test.ts"><ui:paste select="#completion-draft-browser-witness"/></ui:file>
@@ -723,6 +860,34 @@ Foundation string normalization must not collapse distinct source or import byte
 import XCTest
 @testable import HickorySimple
 final class CompletionPlanTests:XCTestCase {
+    func testOrdinaryCaretDraftsCheckCompleteRangesAndSharedEdits() throws {
+        let uri="hick:///a.py",source="😀\nva\nva\n"
+        let snapshot=SourceSnapshot(text:source,writable:true)
+        let carets=[3,6].map{NSRange(location:$0,length:2)}
+        func edit(_ line:Int,_ start:Int,_ end:Int,_ text:String)->[String:Any] {
+            ["range":["start":["line":line,"character":start],"end":["line":line,"character":end]],"newText":text]
+        }
+        func proposal(_ line:Int,_ from:Int=0,extra:String="import x\n")throws->CompletionDraft {
+            try planCompletion(uri,item:["label":"value","textEdit":edit(line,from,2,"value"),
+                "additionalTextEdits":[edit(0,0,0,extra)]],snapshot:snapshot,from:0,to:0)
+        }
+        let first=try proposal(1),second=try proposal(2)
+        let batch=try combineCompletionDrafts([first,second],carets:carets,snapshot:snapshot)
+        XCTAssertEqual(batch.plan.patches.first?.after,"import x\n😀\nvalue\nvalue\n")
+        XCTAssertEqual(batch.plan.patches.first?.edits.count,3)
+        XCTAssertEqual(batch.caretBatch?.before,carets)
+        XCTAssertEqual(batch.caretBatch?.after,[17,23].map{NSRange(location:$0,length:0)})
+        XCTAssertThrowsError(try combineCompletionDrafts([first,proposal(2,1)],carets:carets,snapshot:snapshot))
+        XCTAssertThrowsError(try combineCompletionDrafts([first,proposal(2,extra:"import different\n")],carets:carets,snapshot:snapshot))
+        XCTAssertFalse(validCompletionCarets([NSRange(location:1,length:0),carets[1]],
+                                           primary:NSRange(location:1,length:0),source:source))
+
+        let overlapping=SourceSnapshot(text:"va  va",writable:true)
+        let left=try planCompletion(uri,item:["label":"value","textEdit":edit(0,0,4,"value")],snapshot:overlapping,from:0,to:0)
+        let right=try planCompletion(uri,item:["label":"value","textEdit":edit(0,3,6,"value")],snapshot:overlapping,from:0,to:0)
+        XCTAssertThrowsError(try combineCompletionDrafts([left,right],carets:[2,6].map{NSRange(location:$0,length:0)},snapshot:overlapping))
+    }
+
     func testRebasedComputedProgramsRemainUsableAfterImportEdits()throws {
       let apps=URL(fileURLWithPath:#filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent();let raw=try JSONSerialization.jsonObject(with:Data(contentsOf:apps.appendingPathComponent("simple-contract/snippet-derived-cases.json"))) as! [String:Any];let program=try readSnippetTransform((raw["programs"] as! [String:Any])["upper"]!)
       let fields=[SnippetField(index:1,from:0,to:3,choices:[],id:0),SnippetField(index:1,from:4,to:7,choices:[],id:1,transform:program),SnippetField(index:0,from:7,to:7,choices:[],id:2)]

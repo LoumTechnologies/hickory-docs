@@ -1,7 +1,8 @@
 import Foundation
 struct CompletionSelection {var from:Int;var to:Int}
 struct CompletionExpansion {var text:String;var selection:CompletionSelection?=nil;var fields:[SnippetField]=[]}
-struct CompletionDraft {var path:String;var before:String;var plan:ChangePlan;var insertionFrom:Int;var selection:CompletionSelection;var fields:[SnippetField]=[];var continuing:SnippetSession?=nil;var primary:SourceReplacement?=nil;var additional:[SourceReplacement]=[]}
+struct CompletionCaretBatch {var before:[NSRange];var after:[NSRange]}
+struct CompletionDraft {var path:String;var before:String;var plan:ChangePlan;var insertionFrom:Int;var selection:CompletionSelection;var fields:[SnippetField]=[];var continuing:SnippetSession?=nil;var primary:SourceReplacement?=nil;var additional:[SourceReplacement]=[];var caretBatch:CompletionCaretBatch?=nil}
 func completionInsertion(_ item:[String:Any])throws->String {
     guard let label=item["label"] as? String else{throw EngineError(message:"Malformed completion")}
     if let edit=item["textEdit"] {guard let object=edit as? [String:Any],let text=object["newText"] as? String else{throw EngineError(message:"Missing completion insertion text")};return text}
@@ -55,4 +56,62 @@ func planCompletion(_ uri:String,item:[String:Any],snapshot:SourceSnapshot,from 
         return SnippetField(index:field.index,from:insertionFrom+field.from,to:insertionFrom+field.to,choices:field.choices,id:field.id,parent:field.parent,transform:field.transform)
     }
     return CompletionDraft(path:path,before:source,plan:plan,insertionFrom:insertionFrom,selection:CompletionSelection(from:insertionFrom+selection.from,to:insertionFrom+selection.to),fields:fields,primary:SourceReplacement(from:from,to:to,text:inserted.text),additional:additions)
+}
+
+func validCompletionCarets(_ carets:[NSRange],primary:NSRange,source:String)->Bool {
+    let length=source.utf16.count
+    func aligned(_ offset:Int)->Bool {
+        String.Index(utf16Offset:offset,in:source).samePosition(in:source.unicodeScalars) != nil
+    }
+    guard (2...16).contains(carets.count),carets.first==primary,carets.allSatisfy({ range in
+        (0...length).contains(range.location) && (0...(length-range.location)).contains(range.length)
+            && aligned(range.location) && aligned(NSMaxRange(range))
+    }) else {return false}
+    let ordered=carets.sorted {$0.location<$1.location}
+    return zip(ordered,ordered.dropFirst()).allSatisfy {left,right in
+        right.location >= NSMaxRange(left) && right.location != left.location
+    }
+}
+
+func combineCompletionDrafts(_ drafts:[CompletionDraft],carets:[NSRange],snapshot:SourceSnapshot)throws->CompletionDraft {
+    func refuse(_ message:String)->EngineError {EngineError(message:message)}
+    guard let first=drafts.first,let caret=carets.first,drafts.count==carets.count,
+          snapshot.writable,validCompletionCarets(carets,primary:caret,source:snapshot.text) else {
+        throw refuse("The complete set of writable completion carets is unavailable.")
+    }
+    let source=snapshot.text
+    func ordered(_ edits:[SourceReplacement])->[SourceReplacement] {edits.sorted {($0.from,$0.to)<($1.from,$1.to)}}
+    let shared=ordered(first.additional)
+    let primary=try zip(drafts,carets).map {draft,range in
+        guard exactUTF8(draft.path,first.path),exactUTF8(draft.before,source),draft.fields.isEmpty,
+              draft.continuing==nil,ordered(draft.additional)==shared,let edit=draft.primary,
+              exactUTF8(edit.text,first.primary?.text), edit.from>=0,edit.from<=range.location,
+              NSMaxRange(range)<=edit.to,edit.to<=source.utf16.count,
+              languagePosition(source,edit.from)["line"]==languagePosition(source,range.location)["line"],
+              languagePosition(source,edit.to)["line"]==languagePosition(source,range.location)["line"] else {
+            throw refuse("The provider did not offer the same ordinary completion and additional edits at every caret.")
+        }
+        return edit
+    }
+    let edits=ordered(primary+shared)
+    for (left,right) in zip(edits,edits.dropFirst()) where right.from<left.to || right.from==left.from {
+        throw refuse("Completion edits overlap across carets or with an additional edit.")
+    }
+    let wire=edits.map {
+        ["range":["start":languagePosition(source,$0.from),"end":languagePosition(source,$0.to)],"newText":$0.text] as [String:Any]
+    }
+    let uri=languageURI(first.path)
+    let plan=try planWorkspaceEdit(first.plan.title,raw:["changes":[uri:wire]],sources:[first.path:snapshot],allowNoop:true)
+    var ends:[Int:Int]=[:],delta=0
+    for edit in edits {
+        let count=edit.text.utf16.count
+        ends[edit.from]=edit.from+delta+count
+        delta += count-(edit.to-edit.from)
+    }
+    let after=primary.compactMap {edit in ends[edit.from].map {NSRange(location:$0,length:0)}}
+    guard let selected=after.first,after.count==carets.count,Set(after).count==after.count else{
+        throw refuse("Completion could not keep all resulting carets distinct.")
+    }
+    return CompletionDraft(path:first.path,before:source,plan:plan,insertionFrom:first.insertionFrom,
+        selection:CompletionSelection(from:selected.location,to:selected.location),caretBatch:CompletionCaretBatch(before:carets,after:after))
 }

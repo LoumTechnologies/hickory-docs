@@ -3,6 +3,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import re
 import socket
 import sys
 import tempfile
@@ -11,6 +12,7 @@ ROOT=Path(__file__).resolve().parents[1]
 
 TYPESCRIPT_PATH = "main.ts"
 TYPESCRIPT_FRAGMENT = "export const result = hickUniqueAn\n"
+TYPESCRIPT_GROUP_FRAGMENT = TYPESCRIPT_FRAGMENT + "export const second = hickUniqueAn\n"
 TYPESCRIPT_MODULE = "export function hickUniqueAnswer() { return 42; }\n"
 TYPESCRIPT_COMPLETION = (
     'import { hickUniqueAnswer } from "./answers";\n\n'
@@ -18,11 +20,12 @@ TYPESCRIPT_COMPLETION = (
 )
 
 
-def typescript_fixture(root):
+def typescript_fixture(root, grouped):
     provider = Path(os.environ["HICKORY_SIMPLE_TEST_TYPESCRIPT_PROVIDER"]).resolve(strict=True)
     if not provider.is_file():
         raise RuntimeError("The installed TypeScript language server entry point must be a file.")
-    saved = {TYPESCRIPT_PATH: TYPESCRIPT_FRAGMENT, "answers.ts": TYPESCRIPT_MODULE}
+    fragment = TYPESCRIPT_GROUP_FRAGMENT if grouped else TYPESCRIPT_FRAGMENT
+    saved = {TYPESCRIPT_PATH: fragment, "answers.ts": TYPESCRIPT_MODULE}
     for path, source in saved.items():
         (root / path).write_bytes(source.encode())
     (root / "tsconfig.json").write_text(json.dumps({
@@ -31,30 +34,46 @@ def typescript_fixture(root):
     return saved, {"typescript": {"command": ["node", str(provider), "--stdio"]}}
 
 
-def typescript_acceptance(driver, root, saved, size):
+def typescript_acceptance(driver, root, saved, size, grouped):
+    def carets(source, identifier):
+        return [{"from": match.end(), "to": match.end()} for match in re.finditer(rf"\b{identifier}$", source, re.MULTILINE)]
+
     path = TYPESCRIPT_PATH
+    before = saved[path]
+    after = TYPESCRIPT_COMPLETION
+    if grouped:
+        after = after.replace(";", "", 1) + "export const second = hickUniqueAnswer\n"
+    before_carets = carets(before, "hickUniqueAn")
+    after_carets = carets(after, "hickUniqueAnswer")
+    primary = 1 if grouped else 0
+    if grouped:
+        assert driver.act("editor-selections", path=path, ranges=before_carets, primary=primary) == {
+            "ranges": before_carets, "primary": primary,
+        }
     assert not any("answers.ts" in label for label in driver.act("tabs"))
     deadline = time.monotonic() + 20
     while True:
-        choices = driver.act("completion-open", path=path, offset=len(TYPESCRIPT_FRAGMENT.rstrip("\n")))
+        choices = driver.act("completion-open", path=path, offset=before_carets[primary]["to"], keepSelection=grouped)
         if any("hickUniqueAnswer" in choice and "./answers" in choice for choice in choices):
             break
         assert time.monotonic() < deadline, choices
-    assert driver.act("search-source", path=path) == TYPESCRIPT_FRAGMENT
+    assert driver.act("search-source", path=path) == before
     notice = driver.act("completion-choose", title="hickUniqueAnswer")
     assert "Completion applied" in notice, notice
-    assert driver.act("search-source", path=path) == TYPESCRIPT_COMPLETION
+    assert driver.act("search-source", path=path) == after
+    assert driver.act("editor-selections", path=path) == {"ranges": after_carets, "primary": primary}
     driver.act("undo", path=path)
-    assert driver.act("search-source", path=path) == TYPESCRIPT_FRAGMENT
+    assert driver.act("search-source", path=path) == before
+    assert driver.act("editor-selections", path=path) == {"ranges": before_carets, "primary": primary}
     driver.act("redo", path=path)
-    assert driver.act("search-source", path=path) == TYPESCRIPT_COMPLETION
-    assert driver.act("caret-offset", path=path) == len(TYPESCRIPT_COMPLETION.rstrip("\n"))
+    assert driver.act("search-source", path=path) == after
+    assert driver.act("editor-selections", path=path) == {"ranges": after_carets, "primary": primary}
     assert driver.act("editor-is-retained", path=path)
     assert driver.act("editor-size", path=path) == size
     assert not any("answers.ts" in label for label in driver.act("tabs"))
     for name, source in saved.items():
         assert (root / name).read_bytes() == source.encode()
-    print("PASS: installed TypeScript provider resolved an unopened module's import, with one Undo/Redo and unchanged saved bytes")
+    print("PASS: installed TypeScript provider resolved one shared import, with one Undo/Redo and unchanged saved bytes")
 
 
 def main():
@@ -64,10 +83,11 @@ def main():
         folder = Path(temporary)
         root = folder / "workspace"
         root.mkdir()
-        typescript = "--typescript" in sys.argv
+        grouped = "--typescript-group" in sys.argv
+        typescript = grouped or "--typescript" in sys.argv
         if typescript:
             path = TYPESCRIPT_PATH
-            saved, servers = typescript_fixture(root)
+            saved, servers = typescript_fixture(root, grouped)
         else:
             nested = "--nested" in sys.argv
             snippet = "--snippet" in sys.argv or nested
@@ -87,7 +107,7 @@ def main():
             vite=fixture.start(["node","node_modules/vite/bin/vite.js","--config","vite.simple.config.ts","--host","127.0.0.1","--port",str(port),"--strictPort"],cwd=ROOT/"apps/web",env={**environment,"HICKORY_API_ORIGIN":backend});processes.append(vite)
             driver=fixture.BrowserDriver(fixture.origin(vite)+"/simple.html");driver.act("open",path=path);driver.act("remember-editor",path=path);size=driver.act("editor-size",path=path);deadline=time.monotonic()+20
             if typescript:
-                typescript_acceptance(driver, root, saved, size)
+                typescript_acceptance(driver, root, saved, size, grouped)
                 return
             while True:
                 options=driver.act("completion-open",path=path,offset=3)

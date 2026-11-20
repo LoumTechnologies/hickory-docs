@@ -1,6 +1,34 @@
 import XCTest
 @testable import HickorySimple
 final class CompletionPlanTests:XCTestCase {
+    func testOrdinaryCaretDraftsCheckCompleteRangesAndSharedEdits() throws {
+        let uri="hick:///a.py",source="😀\nva\nva\n"
+        let snapshot=SourceSnapshot(text:source,writable:true)
+        let carets=[3,6].map{NSRange(location:$0,length:2)}
+        func edit(_ line:Int,_ start:Int,_ end:Int,_ text:String)->[String:Any] {
+            ["range":["start":["line":line,"character":start],"end":["line":line,"character":end]],"newText":text]
+        }
+        func proposal(_ line:Int,_ from:Int=0,extra:String="import x\n")throws->CompletionDraft {
+            try planCompletion(uri,item:["label":"value","textEdit":edit(line,from,2,"value"),
+                "additionalTextEdits":[edit(0,0,0,extra)]],snapshot:snapshot,from:0,to:0)
+        }
+        let first=try proposal(1),second=try proposal(2)
+        let batch=try combineCompletionDrafts([first,second],carets:carets,snapshot:snapshot)
+        XCTAssertEqual(batch.plan.patches.first?.after,"import x\n😀\nvalue\nvalue\n")
+        XCTAssertEqual(batch.plan.patches.first?.edits.count,3)
+        XCTAssertEqual(batch.caretBatch?.before,carets)
+        XCTAssertEqual(batch.caretBatch?.after,[17,23].map{NSRange(location:$0,length:0)})
+        XCTAssertThrowsError(try combineCompletionDrafts([first,proposal(2,1)],carets:carets,snapshot:snapshot))
+        XCTAssertThrowsError(try combineCompletionDrafts([first,proposal(2,extra:"import different\n")],carets:carets,snapshot:snapshot))
+        XCTAssertFalse(validCompletionCarets([NSRange(location:1,length:0),carets[1]],
+                                           primary:NSRange(location:1,length:0),source:source))
+
+        let overlapping=SourceSnapshot(text:"va  va",writable:true)
+        let left=try planCompletion(uri,item:["label":"value","textEdit":edit(0,0,4,"value")],snapshot:overlapping,from:0,to:0)
+        let right=try planCompletion(uri,item:["label":"value","textEdit":edit(0,3,6,"value")],snapshot:overlapping,from:0,to:0)
+        XCTAssertThrowsError(try combineCompletionDrafts([left,right],carets:[2,6].map{NSRange(location:$0,length:0)},snapshot:overlapping))
+    }
+
     func testRebasedComputedProgramsRemainUsableAfterImportEdits()throws {
       let apps=URL(fileURLWithPath:#filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent();let raw=try JSONSerialization.jsonObject(with:Data(contentsOf:apps.appendingPathComponent("simple-contract/snippet-derived-cases.json"))) as! [String:Any];let program=try readSnippetTransform((raw["programs"] as! [String:Any])["upper"]!)
       let fields=[SnippetField(index:1,from:0,to:3,choices:[],id:0),SnippetField(index:1,from:4,to:7,choices:[],id:1,transform:program),SnippetField(index:0,from:7,to:7,choices:[],id:2)]
