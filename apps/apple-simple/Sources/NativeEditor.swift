@@ -2013,19 +2013,18 @@ import UIKit
         let geometryChanged = folding.tables.map { [$0.range.location, $0.range.length, Int($0.height)] } != tables.map { [$0.range.location, $0.range.length, Int($0.height)] }
         if !exactUTF8(tableSource,source) || tableSourceVisible != buffer.tableSourceVisible || sourceTable != buffer.sourceTable || geometryChanged {
             tableSource = source; tableSourceVisible = buffer.tableSourceVisible; sourceTable = buffer.sourceTable
+            let tabs = NSMutableParagraphStyle(); tabs.tabStops = []
+            tabs.defaultTabInterval = ("    " as NSString).size(withAttributes: [.font: text.font ?? .monospacedSystemFont(ofSize: 13, weight: .regular)]).width
             storage.beginEditing()
             for table in folding.tables {
                 let range = NSIntersectionRange(table.range, NSRange(location: 0, length: storage.length))
                 if range.length > 0 { storage.addAttribute(.foregroundColor, value: UIColor.label, range: range) }
             }
-            let tabs = NSMutableParagraphStyle(); tabs.tabStops = []
-            tabs.defaultTabInterval = ("    " as NSString).size(withAttributes: [.font: text.font ?? .monospacedSystemFont(ofSize: 13, weight: .regular)]).width
             if geometryChanged {
                 storage.enumerateAttribute(.paragraphStyle, in: NSRange(location: 0, length: storage.length)) { value, range, _ in
                     if let style = value as? NSParagraphStyle, style.minimumLineHeight > 0 { storage.addAttribute(.paragraphStyle, value: tabs, range: range) }
                 }
             }
-            text.typingAttributes[.paragraphStyle] = tabs
             folding.tables = tables
             text.tableRanges = folding.tables.map(\.range)
             for table in folding.tables where table.range.length > 0 {
@@ -2034,6 +2033,8 @@ import UIKit
                 storage.addAttribute(.foregroundColor, value: UIColor.clear, range: table.range)
             }
             storage.endEditing()
+            // UIKit may lay out the insertion point when reading typing attributes.
+            text.typingAttributes[.paragraphStyle] = tabs
             if geometryChanged {
                 for table in tables { text.layoutManager.invalidateGlyphs(forCharacterRange: table.range, changeInLength: 0, actualCharacterRange: nil) }
             }

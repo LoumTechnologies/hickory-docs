@@ -3866,6 +3866,19 @@ their bytes, inodes and modification times. The fixture selected each
 native preview page and used app-local clicks for the commands. See
 `target/appkit-basedpyright-rename._wwz4igb/receipt.json`.
 
+In the iPhone simulator, unshifted lowercase input reached the original
+Rename field with an uppercase first letter. A separate run reached the
+complete two-file review and then aborted on Apply. UIKit was synchronizing
+the insertion point from typing attributes while a text storage batch was
+open. The iPhone field now preserves literal identifier spelling, and the
+source editor updates typing attributes after closing the storage batch.
+The rebuilt app prepared the exact lowercase name, showed both patches
+with the consumer still tab-closed, and applied both drafts while keeping
+the origin editor and saved files intact. See
+`target/ios-basedpyright-rename/iphone-27-rendered/attempt-3/app.stderr`
+and `target/ios-basedpyright-rename/iphone-27-exact-fixes/attempt-1/`.
+
+
 ## Engine-held provider actions
 
 The engine now supports standard lazy code-action resolution through bounded, expiring opaque artifacts. It retains the original child value and child handle, records actual child capabilities, and ignores caller substitutions apart from the lookup token. Lazy children resolve through their original provider; eager children return their held complete value without an unsupported RPC. Each installed source/ownership construction has a revision, and an order-independent graph fingerprint gates queries, resolution and complete compiler projection. Diagnostic-cache messages alone do not change that identity. The graph describes installed mappings; it does not freeze disk or establish exhaustive workspace dependency coverage.

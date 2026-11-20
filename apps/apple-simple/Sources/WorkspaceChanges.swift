@@ -329,7 +329,14 @@ struct WorkspaceChangesView: View {
         VStack(alignment:.leading,spacing:8) {
             HStack { Text("Workspace change preview").font(.headline); Spacer(); Button("Close") { changes.close(workspace) } }
             Text(workspace.resourceRestoration.review==nil ? "Source drafts · not saved or verified":"Saved baselines and separate dirty drafts · review before publication").font(.caption)
-            if changes.mode == "rename" { TextField("New symbol name",text:$changes.name).textFieldStyle(.roundedBorder) }
+            if changes.mode == "rename" {
+                TextField("New symbol name", text: $changes.name)
+                    .textFieldStyle(.roundedBorder)
+#if os(iOS)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+#endif
+            }
             if changes.mode == "entryMove",let path=changes.entrySelection?.entryPath {
                 LabeledContent("Current main construction",value:path)
                 TextField("New workspace-relative path",text:$changes.name).textFieldStyle(.roundedBorder)

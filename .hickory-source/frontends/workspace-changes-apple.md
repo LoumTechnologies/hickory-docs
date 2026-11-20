@@ -363,6 +363,10 @@ All buffers and retained editors are preflighted before any model changes. Commi
 
 The existing Edit menu presents this bounded floating sheet. Every affected source and every before/after line remains reachable through file selection and line pages. The view reads the controller and requests operations; it does not open sockets, fabricate provider edits or save source.
 
+The iPhone Rename field accepts a source identifier. Suppress automatic
+capitalization and correction so the name sent for review preserves the
+user's spelling.
+
 <ui:copy id="simple-apple-workspace-changes-presentation">
 struct WorkspaceChangesView: View {
     @Bindable var workspace: Workspace
@@ -372,7 +376,14 @@ struct WorkspaceChangesView: View {
         VStack(alignment:.leading,spacing:8) {
             HStack { Text("Workspace change preview").font(.headline); Spacer(); Button("Close") { changes.close(workspace) } }
             Text(workspace.resourceRestoration.review==nil ? "Source drafts · not saved or verified":"Saved baselines and separate dirty drafts · review before publication").font(.caption)
-            if changes.mode == "rename" { TextField("New symbol name",text:$changes.name).textFieldStyle(.roundedBorder) }
+            if changes.mode == "rename" {
+                TextField("New symbol name", text: $changes.name)
+                    .textFieldStyle(.roundedBorder)
+#if os(iOS)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+#endif
+            }
             if changes.mode == "entryMove",let path=changes.entrySelection?.entryPath {
                 LabeledContent("Current main construction",value:path)
                 TextField("New workspace-relative path",text:$changes.name).textFieldStyle(.roundedBorder)
