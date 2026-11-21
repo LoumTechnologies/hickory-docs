@@ -15,7 +15,7 @@ use tokio::{
 #[path = "simple_dev/reload.rs"]
 mod reload;
 #[path = "simple_dev/linux_host.rs"]
-mod linux_host;
+mod workspace_host;
 #[cfg(test)]
 use reload::mobile_reload_command;
 use reload::supervise_mobile;
@@ -25,22 +25,23 @@ fn main() -> Result<()> {
     if let Some(result) = engine::run_argv(&args) {
         return result;
     }
-    if args.first().is_some_and(|arg| arg == "--linux-host") {
-        return tokio::runtime::Runtime::new()?.block_on(linux_host::run(&args[1..]));
+    if args.first().is_some_and(|arg| matches!(arg.as_str(), "--workspace-host" | "--linux-host")) {
+        return tokio::runtime::Runtime::new()?.block_on(workspace_host::run(&args[1..]));
     }
     let platform = args.first().map(String::as_str).unwrap_or("browser");
     let session_child = args.get(1).is_some_and(|arg| arg == "--session-child");
     ensure!(
         (args.len() <= 1
             || (args.len() == 2 && session_child && ["ios", "android"].contains(&platform)))
-            && ["browser", "apple", "ios", "android", "linux", "all"].contains(&platform),
-        "Usage: just simple-dev browser|apple|ios|android|linux|all"
+            && ["browser", "apple", "ios", "android", "linux", "windows", "all"].contains(&platform),
+        "Usage: just simple-dev browser|apple|ios|android|linux|windows|all"
     );
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../..")
         .canonicalize()?;
     env::set_current_dir(root)?;
     ensure!(platform != "linux" || cfg!(target_os = "linux"), "The KDE frontend builds and runs on Linux. Run just simple-dev linux on a Linux desktop.");
+    ensure!(platform != "windows" || cfg!(windows), "The WinForms frontend builds and runs on Windows. Run just simple-dev windows from Git Bash on Windows.");
     if ["apple", "ios", "all"].contains(&platform) {
         configure_xcode()?;
     }
@@ -284,7 +285,7 @@ async fn launch(platform: &str, session: &mut Session) -> Result<()> {
             .await?;
         session
             .run(&mut cmd(
-                "python3",
+                if cfg!(windows) { "python" } else { "python3" },
                 &["examples/simple-ui/prepare.py", "--record"],
             ))
             .await?;
@@ -295,9 +296,13 @@ async fn launch(platform: &str, session: &mut Session) -> Result<()> {
         project.display()
     );
     let file = requested_file(&project, env::var_os("HICKORY_OPEN_FILE"))?;
-    if platform == "linux" {
-        session.run(&mut cmd("just", &["simple-build", "linux"])).await?;
-        let mut command = cmd(root.join("target/simple-linux/app/bin/hickory-simple"), &[]);
+    if let Some(executable) = match platform {
+        "linux" => Some("target/simple-linux/app/bin/hickory-simple"),
+        "windows" => Some("target/simple-windows/app/HickorySimple.exe"),
+        _ => None,
+    } {
+        session.run(&mut cmd("just", &["simple-build", platform])).await?;
+        let mut command = cmd(root.join(executable), &[]);
         if let Some(file) = &file {
             command.args(["--file", file]);
         }

@@ -6,6 +6,62 @@
   "relocated_annotated_tests": 184,
   "fragments": [
     {
+      "id": "windows-project",
+      "output": "apps/windows-simple/HickorySimple.csproj",
+      "page": ".hickory-source/frontends/windows.md",
+      "symbol": "windows-project",
+      "basis": "explained-behavior",
+      "original_range": null
+    },
+    {
+      "id": "windows-workspace-target",
+      "output": "apps/windows-simple/Program.cs",
+      "page": ".hickory-source/frontends/windows.md",
+      "symbol": "windows-workspace-target",
+      "basis": "explained-behavior",
+      "original_range": null
+    },
+    {
+      "id": "windows-workspace-process",
+      "output": "apps/windows-simple/WorkspaceHost.cs",
+      "page": ".hickory-source/frontends/windows.md",
+      "symbol": "windows-workspace-process",
+      "basis": "explained-behavior",
+      "original_range": null
+    },
+    {
+      "id": "windows-window-lifetime",
+      "output": "apps/windows-simple/WorkspaceApplication.cs",
+      "page": ".hickory-source/frontends/windows.md",
+      "symbol": "windows-window-lifetime",
+      "basis": "explained-behavior",
+      "original_range": null
+    },
+    {
+      "id": "windows-editor-surface",
+      "output": "apps/windows-simple/WorkspaceWindow.cs",
+      "page": ".hickory-source/frontends/windows.md",
+      "symbol": "windows-editor-surface",
+      "basis": "explained-behavior",
+      "original_range": null
+    },
+    {
+      "id": "windows-bundle-layout",
+      "output": "scripts/build-simple-windows.sh",
+      "page": ".hickory-source/frontends/windows.md",
+      "symbol": "windows-bundle-layout",
+      "basis": "explained-behavior",
+      "original_range": null
+    },
+    {
+      "id": "windows-window-smoke",
+      "output": "scripts/test-simple-windows.mjs",
+      "page": ".hickory-source/frontends/windows.md",
+      "symbol": "windows-window-smoke",
+      "basis": "explained-behavior",
+      "original_range": null
+    },
+    {
       "id": "linux-simple-build",
       "output": "apps/linux-simple/CMakeLists.txt",
       "page": ".hickory-source/frontends/linux.md",

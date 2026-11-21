@@ -8,7 +8,7 @@ This page owns the output construction and the explained fragments below. Source
 <a id="output-5adf98eb496e"></a>
 ## `scripts/affected-checks.sh`
 
-The comparison frontend scopes use the same path selector in local checks and CI. Shared fixtures select all three platforms; platform-only edits select their corresponding recipe. This literal construction preserves embedded document syntax and exact file bytes. Its internal reasoning boundaries still need editorial review.
+The comparison frontend scopes use the same path selector in local checks and CI. Shared fixtures select every CI frontend job. The WinForms job also runs when the compiled browser assets or the Rust workspace host can change. This literal construction preserves embedded document syntax and exact file bytes. Its internal reasoning boundaries still need editorial review.
 
 <storycode:entry path="scripts/affected-checks.sh" executable="true">
 #!/usr/bin/env bash
@@ -102,7 +102,10 @@ fi
 if matches "apps/apple-simple/*"; then checks+=(simple-apple); fi
 if matches "apps/android-simple/*" || matches "scripts/test-simple-kotlin.py" || matches "scripts/simple-android-gradle.rs"; then checks+=(simple-android); fi
 if matches "apps/simple-contract/*" || matches ".hickory-source/frontends/*" || matches "justfile" || matches ".github/workflows/simple-frontends.yml" || matches "scripts/affected-checks.sh"; then
-  checks+=(simple-browser simple-apple simple-android)
+  checks+=(simple-browser simple-apple simple-android simple-windows)
+fi
+if matches "apps/windows-simple/*" || matches "apps/web/*" || matches "crates/*" || matches "Cargo.toml" || matches "Cargo.lock" || matches "rust-toolchain.toml" || matches "scripts/*-simple-windows.*"; then
+  checks+=(simple-windows)
 fi
 
 if [ "${#checks[@]}" -gt 0 ]; then

@@ -74163,6 +74163,83 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "fragments": [
         "workspace-entry-interrupted-fixture-driver"
       ]
+    },
+    "apps/windows-simple/HickorySimple.csproj": {
+      "source": ".hickory-source/frontends/windows.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "build-and-assets",
+      "sha256": "9181b9a6de8c9ed2326de38b7117968cbfc65a14ac99bfa8e12498b67194bb77",
+      "construction": "fragments",
+      "fragments": [
+        "windows-project"
+      ]
+    },
+    "apps/windows-simple/Program.cs": {
+      "source": ".hickory-source/frontends/windows.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "a182064dd2df2a7db294d6df8dcb00dc1d1e0fdad771c4d4b0f6021809d3f8ba",
+      "construction": "fragments",
+      "fragments": [
+        "windows-workspace-target"
+      ]
+    },
+    "apps/windows-simple/WorkspaceHost.cs": {
+      "source": ".hickory-source/frontends/windows.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "8d444269bafbe5ac03d1b0ae65539ccfba051121645204a203bc02f9eace5d80",
+      "construction": "fragments",
+      "fragments": [
+        "windows-workspace-process"
+      ]
+    },
+    "apps/windows-simple/WorkspaceApplication.cs": {
+      "source": ".hickory-source/frontends/windows.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "47774073c5e0e41b74b3a2c96e68b7d6a95cae3741cbf099efdbb7b9cba0c06a",
+      "construction": "fragments",
+      "fragments": [
+        "windows-window-lifetime"
+      ]
+    },
+    "apps/windows-simple/WorkspaceWindow.cs": {
+      "source": ".hickory-source/frontends/windows.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "436235d7c3095e1bc4dcad98fb766875a08b127e57cb56a0e7cbf376d71c05c8",
+      "construction": "fragments",
+      "fragments": [
+        "windows-editor-surface"
+      ]
+    },
+    "scripts/build-simple-windows.sh": {
+      "source": ".hickory-source/frontends/windows.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "build-and-assets",
+      "sha256": "e0317105c83a2dc329122b2d08f0369a66e07111f463ef7f40bbf04e1339665f",
+      "construction": "fragments",
+      "fragments": [
+        "windows-bundle-layout"
+      ]
+    },
+    "scripts/test-simple-windows.mjs": {
+      "source": ".hickory-source/frontends/windows.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "a690a21c476f05fe05aa38492ff5b6ea3e1c97ea1e0d2ff68d1cda830a3adcad",
+      "construction": "fragments",
+      "fragments": [
+        "windows-window-smoke"
+      ]
     }
   },
   "evidence_records": [

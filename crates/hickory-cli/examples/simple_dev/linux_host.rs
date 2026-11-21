@@ -33,7 +33,7 @@ async fn local_request(request: Request, next: Next, authority: &str, origin: &s
 pub(super) async fn run(args: &[String]) -> Result<()> {
     let [workspace, assets, port] = args else {
         anyhow::bail!(
-            "Usage: hickory-simple-host --linux-host WORKSPACE COMPILED_ASSETS LOOPBACK_PORT"
+            "Usage: hickory-simple-host --workspace-host WORKSPACE COMPILED_ASSETS LOOPBACK_PORT"
         );
     };
     let root = Path::new(workspace)

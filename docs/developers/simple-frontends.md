@@ -1,6 +1,6 @@
 # Compare the simple frontends
 
-For maintainers iterating on the same small editor on Apple, Android, KDE/Linux and the web.
+For maintainers iterating on the same small editor on Apple, Android, KDE/Linux, Windows and the web.
 
 From the repository root, choose one:
 
@@ -10,6 +10,7 @@ just simple-dev apple
 just simple-dev ios
 just simple-dev android
 just simple-dev linux
+just simple-dev windows
 just simple-dev all
 ```
 
@@ -34,6 +35,30 @@ Native launches use the backend on the host: iOS simulator loopback and Android 
 The macOS recipe builds a locally signed `Hickory Simple.app` under `target/simple-apple-launch/`, then executes its bundled binary as an owned process so commit restarts and Ctrl-C can reliably stop the native app. It opens a workspace window without waiting for a backend request. The app watches the development launcher’s lifetime, so Ctrl-C still stops this test app.
 
 The Apple build requires full Xcode. `simple-dev` honors `DEVELOPER_DIR` and otherwise finds Xcode under `/Applications` if command-line tools are selected. For standalone build/test recipes, set `DEVELOPER_DIR` to your installed Xcode's `Contents/Developer` directory when needed. `xcodegen` is needed for the iOS project. Run `just simple-build ios`, then open `apps/apple-simple/HickorySimple.xcodeproj` for device or simulator work. Device signing is not configured by this comparison scaffold.
+
+## Run on Windows
+
+Use Git Bash with the Windows MSVC Rust toolchain, .NET 10 SDK, Node.js and
+Microsoft Edge WebView2 Evergreen Runtime. Python 3 is also needed to prepare
+the showcase for `just simple-dev windows`.
+
+```sh
+just simple-build windows
+target/simple-windows/app/HickorySimple.exe 'C:/work/project.md'
+just simple-test windows
+```
+
+The build stages the WinForms executable, its .NET runtime, the workspace host
+and Simple Browser assets in `target/simple-windows/app`. Run the executable
+without a path for a folder picker. A file opens in its containing folder.
+To open a file below a workspace root, pass the root and `--file relative/path`.
+Use `--port` with a different loopback port for a separate running workspace.
+The default port is 38174. Reuse it for editor session recovery, or pass
+`--port 0` for a temporary session.
+
+WinForms owns the application windows and uses WebView2 for the shared editor.
+**File → New Window** opens another window for the same workspace. Closing the
+last window detaches the local workspace host.
 
 ## Run on KDE/Linux
 

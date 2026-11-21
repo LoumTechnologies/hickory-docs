@@ -956,10 +956,13 @@ literate-check:
     python3 hickory-dogfood/tools/behavior.py check
     python3 hickory-dogfood/tools/behavior.py audit
 
-# Independent comparison frontends; the primary build and dev commands retain their scope.
+# Platform-specific builds for the Simple frontends.
 simple-build platform="browser":
     #!/usr/bin/env bash
     set -euo pipefail
+    if [ {{quote(platform)}} = windows ]; then
+      exec bash scripts/build-simple-windows.sh
+    fi
     if [ {{quote(platform)}} = linux ]; then
       if [ "$(uname -s)" != Linux ]; then
         echo 'Run just simple-build linux on Linux with CMake, Qt 6.8 WebEngine Widgets and KDE Frameworks 6 development packages.' >&2
@@ -985,13 +988,18 @@ simple-build platform="browser":
       apple) swift build --package-path apps/apple-simple --scratch-path target/apple-simple-spm ;;
       ios) xcodegen generate --spec apps/apple-simple/project.yml; xcodebuild -project apps/apple-simple/HickorySimple.xcodeproj -scheme HickorySimpleMobile -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath target/apple-simple-derived CODE_SIGNING_ALLOWED=NO build ;;
       android) mkdir -p target; rustc --edition=2021 scripts/simple-android-gradle.rs -o target/simple-android-gradle; target/simple-android-gradle :app:assembleDebug ;;
-      *) echo 'Choose browser, apple, ios, android or linux.' >&2; exit 2 ;;
+      *) echo 'Choose browser, apple, ios, android, linux or windows.' >&2; exit 2 ;;
     esac
 
 # Focused parity/safety witnesses only, with platform toolchain prerequisites.
 simple-test platform="browser":
     #!/usr/bin/env bash
     set -euo pipefail
+    if [ {{quote(platform)}} = windows ]; then
+      just simple-build windows
+      node scripts/test-simple-windows.mjs
+      exit
+    fi
     if [ {{quote(platform)}} = linux ]; then
       just simple-build linux
       cargo test --locked -p hickory-cli --example simple_dev linux_host_admits_only_its_own_origin
@@ -1003,7 +1011,7 @@ simple-test platform="browser":
       browser) cd apps/web; npx tsc -b --noEmit; npx vitest run src/simple/parity.test.ts; npx vite build --config vite.simple.config.ts ;;
       apple) swift test --package-path apps/apple-simple --scratch-path target/apple-simple-spm; swiftc scripts/simple-window-layout.swift -o target/simple-window-layout; target/simple-window-layout --self-test ;;
       android) mkdir -p target; rustc --edition=2021 scripts/simple-android-gradle.rs -o target/simple-android-gradle; target/simple-android-gradle :app:testDebugUnitTest :app:assembleDebug ;;
-      *) echo 'Choose browser, apple, android or linux.' >&2; exit 2 ;;
+      *) echo 'Choose browser, apple, android, linux or windows.' >&2; exit 2 ;;
     esac
 
 # Four real engine/debugpy/native-controller flows; prepares locked local dependencies.
@@ -1016,7 +1024,7 @@ native-debug-smoke platform:
 
 # Comparison frontends; commits rebuild/relaunch every target, including mobile.
 simple-dev platform="browser": _dev-supervisor
-    {{ if platform == "browser" { "target/dev-supervisor " } else if platform == "apple" { "target/dev-supervisor " } else if platform == "linux" { "target/dev-supervisor " } else { "" } }}cargo run --quiet --locked -p hickory-cli --example simple_dev -- {{quote(platform)}}
+    {{ if platform == "browser" { "target/dev-supervisor " } else if platform == "apple" { "target/dev-supervisor " } else if platform == "linux" { "target/dev-supervisor " } else if platform == "windows" { "target/dev-supervisor.exe " } else { "" } }}cargo run --quiet --locked -p hickory-cli --example simple_dev -- {{quote(platform)}}
 
 # Real native update/relaunch and app-data preservation on an explicitly selected device.
 simple-reload-test platform:

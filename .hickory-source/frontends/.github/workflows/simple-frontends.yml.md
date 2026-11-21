@@ -1,9 +1,9 @@
 <ui:doc xmlns:ui="http://www.hickorydocs.com/1.0">
-# Compile the three comparison frontends in CI
+# Check the Simple frontends in CI
 
-For maintainers iterating on the equivalent Apple, Android and browser editor frontends.
+For maintainers iterating on the Apple, Android, Windows and browser editor frontends.
 
-Each platform job runs the same focused recipe available locally. These checks add no publishing or replacement of the existing frontend. Pull requests use the shared path selector; every master push checks all three platforms.
+Each platform job runs the same focused recipe available locally. Pull requests use the shared path selector. Every master push runs the jobs below. Windows builds the actual app folder and opens it in WebView2.
 
 <ui:copy id="simple-9492fd1ec5-0">
 name: Simple frontends
@@ -20,6 +20,7 @@ jobs:
       browser: ${{ steps.filter.outputs.browser }}
       apple: ${{ steps.filter.outputs.apple }}
       android: ${{ steps.filter.outputs.android }}
+      windows: ${{ steps.filter.outputs.windows }}
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }
@@ -27,7 +28,7 @@ jobs:
         shell: bash
         run: |
           checks=$(scripts/affected-checks.sh "origin/${{ github.base_ref }}")
-          for platform in browser apple android; do
+          for platform in browser apple android windows; do
             if grep -qx "simple-$platform" <<<"$checks"; then
               echo "$platform=true" >> "$GITHUB_OUTPUT"
             else
@@ -69,6 +70,22 @@ jobs:
         with: { gradle-version: '9.3.1' }
       - run: sdkmanager 'platforms;android-37.0' 'build-tools;36.0.0'
       - run: just simple-test android
+  windows:
+    needs: [changes]
+    if: always() && (github.event_name == 'push' || needs.changes.outputs.windows == 'true')
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22', cache: npm, cache-dependency-path: apps/web/package-lock.json }
+      - uses: actions/setup-dotnet@v4
+        with: { dotnet-version: '10.0.x' }
+      - uses: dtolnay/rust-toolchain@1.96.1
+      - uses: Swatinem/rust-cache@v2
+      - uses: extractions/setup-just@v4
+      - name: Build and open the WinForms workspace
+        shell: bash
+        run: just simple-test windows
 </ui:copy>
 
 ## Assemble the maintained output

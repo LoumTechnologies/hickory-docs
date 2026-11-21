@@ -89,7 +89,10 @@ fi
 if matches "apps/apple-simple/*"; then checks+=(simple-apple); fi
 if matches "apps/android-simple/*" || matches "scripts/test-simple-kotlin.py" || matches "scripts/simple-android-gradle.rs"; then checks+=(simple-android); fi
 if matches "apps/simple-contract/*" || matches ".hickory-source/frontends/*" || matches "justfile" || matches ".github/workflows/simple-frontends.yml" || matches "scripts/affected-checks.sh"; then
-  checks+=(simple-browser simple-apple simple-android)
+  checks+=(simple-browser simple-apple simple-android simple-windows)
+fi
+if matches "apps/windows-simple/*" || matches "apps/web/*" || matches "crates/*" || matches "Cargo.toml" || matches "Cargo.lock" || matches "rust-toolchain.toml" || matches "scripts/*-simple-windows.*"; then
+  checks+=(simple-windows)
 fi
 
 if [ "${#checks[@]}" -gt 0 ]; then
