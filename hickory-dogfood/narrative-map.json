@@ -6,6 +6,62 @@
   "relocated_annotated_tests": 184,
   "fragments": [
     {
+      "id": "linux-simple-build",
+      "output": "apps/linux-simple/CMakeLists.txt",
+      "page": ".hickory-source/frontends/linux.md",
+      "symbol": "linux-simple-build",
+      "basis": "explained-behavior",
+      "original_range": null
+    },
+    {
+      "id": "linux-simple-desktop-entry",
+      "output": "apps/linux-simple/com.hickorydocs.Simple.desktop",
+      "page": ".hickory-source/frontends/linux.md",
+      "symbol": "linux-simple-desktop-entry",
+      "basis": "explained-behavior",
+      "original_range": null
+    },
+    {
+      "id": "linux-simple-workspace-window",
+      "output": "apps/linux-simple/main.cpp",
+      "page": ".hickory-source/frontends/linux.md",
+      "symbol": "linux-simple-workspace-window",
+      "basis": "explained-behavior",
+      "original_range": null
+    },
+    {
+      "id": "linux-simple-startup",
+      "output": "apps/linux-simple/main.cpp",
+      "page": ".hickory-source/frontends/linux.md",
+      "symbol": "linux-simple-startup",
+      "basis": "explained-behavior",
+      "original_range": null
+    },
+    {
+      "id": "linux-simple-host",
+      "output": "crates/hickory-cli/examples/simple_dev/linux_host.rs",
+      "page": ".hickory-source/frontends/linux.md",
+      "symbol": "linux-simple-host",
+      "basis": "explained-behavior",
+      "original_range": null
+    },
+    {
+      "id": "linux-simple-host-test",
+      "output": "crates/hickory-cli/examples/simple_dev/linux_host.rs",
+      "page": ".hickory-source/frontends/linux.md",
+      "symbol": "linux-simple-host-test",
+      "basis": "explained-behavior",
+      "original_range": null
+    },
+    {
+      "id": "linux-simple-smoke",
+      "output": "scripts/test-simple-linux.mjs",
+      "page": ".hickory-source/frontends/linux.md",
+      "symbol": "linux-simple-smoke",
+      "basis": "explained-behavior",
+      "original_range": null
+    },
+    {
       "id": "f-8956f9c7bb77-expression_statement",
       "output": "apps/agent/src/hickory_agent_worker/__init__.py",
       "page": ".hickory-source/mechanisms/apps/agent/src/hickory_agent_worker/__init__.py.md",

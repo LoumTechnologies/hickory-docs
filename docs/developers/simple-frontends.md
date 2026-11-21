@@ -1,6 +1,6 @@
 # Compare the simple frontends
 
-For maintainers iterating on the same small editor on Apple, Android and the web.
+For maintainers iterating on the same small editor on Apple, Android, KDE/Linux and the web.
 
 From the repository root, choose one:
 
@@ -9,6 +9,7 @@ just simple-dev browser
 just simple-dev apple
 just simple-dev ios
 just simple-dev android
+just simple-dev linux
 just simple-dev all
 ```
 
@@ -33,6 +34,56 @@ Native launches use the backend on the host: iOS simulator loopback and Android 
 The macOS recipe builds a locally signed `Hickory Simple.app` under `target/simple-apple-launch/`, then executes its bundled binary as an owned process so commit restarts and Ctrl-C can reliably stop the native app. It opens a workspace window without waiting for a backend request. The app watches the development launcher’s lifetime, so Ctrl-C still stops this test app.
 
 The Apple build requires full Xcode. `simple-dev` honors `DEVELOPER_DIR` and otherwise finds Xcode under `/Applications` if command-line tools are selected. For standalone build/test recipes, set `DEVELOPER_DIR` to your installed Xcode's `Contents/Developer` directory when needed. `xcodegen` is needed for the iOS project. Run `just simple-build ios`, then open `apps/apple-simple/HickorySimple.xcodeproj` for device or simulator work. Device signing is not configured by this comparison scaffold.
+
+## Run on KDE/Linux
+
+Install a C++17 compiler, CMake, Qt 6.8 or newer with WebEngine Widgets, KDE
+Frameworks 6 CoreAddons and XmlGui, and the repo's Rust and Node toolchains.
+On Debian 13, the development packages are `build-essential`, `cmake`,
+`qt6-webengine-dev`, `libkf6coreaddons-dev` and `libkf6xmlgui-dev`.
+
+```sh
+just simple-build linux
+target/simple-linux/app/bin/hickory-simple /path/to/project.md
+just simple-test linux
+```
+
+Pass a folder to show its files, a file to open it with its containing folder,
+or no argument to choose a workspace folder. For a file below a workspace root,
+pass the root and `--file relative/path`. The CMake install tree includes a
+Plasma launcher. Install it for your account with
+`cmake --install target/simple-linux/cmake --prefix "$HOME/.local"`.
+The app uses system Qt/KDE libraries and its bundled editor assets and
+workspace host. It needs no Node server at runtime.
+
+The KDE window embeds the same workspace as Simple Browser. File editing,
+language providers, debugger, test/coverage, Git, recovery, terminal and agent
+workflows go through the same frontend and engine. The host binds only
+`127.0.0.1:38174`. Other windows on that workspace can use **File → New Window**.
+Use `--port` to run a different workspace concurrently. Local editor settings
+and recovery are scoped to the loopback origin. Reuse that port when reopening
+the same session. Port 0 assigns a temporary origin and profile.
+
+The Linux development launch uses the same example workspace and commit
+supervisor. Builds and relaunches are triggered by commits, and keep the
+persistent Qt profile. The focused Linux test exercises the installed KDE
+window against an isolated real engine. Run it from a graphical desktop, or
+under `xvfb-run -a` as a regular user for a virtual X11 display.
+
+Subscription inference still requires a macOS workspace host. To use it from
+Linux, start the compiled workspace host on your own Mac and forward its
+loopback port over SSH. Keep the remote command's stdin open for the session.
+
+```sh
+ssh -L 38174:127.0.0.1:38174 mac-host \
+  /path/to/simple_dev --linux-host /path/to/workspace /path/to/dist-simple 38174
+target/simple-linux/app/bin/hickory-simple --connect 38174
+```
+
+On the Mac, build the host with
+`cargo build --locked -p hickory-cli --example simple_dev` and build
+`apps/web/dist-simple` with `just simple-build browser`. In remote mode, files,
+terminal programs, language services and inference run on the Mac.
 
 ## Verify native commit reloads
 
@@ -125,7 +176,7 @@ The terminal connects the bundled xterm emulator to a real backend PTY. Type or 
 
 The agent pane uses the Hickory Python backend and its restricted Monty interpreter. Each prompt and reply is a read-only literate document; the draft uses the same literate editor, with Send beneath it. Provider changes and pane moves retain the draft, selection and undo. The pane offers ChatGPT, Claude Code and Grok subscriptions, a model ID (blank uses the provider default), and effort for ChatGPT/Claude. Grok manages effort and leaves that control at Default. Provider rejection retains the draft and never retries or falls back to an API account.
 
-Sign in on the workspace server with `codex login`, `claude auth login` or `grok login`. The native CLI owns credentials; Hickory requests inference with native tools disabled and runs generated Python only through Monty. The current subscription process sandbox requires a macOS workspace server; browser, Apple and Android clients may connect remotely. Configure a missing Python runtime in the existing frontend's Settings → Agents; downloaded hosts can supply their bundled runtime. Agent installation, native permission-review surfaces and token streaming remain outside this pane's scope. No provider is required to edit files.
+Sign in on the workspace server with `codex login`, `claude auth login` or `grok login`. The native CLI owns credentials; Hickory requests inference with native tools disabled and runs generated Python only through Monty. The current subscription process sandbox requires a macOS workspace server; browser, Apple, Android and KDE/Linux clients may connect remotely. Configure a missing Python runtime in the existing frontend's Settings → Agents; downloaded hosts can supply their bundled runtime. Agent installation, native permission-review surfaces and token streaming remain outside this pane's scope. No provider is required to edit files.
 
 Run the focused real-engine pane witness with `python3 scripts/test-simple-browser.py --agent-only` after building the `engine_client` example. It loads a real retained session, checks read-only history, changes subscription/model/effort, observes the exact Python-backend HTTP request and verifies that a refused request preserves the draft and editor through a pane move. Its deliberately invalid Claude model prevents live inference or billing. `target/simple-agent.png` captures the resulting pane.
 

@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Hickory Simple
+Comment=Edit a Hickory workspace
+Exec=hickory-simple %f
+Icon=accessories-text-editor
+Terminal=false
+Categories=Development;TextEditor;IDE;
+MimeType=text/plain;text/markdown;
+StartupNotify=true

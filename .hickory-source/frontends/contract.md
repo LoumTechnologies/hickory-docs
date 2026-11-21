@@ -2,12 +2,12 @@
 # Build equivalent IDE workflows across the simple frontends
 
 For maintainers implementing the complete IDE contract across browser, macOS,
-iOS and Android while preserving the compact editor. Earlier dated slice receipts
+iOS, Android and KDE/Linux while preserving the compact editor. Earlier dated slice receipts
 retain their original limits; they do not narrow the required outcomes below.
 
 ## IDE parity required by the maintainer
 
-The requested parity is the set discussed in the IDE comparison, across browser, macOS, iOS and Android. Keep operations discoverable through existing menus, left/right gutters, minimap and status bar. Floating controls must not resize code. Typed workspace state and replaceable capability adapters own behavior independently of the renderer; no plugin marketplace or permanent feature toolbar is required.
+The requested parity is the set discussed in the IDE comparison, across browser, macOS, iOS, Android and KDE/Linux. Keep operations discoverable through existing menus, left/right gutters, minimap and status bar. Floating controls must not resize code. Typed workspace state and replaceable capability adapters own behavior independently of the renderer; no plugin marketplace or permanent feature toolbar is required.
 
 The complete outcome includes:
 

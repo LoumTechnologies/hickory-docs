@@ -960,25 +960,50 @@ literate-check:
 simple-build platform="browser":
     #!/usr/bin/env bash
     set -euo pipefail
+    if [ {{quote(platform)}} = linux ]; then
+      if [ "$(uname -s)" != Linux ]; then
+        echo 'Run just simple-build linux on Linux with CMake, Qt 6.8 WebEngine Widgets and KDE Frameworks 6 development packages.' >&2
+        exit 2
+      fi
+      build="$PWD/target/simple-linux"
+      if [ ! -x apps/web/node_modules/.bin/vite ] || [ apps/web/package-lock.json -nt apps/web/node_modules ]; then
+        npm --prefix apps/web ci
+      fi
+      # Build the same entry point with compiled assets beside the native host.
+      (cd apps/web && node node_modules/vite/bin/vite.js build --config vite.simple.config.ts --outDir "$build/web" --emptyOutDir)
+      cargo build --locked --target-dir "$PWD/target" -p hickory-cli --example simple_dev
+      cmake -S apps/linux-simple -B "$build/cmake" -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_BINDIR=bin -DHICKORY_SIMPLE_HOST="$PWD/target/debug/examples/simple_dev" \
+        -DHICKORY_SIMPLE_WEB="$build/web"
+      cmake --build "$build/cmake"
+      cmake --install "$build/cmake" --prefix "$build/app"
+      exit
+    fi
     python3 scripts/prepare-simple-resources.py
     case {{quote(platform)}} in
       browser) cd apps/web; npx vite build --config vite.simple.config.ts ;;
       apple) swift build --package-path apps/apple-simple --scratch-path target/apple-simple-spm ;;
       ios) xcodegen generate --spec apps/apple-simple/project.yml; xcodebuild -project apps/apple-simple/HickorySimple.xcodeproj -scheme HickorySimpleMobile -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath target/apple-simple-derived CODE_SIGNING_ALLOWED=NO build ;;
       android) mkdir -p target; rustc --edition=2021 scripts/simple-android-gradle.rs -o target/simple-android-gradle; target/simple-android-gradle :app:assembleDebug ;;
-      *) echo 'Choose browser, apple, ios or android.' >&2; exit 2 ;;
+      *) echo 'Choose browser, apple, ios, android or linux.' >&2; exit 2 ;;
     esac
 
 # Focused parity/safety witnesses only, with platform toolchain prerequisites.
 simple-test platform="browser":
     #!/usr/bin/env bash
     set -euo pipefail
+    if [ {{quote(platform)}} = linux ]; then
+      just simple-build linux
+      cargo test --locked -p hickory-cli --example simple_dev linux_host_admits_only_its_own_origin
+      node scripts/test-simple-linux.mjs
+      exit
+    fi
     python3 scripts/prepare-simple-resources.py
     case {{quote(platform)}} in
       browser) cd apps/web; npx tsc -b --noEmit; npx vitest run src/simple/parity.test.ts; npx vite build --config vite.simple.config.ts ;;
       apple) swift test --package-path apps/apple-simple --scratch-path target/apple-simple-spm; swiftc scripts/simple-window-layout.swift -o target/simple-window-layout; target/simple-window-layout --self-test ;;
       android) mkdir -p target; rustc --edition=2021 scripts/simple-android-gradle.rs -o target/simple-android-gradle; target/simple-android-gradle :app:testDebugUnitTest :app:assembleDebug ;;
-      *) echo 'Choose browser, apple or android.' >&2; exit 2 ;;
+      *) echo 'Choose browser, apple, android or linux.' >&2; exit 2 ;;
     esac
 
 # Four real engine/debugpy/native-controller flows; prepares locked local dependencies.
@@ -991,7 +1016,7 @@ native-debug-smoke platform:
 
 # Comparison frontends; commits rebuild/relaunch every target, including mobile.
 simple-dev platform="browser": _dev-supervisor
-    {{ if platform == "browser" { "target/dev-supervisor " } else if platform == "apple" { "target/dev-supervisor " } else { "" } }}cargo run --quiet --locked -p hickory-cli --example simple_dev -- {{quote(platform)}}
+    {{ if platform == "browser" { "target/dev-supervisor " } else if platform == "apple" { "target/dev-supervisor " } else if platform == "linux" { "target/dev-supervisor " } else { "" } }}cargo run --quiet --locked -p hickory-cli --example simple_dev -- {{quote(platform)}}
 
 # Real native update/relaunch and app-data preservation on an explicitly selected device.
 simple-reload-test platform:

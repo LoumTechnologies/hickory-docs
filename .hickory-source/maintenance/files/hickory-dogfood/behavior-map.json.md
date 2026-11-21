@@ -67243,6 +67243,63 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "role": "implementation",
       "sha256": "c0d94399ca0534848b9000005d653f86730d45622e8304201b0e28687192ba4f"
     },
+    "apps/linux-simple/CMakeLists.txt": {
+      "source": ".hickory-source/frontends/linux.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "d2c2b0a14a21b73aa723eeb01ee2e9f3a3be481ceccd4829a06a3f71e624efa8",
+      "construction": "fragments",
+      "fragments": [
+        "linux-simple-build"
+      ]
+    },
+    "apps/linux-simple/com.hickorydocs.Simple.desktop": {
+      "source": ".hickory-source/frontends/linux.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "b686d4bccfec9999108472ff5421a967a8760b2fb26e2e8800bc8c1267d6cb13",
+      "construction": "fragments",
+      "fragments": [
+        "linux-simple-desktop-entry"
+      ]
+    },
+    "apps/linux-simple/main.cpp": {
+      "source": ".hickory-source/frontends/linux.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "365d1c2d269e58fe12184f71b9ff04f4d903b46b3fc71888fc8dbdfcb64f14e6",
+      "construction": "fragments",
+      "fragments": [
+        "linux-simple-workspace-window",
+        "linux-simple-startup"
+      ]
+    },
+    "crates/hickory-cli/examples/simple_dev/linux_host.rs": {
+      "source": ".hickory-source/frontends/linux.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "b21bd3602e688452e588df802035952c721a507804666e1124c5248860f12ff1",
+      "construction": "fragments",
+      "fragments": [
+        "linux-simple-host",
+        "linux-simple-host-test"
+      ]
+    },
+    "scripts/test-simple-linux.mjs": {
+      "source": ".hickory-source/frontends/linux.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "test",
+      "sha256": "eeb38715d3914cc5819a77f712522683ab2df39502c2a935e62ca75fa3e974b7",
+      "construction": "fragments",
+      "fragments": [
+        "linux-simple-smoke"
+      ]
+    },
     "apps/web/simple.html": {
       "source": ".hickory-source/frontends/apps/web/simple.html.md",
       "owner": "simple-frontends",
@@ -67700,7 +67757,7 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "owner": "simple-frontends",
       "used_by": [],
       "role": "implementation",
-      "sha256": "6d7f28393cc1e6b83818367e9bd6c3fdcb73f50ff3f86bc7272bc982ee616321",
+      "sha256": "6e80428cf24ae7b3a17ddcf5ffd81d6859144680f45e39be05b2b60e6680da43",
       "construction": "fragments",
       "fragments": [
         "simple-72e004e1b0-0"

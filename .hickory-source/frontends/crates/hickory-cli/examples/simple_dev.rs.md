@@ -22,6 +22,8 @@ use tokio::{
 
 #[path = "simple_dev/reload.rs"]
 mod reload;
+#[path = "simple_dev/linux_host.rs"]
+mod linux_host;
 #[cfg(test)]
 use reload::mobile_reload_command;
 use reload::supervise_mobile;
@@ -31,18 +33,22 @@ fn main() -> Result<()> {
     if let Some(result) = engine::run_argv(&args) {
         return result;
     }
+    if args.first().is_some_and(|arg| arg == "--linux-host") {
+        return tokio::runtime::Runtime::new()?.block_on(linux_host::run(&args[1..]));
+    }
     let platform = args.first().map(String::as_str).unwrap_or("browser");
     let session_child = args.get(1).is_some_and(|arg| arg == "--session-child");
     ensure!(
         (args.len() <= 1
             || (args.len() == 2 && session_child && ["ios", "android"].contains(&platform)))
-            && ["browser", "apple", "ios", "android", "all"].contains(&platform),
-        "Usage: just simple-dev browser|apple|ios|android|all"
+            && ["browser", "apple", "ios", "android", "linux", "all"].contains(&platform),
+        "Usage: just simple-dev browser|apple|ios|android|linux|all"
     );
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../..")
         .canonicalize()?;
     env::set_current_dir(root)?;
+    ensure!(platform != "linux" || cfg!(target_os = "linux"), "The KDE frontend builds and runs on Linux. Run just simple-dev linux on a Linux desktop.");
     if ["apple", "ios", "all"].contains(&platform) {
         configure_xcode()?;
     }
@@ -380,6 +386,14 @@ async fn launch(platform: &str, session: &mut Session) -> Result<()> {
         project.display()
     );
     let file = requested_file(&project, env::var_os("HICKORY_OPEN_FILE"))?;
+    if platform == "linux" {
+        session.run(&mut cmd("just", &["simple-build", "linux"])).await?;
+        let mut command = cmd(root.join("target/simple-linux/app/bin/hickory-simple"), &[]);
+        if let Some(file) = &file {
+            command.args(["--file", file]);
+        }
+        return session.run(command.arg(project)).await;
+    }
     if platform == "all" {
         println!(
             "Launching browser, macOS, iOS simulator and Android against {}",
