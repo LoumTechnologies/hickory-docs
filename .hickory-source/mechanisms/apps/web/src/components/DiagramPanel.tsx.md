@@ -62,6 +62,7 @@ export interface DiagramPanelProps {
   source: string;
   /** Stable id for the render target — mermaid needs a unique DOM id. */
   domId: string;
+  systemAppearance?: boolean;
   /** Ids named by `asserts`, with whether each one is currently passing. */
   assertions?: { id: string; state: "passing" | "failing" | "unknown" }[];
 }
@@ -92,6 +93,11 @@ const RENDERERS = ["mermaid"];
 
 Keep Mermaid in strict mode. On double-click, match only a rendered flowchart node to its quoted file-link declaration; resolve a local path through workspace navigation rather than enabling Mermaid callbacks or browser navigation.
 
+Keep the last picture in place while the Simple workspace changes appearance.
+Subscribe within the diagram and reject obsolete asynchronous replies with the
+same render generation used for source changes. The editor owns its selection
+and history throughout.
+
 <storycode:copy id="f-80582538ea4e-DiagramPanel">
 export function DiagramPanel({
   renderer,
@@ -99,6 +105,7 @@ export function DiagramPanel({
   domId,
   assertions = [],
   path,
+  systemAppearance = false,
 }: DiagramPanelProps) {
   const [render, setRender] = useState<Render>({ status: "idle" });
   // Guards against an out-of-order render: mermaid is async and someone
@@ -112,27 +119,29 @@ export function DiagramPanel({
       setRender({ status: "idle" });
       return;
     }
-    const ticket = ++latest.current;
     let cancelled = false;
 
-    (async () => {
+    const appearance = systemAppearance ? window.matchMedia?.("(prefers-color-scheme: dark)") : undefined;
+    const draw = async () => {
+      const generation = ++latest.current;
       try {
         const mermaid = (await import("mermaid")).default;
+        if (cancelled || generation !== latest.current) return;
         mermaid.initialize({
           startOnLoad: false,
           // The editor is themed by the app; a diagram that ignored that
           // would be a bright rectangle in a dark document.
-          theme: "base",
+          theme: appearance?.matches ? "dark" : "base",
           securityLevel: "strict",
         });
         const { svg } = await mermaid.render(domId, trimmed);
-        if (!cancelled && ticket === latest.current)
+        if (!cancelled && generation === latest.current)
           setRender({ status: "drawn", svg, input: { source, renderer, domId } });
       } catch (error) {
         // A half-typed diagram is the common case, not an exception. The
         // source stays visible below either way, so this never costs the
         // author their text — it only says why there is no picture yet.
-        if (!cancelled && ticket === latest.current) {
+        if (!cancelled && generation === latest.current) {
           setRender({
             status: "failed",
             input: { source, renderer, domId },
@@ -140,12 +149,14 @@ export function DiagramPanel({
           });
         }
       }
-    })();
-
+    };
+    appearance?.addEventListener("change", draw);
+    void draw();
     return () => {
       cancelled = true;
+      appearance?.removeEventListener("change", draw);
     };
-  }, [renderer, source, domId]);
+  }, [renderer, source, domId, systemAppearance]);
 
   const stale = render.status !== "idle" && (render.input.source !== source || render.input.renderer !== renderer || render.input.domId !== domId);
   useUiReading("diagram rendering", { renderer, source, assertions, render: RENDERERS.includes(renderer) ? render : { status: "unsupported" }, stale, scope: "Actual renderer result and reported assertion states; diagram rendering does not independently establish assertions" });
@@ -261,6 +272,7 @@ Related contracts: [A Diagram Names What Proves It](../../../../../guarantees/au
 <storycode:copy id="f-56af562b717e-renderMock">
 // @vitest-environment jsdom
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import mermaid from "mermaid";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { DiagramPanel } from "./DiagramPanel";
@@ -291,6 +303,10 @@ afterEach(cleanup);
 </storycode:copy>
 <a id="f-56af562b717e-expression_statement-3"></a>
 ### `expression_statement`
+
+Change the media query while a diagram is mounted and require both the new
+palette and a fresh picture. The deferred source test then checks that an older
+asynchronous result cannot take its place.
 
 <storycode:copy id="f-56af562b717e-expression_statement-3">
 describe("the diagram panel", () => {
@@ -370,6 +386,26 @@ describe("the diagram panel", () => {
       expect(screen.getByText(/No renderer for/)).toBeTruthy(),
     );
     expect(renderMock).not.toHaveBeenCalled();
+  });
+
+  it("repaints an open Simple diagram when the system appearance changes", async () => {
+    const preference = new EventTarget();
+    let dark = false;
+    Object.defineProperty(preference, "matches", { get: () => dark });
+    vi.stubGlobal("matchMedia", () => preference);
+    try {
+      renderMock.mockResolvedValueOnce({ svg: "<svg data-testid='light'></svg>" })
+        .mockResolvedValueOnce({ svg: "<svg data-testid='dark'></svg>" });
+      render(<DiagramPanel renderer="mermaid" source="flowchart LR" domId="appearance" systemAppearance />);
+      await screen.findByTestId("light");
+      dark = true;
+      preference.dispatchEvent(new Event("change"));
+      await screen.findByTestId("dark");
+      expect(mermaid.initialize).toHaveBeenLastCalledWith(expect.objectContaining({ theme: "dark", securityLevel: "strict" }));
+      expect(screen.queryByTestId("light")).toBeNull();
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("ignores an answer that arrived after the source moved on", async () => {

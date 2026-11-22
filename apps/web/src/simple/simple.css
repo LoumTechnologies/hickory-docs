@@ -162,11 +162,22 @@ footer { border-top: 1px solid color-mix(in srgb, CanvasText 22%, Canvas); paddi
 .launch-profile-picker { position: absolute; width: min(400px, calc(100vw - 16px)); max-height: 80vh; overflow: auto; padding: 12px; background: Canvas; border: 1px solid GrayText; box-shadow: 0 4px 12px #0003; }
 .launch-profile-picker header { display: flex; justify-content: space-between; }
 .launch-profile-option { display: grid; gap: 4px; padding: 8px 0; border-top: 1px solid GrayText; }
-/* Search floats above text; opening it leaves editor geometry and scroll intact. */
+/* Find floats above text. Set its actual CodeMirror controls to Canvas colors;
+   the widget's built-in input fill and button gradient otherwise stay light. */
 .editor-cm-host .cm-editor { position: relative; }
 .editor-cm-host .cm-panels-top { position: absolute; top: 0; right: 0; z-index: 20; max-width: 100%; border: 1px solid GrayText; box-shadow: 0 4px 12px #0003; }
 .editor-cm-host .cm-search { max-width: 360px; padding: 6px; background: Canvas; color: CanvasText; }
-.editor-cm-host .cm-search input { max-width: 100%; }
+.editor-cm-host .cm-search .cm-textfield,
+.editor-cm-host .cm-search .cm-button {
+  max-width: 100%; font: inherit; color: CanvasText;
+  border: 1px solid color-mix(in srgb, CanvasText 35%, Canvas); border-radius: 4px;
+  background: Canvas;
+}
+.editor-cm-host .cm-search .cm-textfield { width: min(10em, 40%); }
+.editor-cm-host .cm-search .cm-button { padding: 2px 6px; background: color-mix(in srgb, CanvasText 6%, Canvas); }
+.editor-cm-host .cm-search .cm-button:hover:not(:disabled) { background: color-mix(in srgb, CanvasText 12%, Canvas); }
+.editor-cm-host .cm-search .cm-button:disabled { color: GrayText; opacity: 1; }
+.editor-cm-host .cm-search input::placeholder { color: GrayText; }
 /* Local grammar tokens remain visible before an LSP connects. */
 .tok-keyword, .tok-typeName, .tok-className { color: light-dark(#7942a8, #cb9ef5); }
 .tok-string, .tok-regexp { color: light-dark(#287447, #8bcf9b); }

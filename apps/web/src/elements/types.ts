@@ -65,6 +65,8 @@ export interface SlotContext {
   replaying: readonly number[];
   executor?: ExecutorInfo;
   simpleTables?: boolean;
+  /** Embedded previews follow the platform appearance in the Simple workspace. */
+  systemAppearance?: boolean;
   tableLayouts?: Record<string, TableLayout>;
   onTableLayout?: (key: string, layout: TableLayout) => void;
   /** Replace the slot's block content in the document; `origin` names the

@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import mermaid from "mermaid";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { DiagramPanel } from "./DiagramPanel";
@@ -94,6 +95,26 @@ describe("the diagram panel", () => {
       expect(screen.getByText(/No renderer for/)).toBeTruthy(),
     );
     expect(renderMock).not.toHaveBeenCalled();
+  });
+
+  it("repaints an open Simple diagram when the system appearance changes", async () => {
+    const preference = new EventTarget();
+    let dark = false;
+    Object.defineProperty(preference, "matches", { get: () => dark });
+    vi.stubGlobal("matchMedia", () => preference);
+    try {
+      renderMock.mockResolvedValueOnce({ svg: "<svg data-testid='light'></svg>" })
+        .mockResolvedValueOnce({ svg: "<svg data-testid='dark'></svg>" });
+      render(<DiagramPanel renderer="mermaid" source="flowchart LR" domId="appearance" systemAppearance />);
+      await screen.findByTestId("light");
+      dark = true;
+      preference.dispatchEvent(new Event("change"));
+      await screen.findByTestId("dark");
+      expect(mermaid.initialize).toHaveBeenLastCalledWith(expect.objectContaining({ theme: "dark", securityLevel: "strict" }));
+      expect(screen.queryByTestId("light")).toBeNull();
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("ignores an answer that arrived after the source moved on", async () => {

@@ -8,9 +8,16 @@ import WebKit
     var onLink: ((String) -> Void)?
     private var revision = 0
     private var displayed: String?
+    var darkAppearance = false
+    private var appliedAppearance: Bool?
     var ready = false
     func display(_ view: WKWebView) {
-        guard ready, let bytes = try? JSONSerialization.data(withJSONObject: source, options: .fragmentsAllowed), let json = String(data: bytes, encoding: .utf8) else { return }
+        guard ready else { return }
+        if appliedAppearance != darkAppearance {
+            appliedAppearance = darkAppearance
+            view.evaluateJavaScript("globalThis.setPreviewAppearance?.(\(darkAppearance))", completionHandler: nil)
+        }
+        guard let bytes = try? JSONSerialization.data(withJSONObject: source, options: .fragmentsAllowed), let json = String(data: bytes, encoding: .utf8) else { return }
         let key = (diagramRenderer.map { "diagram:" + $0 } ?? "math") + "\0" + String(inline) + "\0" + source
         guard displayed != key else { return }
         displayed = key; revision += 1
@@ -32,7 +39,12 @@ import WebKit
               width.isFinite, height.isFinite, width > 0, height > 0 else { return }
         onSize?(CGSize(width: width, height: height))
     }
-    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) { ready = true; displayed = nil; display(webView) }
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        ready = true
+        displayed = nil
+        appliedAppearance = nil
+        display(webView)
+    }
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
         let url = navigationAction.request.url
         decisionHandler(url?.isFileURL == true || url?.scheme == "about" ? .allow : .cancel)
@@ -80,9 +92,11 @@ struct NativeMathView: NSViewRepresentable {
     var inline = false
     var onSize: ((CGSize) -> Void)? = nil
     var onLink: ((String) -> Void)? = nil
+    @Environment(\.colorScheme) private var colorScheme
+
     func makeCoordinator() -> MathCoordinator { MathCoordinator() }
-    func makeNSView(context: Context) -> WKWebView { context.coordinator.source = source; context.coordinator.diagramRenderer = diagramRenderer; context.coordinator.inline = inline; context.coordinator.onSize = onSize; context.coordinator.onLink = onLink; return makeMathView(context.coordinator) }
-    func updateNSView(_ view: WKWebView, context: Context) { context.coordinator.source = source; context.coordinator.diagramRenderer = diagramRenderer; context.coordinator.inline = inline; context.coordinator.onSize = onSize; context.coordinator.onLink = onLink; context.coordinator.display(view) }
+    func makeNSView(context: Context) -> WKWebView { context.coordinator.source = source; context.coordinator.diagramRenderer = diagramRenderer; context.coordinator.inline = inline; context.coordinator.darkAppearance = colorScheme == .dark; context.coordinator.onSize = onSize; context.coordinator.onLink = onLink; return makeMathView(context.coordinator) }
+    func updateNSView(_ view: WKWebView, context: Context) { context.coordinator.source = source; context.coordinator.diagramRenderer = diagramRenderer; context.coordinator.inline = inline; context.coordinator.darkAppearance = colorScheme == .dark; context.coordinator.onSize = onSize; context.coordinator.onLink = onLink; context.coordinator.display(view) }
 }
 #else
 struct NativeMathView: UIViewRepresentable {
@@ -91,9 +105,11 @@ struct NativeMathView: UIViewRepresentable {
     var inline = false
     var onSize: ((CGSize) -> Void)? = nil
     var onLink: ((String) -> Void)? = nil
+    @Environment(\.colorScheme) private var colorScheme
+
     func makeCoordinator() -> MathCoordinator { MathCoordinator() }
-    func makeUIView(context: Context) -> WKWebView { context.coordinator.source = source; context.coordinator.diagramRenderer = diagramRenderer; context.coordinator.inline = inline; context.coordinator.onSize = onSize; context.coordinator.onLink = onLink; return makeMathView(context.coordinator) }
-    func updateUIView(_ view: WKWebView, context: Context) { context.coordinator.source = source; context.coordinator.diagramRenderer = diagramRenderer; context.coordinator.inline = inline; context.coordinator.onSize = onSize; context.coordinator.onLink = onLink; context.coordinator.display(view) }
+    func makeUIView(context: Context) -> WKWebView { context.coordinator.source = source; context.coordinator.diagramRenderer = diagramRenderer; context.coordinator.inline = inline; context.coordinator.darkAppearance = colorScheme == .dark; context.coordinator.onSize = onSize; context.coordinator.onLink = onLink; return makeMathView(context.coordinator) }
+    func updateUIView(_ view: WKWebView, context: Context) { context.coordinator.source = source; context.coordinator.diagramRenderer = diagramRenderer; context.coordinator.inline = inline; context.coordinator.darkAppearance = colorScheme == .dark; context.coordinator.onSize = onSize; context.coordinator.onLink = onLink; context.coordinator.display(view) }
 }
 #endif
 // One read-only terminal surface for captured bytes and expect bodies.
@@ -103,10 +119,10 @@ struct NativeInlineTerminal: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack { Image(systemName: "terminal"); Text(text.contains("\u{1e}HICKORY_DISPLAY ") ? "Output" : "Terminal"); Spacer(); if let editSource { Button("Edit source text", action: editSource).buttonStyle(.plain) } }
-                .font(.system(size: 11, design: .monospaced)).padding(6).background(Color(red: 0.11, green: 0.15, blue: 0.2))
+                .font(.system(size: 11, design: .monospaced)).padding(6).background(.primary.opacity(0.06))
             NativeMathView(source: text, diagramRenderer: text.contains("\u{1e}HICKORY_DISPLAY ") ? "notebook" : "terminal")
-        }.foregroundStyle(Color(red: 0.9, green: 0.93, blue: 0.95)).background(Color(red: 0.06, green: 0.08, blue: 0.11))
-            .clipShape(RoundedRectangle(cornerRadius: 6)).overlay(RoundedRectangle(cornerRadius: 6).stroke(.gray.opacity(0.5)))
+        }.foregroundStyle(.primary).background(.background)
+            .clipShape(RoundedRectangle(cornerRadius: 6)).overlay(RoundedRectangle(cornerRadius: 6).stroke(.secondary.opacity(0.35)))
             .accessibilityElement(children: .contain).accessibilityLabel("Output terminal")
     }
 }

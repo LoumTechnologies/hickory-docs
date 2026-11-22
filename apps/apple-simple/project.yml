@@ -70,6 +70,10 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.hickorydocs.simple.mobile.recordedruntests
         TEST_TARGET_NAME: HickorySimpleMobile
 schemes:
+  HickorySimpleMobile:
+    build:
+      targets:
+        HickorySimpleMobile: all
   HickorySimpleMobileParity:
     build:
       targets:

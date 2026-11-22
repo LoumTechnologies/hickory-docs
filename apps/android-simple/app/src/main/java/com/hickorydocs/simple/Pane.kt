@@ -113,14 +113,17 @@ private const val TAB_MIME = "application/vnd.hickorydocs.tab"
     Column(Modifier.fillMaxSize().onFocusChanged { if (it.hasFocus) workspace.focused = id }.focusGroup()) {
         Row(Modifier.fillMaxWidth().height(29.dp).background(MaterialTheme.colorScheme.surfaceContainer)
             .dragAndDropTarget(shouldStartDragAndDrop = { TAB_MIME in it.mimeTypes() }, target = target).horizontalScroll(rememberScrollState())) {
-            val activeColor = MaterialTheme.colorScheme.primary
+            val palette = MaterialTheme.colorScheme
+            val activeColor = palette.primary
             node.tabs.forEach { tab ->
-                key(tab) {
+                key(tab, palette.onSurface) {
                     val tabTarget = tabDropTarget(workspace, id, tab) { targeted ->
                         if (targeted) dropBefore = tab else if (dropBefore == tab) dropBefore = null
                     }
+                    val active = node.active == tab
+                    val tabTextColor = if (active) palette.onSecondaryContainer else palette.onSurface
                     val tabColor by animateColorAsState(
-                        if (node.active == tab) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainer,
+                        if (active) palette.secondaryContainer else palette.surfaceContainer,
                         animationSpec = tween(SIMPLE_EMPHASIS_MS, easing = SimpleMotionEasing), label = "Tab emphasis")
                     Row(Modifier.background(tabColor)
                         .drawWithContent {
@@ -130,8 +133,8 @@ private const val TAB_MIME = "application/vnd.hickorydocs.tab"
                         }
                         .dragAndDropTarget(shouldStartDragAndDrop = { TAB_MIME in it.mimeTypes() }, target = tabTarget)
                         .dragAndDropSource { _ -> DragAndDropTransferData(ClipData(ClipDescription("hickory-tab", arrayOf(TAB_MIME)), ClipData.Item(tab))) }) {
-                        Text(workspace.label(tab), fontSize = 13.sp, modifier = Modifier.clickable { workspace.show(tab, id) }.padding(horizontal = 7.dp, vertical = 5.dp))
-                        Text("×", modifier = Modifier.clickable { workspace.close(tab) }.semantics { contentDescription = "Close ${workspace.label(tab)}" }.padding(horizontal = 6.dp, vertical = 5.dp))
+                        Text(workspace.label(tab), fontSize = 13.sp, color = tabTextColor, modifier = Modifier.clickable { workspace.show(tab, id) }.padding(horizontal = 7.dp, vertical = 5.dp))
+                        Text("×", color = tabTextColor, modifier = Modifier.clickable { workspace.close(tab) }.semantics { contentDescription = "Close ${workspace.label(tab)}" }.padding(horizontal = 6.dp, vertical = 5.dp))
                     }
                 }
             }
@@ -404,13 +407,15 @@ fun foldSourceOffset(displayOffset: Int, ranges: List<SimpleFold>): Int {
 // A terminal screen has no stdin path. Expectations and captured bytes use
 // the same renderer; editing an expectation goes back to its guarded source.
 @Composable private fun NativeInlineTerminal(text: String, modifier: Modifier = Modifier, editSource: (() -> Unit)? = null) {
-    Column(modifier.background(androidx.compose.ui.graphics.Color(0xff10151d), androidx.compose.foundation.shape.RoundedCornerShape(6.dp)).border(1.dp, androidx.compose.ui.graphics.Color(0xff354152), androidx.compose.foundation.shape.RoundedCornerShape(6.dp)).clip(androidx.compose.foundation.shape.RoundedCornerShape(6.dp)).semantics { contentDescription = "Output terminal" }) {
-        Row(Modifier.fillMaxWidth().background(androidx.compose.ui.graphics.Color(0xff1d2633)).padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-            Text(if (text.contains("\u001eHICKORY_DISPLAY ")) "Output" else "›_  Terminal", color = androidx.compose.ui.graphics.Color(0xffe6edf3), fontFamily = FontFamily.Monospace, fontSize = 11.sp)
+    val palette = MaterialTheme.colorScheme
+    val output = text.contains("\u001eHICKORY_DISPLAY ")
+    Column(modifier.background(palette.surface, androidx.compose.foundation.shape.RoundedCornerShape(6.dp)).border(1.dp, palette.outlineVariant, androidx.compose.foundation.shape.RoundedCornerShape(6.dp)).clip(androidx.compose.foundation.shape.RoundedCornerShape(6.dp)).semantics { contentDescription = "Output terminal" }) {
+        Row(Modifier.fillMaxWidth().background(palette.surfaceContainer).padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+            Text(if (output) "Output" else "›_  Terminal", color = palette.onSurface, fontFamily = FontFamily.Monospace, fontSize = 11.sp)
             Spacer(Modifier.weight(1f))
-            if (editSource != null) Text("Edit source text", color = androidx.compose.ui.graphics.Color(0xffe6edf3), fontSize = 11.sp, modifier = Modifier.clickable(onClick = editSource))
+            if (editSource != null) Text("Edit source text", color = palette.onSurface, fontSize = 11.sp, modifier = Modifier.clickable(onClick = editSource))
         }
-        NativeMathView(text, Modifier.fillMaxWidth().weight(1f), diagramRenderer = if (text.contains("\u001eHICKORY_DISPLAY ")) "notebook" else "terminal")
+        NativeMathView(text, Modifier.fillMaxWidth().weight(1f), diagramRenderer = if (output) "notebook" else "terminal")
     }
 }
 
@@ -648,6 +653,7 @@ private class NativeTableController(val buffer: DocumentBuffer, val scope: kotli
     var ready by remember { mutableStateOf(false) }
     var legacyFocused by remember { mutableStateOf(false) }
     val showShared = ready && !legacyFocused
+    val dark = androidx.compose.foundation.isSystemInDarkTheme()
     val scope = rememberCoroutineScope()
     val controller = remember(buffer) { NativeTableController(buffer, scope, onReady = { ready = true }, onUnavailable = { ready = false }) }
     Box(modifier) {
@@ -668,7 +674,11 @@ private class NativeTableController(val buffer: DocumentBuffer, val scope: kotli
                     }
                     loadUrl("file:///android_asset/math.html?table")
                 }
-            }, update = { view -> view.visibility = if (showShared) android.view.View.VISIBLE else android.view.View.INVISIBLE; controller.update(table, source) }, onRelease = { controller.view = null; it.removeJavascriptInterface("HickoryTable"); it.stopLoading(); it.destroy() })
+            }, update = { view ->
+                view.visibility = if (showShared) android.view.View.VISIBLE else android.view.View.INVISIBLE
+                if (ready) view.evaluateJavascript("globalThis.setPreviewAppearance?.($dark)", null)
+                controller.update(table, source)
+            }, onRelease = { controller.view = null; it.removeJavascriptInterface("HickoryTable"); it.stopLoading(); it.destroy() })
         }
     }
 }
@@ -705,7 +715,8 @@ private class NativeTableController(val buffer: DocumentBuffer, val scope: kotli
     val scope = rememberCoroutineScope()
     var menu by remember { mutableStateOf(false) }
     LaunchedEffect(buffer.showSnippetTools){if(buffer.showSnippetTools){menu=true;buffer.showSnippetTools=false}}
-    val color = MaterialTheme.colorScheme.primary
+    val syntaxPalette = MaterialTheme.colorScheme
+    val color = syntaxPalette.primary
     val source = buffer.text
     val service = buffer.language
     // Compose can observe typing before the service watcher runs. Rebase here too
@@ -930,10 +941,10 @@ private class NativeTableController(val buffer: DocumentBuffer, val scope: kotli
                         if (mark.kind.startsWith("syntax-") && semantic.any { it.from < mark.to && it.to > mark.from }) return@forEach
                         val style = when (mark.kind) {
                             "heading" -> SpanStyle(fontSize = maxOf(14, 25 - mark.level * 2).sp, fontWeight = FontWeight.SemiBold)
-                            "syntax-keyword" -> SpanStyle(color = androidx.compose.ui.graphics.Color(0xff9955cc))
-                            "syntax-string" -> SpanStyle(color = androidx.compose.ui.graphics.Color(0xff338855))
-                            "syntax-number" -> SpanStyle(color = androidx.compose.ui.graphics.Color(0xffbb7722))
-                            "syntax-comment" -> SpanStyle(color = androidx.compose.ui.graphics.Color(0xff888888))
+                            "syntax-keyword" -> SpanStyle(color = syntaxPalette.primary)
+                            "syntax-string" -> SpanStyle(color = syntaxPalette.tertiary)
+                            "syntax-number" -> SpanStyle(color = syntaxPalette.secondary)
+                            "syntax-comment" -> SpanStyle(color = syntaxPalette.onSurfaceVariant)
                             "strong" -> SpanStyle(fontWeight = FontWeight.Bold)
                             "diff-add" -> SpanStyle(background = androidx.compose.ui.graphics.Color(0x2233aa55))
                             "diff-remove" -> SpanStyle(background = androidx.compose.ui.graphics.Color(0x22dd3344))

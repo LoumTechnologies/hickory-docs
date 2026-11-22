@@ -522,21 +522,27 @@ const FALLBACK_COLS = 80;
 <a id="f-8f16bf6c8702-WatchingTerminal"></a>
 ### `WatchingTerminal`
 
+An inline terminal can inherit the surrounding document palette. Repaint its
+mounted emulator on appearance changes so existing ANSI output and scrollback
+remain available.
+
 <storycode:copy id="f-8f16bf6c8702-WatchingTerminal">
 // Captured and expected bytes share a screen, not a claim that a run matched.
 // Keep channel/source metadata outside the stream: it must never become output.
 export function InlineTerminal({ text = "", events, live, label = "Output terminal" }: { text?: string; events?: TranscriptEvent[]; live?: boolean; label?: string }) {
   const bytes = useMemo<TranscriptEvent[]>(() => events?.filter(event => event.kind === "out" || event.kind === "err") ?? [{ t: 0, kind: "out", data: text }], [text, events]);
-  return <section className="inline-output-terminal" aria-label={label} contentEditable={false} style={{ background: "#10151d", color: "#e6edf3", border: "1px solid #354152", borderRadius: 6, overflow: "hidden", margin: "4px 0", colorScheme: "dark", "--term-bg": "#10151d", "--term-fg": "#e6edf3" } as import("react").CSSProperties}>
-    <div aria-hidden="true" style={{ display: "flex", gap: 8, alignItems: "center", padding: "5px 9px", background: "#1d2633", borderBottom: "1px solid #354152", font: "11px ui-monospace, monospace" }}><span>›_</span><span>Terminal</span></div>
-    <div style={{ padding: 8 }}><WatchingTerminal events={bytes} live={live} /></div>
+  return <section className="inline-output-terminal" aria-label={label} contentEditable={false} style={{ background: "var(--term-bg)", color: "var(--term-fg)", border: "1px solid var(--inline-terminal-border, #354152)", borderRadius: 6, overflow: "hidden", margin: "4px 0", colorScheme: "var(--inline-terminal-scheme, dark)", "--term-bg": "var(--inline-terminal-bg, #10151d)", "--term-fg": "var(--inline-terminal-fg, #e6edf3)" } as import("react").CSSProperties}>
+    <div aria-hidden="true" style={{ display: "flex", gap: 8, alignItems: "center", padding: "5px 9px", background: "var(--inline-terminal-heading, #1d2633)", borderBottom: "1px solid var(--inline-terminal-border, #354152)", font: "11px ui-monospace, monospace" }}><span>›_</span><span>Terminal</span></div>
+    <div style={{ padding: 8 }}><WatchingTerminal events={bytes} live={live} inline /></div>
   </section>;
 }
 
 export function WatchingTerminal({
   events,
   live = false,
+  inline = false,
 }: {
+  inline?: boolean;
   events: TranscriptEvent[];
   /** Whether the run is still going. Only decides whether a cursor blinks;
    * it is never an input affordance, because there is no input. */
@@ -556,6 +562,12 @@ export function WatchingTerminal({
     const mount = host.current;
     if (!mount) return;
 
+    const appearance = inline ? window.matchMedia?.("(prefers-color-scheme: dark)") : undefined;
+    const theme = () => {
+      if (!inline) return { background: "rgba(0,0,0,0)" };
+      const style = getComputedStyle(mount);
+      return { background: style.backgroundColor, foreground: style.color };
+    };
     const emulator = new Terminal({
       // The executor normalizes captured `\r\n` to `\n` on every platform,
       // so the emulator is the one place that turns a line feed back into a
@@ -572,7 +584,8 @@ export function WatchingTerminal({
       fontFamily:
         getComputedStyle(document.body).getPropertyValue("--mono").trim() ||
         "ui-monospace, SFMono-Regular, Menlo, monospace",
-      theme: { background: "rgba(0,0,0,0)" },
+      theme: theme(),
+      minimumContrastRatio: inline ? 4.5 : undefined,
       allowTransparency: true,
     });
     const fit = new FitAddon();
@@ -589,14 +602,17 @@ export function WatchingTerminal({
     // would be padded out to whatever the pane happened to be tall.
     const observer = new ResizeObserver(() => resize(emulator, fit, mount));
     observer.observe(mount);
+    const updateTheme = () => { emulator.options.theme = theme(); };
+    appearance?.addEventListener("change", updateTheme);
 
     return () => {
+      appearance?.removeEventListener("change", updateTheme);
       observer.disconnect();
       emulatorRef.current = null;
       fitRef.current = null;
       emulator.dispose();
     };
-  }, []);
+  }, [inline]);
 
   useEffect(() => {
     const emulator = emulatorRef.current;

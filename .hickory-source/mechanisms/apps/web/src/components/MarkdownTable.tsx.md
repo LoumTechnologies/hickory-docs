@@ -90,6 +90,10 @@ export function mountNativeTable(host: HTMLElement, post: (message: NativeTableM
   const bridge = {
     update(snapshot: NativeTableSnapshot) {
       current = snapshot; writing = false;
+      const columns = snapshot.format === "markdown"
+        ? markdownRows(splitFormatComment(snapshot.source).body).reduce((width, row) => Math.max(width, row.length), 1)
+        : 1;
+      host.style.setProperty("--native-table-columns", String(columns));
       root.render(<Boundary><Surface snapshot={snapshot} /></Boundary>);
     },
     reply(id: number, value: unknown, error?: string) {

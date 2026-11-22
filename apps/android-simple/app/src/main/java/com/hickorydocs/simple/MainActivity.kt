@@ -8,6 +8,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
@@ -17,6 +18,7 @@ import androidx.compose.ui.input.key.*
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.view.WindowCompat
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
@@ -29,7 +31,17 @@ class MainActivity : ComponentActivity() {
             intent.getStringExtra("hickory_api_origin"),
             intent.getStringExtra("hickory_open_file"),
         )
-        setContent { MaterialTheme { Surface { SimpleWorkspace(workspace) } } }
+        setContent {
+            val dark = isSystemInDarkTheme()
+            SideEffect {
+                val insets = WindowCompat.getInsetsController(window, window.decorView)
+                insets.isAppearanceLightStatusBars = !dark
+                insets.isAppearanceLightNavigationBars = !dark
+            }
+            MaterialTheme(colorScheme = if (dark) darkColorScheme() else lightColorScheme()) {
+                Surface { SimpleWorkspace(workspace) }
+            }
+        }
     }
 }
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)

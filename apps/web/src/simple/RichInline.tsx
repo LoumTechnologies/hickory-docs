@@ -47,6 +47,11 @@ function SlotPortal({ slot, children, css }: { slot: RenderedSlot; children: Rea
   --fail-bg: color-mix(in srgb, var(--fail) 10%, Canvas);
   --stale-bg: color-mix(in srgb, var(--warn) 10%, Canvas);
   --neutral-bg: var(--bg-sunken);
+  --inline-terminal-bg: var(--bg-sunken);
+  --inline-terminal-fg: CanvasText;
+  --inline-terminal-heading: color-mix(in srgb, CanvasText 8%, Canvas);
+  --inline-terminal-border: var(--border);
+  --inline-terminal-scheme: light dark;
   --diff-del: var(--fail); --diff-ins: var(--ok);
   --select-bg: color-mix(in srgb, Highlight 22%, Canvas);
   --search-hit: color-mix(in srgb, var(--warn) 20%, Canvas);
@@ -141,7 +146,7 @@ function RichOwner({ buffer, view, keepPatchSource }: { buffer: Buffer; view: Ed
       view.dispatch({ effects });
     }}>‹/›</button>
   </DebugRailGroup>, rail))}{slots.map(slot => {
-    const context = { simpleTables: true, view, path: buffer.file.path, docId: buffer.file.doc_id, execBlocks: saved.filter((block): block is ExecBlock => block.kind === "exec"),
+    const context = { simpleTables: true, systemAppearance: true, view, path: buffer.file.path, docId: buffer.file.doc_id, execBlocks: saved.filter((block): block is ExecBlock => block.kind === "exec"),
       diagramBlocks: saved.filter((block): block is DiagramBlock => block.kind === "diagram"), runningCells: new Set<string>(), replaying: [],
       replaceBlockContent: (target: RenderedSlot, text: string, origin?: string) => modules.edit.replaceCapturedBlock(view, target, text, origin ?? "input.table"),
     };

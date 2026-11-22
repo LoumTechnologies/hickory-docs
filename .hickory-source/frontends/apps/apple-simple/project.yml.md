@@ -7,6 +7,9 @@ Generate the Xcode project into an ignored build directory, using paths relative
 
 The build generates its ignored Xcode project beside this spec and the Sources directory. The installed XcodeGen emits folder references relative to the spec root even when a project is relocated; keeping the project beside its sources makes both Swift and Resources resolve consistently. Derived build products still go under target/, and no user configuration is needed. Copy the source Resources folder beneath HickoryAssets: a top-level Resources folder makes Foundation misclassify the flat iOS app bundle and lose its bundle identifier during installation.
 
+The build-only `HickorySimpleMobile` scheme is explicit so XcodeGen still
+provides the scheme used by `just simple-build ios` alongside the test schemes.
+
 The opt-in hosted `HickorySimpleMobileParity` test scheme mounts the production UIKit editor and uses an owned real-engine fixture. Its separate test folder is excluded from application source discovery and the macOS SPM suite. Building the application alone does not run the witness or start a simulator. See the [mounted UIKit acceptance](../../../mechanisms/ios-mounted-parity-acceptance.md) for resource coordination and the exact focused invocation.
 
 `HickorySimpleMobileRecordedRun` drives the installed app through XCUITest so the recorded Run test uses the same SwiftUI controls and WebKit accessibility tree as a person using the app.
@@ -84,6 +87,10 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.hickorydocs.simple.mobile.recordedruntests
         TEST_TARGET_NAME: HickorySimpleMobile
 schemes:
+  HickorySimpleMobile:
+    build:
+      targets:
+        HickorySimpleMobile: all
   HickorySimpleMobileParity:
     build:
       targets:

@@ -69,6 +69,7 @@ export const diagramView: ElementView = {
           source={resolved ?? slot.text}
           domId={`hick-diagram-${slot.index}`}
           assertions={states}
+          systemAppearance={cx.systemAppearance}
         />
       </div>
     );

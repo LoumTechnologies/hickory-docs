@@ -953,11 +953,41 @@ bind quoted node file links after rendering and send only paths to the host.
 The host resolves them against the containing document and rejects external
 schemes and paths escaping the workspace. Double-click is the opening gesture.
 
+Native WebViews paint math and tables from semantic system colors. Pass the
+SwiftUI host appearance to each preview so a newly mounted WebKit process can
+choose its palette before the first render. Update that palette independently
+of the source and keep the same WebView on a live appearance change. Fit prose
+tables to their viewport while preserving enough width per column to read words.
+At narrower sizes the existing grid scroller keeps cells reachable. Recorded
+terminal output updates its emulator palette in place. The interactive terminal
+keeps its own palette.
+
 <ui:copy id="simple-inline-math-0">
 <!doctype html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'nonce-hickory-math'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src data:;">
 <link rel="stylesheet" href="node_modules/xterm.css"><link rel="stylesheet" href="katex/katex.min.css"><style>html{height:100%;color-scheme:light dark;font:14px system-ui}body{margin:0;height:100%;overflow:hidden}body.terminal-mode{color-scheme:dark;height:100%;margin:0;background:#10151d;color:#e6edf3;overflow:hidden}.terminal-mode #formula{position:static;width:auto;transform:none!important;height:100%;box-sizing:border-box;padding:6px;overflow:hidden}.terminal-mode:not(.interactive-terminal) .xterm-cursor-layer{display:none}#formula{position:absolute;width:max-content;padding:8px;transform-origin:top left;box-sizing:border-box}#status{position:absolute;bottom:0;font-size:11px}#formula .katex-display{margin:0}.inline-math{font-size:13px}.inline-math #formula{padding:1px}.display-math #formula{padding:4px}</style>
+<style>
+html:root {
+  color-scheme: light dark;
+  color: CanvasText; background: Canvas;
+  --bg: Canvas; --fg: CanvasText; --fg-muted: GrayText; --muted: GrayText;
+  --bg-raised: Canvas; --bg-sunken: color-mix(in srgb, CanvasText 5%, Canvas);
+  --border: color-mix(in srgb, CanvasText 22%, Canvas);
+  --accent: Highlight; --accent-2: light-dark(#176b73, #71d1d9);
+  --select-bg: color-mix(in srgb, Highlight 22%, Canvas);
+}
+html[data-appearance="light"] { color-scheme: light; }
+html[data-appearance="dark"] { color-scheme: dark; }
+.table-mode .table-panel__formula:disabled { opacity: 1; }
+.table-mode .table-panel__formula::placeholder {
+  color: GrayText; -webkit-text-fill-color: currentColor; opacity: 1;
+}
+.table-mode .table-panel--fit-prose .table-panel__grid {
+  min-width: calc(2.25rem + var(--native-table-columns, 1) * 5.5rem);
+}
+body.terminal-mode:not(.interactive-terminal) { color-scheme: inherit; background: light-dark(#f6f7f8, #1c1c1e); color: CanvasText; }
+</style>
 </head><body><div id="formula" aria-label="Typeset equation"></div><div id="status" role="status"></div>
 <script nonce="hickory-math" src="node_modules/xterm.js"></script><script nonce="hickory-math" src="node_modules/addon-fit.js"></script><script nonce="hickory-math" src="katex/katex.min.js"></script><script nonce="hickory-math" src="node_modules/mermaid.min.js"></script><script nonce="hickory-math">
 if (globalThis.hickoryTableMode || location.search === '?table') {
@@ -996,6 +1026,26 @@ globalThis.renderMath = function (formula, inline = false, revision = 0) {
   try { katex.render(formula, node, {throwOnError:false, trust:false, strict:'warn', displayMode:!inline, maxExpand:1000}); status.textContent = ''; }
   catch (_) { node.textContent = formula; status.textContent = 'Check the LaTeX expression.'; }
   fitPreview();
+};
+const preferredAppearance = matchMedia('(prefers-color-scheme: dark)');
+const darkAppearance = () => (document.documentElement.dataset.appearance ?? (preferredAppearance.matches ? 'dark' : 'light')) === 'dark';
+const outputTheme = () => ({
+  background: darkAppearance() ? '#1c1c1e' : '#f6f7f8',
+  foreground: darkAppearance() ? '#f2f2f7' : '#242527'
+});
+let displayedMermaid;
+function updateAppearance() {
+  if (outputTerminal) outputTerminal.options.theme = outputTheme();
+  if (displayedMermaid) globalThis.renderDiagram(...displayedMermaid);
+}
+preferredAppearance.addEventListener('change', () => {
+  if (!document.documentElement.dataset.appearance) updateAppearance();
+});
+globalThis.setPreviewAppearance = dark => {
+  const appearance = dark ? 'dark' : 'light';
+  if (document.documentElement.dataset.appearance === appearance) return;
+  document.documentElement.dataset.appearance = appearance;
+  updateAppearance();
 };
 // This screen has no input binding and never executes expected/output bytes.
 let outputTerminal, outputFit, outputBytes = '', outputResize;
@@ -1046,7 +1096,7 @@ globalThis.renderTerminal = function (source) {
   try {
   if (!outputTerminal) {
     node.replaceChildren();
-    outputTerminal = new Terminal({ disableStdin:true, convertEol:true, cursorBlink:false, screenReaderMode:true, fontSize:12, fontFamily:'ui-monospace, monospace', rows:6, cols:80, scrollback:5000, theme:{background:'#10151d',foreground:'#e6edf3'} });
+    outputTerminal = new Terminal({ disableStdin:true, convertEol:true, cursorBlink:false, screenReaderMode:true, fontSize:12, fontFamily:'ui-monospace, monospace', rows:6, cols:80, scrollback:5000, minimumContrastRatio:4.5, theme:outputTheme() });
     outputFit = new FitAddon.FitAddon(); outputTerminal.loadAddon(outputFit); outputTerminal.open(node);
     outputResize = new ResizeObserver(() => { if (node.clientWidth && node.clientHeight) outputFit.fit(); }); outputResize.observe(node);
   }
@@ -1061,12 +1111,13 @@ globalThis.renderTerminal = function (source) {
   }
 };
 globalThis.renderDiagram = async function (source, renderer, sizeRevision = 0) {
+  displayedMermaid = renderer === 'mermaid' ? [source, renderer, sizeRevision] : undefined;
   globalThis.mathRevision = sizeRevision;
   document.body.className = 'diagram-mode';
   const node = document.getElementById('formula'), status = document.getElementById('status');
   const revision = globalThis.diagramRevision = (globalThis.diagramRevision || 0) + 1;
-  node.replaceChildren(); status.textContent = '';
-  if (source.length > 200000) { status.textContent = 'Diagram is too large to preview. Edit its source.'; return; }
+  status.textContent = '';
+  if (source.length > 200000) { node.textContent = ''; status.textContent = 'Diagram is too large to preview. Edit its source.'; return; }
   try {
     if (renderer === 'graph') {
       const graph = JSON.parse(source), topology = graph.topology || {}, layout = graph.layout || {};
@@ -1090,10 +1141,10 @@ globalThis.renderDiagram = async function (source, renderer, sizeRevision = 0) {
         if (typeof item.href === 'string') { group.style.cursor = 'pointer'; group.addEventListener('dblclick', () => globalThis.webkit?.messageHandlers?.diagramLink?.postMessage({ href: item.href, revision: sizeRevision })); }
         svg.append(group);
       }
-      node.append(svg);
+      node.replaceChildren(svg);
     } else if (renderer === 'mermaid') {
       if (!globalThis.mermaid) throw Error('Diagram engine unavailable. Prepare native resources and rebuild.');
-      mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', theme: 'neutral', maxTextSize: 200000 });
+      mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', theme: darkAppearance() ? 'dark' : 'neutral', maxTextSize: 200000 });
       const result = await mermaid.render('diagram-' + revision, source);
       if (revision === globalThis.diagramRevision) {
         node.innerHTML = result.svg;
@@ -1108,6 +1159,7 @@ globalThis.renderDiagram = async function (source, renderer, sizeRevision = 0) {
       }
     } else throw Error('No preview for renderer ' + renderer + '. Edit its source.');
   } catch (error) { if (revision === globalThis.diagramRevision) { node.textContent = source; status.textContent = error.message || 'Check the diagram source.'; } }
+  if (revision === globalThis.diagramRevision) fitPreview();
 };
 
 </script></body></html>
@@ -1208,9 +1260,16 @@ import WebKit
     var onLink: ((String) -> Void)?
     private var revision = 0
     private var displayed: String?
+    var darkAppearance = false
+    private var appliedAppearance: Bool?
     var ready = false
     func display(_ view: WKWebView) {
-        guard ready, let bytes = try? JSONSerialization.data(withJSONObject: source, options: .fragmentsAllowed), let json = String(data: bytes, encoding: .utf8) else { return }
+        guard ready else { return }
+        if appliedAppearance != darkAppearance {
+            appliedAppearance = darkAppearance
+            view.evaluateJavaScript("globalThis.setPreviewAppearance?.(\(darkAppearance))", completionHandler: nil)
+        }
+        guard let bytes = try? JSONSerialization.data(withJSONObject: source, options: .fragmentsAllowed), let json = String(data: bytes, encoding: .utf8) else { return }
         let key = (diagramRenderer.map { "diagram:" + $0 } ?? "math") + "\0" + String(inline) + "\0" + source
         guard displayed != key else { return }
         displayed = key; revision += 1
@@ -1232,7 +1291,12 @@ import WebKit
               width.isFinite, height.isFinite, width > 0, height > 0 else { return }
         onSize?(CGSize(width: width, height: height))
     }
-    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) { ready = true; displayed = nil; display(webView) }
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        ready = true
+        displayed = nil
+        appliedAppearance = nil
+        display(webView)
+    }
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
         let url = navigationAction.request.url
         decisionHandler(url?.isFileURL == true || url?.scheme == "about" ? .allow : .cancel)
@@ -1280,9 +1344,11 @@ struct NativeMathView: NSViewRepresentable {
     var inline = false
     var onSize: ((CGSize) -> Void)? = nil
     var onLink: ((String) -> Void)? = nil
+    @Environment(\.colorScheme) private var colorScheme
+
     func makeCoordinator() -> MathCoordinator { MathCoordinator() }
-    func makeNSView(context: Context) -> WKWebView { context.coordinator.source = source; context.coordinator.diagramRenderer = diagramRenderer; context.coordinator.inline = inline; context.coordinator.onSize = onSize; context.coordinator.onLink = onLink; return makeMathView(context.coordinator) }
-    func updateNSView(_ view: WKWebView, context: Context) { context.coordinator.source = source; context.coordinator.diagramRenderer = diagramRenderer; context.coordinator.inline = inline; context.coordinator.onSize = onSize; context.coordinator.onLink = onLink; context.coordinator.display(view) }
+    func makeNSView(context: Context) -> WKWebView { context.coordinator.source = source; context.coordinator.diagramRenderer = diagramRenderer; context.coordinator.inline = inline; context.coordinator.darkAppearance = colorScheme == .dark; context.coordinator.onSize = onSize; context.coordinator.onLink = onLink; return makeMathView(context.coordinator) }
+    func updateNSView(_ view: WKWebView, context: Context) { context.coordinator.source = source; context.coordinator.diagramRenderer = diagramRenderer; context.coordinator.inline = inline; context.coordinator.darkAppearance = colorScheme == .dark; context.coordinator.onSize = onSize; context.coordinator.onLink = onLink; context.coordinator.display(view) }
 }
 #else
 struct NativeMathView: UIViewRepresentable {
@@ -1291,9 +1357,11 @@ struct NativeMathView: UIViewRepresentable {
     var inline = false
     var onSize: ((CGSize) -> Void)? = nil
     var onLink: ((String) -> Void)? = nil
+    @Environment(\.colorScheme) private var colorScheme
+
     func makeCoordinator() -> MathCoordinator { MathCoordinator() }
-    func makeUIView(context: Context) -> WKWebView { context.coordinator.source = source; context.coordinator.diagramRenderer = diagramRenderer; context.coordinator.inline = inline; context.coordinator.onSize = onSize; context.coordinator.onLink = onLink; return makeMathView(context.coordinator) }
-    func updateUIView(_ view: WKWebView, context: Context) { context.coordinator.source = source; context.coordinator.diagramRenderer = diagramRenderer; context.coordinator.inline = inline; context.coordinator.onSize = onSize; context.coordinator.onLink = onLink; context.coordinator.display(view) }
+    func makeUIView(context: Context) -> WKWebView { context.coordinator.source = source; context.coordinator.diagramRenderer = diagramRenderer; context.coordinator.inline = inline; context.coordinator.darkAppearance = colorScheme == .dark; context.coordinator.onSize = onSize; context.coordinator.onLink = onLink; return makeMathView(context.coordinator) }
+    func updateUIView(_ view: WKWebView, context: Context) { context.coordinator.source = source; context.coordinator.diagramRenderer = diagramRenderer; context.coordinator.inline = inline; context.coordinator.darkAppearance = colorScheme == .dark; context.coordinator.onSize = onSize; context.coordinator.onLink = onLink; context.coordinator.display(view) }
 }
 #endif
 // One read-only terminal surface for captured bytes and expect bodies.
@@ -1303,10 +1371,10 @@ struct NativeInlineTerminal: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack { Image(systemName: "terminal"); Text(text.contains("\u{1e}HICKORY_DISPLAY ") ? "Output" : "Terminal"); Spacer(); if let editSource { Button("Edit source text", action: editSource).buttonStyle(.plain) } }
-                .font(.system(size: 11, design: .monospaced)).padding(6).background(Color(red: 0.11, green: 0.15, blue: 0.2))
+                .font(.system(size: 11, design: .monospaced)).padding(6).background(.primary.opacity(0.06))
             NativeMathView(source: text, diagramRenderer: text.contains("\u{1e}HICKORY_DISPLAY ") ? "notebook" : "terminal")
-        }.foregroundStyle(Color(red: 0.9, green: 0.93, blue: 0.95)).background(Color(red: 0.06, green: 0.08, blue: 0.11))
-            .clipShape(RoundedRectangle(cornerRadius: 6)).overlay(RoundedRectangle(cornerRadius: 6).stroke(.gray.opacity(0.5)))
+        }.foregroundStyle(.primary).background(.background)
+            .clipShape(RoundedRectangle(cornerRadius: 6)).overlay(RoundedRectangle(cornerRadius: 6).stroke(.secondary.opacity(0.35)))
             .accessibilityElement(children: .contain).accessibilityLabel("Output terminal")
     }
 }
@@ -1352,13 +1420,16 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.webkit.WebResourceRequest
 import android.webkit.RenderProcessGoneDetail
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
 import org.json.JSONObject
 
 @SuppressLint("SetJavaScriptEnabled")
 @Composable fun NativeMathView(source: String, modifier: Modifier = Modifier, diagramRenderer: String? = null) {
+    val dark = rememberUpdatedState(isSystemInDarkTheme())
     AndroidView(modifier = modifier, factory = { context ->
         WebView(context).apply {
             settings.javaScriptEnabled = true; settings.allowFileAccess = false; settings.allowContentAccess = false; settings.blockNetworkLoads = true
@@ -1366,12 +1437,15 @@ import org.json.JSONObject
                 override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean { view.destroy(); return true }
                 override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean = request.url.toString() != "file:///android_asset/math.html"
                 override fun onPageFinished(view: WebView, url: String) {
-                    if (url == "file:///android_asset/math.html") view.evaluateJavascript(view.tag as? String ?: "", null)
+                    if (url == "file:///android_asset/math.html") {
+                        view.evaluateJavascript("globalThis.setPreviewAppearance(${dark.value});" + (view.tag as? String ?: ""), null)
+                    }
                 }
             }
             tag = if (diagramRenderer == "notebook") "globalThis.renderNotebookOutput(" + JSONObject.quote(source) + ")" else if (diagramRenderer == "terminal") "globalThis.renderTerminal(" + JSONObject.quote(source) + ")" else if (diagramRenderer == null) "globalThis.renderMath(" + JSONObject.quote(source) + ")" else "globalThis.renderDiagram(" + JSONObject.quote(source) + "," + JSONObject.quote(diagramRenderer) + ")"; loadUrl("file:///android_asset/math.html")
         }
     }, update = { view ->
+        view.evaluateJavascript("globalThis.setPreviewAppearance?.(${dark.value})", null)
         val script = if (diagramRenderer == "notebook") "globalThis.renderNotebookOutput(" + JSONObject.quote(source) + ")" else if (diagramRenderer == "terminal") "globalThis.renderTerminal(" + JSONObject.quote(source) + ")" else if (diagramRenderer == null) "globalThis.renderMath(" + JSONObject.quote(source) + ")" else "globalThis.renderDiagram(" + JSONObject.quote(source) + "," + JSONObject.quote(diagramRenderer) + ")"
         if (view.tag != script) {
             view.tag = script
@@ -1457,6 +1531,11 @@ function SlotPortal({ slot, children, css }: { slot: RenderedSlot; children: Rea
   --fail-bg: color-mix(in srgb, var(--fail) 10%, Canvas);
   --stale-bg: color-mix(in srgb, var(--warn) 10%, Canvas);
   --neutral-bg: var(--bg-sunken);
+  --inline-terminal-bg: var(--bg-sunken);
+  --inline-terminal-fg: CanvasText;
+  --inline-terminal-heading: color-mix(in srgb, CanvasText 8%, Canvas);
+  --inline-terminal-border: var(--border);
+  --inline-terminal-scheme: light dark;
   --diff-del: var(--fail); --diff-ins: var(--ok);
   --select-bg: color-mix(in srgb, Highlight 22%, Canvas);
   --search-hit: color-mix(in srgb, var(--warn) 20%, Canvas);
@@ -1551,7 +1630,7 @@ function RichOwner({ buffer, view, keepPatchSource }: { buffer: Buffer; view: Ed
       view.dispatch({ effects });
     }}>‹/›</button>
   </DebugRailGroup>, rail))}{slots.map(slot => {
-    const context = { simpleTables: true, view, path: buffer.file.path, docId: buffer.file.doc_id, execBlocks: saved.filter((block): block is ExecBlock => block.kind === "exec"),
+    const context = { simpleTables: true, systemAppearance: true, view, path: buffer.file.path, docId: buffer.file.doc_id, execBlocks: saved.filter((block): block is ExecBlock => block.kind === "exec"),
       diagramBlocks: saved.filter((block): block is DiagramBlock => block.kind === "diagram"), runningCells: new Set<string>(), replaying: [],
       replaceBlockContent: (target: RenderedSlot, text: string, origin?: string) => modules.edit.replaceCapturedBlock(view, target, text, origin ?? "input.table"),
     };

@@ -28,6 +28,7 @@ export interface DiagramPanelProps {
   source: string;
   /** Stable id for the render target — mermaid needs a unique DOM id. */
   domId: string;
+  systemAppearance?: boolean;
   /** Ids named by `asserts`, with whether each one is currently passing. */
   assertions?: { id: string; state: "passing" | "failing" | "unknown" }[];
 }
@@ -46,6 +47,7 @@ export function DiagramPanel({
   domId,
   assertions = [],
   path,
+  systemAppearance = false,
 }: DiagramPanelProps) {
   const [render, setRender] = useState<Render>({ status: "idle" });
   // Guards against an out-of-order render: mermaid is async and someone
@@ -59,27 +61,29 @@ export function DiagramPanel({
       setRender({ status: "idle" });
       return;
     }
-    const ticket = ++latest.current;
     let cancelled = false;
 
-    (async () => {
+    const appearance = systemAppearance ? window.matchMedia?.("(prefers-color-scheme: dark)") : undefined;
+    const draw = async () => {
+      const generation = ++latest.current;
       try {
         const mermaid = (await import("mermaid")).default;
+        if (cancelled || generation !== latest.current) return;
         mermaid.initialize({
           startOnLoad: false,
           // The editor is themed by the app; a diagram that ignored that
           // would be a bright rectangle in a dark document.
-          theme: "base",
+          theme: appearance?.matches ? "dark" : "base",
           securityLevel: "strict",
         });
         const { svg } = await mermaid.render(domId, trimmed);
-        if (!cancelled && ticket === latest.current)
+        if (!cancelled && generation === latest.current)
           setRender({ status: "drawn", svg, input: { source, renderer, domId } });
       } catch (error) {
         // A half-typed diagram is the common case, not an exception. The
         // source stays visible below either way, so this never costs the
         // author their text — it only says why there is no picture yet.
-        if (!cancelled && ticket === latest.current) {
+        if (!cancelled && generation === latest.current) {
           setRender({
             status: "failed",
             input: { source, renderer, domId },
@@ -87,12 +91,14 @@ export function DiagramPanel({
           });
         }
       }
-    })();
-
+    };
+    appearance?.addEventListener("change", draw);
+    void draw();
     return () => {
       cancelled = true;
+      appearance?.removeEventListener("change", draw);
     };
-  }, [renderer, source, domId]);
+  }, [renderer, source, domId, systemAppearance]);
 
   const stale = render.status !== "idle" && (render.input.source !== source || render.input.renderer !== renderer || render.input.domId !== domId);
   useUiReading("diagram rendering", { renderer, source, assertions, render: RENDERERS.includes(renderer) ? render : { status: "unsupported" }, stale, scope: "Actual renderer result and reported assertion states; diagram rendering does not independently establish assertions" });
