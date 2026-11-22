@@ -64,7 +64,7 @@ def publish(directory, version, sha):
         "-f", f"sha={sha}", "-F", "force=true")
     notes = directory / "release-notes.md"
     notes.write_text(f"Apple Silicon desktop {version}, built from `{sha}`.\n\n"
-                     "Published manually over SSH. Other-platform and CLI assets may be older.\n")
+                     f"For other platforms and CLI builds, see https://github.com/{REPO}/releases.\n")
     run("gh", "release", "edit", "unstable", "--repo", REPO, "--title", "Unstable",
         "--prerelease", "--notes-file", str(notes))
 

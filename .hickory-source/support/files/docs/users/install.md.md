@@ -35,13 +35,13 @@ Knobs, all environment variables so the piped form still works:
 
 | Variable | Default | What it does |
 |---|---|---|
-| `HICKORY_CHANNEL` | `stable` | `unstable` installs the build cut from the last green `master` instead |
+| `HICKORY_CHANNEL` | `stable` | `unstable` installs the newest published CI build of `master` |
 | `HICKORY_VERSION` | — | An exact tag, e.g. `v0.1.0`. Overrides the channel |
 | `HICKORY_INSTALL_DIR` | `~/.local/bin` | Where the binary goes |
 | `HICKORY_GITHUB_TOKEN` | — | A GitHub token, needed only while this repository is private |
 
 ```sh
-curl -fsSL …/install.sh | HICKORY_CHANNEL=unstable sh
+curl -fsSL https://raw.githubusercontent.com/LoumTechnologies/hickory-docs/master/scripts/install.sh | HICKORY_CHANNEL=unstable sh
 ```
 
 ## By hand
@@ -75,9 +75,15 @@ cd hick-<version>-<target>
 
 - **Stable** — an immutable `vX.Y.Z` tag, cut deliberately. This is what the
   installer picks by default and what `/releases/latest` answers.
-- **Unstable** — one rolling `unstable` tag, replaced by every green build of
-  `master`. Versions look like `0.1.0-unstable.a1b2c3d4`, so a bug report off
-  this channel names the commit it came from. No compatibility promise.
+- **Unstable** — each push to `master` starts a build. The rolling
+  [Unstable page](https://github.com/LoumTechnologies/hickory-docs/releases/tag/unstable)
+  links to the latest published CI build. A version such as
+  `0.1.0-unstable.21.ga1b2c3d4` identifies its build and commit.
+
+To update the CLI on macOS or Linux, rerun the installer with the same channel
+and install directory. On Windows, verify the new ZIP's checksum, then replace
+both binaries together. For a reproducible install, pass the exact release tag
+as `HICKORY_VERSION`. The default installer requires a published stable release.
 
 ## What each platform needs
 

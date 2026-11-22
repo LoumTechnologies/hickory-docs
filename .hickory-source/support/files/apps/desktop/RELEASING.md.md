@@ -9,7 +9,7 @@ This is preserved output from the original capture. Current requirement disposit
 Captured SHA-256: `bd6d53ce0372052c4d6147f5a02f33cf5e78e9b75640844ac55c81bdee901ca6`.
 
 <book:entry path="apps/desktop/RELEASING.md">
-# Publish Unstable from a Linux agent
+# Publish signed Apple Silicon updates from Linux
 
 For a maintainer working on Linux who wants the Apple Silicon desktop app on
 another Mac to offer each new build as an update.
@@ -17,7 +17,9 @@ another Mac to offer each new build as an update.
 Run `just release-unstable` after committing and pushing. It sends the committed
 source to a Mac over SSH, builds a DMG and signed update archive there, and
 uploads them to the GitHub release titled **Unstable** (tag `unstable`). It
-creates the release when needed. GitHub Actions does not participate.
+creates the rolling release when needed. Unstable Release in GitHub Actions
+builds the per-push downloads. The SSH command supplies the separately signed
+Apple Silicon payloads and updater manifest.
 
 ## Set up the Mac builder once
 
@@ -114,8 +116,8 @@ The DMG is the first-install download. The updater downloads a signed
 [Tauri updater](https://v2.tauri.app/plugin/updater/). Payloads upload before
 `unstable.json` switches to the new version. Previous payloads remain available
 for clients that fetched an earlier manifest. Do not delete old assets without
-considering those clients. The former automatic Unstable Actions publisher was
-removed because it deleted the entire release, including updater assets.
+considering those clients. The CI publisher advances its own download pointer
+and keeps the signed manifest and payloads on the rolling release.
 
 ## Focused validation
 
@@ -145,8 +147,8 @@ Post-commit regression checks are separate from publishing. Run
 `just checks-status` yourself for the local hook results. Its output is also
 recorded under the Git common directory in `checks/hook.log`. For GitHub checks,
 use `gh run list` and `gh run view <run-id>`. Publishing does not wait for or
-inspect those checks. This command publishes Apple Silicon desktop assets only;
-existing CLI and other-platform assets remain at their previous versions.
+inspect those checks. To see CI packages for other platforms, open the
+Unstable Release run for the desired commit.
 </book:entry>
 
 </book:doc>

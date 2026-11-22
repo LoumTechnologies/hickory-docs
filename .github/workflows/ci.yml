@@ -431,8 +431,7 @@ jobs:
       # on Windows. Those tests do not test what they claim on this platform —
       # several passed while confining nothing, because an msys `touch` fails
       # whatever the sandbox does. Re-adding this line is issue #17's close
-      # condition. Running it today would only keep the release channel red,
-      # since Unstable Release chains off a green CI.
+      # condition. Unstable Release runs packaging and artifact checks separately.
       - run: cargo build --workspace --all-targets
 
   # macOS, because the product runs there and nothing in CI did.

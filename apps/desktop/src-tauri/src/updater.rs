@@ -16,7 +16,10 @@ fn should_offer(current: &semver::Version, remote: &semver::Version) -> bool {
 
 pub(super) fn start(app: tauri::AppHandle) {
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-    if !cfg!(debug_assertions) && is_unstable(&app.package_info().version.to_string()) {
+    if !cfg!(debug_assertions)
+        && is_unstable(&app.package_info().version.to_string())
+        && app.config().plugins.0.contains_key("updater")
+    {
         macos::start(app);
     }
     #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]

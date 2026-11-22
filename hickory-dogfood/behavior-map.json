@@ -19119,6 +19119,13 @@
       "role": "build-and-assets",
       "sha256": "d6420f7bb22ae51a545cb95ecfbdb9ec90cf49b5b0136fced131c0ea0e658c9a"
     },
+    ".github/workflows/unstable-release.yml": {
+      "source": ".hickory-source/guarantees/release/only-a-green-commit-becomes-downloadable/contract.md",
+      "owner": "support",
+      "used_by": [],
+      "role": "build-and-assets",
+      "sha256": "e77e6f769a75eeb7e167e7fcaf7a50a799b96025d58807f68bef54f9f48540b8"
+    },
     ".github/workflows/stable-release.yml": {
       "source": ".hickory-source/support/files/.github/workflows/stable-release.yml.md",
       "owner": "support",

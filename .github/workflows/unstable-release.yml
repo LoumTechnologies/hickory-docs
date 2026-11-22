@@ -1,0 +1,276 @@
+name: Unstable Release
+
+on:
+  push:
+    branches: [master]
+
+permissions:
+  contents: read
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          short=${GITHUB_SHA:0:8}
+          base=$(sed -n 's/^version = "\([0-9]*\.[0-9]*\.[0-9]*\)"$/\1/p' crates/hickory-cli/Cargo.toml)
+          [[ "$base" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          echo "version=$base-unstable.$GITHUB_RUN_NUMBER.g$short" >> "$GITHUB_OUTPUT"
+          echo "tag=unstable-ci-$GITHUB_RUN_NUMBER-$short" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: version
+    uses: ./.github/workflows/release-build.yml
+    with:
+      ref: ${{ github.sha }}
+      version: ${{ needs.version.outputs.version }}
+      channel: unstable
+
+  simple:
+    needs: version
+    name: Simple ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { platform: browser, target: browser, runner: ubuntu-24.04 }
+          - { platform: macos, target: macos-arm64, runner: macos-15 }
+          - { platform: macos, target: macos-x64, runner: macos-15-intel }
+          - { platform: ios, target: ios-simulator-arm64, runner: macos-15 }
+          - { platform: android, target: android, runner: ubuntu-24.04 }
+          - { platform: windows, target: windows-x64, runner: windows-2025 }
+          - { platform: windows, target: windows-arm64, runner: windows-11-arm }
+    env:
+      PLATFORM: ${{ matrix.platform }}
+      TARGET: ${{ matrix.target }}
+      VERSION: ${{ needs.version.outputs.version }}
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_INCREMENTAL: '0'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - uses: extractions/setup-just@v4
+      - uses: dtolnay/rust-toolchain@1.96.1
+        if: matrix.platform == 'windows' || matrix.platform == 'android'
+      - name: Select the native Windows ARM64 Rust toolchain
+        if: matrix.target == 'windows-arm64'
+        shell: bash
+        run: |
+          rustup toolchain install 1.96.1-aarch64-pc-windows-msvc --profile minimal
+          echo "RUSTUP_TOOLCHAIN=1.96.1-aarch64-pc-windows-msvc" >> "$GITHUB_ENV"
+      - name: Install NASM for the x64 workspace host
+        if: matrix.target == 'windows-x64'
+        shell: bash
+        run: |
+          choco install nasm -y --no-progress
+          echo "C:\Program Files\NASM" >> "$GITHUB_PATH"
+      - uses: actions/setup-dotnet@v4
+        if: matrix.platform == 'windows'
+        with:
+          dotnet-version: '10.0.x'
+      - uses: actions/setup-java@v4
+        if: matrix.platform == 'android'
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+        if: matrix.platform == 'android'
+      - uses: gradle/actions/setup-gradle@v4
+        if: matrix.platform == 'android'
+        with:
+          gradle-version: '9.3.1'
+      - if: matrix.platform == 'android'
+        run: sdkmanager 'platforms;android-37.0' 'build-tools;36.0.0'
+      - if: runner.os == 'macOS'
+        run: brew install xcodegen
+      - run: npm --prefix apps/web ci
+      - name: Build and package the Simple frontend
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist/simple
+          asset="dist/simple/hickory-simple-$VERSION-$TARGET"
+          case "$PLATFORM" in
+            browser)
+              just simple-build browser
+              test -f apps/web/dist-simple/simple.html
+              tar -czf "$asset.tar.gz" -C apps/web/dist-simple .
+              ;;
+            macos)
+              python3 scripts/prepare-simple-resources.py
+              xcodegen generate --spec apps/apple-simple/project.yml
+              xcodebuild -project apps/apple-simple/HickorySimple.xcodeproj \
+                -target HickorySimpleMac -configuration Release ARCHS="$(uname -m)" \
+                SYMROOT="$PWD/target/simple-release" CODE_SIGNING_ALLOWED=NO build
+              app=target/simple-release/Release/HickorySimpleMac.app
+              test -x "$app/Contents/MacOS/HickorySimpleMac"
+              codesign --force --sign - "$app"
+              ditto -c -k --keepParent "$app" "$asset.zip"
+              ;;
+            ios)
+              python3 scripts/prepare-simple-resources.py
+              xcodegen generate --spec apps/apple-simple/project.yml
+              xcodebuild -project apps/apple-simple/HickorySimple.xcodeproj \
+                -scheme HickorySimpleMobile -configuration Release -sdk iphonesimulator \
+                -destination 'generic/platform=iOS Simulator' -derivedDataPath target/simple-release-ios \
+                ARCHS=arm64 CODE_SIGNING_ALLOWED=NO build
+              app=target/simple-release-ios/Build/Products/Release-iphonesimulator/HickorySimpleMobile.app
+              test -x "$app/HickorySimpleMobile"
+              ditto -c -k --keepParent "$app" "$asset.zip"
+              ;;
+            android)
+              just simple-build android
+              cp apps/android-simple/app/build/outputs/apk/debug/app-debug.apk "$asset.apk"
+              test -s "$asset.apk"
+              ;;
+            windows)
+              just simple-build windows
+              test -s target/simple-windows/app/HickorySimple.exe
+              test -s target/simple-windows/app/hickory-simple-host.exe
+              test -f target/simple-windows/app/web/simple.html
+              tar -czf "$asset.tar.gz" -C target/simple-windows/app .
+              ;;
+          esac
+          cd dist/simple
+          for file in hickory-simple-*; do
+            test -s "$file"
+            if command -v sha256sum >/dev/null; then
+              sha256sum "$file" > "$file.sha256"
+            else
+              shasum -a 256 "$file" > "$file.sha256"
+            fi
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: simple-${{ matrix.target }}
+          path: dist/simple/*
+          if-no-files-found: error
+          retention-days: 7
+
+  kde:
+    needs: version
+    name: Simple KDE ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    container: debian:13
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: x64, runner: ubuntu-24.04 }
+          - { arch: arm64, runner: ubuntu-24.04-arm }
+    env:
+      TARGET: linux-${{ matrix.arch }}
+      VERSION: ${{ needs.version.outputs.version }}
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_INCREMENTAL: '0'
+    steps:
+      - name: Install the Debian KDE toolchain
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends ca-certificates git curl xz-utils \
+            build-essential cmake pkg-config qt6-base-dev qt6-webengine-dev \
+            libkf6coreaddons-dev libkf6xmlgui-dev
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - uses: dtolnay/rust-toolchain@1.96.1
+      - uses: extractions/setup-just@v4
+      - name: Package the relocatable KDE installation tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          just simple-build linux
+          test -x target/simple-linux/app/bin/hickory-simple
+          mkdir -p dist/simple
+          file="hickory-simple-$VERSION-$TARGET.tar.gz"
+          tar -czf "dist/simple/$file" -C target/simple-linux/app .
+          cd dist/simple
+          sha256sum "$file" > "$file.sha256"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: simple-linux-${{ matrix.arch }}
+          path: dist/simple/*
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    needs: [version, build, simple, kde]
+    runs-on: ubuntu-latest
+    # The organization caps the workflow token at read. Only this job uses the
+    # repository-scoped release credential already used by Stable Release.
+    environment: production
+    concurrency:
+      group: unstable-ci-channel
+      queue: max
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: '{hick-*,hickory-docs-desktop-*,simple-*}'
+          path: dist
+          merge-multiple: true
+      - name: Publish this commit and advance the Unstable channel
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ needs.version.outputs.version }}
+          TAG: ${{ needs.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          (cd dist && sha256sum -c -- *.sha256)
+          # A draft keeps partial uploads out of downloads. A rerun can finish
+          # a draft or advance the pointer after its release was already made public.
+          if ! draft=$(gh release view "$TAG" --json isDraft --jq .isDraft); then
+            gh release create "$TAG" --draft --prerelease --latest=false \
+              --target "$GITHUB_SHA" --title "Unstable $VERSION" \
+              --notes "Build of master commit $GITHUB_SHA. Choose the archive for your platform and verify its SHA-256."
+            draft=true
+          fi
+          if [ "$draft" = true ]; then
+            gh release upload "$TAG" dist/* --clobber
+            gh release edit "$TAG" --draft=false --prerelease --latest=false
+          fi
+
+          # Keep the manually signed macOS feed and its payloads in place. Only
+          # publish the pointer to this CI release after all its assets are public.
+          if ! gh release view unstable >/dev/null; then
+            gh release create unstable --prerelease --latest=false \
+              --target "$GITHUB_SHA" --title Unstable --notes 'Unstable builds of master.'
+          fi
+          previous=''
+          if [ "$(gh release view unstable --json assets --jq '[.assets[] | select(.name == "ci-tag.txt")] | length')" = 1 ]; then
+            gh release download unstable --pattern ci-tag.txt --output previous.txt
+            previous=$(cat previous.txt)
+            [[ "$previous" =~ ^unstable-ci-([1-9][0-9]*)-[a-f0-9]{8}$ ]]
+            if (( BASH_REMATCH[1] > GITHUB_RUN_NUMBER )); then exit 0; fi
+          fi
+          if [[ "$previous" != "$TAG" ]]; then
+            printf '%s\n' "$TAG" > ci-tag.txt
+            gh release upload unstable ci-tag.txt --clobber
+          fi
+          gh release edit unstable --prerelease --latest=false --notes \
+            "Latest [Unstable CI builds](https://github.com/$GH_REPO/releases/tag/$TAG). Signed Mac updater downloads are included below when available."

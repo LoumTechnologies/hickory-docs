@@ -12,7 +12,7 @@ Install the static export grammar beside the CLI when the release includes it. T
 
 Related contracts: [A Download Runs Without A Rust Toolchain](../../guarantees/release/a-download-runs-without-a-rust-toolchain/contract.md), [The App Installs Its Command For The User](../../guarantees/release/the-app-installs-its-command-for-the-user/contract.md).
 
-This literal construction preserves embedded document syntax and exact file bytes. Its internal reasoning boundaries still need editorial review.
+The default resolves GitHub’s stable release endpoint. Explicit Unstable installs follow the validated CI pointer when available. Pinning a tag skips channel discovery.
 
 <storycode:entry path="scripts/install.sh" executable="true">
 #!/bin/sh
@@ -110,8 +110,6 @@ if [ -n "${HICKORY_VERSION:-}" ]; then
   release_url="$API/releases/tags/$HICKORY_VERSION"
   what="$HICKORY_VERSION"
 elif [ "$CHANNEL" = "unstable" ]; then
-  # The unstable channel uses one manually published release tag. The desktop
-  # publisher retains existing CLI assets; see apps/desktop/RELEASING.md.
   release_url="$API/releases/tags/unstable"
   what="the unstable channel"
 elif [ "$CHANNEL" = "stable" ]; then
@@ -125,31 +123,11 @@ tmp="$(mktemp -d 2>/dev/null || mktemp -d -t hick)"
 trap 'rm -rf "$tmp"' EXIT INT TERM
 
 echo "Looking up $what for ${TARGET}…"
-if ! fetch "$release_url" "application/vnd.github+json" "$tmp/release.json"; then
-  if [ "$CHANNEL" = "stable" ] && [ -z "${HICKORY_VERSION:-}" ]; then
-    # Pre-1.0 there may be no stable release at all: /releases/latest
-    # excludes prereleases, so the default install would die on a repo whose
-    # only release is the rolling `unstable` tag. Fall back to it loudly
-    # rather than telling a stranger the product cannot be installed.
-    echo "No stable release found; falling back to the unstable channel."
-    echo "(Unstable builds are published manually; use HICKORY_VERSION to pin a release tag.)"
-    release_url="$API/releases/tags/unstable"
-    what="the unstable channel"
-    fetch "$release_url" "application/vnd.github+json" "$tmp/release.json" || die \
-      "could not read $what from GitHub." \
-      "URL: $release_url" \
-      "If the repository is private, set HICKORY_GITHUB_TOKEN to a token with" \
-      "read access and re-run. If you are offline or behind a proxy, that would" \
-      "show up here too."
-  else
-    die \
-      "could not read $what from GitHub." \
-      "URL: $release_url" \
-      "If the repository is private, set HICKORY_GITHUB_TOKEN to a token with" \
-      "read access and re-run. If you are offline or behind a proxy, that would" \
-      "show up here too."
-  fi
-fi
+fetch "$release_url" "application/vnd.github+json" "$tmp/release.json" || die \
+  "could not read $what from GitHub." \
+  "URL: $release_url" \
+  "To opt into unstable builds, set HICKORY_CHANNEL=unstable and run the installer again." \
+  "For a private repository, supply a read token in HICKORY_GITHUB_TOKEN."
 
 # No jq: this script is the first thing a stranger runs, before they have
 # installed anything at all.
@@ -165,6 +143,30 @@ field() {
   # asking for `url` cannot answer with `browser_download_url`.
   printf '%s' "$1" | tr ',' '\n' | sed -n "s/^ *\"$2\": *\"\\([^\"]*\\)\".*/\\1/p" | head -1
 }
+
+# Normal Unstable installs follow the validated CI pointer when present.
+# An exact tag can still be used to reproduce an old install.
+if [ "$CHANNEL" = unstable ] && [ -z "${HICKORY_VERSION:-}" ]; then
+  pointer_line="$(grep '"name": *"ci-tag.txt"' "$tmp/assets" | head -1 || true)"
+  if [ -n "$pointer_line" ]; then
+    if [ -n "${HICKORY_GITHUB_TOKEN:-}" ]; then
+      pointer_url="$(field "$pointer_line" url)"
+    else
+      pointer_url="https://github.com/$REPO/releases/download/unstable/ci-tag.txt"
+    fi
+    fetch "$pointer_url" application/octet-stream "$tmp/ci-tag.txt" || die \
+      "could not read the Unstable build pointer. Retry in a moment."
+    ci_tag="$(cat "$tmp/ci-tag.txt")"
+    case "$ci_tag" in
+      ''|*[!a-z0-9-]*) die "invalid Unstable CI release tag." ;;
+    esac
+    printf '%s\n' "$ci_tag" | grep -Eq '^unstable-ci-[1-9][0-9]*-[a-f0-9]{8}$' || die \
+      "invalid Unstable CI release tag."
+    fetch "$API/releases/tags/$ci_tag" application/vnd.github+json "$tmp/release.json" || die \
+      "could not read the Unstable CI release $ci_tag. Retry in a moment."
+    tr -d '\n' < "$tmp/release.json" | tr '{' '\n' > "$tmp/assets"
+  fi
+fi
 
 asset_name="hick-*-$TARGET.tar.gz"
 line="$(grep '"name": *"hick-' "$tmp/assets" | grep -- "-$TARGET\.tar\.gz\"" | head -1 || true)"

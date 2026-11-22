@@ -44,7 +44,9 @@ the app also breaks its command launcher.
 
 ## Download
 
-From the [releases page](https://github.com/LoumTechnologies/hickory-docs/releases):
+Choose a download on the [stable release page](https://github.com/LoumTechnologies/hickory-docs/releases/latest).
+For CI builds of `master`, follow the latest build link on the
+[Unstable page](https://github.com/LoumTechnologies/hickory-docs/releases/tag/unstable).
 
 | Platform | File |
 |---|---|
@@ -59,7 +61,36 @@ Each has a `.sha256` beside it:
 sha256sum -c hickory-docs-<version>-<target>.deb.sha256
 ```
 
-## Unsigned, and what that means for you
+## Update an installed app
+
+Save your work and close the app before replacing it. Download the next build
+from the channel you installed and verify its SHA-256.
+
+| Installation | How to update |
+|---|---|
+| macOS DMG | Replace the app in Applications. The separately signed Apple Silicon Unstable build checks for updates and asks before installing. |
+| Linux package | Install the new DEB or RPM with your package manager. |
+| Linux AppImage | Replace the file at its existing path so the command launcher keeps working. |
+| Windows MSI | Run the new installer. Unstable MSIs with the same numeric installer version may require uninstalling the previous app first. |
+
+The signed updater setup is documented in
+[Publishing signed Mac updates](../../apps/desktop/RELEASING.md).
+
+## Try a Simple frontend
+
+The Unstable CI release also includes the Simple variants. Update by replacing
+the extracted application or deploying the newer web bundle.
+
+| Platform | Download and use |
+|---|---|
+| Browser | Extract the browser archive and serve it with a matching Hickory workspace API at the same origin. Open `simple.html`. |
+| macOS | Extract the app ZIP, open the app, and connect to a workspace server. |
+| Windows | Extract the archive and run `HickorySimple.exe` beside its host and web files. Microsoft Edge WebView2 is required. |
+| Linux | Extract the KDE tree and run `bin/hickory-simple`. Debian 13 supplies Qt WebEngine and KDE Frameworks 6. |
+| iPhone and iPad simulator | Unzip the app and install it with `xcrun simctl install booted HickorySimpleMobile.app` on an Apple Silicon Mac. Device distribution requires signing and a distribution channel such as TestFlight. |
+| Android | Install the debug APK for testing. An in-place update requires the same signing key. Fresh GitHub runners use different debug keys, so use a disposable emulator or a signed distribution track for recurring device updates. |
+
+## Unsigned downloads
 
 The bundles are **not code-signed**. Nobody has paid Apple or a Windows
 certificate authority for the privilege, and this is a program you download

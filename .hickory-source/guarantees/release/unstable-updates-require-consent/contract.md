@@ -3,10 +3,9 @@
 
 For: Maintainers publishing installers and people checking what a download contains.
 
-Given a packaged release build for Apple Silicon macOS whose SemVer prerelease
-channel is `unstable`, when its editor window has opened, then the app checks
-the configured HTTPS GitHub Unstable manifest and checks again every 30 minutes.
-Stable builds, development builds, and other platforms do not start this loop.
+An Apple Silicon macOS build with the Unstable version and bundled updater
+configuration checks the HTTPS manifest after the editor opens and again every
+30 minutes. The unsigned CI bundle has no updater configuration.
 
 The existing requirement is retained. Its original detail is below; implementation evidence has not been renewed merely by reorganizing it.
 
@@ -67,10 +66,16 @@ fn should_offer(current: &semver::Version, remote: &semver::Version) -> bool {
 <a id="f-c267ec211bdd-start"></a>
 ### `start`
 
+The signed build supplies the updater key and endpoint together in the bundle
+configuration. Require that opt-in before starting the check loop.
+
 <storycode:copy id="f-c267ec211bdd-start">
 pub(super) fn start(app: tauri::AppHandle) {
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-    if !cfg!(debug_assertions) && is_unstable(&app.package_info().version.to_string()) {
+    if !cfg!(debug_assertions)
+        && is_unstable(&app.package_info().version.to_string())
+        && app.config().plugins.0.contains_key("updater")
+    {
         macos::start(app);
     }
     #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]

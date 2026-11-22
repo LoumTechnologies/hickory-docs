@@ -9,8 +9,7 @@ Edit this entry to change the generated file. It has one constructor. References
 Captured SHA-256: `d6420f7bb22ae51a545cb95ecfbdb9ec90cf49b5b0136fced131c0ea0e658c9a`.
 
 <book:entry path=".github/workflows/release-build.yml">
-# Build multi-platform downloadable artifacts for Stable Release. Manual
-# Unstable desktop publication uses scripts/build-unstable-macos.sh instead.
+# Build CLI archives and full desktop installers for both release channels.
 #
 # This is a `workflow_call` workflow, so it never runs on its own and never
 # publishes anything. It leaves artifacts in the calling run for the caller's
@@ -33,6 +32,10 @@ on:
         description: Version string baked into the binary and the archive names.
         required: true
         type: string
+      channel:
+        description: Channel selecting the qualification checks.
+        type: string
+        default: stable
 
 jobs:
   build:
@@ -64,20 +67,11 @@ jobs:
           - target: aarch64-unknown-linux-gnu
             os: ubuntu-22.04-arm
             smoke: native
-          # macos-14 is arm64. It builds the Apple Silicon binary natively and
-          # the Intel one through the same SDK — the one cross-compile kept,
-          # because Apple's toolchain treats its two architectures as a
-          # first-class case and libsodium-sys special-cases them by name.
           - target: aarch64-apple-darwin
-            os: macos-14
+            os: macos-15
             smoke: native
           - target: x86_64-apple-darwin
-            os: macos-14
-            # Asks for the native smoke test like everyone else. The step
-            # itself notices it was cross-compiled from an arm64 runner and
-            # skips, saying so in the log — see its comment. Rosetta is not
-            # guaranteed on the runner image, so running it is not an option
-            # and pretending it ran is worse.
+            os: macos-15-intel
             smoke: native
           - target: x86_64-pc-windows-msvc
             os: windows-latest
@@ -211,11 +205,9 @@ jobs:
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-22.04
           - target: aarch64-apple-darwin
-            os: macos-14
-          # Cross-compiled from the same arm64 runner, exactly as the CLI's
-          # Intel artifact is, and unverifiable here for the same reason.
+            os: macos-15
           - target: x86_64-apple-darwin
-            os: macos-14
+            os: macos-15-intel
           - target: x86_64-pc-windows-msvc
             os: windows-latest
 
@@ -286,6 +278,15 @@ jobs:
         run: |
           set -euo pipefail
           ls -l dist/desktop
+          bundle="dist/desktop/hickory-docs-${{ inputs.version }}-${{ matrix.target }}"
+          case "$RUNNER_OS" in
+            Linux)
+              test -s "$bundle.deb"
+              test -s "$bundle.AppImage"
+              ;;
+            macOS) test -s "$bundle.dmg" ;;
+            Windows) test -s "$bundle.msi" ;;
+          esac
           for deb in dist/desktop/*.deb; do
             [ -e "$deb" ] || continue
             # Read the listing into a variable first. `dpkg-deb -c | grep -q`
@@ -350,6 +351,7 @@ jobs:
   # example documents, so it exercises the executor, the parser, the weaver,
   # and the drift comparison — not just `--version`.
   clean-machine:
+    if: inputs.channel == 'stable'
     name: clean machine (no Rust toolchain)
     needs: [build]
     runs-on: ubuntu-latest
