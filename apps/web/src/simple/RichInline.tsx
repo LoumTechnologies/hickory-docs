@@ -34,7 +34,32 @@ class RichBoundary extends Component<{ buffer: Buffer; view: EditorView; childre
 }
 function SlotPortal({ slot, children, css }: { slot: RenderedSlot; children: React.ReactNode; css: string }) {
   const [root] = useState(() => slot.el.shadowRoot ?? slot.el.attachShadow({ mode: "open" }));
-  return createPortal(<><style>{css.replaceAll(":root", ":host")}</style>{children}</>, root);
+  return createPortal(<><style>{css.replaceAll(":root", ":host") + `
+:host {
+  color-scheme: inherit; color: CanvasText;
+  --bg: Canvas; --fg: CanvasText; --fg-muted: color-mix(in srgb, CanvasText 65%, Canvas); --muted: var(--fg-muted);
+  --bg-raised: Canvas; --bg-sunken: color-mix(in srgb, CanvasText 5%, Canvas);
+  --border: color-mix(in srgb, CanvasText 22%, Canvas);
+  --accent: Highlight; --accent-2: light-dark(#176b73, #71d1d9);
+  --ok: light-dark(#267341, #8cdaa2); --fail: light-dark(#b42330, #ff9696);
+  --danger: var(--fail); --warn: light-dark(#855b0a, #ecc07c); --stale: var(--warn);
+  --ok-bg: color-mix(in srgb, var(--ok) 10%, Canvas);
+  --fail-bg: color-mix(in srgb, var(--fail) 10%, Canvas);
+  --stale-bg: color-mix(in srgb, var(--warn) 10%, Canvas);
+  --neutral-bg: var(--bg-sunken);
+  --diff-del: var(--fail); --diff-ins: var(--ok);
+  --select-bg: color-mix(in srgb, Highlight 22%, Canvas);
+  --search-hit: color-mix(in srgb, var(--warn) 20%, Canvas);
+  --search-hit-on: color-mix(in srgb, var(--warn) 40%, Canvas);
+  --tok-keyword: light-dark(#7637a0, #d4a5ff);
+  --tok-function: light-dark(#145e9c, #83c7ff);
+  --tok-string: var(--ok); --tok-comment: GrayText;
+  --tok-literal: var(--warn); --tok-type: var(--accent-2);
+  --tok-property: var(--tok-function); --tok-tag: var(--tok-keyword);
+  --tok-meta: GrayText; --tok-operator: GrayText;
+  --tok-parameter: var(--tok-type); --tok-invalid: var(--fail);
+}
+`}</style>{children}</>, root);
 }
 function RichOwner({ buffer, view, keepPatchSource }: { buffer: Buffer; view: EditorView; keepPatchSource: boolean }) {
   useSyncExternalStore(buffer.subscribe, buffer.snapshot);

@@ -3,6 +3,11 @@
 
 For maintainers iterating on the equivalent Apple, Android and browser editor frontends.
 
+Form fields use the platform UI font alongside buttons rather than falling back
+to the browser’s smaller default font. Menu and status separators use a quiet
+system-color blend so they remain visible without drawing a dark frame around
+a light workspace.
+
 Use one fixed menu row, flexible content and one status row. Tabs and gutter widths remain stable when actions appear. Narrow screens retain all commands and allow scrolling the workspace rather than dropping capabilities.
 
 Keep the text close to the left edge: line numbers grow only with their digits,
@@ -16,6 +21,11 @@ Reserve a small blank slot at the end of the strip even when tabs overflow, so a
 
 The document rail owns its width even after shared rendering styles load lazily. Scope its width rule to the editor row so a late generic debugger stylesheet cannot shrink the gutter or invalidate overflow placement.
 
+CodeMirror’s default gutter and floating panels assume a light background.
+Bind their surfaces, cursor and selection to system colors explicitly; otherwise
+a dark workspace retains a white line-number strip and an invisible black caret.
+These CSS updates preserve the existing editor across system-theme changes.
+
 Recorded messages keep a compact action column from first render. The draft
 composer has no recorded fence actions and keeps the whole row for text.
 
@@ -23,13 +33,14 @@ composer has no recorded fence actions and keeps the whole row for text.
 * { box-sizing: border-box; }
 :root { color-scheme: light dark; font: 13px system-ui, sans-serif; background: Canvas; color: CanvasText; }
 body { margin: 0; }
-button, textarea { font: inherit; color: inherit; }
+button, input, select, textarea { font: inherit; color: inherit; }
+input, select, textarea { accent-color: Highlight; }
 button { border: 0; background: transparent; padding: 4px 8px; text-align: left; cursor: pointer; }
 button:disabled { opacity: .45; cursor: default; }
 button:hover:not(:disabled), summary:hover { background: color-mix(in srgb, CanvasText 8%, Canvas); }
 button:focus-visible, summary:focus-visible, .resize:focus-visible { outline: 2px solid Highlight; outline-offset: -2px; }
 main { height: 100dvh; display: grid; grid-template-rows: 29px minmax(0,1fr) 23px; }
-nav { display: flex; align-items: center; border-bottom: 1px solid GrayText; padding: 0 8px; gap: 14px; }
+nav { display: flex; align-items: center; border-bottom: 1px solid color-mix(in srgb, CanvasText 22%, Canvas); padding: 0 8px; gap: 14px; }
 nav details { position: relative; }
 nav summary { list-style: none; cursor: pointer; padding: 3px; }
 .menu { max-height: calc(100dvh - 32px); overflow: auto; position: absolute; z-index: 20; top: 23px; left: 0; min-width: 190px; padding: 4px; background: Canvas; border: 1px solid GrayText; box-shadow: 0 4px 12px #0003; }
@@ -50,7 +61,14 @@ nav summary { list-style: none; cursor: pointer; padding: 3px; }
 .simple-semantic-results > button { display: block; overflow-wrap: anywhere; }
 .simple-semantic-results > p { margin: 4px; }
 .editor-host { flex: 1; }
-.editor-cm-host .cm-content { padding-left: 0; padding-right: 0; }
+.editor-cm-host .cm-content { padding-left: 0; padding-right: 0; caret-color: CanvasText; }
+.editor-cm-host .cm-editor .cm-gutters { background: color-mix(in srgb, CanvasText 4%, Canvas); color: GrayText; border-right: 1px solid color-mix(in srgb, CanvasText 15%, Canvas); }
+.editor-cm-host .cm-editor .cm-cursor { border-left-color: CanvasText; }
+.editor-cm-host .cm-editor .cm-selectionBackground, .editor-cm-host .cm-editor.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground { background: color-mix(in srgb, Highlight 25%, Canvas); }
+.editor-cm-host .cm-editor .cm-tooltip, .editor-cm-host .cm-editor .cm-panels { background: Canvas; color: CanvasText; border-color: color-mix(in srgb, CanvasText 22%, Canvas); }
+.editor-cm-host .cm-editor .cm-tooltip-autocomplete > ul > li[aria-selected="true"] { background: Highlight; color: HighlightText; }
+.editor-cm-host .cm-editor .cm-searchMatch { background: color-mix(in srgb, Highlight 20%, Canvas); }
+.editor-cm-host .cm-editor .cm-searchMatch-selected { background: color-mix(in srgb, Highlight 40%, Canvas); }
 .editor-cm-host .cm-line { padding-left: 4px; padding-right: 4px; }
 .editor-cm-host .cm-lineNumbers .cm-gutterElement { min-width: 0; padding: 0 2px; }
 .editor-cm-host .cm-foldGutter .cm-gutterElement { padding: 0 1px; }
@@ -74,7 +92,7 @@ nav summary { list-style: none; cursor: pointer; padding: 3px; }
 .simple-workspace-problems input[type="checkbox"] { width: auto; }
 .simple-workspace-problems pre { overflow: auto; max-height: 240px; font-size: 11px; }
 .simple-workspace-problems select { max-width: 100%; }
-footer { border-top: 1px solid GrayText; padding: 3px 9px; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+footer { border-top: 1px solid color-mix(in srgb, CanvasText 22%, Canvas); padding: 3px 9px; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .agent-body { height: 100%; display: flex; flex-direction: column; }
 .conversation { overflow: auto; flex: 1; padding: 0 12px; }
 .message { white-space: pre-wrap; overflow-wrap: anywhere; }

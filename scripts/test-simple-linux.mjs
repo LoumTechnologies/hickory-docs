@@ -29,6 +29,15 @@ await writeFile(join(project, "author.md"), [
   "",
 ].join("\n"));
 await writeFile(join(project, "generated.txt"), "Generated source\n");
+const visualSource = [
+  '<h:doc xmlns:h="http://www.hickorydocs.com/1.0">',
+  '# Platform colors', '', '| Product | Quantity |', '| --- | --- |', '| Notebook | 2 |', '',
+  '<h:math>x^2 + y^2</h:math>', '',
+  '<h:diagram renderer="graph">',
+  '{"topology":{"nodes":[{"id":"note"}],"edges":[]},"layout":{"note":{"x":20,"y":20,"w":130,"h":50}}}',
+  '</h:diagram>', '</h:doc>', '',
+].join("\n");
+await writeFile(join(project, "colors.md"), visualSource);
 
 async function sparePort() {
   const server = createServer();
@@ -135,6 +144,46 @@ try {
   await terminal.press("Enter");
   await until(async () => (await page.locator(".terminal-screen .xterm-rows").innerText())
     .split("\n").some(line => line.trim() === "hickory-linux-terminal"), "terminal output");
+  await tree.locator('[title="colors.md"]').click();
+  const table = page.locator(".table-panel__grid");
+  await expect(table).toBeVisible();
+  await expect(page.locator('[data-testid="graph-node-note"]')).toBeVisible();
+  await expect(page.locator(".katex")).toBeVisible();
+  await table.evaluate(element => { element.dataset.retainedThemeWitness = "yes"; });
+  await page.locator('.cm-content[aria-label="colors.md"]').focus();
+  for (const colorScheme of ["light", "dark", "light"]) {
+    await page.emulateMedia({ colorScheme });
+    const colors = await table.evaluate(element => {
+      const host = element.getRootNode().host;
+      const probe = document.createElement("span");
+      probe.style.cssText = "color:CanvasText;background:Canvas";
+      document.body.append(probe);
+      const outer = getComputedStyle(probe), inner = getComputedStyle(host);
+      const cell = getComputedStyle(element.querySelector("th"));
+      const result = { outer: outer.color, inner: inner.color, scheme: inner.colorScheme,
+        outerScheme: getComputedStyle(document.documentElement).colorScheme,
+        foreground: cell.color, background: cell.backgroundColor };
+      probe.remove(); return result;
+    });
+    assert.equal(colors.inner, colors.outer);
+    assert.equal(colors.scheme, colors.outerScheme);
+    const gutter = await page.locator('.editor-cm-host .cm-gutters').first().evaluate(element => getComputedStyle(element).backgroundColor);
+    const caret = await page.locator('.editor-cm-host .cm-cursor').first().evaluate(element => getComputedStyle(element).borderLeftColor);
+    assert.equal(caret, colors.outer);
+    const gutterChannel = Number(gutter.match(/[\d.]+/)[0]) * (gutter.startsWith("color(srgb") ? 255 : 1);
+    assert.ok(colorScheme === "dark" ? gutterChannel < 80 : gutterChannel > 180, gutter);
+    const luminance = color => {
+      const channels = color.match(/[\d.]+/g).slice(0, 3).map(Number).map(value => {
+        const channel = color.startsWith("color(srgb") ? value : value / 255;
+        return channel <= .04045 ? channel / 12.92 : ((channel + .055) / 1.055) ** 2.4;
+      });
+      return channels[0] * .2126 + channels[1] * .7152 + channels[2] * .0722;
+    };
+    const a = luminance(colors.foreground), b = luminance(colors.background);
+    assert.ok((Math.max(a, b) + .05) / (Math.min(a, b) + .05) >= 4.5, JSON.stringify(colors));
+    await expect(table).toHaveAttribute("data-retained-theme-witness", "yes");
+  }
+  assert.equal(await readFile(join(project, "colors.md"), "utf8"), visualSource);
   console.log(hostOnly ? "Shared Linux host smoke passed." : "KDE workspace smoke passed.");
 } finally {
   try {
