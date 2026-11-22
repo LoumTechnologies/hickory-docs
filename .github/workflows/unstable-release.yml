@@ -106,6 +106,13 @@ jobs:
           fi
       - if: runner.os == 'macOS'
         run: brew install xcodegen
+      - name: Select Xcode for the native Simple frontend
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          developer_dir=/Applications/Xcode_26.3.app/Contents/Developer
+          DEVELOPER_DIR="$developer_dir" xcodebuild -version
+          echo "DEVELOPER_DIR=$developer_dir" >> "$GITHUB_ENV"
       - run: npm --prefix apps/web ci
       - name: Build and package the Simple frontend
         shell: bash
