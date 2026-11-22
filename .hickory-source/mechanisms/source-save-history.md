@@ -506,14 +506,19 @@ fn source_diff(before:&str,after:&str)->String{
 fn history_current(root:&Path,full:&Path,address:&str)->Result<(SavedSource,String),String>{
  let current=observe(root,address)?;
  if !matches!(current,SavedSource::Missing){return Ok((current,stamp(full)?))}
+ #[cfg(not(unix))]
+ return Err("Missing-source physical observation is unavailable; retained text has no absence authority.".into());
+ #[cfg(unix)]
+ {
+ use std::os::unix::fs::MetadataExt;
  let mut parent=full.parent().ok_or("Missing source has no parent")?;
  loop{match std::fs::symlink_metadata(parent){Ok(metadata)=>{if !metadata.is_dir()||metadata.file_type().is_symlink(){return Err("Missing-source history requires an ordinary observed parent.".into())}break},Err(error)if error.kind()==std::io::ErrorKind::NotFound=>parent=parent.parent().ok_or("Missing source has no existing parent")?,Err(error)=>return Err(error.to_string())}}
  let held=same_file::Handle::from_path(parent).map_err(|error|error.to_string())?;let metadata=held.as_file().metadata().map_err(|error|error.to_string())?;
- #[cfg(unix)]let epoch={use std::os::unix::fs::MetadataExt;format!("{}:{}:{}:{}:{}",metadata.dev(),metadata.ino(),metadata.ctime(),metadata.ctime_nsec(),metadata.len())};
- #[cfg(not(unix))]let epoch={let _=metadata;return Err("Missing-source physical observation is unavailable; retained text has no absence authority.".into());};
+ let epoch=format!("{}:{}:{}:{}:{}",metadata.dev(),metadata.ino(),metadata.ctime(),metadata.ctime_nsec(),metadata.len());
  let identity=format!("missing:{}",super::workspace_fs::view::hash(&serde_json::to_vec(&(workspace(root)?,address,parent.as_os_str().as_encoded_bytes(),epoch)).map_err(|error|error.to_string())?));
  if same_file::Handle::from_path(parent).map_err(|error|error.to_string())?!=held||!matches!(observe(root,address)?,SavedSource::Missing){return Err("The missing-source address changed while history was observed.".into())}
  Ok((current,identity))
+ }
 }
 fn current_history_hash(source:&SavedSource)->Result<String,String>{match source{SavedSource::Missing=>Ok("missing".into()),SavedSource::File{sha256,..}=>Ok(sha256.clone())}}
 fn recoverable_missing_entry(entry:&Retained)->bool{entry.namespace_current&&entry.evidence.as_ref().is_some_and(|evidence|evidence.outcome=="published"&&evidence.identity_proven)&&matches!(entry.after,SavedSource::File{..})}
