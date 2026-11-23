@@ -110,6 +110,29 @@ while True: time.sleep(.05)
         self.process = subprocess.Popen([str(self.binary), os.sys.executable, str(self.child), 'space value', '$literal'], cwd=cwd or self.root, env={**os.environ, 'SUPERVISOR_TEST': 'kept'}, stdout=self.log, stderr=self.log)
         self.wait_for(lambda: self.starts() == 1)
 
+    def test_dev_build_input_changes_only_with_commit_or_dirty_state(self):
+        def build_input():
+            return subprocess.run(
+                [str(self.binary), os.sys.executable, '-c',
+                 'import os; print(os.environ["HICKORY_DEV_BUILD_INPUT"])'],
+                cwd=self.root, env={**os.environ, 'HICKORY_DEV_BUILD': '1'},
+                check=True, capture_output=True, text=True, timeout=10,
+            ).stdout.strip()
+
+        self.git('add', '.')
+        self.commit()
+        revision = self.git('rev-parse', 'HEAD')
+        self.assertEqual(build_input(), revision)
+        (self.root / 'untracked.txt').write_text('first edit')
+        self.assertEqual(build_input(), revision + '+')
+        (self.root / 'untracked.txt').write_text('second edit')
+        self.assertEqual(build_input(), revision + '+')
+        self.git('add', 'untracked.txt')
+        self.commit()
+        updated = self.git('rev-parse', 'HEAD')
+        self.assertNotEqual(updated, revision)
+        self.assertEqual(build_input(), updated)
+
     def test_commits_startup_failure_and_cleanup(self):
         self.launch()  # unborn HEAD starts immediately
         self.wait_for(lambda: 'ready' in self.events())

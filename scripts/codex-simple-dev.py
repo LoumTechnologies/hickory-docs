@@ -105,7 +105,7 @@ def request_preview(root, supervisor):
         return supervisor
     return subprocess.Popen(
         [ROOT / "target/dev-supervisor", "--desktop-request",
-         "cargo", "run", "--quiet", "--locked", "-p", "hickory-cli", "--example", "simple_dev", "--", "apple"],
+         "cargo", "run", "--locked", "-p", "hickory-cli", "--example", "simple_dev", "--", "apple"],
         cwd=root,
         stdin=subprocess.DEVNULL,
         env={**os.environ, "HICKORY_DEV_BUILD": "1"},

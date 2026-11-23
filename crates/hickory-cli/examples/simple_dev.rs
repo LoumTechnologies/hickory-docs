@@ -5,7 +5,7 @@ use std::{
     env,
     path::{Path, PathBuf},
     process::Stdio,
-    time::Duration,
+    time::{Duration, Instant},
 };
 use tokio::{
     net::TcpListener,
@@ -42,6 +42,9 @@ fn main() -> Result<()> {
     env::set_current_dir(root)?;
     ensure!(platform != "linux" || cfg!(target_os = "linux"), "The KDE frontend builds and runs on Linux. Run just simple-dev linux on a Linux desktop.");
     ensure!(platform != "windows" || cfg!(windows), "The WinForms frontend builds and runs on Windows. Run just simple-dev windows from Git Bash on Windows.");
+    if platform == "apple" {
+        eprintln!("[simple-dev apple] Selecting Xcode");
+    }
     if ["apple", "ios", "all"].contains(&platform) {
         configure_xcode()?;
     }
@@ -294,6 +297,9 @@ async fn launch(platform: &str, session: &mut Session) -> Result<()> {
     let showcase = supplied_project.is_none();
     let (project, prepare) = project_directory(&root, supplied_project)?;
     if prepare {
+        if platform == "apple" {
+            eprintln!("[simple-dev apple] Preparing the example workspace for first launch");
+        }
         session
             .run(&mut cmd(
                 "cargo",
@@ -394,6 +400,9 @@ async fn launch(platform: &str, session: &mut Session) -> Result<()> {
     attach.key_store_path = hickory_agent::KeyStore::desktop_path();
     attach.python_runtime_path = python;
     let token = attach.callback_token.clone();
+    if platform == "apple" {
+        eprintln!("[simple-dev apple] Connecting to the workspace engine");
+    }
     let connection = engine::connect(attach).await?;
     session.guard = Some(connection.guard());
     let router = engine::client_router(connection, None, token, ui_origin.clone());
@@ -417,6 +426,9 @@ async fn frontend(
     port: Option<u16>,
     file: Option<&str>,
 ) -> Result<()> {
+    if platform == "apple" {
+        eprintln!("[simple-dev apple] Preparing native preview assets");
+    }
     session
         .run(&mut cmd(
             "python3",
@@ -507,17 +519,32 @@ async fn apple(root: &Path, session: &mut Session, api: &str, file: Option<&str>
     let stamp = option_env!("HICKORY_DEV_BUILD_STAMP").map(|_| {
         hickory_cli::serve::dev_checkout_stamp(root).unwrap_or_else(|| "unknown".to_owned())
     });
+    let scratch = "target/apple-simple-spm";
     let arguments = [
         "build",
         "--package-path",
         "apps/apple-simple",
         "--scratch-path",
-        "target/apple-simple-spm",
+        scratch,
     ];
+    eprintln!("[simple-dev apple] Building the macOS app with SwiftPM");
+    let started = Instant::now();
     session.run(&mut cmd("swift", &arguments)).await?;
-    let binary_dir = session
-        .output(cmd("swift", &arguments).arg("--show-bin-path"))
-        .await?;
+    eprintln!(
+        "[simple-dev apple] Swift build finished in {:.1}s. Assembling the app bundle",
+        started.elapsed().as_secs_f64()
+    );
+    // SwiftPM normally publishes a debug alias after a successful build.
+    // Ask SwiftPM for the full path on installations that omit the alias.
+    let mut binary_dir = root.join(scratch).join("debug");
+    if !binary_dir.join("HickorySimple").is_file()
+        || !binary_dir.join("HickorySimple_HickorySimple.bundle").is_dir()
+    {
+        let reported = session
+            .output(cmd("swift", &arguments).arg("--show-bin-path"))
+            .await?;
+        binary_dir = PathBuf::from(reported.trim());
+    }
     let port = api.rsplit(':').next().context("Backend port missing")?;
     let bundle = root
         .join("target/simple-apple-launch")
@@ -526,11 +553,8 @@ async fn apple(root: &Path, session: &mut Session, api: &str, file: Option<&str>
     let contents = bundle.join("Contents");
     std::fs::create_dir_all(contents.join("MacOS"))?;
     let executable = contents.join("MacOS/HickorySimple");
-    std::fs::copy(
-        Path::new(binary_dir.trim()).join("HickorySimple"),
-        &executable,
-    )?;
-    install_apple_resources(Path::new(binary_dir.trim()), &contents)?;
+    std::fs::copy(binary_dir.join("HickorySimple"), &executable)?;
+    install_apple_resources(&binary_dir, &contents)?;
     let build_stamp = contents.join("Resources/HickoryDevBuild.txt");
     if let Some(stamp) = stamp {
         std::fs::write(build_stamp, stamp)?;
@@ -557,6 +581,7 @@ async fn apple(root: &Path, session: &mut Session, api: &str, file: Option<&str>
 </dict></plist>
 "#,
     )?;
+    eprintln!("[simple-dev apple] Signing the app bundle");
     session
         .run(&mut cmd("codesign", &["--force", "--sign", "-"]).arg(&bundle))
         .await?;

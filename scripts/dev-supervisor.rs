@@ -47,6 +47,27 @@ fn revision() -> io::Result<Option<String>> {
     }
 }
 
+fn dev_build_input() -> String {
+    let sample = || {
+        let commit = revision().ok()??;
+        let status = Command::new("git")
+            .args([
+                "--no-optional-locks",
+                "status",
+                "--porcelain=v1",
+                "--untracked-files=normal",
+            ])
+            .output()
+            .ok()?;
+        if !status.status.success() || revision().ok()?.as_deref() != Some(commit.as_str()) {
+            return None;
+        }
+        let dirty = if status.stdout.is_empty() { "" } else { "+" };
+        Some(format!("{commit}{dirty}"))
+    };
+    sample().unwrap_or_else(|| "unknown".to_owned())
+}
+
 struct Owned {
     child: Child,
     stopped: bool,
@@ -60,6 +81,9 @@ impl Owned {
     fn start(args: &[String]) -> io::Result<Self> {
         let mut command = Command::new(&args[0]);
         command.args(&args[1..]);
+        if env::var("HICKORY_DEV_BUILD").as_deref() == Ok("1") {
+            command.env("HICKORY_DEV_BUILD_INPUT", dev_build_input());
+        }
         #[cfg(unix)]
         {
             use std::os::unix::process::CommandExt;

@@ -63,7 +63,34 @@ fn revision() -> io::Result<Option<String>> {
 
 Each launcher starts in a new process group. npm and Tauri can create more groups, so remember descendant process identities while the launcher is alive. Refresh ownership using PID and birth time before signalling, so exited build processes cannot leave recycled process-group identifiers in the cleanup set. On termination, allow graceful cleanup, then kill remaining owned groups. Refuse replacement if any remain. Windows uses taskkill /T for the launched tree; host verification below covers Unix only.
 
+Before each supervised Simple build, sample the Git commit and dirty state.
+Cargo gets the same stamp input for successive edits to an already dirty
+checkout. Rust changes still invalidate their Cargo targets through dependency
+tracking. Recheck HEAD after reading status so a racing checkout can report
+unknown instead of a mismatched commit and dirty bit.
+
 <restart:copy id="owned-process-tree">
+fn dev_build_input() -> String {
+    let sample = || {
+        let commit = revision().ok()??;
+        let status = Command::new("git")
+            .args([
+                "--no-optional-locks",
+                "status",
+                "--porcelain=v1",
+                "--untracked-files=normal",
+            ])
+            .output()
+            .ok()?;
+        if !status.status.success() || revision().ok()?.as_deref() != Some(commit.as_str()) {
+            return None;
+        }
+        let dirty = if status.stdout.is_empty() { "" } else { "+" };
+        Some(format!("{commit}{dirty}"))
+    };
+    sample().unwrap_or_else(|| "unknown".to_owned())
+}
+
 struct Owned {
     child: Child,
     stopped: bool,
@@ -77,6 +104,9 @@ impl Owned {
     fn start(args: &[String]) -> io::Result<Self> {
         let mut command = Command::new(&args[0]);
         command.args(&args[1..]);
+        if env::var("HICKORY_DEV_BUILD").as_deref() == Ok("1") {
+            command.env("HICKORY_DEV_BUILD_INPUT", dev_build_input());
+        }
         #[cfg(unix)]
         {
             use std::os::unix::process::CommandExt;
@@ -652,6 +682,7 @@ a running app when another turn finishes with the same inputs.
 
 The Codex preview worker opts into build stamps because it runs the Simple
 launcher directly through its own request-driven supervisor.
+Cargo reports compilation and build-lock waits to the existing preview log.
 
 <restart:copy id="codex-preview-worker">
 def fingerprint(root):
@@ -685,7 +716,7 @@ def request_preview(root, supervisor):
         return supervisor
     return subprocess.Popen(
         [ROOT / "target/dev-supervisor", "--desktop-request",
-         "cargo", "run", "--quiet", "--locked", "-p", "hickory-cli", "--example", "simple_dev", "--", "apple"],
+         "cargo", "run", "--locked", "-p", "hickory-cli", "--example", "simple_dev", "--", "apple"],
         cwd=root,
         stdin=subprocess.DEVNULL,
         env={**os.environ, "HICKORY_DEV_BUILD": "1"},
@@ -787,6 +818,10 @@ if __name__ == "__main__":
 ## Exercise commit changes without touching the product checkout
 
 The witness creates disposable repositories and a long-running child with a grandchild in a separate session. Its event log checks save-only stability, first commit, amend, rapid commits during startup, failure recovery, argument/environment preservation and Ctrl-C cleanup. The linked-worktree case advances another checkout without restarting this one, then exercises packed refs, detached HEAD and reset. These are process witnesses on the executing host; GUI and Windows acceptance remain separate.
+
+The build-input witness runs the supervisor against clean, dirty, edited and
+newly committed fixtures. Check the input as seen by its child, since Cargo
+uses the child environment to decide when the build script must run again.
 
 <restart:copy id="restart-witnesses">
 """Focused real-process witnesses; no app, GUI, downloads or target checkout commits."""
@@ -900,6 +935,29 @@ while True: time.sleep(.05)
     def launch(self, cwd=None):
         self.process = subprocess.Popen([str(self.binary), os.sys.executable, str(self.child), 'space value', '$literal'], cwd=cwd or self.root, env={**os.environ, 'SUPERVISOR_TEST': 'kept'}, stdout=self.log, stderr=self.log)
         self.wait_for(lambda: self.starts() == 1)
+
+    def test_dev_build_input_changes_only_with_commit_or_dirty_state(self):
+        def build_input():
+            return subprocess.run(
+                [str(self.binary), os.sys.executable, '-c',
+                 'import os; print(os.environ["HICKORY_DEV_BUILD_INPUT"])'],
+                cwd=self.root, env={**os.environ, 'HICKORY_DEV_BUILD': '1'},
+                check=True, capture_output=True, text=True, timeout=10,
+            ).stdout.strip()
+
+        self.git('add', '.')
+        self.commit()
+        revision = self.git('rev-parse', 'HEAD')
+        self.assertEqual(build_input(), revision)
+        (self.root / 'untracked.txt').write_text('first edit')
+        self.assertEqual(build_input(), revision + '+')
+        (self.root / 'untracked.txt').write_text('second edit')
+        self.assertEqual(build_input(), revision + '+')
+        self.git('add', 'untracked.txt')
+        self.commit()
+        updated = self.git('rev-parse', 'HEAD')
+        self.assertNotEqual(updated, revision)
+        self.assertEqual(build_input(), updated)
 
     def test_commits_startup_failure_and_cleanup(self):
         self.launch()  # unborn HEAD starts immediately

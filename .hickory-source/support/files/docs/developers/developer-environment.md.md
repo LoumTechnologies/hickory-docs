@@ -22,6 +22,12 @@ rebuilds and relaunches that frontend when HEAD changes. Use `just dev-stop`
 to stop it, or `just dev-clean` to also remove this checkout's development
 scratch directory. Save or move any scratch edits you intend to keep first.
 
+`just simple-dev apple` shows Cargo's build or lock status, then reports native
+startup stages through signing and opening the app. On repeat launches, SwiftPM
+can reuse the preview resources when their generated contents are identical.
+Cargo can also reuse the Rust engine across edits outside its dependencies while
+the checkout commit and clean or dirty state stay the same.
+
 ### Refresh Simple Dev Apple when Codex finishes
 
 On macOS, run `just codex-simple-dev-install` from your main checkout, then

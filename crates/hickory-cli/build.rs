@@ -47,6 +47,8 @@ fn main() {
 
 
 fn stamp_dev_build() {
+    println!("cargo:rerun-if-env-changed=HICKORY_DEV_BUILD_INPUT");
+    let input = std::env::var("HICKORY_DEV_BUILD_INPUT").ok();
     let Some(root) = std::env::current_dir().ok().and_then(|dir| {
         dir.join("../..").canonicalize().ok()
     }) else {
@@ -56,6 +58,28 @@ fn stamp_dev_build() {
         let output = Command::new("git").arg("--no-optional-locks").arg("-C").arg(&root).args(args).output().ok()?;
         output.status.success().then_some(output.stdout)
     };
+    if input.is_none() {
+        watch_checkout(&root, &git_at_root);
+    }
+    let stamp = (|| {
+        if !git_at_root(&["rev-parse", "--show-prefix"])?.iter().all(u8::is_ascii_whitespace) {
+            return None;
+        }
+        let commit = git_at_root(&["rev-parse", "--verify", "HEAD"])?;
+        let dirty = !git_at_root(&["status", "--porcelain=v1", "--untracked-files=normal"])?.is_empty();
+        if git_at_root(&["rev-parse", "--verify", "HEAD"])? != commit {
+            return None;
+        }
+        let stamp = format!("{}{}", String::from_utf8(commit).ok()?.trim(), if dirty { "+" } else { "" });
+        if input.as_deref().is_some_and(|input| input != stamp) {
+            return None;
+        }
+        Some(stamp)
+    })();
+    println!("cargo:rustc-env=HICKORY_DEV_BUILD_STAMP={}", stamp.as_deref().unwrap_or("unknown"));
+}
+
+fn watch_checkout(root: &std::path::Path, git_at_root: impl Fn(&[&str]) -> Option<Vec<u8>>) {
     let mut refs = vec!["HEAD".to_owned(), "index".to_owned(), "packed-refs".to_owned(), "logs/HEAD".to_owned()];
     if let Some(reference) = git_at_root(&["symbolic-ref", "-q", "HEAD"]) {
         refs.push(String::from_utf8_lossy(&reference).trim().to_owned());
@@ -76,21 +100,9 @@ fn stamp_dev_build() {
             }
         }
     }
-    let stamp = (|| {
-        if !git_at_root(&["rev-parse", "--show-prefix"])?.iter().all(u8::is_ascii_whitespace) {
-            return None;
-        }
-        let commit = git_at_root(&["rev-parse", "--verify", "HEAD"])?;
-        let dirty = !git_at_root(&["status", "--porcelain=v1", "--untracked-files=normal"])?.is_empty();
-        if git_at_root(&["rev-parse", "--verify", "HEAD"])? != commit {
-            return None;
-        }
-        Some(format!("{}{}", String::from_utf8(commit).ok()?.trim(), if dirty { "+" } else { "" }))
-    })();
-    println!("cargo:rustc-env=HICKORY_DEV_BUILD_STAMP={}", stamp.as_deref().unwrap_or("unknown"));
 }
 fn git(args: &[&str]) -> Option<String> {
-    let out = Command::new("git").args(args).output().ok()?;
+    let out = Command::new("git").arg("--no-optional-locks").args(args).output().ok()?;
     out.status
         .success()
         .then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())

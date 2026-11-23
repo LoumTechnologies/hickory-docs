@@ -54,14 +54,36 @@ for package, original, name in [("@xterm/xterm", "lib/xterm.js", "xterm.js"), ("
 # esbuild is pinned by the web lockfile; no network or second formula engine.
 import json
 import subprocess
-bundle = ROOT / "apps/apple-simple/Sources/Resources/node_modules/table.js"
-bundle.parent.mkdir(parents=True, exist_ok=True)
+
+
+def bundle_preview(entry, filename):
+    web = ROOT / "apps/web"
+    resources = ROOT / "apps/apple-simple/Sources/Resources/node_modules"
+    resources.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory() as scratch:
+        bundle = Path(scratch) / filename
+        subprocess.run([
+            str(web / "node_modules/.bin/esbuild"), "--bundle", "--format=iife",
+            "--platform=browser", "--jsx=automatic", "--define:import.meta.env={}",
+            "--log-level=warning", "--outfile=" + str(bundle),
+        ], input=entry, text=True, cwd=web, check=True)
+        for output in Path(scratch).iterdir():
+            destination = resources / output.name
+            data = output.read_bytes()
+            if destination.is_file() and destination.read_bytes() == data:
+                continue
+            with tempfile.NamedTemporaryFile(dir=resources, delete=False) as temporary:
+                temporary.write(data)
+                staged = temporary.name
+            os.chmod(staged, 0o644)
+            os.replace(staged, destination)
+
+
 entry = "import { mountNativeTable, mountNativeOutput } from " + json.dumps(str(ROOT / "apps/web/src/components/MarkdownTable.tsx")) + ";\n" + "import " + json.dumps(str(ROOT / "apps/web/src/styles.css")) + ";\n" + "if (document.body.classList.contains('notebook-mode')) { globalThis.hickoryOutput = mountNativeOutput(document.getElementById('formula')); globalThis.hickoryOutput.update(globalThis.hickoryOutputSource || ''); } else globalThis.hickoryTable = mountNativeTable(document.getElementById('formula'), message => { const json = JSON.stringify(message); if (globalThis.webkit?.messageHandlers?.table) globalThis.webkit.messageHandlers.table.postMessage(JSON.parse(json)); else globalThis.HickoryTable?.postMessage(json); });"
-subprocess.run([str(ROOT / "apps/web/node_modules/.bin/esbuild"), "--bundle", "--format=iife", "--platform=browser", "--jsx=automatic", "--define:import.meta.env={}", "--log-level=warning", "--outfile=" + str(bundle)], input=entry, text=True, cwd=ROOT / "apps/web", check=True)
+bundle_preview(entry, "table.js")
 print("Prepared shared native spreadsheet resources.")
 
 # Bundle the same optional coverage renderer for both native hosts.
-coverage = ROOT / "apps/apple-simple/Sources/Resources/node_modules/coverage.js"
 entry = "import { mountNativeCoverage } from " + json.dumps(str(ROOT / "apps/web/src/coverage/NativeCoverage.tsx")) + ";\n" + "globalThis.hickoryCoverage = mountNativeCoverage(document.getElementById('surface'), message => { const json = JSON.stringify(message); if (globalThis.webkit?.messageHandlers?.coverage) globalThis.webkit.messageHandlers.coverage.postMessage(JSON.parse(json)); else globalThis.HickoryCoverage?.postMessage(json); });"
-subprocess.run([str(ROOT / "apps/web/node_modules/.bin/esbuild"), "--bundle", "--format=iife", "--platform=browser", "--jsx=automatic", "--define:import.meta.env={}", "--log-level=warning", "--outfile=" + str(coverage)], input=entry, text=True, cwd=ROOT / "apps/web", check=True)
+bundle_preview(entry, "coverage.js")
 print("Prepared shared native coverage resources.")
