@@ -32,7 +32,7 @@ export class GitReviewModel {
   try{const value=await this.reader.changes();if(id!==this.ticket)return;this.files=value.files;if(!this.indexPending)this.needsRefresh=false;this.branch=value.branch??'';this.page=0;this.notice=value.repository?'Saved Git state · unsaved editor drafts are not included.':'This workspace is not a Git repository.';}
   catch(error){if(id===this.ticket)this.notice=String(error);}finally{if(id===this.ticket){this.loading=false;this.changed();}}
  }
- async select(path:string,staged:boolean){if(!this.files.some(file=>file.path===path))return;const id=++this.ticket;this.selected=path;this.staged=staged;this.detail='';this.loading=true;this.notice='Reading saved diff…';this.changed();
+ async select(path:string,staged:boolean){if(this.indexPending||!this.files.some(file=>file.path===path))return;const id=++this.ticket;this.selected=path;this.staged=staged;this.detail='';this.loading=true;this.notice='Reading saved diff…';this.changed();
   try{const value=await this.reader.diff(path,staged);if(id!==this.ticket)return;if(value.path!==path)throw new Error('Diff identity changed. Refresh repository changes.');this.detail=value.diff.slice(0,200000);this.notice=value.binary?'Binary change · text comparison unavailable.':value.diff.length>200000?'First 200,000 characters shown. Use Terminal to read the complete diff.':value.diff?'Captured Git diff · refresh after external changes.':'No changes on this side.';}
   catch(error){if(id===this.ticket)this.notice=String(error);}finally{if(id===this.ticket){this.loading=false;this.changed();}}
  }
@@ -55,6 +55,8 @@ Stage and unstage use the selected saved path, never an editor draft. A rename s
 
 ## Present the captured reading without moving code
 
+Keep the diff side controls disabled while a staging request is pending. Selecting an old row would otherwise retire the request before it can refresh the index. The close action can still retire the presentation.
+
 Use the existing floating surface and menu vocabulary. Paging limits the visible file list; staged and working-tree buttons select an explicit side. Keep saved Git state visibly separate from unsaved editor drafts, preserve code focus on close and retire pending requests when the surface disappears. Diff text stays selectable and never becomes an editor mutation.
 
 Give the repository reading its own live-region name so a saved diff or index
@@ -74,9 +76,9 @@ export function GitReviewView({visible,workspace,close,acquire,buffers,history,a
  useEffect(()=>{if(!visible)return;void model.refresh();panel.current?.focus();return()=>{model.close();resolution?.close();};},[visible,model,resolution]);
  if(!visible)return null;
  return createPortal(<section ref={panel} tabIndex={-1} className="simple-workspace-problems simple-source-tests" role="dialog" aria-label="Repository changes" onKeyDown={event=>{if(event.key==='Escape'){event.preventDefault();close();}}}>
-  <header><strong>Repository changes {model.branch}</strong><button onClick={refresh}>Refresh</button><button onClick={close}>Close</button></header>
+  <header><strong>Repository changes {model.branch}</strong><button disabled={model.indexPending} onClick={refresh}>Refresh</button><button onClick={close}>Close</button></header>
   <p role="status" aria-label="Repository change status">{model.notice}</p><p>Saved working tree and index. Unsaved editor drafts are not included.</p>
-  <div aria-label="Changed files">{model.files.slice(model.page*20,(model.page+1)*20).map(file=><div key={file.path}><span>{file.from?`${file.from} → `:''}{file.path}</span> <button aria-label={`Working tree ${file.path}`} onClick={()=>select(file.path,false)}>Working tree {file.tree}</button> <button aria-label={`Staged ${file.path}`} onClick={()=>select(file.path,true)}>Staged {file.index}</button></div>)}</div>
+  <div aria-label="Changed files">{model.files.slice(model.page*20,(model.page+1)*20).map(file=><div key={file.path}><span>{file.from?`${file.from} → `:''}{file.path}</span> <button disabled={model.indexPending} aria-label={`Working tree ${file.path}`} onClick={()=>select(file.path,false)}>Working tree {file.tree}</button> <button disabled={model.indexPending} aria-label={`Staged ${file.path}`} onClick={()=>select(file.path,true)}>Staged {file.index}</button></div>)}</div>
   <nav aria-label="Changed file pages"><button disabled={model.page===0} onClick={()=>{model.page--;paint();}}>Previous</button><span>{model.files.length} changed files · page {model.page+1}</span><button disabled={(model.page+1)*20>=model.files.length} onClick={()=>{model.page++;paint();}}>Next</button></nav>
   {model.needsRefresh&&!model.indexPending&&<p>Refresh Git state before another index action.</p>}
   {model.selected&&<><h3>{model.selected} · {model.staged?'Staged':'Working tree'}</h3><div><button disabled={model.indexPending||model.needsRefresh||![...model.files].some(file=>file.path===model.selected&&file.tree!==' ')} onClick={()=>changeIndex(model.selected!,false)}>Stage saved file</button><button disabled={model.indexPending||model.needsRefresh||!model.files.some(file=>file.path===model.selected&&![' ','?','!'].includes(file.index))} onClick={()=>changeIndex(model.selected!,true)}>Unstage file</button></div><GitConflictView key={model.selected} path={model.selected} acquire={acquire} close={close}/></>}
@@ -92,7 +94,7 @@ export function GitReviewView({visible,workspace,close,acquire,buffers,history,a
 Hold two diff replies and release them in reverse order. The newer path and side must remain selected; closing retires a held reply. A mismatched response identity refuses before displaying its text. These are service safety witnesses, independent of popover layout and native physical input.
 
 <ui:copy id="simple-git-review-browser-tests">
-import {it,expect} from 'vitest';
+import {it,expect,vi} from 'vitest';
 import {GitReviewModel,reviewIndexPaths} from './GitReview';
 import type {GitDiff} from '../api/git';
 it('retains only the latest saved diff identity and retires closed work',async()=>{
@@ -113,6 +115,21 @@ it('stages exact rename paths once and requires a fresh read after an unconfirme
  fail=true;await model.changeIndex('new.py',false);expect(calls).toHaveLength(2);expect(model.needsRefresh).toBe(true);await model.changeIndex('new.py',false);expect(calls).toHaveLength(2);
  await model.refresh();fail=false;await model.changeIndex('new.py',false);expect(calls).toHaveLength(3);expect(model.needsRefresh).toBe(false);
  expect(()=>reviewIndexPaths({...files[0],from_outside_workspace:true},true)).toThrow('repository root');
+});
+
+it('settles staging even if the user requests the old staged side during the write',async()=>{
+ let finish!:(value:{ok:boolean})=>void;
+ const diff=vi.fn(async(path:string)=>({path,diff:'staged',binary:false}));
+ const model=new GitReviewModel({changes:async()=>({repository:true,files:[{path:'a.py',index:'M',tree:'M'}]}),diff,writeIndex:()=>new Promise(resolve=>finish=resolve)});
+ await model.refresh();
+ const staging=model.changeIndex('a.py',false);
+ await model.select('a.py',true);
+ expect(diff).not.toHaveBeenCalled();
+ finish({ok:true});
+ await staging;
+ expect(model.needsRefresh).toBe(false);
+ await model.select('a.py',true);
+ expect(model.detail).toBe('staged');
 });
 
 it('keeps the index mutation guard across close and a read while the write is pending',async()=>{

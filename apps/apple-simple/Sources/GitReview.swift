@@ -18,7 +18,7 @@ func reviewIndexPaths(_ file:ReviewFile,unstage:Bool)throws->[String] {
   do{let value=try await load();guard ticket==id else{return};files=value.files;if !indexPending{needsRefresh=false};branch=value.branch ?? "";page=0;notice=value.repository ? "Saved Git state · unsaved editor drafts are not included.":"This workspace is not a Git repository."}catch{if ticket==id{notice=error.localizedDescription}}
  }
  func select(_ path:String,staged:Bool,load:(String,Bool)async throws->ReviewDiff)async {
-  guard files.contains(where:{exactUTF8($0.path,path)}) else{return};let id=UUID();ticket=id;selected=path;self.staged=staged;detail="";loading=true;notice="Reading saved diff…";defer{if ticket==id{loading=false}}
+  guard !indexPending, files.contains(where:{exactUTF8($0.path,path)}) else{return};let id=UUID();ticket=id;selected=path;self.staged=staged;detail="";loading=true;notice="Reading saved diff…";defer{if ticket==id{loading=false}}
   do{let value=try await load(path,staged);guard ticket==id else{return};guard exactUTF8(value.path,path) else{throw EngineError(message:"Diff identity changed. Refresh repository changes.")};detail=String(value.diff.prefix(200000));notice=value.binary ? "Binary change · text comparison unavailable.":value.diff.count>200000 ? "First 200,000 characters shown. Use Terminal for the complete diff.":value.diff.isEmpty ? "No changes on this side.":"Captured Git diff · refresh after external changes."}catch{if ticket==id{notice=error.localizedDescription}}
  }
  func changeIndex(_ path:String,unstage:Bool,write:([String],Bool)async throws->Bool,load:()async throws->ReviewChanges)async {
@@ -50,7 +50,7 @@ struct GitReviewView:View {
     let side = staged ? "Staged" : "Working tree"
     let title = "\(side) \(staged ? file.index : file.tree)"
     let name = "\(side) \(file.path)"
-    let action: () -> Void = { Task { await select(file.path, staged) } }
+    let action: () -> Void = { guard !model.indexPending else { return }; Task { await select(file.path, staged) } }
     #if os(iOS)
     GitReviewSideButton(title: title, name: name, action: action)
     #else
@@ -59,7 +59,7 @@ struct GitReviewView:View {
  }
  var body:some View {
   VStack(alignment:.leading,spacing:8){
-   HStack{Text("Repository changes \(model.branch)").font(.headline);Spacer();Button("Refresh"){Task{await refresh()}};Button("Close"){workspace.showReview=false;workspace.currentBuffer?.focusSource?()}}
+   HStack{Text("Repository changes \(model.branch)").font(.headline);Spacer();Button("Refresh"){Task{await refresh()}}.disabled(model.indexPending);Button("Close"){workspace.showReview=false;workspace.currentBuffer?.focusSource?()}}
    Text(model.notice).font(.caption).textSelection(.enabled)
    Text("Saved working tree and index. Unsaved editor drafts are not included.").font(.caption)
    ScrollView{VStack(alignment:.leading){ForEach(Array(model.files.dropFirst(model.page*20).prefix(20))){file in
@@ -68,7 +68,7 @@ struct GitReviewView:View {
      HStack {
       sideControl(for: file, staged: false)
       sideControl(for: file, staged: true)
-     }
+     }.disabled(model.indexPending)
     }
    }}}
    HStack{Button("Previous"){model.page-=1}.disabled(model.page==0);Text("\(model.files.count) changed files · page \(model.page+1)");Button("Next"){model.page+=1}.disabled((model.page+1)*20>=model.files.count)}.font(.caption)

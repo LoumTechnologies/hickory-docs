@@ -1,4 +1,4 @@
-import {it,expect} from 'vitest';
+import {it,expect,vi} from 'vitest';
 import {GitReviewModel,reviewIndexPaths} from './GitReview';
 import type {GitDiff} from '../api/git';
 it('retains only the latest saved diff identity and retires closed work',async()=>{
@@ -19,6 +19,21 @@ it('stages exact rename paths once and requires a fresh read after an unconfirme
  fail=true;await model.changeIndex('new.py',false);expect(calls).toHaveLength(2);expect(model.needsRefresh).toBe(true);await model.changeIndex('new.py',false);expect(calls).toHaveLength(2);
  await model.refresh();fail=false;await model.changeIndex('new.py',false);expect(calls).toHaveLength(3);expect(model.needsRefresh).toBe(false);
  expect(()=>reviewIndexPaths({...files[0],from_outside_workspace:true},true)).toThrow('repository root');
+});
+
+it('settles staging even if the user requests the old staged side during the write',async()=>{
+ let finish!:(value:{ok:boolean})=>void;
+ const diff=vi.fn(async(path:string)=>({path,diff:'staged',binary:false}));
+ const model=new GitReviewModel({changes:async()=>({repository:true,files:[{path:'a.py',index:'M',tree:'M'}]}),diff,writeIndex:()=>new Promise(resolve=>finish=resolve)});
+ await model.refresh();
+ const staging=model.changeIndex('a.py',false);
+ await model.select('a.py',true);
+ expect(diff).not.toHaveBeenCalled();
+ finish({ok:true});
+ await staging;
+ expect(model.needsRefresh).toBe(false);
+ await model.select('a.py',true);
+ expect(model.detail).toBe('staged');
 });
 
 it('keeps the index mutation guard across close and a read while the write is pending',async()=>{
