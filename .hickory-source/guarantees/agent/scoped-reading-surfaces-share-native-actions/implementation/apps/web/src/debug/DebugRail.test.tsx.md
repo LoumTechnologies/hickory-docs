@@ -64,6 +64,8 @@ it("puts one launch icon per debuggable script in the right action rail", () => 
 <a id="f-141b8a9dd63d-expression_statement-3"></a>
 ### `expression_statement`
 
+Mount the paused controls in the editor rail to check that each visible stepping symbol invokes its named action and that the group follows the reported stop.
+
 <storycode:copy id="f-141b8a9dd63d-expression_statement-3">
 it("puts continue, stepping and stop beside the paused line and keeps their handlers", () => {
   const container = editor("one\ntwo\nthree\n");
@@ -80,9 +82,11 @@ it("puts continue, stepping and stop beside the paused line and keeps their hand
   expect(toolbar.closest(".cm-debug-rail")).not.toBeNull();
   expect(toolbar.closest("[data-source-offset]")?.getAttribute("data-source-offset")).toBe("4");
   fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-  fireEvent.click(screen.getByRole("button", { name: "Step over" }));
-  fireEvent.click(screen.getByRole("button", { name: "Step into" }));
-  fireEvent.click(screen.getByRole("button", { name: "Step out" }));
+  for (const [name, glyph] of [["Step over", "↓"], ["Step into", "⇥"], ["Step out", "↤"]]) {
+    const button = screen.getByRole("button", { name });
+    expect(button.textContent).toBe(glyph);
+    fireEvent.click(button);
+  }
   expect(step.mock.calls.map(call => call[0])).toEqual(["continue", "over", "in", "out"]);
   session.rerender(<DebugStrip {...props} pausedLine={2} />);
   expect(toolbar.closest("[data-source-offset]")?.getAttribute("data-source-offset")).toBe("8");

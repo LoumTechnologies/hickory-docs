@@ -367,16 +367,16 @@ export function DebugStrip(props: DebugStripProps) {
       )}
       {!over && paused && (
         <IconButton
-          glyph="⤼"
+          glyph="↓"
           label="Step over"
-          hint={`Run this line and stop on the next one (${formatBinding(bindingOf("debug.over"))})`}
+          hint={`Advance without stepping into calls (${formatBinding(bindingOf("debug.over"))})`}
           disabled={!paused||props.threadSelecting}
           onClick={() => props.onStep("over")}
         />
       )}
       {!over && paused && (
         <IconButton
-          glyph="↓"
+          glyph="⇥"
           label="Step into"
           hint={`Stop inside this call (${formatBinding(bindingOf("debug.in"))})`}
           disabled={!paused||props.threadSelecting}
@@ -385,7 +385,7 @@ export function DebugStrip(props: DebugStripProps) {
       )}
       {!over && paused && (
         <IconButton
-          glyph="↑"
+          glyph="↤"
           label="Step out"
           hint={`Stop where this function returns (${formatBinding(bindingOf("debug.out"))})`}
           disabled={!paused||props.threadSelecting}

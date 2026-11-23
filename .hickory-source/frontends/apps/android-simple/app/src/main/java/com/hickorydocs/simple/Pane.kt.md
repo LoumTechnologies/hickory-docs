@@ -1513,6 +1513,8 @@ Use the measured slot for tap and accessibility bounds. Compose's default
 expanded touch region otherwise overlaps neighboring anchors and can remove
 the intermediate action from the accessibility tree.
 
+The pause line supplies the same stepping buttons to the rail and its overflow grid. The down arrow follows the source, while the vertical bar gives the two frame transitions a shared boundary.
+
 <ui:copy id="simple-android-debug-rail">
 fun debugLineOffset(source: String, line: Int): Int? {
     if (line < 0) return null
@@ -1686,7 +1688,10 @@ private class ConstructionDisclosure(val line: Int) {
                 if (line in equationLines) actions.add(Triple("ƒ", "Edit equation", { opened = line }))
                 if (buffer.receiptsOn(line).isNotEmpty()) actions.add(Triple("▤", "Recorded output", { opened = line }))
                 if (line == paused) {
-                    listOf("▷" to "continue", "↳" to "over", "↓" to "in", "↑" to "out").forEach { (glyph, how) -> actions.add(Triple(glyph, how, { debug.step(how) })) }
+                    actions.add(Triple("▷", "Continue", { debug.step("continue") }))
+                    actions.add(Triple("↓", "Step over", { debug.step("over") }))
+                    actions.add(Triple("⇥", "Step in", { debug.step("in") }))
+                    actions.add(Triple("↤", "Step out", { debug.step("out") }))
                     actions.add(Triple("■", "Stop", { debug.stop() })); actions.add(Triple("◎", "Inspect", { opened = line }))
                 }
                 if (actions.isEmpty()) continue

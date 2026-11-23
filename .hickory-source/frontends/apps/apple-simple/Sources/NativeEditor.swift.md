@@ -2983,6 +2983,8 @@ Source controls belong to the source line, so derive one toggle per embedded anc
 
 Reported threads are paged inside the existing paused-line detail popover. Row closures retain the rendered list identity; the workspace model refuses stale rows before sending a selection. Reads and failed selections leave the current frame list visible. Correlated stopped replies replace frames and reevaluate watches only for the admitted stop/thread/frame. No new rail slot or permanent control is added. The same existing launch slot remains at source line zero for a retained session even if edits remove every launchable statement; its session-only controls do not require current text to launch. Inspection follows the paused runtime even when its selected frame belongs to external or unmapped code; hiding controls when the source-line marker disappears would strand the user after a successful thread selection.
 
+The stepping buttons share the paused line’s slot and overflow grid. A down arrow follows the source, while arrows toward and away from a vertical bar show whether the step enters or leaves a call frame.
+
 <ui:copy id="simple-apple-debug-rail">
 struct InlineCellControl: View {
     var cell: InlineCell
@@ -3106,12 +3108,15 @@ struct NativeDebugRail: View {
     private func symbol(_ action: String) -> String {
         if action.hasPrefix("coverage:"){return action=="coverage:covered" ? "circle.fill":action=="coverage:uncovered" ? "circle":"circle.lefthalf.filled"}
         if action.hasPrefix("source:") { return "chevron.left.forwardslash.chevron.right" }
-        switch action { case "tests":return "checklist";case "git-change":return "plus.forwardslash.minus";case "patch-comment":return "text.bubble";case "debug", "recorded-debug", "continue": return "play"; case "recorded-run": return "terminal"; case "recorded-review", "recorded-construction": return "doc.text.magnifyingglass"; case "equation": return "function"; case "output": return "text.alignleft"; case "over": return "arrow.turn.down.right"; case "in": return "arrow.down"; case "out": return "arrow.up"; case "stop": return "stop.fill"; default: return "eye" }
+        switch action { case "tests":return "checklist";case "git-change":return "plus.forwardslash.minus";case "patch-comment":return "text.bubble";case "debug", "recorded-debug", "continue": return "play"; case "recorded-run": return "terminal"; case "recorded-review", "recorded-construction": return "doc.text.magnifyingglass"; case "equation": return "function"; case "output": return "text.alignleft"; case "stop": return "stop.fill"; default: return "eye" }
     }
     private func actionLabel(_ action:String,line:Int)->String {
         if action.hasPrefix("coverage:"),let row=buffer.coverageRows().first(where:{$0.line==line}) {return "Coverage \(row.state) · \(row.count.map {"count \($0)"} ?? "count unavailable") · \(row.origins.count) measured location(s)"}
         if action == "git-change" { return "Inspect Git comparison" }
         if action == "patch-comment" { return "Comment on patch line" }
+        if action == "over" { return "Step over" }
+        if action == "in" { return "Step in" }
+        if action == "out" { return "Step out" }
         if action=="debug",showsSession {return "Inspect debugger"}
         if action == "recorded-run" { return "Run recorded \(recordedFences[line]?.language ?? "code") fence" }
         if action == "recorded-debug" { return "Debug recorded \(recordedFences[line]?.language ?? "code") fence" }
@@ -3162,7 +3167,17 @@ struct NativeDebugRail: View {
             case "stop": debug.stop()
             default: inspect(line)
             }
-        } label: { Image(systemName: symbol(action)).frame(width: 20, height: 18) }
+        } label: {
+            Group {
+                switch action {
+                case "over": Text("↓")
+                case "in": Text("⇥")
+                case "out": Text("↤")
+                default: Image(systemName: symbol(action))
+                }
+            }
+            .frame(width: 20, height: 18)
+        }
         .foregroundStyle(action=="coverage:covered" ? Color.green:action=="coverage:uncovered" ? Color.red:action=="coverage:mixed" ? Color.orange:Color.primary)
         .buttonStyle(SimpleChromeButtonStyle()).disabled(action == "debug" && !debug.hasSessionReading && (buffer.dirty || buffer.saving)).help(actionLabel(action,line:line)).accessibilityLabel("\(actionLabel(action,line:line)) on line \(line + 1)")
     }

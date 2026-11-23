@@ -376,6 +376,8 @@ export function statusWord(status: DebugStripProps["status"], exitCode?: number 
 
 Thread inspection lives inside the existing floating Debug options menu. It adds no gutter slot or content-space reservation. The selector shows only the admitted current list, keeps the confirmed selection while a request is pending, and explicitly distinguishes an unavailable stop identity from an unread or failed provider capability.
 
+The stepping buttons use a down arrow for movement within the current frame and a vertical bar for the call boundary. The arrows toward and away from that boundary distinguish entering a call from leaving it. The debugger’s reported stop still determines where the group appears.
+
 <storycode:copy id="f-09306f4ec1a5-DebugStrip">
 function DebugValueRow({node,read,expand,collapse}:{node:import('./DebugValueTree').DebugValueNode;read?:DebugStripProps['valueNode'];expand?:DebugStripProps['expandValue'];collapse?:DebugStripProps['collapseValue']}){
  return <div style={{marginLeft:node.depth?8:0}} data-debug-value-node={node.id}><code>{node.name} = {node.value.slice(0,4096)}{node.type?` · ${node.type}`:''}</code>{node.value.length>4096&&<small> Value abbreviated; debugger detail reading retains the reported value.</small>}{node.reference>0&&<button type="button" aria-label={`${node.expanded?'Collapse':'Expand'} value ${node.name}`} disabled={!!node.pending||!(node.expanded?collapse:expand)} onClick={()=>node.expanded?collapse?.(node.id):expand?.(node.id)}>{node.expanded?'−':'+'}</button>}{node.pending&&<p role="status">Reading children…</p>}{node.error&&<><p role="status">{node.error}</p><button type="button" onClick={()=>expand?.(node.id)}>Retry children of {node.name}</button></>}{node.expanded&&node.children?.length===0&&<p>No children reported.</p>}{node.expanded&&node.children?.map(id=>{const child=read?.(id);return child?<DebugValueRow key={id} node={child} read={read} expand={node.pending?undefined:expand} collapse={collapse}/>:null;})}</div>;
@@ -463,16 +465,16 @@ export function DebugStrip(props: DebugStripProps) {
       )}
       {!over && paused && (
         <IconButton
-          glyph="⤼"
+          glyph="↓"
           label="Step over"
-          hint={`Run this line and stop on the next one (${formatBinding(bindingOf("debug.over"))})`}
+          hint={`Advance without stepping into calls (${formatBinding(bindingOf("debug.over"))})`}
           disabled={!paused||props.threadSelecting}
           onClick={() => props.onStep("over")}
         />
       )}
       {!over && paused && (
         <IconButton
-          glyph="↓"
+          glyph="⇥"
           label="Step into"
           hint={`Stop inside this call (${formatBinding(bindingOf("debug.in"))})`}
           disabled={!paused||props.threadSelecting}
@@ -481,7 +483,7 @@ export function DebugStrip(props: DebugStripProps) {
       )}
       {!over && paused && (
         <IconButton
-          glyph="↑"
+          glyph="↤"
           label="Step out"
           hint={`Stop where this function returns (${formatBinding(bindingOf("debug.out"))})`}
           disabled={!paused||props.threadSelecting}

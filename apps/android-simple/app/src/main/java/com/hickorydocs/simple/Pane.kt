@@ -1507,7 +1507,10 @@ private class ConstructionDisclosure(val line: Int) {
                 if (line in equationLines) actions.add(Triple("ƒ", "Edit equation", { opened = line }))
                 if (buffer.receiptsOn(line).isNotEmpty()) actions.add(Triple("▤", "Recorded output", { opened = line }))
                 if (line == paused) {
-                    listOf("▷" to "continue", "↳" to "over", "↓" to "in", "↑" to "out").forEach { (glyph, how) -> actions.add(Triple(glyph, how, { debug.step(how) })) }
+                    actions.add(Triple("▷", "Continue", { debug.step("continue") }))
+                    actions.add(Triple("↓", "Step over", { debug.step("over") }))
+                    actions.add(Triple("⇥", "Step in", { debug.step("in") }))
+                    actions.add(Triple("↤", "Step out", { debug.step("out") }))
                     actions.add(Triple("■", "Stop", { debug.stop() })); actions.add(Triple("◎", "Inspect", { opened = line }))
                 }
                 if (actions.isEmpty()) continue

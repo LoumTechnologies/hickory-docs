@@ -42,9 +42,11 @@ it("puts continue, stepping and stop beside the paused line and keeps their hand
   expect(toolbar.closest(".cm-debug-rail")).not.toBeNull();
   expect(toolbar.closest("[data-source-offset]")?.getAttribute("data-source-offset")).toBe("4");
   fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-  fireEvent.click(screen.getByRole("button", { name: "Step over" }));
-  fireEvent.click(screen.getByRole("button", { name: "Step into" }));
-  fireEvent.click(screen.getByRole("button", { name: "Step out" }));
+  for (const [name, glyph] of [["Step over", "↓"], ["Step into", "⇥"], ["Step out", "↤"]]) {
+    const button = screen.getByRole("button", { name });
+    expect(button.textContent).toBe(glyph);
+    fireEvent.click(button);
+  }
   expect(step.mock.calls.map(call => call[0])).toEqual(["continue", "over", "in", "out"]);
   session.rerender(<DebugStrip {...props} pausedLine={2} />);
   expect(toolbar.closest("[data-source-offset]")?.getAttribute("data-source-offset")).toBe("8");
