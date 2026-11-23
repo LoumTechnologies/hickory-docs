@@ -100,6 +100,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.input.key.*
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.*
 import androidx.compose.ui.text.TextStyle
@@ -446,20 +447,49 @@ fun simpleFoldRanges(source: String, markdown: Boolean = false): List<SimpleFold
         data class Section(val line: Int, val level: Int, val end: Int)
         val headings = mutableListOf<Section>(); val sections = mutableListOf<Section>(); val starts = mutableListOf<Int>()
         var position = 0; var fence = ""; var payload = ""; var previous: Section? = null
+        var patch = -1
+        val patchRows = mutableSetOf<Int>()
+        val patchFolds = mutableListOf<SimpleFold>()
+        fun finishPatch(end: Int) {
+            if (patch < 0) return
+            patchRows.addAll(patch until end)
+            fun endOf(line: Int) = starts[line] + rows[line].removeSuffix("\r").length
+            for (hunk in simplePatchHunks(rows, patch + 1, end)) {
+                patchFolds.add(SimpleFold(hunk.header, endOf(hunk.header), endOf(hunk.end)))
+            }
+            patch = -1
+        }
         for ((line, row) in rows.withIndex()) {
             starts.add(position); val end = position + row.length; position = end + 1
             val trimmed = row.trim()
-            if (payload.isNotEmpty()) { if (trimmed.contains(":" + payload + ">") && trimmed.contains("</")) payload = ""; previous = null; continue }
-            if (fence.isNotEmpty()) { if (trimmed.length >= fence.length && trimmed.all { it == fence[0] }) fence = ""; previous = null; continue }
+            if (payload.isNotEmpty()) {
+                if (trimmed.contains(":" + payload + ">") && trimmed.contains("</")) { finishPatch(line); payload = "" }
+                previous = null; continue
+            }
+            if (fence.isNotEmpty()) {
+                if (trimmed.length >= fence.length && trimmed.all { it == fence[0] }) { finishPatch(line); fence = "" }
+                previous = null; continue
+            }
             val marker = Regex("""^ {0,3}(`{3,}|~{3,})""").find(row)
-            if (marker != null) { fence = marker.groupValues[1]; previous = null; continue }
+            if (marker != null) {
+                fence = marker.groupValues[1]
+                if (row.substring(marker.range.last + 1).trim().split(Regex("\\s+"), limit = 2).first() in listOf("diff", "patch")) patch = line
+                previous = null; continue
+            }
             val literal = Regex("""^ {0,3}<[\w.-]+:(file|copy|cut|exec|patch|entry|diagram|math|table)\b[^>]*>""").find(row)
-            if (literal != null) { if (!trimmed.contains("</") && !trimmed.endsWith("/>")) payload = literal.groupValues[1]; previous = null; continue }
+            if (literal != null) {
+                if (!trimmed.contains("</") && !trimmed.endsWith("/>")) {
+                    payload = literal.groupValues[1]; if (payload == "patch") patch = line
+                }
+                previous = null; continue
+            }
             val heading = Regex("""^ {0,3}(#{1,6})(?:[ \t]+|$)""").find(row)
             if (heading != null) { headings.add(Section(line, heading.groupValues[1].length, end)); previous = null }
             else if (previous != null && Regex("""^ {0,3}(?:=+|-+)\s*$""").matches(row)) { headings.add(previous.copy(level = if (trimmed[0] == '=') 1 else 2)); previous = null }
             else previous = if (trimmed.isNotEmpty() && !row.startsWith("    ") && !row.startsWith('\t')) Section(line, 0, end) else null
         }
+        finishPatch(rows.size)
+        result.removeAll { it.line in patchRows }; result.addAll(patchFolds)
         for (heading in headings + Section(rows.size, 0, source.length)) {
             while (sections.isNotEmpty() && sections.last().level >= heading.level) {
                 val top = sections.removeAt(sections.lastIndex)
@@ -536,7 +566,9 @@ The local shared spreadsheet sends typed messages through a narrow Android bridg
 // One projection drives the text field, line numbers, debugger rail and grid anchors.
 // Its offsets always map back to the retained source, including Unicode and folds.
 data class EditorReplacement(val from: Int, val to: Int, val text: String)
-fun editorReplacements(folds: List<SimpleFold>, tables: List<InlineTable>, source: String = "", diagrams: List<InlineDiagram> = emptyList(), equations: List<InlineEquation> = emptyList(), outputs: Map<Int, String> = emptyMap(), fontScale: Float = 1f): List<EditorReplacement> {
+fun editorReplacements(folds: List<SimpleFold>, tables: List<InlineTable>, source: String = "", diagrams: List<InlineDiagram> = emptyList(), equations: List<InlineEquation> = emptyList(), outputs: Map<Int, String> = emptyMap(), fontScale: Float = 1f,
+    renderedEquations: List<InlineEquation> = emptyList(),
+): List<EditorReplacement> {
     val tabs = mutableListOf<EditorReplacement>()
     var column = 0
     source.forEachIndexed { offset, char ->
@@ -546,7 +578,7 @@ fun editorReplacements(folds: List<SimpleFold>, tables: List<InlineTable>, sourc
     // Reserve read-only preview whitespace after the source paragraph. The
     // projection maps every preview offset back to its unchanged source anchor.
     val math = equations.groupBy { it.line }.values.map { values ->
-        val end = source.indexOf('\n', values.first().to).let { if (it < 0) source.length else it }
+        val end = source.indexOf('\n', values.maxOf { it.renderedTo }).let { if (it < 0) source.length else it }
         EditorReplacement(end, end, "\n ".repeat(kotlin.math.ceil(88f / (13f * fontScale.coerceAtLeast(.1f))).toInt() + 1))
     }
     // Derive preview rows from the editor's 13sp font and current font scale.
@@ -555,7 +587,8 @@ fun editorReplacements(folds: List<SimpleFold>, tables: List<InlineTable>, sourc
         val end = source.indexOf('\n', start).let { if (it < 0) source.length else it }
         EditorReplacement(end, end, "\n ".repeat(kotlin.math.ceil(188f / (13f * fontScale.coerceAtLeast(.1f))).toInt() + 1))
     } }
-    val candidates = outputSpace + math + diagrams.map { EditorReplacement(it.from, it.to, " \n".repeat(8) + " ") } + tabs + folds.map { EditorReplacement(it.from, it.to, " …") } + tables.map { EditorReplacement(it.from, it.to, " \n".repeat(it.displayRows - 1) + " ") }
+    val equationText = renderedEquations.map { EditorReplacement(it.renderedFrom, it.renderedTo, " ") }
+    val candidates = outputSpace + math + equationText + diagrams.map { EditorReplacement(it.from, it.to, " \n".repeat(8) + " ") } + tabs + folds.map { EditorReplacement(it.from, it.to, " …") } + tables.map { EditorReplacement(it.from, it.to, " \n".repeat(it.displayRows - 1) + " ") }
     val result = mutableListOf<EditorReplacement>()
     for (item in candidates.sortedWith(compareBy<EditorReplacement> { it.from }.thenByDescending { it.to })) {
         if (result.lastOrNull()?.to?.let { it > item.from } != true) result.add(item)
@@ -816,6 +849,7 @@ first source lines and their accessibility bounds stay visible.
     buffer: DocumentBuffer, debug: NativeDebugger?, modifier: Modifier = Modifier,
     recorded: AgentFenceReading? = null, reviewPatch: ((Int) -> Unit)? = null,
     recordedRun: RecordedRunActions? = null, recordedConstruction: RecordedConstructionReader? = null,
+    patchCommentEngine: Engine? = null,
     showRunTerminal: ((String) -> Unit)? = null,
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -862,10 +896,35 @@ first source lines and their accessibility bounds stay visible.
     val presentation = tablePresentation(inline, source)
     val tables = if (!buffer.tableSourceVisible) inlineTables(presentation).filter { it.from != buffer.sourceTable }.map { table -> buffer.tableHeights[table.from]?.let { height -> table.copy(visibleRows = kotlin.math.ceil(height / (13f * LocalDensity.current.fontScale.coerceAtLeast(.1f))).toInt()) } ?: table } else emptyList()
     val diagrams = if (!buffer.tableSourceVisible) presentation.diagrams.filter { it.from != buffer.sourceTable } else emptyList()
-    val hiddenRanges = editorReplacements(folds, tables, diagrams = diagrams)
-    val replacements = editorReplacements(folds, tables, source, diagrams, if (buffer.inlineMarkup.source == source) buffer.inlineMarkup.equations else emptyList(), (buffer.recordedOutputPlacements() + debug?.outputPlacements(buffer).orEmpty()), fontScale = LocalDensity.current.fontScale)
+    val equations = inline.takeIf { it.source == source }?.equations.orEmpty()
+    val previews = equations.filter { equation ->
+        equation.from != buffer.exposedEquation && folds.none { it.from < equation.renderedTo && it.to > equation.renderedFrom }
+    }
+    val readyMath = remember(buffer) { mutableStateMapOf<Int, String>() }
+    LaunchedEffect(buffer, inline) {
+        if (inline.source == source) {
+            val known = equations.associate { it.from to it.body }
+            readyMath.keys.toList().filter { readyMath[it] != known[it] }.forEach { readyMath.remove(it) }
+        }
+    }
+    val renderedEquations = previews.filter { readyMath[it.from] == it.body }
+    val hiddenRanges = editorReplacements(folds, tables, diagrams = diagrams, renderedEquations = renderedEquations)
+    val replacements = editorReplacements(folds, tables, source, diagrams, previews,
+        buffer.recordedOutputPlacements() + debug?.outputPlacements(buffer).orEmpty(),
+        fontScale = LocalDensity.current.fontScale, renderedEquations = renderedEquations)
     val display = editorDisplay(source, replacements)
     var textLayout by remember(buffer) { mutableStateOf<TextLayoutResult?>(null) }
+    // Observe the native text field's gestures without taking over its caret or IME.
+    val restoreEquationAt by rememberUpdatedState<(Offset) -> Boolean> { point ->
+        val layout = textLayout
+        val equation = equations.firstOrNull { it.from == buffer.exposedEquation }
+        if (layout == null || equation == null || layout.layoutInput.text.text != display || buffer.text != source || buffer.state.composition != null) false
+        else {
+            val at = editorSourceOffset(layout.getOffsetForPosition(point.copy(y = point.y + scroll.value)), replacements)
+            if (at !in equation.renderedFrom until equation.renderedTo) false
+            else { buffer.exposedEquation = null; true }
+        }
+    }
     val paused = if (debug?.positionSourceMatches(buffer) == true) debug.line(buffer.file.path) else null
     val pauseColor = MaterialTheme.colorScheme.primary.copy(alpha = .14f)
     LaunchedEffect(buffer.debugReveal) { if (buffer.debugReveal != null&&buffer.debugRevealCurrent()&&buffer.debugRevealSource==buffer.text) buffer.clearFolds() }
@@ -989,6 +1048,18 @@ first source lines and their accessibility bounds stay visible.
                 scrollState = scroll,
                 inputTransformation = InputTransformation {
                     val snippetBefore=buffer.snippets.captureBefore(originalText,originalSelection)
+                    val hiddenEquation = renderedEquations.firstOrNull { equation ->
+                        (0 until changes.changeCount).any { index ->
+                            val range = changes.getOriginalRange(index)
+                            range.min < equation.renderedTo && range.max > equation.renderedFrom ||
+                                range.collapsed && range.min in equation.renderedFrom until equation.renderedTo
+                        }
+                    }
+                    if (hiddenEquation != null) {
+                        buffer.exposedEquation = hiddenEquation.from
+                        revertAllChanges()
+                        return@InputTransformation
+                    }
                     val hiddenEdit = (0 until changes.changeCount).any { index ->
                         val changed = changes.getOriginalRange(index)
                         hiddenRanges.any { range -> changed.min < range.to && changed.max > range.from || changed.collapsed && changed.min in range.from until range.to }
@@ -1090,7 +1161,26 @@ first source lines and their accessibility bounds stay visible.
                         }
                     }
                 },
-                modifier = Modifier.fillMaxSize().padding(8.dp).focusRequester(editorFocus).onPreviewKeyEvent { event ->
+                modifier = Modifier.fillMaxSize().padding(8.dp).focusRequester(editorFocus).pointerInput(buffer) {
+                    var firstTap: Pair<Long, Offset>? = null
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                        var end = down
+                        do {
+                            val event = awaitPointerEvent(PointerEventPass.Initial)
+                            end = event.changes.firstOrNull { it.id == down.id } ?: break
+                        } while (end.pressed)
+                        if (end.pressed || end.uptimeMillis - down.uptimeMillis > 300 || (end.position - down.position).getDistance() > viewConfiguration.touchSlop) {
+                            firstTap = null
+                        } else {
+                            val previous = firstTap
+                            if (previous != null && end.uptimeMillis - previous.first < viewConfiguration.doubleTapTimeoutMillis &&
+                                (end.position - previous.second).getDistance() <= viewConfiguration.touchSlop * 2 && restoreEquationAt(end.position)) {
+                                end.consume(); firstTap = null
+                            } else firstTap = end.uptimeMillis to end.position
+                        }
+                    }
+                }.onPreviewKeyEvent { event ->
                     val key = event.nativeKeyEvent
                     val selected = buffer.state.selection
                     val hiddenTyping = hiddenRanges.any { selected.min < it.to && selected.max > it.from || selected.collapsed && selected.min in it.from until it.to }
@@ -1161,12 +1251,33 @@ first source lines and their accessibility bounds stay visible.
                 val top = layout.getLineBottom(layout.getLineForOffset(editorDisplayOffset(end, replacements))) - scroll.value
                 NativeInlineTerminal(output, Modifier.offset { IntOffset(0, top.toInt() + with(density) { 8.dp.roundToPx() }) }.padding(horizontal = 8.dp).fillMaxWidth().height(180.dp))
             }
-            if (layout != null && layout.layoutInput.text.text == display && inline.source == source) inline.equations.groupBy { it.line }.values.forEach { equations ->
-                val end = source.indexOf('\n', equations.first().to).let { if (it < 0) source.length else it }
+            if (layout != null && layout.layoutInput.text.text == display) previews.groupBy { it.line }.values.forEach { group ->
+                val end = source.indexOf('\n', group.maxOf { it.renderedTo }).let { if (it < 0) source.length else it }
                 val anchor = editorDisplayOffset(end, replacements)
                 val row = layout.getLineForOffset(anchor)
                 val top = layout.getLineBottom(row) - scroll.value
-                NativeMathView(equations.joinToString(" \\qquad ") { it.body }, Modifier.offset { IntOffset(0, top.toInt() + with(density) { 8.dp.roundToPx() }) }.padding(horizontal = 8.dp).fillMaxWidth().height(80.dp))
+                Row(Modifier.offset { IntOffset(0, top.toInt() + with(density) { 8.dp.roundToPx() }) }.padding(horizontal = 8.dp).fillMaxWidth().height(80.dp)) {
+                    group.forEach { equation ->
+                        key(equation.from) {
+                            Box(Modifier.weight(1f).fillMaxHeight()) {
+                                NativeMathView(equation.body, Modifier.fillMaxSize(), onReady = {
+                                    if (buffer.text == source && buffer.inlineMarkup.source == source) readyMath[equation.from] = equation.body
+                                })
+                                Box(Modifier.fillMaxSize().pointerInput(buffer, equation, source) {
+                                    detectTapGestures(onDoubleTap = {
+                                        if (buffer.text == source && buffer.inlineMarkup.source == source) buffer.exposedEquation = equation.from
+                                    })
+                                }.semantics {
+                                    contentDescription = "Rendered equation"
+                                    onClick(label = "Edit equation source") {
+                                        if (buffer.text != source || buffer.inlineMarkup.source != source) false
+                                        else { buffer.exposedEquation = equation.from; true }
+                                    }
+                                })
+                            }
+                        }
+                    }
+                }
             }
             if (layout != null && layout.layoutInput.text.text == display) diagrams.forEach { diagram ->
                 val replacement = replacements.firstOrNull { it.from == diagram.from && it.to == diagram.to } ?: return@forEach
@@ -1200,7 +1311,7 @@ first source lines and their accessibility bounds stay visible.
                 val total = scroll.maxValue.toFloat() + scroll.viewportSize
                 if (total > 0) drawRect(color.copy(alpha = .15f), Offset(0f, scroll.value / total * size.height), Size(size.width, maxOf(4f, scroll.viewportSize / total * size.height)))
             }
-            if (debug != null) NativeDebugRail(buffer, debug, textLayout, scroll, recorded, reviewPatch, recordedRun, recordedConstruction, showRunTerminal)
+            if (debug != null) NativeDebugRail(buffer, debug, textLayout, scroll, replacements, recorded, reviewPatch, recordedRun, recordedConstruction, patchCommentEngine, showRunTerminal)
             else if (buffer.startupObservation) Spacer(Modifier.width(28.dp))
         }
         Box(Modifier.align(androidx.compose.ui.Alignment.TopEnd).padding(end = if (debug != null || buffer.startupObservation) 66.dp else 42.dp)) {
@@ -1408,8 +1519,10 @@ private class ConstructionDisclosure(val line: Int) {
 @OptIn(ExperimentalLayoutApi::class)
 @Composable private fun NativeDebugRail(
     buffer: DocumentBuffer, debug: NativeDebugger, layout: TextLayoutResult?, scroll: ScrollState,
+    replacements: List<EditorReplacement>,
     recorded: AgentFenceReading?, reviewPatch: ((Int) -> Unit)?, recordedRun: RecordedRunActions?,
     recordedConstruction: RecordedConstructionReader?,
+    patchCommentEngine: Engine?,
     showRunTerminal: ((String) -> Unit)?,
 ) {
     val density = LocalDensity.current
@@ -1417,6 +1530,8 @@ private class ConstructionDisclosure(val line: Int) {
     var overflow by remember(buffer) { mutableStateOf<Int?>(null) }
     var railWidth by remember(buffer) { mutableStateOf(24f) }
     var opened by remember(buffer) { mutableStateOf<Int?>(null) }
+    var gitOpened by remember(buffer, buffer.gitComparison) { mutableStateOf<Int?>(null) }
+    var commentOpened by remember(buffer, recorded?.source) { mutableStateOf<Int?>(null) }
     var runOpened by remember(buffer) { mutableStateOf<Int?>(null) }
     var construction by remember(buffer, recordedConstruction) { mutableStateOf<ConstructionDisclosure?>(null) }
     var expression by remember(buffer) { mutableStateOf("") }
@@ -1428,20 +1543,27 @@ private class ConstructionDisclosure(val line: Int) {
     suspend fun launch(line: Int) {
         if (recorded == null) debug.prepare(buffer, line) else debug.prepareRecordedFence(buffer, recorded, line)
     }
-    val folds = buffer.activeFolds()
-    val tables = if (buffer.inlineMarkup.source == source && !buffer.tableSourceVisible) inlineTables(buffer.inlineMarkup).filter { it.from != buffer.sourceTable } else emptyList()
-    val diagrams = if (!buffer.tableSourceVisible) tablePresentation(buffer.inlineMarkup, source).diagrams.filter { it.from != buffer.sourceTable } else emptyList()
-    val replacements = editorReplacements(folds, tables, source, diagrams, if (buffer.inlineMarkup.source == source) buffer.inlineMarkup.equations else emptyList(), (buffer.recordedOutputPlacements() + debug?.outputPlacements(buffer).orEmpty()), fontScale = LocalDensity.current.fontScale)
     val display = editorDisplay(source, replacements)
     val coverageLines=buffer.coverageRows().associateBy {it.line}
     val testLines=buffer.sourceTestRows().map {it.first}.toSet()
+    val git = buffer.gitComparison?.takeIf { it.path == buffer.file.path && !buffer.resourceDeleted }
+    val revision = buffer.sourceRevision
+    val computed by produceState<Triple<EditorGitComparison, Long, Map<Int, GitChangedLine>?>?>(null, git, source, revision) {
+        if (git != null) {
+            kotlinx.coroutines.delay(100)
+            val rows = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { editorGitLines(git.before, source) }
+            if (buffer.gitComparison === git && buffer.text == source && buffer.sourceRevision == revision) value = Triple(git, revision, rows)
+        }
+    }
+    val gitRows = computed?.takeIf { it.first === git && it.second == revision }?.third
     val breakpointLines = if (recorded == null) emptySet() else debugContext?.code?.keys.orEmpty()
     val patchLines = if (reviewPatch == null) emptySet() else debugContext?.recordedPatches.orEmpty()
+    val commentLines = if (recorded?.side == "assistant" && recorded.current() && patchCommentEngine != null) debugContext?.recordedPatchLines.orEmpty() else emptyMap()
     val constructionLines = if (recordedConstruction == null) emptySet() else debugContext?.declaredPatches.orEmpty()
     val launchLines = debugContext?.launch.orEmpty()
     val equationLines = if (buffer.inlineMarkup.source == source) buffer.inlineMarkup.equations.map { it.line }.toSet() else emptySet()
     val paused = if (debug.positionSourceMatches(buffer)) debug.line(buffer.file.path) else null
-    fun hasGutterAction(line: Int) = line in breakpointLines || line in patchLines || line in constructionLines || line in coverageLines ||
+    fun hasGutterAction(line: Int) = (git != null && (line == 0 || gitRows?.containsKey(line) == true)) || line in breakpointLines || line in commentLines || line in patchLines || line in constructionLines || line in coverageLines ||
         line in testLines || line in launchLines || line == paused || line in equationLines || buffer.receiptsOn(line).isNotEmpty()
     Box(Modifier.width(4.dp).fillMaxHeight().background(MaterialTheme.colorScheme.outlineVariant).pointerInput(buffer) {
         detectDragGestures { change, amount -> change.consume(); railWidth = (railWidth - amount.x / density.density).coerceIn(24f, 220f) }
@@ -1502,6 +1624,10 @@ private class ConstructionDisclosure(val line: Int) {
                     if(ownsInspection)opened=line
                     else scope.launch { launch(line); opened = if (debug.active) null else line }
                 }))
+                if (line in commentLines) actions.add(Triple("◫", "Comment on patch line", { commentOpened = line }))
+                if (git != null && (line == 0 || gitRows?.containsKey(line) == true)) {
+                    actions.add(Triple("±", "Inspect Git comparison", { gitOpened = line }))
+                }
                 if (line in equationLines) actions.add(Triple("ƒ", "Edit equation", { opened = line }))
                 if (buffer.receiptsOn(line).isNotEmpty()) actions.add(Triple("▤", "Recorded output", { opened = line }))
                 if (line == paused) {
@@ -1530,6 +1656,20 @@ private class ConstructionDisclosure(val line: Int) {
                                     GutterHint(label) { Text(glyph, modifier = Modifier.size(24.dp).clickable { overflow = null; run() }.semantics { contentDescription = label }) }
                                 } } }
                             }
+                        }
+                    }
+                    val patchOpening = commentLines[line]
+                    if (patchOpening != null && recorded != null && patchCommentEngine != null) {
+                        DropdownMenu(expanded = commentOpened == line, onDismissRequest = { commentOpened = null },
+                            modifier = Modifier.width(330.dp).heightIn(max = 420.dp)) {
+                            RecordedPatchComment(patchCommentEngine, buffer, recorded, line, patchOpening)
+                        }
+                    }
+                    if (git != null) DropdownMenu(expanded = gitOpened == line, onDismissRequest = { gitOpened = null },
+                        modifier = Modifier.width(320.dp).heightIn(max = 380.dp)) {
+                        Column(Modifier.padding(10.dp)) {
+                            if (gitRows == null) Text("Line comparison is loading or exceeds the editor limit.", fontSize = 12.sp)
+                            GitComparisonLine(buffer, git, gitRows?.get(line))
                         }
                     }
                     val reading = construction?.takeIf { it.line == line && recordedConstruction?.current(line) == true }

@@ -285,6 +285,21 @@ final class ParityTests: XCTestCase {
         let diagnostic = try? evaluate("JSON.stringify({url:location.href,mode:globalThis.hickoryTableMode,bridge:typeof globalThis.hickoryTable,body:document.body?.className,scripts:[...document.scripts].map(s=>s.src)})")
         XCTAssertTrue(coordinator.ready, "The bundled shared spreadsheet must load inside actual WKWebView: \(String(describing: diagnostic))")
         guard coordinator.ready else { return }
+        func selectedCells(_ script: String) throws -> Int? {
+            _ = try evaluate(script + "; null")
+            return try evaluate("document.querySelectorAll('.table-panel__cell--within').length") as? Int
+        }
+        // Exercise the grid loaded in WKWebView before checking its write bridge.
+        XCTAssertEqual(try selectedCells("document.querySelector('.table-panel__gutter').click()"), 2)
+        XCTAssertEqual(try selectedCells("document.querySelector('.table-panel__head').click()"), 2)
+        let drag = """
+            var cells = document.querySelectorAll('.table-panel__cell');
+            cells[0].dispatchEvent(new MouseEvent('mousedown', {bubbles:true, button:0}));
+            cells[0].dispatchEvent(new MouseEvent('mouseout', {bubbles:true, relatedTarget:cells[3]}));
+            window.dispatchEvent(new MouseEvent('mouseup'));
+            """
+        XCTAssertEqual(try selectedCells(drag), 4)
+        XCTAssertEqual(buffer.text, source)
         let wrong = "window.webkit.messageHandlers.table.postMessage({kind:'change',revision:'obsolete',source:'wrong'})"
         try evaluate(wrong + "; null")
         XCTAssertEqual(buffer.text, source)
@@ -341,6 +356,74 @@ final class ParityTests: XCTestCase {
         XCTAssertTrue(simpleFoldRanges("# comment\nbody").isEmpty)
         XCTAssertTrue(simpleFoldRanges("```python\n# comment\nbody", markdown: true).isEmpty)
     }
+    func testPatchHunkFoldsKeepHeadersAndHideAllBodyRows() throws {
+        let rows = [
+            "```patch id=\"update\"", "--- a/x.py", "+++ b/x.py", "@@ -1,2 +1,3 @@",
+            " def greet():", "-    return 1", "+    value = 2", "+    return value",
+            "@@ -8 +9 @@", "-old()", "+new()", #"\ No newline at end of file"#, "```",
+        ]
+        for newline in ["\n", "\r\n"] {
+            let source = rows.joined(separator: newline)
+            let folds = simpleFoldRanges(source, markdown: true)
+            XCTAssertEqual(folds.map(\.line), [3, 8])
+            XCTAssertEqual(folds.map { (source as NSString).substring(with: $0.range) }, [
+                newline + rows[4...7].joined(separator: newline),
+                newline + rows[9...11].joined(separator: newline),
+            ])
+        }
+    }
+
+    @MainActor func testWorkbookBreakpointIsVisibleBeforeDebuggerLaunch() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+        let path = "workbook.md"
+        let source = try String(contentsOf: root.appendingPathComponent("examples/simple-ui/workbook.md"), encoding: .utf8)
+        let buffer = DocumentBuffer(file: FileNode(name: path, path: path, dir: false),
+                                    text: FileText(path: path, content: source, hash: "workbook"))
+        let debugger = NativeDebugger(engine: try Engine(address: "http://127.0.0.1:1"))
+        defer { debugger.close() }
+        let context = inlineDebugContext(source, path: path)
+        let rows = source.components(separatedBy: "\n")
+        let body = try XCTUnwrap(rows.firstIndex { $0.contains("discounted =") })
+        let added = try XCTUnwrap(rows.firstIndex { $0.hasPrefix("+    print") })
+        let displayOnly = try XCTUnwrap(rows.lastIndex { $0.hasPrefix("+    print") })
+        XCTAssertEqual(context.code[body], "generated/coupon.py")
+        XCTAssertEqual(context.code[added], "generated/coupon.py")
+        XCTAssertNil(context.code[displayOnly])
+        debugger.toggle(buffer, line: body)
+        debugger.toggle(buffer, line: added)
+        XCTAssertEqual(debugger.breakpointMarkers(buffer).compactMap { $0["line"] as? Int }, [body, added])
+        XCTAssertEqual(debugger.breakpointMarkers(buffer).compactMap { $0["state"] as? String }, ["pending", "pending"])
+        let sibling = DocumentBuffer(file: buffer.file, text: FileText(path: path, content: source, hash: "workbook"))
+        XCTAssertTrue(debugger.breakpointMarkers(sibling).isEmpty)
+        debugger.toggle(buffer, line: body)
+        XCTAssertEqual(debugger.breakpointMarkers(buffer).compactMap { $0["line"] as? Int }, [added])
+    }
+
+    func testGitComparisonProjectsReplacementsAndEndOfFileDeletions() throws {
+        let lines = try XCTUnwrap(GitEditorComparison.changes(from: "first\nold\nlast\n", to: "first\nnew\n"))
+        XCTAssertNil(lines[0])
+        XCTAssertEqual(lines[1]?.removed, ["old", "last"])
+        XCTAssertEqual(lines[1]?.added, "new")
+        let deletion = try XCTUnwrap(GitEditorComparison.changes(from: "first\nlast\n", to: "first\n"))
+        XCTAssertEqual(deletion[1]?.removed, ["last"])
+        XCTAssertNil(deletion[1]?.added)
+        XCTAssertNotNil(GitEditorComparison.changes(from: "first\n", to: "first")?[0])
+        XCTAssertNotNil(GitEditorComparison.changes(from: "é", to: "e\u{301}")?[0])
+    }
+
+    func testAgentCommentsAddressOnlyPatchChanges() {
+        let source = [
+            "```diff", "--- a/a.py", "+++ b/a.py", "@@ -1,2 +1,2 @@",
+            " context", "-old", "+new", "```", "+Unrelated prose",
+        ].joined(separator: "\n")
+        let debug = inlineDebugContext(source, path: "agent.md")
+        XCTAssertEqual(debug.recordedPatchLines, [5: 0, 6: 0])
+        XCTAssertTrue(debug.code.isEmpty)
+        XCTAssertTrue(inlineDebugContext(source.components(separatedBy: "\n").prefix(7).joined(separator: "\n"), path: "agent.md")
+            .recordedPatchLines.isEmpty)
+    }
+
     func testDiagramLinksStayInsideWorkspace() {
         // Contract: .hickory-source/frontends/contract.md
         XCTAssertEqual(diagramFilePath("../src/main.swift", relativeTo: "docs/design.md"), "src/main.swift")
@@ -1057,9 +1140,17 @@ final class ParityTests: XCTestCase {
         }
         window.setContentSize(NSSize(width: 600, height: 400)); editor.measureDebugLines()
         // Source reveal is presentation only; restore the same measured inline row.
-        buffer.sourceTable = equations[0].id; buffer.renderMarkup?()
+        XCTAssertFalse(buffer.toggleEquationSource(equations[0].id, in: source + "old"))
+        XCTAssertTrue(buffer.toggleEquationSource(equations[0].id, in: source))
         XCTAssertNil(host(equations[0])); XCTAssertEqual(editor.text.string, source)
-        buffer.sourceTable = nil; buffer.renderMarkup?()
+        let raw = rect(equations[0].range.location)
+        let click = editor.text.convert(CGPoint(x: raw.midX, y: raw.midY), to: nil)
+        let event = try XCTUnwrap(NSEvent.mouseEvent(with: .leftMouseDown, location: click, modifierFlags: [],
+                                                     timestamp: 0, windowNumber: window.windowNumber,
+                                                     context: nil, eventNumber: 1, clickCount: 2, pressure: 1))
+        editor.text.mouseDown(with: event)
+        XCTAssertNil(buffer.sourceTable)
+        XCTAssertEqual(editor.text.selectedRange(), NSRange(location: 3, length: 0))
         for _ in 0..<200 {
             if host(equations[0]) != nil { break }
             try await Task.sleep(for: .milliseconds(25))

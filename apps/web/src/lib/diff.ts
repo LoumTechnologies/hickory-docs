@@ -234,3 +234,25 @@ export function unifiedDiff(path: string, before: string, after: string): string
   });
   return `--- a/${path}\n+++ b/${path}\n@@ -${count(before) ? 1 : 0},${count(before)} +${count(after) ? 1 : 0},${count(after)} @@\n${rows.join("\n")}\n`;
 }
+export function simplePatchHunks(rows: readonly string[], first: number, last: number) {
+  const hunks: { header: number; end: number; changed: number[] }[] = [];
+  for (let line = first; line < last; line++) {
+    const match = /^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@/.exec(rows[line]);
+    if (!match) continue;
+    let old = Number(match[1] ?? 1), next = Number(match[2] ?? 1), end = line;
+    const changed: number[] = [];
+    for (let body = line + 1; body < last; body++) {
+      const row = rows[body];
+      if (row.replace(/\r$/, "") === "\\ No newline at end of file") { end = body; continue; }
+      if (row[0] === "-" && old > 0) { old--; changed.push(body); }
+      else if (row[0] === "+" && next > 0) { next--; changed.push(body); }
+      else if (row[0] === " " && old > 0 && next > 0) { old--; next--; }
+      else break;
+      end = body;
+    }
+    if (old === 0 && next === 0 && end > line) {
+      hunks.push({ header: line, end, changed }); line = end;
+    }
+  }
+  return hunks;
+}

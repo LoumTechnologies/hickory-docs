@@ -41,6 +41,7 @@ import json
 
 <storycode:copy id="f-1cf5c9b5ba43-math">
 import math
+import re
 </storycode:copy>
 <a id="f-1cf5c9b5ba43-statistics"></a>
 ### `statistics`
@@ -164,10 +165,13 @@ SAFE = {
 ### `evaluate`
 
 <storycode:copy id="f-1cf5c9b5ba43-evaluate">
-def evaluate(formula):
+def evaluate(formula, language):
     scope = {name: to_python(value) for name, value in formula.get("bindings", [])}
     try:
-        value = eval(formula["expression"], {"__builtins__": {}, **SAFE}, scope)
+        if language == "latex":
+            value = LatexExpression(formula["expression"], scope).evaluate()
+        else:
+            value = eval(formula["expression"], {"__builtins__": {}, **SAFE}, scope)
         return {"id": formula["id"], "value": to_wire(value)}
     except Exception as error:  # noqa: BLE001 - the message IS the answer
         # The language's own message, not a spreadsheet's `#VALUE!`: a
@@ -180,11 +184,114 @@ def evaluate(formula):
 
 
 </storycode:copy>
+## Evaluate mathematical LaTeX in a cell
+
+The LaTeX backend accepts arithmetic, grouping, fractions, square roots and
+sums of resolved cell ranges. It shares the process framing and numeric values
+with the Python backend. Parse a bounded token stream into numeric operations
+so a cell can refer to another cell and unknown TeX commands produce a cell error.
+The host supplies dependencies through the same binding map as other languages.
+
+<storycode:copy id="latex-formula-arithmetic">
+LATEX_TOKEN = re.compile(
+    r"\\[A-Za-z]+|(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?|[A-Za-z_][A-Za-z_0-9]*|\S",
+    re.ASCII,
+)
+LATEX_OPERATORS = {
+    "+": (1, 2, lambda a, b: a + b),
+    "-": (1, 2, lambda a, b: a - b),
+    "*": (2, 3, lambda a, b: a * b),
+    r"\cdot": (2, 3, lambda a, b: a * b),
+    r"\times": (2, 3, lambda a, b: a * b),
+    "/": (2, 3, lambda a, b: a / b),
+    r"\div": (2, 3, lambda a, b: a / b),
+    "^": (4, 4, math.pow),
+}
+
+
+def latex_number(value):
+    if type(value) not in (int, float) or not math.isfinite(value):
+        raise ValueError("LaTeX arithmetic requires a finite number")
+    return float(value)
+
+
+class LatexExpression:
+    def __init__(self, source, bindings):
+        if len(source) > 4096:
+            raise ValueError("LaTeX formula is too long")
+        self.tokens = LATEX_TOKEN.findall(source)
+        if len(self.tokens) > 256:
+            raise ValueError("LaTeX formula has too many tokens")
+        self.offset = 0
+        self.bindings = bindings
+
+    def peek(self):
+        return self.tokens[self.offset] if self.offset < len(self.tokens) else None
+
+    def take(self, expected=None):
+        token = self.peek()
+        if token is None or (expected is not None and token != expected):
+            raise ValueError(f"Expected {expected or 'a number, cell, or expression'}")
+        self.offset += 1
+        return token
+
+    def group(self, opening, closing):
+        self.take(opening)
+        value = self.value()
+        self.take(closing)
+        return value
+
+    def atom(self):
+        token = self.peek()
+        if token in ("+", "-"):
+            return self.value(3) if self.take() == "+" else -self.value(3)
+        if token == "(":
+            return self.group("(", ")")
+        if token == "{":
+            return self.group("{", "}")
+        token = self.take()
+        if token == r"\frac":
+            return self.group("{", "}") / self.group("{", "}")
+        if token == r"\sqrt":
+            return math.sqrt(self.group("{", "}"))
+        if token == r"\sum":
+            self.take("{")
+            name = self.take()
+            self.take("}")
+            values = self.bindings.get(name)
+            if not isinstance(values, list):
+                raise ValueError(r"Use \sum{A1:A3} with a cell range")
+            return sum(latex_number(value) for value in values if value is not None)
+        if token in self.bindings:
+            return latex_number(self.bindings[token])
+        if token[0] in "0123456789.":
+            return float(token)
+        raise ValueError(f"Unsupported LaTeX token {token!r}. Use arithmetic, cell references, fractions, roots, or range sums")
+
+    def value(self, minimum=0):
+        left = latex_number(self.atom())
+        while self.peek() in LATEX_OPERATORS:
+            precedence, right_minimum, operation = LATEX_OPERATORS[self.peek()]
+            if precedence < minimum:
+                break
+            self.take()
+            left = latex_number(operation(left, self.value(right_minimum)))
+        return left
+
+    def evaluate(self):
+        value = self.value()
+        if self.peek() is not None:
+            raise ValueError(f"Unexpected LaTeX token {self.peek()!r}. Use an explicit operator between terms")
+        return value
+
+
+</storycode:copy>
+
 <a id="f-1cf5c9b5ba43-main"></a>
 ### `main`
 
 <storycode:copy id="f-1cf5c9b5ba43-main">
-def main():
+def main(language):
     stdin = sys.stdin.buffer
     stdout = sys.stdout.buffer
     while True:
@@ -197,7 +304,7 @@ def main():
                 stdout,
                 {
                     "id": message.get("id"),
-                    "result": {"language": "python", "version": sys.version.split()[0]},
+                    "result": {"language": language, "version": sys.version.split()[0]},
                 },
             )
         elif method == "evaluate":
@@ -206,7 +313,7 @@ def main():
                 stdout,
                 {
                     "id": message.get("id"),
-                    "result": {"results": [evaluate(f) for f in formulas]},
+                    "result": {"results": [evaluate(f, language) for f in formulas]},
                 },
             )
         elif method == "shutdown":
@@ -228,13 +335,13 @@ def main():
 
 <storycode:copy id="f-1cf5c9b5ba43-if_statement">
 if __name__ == "__main__":
-    main()
+    main(globals().get("FORMULA_LANGUAGE", "python"))
 </storycode:copy>
 
 ### Assemble `crates/hick-plugins/src/languages/python_backend.py`
 
 The selections below preserve the original byte order. Narrative reading order does not change the output.
 
-<storycode:file path="crates/hick-plugins/src/languages/python_backend.py"><storycode:paste select="#f-1cf5c9b5ba43-expression_statement"/><storycode:paste select="#f-1cf5c9b5ba43-json"/><storycode:paste select="#f-1cf5c9b5ba43-math"/><storycode:paste select="#f-1cf5c9b5ba43-statistics"/><storycode:paste select="#f-1cf5c9b5ba43-sys"/><storycode:paste select="#f-1cf5c9b5ba43-read_message"/><storycode:paste select="#f-1cf5c9b5ba43-write_message"/><storycode:paste select="#f-1cf5c9b5ba43-to_python"/><storycode:paste select="#f-1cf5c9b5ba43-to_wire"/><storycode:paste select="#f-1cf5c9b5ba43-expression_statement-2"/><storycode:paste select="#f-1cf5c9b5ba43-evaluate"/><storycode:paste select="#f-1cf5c9b5ba43-main"/><storycode:paste select="#f-1cf5c9b5ba43-if_statement"/></storycode:file>
+<storycode:file path="crates/hick-plugins/src/languages/python_backend.py"><storycode:paste select="#f-1cf5c9b5ba43-expression_statement"/><storycode:paste select="#f-1cf5c9b5ba43-json"/><storycode:paste select="#f-1cf5c9b5ba43-math"/><storycode:paste select="#f-1cf5c9b5ba43-statistics"/><storycode:paste select="#f-1cf5c9b5ba43-sys"/><storycode:paste select="#f-1cf5c9b5ba43-read_message"/><storycode:paste select="#f-1cf5c9b5ba43-write_message"/><storycode:paste select="#f-1cf5c9b5ba43-to_python"/><storycode:paste select="#f-1cf5c9b5ba43-to_wire"/><storycode:paste select="#f-1cf5c9b5ba43-expression_statement-2"/><storycode:paste select="#f-1cf5c9b5ba43-evaluate"/><storycode:paste select="#latex-formula-arithmetic"/><storycode:paste select="#f-1cf5c9b5ba43-main"/><storycode:paste select="#f-1cf5c9b5ba43-if_statement"/></storycode:file>
 
 </storycode:doc>

@@ -109,7 +109,7 @@ Source tests, coverage, and Debug contribute individual glyph buttons to one mea
 // A single anchored overflow button opens the floating grid, so opening the grid
 // cannot push the next line's icon down or change the editor's width.
 export function DebugLaunchRail({ view, onStart, onProfiles, plainPath, enabled = true, actions = [] }: {
-  view: EditorView | null; onStart?: (path: string, at?: number) => void; onProfiles?: (path: string, at?: number) => void; plainPath?: string; enabled?: boolean; actions?: { at: number; label: string; run: () => void; glyph: string; tone?: string }[];
+  view: EditorView | null; onStart?: (path: string, at?: number) => void; onProfiles?: (path: string, at?: number) => void; plainPath?: string; enabled?: boolean; actions?: { at: number; label: string; run: (anchor?: HTMLElement) => void; glyph: string; tone?: string }[];
 }) {
   const targets: { path: string; at: number; end: number }[] = [];
   if (view && onStart && enabled) {
@@ -149,7 +149,7 @@ export function DebugLaunchRail({ view, onStart, onProfiles, plainPath, enabled 
       const launch = targets.find(target => target.at === at);
       return <DebugRailGroup key={`actions:${at}`} view={view} at={at}>
         {items.map(action => <button key={action.label} type="button" className="debug-icon"
-          title={action.label} aria-label={action.label} style={{ color: action.tone }} onClick={action.run}>{action.glyph}</button>)}
+          title={action.label} aria-label={action.label} style={{ color: action.tone }} onClick={event=>action.run(event.currentTarget)}>{action.glyph}</button>)}
         {launch && <button type="button" className="cm-debug-start debug-icon" aria-label={`Debug ${launch.path}`}
           data-tip={`Debug ${launch.path} · installs the debugger if needed`} onClick={() => start(launch)}>▷</button>}
         {launch && onProfiles && <button type="button" className="debug-icon"

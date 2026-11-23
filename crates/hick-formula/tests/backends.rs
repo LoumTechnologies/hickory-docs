@@ -625,3 +625,34 @@ async fn monetary_numbers_are_numeric_in_python_and_javascript() {
         assert!(computed.errors.is_empty());
     }
 }
+#[tokio::test(flavor = "multi_thread")]
+async fn latex_calculates_cell_references_and_rejects_unknown_commands() {
+    if !have(&["python3", "python"]) {
+        eprintln!("skipped: no python on this machine");
+        return;
+    }
+    use hick_formula::{CellRef, Sheet, trace_sheet};
+    let root = tempfile::tempdir().unwrap();
+    let entries = [
+        ("A1", "3"),
+        ("A2", "5"),
+        ("B1", r"=\frac{\sum{A1:A2}^2}{4}"),
+        ("B2", r"=\sqrt{B1} \times 3 - 2^2"),
+        ("C1", r"=\input{somefile}"),
+    ];
+    let cell = |label: &str| CellRef::parse(label).unwrap();
+    let sheet: Sheet = entries
+        .into_iter()
+        .map(|(k, v)| (cell(k), v.into()))
+        .collect();
+    let trace = trace_sheet(root.path(), "latex", &sheet).await.unwrap();
+    assert_eq!(
+        trace.computed.values.get(&cell("B1")).map(String::as_str),
+        Some("16")
+    );
+    assert_eq!(
+        trace.computed.values.get(&cell("B2")).map(String::as_str),
+        Some("8")
+    );
+    assert!(trace.computed.errors[&cell("C1")].contains("Unsupported LaTeX token"));
+}

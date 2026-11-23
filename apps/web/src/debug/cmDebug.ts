@@ -22,7 +22,7 @@ import { inlineEval } from "./inlineEval";
 // inline widgets; the paused line is a background.
 
 import { breakpointTarget } from "./cmDebugGutter";
-import { Facet, RangeSetBuilder, StateEffect, StateField } from "@codemirror/state";
+import { Facet, RangeSet, RangeSetBuilder, StateEffect, StateField } from "@codemirror/state";
 import type { EditorState, Extension } from "@codemirror/state";
 import {
   Decoration,
@@ -31,6 +31,7 @@ import {
   WidgetType,
   gutter,
   lineNumbers,
+  lineNumberMarkers,
 } from "@codemirror/view";
 import type { DecorationSet } from "@codemirror/view";
 import type { BindState, Frame, Variable } from "./client";
@@ -630,6 +631,8 @@ export interface DebugEditorOptions {
    * would draw every number twice.
    */
   lineNumbers?: boolean;
+  /** Tint the existing line-number cell when a breakpoint intention appears. */
+  numberBreakpoints?: boolean;
   /** Toggle a breakpoint on this 0-based document line. */
   onToggleBreakpoint: (line: number) => void;
   /** Show this frame's line and values (a gutter stack mark was clicked). */
@@ -837,6 +840,10 @@ const runOutputField = StateField.define<DecorationSet>({
   provide: field => EditorView.decorations.from(field),
 });
 
+const breakpointNumberMark = new class extends GutterMarker {
+  elementClass = "cm-debug-breakpoint-number";
+}();
+
 export function debugEditor(options: DebugEditorOptions): Extension[] {
   // The eval affordance follows the paused line. Built here because its
   // widget needs the callbacks; drawn only when a handler exists to answer.
@@ -852,6 +859,15 @@ export function debugEditor(options: DebugEditorOptions): Extension[] {
     // continuation row gets a muted wrap mark instead of blank gutter, so
     // the tall cell reads as one logical line continuing.
     ...(options.lineNumbers === false ? [] : [lineNumbers(), wrapGutterMarkers()]),
+    ...(options.numberBreakpoints ? [
+      ...(options.lineNumbers === false ? [wrapGutterMarkers()] : []),
+      lineNumberMarkers.compute(["doc", breakpointField], state => RangeSet.of(state.field(breakpointField)
+        .filter(mark => mark.line >= 0 && mark.line < state.doc.lines)
+        .map(mark => breakpointNumberMark.range(state.doc.line(mark.line + 1).from)), true)),
+      EditorView.baseTheme({ ".cm-lineNumbers .cm-debug-breakpoint-number": {
+        boxShadow: "inset 2px 0 #cf4353",
+      } }),
+    ] : []),
     breakpointField,
     breakpointFormActions(options, (view, line) => {
       if (!view.dom.isConnected || !options.onSetBreakpointCondition) return false;

@@ -528,7 +528,16 @@ final class NativeDebugTests: XCTestCase {
     }
     @MainActor func testNativeBreakpointCanonicalPathAliasesRefuseInsteadOfSharingIntent()throws {
         let debug=NativeDebugger(engine:try Engine(address:"http://fixture.invalid"));debug.owner="é.py";debug.launchSource="print(1)\n";let launch=debug.beginLaunchRequest();var sent:[[String:Any]]=[];debug.emitForTest={sent.append($0)};debug.receive(["event":"started","source_hash":nativeSourceHash(debug.launchSource),"request_id":launch,"doc":nativeDebugURI(debug.owner),"session":"ours","breakpoints":[]]);debug.toggle(debug.owner,line:0,source:debug.launchSource);let count=sent.count
-        debug.toggle("e\u{301}.py",line:1,source:debug.launchSource);XCTAssertEqual(sent.count,count);XCTAssertEqual(debug.breakpoints[debug.owner]?.count,1);XCTAssertTrue(debug.breakpointNotice.contains("unsupported"));debug.close()
+        let path = "e\u{301}.py"
+        debug.toggle(path, line: 1, source: debug.launchSource)
+        XCTAssertTrue(debug.breakpointNotice.contains("unsupported"))
+        let alias = DocumentBuffer(file: FileNode(name: path, path: path, dir: false),
+                                   text: FileText(path: path, content: debug.launchSource, hash: "saved"))
+        debug.toggle(alias, line: 0)
+        XCTAssertTrue(debug.breakpointMarkers(alias).isEmpty)
+        XCTAssertEqual(sent.count, count)
+        XCTAssertEqual(debug.breakpoints[debug.owner]?.count, 1)
+        debug.close()
     }
     @MainActor func testStartedRequiresActualCapturedHashBeforePrimaryPositionAuthority()throws {
         let debug=NativeDebugger(engine:try Engine(address:"http://fixture.invalid")),file=FileNode(name:"main.py",path:"main.py",dir:false),buffer=DocumentBuffer(file:file,text:FileText(path:file.path,content:"print(1)\n",hash:"saved"))

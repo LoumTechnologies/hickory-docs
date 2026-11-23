@@ -4,10 +4,10 @@ import { fillExtent, fillTable } from "../lib/tableFill";
 import { boundsOf, containsCell, type Selection } from "../lib/tableSelection";
 
 interface FillDrag {
-  table: Csv; seed: Selection; target: Selection; revision: string; formulas: string | false;
+  table: Csv; seed: Selection; target: Selection; revision: string; formulas: string | false; pointer?: number;
 }
 
-/** One drag owns a frozen seed and publishes exactly once, on mouseup. */
+/** One drag owns a frozen seed and publishes exactly once, on release. */
 export function useTableFill({ table, selection, revision, language, gridRef, onFill }: {
   table: Csv; selection: Selection | null; revision: string; language?: string;
   gridRef: RefObject<HTMLTableElement | null>; onFill: (table: Csv, selection: Selection) => void;
@@ -34,7 +34,8 @@ export function useTableFill({ table, selection, revision, language, gridRef, on
       if (!drag.current || !gridRef.current) return;
       event.preventDefault();
       const grid = gridRef.current;
-      const hit = document.elementFromPoint?.(event.clientX, event.clientY)?.closest<HTMLElement>("td[data-fill-row]");
+      const root = grid.getRootNode() as Document | ShadowRoot;
+      const hit = root.elementFromPoint?.(event.clientX, event.clientY)?.closest<HTMLElement>("td[data-fill-row]");
       if (hit && grid.contains(hit)) {
         handlers.current.over(Number(hit.dataset.fillRow), Number(hit.dataset.fillColumn));
         return;
@@ -78,20 +79,40 @@ export function useTableFill({ table, selection, revision, language, gridRef, on
         handlers.current.cancel();
       }
     };
-    window.addEventListener("mousemove", move);
-    window.addEventListener("mouseup", finish);
+    const mouseMove = (event: MouseEvent) => { if (drag.current?.pointer === undefined) move(event); };
+    const mouseUp = () => { if (drag.current?.pointer === undefined) finish(); };
+    const pointerMove = (event: PointerEvent) => { if (drag.current?.pointer === event.pointerId) move(event); };
+    const pointerUp = (event: PointerEvent) => { if (drag.current?.pointer === event.pointerId) finish(); };
+    const pointerCancel = (event: PointerEvent) => { if (drag.current?.pointer === event.pointerId) handlers.current.cancel(); };
+    window.addEventListener("mousemove", mouseMove);
+    window.addEventListener("mouseup", mouseUp);
+    window.addEventListener("pointermove", pointerMove);
+    window.addEventListener("pointerup", pointerUp);
+    window.addEventListener("pointercancel", pointerCancel);
+    window.addEventListener("lostpointercapture", pointerCancel);
     window.addEventListener("keydown", escape);
     window.addEventListener("blur", handlers.current.cancel);
     const onBlur = handlers.current.cancel;
     return () => {
       drag.current = null;
-      window.removeEventListener("mousemove", move);
-      window.removeEventListener("mouseup", finish);
+      window.removeEventListener("mousemove", mouseMove);
+      window.removeEventListener("mouseup", mouseUp);
+      window.removeEventListener("pointermove", pointerMove);
+      window.removeEventListener("pointerup", pointerUp);
+      window.removeEventListener("pointercancel", pointerCancel);
+      window.removeEventListener("lostpointercapture", pointerCancel);
       window.removeEventListener("keydown", escape);
       window.removeEventListener("blur", onBlur);
     };
   }, [gridRef]);
 
+  const start = (event: React.MouseEvent, pointer?: number) => {
+    if (event.button !== 0 || !selection || drag.current) return false;
+    event.preventDefault(); event.stopPropagation();
+    drag.current = { table, seed: selection, target: selection, revision, formulas: language || false, pointer };
+    setPreview(selection);
+    return true;
+  };
   const corner = selection ? boundsOf(selection) : null;
   return {
     at: (row: number, column: number) => corner?.bottom === row && corner.right === column,
@@ -99,11 +120,13 @@ export function useTableFill({ table, selection, revision, language, gridRef, on
     includes: (row: number, column: number) => !!preview && containsCell(preview, row, column) &&
       !!selection && !containsCell(selection, row, column),
     over,
-    start: (event: React.MouseEvent) => {
-      if (event.button !== 0 || !selection) return;
-      event.preventDefault(); event.stopPropagation();
-      drag.current = { table, seed: selection, target: selection, revision, formulas: language || false };
-      setPreview(selection);
+    start: (event: React.MouseEvent) => start(event),
+    startPointer: (event: React.PointerEvent<HTMLButtonElement>) => {
+      // Capturing the initiating touch keeps the release attached to the
+      // seed even when the finger leaves the handle or crosses scroll edges.
+      if ((event.pointerType === "touch" || event.pointerType === "pen") && start(event, event.pointerId)) {
+        event.currentTarget.setPointerCapture(event.pointerId);
+      }
     },
     // A ref rather than render state allows hover handlers to distinguish a drag
     // from ordinary selection without waiting for React to rerender.

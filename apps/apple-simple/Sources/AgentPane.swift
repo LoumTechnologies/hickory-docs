@@ -390,3 +390,123 @@ struct AgentPane: View {
         } catch { session.error = "\(error.localizedDescription) The request was not retried. Refresh history before sending again." }
     }
 }
+struct NativePatchCommentAnchor {
+    var path: String
+    var hash: String
+    var line: Int
+    var opening: Int
+    var turn: String
+    var quote: String
+    var current: @MainActor () -> Bool
+
+    var target: [String: Any] {
+        ["kind": "patch-line", "path": path, "quote": quote, "source_hash": hash, "lines": [line, line],
+         "relationship": ["turn": turn, "side": "assistant", "patch_opening_line": opening]]
+    }
+}
+
+struct NativePatchCommentView: View {
+    let anchor: NativePatchCommentAnchor
+    let engine: Engine
+
+    private struct Target: Decodable {
+        var kind: String
+        var path: String
+        var quote: String
+        var source_hash: String
+        var lines: [Int]
+    }
+    private struct Event: Decodable, Identifiable {
+        var id: String
+        var thread: String
+        var target: Target?
+        var body: String
+        var actor: String
+    }
+    private struct History: Decodable {
+        var scope: String
+        var events: [Event]
+    }
+
+    @State private var history: History?
+    @State private var selectedThread: String?
+    @State private var bodyText = ""
+    @State private var notice = ""
+    @State private var busy = false
+
+    private var threads: [Event] {
+        history?.events.filter { event in
+            guard let target = event.target else { return false }
+            return target.kind == "patch-line" && exactUTF8(target.path, anchor.path)
+                && target.source_hash == anchor.hash && target.lines == [anchor.line, anchor.line]
+                && exactUTF8(target.quote, anchor.quote)
+        } ?? []
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Patch line \(anchor.line)").font(.headline)
+            Text(anchor.quote).font(.caption.monospaced()).textSelection(.enabled)
+            if !threads.isEmpty {
+                Picker("Review thread", selection: $selectedThread) {
+                    ForEach(threads) { thread in Text(String(thread.body.prefix(50))).tag(Optional(thread.thread)) }
+                    Text("New thread").tag(String?.none)
+                }
+                if let selectedThread {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 6) {
+                            ForEach(history?.events.filter { $0.thread == selectedThread } ?? []) { event in
+                                Text(event.body).textSelection(.enabled)
+                            }
+                        }.frame(maxWidth: .infinity, alignment: .leading)
+                    }.frame(maxHeight: 160)
+                }
+            }
+            TextField(selectedThread == nil ? "Write a comment" : "Write a reply", text: $bodyText, axis: .vertical)
+                .textFieldStyle(.roundedBorder).lineLimit(2...5)
+            HStack {
+                Button(selectedThread == nil ? "Save comment" : "Save reply") { Task { await save() } }
+                    .disabled(busy || history == nil || !anchor.current() || bodyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                Button("Refresh comments") { Task { await refresh() } }.disabled(busy)
+            }
+            if !notice.isEmpty { Text(notice).font(.caption).textSelection(.enabled) }
+        }.padding(12).frame(idealWidth: 350).task { await refresh() }
+    }
+
+    private func load() async throws {
+        let value: History = try await engine.request("GET", "/api/reviews")
+        guard !Task.isCancelled, anchor.current() else { return }
+        history = value
+    }
+
+    private func refresh() async {
+        guard !busy, anchor.current() else { return }
+        busy = true; notice = ""
+        defer { busy = false }
+        do {
+            try await load()
+            if selectedThread == nil || !threads.contains(where: { $0.thread == selectedThread }) {
+                selectedThread = threads.first?.thread
+            }
+        } catch { notice = error.localizedDescription }
+    }
+
+    private func save() async {
+        guard !busy, let history, anchor.current() else { return }
+        let comment = bodyText, thread = selectedThread
+        busy = true; notice = ""
+        defer { busy = false }
+        do {
+            var request: [String: Any] = ["scope": history.scope, "action": "comment", "body": comment]
+            if let thread { request["thread"] = thread } else { request["target"] = anchor.target }
+            let saved: Event = try await engine.request("POST", "/api/reviews", body: request)
+            guard anchor.current() else { return }
+            if exactUTF8(bodyText, comment) { bodyText = "" }
+            selectedThread = saved.thread
+            try await load()
+        } catch {
+            self.history = nil
+            notice = error.localizedDescription + " Refresh comments before retrying."
+        }
+    }
+}

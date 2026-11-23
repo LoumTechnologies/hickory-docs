@@ -75,6 +75,8 @@ class DocumentBuffer(file: FileNode, loaded: FileText, untitledDraft:Boolean=fal
         return receipts.filter { block -> val span = block.optJSONArray("span"); span != null && span.length() == 2 && span.optInt(0, -1) in 0..bytes.size && span.optInt(1, -1) in span.getInt(0)..bytes.size && bytes.take(span.getInt(0)).count { it == 10.toByte() } == line }
     }
     var sourceTable by mutableStateOf<Int?>(null)
+    var exposedEquation by mutableStateOf<Int?>(null)
+    var gitComparison by mutableStateOf<EditorGitComparison?>(null)
     val tableHeights = mutableStateMapOf<Int, Int>()
     var tableSourceVisible by mutableStateOf(false)
     var inlineMarkup by mutableStateOf(InlineSnapshot(""))
@@ -637,6 +639,14 @@ class Workspace(private val backgroundScope: kotlinx.coroutines.CoroutineScope? 
         buffer.language = NativeLanguage(server,buffer,workspaceScope,languageConnection); buffer.language?.start()
         return buffer
     }
+    suspend fun openGitComparison(comparison: EditorGitComparison, current: () -> Boolean): Boolean {
+        val file = findFileNode(comparison.path, files) ?: return false
+        if (file.dir || !activateFile(file, recordNavigation = true, isCurrent = current) || !current()) return false
+        val owner = currentBuffer?.takeIf { it.file.path == comparison.path } ?: return false
+        owner.gitComparison = comparison
+        return true
+    }
+
     suspend fun open(file: FileNode, recordNavigation: Boolean = true) {
         activateFile(file, recordNavigation)
     }

@@ -1609,11 +1609,13 @@ private struct NativeDebugFrameVariables:Decodable {
         return intentions.filter { nativeDebugLine($0["line"]).map(recordedLaunch.fence.contains) == true }
     }
     func sourceChanged(_ buffer:DocumentBuffer) {let key=Data(buffer.file.path.utf8);breakpointBuffers[key]=NativeDebugBufferRef(buffer);guard !(breakpoints[buffer.file.path] ?? []).isEmpty || breakpointRequests[key] != nil || boundSources[key] != nil else{return};if buffer.dirty || intentSources[key].map({!exactUTF8($0,buffer.text)})==true {breakpointRequests.removeValue(forKey:key);boundSources.removeValue(forKey:key);breakpointNotice="Breakpoint intentions belong to earlier text. Save and explicitly update them before binding new positions."}}
-    func breakpointMarkers(_ buffer: DocumentBuffer, recorded: Bool = false) -> [[String: Any]] {
+    func breakpointMarkers(_ buffer: DocumentBuffer) -> [[String: Any]] {
         let path = buffer.file.path, key = Data(path.utf8)
         let confirmed = identityMatches(buffer, path: path, confirmed: true)
-        guard (confirmed || recorded && breakpointBuffers[key]?.buffer === buffer),
-              intentOwners[key] == buffer.id, !buffer.dirty,
+        // A line-number click creates an editor-owned intention before launch.
+        // Only a confirmed, saved runtime source can paint a relocated stop.
+        guard breakpointBuffers[key]?.buffer === buffer, intentOwners[key] == buffer.id,
+              !buffer.dirty, !buffer.resourceDeleted,
               let source = intentSources[key], exactUTF8(source, buffer.text) else { return [] }
         let bound = confirmed && sessionID != nil && active && boundSources[key].map { exactUTF8($0, buffer.text) } == true
         let fence = exactUTF8(path, owner) ? recordedLaunch?.fence : nil
@@ -1639,7 +1641,17 @@ private struct NativeDebugFrameVariables:Decodable {
         for index in held.indices {if let status=statuses.first(where:{$0["line"] as? Int==held[index]["line"] as? Int}) {held[index]["state"]=status["state"];held[index]["display_line"]=nativeDebugLine(status["moved_to"]) ?? nativeDebugLine(held[index]["line"]);held[index]["message"]=status["message"]}}
         breakpoints[path]=held;if let buffer=breakpointBuffers[key]?.buffer {confirmKnownSource(path,hash:nativeSourceHash(request.source));guard identityMatches(buffer,path:path,confirmed:true) else{return}};boundSources[key]=request.source;if !ambiguousSources.contains(key){sourceHashes[key]=nativeSourceHash(request.source)};breakpointRequests.removeValue(forKey:key);breakpointNotice="Breakpoint statuses confirmed for captured source."
     }
+    private func acceptsBreakpointPath(_ path: String) -> Bool {
+        // The launch owns the exact path spelling. An equivalent spelling
+        // needs its own launch before addressing that debugger source.
+        guard owner != path || exactUTF8(owner, path) else {
+            breakpointNotice = "This path spelling is unsupported while an equivalent spelling owns the debugger source. Open the exact source path."
+            return false
+        }
+        return true
+    }
     func toggle(_ buffer:DocumentBuffer,line:Int,condition:String?=nil) {
+        guard acceptsBreakpointPath(buffer.file.path) else { return }
         guard line>=0,line<buffer.text.components(separatedBy:"\n").count else{breakpointNotice="Breakpoint position is outside current source.";return}
         let key=Data(buffer.file.path.utf8)
         if intentOwners[key] != buffer.id,!breakpointIntents(buffer.file.path).isEmpty {retainedBreakpointIntents[key]=Array(((retainedBreakpointIntents[key] ?? [])+breakpointIntents(buffer.file.path).map{mark in var item=mark;item["source_hash"]=intentSources[key].map(nativeSourceHash) ?? "unknown";return item}).suffix(4096));breakpoints[buffer.file.path]=[];intentSources.removeValue(forKey:key)}
@@ -1647,7 +1659,9 @@ private struct NativeDebugFrameVariables:Decodable {
         if sourceIdentities[key]==nil,sourceNamespace==launchNamespace,let proof=exactUTF8(buffer.file.path,owner) ? launchBoundHash:sourceHashes[key] {_ = admitSourceReading(buffer,path:buffer.file.path,proof:proof)}
         toggle(buffer.file.path,line:line,condition:condition,source:buffer.text,writable:!buffer.dirty && !buffer.saving && !buffer.resourceDeleted)
     }
-    func toggle(_ path:String,line:Int,condition:String?=nil,source:String?=nil,writable:Bool=true) {guard line>=0,line<=Int(Int32.max) else{breakpointNotice="Invalid breakpoint coordinate refused; current intentions are retained.";return};let key=Data(path.utf8);let text=source
+    func toggle(_ path:String,line:Int,condition:String?=nil,source:String?=nil,writable:Bool=true) {
+        guard acceptsBreakpointPath(path) else { return }
+        guard line>=0,line<=Int(Int32.max) else{breakpointNotice="Invalid breakpoint coordinate refused; current intentions are retained.";return};let key=Data(path.utf8);let text=source
         if text==nil {var unknown:[String:Any]=["line":line,"source_hash":"unknown"];if let condition{unknown["condition"]=condition};retainedBreakpointIntents[key]=Array(((retainedBreakpointIntents[key] ?? [])+[unknown]).suffix(4096));breakpointNotice="Unbound path-only intention retained. Place it explicitly on current source; no coordinates were sent.";return}
         if let text,line>=text.components(separatedBy:"\n").count {breakpointNotice="Breakpoint position is outside the captured source. Current intentions are retained.";return}
         if let text,let buffer=breakpointBuffers[key]?.buffer,(!exactUTF8(buffer.file.path,path) || !exactUTF8(buffer.text,text)){breakpointNotice="Stale breakpoint source/ownership refused. Current intentions and editor text are retained.";return}

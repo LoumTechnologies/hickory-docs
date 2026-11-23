@@ -1259,6 +1259,37 @@ class ParityTest {
         assertTrue(simpleFoldRanges("```python\n# comment\nbody", true).isEmpty())
     }
 
+    @org.junit.Test fun completePatchHunksFoldAndAddressOnlyChangedRows() {
+        val rows = listOf("```diff", "--- a/main.py", "+++ b/main.py", "@@ -1,2 +1,3 @@",
+            " def f():", "-    return 1", "+    x = 2", "+    return x", "```")
+        for (newline in listOf("\n", "\r\n")) {
+            val source = rows.joinToString(newline)
+            val fold = simpleFoldRanges(source,true).single()
+            assertEquals(3, fold.line)
+            assertEquals(newline + rows.subList(4,8).joinToString(newline), source.substring(fold.from,fold.to))
+            assertEquals(mapOf(5 to 0, 6 to 0, 7 to 0), recordedFenceDebugContext(source).recordedPatchLines)
+        }
+    }
+
+    @org.junit.Test fun editorGitComparisonHandlesReplacementAndEofDeletion() {
+        val replacement = editorGitLines("first\nold\nlast\n","first\nnew\n")!!.getValue(1)
+        assertEquals(listOf("old","last"),replacement.removed)
+        assertEquals("new",replacement.added)
+        val deleted = editorGitLines("first\nlast\n","first\n")!!.getValue(1)
+        assertEquals(listOf("last"),deleted.removed)
+        assertEquals(null,deleted.added)
+    }
+
+    @org.junit.Test fun equationPresentationRetainsEditableOffsets() {
+        val text = "Before \$x^2\$\n<h:math>\ny=x^2\n</h:math>\n"
+        val equations = computeInlineMarkup(text,"math.md").equations
+        assertEquals(listOf("x^2","\ny=x^2\n"), equations.map { text.substring(it.from,it.to) })
+        assertEquals("\$x^2\$",text.substring(equations.first().renderedFrom,equations.first().renderedTo))
+        val projections = editorReplacements(emptyList(),emptyList(),text,equations=equations,renderedEquations=equations)
+        assertFalse(editorDisplay(text,projections).contains("x^2"))
+        assertEquals("Before \$x^2\$",text.lineSequence().first())
+    }
+
     @org.junit.Test fun tablePresentationSurvivesPendingParse() {
         // Contract: .hickory-source/frontends/contract.md
         val source = "Before\n\n| A | B |\n| --- | --- |\n| café 😀 | 2 |\n\nAfter"

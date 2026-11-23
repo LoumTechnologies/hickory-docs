@@ -1,6 +1,11 @@
 import {it,expect} from 'vitest';
-import {GitHistoryModel} from './GitHistory';
+import {GitHistoryModel,gitComparisonRows} from './GitHistory';
 import type {CommitReadingData} from '../api/git';
+it("projects replacements and end-of-file deletions onto the editable side",()=>{
+ expect(gitComparisonRows("first\nold\nlast\n","first\nnew\n")?.get(1)).toEqual({removed:["old","last"],added:"new"});
+ expect(gitComparisonRows("first\nlast\n","first\n")?.get(1)).toEqual({removed:["last"]});
+ expect(gitComparisonRows("first\n","first")?.size).toBe(1);
+});
 it('retains the requested full commit identity across held and closed reads',async()=>{
  const a='a'.repeat(40),b='b'.repeat(40),pending:((value:CommitReadingData)=>void)[]=[];
  const model=new GitHistoryModel({log:async()=>({repository:true,commits:[a,b].map(sha=>({sha,short:sha.slice(0,7),author:'fixture',subject:'saved commit'}))}),read:()=>new Promise(resolve=>pending.push(resolve))});

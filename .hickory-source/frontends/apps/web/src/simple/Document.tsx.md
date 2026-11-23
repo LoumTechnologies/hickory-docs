@@ -114,6 +114,8 @@ import { isDebuggable } from "../debug/languages";
 import { useFollowingDebugSession } from "../debug/plainDebugHosts";
 import { IDLE_SESSION } from "../debug/useDebugger";
 import { debugEditor, debugStateEffects, revealLine, breakpointLine, setDebuggerOutput } from "../debug/cmDebug";
+import { useGitEditorComparison } from "./GitHistory";
+import { simplePatchHunks } from "../lib/diff";
 import { DebugLaunchRail } from "../debug/DebugRail";
 import { DebugStrip } from "../debug/DebugStrip";
 import { observationSourceChanged } from "../debug/observations";
@@ -195,7 +197,7 @@ export function simpleTab(view: EditorView): boolean {
 }
 export function simpleFoldRanges(source: string, markdown = false): { line: number; from: number; to: number }[] {
   const rows = source.split("\n"), stack: { line: number; indent: number; from: number }[] = [];
-  const ranges: { line: number; from: number; to: number }[] = [];
+  let ranges: { line: number; from: number; to: number }[] = [];
   let offset = 0, last = -1;
   for (let line = 0; line <= rows.length; line++) {
     const row = rows[line], indent = row === undefined ? -1 : row.match(/^[ \t]*/)![0].replace(/\t/g, "    ").length;
@@ -209,21 +211,39 @@ export function simpleFoldRanges(source: string, markdown = false): { line: numb
   if (markdown) {
     const headings: { line: number; level: number; from: number }[] = [], sections: typeof headings = [];
     let at = 0, fence = "", payload = "", previous: { line: number; from: number } | null = null;
-    const starts: number[] = [];
+    const starts: number[] = [], patchRows = new Set<number>(), patchFolds: typeof ranges = [];
+    let patchStart = -1;
+    function finishPatch(end: number) {
+      if (patchStart < 0) return;
+      for (let row = patchStart; row < end; row++) patchRows.add(row);
+      for (const hunk of simplePatchHunks(rows, patchStart + 1, end)) {
+        const endOf = (line: number) => starts[line] + rows[line].replace(/\r$/, "").length;
+        patchFolds.push({ line: hunk.header, from: endOf(hunk.header), to: endOf(hunk.end) });
+      }
+      patchStart = -1;
+    }
     rows.forEach((row, line) => {
       starts.push(at); const from = at + row.length; at = from + 1;
       const trimmed = row.trim();
-      if (payload) { if (trimmed.includes(`:${payload}>`) && trimmed.includes("</")) payload = ""; previous = null; return; }
-      if (fence) { if (trimmed.length >= fence.length && [...trimmed].every(char => char === fence[0])) fence = ""; previous = null; return; }
+      if (payload) { if (trimmed.includes(`:${payload}>`) && trimmed.includes("</")) { finishPatch(line); payload = ""; } previous = null; return; }
+      if (fence) { if (trimmed.length >= fence.length && [...trimmed].every(char => char === fence[0])) { finishPatch(line); fence = ""; } previous = null; return; }
       const marker = row.match(/^ {0,3}(`{3,}|~{3,})/);
-      if (marker) { fence = marker[1]; previous = null; return; }
+      if (marker) {
+        fence = marker[1];
+        if (/^(diff|patch)(?:\s|$)/.test(row.slice(marker[0].length).trim())) patchStart = line;
+        previous = null; return;
+      }
       const literal = row.match(/^ {0,3}<[\w.-]+:(file|copy|cut|exec|patch|entry|diagram|math|table)\b[^>]*>/);
-      if (literal) { if (!trimmed.includes("</") && !trimmed.endsWith("/>")) payload = literal[1]; previous = null; return; }
+      if (literal) { if (!trimmed.includes("</") && !trimmed.endsWith("/>")) {
+        payload = literal[1]; if (payload === "patch") patchStart = line;
+      } previous = null; return; }
       const heading = row.match(/^ {0,3}(#{1,6})(?:[ \t]+|$)/);
       if (heading) { headings.push({ line, level: heading[1].length, from }); previous = null; }
       else if (previous && /^ {0,3}(?:=+|-+)\s*$/.test(row)) { headings.push({ ...previous, level: trimmed[0] === "=" ? 1 : 2 }); previous = null; }
       else previous = trimmed && !/^(?: {4}|\t)/.test(row) ? { line, from } : null;
     });
+    finishPatch(rows.length);
+    ranges = ranges.filter(range => !patchRows.has(range.line)).concat(patchFolds);
     for (const heading of [...headings, { line: rows.length, level: 0, from: source.length }]) {
       while (sections.length && sections[sections.length - 1].level >= heading.level) {
         const top = sections.pop()!, to = heading.line < rows.length ? starts[heading.line] - 1 : source.length;
@@ -463,6 +483,7 @@ export function Document({ buffer, current, renderTools }: {
     if (!view || !debuggable || literate && !parserReady) return;
     const compartment = new Compartment();
     view.dispatch({ effects: StateEffect.appendConfig.of(compartment.of(debugEditor({ language: literate ? undefined : language,
+      lineNumbers: false, numberBreakpoints: true,
       onToggleBreakpoint: line => debugRef.current.toggleBreakpoint(line),
       onSelectFrame: id => debugRef.current.selectFrame(id),
       onEvaluate: expression => debugRef.current.query(expression),
@@ -504,8 +525,10 @@ export function Document({ buffer, current, renderTools }: {
   };
   const sourceTestActions=useSourceTestLineActions(buffer,view);
   const coverageActions=useCoverageLineActions(buffer,view);
+  const gitComparison=useGitEditorComparison(buffer,view);
   const semanticCurrent = !!view && !!semanticResult && semanticResult.ticket === semanticTicket.current && semanticResult.source === buffer.text && semanticResult.anchor === view.state.selection.main.anchor && semanticResult.head === view.state.selection.main.head;
   return <div className="document-body">
+    {gitComparison.panel}
     {semanticResult && <div ref={semanticPanel} tabIndex={-1} className="simple-semantic-results" role="dialog" aria-label="Semantic locations" onKeyDown={event => { if (event.key === "Escape") { semanticTicket.current++; setSemanticResult(null); view?.focus(); } }}>
       <button type="button" aria-label="Close semantic locations" onClick={() => { semanticTicket.current++; setSemanticResult(null); view?.focus(); }}>×</button>
       <p role="status">{semanticCurrent ? semanticResult.message : "Source or cursor changed. Run the query again."}</p>
@@ -532,7 +555,7 @@ export function Document({ buffer, current, renderTools }: {
         onKeyDown={event => { if (event.key === "ArrowLeft" || event.key === "ArrowRight") { event.preventDefault(); setRailWidth(width => Math.max(24, Math.min(220, width + (event.key === "ArrowLeft" ? 22 : -22)))); } }}
         onPointerDown={event => { event.currentTarget.setPointerCapture(event.pointerId); }}
         onPointerMove={event => { if (event.currentTarget.hasPointerCapture(event.pointerId)) setRailWidth(width => Math.max(24, Math.min(220, width - event.movementX))); }} />
-      <DebugLaunchRail actions={[...sourceTestActions,...coverageActions]} view={view} plainPath={debuggable && !literate ? buffer.file.path : undefined} enabled={["idle", "finished", "failed"].includes(debug.status)} onStart={debuggable && (!literate || parserReady) ? program => start(program) : undefined}
+      <DebugLaunchRail actions={[...sourceTestActions,...coverageActions,...gitComparison.actions]} view={view} plainPath={debuggable && !literate ? buffer.file.path : undefined} enabled={["idle", "finished", "failed"].includes(debug.status)} onStart={debuggable && (!literate || parserReady) ? program => start(program) : undefined}
         onProfiles={debuggable && (!literate || parserReady) ? program => start(program, true) : undefined} />
     </div>
     {debuggable && view && (!literate || parserReady) && <DebugStrip editorView={view} pausedLine={positionCurrent?positionLine:null}

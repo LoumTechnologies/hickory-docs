@@ -186,7 +186,7 @@ import WebKit
    ResponseProtocol.responsesByPath[path] = try JSONSerialization.data(withJSONObject: reply)
    debug.toggle(buffer, line: 3)
    debug.toggle(buffer, line: 7)
-   XCTAssertEqual(debug.breakpointMarkers(buffer, recorded: true).count, 2)
+   XCTAssertEqual(debug.breakpointMarkers(buffer).count, 2)
    await debug.prepareRecordedFence(buffer, source: source, fence: fence)
    let start = try XCTUnwrap(sent.last)
    XCTAssertEqual(start["op"] as? String, "start", debug.message)
@@ -198,7 +198,7 @@ import WebKit
    let request = try XCTUnwrap(start["request_id"] as? String)
    debug.receive(["event": "started", "doc": uri, "request_id": request, "session": "owned", "source_hash": hash,
      "breakpoints": [["line": 3, "state": "bound"]]])
-   XCTAssertEqual(debug.breakpointMarkers(buffer, recorded: true).map { $0["state"] as? String }, ["bound", "pending"])
+   XCTAssertEqual(debug.breakpointMarkers(buffer).map { $0["state"] as? String }, ["bound", "pending"])
    var revealed: [Int] = []
    buffer.revealDebugLine = { revealed.append($0); return true }
    func stop(_ stop: Int, hash: String) {

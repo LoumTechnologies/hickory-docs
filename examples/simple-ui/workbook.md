@@ -20,7 +20,11 @@ also covers language tools, debugging, source history, coverage and recovery.
 Keep this document beside `orders.py`. **Bold decisions**, *emphasized notes*,
 `literal code` and headings remain editable. Try typing and undoing beside a
 rendered table; use **Edit source** in the browser to reveal its backing text.
-Markdown and CSV tables appear as editable grids on every simple UI. Use the arrow keys to move between cells. **Edit source text** reveals just that table; **Edit tables as grids** restores its grid. Equation controls use the function icon beside their source line.
+Markdown and CSV tables appear as editable grids. Click a row number or column
+letter to select it, or drag across the cells to select a rectangle. Drag the
+lower-right **+** handle out from the selection to extend its pattern. **Edit
+source text** reveals one table's backing text. **Edit tables as grids** returns
+to the grid.
 
 ## A Markdown table you can edit
 
@@ -42,6 +46,17 @@ Pen,30,Blue ink
 Field guide,7,Café walks 😀
 </h:table>
 
+## Calculate with LaTeX in a table
+
+The cells in column B evaluate LaTeX arithmetic against column A, which gives
+4 in B1 and 4 in B2. Use explicit operators between terms. Formulas begin with
+`=` and accept fractions, roots, powers, and cell references.
+
+<h:table id="discount_math" language="latex" header="false">
+8,=\frac{A1}{2}
+12,=\sqrt{A2+4}
+</h:table>
+
 ## An editable equation
 
 An inline formula: $p(1-d)$.
@@ -50,8 +65,9 @@ An inline formula: $p(1-d)$.
 T = \sum_{i=1}^{n} q_i p_i (1-d)
 </h:math>
 
-Edit the equation body, apply it and undo. Native platforms keep source visible
-and open a local typesetter in the line's floating controls.
+In Simple, double-click or double-tap an equation to reveal its LaTeX.
+Edit it in place, then double-activate its text to render it again. The function
+icon also opens an equation editor with a live preview.
 
 ## Literate code and a read-only generated output
 
@@ -75,7 +91,8 @@ if __name__ == "__main__":
 This patch constructs the receipt-label change over the Python base above.
 Inspect its before/after code, use language tools on the added statement, or
 debug `generated/coupon.py` from the patch destination header. Added code has
-source ownership; context and deleted rows do not offer new-code breakpoints.
+source ownership. In Simple, click the added line's number to toggle a
+pending breakpoint. The fold control at the hunk header collapses its body.
 Save the document before debugging so the adapter runs the displayed project.
 
 ```patch id="coupon-receipt" after="coupon-base"

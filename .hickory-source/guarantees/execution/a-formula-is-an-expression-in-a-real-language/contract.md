@@ -10,6 +10,13 @@ evaluated, the cell reports what that language said.
 
 The existing requirement is retained. Its original detail is below; implementation evidence has not been renewed merely by reorganizing it.
 
+
+Tables with `language="latex"` evaluate an arithmetic subset using the existing
+formula graph. It accepts numbers, cell references, grouping, explicit arithmetic
+operators, `\frac{a}{b}`, `\sqrt{x}`, and `\sum{A1:A3}`. Formulas still begin with
+`=`. The backend uses an installed Python interpreter for its arithmetic parser.
+Unsupported commands produce a cell error.
+
 ## Read the detailed requirements
 
 - [Requirements 1](requirements/01.md)

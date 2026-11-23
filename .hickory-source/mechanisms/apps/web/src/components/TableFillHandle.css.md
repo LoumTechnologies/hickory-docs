@@ -27,6 +27,7 @@ This literal construction preserves embedded document syntax and exact file byte
   color: var(--bg);
   font: bold 13px/12px ui-monospace, monospace;
   cursor: crosshair;
+  touch-action: none;
 }
 .table-fill-handle:hover { filter: brightness(1.15); }
 .table-panel__grid td.table-fill-preview {

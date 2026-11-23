@@ -243,6 +243,26 @@ mod yaml;
 <storycode:copy id="f-0786fc45b7c7-zig">
 mod zig;
 </storycode:copy>
+## Register LaTeX formula evaluation
+
+LaTeX and Python share framing and numeric values through the same script.
+They have separate plugin identities and formula interfaces, so registry
+ownership and language discovery can distinguish their grammars.
+
+<storycode:copy id="latex-formula-plugin">
+static LATEX_FORMULA: crate::Plugin = crate::Plugin {
+    id: "latex",
+    languages: &["latex"],
+    interfaces: &[crate::Interface::Formula(crate::FormulaBackend {
+        language: "latex",
+        aliases: &["latex", "tex"],
+        file_name: "latex_backend.py",
+        interpreters: &["python3", "python"],
+        source: concat!("FORMULA_LANGUAGE = 'latex'\n", include_str!("python_backend.py")),
+    })],
+};
+</storycode:copy>
+
 <a id="f-0786fc45b7c7-PLUGINS"></a>
 ### `PLUGINS`
 
@@ -250,6 +270,7 @@ mod zig;
 pub static PLUGINS: &[&crate::Plugin] = &[
     &rust::PLUGIN,
     &python::PLUGIN,
+    &LATEX_FORMULA,
     &typescript::PLUGIN,
     &react::PLUGIN,
     &go::PLUGIN,
@@ -290,6 +311,6 @@ pub static PLUGINS: &[&crate::Plugin] = &[
 
 The selections below preserve the original byte order. Narrative reading order does not change the output.
 
-<storycode:file path="crates/hick-plugins/src/languages/mod.rs"><storycode:paste select="#f-0786fc45b7c7-c"/><storycode:paste select="#f-0786fc45b7c7-cpp"/><storycode:paste select="#f-0786fc45b7c7-css"/><storycode:paste select="#f-0786fc45b7c7-dap"/><storycode:paste select="#f-0786fc45b7c7-dap_install"/><storycode:paste select="#f-0786fc45b7c7-dart"/><storycode:paste select="#f-0786fc45b7c7-dockerfile"/><storycode:paste select="#f-0786fc45b7c7-elixir"/><storycode:paste select="#f-0786fc45b7c7-fsharp"/><storycode:paste select="#f-0786fc45b7c7-go"/><storycode:paste select="#f-0786fc45b7c7-groovy"/><storycode:paste select="#f-0786fc45b7c7-haskell"/><storycode:paste select="#f-0786fc45b7c7-html"/><storycode:paste select="#f-0786fc45b7c7-index_install"/><storycode:paste select="#f-0786fc45b7c7-java"/><storycode:paste select="#f-0786fc45b7c7-json"/><storycode:paste select="#f-0786fc45b7c7-kotlin"/><storycode:paste select="#f-0786fc45b7c7-lsp"/><storycode:paste select="#f-0786fc45b7c7-lsp_install"/><storycode:paste select="#f-0786fc45b7c7-lua"/><storycode:paste select="#f-0786fc45b7c7-markdown"/><storycode:paste select="#f-0786fc45b7c7-nix"/><storycode:paste select="#f-0786fc45b7c7-php"/><storycode:paste select="#f-0786fc45b7c7-python"/><storycode:paste select="#f-0786fc45b7c7-r"/><storycode:paste select="#f-0786fc45b7c7-react"/><storycode:paste select="#f-0786fc45b7c7-ruby"/><storycode:paste select="#f-0786fc45b7c7-rust"/><storycode:paste select="#f-0786fc45b7c7-scala"/><storycode:paste select="#f-0786fc45b7c7-shellscript"/><storycode:paste select="#f-0786fc45b7c7-sql"/><storycode:paste select="#f-0786fc45b7c7-swift"/><storycode:paste select="#f-0786fc45b7c7-terraform"/><storycode:paste select="#f-0786fc45b7c7-toml"/><storycode:paste select="#f-0786fc45b7c7-typescript"/><storycode:paste select="#f-0786fc45b7c7-vb"/><storycode:paste select="#f-0786fc45b7c7-xml"/><storycode:paste select="#f-0786fc45b7c7-yaml"/><storycode:paste select="#f-0786fc45b7c7-zig"/><storycode:paste select="#f-0786fc45b7c7-PLUGINS"/></storycode:file>
+<storycode:file path="crates/hick-plugins/src/languages/mod.rs"><storycode:paste select="#f-0786fc45b7c7-c"/><storycode:paste select="#f-0786fc45b7c7-cpp"/><storycode:paste select="#f-0786fc45b7c7-css"/><storycode:paste select="#f-0786fc45b7c7-dap"/><storycode:paste select="#f-0786fc45b7c7-dap_install"/><storycode:paste select="#f-0786fc45b7c7-dart"/><storycode:paste select="#f-0786fc45b7c7-dockerfile"/><storycode:paste select="#f-0786fc45b7c7-elixir"/><storycode:paste select="#f-0786fc45b7c7-fsharp"/><storycode:paste select="#f-0786fc45b7c7-go"/><storycode:paste select="#f-0786fc45b7c7-groovy"/><storycode:paste select="#f-0786fc45b7c7-haskell"/><storycode:paste select="#f-0786fc45b7c7-html"/><storycode:paste select="#f-0786fc45b7c7-index_install"/><storycode:paste select="#f-0786fc45b7c7-java"/><storycode:paste select="#f-0786fc45b7c7-json"/><storycode:paste select="#f-0786fc45b7c7-kotlin"/><storycode:paste select="#f-0786fc45b7c7-lsp"/><storycode:paste select="#f-0786fc45b7c7-lsp_install"/><storycode:paste select="#f-0786fc45b7c7-lua"/><storycode:paste select="#f-0786fc45b7c7-markdown"/><storycode:paste select="#f-0786fc45b7c7-nix"/><storycode:paste select="#f-0786fc45b7c7-php"/><storycode:paste select="#f-0786fc45b7c7-python"/><storycode:paste select="#f-0786fc45b7c7-r"/><storycode:paste select="#f-0786fc45b7c7-react"/><storycode:paste select="#f-0786fc45b7c7-ruby"/><storycode:paste select="#f-0786fc45b7c7-rust"/><storycode:paste select="#f-0786fc45b7c7-scala"/><storycode:paste select="#f-0786fc45b7c7-shellscript"/><storycode:paste select="#f-0786fc45b7c7-sql"/><storycode:paste select="#f-0786fc45b7c7-swift"/><storycode:paste select="#f-0786fc45b7c7-terraform"/><storycode:paste select="#f-0786fc45b7c7-toml"/><storycode:paste select="#f-0786fc45b7c7-typescript"/><storycode:paste select="#f-0786fc45b7c7-vb"/><storycode:paste select="#f-0786fc45b7c7-xml"/><storycode:paste select="#f-0786fc45b7c7-yaml"/><storycode:paste select="#f-0786fc45b7c7-zig"/><storycode:paste select="#latex-formula-plugin"/><storycode:paste select="#f-0786fc45b7c7-PLUGINS"/></storycode:file>
 
 </storycode:doc>

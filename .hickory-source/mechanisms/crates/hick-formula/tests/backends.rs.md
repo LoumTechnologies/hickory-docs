@@ -749,10 +749,50 @@ async fn stepping_and_computing_are_the_same_evaluation() {
 </storycode:copy>
 [Read the test `monetary_numbers_are_numeric_in_python_and_javascript` beside its requirement](../../../../guarantees/authoring/cell-formatting-keeps-numbers-numeric/contract.md#f-6d63eb1fec85-monetary_numbers_are_numeric_in_python_and_javascript).
 
+## Check LaTeX through the formula graph
+
+Use a real backend session to calculate a fraction with a range binding, then
+consume its result in a root. A command outside the arithmetic grammar yields
+an error in its own cell while the independent formulas still produce numbers.
+
+<storycode:copy id="latex-formula-graph-test">
+#[tokio::test(flavor = "multi_thread")]
+async fn latex_calculates_cell_references_and_rejects_unknown_commands() {
+    if !have(&["python3", "python"]) {
+        eprintln!("skipped: no python on this machine");
+        return;
+    }
+    use hick_formula::{CellRef, Sheet, trace_sheet};
+    let root = tempfile::tempdir().unwrap();
+    let entries = [
+        ("A1", "3"),
+        ("A2", "5"),
+        ("B1", r"=\frac{\sum{A1:A2}^2}{4}"),
+        ("B2", r"=\sqrt{B1} \times 3 - 2^2"),
+        ("C1", r"=\input{somefile}"),
+    ];
+    let cell = |label: &str| CellRef::parse(label).unwrap();
+    let sheet: Sheet = entries
+        .into_iter()
+        .map(|(k, v)| (cell(k), v.into()))
+        .collect();
+    let trace = trace_sheet(root.path(), "latex", &sheet).await.unwrap();
+    assert_eq!(
+        trace.computed.values.get(&cell("B1")).map(String::as_str),
+        Some("16")
+    );
+    assert_eq!(
+        trace.computed.values.get(&cell("B2")).map(String::as_str),
+        Some("8")
+    );
+    assert!(trace.computed.errors[&cell("C1")].contains("Unsupported LaTeX token"));
+}
+</storycode:copy>
+
 ### Assemble `crates/hick-formula/tests/backends.rs`
 
 The selections below preserve the original byte order. Narrative reading order does not change the output.
 
-<storycode:file path="crates/hick-formula/tests/backends.rs"><storycode:paste select="#f-6d63eb1fec85-have"/><storycode:paste select="#f-6d63eb1fec85-formula"/><storycode:paste select="#f-6d63eb1fec85-number"/><storycode:paste select="#f-6d63eb1fec85-evaluate"/><storycode:paste select="#f-6d63eb1fec85-python_evaluates_an_expression_with_its_references_bound"/><storycode:paste select="#f-6d63eb1fec85-python_reports_its_own_error_message_not_a_spreadsheet_code"/><storycode:paste select="#f-6d63eb1fec85-python_can_aggregate_a_column"/><storycode:paste select="#f-6d63eb1fec85-ranges_are_values_in_python_and_javascript"/><storycode:paste select="#f-6d63eb1fec85-python_reads_an_empty_cell_as_none_so_blanks_can_be_skipped"/><storycode:paste select="#f-6d63eb1fec85-javascript_evaluates_an_expression_with_its_references_bound"/><storycode:paste select="#f-6d63eb1fec85-javascript_reports_its_own_error_message"/><storycode:paste select="#f-6d63eb1fec85-javascript_returns_text_as_text"/><storycode:paste select="#f-6d63eb1fec85-a_batch_comes_back_whole_and_matched_by_id"/><storycode:paste select="#f-6d63eb1fec85-an_unknown_language_says_what_this_build_carries"/><storycode:paste select="#f-6d63eb1fec85-an_empty_batch_asks_the_backend_nothing"/><storycode:paste select="#f-6d63eb1fec85-use_declaration"/><storycode:paste select="#f-6d63eb1fec85-sheet"/><storycode:paste select="#f-6d63eb1fec85-at"/><storycode:paste select="#f-6d63eb1fec85-a_chain_evaluates_in_order_with_each_link_seeing_the_last"/><storycode:paste select="#f-6d63eb1fec85-a_total_row_reads_the_column_above_it"/><storycode:paste select="#f-6d63eb1fec85-a_whole_number_comes_back_without_a_decimal_point"/><storycode:paste select="#f-6d63eb1fec85-a_broken_cell_fails_alone_and_leaves_its_dependants_their_own_trouble"/><storycode:paste select="#f-6d63eb1fec85-javascript_evaluates_a_sheet_the_same_way_python_does"/><storycode:paste select="#f-6d63eb1fec85-a_reference_to_an_empty_cell_is_empty_not_an_error"/><storycode:paste select="#f-6d63eb1fec85-the_backend_installs_itself_on_first_use"/><storycode:paste select="#f-6d63eb1fec85-use_declaration-2"/><storycode:paste select="#f-6d63eb1fec85-a_trace_is_one_step_per_formula_in_the_order_they_ran"/><storycode:paste select="#f-6d63eb1fec85-a_step_says_what_the_cell_read_at_the_moment_it_ran"/><storycode:paste select="#f-6d63eb1fec85-a_step_reading_a_blank_cell_shows_empty_rather_than_a_blank_string"/><storycode:paste select="#f-6d63eb1fec85-independent_cells_share_a_level_and_a_chain_does_not"/><storycode:paste select="#f-6d63eb1fec85-a_broken_cell_keeps_its_own_step_and_its_dependant_reads_empty"/><storycode:paste select="#f-6d63eb1fec85-a_circle_has_no_steps_at_all"/><storycode:paste select="#f-6d63eb1fec85-stepping_and_computing_are_the_same_evaluation"/><storycode:paste select="#f-6d63eb1fec85-monetary_numbers_are_numeric_in_python_and_javascript"/></storycode:file>
+<storycode:file path="crates/hick-formula/tests/backends.rs"><storycode:paste select="#f-6d63eb1fec85-have"/><storycode:paste select="#f-6d63eb1fec85-formula"/><storycode:paste select="#f-6d63eb1fec85-number"/><storycode:paste select="#f-6d63eb1fec85-evaluate"/><storycode:paste select="#f-6d63eb1fec85-python_evaluates_an_expression_with_its_references_bound"/><storycode:paste select="#f-6d63eb1fec85-python_reports_its_own_error_message_not_a_spreadsheet_code"/><storycode:paste select="#f-6d63eb1fec85-python_can_aggregate_a_column"/><storycode:paste select="#f-6d63eb1fec85-ranges_are_values_in_python_and_javascript"/><storycode:paste select="#f-6d63eb1fec85-python_reads_an_empty_cell_as_none_so_blanks_can_be_skipped"/><storycode:paste select="#f-6d63eb1fec85-javascript_evaluates_an_expression_with_its_references_bound"/><storycode:paste select="#f-6d63eb1fec85-javascript_reports_its_own_error_message"/><storycode:paste select="#f-6d63eb1fec85-javascript_returns_text_as_text"/><storycode:paste select="#f-6d63eb1fec85-a_batch_comes_back_whole_and_matched_by_id"/><storycode:paste select="#f-6d63eb1fec85-an_unknown_language_says_what_this_build_carries"/><storycode:paste select="#f-6d63eb1fec85-an_empty_batch_asks_the_backend_nothing"/><storycode:paste select="#f-6d63eb1fec85-use_declaration"/><storycode:paste select="#f-6d63eb1fec85-sheet"/><storycode:paste select="#f-6d63eb1fec85-at"/><storycode:paste select="#f-6d63eb1fec85-a_chain_evaluates_in_order_with_each_link_seeing_the_last"/><storycode:paste select="#f-6d63eb1fec85-a_total_row_reads_the_column_above_it"/><storycode:paste select="#f-6d63eb1fec85-a_whole_number_comes_back_without_a_decimal_point"/><storycode:paste select="#f-6d63eb1fec85-a_broken_cell_fails_alone_and_leaves_its_dependants_their_own_trouble"/><storycode:paste select="#f-6d63eb1fec85-javascript_evaluates_a_sheet_the_same_way_python_does"/><storycode:paste select="#f-6d63eb1fec85-a_reference_to_an_empty_cell_is_empty_not_an_error"/><storycode:paste select="#f-6d63eb1fec85-the_backend_installs_itself_on_first_use"/><storycode:paste select="#f-6d63eb1fec85-use_declaration-2"/><storycode:paste select="#f-6d63eb1fec85-a_trace_is_one_step_per_formula_in_the_order_they_ran"/><storycode:paste select="#f-6d63eb1fec85-a_step_says_what_the_cell_read_at_the_moment_it_ran"/><storycode:paste select="#f-6d63eb1fec85-a_step_reading_a_blank_cell_shows_empty_rather_than_a_blank_string"/><storycode:paste select="#f-6d63eb1fec85-independent_cells_share_a_level_and_a_chain_does_not"/><storycode:paste select="#f-6d63eb1fec85-a_broken_cell_keeps_its_own_step_and_its_dependant_reads_empty"/><storycode:paste select="#f-6d63eb1fec85-a_circle_has_no_steps_at_all"/><storycode:paste select="#f-6d63eb1fec85-stepping_and_computing_are_the_same_evaluation"/><storycode:paste select="#f-6d63eb1fec85-monetary_numbers_are_numeric_in_python_and_javascript"/><storycode:paste select="#latex-formula-graph-test"/></storycode:file>
 
 </storycode:doc>

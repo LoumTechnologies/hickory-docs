@@ -22,6 +22,8 @@ import { useWorkspaceDebugger, type DebugSession } from "../debug/useDebugger";
 import { debugUTF8, type DebugSourceReading } from "../debug/SourceGuards";
 import type { AgentTurn } from "../api/agentTypes";
 import type { TerminalSession } from "../api/types";
+import { simplePatchHunks } from "../lib/diff";
+import {sha256,type ReviewEvent,type ReviewTarget} from "../lib/reviews";
 import type { ReviewRecordedPatch } from "./AgentProposalAdapter";
 export function MarkdownMessage({ text }: { text: string }) {
   const render = (node: SyntaxNode): ReactNode => {
@@ -208,6 +210,54 @@ type FenceConstruction = Omit<FenceRun, "terminal"> & {
   read_only: true; entry: string; document: string; operation_id: string; opening_byte: number;
   changes: { path: string; before: ConstructionValue | null; after: ConstructionValue | null }[];
 };
+// The durable thread carries the exact recorded message hash and row. Refreshing
+// or replying uses the workspace review store without changing the message.
+function RecordedPatchComment({source,turn,row,current,close}:{
+  source:string;turn:string;row:{line:number;opening:number;quote:string};current:()=>boolean;close:()=>void;
+}) {
+  const [history,setHistory]=useState<{scope:string;events:ReviewEvent[]}>();
+  const [target,setTarget]=useState<ReviewTarget>(),[thread,setThread]=useState("");
+  const [body,setBody]=useState(""),[notice,setNotice]=useState(""),[busy,setBusy]=useState(false);
+  const alive=useRef(true);
+  const load=()=>request<{scope:string;events:ReviewEvent[]}>("GET","/api/reviews");
+  useEffect(()=>{
+    alive.current=true;
+    void Promise.all([load(),sha256(source)]).then(([value,hash])=>{
+      if(!alive.current||!current())return;
+      setHistory(value);
+      setTarget({kind:"patch-line",path:`hick-agent-message:///${turn}-agent.md`,quote:row.quote,source_hash:hash,
+        lines:[row.line+1,row.line+1],relationship:{turn,side:"assistant",patch_opening_line:row.opening+1}});
+    }).catch(error=>{if(alive.current)setNotice(String(error));});
+    return ()=>{alive.current=false;};
+  },[source,turn,row]);
+  const threads=history?.events.filter(event=>event.target?.kind==="patch-line"&&event.target.path===target?.path
+    &&event.target.source_hash===target?.source_hash&&event.target.lines[0]===target?.lines[0]&&event.target.quote===target?.quote)??[];
+  const save=async()=>{
+    if(!current()||!history||!target||busy||!body.trim())return;
+    setBusy(true);setNotice("");
+    try {
+      const saved=await request<ReviewEvent>("POST","/api/reviews",{scope:history.scope,thread:thread||null,target:thread?null:target,action:"comment",body});
+      if(!alive.current||!current())return;
+      setBody("");setThread(saved.thread);
+      setHistory(await load());
+    } catch(error) {if(alive.current){setHistory(undefined);setNotice(String(error)+" Refresh comments before retrying.");}}
+    finally {if(alive.current)setBusy(false);}
+  };
+  return createPortal(<section role="dialog" aria-label={`Patch line ${row.line+1} comments`} className="simple-workspace-problems simple-source-tests"
+      onKeyDown={event=>{if(event.key==="Escape"){event.preventDefault();close();}}}>
+    <header><strong>Patch line {row.line+1}</strong><button type="button" onClick={close}>Close</button></header>
+    <pre>{row.quote}</pre>
+    {threads.length>0 && <select aria-label="Review thread" value={thread} onChange={event=>setThread(event.target.value)}>
+      <option value="">New thread</option>{threads.map(root=><option key={root.id} value={root.thread}>{root.body.slice(0,70)}</option>)}
+    </select>}
+    {thread && history?.events.filter(event=>event.thread===thread).map(event=><p key={event.id}>{event.body}</p>)}
+    <textarea autoFocus aria-label={thread?"Write a reply":"Write a comment"} value={body} onChange={event=>setBody(event.target.value)}/>
+    <button type="button" disabled={!history||!target||busy||!body.trim()} onClick={()=>void save()}>{thread?"Save reply":"Save comment"}</button>
+    <button type="button" disabled={busy} onClick={()=>void load().then(value=>{if(alive.current&&current()){setHistory(value);setNotice("");}}).catch(error=>setNotice(String(error)))}>Refresh comments</button>
+    {notice&&<p role="status">{notice}</p>}
+  </section>,document.body);
+}
+
 function constructionValue(value: ConstructionValue | null): boolean {
   return value === null || !!value && typeof value.kind === "string" && typeof value.executable === "boolean"
     && Number.isSafeInteger(value.bytes) && value.bytes >= 0 && /^[a-f0-9]{64}$/.test(value.sha256)
@@ -262,6 +312,13 @@ export function RecordedFenceControls({ source, turn, side, view, current: sourc
     for (const fence of [...ordinary, ...declared]) count.set(fence.first, (count.get(fence.first) ?? 0) + 1);
     return [...ordinary, ...declared].filter(fence => count.get(fence.first) === 1);
   }, [source, parser]);
+  const commentRows = useMemo(() => {
+    if (side !== "assistant") return [];
+    const rows = source.split("\n");
+    return fences.filter(fence => fence.kind !== "code").flatMap(fence =>
+      simplePatchHunks(rows,fence.first+1,fence.last).flatMap(hunk => hunk.changed.map(line=>({line,opening:fence.first,quote:rows[line]}))));
+  },[side,source,fences]);
+  const [commentLine,setCommentLine]=useState<number>();
   const [marks, setMarks] = useState<number[]>([]);
   const [capture, setCapture] = useState<{ receipt: FenceCapture; fence: MessageFence } | null>(null);
   const [run, setRun] = useState<{ receipt: FenceRun; first: number } | null>(null);
@@ -377,7 +434,13 @@ export function RecordedFenceControls({ source, turn, side, view, current: sourc
     }
   };
   const rail = debugRailElement(view);
+  const activeComment=commentRows.find(row=>row.line===commentLine);
   return <>
+    {rail && current() && createPortal(commentRows.filter(row=>row.line+lineOffset<view.state.doc.lines).map(row=>
+      <DebugRailGroup key={`comment:${row.line}`} view={view} at={view.state.doc.line(row.line+lineOffset+1).from}>
+        <button type="button" className="debug-icon" aria-label={`Comment on patch line ${row.line+1}`} onClick={()=>setCommentLine(row.line)}>◫</button>
+      </DebugRailGroup>),rail)}
+    {activeComment&&current()&&<RecordedPatchComment key={activeComment.line} source={source} turn={turn} row={activeComment} current={current} close={()=>{setCommentLine(undefined);view.focus();}}/>}
     {rail && createPortal(fences.filter(fence => fence.first + lineOffset < view.state.doc.lines && (fence.kind !== "patch" || reviewRecordedPatch))
       .map(fence => <DebugRailGroup key={fence.first} view={view} at={view.state.doc.line(fence.first + lineOffset + 1).from}>
       {fence.kind === "patch" ? <button type="button" className="debug-icon" disabled={preparing || !!sessionState?.isActive?.()}

@@ -112,7 +112,47 @@ it('puts one handle at the lower right of a reversed selection',()=>{
 
 The selections below preserve the original byte order. Narrative reading order does not change the output.
 
-<storycode:file path="apps/web/src/components/TableFill.test.tsx"><storycode:paste select="#f-ca0207209fcf-expression_statement"/><storycode:paste select="#f-ca0207209fcf-source"/><storycode:paste select="#f-ca0207209fcf-cell"/><storycode:paste select="#f-ca0207209fcf-expression_statement-2"/><storycode:paste select="#f-ca0207209fcf-expression_statement-3"/><storycode:paste select="#f-ca0207209fcf-expression_statement-4"/></storycode:file>
+The handle captures touch from the selected corner. The spreadsheet must
+ignore a different finger or a canceled drag. The first valid release applies
+the preview exactly once through the same edit transaction as mouse fill.
+
+<storycode:copy id="table-fill-touch-witness">
+it('fills from a captured touch and discards a canceled gesture', () => {
+  const onChange = vi.fn();
+  render(<TablePanel source={source} header={false} onChange={onChange}/>);
+  fireEvent.click(cell(2,2));
+  const handle = screen.getByRole('button', { name: 'Fill selected cells' });
+  const capture = vi.fn();
+  Object.defineProperty(handle, 'setPointerCapture', { value: capture });
+  const hit = Object.getOwnPropertyDescriptor(document, 'elementFromPoint');
+  Object.defineProperty(document, 'elementFromPoint', { configurable: true, value: () => cell(4,2) });
+  const pointer = (target: Window | HTMLElement, type: string, pointerId: number) => {
+    const event = new MouseEvent(type, { bubbles: true, cancelable: true, button: 0 });
+    Object.assign(event, { pointerId, pointerType: 'touch' });
+    fireEvent(target, event);
+  };
+  try {
+    pointer(handle, 'pointerdown', 3);
+    expect(capture).toHaveBeenCalledWith(3);
+    pointer(window, 'pointermove', 3);
+    expect(document.querySelectorAll('.table-fill-preview').length).toBeGreaterThan(0);
+    pointer(window, 'pointerup', 4);
+    expect(onChange).not.toHaveBeenCalled();
+    pointer(window, 'pointercancel', 3);
+    expect(document.querySelectorAll('.table-fill-preview')).toHaveLength(0);
+    pointer(handle, 'pointerdown', 5);
+    pointer(window, 'pointermove', 5);
+    pointer(window, 'pointerup', 5);
+    fireEvent.mouseUp(window);
+    expect(onChange).toHaveBeenCalledTimes(1);
+  } finally {
+    if (hit) Object.defineProperty(document, 'elementFromPoint', hit);
+    else Reflect.deleteProperty(document, 'elementFromPoint');
+  }
+});
+</storycode:copy>
+
+<storycode:file path="apps/web/src/components/TableFill.test.tsx"><storycode:paste select="#f-ca0207209fcf-expression_statement"/><storycode:paste select="#f-ca0207209fcf-source"/><storycode:paste select="#f-ca0207209fcf-cell"/><storycode:paste select="#f-ca0207209fcf-expression_statement-2"/><storycode:paste select="#f-ca0207209fcf-expression_statement-3"/><storycode:paste select="#f-ca0207209fcf-expression_statement-4"/><storycode:paste select="#table-fill-touch-witness"/></storycode:file>
 
 <a id="output-70f98a0676ac"></a>
 ## `apps/web/src/components/useTableFill.ts`
@@ -131,7 +171,7 @@ import { fillExtent, fillTable } from "../lib/tableFill";
 import { boundsOf, containsCell, type Selection } from "../lib/tableSelection";
 
 interface FillDrag {
-  table: Csv; seed: Selection; target: Selection; revision: string; formulas: string | false;
+  table: Csv; seed: Selection; target: Selection; revision: string; formulas: string | false; pointer?: number;
 }
 
 </storycode:copy>
@@ -141,7 +181,7 @@ interface FillDrag {
 One drag owns a frozen seed and publishes exactly once, on mouseup.
 
 <storycode:copy id="f-70f98a0676ac-useTableFill">
-/** One drag owns a frozen seed and publishes exactly once, on mouseup. */
+/** One drag owns a frozen seed and publishes exactly once, on release. */
 export function useTableFill({ table, selection, revision, language, gridRef, onFill }: {
   table: Csv; selection: Selection | null; revision: string; language?: string;
   gridRef: RefObject<HTMLTableElement | null>; onFill: (table: Csv, selection: Selection) => void;
@@ -168,7 +208,8 @@ export function useTableFill({ table, selection, revision, language, gridRef, on
       if (!drag.current || !gridRef.current) return;
       event.preventDefault();
       const grid = gridRef.current;
-      const hit = document.elementFromPoint?.(event.clientX, event.clientY)?.closest<HTMLElement>("td[data-fill-row]");
+      const root = grid.getRootNode() as Document | ShadowRoot;
+      const hit = root.elementFromPoint?.(event.clientX, event.clientY)?.closest<HTMLElement>("td[data-fill-row]");
       if (hit && grid.contains(hit)) {
         handlers.current.over(Number(hit.dataset.fillRow), Number(hit.dataset.fillColumn));
         return;
@@ -212,20 +253,40 @@ export function useTableFill({ table, selection, revision, language, gridRef, on
         handlers.current.cancel();
       }
     };
-    window.addEventListener("mousemove", move);
-    window.addEventListener("mouseup", finish);
+    const mouseMove = (event: MouseEvent) => { if (drag.current?.pointer === undefined) move(event); };
+    const mouseUp = () => { if (drag.current?.pointer === undefined) finish(); };
+    const pointerMove = (event: PointerEvent) => { if (drag.current?.pointer === event.pointerId) move(event); };
+    const pointerUp = (event: PointerEvent) => { if (drag.current?.pointer === event.pointerId) finish(); };
+    const pointerCancel = (event: PointerEvent) => { if (drag.current?.pointer === event.pointerId) handlers.current.cancel(); };
+    window.addEventListener("mousemove", mouseMove);
+    window.addEventListener("mouseup", mouseUp);
+    window.addEventListener("pointermove", pointerMove);
+    window.addEventListener("pointerup", pointerUp);
+    window.addEventListener("pointercancel", pointerCancel);
+    window.addEventListener("lostpointercapture", pointerCancel);
     window.addEventListener("keydown", escape);
     window.addEventListener("blur", handlers.current.cancel);
     const onBlur = handlers.current.cancel;
     return () => {
       drag.current = null;
-      window.removeEventListener("mousemove", move);
-      window.removeEventListener("mouseup", finish);
+      window.removeEventListener("mousemove", mouseMove);
+      window.removeEventListener("mouseup", mouseUp);
+      window.removeEventListener("pointermove", pointerMove);
+      window.removeEventListener("pointerup", pointerUp);
+      window.removeEventListener("pointercancel", pointerCancel);
+      window.removeEventListener("lostpointercapture", pointerCancel);
       window.removeEventListener("keydown", escape);
       window.removeEventListener("blur", onBlur);
     };
   }, [gridRef]);
 
+  const start = (event: React.MouseEvent, pointer?: number) => {
+    if (event.button !== 0 || !selection || drag.current) return false;
+    event.preventDefault(); event.stopPropagation();
+    drag.current = { table, seed: selection, target: selection, revision, formulas: language || false, pointer };
+    setPreview(selection);
+    return true;
+  };
   const corner = selection ? boundsOf(selection) : null;
   return {
     at: (row: number, column: number) => corner?.bottom === row && corner.right === column,
@@ -233,11 +294,13 @@ export function useTableFill({ table, selection, revision, language, gridRef, on
     includes: (row: number, column: number) => !!preview && containsCell(preview, row, column) &&
       !!selection && !containsCell(selection, row, column),
     over,
-    start: (event: React.MouseEvent) => {
-      if (event.button !== 0 || !selection) return;
-      event.preventDefault(); event.stopPropagation();
-      drag.current = { table, seed: selection, target: selection, revision, formulas: language || false };
-      setPreview(selection);
+    start: (event: React.MouseEvent) => start(event),
+    startPointer: (event: React.PointerEvent<HTMLButtonElement>) => {
+      // Capturing the initiating touch keeps the release attached to the
+      // seed even when the finger leaves the handle or crosses scroll edges.
+      if ((event.pointerType === "touch" || event.pointerType === "pen") && start(event, event.pointerId)) {
+        event.currentTarget.setPointerCapture(event.pointerId);
+      }
     },
     // A ref rather than render state allows hover handlers to distinguish a drag
     // from ordinary selection without waiting for React to rerender.

@@ -62,7 +62,7 @@ something CodeMirror can take out of the height map.
 
 import { StateEffect, StateField } from "@codemirror/state";
 import type { EditorState, Extension, Range } from "@codemirror/state";
-import { Decoration, EditorView, WidgetType } from "@codemirror/view";
+import { Decoration, EditorView, ViewPlugin, WidgetType } from "@codemirror/view";
 import type { DecorationSet } from "@codemirror/view";
 
 import { mathSpans } from "../lib/math";
@@ -174,6 +174,7 @@ class MathWidget extends WidgetType {
   toDOM() {
     const el = document.createElement(this.block ? "div" : "span");
     el.className = `cm-math${this.display ? " cm-math--display" : ""}`;
+    el.style.touchAction = "manipulation";
     // The source stands in until the engine arrives, so nothing flashes
     // empty on a cold load and a page with no KaTeX still says something
     // true.
@@ -297,13 +298,63 @@ export const setMathSource = StateEffect.define<{ at: number; source: boolean }>
 export const mathSourceModes = StateField.define<ReadonlyMap<number, boolean>>({
   create: () => new Map(),
   update(value, tr) {
-    const next = new Map([...value].filter(([, source]) => source || !tr.docChanged && !tr.selection).map(([at, source]) => [tr.changes.mapPos(at, 1), source]));
+    const next = new Map([...value].filter(([, source]) => source || !tr.docChanged).map(([at, source]) => [tr.changes.mapPos(at, 1), source]));
     for (const effect of tr.effects) if (effect.is(setMathSource)) next.set(effect.value.at, effect.value.source);
     return next;
   },
 });
 export function renderedMath(source: MathSource = proseMath): Extension {
-  return [mathSourceModes, StateField.define<DecorationSet>({
+  // The capture listener also sees events inside replacement widgets, whose
+  // ordinary events are intentionally ignored by CodeMirror.
+  const activation = ViewPlugin.define(view => {
+    function toggle(event: MouseEvent | PointerEvent): boolean {
+      const target = event.target;
+      if (!(target instanceof Element)) return false;
+      const widget = target.closest(".cm-math");
+      const pos = widget ? view.posAtDOM(widget) : view.posAtCoords({ x: event.clientX, y: event.clientY }, false);
+      if (pos == null) return false;
+      const state = view.state;
+      const spans = source(state);
+      const span = spans.find(span => span.from <= pos && pos < span.to)
+        ?? (widget ? spans.find(span => span.to === pos) : undefined);
+      if (!span) return false;
+      const mode = state.field(mathSourceModes).get(span.from);
+      if (!widget && mode !== true && !activeLines(state).has(state.doc.lineAt(pos).number)) return false;
+      event.preventDefault(); event.stopPropagation();
+      view.dispatch({ effects: setMathSource.of({ at: span.from, source: !!widget }) });
+      return true;
+    }
+    let touch: { x: number; y: number; time: number } | undefined;
+    let start: { x: number; y: number; id: number } | undefined;
+    let lastTouchAt = -1000;
+    const doubleClick = (event: MouseEvent) => { if (performance.now() - lastTouchAt >= 400) toggle(event); };
+    const down = (event: PointerEvent) => {
+      if (event.pointerType === "touch") start = { x: event.clientX, y: event.clientY, id: event.pointerId };
+    };
+    const up = (event: PointerEvent) => {
+      if (start?.id !== event.pointerId) return;
+      const moved = Math.hypot(event.clientX - start.x, event.clientY - start.y);
+      start = undefined;
+      if (moved > 12) { touch = undefined; return; }
+      const now = performance.now(), previous = touch;
+      lastTouchAt = now;
+      touch = { x: event.clientX, y: event.clientY, time: now };
+      if (previous && now - previous.time < 350 &&
+          Math.hypot(event.clientX - previous.x, event.clientY - previous.y) < 24 && toggle(event)) touch = undefined;
+    };
+    const cancel = () => { start = undefined; touch = undefined; };
+    view.dom.addEventListener("dblclick", doubleClick, true);
+    view.dom.addEventListener("pointerdown", down, true);
+    view.dom.addEventListener("pointerup", up, true);
+    view.dom.addEventListener("pointercancel", cancel, true);
+    return { destroy() {
+      view.dom.removeEventListener("dblclick", doubleClick, true);
+      view.dom.removeEventListener("pointerdown", down, true);
+      view.dom.removeEventListener("pointerup", up, true);
+      view.dom.removeEventListener("pointercancel", cancel, true);
+    } };
+  });
+  return [mathSourceModes, activation, StateField.define<DecorationSet>({
     create: (state) => buildMath(state, source),
     update: (value, tr) =>
       tr.docChanged || tr.selection || tr.effects.some(effect => effect.is(setMathSource)) ? buildMath(tr.state, source) : value,

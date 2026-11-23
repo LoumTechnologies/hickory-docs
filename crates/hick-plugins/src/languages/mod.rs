@@ -38,9 +38,21 @@ mod vb;
 mod xml;
 mod yaml;
 mod zig;
+static LATEX_FORMULA: crate::Plugin = crate::Plugin {
+    id: "latex",
+    languages: &["latex"],
+    interfaces: &[crate::Interface::Formula(crate::FormulaBackend {
+        language: "latex",
+        aliases: &["latex", "tex"],
+        file_name: "latex_backend.py",
+        interpreters: &["python3", "python"],
+        source: concat!("FORMULA_LANGUAGE = 'latex'\n", include_str!("python_backend.py")),
+    })],
+};
 pub static PLUGINS: &[&crate::Plugin] = &[
     &rust::PLUGIN,
     &python::PLUGIN,
+    &LATEX_FORMULA,
     &typescript::PLUGIN,
     &react::PLUGIN,
     &go::PLUGIN,

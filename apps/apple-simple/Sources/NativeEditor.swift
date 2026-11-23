@@ -277,7 +277,9 @@ struct GridCellField: UIViewRepresentable {
     var mounted = true
     var onUnavailable: () -> Void = {}
     var allowedURL: URL?
-    private var identity = ""
+    private var identity: [ExactSourceText?] = []
+    private var displayedRevision: String?
+    private var displayedCalculationRevision: String?
     private var acceptedSource: String?
     private var acceptedRange: NSRange?
     private var writable: Bool { !buffer.readOnly && (exactUTF8(buffer.inlineMarkup.source,source) || exactUTF8(acceptedSource,source)) }
@@ -287,16 +289,33 @@ struct GridCellField: UIViewRepresentable {
         display()
     }
     init(table: InlineTable, source: String, buffer: DocumentBuffer, onReady: @escaping () -> Void) { self.table = table; self.source = source; self.buffer = buffer; self.onReady = onReady }
-    func display() {
+    func display(force: Bool = false) {
         guard ready, NSMaxRange(table.range) <= (source as NSString).length else { return }
-        let key = source + "\0" + String(!writable) + "\0" + NSStringFromRange(table.range)
-        if !exactUTF8(key,identity) { identity = key; revision = UUID().uuidString }
-        var snapshot: [String: Any] = ["revision": revision, "source": (source as NSString).substring(with: table.range), "format": table.rows.first?.first?.format ?? "csv", "delimiter": table.rows.first?.first?.delimiter ?? ",", "readonly": !writable, "header": inlineTableAttribute("header", table: table, source: source) != "false"]
-        snapshot["calculationRevision"] = buffer.receiptRevision
-        snapshot["language"] = inlineTableAttribute("language", table: table, source: source)
-        if let id = inlineTableAttribute("id", table: table, source: source) {
-            var context: [String: Any] = ["source": source, "table": id]
-            context["document"] = buffer.file.doc_id
+        let format = table.rows.first?.first?.format ?? "csv"
+        let delimiter = table.rows.first?.first?.delimiter ?? ","
+        let header = inlineTableAttribute("header", table: table, source: source) != "false"
+        let language = inlineTableAttribute("language", table: table, source: source)
+        let tableID = inlineTableAttribute("id", table: table, source: source)
+        let document = buffer.file.doc_id
+        let readOnly = !writable
+        let key = [source, String(readOnly), NSStringFromRange(table.range), format, delimiter,
+                   String(header), language, tableID, document].map { $0.map(ExactSourceText.init) }
+        if key != identity { identity = key; revision = UUID().uuidString }
+        // Geometry refreshes share this same source snapshot. Replacing it
+        // during a gesture would retire the grid's current selection handlers.
+        let calculationRevision = buffer.receiptRevision
+        guard force || displayedRevision != revision || displayedCalculationRevision != calculationRevision else { return }
+        displayedRevision = revision
+        displayedCalculationRevision = calculationRevision
+        var snapshot: [String: Any] = [
+            "revision": revision, "source": (source as NSString).substring(with: table.range),
+            "format": format, "delimiter": delimiter, "readonly": readOnly, "header": header,
+        ]
+        snapshot["calculationRevision"] = calculationRevision
+        snapshot["language"] = language
+        if let tableID {
+            var context: [String: Any] = ["source": source, "table": tableID]
+            context["document"] = document
             snapshot["scope"] = context
         }
         send("update", snapshot)
@@ -308,7 +327,7 @@ struct GridCellField: UIViewRepresentable {
     func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
         guard mounted, view != nil, message.frameInfo.isMainFrame, message.frameInfo.request.url?.isFileURL == true,
               message.frameInfo.request.url == allowedURL, let event = message.body as? [String: Any], let kind = event["kind"] as? String else { return }
-        if kind == "ready" { ready = true; display(); onReady(); return }
+        if kind == "ready" { ready = true; display(force: true); onReady(); return }
         if kind == "unavailable" { ready = false; onUnavailable(); return }
         if kind == "formula" {
             guard let id = event["id"] as? Int, let operation = event["operation"] as? String, ["languages", "evaluate", "trace"].contains(operation) else { return }
@@ -324,18 +343,21 @@ struct GridCellField: UIViewRepresentable {
             }
             return
         }
-        guard event["revision"] as? String == revision, exactUTF8(buffer.text,source) else { display(); return }
+        guard event["revision"] as? String == revision, exactUTF8(buffer.text,source) else { display(force: kind == "change"); return }
         if kind == "height", let height = event["height"] as? Double, height.isFinite {
             buffer.tableHeights[table.id] = min(1200, max(30, height)); buffer.renderMarkup?(); return
         }
-        if kind == "change", writable, let value = event["source"] as? String, value.utf16.count <= 1_000_000 {
+        if kind == "change" {
+            guard writable, let value = event["source"] as? String, value.utf16.count <= 1_000_000 else {
+                display(force: true); return
+            }
             let edit = NativeSourceEdit(range: table.range, text: value)
             acceptedSource = (source as NSString).replacingCharacters(in: table.range, with: value)
             acceptedRange = NSRange(location: table.range.location, length: value.utf16.count)
             if buffer.applyTableEdit?(edit, source) == true {
                 table.range.length = value.utf16.count; source = buffer.text
             } else { acceptedSource = nil; acceptedRange = nil }
-            display()
+            display(force: true)
         }
     }
     private func reply(_ id: Int, _ value: Any, _ error: String?) {
@@ -463,6 +485,12 @@ final class SimpleMacTextView: NSTextView {
         }
         let range = wordSelection.move(string, selection: selectedRange(), forward: event.keyCode == 124, extend: event.modifierFlags.contains(.shift), pieces: mode == "pieces")
         setSelectedRange(range); scrollRangeToVisible(range)
+    }
+    var toggleEquationAtPoint: ((CGPoint) -> Bool)?
+    override func mouseDown(with event: NSEvent) {
+        if event.clickCount == 2, !hasMarkedText(),
+           toggleEquationAtPoint?(convert(event.locationInWindow, from: nil)) == true { return }
+        super.mouseDown(with: event)
     }
     var tableRanges: [NSRange] = [] { didSet { needsDisplay = true } }
     var tableCaretIsHidden: Bool { tableCaretHidden(selectedRange(), tables: tableRanges) }
@@ -681,24 +709,83 @@ func simpleFoldRanges(_ source: String, markdown: Bool = false) -> [SimpleFold] 
         var headings: [(line: Int, level: Int, end: Int)] = [], stack: [(line: Int, level: Int, end: Int)] = []
         var starts: [Int] = []
         var position = 0, fence = "", payload = "", previous: (line: Int, end: Int)?
+        var patch = false
+        var patchRows = Set<Int>()
+        var patchFolds: [SimpleFold] = []
+        var hunk: (line: Int, start: Int, end: Int, old: Int, new: Int)?
+        let headerPattern = try! NSRegularExpression(pattern: #"^@@ -[0-9]+(?:,([0-9]+))? \+[0-9]+(?:,([0-9]+))? @@"#)
+        // A fold follows unified-diff line counts. The raw indentation pass
+        // treats the context prefix as Python indentation and would hide a
+        // different subset of the same hunk.
+        func finishHunk() {
+            if let hunk, hunk.old == 0, hunk.new == 0, hunk.end > hunk.start {
+                patchFolds.append(SimpleFold(line: hunk.line, range: NSRange(location: hunk.start, length: hunk.end - hunk.start)))
+            }
+            hunk = nil
+        }
+        func patchRow(_ row: String, line: Int, end: Int) {
+            let text = row as NSString
+            if let match = headerPattern.firstMatch(in: row, range: NSRange(location: 0, length: text.length)) {
+                finishHunk()
+                func count(_ group: Int) -> Int? {
+                    let range = match.range(at: group)
+                    return range.location == NSNotFound ? 1 : Int(text.substring(with: range))
+                }
+                if let old = count(1), let new = count(2) {
+                    hunk = (line, end, end, old, new)
+                }
+            } else if var current = hunk {
+                switch row.first {
+                case " " where current.old > 0 && current.new > 0: current.old -= 1; current.new -= 1
+                case "-" where current.old > 0: current.old -= 1
+                case "+" where current.new > 0: current.new -= 1
+                case "\\" where row == #"\ No newline at end of file"#: break
+                default: finishHunk(); return
+                }
+                current.end = end
+                hunk = current
+            }
+        }
         let opening = try! NSRegularExpression(pattern: #"^ {0,3}<[\w.-]+:(file|copy|cut|exec|patch|entry|diagram|math|table)\b[^>]*>"#)
         for (line, row) in rows.enumerated() {
             starts.append(position)
-            let end = position + row.utf16.count; position = end + 1
+            let rowEnd = position + row.utf16.count
+            let end = row.utf16.last == 13 ? rowEnd - 1 : rowEnd
+            position = rowEnd + 1
             let trimmed = row.trimmingCharacters(in: .whitespacesAndNewlines)
             if !payload.isEmpty {
-                if trimmed.contains(":" + payload + ">"), trimmed.contains("</") { payload = "" }
+                if trimmed.contains(":" + payload + ">"), trimmed.contains("</") {
+                    if patch { finishHunk() }
+                    payload = ""; patch = false
+                } else if patch {
+                    patchRows.insert(line)
+                    patchRow(row.utf16.last == 13 ? String(row.dropLast()) : row, line: line, end: end)
+                }
                 previous = nil; continue
             }
             if !fence.isEmpty {
-                if trimmed.allSatisfy({ $0 == fence.first! }), trimmed.count >= fence.count { fence = "" }
+                if trimmed.allSatisfy({ $0 == fence.first! }), trimmed.count >= fence.count {
+                    if patch { finishHunk() }
+                    fence = ""; patch = false
+                } else if patch {
+                    patchRows.insert(line)
+                    patchRow(row.utf16.last == 13 ? String(row.dropLast()) : row, line: line, end: end)
+                }
                 previous = nil; continue
             }
             if row.prefix(while: { $0 == " " }).count <= 3, trimmed.hasPrefix("```") || trimmed.hasPrefix("~~~") {
-                fence = String(trimmed.prefix { $0 == trimmed.first! }); previous = nil; continue
+                fence = String(trimmed.prefix { $0 == trimmed.first! })
+                let kind = trimmed.dropFirst(fence.count).split(whereSeparator: { $0.isWhitespace }).first
+                patch = kind == "patch" || kind == "diff"
+                if patch { patchRows.insert(line) }
+                previous = nil; continue
             }
             if let match = opening.firstMatch(in: row, range: NSRange(location: 0, length: row.utf16.count)) {
-                if !trimmed.contains("</"), !trimmed.hasSuffix("/>") { payload = (row as NSString).substring(with: match.range(at: 1)) }
+                if !trimmed.contains("</"), !trimmed.hasSuffix("/>") {
+                    payload = (row as NSString).substring(with: match.range(at: 1))
+                    patch = payload == "patch"
+                    if patch { patchRows.insert(line) }
+                }
                 previous = nil; continue
             }
             let indent = row.prefix { $0 == " " }.count
@@ -710,6 +797,9 @@ func simpleFoldRanges(_ source: String, markdown: Bool = false) -> [SimpleFold] 
                 headings.append((title.line, trimmed.first == "=" ? 1 : 2, title.end)); previous = nil
             } else { previous = !trimmed.isEmpty && indent <= 3 && !row.hasPrefix("\t") ? (line, end) : nil }
         }
+        if patch { finishHunk() }
+        result.removeAll { patchRows.contains($0.line) }
+        result += patchFolds
         for header in headings + [(rows.count, 0, source.utf16.count)] {
             while let top = stack.last, top.level >= header.level {
                 stack.removeLast()
@@ -824,6 +914,12 @@ private struct EquationLayout: Equatable {
         text.textContainerInset = NSSize(width: 8, height: 8)
         text.string = buffer.text; text.isEditable = !buffer.readOnly; text.allowsUndo = true
         text.setAccessibilityLabel(buffer.file.path); text.delegate = self
+        text.toggleEquationAtPoint = { [weak self] point in
+            guard let self, let manager = self.text.layoutManager, let container = self.text.textContainer else { return false }
+            let origin = self.text.textContainerOrigin
+            return self.buffer.restoreEquationPreview(at: CGPoint(x: point.x - origin.x, y: point.y - origin.y),
+                                                      layout: manager, container: container)
+        }
         text.beginSnippetComposition = { [weak self] range in
             guard let self else{return false}
             self.unfoldAll()
@@ -1147,9 +1243,18 @@ private struct EquationLayout: Equatable {
                     self.mathMeasurements[equation.id] = size
                     self.measureDebugLines()
                 }
-            }).onTapGesture { [weak self] in
-                self?.buffer.sourceTable = equation.id
-                self?.measureDebugLines()
+            }).overlay {
+                Rectangle().fill(.clear).contentShape(Rectangle())
+                    .onTapGesture(count: 2) { [weak self] in
+                        guard let self, self.mathRequests[equation.id] == request else { return }
+                        _ = self.buffer.toggleEquationSource(equation.id, in: source)
+                    }
+                    .accessibilityLabel("Equation")
+                    .accessibilityAddTraits(.isButton)
+                    .accessibilityAction { [weak self] in
+                        guard let self, self.mathRequests[equation.id] == request else { return }
+                        _ = self.buffer.toggleEquationSource(equation.id, in: source)
+                    }
             })
             let host = EquationHost(rootView: preview); host.identifier = NSUserInterfaceItemIdentifier("equation:\(equation.id)")
             host.frame = CGRect(x: -10000, y: -10000, width: 240, height: 80)
@@ -1444,7 +1549,7 @@ struct NativeEditor: NSViewRepresentable {
 }
 #else
 import UIKit
-@MainActor private final class MobileEditor: NSObject, UITextViewDelegate, UITextPasteDelegate {
+@MainActor private final class MobileEditor: NSObject, UITextViewDelegate, UITextPasteDelegate, UIGestureRecognizerDelegate {
     private let sourceEditorIdentity=UUID()
     let text:SimpleTextView
     private let sourceTextStorage:NSTextStorage
@@ -1497,6 +1602,13 @@ import UIKit
         text.smartQuotesType = .no; text.smartDashesType = .no; text.smartInsertDeleteType = .no
         text.text = buffer.text; text.isEditable = !buffer.readOnly; text.alwaysBounceVertical = true
         text.accessibilityLabel = buffer.file.path; text.delegate = self; text.pasteDelegate = self
+        let equationTap = UITapGestureRecognizer(target: self, action: #selector(restoreEquationPreview(_:)))
+        equationTap.numberOfTapsRequired = 2
+        equationTap.delegate = self
+        for existing in text.gestureRecognizers ?? [] where (existing as? UITapGestureRecognizer)?.numberOfTapsRequired == 2 {
+            existing.require(toFail: equationTap)
+        }
+        text.addGestureRecognizer(equationTap)
         text.beginSnippetComposition = { [weak self] range in
             guard let self else{return false}
             self.unfoldAll()
@@ -1774,6 +1886,16 @@ import UIKit
         guard !folding.ranges.isEmpty else { return }
         folding.ranges = []; buffer.foldedLines = []; invalidateFolds()
     }
+    private func equationPoint(_ point: CGPoint) -> CGPoint {
+        CGPoint(x: point.x - text.textContainerInset.left, y: point.y - text.textContainerInset.top)
+    }
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        text.markedTextRange == nil &&
+            buffer.exposedEquation(at: equationPoint(touch.location(in: text)), layout: sourceLayoutManager, container: text.textContainer) != nil
+    }
+    @objc private func restoreEquationPreview(_ gesture: UITapGestureRecognizer) {
+        _ = buffer.restoreEquationPreview(at: equationPoint(gesture.location(in: text)), layout: sourceLayoutManager, container: text.textContainer)
+    }
     func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
         if buffer.applyingMulti { return true }
         if self.text.performingMarkedInput {return !buffer.readOnly && textView.isEditable}
@@ -1896,9 +2018,18 @@ import UIKit
                     self.mathMeasurements[equation.id] = size
                     self.measureDebugLines()
                 }
-            }).onTapGesture { [weak self] in
-                self?.buffer.sourceTable = equation.id
-                self?.measureDebugLines()
+            }).overlay {
+                Rectangle().fill(.clear).contentShape(Rectangle())
+                    .onTapGesture(count: 2) { [weak self] in
+                        guard let self, self.mathRequests[equation.id] == request else { return }
+                        _ = self.buffer.toggleEquationSource(equation.id, in: source)
+                    }
+                    .accessibilityLabel("Equation")
+                    .accessibilityAddTraits(.isButton)
+                    .accessibilityAction { [weak self] in
+                        guard let self, self.mathRequests[equation.id] == request else { return }
+                        _ = self.buffer.toggleEquationSource(equation.id, in: source)
+                    }
             })
             let host = EquationHost(rootView: preview); host.view.accessibilityIdentifier = "equation:\(equation.id)"
             host.view!.frame = CGRect(x: -10000, y: -10000, width: 240, height: 80)
@@ -2301,6 +2432,34 @@ struct NativeFindPanel: View {
     }
 }
 
+// Source editing stays in TextKit. A double activation on the exposed
+// equation returns to its preview only when it hits a glyph of that equation.
+@MainActor extension DocumentBuffer {
+    func exposedEquation(at point: CGPoint, layout: NSLayoutManager, container: NSTextContainer) -> InlineEquation? {
+        guard let sourceTable, exactUTF8(inlineMarkup.source, text),
+              let equation = inlineMarkup.equations.first(where: { $0.id == sourceTable }),
+              layout.numberOfGlyphs > 0 else { return nil }
+        let glyph = layout.glyphIndex(for: point, in: container)
+        guard glyph < layout.numberOfGlyphs,
+              NSLocationInRange(layout.characterIndexForGlyph(at: glyph), equation.renderedRange),
+              layout.boundingRect(forGlyphRange: NSRange(location: glyph, length: 1), in: container).contains(point)
+        else { return nil }
+        return equation
+    }
+
+    @discardableResult func restoreEquationPreview(at point: CGPoint, layout: NSLayoutManager, container: NSTextContainer) -> Bool {
+        guard let equation = exposedEquation(at: point, layout: layout, container: container) else { return false }
+        return toggleEquationSource(equation.id, in: text)
+    }
+
+    @discardableResult func toggleEquationSource(_ id: Int, in source: String) -> Bool {
+        guard exactUTF8(text, source), exactUTF8(inlineMarkup.source, source),
+              inlineMarkup.equations.contains(where: { $0.id == id }) else { return false }
+        sourceTable = sourceTable == id ? nil : id
+        return true
+    }
+}
+
 struct LanguageEditor: View {
     var showRunTerminal: ((String) -> Void)? = nil
     @State private var railWidth: CGFloat = 24
@@ -2331,10 +2490,16 @@ struct LanguageEditor: View {
             Text(String(line + 1)).font(.system(size: 13, design: .monospaced)).foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .trailing).padding(.trailing, 6)
         }.frame(maxWidth: .infinity, maxHeight: .infinity)
+            .overlay(alignment: .trailing) {
+                if let change = buffer.gitChanges?[line] {
+                    Rectangle().fill(change.removed.isEmpty ? Color.green : change.added == nil ? Color.red : Color.orange)
+                        .frame(width: 3).allowsHitTesting(false).accessibilityHidden(true)
+                }
+            }
     }
     private var lineNumbers: some View {
         GeometryReader { geometry in
-            let breakpoints = debugger?.breakpointMarkers(buffer, recorded: recordedDebug != nil) ?? []
+            let breakpoints = debugger?.breakpointMarkers(buffer) ?? []
             let markup = breakpointMarkup
             let rows = buffer.visibleDebugLines.filter { $0.y + $0.height > 0 && $0.y < geometry.size.height }
             ZStack(alignment: .topLeading) {
@@ -2549,6 +2714,8 @@ struct NativeDebugRail: View {
     @State private var recordedConstruction = NativeRecordedConstruction()
     @State private var opened: Int?
     @State private var details: Int?
+    @State private var gitLine: Int?
+    @State private var commentLine: Int?
     @State private var pendingLineReading: LineReading?
 
     private struct LineReading {
@@ -2592,10 +2759,30 @@ struct NativeDebugRail: View {
             + buffer.inlineMarkup.equations.filter { $0.line == line }.map(\.id)
             + inlineTables(buffer.inlineMarkup).filter { table in buffer.inlineMarkup.lineStarts.lastIndex(where: { $0 <= table.range.location }) == line }.map(\.id)
     }
+    private func canCommentOnPatch(_ line: Int) -> Bool {
+        recordedRunEngine != nil && recordedDebug?.side == .assistant && recordedDebug?.current() == true
+            && buffer.inlineMarkup.debug.recordedPatchLines[line] != nil
+            && exactUTF8(buffer.inlineMarkup.source, buffer.text)
+    }
+
+    private func patchComment(_ line: Int) -> NativePatchCommentAnchor? {
+        guard canCommentOnPatch(line), let recordedDebug,
+              let opening = buffer.inlineMarkup.debug.recordedPatchLines[line] else { return nil }
+        let snapshot = buffer.text
+        let rows = snapshot.components(separatedBy: "\n")
+        guard rows.indices.contains(line) else { return nil }
+        return NativePatchCommentAnchor(path: buffer.file.path, hash: nativeSourceHash(snapshot),
+                                        line: line + 1, opening: opening + 1, turn: recordedDebug.turn, quote: rows[line]) {
+            recordedDebug.current() && exactUTF8(buffer.text, snapshot)
+        }
+    }
+
     private func actions(_ line: Int,testLines:Set<Int>,coverageLines:[Int:CoverageProjectedLine]) -> [String] {
         var result: [String] = []
         if let row=coverageLines[line]{result.append("coverage:"+row.state)}
         if testLines.contains(line){result.append("tests")}
+        if let comparison = buffer.gitComparison, exactUTF8(comparison.path, buffer.file.path),
+           line == 0 || buffer.gitChanges?[line] != nil { result.append("git-change") }
         result += embeddedAnchors(line).map { "source:\($0)" }
         let fileLaunch = recordedDebug == nil && exactUTF8(buffer.inlineMarkup.source, buffer.text) && buffer.inlineMarkup.debug.launch[line] != nil
         if (showsSession && line == 0) || fileLaunch { result.append("debug") }
@@ -2604,6 +2791,7 @@ struct NativeDebugRail: View {
             if !debug.active { result.append("recorded-debug") }
         }
         if canReviewRecordedPatch(line) { result.append("recorded-review") }
+        if canCommentOnPatch(line) { result.append("patch-comment") }
         if canInspectRecordedConstruction(line) { result.append("recorded-construction") }
         if exactUTF8(buffer.inlineMarkup.source,buffer.text) && buffer.inlineMarkup.equations.contains(where: { $0.line == line }) { result.append("equation") }
         if !buffer.receipts(on: line).isEmpty { result.append("output") }
@@ -2613,10 +2801,12 @@ struct NativeDebugRail: View {
     private func symbol(_ action: String) -> String {
         if action.hasPrefix("coverage:"){return action=="coverage:covered" ? "circle.fill":action=="coverage:uncovered" ? "circle":"circle.lefthalf.filled"}
         if action.hasPrefix("source:") { return "chevron.left.forwardslash.chevron.right" }
-        switch action { case "tests":return "checklist";case "debug", "recorded-debug", "continue": return "play"; case "recorded-run": return "terminal"; case "recorded-review", "recorded-construction": return "doc.text.magnifyingglass"; case "equation": return "function"; case "output": return "text.alignleft"; case "over": return "arrow.turn.down.right"; case "in": return "arrow.down"; case "out": return "arrow.up"; case "stop": return "stop.fill"; default: return "eye" }
+        switch action { case "tests":return "checklist";case "git-change":return "plus.forwardslash.minus";case "patch-comment":return "text.bubble";case "debug", "recorded-debug", "continue": return "play"; case "recorded-run": return "terminal"; case "recorded-review", "recorded-construction": return "doc.text.magnifyingglass"; case "equation": return "function"; case "output": return "text.alignleft"; case "over": return "arrow.turn.down.right"; case "in": return "arrow.down"; case "out": return "arrow.up"; case "stop": return "stop.fill"; default: return "eye" }
     }
     private func actionLabel(_ action:String,line:Int)->String {
         if action.hasPrefix("coverage:"),let row=buffer.coverageRows().first(where:{$0.line==line}) {return "Coverage \(row.state) · \(row.count.map {"count \($0)"} ?? "count unavailable") · \(row.origins.count) measured location(s)"}
+        if action == "git-change" { return "Inspect Git comparison" }
+        if action == "patch-comment" { return "Comment on patch line" }
         if action=="debug",showsSession {return "Inspect debugger"}
         if action == "recorded-run" { return "Run recorded \(recordedFences[line]?.language ?? "code") fence" }
         if action == "recorded-debug" { return "Debug recorded \(recordedFences[line]?.language ?? "code") fence" }
@@ -2643,6 +2833,10 @@ struct NativeDebugRail: View {
             if action != "recorded-run" && action != "recorded-construction" { opened = nil }
             if action.hasPrefix("source:"), let anchor = Int(action.dropFirst(7)) { buffer.sourceTable = buffer.sourceTable == anchor ? nil : anchor; return }
             switch action {
+            case "git-change":
+                gitLine = line
+            case "patch-comment":
+                if canCommentOnPatch(line) { commentLine = line }
             case "debug":
                 if showsSession {inspect(line)}
                 else {Task {await debug.prepare(buffer,line:line); if !debug.active { inspect(line) }}}
@@ -2768,14 +2962,23 @@ struct NativeDebugRail: View {
                             .position(x: CGFloat(visible % columns) * 22 + 11, y: row.y + 9 + CGFloat(visible / columns) * 20)
                     }
                     Color.clear.frame(width: 22, height: 18).allowsHitTesting(false).accessibilityHidden(true)
-                        .popover(isPresented: Binding(get: { opened == row.line || recordedRun.line == row.line || recordedConstruction.line == row.line }, set: { presented in
+                        .popover(isPresented: Binding(get: { opened == row.line || recordedRun.line == row.line || recordedConstruction.line == row.line || gitLine == row.line || commentLine == row.line }, set: { presented in
                             if !presented {
                                 if opened == row.line { opened = nil }
+                                if gitLine == row.line { gitLine = nil }
+                                if commentLine == row.line { commentLine = nil }
                                 if recordedRun.line == row.line { recordedRun.close() }
                                 if recordedConstruction.line == row.line { recordedConstruction.close() }
                             }
                         })) {
-                            if recordedRun.line == row.line {
+                            if commentLine == row.line, let anchor = patchComment(row.line), let recordedRunEngine {
+                                NativePatchCommentView(anchor: anchor, engine: recordedRunEngine)
+                                    .id(anchor.hash + ":" + String(anchor.line))
+                                    .presentationCompactAdaptation(.popover)
+                            } else if gitLine == row.line, let comparison = buffer.gitComparison {
+                                GitEditorComparisonLine(buffer: buffer, comparison: comparison, line: row.line)
+                                    .presentationCompactAdaptation(.popover)
+                            } else if recordedRun.line == row.line {
                                 runOutput.presentationCompactAdaptation(.popover)
                             } else if recordedConstruction.line == row.line {
                                 constructionReading.presentationCompactAdaptation(.popover)
@@ -2804,8 +3007,9 @@ struct NativeDebugRail: View {
             }
         }.onChange(of:buffer.debugInspection){_,_ in if showsSession{inspect(0)}}
         .onChange(of: recordedDebug?.current() == true) { _, current in
-            if !current { recordedRun.close(); recordedConstruction.close(); opened = nil }
+            if !current { recordedRun.close(); recordedConstruction.close(); opened = nil; commentLine = nil }
         }
+        .onChange(of: buffer.gitComparison?.id) { _, _ in gitLine = nil }
         .onDisappear { recordedRun.close(); recordedConstruction.close() }
         .task(id: buffer.base) { await buffer.refreshReceipts() }
     }

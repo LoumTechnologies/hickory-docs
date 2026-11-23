@@ -186,6 +186,7 @@ struct InlineDebugContext: Sendable {
     var launch: [Int: String] = [:]
     var recorded: [Int: RecordedDebugFence] = [:]
     var recordedPatches: Set<Int> = []
+    var recordedPatchLines: [Int: Int] = [:]
     var recordedConstructions: Set<Int> = []
 }
 func inlineDebugContext(_ source: String, path: String) -> InlineDebugContext {
@@ -202,6 +203,7 @@ func inlineDebugContext(_ source: String, path: String) -> InlineDebugContext {
     var fence = "", mode = "", target: String?, oldLines = 0, newLines = 0
     var recorded: (opening: Int, language: String)?
     var declaredPatch: Int?, declaredClose: String?
+    var patchLines: [Int] = []
     let standalone = Set(["py", "python", "python3", "js", "javascript", "node", "ts", "typescript", "rs", "rust", "c", "cpp", "c++", "cxx", "go", "golang", "cs", "csharp", "c#", "rb", "ruby"])
     let patchLanguages = Set(["diff", "patch"])
     let opening = try! NSRegularExpression(pattern: #"^ {0,3}<[\w.-]+:(file|patch|copy|cut|exec|entry|diagram|math|table)\b[^>]*>"#)
@@ -214,13 +216,17 @@ func inlineDebugContext(_ source: String, path: String) -> InlineDebugContext {
                 if let recorded, index > recorded.opening + 1,
                    row.prefix(while: { $0 == " " }).count <= 3,
                    rows[(recorded.opening + 1)..<index].contains(where: { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) {
-                    if patchLanguages.contains(recorded.language) { result.recordedPatches.insert(recorded.opening) }
+                    if patchLanguages.contains(recorded.language) {
+                        result.recordedPatches.insert(recorded.opening)
+                        for line in patchLines { result.recordedPatchLines[line] = recorded.opening }
+                    }
                     else { result.recorded[recorded.opening] = RecordedDebugFence(opening: recorded.opening, closing: index, language: recorded.language) }
                 }
                 if let declaredPatch, index > declaredPatch + 1,
                    row.prefix(while: { $0 == " " }).count <= 3,
                    rows[(declaredPatch + 1)..<index].contains(where: { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) {
                     result.recordedConstructions.insert(declaredPatch)
+                    for line in patchLines { result.recordedPatchLines[line] = declaredPatch }
                 }
                 fence = ""; mode = ""; target = nil; recorded = nil; declaredPatch = nil; continue
             }
@@ -230,6 +236,7 @@ func inlineDebugContext(_ source: String, path: String) -> InlineDebugContext {
                    index > declaredPatch + 1,
                    rows[(declaredPatch + 1)..<index].contains(where: { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) {
                     result.recordedConstructions.insert(declaredPatch)
+                    for line in patchLines { result.recordedPatchLines[line] = declaredPatch }
                 }
                 mode = ""; target = nil; declaredPatch = nil; declaredClose = nil; continue
             }
@@ -240,6 +247,7 @@ func inlineDebugContext(_ source: String, path: String) -> InlineDebugContext {
                 declaration = String(row[marker.upperBound...]); mode = declaration.trimmingCharacters(in: .whitespaces).components(separatedBy: " ")[0] == "patch" ? "patch" : "file"
                 let language = declaration.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
                 if standalone.contains(language) || patchLanguages.contains(language) { recorded = (index, language) }
+                if language == "diff" { mode = "diff" }
                 let info = declaration.trimmingCharacters(in: .whitespacesAndNewlines)
                 if info != "patch", info.split(whereSeparator: { $0.isWhitespace }).first == "patch" { declaredPatch = index }
             } else if let match = opening.firstMatch(in: row, range: NSRange(location: 0, length: text.length)) {
@@ -250,7 +258,7 @@ func inlineDebugContext(_ source: String, path: String) -> InlineDebugContext {
                     declaredClose = "</\(tag):patch>"
                 }
             } else { continue }
-            oldLines = 0; newLines = 0; target = nil
+            oldLines = 0; newLines = 0; target = nil; patchLines = []
             if mode == "file", let match = pathHint.firstMatch(in: declaration, range: NSRange(location: 0, length: declaration.utf16.count)) {
                 let path = (declaration as NSString).substring(with: match.range(at: 1))
                 target = supported.contains((path as NSString).pathExtension.lowercased()) ? path : nil
@@ -259,16 +267,18 @@ func inlineDebugContext(_ source: String, path: String) -> InlineDebugContext {
             continue
         }
         if mode == "file", !trimmed.isEmpty { result.code[index] = target }
-        if mode == "patch" {
+        if mode == "patch" || mode == "diff" {
             if oldLines > 0 || newLines > 0 {
-                if row.hasPrefix("+") { newLines -= 1; if !row.dropFirst().trimmingCharacters(in: .whitespaces).isEmpty { result.code[index] = target } }
-                else if row.hasPrefix("-") { oldLines -= 1 }
-                else if row.hasPrefix(" ") { oldLines -= 1; newLines -= 1 }
+                if row.hasPrefix("+"), newLines > 0 {
+                    newLines -= 1; patchLines.append(index)
+                    if mode == "patch", !row.dropFirst().trimmingCharacters(in: .whitespaces).isEmpty { result.code[index] = target }
+                } else if row.hasPrefix("-"), oldLines > 0 { oldLines -= 1; patchLines.append(index) }
+                else if row.hasPrefix(" "), oldLines > 0, newLines > 0 { oldLines -= 1; newLines -= 1 }
             } else if row.hasPrefix("+++ ") {
                 let raw = String(row.dropFirst(4)).components(separatedBy: "\t")[0]
                 let path = raw.hasPrefix("b/") ? String(raw.dropFirst(2)) : raw
                 target = supported.contains((path as NSString).pathExtension.lowercased()) ? path : nil
-                result.launch[index] = target
+                if mode == "patch" { result.launch[index] = target }
             } else if let match = hunk.firstMatch(in: row, range: NSRange(location: 0, length: text.length)) {
                 oldLines = match.range(at: 1).location == NSNotFound ? 1 : Int(text.substring(with: match.range(at: 1))) ?? 0
                 newLines = match.range(at: 2).location == NSNotFound ? 1 : Int(text.substring(with: match.range(at: 2))) ?? 0

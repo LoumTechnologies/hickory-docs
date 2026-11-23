@@ -9,6 +9,13 @@ struct StartupSourceObservation {
 
 @MainActor @Observable final class DocumentBuffer: Identifiable {
     let id = UUID()
+    var gitComparison: GitEditorComparison?
+    var gitComparisonChanges: (comparison: UUID, revision: UUID, rows: [Int: GitEditorComparison.Line]?)?
+    var gitChanges: [Int: GitEditorComparison.Line]? {
+        guard let result = gitComparisonChanges, let gitComparison, result.comparison == gitComparison.id,
+              result.revision == sourceEditIdentity, exactUTF8(file.path, gitComparison.path) else { return nil }
+        return result.rows
+    }
     var debugInspection=UUID()
     var showSnippetTools=false
     @ObservationIgnored lazy var snippets=SourceSnippetController(buffer:self)
@@ -641,6 +648,14 @@ struct StartupSourceObservation {
     }
     // A read can populate the buffer cache after its pane selects another tab.
     // Only the pane's current open request can activate the newly read buffer.
+    func openGitComparison(_ comparison: GitEditorComparison, current: @escaping () -> Bool) async -> Bool {
+        guard let file = workspaceFile(comparison.path), !file.dir,
+              await activateFile(file, recordNavigation: true, isCurrent: current), current(),
+              let buffer = currentBuffer, exactUTF8(buffer.file.path, comparison.path) else { return false }
+        buffer.gitComparison = comparison
+        return true
+    }
+
     func open(_ file: FileNode, recordNavigation: Bool = true) async {
         _ = await activateFile(file, recordNavigation: recordNavigation)
     }

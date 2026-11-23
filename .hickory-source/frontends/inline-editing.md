@@ -241,6 +241,7 @@ struct InlineDebugContext: Sendable {
     var launch: [Int: String] = [:]
     var recorded: [Int: RecordedDebugFence] = [:]
     var recordedPatches: Set<Int> = []
+    var recordedPatchLines: [Int: Int] = [:]
     var recordedConstructions: Set<Int> = []
 }
 func inlineDebugContext(_ source: String, path: String) -> InlineDebugContext {
@@ -257,6 +258,7 @@ func inlineDebugContext(_ source: String, path: String) -> InlineDebugContext {
     var fence = "", mode = "", target: String?, oldLines = 0, newLines = 0
     var recorded: (opening: Int, language: String)?
     var declaredPatch: Int?, declaredClose: String?
+    var patchLines: [Int] = []
     let standalone = Set(["py", "python", "python3", "js", "javascript", "node", "ts", "typescript", "rs", "rust", "c", "cpp", "c++", "cxx", "go", "golang", "cs", "csharp", "c#", "rb", "ruby"])
     let patchLanguages = Set(["diff", "patch"])
     let opening = try! NSRegularExpression(pattern: #"^ {0,3}<[\w.-]+:(file|patch|copy|cut|exec|entry|diagram|math|table)\b[^>]*>"#)
@@ -269,13 +271,17 @@ func inlineDebugContext(_ source: String, path: String) -> InlineDebugContext {
                 if let recorded, index > recorded.opening + 1,
                    row.prefix(while: { $0 == " " }).count <= 3,
                    rows[(recorded.opening + 1)..<index].contains(where: { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) {
-                    if patchLanguages.contains(recorded.language) { result.recordedPatches.insert(recorded.opening) }
+                    if patchLanguages.contains(recorded.language) {
+                        result.recordedPatches.insert(recorded.opening)
+                        for line in patchLines { result.recordedPatchLines[line] = recorded.opening }
+                    }
                     else { result.recorded[recorded.opening] = RecordedDebugFence(opening: recorded.opening, closing: index, language: recorded.language) }
                 }
                 if let declaredPatch, index > declaredPatch + 1,
                    row.prefix(while: { $0 == " " }).count <= 3,
                    rows[(declaredPatch + 1)..<index].contains(where: { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) {
                     result.recordedConstructions.insert(declaredPatch)
+                    for line in patchLines { result.recordedPatchLines[line] = declaredPatch }
                 }
                 fence = ""; mode = ""; target = nil; recorded = nil; declaredPatch = nil; continue
             }
@@ -285,6 +291,7 @@ func inlineDebugContext(_ source: String, path: String) -> InlineDebugContext {
                    index > declaredPatch + 1,
                    rows[(declaredPatch + 1)..<index].contains(where: { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) {
                     result.recordedConstructions.insert(declaredPatch)
+                    for line in patchLines { result.recordedPatchLines[line] = declaredPatch }
                 }
                 mode = ""; target = nil; declaredPatch = nil; declaredClose = nil; continue
             }
@@ -295,6 +302,7 @@ func inlineDebugContext(_ source: String, path: String) -> InlineDebugContext {
                 declaration = String(row[marker.upperBound...]); mode = declaration.trimmingCharacters(in: .whitespaces).components(separatedBy: " ")[0] == "patch" ? "patch" : "file"
                 let language = declaration.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
                 if standalone.contains(language) || patchLanguages.contains(language) { recorded = (index, language) }
+                if language == "diff" { mode = "diff" }
                 let info = declaration.trimmingCharacters(in: .whitespacesAndNewlines)
                 if info != "patch", info.split(whereSeparator: { $0.isWhitespace }).first == "patch" { declaredPatch = index }
             } else if let match = opening.firstMatch(in: row, range: NSRange(location: 0, length: text.length)) {
@@ -305,7 +313,7 @@ func inlineDebugContext(_ source: String, path: String) -> InlineDebugContext {
                     declaredClose = "</\(tag):patch>"
                 }
             } else { continue }
-            oldLines = 0; newLines = 0; target = nil
+            oldLines = 0; newLines = 0; target = nil; patchLines = []
             if mode == "file", let match = pathHint.firstMatch(in: declaration, range: NSRange(location: 0, length: declaration.utf16.count)) {
                 let path = (declaration as NSString).substring(with: match.range(at: 1))
                 target = supported.contains((path as NSString).pathExtension.lowercased()) ? path : nil
@@ -314,16 +322,18 @@ func inlineDebugContext(_ source: String, path: String) -> InlineDebugContext {
             continue
         }
         if mode == "file", !trimmed.isEmpty { result.code[index] = target }
-        if mode == "patch" {
+        if mode == "patch" || mode == "diff" {
             if oldLines > 0 || newLines > 0 {
-                if row.hasPrefix("+") { newLines -= 1; if !row.dropFirst().trimmingCharacters(in: .whitespaces).isEmpty { result.code[index] = target } }
-                else if row.hasPrefix("-") { oldLines -= 1 }
-                else if row.hasPrefix(" ") { oldLines -= 1; newLines -= 1 }
+                if row.hasPrefix("+"), newLines > 0 {
+                    newLines -= 1; patchLines.append(index)
+                    if mode == "patch", !row.dropFirst().trimmingCharacters(in: .whitespaces).isEmpty { result.code[index] = target }
+                } else if row.hasPrefix("-"), oldLines > 0 { oldLines -= 1; patchLines.append(index) }
+                else if row.hasPrefix(" "), oldLines > 0, newLines > 0 { oldLines -= 1; newLines -= 1 }
             } else if row.hasPrefix("+++ ") {
                 let raw = String(row.dropFirst(4)).components(separatedBy: "\t")[0]
                 let path = raw.hasPrefix("b/") ? String(raw.dropFirst(2)) : raw
                 target = supported.contains((path as NSString).pathExtension.lowercased()) ? path : nil
-                result.launch[index] = target
+                if mode == "patch" { result.launch[index] = target }
             } else if let match = hunk.firstMatch(in: row, range: NSRange(location: 0, length: text.length)) {
                 oldLines = match.range(at: 1).location == NSNotFound ? 1 : Int(text.substring(with: match.range(at: 1))) ?? 0
                 newLines = match.range(at: 2).location == NSNotFound ? 1 : Int(text.substring(with: match.range(at: 2))) ?? 0
@@ -552,7 +562,7 @@ package com.hickorydocs.simple
 
 data class InlineMark(val kind: String, val from: Int, val to: Int, val level: Int = 0)
 data class InlineCell(val line: Int, val column: Int, val from: Int, val to: Int, val value: String, val format: String = "markdown", val delimiter: String = ",")
-data class InlineEquation(val line: Int, val from: Int, val to: Int, val body: String)
+data class InlineEquation(val line: Int, val from: Int, val to: Int, val body: String, val renderedFrom: Int = from, val renderedTo: Int = to)
 data class InlineDiagram(val line: Int, val from: Int, val to: Int, val body: String, val renderer: String)
 data class InlineSnapshot(val source: String, val lineStarts: List<Int> = listOf(0), val marks: List<InlineMark> = emptyList(), val cells: List<InlineCell> = emptyList(), val equations: List<InlineEquation> = emptyList(), val debug: InlineDebugContext = InlineDebugContext(), val diagrams: List<InlineDiagram> = emptyList(), val gridOverrides: List<InlineTable> = emptyList())
 // Keep source offsets authoritative while the field displays a grid-sized placeholder.
@@ -678,7 +688,38 @@ data class InlineDebugContext(
     val recordedClosing: Map<Int, Int> = emptyMap(),
     val recordedPatches: Set<Int> = emptySet(),
     val declaredPatches: Set<Int> = emptySet(),
+    val recordedPatchLines: Map<Int, Int> = emptyMap(),
 )
+// Patch prefixes describe old and new hunk counts, independent of code indentation.
+data class SimplePatchHunk(val header: Int, val end: Int, val changed: List<Int>)
+fun simplePatchHunks(rows: List<String>, first: Int, last: Int): List<SimplePatchHunk> {
+    val header = Regex("""^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@""")
+    val result = mutableListOf<SimplePatchHunk>()
+    var index = first
+    while (index < last) {
+        val match = header.find(rows[index])
+        if (match == null) { index++; continue }
+        var old = match.groups[1]?.value?.let { it.toLongOrNull() ?: Long.MAX_VALUE } ?: 1
+        var new = match.groups[2]?.value?.let { it.toLongOrNull() ?: Long.MAX_VALUE } ?: 1
+        val changed = mutableListOf<Int>()
+        var body = index + 1
+        while (body < last) {
+            val row = rows[body].removeSuffix("\r")
+            when {
+                row == "\\ No newline at end of file" -> Unit
+                row.startsWith('-') && old > 0 -> { old--; changed.add(body) }
+                row.startsWith('+') && new > 0 -> { new--; changed.add(body) }
+                row.startsWith(' ') && old > 0 && new > 0 -> { old--; new-- }
+                else -> break
+            }
+            body++
+        }
+        if (old == 0L && new == 0L && body > index + 1) {
+            result.add(SimplePatchHunk(index, body - 1, changed)); index = body
+        } else index++
+    }
+    return result
+}
 // Recorded cards suggest complete pathless fences and declared patch openers.
 // Only the engine can associate a declaration with a verified construction.
 fun recordedFenceDebugContext(source: String): InlineDebugContext {
@@ -695,21 +736,29 @@ fun recordedFenceDebugContext(source: String): InlineDebugContext {
     val closing = mutableMapOf<Int, Int>()
     val patches = mutableSetOf<Int>()
     val declared = mutableSetOf<Int>()
-    val patchTag = Regex("""^ {0,3}<hick:patch(?=[\s/>]|$)""")
+    val changed = mutableMapOf<Int, Int>()
+    val patchTag = Regex("""^ {0,3}<([\w.-]+):patch(?=[\s/>]|$)""")
     val patchFence = Regex("""^patch\s+.*[\w.-]+\s*=\s*["']""")
     var opening: MatchResult? = null
     var first = 0
-    var inPatchTag = false
+    var tag: String? = null
+    var tagStart = 0
     val rows = source.split('\n')
+    fun address(first: Int, last: Int) {
+        for (hunk in simplePatchHunks(rows, first + 1, last)) for (line in hunk.changed) changed[line] = first
+    }
     for ((line, row) in rows.withIndex()) {
         val authored = if (line == 0) row.removePrefix("\uFEFF") else row
-        if (inPatchTag) {
-            if ("</hick:patch>" in authored) inPatchTag = false
+        val openTag = tag
+        if (openTag != null) {
+            if (openTag in authored) { address(tagStart, line); tag = null }
             continue
         }
-        if (opening == null && patchTag.containsMatchIn(authored)) {
+        val declaration = if (opening == null) patchTag.find(authored) else null
+        if (declaration != null) {
             declared.add(line)
-            inPatchTag = "</hick:patch>" !in authored && !authored.trimEnd().endsWith("/>")
+            val close = "</${declaration.groupValues[1]}:patch>"
+            if (close !in authored && !authored.trimEnd().endsWith("/>")) { tag = close; tagStart = line }
             continue
         }
         val match = marker.matchEntire(authored.removeSuffix("\r")) ?: continue
@@ -723,14 +772,14 @@ fun recordedFenceDebugContext(source: String): InlineDebugContext {
         val hint = info.lowercase()
         val body = (first + 1 until line).filter { rows[it].isNotBlank() }
         if (body.isEmpty()) continue
-        if (hint == "diff" || hint == "patch") { patches.add(first); continue }
-        if (patchFence.containsMatchIn(info)) { declared.add(first); continue }
+        if (hint == "diff" || hint == "patch") { patches.add(first); address(first, line); continue }
+        if (patchFence.containsMatchIn(info)) { declared.add(first); address(first, line); continue }
         val language = languages.firstOrNull { hint in it.second }?.first ?: continue
         launch[first] = language
         closing[first] = line
         for (codeLine in body) code[codeLine] = language
     }
-    return InlineDebugContext(code, launch, closing, patches, declared)
+    return InlineDebugContext(code, launch, closing, patches, declared, changed)
 }
 fun inlineDebugContext(source: String, path: String): InlineDebugContext {
     if (source.length > 200_000) return InlineDebugContext()
@@ -873,7 +922,7 @@ fun computeInlineMarkup(source: String, path: String, recordedMessage: Boolean =
     val heading = Regex("^(#{1,6})\\s+")
     val styles = listOf("code" to Regex("`[^`\\n]+`"), "strong" to Regex("\\*\\*[^*\\n]+\\*\\*"), "em" to Regex("(?<!\\*)\\*[^*\\n]+\\*(?!\\*)"), "math" to Regex("(?<!\\\\)\\$([^$\\n]+)\\$"))
     val opening = Regex("^\\s*<[A-Za-z_][\\w.-]*:(file|copy|cut|exec|container|diagram|math|table)\\b[^>]*>")
-    var offset = 0; var fence = ""; var payload = ""; var table = false; var diffFence = false; var equationStart: Int? = null; var equationLine = 0; var tableStart: Int? = null; var tableLine = 0; var delimiter = ","
+    var offset = 0; var fence = ""; var payload = ""; var table = false; var diffFence = false; var equationStart: Int? = null; var equationLine = 0; var equationOpen = 0; var tableStart: Int? = null; var tableLine = 0; var delimiter = ","
     rows.forEachIndexed { line, rawRow ->
         val row = rawRow.removeSuffix("\r")
         val start = offset; offset += rawRow.length + 1; val trimmed = row.trim()
@@ -887,7 +936,7 @@ fun computeInlineMarkup(source: String, path: String, recordedMessage: Boolean =
             val close = row.indexOf("</")
             if (trimmed.contains(":" + payload + ">") && close >= 0) {
                 val from = equationStart
-                if (payload == "math" && from != null && start + close >= from) equations.add(InlineEquation(equationLine, from, start + close, source.substring(from, start + close)))
+                if (payload == "math" && from != null && start + close >= from) equations.add(InlineEquation(equationLine, from, start + close, source.substring(from, start + close), equationOpen, start + row.length))
                 val tableFrom = tableStart
                 if (payload == "table" && tableFrom != null && start + close >= tableFrom) cells.addAll(inlineCSVCells(source.substring(tableFrom, start + close), tableLine, tableFrom, delimiter))
                 payload = ""; equationStart = null; tableStart = null
@@ -897,7 +946,7 @@ fun computeInlineMarkup(source: String, path: String, recordedMessage: Boolean =
         val opened = opening.find(row)
         if (opened != null) {
             payload = opened.groupValues[1]
-            if (payload == "math") { equationStart = start + opened.range.last + 1; equationLine = line }
+            if (payload == "math") { equationStart = start + opened.range.last + 1; equationLine = line; equationOpen = start + opened.range.first }
             if (payload == "table") {
                 tableStart = start + opened.range.last + 1; tableLine = line
                 delimiter = Regex("delimiter\\s*=\\s*[\"']([^\"']*)[\"']").find(opened.value)?.groupValues?.get(1)?.replace("\\t", "\t") ?: ","
@@ -905,7 +954,7 @@ fun computeInlineMarkup(source: String, path: String, recordedMessage: Boolean =
                 if (closeTable >= 0 && start + closeTable >= tableFrom) cells.addAll(inlineCSVCells(source.substring(tableFrom, start + closeTable), tableLine, tableFrom, delimiter))
             }
             val close = row.indexOf("</"); val from = equationStart
-            if (payload == "math" && from != null && close >= 0 && start + close >= from) equations.add(InlineEquation(line, from, start + close, source.substring(from, start + close)))
+            if (payload == "math" && from != null && close >= 0 && start + close >= from) equations.add(InlineEquation(line, from, start + close, source.substring(from, start + close), equationOpen, start + row.length))
             if (trimmed.contains("</") || trimmed.endsWith("/>")) { payload = ""; equationStart = null }
             table = false; return@forEachIndexed
         }
@@ -919,7 +968,7 @@ fun computeInlineMarkup(source: String, path: String, recordedMessage: Boolean =
                 if (body.first().isWhitespace() || body.last().isWhitespace() || row.getOrNull(match.range.last + 1)?.isDigit() == true) continue
             }
             marks.add(InlineMark(kind, start + match.range.first, start + match.range.last + 1))
-            if (kind == "math") { val body = match.groups[1]!!; equations.add(InlineEquation(line, start + body.range.first, start + body.range.last + 1, body.value)) }
+            if (kind == "math") { val body = match.groups[1]!!; equations.add(InlineEquation(line, start + body.range.first, start + body.range.last + 1, body.value, start + match.range.first, start + match.range.last + 1)) }
         }
         val isSeparator = separator.matches(row); val nextSeparator = rows.getOrNull(line + 1)?.let { separator.matches(it) } == true
         if (nextSeparator || table && row.contains('|')) { table = true; if (!isSeparator) cells.addAll(inlineCells(row, line, start)) } else if (!isSeparator) table = false
@@ -1428,7 +1477,8 @@ import androidx.compose.ui.viewinterop.AndroidView
 import org.json.JSONObject
 
 @SuppressLint("SetJavaScriptEnabled")
-@Composable fun NativeMathView(source: String, modifier: Modifier = Modifier, diagramRenderer: String? = null) {
+@Composable fun NativeMathView(source: String, modifier: Modifier = Modifier, diagramRenderer: String? = null, onReady: (() -> Unit)? = null) {
+    val ready = rememberUpdatedState(onReady)
     val dark = rememberUpdatedState(isSystemInDarkTheme())
     AndroidView(modifier = modifier, factory = { context ->
         WebView(context).apply {
@@ -1438,7 +1488,8 @@ import org.json.JSONObject
                 override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean = request.url.toString() != "file:///android_asset/math.html"
                 override fun onPageFinished(view: WebView, url: String) {
                     if (url == "file:///android_asset/math.html") {
-                        view.evaluateJavascript("globalThis.setPreviewAppearance(${dark.value});" + (view.tag as? String ?: ""), null)
+                        val rendered = view.tag as? String ?: return
+                        view.evaluateJavascript("globalThis.setPreviewAppearance(${dark.value});" + rendered + ";!!document.querySelector('.katex')") { if (it == "true" && view.tag == rendered) ready.value?.invoke() }
                     }
                 }
             }
@@ -1449,7 +1500,7 @@ import org.json.JSONObject
         val script = if (diagramRenderer == "notebook") "globalThis.renderNotebookOutput(" + JSONObject.quote(source) + ")" else if (diagramRenderer == "terminal") "globalThis.renderTerminal(" + JSONObject.quote(source) + ")" else if (diagramRenderer == null) "globalThis.renderMath(" + JSONObject.quote(source) + ")" else "globalThis.renderDiagram(" + JSONObject.quote(source) + "," + JSONObject.quote(diagramRenderer) + ")"
         if (view.tag != script) {
             view.tag = script
-            view.evaluateJavascript("if(globalThis.renderDiagram){" + script + "}", null)
+            view.evaluateJavascript("if(globalThis.renderDiagram){" + script + "};!!document.querySelector('.katex')") { if (it == "true" && view.tag == script) ready.value?.invoke() }
         }
     }, onRelease = { it.stopLoading(); it.destroy() })
 }
@@ -1570,10 +1621,10 @@ function RichOwner({ buffer, view, keepPatchSource }: { buffer: Buffer; view: Ed
       view.dispatch({ effects: cached.prose.reconfigure([
         libs.prose.wysiwyg(new libs.prose.EnvRegistry()), libs.rendered.renderedBlocks(registry),
         EditorView.updateListener.of(update => { if (update.transactions.length) queueMicrotask(() => { if (!disposed) setSlots(registry.list()); }); }),
-        libs.math.renderedMath(state => libs.spans.mathSpans(state.doc.toString(), libs.hick.verbatimRanges(libs.prose.structureOf(state).blocks))),
+        libs.math.renderedMath(state => simpleMathSpans(libs, state)),
       ]) });
       const initial = libs.elements.renderableBlocks(libs.prose.structureOf(view.state), view.state.doc.toString()).filter(block =>
-        !(keepPatchSource && block.name === "patch") && !libs.elements.slotKindOf(block)?.startsWith("session-")
+        block.name !== "math" && block.name !== "patch" && !libs.elements.slotKindOf(block)?.startsWith("session-")
         && !(buffer.dirty && view.state.selection.ranges.some(range => range.from >= block.from && range.to <= block.to)));
       view.dispatch({ effects: [libs.rendered.setRenderedBlocks.of(initial.map(block => block.from)), scroll] });
       buffer.setInlineRenderNotice("");
@@ -1615,8 +1666,8 @@ function RichOwner({ buffer, view, keepPatchSource }: { buffer: Buffer; view: Ed
     }
   }
   const controls = modules.elements.renderableBlocks(modules.prose.structureOf(view.state), view.state.doc.toString()).filter(block =>
-    !(keepPatchSource && block.name === "patch") && !modules.elements.slotKindOf(block)?.startsWith("session-"));
-  const math = modules.spans.mathSpans(view.state.doc.toString(), modules.hick.verbatimRanges(modules.prose.structureOf(view.state).blocks));
+    block.name !== "math" && !(keepPatchSource && block.name === "patch") && !modules.elements.slotKindOf(block)?.startsWith("session-"));
+  const math = simpleMathSpans(modules, view.state);
   const rail = debugRailElement(view);
   return <>{rail && math.map(span => createPortal(<DebugRailGroup key={`math:${span.from}`} view={view} at={span.from}>
     <button type="button" className="debug-icon" aria-label="Toggle equation source text" onClick={() => {
@@ -1639,6 +1690,13 @@ function RichOwner({ buffer, view, keepPatchSource }: { buffer: Buffer; view: Ed
       {modules.elements.elementViews[slot.kind].render(slot, context)}
     </SlotPortal>;
   })}</>;
+}
+function simpleMathSpans(libs: Awaited<ReturnType<typeof load>>, state: import("@codemirror/state").EditorState) {
+  const { blocks } = libs.prose.structureOf(state);
+  return [...libs.spans.mathSpans(state.doc.toString(), libs.hick.verbatimRanges(blocks)),
+    ...blocks.filter(block => block.name === "math" && block.close).map(block => ({
+      from: block.from, to: block.to, display: true, source: state.doc.sliceString(block.contentFrom, block.contentTo),
+    }))].sort((a, b) => a.from - b.from);
 }
 async function load() {
   // Resolve the shared cyclic registry graph before importing its members in parallel.

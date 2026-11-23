@@ -165,6 +165,16 @@ describe("shared frontend layout contract", () => {
     expect(simpleFoldRanges("# comment\nbody")).toEqual([]);
     expect(simpleFoldRanges("```python\n# comment\nbody", true)).toEqual([]);
   });
+  it("folds all rows of a unified hunk and keeps its header", () => {
+    const rows = ["```patch id=\"p\"", "--- a/main.py", "+++ b/main.py", "@@ -1,2 +1,3 @@",
+      " def f():", "-    return 1", "+    x = 2", "+    return x", "```"];
+    for (const newline of ["\n", "\r\n"]) {
+      const source = rows.join(newline);
+      const folds = simpleFoldRanges(source,true);
+      expect(folds.map(fold=>fold.line)).toEqual([3]);
+      expect(source.slice(folds[0].from,folds[0].to)).toBe(newline+rows.slice(4,8).join(newline));
+    }
+  });
   it("applies the shared smart Enter language, context and mode fixtures", () => {
     // Contract: .hickory-source/frontends/contract.md
     for (const item of enterCases.cases) {

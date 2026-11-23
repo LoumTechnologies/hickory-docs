@@ -373,10 +373,11 @@ private fun recordedConstructionReceipt(reply: JSONObject): RecordedConstruction
         LanguageEditor(
             buffer, session.debugger.takeIf { reading != null },
             Modifier.fillMaxWidth().height((buffer.text.lines().size * 22 + 36).coerceIn(100, 420).dp),
-            recorded = reading,
+            recorded = reading?.copy(current = { reading.current() && workspace.engine === engine && workspace.sourceNavigationEpoch == epoch }),
             reviewPatch = if (reading == null) null else { line -> scope.launch { workspace.agentProposals.prepareRecordedPatch(workspace, reading, line) } },
             recordedRun = actions,
             recordedConstruction = construction,
+            patchCommentEngine = engine.takeIf { reading != null },
         )
     }
 }
@@ -387,5 +388,84 @@ private fun recordedConstructionReceipt(reply: JSONObject): RecordedConstruction
         DropdownMenu(expanded, { expanded = false }) { choices.forEach { (value, title) ->
             DropdownMenuItem(text = { Text(title) }, onClick = { expanded = false; change(value) })
         } }
+    }
+}
+@Composable internal fun RecordedPatchComment(engine: Engine, buffer: DocumentBuffer, reading: AgentFenceReading, line: Int, opening: Int) {
+    val scope = rememberCoroutineScope()
+    val source = reading.source
+    val path = "hick-agent-message:///${reading.turn}-agent.md"
+    val quote = remember(source, line) { source.split('\n').getOrNull(line) } ?: return
+    var target by remember(source, line) { mutableStateOf<JSONObject?>(null) }
+    var history by remember(source, line) { mutableStateOf<JSONObject?>(null) }
+    var thread by remember(source, line) { mutableStateOf<String?>(null) }
+    var draft by remember(source, line) { mutableStateOf("") }
+    var notice by remember(source, line) { mutableStateOf("") }
+    var busy by remember(source, line) { mutableStateOf(false) }
+    fun current() = reading.current() && buffer.text == source
+    suspend fun load() {
+        val reply = engine.request("GET", "/api/reviews")
+        if (current()) { history = reply; notice = "" }
+    }
+    LaunchedEffect(engine, buffer, source, line) {
+        val hash = withContext(Dispatchers.Default) { debugHash(source) }
+        if (!current()) return@LaunchedEffect
+        target = JSONObject().put("kind","patch-line").put("path",path).put("quote",quote)
+            .put("source_hash",hash).put("lines",org.json.JSONArray(listOf(line+1,line+1)))
+            .put("relationship",JSONObject().put("turn",reading.turn).put("side","assistant").put("patch_opening_line",opening+1))
+        try { load() }
+        catch (error: kotlinx.coroutines.CancellationException) { throw error }
+        catch (error: Exception) { notice = error.message.orEmpty() }
+    }
+    val events = history?.optJSONArray("events")
+    val threads = (0 until (events?.length() ?: 0)).mapNotNull { index ->
+        val event = events?.optJSONObject(index) ?: return@mapNotNull null
+        val root = event.optJSONObject("target") ?: return@mapNotNull null
+        event.takeIf {
+            root.optString("kind") == "patch-line" && root.optString("path") == path &&
+                root.optString("source_hash") == target?.optString("source_hash") &&
+                root.optJSONArray("lines")?.optInt(0) == line + 1 && root.optString("quote") == quote
+        }
+    }
+    Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text("Patch line ${line+1}", style = MaterialTheme.typography.titleSmall)
+        Text(quote, fontSize = 12.sp)
+        for (root in threads) TextButton(onClick = { thread = root.getString("thread") }) { Text(root.getString("body").take(70)) }
+        if (thread != null) {
+            TextButton(onClick = { thread = null }) { Text("New thread") }
+            for (index in 0 until (events?.length() ?: 0)) {
+                val event = events?.optJSONObject(index) ?: continue
+                if (event.optString("thread") == thread) Text(event.optString("body"))
+            }
+        }
+        OutlinedTextField(draft, { draft = it }, label = { Text(if (thread == null) "Write a comment" else "Write a reply") }, maxLines = 4)
+        Row {
+            TextButton(enabled = !busy && target != null && history != null && draft.isNotBlank(), onClick = {
+                if (!current()) return@TextButton
+                val savedDraft = draft
+                val selected = thread
+                val body = JSONObject().put("scope",history?.getString("scope")).put("action","comment").put("body",savedDraft)
+                    .put("target",if (selected == null) target else JSONObject.NULL).put("thread",selected ?: JSONObject.NULL)
+                busy = true
+                scope.launch {
+                    try {
+                        val saved = engine.request("POST","/api/reviews",body)
+                        if (!current()) return@launch
+                        if (draft == savedDraft) draft = ""
+                        thread = saved.getString("thread")
+                        load()
+                    } catch (error: kotlinx.coroutines.CancellationException) { throw error }
+                    catch (error: Exception) { history = null; notice = error.message.orEmpty() + " Refresh comments before retrying." }
+                    finally { busy = false }
+                }
+            }) { Text(if (thread == null) "Save comment" else "Save reply") }
+            TextButton(enabled = !busy, onClick = {
+                scope.launch {
+                    try { load() }
+                    catch (error: kotlinx.coroutines.CancellationException) { throw error }
+                    catch (error: Exception) { notice = error.message.orEmpty() }
+                }
+            }) { Text("Refresh comments") }
+        }
+        if (notice.isNotEmpty()) Text(notice, fontSize = 12.sp)
     }
 }

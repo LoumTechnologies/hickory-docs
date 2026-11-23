@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 
@@ -32,6 +32,42 @@ describe("maths in the editor", () => {
     const view = mount("the value $x^2$ is squared\n", 3);
     expect(view.dom.querySelectorAll(".cm-math")).toHaveLength(0);
     expect(view.state.doc.toString()).toContain("$x^2$");
+    view.destroy();
+  });
+
+  it("switches to source and back on double activation without editing the document", () => {
+    const doc = "Before\nThe value $x^2$ is squared.\n";
+    const view = mount(doc, 0);
+    view.dom.querySelector(".cm-math")!.dispatchEvent(new MouseEvent("dblclick",{bubbles:true}));
+    expect(view.dom.querySelector(".cm-math")).toBeNull();
+    vi.spyOn(view,"posAtCoords").mockReturnValue(doc.indexOf("x^2"));
+    view.dom.querySelectorAll(".cm-line")[1].dispatchEvent(new MouseEvent("dblclick",{bubbles:true}));
+    expect(view.dom.querySelector(".cm-math")).not.toBeNull();
+    expect(view.state.doc.toString()).toBe(doc);
+    view.destroy();
+  });
+
+  it("consumes a touch pair once when switching equation modes", () => {
+    const doc = "Before\nThe value $x^2$ is squared.\n";
+    const view = mount(doc, 0);
+    const tap = (target: Element) => {
+      for (const type of ["pointerdown", "pointerup"]) {
+        const event = new MouseEvent(type, {bubbles:true,clientX:8,clientY:8});
+        Object.assign(event,{pointerId:1,pointerType:"touch"});
+        target.dispatchEvent(event);
+      }
+    };
+    const preview = view.dom.querySelector(".cm-math")!;
+    tap(preview); tap(preview);
+    expect(view.dom.querySelector(".cm-math")).toBeNull();
+    vi.spyOn(view,"posAtCoords").mockReturnValue(doc.indexOf("x^2"));
+    const source = view.dom.querySelectorAll(".cm-line")[1];
+    tap(source);
+    expect(view.dom.querySelector(".cm-math")).toBeNull();
+    tap(source);
+    view.dispatch({selection:{anchor:doc.indexOf("x^2")}});
+    expect(view.dom.querySelector(".cm-math")).not.toBeNull();
+    expect(view.state.doc.toString()).toBe(doc);
     view.destroy();
   });
 

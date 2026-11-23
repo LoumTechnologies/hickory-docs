@@ -36,3 +36,36 @@ it('puts one handle at the lower right of a reversed selection',()=>{
   expect(handle.closest('td')?.dataset.fillRow).toBe('3');
   expect(handle.closest('td')?.dataset.fillColumn).toBe('3');
 });
+it('fills from a captured touch and discards a canceled gesture', () => {
+  const onChange = vi.fn();
+  render(<TablePanel source={source} header={false} onChange={onChange}/>);
+  fireEvent.click(cell(2,2));
+  const handle = screen.getByRole('button', { name: 'Fill selected cells' });
+  const capture = vi.fn();
+  Object.defineProperty(handle, 'setPointerCapture', { value: capture });
+  const hit = Object.getOwnPropertyDescriptor(document, 'elementFromPoint');
+  Object.defineProperty(document, 'elementFromPoint', { configurable: true, value: () => cell(4,2) });
+  const pointer = (target: Window | HTMLElement, type: string, pointerId: number) => {
+    const event = new MouseEvent(type, { bubbles: true, cancelable: true, button: 0 });
+    Object.assign(event, { pointerId, pointerType: 'touch' });
+    fireEvent(target, event);
+  };
+  try {
+    pointer(handle, 'pointerdown', 3);
+    expect(capture).toHaveBeenCalledWith(3);
+    pointer(window, 'pointermove', 3);
+    expect(document.querySelectorAll('.table-fill-preview').length).toBeGreaterThan(0);
+    pointer(window, 'pointerup', 4);
+    expect(onChange).not.toHaveBeenCalled();
+    pointer(window, 'pointercancel', 3);
+    expect(document.querySelectorAll('.table-fill-preview')).toHaveLength(0);
+    pointer(handle, 'pointerdown', 5);
+    pointer(window, 'pointermove', 5);
+    pointer(window, 'pointerup', 5);
+    fireEvent.mouseUp(window);
+    expect(onChange).toHaveBeenCalledTimes(1);
+  } finally {
+    if (hit) Object.defineProperty(document, 'elementFromPoint', hit);
+    else Reflect.deleteProperty(document, 'elementFromPoint');
+  }
+});

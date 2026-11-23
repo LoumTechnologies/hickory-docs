@@ -445,7 +445,8 @@ struct PaneView: View {
                     guard let session, workspace.engine?.session === session else { return }
                     workspace.terminal.id = id
                     workspace.showUtility(.terminal)
-                }, buffer: buffer, debugger: workspace.debugger).id(buffer.id)
+                }, buffer: buffer, debugger: workspace.debugger)
+                    .modifier(GitEditorComparisonTask(buffer: buffer)).id(buffer.id)
                 if !buffer.error.isEmpty { Text(buffer.error).font(.caption).foregroundStyle(.red).padding(6).textSelection(.enabled) }
             }
         } else {

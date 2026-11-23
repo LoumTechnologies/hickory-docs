@@ -307,7 +307,9 @@ class NativeDebugger(private val engine: Engine, private val scope: CoroutineSco
     }
     fun breakpointReadingPage(buffer:DocumentBuffer,page:Int)=breakpointModel.readingPage(sourceSnapshot(buffer),page)
     fun breakpointReadings(buffer:DocumentBuffer)=breakpointModel.readings(sourceSnapshot(buffer))
-    fun breakpointRows(buffer:DocumentBuffer):List<JSONObject>{val source=sourceSnapshot(buffer);if(active&&!sourceMatches(buffer))return emptyList();return breakpointModel.rows(source,sessionID,sourceLineage.hash(source))}
+    fun breakpointRows(buffer:DocumentBuffer):List<JSONObject>{val source=sourceSnapshot(buffer);val bound=active&&sourceMatches(buffer);return breakpointModel.rows(source,if(bound)sessionID else null,if(bound)sourceLineage.hash(source) else null).ifEmpty {
+        if(bound)breakpointModel.rows(source,null,null) else emptyList()
+    }}
     fun breakpointNotice(buffer:DocumentBuffer):String{val source=sourceSnapshot(buffer);if(active&&!sourceMatches(buffer))return "Source positions and breakpoint intentions are unbound to this editor identity or resource namespace. The runtime session and previous stack remain available; restart or review restoration before applying coordinates.";return breakpointModel.notice(source,sessionID,sourceLineage.hash(source))}
     fun resourceSourcesChanged(routes:List<NativeSourceRoute>){
         sourceLineage.transition(routes);breakpointModel.retireSession()

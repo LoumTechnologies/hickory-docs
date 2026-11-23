@@ -86,10 +86,10 @@ function RichOwner({ buffer, view, keepPatchSource }: { buffer: Buffer; view: Ed
       view.dispatch({ effects: cached.prose.reconfigure([
         libs.prose.wysiwyg(new libs.prose.EnvRegistry()), libs.rendered.renderedBlocks(registry),
         EditorView.updateListener.of(update => { if (update.transactions.length) queueMicrotask(() => { if (!disposed) setSlots(registry.list()); }); }),
-        libs.math.renderedMath(state => libs.spans.mathSpans(state.doc.toString(), libs.hick.verbatimRanges(libs.prose.structureOf(state).blocks))),
+        libs.math.renderedMath(state => simpleMathSpans(libs, state)),
       ]) });
       const initial = libs.elements.renderableBlocks(libs.prose.structureOf(view.state), view.state.doc.toString()).filter(block =>
-        !(keepPatchSource && block.name === "patch") && !libs.elements.slotKindOf(block)?.startsWith("session-")
+        block.name !== "math" && block.name !== "patch" && !libs.elements.slotKindOf(block)?.startsWith("session-")
         && !(buffer.dirty && view.state.selection.ranges.some(range => range.from >= block.from && range.to <= block.to)));
       view.dispatch({ effects: [libs.rendered.setRenderedBlocks.of(initial.map(block => block.from)), scroll] });
       buffer.setInlineRenderNotice("");
@@ -131,8 +131,8 @@ function RichOwner({ buffer, view, keepPatchSource }: { buffer: Buffer; view: Ed
     }
   }
   const controls = modules.elements.renderableBlocks(modules.prose.structureOf(view.state), view.state.doc.toString()).filter(block =>
-    !(keepPatchSource && block.name === "patch") && !modules.elements.slotKindOf(block)?.startsWith("session-"));
-  const math = modules.spans.mathSpans(view.state.doc.toString(), modules.hick.verbatimRanges(modules.prose.structureOf(view.state).blocks));
+    block.name !== "math" && !(keepPatchSource && block.name === "patch") && !modules.elements.slotKindOf(block)?.startsWith("session-"));
+  const math = simpleMathSpans(modules, view.state);
   const rail = debugRailElement(view);
   return <>{rail && math.map(span => createPortal(<DebugRailGroup key={`math:${span.from}`} view={view} at={span.from}>
     <button type="button" className="debug-icon" aria-label="Toggle equation source text" onClick={() => {
@@ -155,6 +155,13 @@ function RichOwner({ buffer, view, keepPatchSource }: { buffer: Buffer; view: Ed
       {modules.elements.elementViews[slot.kind].render(slot, context)}
     </SlotPortal>;
   })}</>;
+}
+function simpleMathSpans(libs: Awaited<ReturnType<typeof load>>, state: import("@codemirror/state").EditorState) {
+  const { blocks } = libs.prose.structureOf(state);
+  return [...libs.spans.mathSpans(state.doc.toString(), libs.hick.verbatimRanges(blocks)),
+    ...blocks.filter(block => block.name === "math" && block.close).map(block => ({
+      from: block.from, to: block.to, display: true, source: state.doc.sliceString(block.contentFrom, block.contentTo),
+    }))].sort((a, b) => a.from - b.from);
 }
 async function load() {
   // Resolve the shared cyclic registry graph before importing its members in parallel.

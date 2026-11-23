@@ -1578,7 +1578,7 @@ export function TablePanel({
                           onDone={stopEditing}
                           onCancel={() => setEditing(false)}
                         />
-                        {editable && !editing && fill.at(row, column) && <TableFillHandle onStart={fill.start} range={fill.preview ? selectionLabel(fill.preview) : undefined} />}
+                        {editable && !editing && fill.at(row, column) && <TableFillHandle onStart={fill.start} onPointerStart={fill.startPointer} range={fill.preview ? selectionLabel(fill.preview) : undefined} />}
                         {/* Grid edges resize; a stationary press selects the cell. */}
                         <Resizer
                           axis="row"

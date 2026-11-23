@@ -2,7 +2,7 @@ package com.hickorydocs.simple
 
 data class InlineMark(val kind: String, val from: Int, val to: Int, val level: Int = 0)
 data class InlineCell(val line: Int, val column: Int, val from: Int, val to: Int, val value: String, val format: String = "markdown", val delimiter: String = ",")
-data class InlineEquation(val line: Int, val from: Int, val to: Int, val body: String)
+data class InlineEquation(val line: Int, val from: Int, val to: Int, val body: String, val renderedFrom: Int = from, val renderedTo: Int = to)
 data class InlineDiagram(val line: Int, val from: Int, val to: Int, val body: String, val renderer: String)
 data class InlineSnapshot(val source: String, val lineStarts: List<Int> = listOf(0), val marks: List<InlineMark> = emptyList(), val cells: List<InlineCell> = emptyList(), val equations: List<InlineEquation> = emptyList(), val debug: InlineDebugContext = InlineDebugContext(), val diagrams: List<InlineDiagram> = emptyList(), val gridOverrides: List<InlineTable> = emptyList())
 // Keep source offsets authoritative while the field displays a grid-sized placeholder.
@@ -128,7 +128,38 @@ data class InlineDebugContext(
     val recordedClosing: Map<Int, Int> = emptyMap(),
     val recordedPatches: Set<Int> = emptySet(),
     val declaredPatches: Set<Int> = emptySet(),
+    val recordedPatchLines: Map<Int, Int> = emptyMap(),
 )
+// Patch prefixes describe old and new hunk counts, independent of code indentation.
+data class SimplePatchHunk(val header: Int, val end: Int, val changed: List<Int>)
+fun simplePatchHunks(rows: List<String>, first: Int, last: Int): List<SimplePatchHunk> {
+    val header = Regex("""^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@""")
+    val result = mutableListOf<SimplePatchHunk>()
+    var index = first
+    while (index < last) {
+        val match = header.find(rows[index])
+        if (match == null) { index++; continue }
+        var old = match.groups[1]?.value?.let { it.toLongOrNull() ?: Long.MAX_VALUE } ?: 1
+        var new = match.groups[2]?.value?.let { it.toLongOrNull() ?: Long.MAX_VALUE } ?: 1
+        val changed = mutableListOf<Int>()
+        var body = index + 1
+        while (body < last) {
+            val row = rows[body].removeSuffix("\r")
+            when {
+                row == "\\ No newline at end of file" -> Unit
+                row.startsWith('-') && old > 0 -> { old--; changed.add(body) }
+                row.startsWith('+') && new > 0 -> { new--; changed.add(body) }
+                row.startsWith(' ') && old > 0 && new > 0 -> { old--; new-- }
+                else -> break
+            }
+            body++
+        }
+        if (old == 0L && new == 0L && body > index + 1) {
+            result.add(SimplePatchHunk(index, body - 1, changed)); index = body
+        } else index++
+    }
+    return result
+}
 // Recorded cards suggest complete pathless fences and declared patch openers.
 // Only the engine can associate a declaration with a verified construction.
 fun recordedFenceDebugContext(source: String): InlineDebugContext {
@@ -145,21 +176,29 @@ fun recordedFenceDebugContext(source: String): InlineDebugContext {
     val closing = mutableMapOf<Int, Int>()
     val patches = mutableSetOf<Int>()
     val declared = mutableSetOf<Int>()
-    val patchTag = Regex("""^ {0,3}<hick:patch(?=[\s/>]|$)""")
+    val changed = mutableMapOf<Int, Int>()
+    val patchTag = Regex("""^ {0,3}<([\w.-]+):patch(?=[\s/>]|$)""")
     val patchFence = Regex("""^patch\s+.*[\w.-]+\s*=\s*["']""")
     var opening: MatchResult? = null
     var first = 0
-    var inPatchTag = false
+    var tag: String? = null
+    var tagStart = 0
     val rows = source.split('\n')
+    fun address(first: Int, last: Int) {
+        for (hunk in simplePatchHunks(rows, first + 1, last)) for (line in hunk.changed) changed[line] = first
+    }
     for ((line, row) in rows.withIndex()) {
         val authored = if (line == 0) row.removePrefix("\uFEFF") else row
-        if (inPatchTag) {
-            if ("</hick:patch>" in authored) inPatchTag = false
+        val openTag = tag
+        if (openTag != null) {
+            if (openTag in authored) { address(tagStart, line); tag = null }
             continue
         }
-        if (opening == null && patchTag.containsMatchIn(authored)) {
+        val declaration = if (opening == null) patchTag.find(authored) else null
+        if (declaration != null) {
             declared.add(line)
-            inPatchTag = "</hick:patch>" !in authored && !authored.trimEnd().endsWith("/>")
+            val close = "</${declaration.groupValues[1]}:patch>"
+            if (close !in authored && !authored.trimEnd().endsWith("/>")) { tag = close; tagStart = line }
             continue
         }
         val match = marker.matchEntire(authored.removeSuffix("\r")) ?: continue
@@ -173,14 +212,14 @@ fun recordedFenceDebugContext(source: String): InlineDebugContext {
         val hint = info.lowercase()
         val body = (first + 1 until line).filter { rows[it].isNotBlank() }
         if (body.isEmpty()) continue
-        if (hint == "diff" || hint == "patch") { patches.add(first); continue }
-        if (patchFence.containsMatchIn(info)) { declared.add(first); continue }
+        if (hint == "diff" || hint == "patch") { patches.add(first); address(first, line); continue }
+        if (patchFence.containsMatchIn(info)) { declared.add(first); address(first, line); continue }
         val language = languages.firstOrNull { hint in it.second }?.first ?: continue
         launch[first] = language
         closing[first] = line
         for (codeLine in body) code[codeLine] = language
     }
-    return InlineDebugContext(code, launch, closing, patches, declared)
+    return InlineDebugContext(code, launch, closing, patches, declared, changed)
 }
 fun inlineDebugContext(source: String, path: String): InlineDebugContext {
     if (source.length > 200_000) return InlineDebugContext()
@@ -323,7 +362,7 @@ fun computeInlineMarkup(source: String, path: String, recordedMessage: Boolean =
     val heading = Regex("^(#{1,6})\\s+")
     val styles = listOf("code" to Regex("`[^`\\n]+`"), "strong" to Regex("\\*\\*[^*\\n]+\\*\\*"), "em" to Regex("(?<!\\*)\\*[^*\\n]+\\*(?!\\*)"), "math" to Regex("(?<!\\\\)\\$([^$\\n]+)\\$"))
     val opening = Regex("^\\s*<[A-Za-z_][\\w.-]*:(file|copy|cut|exec|container|diagram|math|table)\\b[^>]*>")
-    var offset = 0; var fence = ""; var payload = ""; var table = false; var diffFence = false; var equationStart: Int? = null; var equationLine = 0; var tableStart: Int? = null; var tableLine = 0; var delimiter = ","
+    var offset = 0; var fence = ""; var payload = ""; var table = false; var diffFence = false; var equationStart: Int? = null; var equationLine = 0; var equationOpen = 0; var tableStart: Int? = null; var tableLine = 0; var delimiter = ","
     rows.forEachIndexed { line, rawRow ->
         val row = rawRow.removeSuffix("\r")
         val start = offset; offset += rawRow.length + 1; val trimmed = row.trim()
@@ -337,7 +376,7 @@ fun computeInlineMarkup(source: String, path: String, recordedMessage: Boolean =
             val close = row.indexOf("</")
             if (trimmed.contains(":" + payload + ">") && close >= 0) {
                 val from = equationStart
-                if (payload == "math" && from != null && start + close >= from) equations.add(InlineEquation(equationLine, from, start + close, source.substring(from, start + close)))
+                if (payload == "math" && from != null && start + close >= from) equations.add(InlineEquation(equationLine, from, start + close, source.substring(from, start + close), equationOpen, start + row.length))
                 val tableFrom = tableStart
                 if (payload == "table" && tableFrom != null && start + close >= tableFrom) cells.addAll(inlineCSVCells(source.substring(tableFrom, start + close), tableLine, tableFrom, delimiter))
                 payload = ""; equationStart = null; tableStart = null
@@ -347,7 +386,7 @@ fun computeInlineMarkup(source: String, path: String, recordedMessage: Boolean =
         val opened = opening.find(row)
         if (opened != null) {
             payload = opened.groupValues[1]
-            if (payload == "math") { equationStart = start + opened.range.last + 1; equationLine = line }
+            if (payload == "math") { equationStart = start + opened.range.last + 1; equationLine = line; equationOpen = start + opened.range.first }
             if (payload == "table") {
                 tableStart = start + opened.range.last + 1; tableLine = line
                 delimiter = Regex("delimiter\\s*=\\s*[\"']([^\"']*)[\"']").find(opened.value)?.groupValues?.get(1)?.replace("\\t", "\t") ?: ","
@@ -355,7 +394,7 @@ fun computeInlineMarkup(source: String, path: String, recordedMessage: Boolean =
                 if (closeTable >= 0 && start + closeTable >= tableFrom) cells.addAll(inlineCSVCells(source.substring(tableFrom, start + closeTable), tableLine, tableFrom, delimiter))
             }
             val close = row.indexOf("</"); val from = equationStart
-            if (payload == "math" && from != null && close >= 0 && start + close >= from) equations.add(InlineEquation(line, from, start + close, source.substring(from, start + close)))
+            if (payload == "math" && from != null && close >= 0 && start + close >= from) equations.add(InlineEquation(line, from, start + close, source.substring(from, start + close), equationOpen, start + row.length))
             if (trimmed.contains("</") || trimmed.endsWith("/>")) { payload = ""; equationStart = null }
             table = false; return@forEachIndexed
         }
@@ -369,7 +408,7 @@ fun computeInlineMarkup(source: String, path: String, recordedMessage: Boolean =
                 if (body.first().isWhitespace() || body.last().isWhitespace() || row.getOrNull(match.range.last + 1)?.isDigit() == true) continue
             }
             marks.add(InlineMark(kind, start + match.range.first, start + match.range.last + 1))
-            if (kind == "math") { val body = match.groups[1]!!; equations.add(InlineEquation(line, start + body.range.first, start + body.range.last + 1, body.value)) }
+            if (kind == "math") { val body = match.groups[1]!!; equations.add(InlineEquation(line, start + body.range.first, start + body.range.last + 1, body.value, start + match.range.first, start + match.range.last + 1)) }
         }
         val isSeparator = separator.matches(row); val nextSeparator = rows.getOrNull(line + 1)?.let { separator.matches(it) } == true
         if (nextSeparator || table && row.contains('|')) { table = true; if (!isSeparator) cells.addAll(inlineCells(row, line, start)) } else if (!isSeparator) table = false

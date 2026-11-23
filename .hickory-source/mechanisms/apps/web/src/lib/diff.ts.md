@@ -322,10 +322,41 @@ export function unifiedDiff(path: string, before: string, after: string): string
 }
 </storycode:copy>
 
+## Address unified-diff rows in the simple editor
+
+A hunk starts at its header and consumes the old and new row counts. Those
+counts distinguish deleted or added code from the next file header. The same
+range determines folding and the exact lines that can receive a comment.
+
+<storycode:copy id="simple-unified-hunk-rows">
+export function simplePatchHunks(rows: readonly string[], first: number, last: number) {
+  const hunks: { header: number; end: number; changed: number[] }[] = [];
+  for (let line = first; line < last; line++) {
+    const match = /^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@/.exec(rows[line]);
+    if (!match) continue;
+    let old = Number(match[1] ?? 1), next = Number(match[2] ?? 1), end = line;
+    const changed: number[] = [];
+    for (let body = line + 1; body < last; body++) {
+      const row = rows[body];
+      if (row.replace(/\r$/, "") === "\\ No newline at end of file") { end = body; continue; }
+      if (row[0] === "-" && old > 0) { old--; changed.push(body); }
+      else if (row[0] === "+" && next > 0) { next--; changed.push(body); }
+      else if (row[0] === " " && old > 0 && next > 0) { old--; next--; }
+      else break;
+      end = body;
+    }
+    if (old === 0 && next === 0 && end > line) {
+      hunks.push({ header: line, end, changed }); line = end;
+    }
+  }
+  return hunks;
+}
+</storycode:copy>
+
 ### Assemble `apps/web/src/lib/diff.ts`
 
 The selections below preserve the original byte order. Narrative reading order does not change the output.
 
-<storycode:file path="apps/web/src/lib/diff.ts"><storycode:paste select="#f-c4632e343941-TextEdit"/><storycode:paste select="#f-c4632e343941-toByteEdits"/><storycode:paste select="#f-c4632e343941-splitLines"/><storycode:paste select="#f-c4632e343941-shrink"/><storycode:paste select="#f-c4632e343941-MAX_DP_CELLS"/><storycode:paste select="#f-c4632e343941-computeEdits"/><storycode:paste select="#f-c4632e343941-DiffLine"/><storycode:paste select="#f-c4632e343941-diffLines"/><storycode:paste select="#f-c4632e343941-applyEdits"/><storycode:paste select="#f-c4632e343941-unifiedDiff"/></storycode:file>
+<storycode:file path="apps/web/src/lib/diff.ts"><storycode:paste select="#f-c4632e343941-TextEdit"/><storycode:paste select="#f-c4632e343941-toByteEdits"/><storycode:paste select="#f-c4632e343941-splitLines"/><storycode:paste select="#f-c4632e343941-shrink"/><storycode:paste select="#f-c4632e343941-MAX_DP_CELLS"/><storycode:paste select="#f-c4632e343941-computeEdits"/><storycode:paste select="#f-c4632e343941-DiffLine"/><storycode:paste select="#f-c4632e343941-diffLines"/><storycode:paste select="#f-c4632e343941-applyEdits"/><storycode:paste select="#f-c4632e343941-unifiedDiff"/><storycode:paste select="#simple-unified-hunk-rows"/></storycode:file>
 
 </storycode:doc>

@@ -13,7 +13,8 @@ import androidx.compose.ui.viewinterop.AndroidView
 import org.json.JSONObject
 
 @SuppressLint("SetJavaScriptEnabled")
-@Composable fun NativeMathView(source: String, modifier: Modifier = Modifier, diagramRenderer: String? = null) {
+@Composable fun NativeMathView(source: String, modifier: Modifier = Modifier, diagramRenderer: String? = null, onReady: (() -> Unit)? = null) {
+    val ready = rememberUpdatedState(onReady)
     val dark = rememberUpdatedState(isSystemInDarkTheme())
     AndroidView(modifier = modifier, factory = { context ->
         WebView(context).apply {
@@ -23,7 +24,8 @@ import org.json.JSONObject
                 override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean = request.url.toString() != "file:///android_asset/math.html"
                 override fun onPageFinished(view: WebView, url: String) {
                     if (url == "file:///android_asset/math.html") {
-                        view.evaluateJavascript("globalThis.setPreviewAppearance(${dark.value});" + (view.tag as? String ?: ""), null)
+                        val rendered = view.tag as? String ?: return
+                        view.evaluateJavascript("globalThis.setPreviewAppearance(${dark.value});" + rendered + ";!!document.querySelector('.katex')") { if (it == "true" && view.tag == rendered) ready.value?.invoke() }
                     }
                 }
             }
@@ -34,7 +36,7 @@ import org.json.JSONObject
         val script = if (diagramRenderer == "notebook") "globalThis.renderNotebookOutput(" + JSONObject.quote(source) + ")" else if (diagramRenderer == "terminal") "globalThis.renderTerminal(" + JSONObject.quote(source) + ")" else if (diagramRenderer == null) "globalThis.renderMath(" + JSONObject.quote(source) + ")" else "globalThis.renderDiagram(" + JSONObject.quote(source) + "," + JSONObject.quote(diagramRenderer) + ")"
         if (view.tag != script) {
             view.tag = script
-            view.evaluateJavascript("if(globalThis.renderDiagram){" + script + "}", null)
+            view.evaluateJavascript("if(globalThis.renderDiagram){" + script + "};!!document.querySelector('.katex')") { if (it == "true" && view.tag == script) ready.value?.invoke() }
         }
     }, onRelease = { it.stopLoading(); it.destroy() })
 }

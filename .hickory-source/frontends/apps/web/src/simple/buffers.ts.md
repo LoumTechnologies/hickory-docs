@@ -31,7 +31,10 @@ can continue changing independently while the submitted snapshot is saved.
 import { api,request } from "../api/client";
 import {historySourceHash} from "./SourceHistory";
 import type { FileNode } from "../api/types";
+import type {GitComparison} from "./GitHistory";
 export class Buffer {
+  gitComparison?: GitComparison;
+  setGitComparison(value: GitComparison | undefined) { this.gitComparison=value; this.publish(); }
   text: string;
   base: string;
   hash: string;
