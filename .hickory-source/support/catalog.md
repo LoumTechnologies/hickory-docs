@@ -1924,6 +1924,8 @@ Implementation and test narratives are in [the mechanism index](../mechanisms/in
 <storycode:include file="files/personas/devtools-platform-team.md.md" />
 - [`personas/oss-maintainer.md`](files/personas/oss-maintainer.md.md)
 <storycode:include file="files/personas/oss-maintainer.md.md" />
+- [`personas/software-engineer.md`](files/personas/software-engineer.md.md)
+<storycode:include file="files/personas/software-engineer.md.md" />
 - [`poke.png`](files/poke.png.md)
 <storycode:include file="files/poke.png.md" />
 - [`portfolio.toml`](files/portfolio.toml.md)

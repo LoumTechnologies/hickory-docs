@@ -57099,6 +57099,12 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "role": "history-and-guidance",
       "sha256": "1bb27c9a8aa7899092ab006aaab8824f6adc93fa6b93f0684b1b9ad351456e27"
     },
+    "personas/software-engineer.md": {
+      "source": ".hickory-source/support/files/personas/software-engineer.md.md",
+      "owner": "support",
+      "used_by": [],
+      "role": "history-and-guidance"
+    },
     "poke.png": {
       "source": ".hickory-source/support/files/poke.png.md",
       "owner": "support",
