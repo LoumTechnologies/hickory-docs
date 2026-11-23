@@ -24,6 +24,10 @@ project-local dependencies. The [native debugger reading](../../frontends/script
 records machine SDK requirements, tool/cache ownership, caller inventory and
 verification limits. This smoke does not claim device input or accessibility.
 
+The Simple dev recipe opts the UI and engine into build identity together.
+Packaging recipes omit the flag, including those that compile a debug host
+or APK for distribution.
+
 <maint:entry path="justfile">
 # Hickory Docs task runner — the only entry point for project tasks.
 
@@ -793,6 +797,7 @@ native-debug-smoke platform:
     target/native-debug-smoke-runner {{quote(platform)}}
 
 # Commits rebuild and relaunch the selected frontend.
+[env("HICKORY_DEV_BUILD", "1")]
 simple-dev platform="browser": _dev-supervisor
     {{ if platform == "browser" { "target/dev-supervisor --desktop " } else if platform == "apple" { "target/dev-supervisor --desktop " } else if platform == "linux" { "target/dev-supervisor --desktop " } else if platform == "windows" { "target/dev-supervisor.exe --desktop " } else { "" } }}cargo run --quiet --locked -p hickory-cli --example simple_dev -- {{quote(platform)}}
 

@@ -55,6 +55,23 @@ come off the disk there, because a test has a filesystem and no fetch.
 Declared by hand rather than through `@types/node`, which this app does
 not take on — nothing that ships to a browser may reach for Node.
 
+The Vite config reads Git in Node. Only the captured stamp crosses into the
+browser bundle.
+
+<storycode:copy id="dev-vite-stamp-types">
+
+declare module "virtual:hickory-dev-build" {
+  const stamp: string;
+  export default stamp;
+}
+declare module "node:child_process" {
+  export function execFileSync(file: string, args: string[], options: {
+    encoding: "utf8";
+    stdio: ["ignore", "pipe", "ignore"];
+  }): string;
+}
+</storycode:copy>
+
 <storycode:copy id="f-4ccec8944b4c-ambient_declaration">
 /**
  * The one Node module the test setup reads: the parser's WebAssembly bytes
@@ -71,6 +88,6 @@ declare module "node:fs" {
 
 The selections below preserve the original byte order. Narrative reading order does not change the output.
 
-<storycode:file path="apps/web/src/vite-env.d.ts"><storycode:paste select="#f-4ccec8944b4c-ImportMetaEnv"/><storycode:paste select="#f-4ccec8944b4c-ImportMeta"/><storycode:paste select="#f-4ccec8944b4c-ambient_declaration"/></storycode:file>
+<storycode:file path="apps/web/src/vite-env.d.ts"><storycode:paste select="#f-4ccec8944b4c-ImportMetaEnv"/><storycode:paste select="#f-4ccec8944b4c-ImportMeta"/><storycode:paste select="#f-4ccec8944b4c-ambient_declaration"/><storycode:paste select="#dev-vite-stamp-types"/></storycode:file>
 
 </storycode:doc>

@@ -766,6 +766,7 @@ native-debug-smoke platform:
     target/native-debug-smoke-runner {{quote(platform)}}
 
 # Commits rebuild and relaunch the selected frontend.
+[env("HICKORY_DEV_BUILD", "1")]
 simple-dev platform="browser": _dev-supervisor
     {{ if platform == "browser" { "target/dev-supervisor --desktop " } else if platform == "apple" { "target/dev-supervisor --desktop " } else if platform == "linux" { "target/dev-supervisor --desktop " } else if platform == "windows" { "target/dev-supervisor.exe --desktop " } else { "" } }}cargo run --quiet --locked -p hickory-cli --example simple_dev -- {{quote(platform)}}
 

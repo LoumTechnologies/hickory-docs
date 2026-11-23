@@ -82,6 +82,9 @@ class MainActivity : ComponentActivity() {
         Box(Modifier.weight(1f)) { Pane(workspace, workspace.layout.rootID) }
         HorizontalDivider()
         Row(Modifier.fillMaxWidth().height(24.dp).padding(horizontal = 8.dp)) {
+            if (BuildConfig.DEV_BUILD_STAMP.isNotEmpty()) {
+                DevBuildStatus(BuildConfig.DEV_BUILD_STAMP, workspace.engine)
+            }
             Text(workspace.currentBuffer?.language?.completionNotice?.takeIf{it.isNotEmpty()} ?: workspace.currentBuffer?.snippets?.notice?.takeIf{it.isNotEmpty()} ?: workspace.status, fontSize = 11.sp, maxLines = 1, modifier = Modifier.weight(1f))
             Box {
                 Text(if(workspace.analysis.running) "Reading ${workspace.analysis.completed}/${workspace.analysis.scope.files.size}" else "Analysis",fontSize=11.sp,maxLines=1,modifier=Modifier.width(112.dp).clickable(role=androidx.compose.ui.semantics.Role.Button) {workspace.showAnalysis=!workspace.showAnalysis}.padding(horizontal=4.dp))
@@ -169,6 +172,49 @@ private fun multipleSelectionCommands(workspace: Workspace): List<WorkspaceComma
             TextButton(enabled = selected > 0, onClick = { page = selected - 1 }) { Text("Previous results") }
             Text("${selected + 1}/${last + 1}")
             TextButton(enabled = selected < last, onClick = { page = selected + 1 }) { Text("Next results") }
+        }
+    }
+}
+
+@Composable private fun DevBuildStatus(ui: String, engine: Engine?) {
+    var reading by remember(engine) { mutableStateOf<org.json.JSONObject?>(null) }
+    var verdict by remember(engine) { mutableStateOf("Checking") }
+    var showing by remember { mutableStateOf(false) }
+    LaunchedEffect(engine, ui) {
+        if (engine == null) {
+            verdict = "Backend unknown"
+            return@LaunchedEffect
+        }
+        val query = ui.replace('+', '~')
+        while (true) {
+            val result = try {
+                engine.request("GET", "/api/dev-build?ui=$query")
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                null
+            }
+            reading = result
+            verdict = result?.optString("verdict", "Backend unknown") ?: "Backend unknown"
+            kotlinx.coroutines.delay(5000)
+        }
+    }
+    val short = if (ui == "unknown") "?" else ui.take(8) + if (ui.endsWith("+")) "+" else ""
+    fun describe(stamp: String?): String = when {
+        stamp.isNullOrEmpty() || stamp == "unknown" -> "unknown"
+        stamp.endsWith("+") -> stamp.dropLast(1) + " · uncommitted changes"
+        else -> stamp + " · clean"
+    }
+    Box {
+        Text("$verdict · $short", fontSize = 11.sp, maxLines = 1, modifier = Modifier
+            .clickable(role = androidx.compose.ui.semantics.Role.Button) { showing = !showing }
+            .padding(end = 4.dp))
+        DropdownMenu(expanded = showing, onDismissRequest = { showing = false }) {
+            Column(Modifier.widthIn(max = 300.dp).padding(horizontal = 12.dp)) {
+                Text("UI · ${describe(ui)}")
+                Text("Backend · ${describe(reading?.optString("backend"))}")
+                Text("Engine checkout · ${describe(reading?.optString("checkout"))}")
+            }
         }
     }
 }

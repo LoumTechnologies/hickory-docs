@@ -14,6 +14,70 @@ The entry below owns this output. Its metadata is separate from semantic verific
   "relocated_annotated_tests": 184,
   "fragments": [
     {
+      "id": "dev-engine-build-stamp",
+      "output": "crates/hickory-cli/build.rs",
+      "page": ".hickory-source/mechanisms/crates/hickory-cli/build.rs.md",
+      "symbol": "Stamp the engine at compile time",
+      "basis": "explained-behavior",
+      "original_range": null
+    },
+    {
+      "id": "dev-build-status-http",
+      "output": "crates/hickory-cli/src/serve/mod.rs",
+      "page": ".hickory-source/mechanisms/crates/hickory-cli/src/serve/mod.rs.md",
+      "symbol": "Compare running builds to engine checkout",
+      "basis": "explained-behavior",
+      "original_range": null
+    },
+    {
+      "id": "dev-browser-build-stamp",
+      "output": "apps/web/vite.config.ts",
+      "page": ".hickory-source/mechanisms/apps/web/vite.config.ts.md",
+      "symbol": "Read the browser build's Git identity",
+      "basis": "explained-behavior",
+      "original_range": null
+    },
+    {
+      "id": "dev-browser-stamp-module",
+      "output": "apps/web/vite.config.ts",
+      "page": ".hickory-source/mechanisms/apps/web/vite.config.ts.md",
+      "symbol": "Embed the browser build stamp",
+      "basis": "explained-behavior",
+      "original_range": null
+    },
+    {
+      "id": "dev-vite-stamp-types",
+      "output": "apps/web/src/vite-env.d.ts",
+      "page": ".hickory-source/mechanisms/apps/web/src/vite-env.d.ts.md",
+      "symbol": "Declare the virtual build stamp module",
+      "basis": "explained-behavior",
+      "original_range": null
+    },
+    {
+      "id": "dev-browser-status-view",
+      "output": "apps/web/src/simple/App.tsx",
+      "page": ".hickory-source/frontends/apps/web/src/simple/App.tsx.md",
+      "symbol": "Show browser build details",
+      "basis": "explained-behavior",
+      "original_range": null
+    },
+    {
+      "id": "dev-apple-status-view",
+      "output": "apps/apple-simple/Sources/WorkspaceView.swift",
+      "page": ".hickory-source/frontends/apps/apple-simple/Sources/WorkspaceView.swift.md",
+      "symbol": "Show Apple build details",
+      "basis": "explained-behavior",
+      "original_range": null
+    },
+    {
+      "id": "dev-android-status-view",
+      "output": "apps/android-simple/app/src/main/java/com/hickorydocs/simple/MainActivity.kt",
+      "page": ".hickory-source/frontends/apps/android-simple/app/src/main/java/com/hickorydocs/simple/MainActivity.kt.md",
+      "symbol": "Show Android build details",
+      "basis": "explained-behavior",
+      "original_range": null
+    },
+    {
       "id": "windows-project",
       "output": "apps/windows-simple/HickorySimple.csproj",
       "page": ".hickory-source/frontends/windows.md",

@@ -75,7 +75,7 @@ def enqueue(event):
 
 
 def fingerprint(root):
-    digest = hashlib.sha256(git(root, "rev-parse", "HEAD^{tree}"))
+    digest = hashlib.sha256(git(root, "rev-parse", "HEAD"))
     digest.update(git(root, "diff", "--no-ext-diff", "--no-textconv", "--binary", "HEAD", "--"))
     untracked = git(root, "ls-files", "--others", "--exclude-standard", "-z")
     for name in sorted(filter(None, untracked.split(b"\0"))):
@@ -108,6 +108,7 @@ def request_preview(root, supervisor):
          "cargo", "run", "--quiet", "--locked", "-p", "hickory-cli", "--example", "simple_dev", "--", "apple"],
         cwd=root,
         stdin=subprocess.DEVNULL,
+        env={**os.environ, "HICKORY_DEV_BUILD": "1"},
     )
 
 

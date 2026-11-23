@@ -30,6 +30,7 @@ import { utf16ToPosition } from "../lsp/positions";
 import { editorForBuffer } from "./Document";
 import { TooltipLayer } from "../components/TooltipLayer";
 import { useEffect, useMemo, useRef, useState } from "react";
+import buildStamp from "virtual:hickory-dev-build";
 import {EditorRecoveryModel} from "./EditorRecovery";
 import {captureEditorRecovery,editorRecoveryLease,restoreEditorRecovery} from "./EditorRecoveryAdapter";
 import {EditorRecoveryView,editorRecoveryTransport} from "./EditorRecoveryView";
@@ -581,7 +582,7 @@ export function App() {
       opened.buffer.setGitComparison(comparison);return true;
     }} close={()=>{setShowHistory(false);if(buffer)editorForBuffer(buffer)?.view.focus();}} />
     <GitReviewView key={workspaceRoot} workspace={workspaceRoot} buffers={buffers} history={changeHistory} alive={()=>workspaceIdentity.current===workspaceRoot} adopt={routes=>{requested.current.clear();const next=resourceLayout(liveLayout.current,tabRoutes(routes),resourcePlacements.current);liveLayout.current=next;setLayout(next);void loadFiles();}} acquire={async path=>{const scope=workspaceRoot;if(workspaceIdentity.current!==scope)throw new Error("Workspace changed. Prepare the conflict again.");const file=buffers.values.get(path)?.file??findPath(path);if(!file||file.dir)throw new Error("Conflict source is no longer listed. Refresh files and try again.");const target=await buffers.open(file);if(workspaceIdentity.current!==scope)throw new Error("Workspace changed. Prepare the conflict again.");return target;}} visible={showReview} close={()=>{setShowReview(false);if(buffer)editorForBuffer(buffer)?.view.focus();}} />
-    <footer role="status" title={statusNotices}><WorkspaceAnalysisView buffers={buffers} files={workspaceFiles} model={analysis} focusCurrent={() => { if (buffer) editorForBuffer(buffer)?.view.focus(); }} /><WorkspaceProblems buffers={buffers} visible={showProblems} setVisible={setShowProblems} current={currentLocation} focusCurrent={() => { if (buffer) editorForBuffer(buffer)?.view.focus(); }} />{statusNotices ? `${statusNotices} · ` : ""}{buffer ? `${buffer.file.name} · ${buffer.resourceDeleted?"Deleted source · retained snapshot":buffer.readonly ? "Read-only" : buffer.saving ? "Saving…" : buffer.dirty ? "Modified" : "Saved"}` : status}</footer>
+    <footer role="status" title={statusNotices}>{buildStamp && <DevBuildStatus ui={buildStamp} />}<WorkspaceAnalysisView buffers={buffers} files={workspaceFiles} model={analysis} focusCurrent={() => { if (buffer) editorForBuffer(buffer)?.view.focus(); }} /><WorkspaceProblems buffers={buffers} visible={showProblems} setVisible={setShowProblems} current={currentLocation} focusCurrent={() => { if (buffer) editorForBuffer(buffer)?.view.focus(); }} />{statusNotices ? `${statusNotices} · ` : ""}{buffer ? `${buffer.file.name} · ${buffer.resourceDeleted?"Deleted source · retained snapshot":buffer.readonly ? "Read-only" : buffer.saving ? "Saving…" : buffer.dirty ? "Modified" : "Saved"}` : status}</footer>
   </main></SourceCoverageProvider></SourceTestGutterProvider></SimpleLanguages>;
 }
 function Tree({ nodes, open }: { nodes: FileNode[]; open: (file: FileNode) => void }) {
@@ -657,4 +658,50 @@ function LayoutView(props: LayoutProps) {
       onPointerDown={resize} onKeyDown={event => { const delta = ["ArrowRight", "ArrowDown"].includes(event.key) ? .05 : ["ArrowLeft", "ArrowUp"].includes(event.key) ? -.05 : 0; if (delta) { event.preventDefault(); props.resize(node.id, Math.max(.1, Math.min(.9, node.ratio + delta))); } }} />
     <LayoutView {...props} node={node.second} />
   </div>;
+}
+
+type DevBuildReading = { backend: string; checkout: string; verdict: string };
+
+function DevBuildStatus({ ui }: { ui: string }) {
+  const [reading, setReading] = useState<DevBuildReading | null>();
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    const lifetime = new AbortController();
+    const url = "/api/dev-build?" + new URLSearchParams({ ui: ui.replace("+", "~") });
+    let timer: ReturnType<typeof setTimeout>;
+    async function observe() {
+      try {
+        const response = await fetch(url, {
+          cache: "no-store",
+          signal: AbortSignal.any([lifetime.signal, AbortSignal.timeout(4000)]),
+        });
+        if (!response.ok) throw new Error("Build status unavailable");
+        const value = await response.json() as DevBuildReading;
+        if (typeof value.backend !== "string" || typeof value.checkout !== "string" || typeof value.verdict !== "string") {
+          throw new Error("Invalid build status");
+        }
+        if (lifetime.signal.aborted) return;
+        setReading(value);
+      } catch {
+        if (lifetime.signal.aborted) return;
+        setReading(null);
+      }
+      timer = setTimeout(observe, 5000);
+    }
+    void observe();
+    return () => { lifetime.abort(); clearTimeout(timer); };
+  }, [ui]);
+  const short = ui === "unknown" ? "?" : ui.slice(0, 8) + (ui.endsWith("+") ? "+" : "");
+  const describe = (stamp = "unknown") => stamp === "unknown" ? stamp
+    : stamp.endsWith("+") ? stamp.slice(0, -1) + " · uncommitted changes" : stamp + " · clean";
+  const label = `${reading?.verdict ?? (reading === null ? "Backend unknown" : "Checking")} · ${short}`;
+  return <span onKeyDown={event => { if (event.key === "Escape") setOpen(false); }}>
+    <button className="simple-build-status" aria-expanded={open} aria-label={`Development build ${label}`}
+      onClick={() => setOpen(value => !value)}>{label}</button>
+    {open && <span className="simple-build-details">
+      <span>UI · {describe(ui)}</span>
+      <span>Backend · {describe(reading?.backend)}</span>
+      <span>Engine checkout · {describe(reading?.checkout)}</span>
+    </span>}
+  </span>;
 }

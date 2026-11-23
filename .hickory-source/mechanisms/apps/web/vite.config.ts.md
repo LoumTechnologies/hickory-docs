@@ -15,7 +15,9 @@ Present and edit the shared engine state. Browser-side revisions, pending reques
 
 <storycode:copy id="f-eea049695b01-env">
 import { defineConfig } from "vitest/config";
+import type { Plugin } from "vite";
 import react from "@vitejs/plugin-react";
+import { execFileSync } from "node:child_process";
 
 // Dev-server env (no @types/node dependency; Vite runs under Node).
 const env: Record<string, string | undefined> =
@@ -25,9 +27,57 @@ const env: Record<string, string | undefined> =
 <a id="f-eea049695b01-export_statement"></a>
 ### `export_statement`
 
+Vite embeds the UI stamp when it starts a development server or bundles an
+explicitly opted-in desktop preview. A page that survives an engine restart
+keeps its own identity. If hot replacement changes the stamp, invalidate
+the virtual module and reload the page together with its updated modules.
+The production bundle receives an empty stamp.
+
+<storycode:copy id="dev-browser-build-stamp">
+function devBuildStamp(): string {
+  try {
+    const git = (...args: string[]) => execFileSync("git", ["--no-optional-locks", "-C", "../..", ...args], {
+      encoding: "utf8", stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+    if (git("rev-parse", "--show-prefix")) return "unknown";
+    const commit = git("rev-parse", "--verify", "HEAD");
+    const dirty = git("status", "--porcelain=v1", "--untracked-files=normal");
+    return git("rev-parse", "--verify", "HEAD") === commit ? commit + (dirty ? "+" : "") : "unknown";
+  } catch {
+    return "unknown";
+  }
+}
+
+</storycode:copy>
+
+<storycode:copy id="dev-browser-stamp-module">
+function devBuildModule(enabled: boolean): Plugin {
+  const name = "virtual:hickory-dev-build";
+  const id = "\0" + name;
+  let stamp = enabled ? devBuildStamp() : "";
+  return {
+    name: "hickory-dev-build",
+    resolveId(source) { if (source === name) return id; },
+    load(source) { if (source === id) return `export default ${JSON.stringify(stamp)};`; },
+    handleHotUpdate({ modules, server }) {
+      if (!enabled || modules.length === 0) return;
+      const nextStamp = devBuildStamp();
+      if (stamp === nextStamp) return;
+      stamp = nextStamp;
+      const module = server.moduleGraph.getModuleById(id);
+      if (module) server.moduleGraph.invalidateModule(module);
+      server.ws.send({ type: "full-reload" });
+    },
+  };
+}
+
+</storycode:copy>
+
 <storycode:copy id="f-eea049695b01-export_statement">
-export default defineConfig({
-  plugins: [react()],
+export default defineConfig(({ command, mode }) => ({
+  plugins: [react(), devBuildModule(
+    mode !== "test" && !env.HICKORY_VERSION && (command === "serve" || env.HICKORY_DEV_BUILD === "1"),
+  )],
   server: {
     // Unset = let Vite pick (its default, incrementing past anything already
     // bound). Vite has no port-0 support — `!configPort` treats 0 as "unset"
@@ -66,13 +116,13 @@ export default defineConfig({
     // error beside a green suite rather than as a failure. See test-setup.ts.
     setupFiles: ["src/test-setup.ts"],
   },
-});
+}));
 </storycode:copy>
 
 ### Assemble `apps/web/vite.config.ts`
 
 The selections below preserve the original byte order. Narrative reading order does not change the output.
 
-<storycode:file path="apps/web/vite.config.ts"><storycode:paste select="#f-eea049695b01-env"/><storycode:paste select="#f-eea049695b01-export_statement"/></storycode:file>
+<storycode:file path="apps/web/vite.config.ts"><storycode:paste select="#f-eea049695b01-env"/><storycode:paste select="#dev-browser-build-stamp"/><storycode:paste select="#dev-browser-stamp-module"/><storycode:paste select="#f-eea049695b01-export_statement"/></storycode:file>
 
 </storycode:doc>

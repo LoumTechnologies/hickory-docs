@@ -8,8 +8,32 @@ settings:
     CODE_SIGNING_ALLOWED: NO
     INFOPLIST_KEY_NSLocalNetworkUsageDescription: Connect to your Hickory workspace server.
     INFOPLIST_KEY_NSAppTransportSecurity_NSAllowsLocalNetworking: YES
+targetTemplates:
+  DevBuildStamp:
+    postBuildScripts:
+      - name: Stamp development build
+        basedOnDependencyAnalysis: false
+        script: |
+          set -eu
+          file="$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/HickoryDevBuild.txt"
+          if [ "${HICKORY_DEV_BUILD:-}" != 1 ] || [ -n "${HICKORY_VERSION:-}" ] || [ "$CONFIGURATION" != Debug ]; then
+            rm -f "$file"
+            exit 0
+          fi
+          cd "$SRCROOT/../.."
+          stamp=unknown
+          if test -z "$(git rev-parse --show-prefix)" &&
+             head=$(git rev-parse --verify HEAD) &&
+             changes=$(git --no-optional-locks status --porcelain=v1 --untracked-files=normal) &&
+             test "$head" = "$(git rev-parse --verify HEAD)"; then
+            stamp="$head"
+            if [ -n "$changes" ]; then stamp="$stamp+"; fi
+          fi
+          mkdir -p "$(dirname "$file")"
+          printf '%s' "$stamp" > "$file"
 targets:
   HickorySimpleMac:
+    templates: [DevBuildStamp]
     type: application
     platform: macOS
     deploymentTarget: "14.0"
@@ -26,6 +50,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.hickorydocs.simple.mac
   HickorySimpleMobile:
+    templates: [DevBuildStamp]
     type: application
     platform: iOS
     deploymentTarget: "17.0"

@@ -644,14 +644,18 @@ def enqueue(event):
 
 </restart:copy>
 
-The worker batches arrivals by checkout. The committed tree, tracked
-working changes and untracked files identify the inputs. A unique request ID
+The worker batches arrivals by checkout. The commit ID, tracked working
+changes and untracked files identify the inputs. Even an empty commit needs
+a new preview stamp because its build identity changes. A unique request ID
 allows retry after failure. The fingerprint also lets the supervisor preserve
 a running app when another turn finishes with the same inputs.
 
+The Codex preview worker opts into build stamps because it runs the Simple
+launcher directly through its own request-driven supervisor.
+
 <restart:copy id="codex-preview-worker">
 def fingerprint(root):
-    digest = hashlib.sha256(git(root, "rev-parse", "HEAD^{tree}"))
+    digest = hashlib.sha256(git(root, "rev-parse", "HEAD"))
     digest.update(git(root, "diff", "--no-ext-diff", "--no-textconv", "--binary", "HEAD", "--"))
     untracked = git(root, "ls-files", "--others", "--exclude-standard", "-z")
     for name in sorted(filter(None, untracked.split(b"\0"))):
@@ -684,6 +688,7 @@ def request_preview(root, supervisor):
          "cargo", "run", "--quiet", "--locked", "-p", "hickory-cli", "--example", "simple_dev", "--", "apple"],
         cwd=root,
         stdin=subprocess.DEVNULL,
+        env={**os.environ, "HICKORY_DEV_BUILD": "1"},
     )
 
 
@@ -1039,9 +1044,14 @@ while True: time.sleep(.05)
             self.assertEqual(Path(os.fsdecode(queued.read_bytes())), other.resolve())
             start.assert_called_once_with()
         clean = PREVIEW.fingerprint(other)
+        tree = PREVIEW.git(other, "rev-parse", "HEAD^{tree}")
+        PREVIEW.git(other, "commit", "--allow-empty", "-qm", "Update build identity")
+        self.assertEqual(PREVIEW.git(other, "rev-parse", "HEAD^{tree}"), tree)
+        next_commit = PREVIEW.fingerprint(other)
+        self.assertNotEqual(clean, next_commit)
         (other / 'tracked').write_text('working edit')
         dirty = PREVIEW.fingerprint(other)
-        self.assertNotEqual(clean, dirty)
+        self.assertNotEqual(next_commit, dirty)
         new = other / 'new'
         new.write_text('first')
         added = PREVIEW.fingerprint(other)

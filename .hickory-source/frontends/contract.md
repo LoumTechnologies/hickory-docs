@@ -7,6 +7,14 @@ retain their original limits; they do not narrow the required outcomes below.
 
 ## IDE parity required by the maintainer
 
+Development launches show the running UI's build commit in the status bar.
+Its disclosure shows full UI and engine hashes, each build's uncommitted
+state, and the engine source checkout's current hash and working-tree state.
+Latest requires clean matching builds at a clean local checkout HEAD. A
+mismatch, a different checkout revision, unbuilt changes, or missing evidence
+gets its own status. Distributed builds omit the control. Reading this status
+runs independently of opening and editing files.
+
 The requested parity is the set discussed in the IDE comparison, across browser, macOS, iOS, Android, KDE/Linux and Windows. Keep operations discoverable through existing menus, left/right gutters, minimap and status bar. Floating controls must not resize code. Typed workspace state and replaceable capability adapters own behavior independently of the renderer; no plugin marketplace or permanent feature toolbar is required.
 
 The complete outcome includes:

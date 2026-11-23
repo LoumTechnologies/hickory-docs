@@ -23,6 +23,63 @@ the command was chosen. Apply checks them again and sends linked fields through
 the same snippet edit as UIKit typing, so their mirrors and undo stay together.
 Disable prose keyboard substitutions so the replacement reaches both paths exactly.
 
+The development badge keeps the compiled UI stamp while polling the connected
+engine. Give each connection its own view state so a delayed reply from an
+old address cannot spill into the current status bar. The popover leaves
+the editor in place and exposes the full hashes.
+
+<ui:copy id="dev-apple-status-view">
+private struct DevBuildStatus: View {
+    struct Reading: Decodable {
+        let backend: String
+        let checkout: String
+        let verdict: String
+    }
+
+    static let stamp = Bundle.main.url(forResource: "HickoryDevBuild", withExtension: "txt")
+        .flatMap { try? String(contentsOf: $0, encoding: .utf8) }
+
+    let ui: String
+    let engine: Engine?
+    @State private var reading: Reading?
+    @State private var verdict = "Checking"
+    @State private var showing = false
+
+    private func describe(_ stamp: String?) -> String {
+        guard let stamp, stamp != "unknown" else { return "unknown" }
+        return stamp.hasSuffix("+") ? String(stamp.dropLast()) + " · uncommitted changes" : stamp + " · clean"
+    }
+
+    var body: some View {
+        let short = ui == "unknown" ? "?" : String(ui.prefix(8)) + (ui.hasSuffix("+") ? "+" : "")
+        let label = "\(verdict) · \(short)"
+        Button(label) { showing.toggle() }
+            .lineLimit(1)
+            .fixedSize()
+            .accessibilityLabel("Development build \(label)")
+            .popover(isPresented: $showing) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("UI · \(describe(ui))")
+                    Text("Backend · \(describe(reading?.backend))")
+                    Text("Engine checkout · \(describe(reading?.checkout))")
+                }.font(.caption.monospaced()).textSelection(.enabled).padding()
+            }
+            .task {
+                guard let engine else { verdict = "Backend unknown"; return }
+                while !Task.isCancelled {
+                    let result: Reading? = try? await engine.request("GET", "/api/dev-build",
+                        query: [URLQueryItem(name: "ui", value: ui.replacingOccurrences(of: "+", with: "~"))])
+                    guard !Task.isCancelled else { return }
+                    reading = result
+                    verdict = result?.verdict ?? "Backend unknown"
+                    try? await Task.sleep(for: .seconds(5))
+                }
+            }
+    }
+}
+
+</ui:copy>
+
 <ui:copy id="simple-80f4e5a1a0-0">
 import SwiftUI
 import UniformTypeIdentifiers
@@ -81,6 +138,10 @@ struct WorkspaceView: View {
             PaneView(workspace: workspace, id: workspace.layout.rootID)
             Divider()
             HStack {
+                if let stamp = DevBuildStatus.stamp {
+                    DevBuildStatus(ui: stamp, engine: workspace.engine)
+                        .id(workspace.engine?.origin)
+                }
                 Text(workspace.status).lineLimit(1).help(workspace.status)
                 Spacer(minLength: 8)
                 if let buffer = workspace.currentBuffer {
@@ -752,6 +813,6 @@ struct WorkspaceProblemsView: View {
 
 Keep construction order explicit; the explanations above describe the decisions at each boundary.
 
-<ui:file path="apps/apple-simple/Sources/WorkspaceView.swift"><ui:paste select="#simple-80f4e5a1a0-0"/><ui:paste select="#simple-80f4e5a1a0-1"/><ui:paste select="#simple-apple-pane-edge-drop"/><ui:paste select="#simple-apple-file-rows"/><ui:paste select="#simple-mac-native-tab-drag"/><ui:paste select="#simple-mac-tab-pointer-source"/><ui:paste select="#simple-mac-tab-drop-surfaces"/><ui:paste select="#simple-apple-motion"/></ui:file>
+<ui:file path="apps/apple-simple/Sources/WorkspaceView.swift"><ui:paste select="#simple-80f4e5a1a0-0"/><ui:paste select="#simple-80f4e5a1a0-1"/><ui:paste select="#dev-apple-status-view"/><ui:paste select="#simple-apple-pane-edge-drop"/><ui:paste select="#simple-apple-file-rows"/><ui:paste select="#simple-mac-native-tab-drag"/><ui:paste select="#simple-mac-tab-pointer-source"/><ui:paste select="#simple-mac-tab-drop-surfaces"/><ui:paste select="#simple-apple-motion"/></ui:file>
 
 </ui:doc>

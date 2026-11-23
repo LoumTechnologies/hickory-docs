@@ -34656,7 +34656,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "fragments": [
         "f-4ccec8944b4c-ImportMetaEnv",
         "f-4ccec8944b4c-ImportMeta",
-        "f-4ccec8944b4c-ambient_declaration"
+        "f-4ccec8944b4c-ambient_declaration",
+        "dev-vite-stamp-types"
       ],
       "anchor": "output-4ccec8944b4c",
       "narrative_owner": "mechanism:apps/web"
@@ -34677,7 +34678,9 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "construction": "fragments",
       "fragments": [
         "f-eea049695b01-env",
-        "f-eea049695b01-export_statement"
+        "f-eea049695b01-export_statement",
+        "dev-browser-build-stamp",
+        "dev-browser-stamp-module"
       ],
       "anchor": "output-eea049695b01",
       "narrative_owner": "mechanism:apps/web"
@@ -43896,7 +43899,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "construction": "fragments",
       "fragments": [
         "f-b8e7121aea56-main",
-        "f-b8e7121aea56-git"
+        "f-b8e7121aea56-git",
+        "dev-engine-build-stamp"
       ],
       "anchor": "output-b8e7121aea56",
       "narrative_owner": "mechanism:crates/hickory-cli"
@@ -48031,7 +48035,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "source-history-server-module",
         "behavior-reading-server-module",
         "git-resolution-server-module",
-        "agent-proposal-server-module"
+        "agent-proposal-server-module",
+        "dev-build-status-http"
       ],
       "anchor": "output-09ea558208cd",
       "narrative_owner": "mechanism:crates/hickory-cli"
@@ -60949,7 +60954,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "construction": "fragments",
       "fragments": [
         "simple-e8a50a27b2-0",
-        "simple-e8a50a27b2-1"
+        "simple-e8a50a27b2-1",
+        "dev-browser-status-view"
       ]
     },
     "apps/web/src/simple/main.tsx": {
@@ -61088,7 +61094,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "simple-mac-native-tab-drag",
         "simple-mac-tab-pointer-source",
         "simple-mac-tab-drop-surfaces",
-        "simple-apple-motion"
+        "simple-apple-motion",
+        "dev-apple-status-view"
       ]
     },
     "apps/apple-simple/Sources/HickorySimpleApp.swift": {
@@ -61256,7 +61263,8 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "sha256": "f11822932020105de3d81bdff13d214022e40a17a07b7b52e61e37817620f72c",
       "construction": "fragments",
       "fragments": [
-        "simple-d8c991adb6-0"
+        "simple-d8c991adb6-0",
+        "dev-android-status-view"
       ]
     },
     "apps/android-simple/app/src/main/java/com/hickorydocs/simple/Pane.kt": {

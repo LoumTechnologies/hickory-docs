@@ -606,6 +606,10 @@ async fn apple(root: &Path, session: &mut Session, api: &str, file: Option<&str>
         cfg!(target_os = "macos"),
         "The Apple frontend requires macOS and Xcode"
     );
+    // Capture the UI independently at build time, before any copying or launch.
+    let stamp = option_env!("HICKORY_DEV_BUILD_STAMP").map(|_| {
+        hickory_cli::serve::dev_checkout_stamp(root).unwrap_or_else(|| "unknown".to_owned())
+    });
     let arguments = [
         "build",
         "--package-path",
@@ -630,6 +634,12 @@ async fn apple(root: &Path, session: &mut Session, api: &str, file: Option<&str>
         &executable,
     )?;
     install_apple_resources(Path::new(binary_dir.trim()), &contents)?;
+    let build_stamp = contents.join("Resources/HickoryDevBuild.txt");
+    if let Some(stamp) = stamp {
+        std::fs::write(build_stamp, stamp)?;
+    } else if build_stamp.exists() {
+        std::fs::remove_file(build_stamp)?;
+    }
     std::fs::write(
         contents.join("Info.plist"),
         r#"<?xml version="1.0" encoding="UTF-8"?>

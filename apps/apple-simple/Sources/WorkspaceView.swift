@@ -55,6 +55,10 @@ struct WorkspaceView: View {
             PaneView(workspace: workspace, id: workspace.layout.rootID)
             Divider()
             HStack {
+                if let stamp = DevBuildStatus.stamp {
+                    DevBuildStatus(ui: stamp, engine: workspace.engine)
+                        .id(workspace.engine?.origin)
+                }
                 Text(workspace.status).lineLimit(1).help(workspace.status)
                 Spacer(minLength: 8)
                 if let buffer = workspace.currentBuffer {
@@ -454,6 +458,55 @@ struct PaneView: View {
         }
     }
 }
+private struct DevBuildStatus: View {
+    struct Reading: Decodable {
+        let backend: String
+        let checkout: String
+        let verdict: String
+    }
+
+    static let stamp = Bundle.main.url(forResource: "HickoryDevBuild", withExtension: "txt")
+        .flatMap { try? String(contentsOf: $0, encoding: .utf8) }
+
+    let ui: String
+    let engine: Engine?
+    @State private var reading: Reading?
+    @State private var verdict = "Checking"
+    @State private var showing = false
+
+    private func describe(_ stamp: String?) -> String {
+        guard let stamp, stamp != "unknown" else { return "unknown" }
+        return stamp.hasSuffix("+") ? String(stamp.dropLast()) + " · uncommitted changes" : stamp + " · clean"
+    }
+
+    var body: some View {
+        let short = ui == "unknown" ? "?" : String(ui.prefix(8)) + (ui.hasSuffix("+") ? "+" : "")
+        let label = "\(verdict) · \(short)"
+        Button(label) { showing.toggle() }
+            .lineLimit(1)
+            .fixedSize()
+            .accessibilityLabel("Development build \(label)")
+            .popover(isPresented: $showing) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("UI · \(describe(ui))")
+                    Text("Backend · \(describe(reading?.backend))")
+                    Text("Engine checkout · \(describe(reading?.checkout))")
+                }.font(.caption.monospaced()).textSelection(.enabled).padding()
+            }
+            .task {
+                guard let engine else { verdict = "Backend unknown"; return }
+                while !Task.isCancelled {
+                    let result: Reading? = try? await engine.request("GET", "/api/dev-build",
+                        query: [URLQueryItem(name: "ui", value: ui.replacingOccurrences(of: "+", with: "~"))])
+                    guard !Task.isCancelled else { return }
+                    reading = result
+                    verdict = result?.verdict ?? "Backend unknown"
+                    try? await Task.sleep(for: .seconds(5))
+                }
+            }
+    }
+}
+
 @MainActor private struct PaneEdgeDrop: DropDelegate {
     var workspace: Workspace
     var group: String

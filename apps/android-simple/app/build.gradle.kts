@@ -2,11 +2,32 @@ plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.plugin.compose")
 }
+val devBuild = providers.environmentVariable("HICKORY_DEV_BUILD").orNull == "1" &&
+    providers.environmentVariable("HICKORY_VERSION").orNull.isNullOrEmpty()
+val devStamp = if (devBuild) {
+    fun git(vararg args: String): String? = runCatching {
+        val result = providers.exec {
+            workingDir(rootProject.projectDir.resolve("../.."))
+            commandLine("git", "--no-optional-locks", *args)
+        }
+        if (result.result.get().exitValue == 0) result.standardOutput.asText.get().trim() else null
+    }.getOrNull()
+    val head = git("rev-parse", "--verify", "HEAD")
+    val changes = git("status", "--porcelain=v1", "--untracked-files=normal")
+    if (head != null && changes != null && git("rev-parse", "--show-prefix") == "" &&
+        git("rev-parse", "--verify", "HEAD") == head) head + if (changes.isEmpty()) "" else "+"
+    else "unknown"
+} else ""
+
 android {
     namespace = "com.hickorydocs.simple"
     compileSdk { version = release(37) { minorApiLevel = 0 } }
     defaultConfig { applicationId = "com.hickorydocs.simple"; minSdk = 26; targetSdk = 36; versionCode = 1; versionName = "0.1.0" }
-    buildFeatures { compose = true }
+    buildTypes {
+        debug { buildConfigField("String", "DEV_BUILD_STAMP", "\"$devStamp\"") }
+        release { buildConfigField("String", "DEV_BUILD_STAMP", "\"\"") }
+    }
+    buildFeatures { compose = true; buildConfig = true }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
     sourceSets["main"].assets.srcDir("../../apple-simple/Sources/Resources")
     sourceSets["test"].resources.srcDir("../../simple-contract")

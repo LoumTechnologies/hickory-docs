@@ -14,6 +14,11 @@ The opt-in hosted `HickorySimpleMobileParity` test scheme mounts the production 
 
 `HickorySimpleMobileRecordedRun` drives the installed app through XCUITest so the recorded Run test uses the same SwiftUI controls and WebKit accessibility tree as a person using the app.
 
+The dev build embeds a stamp as a bundle resource. Capture it before signing so
+a later launch cannot relabel an already installed simulator app. The same
+build directory can produce a distribution app, so remove the dev resource
+when the build opts out.
+
 <ui:copy id="simple-9203f6a7de-0">
 name: HickorySimple
 options:
@@ -25,8 +30,32 @@ settings:
     CODE_SIGNING_ALLOWED: NO
     INFOPLIST_KEY_NSLocalNetworkUsageDescription: Connect to your Hickory workspace server.
     INFOPLIST_KEY_NSAppTransportSecurity_NSAllowsLocalNetworking: YES
+targetTemplates:
+  DevBuildStamp:
+    postBuildScripts:
+      - name: Stamp development build
+        basedOnDependencyAnalysis: false
+        script: |
+          set -eu
+          file="$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/HickoryDevBuild.txt"
+          if [ "${HICKORY_DEV_BUILD:-}" != 1 ] || [ -n "${HICKORY_VERSION:-}" ] || [ "$CONFIGURATION" != Debug ]; then
+            rm -f "$file"
+            exit 0
+          fi
+          cd "$SRCROOT/../.."
+          stamp=unknown
+          if test -z "$(git rev-parse --show-prefix)" &&
+             head=$(git rev-parse --verify HEAD) &&
+             changes=$(git --no-optional-locks status --porcelain=v1 --untracked-files=normal) &&
+             test "$head" = "$(git rev-parse --verify HEAD)"; then
+            stamp="$head"
+            if [ -n "$changes" ]; then stamp="$stamp+"; fi
+          fi
+          mkdir -p "$(dirname "$file")"
+          printf '%s' "$stamp" > "$file"
 targets:
   HickorySimpleMac:
+    templates: [DevBuildStamp]
     type: application
     platform: macOS
     deploymentTarget: "14.0"
@@ -43,6 +72,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.hickorydocs.simple.mac
   HickorySimpleMobile:
+    templates: [DevBuildStamp]
     type: application
     platform: iOS
     deploymentTarget: "17.0"

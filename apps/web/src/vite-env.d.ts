@@ -29,3 +29,14 @@ interface ImportMeta {
 declare module "node:fs" {
   export function readFileSync(path: string): Uint8Array<ArrayBuffer>;
 }
+
+declare module "virtual:hickory-dev-build" {
+  const stamp: string;
+  export default stamp;
+}
+declare module "node:child_process" {
+  export function execFileSync(file: string, args: string[], options: {
+    encoding: "utf8";
+    stdio: ["ignore", "pipe", "ignore"];
+  }): string;
+}

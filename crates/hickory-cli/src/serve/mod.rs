@@ -997,6 +997,11 @@ pub(crate) fn router(state: LocalState) -> Router {
             post(terminal::resume_anchor),
         )
         .route("/ws", get(socket::ws_handler));
+    let api = if option_env!("HICKORY_DEV_BUILD_STAMP").is_some() {
+        api.route("/dev-build", get(dev_build_status))
+    } else {
+        api
+    };
 
     Router::new()
         .nest("/api", api)
@@ -1005,6 +1010,94 @@ pub(crate) fn router(state: LocalState) -> Router {
             private_predictions::quarantine,
         ))
         .with_state(state)
+}
+fn dev_build_verdict(ui: &str, backend: &str, checkout: &str) -> &'static str {
+    fn known(stamp: &str) -> bool {
+        let commit = stamp.trim_end_matches('+');
+        matches!(commit.len(), 40 | 64)
+            && commit.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+            && (stamp == commit || stamp.len() == commit.len() + 1)
+    }
+    if !known(backend) {
+        "Backend unknown"
+    } else if !known(ui) {
+        "UI unknown"
+    } else if ui != backend {
+        "Mismatch"
+    } else if known(checkout) && ui.trim_end_matches('+') != checkout.trim_end_matches('+') {
+        "Stale"
+    } else if ui.ends_with('+') {
+        "Dirty builds"
+    } else if !known(checkout) {
+        "Checkout unknown"
+    } else if checkout.ends_with('+') {
+        "Unbuilt changes"
+    } else {
+        "Latest"
+    }
+}
+
+/// Sample the source checkout of a development build, independently of the open workspace.
+#[doc(hidden)]
+pub fn dev_checkout_stamp(root: &std::path::Path) -> Option<String> {
+    let git = |args: &[&str]| {
+        let output = std::process::Command::new("git")
+            .current_dir(root)
+            .arg("--no-optional-locks")
+            .args(args)
+            .output()
+            .ok()?;
+        output.status.success().then_some(output.stdout)
+    };
+    if !git(&["rev-parse", "--show-prefix"])?.iter().all(u8::is_ascii_whitespace) {
+        return None;
+    }
+    let commit = git(&["rev-parse", "--verify", "HEAD"])?;
+    let dirty = !git(&["status", "--porcelain=v1", "--untracked-files=normal"])?.is_empty();
+    if git(&["rev-parse", "--verify", "HEAD"])? != commit {
+        return None;
+    }
+    Some(format!("{}{}", String::from_utf8(commit).ok()?.trim(), if dirty { "+" } else { "" }))
+}
+
+async fn dev_build_status(
+    axum::extract::Query(query): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> impl axum::response::IntoResponse {
+    let source = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let checkout = tokio::task::spawn_blocking(move || dev_checkout_stamp(&source))
+        .await.ok().flatten().unwrap_or_else(|| "unknown".to_owned());
+    let backend = option_env!("HICKORY_DEV_BUILD_STAMP").unwrap_or("unknown");
+    let ui = query.get("ui").map(|stamp| stamp.replace('~', "+")).unwrap_or_default();
+    (
+        [(axum::http::header::CACHE_CONTROL, "no-store")],
+        axum::Json(serde_json::json!({
+            "backend": backend,
+            "checkout": checkout,
+            "verdict": dev_build_verdict(&ui, backend, &checkout),
+        })),
+    )
+}
+
+#[cfg(test)]
+mod dev_build_status_tests {
+    use super::dev_build_verdict;
+
+    #[test]
+    fn latest_requires_matching_clean_builds_and_a_clean_current_checkout() {
+        let a = "a".repeat(40);
+        let b = "b".repeat(40);
+        let dirty = format!("{a}+");
+        assert_eq!(dev_build_verdict(&a, &a, &a), "Latest");
+        assert_eq!(dev_build_verdict(&a, &b, &a), "Mismatch");
+        assert_eq!(dev_build_verdict(&a, &dirty, &a), "Mismatch");
+        assert_eq!(dev_build_verdict(&a, &a, &b), "Stale");
+        assert_eq!(dev_build_verdict(&dirty, &dirty, &b), "Stale");
+        assert_eq!(dev_build_verdict(&dirty, &dirty, &a), "Dirty builds");
+        assert_eq!(dev_build_verdict(&a, &a, &dirty), "Unbuilt changes");
+        assert_eq!(dev_build_verdict(&a, &a, "unknown"), "Checkout unknown");
+        assert_eq!(dev_build_verdict(&a, "unknown", &a), "Backend unknown");
+        assert_eq!(dev_build_verdict("unknown", &a, &a), "UI unknown");
+    }
 }
 mod bootstrap;
 pub use bootstrap::{Prepared, prepare, prepare_with_prediction, prepare_without_folder, serve};

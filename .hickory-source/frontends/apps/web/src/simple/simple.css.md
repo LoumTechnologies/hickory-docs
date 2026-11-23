@@ -92,6 +92,23 @@ nav summary { list-style: none; cursor: pointer; padding: 3px; }
 .simple-workspace-problems input[type="checkbox"] { width: auto; }
 .simple-workspace-problems pre { overflow: auto; max-height: 240px; font-size: 11px; }
 .simple-workspace-problems select { max-width: 100%; }
+.simple-build-status { margin-inline-end: 6px; font: inherit; }
+.simple-build-details {
+  position: fixed;
+  z-index: 30;
+  inset-inline-start: 9px;
+  bottom: 28px;
+  max-width: calc(100vw - 18px);
+  box-sizing: border-box;
+  padding: 8px;
+  border: 1px solid color-mix(in srgb, CanvasText 30%, Canvas);
+  background: Canvas;
+  color: CanvasText;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+.simple-build-details > span { display: block; }
 footer { border-top: 1px solid color-mix(in srgb, CanvasText 22%, Canvas); padding: 3px 9px; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .agent-body { height: 100%; display: flex; flex-direction: column; }
 .conversation { overflow: auto; flex: 1; padding: 0 12px; }

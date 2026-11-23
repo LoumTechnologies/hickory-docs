@@ -1,12 +1,50 @@
 import { defineConfig } from "vitest/config";
+import type { Plugin } from "vite";
 import react from "@vitejs/plugin-react";
+import { execFileSync } from "node:child_process";
 
 // Dev-server env (no @types/node dependency; Vite runs under Node).
 const env: Record<string, string | undefined> =
   (globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {};
 
-export default defineConfig({
-  plugins: [react()],
+function devBuildStamp(): string {
+  try {
+    const git = (...args: string[]) => execFileSync("git", ["--no-optional-locks", "-C", "../..", ...args], {
+      encoding: "utf8", stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+    if (git("rev-parse", "--show-prefix")) return "unknown";
+    const commit = git("rev-parse", "--verify", "HEAD");
+    const dirty = git("status", "--porcelain=v1", "--untracked-files=normal");
+    return git("rev-parse", "--verify", "HEAD") === commit ? commit + (dirty ? "+" : "") : "unknown";
+  } catch {
+    return "unknown";
+  }
+}
+
+function devBuildModule(enabled: boolean): Plugin {
+  const name = "virtual:hickory-dev-build";
+  const id = "\0" + name;
+  let stamp = enabled ? devBuildStamp() : "";
+  return {
+    name: "hickory-dev-build",
+    resolveId(source) { if (source === name) return id; },
+    load(source) { if (source === id) return `export default ${JSON.stringify(stamp)};`; },
+    handleHotUpdate({ modules, server }) {
+      if (!enabled || modules.length === 0) return;
+      const nextStamp = devBuildStamp();
+      if (stamp === nextStamp) return;
+      stamp = nextStamp;
+      const module = server.moduleGraph.getModuleById(id);
+      if (module) server.moduleGraph.invalidateModule(module);
+      server.ws.send({ type: "full-reload" });
+    },
+  };
+}
+
+export default defineConfig(({ command, mode }) => ({
+  plugins: [react(), devBuildModule(
+    mode !== "test" && !env.HICKORY_VERSION && (command === "serve" || env.HICKORY_DEV_BUILD === "1"),
+  )],
   server: {
     // Unset = let Vite pick (its default, incrementing past anything already
     // bound). Vite has no port-0 support — `!configPort` treats 0 as "unset"
@@ -45,4 +83,4 @@ export default defineConfig({
     // error beside a green suite rather than as a failure. See test-setup.ts.
     setupFiles: ["src/test-setup.ts"],
   },
-});
+}));

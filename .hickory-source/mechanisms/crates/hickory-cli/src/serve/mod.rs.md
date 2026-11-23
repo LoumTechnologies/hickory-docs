@@ -1582,6 +1582,11 @@ pub(crate) fn router(state: LocalState) -> Router {
             post(terminal::resume_anchor),
         )
         .route("/ws", get(socket::ws_handler));
+    let api = if option_env!("HICKORY_DEV_BUILD_STAMP").is_some() {
+        api.route("/dev-build", get(dev_build_status))
+    } else {
+        api
+    };
 
     Router::new()
         .nest("/api", api)
@@ -1594,6 +1599,103 @@ pub(crate) fn router(state: LocalState) -> Router {
 </storycode:copy>
 <a id="f-09ea558208cd-bootstrap"></a>
 ### `bootstrap`
+
+The browser and native hosts forward this read to the active engine. A reused
+daemon answers with its own embedded stamp even if a newer launcher connected
+the window. Compare against the engine's source checkout rather than the
+user's open workspace, and return a fresh observation without exposing paths.
+A shared dirty base cannot prove equal build inputs.
+
+<storycode:copy id="dev-build-status-http">
+fn dev_build_verdict(ui: &str, backend: &str, checkout: &str) -> &'static str {
+    fn known(stamp: &str) -> bool {
+        let commit = stamp.trim_end_matches('+');
+        matches!(commit.len(), 40 | 64)
+            && commit.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+            && (stamp == commit || stamp.len() == commit.len() + 1)
+    }
+    if !known(backend) {
+        "Backend unknown"
+    } else if !known(ui) {
+        "UI unknown"
+    } else if ui != backend {
+        "Mismatch"
+    } else if known(checkout) && ui.trim_end_matches('+') != checkout.trim_end_matches('+') {
+        "Stale"
+    } else if ui.ends_with('+') {
+        "Dirty builds"
+    } else if !known(checkout) {
+        "Checkout unknown"
+    } else if checkout.ends_with('+') {
+        "Unbuilt changes"
+    } else {
+        "Latest"
+    }
+}
+
+/// Sample the source checkout of a development build, independently of the open workspace.
+#[doc(hidden)]
+pub fn dev_checkout_stamp(root: &std::path::Path) -> Option<String> {
+    let git = |args: &[&str]| {
+        let output = std::process::Command::new("git")
+            .current_dir(root)
+            .arg("--no-optional-locks")
+            .args(args)
+            .output()
+            .ok()?;
+        output.status.success().then_some(output.stdout)
+    };
+    if !git(&["rev-parse", "--show-prefix"])?.iter().all(u8::is_ascii_whitespace) {
+        return None;
+    }
+    let commit = git(&["rev-parse", "--verify", "HEAD"])?;
+    let dirty = !git(&["status", "--porcelain=v1", "--untracked-files=normal"])?.is_empty();
+    if git(&["rev-parse", "--verify", "HEAD"])? != commit {
+        return None;
+    }
+    Some(format!("{}{}", String::from_utf8(commit).ok()?.trim(), if dirty { "+" } else { "" }))
+}
+
+async fn dev_build_status(
+    axum::extract::Query(query): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> impl axum::response::IntoResponse {
+    let source = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let checkout = tokio::task::spawn_blocking(move || dev_checkout_stamp(&source))
+        .await.ok().flatten().unwrap_or_else(|| "unknown".to_owned());
+    let backend = option_env!("HICKORY_DEV_BUILD_STAMP").unwrap_or("unknown");
+    let ui = query.get("ui").map(|stamp| stamp.replace('~', "+")).unwrap_or_default();
+    (
+        [(axum::http::header::CACHE_CONTROL, "no-store")],
+        axum::Json(serde_json::json!({
+            "backend": backend,
+            "checkout": checkout,
+            "verdict": dev_build_verdict(&ui, backend, &checkout),
+        })),
+    )
+}
+
+#[cfg(test)]
+mod dev_build_status_tests {
+    use super::dev_build_verdict;
+
+    #[test]
+    fn latest_requires_matching_clean_builds_and_a_clean_current_checkout() {
+        let a = "a".repeat(40);
+        let b = "b".repeat(40);
+        let dirty = format!("{a}+");
+        assert_eq!(dev_build_verdict(&a, &a, &a), "Latest");
+        assert_eq!(dev_build_verdict(&a, &b, &a), "Mismatch");
+        assert_eq!(dev_build_verdict(&a, &dirty, &a), "Mismatch");
+        assert_eq!(dev_build_verdict(&a, &a, &b), "Stale");
+        assert_eq!(dev_build_verdict(&dirty, &dirty, &b), "Stale");
+        assert_eq!(dev_build_verdict(&dirty, &dirty, &a), "Dirty builds");
+        assert_eq!(dev_build_verdict(&a, &a, &dirty), "Unbuilt changes");
+        assert_eq!(dev_build_verdict(&a, &a, "unknown"), "Checkout unknown");
+        assert_eq!(dev_build_verdict(&a, "unknown", &a), "Backend unknown");
+        assert_eq!(dev_build_verdict("unknown", &a, &a), "UI unknown");
+    }
+}
+</storycode:copy>
 
 <storycode:copy id="f-09ea558208cd-bootstrap">
 mod bootstrap;
@@ -1744,6 +1846,6 @@ the complete index group by sending an arbitrary staged-file list.
 pub mod git_resolutions;
 </storycode:copy>
 
-<storycode:file path="crates/hickory-cli/src/serve/mod.rs"><storycode:paste select="#f-09ea558208cd-acp"/><storycode:paste select="#f-09ea558208cd-agent"/><storycode:paste select="#f-09ea558208cd-agent_context"/><storycode:paste select="#f-09ea558208cd-agent_projects"/><storycode:paste select="#f-09ea558208cd-agent_review"/><storycode:paste select="#f-09ea558208cd-anchored"/><storycode:paste select="#f-09ea558208cd-api"/><storycode:paste select="#f-09ea558208cd-asset"/><storycode:paste select="#f-09ea558208cd-audit_evidence"/><storycode:paste select="#f-09ea558208cd-bisect"/><storycode:paste select="#f-09ea558208cd-changeset_drafts"/><storycode:paste select="#f-09ea558208cd-commit_reading"/><storycode:paste select="#f-09ea558208cd-dataset"/><storycode:paste select="#f-09ea558208cd-debug_bridge"/><storycode:paste select="#f-09ea558208cd-private_prediction_acp"/><storycode:paste select="#f-09ea558208cd-private_prediction_agent"/><storycode:paste select="#f-09ea558208cd-private_prediction_debugger"/><storycode:paste select="#f-09ea558208cd-private_prediction_recovery"/><storycode:paste select="#f-09ea558208cd-selected_run"/><storycode:paste select="#f-09ea558208cd-use_declaration"/><storycode:paste select="#f-09ea558208cd-private_prediction_startup"/><storycode:paste select="#f-09ea558208cd-private_predictions"/><storycode:paste select="#f-09ea558208cd-use_declaration-2"/><storycode:paste select="#f-09ea558208cd-use_declaration-3"/><storycode:paste select="#f-09ea558208cd-capabilities"/><storycode:paste select="#f-09ea558208cd-engineer_tour"/><storycode:paste select="#f-09ea558208cd-environments"/><storycode:paste select="#f-09ea558208cd-files_ops"/><storycode:paste select="#f-09ea558208cd-find"/><storycode:paste select="#f-09ea558208cd-formula"/><storycode:paste select="#f-09ea558208cd-git"/><storycode:paste select="#f-09ea558208cd-git_ops"/><storycode:paste select="#f-09ea558208cd-github"/><storycode:paste select="#f-09ea558208cd-github_reviews"/><storycode:paste select="#f-09ea558208cd-history"/><storycode:paste select="#f-09ea558208cd-install"/><storycode:paste select="#f-09ea558208cd-lsp_bridge"/><storycode:paste select="#f-09ea558208cd-meeting_import"/><storycode:paste select="#f-09ea558208cd-meeting_recording"/><storycode:paste select="#f-09ea558208cd-merged"/><storycode:paste select="#f-09ea558208cd-merged_write"/><storycode:paste select="#f-09ea558208cd-native_projects"/><storycode:paste select="#f-09ea558208cd-output_resolution"/><storycode:paste select="#f-09ea558208cd-outputs"/><storycode:paste select="#f-09ea558208cd-performance"/><storycode:paste select="#f-09ea558208cd-plain_file"/><storycode:paste select="#f-09ea558208cd-private_practice"/><storycode:paste select="#f-09ea558208cd-project_comparison"/><storycode:paste select="#f-09ea558208cd-project_incorporation"/><storycode:paste select="#f-09ea558208cd-project_publish"/><storycode:paste select="#f-09ea558208cd-python_agent"/><storycode:paste select="#f-09ea558208cd-revision_projects"/><storycode:paste select="#f-09ea558208cd-runtime_runs"/><storycode:paste select="#f-09ea558208cd-ui_actions"/><storycode:paste select="#f-09ea558208cd-ui_images"/><storycode:paste select="#f-09ea558208cd-ui_verification"/><storycode:paste select="#f-09ea558208cd-use_declaration-4"/><storycode:paste select="#f-09ea558208cd-fleet_pairings"/><storycode:paste select="#f-09ea558208cd-launch_profiles"/><storycode:paste select="#f-09ea558208cd-refactor"/><storycode:paste select="#f-09ea558208cd-representation"/><storycode:paste select="#f-09ea558208cd-representation_store"/><storycode:paste select="#f-09ea558208cd-representation_tools"/><storycode:paste select="#f-09ea558208cd-reveal"/><storycode:paste select="#f-09ea558208cd-reviews"/><storycode:paste select="#f-09ea558208cd-revision"/><storycode:paste select="#f-09ea558208cd-sample"/><storycode:paste select="#f-09ea558208cd-scaffold"/><storycode:paste select="#f-09ea558208cd-sessions"/><storycode:paste select="#f-09ea558208cd-shell"/><storycode:paste select="#f-09ea558208cd-socket"/><storycode:paste select="#f-09ea558208cd-store"/><storycode:paste select="#f-09ea558208cd-story"/><storycode:paste select="#f-09ea558208cd-terminal"/><storycode:paste select="#f-09ea558208cd-test_coverage"/><storycode:paste select="#f-09ea558208cd-test_run"/><storycode:paste select="#f-09ea558208cd-watch"/><storycode:paste select="#f-09ea558208cd-workspace"/><storycode:paste select="#f-09ea558208cd-workspace_fs"/><storycode:paste select="#f-09ea558208cd-use_declaration-5"/><storycode:paste select="#f-09ea558208cd-use_declaration-6"/><storycode:paste select="#f-09ea558208cd-use_declaration-7"/><storycode:paste select="#f-09ea558208cd-use_declaration-8"/><storycode:paste select="#f-09ea558208cd-use_declaration-9"/><storycode:paste select="#f-09ea558208cd-use_declaration-10"/><storycode:paste select="#f-09ea558208cd-use_declaration-11"/><storycode:paste select="#f-09ea558208cd-use_declaration-12"/><storycode:paste select="#f-09ea558208cd-use_declaration-13"/><storycode:paste select="#f-09ea558208cd-use_declaration-14"/><storycode:paste select="#f-09ea558208cd-use_declaration-15"/><storycode:paste select="#f-09ea558208cd-use_declaration-16"/><storycode:paste select="#f-09ea558208cd-use_declaration-17"/><storycode:paste select="#f-09ea558208cd-ServeOptions"/><storycode:paste select="#f-09ea558208cd-RunRecord"/><storycode:paste select="#f-09ea558208cd-LocalState"/><storycode:paste select="#f-09ea558208cd-DivergedOutput"/><storycode:paste select="#f-09ea558208cd-KeySettings"/><storycode:paste select="#f-09ea558208cd-UiSettings"/><storycode:paste select="#f-09ea558208cd-UiStore"/><storycode:paste select="#f-09ea558208cd-impl-UiStore"/><storycode:paste select="#f-09ea558208cd-impl-LocalState"/><storycode:paste select="#f-09ea558208cd-router"/><storycode:paste select="#f-09ea558208cd-bootstrap"/><storycode:paste select="#f-09ea558208cd-use_declaration-18"/><storycode:paste select="#f-09ea558208cd-git_head"/><storycode:paste select="#f-09ea558208cd-now_rfc3339_public"/><storycode:paste select="#f-09ea558208cd-now_rfc3339"/><storycode:paste select="#f-09ea558208cd-rand_id"/><storycode:paste select="#source-test-debug-http-module"/><storycode:paste select="#source-template-http-module"/><storycode:paste select="#source-history-server-module"/><storycode:paste select="#behavior-reading-server-module"/><storycode:paste select="#git-resolution-server-module"/><storycode:paste select="#agent-proposal-server-module"/></storycode:file>
+<storycode:file path="crates/hickory-cli/src/serve/mod.rs"><storycode:paste select="#f-09ea558208cd-acp"/><storycode:paste select="#f-09ea558208cd-agent"/><storycode:paste select="#f-09ea558208cd-agent_context"/><storycode:paste select="#f-09ea558208cd-agent_projects"/><storycode:paste select="#f-09ea558208cd-agent_review"/><storycode:paste select="#f-09ea558208cd-anchored"/><storycode:paste select="#f-09ea558208cd-api"/><storycode:paste select="#f-09ea558208cd-asset"/><storycode:paste select="#f-09ea558208cd-audit_evidence"/><storycode:paste select="#f-09ea558208cd-bisect"/><storycode:paste select="#f-09ea558208cd-changeset_drafts"/><storycode:paste select="#f-09ea558208cd-commit_reading"/><storycode:paste select="#f-09ea558208cd-dataset"/><storycode:paste select="#f-09ea558208cd-debug_bridge"/><storycode:paste select="#f-09ea558208cd-private_prediction_acp"/><storycode:paste select="#f-09ea558208cd-private_prediction_agent"/><storycode:paste select="#f-09ea558208cd-private_prediction_debugger"/><storycode:paste select="#f-09ea558208cd-private_prediction_recovery"/><storycode:paste select="#f-09ea558208cd-selected_run"/><storycode:paste select="#f-09ea558208cd-use_declaration"/><storycode:paste select="#f-09ea558208cd-private_prediction_startup"/><storycode:paste select="#f-09ea558208cd-private_predictions"/><storycode:paste select="#f-09ea558208cd-use_declaration-2"/><storycode:paste select="#f-09ea558208cd-use_declaration-3"/><storycode:paste select="#f-09ea558208cd-capabilities"/><storycode:paste select="#f-09ea558208cd-engineer_tour"/><storycode:paste select="#f-09ea558208cd-environments"/><storycode:paste select="#f-09ea558208cd-files_ops"/><storycode:paste select="#f-09ea558208cd-find"/><storycode:paste select="#f-09ea558208cd-formula"/><storycode:paste select="#f-09ea558208cd-git"/><storycode:paste select="#f-09ea558208cd-git_ops"/><storycode:paste select="#f-09ea558208cd-github"/><storycode:paste select="#f-09ea558208cd-github_reviews"/><storycode:paste select="#f-09ea558208cd-history"/><storycode:paste select="#f-09ea558208cd-install"/><storycode:paste select="#f-09ea558208cd-lsp_bridge"/><storycode:paste select="#f-09ea558208cd-meeting_import"/><storycode:paste select="#f-09ea558208cd-meeting_recording"/><storycode:paste select="#f-09ea558208cd-merged"/><storycode:paste select="#f-09ea558208cd-merged_write"/><storycode:paste select="#f-09ea558208cd-native_projects"/><storycode:paste select="#f-09ea558208cd-output_resolution"/><storycode:paste select="#f-09ea558208cd-outputs"/><storycode:paste select="#f-09ea558208cd-performance"/><storycode:paste select="#f-09ea558208cd-plain_file"/><storycode:paste select="#f-09ea558208cd-private_practice"/><storycode:paste select="#f-09ea558208cd-project_comparison"/><storycode:paste select="#f-09ea558208cd-project_incorporation"/><storycode:paste select="#f-09ea558208cd-project_publish"/><storycode:paste select="#f-09ea558208cd-python_agent"/><storycode:paste select="#f-09ea558208cd-revision_projects"/><storycode:paste select="#f-09ea558208cd-runtime_runs"/><storycode:paste select="#f-09ea558208cd-ui_actions"/><storycode:paste select="#f-09ea558208cd-ui_images"/><storycode:paste select="#f-09ea558208cd-ui_verification"/><storycode:paste select="#f-09ea558208cd-use_declaration-4"/><storycode:paste select="#f-09ea558208cd-fleet_pairings"/><storycode:paste select="#f-09ea558208cd-launch_profiles"/><storycode:paste select="#f-09ea558208cd-refactor"/><storycode:paste select="#f-09ea558208cd-representation"/><storycode:paste select="#f-09ea558208cd-representation_store"/><storycode:paste select="#f-09ea558208cd-representation_tools"/><storycode:paste select="#f-09ea558208cd-reveal"/><storycode:paste select="#f-09ea558208cd-reviews"/><storycode:paste select="#f-09ea558208cd-revision"/><storycode:paste select="#f-09ea558208cd-sample"/><storycode:paste select="#f-09ea558208cd-scaffold"/><storycode:paste select="#f-09ea558208cd-sessions"/><storycode:paste select="#f-09ea558208cd-shell"/><storycode:paste select="#f-09ea558208cd-socket"/><storycode:paste select="#f-09ea558208cd-store"/><storycode:paste select="#f-09ea558208cd-story"/><storycode:paste select="#f-09ea558208cd-terminal"/><storycode:paste select="#f-09ea558208cd-test_coverage"/><storycode:paste select="#f-09ea558208cd-test_run"/><storycode:paste select="#f-09ea558208cd-watch"/><storycode:paste select="#f-09ea558208cd-workspace"/><storycode:paste select="#f-09ea558208cd-workspace_fs"/><storycode:paste select="#f-09ea558208cd-use_declaration-5"/><storycode:paste select="#f-09ea558208cd-use_declaration-6"/><storycode:paste select="#f-09ea558208cd-use_declaration-7"/><storycode:paste select="#f-09ea558208cd-use_declaration-8"/><storycode:paste select="#f-09ea558208cd-use_declaration-9"/><storycode:paste select="#f-09ea558208cd-use_declaration-10"/><storycode:paste select="#f-09ea558208cd-use_declaration-11"/><storycode:paste select="#f-09ea558208cd-use_declaration-12"/><storycode:paste select="#f-09ea558208cd-use_declaration-13"/><storycode:paste select="#f-09ea558208cd-use_declaration-14"/><storycode:paste select="#f-09ea558208cd-use_declaration-15"/><storycode:paste select="#f-09ea558208cd-use_declaration-16"/><storycode:paste select="#f-09ea558208cd-use_declaration-17"/><storycode:paste select="#f-09ea558208cd-ServeOptions"/><storycode:paste select="#f-09ea558208cd-RunRecord"/><storycode:paste select="#f-09ea558208cd-LocalState"/><storycode:paste select="#f-09ea558208cd-DivergedOutput"/><storycode:paste select="#f-09ea558208cd-KeySettings"/><storycode:paste select="#f-09ea558208cd-UiSettings"/><storycode:paste select="#f-09ea558208cd-UiStore"/><storycode:paste select="#f-09ea558208cd-impl-UiStore"/><storycode:paste select="#f-09ea558208cd-impl-LocalState"/><storycode:paste select="#f-09ea558208cd-router"/><storycode:paste select="#dev-build-status-http"/><storycode:paste select="#f-09ea558208cd-bootstrap"/><storycode:paste select="#f-09ea558208cd-use_declaration-18"/><storycode:paste select="#f-09ea558208cd-git_head"/><storycode:paste select="#f-09ea558208cd-now_rfc3339_public"/><storycode:paste select="#f-09ea558208cd-now_rfc3339"/><storycode:paste select="#f-09ea558208cd-rand_id"/><storycode:paste select="#source-test-debug-http-module"/><storycode:paste select="#source-template-http-module"/><storycode:paste select="#source-history-server-module"/><storycode:paste select="#behavior-reading-server-module"/><storycode:paste select="#git-resolution-server-module"/><storycode:paste select="#agent-proposal-server-module"/></storycode:file>
 
 </storycode:doc>
