@@ -70,6 +70,10 @@ pub(super) async fn run(args: &[String]) -> Result<()> {
     attach.callback = Some(origin.clone());
     attach.callback_token = engine::window_token();
     attach.key_store_path = hickory_agent::KeyStore::desktop_path();
+    // The development launcher can hand off its worker. A packaged host can
+    // supply its own even when another executable started the engine.
+    attach.python_runtime_path = std::env::var_os("HICKORY_AGENT_PYTHON").map(Into::into)
+        .or_else(hickory_cli::serve::bundled_runtime);
     let token = attach.callback_token.clone();
     let (closed, owner) = tokio::sync::oneshot::channel();
     // A dedicated thread can wait for pipe EOF without blocking Tokio shutdown

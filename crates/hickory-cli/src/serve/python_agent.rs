@@ -49,8 +49,9 @@ fn effective_runtime(settings: &Settings, state: &LocalState) -> anyhow::Result<
     if let Some(path) = &state.python_runtime_path {
         return Ok(path.clone());
     }
-    bundled_runtime()
-        .ok_or_else(|| anyhow::anyhow!("Configure the Python agent runtime in Settings → Agents."))
+    bundled_runtime().ok_or_else(|| anyhow::anyhow!(
+        "The workspace host has no Python agent runtime. In Hickory's development checkout, run uv sync --project apps/agent --locked --no-editable and relaunch Simple. A packaged workspace host can load an installed worker from HICKORY_AGENT_PYTHON."
+    ))
 }
 
 /// A Python runtime shipped inside this app, located from the running

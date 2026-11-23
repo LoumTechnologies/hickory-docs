@@ -297,6 +297,12 @@ parameter. macOS and iOS receive it through app startup configuration. Android
 passes it as a string extra through the device shell, where quoting preserves
 spaces, Unicode and punctuation as one argument.
 
+Attach the checkout's installed Python worker when it is available. Opening
+source must work without it. This attaches an existing runtime from the host
+checkout, independent of which workspace the user opens and whether an engine
+is already running. Preserve the virtual environment's launcher path so Python
+can find its installed packages.
+
 <ui:copy id="simple-3119f25e95-2">
 fn project_directory(root: &Path, supplied: Option<PathBuf>) -> Result<(PathBuf, bool)> {
     if let Some(path) = supplied {
@@ -360,6 +366,15 @@ fn browser_page(port: u16, file: Option<&str>) -> Result<reqwest::Url> {
     Ok(url)
 }
 
+fn checkout_python(root: &Path) -> Option<PathBuf> {
+    let path = root.join(if cfg!(windows) {
+        "apps/agent/.venv/Scripts/python.exe"
+    } else {
+        "apps/agent/.venv/bin/python"
+    });
+    path.is_file().then_some(path)
+}
+
 async fn launch(platform: &str, session: &mut Session) -> Result<()> {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../..")
@@ -387,6 +402,9 @@ async fn launch(platform: &str, session: &mut Session) -> Result<()> {
         project.display()
     );
     let file = requested_file(&project, env::var_os("HICKORY_OPEN_FILE"))?;
+    let python = env::var_os("HICKORY_AGENT_PYTHON")
+        .map(PathBuf::from)
+        .or_else(|| checkout_python(&root));
     if let Some(executable) = match platform {
         "linux" => Some("target/simple-linux/app/bin/hickory-simple"),
         "windows" => Some("target/simple-windows/app/HickorySimple.exe"),
@@ -394,6 +412,9 @@ async fn launch(platform: &str, session: &mut Session) -> Result<()> {
     } {
         session.run(&mut cmd("just", &["simple-build", platform])).await?;
         let mut command = cmd(root.join(executable), &[]);
+        if let Some(python) = &python {
+            command.env("HICKORY_AGENT_PYTHON", python);
+        }
         if let Some(file) = &file {
             command.args(["--file", file]);
         }
@@ -460,6 +481,7 @@ async fn launch(platform: &str, session: &mut Session) -> Result<()> {
     attach.callback = Some(api_origin.clone());
     attach.callback_token = engine::window_token();
     attach.key_store_path = hickory_agent::KeyStore::desktop_path();
+    attach.python_runtime_path = python;
     let token = attach.callback_token.clone();
     let connection = engine::connect(attach).await?;
     session.guard = Some(connection.guard());
