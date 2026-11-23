@@ -140,9 +140,9 @@ The selections below preserve the original byte order. Narrative reading order d
 
 ### Implementation
 
-- [apps/web/src/components/NewProjectDialog.tsx](../../../mechanisms/apps/web/src/components/NewProjectDialog.tsx.md#output-65e48889b856)
+- apps/web/src/components/NewProjectDialog.tsx
 - [apps/web/src/debug/DebugStrip.tsx](../../../mechanisms/apps/web/src/debug/DebugStrip.tsx.md#output-09306f4ec1a5)
-- [apps/web/src/views/workspaceTabs.tsx](../../../mechanisms/apps/web/src/views/workspaceTabs.tsx.md#output-b5a48fd337ae)
+- apps/web/src/views/workspaceTabs.tsx
 - [crates/hick-dap/src/program.rs](../../../mechanisms/crates/hick-dap/src/program.rs.md#output-dd5fefdc2d90)
 - [crates/hickory-cli/src/serve/debug_bridge.rs](../../../mechanisms/crates/hickory-cli/src/serve/debug_bridge.rs.md#output-b6fc115ecefd)
 - [crates/hickory-cli/src/serve/install.rs](contract.md#output-943c146869d8)

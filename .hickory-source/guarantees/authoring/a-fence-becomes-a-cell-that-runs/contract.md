@@ -732,7 +732,7 @@ The selections below preserve the original byte order. Narrative reading order d
 ### Tests and fixtures
 
 - [apps/web/src/components/FenceConvert.test.tsx](contract.md#output-a04a2c7645d2)
-- [apps/web/src/editor/DocumentEditor.test.tsx](../../../mechanisms/apps/web/src/editor/DocumentEditor.test.tsx.md#output-71bbcfe029bb)
+- apps/web/src/editor/DocumentEditor.test.tsx
 - [apps/web/src/editor/cards.test.ts](../../../mechanisms/apps/web/src/editor/cards.ts.md#output-66013e5cdf76)
 - [apps/web/src/lib/fenceToExec.test.ts](contract.md#output-9a528e9ffdee)
 

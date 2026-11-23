@@ -30,7 +30,7 @@ Implementation review: not verified. Executed checks and human judgment are reco
 ### Implementation
 
 - [apps/web/src/api/types.ts](../../../mechanisms/apps/web/src/api/types.ts.md#output-8a4c3188ff6c)
-- [apps/web/src/components/OutputEditorPane.tsx](../../../mechanisms/apps/web/src/components/OutputEditorPane.tsx.md#output-2571b0682164)
+- apps/web/src/components/OutputEditorPane.tsx
 - [apps/web/src/styles.css](../../../mechanisms/apps/web/src/styles.css.md#output-8695905e2358)
 - [crates/hick-flow/src/node.rs](../../../mechanisms/crates/hick-exec/src/node.rs.md#output-90c967a2b659)
 - [crates/hick-flow/src/transform.rs](../../../mechanisms/crates/hick-exec/src/transform.rs.md#output-88934a253aef)

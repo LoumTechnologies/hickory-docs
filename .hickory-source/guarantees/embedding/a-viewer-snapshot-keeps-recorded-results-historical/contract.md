@@ -532,7 +532,7 @@ The selections below preserve the original byte order. Narrative reading order d
 
 ### Implementation
 
-- [apps/web/src/components/SnapshotExport.tsx](../../../mechanisms/apps/web/src/components/SnapshotExport.tsx.md#output-0eb707422fe3)
+- apps/web/src/components/SnapshotExport.tsx
 - [apps/web/src/embed/PublishedSnapshot.tsx](contract.md#output-29151ba5d332)
 - [apps/web/src/embed/snapshot.tsx](../../../mechanisms/apps/web/src/embed/snapshot.tsx.md#output-e9d2d7727ec4)
 - [apps/web/vite.site.config.ts](../../../mechanisms/apps/web/vite.site.config.ts.md#output-2cea88e563a6)

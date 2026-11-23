@@ -60,81 +60,6 @@ Implementation review: not verified. Executed checks and human judgment are reco
 
 ## Implementation
 
-<a id="output-c6800936a2be"></a>
-## `apps/web/src/lib/formatOnSave.ts`
-
-Present and edit the shared engine state. Browser-side revisions, pending requests and local drafts affect which source and UI actions are still valid.
-
-Related contracts: [Save Can Format First, With The File's Own Formatter](contract.md).
-
-<a id="f-c6800936a2be-enabled"></a>
-### `enabled`
-
-Whether Save runs the formatter first.
-A per-user setting the server persists (ui.json, beside the window title)
-so the desktop app and `hick up` agree. Cached here because the moment it
-is read — a Save keystroke — is not a moment to wait on a request; the
-workspace loads it once at mount and the Settings page updates it on
-toggle.
-
-<storycode:copy id="f-c6800936a2be-enabled">
-// Whether Save runs the formatter first.
-//
-// A per-user setting the server persists (ui.json, beside the window title)
-// so the desktop app and `hick up` agree. Cached here because the moment it
-// is read — a Save keystroke — is not a moment to wait on a request; the
-// workspace loads it once at mount and the Settings page updates it on
-// toggle.
-
-import { api } from "../api/client";
-
-let enabled = false;
-
-</storycode:copy>
-<a id="f-c6800936a2be-formatOnSave"></a>
-### `formatOnSave`
-
-<storycode:copy id="f-c6800936a2be-formatOnSave">
-/** Whether Save formats first. */
-export function formatOnSave(): boolean {
-  return enabled;
-}
-
-</storycode:copy>
-<a id="f-c6800936a2be-setFormatOnSave"></a>
-### `setFormatOnSave`
-
-<storycode:copy id="f-c6800936a2be-setFormatOnSave">
-export function setFormatOnSave(on: boolean): void {
-  enabled = on;
-}
-
-</storycode:copy>
-<a id="f-c6800936a2be-loadFormatOnSave"></a>
-### `loadFormatOnSave`
-
-Read the setting from the server. A failure leaves it off, which is the
-default, rather than surfacing as an error a Save could hit.
-
-<storycode:copy id="f-c6800936a2be-loadFormatOnSave">
-/** Read the setting from the server. A failure leaves it off, which is the
- * default, rather than surfacing as an error a Save could hit. */
-export async function loadFormatOnSave(): Promise<void> {
-  try {
-    const ui = await api.settingsUi();
-    enabled = ui.format_on_save === true;
-  } catch {
-    // Off: the honest default when nothing can be read.
-  }
-}
-</storycode:copy>
-
-### Assemble `apps/web/src/lib/formatOnSave.ts`
-
-The selections below preserve the original byte order. Narrative reading order does not change the output.
-
-<storycode:file path="apps/web/src/lib/formatOnSave.ts"><storycode:paste select="#f-c6800936a2be-enabled"/><storycode:paste select="#f-c6800936a2be-formatOnSave"/><storycode:paste select="#f-c6800936a2be-setFormatOnSave"/><storycode:paste select="#f-c6800936a2be-loadFormatOnSave"/></storycode:file>
-
 <a id="output-6bc953112fd0"></a>
 ## `apps/web/src/lsp/client.ts`
 
@@ -2048,11 +1973,11 @@ fn a_plain_rust_file_formats_with_rustfmt_through_the_language_server() {
 
 ### Implementation
 
-- [apps/web/src/lib/formatOnSave.ts](contract.md#output-c6800936a2be)
+- apps/web/src/lib/formatOnSave.ts
 - [apps/web/src/lsp/client.ts](contract.md#output-6bc953112fd0)
 - [apps/web/src/lsp/cmLspFeatures.ts](contract.md#output-a12307572b4c)
-- [apps/web/src/views/SettingsView.tsx](../../../mechanisms/apps/web/src/views/SettingsView.tsx.md#output-38894484eb8f)
-- [apps/web/src/views/WorkspaceView.tsx](../../../mechanisms/apps/web/src/views/WorkspaceView.tsx.md#output-47afe3575948)
+- apps/web/src/views/SettingsView.tsx
+- apps/web/src/views/WorkspaceView.tsx
 - [crates/hick-lsp/src/backend.rs](../../../mechanisms/crates/hick-lsp/src/backend.rs.md#output-c936496a03c1)
 - [crates/hickory-cli/src/serve/api.rs](../../../mechanisms/crates/hickory-cli/src/serve/api.rs.md#output-e71b04ae5298)
 - [crates/hickory-cli/src/serve/lsp_bridge.rs](../../../mechanisms/crates/hickory-cli/src/serve/lsp_bridge.rs.md#output-a429fedbabb9)
@@ -2061,7 +1986,7 @@ fn a_plain_rust_file_formats_with_rustfmt_through_the_language_server() {
 ### Tests and fixtures
 
 - [apps/web/src/lsp/cmLspFeatures.test.ts](contract.md#output-830f6d637cff)
-- [apps/web/src/views/SettingsView.test.tsx](../../../mechanisms/apps/web/src/views/SettingsView.tsx.md#output-5bfac230ae5d)
+- apps/web/src/views/SettingsView.test.tsx
 - [crates/hickory-cli/tests/lsp_languages.rs](../../../mechanisms/crates/hickory-cli/tests/lsp_languages.rs.md#output-7c4650d33fc8)
 
 ### Evidence status

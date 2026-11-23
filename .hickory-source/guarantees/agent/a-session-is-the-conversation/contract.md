@@ -1004,7 +1004,7 @@ async fn a_sessions_problems_reach_the_window_as_diagnostics() {
 - [apps/web/src/editor/folding.ts](../../../mechanisms/apps/web/src/editor/folding.ts.md#output-eee9d1963829)
 - [apps/web/src/editor/wysiwyg.ts](../../../shared/files/apps/web/src/editor/wysiwyg.ts.md)
 - [apps/web/src/elements/session/view.tsx](../../../mechanisms/apps/web/src/elements/session/view.tsx.md#output-d096a8a10df6)
-- [apps/web/src/views/workspaceTabs.tsx](../../../mechanisms/apps/web/src/views/workspaceTabs.tsx.md#output-b5a48fd337ae)
+- apps/web/src/views/workspaceTabs.tsx
 - [crates/hick-lsp/src/session_lint.rs](contract.md#output-3ec8f02a5c70)
 - [crates/hickory-agent/src/session.rs](../../../mechanisms/crates/hickory-agent/src/session.rs.md#output-9c7ae0f28c14)
 - [crates/hickory-agent/src/session_view.rs](../../../mechanisms/crates/hickory-agent/src/session_view.rs.md#output-009403b22bd0)
@@ -1013,9 +1013,9 @@ async fn a_sessions_problems_reach_the_window_as_diagnostics() {
 
 ### Tests and fixtures
 
-- [apps/web/e2e/literate-editor.spec.ts](../../../mechanisms/apps/web/e2e/literate-editor.spec.ts.md#output-648693644a28)
+- apps/web/e2e/literate-editor.spec.ts
 - [apps/web/src/components/ChatDock.test.tsx](../../../mechanisms/apps/web/src/components/ChatDock.tsx.md#output-e7bd6d898a44)
-- [apps/web/src/editor/folding.test.ts](../../../mechanisms/apps/web/src/editor/folding.ts.md#output-92a9cd526370)
+- apps/web/src/editor/folding.test.ts
 - [apps/web/src/editor/session.test.tsx](contract.md#output-ed3dc6749f3b)
 - [apps/web/src/views/ConversationEditor.test.tsx](../../../mechanisms/apps/web/src/views/ConversationEditor.tsx.md#output-edc92cd336d7)
 - [crates/hickory-cli/tests/lsp_desktop.rs](../../../mechanisms/crates/hickory-cli/tests/lsp_desktop.rs.md#output-c14f2fec35ca)

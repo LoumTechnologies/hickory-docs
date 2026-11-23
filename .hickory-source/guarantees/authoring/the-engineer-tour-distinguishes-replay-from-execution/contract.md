@@ -373,13 +373,13 @@ async fn native_verification_receipt_names_the_exact_source_that_ran() {
 - [apps/web/src/embed/DebuggableDocument.tsx](../../../mechanisms/apps/web/src/embed/DebuggableDocument.tsx.md#output-b948f7ea7230)
 - [apps/web/src/tour/scenario.ts](contract.md#output-599b7f973135)
 - [apps/web/src/views/LandingView.tsx](../../../mechanisms/apps/web/src/views/LandingView.tsx.md#output-e86ad48a0990)
-- [apps/web/src/views/WorkspaceView.tsx](../../../mechanisms/apps/web/src/views/WorkspaceView.tsx.md#output-47afe3575948)
+- apps/web/src/views/WorkspaceView.tsx
 - [crates/hickory-cli/src/serve/engineer_tour.rs](../../../mechanisms/crates/hickory-cli/src/serve/engineer_tour.rs.md#output-f4de6cb618b8)
 
 ### Tests and fixtures
 
 - [apps/web/e2e/browserEmbedding.spec.ts](../../../mechanisms/apps/web/e2e/browserEmbedding.spec.ts.md#output-31019d3567c7)
-- [apps/web/e2e/privateCoachLayout.spec.ts](../../../mechanisms/apps/web/e2e/privateCoachLayout.spec.ts.md#output-3f8363e8ca8f)
+- apps/web/e2e/privateCoachLayout.spec.ts
 - [apps/web/src/components/NativeWorkflowTour.test.tsx](../../../mechanisms/apps/web/src/components/NativeWorkflowTour.test.tsx.md#output-8a1a5703c15d)
 - [apps/web/src/components/WorkflowTour.test.tsx](contract.md#output-86702cf814fb)
 - [apps/web/src/tour/scenario.test.ts](contract.md#output-512ddbf29209)

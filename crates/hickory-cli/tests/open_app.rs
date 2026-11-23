@@ -23,7 +23,7 @@ fn hick() -> Command {
 #[cfg(unix)]
 fn stub(dir: &Path, record: &Path) -> std::path::PathBuf {
     use std::os::unix::fs::PermissionsExt as _;
-    let path = dir.join("hickory-desktop");
+    let path = dir.join("hickory-simple");
     std::fs::write(
         &path,
         format!("#!/bin/sh\nprintf '%s' \"$1\" > {}\n", record.display()),
@@ -109,7 +109,7 @@ fn a_single_document_is_passed_through_rather_than_its_folder() {
 fn a_path_that_does_not_exist_is_refused_before_anything_is_launched() {
     let dir = tempfile::tempdir().unwrap();
     let out = hick()
-        .env("HICKORY_DESKTOP", "/nonexistent/hickory-desktop")
+        .env("HICKORY_DESKTOP", "/nonexistent/hickory-simple")
         .args(["open"])
         .arg(dir.path().join("no-such-folder"))
         .output()
@@ -129,14 +129,14 @@ fn a_named_app_that_is_not_there_names_it_rather_than_falling_back() {
     // you debug the wrong binary for an hour.
     let dir = tempfile::tempdir().unwrap();
     let out = hick()
-        .env("HICKORY_DESKTOP", "/opt/nope/hickory-desktop")
+        .env("HICKORY_DESKTOP", "/opt/nope/hickory-simple")
         .args(["open"])
         .arg(dir.path())
         .output()
         .expect("run hick");
     assert!(!out.status.success());
     let stderr = String::from_utf8_lossy(&out.stderr).to_string();
-    assert!(stderr.contains("/opt/nope/hickory-desktop"), "{stderr}");
+    assert!(stderr.contains("/opt/nope/hickory-simple"), "{stderr}");
     assert!(stderr.contains("unset it"), "{stderr}");
 }
 

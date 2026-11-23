@@ -434,14 +434,12 @@ fn stop_desktop(args: &[String]) -> io::Result<()> {
             }
         }
     }
-    if !Command::new("./scripts/dev.sh")
-        .arg(action)
-        .status()?
-        .success()
-    {
-        return Err(io::Error::other(
-            "Desktop cleanup failed; see dev.sh output",
-        ));
+    if action == "clean" {
+        match std::fs::remove_dir_all(".dev") {
+            Ok(()) => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error),
+        }
     }
     Ok(())
 }
@@ -696,14 +694,14 @@ while True: time.sleep(.05)
         self.assertIn('inside its Git checkout', result.stderr)
 
     def test_explicit_desktop_stop_ends_supervision(self):
-        (self.root / 'scripts').mkdir()
-        script = self.root / 'scripts/dev.sh'
-        script.write_text('#!/bin/sh\nexit 0\n')
-        script.chmod(0o755)
+        scratch = self.root / '.dev'
+        scratch.mkdir()
+        (scratch / 'fixture').touch()
         self.process = subprocess.Popen([str(self.binary), '--desktop', os.sys.executable, str(self.child)], cwd=self.root, stdout=self.log, stderr=self.log)
         self.wait_for(lambda: self.starts() == 1 and 'ready' in self.events())
         pid = int((self.root / 'grandchild.pid').read_text())
         subprocess.run([str(self.binary), '--desktop-stop', 'clean'], cwd=self.root, check=True)
+        self.assertFalse(scratch.exists())
         with self.assertRaises(ProcessLookupError): os.kill(pid, 0)
         self.assertEqual(self.process.wait(timeout=25), 0)
 

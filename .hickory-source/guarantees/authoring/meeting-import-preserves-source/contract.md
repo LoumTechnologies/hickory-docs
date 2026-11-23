@@ -450,7 +450,7 @@ The selections below preserve the original byte order. Narrative reading order d
 
 ### Tests and fixtures
 
-- [apps/web/src/components/MeetingImport.test.tsx](../../agent/ui-action-dispatch/implementation/apps/web/src/components/MeetingImport.test.tsx.md#output-4adb88414524)
+- apps/web/src/components/MeetingImport.test.tsx
 - [crates/hickory-cli/tests/serve_meeting_import.rs](contract.md#output-beef23c9f263)
 
 ### Evidence status

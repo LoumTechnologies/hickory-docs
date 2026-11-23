@@ -1,9 +1,9 @@
 <ui:doc xmlns:ui="http://www.hickorydocs.com/1.0">
-# Open a separate browser entry
+# Mount the Simple Browser editor
 
 For maintainers iterating on the equivalent Apple, Android and browser editor frontends.
 
-Mount a separate root so none of the existing workspace shell is imported. Vite serves this entry beside the original editor.
+Mount the Simple workspace from one TypeScript entry. The browser build and the Linux and Windows shells load this document.
 
 <ui:copy id="simple-5bfb0491c8-0">
 <!doctype html>

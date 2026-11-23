@@ -533,7 +533,7 @@ fn drive_one_plain_file(language: &Language) -> bool {
 - [apps/web/src/lib/fileProblems.ts](contract.md#output-50cf197029a3)
 - [apps/web/src/lib/revealLine.ts](../../../mechanisms/apps/web/src/lib/revealLine.ts.md#output-bca672428db0)
 - [apps/web/src/lsp/useLsp.ts](contract.md#output-5ad96644c888)
-- [apps/web/src/views/WorkspaceView.tsx](../../../mechanisms/apps/web/src/views/WorkspaceView.tsx.md#output-47afe3575948)
+- apps/web/src/views/WorkspaceView.tsx
 - [crates/hick-lsp/src/backend.rs](../../../mechanisms/crates/hick-lsp/src/backend.rs.md#output-c936496a03c1)
 - [crates/hick-lsp/src/position_map.rs](../../../mechanisms/crates/hick-lsp/src/position_map.rs.md#output-c77393891cd2)
 

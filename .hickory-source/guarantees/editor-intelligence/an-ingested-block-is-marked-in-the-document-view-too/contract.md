@@ -138,7 +138,7 @@ The selections below preserve the original byte order. Narrative reading order d
 
 ### Implementation
 
-- [apps/web/src/components/OutputEditorPane.tsx](../../../mechanisms/apps/web/src/components/OutputEditorPane.tsx.md#output-2571b0682164)
+- apps/web/src/components/OutputEditorPane.tsx
 - [apps/web/src/editor/rendered.ts](../../../mechanisms/apps/web/src/editor/rendered.ts.md#output-4f5444d21411)
 - [apps/web/src/editor/wysiwyg.ts](../../../shared/files/apps/web/src/editor/wysiwyg.ts.md)
 

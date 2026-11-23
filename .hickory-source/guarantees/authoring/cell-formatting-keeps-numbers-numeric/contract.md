@@ -31,74 +31,6 @@ Implementation review: not verified. Executed checks and human judgment are reco
 
 ## Implementation
 
-<a id="output-ccf2c8b200ba"></a>
-## `apps/web/e2e/tableFormatting.spec.ts`
-
-Present and edit the shared engine state. Browser-side revisions, pending requests and local drafts affect which source and UI actions are still valid.
-
-Related contracts: [Cell formatting keeps numbers numeric](contract.md).
-
-<a id="f-ccf2c8b200ba-expression_statement"></a>
-### `expression_statement`
-
-<storycode:copy id="f-ccf2c8b200ba-expression_statement">
-// Guarantee: docs/guarantees/authoring/cell-formatting-keeps-numbers-numeric.md
-import { expect, test } from "@playwright/test";
-
-test("money formatting and currency entry preserve precision in the full editor", async ({ page }) => {
-  test.skip(!process.env.HICKORY_E2E_URL, "Run against the full editor (VITE_MOCK=1 is sufficient).");
-  await page.goto('/');
-  const pane = page.locator('.untitled-tab');
-  const editor = pane.locator('.cm-content');
-  await expect(editor).toBeVisible();
-  await editor.click();
-  await page.keyboard.press('ControlOrMeta+a');
-  await page.keyboard.insertText('| Cost |\n| ---: |\n| 1234.567 |');
-  await pane.getByRole('button', { name: /Table 1.*click to render/ }).click();
-  await pane.getByText('1234.567', { exact: true }).click();
-  await pane.getByLabel('Cell number format').selectOption('USD');
-  await expect(pane.getByText('$1,234.57', { exact: true })).toBeVisible();
-  await pane.getByText('$1,234.57', { exact: true }).dblclick();
-  const input = pane.locator('.table-panel__input');
-  await expect(input).toHaveValue('1234.567');
-  await input.fill('$2,345.678');
-  await input.press('Enter');
-  await expect(pane.getByText('$2,345.68', { exact: true })).toBeVisible();
-  await pane.getByText('$2,345.68', { exact: true }).click();
-  await expect(pane.locator('.table-panel__formula')).toHaveValue('2345.678');
-});
-
-</storycode:copy>
-<a id="f-ccf2c8b200ba-expression_statement-2"></a>
-### `expression_statement`
-
-<storycode:copy id="f-ccf2c8b200ba-expression_statement-2">
-test("CSV fence formatting survives promotion without changing the CSV value", async ({ page }) => {
-  test.skip(!process.env.HICKORY_E2E_URL, "Run against the full editor.");
-  await page.goto('/');
-  const pane = page.locator('.untitled-tab');
-  const editor = pane.locator('.cm-content');
-  await editor.click();
-  await page.keyboard.press('ControlOrMeta+a');
-  await page.keyboard.insertText('```csv\nCost\n1234.50\n```');
-  await pane.getByRole('button', { name: /Code fence \(csv\)/ }).click();
-  const table = page.getByTestId('table-panel');
-  await table.getByText('1234.50', { exact: true }).click();
-  await table.getByLabel('Cell number format').selectOption('USD');
-  await expect(table.getByText('$1,234.50', { exact: true })).toBeVisible();
-  await expect(editor).toContainText('csv formats="A2:USD"');
-  await page.getByRole('button', { name: 'Make it a table', exact: true }).click();
-  await expect(editor).toContainText('<hick:table formats="A2:USD">');
-  await expect(editor).toContainText('1234.50');
-});
-</storycode:copy>
-
-### Assemble `apps/web/e2e/tableFormatting.spec.ts`
-
-The selections below preserve the original byte order. Narrative reading order does not change the output.
-
-<storycode:file path="apps/web/e2e/tableFormatting.spec.ts"><storycode:paste select="#f-ccf2c8b200ba-expression_statement"/><storycode:paste select="#f-ccf2c8b200ba-expression_statement-2"/></storycode:file>
-
 <a id="output-b5ed71b20ef0"></a>
 ## `apps/web/src/components/TableFormatting.test.tsx`
 
@@ -481,7 +413,7 @@ fn number_formats_stay_in_the_document_and_out_of_the_csv_dataset() {
 
 ### Tests and fixtures
 
-- [apps/web/e2e/tableFormatting.spec.ts](contract.md#output-ccf2c8b200ba)
+- apps/web/e2e/tableFormatting.spec.ts
 - [apps/web/src/components/FenceTable.test.tsx](../../../mechanisms/apps/web/src/components/FenceTable.test.tsx.md#output-effdc999f8dc)
 - [apps/web/src/components/TableFormatting.test.tsx](contract.md#output-b5ed71b20ef0)
 - [apps/web/src/components/TablePanel.test.tsx](../../../mechanisms/apps/web/src/components/TablePanel.test.tsx.md#output-694220ace684)

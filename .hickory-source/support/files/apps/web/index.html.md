@@ -49,7 +49,7 @@ Captured SHA-256: `2f848d9bfd237d64640cde5e5fa8ea4080532a71c8142827d7be6e92f1c93
   </head>
   <body>
     <div id="root"><p class="boot-status" role="status">Opening Hickory Docs…</p></div>
-    <script type="module" src="/src/main.tsx"></script>
+    <script type="module" src="/src/simple/main.tsx"></script>
   </body>
 </html>
 </book:entry>

@@ -2448,7 +2448,7 @@ The selections below preserve the original byte order. Narrative reading order d
 
 ### Tests and fixtures
 
-- [apps/web/e2e/literate-editor.spec.ts](../../../mechanisms/apps/web/e2e/literate-editor.spec.ts.md#output-648693644a28)
+- apps/web/e2e/literate-editor.spec.ts
 - [apps/web/src/debug/launchProfiles.test.tsx](../../../mechanisms/apps/web/src/debug/launchProfiles.tsx.md#output-af7d3cd605b8)
 - [apps/web/src/debug/plainDebugHosts.test.tsx](contract.md#output-3b3668793103)
 - [apps/web/src/debug/projectDebugSurface.test.tsx](../../../mechanisms/apps/web/src/debug/projectDebugSurface.test.tsx.md#output-777a3021cd65)

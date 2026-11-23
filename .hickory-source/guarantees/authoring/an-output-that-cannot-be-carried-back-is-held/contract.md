@@ -179,7 +179,7 @@ fn a_refused_edit_holds_the_file_with_the_edit_in_it() {
 ### Implementation
 
 - [apps/web/src/api/types.ts](../../../mechanisms/apps/web/src/api/types.ts.md#output-8a4c3188ff6c)
-- [apps/web/src/components/OutputEditorPane.tsx](../../../mechanisms/apps/web/src/components/OutputEditorPane.tsx.md#output-2571b0682164)
+- apps/web/src/components/OutputEditorPane.tsx
 - [apps/web/src/shell/FolderTreePane.tsx](../../../mechanisms/apps/web/src/shell/FolderTreePane.tsx.md#output-9c0af3061e25)
 - [crates/hickory-cli/src/serve/api.rs](../../../mechanisms/crates/hickory-cli/src/serve/api.rs.md#output-e71b04ae5298)
 - [crates/hickory-cli/src/serve/mod.rs](../../../mechanisms/crates/hickory-cli/src/serve/mod.rs.md#output-09ea558208cd)
@@ -191,7 +191,7 @@ fn a_refused_edit_holds_the_file_with_the_edit_in_it() {
 
 ### Tests and fixtures
 
-- [apps/web/src/components/DivergedBanner.test.tsx](../../../mechanisms/apps/web/src/components/DivergedBanner.test.tsx.md#output-c3c47782ddb8)
+- apps/web/src/components/DivergedBanner.test.tsx
 - [crates/hickory-cli/src/up/state/resolution_tests.rs](../../agent/ui-action-dispatch/implementation/crates/hickory-cli/src/up/state/resolution_tests.rs.md#output-3b41d39d831f)
 - [crates/hickory-cli/tests/round_trip.rs](../../../mechanisms/crates/hickory-cli/tests/round_trip.rs.md#output-82b3411e044d)
 - [crates/hickory-cli/tests/serve_output_resolution.rs](../../agent/ui-action-dispatch/implementation/crates/hickory-cli/tests/serve_output_resolution.rs.md#output-074b9e71856c)

@@ -227,6 +227,9 @@ int main(int argc, char **argv)
     const QCommandLineOption portOption(QStringLiteral("port"),
         QObject::tr("Choose the local host port (use 0 for a temporary port)."), QStringLiteral("port"),
         QString::number(defaultPort));
+    const QCommandLineOption blankOption(QStringLiteral("blank-window"),
+        QObject::tr("Choose a workspace in a new window."));
+    parser.addOption(blankOption);
     parser.addOption(fileOption);
     parser.addOption(connectOption);
     parser.addOption(portOption);

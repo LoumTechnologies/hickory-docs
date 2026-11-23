@@ -274,112 +274,6 @@ The selections below preserve the original byte order. Narrative reading order d
 
 <storycode:file path="apps/web/src/components/ComparisonTools.tsx"><storycode:paste select="#f-455afcfce7fd-decode"/><storycode:paste select="#f-455afcfce7fd-offset"/><storycode:paste select="#f-455afcfce7fd-position"/><storycode:paste select="#f-455afcfce7fd-export_statement"/><storycode:paste select="#f-455afcfce7fd-ComparisonTools"/><storycode:paste select="#f-455afcfce7fd-useSelectedFrame"/></storycode:file>
 
-<a id="output-16d8467a71c2"></a>
-## `apps/web/src/debug/GeneratedDebugTools.tsx`
-
-Present and edit the shared engine state. Browser-side revisions, pending requests and local drafts affect which source and UI actions are still valid.
-
-Related contracts: [Debug the latest atomic project that still contains the displayed bytes](contract.md).
-
-<a id="f-16d8467a71c2-generatedLineMap"></a>
-### `generatedLineMap`
-
-<storycode:copy id="f-16d8467a71c2-generatedLineMap">
-import { inlineEvaluationOwner } from "./inlineEval";
-import { observationSourceChanged } from "./observations";
-import { launchWithProfiles } from "./launchProfiles";
-import { useEffect, useMemo, useRef } from "react";
-import { Compartment, StateEffect } from "@codemirror/state";
-import type { EditorView } from "@codemirror/view";
-import { parseHickDoc } from "../editor/hickDoc";
-import type { OutputFile } from "../api/types";
-import { api } from "../api/client";
-import { provToChars } from "../components/OutputEditorPane";
-import { sourcePositionAt } from "../lsp/outputMapping";
-import { DebugLaunchAction } from "./DebugRail";
-import { DebugStrip } from "./DebugStrip";
-import { debugEditor, debugStateEffects, revealLine } from "./cmDebug";
-import { isDebuggable } from "./languages";
-import { languageFromPath } from "../editor/languages";
-import type { DebugSession } from "./useDebugger";
-
-/** Exact line correspondence; duplicate source occurrences remain ambiguous. */
-export function generatedLineMap(file: OutputFile, docPath: string, source: string): Map<number, number> {
-  const result = new Map<number, number>(), provenance = provToChars(file);
-  let at = 0;
-  file.content.split("\n").forEach((text,line) => {
-    const position = sourcePositionAt(at, provenance, docPath, source);
-    if (position) result.set(line, position.line);
-    at += text.length + 1;
-  });
-  return result;
-}
-</storycode:copy>
-<a id="f-16d8467a71c2-GeneratedDebugTools"></a>
-### `GeneratedDebugTools`
-
-<storycode:copy id="f-16d8467a71c2-GeneratedDebugTools">
-export function GeneratedDebugTools({view,file,debug,docPath,source,askText}: {
-  view: EditorView | null; file: OutputFile; debug: DebugSession; docPath: string; source: string;
-  askText: (title:string,initial:string)=>Promise<string|null>;
-}) {
-  const tools = useMemo(()=>new Compartment(),[]);
-  const mapping = useMemo(()=>generatedLineMap(file,docPath,source),[file,docPath,source]);
-  const outputLine = (line:number|null) => {
-    const candidates = [...mapping].filter(([,sourceLine])=>sourceLine===line);
-    return candidates.length===1 ? candidates[0][0] : null;
-  };
-  const current = useRef({debug,mapping,file}); current.current={debug,mapping,file};
-  useEffect(()=> {
-    if (!view || !isDebuggable(languageFromPath(file.path))) return;
-    const sourceLine = (line:number) => view.state.doc.toString()===current.current.file.content ? current.current.mapping.get(line) : undefined;
-    const extensions = debugEditor({language:languageFromPath(file.path),lineNumbers:false,
-      onToggleBreakpoint:line=>{const at=sourceLine(line);if(at!==undefined)current.current.debug.toggleBreakpoint(at);},
-      onSetBreakpointCondition:(line,patch)=>{const at=sourceLine(line);if(at!==undefined)current.current.debug.setBreakpointCondition(at,patch);},
-      onSelectFrame:id=>current.current.debug.selectFrame(id),
-      evaluationOwner: () => inlineEvaluationOwner(current.current.debug),
-      onEvaluate:expression=>current.current.debug.query(expression),onAddWatch:expression=>current.current.debug.addWatch(expression),
-    });
-    view.dispatch({effects:tools.get(view.state)===undefined?StateEffect.appendConfig.of(tools.of(extensions)):tools.reconfigure(extensions)});
-    return ()=>{if(view.dom.isConnected)view.dispatch({effects:tools.reconfigure([])});};
-  },[view,file.path,tools]);
-  const activeHere = debug.program === file.path;
-  const pausedLine = activeHere ? outputLine(debug.frames.find(frame=>frame.id===debug.selectedFrame)?.line ?? debug.pausedLine) : null;
-  useEffect(()=> {
-    if (!view || !isDebuggable(languageFromPath(file.path))) return;
-    const exact = view.state.doc.toString()===file.content;
-    view.dispatch({effects:debugStateEffects({...debug,pausedLine:exact?pausedLine:null,
-      breakpoints:debug.breakpoints.flatMap(bp=>{const line=outputLine(bp.line);return line===null?[]:[{...bp,line}];}),
-      frames:activeHere ? debug.frames.map(frame=>({...frame,line:outputLine(frame.line)})) : [],
-      variables:activeHere?debug.variables:[], watches:activeHere?debug.watches:[],
-    })});
-    if(exact && pausedLine!==null)revealLine(view,pausedLine);
-  },[view,file,debug,pausedLine,mapping,activeHere]);
-  if(!isDebuggable(languageFromPath(file.path)))return null;
-  const start=(choose=false)=>{
-    if(view?.state.doc.toString()!==file.content)return;
-    const project=parseHickDoc(source).blocks.some(b=>b.name==="project")?`latest-code:${JSON.stringify([file.path,file.content,source])}`:"new";
-    void launchWithProfiles({uri:`hick:///${docPath.replace(/^\/+/,"")}`,program:file.path,project,expected_document:source,expected_source:file.content},
-      profile=>debug.start(file.path,{},project,profile),{choose,isCurrent:()=>view.state.doc.toString()===file.content});
-  };
-  return <>
-    <DebugLaunchAction view={view} label={`Debug ${file.path}`} onStart={()=>start()} onProfiles={()=>start(true)} disabled={!view || view.state.doc.toString()!==file.content} hint={view?.state.doc.toString()!==file.content?"Waiting for your edits to save before debugging":undefined}/>
-    <DebugStrip {...debug} readingChanged={observationSourceChanged(debug.reading, source)} status={activeHere?debug.status:"idle"} editorView={view} pausedLine={pausedLine} program={file.path}
-      onStep={debug.step} onStart={()=>start()} onStop={debug.stop} onSelectFrame={debug.selectFrame}
-      onJumpHere={()=>{if(view){const line=mapping.get(view.state.doc.lineAt(view.state.selection.main.head).number-1);if(line!==undefined)debug.jumpTo(line);}}}
-      onAddWatch={()=>{void askText("Expression to watch:","").then(expression=>{if(expression)debug.addWatch(expression);});}}
-      onToggleExceptionFilter={debug.toggleExceptionFilter} onRemoveWatch={debug.removeWatch}
-      onInstall={offer=>api.installTool(offer.kind,offer.language).then(()=>undefined)}/>
-  </>;
-}
-</storycode:copy>
-
-### Assemble `apps/web/src/debug/GeneratedDebugTools.tsx`
-
-The selections below preserve the original byte order. Narrative reading order does not change the output.
-
-<storycode:file path="apps/web/src/debug/GeneratedDebugTools.tsx"><storycode:paste select="#f-16d8467a71c2-generatedLineMap"/><storycode:paste select="#f-16d8467a71c2-GeneratedDebugTools"/></storycode:file>
-
 <a id="output-c0a4d45aa387"></a>
 ## `apps/web/src/debug/documentDebugContext.test.ts`
 
@@ -805,7 +699,7 @@ fn generated_code_selection_uses_displayed_bytes_instead_of_the_previous_file_co
 ### Implementation
 
 - [apps/web/src/components/ComparisonTools.tsx](contract.md#output-455afcfce7fd)
-- [apps/web/src/debug/GeneratedDebugTools.tsx](contract.md#output-16d8467a71c2)
+- apps/web/src/debug/GeneratedDebugTools.tsx
 - [apps/web/src/debug/documentDebugContext.ts](contract.md#output-1317c5ba0132)
 - [apps/web/src/editor/generated/hick-lang/hick_lang_bg.wasm](../../../shared/files/apps/web/src/editor/generated/hick-lang/hick_lang_bg.wasm.md)
 - [apps/web/src/elements/patch/Editor.tsx](../../../mechanisms/apps/web/src/elements/patch/Editor.tsx.md#output-dc5641c063e3)
@@ -819,7 +713,7 @@ fn generated_code_selection_uses_displayed_bytes_instead_of_the_previous_file_co
 
 ### Tests and fixtures
 
-- [apps/web/e2e/literate-editor.spec.ts](../../../mechanisms/apps/web/e2e/literate-editor.spec.ts.md#output-648693644a28)
+- apps/web/e2e/literate-editor.spec.ts
 - [apps/web/src/components/ComparisonTools.test.tsx](../../../mechanisms/apps/web/src/components/ComparisonTools.test.tsx.md#output-d1cfc2ed25eb)
 - [apps/web/src/debug/documentDebugContext.test.ts](contract.md#output-c0a4d45aa387)
 - [apps/web/src/debug/useDebugger.test.ts](../../../mechanisms/apps/web/src/debug/useDebugger.ts.md#output-101aa3d58173)

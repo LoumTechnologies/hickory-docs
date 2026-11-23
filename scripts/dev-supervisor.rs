@@ -410,14 +410,12 @@ fn stop_desktop(args: &[String]) -> io::Result<()> {
             }
         }
     }
-    if !Command::new("./scripts/dev.sh")
-        .arg(action)
-        .status()?
-        .success()
-    {
-        return Err(io::Error::other(
-            "Desktop cleanup failed; see dev.sh output",
-        ));
+    if action == "clean" {
+        match std::fs::remove_dir_all(".dev") {
+            Ok(()) => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error),
+        }
     }
     Ok(())
 }

@@ -458,21 +458,21 @@ The selections below preserve the original byte order. Narrative reading order d
 
 ### Implementation
 
-- [apps/web/src/components/OutputEditorPane.tsx](../../../mechanisms/apps/web/src/components/OutputEditorPane.tsx.md#output-2571b0682164)
+- apps/web/src/components/OutputEditorPane.tsx
 - [apps/web/src/components/PlainFilePane.tsx](../../../mechanisms/apps/web/src/components/PlainFilePane.tsx.md#output-2f891a49445f)
 - [apps/web/src/editor/DocumentEditor.tsx](../../../mechanisms/apps/web/src/editor/DocumentEditor.tsx.md#output-aab82870e517)
 - [apps/web/src/editor/wordMotion.ts](contract.md#output-12355592dce2)
-- [apps/web/src/lib/channelWidth.ts](../../../mechanisms/apps/web/src/lib/channelWidth.ts.md#output-1bd88b546d8a)
+- apps/web/src/lib/channelWidth.ts
 - [apps/web/src/lib/ribbonStyle.ts](../../../mechanisms/apps/web/src/lib/ribbonStyle.ts.md#output-5fe1be43bb6f)
-- [apps/web/src/lib/tabStyle.ts](../../../mechanisms/apps/web/src/lib/tabStyle.ts.md#output-0732de414ed2)
+- apps/web/src/lib/tabStyle.ts
 - [apps/web/src/lib/wordMotion.ts](contract.md#output-7812eaa9926e)
-- [apps/web/src/views/SettingsView.tsx](../../../mechanisms/apps/web/src/views/SettingsView.tsx.md#output-38894484eb8f)
+- apps/web/src/views/SettingsView.tsx
 
 ### Tests and fixtures
 
 - [apps/web/src/editor/wordMotion.test.ts](contract.md#output-a5a0660fd481)
 - [apps/web/src/lib/wordMotion.test.ts](contract.md#output-cd81eaa11e7e)
-- [apps/web/src/views/SettingsView.test.tsx](../../../mechanisms/apps/web/src/views/SettingsView.tsx.md#output-5bfac230ae5d)
+- apps/web/src/views/SettingsView.test.tsx
 
 ### Evidence status
 

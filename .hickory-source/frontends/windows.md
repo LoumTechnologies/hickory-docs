@@ -64,6 +64,8 @@ internal sealed record WorkspaceLaunch(string Root, string? File, ushort Port)
         {
             switch (args[index])
             {
+                case "--blank-window" when args.Length == 1:
+                    break;
                 case "--port" when !hasPort && index + 1 < args.Length &&
                     ushort.TryParse(args[index + 1], out port):
                     hasPort = true;

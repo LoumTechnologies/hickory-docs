@@ -1,152 +1,23 @@
-# Installing the desktop app
+# Install Hickory Simple
 
-For someone who wants to open a folder of `.md` documents in a window,
-rather than run `hick` in a terminal. No Rust toolchain, no Node, no clone.
+Pick a package whose name starts with `hickory-simple-` from the
+[releases page](https://github.com/LoumTechnologies/hickory-docs/releases).
+For an Unstable build, follow the rolling release's link to the latest
+successful CI build. The version identifies the build used for the CLI and
+the editor packages. Each package includes a SHA-256 checksum file.
 
-The desktop app includes the `hick` CLI. A CLI-only archive is also available
-for terminals and CI machines that do not need the app. Both use the same engine.
+- **macOS** — Extract the ZIP for Apple Silicon (`macos-arm64`) or Intel
+  (`macos-x64`), then move **Hickory Simple.app** to Applications. In its
+  connection sheet, choose **Open Local Workspace…** and select a folder or file.
+  From a checkout, `just local-install` builds and signs a copy on this Mac.
+- **Linux** — Extract the KDE archive, install your distribution's Qt WebEngine
+  and KDE Frameworks runtime packages, then run `bin/hickory-simple` from the
+  extracted tree.
+- **Windows** — Extract the WinForms archive and run `HickorySimple.exe` from
+  that folder. Keep the workspace host and web files beside it. The app needs
+  the WebView2 Runtime.
 
-## Use hick from a terminal
-
-On Windows, leave **Add hick to my user PATH** checked in the MSI installer.
-On macOS or with a Linux AppImage, open **Settings → Command line → Install
-hick command…**. The command palette also finds **Shell Command: Install hick
-command in PATH…**. Linux packages put `hick` in the normal executable directory.
-
-Open a new terminal after PATH setup:
-
-```sh
-hick                 # open a blank editor window
-hick .               # open this folder
-hick notes.md        # open a document
-hick open ./test     # open a folder whose name is also a CLI command
-hick run notes.md    # execute a document
-hick test notes.md   # test it
-hick up .            # run the headless engine
-hick --help          # list CLI commands
-```
-
-Settings shows the command's location and offers removal for commands it installed.
-An existing `hick` installation is reported rather than overwritten. Keep an
-AppImage in a permanent location before installing its command; moving or deleting
-the app also breaks its command launcher.
-
-## Download
-
-Choose a download on the [stable release page](https://github.com/LoumTechnologies/hickory-docs/releases/latest).
-For CI builds of `master`, follow the latest build link on the
-[Unstable page](https://github.com/LoumTechnologies/hickory-docs/releases/tag/unstable).
-
-| Platform | File |
-|---|---|
-| macOS, Apple Silicon | `hickory-docs-<version>-aarch64-apple-darwin.dmg` |
-| macOS, Intel | `hickory-docs-<version>-x86_64-apple-darwin.dmg` |
-| Linux, x86_64 | `hickory-docs-<version>-x86_64-unknown-linux-gnu.deb` or `.AppImage` |
-| Windows, x86_64 | `hickory-docs-<version>-x86_64-pc-windows-msvc.msi` |
-
-Each has a `.sha256` beside it:
-
-```sh
-sha256sum -c hickory-docs-<version>-<target>.deb.sha256
-```
-
-## Update an installed app
-
-Save your work and close the app before replacing it. Download the next build
-from the channel you installed and verify its SHA-256.
-
-| Installation | How to update |
-|---|---|
-| macOS DMG | Replace the app in Applications. The separately signed Apple Silicon Unstable build checks for updates and asks before installing. |
-| Linux package | Install the new DEB or RPM with your package manager. |
-| Linux AppImage | Replace the file at its existing path so the command launcher keeps working. |
-| Windows MSI | Run the new installer. Unstable MSIs with the same numeric installer version may require uninstalling the previous app first. |
-
-The signed updater setup is documented in
-[Publishing signed Mac updates](../../apps/desktop/RELEASING.md).
-
-## Try a Simple frontend
-
-The Unstable CI release also includes the Simple variants. Update by replacing
-the extracted application or deploying the newer web bundle.
-
-| Platform | Download and use |
-|---|---|
-| Browser | Extract the browser archive and serve it with a matching Hickory workspace API at the same origin. Open `simple.html`. |
-| macOS | Extract the app ZIP, open the app, and connect to a workspace server. |
-| Windows | Extract the archive and run `HickorySimple.exe` beside its host and web files. Microsoft Edge WebView2 is required. |
-| Linux | Extract the KDE tree and run `bin/hickory-simple`. Debian 13 supplies Qt WebEngine and KDE Frameworks 6. |
-| iPhone and iPad simulator | Unzip the app and install it with `xcrun simctl install booted HickorySimpleMobile.app` on an Apple Silicon Mac. Device distribution requires signing and a distribution channel such as TestFlight. |
-| Android | Install the debug APK for testing. An in-place update requires the same signing key. Fresh GitHub runners use different debug keys, so use a disposable emulator or a signed distribution track for recurring device updates. |
-
-## Unsigned downloads
-
-The bundles are **not code-signed**. Nobody has paid Apple or a Windows
-certificate authority for the privilege, and this is a program you download
-from a public releases page rather than an app store.
-
-So the first launch takes an extra step:
-
-- **macOS** — Gatekeeper refuses it: *"Hickory Docs" cannot be opened because
-  the developer cannot be verified*. Right-click the app → **Open** → **Open**,
-  once. Or `xattr -d com.apple.quarantine "/Applications/Hickory Docs.app"`.
-- **Windows** — SmartScreen shows *Windows protected your PC*. **More info** →
-  **Run anyway**.
-- **Linux** — nothing to clear. `sudo dpkg -i hickory-docs-*.deb`, or
-  `chmod +x` the `.AppImage` and run it.
-
-Verifying the `.sha256` is the check that actually means something here: it
-proves you have the bytes the release published. A signature would prove the
-same bytes came from us, which is the part that is missing until there is a
-certificate.
-
-## Markdown file associations
-
-The desktop bundles register Hickory Docs as an editor for `.md` files.
-On macOS, `just local-install` also makes it your default Markdown editor,
-so double-clicking a `.md` file in Finder opens it in Hickory Docs. Confirm
-the switch if macOS asks; reinstalling skips the request if the installed app
-is already your default. If macOS does not confirm the switch, installation
-still completes with a warning. Select a `.md` file in Finder and use
-**Get Info → Open with → Change All…**, choosing `/Applications/Hickory Docs.app`.
-The build, installation, and default-editor diagnostics are saved in
-`.dev/local-install.log` in the checkout (replaced on each run).
-
-For a drag-and-drop `.dmg` installation, choose Hickory Docs in Finder’s
-**Get Info → Open with → Change All…** for a Markdown file. On Windows or
-Linux, choose it in your system’s default-app settings.
-
-## What it opens
-
-The app opens a folder of `.md` documents, including an empty folder. It picks one
-in this order, and says so rather than guessing:
-
-1. `HICKORY_PROJECT_DIR`, or the first command-line argument.
-2. The folder you opened last time, if it still exists.
-3. Otherwise it asks, with a native folder picker.
-
-It takes the same directory lock `hick up` takes, so opening a folder that a
-`hick up` is already watching is refused rather than quietly producing two
-processes writing the same files. Stop the other one, or open a different
-folder.
-
-## Editor intelligence
-
-The window's editor has the same language support your own editor gets from
-`hick-lsp` — hover, definitions, references, completion, and diagnostics from
-the real language servers, mapped onto the document. That runs **inside** the
-app, so the desktop download needs no `hick-lsp` on your `PATH`.
-
-The child language servers are still yours: install `rust-analyzer`,
-`pyright`, or whatever the languages in your documents need, and put them in
-`.hick-lsp.json` if this repository has already chosen particular ones. See
-[editor setup](editor-setup.md) — the same file serves both.
-
-## Uninstalling
-
-- **macOS** — drag `Hickory Docs.app` to the Trash.
-- **Linux** — `sudo apt remove hickory-docs`, or delete the `.AppImage`.
-- **Windows** — Settings → Apps → Hickory Docs → Uninstall.
-
-Your documents are your own files in your own repository; removing the app
-touches none of them.
+The CLI is a separate download. [Install the CLI](install.md) to use
+`hick open PATH` or to run, test and weave documents from a terminal.
+The [frontend guide](../developers/simple-frontends.md) covers development,
+the browser, iOS and Android.

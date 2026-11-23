@@ -1,6 +1,15 @@
 <book:doc xmlns:book="http://www.hickorydocs.com/1.0">
 # Use Hickory on a phone, with desktop tools when connected
 
+## Simple frontend cutover
+
+iOS uses the shared Apple frontend and Android uses the Compose frontend.
+The release workflow packages the iOS simulator build and the Android APK.
+The [frontend contract](../../../frontends/contract.md) records capability
+expectations and the evidence for each platform.
+
+## Earlier release design and evidence
+
 For: a Hickory user reading, editing and reviewing work on iOS or Android, and
 maintainers extending those workflows without complicating the desktop app.
 
@@ -254,39 +263,24 @@ execution and monitoring remain the maintainer's responsibility.
 
 ## Maintained mobile implementation
 
-- [asset-apps-mobile-Cargo.lock](asset-apps-mobile-Cargo.lock.md).
-<book:include file="asset-apps-mobile-Cargo.lock.md" />
-- [asset-apps-mobile-Cargo.toml](asset-apps-mobile-Cargo.toml.md).
-<book:include file="asset-apps-mobile-Cargo.toml.md" />
-- [asset-apps-mobile-core-Cargo.toml](asset-apps-mobile-core-Cargo.toml.md).
-<book:include file="asset-apps-mobile-core-Cargo.toml.md" />
-- [asset-apps-mobile-src-tauri-Cargo.toml](asset-apps-mobile-src-tauri-Cargo.toml.md).
-<book:include file="asset-apps-mobile-src-tauri-Cargo.toml.md" />
-- [asset-apps-mobile-src-tauri-capabilities-default.json](asset-apps-mobile-src-tauri-capabilities-default.json.md).
-<book:include file="asset-apps-mobile-src-tauri-capabilities-default.json.md" />
-- [asset-apps-mobile-src-tauri-tauri.conf.json](asset-apps-mobile-src-tauri-tauri.conf.json.md).
-<book:include file="asset-apps-mobile-src-tauri-tauri.conf.json.md" />
-- [asset-apps-web-mobile.html](asset-apps-web-mobile.html.md).
-<book:include file="asset-apps-web-mobile.html.md" />
-- [asset-apps-web-src-mobile-mobile.css](asset-apps-web-src-mobile-mobile.css.md).
-<book:include file="asset-apps-web-src-mobile-mobile.css.md" />
-- [bridge](bridge.md).
-<book:include file="bridge.md" />
-- [drafts](drafts.md).
-<book:include file="drafts.md" />
+- asset-apps-mobile-Cargo.lock.
+- asset-apps-mobile-Cargo.toml.
+- asset-apps-mobile-core-Cargo.toml.
+- asset-apps-mobile-src-tauri-Cargo.toml.
+- asset-apps-mobile-src-tauri-capabilities-default.json.
+- asset-apps-mobile-src-tauri-tauri.conf.json.
+- asset-apps-web-mobile.html.
+- asset-apps-web-src-mobile-mobile.css.
+- bridge.
+- drafts.
 - [frontend-witnesses](frontend-witnesses.md).
 <book:include file="frontend-witnesses.md" />
-- [host](host.md).
-<book:include file="host.md" />
-- [interface](interface.md).
-<book:include file="interface.md" />
-- [peer-witnesses](peer-witnesses.md).
-<book:include file="peer-witnesses.md" />
-- [peer](peer.md).
-<book:include file="peer.md" />
+- host.
+- interface.
+- peer-witnesses.
+- peer.
 - [room-recovery](room-recovery.md).
 <book:include file="room-recovery.md" />
-- [web-build](web-build.md).
-<book:include file="web-build.md" />
+- web-build.
 
 </book:doc>

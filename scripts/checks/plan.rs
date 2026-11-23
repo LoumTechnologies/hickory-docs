@@ -35,12 +35,16 @@ pub fn steps(root: &Path, head: &str) -> Result<Vec<(String, String)>> {
         );
         add("Generated files", "scripts/check-codegen.sh");
     }
-    if has("web") || has("desktop") {
+    if has("web") {
         add(
             "Web dependencies",
             "npm --prefix apps/web ci --no-audit --no-fund",
         );
         add("Web build", "npm --prefix apps/web run build");
+        add(
+            "Distribution scripts",
+            "bash -n scripts/dist.sh && bash -n scripts/install.sh",
+        );
     }
     if has("web") {
         add(
@@ -59,24 +63,13 @@ pub fn steps(root: &Path, head: &str) -> Result<Vec<(String, String)>> {
     if has("rust") || has("web") {
         add("File lengths", "scripts/check-file-length.sh");
     }
-    if has("desktop") {
-        add(
-            "Desktop formatting",
-            "cd apps/desktop/src-tauri && cargo fmt --all -- --check",
-        );
-        add(
-            "Desktop Clippy",
-            "cd apps/desktop/src-tauri && cargo clippy --all-targets -- -D warnings",
-        );
-        add("Distribution scripts", "bash -n scripts/dist.sh && bash -n scripts/dist-desktop.sh && bash -n scripts/install.sh");
-    }
     if has("dev") {
         add("Development seed", "scripts/check-dev-seed.sh");
     }
     if has("python-agent") {
         add("Python agent", "scripts/check-python-agent.sh");
     }
-    if has("rust") || has("desktop") {
+    if has("rust") {
         let supported = Command::new("sw_vers")
             .arg("-productVersion")
             .output()
@@ -91,14 +84,31 @@ pub fn steps(root: &Path, head: &str) -> Result<Vec<(String, String)>> {
         }
     }
     if has("simple-browser") {
+        if !has("web") {
+            add(
+                "Web dependencies",
+                "npm --prefix apps/web ci --no-audit --no-fund",
+            );
+            add(
+                "Chromium installation",
+                "cd apps/web && npx playwright install chromium",
+            );
+        }
         add("Simple browser parity", "just simple-test browser");
+        add("Simple browser startup", "just test-e2e");
     }
-    if has("simple-apple") {
+    if has("simple-apple") && cfg!(target_os = "macos") {
         add("Simple Apple parity", "just simple-test apple");
         add("Simple iOS build", "just simple-build ios");
     }
     if has("simple-android") {
         add("Simple Android parity", "just simple-test android");
+    }
+    if has("simple-linux") && cfg!(target_os = "linux") {
+        add("Simple KDE build", "just simple-build linux");
+    }
+    if has("simple-windows") && cfg!(windows) {
+        add("Simple WinForms parity", "just simple-test windows");
     }
     Ok(steps)
 }

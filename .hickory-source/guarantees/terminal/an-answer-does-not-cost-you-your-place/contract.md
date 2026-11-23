@@ -32,12 +32,12 @@ Implementation review: not verified. Executed checks and human judgment are reco
 
 ### Implementation
 
-- [apps/web/src/terminal/AttentionCard.tsx](../../../mechanisms/apps/web/src/terminal/AttentionCard.tsx.md#output-da1d3639d06b)
+- apps/web/src/terminal/AttentionCard.tsx
 - [crates/hickory-cli/src/serve/terminal.rs](../../../mechanisms/crates/hickory-cli/src/serve/terminal.rs.md#output-e67fa7430800)
 
 ### Tests and fixtures
 
-- [apps/web/src/terminal/AttentionCard.test.tsx](../../../mechanisms/apps/web/src/terminal/AttentionCard.tsx.md#output-b44600c6bdc4)
+- apps/web/src/terminal/AttentionCard.test.tsx
 
 ### Evidence status
 

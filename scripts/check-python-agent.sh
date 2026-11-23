@@ -8,6 +8,3 @@ uv run --project apps/agent --locked --no-editable python -m unittest discover -
 HICKORY_AGENT_TEST_PYTHON="$PWD/apps/agent/.venv/bin/python" \
   cargo test -p hickory-cli --test python_agent --test serve_python_agent -- --nocapture
 cargo test -p hickory-executor-sandbox agent_process
-
-(cd apps/web && npx playwright install chromium)
-scripts/test-python-agent-ui.sh

@@ -411,12 +411,9 @@ These chapters keep this behavior's larger implementation readable without dupli
 - [`apps/web/src/components/CapturedReferences.test.tsx`](implementation/apps/web/src/components/CapturedReferences.test.tsx.md#output-81bc4ab2895e)
 - [`apps/web/src/components/GithubReviewThreads.test.tsx`](implementation/apps/web/src/components/GithubReviewThreads.test.tsx.md#output-605f0df8137c)
 - [`apps/web/src/components/MathPanel.test.tsx`](implementation/apps/web/src/components/MathPanel.test.tsx.md#output-a7d8fefd10d5)
-- [`apps/web/src/components/MeetingImport.test.tsx`](implementation/apps/web/src/components/MeetingImport.test.tsx.md#output-4adb88414524)
 - [`apps/web/src/components/MergeView.test.tsx`](implementation/apps/web/src/components/MergeView.test.tsx.md#output-8d7ee66b0e18)
 - [`apps/web/src/components/MoreActions.test.tsx`](implementation/apps/web/src/components/MoreActions.test.tsx.md#output-590ab520e87f)
-- [`apps/web/src/components/OutputEditorPane.test.tsx`](implementation/apps/web/src/components/OutputEditorPane.test.tsx.md#output-0c1c6071248d)
 - [`apps/web/src/components/PlainFileActions.test.tsx`](implementation/apps/web/src/components/PlainFileActions.test.tsx.md#output-ce14f95f9a34)
-- [`apps/web/src/components/SnapshotExport.test.tsx`](implementation/apps/web/src/components/SnapshotExport.test.tsx.md#output-b566afcc22ee)
 - [`apps/web/src/components/TableGestureActions.test.tsx`](implementation/apps/web/src/components/TableGestureActions.test.tsx.md#output-e3d9d7d798b0)
 - [`apps/web/src/components/TooltipLayer.test.tsx`](implementation/apps/web/src/components/TooltipLayer.test.tsx.md#output-4920bdec172e)
 - [`apps/web/src/components/UiCheckbox.test.tsx`](implementation/apps/web/src/components/UiCheckbox.test.tsx.md#output-4557771256d8)
@@ -425,7 +422,6 @@ These chapters keep this behavior's larger implementation readable without dupli
 - [`apps/web/src/components/lineageUiActions.test.tsx`](implementation/apps/web/src/components/lineageUiActions.test.tsx.md#output-b841ae76cd46)
 - [`apps/web/src/components/uiConversationActions.test.tsx`](implementation/apps/web/src/components/uiConversationActions.test.tsx.md#output-f7ffa11bc8cc)
 - [`apps/web/src/components/uiDatasetActions.test.tsx`](implementation/apps/web/src/components/uiDatasetActions.test.tsx.md#output-e98fa629eb67)
-- [`apps/web/src/components/uiResultLists.test.tsx`](implementation/apps/web/src/components/uiResultLists.test.tsx.md#output-7b4789da89ae)
 - [`apps/web/src/components/uiTableActions.test.tsx`](implementation/apps/web/src/components/uiTableActions.test.tsx.md#output-75db5720569d)
 - [`apps/web/src/components/useMediaActions.test.tsx`](implementation/apps/web/src/components/useMediaActions.test.tsx.md#output-fb9d2ad5052a)
 - [`apps/web/src/debug/ProviderReading.test.tsx`](implementation/apps/web/src/debug/ProviderReading.test.tsx.md#output-9b03d99a7bfc)
@@ -444,23 +440,14 @@ These chapters keep this behavior's larger implementation readable without dupli
 - [`apps/web/src/embed/EmbeddingFixture.test.tsx`](implementation/apps/web/src/embed/EmbeddingFixture.test.tsx.md#output-8cbb75d36cd7)
 - [`apps/web/src/embed/StaticUiSurface.test.tsx`](implementation/apps/web/src/embed/StaticUiSurface.test.tsx.md#output-b72f7c25d76c)
 - [`apps/web/src/embed/publicationAsset.test.ts`](implementation/apps/web/src/embed/publicationAsset.test.ts.md#output-f80f5c932bce)
-- [`apps/web/src/environments/environmentActions.test.tsx`](implementation/apps/web/src/environments/environmentActions.test.tsx.md#output-562f20f75499)
 - [`apps/web/src/lib/uiActionConnection.test.tsx`](implementation/apps/web/src/lib/uiActionConnection.test.tsx.md#output-2217191ba72c)
 - [`apps/web/src/shell/TreePrompt.controls.test.tsx`](implementation/apps/web/src/shell/TreePrompt.controls.test.tsx.md#output-130fb158c588)
 - [`apps/web/src/shell/treeMenu.clipboard.test.ts`](implementation/apps/web/src/shell/treeMenu.clipboard.test.ts.md#output-249d5b90c8f3)
 - [`apps/web/src/shell/uiDiredActions.test.tsx`](implementation/apps/web/src/shell/uiDiredActions.test.tsx.md#output-e5212391d228)
 - [`apps/web/src/shell/useRibbonActions.test.tsx`](implementation/apps/web/src/shell/useRibbonActions.test.tsx.md#output-2089413b681b)
-- [`apps/web/src/shell/workspaceStatusControls.test.tsx`](implementation/apps/web/src/shell/workspaceStatusControls.test.tsx.md#output-79955af4100c)
-- [`apps/web/src/terminal/uiTerminalActions.test.tsx`](implementation/apps/web/src/terminal/uiTerminalActions.test.tsx.md#output-91310c95ec4c)
-- [`apps/web/src/views/BisectPane.test.tsx`](implementation/apps/web/src/views/BisectPane.test.tsx.md#output-8c59f0b8becf)
 - [`apps/web/src/views/DocumentReading.controls.test.tsx`](implementation/apps/web/src/views/DocumentReading.controls.test.tsx.md#output-c7ae8a3155cc)
-- [`apps/web/src/views/RepresentationActions.test.tsx`](implementation/apps/web/src/views/RepresentationActions.test.tsx.md#output-92d47e8f9d7f)
-- [`apps/web/src/views/RepresentationLibrary.test.tsx`](implementation/apps/web/src/views/RepresentationLibrary.test.tsx.md#output-b21809301432)
-- [`apps/web/src/views/RepresentationVersions.test.tsx`](implementation/apps/web/src/views/RepresentationVersions.test.tsx.md#output-6b2ad7fe6164)
-- [`apps/web/src/views/WelcomePane.controls.test.tsx`](implementation/apps/web/src/views/WelcomePane.controls.test.tsx.md#output-a6400780f2db)
 - [`apps/web/src/views/uiContextProjectionActions.test.tsx`](implementation/apps/web/src/views/uiContextProjectionActions.test.tsx.md#output-75b9b8324e45)
 - [`apps/web/src/views/uiDocumentRunActions.test.tsx`](implementation/apps/web/src/views/uiDocumentRunActions.test.tsx.md#output-14d5d529a63c)
-- [`apps/web/src/views/uiGitHistoryActions.test.tsx`](implementation/apps/web/src/views/uiGitHistoryActions.test.tsx.md#output-a3c9920d0b05)
 - [`crates/hickory-cli/src/serve/ui_actions.rs`](implementation/crates/hickory-cli/src/serve/ui_actions.rs.md#output-f9fb61439562)
 - [`crates/hickory-cli/src/up/state/resolution_tests.rs`](implementation/crates/hickory-cli/src/up/state/resolution_tests.rs.md#output-3b41d39d831f)
 - [`crates/hickory-cli/tests/serve_output_resolution.rs`](implementation/crates/hickory-cli/tests/serve_output_resolution.rs.md#output-074b9e71856c)
@@ -473,12 +460,9 @@ These chapters keep this behavior's larger implementation readable without dupli
 <storycode:include file="implementation/apps/web/src/components/CapturedReferences.test.tsx.md" />
 <storycode:include file="implementation/apps/web/src/components/GithubReviewThreads.test.tsx.md" />
 <storycode:include file="implementation/apps/web/src/components/MathPanel.test.tsx.md" />
-<storycode:include file="implementation/apps/web/src/components/MeetingImport.test.tsx.md" />
 <storycode:include file="implementation/apps/web/src/components/MergeView.test.tsx.md" />
 <storycode:include file="implementation/apps/web/src/components/MoreActions.test.tsx.md" />
-<storycode:include file="implementation/apps/web/src/components/OutputEditorPane.test.tsx.md" />
 <storycode:include file="implementation/apps/web/src/components/PlainFileActions.test.tsx.md" />
-<storycode:include file="implementation/apps/web/src/components/SnapshotExport.test.tsx.md" />
 <storycode:include file="implementation/apps/web/src/components/TableGestureActions.test.tsx.md" />
 <storycode:include file="implementation/apps/web/src/components/TooltipLayer.test.tsx.md" />
 <storycode:include file="implementation/apps/web/src/components/UiCheckbox.test.tsx.md" />
@@ -487,7 +471,6 @@ These chapters keep this behavior's larger implementation readable without dupli
 <storycode:include file="implementation/apps/web/src/components/lineageUiActions.test.tsx.md" />
 <storycode:include file="implementation/apps/web/src/components/uiConversationActions.test.tsx.md" />
 <storycode:include file="implementation/apps/web/src/components/uiDatasetActions.test.tsx.md" />
-<storycode:include file="implementation/apps/web/src/components/uiResultLists.test.tsx.md" />
 <storycode:include file="implementation/apps/web/src/components/uiTableActions.test.tsx.md" />
 <storycode:include file="implementation/apps/web/src/components/useMediaActions.test.tsx.md" />
 <storycode:include file="implementation/apps/web/src/debug/ProviderReading.test.tsx.md" />
@@ -506,23 +489,14 @@ These chapters keep this behavior's larger implementation readable without dupli
 <storycode:include file="implementation/apps/web/src/embed/EmbeddingFixture.test.tsx.md" />
 <storycode:include file="implementation/apps/web/src/embed/StaticUiSurface.test.tsx.md" />
 <storycode:include file="implementation/apps/web/src/embed/publicationAsset.test.ts.md" />
-<storycode:include file="implementation/apps/web/src/environments/environmentActions.test.tsx.md" />
 <storycode:include file="implementation/apps/web/src/lib/uiActionConnection.test.tsx.md" />
 <storycode:include file="implementation/apps/web/src/shell/TreePrompt.controls.test.tsx.md" />
 <storycode:include file="implementation/apps/web/src/shell/treeMenu.clipboard.test.ts.md" />
 <storycode:include file="implementation/apps/web/src/shell/uiDiredActions.test.tsx.md" />
 <storycode:include file="implementation/apps/web/src/shell/useRibbonActions.test.tsx.md" />
-<storycode:include file="implementation/apps/web/src/shell/workspaceStatusControls.test.tsx.md" />
-<storycode:include file="implementation/apps/web/src/terminal/uiTerminalActions.test.tsx.md" />
-<storycode:include file="implementation/apps/web/src/views/BisectPane.test.tsx.md" />
 <storycode:include file="implementation/apps/web/src/views/DocumentReading.controls.test.tsx.md" />
-<storycode:include file="implementation/apps/web/src/views/RepresentationActions.test.tsx.md" />
-<storycode:include file="implementation/apps/web/src/views/RepresentationLibrary.test.tsx.md" />
-<storycode:include file="implementation/apps/web/src/views/RepresentationVersions.test.tsx.md" />
-<storycode:include file="implementation/apps/web/src/views/WelcomePane.controls.test.tsx.md" />
 <storycode:include file="implementation/apps/web/src/views/uiContextProjectionActions.test.tsx.md" />
 <storycode:include file="implementation/apps/web/src/views/uiDocumentRunActions.test.tsx.md" />
-<storycode:include file="implementation/apps/web/src/views/uiGitHistoryActions.test.tsx.md" />
 <storycode:include file="implementation/crates/hickory-cli/src/serve/ui_actions.rs.md" />
 <storycode:include file="implementation/crates/hickory-cli/src/up/state/resolution_tests.rs.md" />
 <storycode:include file="implementation/crates/hickory-cli/tests/serve_output_resolution.rs.md" />
@@ -533,15 +507,15 @@ These chapters keep this behavior's larger implementation readable without dupli
 
 ### Implementation
 
-- [apps/desktop/src-tauri/src/lib.rs](../../../mechanisms/apps/desktop/src-tauri/src/lib.rs.md#output-42caba993099)
-- [apps/desktop/src-tauri/src/server.rs](../../../mechanisms/apps/desktop/src-tauri/src/server.rs.md#output-821f8d0a36be)
+- apps/desktop/src-tauri/src/lib.rs
+- apps/desktop/src-tauri/src/server.rs
 - [apps/web/src/components/MoreActions.tsx](../../editor-intelligence/actions-belong-to-their-subject/contract.md#output-63699185668b)
 - [apps/web/src/components/PrivatePredictionCoach.tsx](../../../mechanisms/apps/web/src/components/PrivatePredictionCoach.tsx.md#output-f32ded7fd60b)
 - [apps/web/src/components/TooltipLayer.tsx](../../../mechanisms/apps/web/src/components/TooltipLayer.tsx.md#output-7e5de871748f)
 - [apps/web/src/components/UiCheckbox.tsx](implementation/apps/web/src/components/UiCheckbox.tsx.md#output-01e1dcea4a76)
 - [apps/web/src/editor/CardRail.tsx](../../../mechanisms/apps/web/src/editor/CardRail.tsx.md#output-f6019c4774f8)
-- [apps/web/src/environments/EnvironmentPanel.tsx](../../../mechanisms/apps/web/src/environments/EnvironmentPanel.tsx.md#output-a428d5761b36)
-- [apps/web/src/environments/useEnvironments.ts](../../../mechanisms/apps/web/src/environments/useEnvironments.ts.md#output-fc03d5c53bd5)
+- apps/web/src/environments/EnvironmentPanel.tsx
+- apps/web/src/environments/useEnvironments.ts
 - [apps/web/src/lib/nativeWindowActions.ts](../../../mechanisms/apps/web/src/lib/nativeWindowActions.ts.md#output-14de373a5fd7)
 - [apps/web/src/lib/tooltip.ts](../../../mechanisms/apps/web/src/lib/tooltip.ts.md#output-d5b928a2f7eb)
 - [apps/web/src/lib/uiActionBridge.tsx](../../../mechanisms/apps/web/src/lib/uiActionBridge.tsx.md#output-5571d9f178fc)
@@ -570,24 +544,24 @@ These chapters keep this behavior's larger implementation readable without dupli
 - [apps/web/src/components/ChatDock.test.tsx](../../../mechanisms/apps/web/src/components/ChatDock.tsx.md#output-e7bd6d898a44)
 - [apps/web/src/components/ComparisonEditor.test.tsx](../../../mechanisms/apps/web/src/components/ComparisonEditor.test.tsx.md#output-3e23ac42e4a1)
 - [apps/web/src/components/ComparisonTools.test.tsx](../../../mechanisms/apps/web/src/components/ComparisonTools.test.tsx.md#output-d1cfc2ed25eb)
-- [apps/web/src/components/DivergedBanner.test.tsx](../../../mechanisms/apps/web/src/components/DivergedBanner.test.tsx.md#output-c3c47782ddb8)
+- apps/web/src/components/DivergedBanner.test.tsx
 - [apps/web/src/components/FeatureSettings.test.tsx](../../../mechanisms/apps/web/src/components/FeatureSettings.test.tsx.md#output-637fcce1408f)
 - [apps/web/src/components/FormulaDebugger.test.tsx](../../../mechanisms/apps/web/src/components/FormulaDebugger.tsx.md#output-1acac206a244)
 - [apps/web/src/components/GithubReviewThreads.test.tsx](implementation/apps/web/src/components/GithubReviewThreads.test.tsx.md#output-605f0df8137c)
-- [apps/web/src/components/InsertMenu.test.tsx](../../../mechanisms/apps/web/src/components/InsertMenu.tsx.md#output-d0524ef3ebdd)
+- apps/web/src/components/InsertMenu.test.tsx
 - [apps/web/src/components/MathPanel.test.tsx](implementation/apps/web/src/components/MathPanel.test.tsx.md#output-a7d8fefd10d5)
-- [apps/web/src/components/MeetingImport.test.tsx](implementation/apps/web/src/components/MeetingImport.test.tsx.md#output-4adb88414524)
-- [apps/web/src/components/MeetingRecording.test.tsx](../../../mechanisms/apps/web/src/components/MeetingRecording.tsx.md#output-eda62f7ee0d9)
-- [apps/web/src/components/MergeDriverNotice.test.tsx](../../../mechanisms/apps/web/src/components/MergeDriverNotice.tsx.md#output-38c5ddfe6997)
+- apps/web/src/components/MeetingImport.test.tsx
+- apps/web/src/components/MeetingRecording.test.tsx
+- apps/web/src/components/MergeDriverNotice.test.tsx
 - [apps/web/src/components/MergeView.test.tsx](implementation/apps/web/src/components/MergeView.test.tsx.md#output-8d7ee66b0e18)
 - [apps/web/src/components/MoreActions.test.tsx](implementation/apps/web/src/components/MoreActions.test.tsx.md#output-590ab520e87f)
-- [apps/web/src/components/OutputEditorPane.test.tsx](implementation/apps/web/src/components/OutputEditorPane.test.tsx.md#output-0c1c6071248d)
+- apps/web/src/components/OutputEditorPane.test.tsx
 - [apps/web/src/components/PlainFileActions.test.tsx](implementation/apps/web/src/components/PlainFileActions.test.tsx.md#output-ce14f95f9a34)
 - [apps/web/src/components/PlainFilePane.test.tsx](../../../mechanisms/apps/web/src/components/PlainFilePane.tsx.md#output-d923b2fdae48)
 - [apps/web/src/components/PrivatePredictionCoach.test.tsx](../../../mechanisms/apps/web/src/components/PrivatePredictionCoach.tsx.md#output-4b3612758c98)
 - [apps/web/src/components/PromptPanel.test.tsx](../../../mechanisms/apps/web/src/components/PromptPanel.test.tsx.md#output-6e5d4425a8d2)
 - [apps/web/src/components/ReviewPanel.test.tsx](../../../mechanisms/apps/web/src/components/ReviewPanel.tsx.md#output-d6bd48d3bc5c)
-- [apps/web/src/components/SnapshotExport.test.tsx](implementation/apps/web/src/components/SnapshotExport.test.tsx.md#output-b566afcc22ee)
+- apps/web/src/components/SnapshotExport.test.tsx
 - [apps/web/src/components/TableGestureActions.test.tsx](implementation/apps/web/src/components/TableGestureActions.test.tsx.md#output-e3d9d7d798b0)
 - [apps/web/src/components/TooltipLayer.test.tsx](implementation/apps/web/src/components/TooltipLayer.test.tsx.md#output-4920bdec172e)
 - [apps/web/src/components/UiCheckbox.test.tsx](implementation/apps/web/src/components/UiCheckbox.test.tsx.md#output-4557771256d8)
@@ -595,7 +569,7 @@ These chapters keep this behavior's larger implementation readable without dupli
 - [apps/web/src/components/lineageUiActions.test.tsx](implementation/apps/web/src/components/lineageUiActions.test.tsx.md#output-b841ae76cd46)
 - [apps/web/src/components/uiConversationActions.test.tsx](implementation/apps/web/src/components/uiConversationActions.test.tsx.md#output-f7ffa11bc8cc)
 - [apps/web/src/components/uiDatasetActions.test.tsx](implementation/apps/web/src/components/uiDatasetActions.test.tsx.md#output-e98fa629eb67)
-- [apps/web/src/components/uiResultLists.test.tsx](implementation/apps/web/src/components/uiResultLists.test.tsx.md#output-7b4789da89ae)
+- apps/web/src/components/uiResultLists.test.tsx
 - [apps/web/src/components/uiTableActions.test.tsx](implementation/apps/web/src/components/uiTableActions.test.tsx.md#output-75db5720569d)
 - [apps/web/src/components/useMediaActions.test.tsx](implementation/apps/web/src/components/useMediaActions.test.tsx.md#output-fb9d2ad5052a)
 - [apps/web/src/debug/DebugStrip.test.tsx](../../../mechanisms/apps/web/src/debug/DebugStrip.tsx.md#output-1063c352c210)
@@ -604,7 +578,7 @@ These chapters keep this behavior's larger implementation readable without dupli
 - [apps/web/src/debug/runtimeHistory.test.tsx](../../../mechanisms/apps/web/src/debug/runtimeHistory.ts.md#output-b01fe4e29028)
 - [apps/web/src/debug/uiDebugActions.test.tsx](implementation/apps/web/src/debug/uiDebugActions.test.tsx.md#output-4e4cda819949)
 - [apps/web/src/debug/uiRuntimeActions.test.tsx](implementation/apps/web/src/debug/uiRuntimeActions.test.tsx.md#output-1790b7a5242a)
-- [apps/web/src/editor/DocumentEditor.test.tsx](../../../mechanisms/apps/web/src/editor/DocumentEditor.test.tsx.md#output-71bbcfe029bb)
+- apps/web/src/editor/DocumentEditor.test.tsx
 - [apps/web/src/editor/codeActionChoices.test.tsx](implementation/apps/web/src/editor/codeActionChoices.test.tsx.md#output-7d80c08f42fb)
 - [apps/web/src/editor/completionActions.test.tsx](implementation/apps/web/src/editor/completionActions.test.tsx.md#output-d0dde764b787)
 - [apps/web/src/editor/languageAnnotations.test.tsx](implementation/apps/web/src/editor/languageAnnotations.test.tsx.md#output-54c8647e6438)
@@ -619,35 +593,35 @@ These chapters keep this behavior's larger implementation readable without dupli
 - [apps/web/src/embed/EmbeddingFixture.test.tsx](implementation/apps/web/src/embed/EmbeddingFixture.test.tsx.md#output-8cbb75d36cd7)
 - [apps/web/src/embed/StaticUiSurface.test.tsx](implementation/apps/web/src/embed/StaticUiSurface.test.tsx.md#output-b72f7c25d76c)
 - [apps/web/src/embed/publicationAsset.test.ts](implementation/apps/web/src/embed/publicationAsset.test.ts.md#output-f80f5c932bce)
-- [apps/web/src/environments/environmentActions.test.tsx](implementation/apps/web/src/environments/environmentActions.test.tsx.md#output-562f20f75499)
+- apps/web/src/environments/environmentActions.test.tsx
 - [apps/web/src/lib/nativeWindowActions.test.ts](../../../mechanisms/apps/web/src/lib/nativeWindowActions.ts.md#output-fa3030dd95b0)
 - [apps/web/src/lib/uiActionBridge.test.tsx](../../../mechanisms/apps/web/src/lib/uiActionBridge.tsx.md#output-2cc5832c66b7)
 - [apps/web/src/lib/uiActionConnection.test.tsx](implementation/apps/web/src/lib/uiActionConnection.test.tsx.md#output-2217191ba72c)
 - [apps/web/src/lib/uiActions.test.ts](../../../mechanisms/apps/web/src/lib/uiActions.ts.md#output-f5b85cef7913)
-- [apps/web/src/shell/CommandBar.test.tsx](../../../mechanisms/apps/web/src/shell/CommandBar.test.tsx.md#output-f9af94fac1a9)
-- [apps/web/src/shell/GeneratedBufferRecovery.test.tsx](../../../mechanisms/apps/web/src/shell/GeneratedBufferRecovery.tsx.md#output-9cef161ebf1f)
+- apps/web/src/shell/CommandBar.test.tsx
+- apps/web/src/shell/GeneratedBufferRecovery.test.tsx
 - [apps/web/src/shell/TreePrompt.controls.test.tsx](implementation/apps/web/src/shell/TreePrompt.controls.test.tsx.md#output-130fb158c588)
 - [apps/web/src/shell/treeMenu.clipboard.test.ts](implementation/apps/web/src/shell/treeMenu.clipboard.test.ts.md#output-249d5b90c8f3)
 - [apps/web/src/shell/uiDiredActions.test.tsx](implementation/apps/web/src/shell/uiDiredActions.test.tsx.md#output-e5212391d228)
 - [apps/web/src/shell/useRibbonActions.test.tsx](implementation/apps/web/src/shell/useRibbonActions.test.tsx.md#output-2089413b681b)
-- [apps/web/src/shell/workspaceStatusControls.test.tsx](implementation/apps/web/src/shell/workspaceStatusControls.test.tsx.md#output-79955af4100c)
-- [apps/web/src/terminal/uiTerminalActions.test.tsx](implementation/apps/web/src/terminal/uiTerminalActions.test.tsx.md#output-91310c95ec4c)
-- [apps/web/src/views/BisectPane.test.tsx](implementation/apps/web/src/views/BisectPane.test.tsx.md#output-8c59f0b8becf)
-- [apps/web/src/views/CommandPathSettings.test.tsx](../../../mechanisms/apps/web/src/views/CommandPathSettings.tsx.md#output-7f450949f2a8)
+- apps/web/src/shell/workspaceStatusControls.test.tsx
+- apps/web/src/terminal/uiTerminalActions.test.tsx
+- apps/web/src/views/BisectPane.test.tsx
+- apps/web/src/views/CommandPathSettings.test.tsx
 - [apps/web/src/views/DocumentReading.controls.test.tsx](implementation/apps/web/src/views/DocumentReading.controls.test.tsx.md#output-c7ae8a3155cc)
-- [apps/web/src/views/GitPane.test.tsx](../../../mechanisms/apps/web/src/views/GitPane.tsx.md#output-0e5613784fdf)
-- [apps/web/src/views/HistoryLens.test.tsx](../../../mechanisms/apps/web/src/views/HistoryLens.tsx.md#output-8206e3ef4d86)
-- [apps/web/src/views/RepresentationActions.test.tsx](implementation/apps/web/src/views/RepresentationActions.test.tsx.md#output-92d47e8f9d7f)
-- [apps/web/src/views/RepresentationLibrary.test.tsx](implementation/apps/web/src/views/RepresentationLibrary.test.tsx.md#output-b21809301432)
-- [apps/web/src/views/RepresentationPane.test.tsx](../../../mechanisms/apps/web/src/views/RepresentationPane.tsx.md#output-17926fbc73d7)
-- [apps/web/src/views/RepresentationVersions.test.tsx](implementation/apps/web/src/views/RepresentationVersions.test.tsx.md#output-6b2ad7fe6164)
-- [apps/web/src/views/SettingsView.test.tsx](../../../mechanisms/apps/web/src/views/SettingsView.tsx.md#output-5bfac230ae5d)
-- [apps/web/src/views/WelcomePane.controls.test.tsx](implementation/apps/web/src/views/WelcomePane.controls.test.tsx.md#output-a6400780f2db)
+- apps/web/src/views/GitPane.test.tsx
+- apps/web/src/views/HistoryLens.test.tsx
+- apps/web/src/views/RepresentationActions.test.tsx
+- apps/web/src/views/RepresentationLibrary.test.tsx
+- apps/web/src/views/RepresentationPane.test.tsx
+- apps/web/src/views/RepresentationVersions.test.tsx
+- apps/web/src/views/SettingsView.test.tsx
+- apps/web/src/views/WelcomePane.controls.test.tsx
 - [apps/web/src/views/uiContextProjectionActions.test.tsx](implementation/apps/web/src/views/uiContextProjectionActions.test.tsx.md#output-75b9b8324e45)
 - [apps/web/src/views/uiDocumentRunActions.test.tsx](implementation/apps/web/src/views/uiDocumentRunActions.test.tsx.md#output-14d5d529a63c)
-- [apps/web/src/views/uiGitHistoryActions.test.tsx](implementation/apps/web/src/views/uiGitHistoryActions.test.tsx.md#output-a3c9920d0b05)
-- [apps/web/src/views/uiWorkspaceMenuActions.test.tsx](../../../mechanisms/apps/web/src/views/uiWorkspaceMenuActions.ts.md#output-34e80d20ccfb)
-- [apps/web/src/views/workspaceMenuActions.test.ts](../../../mechanisms/apps/web/src/views/workspaceMenuActions.ts.md#output-c4f5a89c7b3e)
+- apps/web/src/views/uiGitHistoryActions.test.tsx
+- apps/web/src/views/uiWorkspaceMenuActions.test.tsx
+- apps/web/src/views/workspaceMenuActions.test.ts
 - [crates/hickory-cli/src/engine/client_prediction_tests.rs](../../../mechanisms/crates/hickory-cli/src/engine/client_prediction_tests.rs.md#output-014c7e3acc59)
 - [crates/hickory-cli/src/up/state/resolution_tests.rs](implementation/crates/hickory-cli/src/up/state/resolution_tests.rs.md#output-3b41d39d831f)
 - [crates/hickory-cli/tests/engineer_tour.rs](../../../mechanisms/crates/hickory-cli/tests/engineer_tour.rs.md#output-ae34e687590d)

@@ -555,7 +555,7 @@ The selections below preserve the original byte order. Narrative reading order d
 
 ### Implementation
 
-- [apps/desktop/src-tauri/src/lib.rs](../../../mechanisms/apps/desktop/src-tauri/src/lib.rs.md#output-42caba993099)
+- apps/desktop/src-tauri/src/lib.rs
 - [apps/web/src/components/MathPanel.tsx](../../../mechanisms/apps/web/src/components/MathPanel.tsx.md#output-79c748e2d9c5)
 - [apps/web/src/editor/CardRail.tsx](../../../mechanisms/apps/web/src/editor/CardRail.tsx.md#output-f6019c4774f8)
 - [apps/web/src/editor/DocumentEditor.tsx](../../../mechanisms/apps/web/src/editor/DocumentEditor.tsx.md#output-aab82870e517)
@@ -570,7 +570,7 @@ The selections below preserve the original byte order. Narrative reading order d
 
 ### Tests and fixtures
 
-- [apps/desktop/src-tauri/tests/insert_menu_matches_catalogue.rs](../../../mechanisms/apps/desktop/src-tauri/tests/insert_menu_matches_catalogue.rs.md#output-ffb5698079c9)
+- apps/desktop/src-tauri/tests/insert_menu_matches_catalogue.rs
 - [apps/web/src/editor/mathRender.test.ts](contract.md#output-554c1bc6d72b)
 - [apps/web/src/lib/math.test.ts](contract.md#output-8cee42215a1b)
 - [crates/hickory-cli/tests/math.rs](contract.md#output-1d7d3ed04488)

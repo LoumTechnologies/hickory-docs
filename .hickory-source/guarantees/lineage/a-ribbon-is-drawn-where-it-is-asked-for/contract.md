@@ -248,13 +248,13 @@ The selections below preserve the original byte order. Narrative reading order d
 - [apps/web/src/shell/Ribbons.tsx](../../../mechanisms/apps/web/src/shell/Ribbons.tsx.md#output-b916e85d3b0b)
 - [apps/web/src/shell/coalesceLinks.ts](../../../mechanisms/apps/web/src/shell/coalesceLinks.ts.md#output-f87ad5795296)
 - [apps/web/src/shell/linkShapes.ts](../../../mechanisms/apps/web/src/shell/linkShapes.ts.md#output-5b6df5b99815)
-- [apps/web/src/views/SettingsView.tsx](../../../mechanisms/apps/web/src/views/SettingsView.tsx.md#output-38894484eb8f)
-- [apps/web/src/views/WorkspaceView.tsx](../../../mechanisms/apps/web/src/views/WorkspaceView.tsx.md#output-47afe3575948)
+- apps/web/src/views/SettingsView.tsx
+- apps/web/src/views/WorkspaceView.tsx
 
 ### Tests and fixtures
 
 - [apps/web/src/lib/ribbonVisibility.test.ts](contract.md#output-f0a28dc54293)
-- [apps/web/src/views/SettingsView.test.tsx](../../../mechanisms/apps/web/src/views/SettingsView.tsx.md#output-5bfac230ae5d)
+- apps/web/src/views/SettingsView.test.tsx
 
 ### Evidence status
 

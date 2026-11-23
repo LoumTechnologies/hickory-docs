@@ -113,8 +113,8 @@ The selections below preserve the original byte order. Narrative reading order d
 
 ### Tests and fixtures
 
-- [apps/web/src/landing/demos/demos.test.tsx](../../../mechanisms/apps/web/src/landing/demos/demos.test.tsx.md#output-e2fe96c33971)
-- [apps/web/src/landing/demos/scripts.test.ts](../../../mechanisms/apps/web/src/landing/demos/scripts.test.ts.md#output-1555db6bf9bb)
+- apps/web/src/landing/demos/demos.test.tsx
+- apps/web/src/landing/demos/scripts.test.ts
 - [apps/web/src/views/StaticSite.test.tsx](contract.md#output-d8866b6fc796)
 
 ### Evidence status

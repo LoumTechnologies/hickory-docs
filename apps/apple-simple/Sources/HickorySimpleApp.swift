@@ -57,6 +57,63 @@ private struct SimpleWindowRoot: View {
 #if os(macOS)
 import AppKit
 import Darwin
+
+final class LocalWorkspaceHost {
+    @MainActor static var launchLocation: URL? = CommandLine.arguments
+        .dropFirst().first.flatMap { $0.hasPrefix("/") ? URL(fileURLWithPath: $0) : nil }
+
+    @MainActor static func takeLaunchLocation() -> URL? {
+        defer { launchLocation = nil }
+        return launchLocation
+    }
+
+    private static var executable: URL? {
+        Bundle.main.executableURL?.deletingLastPathComponent().appendingPathComponent("hickory-simple-host")
+    }
+    static var isAvailable: Bool {
+        executable.map { FileManager.default.isExecutableFile(atPath: $0.path) } ?? false
+    }
+    private let owner = Pipe()
+    private let output = Pipe()
+    private let process = Process()
+
+    init(root: URL) throws {
+        guard Self.isAvailable, let executable = Self.executable,
+              let assets = Bundle.main.resourceURL?.appendingPathComponent("HickoryWeb") else {
+            throw EngineError(message: "This build needs a workspace server. Install the packaged Mac app to open local folders.")
+        }
+        process.executableURL = executable
+        process.arguments = ["--workspace-host", root.path, assets.path, "0"]
+        process.standardInput = owner
+        process.standardOutput = output
+        try process.run()
+    }
+
+    private(set) var origin: String?
+
+    func address() async throws -> String {
+        let reader = output.fileHandleForReading
+        let address = try await Task.detached {
+            // The same host serves KDE and WinForms. Its single startup line
+            // reports the assigned loopback port only after engine attachment.
+            var line = Data()
+            while line.count < 64, let byte = try reader.read(upToCount: 1), !byte.isEmpty {
+                if byte == Data([10]) { break }
+                line.append(byte)
+            }
+            let fields = String(decoding: line, as: UTF8.self).split(separator: " ")
+            guard fields.count == 2, fields[0] == "HICKORY_SIMPLE_PORT",
+                  let port = UInt16(fields[1]), port != 0 else {
+                throw EngineError(message: "Could not start the local workspace. Check that the folder is readable and try again.")
+            }
+            return "http://127.0.0.1:\(port)"
+        }.value
+        origin = address
+        return address
+    }
+
+    deinit { try? owner.fileHandleForWriting.close() }
+}
 @MainActor final class ApplicationDelegate: NSObject, NSApplicationDelegate {
     private var developmentHostEnded = false
     func applicationWillFinishLaunching(_ notification: Notification) {

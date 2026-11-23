@@ -100,7 +100,7 @@ fn effective_runtime(settings: &Settings, state: &LocalState) -> anyhow::Result<
 
 A Python runtime shipped inside this app, located from the running
 executable's own path — the same bytes the app was installed with.
-On macOS that is `Hickory Docs.app/Contents/MacOS/<binary>`, with the
+On macOS that is `Hickory Simple.app/Contents/MacOS/<binary>`, with the
 runtime at `Contents/Resources/python-agent/bin/python`; a bare executable
 looks for `python-agent/` beside it. `None` — the CLI, the tests, a build
 that ships none — means no runtime was bundled and Settings must name one.
@@ -109,7 +109,7 @@ that ships none — means no runtime was bundled and Settings must name one.
 /// A Python runtime shipped inside this app, located from the running
 /// executable's own path — the same bytes the app was installed with.
 ///
-/// On macOS that is `Hickory Docs.app/Contents/MacOS/<binary>`, with the
+/// On macOS that is `Hickory Simple.app/Contents/MacOS/<binary>`, with the
 /// runtime at `Contents/Resources/python-agent/bin/python`; a bare executable
 /// looks for `python-agent/` beside it. `None` — the CLI, the tests, a build
 /// that ships none — means no runtime was bundled and Settings must name one.
@@ -855,8 +855,8 @@ mod tests {
     #[test]
     fn a_runtime_is_found_inside_an_app_bundle_and_beside_a_bare_executable() {
         let root = tempfile::tempdir().unwrap();
-        let bundle = root.path().join("Hickory Docs.app");
-        let exe = bundle.join("Contents/MacOS/hickory-desktop");
+        let bundle = root.path().join("Hickory Simple.app");
+        let exe = bundle.join("Contents/MacOS/hickory-simple-host");
         std::fs::create_dir_all(exe.parent().unwrap()).unwrap();
         let bundled = bundle.join("Contents/Resources/python-agent/bin/python");
         std::fs::create_dir_all(bundled.parent().unwrap()).unwrap();

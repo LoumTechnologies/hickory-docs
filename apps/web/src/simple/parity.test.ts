@@ -1113,7 +1113,7 @@ describe("simple editor capability attachment", () => {
       if (!message || !("method" in message) || !("id" in message)) return;
       if (message.method === "textDocument/semanticTokens/full") { colorRequests++; if (holdColors) return; }
       const result = message.method === "textDocument/semanticTokens/full" ? { data: [0, 0, 3, 0, 0] }
-        : message.method === "textDocument/completion" ? [{ label: "languageValue", insertText: "languageValue" }] : [];
+        : message.method === "hick/completion" ? [{ label: "languageValue", insertText: "languageValue" }] : [];
       queueMicrotask(() => channel.handleFrame(encodeLspFrame({ jsonrpc: "2.0", id: message.id, result })));
     } });
     const client = new LspClient(channel);
@@ -1374,8 +1374,9 @@ describe("simple literate subscription agent", () => {
       const content = screen.container.querySelector<HTMLElement>('[aria-label="conversation/draft.md"]')!;
       const view = EditorView.findFromDOM(content)!;
       act(() => view.dispatch({ selection: { anchor: 3 } }));
-      fireEvent.change(screen.getByLabelText("Provider"), { target: { value: "grok-subscription" } });
-      expect(screen.getByLabelText("Effort").hasAttribute("disabled")).toBe(true);
+      const composer = within(screen.container.querySelector<HTMLElement>(".agent-composer")!);
+      fireEvent.change(composer.getByLabelText("Provider"), { target: { value: "grok-subscription" } });
+      expect(composer.getByLabelText("Effort").hasAttribute("disabled")).toBe(true);
       expect(screen.container.querySelector('[aria-label="conversation/draft.md"]')).toBe(content);
       expect(view.state.selection.main.head).toBe(3); expect(session.prompt).toContain("**Hello**");
       const previous = screen.container.querySelector<HTMLElement>('[aria-label="conversation/old-user.md"]')!;

@@ -1215,7 +1215,7 @@ The selections below preserve the original byte order. Narrative reading order d
 ### Implementation
 
 - [apps/web/src/shell/FolderTreePane.tsx](../../../mechanisms/apps/web/src/shell/FolderTreePane.tsx.md#output-9c0af3061e25)
-- [apps/web/src/views/WorkspaceView.tsx](../../../mechanisms/apps/web/src/views/WorkspaceView.tsx.md#output-47afe3575948)
+- apps/web/src/views/WorkspaceView.tsx
 - [crates/hick-term/src/screen.rs](contract.md#output-ca8d87824737)
 - [crates/hick-term/src/session.rs](../../../mechanisms/crates/hick-term/src/session.rs.md#output-5705d2b8acc0)
 - [crates/hick-term/src/shell_integration.rs](../../../mechanisms/crates/hick-term/src/shell_integration.rs.md#output-3465af886d7a)

@@ -264,16 +264,16 @@ The selections below preserve the original byte order. Narrative reading order d
 
 ### Implementation
 
-- [apps/web/src/App.tsx](../../../mechanisms/apps/web/src/App.tsx.md#output-25cc6f821b46)
+- apps/web/src/App.tsx
 - [apps/web/src/api/client.ts](../../../mechanisms/apps/web/src/api/client.ts.md#output-1e909407d4cd)
-- [apps/web/src/components/NewProjectDialog.tsx](../../../mechanisms/apps/web/src/components/NewProjectDialog.tsx.md#output-65e48889b856)
+- apps/web/src/components/NewProjectDialog.tsx
 - [crates/hick-term/src/session.rs](../../../mechanisms/crates/hick-term/src/session.rs.md#output-5705d2b8acc0)
 - [crates/hickory-cli/src/serve/scaffold.rs](../../../mechanisms/crates/hickory-cli/src/serve/scaffold.rs.md#output-3fd865a33211)
 
 ### Tests and fixtures
 
 - [apps/web/src/api/client.test.ts](contract.md#output-7aab2bc50e5c)
-- [apps/web/src/components/NewProjectDialog.test.tsx](../../../mechanisms/apps/web/src/components/NewProjectDialog.tsx.md#output-065ce188ea68)
+- apps/web/src/components/NewProjectDialog.test.tsx
 - [crates/hickory-cli/src/serve/test_run.rs](../../../mechanisms/crates/hickory-cli/src/serve/test_run.rs.md#output-c99ee9641f1f)
 - [crates/hickory-cli/tests/serve_scaffold.rs](../../../mechanisms/crates/hickory-cli/tests/serve_scaffold.rs.md#output-5a76df8fd4d1)
 

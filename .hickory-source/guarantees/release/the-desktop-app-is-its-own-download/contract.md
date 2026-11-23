@@ -1,6 +1,14 @@
 <storycode:doc xmlns:storycode="http://www.hickorydocs.com/1.0">
 # The Desktop App Is Its Own Download
 
+## Simple frontend cutover
+
+Download a Simple desktop package from the release for the same revision as
+the CLI archive. Both use the same workspace engine. Apply the instructions in
+[Install Hickory Simple](../../../support/files/docs/users/install-desktop.md.md).
+
+## Earlier release design and evidence
+
 For: Maintainers publishing installers and people checking what a download contains.
 
 Given a person who wants a window rather than a terminal, when they go to the
@@ -33,8 +41,8 @@ Implementation review: not verified. Executed checks and human judgment are reco
 
 ### Implementation
 
-- [scripts/build-python-agent-runtime.sh](../../../mechanisms/scripts/build-python-agent-runtime.sh.md#output-5f2e12b18746)
-- [scripts/dist-desktop.sh](../../../mechanisms/scripts/dist-desktop.sh.md#output-928dfd6fa282)
+- scripts/build-python-agent-runtime.sh
+- scripts/dist-desktop.sh
 
 ### Evidence status
 

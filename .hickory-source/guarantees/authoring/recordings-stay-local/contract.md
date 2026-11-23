@@ -805,14 +805,14 @@ The selections below preserve the original byte order. Narrative reading order d
 
 ### Implementation
 
-- [apps/web/src/components/MeetingImport.tsx](../../../mechanisms/apps/web/src/components/MeetingImport.tsx.md#output-c47a539793f2)
-- [apps/web/src/components/MeetingRecording.tsx](../../../mechanisms/apps/web/src/components/MeetingRecording.tsx.md#output-55876f666a66)
+- apps/web/src/components/MeetingImport.tsx
+- apps/web/src/components/MeetingRecording.tsx
 - [crates/hickory-cli/src/serve/meeting_recording.rs](contract.md#output-7a5a5f9a7bf1)
 - [scripts/transcribe-meeting-local.py](contract.md#output-85610eed6823)
 
 ### Tests and fixtures
 
-- [apps/web/src/components/MeetingRecording.test.tsx](../../../mechanisms/apps/web/src/components/MeetingRecording.tsx.md#output-eda62f7ee0d9)
+- apps/web/src/components/MeetingRecording.test.tsx
 
 ### Evidence status
 

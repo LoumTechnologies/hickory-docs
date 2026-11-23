@@ -33,14 +33,14 @@ Implementation review: not verified. Executed checks and human judgment are reco
 ### Implementation
 
 - [apps/web/src/api/types.ts](../../../mechanisms/apps/web/src/api/types.ts.md#output-8a4c3188ff6c)
-- [apps/web/src/views/GitPane.tsx](../../../mechanisms/apps/web/src/views/GitPane.tsx.md#output-f7cd01998027)
+- apps/web/src/views/GitPane.tsx
 - [crates/hickory-cli/src/floor.rs](../../../mechanisms/crates/hickory-cli/src/floor.rs.md#output-e0386b43788a)
 - [crates/hickory-cli/src/serve/git.rs](../../../mechanisms/crates/hickory-cli/src/serve/git.rs.md#output-3794196055eb)
 - [crates/hickory-cli/src/serve/history.rs](../../../mechanisms/crates/hickory-cli/src/serve/history.rs.md#output-be949b7ea526)
 
 ### Tests and fixtures
 
-- [apps/web/src/views/GitPane.test.tsx](../../../mechanisms/apps/web/src/views/GitPane.tsx.md#output-0e5613784fdf)
+- apps/web/src/views/GitPane.test.tsx
 - [crates/hickory-cli/tests/replay_and_floor.rs](../../../mechanisms/crates/hickory-cli/tests/replay_and_floor.rs.md#output-652493fd98fd)
 
 ### Evidence status

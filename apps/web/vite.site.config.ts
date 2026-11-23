@@ -21,8 +21,7 @@ function revision(): string {
 /// Vite names an HTML output after its input, so a `site.html` entry produces
 /// `dist-site/site.html` — and a static host serves `index.html` at `/`, so
 /// the deployed domain would 404 at its own front door. The entry is not
-/// simply *called* `index.html` because that name belongs to the desktop app's
-/// build, which is what `vite dev` and Tauri expect to find.
+/// simply *called* `index.html` because the development server uses that name to open the Simple editor.
 function emitAsIndex(): Plugin {
   return {
     name: "hickory:emit-as-index",

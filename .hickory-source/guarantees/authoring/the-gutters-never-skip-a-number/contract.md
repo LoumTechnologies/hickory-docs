@@ -662,7 +662,7 @@ echo "Seeded. \`just dev\` opens this folder; \`just dev-clean\` removes it."
 
 ### Tests and fixtures
 
-- [apps/web/src/editor/DocumentEditor.test.tsx](../../../mechanisms/apps/web/src/editor/DocumentEditor.test.tsx.md#output-71bbcfe029bb)
+- apps/web/src/editor/DocumentEditor.test.tsx
 - [apps/web/src/editor/cards.test.ts](../../../mechanisms/apps/web/src/editor/cards.ts.md#output-66013e5cdf76)
 - [apps/web/src/lib/cardRail.test.ts](contract.md#output-b0f86d5f9f81)
 - [apps/web/src/styles.test.ts](../../../mechanisms/apps/web/src/styles.test.ts.md#output-9d71c5372ba0)

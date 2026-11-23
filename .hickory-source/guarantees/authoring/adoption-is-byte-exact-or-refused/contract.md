@@ -27,7 +27,7 @@ Implementation review: not verified. Executed checks and human judgment are reco
 ### Implementation
 
 - [apps/web/src/components/PlainFilePane.tsx](../../../mechanisms/apps/web/src/components/PlainFilePane.tsx.md#output-2f891a49445f)
-- [apps/web/src/views/workspaceState.ts](../../../mechanisms/apps/web/src/views/workspaceState.ts.md#output-efd800f9ed5a)
+- apps/web/src/views/workspaceState.ts
 - [crates/hickory-cli/src/adopt.rs](../../../mechanisms/crates/hickory-cli/src/adopt.rs.md#output-b820c141d77c)
 - [crates/hickory-cli/src/lib.rs](../../../mechanisms/crates/hickory-cli/src/lib.rs.md#output-056f6a618871)
 - [crates/hickory-cli/src/main.rs](../../../mechanisms/crates/hickory-cli/src/main.rs.md#output-5607f2721a2d)
@@ -35,7 +35,7 @@ Implementation review: not verified. Executed checks and human judgment are reco
 
 ### Tests and fixtures
 
-- [apps/web/src/views/workspaceState.test.ts](../../../mechanisms/apps/web/src/views/workspaceState.ts.md#output-14d3dbc939ff)
+- apps/web/src/views/workspaceState.test.ts
 - [crates/hickory-cli/tests/serve_files.rs](../../../mechanisms/crates/hickory-cli/tests/serve_files.rs.md#output-44963d50453a)
 
 ### Evidence status

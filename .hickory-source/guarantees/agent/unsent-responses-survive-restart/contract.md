@@ -30,81 +30,6 @@ Implementation review: not verified. Executed checks and human judgment are reco
 
 ## Implementation
 
-<a id="output-4d7fe59844bb"></a>
-## `apps/web/e2e/responseRecovery.spec.ts`
-
-Present and edit the shared engine state. Browser-side revisions, pending requests and local drafts affect which source and UI actions are still valid.
-
-Related contracts: [Unsent responses survive restart](contract.md).
-
-<a id="f-4d7fe59844bb-expression_statement"></a>
-### `expression_statement`
-
-<storycode:copy id="f-4d7fe59844bb-expression_statement">
-// Guarantee: docs/guarantees/agent/unsent-responses-survive-restart.md
-import { expect, test } from "@playwright/test";
-
-test('unsent response survives a fresh browser page and explicit discard removes it', async ({ page, context }) => {
-  test.skip(!process.env.HICKORY_SPATIAL_URL, 'Use just test-response-recovery-ui.');
-  await page.goto(process.env.HICKORY_SPATIAL_URL!);
-  await expect(page.getByRole('tablist', { name: 'Center views' })).toBeVisible();
-  await page.evaluate(() => window.dispatchEvent(new CustomEvent('hickory-menu', { detail: 'show-agent' })));
-  const agent = page.getByRole('region', { name: 'Agent chat' });
-  const response = agent.getByRole('textbox', { name: 'Agent conversation and response' });
-  await response.click(); await response.press('ControlOrMeta+End');
-  await response.pressSequentially('Durable unsent response');
-  // Observe the real server's persisted bytes, independently of the editor.
-  await expect.poll(async () => (await (await page.request.get('/api/workspace/responses?doc=workspace')).json()).state?.drafts.new).toBe('Durable unsent response');
-  const old = await (await page.request.get('/api/workspace/responses?doc=workspace')).json();
-  expect((await page.request.put('/api/workspace/responses?doc=workspace', { data: { scope: 'another workspace', state: old.state } })).status()).toBe(409);
-  const url = page.url();
-  await page.close();
-  const fresh = await context.newPage(); await fresh.goto(url);
-  await fresh.evaluate(() => window.dispatchEvent(new CustomEvent('hickory-menu', { detail: 'show-agent' })));
-  const reopened = fresh.getByRole('region', { name: 'Agent chat' });
-  await expect(reopened.getByRole('textbox', { name: 'Agent conversation and response' })).toContainText('Durable unsent response');
-  await reopened.getByRole('button', { name: 'Discard response', exact: true }).click();
-  await expect.poll(async () => (await (await fresh.request.get('/api/workspace/responses?doc=workspace')).json()).state?.drafts.new).toBe('');
-  await fresh.reload();
-  await fresh.evaluate(() => window.dispatchEvent(new CustomEvent('hickory-menu', { detail: 'show-agent' })));
-  await expect(fresh.getByRole('textbox', { name: 'Agent conversation and response' })).not.toContainText('Durable unsent response');
-  // Recovery never writes its text into document drafts or session evidence.
-  const drafts = await (await fresh.request.get('/api/workspace/drafts')).json();
-  expect(JSON.stringify(drafts)).not.toContain('Durable unsent response');
-  const turns = await (await fresh.request.get('/api/docs/workspace/agent/turns')).json();
-  expect(turns.turns).toHaveLength(0);
-});
-
-</storycode:copy>
-<a id="f-4d7fe59844bb-expression_statement-2"></a>
-### `expression_statement`
-
-<storycode:copy id="f-4d7fe59844bb-expression_statement-2">
-test('existing thread restores when durable storage arrives before turn history', async ({ page }) => {
-  test.skip(!process.env.HICKORY_SPATIAL_URL, 'Use just test-response-recovery-ui.');
-  await page.goto(process.env.HICKORY_SPATIAL_URL!);
-  const stored = await (await page.request.get('/api/workspace/responses?doc=workspace')).json();
-  expect((await page.request.put('/api/workspace/responses?doc=workspace', { data: { scope: stored.scope,
-    state: { version: 1, tip: 'child', drafts: { root: 'Reply to existing thread' } } } })).ok()).toBeTruthy();
-  await page.route('**/api/docs/workspace/agent/turns', async route => {
-    await new Promise(resolve => setTimeout(resolve, 400));
-    const turn = (id: string, parent_id: string | null) => ({ id, parent_id, prompt: id, answer: 'answer', status: 'ok', error: null,
-      created_at: '2026-10-17T00:00:00Z', provider: 'anthropic', model: 'test', usage: null });
-    await route.fulfill({ json: { turns: [turn('root', null), turn('child', 'root')], provider: 'anthropic', model: 'test',
-      totals: { usd: 0, input: 0, output: 0, cache_read: 0, cache_write: 0 } } });
-  });
-  await page.reload();
-  await page.evaluate(() => window.dispatchEvent(new CustomEvent('hickory-menu', { detail: 'show-agent' })));
-  await expect(page.getByRole('textbox', { name: 'Agent conversation and response' })).toContainText('Reply to existing thread');
-});
-</storycode:copy>
-
-### Assemble `apps/web/e2e/responseRecovery.spec.ts`
-
-The selections below preserve the original byte order. Narrative reading order does not change the output.
-
-<storycode:file path="apps/web/e2e/responseRecovery.spec.ts"><storycode:paste select="#f-4d7fe59844bb-expression_statement"/><storycode:paste select="#f-4d7fe59844bb-expression_statement-2"/></storycode:file>
-
 <a id="output-8203da095c26"></a>
 ## `apps/web/src/lib/responseRecovery.test.ts`
 
@@ -1265,21 +1190,21 @@ The selections below preserve the original byte order. Narrative reading order d
 
 ### Implementation
 
-- [apps/desktop/src-tauri/src/folder_session.rs](../../../mechanisms/apps/desktop/src-tauri/src/folder_session.rs.md#output-46ac251403d6)
+- apps/desktop/src-tauri/src/folder_session.rs
 - [apps/web/src/components/ChatDock.tsx](../../../mechanisms/apps/web/src/components/ChatDock.tsx.md#output-57557cac78c8)
 - [apps/web/src/lib/responseRecovery.ts](contract.md#output-9fc35081631a)
 - [apps/web/src/views/WorkspaceChat.tsx](contract.md#output-c910953d9e7f)
-- [apps/web/src/views/useUnsavedLifecycle.ts](../../../mechanisms/apps/web/src/views/useUnsavedLifecycle.ts.md#output-0a84f897aa4c)
+- apps/web/src/views/useUnsavedLifecycle.ts
 - [crates/hickory-cli/src/serve/agent_context.rs](../../../mechanisms/crates/hickory-cli/src/serve/agent_context.rs.md#output-792dad4f8311)
 - [crates/hickory-cli/src/serve/workspace.rs](contract.md#output-e31b18afaad0)
 - [crates/hickory-workspace/src/lib.rs](../../../mechanisms/crates/hickory-workspace/src/lib.rs.md#output-a9e0f815de73)
 
 ### Tests and fixtures
 
-- [apps/web/e2e/responseRecovery.spec.ts](contract.md#output-4d7fe59844bb)
+- apps/web/e2e/responseRecovery.spec.ts
 - [apps/web/src/components/ChatDock.test.tsx](../../../mechanisms/apps/web/src/components/ChatDock.tsx.md#output-e7bd6d898a44)
 - [apps/web/src/lib/responseRecovery.test.ts](contract.md#output-8203da095c26)
-- [apps/web/src/views/WorkspaceChat.test.tsx](../../../mechanisms/apps/web/src/views/WorkspaceChat.test.tsx.md#output-41ee32c19327)
+- apps/web/src/views/WorkspaceChat.test.tsx
 
 ### Evidence status
 

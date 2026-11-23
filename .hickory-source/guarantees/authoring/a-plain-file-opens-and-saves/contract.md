@@ -38,7 +38,7 @@ Implementation review: not verified. Executed checks and human judgment are reco
 - [apps/web/src/components/PlainFilePane.tsx](../../../mechanisms/apps/web/src/components/PlainFilePane.tsx.md#output-2f891a49445f)
 - [apps/web/src/lib/plainFileSave.ts](../../../mechanisms/apps/web/src/lib/plainFileSave.ts.md#output-07b4144df7a0)
 - [apps/web/src/shell/FolderTreePane.tsx](../../../mechanisms/apps/web/src/shell/FolderTreePane.tsx.md#output-9c0af3061e25)
-- [apps/web/src/views/workspaceState.ts](../../../mechanisms/apps/web/src/views/workspaceState.ts.md#output-efd800f9ed5a)
+- apps/web/src/views/workspaceState.ts
 - [crates/hickory-cli/src/serve/mod.rs](../../../mechanisms/crates/hickory-cli/src/serve/mod.rs.md#output-09ea558208cd)
 - [crates/hickory-cli/src/serve/plain_file.rs](../../../mechanisms/crates/hickory-cli/src/serve/plain_file.rs.md#output-128423f88fa6)
 
@@ -46,7 +46,7 @@ Implementation review: not verified. Executed checks and human judgment are reco
 
 - [apps/web/src/lib/plainFileSave.test.ts](../../../mechanisms/apps/web/src/lib/plainFileSave.ts.md#output-94afcad10b27)
 - [apps/web/src/shell/FolderTreePane.test.tsx](../../../mechanisms/apps/web/src/shell/FolderTreePane.tsx.md#output-508e32e299fd)
-- [apps/web/src/views/workspaceState.test.ts](../../../mechanisms/apps/web/src/views/workspaceState.ts.md#output-14d3dbc939ff)
+- apps/web/src/views/workspaceState.test.ts
 
 ### Evidence status
 

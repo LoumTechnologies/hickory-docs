@@ -17,7 +17,7 @@
 name: VM Tests
 
 on:
-  # Manual verification of CLI assets; desktop Unstable publication uses SSH.
+  # Manual verification of CLI release assets.
   workflow_dispatch:
     inputs:
       tag:

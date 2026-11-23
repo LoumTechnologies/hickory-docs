@@ -7,30 +7,12 @@ Present and edit the shared engine state. Browser-side revisions, pending reques
 
 - [`apps/web/e2e/browserEmbedding.spec.ts`](e2e/browserEmbedding.spec.ts.md)
 <storycode:include file="e2e/browserEmbedding.spec.ts.md" />
-- [`apps/web/e2e/literate-editor.spec.ts`](e2e/literate-editor.spec.ts.md)
-<storycode:include file="e2e/literate-editor.spec.ts.md" />
-- [`apps/web/e2e/liveAgentInvestigation.spec.ts`](e2e/liveAgentInvestigation.spec.ts.md)
-<storycode:include file="e2e/liveAgentInvestigation.spec.ts.md" />
-- [`apps/web/e2e/privateCoachLayout.spec.ts`](e2e/privateCoachLayout.spec.ts.md)
-<storycode:include file="e2e/privateCoachLayout.spec.ts.md" />
-- [`apps/web/e2e/privatePredictionCoach.spec.ts`](e2e/privatePredictionCoach.spec.ts.md)
-<storycode:include file="e2e/privatePredictionCoach.spec.ts.md" />
-- [`apps/web/e2e/python-agent.spec.ts`](e2e/python-agent.spec.ts.md)
-<storycode:include file="e2e/python-agent.spec.ts.md" />
-- [`apps/web/e2e/startup.spec.ts`](e2e/startup.spec.ts.md)
-<storycode:include file="e2e/startup.spec.ts.md" />
 - [`apps/web/e2e/staticUiParity.spec.ts`](e2e/staticUiParity.spec.ts.md)
 <storycode:include file="e2e/staticUiParity.spec.ts.md" />
-- [`apps/web/e2e/workflow-polish.spec.ts`](e2e/workflow-polish.spec.ts.md)
-<storycode:include file="e2e/workflow-polish.spec.ts.md" />
-- [`apps/web/e2e/workspace-changesets.spec.ts`](e2e/workspace-changesets.spec.ts.md)
-<storycode:include file="e2e/workspace-changesets.spec.ts.md" />
 - [`apps/web/playwright.config.ts`](playwright.config.ts.md)
 <storycode:include file="playwright.config.ts.md" />
 - [`apps/web/playwright.embed.config.ts`](playwright.embed.config.ts.md)
 <storycode:include file="playwright.embed.config.ts.md" />
-- [`apps/web/src/App.test.tsx`](src/App.tsx.md#output-65ac24c24624)
-- [`apps/web/src/App.tsx`](src/App.tsx.md)
 - [`apps/web/src/analytics/attribution.ts`](src/analytics/attribution.ts.md)
 <storycode:include file="src/analytics/attribution.ts.md" />
 - [`apps/web/src/analytics/events.ts`](src/analytics/events.ts.md)
@@ -45,8 +27,6 @@ Present and edit the shared engine state. Browser-side revisions, pending reques
 <storycode:include file="src/api/client.ts.md" />
 - [`apps/web/src/api/elements.ts`](src/api/elements.ts.md)
 <storycode:include file="src/api/elements.ts.md" />
-- [`apps/web/src/api/environments.ts`](src/api/environments.ts.md)
-<storycode:include file="src/api/environments.ts.md" />
 - [`apps/web/src/api/fleetPairings.ts`](src/api/fleetPairings.ts.md)
 <storycode:include file="src/api/fleetPairings.ts.md" />
 - [`apps/web/src/api/git.ts`](src/api/git.ts.md)
@@ -102,8 +82,6 @@ Present and edit the shared engine state. Browser-side revisions, pending reques
 - [`apps/web/src/components/CellPanel.test.tsx`](src/components/CellPanel.tsx.md#output-85e341faa089)
 - [`apps/web/src/components/CellPanel.tsx`](src/components/CellPanel.tsx.md)
 <storycode:include file="src/components/CellPanel.tsx.md" />
-- [`apps/web/src/components/ChangePreview.test.tsx`](src/components/ChangePreview.test.tsx.md)
-<storycode:include file="src/components/ChangePreview.test.tsx.md" />
 - [`apps/web/src/components/ChangesetDocument.test.tsx`](src/components/ChangesetDocument.test.tsx.md)
 <storycode:include file="src/components/ChangesetDocument.test.tsx.md" />
 - [`apps/web/src/components/ChatDock.test.tsx`](src/components/ChatDock.tsx.md#output-e7bd6d898a44)
@@ -128,8 +106,6 @@ Present and edit the shared engine state. Browser-side revisions, pending reques
 <storycode:include file="src/components/DiagramPanel.tsx.md" />
 - [`apps/web/src/components/DiffView.css`](src/components/DiffView.css.md)
 <storycode:include file="src/components/DiffView.css.md" />
-- [`apps/web/src/components/DivergedBanner.test.tsx`](src/components/DivergedBanner.test.tsx.md)
-<storycode:include file="src/components/DivergedBanner.test.tsx.md" />
 - [`apps/web/src/components/Engaged.tsx`](src/components/Engaged.tsx.md)
 <storycode:include file="src/components/Engaged.tsx.md" />
 - [`apps/web/src/components/EnvCard.tsx`](src/components/EnvCard.tsx.md)
@@ -145,9 +121,6 @@ Present and edit the shared engine state. Browser-side revisions, pending reques
 <storycode:include file="src/components/FormulaDebugger.tsx.md" />
 - [`apps/web/src/components/GithubReviewThreads.tsx`](src/components/GithubReviewThreads.tsx.md)
 <storycode:include file="src/components/GithubReviewThreads.tsx.md" />
-- [`apps/web/src/components/InsertMenu.test.tsx`](src/components/InsertMenu.tsx.md#output-d0524ef3ebdd)
-- [`apps/web/src/components/InsertMenu.tsx`](src/components/InsertMenu.tsx.md)
-<storycode:include file="src/components/InsertMenu.tsx.md" />
 - [`apps/web/src/components/InstallCommand.tsx`](src/components/InstallCommand.tsx.md)
 <storycode:include file="src/components/InstallCommand.tsx.md" />
 - [`apps/web/src/components/LineageSettings.tsx`](src/components/LineageSettings.tsx.md)
@@ -160,28 +133,14 @@ Present and edit the shared engine state. Browser-side revisions, pending reques
 <storycode:include file="src/components/MarkdownTable.tsx.md" />
 - [`apps/web/src/components/MathPanel.tsx`](src/components/MathPanel.tsx.md)
 <storycode:include file="src/components/MathPanel.tsx.md" />
-- [`apps/web/src/components/MeetingImport.tsx`](src/components/MeetingImport.tsx.md)
-<storycode:include file="src/components/MeetingImport.tsx.md" />
-- [`apps/web/src/components/MeetingRecording.test.tsx`](src/components/MeetingRecording.tsx.md#output-eda62f7ee0d9)
-- [`apps/web/src/components/MeetingRecording.tsx`](src/components/MeetingRecording.tsx.md)
-<storycode:include file="src/components/MeetingRecording.tsx.md" />
-- [`apps/web/src/components/MergeDriverNotice.test.tsx`](src/components/MergeDriverNotice.tsx.md#output-38c5ddfe6997)
-- [`apps/web/src/components/MergeDriverNotice.tsx`](src/components/MergeDriverNotice.tsx.md)
-<storycode:include file="src/components/MergeDriverNotice.tsx.md" />
 - [`apps/web/src/components/MergeView.tsx`](src/components/MergeView.tsx.md)
 <storycode:include file="src/components/MergeView.tsx.md" />
 - [`apps/web/src/components/NativeWorkflowTour.test.tsx`](src/components/NativeWorkflowTour.test.tsx.md)
 <storycode:include file="src/components/NativeWorkflowTour.test.tsx.md" />
-- [`apps/web/src/components/NewProjectDialog.test.tsx`](src/components/NewProjectDialog.tsx.md#output-065ce188ea68)
-- [`apps/web/src/components/NewProjectDialog.tsx`](src/components/NewProjectDialog.tsx.md)
-<storycode:include file="src/components/NewProjectDialog.tsx.md" />
-- [`apps/web/src/components/NewProjectFields.tsx`](src/components/NewProjectFields.tsx.md)
-<storycode:include file="src/components/NewProjectFields.tsx.md" />
 - [`apps/web/src/components/Notebook.test.tsx`](src/components/Notebook.test.tsx.md)
 <storycode:include file="src/components/Notebook.test.tsx.md" />
 - [`apps/web/src/components/NotebookOutputs.tsx`](src/components/NotebookOutputs.tsx.md)
 <storycode:include file="src/components/NotebookOutputs.tsx.md" />
-- [`apps/web/src/components/OutputEditorPane.tsx`](src/components/OutputEditorPane.tsx.md)
 - [`apps/web/src/components/OutputTree.tsx`](src/components/OutputTree.tsx.md)
 <storycode:include file="src/components/OutputTree.tsx.md" />
 - [`apps/web/src/components/PlainFileActions.tsx`](src/components/PlainFileActions.tsx.md)
@@ -196,9 +155,6 @@ Present and edit the shared engine state. Browser-side revisions, pending reques
 <storycode:include file="src/components/PromptPanel.test.tsx.md" />
 - [`apps/web/src/components/ReadOnlyTable.tsx`](src/components/ReadOnlyTable.tsx.md)
 <storycode:include file="src/components/ReadOnlyTable.tsx.md" />
-- [`apps/web/src/components/RefactorBadge.test.tsx`](src/components/RefactorBadge.tsx.md#output-3825e5aa0fc1)
-- [`apps/web/src/components/RefactorBadge.tsx`](src/components/RefactorBadge.tsx.md)
-<storycode:include file="src/components/RefactorBadge.tsx.md" />
 - [`apps/web/src/components/ReferencesPanel.tsx`](src/components/ReferencesPanel.tsx.md)
 <storycode:include file="src/components/ReferencesPanel.tsx.md" />
 - [`apps/web/src/components/ReviewPanel.css`](src/components/ReviewPanel.css.md)
@@ -206,15 +162,8 @@ Present and edit the shared engine state. Browser-side revisions, pending reques
 - [`apps/web/src/components/ReviewPanel.test.tsx`](src/components/ReviewPanel.tsx.md#output-d6bd48d3bc5c)
 - [`apps/web/src/components/ReviewPanel.tsx`](src/components/ReviewPanel.tsx.md)
 <storycode:include file="src/components/ReviewPanel.tsx.md" />
-- [`apps/web/src/components/SearchPanel.test.tsx`](src/components/SearchPanel.tsx.md#output-e9f603b09f67)
-- [`apps/web/src/components/SearchPanel.tsx`](src/components/SearchPanel.tsx.md)
-<storycode:include file="src/components/SearchPanel.tsx.md" />
 - [`apps/web/src/components/SessionTurns.tsx`](src/components/SessionTurns.tsx.md)
 <storycode:include file="src/components/SessionTurns.tsx.md" />
-- [`apps/web/src/components/SnapshotExport.tsx`](src/components/SnapshotExport.tsx.md)
-<storycode:include file="src/components/SnapshotExport.tsx.md" />
-- [`apps/web/src/components/StartupNotice.tsx`](src/components/StartupNotice.tsx.md)
-<storycode:include file="src/components/StartupNotice.tsx.md" />
 - [`apps/web/src/components/SurfaceInfo.css`](src/components/SurfaceInfo.css.md)
 <storycode:include file="src/components/SurfaceInfo.css.md" />
 - [`apps/web/src/components/SurfaceInfo.tsx`](src/components/SurfaceInfo.tsx.md)
@@ -243,9 +192,6 @@ Present and edit the shared engine state. Browser-side revisions, pending reques
 <storycode:include file="src/components/UiLink.tsx.md" />
 - [`apps/web/src/components/WorkflowTour.css`](src/components/WorkflowTour.css.md)
 <storycode:include file="src/components/WorkflowTour.css.md" />
-- [`apps/web/src/components/WorktreeRegionEditor.test.tsx`](src/components/WorktreeRegionEditor.tsx.md#output-03a466adc939)
-- [`apps/web/src/components/WorktreeRegionEditor.tsx`](src/components/WorktreeRegionEditor.tsx.md)
-<storycode:include file="src/components/WorktreeRegionEditor.tsx.md" />
 - [`apps/web/src/components/anchoredCoach.css`](src/components/anchoredCoach.css.md)
 <storycode:include file="src/components/anchoredCoach.css.md" />
 - [`apps/web/src/components/graph/GraphEditorPanel.test.tsx`](src/components/graph/GraphEditorPanel.test.tsx.md)
@@ -274,12 +220,8 @@ Present and edit the shared engine state. Browser-side revisions, pending reques
 <storycode:include file="src/components/uiConversationActions.ts.md" />
 - [`apps/web/src/components/useComparisonDraftActions.ts`](src/components/useComparisonDraftActions.ts.md)
 <storycode:include file="src/components/useComparisonDraftActions.ts.md" />
-- [`apps/web/src/components/useDivergenceActions.ts`](src/components/useDivergenceActions.ts.md)
-<storycode:include file="src/components/useDivergenceActions.ts.md" />
 - [`apps/web/src/components/useMediaActions.ts`](src/components/useMediaActions.ts.md)
 <storycode:include file="src/components/useMediaActions.ts.md" />
-- [`apps/web/src/components/useNewProjectActions.ts`](src/components/useNewProjectActions.ts.md)
-<storycode:include file="src/components/useNewProjectActions.ts.md" />
 - [`apps/web/src/components/useTableGestureActions.ts`](src/components/useTableGestureActions.ts.md)
 <storycode:include file="src/components/useTableGestureActions.ts.md" />
 - [`apps/web/src/components/useTableLayout.ts`](src/components/useTableLayout.ts.md)
@@ -303,8 +245,6 @@ Present and edit the shared engine state. Browser-side revisions, pending reques
 - [`apps/web/src/debug/DebugStrip.test.tsx`](src/debug/DebugStrip.tsx.md#output-1063c352c210)
 - [`apps/web/src/debug/DebugStrip.tsx`](src/debug/DebugStrip.tsx.md)
 <storycode:include file="src/debug/DebugStrip.tsx.md" />
-- [`apps/web/src/debug/GeneratedDebugTools.test.tsx`](src/debug/GeneratedDebugTools.test.tsx.md)
-<storycode:include file="src/debug/GeneratedDebugTools.test.tsx.md" />
 - [`apps/web/src/debug/ObservationReading.test.tsx`](src/debug/ObservationReading.test.tsx.md)
 <storycode:include file="src/debug/ObservationReading.test.tsx.md" />
 - [`apps/web/src/debug/ProviderReading.tsx`](src/debug/ProviderReading.tsx.md)
@@ -380,8 +320,6 @@ Present and edit the shared engine state. Browser-side revisions, pending reques
 <storycode:include file="src/debug/useRuntimeLogActions.ts.md" />
 - [`apps/web/src/editor/CardRail.tsx`](src/editor/CardRail.tsx.md)
 <storycode:include file="src/editor/CardRail.tsx.md" />
-- [`apps/web/src/editor/DocumentEditor.test.tsx`](src/editor/DocumentEditor.test.tsx.md)
-<storycode:include file="src/editor/DocumentEditor.test.tsx.md" />
 - [`apps/web/src/editor/DocumentEditor.tsx`](src/editor/DocumentEditor.tsx.md)
 - [`apps/web/src/editor/EditorRuler.test.tsx`](src/editor/EditorRuler.tsx.md#output-a0ab5d3c94e1)
 - [`apps/web/src/editor/EditorRuler.tsx`](src/editor/EditorRuler.tsx.md)
@@ -401,7 +339,6 @@ Present and edit the shared engine state. Browser-side revisions, pending reques
 <storycode:include file="src/editor/comparison.ts.md" />
 - [`apps/web/src/editor/embedded.ts`](src/editor/embedded.ts.md)
 <storycode:include file="src/editor/embedded.ts.md" />
-- [`apps/web/src/editor/folding.test.ts`](src/editor/folding.ts.md#output-92a9cd526370)
 - [`apps/web/src/editor/folding.ts`](src/editor/folding.ts.md)
 <storycode:include file="src/editor/folding.ts.md" />
 - [`apps/web/src/editor/gutterActions.ts`](src/editor/gutterActions.ts.md)
@@ -536,17 +473,6 @@ Present and edit the shared engine state. Browser-side revisions, pending reques
 - [`apps/web/src/embed/uiHostSession.test.tsx`](src/embed/uiHostSession.ts.md#output-5f023c549320)
 - [`apps/web/src/embed/uiHostSession.ts`](src/embed/uiHostSession.ts.md)
 <storycode:include file="src/embed/uiHostSession.ts.md" />
-- [`apps/web/src/environments/EnvironmentPanel.test.tsx`](src/environments/EnvironmentPanel.tsx.md#output-f41d08c2423e)
-- [`apps/web/src/environments/EnvironmentPanel.tsx`](src/environments/EnvironmentPanel.tsx.md)
-<storycode:include file="src/environments/EnvironmentPanel.tsx.md" />
-- [`apps/web/src/environments/WorkspaceProblems.tsx`](src/environments/WorkspaceProblems.tsx.md)
-<storycode:include file="src/environments/WorkspaceProblems.tsx.md" />
-- [`apps/web/src/environments/WorkspaceStatusExtras.tsx`](src/environments/WorkspaceStatusExtras.tsx.md)
-<storycode:include file="src/environments/WorkspaceStatusExtras.tsx.md" />
-- [`apps/web/src/environments/environments.css`](src/environments/environments.css.md)
-<storycode:include file="src/environments/environments.css.md" />
-- [`apps/web/src/environments/useEnvironments.ts`](src/environments/useEnvironments.ts.md)
-<storycode:include file="src/environments/useEnvironments.ts.md" />
 - [`apps/web/src/landing/WorkflowRecording.tsx`](src/landing/WorkflowRecording.tsx.md)
 <storycode:include file="src/landing/WorkflowRecording.tsx.md" />
 - [`apps/web/src/landing/demos/BrowserDebugDemo.tsx`](src/landing/demos/BrowserDebugDemo.tsx.md)
@@ -558,10 +484,6 @@ Present and edit the shared engine state. Browser-side revisions, pending reques
 - [`apps/web/src/landing/demos/browserTsServer.test.ts`](src/landing/demos/browserTsServer.ts.md#output-5b2005bf0cdb)
 - [`apps/web/src/landing/demos/browserTsServer.ts`](src/landing/demos/browserTsServer.ts.md)
 <storycode:include file="src/landing/demos/browserTsServer.ts.md" />
-- [`apps/web/src/landing/demos/demos.test.tsx`](src/landing/demos/demos.test.tsx.md)
-<storycode:include file="src/landing/demos/demos.test.tsx.md" />
-- [`apps/web/src/landing/demos/scripts.test.ts`](src/landing/demos/scripts.test.ts.md)
-<storycode:include file="src/landing/demos/scripts.test.ts.md" />
 - [`apps/web/src/landing/homepage.css`](src/landing/homepage.css.md)
 <storycode:include file="src/landing/homepage.css.md" />
 - [`apps/web/src/landing/interests.ts`](src/landing/interests.ts.md)
@@ -583,9 +505,6 @@ Present and edit the shared engine state. Browser-side revisions, pending reques
 <storycode:include file="src/lib/cardRail.ts.md" />
 - [`apps/web/src/lib/cellRef.test.ts`](src/lib/cellRef.test.ts.md)
 <storycode:include file="src/lib/cellRef.test.ts.md" />
-- [`apps/web/src/lib/channelWidth.test.ts`](src/lib/channelWidth.ts.md#output-dcc0b16347a4)
-- [`apps/web/src/lib/channelWidth.ts`](src/lib/channelWidth.ts.md)
-<storycode:include file="src/lib/channelWidth.ts.md" />
 - [`apps/web/src/lib/coalesceRibbons.test.ts`](src/lib/coalesceRibbons.ts.md#output-b6705bff27f9)
 - [`apps/web/src/lib/coalesceRibbons.ts`](src/lib/coalesceRibbons.ts.md)
 <storycode:include file="src/lib/coalesceRibbons.ts.md" />
@@ -597,17 +516,8 @@ Present and edit the shared engine state. Browser-side revisions, pending reques
 <storycode:include file="src/lib/drafts.test.ts.md" />
 - [`apps/web/src/lib/editorBufferTargets.ts`](src/lib/editorBufferTargets.ts.md)
 <storycode:include file="src/lib/editorBufferTargets.ts.md" />
-- [`apps/web/src/lib/filesParallax.ts`](src/lib/filesParallax.ts.md)
-<storycode:include file="src/lib/filesParallax.ts.md" />
-- [`apps/web/src/lib/filesWindows.ts`](src/lib/filesWindows.ts.md)
-<storycode:include file="src/lib/filesWindows.ts.md" />
-- [`apps/web/src/lib/flashTab.test.ts`](src/lib/flashTab.ts.md#output-6a5410256dea)
-- [`apps/web/src/lib/flashTab.ts`](src/lib/flashTab.ts.md)
-<storycode:include file="src/lib/flashTab.ts.md" />
 - [`apps/web/src/lib/flushSaves.ts`](src/lib/flushSaves.ts.md)
 <storycode:include file="src/lib/flushSaves.ts.md" />
-- [`apps/web/src/lib/focusWhenShown.ts`](src/lib/focusWhenShown.ts.md)
-<storycode:include file="src/lib/focusWhenShown.ts.md" />
 - [`apps/web/src/lib/formulaReferences.test.ts`](src/lib/formulaReferences.test.ts.md)
 <storycode:include file="src/lib/formulaReferences.test.ts.md" />
 - [`apps/web/src/lib/gitGraph.test.ts`](src/lib/gitGraph.ts.md#output-fe23bec10eb0)
@@ -635,20 +545,12 @@ Present and edit the shared engine state. Browser-side revisions, pending reques
 - [`apps/web/src/lib/nativeWindowActions.test.ts`](src/lib/nativeWindowActions.ts.md#output-fa3030dd95b0)
 - [`apps/web/src/lib/nativeWindowActions.ts`](src/lib/nativeWindowActions.ts.md)
 <storycode:include file="src/lib/nativeWindowActions.ts.md" />
-- [`apps/web/src/lib/newDoc.ts`](src/lib/newDoc.ts.md)
-<storycode:include file="src/lib/newDoc.ts.md" />
 - [`apps/web/src/lib/notebookOutput.ts`](src/lib/notebookOutput.ts.md)
 <storycode:include file="src/lib/notebookOutput.ts.md" />
 - [`apps/web/src/lib/offsets.test.ts`](src/lib/offsets.test.ts.md)
 <storycode:include file="src/lib/offsets.test.ts.md" />
-- [`apps/web/src/lib/openPath.test.ts`](src/lib/openPath.ts.md#output-ff605c3f2c75)
-- [`apps/web/src/lib/openPath.ts`](src/lib/openPath.ts.md)
-<storycode:include file="src/lib/openPath.ts.md" />
 - [`apps/web/src/lib/openRepresentation.ts`](src/lib/openRepresentation.ts.md)
 <storycode:include file="src/lib/openRepresentation.ts.md" />
-- [`apps/web/src/lib/outputSave.test.ts`](src/lib/outputSave.ts.md#output-5dd719c6fb43)
-- [`apps/web/src/lib/outputSave.ts`](src/lib/outputSave.ts.md)
-<storycode:include file="src/lib/outputSave.ts.md" />
 - [`apps/web/src/lib/ownedText.ts`](src/lib/ownedText.ts.md)
 <storycode:include file="src/lib/ownedText.ts.md" />
 - [`apps/web/src/lib/paths.test.ts`](src/lib/paths.ts.md#output-16b294833cd3)
@@ -695,9 +597,6 @@ Present and edit the shared engine state. Browser-side revisions, pending reques
 <storycode:include file="src/lib/searchNavigation.ts.md" />
 - [`apps/web/src/lib/spatialSides.ts`](src/lib/spatialSides.ts.md)
 <storycode:include file="src/lib/spatialSides.ts.md" />
-- [`apps/web/src/lib/tabStyle.test.ts`](src/lib/tabStyle.ts.md#output-f293732f35bd)
-- [`apps/web/src/lib/tabStyle.ts`](src/lib/tabStyle.ts.md)
-<storycode:include file="src/lib/tabStyle.ts.md" />
 - [`apps/web/src/lib/tableClipboard.test.ts`](src/lib/tableClipboard.test.ts.md)
 <storycode:include file="src/lib/tableClipboard.test.ts.md" />
 - [`apps/web/src/lib/tableFit.ts`](src/lib/tableFit.ts.md)
@@ -737,38 +636,18 @@ Present and edit the shared engine state. Browser-side revisions, pending reques
 <storycode:include file="src/lib/viewBuffers.ts.md" />
 - [`apps/web/src/lib/visibleElementRect.ts`](src/lib/visibleElementRect.ts.md)
 <storycode:include file="src/lib/visibleElementRect.ts.md" />
-- [`apps/web/src/lib/weave.ts`](src/lib/weave.ts.md)
-<storycode:include file="src/lib/weave.ts.md" />
-- [`apps/web/src/lib/welcomePref.ts`](src/lib/welcomePref.ts.md)
-<storycode:include file="src/lib/welcomePref.ts.md" />
-- [`apps/web/src/lib/windowTitle.test.ts`](src/lib/windowTitle.ts.md#output-b2c3294caa9d)
-- [`apps/web/src/lib/windowTitle.ts`](src/lib/windowTitle.ts.md)
-<storycode:include file="src/lib/windowTitle.ts.md" />
 - [`apps/web/src/lib/workspaceSearch.ts`](src/lib/workspaceSearch.ts.md)
 <storycode:include file="src/lib/workspaceSearch.ts.md" />
 - [`apps/web/src/lib/workspaceTree.ts`](src/lib/workspaceTree.ts.md)
 <storycode:include file="src/lib/workspaceTree.ts.md" />
-- [`apps/web/src/lib/workspaceVisibility.ts`](src/lib/workspaceVisibility.ts.md)
-<storycode:include file="src/lib/workspaceVisibility.ts.md" />
 - [`apps/web/src/lib/zoom.test.ts`](src/lib/zoom.ts.md#output-74a00f76a18a)
 - [`apps/web/src/lib/zoom.ts`](src/lib/zoom.ts.md)
 <storycode:include file="src/lib/zoom.ts.md" />
-- [`apps/web/src/lineage/LinkLayer.tsx`](src/lineage/LinkLayer.tsx.md)
-<storycode:include file="src/lineage/LinkLayer.tsx.md" />
-- [`apps/web/src/lineage/TimeSlider.tsx`](src/lineage/TimeSlider.tsx.md)
-<storycode:include file="src/lineage/TimeSlider.tsx.md" />
 - [`apps/web/src/lineage/bm25.test.ts`](src/lineage/bm25.ts.md#output-b9ae55a3cf10)
 - [`apps/web/src/lineage/bm25.ts`](src/lineage/bm25.ts.md)
 <storycode:include file="src/lineage/bm25.ts.md" />
-- [`apps/web/src/lineage/build.test.ts`](src/lineage/build.test.ts.md)
-<storycode:include file="src/lineage/build.test.ts.md" />
-- [`apps/web/src/lineage/largePreview.test.tsx`](src/lineage/largePreview.test.tsx.md)
-<storycode:include file="src/lineage/largePreview.test.tsx.md" />
 - [`apps/web/src/lineage/model.test.ts`](src/lineage/model.test.ts.md)
 <storycode:include file="src/lineage/model.test.ts.md" />
-- [`apps/web/src/lineage/structure.test.ts`](src/lineage/structure.ts.md#output-cd85845ac6f7)
-- [`apps/web/src/lineage/structure.ts`](src/lineage/structure.ts.md)
-<storycode:include file="src/lineage/structure.ts.md" />
 - [`apps/web/src/lsp/channel.test.ts`](src/lsp/channel.ts.md#output-df96879f2cc3)
 - [`apps/web/src/lsp/channel.ts`](src/lsp/channel.ts.md)
 <storycode:include file="src/lsp/channel.ts.md" />
@@ -801,15 +680,6 @@ Present and edit the shared engine state. Browser-side revisions, pending reques
 <storycode:include file="src/lsp/semanticTokens.ts.md" />
 - [`apps/web/src/lsp/useLsp.test.tsx`](src/lsp/useLsp.test.tsx.md)
 <storycode:include file="src/lsp/useLsp.test.tsx.md" />
-- [`apps/web/src/main.test.tsx`](src/main.test.tsx.md)
-<storycode:include file="src/main.test.tsx.md" />
-- [`apps/web/src/mock/mockApi.test.ts`](src/mock/mockApi.ts.md#output-6ba98f060717)
-- [`apps/web/src/mock/mockApi.ts`](src/mock/mockApi.ts.md)
-<storycode:include file="src/mock/mockApi.ts.md" />
-- [`apps/web/src/mock/mockData.ts`](src/mock/mockData.ts.md)
-<storycode:include file="src/mock/mockData.ts.md" />
-- [`apps/web/src/mock/weave.test.ts`](src/mock/weave.test.ts.md)
-<storycode:include file="src/mock/weave.test.ts.md" />
 - [`apps/web/src/performance/PerformanceTools.tsx`](src/performance/PerformanceTools.tsx.md)
 <storycode:include file="src/performance/PerformanceTools.tsx.md" />
 - [`apps/web/src/performance/selection.ts`](src/performance/selection.ts.md)
@@ -902,16 +772,9 @@ Present and edit the shared engine state. Browser-side revisions, pending reques
 <storycode:include file="src/plugins/languages/zig.ts.md" />
 - [`apps/web/src/router.test.ts`](src/router.test.ts.md)
 <storycode:include file="src/router.test.ts.md" />
-- [`apps/web/src/shell/CommandBar.test.tsx`](src/shell/CommandBar.test.tsx.md)
-<storycode:include file="src/shell/CommandBar.test.tsx.md" />
-- [`apps/web/src/shell/FilesystemTreeEditor.tsx`](src/shell/FilesystemTreeEditor.tsx.md)
-<storycode:include file="src/shell/FilesystemTreeEditor.tsx.md" />
 - [`apps/web/src/shell/FolderTreePane.test.tsx`](src/shell/FolderTreePane.tsx.md#output-508e32e299fd)
 - [`apps/web/src/shell/FolderTreePane.tsx`](src/shell/FolderTreePane.tsx.md)
 <storycode:include file="src/shell/FolderTreePane.tsx.md" />
-- [`apps/web/src/shell/GeneratedBufferRecovery.test.tsx`](src/shell/GeneratedBufferRecovery.tsx.md#output-9cef161ebf1f)
-- [`apps/web/src/shell/GeneratedBufferRecovery.tsx`](src/shell/GeneratedBufferRecovery.tsx.md)
-<storycode:include file="src/shell/GeneratedBufferRecovery.tsx.md" />
 - [`apps/web/src/shell/GithubBodyAndComment.test.tsx`](src/shell/GithubBodyAndComment.tsx.md#output-e42c6eb9a161)
 - [`apps/web/src/shell/GithubBodyAndComment.tsx`](src/shell/GithubBodyAndComment.tsx.md)
 <storycode:include file="src/shell/GithubBodyAndComment.tsx.md" />
@@ -922,13 +785,8 @@ Present and edit the shared engine state. Browser-side revisions, pending reques
 <storycode:include file="src/shell/GithubTreeNodes.tsx.md" />
 - [`apps/web/src/shell/Ribbons.tsx`](src/shell/Ribbons.tsx.md)
 <storycode:include file="src/shell/Ribbons.tsx.md" />
-- [`apps/web/src/shell/ShellView.tsx`](src/shell/ShellView.tsx.md)
-<storycode:include file="src/shell/ShellView.tsx.md" />
 - [`apps/web/src/shell/SpatialFileEdges.tsx`](src/shell/SpatialFileEdges.tsx.md)
 <storycode:include file="src/shell/SpatialFileEdges.tsx.md" />
-- [`apps/web/src/shell/SpatialShellView.test.tsx`](src/shell/SpatialShellView.tsx.md#output-57fb3ab47480)
-- [`apps/web/src/shell/SpatialShellView.tsx`](src/shell/SpatialShellView.tsx.md)
-<storycode:include file="src/shell/SpatialShellView.tsx.md" />
 - [`apps/web/src/shell/TreePrompt.tsx`](src/shell/TreePrompt.tsx.md)
 <storycode:include file="src/shell/TreePrompt.tsx.md" />
 - [`apps/web/src/shell/TreeRenameEditor.tsx`](src/shell/TreeRenameEditor.tsx.md)
@@ -936,14 +794,8 @@ Present and edit the shared engine state. Browser-side revisions, pending reques
 - [`apps/web/src/shell/coalesceLinks.test.ts`](src/shell/coalesceLinks.ts.md#output-2bf5b6b77218)
 - [`apps/web/src/shell/coalesceLinks.ts`](src/shell/coalesceLinks.ts.md)
 <storycode:include file="src/shell/coalesceLinks.ts.md" />
-- [`apps/web/src/shell/dragDrop.test.ts`](src/shell/dragDrop.ts.md#output-98444bdaa6cc)
-- [`apps/web/src/shell/dragDrop.ts`](src/shell/dragDrop.ts.md)
-<storycode:include file="src/shell/dragDrop.ts.md" />
 - [`apps/web/src/shell/layout.test.ts`](src/shell/layout.test.ts.md)
 <storycode:include file="src/shell/layout.test.ts.md" />
-- [`apps/web/src/shell/layouts.test.ts`](src/shell/layouts.ts.md#output-c735d0c864a7)
-- [`apps/web/src/shell/layouts.ts`](src/shell/layouts.ts.md)
-<storycode:include file="src/shell/layouts.ts.md" />
 - [`apps/web/src/shell/linkShapes.test.ts`](src/shell/linkShapes.ts.md#output-04fb400a1dba)
 - [`apps/web/src/shell/linkShapes.ts`](src/shell/linkShapes.ts.md)
 <storycode:include file="src/shell/linkShapes.ts.md" />
@@ -953,17 +805,12 @@ Present and edit the shared engine state. Browser-side revisions, pending reques
 <storycode:include file="src/shell/ribbonMeasurements.ts.md" />
 - [`apps/web/src/shell/ribbonNavigation.ts`](src/shell/ribbonNavigation.ts.md)
 <storycode:include file="src/shell/ribbonNavigation.ts.md" />
-- [`apps/web/src/shell/spatialNavigation.ts`](src/shell/spatialNavigation.ts.md)
-<storycode:include file="src/shell/spatialNavigation.ts.md" />
 - [`apps/web/src/shell/spatialRelations.ts`](src/shell/spatialRelations.ts.md)
 <storycode:include file="src/shell/spatialRelations.ts.md" />
 - [`apps/web/src/shell/spatialTerminals.ts`](src/shell/spatialTerminals.ts.md)
 <storycode:include file="src/shell/spatialTerminals.ts.md" />
 - [`apps/web/src/shell/spatialTiles.ts`](src/shell/spatialTiles.ts.md)
 <storycode:include file="src/shell/spatialTiles.ts.md" />
-- [`apps/web/src/shell/tabStrip.test.ts`](src/shell/tabStrip.ts.md#output-05f3d6e3d23d)
-- [`apps/web/src/shell/tabStrip.ts`](src/shell/tabStrip.ts.md)
-<storycode:include file="src/shell/tabStrip.ts.md" />
 - [`apps/web/src/shell/treeMenu.test.ts`](src/shell/treeMenu.ts.md#output-f48c486ac3c1)
 - [`apps/web/src/shell/treeMenu.ts`](src/shell/treeMenu.ts.md)
 <storycode:include file="src/shell/treeMenu.ts.md" />
@@ -975,42 +822,16 @@ Present and edit the shared engine state. Browser-side revisions, pending reques
 <storycode:include file="src/shell/useRibbonActions.ts.md" />
 - [`apps/web/src/shell/useTreeNavigation.ts`](src/shell/useTreeNavigation.ts.md)
 <storycode:include file="src/shell/useTreeNavigation.ts.md" />
-- [`apps/web/src/shell/views.test.tsx`](src/shell/views.tsx.md#output-003396968e5c)
-- [`apps/web/src/shell/views.tsx`](src/shell/views.tsx.md)
-<storycode:include file="src/shell/views.tsx.md" />
 - [`apps/web/src/shell/workspacePaths.ts`](src/shell/workspacePaths.ts.md)
 <storycode:include file="src/shell/workspacePaths.ts.md" />
 - [`apps/web/src/styles.css`](src/styles.css.md)
 <storycode:include file="src/styles.css.md" />
 - [`apps/web/src/styles.test.ts`](src/styles.test.ts.md)
 <storycode:include file="src/styles.test.ts.md" />
-- [`apps/web/src/terminal/AnchorBar.test.tsx`](src/terminal/AnchorBar.test.tsx.md)
-<storycode:include file="src/terminal/AnchorBar.test.tsx.md" />
-- [`apps/web/src/terminal/AttentionCard.test.tsx`](src/terminal/AttentionCard.tsx.md#output-b44600c6bdc4)
-- [`apps/web/src/terminal/AttentionCard.tsx`](src/terminal/AttentionCard.tsx.md)
-<storycode:include file="src/terminal/AttentionCard.tsx.md" />
-- [`apps/web/src/terminal/terminalChrome.test.tsx`](src/terminal/terminalChrome.test.tsx.md)
-<storycode:include file="src/terminal/terminalChrome.test.tsx.md" />
-- [`apps/web/src/terminal/uiTerminalActions.ts`](src/terminal/uiTerminalActions.ts.md)
-<storycode:include file="src/terminal/uiTerminalActions.ts.md" />
-- [`apps/web/src/terminal/useTerminalChromeActions.ts`](src/terminal/useTerminalChromeActions.ts.md)
-<storycode:include file="src/terminal/useTerminalChromeActions.ts.md" />
-- [`apps/web/src/terminal/useTerminals.test.tsx`](src/terminal/useTerminals.ts.md#output-bcb81aafb218)
-- [`apps/web/src/terminal/useTerminals.ts`](src/terminal/useTerminals.ts.md)
-<storycode:include file="src/terminal/useTerminals.ts.md" />
 - [`apps/web/src/test-setup.ts`](src/test-setup.ts.md)
 <storycode:include file="src/test-setup.ts.md" />
 - [`apps/web/src/tour/browserPrediction.test.ts`](src/tour/browserPrediction.test.ts.md)
 <storycode:include file="src/tour/browserPrediction.test.ts.md" />
-- [`apps/web/src/views/AgentSettings.test.tsx`](src/views/AgentSettings.test.tsx.md)
-<storycode:include file="src/views/AgentSettings.test.tsx.md" />
-- [`apps/web/src/views/BisectPane.tsx`](src/views/BisectPane.tsx.md)
-<storycode:include file="src/views/BisectPane.tsx.md" />
-- [`apps/web/src/views/BlankWelcome.tsx`](src/views/BlankWelcome.tsx.md)
-<storycode:include file="src/views/BlankWelcome.tsx.md" />
-- [`apps/web/src/views/CommandPathSettings.test.tsx`](src/views/CommandPathSettings.tsx.md#output-7f450949f2a8)
-- [`apps/web/src/views/CommandPathSettings.tsx`](src/views/CommandPathSettings.tsx.md)
-<storycode:include file="src/views/CommandPathSettings.tsx.md" />
 - [`apps/web/src/views/ConversationEditor.test.tsx`](src/views/ConversationEditor.tsx.md#output-edc92cd336d7)
 - [`apps/web/src/views/ConversationEditor.tsx`](src/views/ConversationEditor.tsx.md)
 <storycode:include file="src/views/ConversationEditor.tsx.md" />
@@ -1018,132 +839,33 @@ Present and edit the shared engine state. Browser-side revisions, pending reques
 <storycode:include file="src/views/DocumentReading.css.md" />
 - [`apps/web/src/views/DocumentReading.tsx`](src/views/DocumentReading.tsx.md)
 <storycode:include file="src/views/DocumentReading.tsx.md" />
-- [`apps/web/src/views/FleetPane.test.tsx`](src/views/FleetPane.tsx.md#output-ef08e5ce40d1)
-- [`apps/web/src/views/FleetPane.tsx`](src/views/FleetPane.tsx.md)
-<storycode:include file="src/views/FleetPane.tsx.md" />
-- [`apps/web/src/views/GitPane.test.tsx`](src/views/GitPane.tsx.md#output-0e5613784fdf)
-- [`apps/web/src/views/GitPane.tsx`](src/views/GitPane.tsx.md)
-<storycode:include file="src/views/GitPane.tsx.md" />
-- [`apps/web/src/views/HistoryLens.test.tsx`](src/views/HistoryLens.tsx.md#output-8206e3ef4d86)
-- [`apps/web/src/views/HistoryLens.tsx`](src/views/HistoryLens.tsx.md)
-<storycode:include file="src/views/HistoryLens.tsx.md" />
 - [`apps/web/src/views/LandingView.test.tsx`](src/views/LandingView.tsx.md#output-ca24d1670e8c)
 - [`apps/web/src/views/LandingView.tsx`](src/views/LandingView.tsx.md)
 <storycode:include file="src/views/LandingView.tsx.md" />
-- [`apps/web/src/views/LineageView.tsx`](src/views/LineageView.tsx.md)
-<storycode:include file="src/views/LineageView.tsx.md" />
-- [`apps/web/src/views/MergedView.tsx`](src/views/MergedView.tsx.md)
-<storycode:include file="src/views/MergedView.tsx.md" />
-- [`apps/web/src/views/RepresentationActions.tsx`](src/views/RepresentationActions.tsx.md)
-<storycode:include file="src/views/RepresentationActions.tsx.md" />
-- [`apps/web/src/views/RepresentationLibrary.tsx`](src/views/RepresentationLibrary.tsx.md)
-<storycode:include file="src/views/RepresentationLibrary.tsx.md" />
-- [`apps/web/src/views/RepresentationPane.test.tsx`](src/views/RepresentationPane.tsx.md#output-17926fbc73d7)
-- [`apps/web/src/views/RepresentationPane.tsx`](src/views/RepresentationPane.tsx.md)
-<storycode:include file="src/views/RepresentationPane.tsx.md" />
-- [`apps/web/src/views/RepresentationTools.tsx`](src/views/RepresentationTools.tsx.md)
-<storycode:include file="src/views/RepresentationTools.tsx.md" />
-- [`apps/web/src/views/RepresentationVersions.tsx`](src/views/RepresentationVersions.tsx.md)
-<storycode:include file="src/views/RepresentationVersions.tsx.md" />
 - [`apps/web/src/views/SessionLens.test.tsx`](src/views/SessionLens.tsx.md#output-3a59c565f3d4)
 - [`apps/web/src/views/SessionLens.tsx`](src/views/SessionLens.tsx.md)
 <storycode:include file="src/views/SessionLens.tsx.md" />
-- [`apps/web/src/views/SettingsView.test.tsx`](src/views/SettingsView.tsx.md#output-5bfac230ae5d)
-- [`apps/web/src/views/SettingsView.tsx`](src/views/SettingsView.tsx.md)
-<storycode:include file="src/views/SettingsView.tsx.md" />
-- [`apps/web/src/views/WelcomePane.tsx`](src/views/WelcomePane.tsx.md)
-<storycode:include file="src/views/WelcomePane.tsx.md" />
-- [`apps/web/src/views/WorkspaceChat.test.tsx`](src/views/WorkspaceChat.test.tsx.md)
-<storycode:include file="src/views/WorkspaceChat.test.tsx.md" />
-- [`apps/web/src/views/WorkspaceView.tsx`](src/views/WorkspaceView.tsx.md)
-<storycode:include file="src/views/WorkspaceView.tsx.md" />
 - [`apps/web/src/views/contextProjection.css`](src/views/contextProjection.css.md)
 <storycode:include file="src/views/contextProjection.css.md" />
 - [`apps/web/src/views/conversationReading.ts`](src/views/conversationReading.ts.md)
 <storycode:include file="src/views/conversationReading.ts.md" />
-- [`apps/web/src/views/deferredAgent.tsx`](src/views/deferredAgent.tsx.md)
-<storycode:include file="src/views/deferredAgent.tsx.md" />
-- [`apps/web/src/views/documentCommands.test.ts`](src/views/documentCommands.ts.md#output-cff1ed3a5fcb)
-- [`apps/web/src/views/documentCommands.ts`](src/views/documentCommands.ts.md)
-<storycode:include file="src/views/documentCommands.ts.md" />
 - [`apps/web/src/views/documentRunResults.ts`](src/views/documentRunResults.ts.md)
 <storycode:include file="src/views/documentRunResults.ts.md" />
-- [`apps/web/src/views/documentSaveRender.test.tsx`](src/views/documentSaveRender.test.tsx.md)
-<storycode:include file="src/views/documentSaveRender.test.tsx.md" />
 - [`apps/web/src/views/documentSession.test.ts`](src/views/documentSession.tsx.md#output-38c35dc40355)
 - [`apps/web/src/views/documentSession.tsx`](src/views/documentSession.tsx.md)
 <storycode:include file="src/views/documentSession.tsx.md" />
-- [`apps/web/src/views/folderPane.test.tsx`](src/views/folderPane.ts.md#output-c29616a4a7b1)
 - [`apps/web/src/views/folderPane.ts`](src/views/folderPane.ts.md)
 <storycode:include file="src/views/folderPane.ts.md" />
-- [`apps/web/src/views/historyActions.ts`](src/views/historyActions.ts.md)
-<storycode:include file="src/views/historyActions.ts.md" />
-- [`apps/web/src/views/indexedDocumentPath.test.ts`](src/views/indexedDocumentPath.ts.md#output-8e8f891f853a)
-- [`apps/web/src/views/indexedDocumentPath.ts`](src/views/indexedDocumentPath.ts.md)
-<storycode:include file="src/views/indexedDocumentPath.ts.md" />
-- [`apps/web/src/views/readLineageStage.test.ts`](src/views/readLineageStage.ts.md#output-7c84debaead8)
-- [`apps/web/src/views/readLineageStage.ts`](src/views/readLineageStage.ts.md)
-<storycode:include file="src/views/readLineageStage.ts.md" />
-- [`apps/web/src/views/representationTabs.tsx`](src/views/representationTabs.tsx.md)
-<storycode:include file="src/views/representationTabs.tsx.md" />
 - [`apps/web/src/views/runCellFresh.test.ts`](src/views/runCellFresh.ts.md#output-cdf419f278b9)
 - [`apps/web/src/views/runCellFresh.ts`](src/views/runCellFresh.ts.md)
 <storycode:include file="src/views/runCellFresh.ts.md" />
-- [`apps/web/src/views/uiBisectActions.ts`](src/views/uiBisectActions.ts.md)
-<storycode:include file="src/views/uiBisectActions.ts.md" />
 - [`apps/web/src/views/uiContextProjectionActions.ts`](src/views/uiContextProjectionActions.ts.md)
 <storycode:include file="src/views/uiContextProjectionActions.ts.md" />
 - [`apps/web/src/views/uiDocumentRunActions.ts`](src/views/uiDocumentRunActions.ts.md)
 <storycode:include file="src/views/uiDocumentRunActions.ts.md" />
-- [`apps/web/src/views/uiGitHistoryActions.ts`](src/views/uiGitHistoryActions.ts.md)
-<storycode:include file="src/views/uiGitHistoryActions.ts.md" />
-- [`apps/web/src/views/uiGitWorkingActions.ts`](src/views/uiGitWorkingActions.ts.md)
-<storycode:include file="src/views/uiGitWorkingActions.ts.md" />
-- [`apps/web/src/views/uiWorkspaceMenuActions.test.tsx`](src/views/uiWorkspaceMenuActions.ts.md#output-34e80d20ccfb)
-- [`apps/web/src/views/uiWorkspaceMenuActions.ts`](src/views/uiWorkspaceMenuActions.ts.md)
-<storycode:include file="src/views/uiWorkspaceMenuActions.ts.md" />
 - [`apps/web/src/views/useDocumentRender.test.tsx`](src/views/useDocumentRender.ts.md#output-944cca0004b7)
 - [`apps/web/src/views/useDocumentRender.ts`](src/views/useDocumentRender.ts.md)
 <storycode:include file="src/views/useDocumentRender.ts.md" />
-- [`apps/web/src/views/useFleetControls.ts`](src/views/useFleetControls.ts.md)
-<storycode:include file="src/views/useFleetControls.ts.md" />
-- [`apps/web/src/views/useFleetPairingControls.test.tsx`](src/views/useFleetPairingControls.ts.md#output-19c258066692)
-- [`apps/web/src/views/useFleetPairingControls.ts`](src/views/useFleetPairingControls.ts.md)
-<storycode:include file="src/views/useFleetPairingControls.ts.md" />
-- [`apps/web/src/views/useMergedViewControls.test.tsx`](src/views/useMergedViewControls.ts.md#output-724d3488d157)
-- [`apps/web/src/views/useMergedViewControls.ts`](src/views/useMergedViewControls.ts.md)
-<storycode:include file="src/views/useMergedViewControls.ts.md" />
-- [`apps/web/src/views/useNewDocument.ts`](src/views/useNewDocument.ts.md)
-<storycode:include file="src/views/useNewDocument.ts.md" />
-- [`apps/web/src/views/useRecentFiles.test.tsx`](src/views/useRecentFiles.ts.md#output-d8fbfc8aad0c)
-- [`apps/web/src/views/useRecentFiles.ts`](src/views/useRecentFiles.ts.md)
-<storycode:include file="src/views/useRecentFiles.ts.md" />
-- [`apps/web/src/views/useUnsavedLifecycle.test.tsx`](src/views/useUnsavedLifecycle.ts.md#output-18ff98d49ede)
-- [`apps/web/src/views/useUnsavedLifecycle.ts`](src/views/useUnsavedLifecycle.ts.md)
-<storycode:include file="src/views/useUnsavedLifecycle.ts.md" />
-- [`apps/web/src/views/useUntitledSave.test.tsx`](src/views/useUntitledSave.ts.md#output-1a7b240c6588)
-- [`apps/web/src/views/useUntitledSave.ts`](src/views/useUntitledSave.ts.md)
-<storycode:include file="src/views/useUntitledSave.ts.md" />
-- [`apps/web/src/views/useWorkspaceAppearance.test.tsx`](src/views/useWorkspaceAppearance.ts.md#output-3606526b11a4)
-- [`apps/web/src/views/useWorkspaceAppearance.ts`](src/views/useWorkspaceAppearance.ts.md)
-<storycode:include file="src/views/useWorkspaceAppearance.ts.md" />
-- [`apps/web/src/views/useZoom.ts`](src/views/useZoom.ts.md)
-<storycode:include file="src/views/useZoom.ts.md" />
-- [`apps/web/src/views/welcomeActions.ts`](src/views/welcomeActions.ts.md)
-<storycode:include file="src/views/welcomeActions.ts.md" />
-- [`apps/web/src/views/workspaceMenuActions.test.ts`](src/views/workspaceMenuActions.ts.md#output-c4f5a89c7b3e)
-- [`apps/web/src/views/workspaceMenuActions.ts`](src/views/workspaceMenuActions.ts.md)
-<storycode:include file="src/views/workspaceMenuActions.ts.md" />
-- [`apps/web/src/views/workspaceRibbonSources.ts`](src/views/workspaceRibbonSources.ts.md)
-<storycode:include file="src/views/workspaceRibbonSources.ts.md" />
-- [`apps/web/src/views/workspaceState.test.ts`](src/views/workspaceState.ts.md#output-14d3dbc939ff)
-- [`apps/web/src/views/workspaceState.ts`](src/views/workspaceState.ts.md)
-<storycode:include file="src/views/workspaceState.ts.md" />
-- [`apps/web/src/views/workspaceTabs.test.tsx`](src/views/workspaceTabs.tsx.md#output-5370130a675d)
-- [`apps/web/src/views/workspaceTabs.tsx`](src/views/workspaceTabs.tsx.md)
-<storycode:include file="src/views/workspaceTabs.tsx.md" />
-- [`apps/web/src/views/workspaceTreeFiles.ts`](src/views/workspaceTreeFiles.ts.md)
-<storycode:include file="src/views/workspaceTreeFiles.ts.md" />
 - [`apps/web/src/vite-env.d.ts`](src/vite-env.d.ts.md)
 <storycode:include file="src/vite-env.d.ts.md" />
 - [`apps/web/vite.config.ts`](vite.config.ts.md)

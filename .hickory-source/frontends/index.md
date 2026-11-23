@@ -1,5 +1,5 @@
 <ui:doc xmlns:ui="http://www.hickorydocs.com/1.0">
-# Compare the simple editor frontends
+# Build the Simple editor frontends
 
 <ui:include file="contract.md" />
 <ui:include file="linux.md" />

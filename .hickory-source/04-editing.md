@@ -105,7 +105,6 @@ Keep a patch draft editable, but [revalidate downstream construction](guarantees
 before treating it as an applicable change.
 
 <book:include file="mechanisms/apps/web/src/editor/DocumentEditor.tsx.md" />
-<book:include file="mechanisms/apps/web/src/components/OutputEditorPane.tsx.md" />
 
 Run the focused coordinate witnesses from `apps/web`:
 

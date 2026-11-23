@@ -217,25 +217,25 @@ The selections below preserve the original byte order. Narrative reading order d
 
 ### Implementation
 
-- [apps/web/src/lib/outputSave.ts](../../../mechanisms/apps/web/src/lib/outputSave.ts.md#output-ff2a9a5b4231)
+- apps/web/src/lib/outputSave.ts
 - [apps/web/src/lib/plainFileSave.ts](../../../mechanisms/apps/web/src/lib/plainFileSave.ts.md#output-07b4144df7a0)
 - [apps/web/src/lib/viewBuffers.ts](../../../mechanisms/apps/web/src/lib/viewBuffers.ts.md#output-7b9e9d92a497)
-- [apps/web/src/shell/views.tsx](../../../mechanisms/apps/web/src/shell/views.tsx.md#output-68a8fba10658)
-- [apps/web/src/views/RepresentationPane.tsx](../../../mechanisms/apps/web/src/views/RepresentationPane.tsx.md#output-cd66c1c2250e)
+- apps/web/src/shell/views.tsx
+- apps/web/src/views/RepresentationPane.tsx
 - [apps/web/src/views/documentSession.tsx](../../../mechanisms/apps/web/src/views/documentSession.tsx.md#output-bfb59577f48b)
 - [apps/web/src/views/useDocumentPersistence.ts](contract.md#output-ef518e4c83d6)
-- [apps/web/src/views/useUnsavedLifecycle.ts](../../../mechanisms/apps/web/src/views/useUnsavedLifecycle.ts.md#output-0a84f897aa4c)
+- apps/web/src/views/useUnsavedLifecycle.ts
 
 ### Tests and fixtures
 
-- [apps/web/e2e/literate-editor.spec.ts](../../../mechanisms/apps/web/e2e/literate-editor.spec.ts.md#output-648693644a28)
-- [apps/web/src/lib/outputSave.test.ts](../../../mechanisms/apps/web/src/lib/outputSave.ts.md#output-5dd719c6fb43)
+- apps/web/e2e/literate-editor.spec.ts
+- apps/web/src/lib/outputSave.test.ts
 - [apps/web/src/lib/plainFileSave.test.ts](../../../mechanisms/apps/web/src/lib/plainFileSave.ts.md#output-94afcad10b27)
-- [apps/web/src/shell/views.test.tsx](../../../mechanisms/apps/web/src/shell/views.tsx.md#output-003396968e5c)
-- [apps/web/src/views/RepresentationPane.test.tsx](../../../mechanisms/apps/web/src/views/RepresentationPane.tsx.md#output-17926fbc73d7)
+- apps/web/src/shell/views.test.tsx
+- apps/web/src/views/RepresentationPane.test.tsx
 - [apps/web/src/views/useDocumentPersistence.test.tsx](contract.md#output-64b5e8cd78b2)
-- [apps/web/src/views/useUnsavedLifecycle.test.tsx](../../../mechanisms/apps/web/src/views/useUnsavedLifecycle.ts.md#output-18ff98d49ede)
-- [apps/web/src/views/workspaceTabs.test.tsx](../../../mechanisms/apps/web/src/views/workspaceTabs.tsx.md#output-5370130a675d)
+- apps/web/src/views/useUnsavedLifecycle.test.tsx
+- apps/web/src/views/workspaceTabs.test.tsx
 
 ### Evidence status
 

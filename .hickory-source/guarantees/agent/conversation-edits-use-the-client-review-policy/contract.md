@@ -476,7 +476,7 @@ async fn live_codex_edits_current_note_through_review() {
 
 ### Tests and fixtures
 
-- [apps/web/e2e/python-agent.spec.ts](../../../mechanisms/apps/web/e2e/python-agent.spec.ts.md#output-c40e3ff7e23b)
+- apps/web/e2e/python-agent.spec.ts
 - [apps/web/src/components/AgentChanges.test.tsx](../../../mechanisms/apps/web/src/components/AgentChanges.tsx.md#output-7ab5cdb69360)
 - [apps/web/src/lib/agentEdit.test.ts](../../../mechanisms/apps/web/src/lib/agentEdit.ts.md#output-ebba6809ee8c)
 - [apps/web/src/lib/diff.test.ts](contract.md#output-82b78a4e5237)

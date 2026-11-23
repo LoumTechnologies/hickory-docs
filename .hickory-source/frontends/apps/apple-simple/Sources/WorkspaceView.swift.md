@@ -39,6 +39,10 @@ struct WorkspaceView: View {
     @Bindable var workspace: Workspace
     var launchFile = ProcessInfo.processInfo.environment["HICKORY_OPEN_FILE"]
     @State private var connection = false
+    #if os(macOS)
+    @State private var localHost: LocalWorkspaceHost?
+    @State private var openingLocalWorkspace = false
+    #endif
     #if os(iOS)
     @State private var selectionEdit: MobileSelectionEdit?
     @State private var selectionReplacement = ""
@@ -144,14 +148,27 @@ struct WorkspaceView: View {
                 Text(workspace.status).font(.caption).textSelection(.enabled)
                 HStack {
                     Button("Cancel") { connection = false }
+                    #if os(macOS)
+                    if LocalWorkspaceHost.isAvailable {
+                        Button("Open Local Workspace…") { chooseLocalWorkspace() }
+                            .disabled(openingLocalWorkspace || workspace.connecting)
+                    }
+                    #endif
                     Spacer()
-                    Button("Connect") { Task { if await workspace.connect() { connection = false } } }.disabled(workspace.connecting)
+                    Button("Connect") { Task { await connectWorkspace() } }.disabled(connectingWorkspace)
                 }
             }.padding().frame(minWidth: 280, idealWidth: 420)
         }
         .onReceive(NotificationCenter.default.publisher(for: .simpleConnect)) { _ in connection = true }
         .task {
             if workspace.engine == nil {
+                #if os(macOS)
+                if workspace.address.isEmpty, let location = LocalWorkspaceHost.takeLaunchLocation() {
+                    await openLocalWorkspace(location)
+                    if workspace.engine == nil { connection = true }
+                    return
+                }
+                #endif
                 if workspace.address.isEmpty { connection = true }
                 else { connection = !(await workspace.connect(opening: launchFile)) }
             }
@@ -159,8 +176,72 @@ struct WorkspaceView: View {
         .onDisappear { workspace.debugger?.closeRecordedFence() }
         #if os(macOS)
         .background(WindowGuard(workspace: workspace))
+        .onOpenURL { url in
+            if url.isFileURL { Task { await openLocalWorkspace(url) } }
+        }
         #endif
     }
+
+    private var connectingWorkspace: Bool {
+        #if os(macOS)
+        if openingLocalWorkspace { return true }
+        #endif
+        return workspace.connecting
+    }
+
+    private func connectWorkspace() async {
+        guard !connectingWorkspace else { return }
+        if await workspace.connect() {
+            #if os(macOS)
+            if let localHost, workspace.engine?.origin.absoluteString != localHost.origin {
+                self.localHost = nil
+            }
+            #endif
+            connection = false
+        }
+    }
+
+    #if os(macOS)
+    private func chooseLocalWorkspace() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = true
+        panel.prompt = "Open Workspace"
+        panel.begin { response in
+            if response == .OK, let url = panel.url {
+                Task { await openLocalWorkspace(url) }
+            }
+        }
+    }
+
+    private func openLocalWorkspace(_ url: URL) async {
+        guard !openingLocalWorkspace, !workspace.connecting else { return }
+        guard !workspace.hasUnsavedChanges else {
+            workspace.status = "Save documents and send or clear draft messages before opening another workspace."
+            return
+        }
+        openingLocalWorkspace = true
+        defer { openingLocalWorkspace = false }
+        let previousAddress = workspace.address
+        do {
+            let location = url.standardizedFileURL.resolvingSymlinksInPath()
+            let isDirectory = try location.resourceValues(forKeys: [.isDirectoryKey]).isDirectory == true
+            let root = isDirectory ? location : location.deletingLastPathComponent()
+            let next = try LocalWorkspaceHost(root: root)
+            let address = try await next.address()
+            workspace.address = address
+            if await workspace.connect(opening: isDirectory ? nil : location.lastPathComponent) {
+                localHost = next
+                connection = false
+            } else {
+                workspace.address = previousAddress
+            }
+        } catch {
+            workspace.address = previousAddress
+            workspace.status = error.localizedDescription
+        }
+    }
+    #endif
 }
 #if os(iOS)
 @MainActor

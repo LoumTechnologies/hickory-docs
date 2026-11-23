@@ -859,10 +859,10 @@ The selections below preserve the original byte order. Narrative reading order d
 
 - [apps/agent/tests/cli_cancel.py](contract.md#output-0704f5067c4f)
 - [apps/agent/tests/test_worker.py](../../../mechanisms/apps/agent/tests/test_worker.py.md#output-9f33e52791d8)
-- [apps/web/e2e/python-agent.spec.ts](../../../mechanisms/apps/web/e2e/python-agent.spec.ts.md#output-c40e3ff7e23b)
+- apps/web/e2e/python-agent.spec.ts
 - [apps/web/src/components/AgentChanges.test.tsx](../../../mechanisms/apps/web/src/components/AgentChanges.tsx.md#output-7ab5cdb69360)
 - [apps/web/src/components/ChatDock.test.tsx](../../../mechanisms/apps/web/src/components/ChatDock.tsx.md#output-e7bd6d898a44)
-- [apps/web/src/views/AgentSettings.test.tsx](../../../mechanisms/apps/web/src/views/AgentSettings.test.tsx.md#output-c3e11636cd88)
+- apps/web/src/views/AgentSettings.test.tsx
 - [crates/hickory-cli/tests/python_agent.rs](../../../mechanisms/crates/hickory-cli/tests/python_agent.rs.md#output-9bda4649fd61)
 - [crates/hickory-cli/tests/serve_python_agent.rs](../../../mechanisms/crates/hickory-cli/tests/serve_python_agent.rs.md#output-08f0cd3133cc)
 

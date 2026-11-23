@@ -38,17 +38,9 @@ fn main() -> ExitCode {
 Add the subcommand dispatch and handlers in the CLI assembly:
 <book:include file="mechanisms/crates/hickory-cli/src/main.rs.md" />
 
-## Compose the editor in its two application hosts
+## Connect the Simple editor frontends
 
-Mount the shared document workspace in the browser application. Wrap that same
-application with Tauri for windows, OS events and the local engine lifecycle.
-The native host supplies platform behavior rather than a second parser or editor.
-
-<book:include file="mechanisms/apps/web/src/App.tsx.md" />
-<book:include file="mechanisms/apps/desktop/src-tauri/src/lib.rs.md" />
-
-## Compare independent editor frontends
-
+Use the same workspace engine for the browser and native applications.
 <book:include file="frontends/index.md" />
 
 ## Build the complete construction and select its evidence

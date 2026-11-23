@@ -33,19 +33,19 @@ Implementation review: not verified. Executed checks and human judgment are reco
 
 ### Implementation
 
-- [apps/web/src/App.tsx](../../../mechanisms/apps/web/src/App.tsx.md#output-25cc6f821b46)
-- [apps/web/src/lib/workspaceVisibility.ts](../../../mechanisms/apps/web/src/lib/workspaceVisibility.ts.md#output-4350d48f61e3)
-- [apps/web/src/shell/CommandBar.tsx](../the-editor-keeps-its-space/contract.md#output-9a0b2ebc41a8)
-- [apps/web/src/shell/ShellView.tsx](../../../mechanisms/apps/web/src/shell/ShellView.tsx.md#output-e5f8a7657f14)
-- [apps/web/src/views/SettingsView.tsx](../../../mechanisms/apps/web/src/views/SettingsView.tsx.md#output-38894484eb8f)
-- [apps/web/src/views/WorkspaceView.tsx](../../../mechanisms/apps/web/src/views/WorkspaceView.tsx.md#output-47afe3575948)
-- [apps/web/src/views/useWorkspaceAppearance.ts](../../../mechanisms/apps/web/src/views/useWorkspaceAppearance.ts.md#output-14288d7adf50)
+- apps/web/src/App.tsx
+- apps/web/src/lib/workspaceVisibility.ts
+- apps/web/src/shell/CommandBar.tsx
+- apps/web/src/shell/ShellView.tsx
+- apps/web/src/views/SettingsView.tsx
+- apps/web/src/views/WorkspaceView.tsx
+- apps/web/src/views/useWorkspaceAppearance.ts
 
 ### Tests and fixtures
 
-- [apps/web/e2e/workflow-polish.spec.ts](../../../mechanisms/apps/web/e2e/workflow-polish.spec.ts.md#output-2519c064887c)
-- [apps/web/src/App.test.tsx](../../../mechanisms/apps/web/src/App.tsx.md#output-65ac24c24624)
-- [apps/web/src/views/useWorkspaceAppearance.test.tsx](../../../mechanisms/apps/web/src/views/useWorkspaceAppearance.ts.md#output-3606526b11a4)
+- apps/web/e2e/workflow-polish.spec.ts
+- apps/web/src/App.test.tsx
+- apps/web/src/views/useWorkspaceAppearance.test.tsx
 
 ### Evidence status
 

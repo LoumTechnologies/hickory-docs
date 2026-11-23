@@ -54,7 +54,7 @@ To assess the agent workflow before installing, use the
 proposals are labelled separately from actual native/provider execution.
 [Desktop prereleases](https://github.com/LoumTechnologies/hickory-docs/releases/tag/unstable)
 are available; check the artifact revision because published packages may predate
-the current development workflow. See [desktop source setup](apps/desktop/README.md)
+the current development workflow. See [Simple frontend setup](docs/developers/simple-frontends.md)
 and [recording prerequisites](docs/developers/engineer-tour-video.md).
 
 Hickory is a program you download. The `hick` CLI (in `crates/hickory-cli`)
@@ -151,15 +151,8 @@ history, not a chat log that evaporated.
 - Notebook datasets and Python outputs: [read Parquet/Delta tables and display results](docs/users/notebooks.md).
 - Automated, human and AI manual testing: [inspect code coverage and reached paths](docs/users/code-coverage.md).
 - Performance evidence: [inspect measured hotspots inline in literate source](docs/users/performance-profiling.md).
-- The desktop app is in development: `apps/desktop` is a Tauri window around
-  the notebook UI. It runs the same engine in-process (no second
-  implementation of weaving, lineage, or output edits) and answers the
-  editor's language questions through the same `hick-lsp`. It builds from
-  this repository today; [desktop prerelease bundles](https://github.com/LoumTechnologies/hickory-docs/releases/tag/unstable)
-  are also available. Check their revision before trying a development workflow;
-  package availability does not certify that workflow. See the
-  [desktop installation guide](docs/users/install-desktop.md). It is not a client for any server;
-  Hickory is not a hosted service.
+- The Simple browser, AppKit, iOS, Android, KDE and WinForms frontends use
+  the shared workspace engine.
 - Execution is **sandboxed by default** (`HICKORY_EXECUTOR=sandbox`): each
   cell may write only its own working directory, your dotfiles and keys are
   not mounted, and there is no network unless the document declares one.
@@ -189,9 +182,8 @@ curl -fsSL https://raw.githubusercontent.com/LoumTechnologies/hickory-docs/maste
 
 That puts `hick` in `~/.local/bin` — no Rust toolchain, no clone. Add
 `HICKORY_CHANNEL=unstable` for the CLI archive currently attached to the
-Unstable release, or `HICKORY_INSTALL_DIR=…` to put it elsewhere. New Apple
-Silicon desktop builds are published separately with
-[`just release-unstable`](apps/desktop/RELEASING.md).
+Unstable release, or `HICKORY_INSTALL_DIR=…` to put it elsewhere. The same releases publish Simple editor packages. See the
+[desktop installation guide](docs/users/install-desktop.md).
 
 Prefer to pick the file yourself? Every platform's archive is on the
 [releases page](https://github.com/LoumTechnologies/hickory-docs/releases):

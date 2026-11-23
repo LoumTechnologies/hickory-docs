@@ -1587,7 +1587,6 @@ These chapters keep this behavior's larger implementation readable without dupli
 - [`apps/web/src/components/FeatureSettings.tsx`](implementation/apps/web/src/components/FeatureSettings.tsx.md#output-c9651595b18d)
 - [`apps/web/src/components/NativeWorkflowTour.tsx`](implementation/apps/web/src/components/NativeWorkflowTour.tsx.md#output-9785a32c4177)
 - [`apps/web/src/components/privatePredictionCoach.css`](implementation/apps/web/src/components/privatePredictionCoach.css.md#output-8905b58855c2)
-- [`apps/web/src/main.tsx`](implementation/apps/web/src/main.tsx.md#output-44decff65943)
 - [`crates/hick-dap/tests/private_adapter.rs`](implementation/crates/hick-dap/tests/private_adapter.rs.md#output-b2669b67dd81)
 - [`crates/hick-literate/examples/authorization_evidence.rs`](implementation/crates/hick-literate/examples/authorization_evidence.rs.md#output-f34cc4987708)
 - [`crates/hick-literate/src/prediction.rs`](implementation/crates/hick-literate/src/prediction.rs.md#output-72f0d919b421)
@@ -1627,7 +1626,6 @@ These chapters keep this behavior's larger implementation readable without dupli
 <storycode:include file="implementation/apps/web/src/components/FeatureSettings.tsx.md" />
 <storycode:include file="implementation/apps/web/src/components/NativeWorkflowTour.tsx.md" />
 <storycode:include file="implementation/apps/web/src/components/privatePredictionCoach.css.md" />
-<storycode:include file="implementation/apps/web/src/main.tsx.md" />
 <storycode:include file="implementation/crates/hick-dap/tests/private_adapter.rs.md" />
 <storycode:include file="implementation/crates/hick-literate/examples/authorization_evidence.rs.md" />
 <storycode:include file="implementation/crates/hick-literate/src/prediction.rs.md" />
@@ -1671,8 +1669,8 @@ The shared prediction ledger records sealing, admission, execution outcome, expo
 ### Implementation
 
 - [apps/agent/src/hickory_agent_worker/instructions.py](../../../mechanisms/apps/agent/src/hickory_agent_worker/instructions.py.md#output-4915d386d720)
-- [apps/desktop/src-tauri/src/lib.rs](../../../mechanisms/apps/desktop/src-tauri/src/lib.rs.md#output-42caba993099)
-- [apps/desktop/src-tauri/src/server.rs](../../../mechanisms/apps/desktop/src-tauri/src/server.rs.md#output-821f8d0a36be)
+- apps/desktop/src-tauri/src/lib.rs
+- apps/desktop/src-tauri/src/server.rs
 - [apps/web/src/components/AgentChanges.tsx](../../../mechanisms/apps/web/src/components/AgentChanges.tsx.md#output-d82ea3dcdcf9)
 - [apps/web/src/components/AgentPicker.tsx](implementation/apps/web/src/components/AgentPicker.tsx.md#output-2cb1fb2fe5c8)
 - [apps/web/src/components/ChatDock.tsx](../../../mechanisms/apps/web/src/components/ChatDock.tsx.md#output-57557cac78c8)
@@ -1683,7 +1681,7 @@ The shared prediction ledger records sealing, admission, execution outcome, expo
 - [apps/web/src/lib/nativeWindowActions.ts](../../../mechanisms/apps/web/src/lib/nativeWindowActions.ts.md#output-14de373a5fd7)
 - [apps/web/src/lib/uiActionBridge.tsx](../../../mechanisms/apps/web/src/lib/uiActionBridge.tsx.md#output-5571d9f178fc)
 - [apps/web/src/lib/uiActions.ts](../../../mechanisms/apps/web/src/lib/uiActions.ts.md#output-0cc430d9eb03)
-- [apps/web/src/main.tsx](implementation/apps/web/src/main.tsx.md#output-44decff65943)
+- apps/web/src/main.tsx
 - [crates/hick-context-store/src/host.rs](../../../mechanisms/crates/hick-context-store/src/host.rs.md#output-c4e1ee6d700e)
 - [crates/hick-dap/src/interactive_capture.rs](../../../mechanisms/crates/hick-dap/src/interactive_capture.rs.md#output-c26b35fd706d)
 - [crates/hick-lang-wasm/src/prediction.rs](../../../mechanisms/crates/hick-lang-wasm/src/prediction.rs.md#output-d27c09b74da1)
@@ -1733,13 +1731,13 @@ The shared prediction ledger records sealing, admission, execution outcome, expo
 - [crates/hickory-cli/src/serve/python_agent.rs](../../../mechanisms/crates/hickory-cli/src/serve/python_agent.rs.md#output-89d47ddc390d)
 - [crates/hickory-cli/src/serve/shell.rs](../../../mechanisms/crates/hickory-cli/src/serve/shell.rs.md#output-16984801199b)
 - [crates/hickory-cli/src/serve/socket.rs](../../../mechanisms/crates/hickory-cli/src/serve/socket.rs.md#output-ce0f0e119d3c)
-- [scripts/test-private-prediction-ui.sh](../../../mechanisms/scripts/test-private-prediction-ui.sh.md#output-d93b734fd0b3)
+- scripts/test-private-prediction-ui.sh
 
 ### Tests and fixtures
 
 - [apps/agent/tests/test_worker.py](../../../mechanisms/apps/agent/tests/test_worker.py.md#output-9f33e52791d8)
-- [apps/web/e2e/privateCoachLayout.spec.ts](../../../mechanisms/apps/web/e2e/privateCoachLayout.spec.ts.md#output-3f8363e8ca8f)
-- [apps/web/e2e/privatePredictionCoach.spec.ts](../../../mechanisms/apps/web/e2e/privatePredictionCoach.spec.ts.md#output-c4a491bb0b6d)
+- apps/web/e2e/privateCoachLayout.spec.ts
+- apps/web/e2e/privatePredictionCoach.spec.ts
 - [apps/web/e2e/staticUiParity.spec.ts](../../../mechanisms/apps/web/e2e/staticUiParity.spec.ts.md#output-b95b6714a2a7)
 - [apps/web/src/components/AgentChanges.test.tsx](../../../mechanisms/apps/web/src/components/AgentChanges.tsx.md#output-7ab5cdb69360)
 - [apps/web/src/components/BrowserPredictionPractice.test.tsx](../../../mechanisms/apps/web/src/components/BrowserPredictionPractice.test.tsx.md#output-32e2b9b729a8)

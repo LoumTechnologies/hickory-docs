@@ -280,7 +280,7 @@ fn spawn_engine(dir: &std::path::Path) -> Result<()> {
         .is_some_and(|n| n == "deps")
     {
         let dir = executable.parent().unwrap().parent().unwrap();
-        executable = ["hick", "hickory-desktop"]
+        executable = ["hick"]
             .into_iter()
             .map(|name| dir.join(format!("{name}{}", std::env::consts::EXE_SUFFIX)))
             .find(|p| p.is_file())

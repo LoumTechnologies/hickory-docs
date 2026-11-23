@@ -42,7 +42,7 @@ PostHog project write keys are `phc_…`.
 // - **the static site** (`site.html`): the marketing page and its in-browser
 //   demos. No API client, no accounts, nothing to buy. Deployed to
 //   hickorydocs.com.
-// - **the desktop app** (`index.html`): the editor, bundled by Tauri and
+// - **the Simple workspace** (`index.html`): the editor, built separately and
 //   talking only to the local server in its own process.
 //
 // There is no third. See `docs/specs/freeform/local-only.md`.

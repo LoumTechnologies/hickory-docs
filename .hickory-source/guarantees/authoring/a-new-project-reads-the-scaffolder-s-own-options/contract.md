@@ -197,14 +197,14 @@ The selections below preserve the original byte order. Narrative reading order d
 
 ### Implementation
 
-- [apps/web/src/components/NewProjectDialog.tsx](../../../mechanisms/apps/web/src/components/NewProjectDialog.tsx.md#output-65e48889b856)
+- apps/web/src/components/NewProjectDialog.tsx
 - [crates/hick-plugins/src/scaffold.rs](../../../mechanisms/crates/hick-plugins/src/scaffold.rs.md#output-6b3ddf926d91)
 - [crates/hickory-cli/src/scaffold.rs](../../../mechanisms/crates/hickory-cli/src/scaffold.rs.md#output-a3d176caef4d)
 - [crates/hickory-cli/src/serve/scaffold.rs](../../../mechanisms/crates/hickory-cli/src/serve/scaffold.rs.md#output-3fd865a33211)
 
 ### Tests and fixtures
 
-- [apps/web/src/components/NewProjectDialog.test.tsx](../../../mechanisms/apps/web/src/components/NewProjectDialog.tsx.md#output-065ce188ea68)
+- apps/web/src/components/NewProjectDialog.test.tsx
 - [crates/hickory-cli/tests/clap_help_live.rs](contract.md#output-41bf7e2555df)
 - [crates/hickory-cli/tests/scaffold_templates.rs](../../../mechanisms/crates/hickory-cli/tests/scaffold_templates.rs.md#output-65595a9b8013)
 - [crates/hickory-cli/tests/serve_scaffold.rs](../../../mechanisms/crates/hickory-cli/tests/serve_scaffold.rs.md#output-5a76df8fd4d1)

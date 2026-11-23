@@ -47,13 +47,7 @@ These chapters keep this behavior's larger implementation readable without dupli
 - [`apps/web/src/debug/useDebugLaunchActions.ts`](implementation/apps/web/src/debug/useDebugLaunchActions.ts.md#output-5fc802a7856a)
 - [`apps/web/src/editor/replaceCapturedBlock.test.ts`](implementation/apps/web/src/editor/replaceCapturedBlock.test.ts.md#output-cf677803e44e)
 - [`apps/web/src/lib/capturedCode.test.ts`](implementation/apps/web/src/lib/capturedCode.test.ts.md#output-2a3bb47f729a)
-- [`apps/web/src/lineage/HoleRow.tsx`](implementation/apps/web/src/lineage/HoleRow.tsx.md#output-51e109e34f87)
-- [`apps/web/src/lineage/LineageColumns.test.tsx`](implementation/apps/web/src/lineage/LineageColumns.test.tsx.md#output-0ea1a191da2e)
-- [`apps/web/src/lineage/LineageColumns.tsx`](implementation/apps/web/src/lineage/LineageColumns.tsx.md#output-d5afe1148ce1)
-- [`apps/web/src/lineage/StageColumn.tsx`](implementation/apps/web/src/lineage/StageColumn.tsx.md#output-4d2e91f01732)
-- [`apps/web/src/lineage/useLineageControls.ts`](implementation/apps/web/src/lineage/useLineageControls.ts.md#output-9bd624eaf8c9)
 - [`apps/web/src/views/CommitReading.controls.test.tsx`](implementation/apps/web/src/views/CommitReading.controls.test.tsx.md#output-ee73e4c07840)
-- [`apps/web/src/views/LineageView.test.tsx`](implementation/apps/web/src/views/LineageView.test.tsx.md#output-48d7da1042ae)
 <storycode:include file="implementation/apps/web/src/components/ComparisonEditor.tsx.md" />
 <storycode:include file="implementation/apps/web/src/components/Engaged.test.tsx.md" />
 <storycode:include file="implementation/apps/web/src/components/EvidenceDisclosure.tsx.md" />
@@ -64,13 +58,7 @@ These chapters keep this behavior's larger implementation readable without dupli
 <storycode:include file="implementation/apps/web/src/debug/useDebugLaunchActions.ts.md" />
 <storycode:include file="implementation/apps/web/src/editor/replaceCapturedBlock.test.ts.md" />
 <storycode:include file="implementation/apps/web/src/lib/capturedCode.test.ts.md" />
-<storycode:include file="implementation/apps/web/src/lineage/HoleRow.tsx.md" />
-<storycode:include file="implementation/apps/web/src/lineage/LineageColumns.test.tsx.md" />
-<storycode:include file="implementation/apps/web/src/lineage/LineageColumns.tsx.md" />
-<storycode:include file="implementation/apps/web/src/lineage/StageColumn.tsx.md" />
-<storycode:include file="implementation/apps/web/src/lineage/useLineageControls.ts.md" />
 <storycode:include file="implementation/apps/web/src/views/CommitReading.controls.test.tsx.md" />
-<storycode:include file="implementation/apps/web/src/views/LineageView.test.tsx.md" />
 
 ## Implementation review
 
@@ -85,12 +73,12 @@ These chapters keep this behavior's larger implementation readable without dupli
 - [apps/web/src/editor/EditorRuler.tsx](../../../mechanisms/apps/web/src/editor/EditorRuler.tsx.md#output-75b1988d3607)
 - [apps/web/src/elements/patch/Editor.tsx](../../../mechanisms/apps/web/src/elements/patch/Editor.tsx.md#output-dc5641c063e3)
 - [apps/web/src/elements/session/view.tsx](../../../mechanisms/apps/web/src/elements/session/view.tsx.md#output-d096a8a10df6)
-- [apps/web/src/lineage/HoleRow.tsx](implementation/apps/web/src/lineage/HoleRow.tsx.md#output-51e109e34f87)
-- [apps/web/src/lineage/LineageColumns.tsx](implementation/apps/web/src/lineage/LineageColumns.tsx.md#output-d5afe1148ce1)
-- [apps/web/src/lineage/StageColumn.tsx](implementation/apps/web/src/lineage/StageColumn.tsx.md#output-4d2e91f01732)
-- [apps/web/src/lineage/TimeSlider.tsx](../../../mechanisms/apps/web/src/lineage/TimeSlider.tsx.md#output-dca5a7314b59)
-- [apps/web/src/lineage/useLineageControls.ts](implementation/apps/web/src/lineage/useLineageControls.ts.md#output-9bd624eaf8c9)
-- [apps/web/src/views/LineageView.tsx](../../../mechanisms/apps/web/src/views/LineageView.tsx.md#output-f7cde247eee4)
+- apps/web/src/lineage/HoleRow.tsx
+- apps/web/src/lineage/LineageColumns.tsx
+- apps/web/src/lineage/StageColumn.tsx
+- apps/web/src/lineage/TimeSlider.tsx
+- apps/web/src/lineage/useLineageControls.ts
+- apps/web/src/views/LineageView.tsx
 - [apps/web/src/views/SessionLens.tsx](../../../mechanisms/apps/web/src/views/SessionLens.tsx.md#output-11b8d4e005a0)
 
 ### Tests and fixtures
@@ -105,9 +93,9 @@ These chapters keep this behavior's larger implementation readable without dupli
 - [apps/web/src/elements/patch/Editor.test.tsx](../../../mechanisms/apps/web/src/elements/patch/Editor.tsx.md#output-dc4ea70ab787)
 - [apps/web/src/elements/session/evidence.test.tsx](../../../mechanisms/apps/web/src/elements/session/evidence.test.tsx.md#output-4f5d36dc9d9d)
 - [apps/web/src/lib/capturedCode.test.ts](implementation/apps/web/src/lib/capturedCode.test.ts.md#output-2a3bb47f729a)
-- [apps/web/src/lineage/LineageColumns.test.tsx](implementation/apps/web/src/lineage/LineageColumns.test.tsx.md#output-0ea1a191da2e)
+- apps/web/src/lineage/LineageColumns.test.tsx
 - [apps/web/src/views/CommitReading.controls.test.tsx](implementation/apps/web/src/views/CommitReading.controls.test.tsx.md#output-ee73e4c07840)
-- [apps/web/src/views/LineageView.test.tsx](implementation/apps/web/src/views/LineageView.test.tsx.md#output-48d7da1042ae)
+- apps/web/src/views/LineageView.test.tsx
 - [apps/web/src/views/SessionLens.test.tsx](../../../mechanisms/apps/web/src/views/SessionLens.tsx.md#output-3a59c565f3d4)
 
 ### Evidence status

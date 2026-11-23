@@ -267,7 +267,7 @@ The selections below preserve the original byte order. Narrative reading order d
 - [apps/web/src/debug/ObservationReading.test.tsx](../../../mechanisms/apps/web/src/debug/ObservationReading.test.tsx.md#output-ec33c3e05a60)
 - [apps/web/src/debug/cmRuntime.controls.test.tsx](contract.md#output-abcd7546bb10)
 - [apps/web/src/lib/contextProjection.test.ts](contract.md#output-cd54a8e364bd)
-- [apps/web/src/views/WorkspaceChat.test.tsx](../../../mechanisms/apps/web/src/views/WorkspaceChat.test.tsx.md#output-41ee32c19327)
+- apps/web/src/views/WorkspaceChat.test.tsx
 
 ### Focused witnesses
 

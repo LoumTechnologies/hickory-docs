@@ -143,7 +143,7 @@ fn two_regions_edited_in_one_save_both_land() {
 
 ### Implementation
 
-- [apps/web/src/lib/outputSave.ts](../../../mechanisms/apps/web/src/lib/outputSave.ts.md#output-ff2a9a5b4231)
+- apps/web/src/lib/outputSave.ts
 - [crates/hickory-cli/src/up/mod.rs](../../../mechanisms/crates/hickory-cli/src/up/mod.rs.md#output-73148a3ab9db)
 - [crates/hickory-cli/src/up/reverse.rs](../../../mechanisms/crates/hickory-cli/src/up/reverse.rs.md#output-0e6cf077f262)
 - [crates/hickory-cli/src/up/state.rs](../../../mechanisms/crates/hickory-cli/src/up/state.rs.md#output-d4f59b7595b5)
@@ -151,8 +151,8 @@ fn two_regions_edited_in_one_save_both_land() {
 
 ### Tests and fixtures
 
-- [apps/web/src/lib/outputSave.test.ts](../../../mechanisms/apps/web/src/lib/outputSave.ts.md#output-5dd719c6fb43)
-- [apps/web/src/shell/GeneratedBufferRecovery.test.tsx](../../../mechanisms/apps/web/src/shell/GeneratedBufferRecovery.tsx.md#output-9cef161ebf1f)
+- apps/web/src/lib/outputSave.test.ts
+- apps/web/src/shell/GeneratedBufferRecovery.test.tsx
 - [crates/hickory-cli/tests/serve_local.rs](../../../mechanisms/crates/hickory-cli/tests/serve_local.rs.md#output-2b0b4fa19188)
 - [crates/hickory-cli/tests/up_loop.rs](../../../mechanisms/crates/hickory-cli/tests/up_loop.rs.md#output-3098574124c3)
 - [crates/hickory-cli/tests/up_stress.rs](../../../mechanisms/crates/hickory-cli/tests/up_stress.rs.md#output-635d4ae171a9)

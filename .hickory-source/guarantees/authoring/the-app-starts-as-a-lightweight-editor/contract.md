@@ -35,20 +35,20 @@ Implementation review: not verified. Executed checks and human judgment are reco
 
 ### Implementation
 
-- [apps/desktop/src-tauri/src/lib.rs](../../../mechanisms/apps/desktop/src-tauri/src/lib.rs.md#output-42caba993099)
-- [apps/web/src/App.tsx](../../../mechanisms/apps/web/src/App.tsx.md#output-25cc6f821b46)
-- [apps/web/src/lib/focusWhenShown.ts](../../../mechanisms/apps/web/src/lib/focusWhenShown.ts.md#output-e9524c90facf)
-- [apps/web/src/lib/newDoc.ts](../../../mechanisms/apps/web/src/lib/newDoc.ts.md#output-a2a0c5afb942)
-- [apps/web/src/views/WorkspaceView.tsx](../../../mechanisms/apps/web/src/views/WorkspaceView.tsx.md#output-47afe3575948)
-- [apps/web/src/views/workspaceState.ts](../../../mechanisms/apps/web/src/views/workspaceState.ts.md#output-efd800f9ed5a)
-- [apps/web/src/views/workspaceTabs.tsx](../../../mechanisms/apps/web/src/views/workspaceTabs.tsx.md#output-b5a48fd337ae)
+- apps/desktop/src-tauri/src/lib.rs
+- apps/web/src/App.tsx
+- apps/web/src/lib/focusWhenShown.ts
+- apps/web/src/lib/newDoc.ts
+- apps/web/src/views/WorkspaceView.tsx
+- apps/web/src/views/workspaceState.ts
+- apps/web/src/views/workspaceTabs.tsx
 
 ### Tests and fixtures
 
-- [apps/desktop/src-tauri/tests/serves_one_origin.rs](../../../mechanisms/apps/desktop/src-tauri/tests/serves_one_origin.rs.md#output-e7ec95ab75f6)
-- [apps/web/e2e/startup.spec.ts](../../../mechanisms/apps/web/e2e/startup.spec.ts.md#output-4e63365d81de)
-- [apps/web/src/App.test.tsx](../../../mechanisms/apps/web/src/App.tsx.md#output-65ac24c24624)
-- [apps/web/src/views/workspaceState.test.ts](../../../mechanisms/apps/web/src/views/workspaceState.ts.md#output-14d3dbc939ff)
+- apps/desktop/src-tauri/tests/serves_one_origin.rs
+- apps/web/e2e/startup.spec.ts
+- apps/web/src/App.test.tsx
+- apps/web/src/views/workspaceState.test.ts
 
 ### Evidence status
 

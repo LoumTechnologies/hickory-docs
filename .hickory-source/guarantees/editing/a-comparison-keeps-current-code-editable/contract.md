@@ -140,12 +140,12 @@ The selections below preserve the original byte order. Narrative reading order d
 - [apps/web/src/editor/DocumentEditor.tsx](../../../mechanisms/apps/web/src/editor/DocumentEditor.tsx.md#output-aab82870e517)
 - [apps/web/src/editor/comparison.ts](../../../mechanisms/apps/web/src/editor/comparison.ts.md#output-ceadb3379aac)
 - [apps/web/src/lsp/representationMapping.ts](../../../mechanisms/apps/web/src/lsp/representationMapping.ts.md#output-237646581124)
-- [apps/web/src/views/RepresentationTools.tsx](../../../mechanisms/apps/web/src/views/RepresentationTools.tsx.md#output-f5ea4f306ebf)
+- apps/web/src/views/RepresentationTools.tsx
 - [crates/hickory-cli/src/serve/revision.rs](../../../mechanisms/crates/hickory-cli/src/serve/revision.rs.md#output-84b229f3d940)
 
 ### Tests and fixtures
 
-- [apps/web/e2e/literate-editor.spec.ts](../../../mechanisms/apps/web/e2e/literate-editor.spec.ts.md#output-648693644a28)
+- apps/web/e2e/literate-editor.spec.ts
 - [apps/web/src/editor/comparison.controls.test.tsx](contract.md#output-d9ad7a131c57)
 - [apps/web/src/editor/comparison.test.ts](../../../mechanisms/apps/web/src/editor/comparison.ts.md#output-a13b9a534b46)
 - [apps/web/src/lsp/cmLspFeatures.test.ts](../../editor-intelligence/save-can-format-first/contract.md#output-830f6d637cff)

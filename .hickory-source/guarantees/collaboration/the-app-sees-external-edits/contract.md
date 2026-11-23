@@ -310,7 +310,7 @@ The selections below preserve the original byte order. Narrative reading order d
 
 ### Implementation
 
-- [apps/desktop/src-tauri/src/server.rs](../../../mechanisms/apps/desktop/src-tauri/src/server.rs.md#output-821f8d0a36be)
+- apps/desktop/src-tauri/src/server.rs
 - [crates/hickory-cli/src/serve/store.rs](../../../mechanisms/crates/hickory-cli/src/serve/store.rs.md#output-60e6f71bfd5c)
 - [crates/hickory-cli/src/serve/watch.rs](../../../mechanisms/crates/hickory-cli/src/serve/watch.rs.md#output-c9fa53b5e3bf)
 

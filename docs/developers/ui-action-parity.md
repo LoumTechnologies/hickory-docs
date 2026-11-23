@@ -140,8 +140,9 @@ retain their independent permissions; this broker does not sandbox those process
 The companion [declaration index](ui-control-inventory.json) enumerates every
 non-test TS/TSX file under `apps/web/src`, including files without controls. It
 records source hashes, conservative HTML-entry import reachability, JSX controls and callback expressions, event listeners,
-imperative DOM creation/dispatch and keymap declarations. Regenerate with
-`node scripts/inventory-ui-actions.mjs`; use `--check` to detect drift. It is a
+imperative DOM creation/dispatch and keymap declarations. Run
+`node scripts/inventory-ui-actions.mjs --stdout` and update the inventory's owning
+Markdown entry before regenerating. Use `--check` to detect drift. It is a
 review aid, not an assertion that arbitrary callbacks are safe semantic commands.
 The generated index records current file and declaration counts. Declarations can render many instances; these are not capability counts.
 Spreads, dynamically constructed controls, canvas gestures, native menus and

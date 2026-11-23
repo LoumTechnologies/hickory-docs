@@ -167,7 +167,7 @@ async fn read_file_shows_a_project_file_and_records_the_read() {
 
 ### Tests and fixtures
 
-- [apps/web/src/App.test.tsx](../../../mechanisms/apps/web/src/App.tsx.md#output-65ac24c24624)
+- apps/web/src/App.test.tsx
 - [crates/hickory-agent/tests/tools_edit_session.rs](../../../mechanisms/crates/hickory-agent/tests/tools_edit_session.rs.md#output-35f0054c98d4)
 
 ### Evidence status

@@ -1367,7 +1367,7 @@ fn has(program: &str) -> bool {
 
 ### Implementation
 
-- [apps/web/src/components/NewProjectDialog.tsx](../../../mechanisms/apps/web/src/components/NewProjectDialog.tsx.md#output-65e48889b856)
+- apps/web/src/components/NewProjectDialog.tsx
 - [crates/hickory-cli/src/clap_help.rs](contract.md#output-3e906396f1f4)
 - [crates/hickory-cli/src/scaffold_commit.rs](../../../mechanisms/crates/hickory-cli/src/scaffold_commit.rs.md#output-b1965dc85e6b)
 - [crates/hickory-cli/src/serve/scaffold.rs](../../../mechanisms/crates/hickory-cli/src/serve/scaffold.rs.md#output-3fd865a33211)
@@ -1375,7 +1375,7 @@ fn has(program: &str) -> bool {
 
 ### Tests and fixtures
 
-- [apps/web/src/components/NewProjectDialog.test.tsx](../../../mechanisms/apps/web/src/components/NewProjectDialog.tsx.md#output-065ce188ea68)
+- apps/web/src/components/NewProjectDialog.test.tsx
 - [crates/hickory-cli/tests/clap_help_live.rs](../a-new-project-reads-the-scaffolder-s-own-options/contract.md#output-41bf7e2555df)
 - [crates/hickory-cli/tests/serve_scaffold.rs](../../../mechanisms/crates/hickory-cli/tests/serve_scaffold.rs.md#output-5a76df8fd4d1)
 

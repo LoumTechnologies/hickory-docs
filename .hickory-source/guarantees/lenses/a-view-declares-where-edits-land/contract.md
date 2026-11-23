@@ -120,17 +120,17 @@ The selections below preserve the original byte order. Narrative reading order d
 - [apps/web/src/components/SurfaceInfo.tsx](../../../mechanisms/apps/web/src/components/SurfaceInfo.tsx.md#output-6c34dd749b33)
 - [apps/web/src/views/CommitReading.tsx](contract.md#output-6227c4f8a79f)
 - [apps/web/src/views/DocumentReading.tsx](../../../mechanisms/apps/web/src/views/DocumentReading.tsx.md#output-d10820ba127c)
-- [apps/web/src/views/HistoryLens.tsx](../../../mechanisms/apps/web/src/views/HistoryLens.tsx.md#output-b01a7a57f285)
-- [apps/web/src/views/MergedView.tsx](../../../mechanisms/apps/web/src/views/MergedView.tsx.md#output-0e4f75bd1f77)
-- [apps/web/src/views/RepresentationPane.tsx](../../../mechanisms/apps/web/src/views/RepresentationPane.tsx.md#output-cd66c1c2250e)
+- apps/web/src/views/HistoryLens.tsx
+- apps/web/src/views/MergedView.tsx
+- apps/web/src/views/RepresentationPane.tsx
 - [apps/web/src/views/SessionLens.tsx](../../../mechanisms/apps/web/src/views/SessionLens.tsx.md#output-11b8d4e005a0)
-- [apps/web/src/views/workspaceTabs.tsx](../../../mechanisms/apps/web/src/views/workspaceTabs.tsx.md#output-b5a48fd337ae)
+- apps/web/src/views/workspaceTabs.tsx
 
 ### Tests and fixtures
 
-- [apps/web/e2e/literate-editor.spec.ts](../../../mechanisms/apps/web/e2e/literate-editor.spec.ts.md#output-648693644a28)
-- [apps/web/src/views/RepresentationPane.test.tsx](../../../mechanisms/apps/web/src/views/RepresentationPane.tsx.md#output-17926fbc73d7)
-- [apps/web/src/views/workspaceTabs.test.tsx](../../../mechanisms/apps/web/src/views/workspaceTabs.tsx.md#output-5370130a675d)
+- apps/web/e2e/literate-editor.spec.ts
+- apps/web/src/views/RepresentationPane.test.tsx
+- apps/web/src/views/workspaceTabs.test.tsx
 
 ### Evidence status
 

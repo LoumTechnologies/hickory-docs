@@ -9,13 +9,13 @@ use anyhow::{Context as _, Result, bail};
 
 /// Name the app's executable answers to on `PATH` and beside `hick`.
 const EXE: &str = if cfg!(windows) {
-    "hickory-desktop.exe"
+    "HickorySimple.exe"
 } else {
-    "hickory-desktop"
+    "hickory-simple"
 };
 
-/// What macOS calls the bundle, from `tauri.conf.json`'s `productName`.
-const MAC_APP: &str = "Hickory Docs";
+/// The name used by the Simple macOS installer and release archive.
+const MAC_APP: &str = "Hickory Simple";
 
 /// Development overrides describe the app process `just dev` started. A
 /// second process launched to open an explicit folder must not inherit them:
@@ -26,6 +26,8 @@ const SESSION_ENV: &[&str] = &[
     "HICKORY_SERVE_PORT",
     "HICKORY_UI_ORIGIN",
     "HICKORY_API_ORIGIN",
+    "HICKORY_OPEN_FILE",
+    "HICKORY_SIMPLE_HOST_PID",
 ];
 
 /// Where the app was found, so the failure can say which route was taken.
@@ -64,7 +66,7 @@ pub fn find(
     if let Ok(me) = std::env::current_exe().map(|me| me.canonicalize().unwrap_or(me))
         && let Some(dir) = me.parent()
     {
-        // Already inside the bundle: `…/Hickory Docs.app/Contents/MacOS/x`.
+        // Already inside the bundle: `…/Hickory Simple.app/Contents/MacOS/x`.
         // Answered as the bundle rather than as the executable beside us,
         // because launching a Mach-O out of a bundle directly bypasses
         // LaunchServices — which is how you get a second copy with no dock
@@ -104,8 +106,8 @@ pub fn find(
 
     if cfg!(windows) {
         for (variable, relative) in [
-            ("ProgramFiles", "Hickory Docs"),
-            ("LOCALAPPDATA", "Programs/Hickory Docs"),
+            ("ProgramFiles", "Hickory Simple"),
+            ("LOCALAPPDATA", "Programs/Hickory Simple"),
         ] {
             if let Some(base) = lookup(variable) {
                 let exe = PathBuf::from(base).join(relative).join(EXE);
@@ -128,7 +130,7 @@ pub fn find(
 
 /// The `.app` this executable is inside, if it is inside one.
 ///
-/// `…/Hickory Docs.app/Contents/MacOS/hickory-desktop` -> `…/Hickory Docs.app`.
+/// `…/Hickory Simple.app/Contents/MacOS/hickory-simple` -> `…/Hickory Simple.app`.
 /// Purely a path shape, so it is testable everywhere and simply never matches
 /// off macOS.
 fn enclosing_bundle(exe: &Path) -> Option<PathBuf> {
@@ -293,22 +295,22 @@ mod tests {
         // is testable on a machine that has never seen a bundle.
         assert_eq!(
             enclosing_bundle(Path::new(
-                "/Applications/Hickory Docs.app/Contents/MacOS/hickory-desktop"
+                "/Applications/Hickory Simple.app/Contents/MacOS/hickory-simple"
             )),
-            Some(PathBuf::from("/Applications/Hickory Docs.app"))
+            Some(PathBuf::from("/Applications/Hickory Simple.app"))
         );
         assert_eq!(
-            enclosing_bundle(Path::new("/usr/local/bin/hickory-desktop")),
+            enclosing_bundle(Path::new("/usr/local/bin/hickory-simple")),
             None
         );
         // The shape has to be the whole shape: MacOS/, under Contents/, under
         // something ending `.app`.
         assert_eq!(
-            enclosing_bundle(Path::new("/x/Thing.app/MacOS/hickory-desktop")),
+            enclosing_bundle(Path::new("/x/Thing.app/MacOS/hickory-simple")),
             None
         );
         assert_eq!(
-            enclosing_bundle(Path::new("/x/Thing/Contents/MacOS/hickory-desktop")),
+            enclosing_bundle(Path::new("/x/Thing/Contents/MacOS/hickory-simple")),
             None
         );
     }
@@ -326,24 +328,24 @@ mod tests {
         // Falling through to a different app than the one somebody named is
         // how you debug the wrong binary for an hour.
         let found = find(
-            env(&[("HICKORY_DESKTOP", "/opt/nope/hickory-desktop")]),
+            env(&[("HICKORY_DESKTOP", "/opt/nope/hickory-simple")]),
             |_| false,
         );
         assert_eq!(
             found,
-            Some(App::Exe(PathBuf::from("/opt/nope/hickory-desktop")))
+            Some(App::Exe(PathBuf::from("/opt/nope/hickory-simple")))
         );
     }
 
     #[test]
     fn a_dot_app_named_explicitly_is_treated_as_a_bundle() {
         let found = find(
-            env(&[("HICKORY_DESKTOP", "/Apps/Hickory Docs.app")]),
+            env(&[("HICKORY_DESKTOP", "/Apps/Hickory Simple.app")]),
             |_| true,
         );
         assert_eq!(
             found,
-            Some(App::Bundle(PathBuf::from("/Apps/Hickory Docs.app")))
+            Some(App::Bundle(PathBuf::from("/Apps/Hickory Simple.app")))
         );
     }
 

@@ -146,9 +146,8 @@ jobs:
 
       - uses: actions/download-artifact@v4
         with:
-          # Both build matrices: the CLI archives (hick-<target>) and the
-          # desktop bundles (hickory-docs-desktop-<target>).
-          pattern: "{hick-*,hickory-docs-desktop-*}"
+          # Publish the CLI archives and the same Simple packages as Unstable.
+          pattern: "{hick-*,simple-*}"
           merge-multiple: true
           path: dist
 

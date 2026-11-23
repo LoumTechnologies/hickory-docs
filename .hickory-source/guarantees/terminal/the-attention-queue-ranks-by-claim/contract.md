@@ -27,137 +27,6 @@ Implementation review: not verified. Executed checks and human judgment are reco
 
 ## Implementation
 
-<a id="output-fdf3b15e4e70"></a>
-## `apps/web/src/lib/attentionCursor.test.ts`
-
-Present and edit the shared engine state. Browser-side revisions, pending requests and local drafts affect which source and UI actions are still valid.
-
-Related contracts: [The Attention Queue Ranks By Claim](contract.md).
-
-<a id="f-fdf3b15e4e70-expression_statement"></a>
-### `expression_statement`
-
-<storycode:copy id="f-fdf3b15e4e70-expression_statement">
-import { describe, expect, it } from "vitest";
-
-import { nextInQueue, stillWaiting } from "./attentionCursor";
-
-describe("nextInQueue — where ⌘J lands", () => {
-  it("starts at the front when nothing is selected", () => {
-    expect(nextInQueue(["a", "b", "c"], null)).toBe("a");
-  });
-
-  it("walks in the server's order", () => {
-    expect(nextInQueue(["a", "b", "c"], "a")).toBe("b");
-    expect(nextInQueue(["a", "b", "c"], "b")).toBe("c");
-  });
-
-  it("wraps, so the queue can be walked round without hunting for the end", () => {
-    expect(nextInQueue(["a", "b", "c"], "c")).toBe("a");
-  });
-
-  it("returns to the front when the session it was on has left the queue", () => {
-    // Answered between two presses: an index would have pointed at whoever
-    // shuffled into that slot.
-    expect(nextInQueue(["b", "c"], "a")).toBe("b");
-  });
-
-  it("says nothing is waiting rather than pretending to move", () => {
-    expect(nextInQueue([], "a")).toBeNull();
-    expect(nextInQueue([], null)).toBeNull();
-  });
-});
-
-</storycode:copy>
-<a id="f-fdf3b15e4e70-expression_statement-2"></a>
-### `expression_statement`
-
-<storycode:copy id="f-fdf3b15e4e70-expression_statement-2">
-describe("stillWaiting", () => {
-  it("is false once the session has been answered or closed", () => {
-    expect(stillWaiting(["a", "b"], "a")).toBe(true);
-    expect(stillWaiting(["b"], "a")).toBe(false);
-    expect(stillWaiting(["a"], null)).toBe(false);
-  });
-});
-</storycode:copy>
-
-### Assemble `apps/web/src/lib/attentionCursor.test.ts`
-
-The selections below preserve the original byte order. Narrative reading order does not change the output.
-
-<storycode:file path="apps/web/src/lib/attentionCursor.test.ts"><storycode:paste select="#f-fdf3b15e4e70-expression_statement"/><storycode:paste select="#f-fdf3b15e4e70-expression_statement-2"/></storycode:file>
-
-<a id="output-9fd46df3b6d2"></a>
-## `apps/web/src/lib/attentionCursor.ts`
-
-Present and edit the shared engine state. Browser-side revisions, pending requests and local drafts affect which source and UI actions are still valid.
-
-Related contracts: [The Attention Queue Ranks By Claim](contract.md).
-
-<a id="f-9fd46df3b6d2-nextInQueue"></a>
-### `nextInQueue`
-
-Walking the attention queue — what ⌘J does, as one pure step.
-The queue's ORDER is the server's (hick_term::attention), so nothing here
-re-ranks anything. What is decided here is only where the next press lands,
-and the interesting case is the one a naive index gets wrong: between two
-presses the session you were looking at may have been answered, closed, or
-gone back to work, so an index into the old queue points at somebody else.
-Cursors are therefore ids, never positions.
-Protects docs/guarantees/terminal/the-attention-queue-ranks-by-claim.md
-The session ⌘J should land on next.
-`null` means nothing is waiting — which the caller says out loud rather
-than swallowing, because "I pressed it and nothing happened" and "there is
-nothing left to do" are the same keystroke and very different news.
-
-<storycode:copy id="f-9fd46df3b6d2-nextInQueue">
-// Walking the attention queue — what ⌘J does, as one pure step.
-//
-// The queue's ORDER is the server's (hick_term::attention), so nothing here
-// re-ranks anything. What is decided here is only where the next press lands,
-// and the interesting case is the one a naive index gets wrong: between two
-// presses the session you were looking at may have been answered, closed, or
-// gone back to work, so an index into the old queue points at somebody else.
-// Cursors are therefore ids, never positions.
-//
-// Protects docs/guarantees/terminal/the-attention-queue-ranks-by-claim.md
-
-/**
- * The session ⌘J should land on next.
- *
- * `null` means nothing is waiting — which the caller says out loud rather
- * than swallowing, because "I pressed it and nothing happened" and "there is
- * nothing left to do" are the same keystroke and very different news.
- */
-export function nextInQueue(queue: readonly string[], current: string | null): string | null {
-  if (queue.length === 0) return null;
-  const at = current === null ? -1 : queue.indexOf(current);
-  // Not in the queue any more (answered, closed, or back to work): start
-  // again at the front rather than guessing where it used to be.
-  if (at < 0) return queue[0];
-  return queue[(at + 1) % queue.length];
-}
-
-</storycode:copy>
-<a id="f-9fd46df3b6d2-stillWaiting"></a>
-### `stillWaiting`
-
-Whether the cursor still points at something that is waiting.
-
-<storycode:copy id="f-9fd46df3b6d2-stillWaiting">
-/** Whether the cursor still points at something that is waiting. */
-export function stillWaiting(queue: readonly string[], current: string | null): boolean {
-  return current !== null && queue.includes(current);
-}
-</storycode:copy>
-
-### Assemble `apps/web/src/lib/attentionCursor.ts`
-
-The selections below preserve the original byte order. Narrative reading order does not change the output.
-
-<storycode:file path="apps/web/src/lib/attentionCursor.ts"><storycode:paste select="#f-9fd46df3b6d2-nextInQueue"/><storycode:paste select="#f-9fd46df3b6d2-stillWaiting"/></storycode:file>
-
 <a id="output-08fbab2e70a9"></a>
 ## `crates/hick-term/src/attention.rs`
 
@@ -335,14 +204,14 @@ The selections below preserve the original byte order. Narrative reading order d
 
 ### Implementation
 
-- [apps/web/src/lib/attentionCursor.ts](contract.md#output-9fd46df3b6d2)
+- apps/web/src/lib/attentionCursor.ts
 - [crates/hick-term/src/attention.rs](contract.md#output-08fbab2e70a9)
 - [crates/hick-term/src/registry.rs](../../../mechanisms/crates/hick-term/src/registry.rs.md#output-8678d496098a)
 - [crates/hickory-cli/src/serve/terminal.rs](../../../mechanisms/crates/hickory-cli/src/serve/terminal.rs.md#output-e67fa7430800)
 
 ### Tests and fixtures
 
-- [apps/web/src/lib/attentionCursor.test.ts](contract.md#output-fdf3b15e4e70)
+- apps/web/src/lib/attentionCursor.test.ts
 - [crates/hickory-cli/tests/serve_terminals.rs](../../../mechanisms/crates/hickory-cli/tests/serve_terminals.rs.md#output-5d8946e53299)
 
 ### Evidence status

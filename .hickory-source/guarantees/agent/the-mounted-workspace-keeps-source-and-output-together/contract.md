@@ -497,10 +497,10 @@ The selections below preserve the original byte order. Narrative reading order d
 
 ### Implementation
 
-- [apps/web/src/views/AgentSettings.tsx](../a-desktop-app-bundles-its-python-agent/contract.md#output-5b4b3eeb9113)
+- apps/web/src/views/AgentSettings.tsx
 - [crates/hickory-cli/examples/fskit_bundle.rs](../../../mechanisms/crates/hickory-cli/examples/fskit_bundle.rs.md#output-fb890d5279a3)
 - [crates/hickory-collab/src/lib.rs](../../../mechanisms/crates/hickory-collab/src/lib.rs.md#output-08bf73f4dffb)
-- [scripts/dist-desktop.sh](../../../mechanisms/scripts/dist-desktop.sh.md#output-928dfd6fa282)
+- scripts/dist-desktop.sh
 
 ### Tests and fixtures
 

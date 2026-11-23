@@ -1465,14 +1465,14 @@ mod conflict_tests {
 
 - [apps/web/src/api/client.ts](../../../mechanisms/apps/web/src/api/client.ts.md#output-1e909407d4cd)
 - [apps/web/src/components/DiffView.tsx](contract.md#output-2d0324b58c4d)
-- [apps/web/src/views/GitPane.tsx](../../../mechanisms/apps/web/src/views/GitPane.tsx.md#output-f7cd01998027)
+- apps/web/src/views/GitPane.tsx
 - [crates/hickory-cli/src/serve/git_ops.rs](contract.md#output-900059e12d12)
 - [crates/hickory-cli/src/serve/mod.rs](../../../mechanisms/crates/hickory-cli/src/serve/mod.rs.md#output-09ea558208cd)
 
 ### Tests and fixtures
 
 - [apps/web/src/components/DiffView.test.tsx](contract.md#output-ed96f162b5e6)
-- [apps/web/src/views/GitPane.test.tsx](../../../mechanisms/apps/web/src/views/GitPane.tsx.md#output-0e5613784fdf)
+- apps/web/src/views/GitPane.test.tsx
 - [crates/hickory-cli/tests/git_ops.rs](../../../mechanisms/crates/hickory-cli/tests/git_ops.rs.md#output-34c22c3c39d6)
 
 ### Evidence status

@@ -1,7 +1,7 @@
 // The native menu's side of the bargain.
 //
-// The desktop shell forwards menu picks into the page as a DOM CustomEvent
-// named `hickory-menu` (see apps/desktop/src-tauri/src/lib.rs) — a plain
+// Embedded controls can dispatch menu picks as a DOM CustomEvent
+// named `hickory-menu` — a plain
 // window event rather than Tauri IPC, so this file has no Tauri dependency
 // and the same build runs unchanged in a browser, where the event simply
 // never fires.

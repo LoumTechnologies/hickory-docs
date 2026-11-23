@@ -1840,9 +1840,7 @@ apps/desktop/src-tauri/src/lib.rs.)
 /// validated before anything is applied, the file is persisted (`ui.json`
 /// beside `llm-keys.json`), and the in-memory store is swapped so the page's
 /// next read sees the new value with no restart. Answers the same listing
-/// `GET` does. (The NATIVE window title is read from the file at the next
-/// desktop launch; live native updates are out of scope — see
-/// apps/desktop/src-tauri/src/lib.rs.)
+/// `GET` does.
 pub async fn put_settings_ui(
     State(state): State<LocalState>,
     Json(body): Json<Value>,

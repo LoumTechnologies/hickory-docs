@@ -22,10 +22,10 @@ cd "$(dirname "$0")/.."
 python3 -m py_compile scripts/test-simple-mobile-reload.py
 python3 -m unittest discover -s scripts/tests -p test_dev_supervisor.py -v
 
-for script in scripts/dev.sh scripts/dev-seed.sh scripts/check-dev-seed.sh; do
+for script in scripts/dev-seed.sh scripts/check-dev-seed.sh; do
   bash -n "$script"
 done
-echo "syntax ok: dev.sh, dev-seed.sh, check-dev-seed.sh"
+echo "syntax ok: dev-seed.sh, check-dev-seed.sh"
 
 ROOT=$(mktemp -d)
 trap 'rm -rf "$ROOT"' EXIT

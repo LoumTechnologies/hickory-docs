@@ -307,15 +307,15 @@ The selections below preserve the original byte order. Narrative reading order d
 - [apps/web/src/editor/EditorRuler.tsx](../../../mechanisms/apps/web/src/editor/EditorRuler.tsx.md#output-75b1988d3607)
 - [apps/web/src/editor/wrapColumn.ts](contract.md#output-5e96c7a88c1c)
 - [apps/web/src/styles.css](../../../mechanisms/apps/web/src/styles.css.md#output-8695905e2358)
-- [apps/web/src/views/WorkspaceView.tsx](../../../mechanisms/apps/web/src/views/WorkspaceView.tsx.md#output-47afe3575948)
-- [apps/web/src/views/workspaceTabs.tsx](../../../mechanisms/apps/web/src/views/workspaceTabs.tsx.md#output-b5a48fd337ae)
+- apps/web/src/views/WorkspaceView.tsx
+- apps/web/src/views/workspaceTabs.tsx
 
 ### Tests and fixtures
 
-- [apps/web/e2e/startup.spec.ts](../../../mechanisms/apps/web/e2e/startup.spec.ts.md#output-4e63365d81de)
-- [apps/web/src/App.test.tsx](../../../mechanisms/apps/web/src/App.tsx.md#output-65ac24c24624)
+- apps/web/e2e/startup.spec.ts
+- apps/web/src/App.test.tsx
 - [apps/web/src/editor/EditorRuler.test.tsx](../../../mechanisms/apps/web/src/editor/EditorRuler.tsx.md#output-a0ab5d3c94e1)
-- [apps/web/src/views/workspaceTabs.test.tsx](../../../mechanisms/apps/web/src/views/workspaceTabs.tsx.md#output-5370130a675d)
+- apps/web/src/views/workspaceTabs.test.tsx
 
 ### Evidence status
 

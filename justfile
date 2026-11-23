@@ -113,7 +113,7 @@ ci:
 
 # Homepage hot reload and commit restarts, separate from the desktop app.
 dev-site: _dev-supervisor
-    target/dev-supervisor target/dev-supervisor --web-once dev:site
+    target/dev-supervisor --web-once dev:site
 
 # Check only the bulk-index/static-export behavior before publishing it.
 test-static-source:
@@ -160,22 +160,38 @@ site:
     echo "Serves /install.sh — note that the installer pulls from GitHub releases,"
     echo "which strangers can only reach once the repository is public."
 
-# Hot-reloads the UI; the engine runs in the app's own process; closing the
-# window stops everything.
-# Desktop development on a seeded scratch project; commits restart the session.
-dev: _dev-supervisor
-    target/dev-supervisor --desktop ./scripts/dev.sh
+# macOS uses AppKit. Other platforms default to the Simple browser.
+dev platform="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    platform={{quote(platform)}}
+    if [ -z "$platform" ]; then
+      if [ "$(uname -s)" = Darwin ]; then platform=apple; else platform=browser; fi
+    fi
+    if [ -z "${HICKORY_PROJECT_DIR:-}" ]; then
+      just dev-seed
+      export HICKORY_PROJECT_DIR="$PWD/.dev/project"
+    fi
+    verifier="$(git config --get hickory.projectVerifier || true)"
+    if [ "$(git config --get core.hooksPath || true)" != .githooks ] ||
+       [ "$(git config --get hickory.projectEntry || true)" != project.md ] ||
+       [ ! -x "$verifier" ]; then
+      cargo build --locked -p hickory-cli --bin hick
+      git config --local core.hooksPath .githooks
+      target/debug/hick project install-hook project.md
+    fi
+    exec just simple-dev "$platform"
 
-# Drive the Files editor against the live app started by `just dev`.
+# Run the Simple workspace against an isolated local engine.
 test-e2e:
-    HICKORY_E2E_URL="http://127.0.0.1:$((41000 + $(pwd | cksum | cut -d' ' -f1) % 8000))" npm --prefix apps/web run test:e2e
+    cargo build --locked -p hickory-cli --example engine_client
+    python3 scripts/test-simple-browser.py --early-source-only
+    python3 scripts/test-simple-browser.py --agent-only
 
-# Stop anything a killed `just dev` left behind.
+# Signal the current checkout's development supervisor.
 dev-stop: _dev-supervisor
     target/dev-supervisor --desktop-stop stop
 
-# Never another worktree's, and never a cache anyone would re-download.
-# Stop, then delete THIS worktree's dev scratch (.dev/).
 dev-clean: _dev-supervisor
     target/dev-supervisor --desktop-stop clean
 
@@ -194,170 +210,23 @@ dev-seed:
 dist TARGET VERSION="":
     ./scripts/dist.sh {{TARGET}} {{VERSION}}
 
-# Build the downloadable DESKTOP app for this platform into dist/desktop/.
-# A separate download from the CLI, because a GUI application is a .dmg, an
-# .msi, or a .deb/.AppImage — not a tarball of binaries. Needs cargo-tauri:
-#   cargo install tauri-cli --version '^2' --locked
-dist-desktop VERSION="" TARGET="":
-    ./scripts/dist-desktop.sh {{VERSION}} {{TARGET}}
-
-# Publish HEAD to Unstable through an Apple Silicon SSH builder; no Actions.
-# Set HICKORY_MAC_BUILDER; see apps/desktop/RELEASING.md for one-time setup.
-release-unstable:
-    python3 scripts/release-unstable.py
-
-# Focused publication ordering, signature staging, and update-channel safety tests.
-test-unstable-release:
-    python3 -m unittest discover -s scripts/tests -p test_release_unstable.py -v
-    cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --lib updater::tests --locked
-    bash -n scripts/build-unstable-macos.sh scripts/dist-desktop.sh
-
-# Build and install the native macOS app in Applications (no disk image needed).
-local-install finish="false":
+# Build and install the Simple native macOS app in Applications.
+local-install:
     #!/usr/bin/env bash
-    set -Eeuo pipefail
-    phase="checking prerequisites"
-    finish={{quote(finish)}}
-    if [[ "$finish" != false && "$finish" != true ]]; then
-      echo "Expected finish=false (build and install) or true (install the existing build)." >&2
+    set -euo pipefail
+    destination="/Applications/Hickory Simple.app"
+    staging="$(mktemp -d /Applications/.hickory-simple-install.XXXXXX)"
+    trap 'rmdir "$staging" 2>/dev/null || true' EXIT
+    just build-desktop-app Debug
+    ditto "target/simple-app/Debug/Hickory Simple.app" "$staging/Hickory Simple.app"
+    codesign --verify --deep --strict "$staging/Hickory Simple.app"
+    if [ -e "$destination" ]; then mv "$destination" "$staging/previous.app"; fi
+    if ! mv "$staging/Hickory Simple.app" "$destination"; then
+      if [ -d "$staging/previous.app" ]; then mv "$staging/previous.app" "$destination"; fi
       exit 1
     fi
-    privileged=()
-    if [ "$finish" = true ]; then privileged=(sudo); fi
-    install_retry() {
-      echo "To finish installing the verified build without rebuilding, run:" >&2
-      printf 'sudo -v && just --justfile %q local-install true\n' "$PWD/justfile" >&2
-    }
-    trap 'status=$?; echo "local-install failed while $phase (exit $status). See ${log:-the output above}." >&2' ERR
-    if [ "$(uname -s)" != Darwin ] || [ "$(uname -m)" != arm64 ]; then
-      echo "local-install requires an Apple Silicon Mac." >&2
-      exit 1
-    fi
-    if [ "$finish" = false ]; then
-    if ! command -v cargo-tauri >/dev/null 2>&1; then
-      echo "Install the desktop build tool first: cargo install tauri-cli --version '^2' --locked" >&2
-      exit 1
-    fi
-    if ! command -v uv >/dev/null 2>&1; then
-      echo "Install uv first (the bundled Python agent is built with it): https://docs.astral.sh/uv/getting-started/installation/" >&2
-      exit 1
-    fi
-    fi
-    if [ "$finish" = false ] && [ ! -w /Applications ]; then
-      echo "local-install needs write access to /Applications." >&2
-      exit 1
-    fi
-    mkdir -p .dev
-    log="$PWD/.dev/local-install.log"
-    exec > >(tee "$log") 2>&1
-    echo "Install log: $log"
-    export CARGO_TARGET_DIR="$PWD/apps/desktop/src-tauri/target"
-    if [ "$finish" = false ]; then
-    phase="building the release app"
-    echo "Building the release app (local ad-hoc signing; notarization is skipped)."
-    if [ ! -d apps/web/node_modules ]; then
-      npm --prefix apps/web ci
-    fi
-    # Fix the output directory so a caller's Cargo configuration cannot make
-    # us install an old bundle. Tauri builds the UI before Cargo embeds it;
-    # the desktop build script tracks dist so cached binaries cannot omit it.
-    export CARGO_TARGET_DIR="$PWD/apps/desktop/src-tauri/target"
-    # Like Jobsearch's family-build: a local signature, with no notarization.
-    unset APPLE_API_ISSUER APPLE_API_KEY APPLE_API_KEY_PATH APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID
-    unset APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD
-    export APPLE_SIGNING_IDENTITY="-"
-    just stage-desktop-cli aarch64-apple-darwin release
-    # Bundle the Python agent so the experimental runtime works in the
-    # installed app without naming a path in Settings.
-    just stage-python-agent
-    (
-      cd apps/desktop/src-tauri
-      CI=true cargo tauri build --target aarch64-apple-darwin --bundles app \
-        --config ../../../.dev/desktop-cli.json \
-        --config ../../../.dev/desktop-python-agent.json
-    )
-    fi
-    bundle="$CARGO_TARGET_DIR/aarch64-apple-darwin/release/bundle/macos/Hickory Docs.app"
-    phase="verifying the release signature"
-    echo "Verifying the release signature."
-    codesign --verify --deep --strict "$bundle"
-    destination="/Applications/Hickory Docs.app"
-    # Copy completely before replacing the installed app; keep the previous
-    # bundle until the replacement succeeds.
-    phase="staging the app for installation"
-    echo "Staging $destination."
-    if ! staging="$("${privileged[@]}" mktemp -d /Applications/.hickory-install.XXXXXX)"; then
-      install_retry
-      exit 1
-    fi
-    # Keep staging user-owned: compilation, copying, and registration stay unprivileged.
-    if [ "$finish" = true ]; then sudo chown "$(id -u):$(id -g)" "$staging"; fi
-    trap '
-      status=$?
-      "${privileged[@]}" rm -rf "$staging" || true
-      exit "$status"
-    ' EXIT
-    # Compile before replacing anything: no downloaded association utility.
-    rustc --edition=2024 scripts/default-markdown-editor.rs -o "$staging/default-markdown-editor"
-    ditto "$bundle" "$staging/Hickory Docs.app"
-    phase="replacing the installed app"
-    if [ -e "$destination" ]; then
-      if ! "${privileged[@]}" mv "$destination" "$staging/previous.app"; then
-        install_retry
-        exit 1
-      fi
-    fi
-    if ! "${privileged[@]}" mv "$staging/Hickory Docs.app" "$destination"; then
-      if [ -e "$staging/previous.app" ]; then
-        if ! "${privileged[@]}" mv "$staging/previous.app" "$destination"; then
-          echo "Rollback failed; previous app preserved at $staging/previous.app." >&2
-          trap - EXIT
-          exit 1
-        fi
-      fi
-      echo "Could not replace $destination; restored the previous app if present." >&2
-      install_retry
-      exit 1
-    fi
-    phase="registering the installed app with macOS"
-    echo "Registering $destination with macOS."
-    lsregister=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
-    registration_status=registered
-    # The ERR trap is inherited by command substitutions. Disable it in this
-    # expected failure capture so the warning below is the only diagnostic.
-    if ! registration_error="$(trap - ERR; "$lsregister" -f "$destination" 2>&1)"; then
-      echo "$registration_error" >&2
-      # -10822 is kLSServerCommunicationErr: the per-user LaunchServices
-      # service is unavailable (for example, a remote/headless session), not
-      # a malformed app. The app is already safely installed and Finder will
-      # register it when that service returns.
-      if [[ "$registration_error" == *"-10822"* ]]; then
-        registration_status=pending
-        echo "Warning: LaunchServices is unavailable; macOS will register $destination when its service returns." >&2
-      else
-        exit 1
-      fi
-    fi
-    # Leave only the installed app for macOS to discover, after installation
-    # succeeds. Unregister the build copy while its bundle still exists.
-    # LaunchServices can refuse to scan this disposable copy (-10814).
-    # That must not fail an already registered install or prevent removal.
-    if ! "$lsregister" -u "$bundle"; then
-      echo "Warning: macOS could not unregister the build copy; removing it anyway." >&2
-    fi
-    rm -rf "$bundle"
-    if [ "$registration_status" = registered ]; then
-      echo "Installed and registered $destination."
-    else
-      echo "Installed $destination; LaunchServices registration is pending."
-    fi
-    phase="setting the Markdown default"
-    if ! "$staging/default-markdown-editor" "$destination" "$CARGO_TARGET_DIR"; then
-      echo "Warning: Hickory Docs is installed, but its Markdown default could not be confirmed." >&2
-      echo "In Finder, select a .md file → Get Info → Open with → choose $destination → Change All…" >&2
-      echo "Default-editor diagnostics are in $log. No rebuild is needed to use the installed app." >&2
-    fi
-    echo "Installed $destination. Launch Hickory Docs from Applications or Spotlight."
+    if [ -d "$staging/previous.app" ]; then trash "$staging/previous.app"; fi
+    echo "Installed $destination"
 
 # Run a hick document with the local executor.
 run DOC *ARGS:
@@ -419,38 +288,19 @@ test-acp-live:
 check-web:
     cd apps/web && npm run typecheck
 
-# Headless workspace preview; prints its URL and restarts on commits.
-dev-spatial-mock: _dev-supervisor
-    target/dev-supervisor target/dev-supervisor --web-once dev:mock
 
 # Editor preview against the supplied engine; commits restart only this frontend.
 dev-web api_origin: _dev-supervisor
-    target/dev-supervisor target/dev-supervisor --web-once dev {{quote(api_origin)}}
+    target/dev-supervisor --web-once dev {{quote(api_origin)}}
 
-test-spatial-browser url:
-    cd apps/web && HICKORY_E2E_CHANNEL=chromium HICKORY_SPATIAL_URL={{quote(url)}} npx playwright test e2e/spatialWorkspace.spec.ts
-
-test-files-browser url:
-    cd apps/web && HICKORY_E2E_CHANNEL=chromium HICKORY_E2E_URL={{quote(url)}} npx playwright test e2e/files-editor.spec.ts
 
 # Spatial layout geometry and native editor behavior.
 test-spatial:
-    cd apps/web && npm run typecheck && npm test -- src/shell/spatialTiles.test.ts src/shell/ribbonNavigation.test.ts src/shell/spatialLayout.test.ts src/shell/spatialDrawers.test.ts src/shell/SpatialShellView.test.tsx src/shell/SpatialController.test.ts src/editor/spatialExcerpt.test.ts src/views/SettingsView.test.tsx
+    cd apps/web && npm run typecheck && npm test -- src/shell/spatialTiles.test.ts src/shell/spatialLayout.test.ts src/shell/spatialDrawers.test.ts src/shell/SpatialController.test.ts src/editor/spatialExcerpt.test.ts
 
-# Drawer geometry and real editor state against a disposable native engine.
-test-spatial-ui:
-    bash scripts/test-spatial-ui.sh
-
-# Focused command discovery and agent typing against a disposable native engine.
-test-workflow-ui:
-    bash scripts/test-spatial-ui.sh workflow-polish.spec.ts
-
-# Focused Python browser witness; uses uv and the existing Playwright Chromium installation.
-test-quiet-ui:
-    bash scripts/test-spatial-ui.sh --quiet
 
 test-workflow:
-    cd apps/web && npm run typecheck && npm test -- src/App.test.tsx src/shell/CommandBar.test.tsx src/views/documentCommands.test.ts src/views/useWorkspaceAppearance.test.tsx src/views/ConversationEditor.test.tsx src/components/ChatDock.test.tsx src/editor/DocumentEditor.test.tsx src/components/CellPanel.test.tsx
+    cd apps/web && npm run typecheck && npm test -- src/views/ConversationEditor.test.tsx src/components/ChatDock.test.tsx src/components/CellPanel.test.tsx
 
 test-debugger-paths:
     cargo test -p hick-dap --test project --test live_session -- --test-threads=1
@@ -499,13 +349,9 @@ test-workspace-fs:
 test-fskit-live:
     cargo run -p hickory-cli --example fskit_live
 
-# Desktop entry points live outside the root workspace.
-check-desktop:
-    cd apps/desktop/src-tauri && cargo fmt --all && cargo clippy --all-targets -- -D warnings
 
 # Desktop PATH recovery and real-shell startup regression checks.
 test-binary-discovery:
-    cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --bin hickory-desktop launch_path::
     cargo test -p hick-term --lib shell_integration::
     cargo test -p hick-term --test a_real_shell_reports_its_directory --test typed_commands
     cargo test -p hickory-cli --lib serve::github::
@@ -515,7 +361,6 @@ test-engine:
     cargo build -p hickory-cli --bin hick --example engine_client --example acp_fixture
     cargo test -p hickory-cli --test engine_lifecycle --test up_loop --test up_stress --test serve_local -- --test-threads=1
     cargo test -p hickory-collab -p hickory-workspace -- --test-threads=1
-    cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --test serves_one_origin -- --test-threads=1
 
 # Agent conversation rendering and independently checked lineage evidence.
 test-conversation-lineage:
@@ -523,52 +368,61 @@ test-conversation-lineage:
     cargo test -p hickory-cli --test session_lens -- --test-threads=1
     cargo build -p hickory-cli --example acp_fixture
     cargo test -p hickory-cli --test serve_acp an_uncited_acp_answer -- --test-threads=1
-    cd apps/web && npm run typecheck && npm test -- src/components/FeatureSettings.test.tsx src/components/ChatDock.test.tsx src/components/AcpControls.test.tsx src/views/SessionLens.test.tsx src/lib/conversationLineage.test.ts src/lib/lensSources.test.ts src/shell/linkShapes.test.ts src/lib/visibleElementRect.test.ts src/shell/ribbonNavigation.test.ts src/views/workspaceRibbonSources.test.ts src/lib/editorBufferTargets.test.ts src/lib/paths.test.ts src/editor/folding.test.ts src/views/ConversationEditor.test.tsx
+    cd apps/web && npm run typecheck && npm test -- src/components/FeatureSettings.test.tsx src/components/ChatDock.test.tsx src/components/AcpControls.test.tsx src/views/SessionLens.test.tsx src/lib/conversationLineage.test.ts src/lib/lensSources.test.ts src/shell/linkShapes.test.ts src/lib/visibleElementRect.test.ts src/lib/paths.test.ts src/views/ConversationEditor.test.tsx
 
-# Compile the frontend bundled into desktop builds.
+# Build the Simple browser editor.
 build-web:
     cd apps/web && npm run build
 
-# Startup integration with the real editor, plus its layout and naming rules.
-test-startup-web:
-    cd apps/web && npm run typecheck && npm test -- src/App.test.tsx src/views/workspaceState.test.ts src/lib/newDoc.test.ts
 
 # Editor bootstrap, guarded background initialization, and startup API retries.
 test-startup:
     cargo build -p hickory-cli --bin hick --example engine_client
     cargo test -p hickory-cli --lib engine::startup::
     cargo test -p hickory-cli --test engine_lifecycle -- --test-threads=1
-    cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --bin hickory-desktop launch_path::
-    cd apps/web && npm run typecheck && npm test -- src/api/workspaceStartup.test.tsx src/api/client.test.ts src/App.test.tsx src/views/workspaceState.test.ts src/lib/newDoc.test.ts
+    cd apps/web && npm run typecheck && npm test -- src/api/client.test.ts
 
-test-startup-browser url:
-    cd apps/web && HICKORY_E2E_CHANNEL=chromium HICKORY_E2E_URL={{quote(url)}} npx playwright test e2e/startup.spec.ts
 
-# Make a locally signed macOS bundle without replacing the installed app.
-build-desktop-app:
-    just stage-desktop-cli "" dev
-    just stage-python-agent
-    cd apps/desktop/src-tauri && APPLE_SIGNING_IDENTITY="-" cargo tauri build --debug --bundles app --config ../../../.dev/desktop-cli.json --config ../../../.dev/desktop-python-agent.json
-    codesign --verify --deep --strict "apps/desktop/src-tauri/target/debug/bundle/macos/Hickory Docs.app"
+# Stage the native app, workspace host and shared editor assets together.
+build-desktop-app configuration="Debug":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    configuration={{quote(configuration)}}
+    case "$configuration" in
+      Debug) cargo_profile=dev; cargo_directory=debug ;;
+      Release) cargo_profile=release; cargo_directory=release ;;
+      *) echo 'Choose Debug or Release.' >&2; exit 2 ;;
+    esac
+    if [ "$(uname -s)" != Darwin ]; then echo 'Build this app on macOS with Xcode.' >&2; exit 2; fi
+    if ! xcodebuild -version >/dev/null 2>&1 && [ -z "${DEVELOPER_DIR:-}" ]; then
+      for xcode in /Applications/Xcode*.app/Contents/Developer; do
+        if [ -x "$xcode/usr/bin/xcodebuild" ]; then export DEVELOPER_DIR="$xcode"; fi
+      done
+    fi
+    if [ ! -x apps/web/node_modules/.bin/vite ] || [ apps/web/package-lock.json -nt apps/web/node_modules ]; then
+      npm --prefix apps/web ci
+    fi
+    just simple-build browser
+    cargo build --locked --target-dir "$PWD/target" --profile "$cargo_profile" -p hickory-cli --example simple_dev
+    xcodegen generate --spec apps/apple-simple/project.yml
+    build="$PWD/target/simple-app"
+    xcodebuild -quiet -jobs 2 -project apps/apple-simple/HickorySimple.xcodeproj       -target HickorySimpleMac -configuration "$configuration" ARCHS="$(uname -m)"       SYMROOT="$build" OBJROOT="$build/obj" CODE_SIGNING_ALLOWED=NO build
+    app="$build/$configuration/Hickory Simple.app"
+    ditto "$build/$configuration/HickorySimpleMac.app" "$app"
+    install -m 0755 "target/$cargo_directory/examples/simple_dev" "$app/Contents/MacOS/hickory-simple-host"
+    ditto apps/web/dist-simple "$app/Contents/Resources/HickoryWeb"
+    codesign --force --sign - "$app/Contents/MacOS/hickory-simple-host"
+    codesign --force --sign - "$app"
+    codesign --verify --deep --strict "$app"
 
-# Recent File/Folder persistence and workspace navigation.
-test-recent-paths:
-    cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --lib recent::tests
-    cd apps/web && npm run typecheck && npm test -- src/views/useRecentFiles.test.tsx
 
 # Agent context across open buffers, folder sessions, and folderless windows.
 test-agent-context:
     cargo build -p hickory-cli --bin hick --example acp_fixture
     cargo test -p hickory-cli --test serve_agent --test serve_acp --test byo_agent_surface -- --test-threads=1
     cargo test -p hickory-agent -p hickory-collab --lib -- --test-threads=1
-    cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --test serves_one_origin -- --test-threads=1
     just test-agent-web
 
-# Folderless editor context and repository setup boundaries.
-test-folderless:
-    cargo test -p hickory-cli --test merge_driver_button --test serve_agent -- --test-threads=1
-    cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --test serves_one_origin a_blank_window_has_editor_apis_but_no_open_folder -- --test-threads=1
-    just test-agent-web
 
 # Source-backed literate views, editable comparisons, and isolated visual bisect.
 test-literate-views:
@@ -578,19 +432,10 @@ test-literate-views:
     cargo test -p hickory-cli --test engine_lifecycle -- --test-threads=1
     cd apps/web && npm test -- src/editor/comparison.test.ts src/lsp/representationMapping.test.ts src/lsp/cmLspFeatures.test.ts src/lsp/completion.test.ts
 
-# Watched browser flows, with their own engine, state directory and scratch Git repository.
-test-literate-editor FILTER="":
-    cargo build -p hickory-cli --bin hick --example engine_client --example acp_fixture
-    scripts/test-literate-editor.sh --grep {{quote(FILTER)}}
-
-# Real patch-gutter Debug, automatic debugpy installation and native stepping.
-test-unified-debug-ui:
-    cargo build -p hickory-cli --bin hick --example engine_client --example acp_fixture
-    HICKORY_E2E_DEBUG=1 scripts/test-literate-editor.sh --grep 'unified patch gutter|patch debugger keeps'
 
 # Shared debugger rails, captured navigation, generated-source routing and keys.
 test-unified-code-tools:
-    cd apps/web && npm run typecheck && npm test -- --maxWorkers=2 src/debug/DebugRail.test.tsx src/debug/DebugStrip.test.tsx src/debug/plainDebugHosts.test.tsx src/debug/useDebugger.test.ts src/debug/GeneratedDebugTools.test.tsx src/debug/cmDebug.test.ts src/components/ComparisonTools.test.tsx src/lib/keymap.test.ts
+    cd apps/web && npm run typecheck && npm test -- --maxWorkers=2 src/debug/DebugRail.test.tsx src/debug/DebugStrip.test.tsx src/debug/plainDebugHosts.test.tsx src/debug/useDebugger.test.ts src/debug/cmDebug.test.ts src/components/ComparisonTools.test.tsx src/lib/keymap.test.ts
 
 test-source-breakpoints:
     cargo test -p hick-dap --lib --test project
@@ -598,44 +443,6 @@ test-source-breakpoints:
     cargo test -p hickory-cli --test debug_desktop source_breakpoints -- --test-threads=1
     just test-unified-code-tools
 
-# Stage the self-contained Python agent runtime a desktop build bundles.
-# Writes .dev/python-agent/runtime and the Tauri `files` config that ships it.
-# Needs uv; see scripts/build-python-agent-runtime.sh for why the runtime is
-# folded out of the locked environment rather than pointed at it.
-stage-python-agent:
-    ./scripts/build-python-agent-runtime.sh
-
-# Stage the CLI sidecar for Tauri. Kept out of tauri.conf so cargo-only checks
-# do not require an already-built binary. Every bundled build uses this config.
-stage-desktop-cli TARGET="" PROFILE="release":
-    #!/usr/bin/env bash
-    set -euo pipefail
-    target="{{TARGET}}"
-    [ -n "$target" ] || target="$(rustc -vV | sed -n 's/^host: //p')"
-    profile="{{PROFILE}}"
-    host="$(rustc -vV | sed -n 's/^host: //p')"
-    build_args=()
-    output="$PWD/target"
-    if [ "$target" != "$host" ]; then
-      build_args=(--target "$target")
-      output="$output/$target"
-    fi
-    CARGO_TARGET_DIR="$PWD/target" cargo build -p hickory-cli --bin hick --profile "$profile" ${build_args[@]+"${build_args[@]}"}
-    suffix=""
-    [[ "$target" != *windows* ]] || suffix=".exe"
-    folder="$profile"
-    [ "$profile" != dev ] || folder=debug
-    mkdir -p .dev/binaries
-    cp "$output/$folder/hick$suffix" ".dev/binaries/hick-$target$suffix"
-    printf '%s\n' '{"bundle":{"externalBin":["../../../.dev/binaries/hick"]}}' > .dev/desktop-cli.json
-
-# CLI launch, user PATH ownership, and Settings controls.
-test-command-path:
-    cargo test -p hickory-cli --bin hick cli_launch::
-    cargo test -p hickory-cli --lib open_app::
-    cargo test -p hickory-cli --test open_app
-    cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --lib command_path::
-    cd apps/web && npm run typecheck && npm test -- src/views/CommandPathSettings.test.tsx src/views/SettingsView.test.tsx
 
 # Markdown pipe tables share the grid and keep Markdown on edit.
 test-markdown-tables:
@@ -652,7 +459,7 @@ test-web:
 # Agent conversation controls, scroll following, and generated session formatting.
 test-agent-pane:
     cargo test -p hickory-agent --lib -- --test-threads=1
-    cd apps/web && npm run typecheck && npm test -- src/views/ConversationEditor.test.tsx src/components/ChatDock.test.tsx src/views/WorkspaceChat.test.tsx src/editor/session.test.tsx src/App.test.tsx
+    cd apps/web && npm run typecheck && npm test -- src/views/ConversationEditor.test.tsx src/components/ChatDock.test.tsx src/editor/session.test.tsx
 
 # Durable model-failure evidence, assumptions, review and historical receipts.
 test-agent-audit:
@@ -661,9 +468,6 @@ test-agent-audit:
     cargo test -p hickory-cli --test transform_tests --test session_lens --test serve_agent -- --test-threads=1
     cd apps/web && npm run typecheck && npm test -- --maxWorkers=2 src/elements/session/evidence.test.tsx src/components/AssumptionAudit.test.tsx src/components/AgentChanges.test.tsx src/views/ConversationEditor.test.tsx src/components/ChatDock.test.tsx
 
-# Re-run UI cases that depend on asynchronous editor setup with bounded contention.
-test-agent-audit-web:
-    cd apps/web && npm run typecheck && npm test -- --maxWorkers=2 src/elements/session/evidence.test.tsx src/components/AssumptionAudit.test.tsx src/components/AgentChanges.test.tsx src/views/ConversationEditor.test.tsx src/components/ChatDock.test.tsx src/views/WorkspaceChat.test.tsx src/views/SessionLens.test.tsx src/App.test.tsx src/debug/browser/runtime.test.ts
 
 # Full agent implementation, including historical external tool surfaces.
 test-agent-implementation:
@@ -674,9 +478,6 @@ test-agent-implementation:
 test-python-agent:
     scripts/check-python-agent.sh
 
-# Real-browser Python setup, proposal review, history and cancellation.
-test-python-agent-ui:
-    scripts/test-python-agent-ui.sh
 
 # Validate the local guarantee-maintainer skill metadata.
 validate-guarantee-skill SKILL_CREATOR_DIR:
@@ -684,13 +485,9 @@ validate-guarantee-skill SKILL_CREATOR_DIR:
 
 # File menu, independent unnamed buffers, and opening selected files in place.
 test-file-menu:
-    cd apps/web && npm run typecheck && npm test -- src/App.test.tsx src/views/workspaceState.test.ts src/views/folderPane.test.tsx src/views/useUntitledSave.test.tsx src/views/useUnsavedLifecycle.test.tsx src/views/workspaceTabs.test.tsx src/router.test.ts
+    cd apps/web && npm run typecheck && npm test -- src/router.test.ts
     cargo test -p hickory-cli --test open_selected_file -- --test-threads=1
 
-# Attaching the first folder preserves this window and its existing editors.
-test-first-folder:
-    cd apps/desktop/src-tauri && cargo test --test first_folder --test serves_one_origin -- --test-threads=1
-    cd apps/web && npm test -- src/views/folderPane.test.tsx
 
 # Portable changeset replay, exact inventory, revision inputs and tool isolation.
 test-literate-projects:
@@ -758,7 +555,7 @@ verify-literate-project-fixtures:
 # Common editor contracts and portable browser patch regeneration.
 test-literate-comparison-editor:
     cd apps/web && npm run typecheck
-    cd apps/web && npm test -- src/lib/projectComparison.test.ts src/components/ComparisonEditor.test.tsx src/components/ComparisonTools.test.tsx src/debug/documentDebugContext.test.ts src/elements/patch/Editor.test.tsx src/views/workspaceTabs.test.tsx --maxWorkers=2
+    cd apps/web && npm test -- src/lib/projectComparison.test.ts src/components/ComparisonEditor.test.tsx src/components/ComparisonTools.test.tsx src/debug/documentDebugContext.test.ts src/elements/patch/Editor.test.tsx --maxWorkers=2
 
 # All portable projects declared in the exact candidate index; no working reads.
 verify-literate-projects-index:
@@ -774,26 +571,17 @@ test-literate-agent-projects:
 # Real worktree routing, snapshot guards and per-target undo.
 test-literate-worktrees:
     cargo test -p hickory-cli --test merged_view
-    cd apps/web && npm test -- src/views/MergedView.test.tsx --maxWorkers=2
+    cd apps/web && npm test -- --maxWorkers=2
 
 # Compact editor chrome, preferences and native browser geometry.
 test-editor-density:
-    cd apps/web && npm run typecheck && npm test -- src/views/workspaceTabs.test.tsx src/views/SettingsView.test.tsx src/shell/CommandBar.test.tsx src/shell/PaneHeader.test.tsx src/components/PlainFilePane.test.tsx src/editor/EditorRuler.test.tsx src/shell/SpatialShellView.test.tsx src/lib/keymap.test.ts src/lib/cardRail.test.ts --maxWorkers=2
+    cd apps/web && npm run typecheck && npm test -- src/shell/PaneHeader.test.tsx src/components/PlainFilePane.test.tsx src/editor/EditorRuler.test.tsx src/lib/keymap.test.ts src/lib/cardRail.test.ts --maxWorkers=2
 
-test-editor-density-ui:
-    bash scripts/test-spatial-ui.sh editor-density.spec.ts
 
 # Files text rows, floating preview surfaces and themed hints.
 test-files-previews:
-    cd apps/web && npm run typecheck && npm test -- src/shell/SpatialController.test.ts src/shell/spatialDrawers.test.ts src/shell/FilesystemTreeEditor.test.tsx src/lib/tooltip.test.ts --maxWorkers=2
+    cd apps/web && npm run typecheck && npm test -- src/shell/SpatialController.test.ts src/shell/spatialDrawers.test.ts src/lib/tooltip.test.ts --maxWorkers=2
 
-# Reproduce bypasses against a disposable copy of an existing walkthrough.
-test-spatial-walkthrough project:
-    HICKORY_SPATIAL_PROJECT={{quote(project)}} bash scripts/test-spatial-ui.sh spatialWalkthrough.spec.ts
-
-# Resize the actual Files pane across its preview-layout breakpoint.
-test-responsive-files-ui:
-    bash scripts/test-spatial-ui.sh spatialWorkspace.spec.ts --grep 'resizing Files'
 
 # Install the frontend dependencies from the checked-in lockfile.
 setup-web:
@@ -802,12 +590,8 @@ setup-web:
 # Folder-scoped open editors, layout restoration and close flushing.
 test-folder-window-web:
     just check-web
-    cd apps/web && npm test -- --maxWorkers=2 src/views/useWorkspaceUi.test.tsx src/views/restoreFolderLayout.test.ts src/shell/SpatialShellView.test.tsx src/shell/spatialLayout.test.ts src/views/folderPane.test.tsx src/views/useUnsavedLifecycle.test.tsx src/views/useUntitledSave.test.tsx src/views/workspaceTabs.test.tsx src/lib/uiState.test.ts src/App.test.tsx
+    cd apps/web && npm test -- --maxWorkers=2 src/shell/spatialLayout.test.ts src/lib/uiState.test.ts
 
-test-folder-window-state:
-    just test-folder-window-web
-    just build-web
-    cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --test serves_one_origin folder_layout -- --test-threads=1
 
 # Literate debugger navigation and exact source-position mapping.
 test-debug-navigation:
@@ -816,30 +600,22 @@ test-debug-navigation:
 # File tabs and Files rows share context-menu actions and prompts.
 test-file-tab-menu:
     just check-web
-    cd apps/web && npm test -- src/views/useFileTabMenu.test.tsx src/shell/FolderTreePane.test.tsx src/shell/SpatialShellView.test.tsx --maxWorkers=2
+    cd apps/web && npm test -- src/shell/FolderTreePane.test.tsx --maxWorkers=2
 
 # Exact-source project selection, breakpoint rails and frozen comparison tools.
 test-exact-source-debug:
     cargo test -p hick-lang --test project_debug --test project
     cargo test -p hick-lsp --test project
-    cd apps/web && npm run typecheck && npm test -- --maxWorkers=2 src/debug/documentDebugContext.test.ts src/debug/DebugRail.test.tsx src/debug/useDebugger.test.ts src/components/ComparisonTools.test.tsx src/views/workspaceTabs.test.tsx
+    cd apps/web && npm run typecheck && npm test -- --maxWorkers=2 src/debug/documentDebugContext.test.ts src/debug/DebugRail.test.tsx src/debug/useDebugger.test.ts src/components/ComparisonTools.test.tsx
 
-# Real native adapter: file-block, Old and New launches preserve displayed bytes.
-test-exact-source-debug-ui:
-    cargo build -p hickory-cli --bin hick --example engine_client --example acp_fixture
-    HICKORY_E2E_DEBUG=1 scripts/test-literate-editor.sh --grep 'exact-source debug|unified patch gutter|patch debugger keeps'
 
 # Launch discovery/configuration, atomic project versions and profile chooser.
 test-launch-profiles:
     cargo test -p hick-lang --test project_debug --test project
     cargo test -p hickory-cli --test launch_profiles
     cargo test -p hickory-cli --lib serve::test_run
-    cd apps/web && npm run typecheck && npm test -- --maxWorkers=2 src/debug/launchProfiles.test.tsx src/debug/projectDebugSurface.test.tsx src/debug/GeneratedDebugTools.test.tsx src/debug/useDebugger.test.ts src/debug/plainDebugHosts.test.tsx src/debug/DebugRail.test.tsx src/components/ComparisonTools.test.tsx
+    cd apps/web && npm run typecheck && npm test -- --maxWorkers=2 src/debug/launchProfiles.test.tsx src/debug/projectDebugSurface.test.tsx src/debug/useDebugger.test.ts src/debug/plainDebugHosts.test.tsx src/debug/DebugRail.test.tsx src/components/ComparisonTools.test.tsx
 
-# Real app/profile selection, both atomic readings, library breakpoints and Run.
-test-launch-profiles-ui:
-    cargo build -p hickory-cli --bin hick --example engine_client --example acp_fixture
-    HICKORY_E2E_DEBUG=1 scripts/test-literate-editor.sh --grep 'launch profiles|unified patch gutter|patch debugger keeps|exact-source debug'
 
 # Negotiated ACP changeset completion and the shared MCP verification tools.
 test-agent-changesets:
@@ -852,7 +628,7 @@ test-agent-changesets:
 
 # Final artifact rendering uses the same patch and native-tool context as notes.
 test-agent-changesets-web:
-    cd apps/web && npm run typecheck && npm test -- --maxWorkers=2 src/components/ChangesetDocument.test.tsx src/elements/patch/Editor.test.tsx src/elements/patch/view.test.tsx src/components/ComparisonTools.test.tsx src/components/AgentChanges.test.tsx src/views/ConversationEditor.test.tsx src/components/ChatDock.test.tsx src/views/WorkspaceChat.test.tsx
+    cd apps/web && npm run typecheck && npm test -- --maxWorkers=2 src/components/ChangesetDocument.test.tsx src/elements/patch/Editor.test.tsx src/elements/patch/view.test.tsx src/components/ComparisonTools.test.tsx src/components/AgentChanges.test.tsx src/views/ConversationEditor.test.tsx src/components/ChatDock.test.tsx
 
 check-agent-changesets:
     cargo fmt --all -- --check
@@ -861,22 +637,16 @@ check-agent-changesets:
 
 # Provenance visualization grouping and overlay geometry.
 test-ribbon-grouping:
-    cd apps/web && npm test -- src/lib/coalesceRibbons.test.ts src/shell/coalesceLinks.test.ts src/lib/ribbons.test.ts src/shell/linkShapes.test.ts src/lib/ribbonGeometry.test.ts
+    cd apps/web && npm test -- src/lib/coalesceRibbons.test.ts src/shell/coalesceLinks.test.ts src/shell/linkShapes.test.ts src/lib/ribbonGeometry.test.ts
 
-# Real editor, fresh-context exchange and ACP repair, with and without a folder.
-test-workspace-changesets-browser:
-    cargo build -p hickory-cli --example acp_fixture
-    cargo test -p hickory-cli --test agent_changesets browser_workspace_changesets -- --ignored --nocapture
 
 # Personal agent response recovery and the actual durable store.
 test-response-recovery:
     just check-web
-    cd apps/web && npm test -- --maxWorkers=2 src/lib/responseRecovery.test.ts src/components/ChatDock.test.tsx src/views/WorkspaceChat.test.tsx src/views/ConversationEditor.test.tsx src/views/useUnsavedLifecycle.test.tsx src/App.test.tsx
+    cd apps/web && npm test -- --maxWorkers=2 src/lib/responseRecovery.test.ts src/components/ChatDock.test.tsx src/views/ConversationEditor.test.tsx
     cargo test -p hickory-workspace --lib
     cargo check -p hickory-cli
 
-test-response-recovery-ui:
-    bash scripts/test-spatial-ui.sh responseRecovery.spec.ts
 
 check-response-recovery:
     cargo fmt --all -- --check
@@ -995,9 +765,9 @@ native-debug-smoke platform:
     if [ ! -x target/native-debug-smoke-runner ] || [ scripts/native-debug-smoke.rs -nt target/native-debug-smoke-runner ]; then rustc --edition 2024 scripts/native-debug-smoke.rs -o target/native-debug-smoke-runner; fi
     target/native-debug-smoke-runner {{quote(platform)}}
 
-# Comparison frontends; commits rebuild/relaunch every target, including mobile.
+# Commits rebuild and relaunch the selected frontend.
 simple-dev platform="browser": _dev-supervisor
-    {{ if platform == "browser" { "target/dev-supervisor " } else if platform == "apple" { "target/dev-supervisor " } else if platform == "linux" { "target/dev-supervisor " } else if platform == "windows" { "target/dev-supervisor.exe " } else { "" } }}cargo run --quiet --locked -p hickory-cli --example simple_dev -- {{quote(platform)}}
+    {{ if platform == "browser" { "target/dev-supervisor --desktop " } else if platform == "apple" { "target/dev-supervisor --desktop " } else if platform == "linux" { "target/dev-supervisor --desktop " } else if platform == "windows" { "target/dev-supervisor.exe --desktop " } else { "" } }}cargo run --quiet --locked -p hickory-cli --example simple_dev -- {{quote(platform)}}
 
 # Real native update/relaunch and app-data preservation on an explicitly selected device.
 simple-reload-test platform:

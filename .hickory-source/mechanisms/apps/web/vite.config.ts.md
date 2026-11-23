@@ -47,9 +47,8 @@ export default defineConfig({
     allowedHosts: [".portzero.local"],
     proxy: {
       "/api": {
-        // The API's Port Zero domain (scripts/dev.sh sets this). Falling back
-        // to a localhost port keeps a bare `npm run dev` working without the
-        // daemon. `ws: true` matters: the whole live-sync layer is WebSocket.
+        // The Simple launcher supplies the workspace host. Plain Vite can
+        // proxy an independently started engine at the configured port.
         target: env.HICKORY_API_ORIGIN ?? `http://localhost:${env.HICKORY_SERVER_PORT ?? 8080}`,
         changeOrigin: true,
         ws: true,

@@ -20,7 +20,7 @@ fences and non-prose cell payloads retain ordinary Enter behavior. Tab indents
 the current line, including at column zero; Shift-Tab unindents it.
 
 The [keyboard implementation](../../../mechanisms/apps/web/src/editor/DocumentEditor.tsx.md#f-aab82870e517-export_statement)
-and [mounted-editor cases](../../../mechanisms/apps/web/src/editor/DocumentEditor.test.tsx.md#f-71bbcfe029bb-expression_statement-12)
+and mounted-editor cases
 cover this addition. On 2026-11-01, all 12 focused keyboard cases passed in
 Vitest/jsdom and the web TypeScript check passed. This checks source edits and
 keymap dispatch; it does not claim browser layout or human acceptance.
@@ -820,7 +820,7 @@ The selections below preserve the original byte order. Narrative reading order d
 
 ### Implementation
 
-- [apps/web/src/components/OutputEditorPane.tsx](../../../mechanisms/apps/web/src/components/OutputEditorPane.tsx.md#output-2571b0682164)
+- apps/web/src/components/OutputEditorPane.tsx
 - [apps/web/src/components/PlainFilePane.tsx](../../../mechanisms/apps/web/src/components/PlainFilePane.tsx.md#output-2f891a49445f)
 - [apps/web/src/editor/DocumentEditor.tsx](../../../mechanisms/apps/web/src/editor/DocumentEditor.tsx.md#output-aab82870e517)
 - [apps/web/src/editor/hickDoc.ts](../../../mechanisms/apps/web/src/editor/hickDoc.ts.md#output-c2f7bc821e36)

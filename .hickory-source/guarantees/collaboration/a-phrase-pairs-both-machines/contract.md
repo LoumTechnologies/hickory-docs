@@ -804,7 +804,7 @@ The selections below preserve the original byte order. Narrative reading order d
 
 ### Tests and fixtures
 
-- [apps/web/src/views/FleetPane.test.tsx](../../../mechanisms/apps/web/src/views/FleetPane.tsx.md#output-ef08e5ce40d1)
+- apps/web/src/views/FleetPane.test.tsx
 - [crates/hickory-peer/tests/pairing_cancel.rs](contract.md#output-25d0eba2b153)
 - [crates/hickory-peer/tests/peer_channel.rs](../../../mechanisms/crates/hickory-peer/tests/peer_channel.rs.md#output-669e41b69a09)
 

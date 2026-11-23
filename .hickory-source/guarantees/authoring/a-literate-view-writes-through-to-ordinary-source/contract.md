@@ -32,7 +32,7 @@ Implementation review: not verified. Executed checks and human judgment are reco
 
 ### Implementation
 
-- [apps/web/src/views/RepresentationPane.tsx](../../../mechanisms/apps/web/src/views/RepresentationPane.tsx.md#output-cd66c1c2250e)
+- apps/web/src/views/RepresentationPane.tsx
 - [crates/hickory-cli/src/serve/acp/mcp.rs](../../agent/changeset-completion-is-negotiated-and-checked/implementation/crates/hickory-cli/src/serve/acp/mcp.rs.md#output-89fc1623f7e6)
 - [crates/hickory-cli/src/serve/representation.rs](../../../mechanisms/crates/hickory-cli/src/serve/representation.rs.md#output-b1c72fefef89)
 - [crates/hickory-cli/src/serve/representation_store.rs](../../../mechanisms/crates/hickory-cli/src/serve/representation_store.rs.md#output-c77b1ea387e3)
@@ -40,7 +40,7 @@ Implementation review: not verified. Executed checks and human judgment are reco
 
 ### Tests and fixtures
 
-- [apps/web/e2e/literate-editor.spec.ts](../../../mechanisms/apps/web/e2e/literate-editor.spec.ts.md#output-648693644a28)
+- apps/web/e2e/literate-editor.spec.ts
 - [crates/hickory-cli/tests/engine_lifecycle.rs](../../../mechanisms/crates/hickory-cli/tests/engine_lifecycle.rs.md#output-6ea35164aaa4)
 - [crates/hickory-cli/tests/literate_views.rs](../../../mechanisms/crates/hickory-cli/tests/literate_views.rs.md#output-3df513c37b3c)
 - [crates/hickory-cli/tests/serve_acp.rs](../../../mechanisms/crates/hickory-cli/tests/serve_acp.rs.md#output-2fce65a349e6)

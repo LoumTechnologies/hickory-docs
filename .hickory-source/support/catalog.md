@@ -580,10 +580,6 @@ Implementation and test narratives are in [the mechanism index](../mechanisms/in
 <storycode:include file="files/apps/agent/src/hickory_agent_worker/context_schema.json.md" />
 - [`apps/agent/uv.lock`](files/apps/agent/uv.lock.md)
 <storycode:include file="files/apps/agent/uv.lock.md" />
-- [`apps/desktop/README.md`](files/apps/desktop/README.md.md)
-<storycode:include file="files/apps/desktop/README.md.md" />
-- [`apps/desktop/RELEASING.md`](files/apps/desktop/RELEASING.md.md)
-<storycode:include file="files/apps/desktop/RELEASING.md.md" />
 - [`apps/desktop/fskit/APPLE-SAMPLE-LICENSE.txt`](files/apps/desktop/fskit/APPLE-SAMPLE-LICENSE.txt.md)
 <storycode:include file="files/apps/desktop/fskit/APPLE-SAMPLE-LICENSE.txt.md" />
 - [`apps/desktop/fskit/Info.plist`](files/apps/desktop/fskit/Info.plist.md)
@@ -594,30 +590,6 @@ Implementation and test narratives are in [the mechanism index](../mechanisms/in
 <storycode:include file="files/apps/desktop/fskit/WorkspaceExtension.swift.md" />
 - [`apps/desktop/fskit/WorkspaceVolume.swift`](files/apps/desktop/fskit/WorkspaceVolume.swift.md)
 <storycode:include file="files/apps/desktop/fskit/WorkspaceVolume.swift.md" />
-- [`apps/desktop/src-tauri/.gitignore`](files/apps/desktop/src-tauri/.gitignore.md)
-<storycode:include file="files/apps/desktop/src-tauri/.gitignore.md" />
-- [`apps/desktop/src-tauri/Cargo.lock`](files/apps/desktop/src-tauri/Cargo.lock.md)
-<storycode:include file="files/apps/desktop/src-tauri/Cargo.lock.md" />
-- [`apps/desktop/src-tauri/Cargo.toml`](files/apps/desktop/src-tauri/Cargo.toml.md)
-<storycode:include file="files/apps/desktop/src-tauri/Cargo.toml.md" />
-- [`apps/desktop/src-tauri/capabilities/default.json`](files/apps/desktop/src-tauri/capabilities/default.json.md)
-<storycode:include file="files/apps/desktop/src-tauri/capabilities/default.json.md" />
-- [`apps/desktop/src-tauri/icons/128x128.png`](files/apps/desktop/src-tauri/icons/128x128.png.md)
-<storycode:include file="files/apps/desktop/src-tauri/icons/128x128.png.md" />
-- [`apps/desktop/src-tauri/icons/128x128@2x.png`](files/apps/desktop/src-tauri/icons/128x128@2x.png.md)
-<storycode:include file="files/apps/desktop/src-tauri/icons/128x128@2x.png.md" />
-- [`apps/desktop/src-tauri/icons/32x32.png`](files/apps/desktop/src-tauri/icons/32x32.png.md)
-<storycode:include file="files/apps/desktop/src-tauri/icons/32x32.png.md" />
-- [`apps/desktop/src-tauri/icons/icon.icns`](files/apps/desktop/src-tauri/icons/icon.icns.md)
-<storycode:include file="files/apps/desktop/src-tauri/icons/icon.icns.md" />
-- [`apps/desktop/src-tauri/icons/icon.ico`](files/apps/desktop/src-tauri/icons/icon.ico.md)
-<storycode:include file="files/apps/desktop/src-tauri/icons/icon.ico.md" />
-- [`apps/desktop/src-tauri/icons/icon.png`](files/apps/desktop/src-tauri/icons/icon.png.md)
-<storycode:include file="files/apps/desktop/src-tauri/icons/icon.png.md" />
-- [`apps/desktop/src-tauri/tauri.conf.json`](files/apps/desktop/src-tauri/tauri.conf.json.md)
-<storycode:include file="files/apps/desktop/src-tauri/tauri.conf.json.md" />
-- [`apps/desktop/src-tauri/windows/command-path.wxs`](files/apps/desktop/src-tauri/windows/command-path.wxs.md)
-<storycode:include file="files/apps/desktop/src-tauri/windows/command-path.wxs.md" />
 - [`apps/web/embed.html`](files/apps/web/embed.html.md)
 <storycode:include file="files/apps/web/embed.html.md" />
 - [`apps/web/iframe.html`](files/apps/web/iframe.html.md)

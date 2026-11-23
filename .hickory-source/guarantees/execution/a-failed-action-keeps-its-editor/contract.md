@@ -86,16 +86,16 @@ The selections below preserve the original byte order. Narrative reading order d
 ### Implementation
 
 - [apps/web/src/components/ActionNotice.tsx](contract.md#output-26d328f740be)
-- [apps/web/src/components/NewProjectDialog.tsx](../../../mechanisms/apps/web/src/components/NewProjectDialog.tsx.md#output-65e48889b856)
-- [apps/web/src/shell/views.tsx](../../../mechanisms/apps/web/src/shell/views.tsx.md#output-68a8fba10658)
+- apps/web/src/components/NewProjectDialog.tsx
+- apps/web/src/shell/views.tsx
 - [apps/web/src/views/documentSession.tsx](../../../mechanisms/apps/web/src/views/documentSession.tsx.md#output-bfb59577f48b)
-- [apps/web/src/views/workspaceTabs.tsx](../../../mechanisms/apps/web/src/views/workspaceTabs.tsx.md#output-b5a48fd337ae)
+- apps/web/src/views/workspaceTabs.tsx
 
 ### Tests and fixtures
 
-- [apps/web/e2e/literate-editor.spec.ts](../../../mechanisms/apps/web/e2e/literate-editor.spec.ts.md#output-648693644a28)
-- [apps/web/src/components/NewProjectDialog.test.tsx](../../../mechanisms/apps/web/src/components/NewProjectDialog.tsx.md#output-065ce188ea68)
-- [apps/web/src/views/workspaceTabs.test.tsx](../../../mechanisms/apps/web/src/views/workspaceTabs.tsx.md#output-5370130a675d)
+- apps/web/e2e/literate-editor.spec.ts
+- apps/web/src/components/NewProjectDialog.test.tsx
+- apps/web/src/views/workspaceTabs.test.tsx
 
 ### Evidence status
 

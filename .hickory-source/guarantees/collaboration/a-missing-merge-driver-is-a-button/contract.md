@@ -219,18 +219,18 @@ The selections below preserve the original byte order. Narrative reading order d
 
 ### Implementation
 
-- [apps/desktop/src-tauri/src/main.rs](../../../mechanisms/apps/desktop/src-tauri/src/main.rs.md#output-981e94b5aacd)
+- apps/desktop/src-tauri/src/main.rs
 - [apps/web/src/api/client.ts](../../../mechanisms/apps/web/src/api/client.ts.md#output-1e909407d4cd)
 - [apps/web/src/api/types.ts](../../../mechanisms/apps/web/src/api/types.ts.md#output-8a4c3188ff6c)
-- [apps/web/src/components/MergeDriverNotice.tsx](../../../mechanisms/apps/web/src/components/MergeDriverNotice.tsx.md#output-c97d597c05fd)
+- apps/web/src/components/MergeDriverNotice.tsx
 - [crates/hickory-cli/src/merge_driver.rs](../../../mechanisms/crates/hickory-cli/src/merge_driver.rs.md#output-75494bcb5e9d)
 - [crates/hickory-cli/src/serve/history.rs](../../../mechanisms/crates/hickory-cli/src/serve/history.rs.md#output-be949b7ea526)
 - [crates/hickory-cli/src/serve/mod.rs](../../../mechanisms/crates/hickory-cli/src/serve/mod.rs.md#output-09ea558208cd)
 
 ### Tests and fixtures
 
-- [apps/web/src/App.test.tsx](../../../mechanisms/apps/web/src/App.tsx.md#output-65ac24c24624)
-- [apps/web/src/components/MergeDriverNotice.test.tsx](../../../mechanisms/apps/web/src/components/MergeDriverNotice.tsx.md#output-38c5ddfe6997)
+- apps/web/src/App.test.tsx
+- apps/web/src/components/MergeDriverNotice.test.tsx
 - [crates/hickory-cli/tests/merge_driver_button.rs](contract.md#output-0e42ffa82b4e)
 
 ### Evidence status

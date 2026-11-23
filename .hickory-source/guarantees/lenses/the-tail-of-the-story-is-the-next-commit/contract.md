@@ -37,13 +37,13 @@ Implementation review: not verified. Executed checks and human judgment are reco
 
 ### Implementation
 
-- [apps/web/src/views/HistoryLens.tsx](../../../mechanisms/apps/web/src/views/HistoryLens.tsx.md#output-b01a7a57f285)
+- apps/web/src/views/HistoryLens.tsx
 - [crates/hickory-cli/src/recipe.rs](../../../mechanisms/crates/hickory-cli/src/recipe.rs.md#output-46a50c4e20ec)
 - [crates/hickory-cli/src/serve/story.rs](../../../mechanisms/crates/hickory-cli/src/serve/story.rs.md#output-8d8f5369ceb4)
 
 ### Tests and fixtures
 
-- [apps/web/src/views/HistoryLens.test.tsx](../../../mechanisms/apps/web/src/views/HistoryLens.tsx.md#output-8206e3ef4d86)
+- apps/web/src/views/HistoryLens.test.tsx
 - [crates/hickory-cli/tests/story.rs](../../../mechanisms/crates/hickory-cli/tests/story.rs.md#output-5a8b52a4b73b)
 
 ### Evidence status

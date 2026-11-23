@@ -76,98 +76,6 @@ Implementation review: not verified. Executed checks and human judgment are reco
 
 ## Implementation
 
-<a id="output-b84eb9a7e17c"></a>
-## `apps/web/src/environments/useEnvironments.test.tsx`
-
-Present and edit the shared engine state. Browser-side revisions, pending requests and local drafts affect which source and UI actions are still valid.
-
-Related contracts: [A project environment offers its own sync](contract.md).
-
-<a id="f-b84eb9a7e17c-expression_statement"></a>
-### `expression_statement`
-
-Protects docs/guarantees/editor-intelligence/a-project-environment-offers-its-own-sync.md
-
-<storycode:copy id="f-b84eb9a7e17c-expression_statement">
-// Protects docs/guarantees/editor-intelligence/a-project-environment-offers-its-own-sync.md
-import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
-import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { environmentApi, type EnvironmentFinding } from "../api/environments";
-import { useEnvironments } from "./useEnvironments";
-import { onShowTerminal } from "../lib/revealLine";
-
-vi.mock("../api/environments", () => ({ environmentApi: { inspect: vi.fn(), act: vi.fn(), choose: vi.fn() } }));
-</storycode:copy>
-<a id="f-b84eb9a7e17c-finding"></a>
-### `finding`
-
-<storycode:copy id="f-b84eb9a7e17c-finding">
-const finding: EnvironmentFinding = {
-  project: "/project", manager: "uv", target: "host", profile: "manager defaults", revision: "one",
-  state: "environment-missing", message: "Missing dependencies", details: "", actions: [], install_url: null,
-  interpreter: null, manager_choices: [],
-};
-</storycode:copy>
-<a id="f-b84eb9a7e17c-expression_statement-2"></a>
-### `expression_statement`
-
-<storycode:copy id="f-b84eb9a7e17c-expression_statement-2">
-beforeEach(() => {
-  vi.resetAllMocks();
-  vi.mocked(environmentApi.inspect).mockResolvedValue({ findings: [finding], running: {} });
-});
-</storycode:copy>
-<a id="f-b84eb9a7e17c-expression_statement-3"></a>
-### `expression_statement`
-
-<storycode:copy id="f-b84eb9a7e17c-expression_statement-3">
-afterEach(cleanup);
-
-</storycode:copy>
-<a id="f-b84eb9a7e17c-expression_statement-4"></a>
-### `expression_statement`
-
-<storycode:copy id="f-b84eb9a7e17c-expression_statement-4">
-it("dismisses only the observed evidence revision and clears a successful recheck", async () => {
-  const { result } = renderHook(useEnvironments);
-  await waitFor(() => expect(result.current.notices).toHaveLength(1));
-  act(() => result.current.dismiss(finding));
-  await act(() => result.current.refresh(true));
-  expect(result.current.notices).toHaveLength(0);
-  vi.mocked(environmentApi.inspect).mockResolvedValue({ findings: [{ ...finding, revision: "two" }], running: {} });
-  await act(() => result.current.refresh(true));
-  expect(result.current.notices).toHaveLength(1);
-  vi.mocked(environmentApi.inspect).mockResolvedValue({ findings: [{ ...finding, state: "ready", revision: "three" }], running: {} });
-  await act(() => result.current.refresh(true));
-  expect(result.current.notices).toHaveLength(0);
-});
-
-</storycode:copy>
-<a id="f-b84eb9a7e17c-expression_statement-5"></a>
-### `expression_statement`
-
-<storycode:copy id="f-b84eb9a7e17c-expression_statement-5">
-it("opens the returned terminal and reports failed repairs without hiding the finding", async () => {
-  const show = vi.fn(); const unsubscribe = onShowTerminal(show);
-  const { result } = renderHook(useEnvironments);
-  await waitFor(() => expect(result.current.notices).toHaveLength(1));
-  vi.mocked(environmentApi.act).mockResolvedValue({ id: "session", title: "uv: sync" } as never);
-  await act(() => result.current.act(finding, "sync"));
-  expect(show).toHaveBeenCalledWith({ id: "session", title: "uv: sync" });
-  vi.mocked(environmentApi.act).mockRejectedValue(new Error("The environment changed. Recheck."));
-  await act(() => result.current.act(finding, "sync"));
-  expect(result.current.error).toBe("The environment changed. Recheck.");
-  expect(result.current.notices).toHaveLength(1);
-  unsubscribe();
-});
-</storycode:copy>
-
-### Assemble `apps/web/src/environments/useEnvironments.test.tsx`
-
-The selections below preserve the original byte order. Narrative reading order does not change the output.
-
-<storycode:file path="apps/web/src/environments/useEnvironments.test.tsx"><storycode:paste select="#f-b84eb9a7e17c-expression_statement"/><storycode:paste select="#f-b84eb9a7e17c-finding"/><storycode:paste select="#f-b84eb9a7e17c-expression_statement-2"/><storycode:paste select="#f-b84eb9a7e17c-expression_statement-3"/><storycode:paste select="#f-b84eb9a7e17c-expression_statement-4"/><storycode:paste select="#f-b84eb9a7e17c-expression_statement-5"/></storycode:file>
-
 <a id="output-5e0ba6cf199b"></a>
 ## `crates/hick-project-env/tests/providers.rs`
 
@@ -728,12 +636,12 @@ The selections below preserve the original byte order. Narrative reading order d
 
 ### Implementation
 
-- [apps/web/src/environments/EnvironmentPanel.tsx](../../../mechanisms/apps/web/src/environments/EnvironmentPanel.tsx.md#output-a428d5761b36)
+- apps/web/src/environments/EnvironmentPanel.tsx
 
 ### Tests and fixtures
 
-- [apps/web/src/environments/EnvironmentPanel.test.tsx](../../../mechanisms/apps/web/src/environments/EnvironmentPanel.tsx.md#output-f41d08c2423e)
-- [apps/web/src/environments/useEnvironments.test.tsx](contract.md#output-b84eb9a7e17c)
+- apps/web/src/environments/EnvironmentPanel.test.tsx
+- apps/web/src/environments/useEnvironments.test.tsx
 - [crates/hick-project-env/tests/providers.rs](contract.md#output-5e0ba6cf199b)
 - [crates/hickory-cli/tests/serve_environments.rs](contract.md#output-61003cc8a070)
 

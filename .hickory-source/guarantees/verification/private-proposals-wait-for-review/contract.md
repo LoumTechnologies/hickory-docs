@@ -381,12 +381,12 @@ The selections below preserve the original byte order. Narrative reading order d
 - [crates/hickory-agent/src/provider.rs](../../../mechanisms/crates/hickory-agent/src/provider.rs.md#output-2be2d28e151b)
 - [crates/hickory-cli/src/engine/mcp.rs](../../../mechanisms/crates/hickory-cli/src/engine/mcp.rs.md#output-d68d35ce1f7a)
 - [crates/hickory-cli/src/serve/private_predictions.rs](../../../mechanisms/crates/hickory-cli/src/serve/private_predictions.rs.md#output-5eb3e4172fd6)
-- [scripts/test-private-prediction-ui.sh](../../../mechanisms/scripts/test-private-prediction-ui.sh.md#output-d93b734fd0b3)
+- scripts/test-private-prediction-ui.sh
 
 ### Tests and fixtures
 
 - [apps/agent/tests/test_worker.py](../../../mechanisms/apps/agent/tests/test_worker.py.md#output-9f33e52791d8)
-- [apps/web/e2e/privatePredictionCoach.spec.ts](../../../mechanisms/apps/web/e2e/privatePredictionCoach.spec.ts.md#output-c4a491bb0b6d)
+- apps/web/e2e/privatePredictionCoach.spec.ts
 - [apps/web/src/components/PrivatePredictionCoach.test.tsx](../../../mechanisms/apps/web/src/components/PrivatePredictionCoach.tsx.md#output-4b3612758c98)
 - [crates/hickory-cli/src/serve/private_prediction_tests.rs](../../../mechanisms/crates/hickory-cli/src/serve/private_prediction_tests.rs.md#output-7cb981639695)
 

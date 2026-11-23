@@ -29,7 +29,7 @@ Implementation review: not verified. Executed checks and human judgment are reco
 - [apps/web/src/components/PlainFilePane.tsx](../../../mechanisms/apps/web/src/components/PlainFilePane.tsx.md#output-2f891a49445f)
 - [apps/web/src/debug/DebugRail.tsx](../../agent/scoped-reading-surfaces-share-native-actions/implementation/apps/web/src/debug/DebugRail.tsx.md#output-3f2d1a1c0986)
 - [apps/web/src/debug/DebugStrip.tsx](../../../mechanisms/apps/web/src/debug/DebugStrip.tsx.md#output-09306f4ec1a5)
-- [apps/web/src/views/workspaceTabs.tsx](../../../mechanisms/apps/web/src/views/workspaceTabs.tsx.md#output-b5a48fd337ae)
+- apps/web/src/views/workspaceTabs.tsx
 
 ### Tests and fixtures
 
@@ -37,7 +37,7 @@ Implementation review: not verified. Executed checks and human judgment are reco
 - [apps/web/src/components/PlainFilePane.test.tsx](../../../mechanisms/apps/web/src/components/PlainFilePane.tsx.md#output-d923b2fdae48)
 - [apps/web/src/debug/DebugRail.test.tsx](../../agent/scoped-reading-surfaces-share-native-actions/implementation/apps/web/src/debug/DebugRail.test.tsx.md#output-141b8a9dd63d)
 - [apps/web/src/debug/DebugStrip.test.tsx](../../../mechanisms/apps/web/src/debug/DebugStrip.tsx.md#output-1063c352c210)
-- [apps/web/src/debug/GeneratedDebugTools.test.tsx](../../../mechanisms/apps/web/src/debug/GeneratedDebugTools.test.tsx.md#output-7003cb507e09)
+- apps/web/src/debug/GeneratedDebugTools.test.tsx
 - [apps/web/src/debug/plainDebugHosts.test.tsx](../launch-profiles-choose-targets-within-the-viewed-project/contract.md#output-3b3668793103)
 
 ### Evidence status

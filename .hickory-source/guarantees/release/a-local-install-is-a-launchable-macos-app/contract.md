@@ -1,6 +1,15 @@
 <storycode:doc xmlns:storycode="http://www.hickorydocs.com/1.0">
 # A Local Install Is a Launchable macOS App
 
+## Simple frontend cutover
+
+`just local-install` builds and verifies **Hickory Simple.app** before copying
+it into Applications. The bundle contains AppKit, its preview resources and
+the loopback workspace host. Open a local folder or file from the connection
+sheet or use `hick open PATH`. The local installation uses an ad-hoc signature.
+
+## Earlier release design and evidence
+
 For: Maintainers publishing installers and people checking what a download contains.
 
 Given a checkout on an Apple Silicon Mac with the desktop build prerequisites
@@ -188,18 +197,18 @@ The selections below preserve the original byte order. Narrative reading order d
 
 ### Implementation
 
-- [apps/desktop/src-tauri/src/lib.rs](../../../mechanisms/apps/desktop/src-tauri/src/lib.rs.md#output-42caba993099)
-- [apps/desktop/src-tauri/src/server.rs](../../../mechanisms/apps/desktop/src-tauri/src/server.rs.md#output-821f8d0a36be)
-- [apps/web/src/views/WorkspaceView.tsx](../../../mechanisms/apps/web/src/views/WorkspaceView.tsx.md#output-47afe3575948)
-- [scripts/build-python-agent-runtime.sh](../../../mechanisms/scripts/build-python-agent-runtime.sh.md#output-5f2e12b18746)
+- apps/desktop/src-tauri/src/lib.rs
+- apps/desktop/src-tauri/src/server.rs
+- apps/web/src/views/WorkspaceView.tsx
+- scripts/build-python-agent-runtime.sh
 - [scripts/default-markdown-editor.rs](contract.md#output-dfe61b90bcaf)
-- [scripts/dist-desktop.sh](../../../mechanisms/scripts/dist-desktop.sh.md#output-928dfd6fa282)
+- scripts/dist-desktop.sh
 
 ### Tests and fixtures
 
-- [apps/web/src/App.test.tsx](../../../mechanisms/apps/web/src/App.tsx.md#output-65ac24c24624)
-- [apps/web/src/views/toolTabs.test.ts](../../collaboration/a-machine-is-a-keypair/contract.md#output-379c44af631b)
-- [apps/web/src/views/workspaceState.test.ts](../../../mechanisms/apps/web/src/views/workspaceState.ts.md#output-14d3dbc939ff)
+- apps/web/src/App.test.tsx
+- apps/web/src/views/toolTabs.test.ts
+- apps/web/src/views/workspaceState.test.ts
 
 ### Evidence status
 

@@ -706,7 +706,7 @@ const DOC: &str = r##"<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weav
 - [apps/web/src/components/AcpRecord.tsx](../../../mechanisms/apps/web/src/components/AcpRecord.tsx.md#output-1861640bb163)
 - [apps/web/src/components/AgentPicker.tsx](../../verification/predictions-precede-managed-observation/implementation/apps/web/src/components/AgentPicker.tsx.md#output-2cb1fb2fe5c8)
 - [apps/web/src/components/ChatDock.tsx](../../../mechanisms/apps/web/src/components/ChatDock.tsx.md#output-57557cac78c8)
-- [apps/web/src/views/AgentSettings.tsx](../a-desktop-app-bundles-its-python-agent/contract.md#output-5b4b3eeb9113)
+- apps/web/src/views/AgentSettings.tsx
 - [crates/hickory-cli/src/engine/client.rs](../../../mechanisms/crates/hickory-cli/src/engine/client.rs.md#output-5c9c7cadce49)
 - [crates/hickory-cli/src/engine/watch.rs](../../../mechanisms/crates/hickory-cli/src/engine/watch.rs.md#output-dc5bee2ae567)
 - [crates/hickory-cli/src/serve/acp/config.rs](contract.md#output-c2b0eace1865)

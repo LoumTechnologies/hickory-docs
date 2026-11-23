@@ -195,7 +195,7 @@ These chapters keep this behavior's larger implementation readable without dupli
 
 ### Tests and fixtures
 
-- [apps/web/e2e/workspace-changesets.spec.ts](../../../mechanisms/apps/web/e2e/workspace-changesets.spec.ts.md#output-b472b368c11a)
+- apps/web/e2e/workspace-changesets.spec.ts
 - [apps/web/src/components/ChangesetDocument.test.tsx](../../../mechanisms/apps/web/src/components/ChangesetDocument.test.tsx.md#output-9ae884d72abd)
 - [crates/hickory-cli/tests/agent_changesets.rs](../../../mechanisms/crates/hickory-cli/tests/agent_changesets.rs.md#output-35273396ec57)
 - [crates/hickory-cli/tests/byo_agent_surface.rs](../../../mechanisms/crates/hickory-cli/tests/byo_agent_surface.rs.md#output-43da4a5da7c9)

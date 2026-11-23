@@ -9,7 +9,7 @@ Reuse the existing development proxy and test configuration; change only the pro
 import { defineConfig, mergeConfig } from "vitest/config";
 import base from "./vite.config";
 export default mergeConfig(base, defineConfig({
-  build: { outDir: "dist-simple", rollupOptions: { input: "simple.html" } },
+  build: { outDir: "dist-simple", rollupOptions: { input: ["index.html", "simple.html"] } },
 }));
 </ui:copy>
 

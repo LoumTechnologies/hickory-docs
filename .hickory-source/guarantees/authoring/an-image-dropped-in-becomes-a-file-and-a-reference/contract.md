@@ -641,7 +641,7 @@ The selections below preserve the original byte order. Narrative reading order d
 
 ### Implementation
 
-- [apps/desktop/src-tauri/src/lib.rs](../../../mechanisms/apps/desktop/src-tauri/src/lib.rs.md#output-42caba993099)
+- apps/desktop/src-tauri/src/lib.rs
 - [apps/web/src/editor/DocumentEditor.tsx](../../../mechanisms/apps/web/src/editor/DocumentEditor.tsx.md#output-aab82870e517)
 - [apps/web/src/editor/mdLinks.ts](../../../mechanisms/apps/web/src/editor/mdLinks.ts.md#output-1645f056db0c)
 - [apps/web/src/editor/mdPaste.ts](../../../mechanisms/apps/web/src/editor/mdPaste.ts.md#output-722af83950b4)

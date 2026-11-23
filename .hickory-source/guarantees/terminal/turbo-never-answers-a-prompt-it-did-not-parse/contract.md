@@ -445,14 +445,14 @@ The selections below preserve the original byte order. Narrative reading order d
 
 ### Implementation
 
-- [apps/web/src/terminal/AttentionCard.tsx](../../../mechanisms/apps/web/src/terminal/AttentionCard.tsx.md#output-da1d3639d06b)
+- apps/web/src/terminal/AttentionCard.tsx
 - [crates/hick-term/src/prompt.rs](contract.md#output-c05b5ea8cc95)
 - [crates/hick-term/src/registry.rs](../../../mechanisms/crates/hick-term/src/registry.rs.md#output-8678d496098a)
 - [crates/hick-term/src/turbo.rs](contract.md#output-aded4ac572de)
 
 ### Tests and fixtures
 
-- [apps/web/src/terminal/AttentionCard.test.tsx](../../../mechanisms/apps/web/src/terminal/AttentionCard.tsx.md#output-b44600c6bdc4)
+- apps/web/src/terminal/AttentionCard.test.tsx
 
 ### Evidence status
 

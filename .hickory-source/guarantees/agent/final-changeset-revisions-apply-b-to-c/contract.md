@@ -158,7 +158,7 @@ async fn final_revision_preserves_the_accepted_executable_mode() {
 
 ### Tests and fixtures
 
-- [apps/web/e2e/workspace-changesets.spec.ts](../../../mechanisms/apps/web/e2e/workspace-changesets.spec.ts.md#output-b472b368c11a)
+- apps/web/e2e/workspace-changesets.spec.ts
 - [apps/web/src/components/ChangesetDocument.test.tsx](../../../mechanisms/apps/web/src/components/ChangesetDocument.test.tsx.md#output-9ae884d72abd)
 - [apps/web/src/lib/agentEdit.test.ts](../../../mechanisms/apps/web/src/lib/agentEdit.ts.md#output-ebba6809ee8c)
 - [crates/hickory-cli/tests/agent_changesets.rs](../../../mechanisms/crates/hickory-cli/tests/agent_changesets.rs.md#output-35273396ec57)

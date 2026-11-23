@@ -18,7 +18,7 @@ Related contracts: [A Drawn Diagram Is Document Text](../../../guarantees/author
 Build config for the **static marketing site**.
 A second config rather than a multi-page build, because the two outputs go
 to different places and are deployed by different things: this one to
-hickorydocs.com, the default one into the desktop app. Sharing a source tree
+hickorydocs.com, the editor build to the Simple workspace hosts. Sharing a source tree
 is deliberate — the demos on the site are live demos of the editor, so they
 legitimately import the same CodeMirror and ribbon code the app does. What
 is NOT shared is what each build reaches for at runtime: the site has no API
@@ -60,8 +60,7 @@ build, which is what `vite dev` and Tauri expect to find.
 /// Vite names an HTML output after its input, so a `site.html` entry produces
 /// `dist-site/site.html` — and a static host serves `index.html` at `/`, so
 /// the deployed domain would 404 at its own front door. The entry is not
-/// simply *called* `index.html` because that name belongs to the desktop app's
-/// build, which is what `vite dev` and Tauri expect to find.
+/// simply *called* `index.html` because the development server uses that name to open the Simple editor.
 function emitAsIndex(): Plugin {
   return {
     name: "hickory:emit-as-index",

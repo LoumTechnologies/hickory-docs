@@ -129,8 +129,7 @@ The CLI hosts shared native behavior; the web and desktop applications compose t
 - [apps/web](apps/web/index.md)
 <storycode:include file="apps/web/index.md" />
 
-- [apps/desktop](apps/desktop/index.md)
-<storycode:include file="apps/desktop/index.md" />
+- apps/desktop
 
 - [crates/hick-context-store](crates/hick-context-store/index.md)
 <storycode:include file="crates/hick-context-store/index.md" />
@@ -194,8 +193,6 @@ is included with that control; opening a document is not generation authority.
 <storycode:include file="crates/hick-term/index.md" />
 <storycode:include file="crates/hick-project-env/src/generation.rs.md" />
 <storycode:include file="crates/hickory-cli/src/serve/generation.rs.md" />
-<storycode:include file="apps/web/src/components/ProjectGeneration.tsx.md" />
-<storycode:include file="apps/web/src/components/ProjectGeneration.test.tsx.md" />
 
 <storycode:include file="scripts/compile-source-highlights.mjs.md" />
 

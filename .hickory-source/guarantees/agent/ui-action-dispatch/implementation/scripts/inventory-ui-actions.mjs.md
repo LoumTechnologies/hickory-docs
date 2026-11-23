@@ -78,7 +78,7 @@ const ts = require("typescript");
 ### `allFiles`
 
 <storycode:copy id="f-209db9f9ea87-allFiles">
-const allFiles = execFileSync("rg", ["--files", "apps/web/src", "apps/desktop/src-tauri/src", "apps/desktop/fskit", "crates/hickory-cli/src/serve/shell.rs", "crates/hickory-cli/src/serve/reveal.rs"], { cwd: root, encoding: "utf8" }).trim().split("\n").sort();
+const allFiles = execFileSync("rg", ["--files", "apps/web/src", "apps/apple-simple/Sources", "apps/desktop/fskit", "crates/hickory-cli/src/serve/shell.rs", "crates/hickory-cli/src/serve/reveal.rs"], { cwd: root, encoding: "utf8" }).trim().split("\n").sort();
 </storycode:copy>
 <a id="f-209db9f9ea87-files"></a>
 ### `files`
@@ -154,7 +154,7 @@ const nativeRows = allFiles.filter(path => /\.(rs|swift)$/.test(path)).map(path 
     if (/\b(?:fn|func)\s+\w+/.test(line)) kind = "function";
     else if (/pub\s+\w+\s*:\s*Arc<dyn Fn/.test(line)) kind = "host-callback";
     else if (/\.route\(|MenuItem::|PredefinedMenuItem::|\.on_menu_event\(/.test(line)) kind = "route-or-menu";
-    else if (/^#\[(?:cfg|tauri::command)|^#(?:if|elseif|else|endif)\b/.test(line)) kind = "platform-or-command-attribute";
+    else if (/^#\[cfg|^#(?:if|elseif|else|endif)\b/.test(line)) kind = "platform-or-command-attribute";
     if (kind) declarations.push({ line: index + 1, kind, declaration: lines.slice(index, index + 3).join("\n").slice(0, 320) });
   }
   return { path, sha256: createHash("sha256").update(text).digest("hex"), follow_up: [74, 75], declarations };
@@ -192,7 +192,7 @@ for (const row of rows) row.possible_entrypoints = reachability.roots[row.path];
 ### `header`
 
 <storycode:copy id="f-209db9f9ea87-header">
-const header = { version: 3, generator: "scripts/inventory-ui-actions.mjs", coverage: "All non-test web TS/TSX; desktop Rust/FSKit Swift; host shell/reveal Rust. Declarations, adapter hook calls and compile guards are review aids, not proof of registration, reachability, parity or platform support. Rendered values and dynamic controls still require the companion manual inventory." };
+const header = { version: 3, generator: "scripts/inventory-ui-actions.mjs", coverage: "All non-test web TS/TSX; Simple Apple and FSKit Swift; host shell/reveal Rust. Declarations, adapter hook calls and compile guards are review aids, not proof of registration, reachability, parity or platform support. Rendered values and dynamic controls still require the companion manual inventory." };
 </storycode:copy>
 <a id="f-209db9f9ea87-expression_statement"></a>
 ### `expression_statement`
@@ -218,6 +218,8 @@ const target = new URL("../docs/developers/ui-control-inventory.json", import.me
 <storycode:copy id="f-209db9f9ea87-if_statement">
 if (process.argv.includes("--check")) {
   if (readFileSync(target, "utf8") !== result) { process.stderr.write("UI declaration inventory changed; regenerate and review semantic coverage.\n"); process.exitCode = 1; }
+} else if (process.argv.includes("--stdout")) {
+  process.stdout.write(result);
 } else writeFileSync(target, result);
 </storycode:copy>
 

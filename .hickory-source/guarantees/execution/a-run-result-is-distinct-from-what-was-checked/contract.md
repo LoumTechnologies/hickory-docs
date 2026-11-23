@@ -131,9 +131,9 @@ The selections below preserve the original byte order. Narrative reading order d
 
 - [apps/web/src/components/CellPanel.test.tsx](../../../mechanisms/apps/web/src/components/CellPanel.tsx.md#output-85e341faa089)
 - [apps/web/src/components/DiagramPanel.test.tsx](../../../mechanisms/apps/web/src/components/DiagramPanel.tsx.md#output-56af562b717e)
-- [apps/web/src/editor/DocumentEditor.test.tsx](../../../mechanisms/apps/web/src/editor/DocumentEditor.test.tsx.md#output-71bbcfe029bb)
+- apps/web/src/editor/DocumentEditor.test.tsx
 - [apps/web/src/lib/executionEvidence.test.ts](contract.md#output-b528549051a2)
-- [apps/web/src/views/workspaceTabs.test.tsx](../../../mechanisms/apps/web/src/views/workspaceTabs.tsx.md#output-5370130a675d)
+- apps/web/src/views/workspaceTabs.test.tsx
 
 ### Evidence status
 

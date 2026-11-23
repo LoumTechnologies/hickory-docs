@@ -130,59 +130,6 @@ The selections below preserve the original byte order. Narrative reading order d
 
 <storycode:file path="apps/web/src/lib/conversationLineage.ts"><storycode:paste select="#f-db697b55388e-COLLAPSED_LINEAGE_KEY"/><storycode:paste select="#f-db697b55388e-loadCollapsedLineage"/><storycode:paste select="#f-db697b55388e-saveCollapsedLineage"/><storycode:paste select="#f-db697b55388e-conversationAnchor"/></storycode:file>
 
-<a id="output-c1a7c85841b2"></a>
-## `apps/web/src/lib/editorBufferTargets.test.ts`
-
-Present and edit the shared engine state. Browser-side revisions, pending requests and local drafts affect which source and UI actions are still valid.
-
-Related contracts: [Trace conversation passages without confusing context with support](contract.md).
-
-<a id="f-c1a7c85841b2-expression_statement"></a>
-### `expression_statement`
-
-<storycode:copy id="f-c1a7c85841b2-expression_statement">
-// @vitest-environment jsdom
-// Guarantee: docs/guarantees/agent/an-answer-in-the-agent-pane-has-ribbons.md
-import { expect, it, vi } from "vitest";
-import { EditorState } from "@codemirror/state";
-import { EditorView } from "@codemirror/view";
-import { bufferTarget, openBufferTarget, registerBufferEditor } from "./editorBufferTargets";
-import { workspaceRibbonSources } from "../views/workspaceRibbonSources";
-import { SessionRegistry } from "../views/documentSession";
-import { initialWorkspace, openUntitledTab } from "../views/workspaceState";
-import { panes } from "../shell/layout";
-
-it("registers an unsaved editor as a ribbon target and reveals its cited paragraph without opening a file", () => {
-  const host = document.createElement("div"); document.body.appendChild(host);
-  const view = new EditorView({ parent: host, state: EditorState.create({ doc: "Short.\n\nThe longest paragraph. 📝" }) });
-  const layout = openUntitledTab(initialWorkspace());
-  const tab = panes(layout.root).flatMap(p => p.tabs).find(t => t.kind === "untitled")!;
-  const unregister = registerBufferEditor(tab.id, view);
-  const notice = vi.fn(), setLayout = vi.fn();
-  try {
-    const sources = workspaceRibbonSources(null, new SessionRegistry(), path => ({ path }));
-    expect(sources.find(s => s.docPath === bufferTarget(tab.id))?.view).toBe(view);
-    expect(openBufferTarget(bufferTarget(tab.id), 3, layout, setLayout, notice)).toBe(true);
-    expect(view.state.selection.main.head).toBe(view.state.doc.line(3).from);
-    expect(setLayout).toHaveBeenCalledOnce();
-    expect(notice).not.toHaveBeenCalled();
-    expect(openBufferTarget(bufferTarget("closed"), 3, layout, setLayout, notice)).toBe(true);
-    expect(notice).toHaveBeenCalledOnce();
-    // A previous window can reuse the short tab id without reusing its evidence.
-    expect(openBufferTarget(`hickory-buffer://prior-window/${tab.id}`, 3, layout, setLayout, notice)).toBe(true);
-    expect(notice).toHaveBeenCalledTimes(2);
-    expect(setLayout).toHaveBeenCalledOnce();
-    expect(openBufferTarget("note.md", 3, layout, setLayout, notice)).toBe(false);
-  } finally { unregister(); view.destroy(); host.remove(); }
-});
-</storycode:copy>
-
-### Assemble `apps/web/src/lib/editorBufferTargets.test.ts`
-
-The selections below preserve the original byte order. Narrative reading order does not change the output.
-
-<storycode:file path="apps/web/src/lib/editorBufferTargets.test.ts"><storycode:paste select="#f-c1a7c85841b2-expression_statement"/></storycode:file>
-
 <a id="output-96157ff2afcc"></a>
 ## `apps/web/src/lib/lensSources.test.ts`
 
@@ -383,49 +330,6 @@ export function onLensChange(listener: () => void): () => void {
 The selections below preserve the original byte order. Narrative reading order does not change the output.
 
 <storycode:file path="apps/web/src/lib/lensSources.ts"><storycode:paste select="#f-f20ae3d80724-LensSource"/><storycode:paste select="#f-f20ae3d80724-ribbonLinksOf"/><storycode:paste select="#f-f20ae3d80724-lenses"/><storycode:paste select="#f-f20ae3d80724-listeners"/><storycode:paste select="#f-f20ae3d80724-version"/><storycode:paste select="#f-f20ae3d80724-changed"/><storycode:paste select="#f-f20ae3d80724-registerLens"/><storycode:paste select="#f-f20ae3d80724-lensSources"/><storycode:paste select="#f-f20ae3d80724-lensVersion"/><storycode:paste select="#f-f20ae3d80724-onLensChange"/></storycode:file>
-
-<a id="output-77f4467cff5b"></a>
-## `apps/web/src/views/workspaceRibbonSources.test.ts`
-
-Present and edit the shared engine state. Browser-side revisions, pending requests and local drafts affect which source and UI actions are still valid.
-
-Related contracts: [Trace conversation passages without confusing context with support](contract.md).
-
-<a id="f-77f4467cff5b-expression_statement"></a>
-### `expression_statement`
-
-<storycode:copy id="f-77f4467cff5b-expression_statement">
-// @vitest-environment jsdom
-// Guarantee: docs/guarantees/agent/an-answer-in-the-agent-pane-has-ribbons.md
-import { expect, it } from "vitest";
-import { EditorView } from "@codemirror/view";
-import { EditorState } from "@codemirror/state";
-import { registerLens } from "../lib/lensSources";
-import { registerSearchEditor } from "../lib/workspaceSearch";
-import { workspaceRibbonSources } from "./workspaceRibbonSources";
-import { SessionRegistry } from "./documentSession";
-
-it("keeps conversation and open buffer sources when no saved document has focus", () => {
-  const host = document.createElement("div"); document.body.appendChild(host);
-  const view = new EditorView({ parent: host, state: EditorState.create({ doc: "unsaved paragraph" }) });
-  const unregisterFile = registerSearchEditor("note.md", view);
-  const unregisterLens = registerLens({ path: "sessions/s.md", view, source: "conversation", links: [] });
-  try {
-    const sources = workspaceRibbonSources(undefined, new SessionRegistry(), path => ({ path }));
-    expect(sources.map(s => s.docPath)).toEqual(["note.md", "sessions/s.md"]);
-    expect(sources[0].docSource).toBe("unsaved paragraph");
-    expect(sources[0].view).toBe(view);
-  } finally {
-    unregisterFile(); unregisterLens(); view.destroy(); host.remove();
-  }
-});
-</storycode:copy>
-
-### Assemble `apps/web/src/views/workspaceRibbonSources.test.ts`
-
-The selections below preserve the original byte order. Narrative reading order does not change the output.
-
-<storycode:file path="apps/web/src/views/workspaceRibbonSources.test.ts"><storycode:paste select="#f-77f4467cff5b-expression_statement"/></storycode:file>
 
 <a id="output-463c594a8afa"></a>
 ## `crates/hick-literate/src/session_elements.rs`
@@ -2243,7 +2147,7 @@ The selections below preserve the original byte order. Narrative reading order d
 - [apps/web/src/lib/conversationLineage.ts](contract.md#output-db697b55388e)
 - [apps/web/src/lib/lensSources.ts](contract.md#output-f20ae3d80724)
 - [apps/web/src/views/SessionLens.tsx](../../../mechanisms/apps/web/src/views/SessionLens.tsx.md#output-11b8d4e005a0)
-- [apps/web/src/views/WorkspaceView.tsx](../../../mechanisms/apps/web/src/views/WorkspaceView.tsx.md#output-47afe3575948)
+- apps/web/src/views/WorkspaceView.tsx
 - [crates/hick-blocks/src/lib.rs](../../../mechanisms/crates/hick-blocks/src/lib.rs.md#output-5260198b0a7b)
 - [crates/hick-literate/src/session_elements.rs](contract.md#output-463c594a8afa)
 - [crates/hick-literate/src/session_receipts.rs](../../../mechanisms/crates/hick-literate/src/session_receipts.rs.md#output-4e6c982edf60)
@@ -2252,16 +2156,16 @@ The selections below preserve the original byte order. Narrative reading order d
 
 ### Tests and fixtures
 
-- [apps/web/e2e/literate-editor.spec.ts](../../../mechanisms/apps/web/e2e/literate-editor.spec.ts.md#output-648693644a28)
+- apps/web/e2e/literate-editor.spec.ts
 - [apps/web/src/elements/index.test.ts](../../language/an-element-is-drawn-by-its-view/contract.md#output-e188c4134b98)
 - [apps/web/src/lib/conversationLineage.test.ts](contract.md#output-4916fa68abf9)
-- [apps/web/src/lib/editorBufferTargets.test.ts](contract.md#output-c1a7c85841b2)
+- apps/web/src/lib/editorBufferTargets.test.ts
 - [apps/web/src/lib/lensSources.test.ts](contract.md#output-96157ff2afcc)
 - [apps/web/src/lib/offsets.test.ts](../../../mechanisms/apps/web/src/lib/offsets.test.ts.md#output-dea322d4979a)
 - [apps/web/src/shell/linkShapes.test.ts](../../../mechanisms/apps/web/src/shell/linkShapes.ts.md#output-04fb400a1dba)
 - [apps/web/src/views/ConversationEditor.test.tsx](../../../mechanisms/apps/web/src/views/ConversationEditor.tsx.md#output-edc92cd336d7)
 - [apps/web/src/views/SessionLens.test.tsx](../../../mechanisms/apps/web/src/views/SessionLens.tsx.md#output-3a59c565f3d4)
-- [apps/web/src/views/workspaceRibbonSources.test.ts](contract.md#output-77f4467cff5b)
+- apps/web/src/views/workspaceRibbonSources.test.ts
 - [crates/hickory-cli/tests/session_lens.rs](contract.md#output-21c9526a7692)
 
 ### Evidence status

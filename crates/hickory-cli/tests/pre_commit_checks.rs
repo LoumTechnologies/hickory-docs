@@ -37,15 +37,27 @@ fn changed_paths_select_checks_for_both_staged_and_unstaged_edits() {
         ("README.md", &[]),
         ("docs/a note.md", &["rust"]),
         ("docs/é.md", &["rust"]),
-        ("crates/core/src/lib.rs", &["rust"]),
-        ("apps/web/src/app.ts", &["web"]),
-        ("apps/desktop/src-tauri/src/main.rs", &["desktop"]),
-        ("scripts/install.sh", &["desktop"]),
+        (
+            "crates/core/src/lib.rs",
+            &["rust", "simple-linux", "simple-windows"],
+        ),
+        (
+            "apps/web/src/simple/App.tsx",
+            &["simple-browser", "simple-linux", "simple-windows", "web"],
+        ),
+        ("apps/apple-simple/Sources/App.swift", &["simple-apple"]),
+        ("scripts/install.sh", &["web"]),
         ("scripts/check-dev-seed.sh", &["dev", "rust", "web"]),
         ("scripts/check-codegen.sh", &["rust"]),
         ("scripts/file-length-baseline.txt", &["rust", "web"]),
-        ("rust-toolchain.toml", &["rust"]),
-        (".githooks/pre-commit", &["desktop", "dev", "rust", "web"]),
+        (
+            "rust-toolchain.toml",
+            &["rust", "simple-linux", "simple-windows"],
+        ),
+        (
+            ".githooks/pre-commit",
+            &["dev", "python-agent", "rust", "web"],
+        ),
     ];
     for (path, expected) in cases {
         let file = repo.path().join(path);
@@ -75,7 +87,7 @@ fn changed_paths_select_checks_for_both_staged_and_unstaged_edits() {
 }
 
 #[test]
-fn invalid_base_and_selector_failure_block_instead_of_passing_as_empty() {
+fn invalid_base_fails_instead_of_selecting_no_checks() {
     let repo = repo();
     let script = repo.path().join("scripts/affected-checks.sh");
     let out = Command::new("bash")
@@ -84,22 +96,6 @@ fn invalid_base_and_selector_failure_block_instead_of_passing_as_empty() {
         .output()
         .unwrap();
     assert!(!out.status.success(), "invalid base passed: {out:?}");
-    std::fs::copy(
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.githooks/pre-commit"),
-        repo.path().join("pre-commit"),
-    )
-    .unwrap();
-    std::fs::write(&script, "#!/usr/bin/env bash\nexit 42\n").unwrap();
-    let out = Command::new("bash")
-        .arg(repo.path().join("pre-commit"))
-        .current_dir(repo.path())
-        .output()
-        .unwrap();
-    assert_eq!(
-        out.status.code(),
-        Some(42),
-        "selector failure was lost: {out:?}"
-    );
 }
 
 #[cfg(unix)]

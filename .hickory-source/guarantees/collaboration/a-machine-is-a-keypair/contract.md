@@ -30,105 +30,6 @@ Implementation review: partially verified. Executed checks and human judgment ar
 
 ## Implementation
 
-<a id="output-379c44af631b"></a>
-## `apps/web/src/views/toolTabs.test.ts`
-
-Present and edit the shared engine state. Browser-side revisions, pending requests and local drafts affect which source and UI actions are still valid.
-
-Related contracts: [Pair identity without silently granting execution](contract.md), [A Local Install Is a Launchable macOS App](../../release/a-local-install-is-a-launchable-macos-app/contract.md).
-
-<a id="f-379c44af631b-targets"></a>
-### `targets`
-
-Every tool pane is reachable from the shell.
-This exists because two of them were NOT: `FleetPane` and `MergedView` were
-written, tested, and rendered by nothing — their own tests passed because a
-test renders a component directly, which is exactly the thing a user cannot
-do. A component with no route is dead code that looks finished.
-docs/specs/freeform/shell-layouts.md
-
-<storycode:copy id="f-379c44af631b-targets">
-// Every tool pane is reachable from the shell.
-//
-// This exists because two of them were NOT: `FleetPane` and `MergedView` were
-// written, tested, and rendered by nothing — their own tests passed because a
-// test renders a component directly, which is exactly the thing a user cannot
-// do. A component with no route is dead code that looks finished.
-//
-// docs/specs/freeform/shell-layouts.md
-import { describe, expect, it } from "vitest";
-
-import {
-  FLEET_TAB,
-  GIT_TAB,
-  MERGED_TAB,
-  WELCOME_TAB,
-  openFleetTab,
-  openGitTab,
-  openMergedTab,
-  openWelcomeTab,
-  initialWorkspace,
-} from "./workspaceState";
-import { panes } from "../shell/layout";
-
-const targets = (layout: ReturnType<typeof initialWorkspace>) =>
-  [...panes(layout.root)].flatMap((p) => p.tabs.map((t) => t.target));
-
-</storycode:copy>
-<a id="f-379c44af631b-expression_statement"></a>
-### `expression_statement`
-
-<storycode:copy id="f-379c44af631b-expression_statement">
-describe("the tool tabs a person can open", () => {
-  it("opens the fleet, and fronts the existing one rather than duplicating", () => {
-    let layout = openFleetTab(initialWorkspace());
-    expect(targets(layout)).toContain(FLEET_TAB);
-    layout = openFleetTab(layout);
-    expect(targets(layout).filter((t) => t === FLEET_TAB)).toHaveLength(1);
-  });
-
-  it("opens a merged view per path, because the view IS of a path", () => {
-    // Two files compared at once are two tabs, not one confused one.
-    let layout = openMergedTab(initialWorkspace(), "src/a.rs");
-    layout = openMergedTab(layout, "src/b.rs");
-    expect(targets(layout)).toContain(`${MERGED_TAB}src/a.rs`);
-    expect(targets(layout)).toContain(`${MERGED_TAB}src/b.rs`);
-    // And the same path twice is still one tab.
-    layout = openMergedTab(layout, "src/a.rs");
-    expect(targets(layout).filter((t) => t === `${MERGED_TAB}src/a.rs`)).toHaveLength(1);
-  });
-
-  it("still opens the ones that already worked", () => {
-    expect(targets(openGitTab(initialWorkspace()))).toContain(GIT_TAB);
-    expect(targets(openWelcomeTab(initialWorkspace()))).toContain(WELCOME_TAB);
-  });
-
-  it("gives every tool tab a name a person can read on the strip", () => {
-    for (const layout of [
-      openFleetTab(initialWorkspace()),
-      openGitTab(initialWorkspace()),
-      openMergedTab(initialWorkspace(), "src/a.rs"),
-    ]) {
-      for (const pane of panes(layout.root)) {
-        for (const tab of pane.tabs) {
-          // A tool tab must name itself; a document tab is titled from its
-          // path by the strip, so only tool tabs are asserted here.
-          if (tab.kind === "tool") {
-            expect((tab.title ?? "").trim().length).toBeGreaterThan(0);
-          }
-        }
-      }
-    }
-  });
-});
-</storycode:copy>
-
-### Assemble `apps/web/src/views/toolTabs.test.ts`
-
-The selections below preserve the original byte order. Narrative reading order does not change the output.
-
-<storycode:file path="apps/web/src/views/toolTabs.test.ts"><storycode:paste select="#f-379c44af631b-targets"/><storycode:paste select="#f-379c44af631b-expression_statement"/></storycode:file>
-
 <a id="output-cccf3953dc0f"></a>
 ## `crates/hickory-cli/tests/fleet.rs`
 
@@ -526,9 +427,9 @@ Fleet state stores identity, enrolled public keys and verb grants. The peer chan
 
 ### Implementation
 
-- [apps/web/src/views/FleetPane.tsx](../../../mechanisms/apps/web/src/views/FleetPane.tsx.md#output-6e68b623335b)
-- [apps/web/src/views/WorkspaceView.tsx](../../../mechanisms/apps/web/src/views/WorkspaceView.tsx.md#output-47afe3575948)
-- [apps/web/src/views/workspaceState.ts](../../../mechanisms/apps/web/src/views/workspaceState.ts.md#output-efd800f9ed5a)
+- apps/web/src/views/FleetPane.tsx
+- apps/web/src/views/WorkspaceView.tsx
+- apps/web/src/views/workspaceState.ts
 - [crates/hickory-cli/src/main.rs](../../../mechanisms/crates/hickory-cli/src/main.rs.md#output-5607f2721a2d)
 - [crates/hickory-cli/src/serve/history.rs](../../../mechanisms/crates/hickory-cli/src/serve/history.rs.md#output-be949b7ea526)
 - [crates/hickory-fleet/src/lib.rs](../../../mechanisms/crates/hickory-fleet/src/lib.rs.md#output-b1e920114639)
@@ -536,8 +437,8 @@ Fleet state stores identity, enrolled public keys and verb grants. The peer chan
 
 ### Tests and fixtures
 
-- [apps/web/src/views/FleetPane.test.tsx](../../../mechanisms/apps/web/src/views/FleetPane.tsx.md#output-ef08e5ce40d1)
-- [apps/web/src/views/toolTabs.test.ts](contract.md#output-379c44af631b)
+- apps/web/src/views/FleetPane.test.tsx
+- apps/web/src/views/toolTabs.test.ts
 - [crates/hickory-cli/tests/fleet.rs](contract.md#output-cccf3953dc0f)
 - [crates/hickory-fleet/tests/roster_guarded.rs](contract.md#output-ca2359248ac2)
 

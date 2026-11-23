@@ -93,15 +93,15 @@ The selections below preserve the original byte order. Narrative reading order d
 - [apps/web/src/components/MoreActions.tsx](contract.md#output-63699185668b)
 - [apps/web/src/components/PlainFilePane.tsx](../../../mechanisms/apps/web/src/components/PlainFilePane.tsx.md#output-2f891a49445f)
 - [apps/web/src/lib/railActions.ts](../../../mechanisms/apps/web/src/lib/railActions.ts.md#output-499155452cf6)
-- [apps/web/src/views/RepresentationPane.tsx](../../../mechanisms/apps/web/src/views/RepresentationPane.tsx.md#output-cd66c1c2250e)
-- [apps/web/src/views/WorkspaceView.tsx](../../../mechanisms/apps/web/src/views/WorkspaceView.tsx.md#output-47afe3575948)
-- [apps/web/src/views/workspaceTabs.tsx](../../../mechanisms/apps/web/src/views/workspaceTabs.tsx.md#output-b5a48fd337ae)
+- apps/web/src/views/RepresentationPane.tsx
+- apps/web/src/views/WorkspaceView.tsx
+- apps/web/src/views/workspaceTabs.tsx
 
 ### Tests and fixtures
 
-- [apps/web/e2e/literate-editor.spec.ts](../../../mechanisms/apps/web/e2e/literate-editor.spec.ts.md#output-648693644a28)
+- apps/web/e2e/literate-editor.spec.ts
 - [apps/web/src/lib/railActions.test.ts](../../../mechanisms/apps/web/src/lib/railActions.ts.md#output-49410ea38e0d)
-- [apps/web/src/views/workspaceTabs.test.tsx](../../../mechanisms/apps/web/src/views/workspaceTabs.tsx.md#output-5370130a675d)
+- apps/web/src/views/workspaceTabs.test.tsx
 
 ### Evidence status
 

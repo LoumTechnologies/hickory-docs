@@ -161,9 +161,9 @@ async fn acp_connects_to_workspace_with_untitled_context_and_resumes() {
 
 ### Tests and fixtures
 
-- [apps/desktop/src-tauri/tests/serves_one_origin.rs](../../../mechanisms/apps/desktop/src-tauri/tests/serves_one_origin.rs.md#output-e7ec95ab75f6)
+- apps/desktop/src-tauri/tests/serves_one_origin.rs
 - [apps/web/src/lib/contextProjection.test.ts](../expanded-reading-projection/contract.md#output-cd54a8e364bd)
-- [apps/web/src/views/WorkspaceChat.test.tsx](../../../mechanisms/apps/web/src/views/WorkspaceChat.test.tsx.md#output-41ee32c19327)
+- apps/web/src/views/WorkspaceChat.test.tsx
 - [crates/hickory-cli/tests/serve_acp.rs](../../../mechanisms/crates/hickory-cli/tests/serve_acp.rs.md#output-2fce65a349e6)
 
 ### Evidence status

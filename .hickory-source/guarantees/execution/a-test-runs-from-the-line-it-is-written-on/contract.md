@@ -744,11 +744,11 @@ The selections below preserve the original byte order. Narrative reading order d
 
 ### Implementation
 
-- [apps/web/src/components/OutputEditorPane.tsx](../../../mechanisms/apps/web/src/components/OutputEditorPane.tsx.md#output-2571b0682164)
+- apps/web/src/components/OutputEditorPane.tsx
 - [apps/web/src/components/PlainFilePane.tsx](../../../mechanisms/apps/web/src/components/PlainFilePane.tsx.md#output-2f891a49445f)
 - [apps/web/src/editor/testGutter.ts](contract.md#output-09b8956c0f0c)
 - [apps/web/src/lib/revealLine.ts](../../../mechanisms/apps/web/src/lib/revealLine.ts.md#output-bca672428db0)
-- [apps/web/src/views/WorkspaceView.tsx](../../../mechanisms/apps/web/src/views/WorkspaceView.tsx.md#output-47afe3575948)
+- apps/web/src/views/WorkspaceView.tsx
 
 ### Tests and fixtures
 

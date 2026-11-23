@@ -39,16 +39,16 @@ Implementation review: not verified. Executed checks and human judgment are reco
 
 ### Implementation
 
-- [apps/web/src/views/GitPane.tsx](../../../mechanisms/apps/web/src/views/GitPane.tsx.md#output-f7cd01998027)
-- [apps/web/src/views/HistoryLens.tsx](../../../mechanisms/apps/web/src/views/HistoryLens.tsx.md#output-b01a7a57f285)
-- [apps/web/src/views/WorkspaceView.tsx](../../../mechanisms/apps/web/src/views/WorkspaceView.tsx.md#output-47afe3575948)
-- [apps/web/src/views/workspaceState.ts](../../../mechanisms/apps/web/src/views/workspaceState.ts.md#output-efd800f9ed5a)
+- apps/web/src/views/GitPane.tsx
+- apps/web/src/views/HistoryLens.tsx
+- apps/web/src/views/WorkspaceView.tsx
+- apps/web/src/views/workspaceState.ts
 - [crates/hickory-cli/src/serve/git.rs](../../../mechanisms/crates/hickory-cli/src/serve/git.rs.md#output-3794196055eb)
 - [crates/hickory-cli/src/serve/mod.rs](../../../mechanisms/crates/hickory-cli/src/serve/mod.rs.md#output-09ea558208cd)
 
 ### Tests and fixtures
 
-- [apps/web/src/views/HistoryLens.test.tsx](../../../mechanisms/apps/web/src/views/HistoryLens.tsx.md#output-8206e3ef4d86)
+- apps/web/src/views/HistoryLens.test.tsx
 - [crates/hickory-cli/tests/git_ops.rs](../../../mechanisms/crates/hickory-cli/tests/git_ops.rs.md#output-34c22c3c39d6)
 
 ### Evidence status

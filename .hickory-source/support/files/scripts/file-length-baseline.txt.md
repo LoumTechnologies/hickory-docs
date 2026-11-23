@@ -14,7 +14,6 @@ apps/web/src/components/TablePanel.tsx 1629
 apps/web/src/debug/cmDebug.ts 1038
 apps/web/src/editor/wysiwyg.ts 1035
 apps/web/src/shell/Ribbons.tsx 1223
-apps/web/src/views/WorkspaceView.tsx 1856
 crates/hick-dap/src/session.rs 1119
 crates/hick-exec/src/dag.rs 1132
 crates/hick-exec/src/state.rs 1260

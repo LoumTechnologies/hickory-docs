@@ -26,8 +26,8 @@ Implementation review: not verified. Executed checks and human judgment are reco
 
 ### Implementation
 
-- [apps/desktop/src-tauri/src/launch_path.rs](../../../mechanisms/apps/desktop/src-tauri/src/launch_path.rs.md#output-9697ca6e6f7a)
-- [apps/desktop/src-tauri/src/main.rs](../../../mechanisms/apps/desktop/src-tauri/src/main.rs.md#output-981e94b5aacd)
+- apps/desktop/src-tauri/src/launch_path.rs
+- apps/desktop/src-tauri/src/main.rs
 - [crates/hick-term/src/session.rs](../../../mechanisms/crates/hick-term/src/session.rs.md#output-5705d2b8acc0)
 - [crates/hick-term/src/shell_integration.rs](../../../mechanisms/crates/hick-term/src/shell_integration.rs.md#output-3465af886d7a)
 - [crates/hickory-cli/src/engine/client.rs](../../../mechanisms/crates/hickory-cli/src/engine/client.rs.md#output-5c9c7cadce49)

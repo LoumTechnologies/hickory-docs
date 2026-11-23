@@ -32,165 +32,6 @@ Implementation review: not verified. Executed checks and human judgment are reco
 
 ## Implementation
 
-<a id="output-f3a948bf3c55"></a>
-## `apps/web/src/lineage/TimeSlider.test.tsx`
-
-Present and edit the shared engine state. Browser-side revisions, pending requests and local drafts affect which source and UI actions are still valid.
-
-Related contracts: [Replay Recomputes Exact Lineage At Any Commit, And Names Its One Limit](contract.md).
-
-<a id="f-f3a948bf3c55-commit"></a>
-### `commit`
-
-<storycode:copy id="f-f3a948bf3c55-commit">
-// docs/guarantees/lineage/replay-recomputes-lineage-at-a-commit.md
-import { describe, expect, it, vi, beforeEach } from "vitest";
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
-
-import { TimeSlider, indexOf, positions } from "./TimeSlider";
-import type { ReplayCommit } from "../api/types";
-
-const commit = (over: Partial<ReplayCommit>): ReplayCommit => ({
-  sha: "aaa",
-  short: "aaa",
-  time: 1_700_000_000,
-  author: "T",
-  subject: "a change",
-  path: "note.md",
-  ...over,
-});
-
-</storycode:copy>
-<a id="f-f3a948bf3c55-commits"></a>
-### `commits`
-
-git reports newest first; a person reads time oldest → newest.
-
-<storycode:copy id="f-f3a948bf3c55-commits">
-// git reports newest first; a person reads time oldest → newest.
-const commits = [
-  commit({ sha: "new", short: "new", subject: "newer", time: 200 }),
-  commit({ sha: "old", short: "old", subject: "older", time: 100 }),
-];
-
-</storycode:copy>
-<a id="f-f3a948bf3c55-expression_statement"></a>
-### `expression_statement`
-
-<storycode:copy id="f-f3a948bf3c55-expression_statement">
-beforeEach(() => {
-  cleanup();
-  vi.restoreAllMocks();
-});
-
-</storycode:copy>
-<a id="f-f3a948bf3c55-expression_statement-2"></a>
-### `expression_statement`
-
-<storycode:copy id="f-f3a948bf3c55-expression_statement-2">
-describe("the stops", () => {
-  it("run oldest to newest and end at the working tree", () => {
-    // The last position is NOT a commit and must not pretend to be one.
-    const stops = positions(commits);
-    expect(stops.map((c) => c?.sha ?? null)).toEqual(["old", "new", null]);
-  });
-
-  it("puts an unknown selection at the working tree rather than at nothing", () => {
-    expect(indexOf(commits, null)).toBe(2);
-    expect(indexOf(commits, "old")).toBe(0);
-    expect(indexOf(commits, "gone")).toBe(2);
-  });
-});
-
-</storycode:copy>
-<a id="f-f3a948bf3c55-expression_statement-3"></a>
-### `expression_statement`
-
-<storycode:copy id="f-f3a948bf3c55-expression_statement-3">
-describe("the slider", () => {
-  it("names the commit it is showing, and says the last stop is not one", () => {
-    render(<TimeSlider commits={commits} at={null} onChange={() => {}} />);
-    expect(screen.getByText(/As it stands/)).toBeTruthy();
-    expect(screen.getByText(/the working tree, which is not a commit/)).toBeTruthy();
-  });
-
-  it("moves to the commit at the position picked", () => {
-    const onChange = vi.fn();
-    render(<TimeSlider commits={commits} at={null} onChange={onChange} />);
-    fireEvent.change(screen.getByRole("slider"), { target: { value: "0" } });
-    expect(onChange).toHaveBeenCalledWith("old");
-  });
-
-  it("states the grammar boundary rather than showing an error", () => {
-    render(
-      <TimeSlider
-        commits={commits}
-        at="old"
-        onChange={() => {}}
-        boundary="replay stops here: Replay works back to the last grammar change"
-      />,
-    );
-    expect(
-      screen.getByText(/Replay works back to the last grammar change/),
-    ).toBeTruthy();
-  });
-
-  it("says plainly that replay reads git and remembers nothing of its own", () => {
-    render(<TimeSlider commits={[]} at={null} onChange={() => {}} />);
-    expect(screen.getByText(/nowhere to slide to/)).toBeTruthy();
-  });
-
-  it("never claims to relate one version's spans to another's", () => {
-    render(<TimeSlider commits={commits} at={null} onChange={() => {}} />);
-    expect(screen.getByText(/relating one version/)).toBeTruthy();
-  });
-});
-
-</storycode:copy>
-<a id="f-f3a948bf3c55-expression_statement-4"></a>
-### `expression_statement`
-
-<storycode:copy id="f-f3a948bf3c55-expression_statement-4">
-it("shares native and model replay selection and retires replaced project handles", async () => {
-  const { UiActions } = await import("../lib/uiActions");
-  const { UiActionContext } = await import("../lib/uiActionBridge");
-  const registry = new UiActions({ workspace: "p", window: "w" }, () => true, async () => {});
-  const change = vi.fn();
-  const viewFor = (owner: string, at: string | null, stops = commits) => <UiActionContext.Provider value={registry}><TimeSlider owner={owner} commits={stops} at={at} onChange={change} /></UiActionContext.Provider>;
-  const view = render(viewFor("first", null));
-  const actions = () => registry.groups().groups.flatMap(group => registry.observe(group, 64).actions);
-  const run = async (handle: string, args: Record<string, number> = {}) => {
-    let result: unknown;
-    await act(async () => { result = await registry.act(registry.scope, { id: "python:fixture", kind: "agent" }, { handle, arguments: args, request_id: crypto.randomUUID() }); });
-    return result;
-  };
-  const pick = () => actions().find(action => action.label === "Select lineage replay stop")!.handle;
-  expect(await run(pick(), { index: 0 })).toMatchObject({ status: "result", outcome: { value: { selection_requested: true, replay_completed: false } } });
-  expect(change).toHaveBeenLastCalledWith("old");
-  fireEvent.change(screen.getByRole("slider"), { target: { value: "1" } });
-  expect(change).toHaveBeenLastCalledWith("new");
-  const stale = pick();
-  view.rerender(viewFor("second", "gone"));
-  expect(screen.queryByText("As it stands")).toBeNull();
-  expect(screen.getByText(/Selected revision is unavailable/)).toBeTruthy();
-  change.mockClear();
-  expect(await run(stale, { index: 0 })).not.toMatchObject({ status: "result" });
-  expect(change).not.toHaveBeenCalled();
-  view.rerender(viewFor("second", "gone", []));
-  expect(actions().some(action => action.label === "Select lineage replay stop")).toBe(false);
-  expect(await run(actions().find(action => action.label === "Show working-tree lineage")!.handle)).toMatchObject({ status: "result", outcome: { value: { at: null, read_completed: false } } });
-  expect(change).toHaveBeenLastCalledWith(null);
-  fireEvent.click(screen.getByRole("button", { name: "Show working-tree lineage" }));
-  expect(change).toHaveBeenCalledTimes(2);
-});
-</storycode:copy>
-
-### Assemble `apps/web/src/lineage/TimeSlider.test.tsx`
-
-The selections below preserve the original byte order. Narrative reading order does not change the output.
-
-<storycode:file path="apps/web/src/lineage/TimeSlider.test.tsx"><storycode:paste select="#f-f3a948bf3c55-commit"/><storycode:paste select="#f-f3a948bf3c55-commits"/><storycode:paste select="#f-f3a948bf3c55-expression_statement"/><storycode:paste select="#f-f3a948bf3c55-expression_statement-2"/><storycode:paste select="#f-f3a948bf3c55-expression_statement-3"/><storycode:paste select="#f-f3a948bf3c55-expression_statement-4"/></storycode:file>
-
 <a id="output-a23417d51224"></a>
 ## `crates/hickory-cli/src/replay.rs`
 
@@ -610,15 +451,15 @@ The selections below preserve the original byte order. Narrative reading order d
 
 ### Implementation
 
-- [apps/web/src/lineage/TimeSlider.tsx](../../../mechanisms/apps/web/src/lineage/TimeSlider.tsx.md#output-dca5a7314b59)
-- [apps/web/src/views/LineageView.tsx](../../../mechanisms/apps/web/src/views/LineageView.tsx.md#output-f7cde247eee4)
+- apps/web/src/lineage/TimeSlider.tsx
+- apps/web/src/views/LineageView.tsx
 - [crates/hickory-cli/src/main.rs](../../../mechanisms/crates/hickory-cli/src/main.rs.md#output-5607f2721a2d)
 - [crates/hickory-cli/src/replay.rs](contract.md#output-a23417d51224)
 - [crates/hickory-cli/src/serve/history.rs](../../../mechanisms/crates/hickory-cli/src/serve/history.rs.md#output-be949b7ea526)
 
 ### Tests and fixtures
 
-- [apps/web/src/lineage/TimeSlider.test.tsx](contract.md#output-f3a948bf3c55)
+- apps/web/src/lineage/TimeSlider.test.tsx
 - [crates/hickory-cli/tests/replay_and_floor.rs](../../../mechanisms/crates/hickory-cli/tests/replay_and_floor.rs.md#output-652493fd98fd)
 
 ### Evidence status

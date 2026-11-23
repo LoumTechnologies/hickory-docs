@@ -53,13 +53,13 @@ matches() {
 
 # Declarative path-glob -> checks table. A change touching multiple rows
 # runs the union of their checks.
-if matches "crates/*" || matches "Cargo.toml" || matches "Cargo.lock" || matches "rust-toolchain.toml" || matches ".cargo/*" || matches "scripts/check-codegen.sh"; then
+if matches "apps/desktop/fskit/*" || matches "crates/*" || matches "Cargo.toml" || matches "Cargo.lock" || matches "rust-toolchain.toml" || matches ".cargo/*" || matches "scripts/check-codegen.sh"; then
   checks+=(rust)
 fi
-if matches "scripts/review-complexity*" || matches "scripts/tests/test_review_complexity.py" || matches "apps/web/*" || matches "scripts/generate-api.py" || matches "code-models/typescript/*" || matches "code-models/clients/python/*"; then
+if matches "scripts/dist.sh" || matches "scripts/install.sh" || matches ".github/workflows/release-build.yml" || matches "scripts/review-complexity*" || matches "scripts/tests/test_review_complexity.py" || matches "apps/web/*" || matches "scripts/generate-api.py" || matches "code-models/typescript/*" || matches "code-models/clients/python/*"; then
   checks+=(web)
 fi
-if matches "scripts/test-python-agent-ui.sh" || matches "apps/web/e2e/python-agent.spec.ts" || matches "crates/hickory-cli/examples/python_agent_ui_fixture.rs" || matches "apps/web/src/components/Agent*" || matches "apps/web/src/components/ChatDock*" || matches "apps/web/src/components/AcpControls*" || matches "apps/web/src/views/AgentSettings*" || matches "apps/web/src/api/acp.ts" || matches "apps/agent/*" || matches "scripts/check-python-agent.sh" || matches "crates/hickory-cli/src/python_agent*" || matches "crates/hickory-cli/src/agent_command.rs" || matches "crates/hickory-cli/tests/python_agent.rs" || matches "crates/hickory-cli/tests/serve_python_agent.rs" || matches "crates/hickory-cli/src/serve/python_agent.rs" || matches "crates/hickory-cli/src/serve/agent*" || matches "crates/hickory-cli/src/serve/acp/*" || matches "crates/hickory-cli/src/serve/mod.rs" || matches "crates/hickory-cli/src/mcp*" || matches "crates/hickory-agent/*" || matches "crates/hickory-executor-sandbox/*"; then
+if matches "crates/hickory-cli/examples/python_agent_ui_fixture.rs" || matches "apps/web/src/api/acp.ts" || matches "apps/agent/*" || matches "scripts/check-python-agent.sh" || matches "crates/hickory-cli/src/python_agent*" || matches "crates/hickory-cli/src/agent_command.rs" || matches "crates/hickory-cli/tests/python_agent.rs" || matches "crates/hickory-cli/tests/serve_python_agent.rs" || matches "crates/hickory-cli/src/serve/python_agent.rs" || matches "crates/hickory-cli/src/serve/agent*" || matches "crates/hickory-cli/src/serve/acp/*" || matches "crates/hickory-cli/src/serve/mod.rs" || matches "crates/hickory-cli/src/mcp*" || matches "crates/hickory-agent/*" || matches "crates/hickory-executor-sandbox/*"; then
   checks+=(python-agent)
 fi
 # Not a docs-lint row: this repo's "rust" job also verifies docs/examples
@@ -67,13 +67,6 @@ fi
 # genuinely needs that, unlike a typical markdown-lint-only repo.
 if matches "docs/*" || matches "examples/*"; then
   checks+=(rust)
-fi
-# The desktop crate is deliberately outside the cargo workspace, so the
-# `rust` check never touches it — and the release path (dist scripts,
-# workflow definitions) used to have NO row at all, which is exactly how two
-# release-breaking bugs reached master with green hooks and green CI.
-if matches "apps/desktop/*" || matches "scripts/dist*.sh" || matches "scripts/install.sh" || matches ".github/workflows/*"; then
-  checks+=(desktop)
 fi
 # Expensive on purpose: the dev environment itself is only re-verified when
 # something that can actually break it changes, not on every commit. See
@@ -89,20 +82,23 @@ fi
 
 # Changes to the gate or its shared selector must exercise every branch.
 if matches ".githooks/*" || matches "scripts/affected-checks.sh" || matches "scripts/checks*"; then
-  checks+=(rust web desktop dev python-agent)
+  checks+=(rust web dev python-agent)
 fi
 if matches "scripts/check-file-length.sh" || matches "scripts/file-length-baseline.txt"; then
   checks+=(rust web)
 fi
 
-# Independent frontend comparison scopes share this selector with their CI workflow.
-if matches "apps/web/src/simple/*" || matches "apps/web/simple.html" || matches "apps/web/vite.simple.config.ts" || matches "apps/web/src/api/*" || matches "scripts/test-simple-browser.py" || matches "scripts/simple-browser-driver.mjs"; then
+# Select each supported editor using the same scopes locally and in GitHub Actions.
+if matches "apps/web/*" || matches "scripts/test-simple-browser.py" || matches "scripts/simple-browser-driver.mjs"; then
   checks+=(simple-browser)
 fi
 if matches "apps/apple-simple/*"; then checks+=(simple-apple); fi
 if matches "apps/android-simple/*" || matches "scripts/test-simple-kotlin.py" || matches "scripts/simple-android-gradle.rs"; then checks+=(simple-android); fi
 if matches "apps/simple-contract/*" || matches ".hickory-source/frontends/*" || matches "justfile" || matches ".github/workflows/simple-frontends.yml" || matches "scripts/affected-checks.sh"; then
-  checks+=(simple-browser simple-apple simple-android simple-windows)
+  checks+=(simple-browser simple-apple simple-android simple-windows simple-linux)
+fi
+if matches "apps/linux-simple/*" || matches "apps/web/*" || matches "crates/*" || matches "Cargo.toml" || matches "Cargo.lock" || matches "rust-toolchain.toml" || matches "scripts/test-simple-linux.mjs"; then
+  checks+=(simple-linux)
 fi
 if matches "apps/windows-simple/*" || matches "apps/web/*" || matches "crates/*" || matches "Cargo.toml" || matches "Cargo.lock" || matches "rust-toolchain.toml" || matches "scripts/*-simple-windows.*"; then
   checks+=(simple-windows)

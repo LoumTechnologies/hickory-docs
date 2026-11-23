@@ -33,13 +33,13 @@ Implementation review: not verified. Executed checks and human judgment are reco
 
 ### Implementation
 
-- [apps/web/src/views/BisectPane.tsx](../../../mechanisms/apps/web/src/views/BisectPane.tsx.md#output-73f5ba1f30b7)
+- apps/web/src/views/BisectPane.tsx
 - [crates/hickory-cli/src/serve/bisect.rs](../../../mechanisms/crates/hickory-cli/src/serve/bisect.rs.md#output-85364c468167)
 - [crates/hickory-cli/src/up/mod.rs](../../../mechanisms/crates/hickory-cli/src/up/mod.rs.md#output-73148a3ab9db)
 
 ### Tests and fixtures
 
-- [apps/web/e2e/literate-editor.spec.ts](../../../mechanisms/apps/web/e2e/literate-editor.spec.ts.md#output-648693644a28)
+- apps/web/e2e/literate-editor.spec.ts
 - [crates/hickory-cli/tests/literate_views.rs](../../../mechanisms/crates/hickory-cli/tests/literate_views.rs.md#output-3df513c37b3c)
 
 ### Evidence status

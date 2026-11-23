@@ -24,12 +24,12 @@ Implementation review: not verified. Executed checks and human judgment are reco
 ### Implementation
 
 - [apps/web/src/shell/FolderTreePane.tsx](../../../mechanisms/apps/web/src/shell/FolderTreePane.tsx.md#output-9c0af3061e25)
-- [apps/web/src/views/WorkspaceView.tsx](../../../mechanisms/apps/web/src/views/WorkspaceView.tsx.md#output-47afe3575948)
-- [apps/web/src/views/workspaceState.ts](../../../mechanisms/apps/web/src/views/workspaceState.ts.md#output-efd800f9ed5a)
+- apps/web/src/views/WorkspaceView.tsx
+- apps/web/src/views/workspaceState.ts
 
 ### Tests and fixtures
 
-- [apps/web/src/views/workspaceState.test.ts](../../../mechanisms/apps/web/src/views/workspaceState.ts.md#output-14d3dbc939ff)
+- apps/web/src/views/workspaceState.test.ts
 
 ### Evidence status
 

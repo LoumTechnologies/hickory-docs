@@ -789,12 +789,12 @@ The selections below preserve the original byte order. Narrative reading order d
 
 ### Implementation
 
-- [apps/desktop/src-tauri/src/lib.rs](../../../mechanisms/apps/desktop/src-tauri/src/lib.rs.md#output-42caba993099)
+- apps/desktop/src-tauri/src/lib.rs
 - [apps/web/src/editor/blameGutter.ts](contract.md#output-cd7f4a46ce4a)
 - [apps/web/src/editor/useBlame.ts](../../../mechanisms/apps/web/src/editor/useBlame.ts.md#output-9b02a0106d13)
 - [apps/web/src/lib/blamePref.ts](contract.md#output-f14fc693b064)
 - [apps/web/src/lib/menuBridge.ts](../../authoring/inserting-an-element-writes-hick-you-could-have-typed/contract.md#output-2f6629ca93b0)
-- [apps/web/src/views/useZoom.ts](../../../mechanisms/apps/web/src/views/useZoom.ts.md#output-49e957f1c44e)
+- apps/web/src/views/useZoom.ts
 - [crates/hickory-cli/src/agent_lineage.rs](../../../mechanisms/crates/hickory-cli/src/agent_lineage.rs.md#output-7b65c6db8d7c)
 - [crates/hickory-cli/src/serve/api.rs](../../../mechanisms/crates/hickory-cli/src/serve/api.rs.md#output-e71b04ae5298)
 

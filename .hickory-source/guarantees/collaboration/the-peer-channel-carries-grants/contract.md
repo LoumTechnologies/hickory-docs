@@ -110,7 +110,7 @@ async fn local_server() -> SocketAddr {
 
 ### Implementation
 
-- [apps/web/src/views/FleetPane.tsx](../../../mechanisms/apps/web/src/views/FleetPane.tsx.md#output-6e68b623335b)
+- apps/web/src/views/FleetPane.tsx
 - [crates/hickory-cli/src/main.rs](../../../mechanisms/crates/hickory-cli/src/main.rs.md#output-5607f2721a2d)
 - [crates/hickory-fleet/src/lib.rs](../../../mechanisms/crates/hickory-fleet/src/lib.rs.md#output-b1e920114639)
 - [crates/hickory-peer/src/grants.rs](../../../mechanisms/crates/hickory-peer/src/grants.rs.md#output-fb44d9f1f9e0)

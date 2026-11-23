@@ -76,7 +76,7 @@ fn hick() -> Command {
 ### Tests and fixtures
 
 - [apps/web/src/components/DiagramPanel.test.tsx](../../../mechanisms/apps/web/src/components/DiagramPanel.tsx.md#output-56af562b717e)
-- [apps/web/src/editor/DocumentEditor.test.tsx](../../../mechanisms/apps/web/src/editor/DocumentEditor.test.tsx.md#output-71bbcfe029bb)
+- apps/web/src/editor/DocumentEditor.test.tsx
 - [crates/hickory-cli/tests/diagrams.rs](../../../mechanisms/crates/hickory-cli/tests/diagrams.rs.md#output-60028fe1d41a)
 
 ### Evidence status

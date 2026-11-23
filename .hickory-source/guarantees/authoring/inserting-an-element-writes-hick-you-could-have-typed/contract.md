@@ -283,137 +283,6 @@ The selections below preserve the original byte order. Narrative reading order d
 
 <storycode:file path="apps/web/src/editor/activeEditor.ts"><storycode:paste select="#f-378384fcb2be-current"/><storycode:paste select="#f-378384fcb2be-markActiveEditor"/><storycode:paste select="#f-378384fcb2be-forgetEditor"/><storycode:paste select="#f-378384fcb2be-activeEditor"/><storycode:paste select="#f-378384fcb2be-focused"/><storycode:paste select="#f-378384fcb2be-untitled"/><storycode:paste select="#f-378384fcb2be-markFocusedEditor"/><storycode:paste select="#f-378384fcb2be-forgetFocusedEditor"/><storycode:paste select="#f-378384fcb2be-focusedEditor"/><storycode:paste select="#f-378384fcb2be-markUntitledEditor"/><storycode:paste select="#f-378384fcb2be-untitledEditor"/><storycode:paste select="#f-378384fcb2be-resetActiveEditor"/></storycode:file>
 
-<a id="output-dd74a2286ddd"></a>
-## `apps/web/src/editor/insertElement.ts`
-
-Present and edit the shared engine state. Browser-side revisions, pending requests and local drafts affect which source and UI actions are still valid.
-
-Related contracts: [Inserting An Element Writes Hick You Could Have Typed Yourself](contract.md).
-
-<a id="f-dd74a2286ddd-WINDOW"></a>
-### `WINDOW`
-
-Putting a chosen element into the buffer.
-The decision about what bytes to write lives in lib/insertCatalog.ts; this
-is the half that needs a live CodeMirror view — reading what surrounds the
-caret, dispatching the change, and leaving the selection somewhere useful.
-
-<storycode:copy id="f-dd74a2286ddd-WINDOW">
-// Putting a chosen element into the buffer.
-//
-// The decision about what bytes to write lives in lib/insertCatalog.ts; this
-// is the half that needs a live CodeMirror view — reading what surrounds the
-// caret, dispatching the change, and leaving the selection somewhere useful.
-
-import type { EditorView } from "@codemirror/view";
-
-import { buildInsertion, type FieldValues, type InsertElement } from "../lib/insertCatalog";
-
-/**
- * How much of the buffer either side of the caret the padding rules read.
- *
- * They only ever count newlines immediately adjacent to the insertion point,
- * so a window is exactly as good as the whole document and does not copy a
- * megabyte of text to insert twelve characters. It must stay big enough that
- * the window is only ever empty at the true start or end of the buffer,
- * which is what "the document starts here, no blank line needed" is read
- * from.
- */
-const WINDOW = 64;
-
-</storycode:copy>
-<a id="f-dd74a2286ddd-insertElement"></a>
-### `insertElement`
-
-Insert `element` at the view's caret, replacing its selection.
-The transaction carries a `userEvent` on purpose. DocumentEditor keeps
-everything WITHOUT one out of the undo history — that is how a
-collaborator's edit and the room's first sync stay un-undoable — so an
-insert dispatched without one could never be taken back with Ctrl+Z.
-
-<storycode:copy id="f-dd74a2286ddd-insertElement">
-/**
- * Insert `element` at the view's caret, replacing its selection.
- *
- * The transaction carries a `userEvent` on purpose. DocumentEditor keeps
- * everything WITHOUT one out of the undo history — that is how a
- * collaborator's edit and the room's first sync stay un-undoable — so an
- * insert dispatched without one could never be taken back with Ctrl+Z.
- */
-export function insertElement(
-  view: EditorView,
-  element: InsertElement,
-  values: FieldValues,
-  /** The body as the panel last showed it. Omitted, the selection (or the
-   * catalogue's starter text) is used. */
-  body?: string,
-  userEvent = "input.insertElement",
-): void {
-  const { state } = view;
-  const range = state.selection.main;
-  const insertion = buildInsertion(
-    element,
-    values,
-    {
-      before: state.doc.sliceString(Math.max(0, range.from - WINDOW), range.from),
-      after: state.doc.sliceString(range.to, Math.min(state.doc.length, range.to + WINDOW)),
-      selected: state.doc.sliceString(range.from, range.to),
-    },
-    body,
-  );
-
-  view.dispatch({
-    changes: { from: range.from, to: range.to, insert: insertion.text },
-    selection: {
-      anchor: range.from + insertion.selectFrom,
-      head: range.from + insertion.selectTo,
-    },
-    scrollIntoView: true,
-    userEvent,
-  });
-  // The panel had the focus; typing over the placeholder is the next thing
-  // anybody does, so the buffer takes it back.
-  view.focus();
-}
-
-</storycode:copy>
-<a id="f-dd74a2286ddd-captureInsertion"></a>
-### `captureInsertion`
-
-The dialog owns this exact editor/source/range even after another pane gains focus.
-
-<storycode:copy id="f-dd74a2286ddd-captureInsertion">
-/** The dialog owns this exact editor/source/range even after another pane gains focus. */
-export function captureInsertion(view: EditorView) {
-  return { view, doc: view.state.doc, selection: { anchor: view.state.selection.main.anchor, head: view.state.selection.main.head } };
-}
-</storycode:copy>
-<a id="f-dd74a2286ddd-insertionCurrent"></a>
-### `insertionCurrent`
-
-<storycode:copy id="f-dd74a2286ddd-insertionCurrent">
-export function insertionCurrent(capture: ReturnType<typeof captureInsertion>): boolean {
-  return capture.view.dom.isConnected && !capture.view.state.readOnly && capture.view.state.doc === capture.doc;
-}
-</storycode:copy>
-<a id="f-dd74a2286ddd-insertCapturedElement"></a>
-### `insertCapturedElement`
-
-<storycode:copy id="f-dd74a2286ddd-insertCapturedElement">
-export function insertCapturedElement(capture: ReturnType<typeof captureInsertion>, element: InsertElement, values: FieldValues, body: string, agent = false): boolean {
-  if (!insertionCurrent(capture)) return false;
-  capture.view.dispatch({ selection: capture.selection });
-  insertElement(capture.view, element, values, body, agent ? "input.uiAgentInsert" : "input.insertElement");
-  return true;
-}
-</storycode:copy>
-
-### Assemble `apps/web/src/editor/insertElement.ts`
-
-The selections below preserve the original byte order. Narrative reading order does not change the output.
-
-<storycode:file path="apps/web/src/editor/insertElement.ts"><storycode:paste select="#f-dd74a2286ddd-WINDOW"/><storycode:paste select="#f-dd74a2286ddd-insertElement"/><storycode:paste select="#f-dd74a2286ddd-captureInsertion"/><storycode:paste select="#f-dd74a2286ddd-insertionCurrent"/><storycode:paste select="#f-dd74a2286ddd-insertCapturedElement"/></storycode:file>
-
 <a id="output-a5457456ec0a"></a>
 ## `apps/web/src/lib/insertCatalog.test.ts`
 
@@ -814,8 +683,8 @@ never fires.
 <storycode:copy id="f-2f6629ca93b0-MenuAction">
 // The native menu's side of the bargain.
 //
-// The desktop shell forwards menu picks into the page as a DOM CustomEvent
-// named `hickory-menu` (see apps/desktop/src-tauri/src/lib.rs) — a plain
+// Embedded controls can dispatch menu picks as a DOM CustomEvent
+// named `hickory-menu` — a plain
 // window event rather than Tauri IPC, so this file has no Tauri dependency
 // and the same build runs unchanged in a browser, where the event simply
 // never fires.
@@ -999,20 +868,20 @@ The selections below preserve the original byte order. Narrative reading order d
 
 ### Implementation
 
-- [apps/desktop/src-tauri/src/lib.rs](../../../mechanisms/apps/desktop/src-tauri/src/lib.rs.md#output-42caba993099)
-- [apps/web/src/App.tsx](../../../mechanisms/apps/web/src/App.tsx.md#output-25cc6f821b46)
-- [apps/web/src/components/InsertMenu.tsx](../../../mechanisms/apps/web/src/components/InsertMenu.tsx.md#output-c9a0adfc5a83)
+- apps/desktop/src-tauri/src/lib.rs
+- apps/web/src/App.tsx
+- apps/web/src/components/InsertMenu.tsx
 - [apps/web/src/editor/DocumentEditor.tsx](../../../mechanisms/apps/web/src/editor/DocumentEditor.tsx.md#output-aab82870e517)
 - [apps/web/src/editor/activeEditor.ts](contract.md#output-378384fcb2be)
-- [apps/web/src/editor/insertElement.ts](contract.md#output-dd74a2286ddd)
+- apps/web/src/editor/insertElement.ts
 - [apps/web/src/lib/insertCatalog.ts](../../../mechanisms/apps/web/src/lib/insertCatalog.ts.md#output-8620a55486dc)
 - [apps/web/src/lib/menuBridge.ts](contract.md#output-2f6629ca93b0)
-- [apps/web/src/views/WorkspaceView.tsx](../../../mechanisms/apps/web/src/views/WorkspaceView.tsx.md#output-47afe3575948)
+- apps/web/src/views/WorkspaceView.tsx
 
 ### Tests and fixtures
 
-- [apps/desktop/src-tauri/tests/insert_menu_matches_catalogue.rs](../../../mechanisms/apps/desktop/src-tauri/tests/insert_menu_matches_catalogue.rs.md#output-ffb5698079c9)
-- [apps/web/src/components/InsertMenu.test.tsx](../../../mechanisms/apps/web/src/components/InsertMenu.tsx.md#output-d0524ef3ebdd)
+- apps/desktop/src-tauri/tests/insert_menu_matches_catalogue.rs
+- apps/web/src/components/InsertMenu.test.tsx
 - [apps/web/src/lib/insertCatalog.test.ts](contract.md#output-a5457456ec0a)
 - [apps/web/src/lib/menuBridge.test.ts](contract.md#output-e435a6074064)
 

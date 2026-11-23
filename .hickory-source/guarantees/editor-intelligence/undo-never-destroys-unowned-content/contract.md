@@ -37,7 +37,7 @@ Implementation review: not verified. Executed checks and human judgment are reco
 
 ### Tests and fixtures
 
-- [apps/web/src/editor/DocumentEditor.test.tsx](../../../mechanisms/apps/web/src/editor/DocumentEditor.test.tsx.md#output-71bbcfe029bb)
+- apps/web/src/editor/DocumentEditor.test.tsx
 
 ### Evidence status
 

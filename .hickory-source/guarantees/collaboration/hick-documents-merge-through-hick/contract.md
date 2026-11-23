@@ -33,7 +33,7 @@ Implementation review: not verified. Executed checks and human judgment are reco
 
 ### Implementation
 
-- [apps/web/src/components/MergeDriverNotice.tsx](../../../mechanisms/apps/web/src/components/MergeDriverNotice.tsx.md#output-c97d597c05fd)
+- apps/web/src/components/MergeDriverNotice.tsx
 - [crates/hickory-cli/src/init.rs](../../../mechanisms/crates/hickory-cli/src/init.rs.md#output-a329ec22d0b8)
 - [crates/hickory-cli/src/main.rs](../../../mechanisms/crates/hickory-cli/src/main.rs.md#output-5607f2721a2d)
 - [crates/hickory-cli/src/merge_driver.rs](../../../mechanisms/crates/hickory-cli/src/merge_driver.rs.md#output-75494bcb5e9d)
@@ -41,7 +41,7 @@ Implementation review: not verified. Executed checks and human judgment are reco
 
 ### Tests and fixtures
 
-- [apps/web/src/components/MergeDriverNotice.test.tsx](../../../mechanisms/apps/web/src/components/MergeDriverNotice.tsx.md#output-38c5ddfe6997)
+- apps/web/src/components/MergeDriverNotice.test.tsx
 - [crates/hickory-cli/tests/replay_and_floor.rs](../../../mechanisms/crates/hickory-cli/tests/replay_and_floor.rs.md#output-652493fd98fd)
 
 ### Evidence status

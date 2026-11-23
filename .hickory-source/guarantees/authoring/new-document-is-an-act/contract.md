@@ -30,94 +30,6 @@ Implementation review: not verified. Executed checks and human judgment are reco
 
 ## Implementation
 
-<a id="output-019c9ea5d076"></a>
-## `apps/web/src/lib/newDoc.test.ts`
-
-Present and edit the shared engine state. Browser-side revisions, pending requests and local drafts affect which source and UI actions are still valid.
-
-Related contracts: [New Document Creates Another Unnamed Buffer](contract.md).
-
-<a id="f-019c9ea5d076-expression_statement"></a>
-### `expression_statement`
-
-<storycode:copy id="f-019c9ea5d076-expression_statement">
-import { describe, expect, it } from "vitest";
-import { untitledDraftKey, untitledPath, untitledSaveName, wrapUntitled } from "./newDoc";
-
-describe("naming the untitled document", () => {
-  // Guarantee: docs/guarantees/authoring/new-document-is-an-act.md
-  it("suggests the first heading as the Save-dialog filename", () => {
-    expect(untitledSaveName("# Meeting notes\n\nDetails", [])).toBe("Meeting notes.md");
-    expect(untitledSaveName("before\n## Plan #\n", [])).toBe("Plan.md");
-  });
-
-  it("falls back to an untitled name when there is no heading", () => {
-    expect(untitledSaveName("just a thought", ["untitled.md"])).toBe("untitled-2.md");
-  });
-  it("starts at untitled.md in an empty folder", () => {
-    expect(untitledPath([])).toBe("untitled.md");
-  });
-
-  it("counts past taken names", () => {
-    expect(untitledPath(["untitled.md"])).toBe("untitled-2.md");
-    expect(untitledPath(["untitled.md", "untitled-2.md"])).toBe(
-      "untitled-3.md",
-    );
-  });
-
-  it("ignores unrelated documents", () => {
-    expect(untitledPath(["report.md", "untitled-2.md"])).toBe(
-      "untitled.md",
-    );
-  });
-
-  it("judges taken-ness on the final path segment", () => {
-    // Two files a person can only tell apart by directory is worse than
-    // skipping a number.
-    expect(untitledPath(["notes/untitled.md"])).toBe("untitled-2.md");
-    expect(untitledPath(["notes\\untitled.md"])).toBe("untitled-2.md");
-  });
-});
-
-</storycode:copy>
-<a id="f-019c9ea5d076-expression_statement-2"></a>
-### `expression_statement`
-
-<storycode:copy id="f-019c9ea5d076-expression_statement-2">
-describe("the unsaved buffer", () => {
-  it("uses an opaque workspace key, not a path in the project", () => {
-    expect(untitledDraftKey("tab-42")).toBe("untitled:tab-42");
-  });
-});
-
-</storycode:copy>
-<a id="f-019c9ea5d076-expression_statement-3"></a>
-### `expression_statement`
-
-<storycode:copy id="f-019c9ea5d076-expression_statement-3">
-describe("the created document's source", () => {
-  // docs/specs/freeform/bare-documents.md — the root element is optional, and
-  // the new-note path is the exact case that spec was adopted for.
-  it("is the typed prose and nothing else — no wrapper", () => {
-    expect(wrapUntitled("# Hello")).toBe("# Hello\n");
-  });
-
-  it("does not double a newline the prose already ends with", () => {
-    expect(wrapUntitled("# Hello\n")).toBe("# Hello\n");
-  });
-
-  it("creates an empty document without inventing content", () => {
-    expect(wrapUntitled("")).toBe("\n");
-  });
-});
-</storycode:copy>
-
-### Assemble `apps/web/src/lib/newDoc.test.ts`
-
-The selections below preserve the original byte order. Narrative reading order does not change the output.
-
-<storycode:file path="apps/web/src/lib/newDoc.test.ts"><storycode:paste select="#f-019c9ea5d076-expression_statement"/><storycode:paste select="#f-019c9ea5d076-expression_statement-2"/><storycode:paste select="#f-019c9ea5d076-expression_statement-3"/></storycode:file>
-
 <a id="output-519678d8b434"></a>
 ## `crates/hickory-cli/src/serve/api/create_new.rs`
 
@@ -248,26 +160,26 @@ The selections below preserve the original byte order. Narrative reading order d
 
 - [apps/web/src/lib/editorBufferTargets.ts](../../../mechanisms/apps/web/src/lib/editorBufferTargets.ts.md#output-17f526449e3c)
 - [apps/web/src/views/WorkspaceChat.tsx](../../agent/unsent-responses-survive-restart/contract.md#output-c910953d9e7f)
-- [apps/web/src/views/WorkspaceView.tsx](../../../mechanisms/apps/web/src/views/WorkspaceView.tsx.md#output-47afe3575948)
-- [apps/web/src/views/uiWorkspaceMenuActions.ts](../../../mechanisms/apps/web/src/views/uiWorkspaceMenuActions.ts.md#output-d4b2f02b516e)
-- [apps/web/src/views/useNewDocument.ts](../../../mechanisms/apps/web/src/views/useNewDocument.ts.md#output-6ece107bbb2b)
-- [apps/web/src/views/useUnsavedLifecycle.ts](../../../mechanisms/apps/web/src/views/useUnsavedLifecycle.ts.md#output-0a84f897aa4c)
-- [apps/web/src/views/useUntitledRecovery.ts](../unsaved-work-survives-closing-the-app/contract.md#output-ec052e0ed871)
-- [apps/web/src/views/useUntitledSave.ts](../../../mechanisms/apps/web/src/views/useUntitledSave.ts.md#output-7589eb95cb0f)
-- [apps/web/src/views/workspaceMenuActions.ts](../../../mechanisms/apps/web/src/views/workspaceMenuActions.ts.md#output-b6d5b22ec427)
-- [apps/web/src/views/workspaceState.ts](../../../mechanisms/apps/web/src/views/workspaceState.ts.md#output-efd800f9ed5a)
+- apps/web/src/views/WorkspaceView.tsx
+- apps/web/src/views/uiWorkspaceMenuActions.ts
+- apps/web/src/views/useNewDocument.ts
+- apps/web/src/views/useUnsavedLifecycle.ts
+- apps/web/src/views/useUntitledRecovery.ts
+- apps/web/src/views/useUntitledSave.ts
+- apps/web/src/views/workspaceMenuActions.ts
+- apps/web/src/views/workspaceState.ts
 - [crates/hickory-cli/src/serve/api.rs](../../../mechanisms/crates/hickory-cli/src/serve/api.rs.md#output-e71b04ae5298)
 - [crates/hickory-cli/src/serve/api/create_new.rs](contract.md#output-519678d8b434)
 
 ### Tests and fixtures
 
-- [apps/web/src/lib/newDoc.test.ts](contract.md#output-019c9ea5d076)
+- apps/web/src/lib/newDoc.test.ts
 - [apps/web/src/router.test.ts](../../../mechanisms/apps/web/src/router.test.ts.md#output-415811f3ab59)
-- [apps/web/src/views/uiWorkspaceMenuActions.test.tsx](../../../mechanisms/apps/web/src/views/uiWorkspaceMenuActions.ts.md#output-34e80d20ccfb)
-- [apps/web/src/views/useUnsavedLifecycle.test.tsx](../../../mechanisms/apps/web/src/views/useUnsavedLifecycle.ts.md#output-18ff98d49ede)
-- [apps/web/src/views/useUntitledSave.test.tsx](../../../mechanisms/apps/web/src/views/useUntitledSave.ts.md#output-1a7b240c6588)
-- [apps/web/src/views/workspaceMenuActions.test.ts](../../../mechanisms/apps/web/src/views/workspaceMenuActions.ts.md#output-c4f5a89c7b3e)
-- [apps/web/src/views/workspaceTabs.test.tsx](../../../mechanisms/apps/web/src/views/workspaceTabs.tsx.md#output-5370130a675d)
+- apps/web/src/views/uiWorkspaceMenuActions.test.tsx
+- apps/web/src/views/useUnsavedLifecycle.test.tsx
+- apps/web/src/views/useUntitledSave.test.tsx
+- apps/web/src/views/workspaceMenuActions.test.ts
+- apps/web/src/views/workspaceTabs.test.tsx
 
 ### Evidence status
 

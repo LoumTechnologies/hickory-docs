@@ -186,7 +186,7 @@ The selections below preserve the original byte order. Narrative reading order d
 
 ### Implementation
 
-- [apps/web/src/App.tsx](../../../mechanisms/apps/web/src/App.tsx.md#output-25cc6f821b46)
+- apps/web/src/App.tsx
 - [apps/web/src/components/TooltipLayer.tsx](../../../mechanisms/apps/web/src/components/TooltipLayer.tsx.md#output-7e5de871748f)
 - [apps/web/src/debug/cmDebug.ts](../../../mechanisms/apps/web/src/debug/cmDebug.ts.md#output-9df55a31763b)
 - [apps/web/src/editor/folding.ts](../../../mechanisms/apps/web/src/editor/folding.ts.md#output-eee9d1963829)

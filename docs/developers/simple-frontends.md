@@ -1,4 +1,4 @@
-# Compare the simple frontends
+# Run the Simple frontends
 
 For maintainers iterating on the same small editor on Apple, Android, KDE/Linux, Windows and the web.
 
@@ -35,6 +35,11 @@ Native launches use the backend on the host: iOS simulator loopback and Android 
 The macOS recipe builds a locally signed `Hickory Simple.app` under `target/simple-apple-launch/`, then executes its bundled binary as an owned process so commit restarts and Ctrl-C can reliably stop the native app. It opens a workspace window without waiting for a backend request. The app watches the development launcher’s lifetime, so Ctrl-C still stops this test app.
 
 The Apple build requires full Xcode. `simple-dev` honors `DEVELOPER_DIR` and otherwise finds Xcode under `/Applications` if command-line tools are selected. For standalone build/test recipes, set `DEVELOPER_DIR` to your installed Xcode's `Contents/Developer` directory when needed. `xcodegen` is needed for the iOS project. Run `just simple-build ios`, then open `apps/apple-simple/HickorySimple.xcodeproj` for device or simulator work. Device signing is not configured by this comparison scaffold.
+
+On macOS, `just local-install` builds and installs **Hickory Simple.app**.
+Choose **Open Local Workspace…** in the connection sheet, or run
+`hick open /absolute/path` with the CLI installed separately. The bundle
+starts its own loopback workspace host for the selected folder or file.
 
 ## Run on Windows
 

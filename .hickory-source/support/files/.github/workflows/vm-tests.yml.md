@@ -28,7 +28,7 @@ Captured SHA-256: `0c5c4a48e9ac0d875f8ec61806272a76408bfb55c587f647b6e779f57230f
 name: VM Tests
 
 on:
-  # Manual verification of CLI assets; desktop Unstable publication uses SSH.
+  # Manual verification of CLI release assets.
   workflow_dispatch:
     inputs:
       tag:

@@ -367,13 +367,13 @@ The selections below preserve the original byte order. Narrative reading order d
 - [apps/web/src/editor/DocumentEditor.tsx](../../../mechanisms/apps/web/src/editor/DocumentEditor.tsx.md#output-aab82870e517)
 - [apps/web/src/editor/unwrapParagraphs.ts](contract.md#output-e98ba828b293)
 - [apps/web/src/lib/unwrapParagraphs.ts](../../../mechanisms/apps/web/src/lib/unwrapParagraphs.ts.md#output-287fdbcc749d)
-- [apps/web/src/views/SettingsView.tsx](../../../mechanisms/apps/web/src/views/SettingsView.tsx.md#output-38894484eb8f)
+- apps/web/src/views/SettingsView.tsx
 
 ### Tests and fixtures
 
-- [apps/web/src/editor/DocumentEditor.test.tsx](../../../mechanisms/apps/web/src/editor/DocumentEditor.test.tsx.md#output-71bbcfe029bb)
+- apps/web/src/editor/DocumentEditor.test.tsx
 - [apps/web/src/editor/unwrapParagraphs.test.ts](contract.md#output-df418326657a)
-- [apps/web/src/views/SettingsView.test.tsx](../../../mechanisms/apps/web/src/views/SettingsView.tsx.md#output-5bfac230ae5d)
+- apps/web/src/views/SettingsView.test.tsx
 
 ### Evidence status
 

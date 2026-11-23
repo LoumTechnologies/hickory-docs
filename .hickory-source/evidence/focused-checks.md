@@ -19,14 +19,14 @@ Seventeen focused witnesses passed against the integrated generated source on 20
 | `rejects_synthetic_overlap_with_offending_range` | `execution/output-lineage-round-trips-byte-for-byte.md` | [lib.rs](../mechanisms/crates/hickory-lineage/src/lib.rs.md#output-bc43b0352ff3) |
 | `parse_text_content_with_special_chars` | `language/prefix-only-parsing-no-escaping.md` | [tests.rs](../mechanisms/crates/hick-lang/src/lib/tests/tests.rs.md#output-e91f067d75eb) |
 | `waits for an unfinished recovery write and never rewrites explicitly discarded work` | `authoring/unsaved-work-survives-closing-the-app.md` | [drafts.lifecycle.test.tsx](../guarantees/authoring/unsaved-work-survives-closing-the-app/contract.md#output-06cfd4483cf0) |
-| `keeps an inactive view open when its attempted Save fails` | `authoring/unsaved-work-survives-closing-the-app.md` | [useUnsavedLifecycle.test.tsx](../mechanisms/apps/web/src/views/useUnsavedLifecycle.ts.md#output-18ff98d49ede) |
-| `serializes overlapping saves so each diff sees the previous result` | `authoring/an-output-edit-lands-in-its-document.md` | [outputSave.test.ts](../mechanisms/apps/web/src/lib/outputSave.ts.md#output-5dd719c6fb43) |
-| `does not discard generated edits typed while an earlier save is settling` | `authoring/an-output-edit-lands-in-its-document.md` | [outputSave.test.ts](../mechanisms/apps/web/src/lib/outputSave.ts.md#output-5dd719c6fb43) |
+| `keeps an inactive view open when its attempted Save fails` | `authoring/unsaved-work-survives-closing-the-app.md` | useUnsavedLifecycle.test.tsx |
+| `serializes overlapping saves so each diff sees the previous result` | `authoring/an-output-edit-lands-in-its-document.md` | outputSave.test.ts |
+| `does not discard generated edits typed while an earlier save is settling` | `authoring/an-output-edit-lands-in-its-document.md` | outputSave.test.ts |
 | `installs a missing debugger and resumes without another click` | `debugging/a-missing-debugger-is-a-button.md` | [DebugStrip.test.tsx](../mechanisms/apps/web/src/debug/DebugStrip.tsx.md#output-1063c352c210) |
 | `does not start a session after setup is dismissed` | `debugging/a-missing-debugger-is-a-button.md` | [DebugStrip.test.tsx](../mechanisms/apps/web/src/debug/DebugStrip.tsx.md#output-1063c352c210) |
 | `preserves Unicode source coordinates, duplicate passages and omitted ranges while pins bypass folds` | `agent/expanded-reading-projection.md` | [contextProjection.test.ts](../guarantees/agent/expanded-reading-projection/contract.md#output-cd54a8e364bd) |
 | `retains fold intent across editor unmounts and refuses stale source coordinates` | `agent/expanded-reading-projection.md` | [contextProjection.test.ts](../guarantees/agent/expanded-reading-projection/contract.md#output-cd54a8e364bd) |
-| `disables both buttons while the document's run is in flight` | `editor-intelligence/the-toolbar-uses-words-an-ide-user-knows.md` | [workspaceTabs.test.tsx](../mechanisms/apps/web/src/views/workspaceTabs.tsx.md#output-5370130a675d) |
+| `disables both buttons while the document's run is in flight` | `editor-intelligence/the-toolbar-uses-words-an-ide-user-knows.md` | workspaceTabs.test.tsx |
 
 Exact commands, observed output and cited-source hashes are retained in the outer focused-results.json record. Cited-file hashes are not a complete transitive source/environment closure. Frontend checks used the integrated source with already installed local dependencies; temporary links and cache files were cleaned up.
 

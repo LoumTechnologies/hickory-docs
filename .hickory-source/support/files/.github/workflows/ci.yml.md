@@ -24,7 +24,6 @@ jobs:
     outputs:
       run_rust: ${{ steps.filter.outputs.run_rust }}
       run_web: ${{ steps.filter.outputs.run_web }}
-      run_desktop: ${{ steps.filter.outputs.run_desktop }}
       run_dev: ${{ steps.filter.outputs.run_dev }}
       run_python_agent: ${{ steps.filter.outputs.run_python_agent }}
     steps:
@@ -36,7 +35,6 @@ jobs:
           checks=$(scripts/affected-checks.sh "origin/${{ github.base_ref }}")
           echo "run_rust=$(grep -qx rust <<<"$checks" && echo true || echo false)" >> "$GITHUB_OUTPUT"
           echo "run_web=$(grep -qx web <<<"$checks" && echo true || echo false)" >> "$GITHUB_OUTPUT"
-          echo "run_desktop=$(grep -qx desktop <<<"$checks" && echo true || echo false)" >> "$GITHUB_OUTPUT"
           echo "run_dev=$(grep -qx dev <<<"$checks" && echo true || echo false)" >> "$GITHUB_OUTPUT"
           echo "run_python_agent=$(grep -qx python-agent <<<"$checks" && echo true || echo false)" >> "$GITHUB_OUTPUT"
 
@@ -49,13 +47,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.96.1
       - uses: Swatinem/rust-cache@v2
       - uses: astral-sh/setup-uv@v6
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: npm
-          cache-dependency-path: apps/web/package-lock.json
-      - run: npm --prefix apps/web ci
-      - run: cd apps/web && npx playwright install --with-deps chromium
       - name: Enable the real process sandbox
         run: |
           sudo apt-get update && sudo apt-get install -y bubblewrap
@@ -540,6 +531,8 @@ jobs:
       - run: scripts/check-file-length.sh
         working-directory: .
       - run: npm run build
+      - run: bash -n scripts/dist.sh && bash -n scripts/install.sh
+        working-directory: .
       - run: just install-test-browsers --with-deps
         working-directory: .
       - run: just test-browser-embedding
@@ -570,64 +563,9 @@ jobs:
       - name: Seed into a throwaway directory and check what it keeps, replaces, and reports
         run: scripts/check-dev-seed.sh
 
-  # The desktop crate is deliberately outside the cargo workspace, so the
-  # `rust` job never compiles it; without this job the first compile of a
-  # desktop change happens inside a release build. Same commands as the
-  # pre-commit hook's `desktop` check (parity per
-  # .instructions/pre-commit-ci-parity.md).
-  desktop:
-    needs: [changes]
-    if: always() && (github.event_name == 'push' || needs.changes.outputs.run_desktop == 'true')
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.96.1
-        with:
-          components: clippy, rustfmt
-      - uses: Swatinem/rust-cache@v2
-        with:
-          key: desktop-check
-          workspaces: apps/desktop/src-tauri
-      # The UI has to EXIST before the Rust is checked, which is not obvious
-      # from the crate: `server.rs` embeds `apps/web/dist/` with
-      # `#[derive(rust_embed::Embed)]`, and that derive silently generates
-      # nothing when the folder is missing. The failure it produces says
-      # `no associated function named `get` found for struct `Ui``, which reads
-      # like the code is wrong rather than like a build step is missing — this
-      # job had been failing that way since before anyone noticed.
-      #
-      # Built the same way `scripts/dist-desktop.sh` builds it, so what CI
-      # checks and what a release packages cannot come apart.
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: apps/web/package-lock.json
-      - name: Build the UI the desktop crate embeds
-        run: |
-          npm --prefix apps/web ci
-          npm --prefix apps/web run build
-
-      - name: Install the Linux webview headers the crate links against
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
-      - name: fmt, clippy
-        working-directory: apps/desktop/src-tauri
-        run: |
-          cargo fmt --all -- --check
-          cargo clippy --all-targets -- -D warnings
-      - name: Syntax-check the release scripts (macOS runs bash 3.2)
-        run: |
-          for script in scripts/dist.sh scripts/dist-desktop.sh scripts/install.sh; do
-            bash -n "$script"
-          done
-
-
   fskit:
     needs: [changes]
-    if: always() && (github.event_name == 'push' || needs.changes.outputs.run_desktop == 'true' || needs.changes.outputs.run_rust == 'true')
+    if: always() && (github.event_name == 'push' || needs.changes.outputs.run_rust == 'true')
     runs-on: macos-26
     steps:
       - uses: actions/checkout@v4

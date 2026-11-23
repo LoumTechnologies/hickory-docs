@@ -62,178 +62,6 @@ a packaged desktop walkthrough or broad regression coverage.
 
 ## Implementation
 
-<a id="output-9743c7ba02f8"></a>
-## `apps/web/src/api/workspaceStartup.test.tsx`
-
-Present and edit the shared engine state. Browser-side revisions, pending requests and local drafts affect which source and UI actions are still valid.
-
-Related contracts: [The Editor Does Not Wait For Workspace Preparation](contract.md).
-
-<a id="f-9743c7ba02f8-expression_statement"></a>
-### `expression_statement`
-
-<storycode:copy id="f-9743c7ba02f8-expression_statement">
-import { act, cleanup, render, waitFor } from "@testing-library/react";
-import { afterEach, expect, it, vi } from "vitest";
-import { installMockHandler, request } from "./client";
-import { StartupNotice } from "../components/StartupNotice";
-
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.useRealTimers(); });
-
-</storycode:copy>
-<a id="f-9743c7ba02f8-expression_statement-2"></a>
-### `expression_statement`
-
-<storycode:copy id="f-9743c7ba02f8-expression_statement-2">
-// Guarantee: docs/guarantees/authoring/the-editor-does-not-wait-for-workspace-preparation.md
-it("shares one preparation wait and submits refused writes only after readiness", async () => {
-  installMockHandler(null as never);
-  let ready!: (response: Response) => void;
-  const gate = new Promise<Response>((resolve) => { ready = resolve; });
-  let dispatched = false;
-  const fetch = vi.fn(async (path: string, _options?: RequestInit) => {
-    if (path === "/api/startup") return gate;
-    return dispatched ? new Response('{"ok":true}') : new Response('{"error":"preparing"}', {
-      status: 503, headers: { "x-hickory-startup": "pending" },
-    });
-  });
-  vi.stubGlobal("fetch", fetch);
-  const app = render(<StartupNotice />);
-  const payload = { content: "one" };
-  const edits = [request("PUT", "/api/file", payload), request("POST", "/api/projects/local/docs", { path: "two.md" })];
-  await app.findByText(/You can keep writing your note/);
-  expect(fetch.mock.calls.filter(([path]) => path === "/api/startup")).toHaveLength(1);
-  expect(fetch.mock.calls.filter(([path]) => path !== "/api/startup")).toHaveLength(2);
-  payload.content = "later form edit";
-  await act(async () => { dispatched = true; ready(new Response('{"ready":true}')); await Promise.all(edits); });
-  expect(fetch.mock.calls.filter(([path]) => path !== "/api/startup")).toHaveLength(4);
-  expect(fetch.mock.calls.filter(([path]) => path === "/api/file").map(([, options]) => options?.body)).toEqual(['{"content":"one"}', '{"content":"one"}']);
-  expect(app.queryByRole("status")).toBeNull();
-});
-
-</storycode:copy>
-<a id="f-9743c7ba02f8-expression_statement-3"></a>
-### `expression_statement`
-
-<storycode:copy id="f-9743c7ba02f8-expression_statement-3">
-it("does not replay a failed mutation without an explicit pre-dispatch marker", async () => {
-  installMockHandler(null as never);
-  const fetch = vi.fn(async () => new Response('{"error":"save failed"}', { status: 503 }));
-  vi.stubGlobal("fetch", fetch);
-  await expect(request("PUT", "/api/file", { content: "unsaved" })).rejects.toThrow("save failed");
-  expect(fetch).toHaveBeenCalledTimes(1);
-});
-
-</storycode:copy>
-<a id="f-9743c7ba02f8-expression_statement-4"></a>
-### `expression_statement`
-
-<storycode:copy id="f-9743c7ba02f8-expression_statement-4">
-it("keeps a preparation failure visible and never submits the blocked write", async () => {
-  installMockHandler(null as never);
-  const fetch = vi.fn(async (path: string) => path === "/api/startup"
-    ? new Response('{"error":"Workspace preparation stopped. Reopen the folder."}', { status: 503 })
-    : new Response('{}', { status: 503, headers: { "x-hickory-startup": "pending" } }));
-  vi.stubGlobal("fetch", fetch);
-  const app = render(<StartupNotice />);
-  await act(async () => { await expect(request("PUT", "/api/file", {})).rejects.toThrow("Reopen the folder"); });
-  await waitFor(() => expect(app.getByRole("status").textContent).toContain("Reopen the folder"));
-  expect(fetch.mock.calls.filter(([path]) => path === "/api/file")).toHaveLength(1);
-});
-
-</storycode:copy>
-<a id="f-9743c7ba02f8-expression_statement-5"></a>
-### `expression_statement`
-
-<storycode:copy id="f-9743c7ba02f8-expression_statement-5">
-it("recovers from a hung status probe after an engine restart and replays only pre-dispatch writes", async () => {
-  vi.useFakeTimers();
-  installMockHandler(null as never);
-  let probes = 0, writes = 0;
-  let oldSignal: AbortSignal | undefined;
-  const fetch = vi.fn((path: string, options?: RequestInit): Promise<Response> => {
-    if (path === "/api/startup") {
-      if (++probes === 1) {
-        oldSignal = options?.signal as AbortSignal;
-        // Simulate a stuck old-generation fetch, even if it ignores abort.
-        return new Promise(() => {});
-      }
-      return Promise.resolve(new Response('{"ready":true}'));
-    }
-    writes++;
-    return Promise.resolve(writes === 1
-      ? new Response('{}', { status: 503, headers: { "x-hickory-startup": "pending" } })
-      : new Response('{"ok":true}'));
-  });
-  vi.stubGlobal("fetch", fetch);
-  const { startupNotice } = await import("./workspaceStartup");
-  const saving = request("PUT", "/api/file", { content: "retained bytes" });
-  await vi.advanceTimersByTimeAsync(0);
-  expect(probes).toBe(1);
-  expect(writes).toBe(1);
-  expect(startupNotice()).toContain("Preparing generated files");
-  await vi.advanceTimersByTimeAsync(5100);
-  await expect(saving).resolves.toEqual({ ok: true });
-  expect(oldSignal?.aborted).toBe(true);
-  expect(probes).toBe(2);
-  expect(writes).toBe(2);
-  expect(startupNotice()).toBeNull();
-  expect(fetch.mock.calls.filter(([path]) => path === "/api/file").map(([, options]) => options?.body))
-    .toEqual(['{"content":"retained bytes"}', '{"content":"retained bytes"}']);
-});
-
-</storycode:copy>
-<a id="f-9743c7ba02f8-expression_statement-6"></a>
-### `expression_statement`
-
-<storycode:copy id="f-9743c7ba02f8-expression_statement-6">
-it("bounds unreachable status probes, retains an actionable notice, and permits a fresh readiness attempt", async () => {
-  vi.useFakeTimers();
-  const fetch = vi.fn((): Promise<Response> => new Promise(() => {}));
-  vi.stubGlobal("fetch", fetch);
-  const { waitForWorkspace, startupNotice } = await import("./workspaceStartup");
-  const waiting = waitForWorkspace();
-  const rejected = expect(waiting).rejects.toThrow("Reopen the folder to reconnect");
-  await vi.advanceTimersByTimeAsync(15200);
-  await rejected;
-  expect(fetch).toHaveBeenCalledTimes(3);
-  expect(startupNotice()).toContain("Cannot reach workspace preparation status");
-  fetch.mockImplementation(() => Promise.resolve(new Response('{"ready":true}')));
-  await waitForWorkspace();
-  expect(startupNotice()).toBeNull();
-});
-
-</storycode:copy>
-<a id="f-9743c7ba02f8-expression_statement-7"></a>
-### `expression_statement`
-
-<storycode:copy id="f-9743c7ba02f8-expression_statement-7">
-it("shows source-free preparation progress and an honest long-stage notice until ready", async () => {
-  vi.useFakeTimers();
-  let ready = false;
-  vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(ready ? {ready:true} : {
-    ready:false,phase:"weaving",completed:12,total:17,document:"sessions/large.md",elapsed_ms:62000,stage_elapsed_ms:31000,
-  }))));
-  const { waitForWorkspace, startupNotice } = await import("./workspaceStartup");
-  const waiting=waitForWorkspace();
-  await vi.advanceTimersByTimeAsync(0);
-  expect(startupNotice()).toContain("12 of 17 documents finished");
-  expect(startupNotice()).toContain("sessions/large.md");
-  expect(startupNotice()).toContain("Elapsed 62s");
-  expect(startupNotice()).toContain("31s; preparation is still pending, not complete");
-  ready=true;
-  await vi.advanceTimersByTimeAsync(100);
-  await waiting;
-  expect(startupNotice()).toBeNull();
-});
-</storycode:copy>
-
-### Assemble `apps/web/src/api/workspaceStartup.test.tsx`
-
-The selections below preserve the original byte order. Narrative reading order does not change the output.
-
-<storycode:file path="apps/web/src/api/workspaceStartup.test.tsx"><storycode:paste select="#f-9743c7ba02f8-expression_statement"/><storycode:paste select="#f-9743c7ba02f8-expression_statement-2"/><storycode:paste select="#f-9743c7ba02f8-expression_statement-3"/><storycode:paste select="#f-9743c7ba02f8-expression_statement-4"/><storycode:paste select="#f-9743c7ba02f8-expression_statement-5"/><storycode:paste select="#f-9743c7ba02f8-expression_statement-6"/><storycode:paste select="#f-9743c7ba02f8-expression_statement-7"/></storycode:file>
-
 <a id="output-4049bfca1169"></a>
 ## `crates/hickory-cli/src/engine/startup.rs`
 
@@ -700,22 +528,22 @@ async fn background_attach_serves_editor_storage_before_outputs_are_ready() {
 
 ### Implementation
 
-- [apps/desktop/src-tauri/src/launch_path.rs](../../../mechanisms/apps/desktop/src-tauri/src/launch_path.rs.md#output-9697ca6e6f7a)
-- [apps/web/src/App.tsx](../../../mechanisms/apps/web/src/App.tsx.md#output-25cc6f821b46)
+- apps/desktop/src-tauri/src/launch_path.rs
+- apps/web/src/App.tsx
 - [apps/web/src/api/client.ts](../../../mechanisms/apps/web/src/api/client.ts.md#output-1e909407d4cd)
 - [apps/web/src/api/workspaceStartup.ts](../../../mechanisms/apps/web/src/api/workspaceStartup.ts.md#output-073d5b2b2a12)
-- [apps/web/src/components/StartupNotice.tsx](../../../mechanisms/apps/web/src/components/StartupNotice.tsx.md#output-9a5486901220)
-- [apps/web/src/lib/focusWhenShown.ts](../../../mechanisms/apps/web/src/lib/focusWhenShown.ts.md#output-e9524c90facf)
-- [apps/web/src/main.tsx](../../verification/predictions-precede-managed-observation/implementation/apps/web/src/main.tsx.md#output-44decff65943)
-- [apps/web/src/views/deferredAgent.tsx](../../../mechanisms/apps/web/src/views/deferredAgent.tsx.md#output-47b9f1579b62)
+- apps/web/src/components/StartupNotice.tsx
+- apps/web/src/lib/focusWhenShown.ts
+- apps/web/src/main.tsx
+- apps/web/src/views/deferredAgent.tsx
 - [crates/hickory-cli/src/engine/daemon.rs](../../../mechanisms/crates/hickory-cli/src/engine/daemon.rs.md#output-49126839fdb7)
 - [crates/hickory-cli/src/engine/startup.rs](contract.md#output-4049bfca1169)
 - [crates/hickory-cli/src/engine/watch.rs](../../../mechanisms/crates/hickory-cli/src/engine/watch.rs.md#output-dc5bee2ae567)
 
 ### Tests and fixtures
 
-- [apps/web/e2e/startup.spec.ts](../../../mechanisms/apps/web/e2e/startup.spec.ts.md#output-4e63365d81de)
-- [apps/web/src/api/workspaceStartup.test.tsx](contract.md#output-9743c7ba02f8)
+- apps/web/e2e/startup.spec.ts
+- apps/web/src/api/workspaceStartup.test.tsx
 - [crates/hickory-cli/tests/engine_lifecycle.rs](../../../mechanisms/crates/hickory-cli/tests/engine_lifecycle.rs.md#output-6ea35164aaa4)
 
 ### Evidence status
