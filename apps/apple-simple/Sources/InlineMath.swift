@@ -150,21 +150,38 @@ struct NativeDiagramPreview: View {
     }
     var body: some View {
         if diagram.renderer == "terminal" { NativeInlineTerminal(text: diagram.body, editSource: { buffer.sourceTable = diagram.id }) }
-        else if diagram.renderer == "architecture" {
+        else if diagram.renderer == "code-model" {
             ZStack(alignment: .topTrailing) {
                 if let architecture { preview(architecture, renderer: "graph") }
                 else { Text(architectureNotice).font(.caption).frame(maxWidth: .infinity, maxHeight: .infinity) }
-                Button("Refresh architecture", systemImage: "arrow.clockwise") { architectureRefresh += 1 }.labelStyle(.iconOnly)
-            }.task(id: architectureRefresh) {
-                guard let engine = buffer.receiptEngine else { architectureNotice = "Reconnect to the workspace and refresh."; return }
-                do {
-                    let path = buffer.file.path
-                    let result: NativeTableJSON = try await engine.request("POST", "/api/architecture", body: ["uri": nativeDebugURI(path)])
-                    guard !Task.isCancelled, current, exactUTF8(path, buffer.file.path) else { return }
-                    architecture = String(decoding: try JSONSerialization.data(withJSONObject: result.object), as: UTF8.self)
-                } catch {
-                    if !Task.isCancelled { architectureNotice = error.localizedDescription; architecture = nil }
-                }
+                Button("Refresh diagram", systemImage: "arrow.clockwise") { architectureRefresh += 1 }.labelStyle(.iconOnly)
+            }.task(id: "\(architectureRefresh):\(diagram.body)") {
+                let path = buffer.file.path
+                var revision: String?
+                architecture = nil
+                architectureNotice = "Reading the code model…"
+                repeat {
+                    do {
+                        guard let engine = buffer.receiptEngine else {
+                            architectureNotice = "Reconnect to the workspace and refresh."
+                            return
+                        }
+                        var body: [String: Any] = ["uri": nativeDebugURI(path), "script": diagram.body]
+                        if let revision { body["revision"] = revision }
+                        let result: NativeTableJSON = try await engine.request("POST", "/api/diagram/model", body: body)
+                        guard !Task.isCancelled, current, exactUTF8(path, buffer.file.path) else { return }
+                        if let update = result.object as? [String: Any], let scene = update["scene"] as? [String: Any] {
+                            architecture = String(decoding: try JSONSerialization.data(withJSONObject: scene, options: [.sortedKeys]), as: UTF8.self)
+                            revision = update["revision"] as? String
+                        }
+                    } catch {
+                        guard !Task.isCancelled, current else { return }
+                        architectureNotice = error.localizedDescription
+                        architecture = nil
+                        revision = nil
+                    }
+                    try? await Task.sleep(for: .milliseconds(2500))
+                } while !Task.isCancelled && current
             }
         } else { preview(diagram.body, renderer: diagram.renderer) }
     }

@@ -406,14 +406,10 @@ the graph, then restore its preview. Native previews also support Mermaid.
 {"topology":{"nodes":[{"id":"catalog"},{"id":"order"},{"id":"receipt"}],"edges":[{"from":"catalog","to":"order"},{"from":"order","to":"receipt"}]},"layout":{"catalog":{"x":20,"y":20,"w":130,"h":50},"order":{"x":200,"y":20,"w":130,"h":50},"receipt":{"x":380,"y":20,"w":130,"h":50}}}
 </h:diagram>
 
-## Architecture from the code model
+## Architecture from the TypeScript code model
 
-This diagram reads the saved Python files beside the workbook. The arrows
-show name-resolved references. Select a file node to open it at its first
-definition, or refresh after saving changes to the code.
-
-<h:diagram renderer="architecture">
-</h:diagram>
+Open [architecture.md](architecture.md) to follow the repository’s diagram
+script from its GraphQL query to the clickable nodes.
 
 ## Literal content stays literal
 
@@ -436,6 +432,88 @@ tab. Keep an unsaved edit while moving it, then undo in the destination pane.
 </h:doc>
 </ui:entry>
 
+## Draw a dependency diagram from compiler facts
+
+The checkout’s TypeScript provider resolves the imports. The example
+document names the facts it needs and assembles the graph from those
+facts, so the reader can change the diagram policy in the same place
+they read it.
+
+<ui:entry path="examples/simple-ui/architecture.md">
+<h:doc xmlns:h="http://www.hickorydocs.com/1.0">
+# Architecture from the TypeScript code model
+
+Each box opens a TypeScript module. An arrow means the compiler resolved a
+reference in one module to a declaration in another. Save a change to the
+modules and the open diagram updates automatically.
+
+Use **View source** to see the two functions that produce the graph. Change
+the GraphQL selection to ask the code model for different facts, or change
+the graph builder to group and label those facts differently.
+
+<h:diagram renderer="code-model">
+function codeModelQuery() {
+  return {
+    language: "typescript",
+    query: `{
+      sourceIndex {
+        files { path occurrences { symbols unresolved } }
+        symbols { id declarations { file } }
+      }
+    }`,
+  };
+}
+
+function buildDiagram({ sourceIndex }) {
+  const files = sourceIndex.files.filter(file => /^shop\/[^/]+\.ts$/.test(file.path));
+  const visible = new Set(files.map(file => file.path));
+  const declarations = new Map(sourceIndex.symbols.map(symbol => [symbol.id, symbol.declarations]));
+
+  // Node destinations are paths relative to this document, with one-based lines.
+  const nodes = files.map(({ path }) => ({
+    id: path,
+    label: path.split("/").pop(),
+    href: path.split("/").map(encodeURIComponent).join("/") + "#L1",
+  }));
+
+  // An import and its uses can refer to the same module. Draw one arrow per pair.
+  const edges = new Map();
+  for (const file of files) {
+    for (const occurrence of file.occurrences) {
+      if (occurrence.unresolved) continue;
+      for (const symbol of occurrence.symbols) {
+        for (const declaration of declarations.get(symbol) ?? []) {
+          if (visible.has(declaration.file) && declaration.file !== file.path) {
+            edges.set(JSON.stringify([file.path, declaration.file]), {
+              from: file.path,
+              to: declaration.file,
+            });
+          }
+        }
+      }
+    }
+  }
+  return { topology: { nodes, edges: Array.from(edges.values()) } };
+}
+</h:diagram>
+</h:doc>
+</ui:entry>
+
+The order module imports a catalog value. Removing the import and its use
+gives the preview a concrete change to detect when the file is saved.
+
+<ui:entry path="examples/simple-ui/shop/catalog.ts">
+export const unitPriceCents = 800;
+</ui:entry>
+
+<ui:entry path="examples/simple-ui/shop/receipt.ts">
+import { unitPriceCents } from "./catalog";
+
+export function receiptTotalCents(quantity: number): number {
+  return unitPriceCents * quantity;
+}
+</ui:entry>
+
 The workspace's canonical project binds construction and review to the same
 outputs. The workbook remains the first file the engineer reads and owns the
 coupon source and patch. The project excludes local tooling and retained agent
@@ -446,6 +524,7 @@ sessions from captured work, keeping the review boundary small after installs.
 # Corner shop construction
 
 Open [workbook.md](workbook.md) for the tour and the authored coupon source.
+Open [architecture.md](architecture.md) for the TypeScript dependency diagram.
 
 <h:project sources="workbook.md" exclude=".hick-cache/ .hick-journal/ __pycache__/ sessions/" />
 </h:doc>
@@ -498,6 +577,12 @@ def main():
         parser.error(f"Preserving existing workspace: {destination}. Choose a new --dest.")
     if source == destination or source in destination.parents:
         parser.error("Choose a destination outside the maintained fixture folder.")
+    provider = root / "code-models/typescript"
+    if not (provider / "node_modules/ts-morph").is_dir():
+        subprocess.run([
+            "npm.cmd" if os.name == "nt" else "npm", "ci", "--prefix", str(provider),
+            "--no-fund", "--no-audit",
+        ], check=True)
     shutil.copytree(source, destination, ignore=shutil.ignore_patterns(
         "__pycache__", ".git", ".hick-cache", ".hick-journal", ".hick-lsp.json", "generated", "sessions",
     ))
@@ -536,9 +621,9 @@ Name the file, action and observable result for each capability. Distinguish con
 <ui:entry path="examples/simple-ui/README.md">
 # Simple UI playground: the corner shop
 
-A runnable Python project and executable workbook for the Simple frontends.
-Python 3.10+ is sufficient for the program and tests.
-Language servers, debug adapters and an agent provider are optional services.
+An executable corner-shop workbook with Python examples and a live TypeScript
+architecture diagram. Preparing the demo uses Python 3.10+ and Node.js with
+npm. Language servers, debug adapters and an agent provider are optional.
 
 Open [tables.md](tables.md) for named-table formulas and a read-only Python output.
 
@@ -569,6 +654,11 @@ that machine, not on the phone. See
 [the frontend guide](../../docs/developers/simple-frontends.md) for prerequisites.
 
 ## Guided feature tour
+
+Open [architecture.md](architecture.md) for a live view of the TypeScript
+modules in `shop/`. View source reveals the code-model query and graph builder.
+Outside the checkout, install the TypeScript code-model provider on the engine’s
+PATH before opening the diagram.
 
 | Feature | File/action | What to look for |
 | --- | --- | --- |

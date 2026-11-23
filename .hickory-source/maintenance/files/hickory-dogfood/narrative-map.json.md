@@ -89106,6 +89106,34 @@ The entry below owns this output. Its metadata is separate from semantic verific
       ]
     },
     {
+      "id": "f-882b777229b8-model-diagram",
+      "output": "crates/hickory-cli/src/diagram.rs",
+      "page": ".hickory-source/guarantees/authoring/a-diagram-the-code-can-regenerate/contract.md",
+      "symbol": "workspace_model_diagram",
+      "basis": "authored-explanation"
+    },
+    {
+      "id": "f-882b777229b8-model-diagram-revision",
+      "output": "crates/hickory-cli/src/diagram.rs",
+      "page": ".hickory-source/guarantees/authoring/a-diagram-the-code-can-regenerate/contract.md",
+      "symbol": "model_diagram_revision",
+      "basis": "authored-explanation"
+    },
+    {
+      "id": "f-882b777229b8-model-diagram-javascript",
+      "output": "crates/hickory-cli/src/diagram.rs",
+      "page": ".hickory-source/guarantees/authoring/a-diagram-the-code-can-regenerate/contract.md",
+      "symbol": "diagram_javascript",
+      "basis": "authored-explanation"
+    },
+    {
+      "id": "f-882b777229b8-model-diagram-provider",
+      "output": "crates/hickory-cli/src/diagram.rs",
+      "page": ".hickory-source/guarantees/authoring/a-diagram-the-code-can-regenerate/contract.md",
+      "symbol": "query_diagram_model",
+      "basis": "authored-explanation"
+    },
+    {
       "id": "f-882b777229b8-refresh_fragment",
       "output": "crates/hickory-cli/src/diagram.rs",
       "page": ".hickory-source/guarantees/authoring/a-diagram-the-code-can-regenerate/contract.md",

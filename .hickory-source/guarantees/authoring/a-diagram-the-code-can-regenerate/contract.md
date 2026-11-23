@@ -105,24 +105,15 @@ const MAX_FILE_BYTES: u64 = 512 * 1024;
 <a id="f-882b777229b8-generate_topology"></a>
 ### `generate_topology`
 
-The code model resolves identifiers across saved files. A file node opens at
-its first definition when the analyzer finds one. The workspace preview bounds
-the scan and reads the containing folder, so those relative destinations use
-the same base as the document editor. Loading a diagram reads code without
-starting a language runtime.
+The CLI command resolves identifiers across saved files. A file node carries
+the location of its first definition when the analyzer finds one. The
+deterministic scan runs without a separate language runtime.
 
 <storycode:copy id="f-882b777229b8-generate_topology">
 /// Walk `root` and deduce a topology from its code.
 pub fn generate_topology(root: &Path, group: Grouping) -> std::io::Result<Topology> {
-    topology_in(root, group, None)
-}
-
-fn topology_in(root: &Path, group: Grouping, limit: Option<usize>) -> std::io::Result<Topology> {
     let mut files = Vec::new();
-    for (visited, entry) in ignore::WalkBuilder::new(root).follow_links(false).build().flatten().enumerate() {
-        if limit.is_some_and(|limit| visited >= limit || files.len() >= 80) {
-            return Err(std::io::Error::other("Folder exceeds the inline architecture preview limit. Open a smaller project folder."));
-        }
+    for entry in ignore::WalkBuilder::new(root).follow_links(false).build().flatten() {
         let path = entry.path();
         if !entry.file_type().is_some_and(|kind| kind.is_file()) {
             continue;
@@ -228,34 +219,6 @@ fn topology_in(root: &Path, group: Grouping, limit: Option<usize>) -> std::io::R
 The topology as the format the flag asked for.
 
 <storycode:copy id="f-882b777229b8-render">
-#[derive(serde::Deserialize)]
-pub(crate) struct ArchitectureTarget {
-    uri: String,
-}
-
-pub(crate) async fn workspace_architecture(
-    axum::extract::State(state): axum::extract::State<crate::serve::LocalState>,
-    axum::Json(target): axum::Json<ArchitectureTarget>,
-) -> Result<axum::Json<Scene>, crate::serve::api::ApiError> {
-    use crate::serve::api::ApiError;
-    tokio::task::spawn_blocking(move || {
-        let workspace = state.index.root();
-        let lease = state.resource_root.check(workspace).map_err(ApiError::conflict)?;
-        if !target.uri.starts_with("hick:///") {
-            return Err(ApiError::bad_request("Open a saved workspace file before reading its architecture."));
-        }
-        let path = crate::debug_sessions::source_document(workspace, &target.uri)
-            .map_err(|error| ApiError::bad_request(error.to_string()))?;
-        let folder = path.parent().ok_or_else(|| ApiError::bad_request("Open a file contained in the workspace."))?;
-        let topology = topology_in(folder, Grouping::File, Some(4000))
-            .map_err(|error| ApiError::unprocessable(error.to_string()))?;
-        if state.resource_root.check(workspace).map_err(ApiError::conflict)? != lease {
-            return Err(ApiError::conflict("Workspace changed while reading its architecture. Refresh the diagram."));
-        }
-        Ok(axum::Json(Scene { topology: Some(topology), ..Scene::default() }))
-    }).await.map_err(|error| ApiError::internal(error.to_string()))?
-}
-
 /// The topology as the format the flag asked for.
 pub fn render(topology: &Topology, mermaid: bool) -> String {
     if mermaid {
@@ -272,6 +235,333 @@ pub fn render(topology: &Topology, mermaid: bool) -> String {
 }
 
 </storycode:copy>
+<a id="f-882b777229b8-model-diagram"></a>
+### Evaluate a code-model diagram
+
+A document script chooses the provider and GraphQL selection in
+`codeModelQuery()`. Hickory supplies the query's `data` to
+`buildDiagram(data)`, which returns a scene with any file links the author
+chose. A fresh, bounded runtime evaluates each function. The provider is
+an installed host tool, so simply opening a repository cannot launch an
+executable from that repository.
+
+A visible preview asks for updates using its last revision. Include the
+script and source folder in the revision so an old preview or edited
+script cannot claim the current result. Recheck the inputs before
+publishing each fresh scene.
+
+<storycode:copy id="f-882b777229b8-model-diagram">
+#[derive(serde::Deserialize)]
+pub(crate) struct ModelDiagramTarget {
+    uri: String,
+    script: String,
+    revision: Option<String>,
+}
+
+#[derive(serde::Serialize)]
+pub(crate) struct ModelDiagramReply {
+    revision: String,
+    scene: Option<Scene>,
+}
+
+pub(crate) async fn workspace_model_diagram(
+    axum::extract::State(state): axum::extract::State<crate::serve::LocalState>,
+    axum::Json(target): axum::Json<ModelDiagramTarget>,
+) -> Result<axum::Json<ModelDiagramReply>, crate::serve::api::ApiError> {
+    use crate::serve::api::ApiError;
+    static SCANS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(4);
+
+    if !target.uri.starts_with("hick:///") || target.script.len() > 32 * 1024 {
+        return Err(ApiError::bad_request(
+            "Use a workspace document and a diagram script up to 32 KiB.",
+        ));
+    }
+    let permit = SCANS
+        .try_acquire()
+        .map_err(|_| ApiError::conflict("The code model is busy. The diagram will retry."))?;
+    let workspace = state.index.root().to_path_buf();
+    let handle = tokio::runtime::Handle::current();
+    let reply = tokio::task::spawn_blocking(move || {
+        let _permit = permit;
+        let lease = state
+            .resource_root
+            .check(&workspace)
+            .map_err(ApiError::conflict)?;
+        let path = crate::debug_sessions::source_document(&workspace, &target.uri)
+            .map_err(|error| ApiError::bad_request(error.to_string()))?;
+        let folder = path
+            .parent()
+            .ok_or_else(|| ApiError::bad_request("Open a document inside the workspace."))?;
+        let revision = model_diagram_revision(folder, &target.script)
+            .map_err(|error| ApiError::unprocessable(error.to_string()))?;
+        let scene = if target.revision.as_deref() == Some(revision.as_str()) {
+            None
+        } else {
+            let request: ModelQuery = diagram_javascript(&target.script, "codeModelQuery()", None)
+                .map_err(|error| ApiError::unprocessable(error.to_string()))?;
+            let model = handle
+                .block_on(query_diagram_model(&workspace, folder, request))
+                .map_err(|error| ApiError::unprocessable(error.to_string()))?;
+            let scene: serde_json::Value = diagram_javascript(
+                &target.script,
+                "buildDiagram(JSON.parse(modelJson))",
+                Some(&model),
+            )
+            .map_err(|error| ApiError::unprocessable(error.to_string()))?;
+            let scene = hick_literate::scene::parse_scene(&scene.to_string())
+                .map_err(ApiError::unprocessable)?;
+            let (nodes, edges) = scene.topology();
+            if nodes.len() > 300 || edges.len() > 2_000 {
+                return Err(ApiError::unprocessable(
+                    "The diagram exceeds 300 nodes or 2,000 edges.",
+                ));
+            }
+            if model_diagram_revision(folder, &target.script)
+                .ok()
+                .as_deref()
+                != Some(revision.as_str())
+            {
+                return Err(ApiError::conflict(
+                    "Files changed during code-model analysis. The diagram will retry.",
+                ));
+            }
+            Some(scene)
+        };
+        if state
+            .resource_root
+            .check(&workspace)
+            .map_err(ApiError::conflict)?
+            != lease
+        {
+            return Err(ApiError::conflict(
+                "The workspace changed during code-model analysis.",
+            ));
+        }
+        Ok(axum::Json(ModelDiagramReply { revision, scene }))
+    })
+    .await
+    .map_err(|error| ApiError::internal(error.to_string()))?;
+    reply
+}
+
+</storycode:copy>
+
+<a id="f-882b777229b8-model-diagram-revision"></a>
+### Keep a preview tied to the files it read
+
+Order the file inventory before hashing it so directory traversal order cannot
+trigger a refresh. Include the script in the revision because an edit to the
+query or graph builder can change the output with the same project files.
+
+<storycode:copy id="f-882b777229b8-model-diagram-revision">
+fn model_diagram_revision(folder: &Path, script: &str) -> anyhow::Result<String> {
+    use sha2::{Digest, Sha256};
+    let mut entries = BTreeMap::new();
+    let mut bytes = 0;
+    for (index, entry) in ignore::WalkBuilder::new(folder)
+        .hidden(true)
+        .follow_links(false)
+        .filter_entry(|entry| entry.file_name() != "node_modules")
+        .build()
+        .enumerate()
+    {
+        anyhow::ensure!(
+            index < 4_000,
+            "The code-model diagram needs a smaller source folder."
+        );
+        let entry = entry?;
+        if !entry.file_type().is_some_and(|kind| kind.is_file()) {
+            continue;
+        }
+        let path = entry.path();
+        let metadata = entry.metadata()?;
+        bytes += metadata.len();
+        anyhow::ensure!(
+            bytes <= 16 * 1024 * 1024,
+            "The code-model diagram source exceeds 16 MiB."
+        );
+        let modified = metadata
+            .modified()?
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default();
+        entries.insert(
+            path.strip_prefix(folder)?.to_path_buf(),
+            (metadata.len(), modified.as_nanos()),
+        );
+    }
+    let mut digest = Sha256::new();
+    digest.update(folder.as_os_str().as_encoded_bytes());
+    digest.update([0]);
+    digest.update(script);
+    for (path, (length, modified)) in entries {
+        digest.update([0]);
+        digest.update(path.as_os_str().as_encoded_bytes());
+        digest.update([0]);
+        digest.update(length.to_le_bytes());
+        digest.update(modified.to_le_bytes());
+    }
+    Ok(format!("{:x}", digest.finalize()))
+}
+
+</storycode:copy>
+
+<a id="f-882b777229b8-model-diagram-javascript"></a>
+### Evaluate the document’s script with data only
+
+Evaluate the query and scene functions in separate JavaScript contexts. The
+second context gets the model response as a string. The script has a deadline
+and memory limit, and the preview accepts a bounded JSON value from it.
+
+<storycode:copy id="f-882b777229b8-model-diagram-javascript">
+#[derive(serde::Deserialize)]
+struct ModelQuery {
+    language: String,
+    query: String,
+}
+
+fn diagram_javascript<T: serde::de::DeserializeOwned>(
+    script: &str,
+    expression: &str,
+    model: Option<&str>,
+) -> anyhow::Result<T> {
+    use rquickjs::{CatchResultExt, Context, Runtime, Value};
+    let engine = Runtime::new()?;
+    engine.set_memory_limit(32 * 1024 * 1024);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(200);
+    engine.set_interrupt_handler(Some(Box::new(move || {
+        std::time::Instant::now() >= deadline
+    })));
+    Context::full(&engine)?.with(|context| {
+        context
+            .globals()
+            .set("modelJson", model.unwrap_or("null"))?;
+        let source =
+            format!("(function () {{ 'use strict';\n{script}\nreturn ({expression});\n}})()");
+        let result: Value = context
+            .eval(source)
+            .catch(&context)
+            .map_err(|error| anyhow::anyhow!("Diagram script: {error}"))?;
+        let json = context
+            .json_stringify(result)
+            .catch(&context)
+            .map_err(|error| anyhow::anyhow!("Diagram output: {error}"))?
+            .ok_or_else(|| anyhow::anyhow!("The diagram script must return JSON data."))?
+            .to_string()?;
+        anyhow::ensure!(json.len() <= 512 * 1024, "Diagram output exceeds 512 KiB.");
+        Ok(serde_json::from_str(&json)?)
+    })
+}
+
+</storycode:copy>
+
+<a id="f-882b777229b8-model-diagram-provider"></a>
+### Read the model through its GraphQL protocol
+
+Resolve the provider from a host-controlled installation before starting it.
+Send one query using the same stdio protocol as the CLI. Bound the response and
+stop the provider when the request times out.
+
+<storycode:copy id="f-882b777229b8-model-diagram-provider">
+// Preview runs can start automatically. Only a provider installed outside the
+// workspace is trusted to execute. The project supplies a query and a scene
+// script, and receives neither host handles nor the provider process.
+fn diagram_model_provider(workspace: &Path, language: &str) -> anyhow::Result<std::path::PathBuf> {
+    anyhow::ensure!(
+        !language.is_empty()
+            && language.len() <= 32
+            && language
+                .bytes()
+                .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-'),
+        "Choose a registered code-model language."
+    );
+    let name = format!("hick-model-{language}");
+    let path = std::env::var_os("PATH").unwrap_or_default();
+    let provider = std::env::split_paths(&path)
+        .filter(|entry| entry.is_absolute())
+        .map(|entry| entry.join(&name))
+        .find_map(|candidate| {
+            candidate
+                .canonicalize()
+                .ok()
+                .filter(|file| file.is_file() && !file.starts_with(workspace))
+        });
+    #[cfg(debug_assertions)]
+    let provider = provider.or_else(|| {
+        let candidate = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../code-models")
+            .join(language)
+            .join(&name);
+        candidate
+            .canonicalize()
+            .ok()
+            .filter(|file| file.is_file() && !file.starts_with(workspace))
+    });
+    provider
+        .ok_or_else(|| anyhow::anyhow!("Install {name} on Hickory's PATH to render this diagram."))
+}
+
+async fn query_diagram_model(
+    workspace: &Path,
+    folder: &Path,
+    request: ModelQuery,
+) -> anyhow::Result<String> {
+    use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+    anyhow::ensure!(
+        request.query.len() <= 16 * 1024,
+        "The code-model query exceeds 16 KiB."
+    );
+    let executable = diagram_model_provider(workspace, &request.language)?;
+    let mut child = tokio::process::Command::new(&executable)
+        .current_dir(
+            executable
+                .parent()
+                .expect("canonical executable has a parent"),
+        )
+        .arg(folder)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .kill_on_drop(true)
+        .spawn()?;
+    let mut input = child.stdin.take().expect("piped stdin");
+    let mut output = BufReader::new(
+        child
+            .stdout
+            .take()
+            .expect("piped stdout")
+            .take(8 * 1024 * 1024),
+    );
+    let mut query = serde_json::to_vec(&serde_json::json!({"query": request.query}))?;
+    query.push(b'\n');
+    let mut response = String::new();
+    tokio::time::timeout(std::time::Duration::from_secs(12), async {
+        input.write_all(&query).await?;
+        drop(input);
+        output.read_line(&mut response).await?;
+        Ok::<_, std::io::Error>(())
+    })
+    .await
+    .map_err(|_| anyhow::anyhow!("The code-model query timed out."))??;
+    anyhow::ensure!(
+        response.ends_with('\n'),
+        "The {} model returned no complete response. Check its installation and source folder.",
+        request.language
+    );
+    let mut value: serde_json::Value = serde_json::from_str(&response)?;
+    if let Some(errors) = value
+        .get("errors")
+        .filter(|errors| errors.as_array().is_some_and(|items| !items.is_empty()))
+    {
+        anyhow::bail!("Code-model query failed: {errors}");
+    }
+    let data = value
+        .get_mut("data")
+        .map(serde_json::Value::take)
+        .ok_or_else(|| anyhow::anyhow!("The code model returned no query data."))?;
+    Ok(serde_json::to_string(&data)?)
+}
+</storycode:copy>
+
 <a id="f-882b777229b8-refresh_fragment"></a>
 ### `refresh_fragment`
 
@@ -410,7 +700,7 @@ mod tests {
 
 The selections below preserve the original byte order. Narrative reading order does not change the output.
 
-<storycode:file path="crates/hickory-cli/src/diagram.rs"><storycode:paste select="#f-882b777229b8-Grouping"/><storycode:paste select="#f-882b777229b8-MAX_FILE_BYTES"/><storycode:paste select="#f-882b777229b8-generate_topology"/><storycode:paste select="#f-882b777229b8-render"/><storycode:paste select="#f-882b777229b8-refresh_fragment"/><storycode:paste select="#f-882b777229b8-tests"/></storycode:file>
+<storycode:file path="crates/hickory-cli/src/diagram.rs"><storycode:paste select="#f-882b777229b8-Grouping"/><storycode:paste select="#f-882b777229b8-MAX_FILE_BYTES"/><storycode:paste select="#f-882b777229b8-generate_topology"/><storycode:paste select="#f-882b777229b8-render"/><storycode:paste select="#f-882b777229b8-model-diagram"/><storycode:paste select="#f-882b777229b8-model-diagram-revision"/><storycode:paste select="#f-882b777229b8-model-diagram-javascript"/><storycode:paste select="#f-882b777229b8-model-diagram-provider"/><storycode:paste select="#f-882b777229b8-refresh_fragment"/><storycode:paste select="#f-882b777229b8-tests"/></storycode:file>
 
 <a id="output-856fa0835344"></a>
 ## `crates/hickory-cli/tests/diagram_cli.rs`

@@ -961,10 +961,28 @@ try {
           await workbook.locator(".cm-md-heading").first().waitFor();
           break;
         }
+        case "architecture-preview": {
+          const graph = page.locator(".rendered-diagram");
+          const node = graph.getByTestId("graph-node-shop/receipt.ts");
+          await node.waitFor({ timeout: 15000 });
+          if (request.inspect_source) {
+            await page.getByRole("button", { name: "Edit source text", exact: true }).click();
+            await graph.waitFor({ state: "detached" });
+            const source = await editor(request.path).innerText();
+            if (!source.includes("function codeModelQuery()") || !source.includes("function buildDiagram(")) {
+              throw new Error("The diagram's source must contain the repository's query and graph builder.");
+            }
+            await page.getByRole("button", { name: "Render embedded content", exact: true }).click();
+            await node.waitFor({ timeout: 15000 });
+          }
+          const edge = graph.locator(".react-flow__edge").first();
+          await edge.waitFor({ state: request.edge_count ? "attached" : "detached", timeout: 15000 });
+          break;
+        }
         case "architecture-link": {
-          const preview = page.locator(".rendered-diagram").filter({ has: page.getByRole("button", { name: "Refresh architecture" }) });
-          const node = preview.getByTestId("graph-node-orders.py");
-          try { await node.click({ timeout: 4000 }); }
+          const preview = page.locator(".rendered-diagram").filter({ has: page.getByRole("button", { name: "Refresh diagram" }) });
+          const node = preview.getByTestId("graph-node-shop/receipt.ts");
+          try { await node.click({ timeout: 15000 }); }
           catch (error) {
             const hit = await node.evaluate(node => {
               const rect = node.getBoundingClientRect();
@@ -979,15 +997,10 @@ try {
           }
           const target = editor(request.path);
           await target.waitFor();
-          const selection = () => target.evaluate(async node => {
+          value = await target.evaluate(async node => {
             const { EditorView } = await import("/node_modules/@codemirror/view/dist/index.js");
             return EditorView.findFromDOM(node).state.selection.main.head;
           });
-          for (let attempt = 0; attempt < 40; attempt++) {
-            value = await selection();
-            if (value > 0) break;
-            await page.waitForTimeout(25);
-          }
           break;
         }
         case "workbook-run":

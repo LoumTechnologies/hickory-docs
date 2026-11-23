@@ -61644,6 +61644,24 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "simple-showcase-3"
       ]
     },
+    "examples/simple-ui/architecture.md": {
+      "source": ".hickory-source/frontends/simple-showcase.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "example"
+    },
+    "examples/simple-ui/shop/catalog.ts": {
+      "source": ".hickory-source/frontends/simple-showcase.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "example"
+    },
+    "examples/simple-ui/shop/receipt.ts": {
+      "source": ".hickory-source/frontends/simple-showcase.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "example"
+    },
     "examples/simple-ui/workbook.md": {
       "source": ".hickory-source/frontends/simple-showcase.md",
       "owner": "simple-frontends",

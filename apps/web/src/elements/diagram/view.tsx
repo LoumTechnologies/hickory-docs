@@ -11,28 +11,44 @@ import type { ElementView } from "../types";
 // the marketing site's bundle, which builds from this tree.
 const GraphEditorPanel = lazy(() => import("../../components/graph/GraphEditorPanel"));
 
-function ArchitectureDiagram({ path, current }: { path: string; current: () => boolean }) {
+function CodeModelDiagram({ path, script, current }: { path: string; script: string; current: () => boolean }) {
   const [attempt, refresh] = useState(0);
   const [result, setResult] = useState<{ source?: string; error?: string }>({});
   useEffect(() => {
     let live = true;
     setResult({});
     const uri = "hick:///" + path.split("/").map(encodeURIComponent).join("/");
-    void request<object>("POST", "/api/architecture", { uri }).then(
-      scene => { if (live) setResult({ source: JSON.stringify(scene) }); },
-      error => { if (live) setResult({ error: String(error) }); },
-    );
-    return () => { live = false; };
-  }, [path, attempt]);
+    let timer: ReturnType<typeof setTimeout>;
+    let revision: string | undefined;
+    async function read() {
+      try {
+        const update = await request<{ revision: string; scene: object | null }>(
+          "POST", "/api/diagram/model", { uri, script, revision }
+        );
+        if (live && update.scene) {
+          revision = update.revision;
+          setResult({ source: JSON.stringify(update.scene) });
+        }
+      } catch (error) {
+        revision = undefined;
+        if (live) setResult({ error: String(error) });
+      } finally {
+        if (live) timer = setTimeout(read, 2500);
+      }
+    }
+    void read();
+    return () => { live = false; clearTimeout(timer); };
+  }, [path, script, attempt]);
   function follow(id: string) {
     if (!current() || !result.source) return;
-    const nodes = JSON.parse(result.source).topology.nodes as { id: string; href?: string }[];
+    const scene = JSON.parse(result.source);
+    const nodes = (scene.topology?.nodes ?? scene.nodes ?? []) as { id: string; href?: string }[];
     const href = nodes.find(item => item.id === id)?.href;
     const target = href && workspaceLinkTarget(href, path);
     if (target) openLocation(target.path, target.line);
   }
   return <div className="rendered-diagram" style={{ position: "relative" }}>
-    <button type="button" className="debug-icon" aria-label="Refresh architecture" onClick={() => refresh(n => n + 1)}
+    <button type="button" className="debug-icon" aria-label="Refresh diagram" onClick={() => refresh(n => n + 1)}
       style={{ position: "absolute", right: 4, top: 4, zIndex: 2 }}>↻</button>
     {result.source ? <Suspense fallback={null}><GraphEditorPanel source={result.source} onOpenNode={follow} sourceWritable={() => false} onCommit={() => false} /></Suspense>
       : <p role="status">{result.error ?? "Reading the code model…"}</p>}
@@ -56,11 +72,12 @@ export const diagramView: ElementView = {
     const resolved = slot.text.includes("<hick:paste")
       ? (matchBlock({ span: slot.span, index: slot.index }, cx.diagramBlocks)?.body ?? null)
       : null;
-    if (slot.renderer === "architecture" && cx.path) {
-      return <ArchitectureDiagram key={cx.path} path={cx.path} current={() => {
+    if (slot.renderer === "code-model" && cx.path) {
+      return <CodeModelDiagram key={JSON.stringify([cx.path, slot.at, slot.text])} path={cx.path} script={slot.text} current={() => {
         const view = cx.view;
         return !!view?.dom.isConnected && structureOf(view.state).blocks.some(block =>
-          block.from === slot.at && block.name === "diagram" && block.attrs.renderer === "architecture");
+          block.from === slot.at && block.name === "diagram" && block.attrs.renderer === slot.renderer &&
+          view.state.doc.sliceString(block.contentFrom, block.contentTo).trim() === slot.text.trim());
       }} />;
     }
     if (slot.renderer === "graph") {

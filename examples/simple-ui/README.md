@@ -1,8 +1,8 @@
 # Simple UI playground: the corner shop
 
-A runnable Python project and executable workbook for the Simple frontends.
-Python 3.10+ is sufficient for the program and tests.
-Language servers, debug adapters and an agent provider are optional services.
+An executable corner-shop workbook with Python examples and a live TypeScript
+architecture diagram. Preparing the demo uses Python 3.10+ and Node.js with
+npm. Language servers, debug adapters and an agent provider are optional.
 
 Open [tables.md](tables.md) for named-table formulas and a read-only Python output.
 
@@ -33,6 +33,11 @@ that machine, not on the phone. See
 [the frontend guide](../../docs/developers/simple-frontends.md) for prerequisites.
 
 ## Guided feature tour
+
+Open [architecture.md](architecture.md) for a live view of the TypeScript
+modules in `shop/`. View source reveals the code-model query and graph builder.
+Outside the checkout, install the TypeScript code-model provider on the engine’s
+PATH before opening the diagram.
 
 | Feature | File/action | What to look for |
 | --- | --- | --- |
