@@ -68,6 +68,9 @@ pub static PLUGIN: Plugin = Plugin {
             project_dirs: &[],
             installer: Some(&dap_install::PYTHON),
         },
+        Interface::CodeModel {
+            bin: "hick-model-python",
+        },
         Interface::Indexer {
             bin: "scip-python",
             args: &["index", "."],
@@ -150,7 +153,7 @@ fn test_debug_command(
     root: &std::path::Path,
     file: &std::path::Path,
     name: &str,
-    _manifest:Option<&std::path::Path>,
+    _manifest: Option<&std::path::Path>,
 ) -> Result<crate::testing::TestDebugCommand, String> {
     let command = test_command(root, file, name)?;
     Ok(crate::testing::TestDebugCommand {
@@ -159,6 +162,6 @@ fn test_debug_command(
         program: file.to_path_buf(),
         launch: serde_json::json!({"program":null,"module":"pytest","python":command.argv[0],"args":command.argv[3..]}),
         framework: "pytest",
-        preparation:None,
+        preparation: None,
     })
 }

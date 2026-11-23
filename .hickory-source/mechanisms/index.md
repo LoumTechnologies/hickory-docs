@@ -431,4 +431,6 @@ is included with that control; opening a document is not generation authority.
 <storycode:include file="workspace-entry-transition-protocol-witness.md" />
 <storycode:include file="workspace-entry-owned-claims.md" />
 
+<storycode:include file="python-code-model.md" />
+
 </storycode:doc>

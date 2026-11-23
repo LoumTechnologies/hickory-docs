@@ -141412,6 +141412,150 @@ The entry below owns this output. Its metadata is separate from semantic verific
       "page": ".hickory-source/mechanisms/workspace-entry-publication-failure-witness.md",
       "symbol": "owned interrupted publisher fixture",
       "basis": "explained-behavior"
+    },
+    {
+      "id": "python-model-hick_python_model-py-imports",
+      "output": "code-models/python/hick_python_model.py",
+      "page": ".hickory-source/mechanisms/python-code-model.md",
+      "symbol": "imports",
+      "basis": "explained-behavior",
+      "original_range": null
+    },
+    {
+      "id": "python-model-hick_python_model-py-class-model",
+      "output": "code-models/python/hick_python_model.py",
+      "page": ".hickory-source/mechanisms/python-code-model.md",
+      "symbol": "class-model",
+      "basis": "explained-behavior",
+      "original_range": null
+    },
+    {
+      "id": "python-model-hick_python_model-py-span",
+      "output": "code-models/python/hick_python_model.py",
+      "page": ".hickory-source/mechanisms/python-code-model.md",
+      "symbol": "span",
+      "basis": "explained-behavior",
+      "original_range": null
+    },
+    {
+      "id": "python-model-hick_python_model-py-symbol",
+      "output": "code-models/python/hick_python_model.py",
+      "page": ".hickory-source/mechanisms/python-code-model.md",
+      "symbol": "symbol",
+      "basis": "explained-behavior",
+      "original_range": null
+    },
+    {
+      "id": "python-model-hick_python_model-py-index-file",
+      "output": "code-models/python/hick_python_model.py",
+      "page": ".hickory-source/mechanisms/python-code-model.md",
+      "symbol": "index-file",
+      "basis": "explained-behavior",
+      "original_range": null
+    },
+    {
+      "id": "python-model-hick_python_model-py-info",
+      "output": "code-models/python/hick_python_model.py",
+      "page": ".hickory-source/mechanisms/python-code-model.md",
+      "symbol": "info",
+      "basis": "explained-behavior",
+      "original_range": null
+    },
+    {
+      "id": "python-model-hick_python_model-py-unresolved",
+      "output": "code-models/python/hick_python_model.py",
+      "page": ".hickory-source/mechanisms/python-code-model.md",
+      "symbol": "unresolved",
+      "basis": "explained-behavior",
+      "original_range": null
+    },
+    {
+      "id": "python-model-hick_python_server-py-protocol-imports",
+      "output": "code-models/python/hick_python_server.py",
+      "page": ".hickory-source/mechanisms/python-code-model.md",
+      "symbol": "protocol-imports",
+      "basis": "explained-behavior",
+      "original_range": null
+    },
+    {
+      "id": "python-model-hick_python_server-py-schema",
+      "output": "code-models/python/hick_python_server.py",
+      "page": ".hickory-source/mechanisms/python-code-model.md",
+      "symbol": "schema",
+      "basis": "explained-behavior",
+      "original_range": null
+    },
+    {
+      "id": "python-model-hick_python_server-py-resolvers",
+      "output": "code-models/python/hick_python_server.py",
+      "page": ".hickory-source/mechanisms/python-code-model.md",
+      "symbol": "resolvers",
+      "basis": "explained-behavior",
+      "original_range": null
+    },
+    {
+      "id": "python-model-hick_python_server-py-serve",
+      "output": "code-models/python/hick_python_server.py",
+      "page": ".hickory-source/mechanisms/python-code-model.md",
+      "symbol": "serve",
+      "basis": "explained-behavior",
+      "original_range": null
+    },
+    {
+      "id": "python-model-hick_python_server-py-entrypoint",
+      "output": "code-models/python/hick_python_server.py",
+      "page": ".hickory-source/mechanisms/python-code-model.md",
+      "symbol": "entrypoint",
+      "basis": "explained-behavior",
+      "original_range": null
+    },
+    {
+      "id": "python-model-pyproject-toml-installation",
+      "output": "code-models/python/pyproject.toml",
+      "page": ".hickory-source/mechanisms/python-code-model.md",
+      "symbol": "installation",
+      "basis": "explained-behavior",
+      "original_range": null
+    },
+    {
+      "id": "python-model-test-process-harness",
+      "output": "code-models/python/source-index.test.mjs",
+      "page": ".hickory-source/mechanisms/python-code-model.md",
+      "symbol": "test-process-harness",
+      "basis": "explained-behavior",
+      "original_range": null
+    },
+    {
+      "id": "python-model-test-package-resolution",
+      "output": "code-models/python/source-index.test.mjs",
+      "page": ".hickory-source/mechanisms/python-code-model.md",
+      "symbol": "test-package-resolution",
+      "basis": "explained-behavior",
+      "original_range": null
+    },
+    {
+      "id": "python-model-test-uncertainty",
+      "output": "code-models/python/source-index.test.mjs",
+      "page": ".hickory-source/mechanisms/python-code-model.md",
+      "symbol": "test-uncertainty",
+      "basis": "explained-behavior",
+      "original_range": null
+    },
+    {
+      "id": "python-model-test-protocol-safety",
+      "output": "code-models/python/source-index.test.mjs",
+      "page": ".hickory-source/mechanisms/python-code-model.md",
+      "symbol": "test-protocol-safety",
+      "basis": "explained-behavior",
+      "original_range": null
+    },
+    {
+      "id": "python-model-test-stable-identities",
+      "output": "code-models/python/source-index.test.mjs",
+      "page": ".hickory-source/mechanisms/python-code-model.md",
+      "symbol": "test-stable-identities",
+      "basis": "explained-behavior",
+      "original_range": null
     }
   ],
   "explanation_gaps": {

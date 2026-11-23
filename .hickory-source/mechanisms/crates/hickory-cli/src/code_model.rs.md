@@ -475,6 +475,9 @@ fn describe(doc: &str, indent: &str) -> String {
 <a id="f-32765d979e04-tests"></a>
 ### `tests`
 
+The project-cache discovery witness checks both C# and Python registration so
+adding a provider cannot silently leave it outside the plugin registry.
+
 <storycode:copy id="f-32765d979e04-tests">
 #[cfg(test)]
 mod tests {
@@ -565,17 +568,19 @@ mod tests {
     }
 
     #[test]
-    fn csharp_plugin_model_is_discovered_in_the_project_cache() {
-        let root = tempfile::tempdir().unwrap();
-        let Some(hick_plugins::Interface::CodeModel { bin }) =
-            hick_plugins::registry().interface("csharp", hick_plugins::InterfaceKind::CodeModel)
-        else {
-            panic!("C# model declaration missing")
-        };
-        let binary = root.path().join(MODELS_DIR).join(bin);
-        std::fs::create_dir_all(binary.parent().unwrap()).unwrap();
-        std::fs::write(&binary, "model executable").unwrap();
-        assert_eq!(discover("csharp", root.path()), Some(binary));
+    fn registered_plugin_models_are_discovered_in_the_project_cache() {
+        for language in ["csharp", "python"] {
+            let root = tempfile::tempdir().unwrap();
+            let Some(hick_plugins::Interface::CodeModel { bin }) = hick_plugins::registry()
+                .interface(language, hick_plugins::InterfaceKind::CodeModel)
+            else {
+                panic!("{language} model declaration missing")
+            };
+            let binary = root.path().join(MODELS_DIR).join(bin);
+            std::fs::create_dir_all(binary.parent().unwrap()).unwrap();
+            std::fs::write(&binary, "model executable").unwrap();
+            assert_eq!(discover(language, root.path()), Some(binary));
+        }
     }
 
     #[test]

@@ -67870,6 +67870,75 @@ The entry below owns this output. Its metadata is separate from semantic verific
     },
     "crates/hick-debug/src/lib.rs": {
       "source": ".hickory-source/mechanisms/crates/hickory-cli/src/debug_sessions.rs.md"
+    },
+    "code-models/python/hick_python_model.py": {
+      "source": ".hickory-source/mechanisms/python-code-model.md",
+      "owner": "support",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "7ce3d18885f45e8f6d26ec82b9e5dc6fd6f250cd726c673a9d0bf91a4c81274b",
+      "construction": "fragments",
+      "fragments": [
+        "python-model-hick_python_model-py-imports",
+        "python-model-hick_python_model-py-class-model",
+        "python-model-hick_python_model-py-span",
+        "python-model-hick_python_model-py-symbol",
+        "python-model-hick_python_model-py-index-file",
+        "python-model-hick_python_model-py-info",
+        "python-model-hick_python_model-py-unresolved"
+      ],
+      "narrative_owner": "mechanism:python-code-model"
+    },
+    "code-models/python/hick_python_server.py": {
+      "source": ".hickory-source/mechanisms/python-code-model.md",
+      "owner": "support",
+      "used_by": [],
+      "role": "implementation",
+      "sha256": "c16e2460b6b22134f432bf2040083e1316bc31b3b16faaef68dd8d09385e2fb6",
+      "construction": "fragments",
+      "fragments": [
+        "python-model-hick_python_server-py-protocol-imports",
+        "python-model-hick_python_server-py-schema",
+        "python-model-hick_python_server-py-resolvers",
+        "python-model-hick_python_server-py-serve",
+        "python-model-hick_python_server-py-entrypoint"
+      ],
+      "narrative_owner": "mechanism:python-code-model"
+    },
+    "code-models/python/source-index.test.mjs": {
+      "source": ".hickory-source/mechanisms/python-code-model.md",
+      "owner": "support",
+      "used_by": [],
+      "role": "test",
+      "sha256": "cee9e068a8472a99c4e15840247c2989a2d31004f5c6ff5c18566bac8141dc70",
+      "construction": "fragments",
+      "fragments": [
+        "python-model-test-process-harness",
+        "python-model-test-package-resolution",
+        "python-model-test-uncertainty",
+        "python-model-test-protocol-safety",
+        "python-model-test-stable-identities"
+      ],
+      "narrative_owner": "mechanism:python-code-model"
+    },
+    "code-models/python/pyproject.toml": {
+      "source": ".hickory-source/mechanisms/python-code-model.md",
+      "owner": "support",
+      "used_by": [],
+      "role": "configuration",
+      "sha256": "a0edf5a2b37f1781bc271bca6437dfd94a15737ee3f1394ce0e86fcc2bd71ae1",
+      "construction": "fragments",
+      "fragments": [
+        "python-model-pyproject-toml-installation"
+      ],
+      "narrative_owner": "mechanism:python-code-model"
+    },
+    "code-models/python/.gitignore": {
+      "source": ".hickory-source/mechanisms/python-code-model.md",
+      "owner": "support",
+      "used_by": [],
+      "role": "configuration",
+      "sha256": "cc970d86e19a8edd2624bb67c05169c2ed30251fb0902cd2972c5cdd382c5f7f"
     }
   },
   "evidence_records": [

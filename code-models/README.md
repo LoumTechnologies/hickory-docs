@@ -147,11 +147,17 @@ pass.
 |---|---|---|---|
 | C# | `csharp/` | Roslyn (`Microsoft.CodeAnalysis.CSharp`) | the .NET runtime |
 | TypeScript | `typescript/` | ts-morph over the TS compiler API | `node` |
+| Python | `python/` | Jedi static analysis + graphql-core | Python 3.10+ |
 | Go | `go/` | `go/packages` + `go/types` | `go` on PATH |
 
 That last column is part of the contract: a model server may shell out to its
 own toolchain, so a document using one declares both —
 `<hick:needs bin="hick-model-go" />` and `<hick:needs bin="go" />`.
+
+For Python installation, query examples, coordinates and static-analysis limits,
+see the [Python provider reading](../.hickory-source/mechanisms/python-code-model.md).
+It analyzes source without importing application modules; diagram scripts retain
+ownership of their generated graph.
 
 Building them:
 

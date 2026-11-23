@@ -11,6 +11,10 @@ This page owns the output construction and the explained fragments below. Source
 <a id="f-3783720f4686-PLUGIN"></a>
 ### `PLUGIN`
 
+The code-model declaration makes Python discoverable through the same PATH and
+project-local model cache as other languages. Installation remains explicit;
+registering the provider does not execute project code.
+
 <storycode:copy id="f-3783720f4686-PLUGIN">
 use super::{dap, dap_install, index_install, lsp, lsp_install};
 use crate::*;
@@ -81,6 +85,9 @@ pub static PLUGIN: Plugin = Plugin {
             candidates: dap::C_PYTHON,
             project_dirs: &[],
             installer: Some(&dap_install::PYTHON),
+        },
+        Interface::CodeModel {
+            bin: "hick-model-python",
         },
         Interface::Indexer {
             bin: "scip-python",
@@ -195,7 +202,7 @@ fn test_debug_command(
     root: &std::path::Path,
     file: &std::path::Path,
     name: &str,
-    _manifest:Option<&std::path::Path>,
+    _manifest: Option<&std::path::Path>,
 ) -> Result<crate::testing::TestDebugCommand, String> {
     let command = test_command(root, file, name)?;
     Ok(crate::testing::TestDebugCommand {
@@ -204,7 +211,7 @@ fn test_debug_command(
         program: file.to_path_buf(),
         launch: serde_json::json!({"program":null,"module":"pytest","python":command.argv[0],"args":command.argv[3..]}),
         framework: "pytest",
-        preparation:None,
+        preparation: None,
     })
 }
 </storycode:copy>
