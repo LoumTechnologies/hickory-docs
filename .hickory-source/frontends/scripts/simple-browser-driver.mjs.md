@@ -712,21 +712,38 @@ try {
         case "spreadsheet-formula-point": {
           const table = page.getByTestId("table-panel");
           const cell = (r, c) => table.locator(`.table-panel__cell[data-row="${r}"][data-column="${c}"]`);
-          await cell(request.row, request.column).click();
+          if (!request.continuing) await cell(request.row, request.column).click();
           const bar = table.locator(".table-panel__formula"); await bar.fill(request.prefix);
           const start = await cell(request.fromRow, request.fromColumn).boundingBox();
           const end = await cell(request.toRow, request.toColumn).boundingBox();
+          const point = box => ({ x: box.x + box.width / 2, y: box.y + box.height / 2 });
+          const picked = () => table.locator("[data-formula-reference]").evaluateAll(cells =>
+            cells.filter(cell => {
+              const content = cell.querySelector(".table-panel__cell, .table-panel__input");
+              if (!content) return false;
+              const background = getComputedStyle(content).backgroundColor;
+              return background !== "transparent" && background !== "rgba(0, 0, 0, 0)";
+            }).map(cell => [Number(cell.dataset.fillRow), Number(cell.dataset.fillColumn)]));
+          let preview;
           if (request.touch) {
             const input = await page.context().newCDPSession(page);
-            await input.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: start.x + start.width / 2, y: start.y + start.height / 2 }] });
-            await input.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: end.x + end.width / 2, y: end.y + end.height / 2 }] });
-            await input.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] }); await input.detach();
+            await input.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [point(start)] });
+            await input.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [point(end)] });
+            preview = await picked();
+            await input.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+            await input.detach();
           } else {
-            await page.mouse.move(start.x + start.width / 2, start.y + start.height / 2); await page.mouse.down();
-            await page.mouse.move(end.x + end.width / 2, end.y + end.height / 2, { steps: 8 }); await page.mouse.up();
+            const from = point(start), to = point(end);
+            await page.mouse.move(from.x, from.y);
+            await page.mouse.down();
+            try {
+              await page.mouse.move(to.x, to.y, { steps: 8 });
+              preview = await picked();
+              if (request.releaseOutside) await page.mouse.move(to.x, start.y - start.height * 2, { steps: 1 });
+            } finally { await page.mouse.up(); }
+            await cell(request.hoverRow, request.hoverColumn).hover();
           }
-          value = await bar.inputValue();
-          // Return the picked draft before committing an expression in the next action.
+          value = { draft: await bar.inputValue(), preview, picked: await picked() };
           break;
         }
         case "spreadsheet-formula": {

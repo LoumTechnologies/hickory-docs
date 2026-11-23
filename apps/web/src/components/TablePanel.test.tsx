@@ -813,15 +813,35 @@ describe("pointing at a cell while writing a formula", () => {
     expect(name()).toBe("A2");
   });
 
-  it("writes a range when a formula points by dragging across cells", () => {
-    grid({ source: "a,b\nc,d\ne,f\n", language: "python", onChange: () => {} });
-    const input = openCell("a");
+  it("highlights the whole formula rectangle and freezes it on release", () => {
+    const onChange = vi.fn();
+    grid({ source: "a,b,c\nd,e,f\ng,h,i\n", language: "python", onChange });
+    const input = openCell("i");
     fireEvent.change(input, { target: { value: "=sum(" } });
-    fireEvent.mouseDown(cell("c"));
-    // The TD owns pointer tracking, so a resize edge cannot swallow the drag.
-    fireEvent.mouseMove(cell("e"));
-    fireEvent.click(cell("e"));
-    expect(typing().value).toBe("=sum(A2:A3");
+    const start = cell("e").closest("td")!;
+    const capture = vi.fn();
+    start.setPointerCapture = capture;
+    const hit = vi.fn<() => Element | null>();
+    vi.spyOn(start, "getRootNode").mockReturnValue({ elementFromPoint: hit } as unknown as Document);
+    const send = (type: string, buttons: number) =>
+      fireEvent(start, Object.assign(new MouseEvent(type, { bubbles: true, cancelable: true, buttons }),
+        { pointerId: 1, pointerType: "mouse", isPrimary: true }));
+    const highlighted = () => [...document.querySelectorAll(".table-panel__cell--pointed")].map(cell => cell.textContent);
+
+    send("pointerdown", 1);
+    expect(capture).toHaveBeenCalledWith(1);
+    hit.mockReturnValue(cell("a"));
+    send("pointermove", 1);
+    expect(input.value).toBe("=sum(A1:B2");
+    expect(highlighted()).toEqual(["a", "b", "d", "e"]);
+
+    hit.mockReturnValue(null);
+    send("pointerup", 0);
+    hit.mockReturnValue(cell("c"));
+    send("pointermove", 0);
+    expect(input.value).toBe("=sum(A1:B2");
+    expect(highlighted()).toEqual(["a", "b", "d", "e"]);
+    expect(onChange).not.toHaveBeenCalled();
   });
 
   it("does not point from a cell that is not a formula", () => {

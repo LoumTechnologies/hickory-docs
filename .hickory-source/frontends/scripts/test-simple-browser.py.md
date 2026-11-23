@@ -26,7 +26,7 @@ disk bytes. This flow uses no editor internals; the platform driver owns only
 keyboard spelling and visible control lookup. Run it alone with
 `python3 scripts/test-simple-browser.py --editor-navigation-only`.
 
-Run `python3 scripts/test-simple-browser.py --spreadsheet-only` for the focused spreadsheet flow. The same assertions drive the web simple UI and the exact local native bundle: whole-row and whole-column selection, range selection and contraction, a numeric fill gesture, row/column add/remove, formula-range dragging, a real Python result without a prior language choice, and keyboard viewport sizing. The Python flow imports no frontend implementation. Its native host adapter forwards only formula HTTP requests and acknowledges revisioned source requests; it does not establish actual UIKit or Android device gesture acceptance. AppKit’s separate WKWebView and undo witness covers that platform boundary.
+Run `python3 scripts/test-simple-browser.py --spreadsheet-only` for the focused spreadsheet flow. The same assertions drive the web simple UI and the exact local native bundle: whole-row and whole-column selection, range selection and contraction, a numeric fill gesture, row/column add/remove, formula-range dragging with mouse and touch, a full rectangle that stays fixed after release inside or outside the grid, a real Python result without a prior language choice, and keyboard viewport sizing. The Python flow imports no frontend implementation. Its native host adapter forwards only formula HTTP requests and acknowledges revisioned source requests; it does not establish actual UIKit or Android device gesture acceptance. AppKit’s separate WKWebView and undo witness covers that platform boundary.
 
 The focused `--table-dataflow-only` flow records the small table example through
 the actual CLI, opens it through the simple browser, edits a price, saves, reruns
@@ -897,9 +897,13 @@ def spreadsheet_acceptance(driver, folder, backend):
         driver.act("spreadsheet-structure", button="− Row")
         driver.act("spreadsheet-select", row=0, column=3)
         driver.act("spreadsheet-structure", button="− Column")
-        draft = driver.act("spreadsheet-formula-point", row=2, column=2, prefix="=sum(", fromRow=0, fromColumn=0, toRow=1, toColumn=1, touch=True)
-        assert draft == "=sum(A1:B2", draft
-        driver.act("spreadsheet-formula", value=draft + ")")
+        rectangle = [[0, 0], [0, 1], [1, 0], [1, 1]]
+        for gesture in [{"touch": True}, {"continuing": True, "hoverRow": 0, "hoverColumn": 2},
+                        {"continuing": True, "hoverRow": 2, "hoverColumn": 0, "releaseOutside": True}]:
+            picked = driver.act("spreadsheet-formula-point", row=2, column=2, prefix="=sum(",
+                                fromRow=1, fromColumn=1, toRow=0, toColumn=0, **gesture)
+            assert picked == {"draft": "=sum(A1:B2", "preview": rectangle, "picked": rectangle}, picked
+        driver.act("spreadsheet-formula", value=picked["draft"] + ")")
         eventually(lambda: driver.act("spreadsheet-value", row=2, column=2), "12")
         driver.act("spreadsheet-select", row=2, column=0)
         driver.act("spreadsheet-formula", value="0")

@@ -7956,11 +7956,12 @@ button.status-bar__item:hover { background: var(--bg-sunken); color: var(--fg); 
   outline-offset: -2px;
   background: color-mix(in srgb, var(--warn) 18%, transparent);
 }
-/* Pointing: the cell an open formula is choosing as an operand — by a click,
-   or by the arrow keys walking out from the edited cell. Dashed, and in the
-   second accent, so it cannot be mistaken for the selection: the selection is
-   still the cell being written, and this is the cell being written ABOUT. */
-.table-panel__grid .table-panel__cell--pointed {
+/* Wash the referenced rectangle with the formula color. A single cell
+   also gets a dashed outline, while the editor keeps its solid focus ring. */
+.table-panel__grid [data-formula-reference] :is(.table-panel__cell, .table-panel__input) {
+  background: color-mix(in srgb, var(--accent-2) 24%, var(--bg-raised));
+}
+.table-panel__grid [data-formula-reference="cell"] .table-panel__cell--pointed {
   outline: 2px dashed var(--accent-2);
   outline-offset: -2px;
 }

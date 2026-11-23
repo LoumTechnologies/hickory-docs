@@ -312,19 +312,12 @@ export function TablePanel({
   // Where the last pointed-at reference landed in the draft, so the next
   // click replaces it instead of piling up beside it. See lib/formulaPoint.ts.
   const pointed = useRef<PointedAt | null>(null);
-  // The cell the formula is currently POINTING at — by a click, or by the
-  // arrow keys walking out from the edited cell the way Excel's point mode
-  // does. Drawn with its own dashed ring, deliberately not the selection: the
-  // selection is still the cell being edited, and the pointer is the operand
-  // being chosen for it. Null when the formula is not pointing at anything.
-  const [pointer, setPointer] = useState<CellAt | null>(null);
+  const [reference, setReference] = useState<Selection | null>(null);
   // Where to leave the caret after a reference is written in. Applied in an
   // effect because the input has not re-rendered with the new text yet.
   const [caretWanted, setCaretWanted] = useState<number | null>(null);
   const arrowCaret = useRef<{ x: number; edge: number } | null>(null);
   const preferredCaretX = useRef<number | null>(null);
-  const rangeAnchor = useRef<CellAt | null>(null);
-  const rangeDragged = useRef(false);
   const cut = useRef<{ from: CellAt; rows: number; columns: number } | null>(
     null,
   );
@@ -434,7 +427,7 @@ export function TablePanel({
   const stopEditing = () => {
     if (editing && active) commit(active, draft);
     setEditing(false);
-    setPointer(null);
+    setReference(null);
   };
 
   /** Make a cell active without typing into it — a click, an arrow, a header. */
@@ -473,7 +466,7 @@ export function TablePanel({
     // A new edit has pointed at nothing yet; the last edit's reference is not
     // this one's to replace.
     pointed.current = null;
-    setPointer(null);
+    setReference(null);
   };
 
   // Retain the original visual goal across short cells; only explicit caret
@@ -514,7 +507,7 @@ export function TablePanel({
     commit(at, draft);
     moveTo(at.row + dRow, at.column + dColumn);
     setEditing(false);
-    setPointer(null);
+    setReference(null);
   };
 
   /**
@@ -608,81 +601,67 @@ export function TablePanel({
   const pointing =
     editable && editing && (language !== undefined || automaticPython && !hasFormulas) && isFormula(draft);
 
-  /**
-   * A click on a cell while a formula is open.
-   *
-   * Answers whether the click was taken as a reference. When it was not — the
-   * expression is not asking for an operand — the caller treats it as the
-   * ordinary click it was, which is how you still leave a formula cell by
-   * clicking somewhere else.
-   */
-  const pointTo = (row: number, column: number): boolean => {
-    if (!pointing) return false;
-    if (active && active.row === row && active.column === column) return false;
-    const input = activeInput();
-    const caret = input?.selectionStart ?? draft.length;
-    const written = pointAt(
-      draft,
-      caret,
-      cellLabel(column, row),
-      pointed.current,
-    );
-    if (!written) return false;
-    setDraft(written.text);
-    pointed.current = written.pointed;
-    setCaretWanted(written.caret);
-    setPointer({ row, column });
-    return true;
-  };
-
-  /** Write the rectangle dragged from `from` to this cell as `B2:C4`. */
+  // Use one rectangle for the inserted label, its highlight, and the next
+  // keyboard step. Keeping the focus preserves the direction of a reverse drag.
   const pointRangeTo = (from: CellAt, row: number, column: number): boolean => {
-    if (from.row === row && from.column === column) return pointTo(row, column);
     if (!pointing) return false;
-    const input = activeInput();
-    const caret = input?.selectionStart ?? draft.length;
-    const left = Math.min(from.column, column);
-    const top = Math.min(from.row, row);
-    const right = Math.max(from.column, column);
-    const bottom = Math.max(from.row, row);
-    const written = pointAt(
-      draft,
-      caret,
-      `${cellLabel(left, top)}:${cellLabel(right, bottom)}`,
-      pointed.current,
-    );
+    const range = extendTo(cellSelection(from.row, from.column), row, column, height, width);
+    if (isSingleCell(range) && active?.row === row && active.column === column) return false;
+    const caret = activeInput()?.selectionStart ?? draft.length;
+    const written = pointAt(draft, caret, selectionLabel(range), pointed.current);
     if (!written) return false;
     setDraft(written.text);
     pointed.current = written.pointed;
     setCaretWanted(written.caret);
-    setPointer({ row, column });
+    setReference(range);
     return true;
   };
+  const pointTo = (row: number, column: number) => pointRangeTo({ row, column }, row, column);
+  const referenceKind = reference && (isSingleCell(reference) ? "cell" : "range");
 
-  // Start a sweep from the selected cell; unselected cells still allow native panning.
-  const touchSweep = useRef<{ id: number; from: CellAt; point: boolean; moved: boolean } | null>(null);
+  const pointerSweep = useRef<{ id: number; from: CellAt; focus: CellAt; point: boolean; moved: boolean } | null>(null);
   const lastTouch = useRef<{ at: CellAt; time: number } | null>(null);
-  const touchDown = (event: React.PointerEvent<HTMLTableCellElement>, row: number, column: number) => {
-    if (!["touch", "pen"].includes(event.pointerType) || !editable || (event.target as HTMLElement).closest("input,button")) return;
-    event.preventDefault(); event.stopPropagation();
+  const startSweep = (event: React.PointerEvent<HTMLTableCellElement>, row: number, column: number) => {
+    const mouse = event.pointerType === "mouse";
+    if (!event.isPrimary || event.button !== 0 || pointerSweep.current || !editable
+      || (event.target as HTMLElement).closest("input,button")) return;
+    if (mouse && (!pointing || !pointTo(row, column))) return;
+
+    event.preventDefault();
+    event.stopPropagation();
     event.currentTarget.setPointerCapture(event.pointerId);
-    touchSweep.current = { id: event.pointerId, from: { row, column }, point: !!pointing, moved: false };
-    if (pointing) pointTo(row, column); else select(row, column);
+    const from = { row, column };
+    pointerSweep.current = { id: event.pointerId, from, focus: from, point: pointing, moved: false };
+    if (!pointing) select(row, column);
+    else if (!mouse) pointTo(row, column);
   };
-  const touchMove = (event: React.PointerEvent<HTMLTableCellElement>) => {
-    const sweep = touchSweep.current; if (!sweep || sweep.id !== event.pointerId) return;
+  const clearSweep = (event: React.PointerEvent<HTMLTableCellElement>) => {
+    if (pointerSweep.current?.id === event.pointerId) pointerSweep.current = null;
+  };
+  const updateSweep = (event: React.PointerEvent<HTMLTableCellElement>) => {
+    const sweep = pointerSweep.current;
+    if (!sweep || sweep.id !== event.pointerId) return;
     const scope = event.currentTarget.getRootNode() as Document | ShadowRoot;
-    const target = scope.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>("td[data-fill-row]");
-    if (!target || !gridRef.current?.contains(target)) return;
+    const target = scope.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLTableCellElement>("td[data-fill-row]");
+    if (!target || target.closest("table") !== gridRef.current) return;
     const row = Number(target.dataset.fillRow), column = Number(target.dataset.fillColumn);
-    if (row === sweep.from.row && column === sweep.from.column && !sweep.moved) return;
+    if (row === sweep.focus.row && column === sweep.focus.column) return;
+
+    sweep.focus = { row, column };
     sweep.moved = true;
     if (sweep.point) pointRangeTo(sweep.from, row, column);
     else setSelection(extendTo(cellSelection(sweep.from.row, sweep.from.column), row, column, height, width));
   };
-  const touchUp = (event: React.PointerEvent<HTMLTableCellElement>) => {
-    const sweep = touchSweep.current; if (!sweep || sweep.id !== event.pointerId) return;
-    touchSweep.current = null;
+  const moveSweep = (event: React.PointerEvent<HTMLTableCellElement>) => {
+    // A buttonless move can follow a release outside the browser window.
+    if (event.pointerType === "mouse" && !(event.buttons & 1)) clearSweep(event);
+    else updateSweep(event);
+  };
+  const finishSweep = (event: React.PointerEvent<HTMLTableCellElement>) => {
+    const sweep = pointerSweep.current;
+    if (!sweep || sweep.id !== event.pointerId) return;
+    if (sweep.point) updateSweep(event);
+    clearSweep(event);
     if (!sweep.point && !sweep.moved) {
       const previous = lastTouch.current, now = Date.now();
       if (previous && previous.at.row === sweep.from.row && previous.at.column === sweep.from.column && now - previous.time < 400) edit(sweep.from.row, sweep.from.column);
@@ -690,32 +669,18 @@ export function TablePanel({
     } else lastTouch.current = null;
   };
 
-  /** Track a formula-range drag from the table cell, not only its inner text
-   * span. The resize edges sit above that span, so `mouseenter` alone misses
-   * a real drag that crosses an edge. */
-  const pointRangeOver = (row: number, column: number) => {
-    if (!pointing || !rangeAnchor.current) return;
-    if (
-      rangeAnchor.current.row === row &&
-      rangeAnchor.current.column === column
-    )
-      return;
-    rangeDragged.current = true;
-    pointRangeTo(rangeAnchor.current, row, column);
-  };
-
   // Each navigation step replaces the last reference; edges swallow the step.
   const pointBy = (dRow: number, dColumn: number, caret: number): boolean => {
     if (!pointing || !active) return false;
-    const from = pointer ?? active;
+    const from = reference?.focus ?? active;
     const target = {
       row: Math.max(0, Math.min(from.row + dRow, height - 1)),
       column: Math.max(0, Math.min(from.column + dColumn, width - 1)),
     };
     if (
-      pointer &&
-      target.row === pointer.row &&
-      target.column === pointer.column
+      reference &&
+      target.row === from.row &&
+      target.column === from.column
     )
       return true;
     const written = pointAt(
@@ -728,7 +693,7 @@ export function TablePanel({
     setDraft(written.text);
     pointed.current = written.pointed;
     setCaretWanted(written.caret);
-    setPointer(target);
+    setReference(cellSelection(target.row, target.column));
     return true;
   };
 
@@ -743,7 +708,7 @@ export function TablePanel({
     // points, inserting where the first operand goes.
     const caret = Math.max(start, Math.min(1, draft.length));
     const live =
-      pointer !== null &&
+      reference !== null &&
       pointed.current !== null &&
       collapsed &&
       start === pointed.current.end;
@@ -768,7 +733,7 @@ export function TablePanel({
    * next click writes a fresh reference rather than replacing the last. */
   const typed = (text: string) => {
     preferredCaretX.current = null;
-    setPointer(null);
+    setReference(null);
     setDraft(text);
   };
 
@@ -1055,8 +1020,8 @@ export function TablePanel({
     if (row >= height || column >= width) return { status: "unavailable", reason: "Cell outside table; resize/add first" };
     return written(commit({ row, column }, args.value as string, actor), actor);
   }, true);
-  add("commit", "Commit pending table cell edit", {}, editable && editing && !!active, async (_args, actor) => { if (!active) return { status: "unavailable", reason: "No active cell" }; const ok = commit(active, draft, actor); if (ok) { setEditing(false); setPointer(null); } return written(ok, actor); }, true);
-  add("cancel-edit", "Cancel pending table cell edit", {}, editing, async () => { setDraft(selectedRaw); setEditing(false); setPointer(null); return { status: "completed", value: { draft_cancelled: true, source_written: false } }; });
+  add("commit", "Commit pending table cell edit", {}, editable && editing && !!active, async (_args, actor) => { if (!active) return { status: "unavailable", reason: "No active cell" }; const ok = commit(active, draft, actor); if (ok) { setEditing(false); setReference(null); } return written(ok, actor); }, true);
+  add("cancel-edit", "Cancel pending table cell edit", {}, editing, async () => { setDraft(selectedRaw); setEditing(false); setReference(null); return { status: "completed", value: { draft_cancelled: true, source_written: false } }; });
   if (editable) {
     add("add-row", "Add table row", {}, !editing, async (_args, actor) => written(apply(insertTableRow(table, height), true, actor), actor), true);
     add("add-column", "Add table column", {}, !editing, async (_args, actor) => written(apply(insertTableColumn(table, width), true, actor), actor), true);
@@ -1349,6 +1314,7 @@ export function TablePanel({
                   {rowNumber(row)}
                   {Array.from({ length: width }, (_, column) => {
                     const label = cellLabel(column, row);
+                    const referenced = pointing && reference !== null && containsCell(reference, row, column);
                     return (
                       <td
                         key={column}
@@ -1356,16 +1322,16 @@ export function TablePanel({
                           (isHeaderRow ? "table-panel__names " : "") + (fill.includes(row, column) ? "table-fill-preview" : "")
                         }
                         data-fill-row={row} data-fill-column={column}
+                        data-formula-reference={referenced ? referenceKind ?? undefined : undefined}
                         style={{ touchAction: pointing || (active?.row === row && active.column === column) ? "none" : "auto" }}
-                        onPointerDown={event => touchDown(event, row, column)}
-                        onPointerMove={touchMove}
-                        onPointerUp={touchUp}
-                        onPointerCancel={() => { touchSweep.current = null; }}
-                        onLostPointerCapture={() => { touchSweep.current = null; }}
+                        onPointerDown={event => startSweep(event, row, column)}
+                        onPointerMove={moveSweep}
+                        onPointerUp={finishSweep}
+                        onPointerCancel={clearSweep}
+                        onLostPointerCapture={clearSweep}
                         onClickCapture={event => { if ("pointerType" in event.nativeEvent && ["touch", "pen"].includes(String(event.nativeEvent.pointerType))) { event.preventDefault(); event.stopPropagation(); } }}
                         onMouseEnter={() => fill.over(row, column)}
                         onContextMenu={(event) => openMenu(event, row, column)}
-                        onMouseMove={() => pointRangeOver(row, column)}
                       >
                         <TableCell
                           row={row}
@@ -1386,9 +1352,7 @@ export function TablePanel({
                             steppingAt.column === column
                           }
                           read={steppingReads.has(label)}
-                          pointedAt={
-                            pointer?.row === row && pointer.column === column
-                          }
+                          pointedAt={referenced}
                           editing={
                             editing &&
                             active?.row === row &&
@@ -1399,38 +1363,19 @@ export function TablePanel({
                           inputRef={inputRef}
                           selectedRef={selectedRef}
                           onDown={(event) => {
-                            // A drag that begins on a cell sweeps a
-                            // rectangle. In point mode the mousedown is
-                            // swallowed instead, so the formula being typed
-                            // does not lose focus and commit itself before
-                            // the click can mean anything.
-                            if (pointing) {
-                              rangeAnchor.current = { row, column };
-                              rangeDragged.current = false;
-                              return;
-                            }
+                            // A successful formula pick consumes the pointer press.
+                            // A declined pick leaves the draft focused until click.
+                            if (pointing) return;
                             dragging.current = "cells";
                             if (event.shiftKey) extend(row, column);
                             else select(row, column);
                           }}
                           onEnter={() => {
                             if (fill.dragging()) { fill.over(row, column); return; }
-                            if (pointing && rangeAnchor.current) {
-                              pointRangeOver(row, column);
-                              return;
-                            }
                             if (dragging.current === "cells")
                               extend(row, column);
                           }}
                           onSelect={(event) => {
-                            if (rangeAnchor.current) {
-                              const anchor = rangeAnchor.current;
-                              rangeAnchor.current = null;
-                              if (rangeDragged.current) {
-                                pointRangeTo(anchor, row, column);
-                                return;
-                              }
-                            }
                             if (pointTo(row, column)) return;
                             // Not a reference: the ordinary click it was, and
                             // the formula it interrupted ends here rather

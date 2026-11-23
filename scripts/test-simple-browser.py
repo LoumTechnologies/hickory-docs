@@ -811,9 +811,13 @@ def spreadsheet_acceptance(driver, folder, backend):
         driver.act("spreadsheet-structure", button="− Row")
         driver.act("spreadsheet-select", row=0, column=3)
         driver.act("spreadsheet-structure", button="− Column")
-        draft = driver.act("spreadsheet-formula-point", row=2, column=2, prefix="=sum(", fromRow=0, fromColumn=0, toRow=1, toColumn=1, touch=True)
-        assert draft == "=sum(A1:B2", draft
-        driver.act("spreadsheet-formula", value=draft + ")")
+        rectangle = [[0, 0], [0, 1], [1, 0], [1, 1]]
+        for gesture in [{"touch": True}, {"continuing": True, "hoverRow": 0, "hoverColumn": 2},
+                        {"continuing": True, "hoverRow": 2, "hoverColumn": 0, "releaseOutside": True}]:
+            picked = driver.act("spreadsheet-formula-point", row=2, column=2, prefix="=sum(",
+                                fromRow=1, fromColumn=1, toRow=0, toColumn=0, **gesture)
+            assert picked == {"draft": "=sum(A1:B2", "preview": rectangle, "picked": rectangle}, picked
+        driver.act("spreadsheet-formula", value=picked["draft"] + ")")
         eventually(lambda: driver.act("spreadsheet-value", row=2, column=2), "12")
         driver.act("spreadsheet-select", row=2, column=0)
         driver.act("spreadsheet-formula", value="0")
