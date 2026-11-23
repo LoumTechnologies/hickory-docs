@@ -1,7 +1,23 @@
 <h:doc xmlns:h="http://www.hickorydocs.com/1.0">
 # The corner shop order book
 
-Open this document beside `orders.py`. **Bold decisions**, *emphasized notes*,
+Open **Terminal** from **View** (the **Panes** menu on macOS) and run
+`python3 -m unittest -v`. Then open `orders.py` and find `line_total` to see
+what the tests exercise.
+
+For a first review, open **Agent** from the same menu and send this prompt:
+
+> Read orders.py and test_orders.py using project.md as the document context.
+> Explain why the example totals $18.80.
+> Put a unified diff for a new 100% discount test in a display-only `diff`
+> fence inside the accepted response. Leave the workspace files unchanged.
+
+Use the patch's right gutter to review it. Apply to the draft, inspect
+`test_orders.py`, then save and rerun the tests. **Repository changes** shows the
+saved diff against the sample's starting commit. The [feature tour](README.md)
+also covers language tools, debugging, source history, coverage and recovery.
+
+Keep this document beside `orders.py`. **Bold decisions**, *emphasized notes*,
 `literal code` and headings remain editable. Try typing and undoing beside a
 rendered table; use **Edit source** in the browser to reveal its backing text.
 Markdown and CSV tables appear as editable grids on every simple UI. Use the arrow keys to move between cells. **Edit source text** reveals just that table; **Edit tables as grids** restores its grid. Equation controls use the function icon beside their source line.
@@ -19,7 +35,7 @@ does not silently rewrite Python business logic.
 
 ## A CSV-backed table
 
-<h:table path="generated/stock.csv" header="true">
+<h:table header="true">
 Product,Stock,Note
 Notebook,12,"Grid paper, pocket size"
 Pen,30,Blue ink
@@ -92,7 +108,7 @@ block does not change generated files.
 
 Open [the recorded execution example](README.md#recorded-execution) to inspect
 `order-check` and its saved stdout. It is a standalone runtime document: keeping
-that cell separate lets this workbook reconstruct its complete file-and-patch
+that cell separate lets the workspace reconstruct its complete file-and-patch
 project without pretending an unexecuted command has retained filesystem outputs.
 Viewing a recorded result never reruns its command.
 
@@ -115,5 +131,4 @@ print("<script>literal text</script>")
 Search for `Notebook`, fold an indented Python block, split a pane and move this
 tab. Keep an unsaved edit while moving it, then undo in the destination pane.
 
-<h:project />
 </h:doc>

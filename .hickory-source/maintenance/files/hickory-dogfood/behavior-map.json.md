@@ -61650,6 +61650,12 @@ The entry below owns this output. Its metadata is separate from semantic verific
         "simple-showcase-5"
       ]
     },
+    "examples/simple-ui/project.md": {
+      "source": ".hickory-source/frontends/simple-showcase.md",
+      "owner": "simple-frontends",
+      "used_by": [],
+      "role": "example"
+    },
     "examples/simple-ui/prepare.py": {
       "source": ".hickory-source/frontends/simple-showcase.md",
       "owner": "simple-frontends",

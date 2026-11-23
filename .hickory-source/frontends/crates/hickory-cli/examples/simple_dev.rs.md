@@ -286,7 +286,8 @@ fn cmd(program: impl AsRef<std::ffi::OsStr>, args: &[&str]) -> Command {
 
 </ui:copy>
 
-Use the prepared simple UI showcase by default. Only a missing default workspace triggers the fixture preparation and its explicit recorded sample run; existing folders retain all edits and cached services. An explicit HICKORY_PROJECT_DIR must already exist and bypasses sample preparation. The all-platform supervisor passes its chosen folder to each child, so preparation happens once. The callback listens on an OS-assigned loopback port. Configure the browser origin before starting its proxy; strictPort prevents Vite silently moving to a disallowed origin. A native launch passes the origin as startup configuration rather than asking the user to copy a port. On macOS, wrap the built executable in a named, ad-hoc-signed app bundle so AppKit has a real application identity. Launch it through macOS Launch Services with `open -n -W` so foreground activation works as a normal app. Pass the backend origin and development host PID explicitly; the app watches that host and terminates when it exits. Supervise the waiting `open` process as an owned child; use a per-launch directory to avoid replacing a running app’s executable.
+Use the prepared code-review showcase by default. The earlier demo stays at
+`.dev/simple-ui/project` and can still be opened explicitly. Only a missing default workspace triggers the fixture preparation and its explicit recorded sample run; existing folders retain all edits and cached services. An explicit HICKORY_PROJECT_DIR must already exist and bypasses sample preparation. The all-platform supervisor passes its chosen folder to each child, so preparation happens once. The callback listens on an OS-assigned loopback port. Configure the browser origin before starting its proxy; strictPort prevents Vite silently moving to a disallowed origin. A native launch passes the origin as startup configuration rather than asking the user to copy a port. On macOS, wrap the built executable in a named, ad-hoc-signed app bundle so AppKit has a real application identity. Launch it through macOS Launch Services with `open -n -W` so foreground activation works as a normal app. Pass the backend origin and development host PID explicitly; the app watches that host and terminates when it exits. Supervise the waiting `open` process as an owned child; use a per-launch directory to avoid replacing a running app’s executable.
 
 The Mac launcher must install the SwiftPM resource bundle before signing its app. Copying only the executable loses the local preview page and every relative engine/font dependency. Replace the installed resource bundle on each build so removed assets cannot survive a restart. The packaging witness checks nested assets, replacement and refusal when the build bundle is missing.
 
@@ -296,6 +297,11 @@ location before handing it to a host. The browser puts that identity in a query
 parameter. macOS and iOS receive it through app startup configuration. Android
 passes it as a string extra through the device shell, where quoting preserves
 spaces, Unicode and punctuation as one argument.
+
+Without an explicit file, use the workbook only for the prepared showcase.
+An existing workspace may have renamed or removed its workbook, so a missing
+or out-of-workspace default leaves the editor empty. The same anchor goes to
+every host, and a caller's explicit file still goes through full validation.
 
 Attach the checkout's installed Python worker when it is available. Opening
 source must work without it. This attaches an existing runtime from the host
@@ -316,7 +322,7 @@ fn project_directory(root: &Path, supplied: Option<PathBuf>) -> Result<(PathBuf,
         );
         return Ok((path, false));
     }
-    let path = root.join(".dev/simple-ui/project");
+    let path = root.join(".dev/simple-ui/code-review");
     let prepare = !path.try_exists()?;
     ensure!(
         prepare || path.is_dir(),
@@ -366,6 +372,13 @@ fn browser_page(port: u16, file: Option<&str>) -> Result<reqwest::Url> {
     Ok(url)
 }
 
+fn initial_file(project: &Path, supplied: Option<std::ffi::OsString>, showcase: bool) -> Result<Option<String>> {
+    if supplied.is_some() || !showcase {
+        return requested_file(project, supplied);
+    }
+    Ok(requested_file(project, Some("workbook.md".into())).ok().flatten())
+}
+
 fn checkout_python(root: &Path) -> Option<PathBuf> {
     let path = root.join(if cfg!(windows) {
         "apps/agent/.venv/Scripts/python.exe"
@@ -380,8 +393,9 @@ async fn launch(platform: &str, session: &mut Session) -> Result<()> {
         .join("../..")
         .canonicalize()?;
     env::set_current_dir(&root)?;
-    let (project, prepare) =
-        project_directory(&root, env::var_os("HICKORY_PROJECT_DIR").map(PathBuf::from))?;
+    let supplied_project = env::var_os("HICKORY_PROJECT_DIR").map(PathBuf::from);
+    let showcase = supplied_project.is_none();
+    let (project, prepare) = project_directory(&root, supplied_project)?;
     if prepare {
         session
             .run(&mut cmd(
@@ -401,7 +415,7 @@ async fn launch(platform: &str, session: &mut Session) -> Result<()> {
         "Workspace must be a directory: {}",
         project.display()
     );
-    let file = requested_file(&project, env::var_os("HICKORY_OPEN_FILE"))?;
+    let file = initial_file(&project, env::var_os("HICKORY_OPEN_FILE"), showcase)?;
     let python = env::var_os("HICKORY_AGENT_PYTHON")
         .map(PathBuf::from)
         .or_else(|| checkout_python(&root));
@@ -1038,9 +1052,21 @@ mod tests {
         assert!(!installed.join("katex/fonts/font.woff2").exists());
     }
     #[test]
+    fn initial_file_prefers_the_showcase_workbook_and_respects_explicit_choices() {
+        let folder = tempfile::tempdir().unwrap();
+        let root = folder.path();
+        assert_eq!(initial_file(root, None, true).unwrap(), None);
+        std::fs::write(root.join("workbook.md"), "workbook").unwrap();
+        std::fs::write(root.join("orders.py"), "pass").unwrap();
+        assert_eq!(initial_file(root, None, true).unwrap().as_deref(), Some("workbook.md"));
+        assert_eq!(initial_file(root, None, false).unwrap(), None);
+        assert_eq!(initial_file(root, Some("orders.py".into()), true).unwrap().as_deref(), Some("orders.py"));
+        assert!(initial_file(root, Some("missing.py".into()), true).is_err());
+    }
+    #[test]
     fn default_project_prepares_once_and_preserves_saved_edits() {
         let root = tempfile::tempdir().unwrap();
-        let expected = root.path().join(".dev/simple-ui/project");
+        let expected = root.path().join(".dev/simple-ui/code-review");
         assert_eq!(
             project_directory(root.path(), None).unwrap(),
             (expected.clone(), true)

@@ -219,7 +219,7 @@ fn project_directory(root: &Path, supplied: Option<PathBuf>) -> Result<(PathBuf,
         );
         return Ok((path, false));
     }
-    let path = root.join(".dev/simple-ui/project");
+    let path = root.join(".dev/simple-ui/code-review");
     let prepare = !path.try_exists()?;
     ensure!(
         prepare || path.is_dir(),
@@ -269,6 +269,13 @@ fn browser_page(port: u16, file: Option<&str>) -> Result<reqwest::Url> {
     Ok(url)
 }
 
+fn initial_file(project: &Path, supplied: Option<std::ffi::OsString>, showcase: bool) -> Result<Option<String>> {
+    if supplied.is_some() || !showcase {
+        return requested_file(project, supplied);
+    }
+    Ok(requested_file(project, Some("workbook.md".into())).ok().flatten())
+}
+
 fn checkout_python(root: &Path) -> Option<PathBuf> {
     let path = root.join(if cfg!(windows) {
         "apps/agent/.venv/Scripts/python.exe"
@@ -283,8 +290,9 @@ async fn launch(platform: &str, session: &mut Session) -> Result<()> {
         .join("../..")
         .canonicalize()?;
     env::set_current_dir(&root)?;
-    let (project, prepare) =
-        project_directory(&root, env::var_os("HICKORY_PROJECT_DIR").map(PathBuf::from))?;
+    let supplied_project = env::var_os("HICKORY_PROJECT_DIR").map(PathBuf::from);
+    let showcase = supplied_project.is_none();
+    let (project, prepare) = project_directory(&root, supplied_project)?;
     if prepare {
         session
             .run(&mut cmd(
@@ -304,7 +312,7 @@ async fn launch(platform: &str, session: &mut Session) -> Result<()> {
         "Workspace must be a directory: {}",
         project.display()
     );
-    let file = requested_file(&project, env::var_os("HICKORY_OPEN_FILE"))?;
+    let file = initial_file(&project, env::var_os("HICKORY_OPEN_FILE"), showcase)?;
     let python = env::var_os("HICKORY_AGENT_PYTHON")
         .map(PathBuf::from)
         .or_else(|| checkout_python(&root));
@@ -918,9 +926,21 @@ mod tests {
         assert!(!installed.join("katex/fonts/font.woff2").exists());
     }
     #[test]
+    fn initial_file_prefers_the_showcase_workbook_and_respects_explicit_choices() {
+        let folder = tempfile::tempdir().unwrap();
+        let root = folder.path();
+        assert_eq!(initial_file(root, None, true).unwrap(), None);
+        std::fs::write(root.join("workbook.md"), "workbook").unwrap();
+        std::fs::write(root.join("orders.py"), "pass").unwrap();
+        assert_eq!(initial_file(root, None, true).unwrap().as_deref(), Some("workbook.md"));
+        assert_eq!(initial_file(root, None, false).unwrap(), None);
+        assert_eq!(initial_file(root, Some("orders.py".into()), true).unwrap().as_deref(), Some("orders.py"));
+        assert!(initial_file(root, Some("missing.py".into()), true).is_err());
+    }
+    #[test]
     fn default_project_prepares_once_and_preserves_saved_edits() {
         let root = tempfile::tempdir().unwrap();
-        let expected = root.path().join(".dev/simple-ui/project");
+        let expected = root.path().join(".dev/simple-ui/code-review");
         assert_eq!(
             project_directory(root.path(), None).unwrap(),
             (expected.clone(), true)

@@ -68,7 +68,8 @@ describe("shared frontend layout contract", () => {
     const source = "<hick:project/>\n<hick:file id=\"base\" path=\"x.py\">\nprint(1)\n</hick:file>\n```patch id=\"change\" after=\"base\"\n--- a/x.py\n+++ b/x.py\n@@ -1 +1 @@\n-print(1)\n+print(\"café 😀\")\n```\n```python path=\"other.py\"\nprint(3)\n```\n```diff\n--- a/fake.py\n+++ b/fake.py\n@@ -1 +1 @@\n-a\n+b\n```";
     expect(proseFences(parseHickDoc(source), source).map(fence => fence.info)).toEqual(["diff"]);
     const workbook = new TextDecoder().decode(readFileSync("../../examples/simple-ui/workbook.md"));
-    const demo = hickParser.materializeProject("workbook.md", { "workbook.md": workbook });
+    const entry = new TextDecoder().decode(readFileSync("../../examples/simple-ui/project.md"));
+    const demo = hickParser.materializeProject("project.md", { "project.md": entry, "workbook.md": workbook });
     expect(new TextDecoder().decode(new Uint8Array(demo.new.find(entry => entry.path === "generated/coupon.py")!.bytes))).toContain("Coupon receipt:");
     const project = hickParser.materializeProject("project.md", { "project.md": source });
     expect(new TextDecoder().decode(new Uint8Array(project.new.find(entry => entry.path === "x.py")!.bytes))).toBe('print("café 😀")\n');

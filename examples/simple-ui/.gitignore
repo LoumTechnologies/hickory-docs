@@ -1,3 +1,5 @@
 .hick-cache/
+.hick-journal/
+.hick-lsp.json
 __pycache__/
-generated/
+sessions/

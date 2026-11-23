@@ -1,7 +1,7 @@
 # Simple UI playground: the corner shop
 
-A runnable Python project and executable workbook for the browser, macOS, iOS
-and Android simple UIs. Python 3.10+ is sufficient for the program and tests.
+A runnable Python project and executable workbook for the Simple frontends.
+Python 3.10+ is sufficient for the program and tests.
 Language servers, debug adapters and an agent provider are optional services.
 
 Open [tables.md](tables.md) for named-table formulas and a read-only Python output.
@@ -14,17 +14,19 @@ From the Hickory repository root:
 just simple-dev browser
 ```
 
-The default is `.dev/simple-ui/project`. First launch builds the CLI, prepares a
-copy, generates its files and records the supplied Python cell on your host using
-the local executor. Later launches reuse the folder and preserve your edits.
-Set `HICKORY_PROJECT_DIR=/absolute/path` to use another existing project.
+The launcher opens `workbook.md` in `.dev/simple-ui/code-review`. First launch builds
+the CLI, prepares a copy, generates its files, records the supplied Python
+cells on your host and creates a local Git baseline. Later launches reuse the
+folder and preserve your edits. Set `HICKORY_PROJECT_DIR=/absolute/path` to use
+another existing project, including an earlier demo at `.dev/simple-ui/project`.
 
 For another fresh copy, run `python3 examples/simple-ui/prepare.py --record --dest /path/to/a/new/folder` after building the CLI. The optional `--record`
 executes the sample cell and caches actual output. Omit it to construct the workbook and weave the runtime example without
 executing; the output card will then be unrecorded. Preparation refuses to
 overwrite an existing workspace.
 
-Use `apple`, `ios`, `android` or `all` instead of `browser` to select the existing
+Add `HICKORY_OPEN_FILE=workbook.md` when launching an explicitly selected copy.
+Use `apple`, `ios`, `android`, `linux`, `windows` or `all` to select the existing
 platform launcher. Native launchers require their platform SDK/device setup.
 Phone clients attach to the engine on the development machine; Python runs on
 that machine, not on the phone. See
@@ -54,13 +56,18 @@ that machine, not on the phone. See
 | Pane split/resize | Split from the menu, drag the divider | Keep code and workbook side by side. |
 | Tab move/reorder/dock | Drag a dirty tab to another strip or pane edge | Text, selection and undo follow it; dirty tabs refuse to close. |
 | Terminal | Open Terminal and run commands below | Real host process, retained draft/process when the tab moves. |
-| Agent | Open Agent; enter the prompt below | Send explicitly after configuring a provider; move the tab with an unsent draft. |
+| Agent | Open Agent and send the workbook prompt | Review and apply a patch to the draft, then save only if you want to keep it. |
+| Git review | Save a one-line edit to `test_orders.py`, then open Repository changes | Read the diff against the starting commit and try stage/unstage. Repository history shows the baseline. |
+| Source history and recovery | Save an edit to `scratch.txt` or keep an unsaved draft, then open the corresponding view | Local source history shows a saved revision. Source recovery lets you preview retained drafts before restoring them. |
+| Tests and coverage | Open `test_orders.py` and choose Tests and coverage or a source test gutter | Run the local test and follow the result to its source. Coverage depends on an installed collector. |
+| Workspace search and outline | Search Everywhere for `line_total`; open File outline in `orders.py` | See where the function is called and jump back after inspecting it. |
+| Templates and refactoring | Open Edit → Insert reusable template or Refactor and quick fixes in `orders.py` | Preview an available change before applying it. Python provider support varies by action. |
+| Construction and analysis | Open Construction reading on the workbook and Workspace analysis on the project | Inspect the authored coupon block and patch, then follow the generated file and any available evidence. |
 
-The next sections exercise semantic services and debugger controls. Unsupported
-features are not simulated: full native Markdown WYSIWYG beyond tables, completion snippets,
-cross-file rename/code actions, persistent pane layout, and crash recovery are
-outside the current simple UI slice. Native math requires prepared local KaTeX
-assets (the launcher prepares them from installed web dependencies).
+The next sections exercise semantic services and debugger controls. The actions
+a provider offers depend on its capabilities and the selected source. Native
+math requires local KaTeX assets, which the launcher prepares from the installed
+web dependencies.
 
 ## Real language services
 
@@ -72,7 +79,7 @@ servers installed in a different demo do not carry over. Use the same
 Install Python's real server for the prepared workspace:
 
 ```sh
-target/debug/hick lsp install python --root "$PWD/.dev/simple-ui/project"
+target/debug/hick lsp install python --root "$PWD/.dev/simple-ui/code-review"
 ```
 
 A launcher can attach to the engine already running for an installed desktop
@@ -102,7 +109,7 @@ Restart/Retry language services, then open `orders.py`:
 Install the real adapter if the launch control requests it:
 
 ```sh
-target/debug/hick dap install python --root "$PWD/.dev/simple-ui/project"
+target/debug/hick dap install python --root "$PWD/.dev/simple-ui/code-review"
 ```
 
 Save `orders.py`. In its right-hand line controls, put a breakpoint on
@@ -132,21 +139,27 @@ watch loop. Move the terminal tab while it runs, or keep an unsent command in it
 draft. Full-screen terminal applications and rich ANSI rendering are outside the
 matched terminal slice.
 
-After configuring an agent provider through the existing settings UI, use this
-prompt in the simple UI's Agent pane:
+On the workspace host, install the locked Python worker from the Hickory
+checkout and sign in to the subscription you plan to use:
 
-> Read orders.py and test_orders.py. Explain why the sample total is $18.80.
-> Suggest a boundary test without changing files.
+```sh
+uv sync --project apps/agent --locked --no-editable
+codex login
+```
 
-The sample supplies no provider credentials and sends nothing automatically.
+Relaunch `just simple-dev` after installing the worker. In **Agent**, choose
+**ChatGPT subscription** for Codex. If you use Claude, install Claude Code, run
+`claude auth login` on the same host and choose **Claude Code subscription**.
+The picker also offers Grok. Google One and Gemini accounts have no provider
+option here. Use the workbook prompt to try a guarded patch review.
 
 ## Refresh a recorded result
 
 After intentionally changing saved source, rerun from the repository root:
 
 ```sh
-cd .dev/simple-ui/project
-HICKORY_EXECUTOR=local ../../../target/debug/hick run workbook.md --cache
+cd .dev/simple-ui/code-review
+HICKORY_EXECUTOR=local ../../../target/debug/hick run README.md --cache
 ```
 
 Refresh recorded output in the UI. Dirty or mismatched source hides positional
