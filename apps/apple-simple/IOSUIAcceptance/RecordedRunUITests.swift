@@ -1,6 +1,50 @@
 import XCTest
 
 final class RecordedRunUITests: XCTestCase {
+    @MainActor func testNativeDirtyTabCloseChoices() throws {
+        continueAfterFailure = false
+        let origin = try XCTUnwrap(ProcessInfo.processInfo.environment["HICKORY_IOS_PARITY_ORIGIN"])
+        let path = "note.txt"
+        let app = XCUIApplication()
+        app.launchEnvironment["HICKORY_API_ORIGIN"] = origin
+        app.launchEnvironment["HICKORY_OPEN_FILE"] = path
+        app.launch()
+
+        let editor = app.textViews[path].firstMatch
+        let close = app.buttons["Close \(path) •"].firstMatch
+        let alert = app.alerts.firstMatch
+        func choose(_ choice: String) {
+            XCTAssertTrue(close.waitForExistence(timeout: 15))
+            close.tap()
+            XCTAssertTrue(alert.waitForExistence(timeout: 10))
+            for action in ["Save", "Discard Changes", "Cancel"] {
+                XCTAssertTrue(alert.buttons[action].exists, action)
+            }
+            alert.buttons[choice].tap()
+            XCTAssertTrue(alert.waitForNonExistence(timeout: 10))
+        }
+        func edit(_ text: String) {
+            XCTAssertTrue(editor.waitForExistence(timeout: 15))
+            editor.tap()
+            editor.typeText(text)
+            XCTAssertEqual(editor.value as? String, text)
+        }
+
+        edit("discarded draft")
+        choose("Cancel")
+        XCTAssertEqual(editor.value as? String, "discarded draft")
+        choose("Discard Changes")
+        XCTAssertTrue(editor.waitForNonExistence(timeout: 10))
+        app.buttons[path].firstMatch.tap()
+        edit("saved draft")
+        choose("Save")
+        XCTAssertTrue(editor.waitForNonExistence(timeout: 15))
+        app.buttons[path].firstMatch.tap()
+        XCTAssertTrue(editor.waitForExistence(timeout: 10))
+        XCTAssertEqual(editor.value as? String, "saved draft")
+        NSLog("HickoryUIKitParity native-dirty-tab-close-choices")
+    }
+
     @MainActor func testRecordedUserAndAssistantRunsShowTerminalWithoutChangingSource() throws {
         continueAfterFailure = false
         let origin = try XCTUnwrap(ProcessInfo.processInfo.environment["HICKORY_IOS_PARITY_ORIGIN"])

@@ -3145,6 +3145,19 @@ The Python browser acceptance suite could start its isolated real engine but Chr
 
 Implementation and focused tests are constructed in the [frontend index](index.md). The [developer guide](../../docs/developers/simple-frontends.md) records commands and verification limits.
 
+## Close an edited file tab on Apple
+
+The tab close button and the Close Tab command name the edited file and offer
+Save, Discard Changes and Cancel. An unnamed or retained deleted draft uses
+Save As to collect a destination. Cancel keeps the draft open. Discard closes
+the tab and frees the draft so reopening reads from disk. Save closes the tab
+after a confirmed write and keeps it open if the write fails or newer edits
+arrive. An in-progress save asks the reader to wait before closing.
+
+The [Apple workspace](apps/apple-simple/Sources/Workspace.swift.md) owns these
+decisions. The [iOS acceptance runner](../mechanisms/ios-mounted-parity-acceptance.md)
+exposes the `dirty-tab-close` workflow.
+
 ## Find saved workspace text
 
 The existing Edit menu opens a floating workspace search on browser, Apple and Android. Literal, regular-expression, match-case and whole-word queries use the engine's exhaustive find API, including generated-file ownership. Results enumerate occurrences, paginate presentation and state when the server cap makes the result incomplete. Search is explicitly over saved workspace text: unsaved buffers remain intact, and precise navigation requires their text to match the result's source hash. Byte columns are converted at Unicode scalar boundaries to editor UTF-16 positions. Query changes and reconnects retire pending answers; search itself never saves or edits text.

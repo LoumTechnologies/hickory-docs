@@ -56,6 +56,7 @@ WORKFLOWS = {
     'git-review': ('testNativeGitReviewStagesOnlySavedBytesAndRetainsDraft', ['native-git-review-staged-saved-only-and-retained-draft']),
     'git-history': ('testNativeGitAttributionOpensImmutableCommitAndRetainsDraft',
                     ['native-git-history-read-immutable-commit-and-retained-draft']),
+    'dirty-tab-close': ('testNativeDirtyTabCloseChoices', ['native-dirty-tab-close-choices']),
     'python-definition': ('testNativePythonDefinitionAndHistoryAcrossFiles', ['native-python-definition-and-back-forward']),
     'startup': ('testMountedRequestedFileRetainsEditingThroughDelayedDiagnostics', ['requested-source-before-provider', 'delayed-diagnostic-kept-editor-state']),
     'startup-authority': ('testMountedRequestedTextPrecedesTreeAuthority', ['requested-text-before-tree-authority', 'late-tree-authority-kept-editor-state']),
@@ -95,7 +96,7 @@ def recorded_fixture_path(folder, workflow, path):
     return folder/fixture/path
 
 def workflow_target(workflow):
-    ui_workflows = {'recorded-run', 'proposal-native-send', 'python-definition'} | RECORDED_CONSTRUCTION_SIDES.keys() | RECORDED_DEBUG_UI_SIDES.keys() | GIT_WORKFLOWS
+    ui_workflows = {'recorded-run', 'proposal-native-send', 'python-definition', 'dirty-tab-close'} | RECORDED_CONSTRUCTION_SIDES.keys() | RECORDED_DEBUG_UI_SIDES.keys() | GIT_WORKFLOWS
     return RECORDED_RUN_TARGET if workflow in ui_workflows else TARGET
 
 DEFINITION_TRACE = r'''
@@ -379,6 +380,9 @@ def managed_move_publication(files):
 
 def prepare_workflow(workflow, workspace, python_env, slow_debug, recorded_fixtures=None):
     workspace.mkdir()
+    if workflow == 'dirty-tab-close':
+        (workspace/'note.txt').write_bytes(b'')
+        return {'note.txt': 'saved draft'}, None
     if workflow in RECORDED_CONSTRUCTION_SIDES:
         side = RECORDED_CONSTRUCTION_SIDES[workflow]
         return load_script('test-simple-browser').prepare_recorded_construction(workspace, side), None
@@ -615,7 +619,7 @@ def run_workflow(workflow, device, seed, temporary_device, candidate, derived, d
             configured = derived/'Build/Products/owned-ios-parity.xctestrun'
             configured.write_bytes(plistlib.dumps(value))
             try:
-                allowance = '280' if workflow == 'python-definition' else '180'
+                allowance = '280' if workflow in {'python-definition', 'dirty-tab-close'} else '180'
                 with log.open('w') as output:
                     run(['xcodebuild', 'test-without-building', '-xctestrun', str(configured), '-destination', destination, '-parallel-testing-enabled', 'NO', '-maximum-concurrent-test-simulator-destinations', '1', '-only-testing:'+name, '-resultBundlePath', str(result), '-test-timeouts-enabled', 'YES', '-maximum-test-execution-time-allowance', allowance], stdout=output, stderr=subprocess.STDOUT)
                 summary = json.loads(subprocess.check_output(['xcrun', 'xcresulttool', 'get', 'test-results', 'summary', '--path', str(result)]))

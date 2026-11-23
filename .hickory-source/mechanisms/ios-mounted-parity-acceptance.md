@@ -1708,10 +1708,59 @@ extension UIKitParityAcceptanceTests {
 
 The UI test opens Agent from the View menu and taps Run within each recorded message. It checks the completed terminal through WebKit accessibility and compares the text and frame of the same recorded editor after dismissal. The runner independently checks terminal results and the original archive bytes.
 
+The tab close test uses native keyboard input, the tab's close button and all
+three alert choices. Reopening through Files distinguishes a discarded draft
+from a saved one. The runner starts with an empty file and independently checks
+that the only final bytes are the text submitted through Save.
+
 <ui:copy id="ios-recorded-run-ui-test">
 import XCTest
 
 final class RecordedRunUITests: XCTestCase {
+    @MainActor func testNativeDirtyTabCloseChoices() throws {
+        continueAfterFailure = false
+        let origin = try XCTUnwrap(ProcessInfo.processInfo.environment["HICKORY_IOS_PARITY_ORIGIN"])
+        let path = "note.txt"
+        let app = XCUIApplication()
+        app.launchEnvironment["HICKORY_API_ORIGIN"] = origin
+        app.launchEnvironment["HICKORY_OPEN_FILE"] = path
+        app.launch()
+
+        let editor = app.textViews[path].firstMatch
+        let close = app.buttons["Close \(path) •"].firstMatch
+        let alert = app.alerts.firstMatch
+        func choose(_ choice: String) {
+            XCTAssertTrue(close.waitForExistence(timeout: 15))
+            close.tap()
+            XCTAssertTrue(alert.waitForExistence(timeout: 10))
+            for action in ["Save", "Discard Changes", "Cancel"] {
+                XCTAssertTrue(alert.buttons[action].exists, action)
+            }
+            alert.buttons[choice].tap()
+            XCTAssertTrue(alert.waitForNonExistence(timeout: 10))
+        }
+        func edit(_ text: String) {
+            XCTAssertTrue(editor.waitForExistence(timeout: 15))
+            editor.tap()
+            editor.typeText(text)
+            XCTAssertEqual(editor.value as? String, text)
+        }
+
+        edit("discarded draft")
+        choose("Cancel")
+        XCTAssertEqual(editor.value as? String, "discarded draft")
+        choose("Discard Changes")
+        XCTAssertTrue(editor.waitForNonExistence(timeout: 10))
+        app.buttons[path].firstMatch.tap()
+        edit("saved draft")
+        choose("Save")
+        XCTAssertTrue(editor.waitForNonExistence(timeout: 15))
+        app.buttons[path].firstMatch.tap()
+        XCTAssertTrue(editor.waitForExistence(timeout: 10))
+        XCTAssertEqual(editor.value as? String, "saved draft")
+        NSLog("HickoryUIKitParity native-dirty-tab-close-choices")
+    }
+
     @MainActor func testRecordedUserAndAssistantRunsShowTerminalWithoutChangingSource() throws {
         continueAfterFailure = false
         let origin = try XCTUnwrap(ProcessInfo.processInfo.environment["HICKORY_IOS_PARITY_ORIGIN"])
@@ -2543,6 +2592,7 @@ WORKFLOWS = {
     'git-review': ('testNativeGitReviewStagesOnlySavedBytesAndRetainsDraft', ['native-git-review-staged-saved-only-and-retained-draft']),
     'git-history': ('testNativeGitAttributionOpensImmutableCommitAndRetainsDraft',
                     ['native-git-history-read-immutable-commit-and-retained-draft']),
+    'dirty-tab-close': ('testNativeDirtyTabCloseChoices', ['native-dirty-tab-close-choices']),
     'python-definition': ('testNativePythonDefinitionAndHistoryAcrossFiles', ['native-python-definition-and-back-forward']),
     'startup': ('testMountedRequestedFileRetainsEditingThroughDelayedDiagnostics', ['requested-source-before-provider', 'delayed-diagnostic-kept-editor-state']),
     'startup-authority': ('testMountedRequestedTextPrecedesTreeAuthority', ['requested-text-before-tree-authority', 'late-tree-authority-kept-editor-state']),
@@ -2582,7 +2632,7 @@ def recorded_fixture_path(folder, workflow, path):
     return folder/fixture/path
 
 def workflow_target(workflow):
-    ui_workflows = {'recorded-run', 'proposal-native-send', 'python-definition'} | RECORDED_CONSTRUCTION_SIDES.keys() | RECORDED_DEBUG_UI_SIDES.keys() | GIT_WORKFLOWS
+    ui_workflows = {'recorded-run', 'proposal-native-send', 'python-definition', 'dirty-tab-close'} | RECORDED_CONSTRUCTION_SIDES.keys() | RECORDED_DEBUG_UI_SIDES.keys() | GIT_WORKFLOWS
     return RECORDED_RUN_TARGET if workflow in ui_workflows else TARGET
 
 DEFINITION_TRACE = r'''
@@ -2866,6 +2916,9 @@ def managed_move_publication(files):
 
 def prepare_workflow(workflow, workspace, python_env, slow_debug, recorded_fixtures=None):
     workspace.mkdir()
+    if workflow == 'dirty-tab-close':
+        (workspace/'note.txt').write_bytes(b'')
+        return {'note.txt': 'saved draft'}, None
     if workflow in RECORDED_CONSTRUCTION_SIDES:
         side = RECORDED_CONSTRUCTION_SIDES[workflow]
         return load_script('test-simple-browser').prepare_recorded_construction(workspace, side), None
@@ -3102,7 +3155,7 @@ def run_workflow(workflow, device, seed, temporary_device, candidate, derived, d
             configured = derived/'Build/Products/owned-ios-parity.xctestrun'
             configured.write_bytes(plistlib.dumps(value))
             try:
-                allowance = '280' if workflow == 'python-definition' else '180'
+                allowance = '280' if workflow in {'python-definition', 'dirty-tab-close'} else '180'
                 with log.open('w') as output:
                     run(['xcodebuild', 'test-without-building', '-xctestrun', str(configured), '-destination', destination, '-parallel-testing-enabled', 'NO', '-maximum-concurrent-test-simulator-destinations', '1', '-only-testing:'+name, '-resultBundlePath', str(result), '-test-timeouts-enabled', 'YES', '-maximum-test-execution-time-allowance', allowance], stdout=output, stderr=subprocess.STDOUT)
                 summary = json.loads(subprocess.check_output(['xcrun', 'xcresulttool', 'get', 'test-results', 'summary', '--path', str(result)]))

@@ -122,12 +122,30 @@ struct WorkspaceView: View {
         .popover(isPresented:Binding(get:{workspace.sourceHistory.showing},set:{if !$0{workspace.sourceHistory.close()}})) {SourceHistoryView(workspace:workspace).onKeyPress(.escape){workspace.sourceHistory.close();workspace.currentBuffer?.focusSource?();return .handled}}
         .popover(isPresented:$workspace.showTests) {TestSourcesView(workspace:workspace).onKeyPress(.escape){workspace.showTests=false;workspace.currentBuffer?.focusSource?();return .handled}}
         .popover(isPresented:$workspace.showEverywhere) {SearchEverywhereView(workspace:workspace,commands:menuCommands)}
-        .sheet(isPresented: Binding(get: { workspace.fileCommand != nil }, set: { if !$0 { workspace.fileCommand = nil; workspace.savingAll = false } })) {
+        .alert(workspace.tabClosePrompt?.saving == true ? "Save in progress" : "Save changes?",
+               isPresented: Binding(get: { workspace.tabClosePrompt != nil },
+                                    set: { if !$0 { workspace.tabClosePrompt = nil } }),
+               presenting: workspace.tabClosePrompt) { prompt in
+            if prompt.saving {
+                Button("OK", role: .cancel) {}
+            } else {
+                Button(prompt.needsPath ? "Save As…" : "Save") { Task { await workspace.saveAndClose(prompt) } }
+                Button("Discard Changes", role: .destructive) { workspace.discardAndClose(prompt) }
+                Button("Cancel", role: .cancel) {}
+            }
+        } message: { prompt in
+            if prompt.saving {
+                Text("Wait for “\(prompt.name)” to finish saving, then close its tab again.")
+            } else {
+                Text("Save the changes to “\(prompt.name)” before closing its tab?")
+            }
+        }
+        .sheet(isPresented: Binding(get: { workspace.fileCommand != nil }, set: { if !$0 { workspace.cancelFileCommand() } })) {
             VStack(alignment: .leading, spacing: 12) {
                 Text(workspace.fileCommand ?? "File").font(.headline)
                 Text("Enter a path in the connected workspace. Save As requires an unused path; an empty directory path opens the root.").font(.caption)
                 TextField("Workspace path", text: $workspace.filePath).textFieldStyle(.roundedBorder)
-                HStack { Button("Cancel") { workspace.fileCommand = nil; workspace.savingAll = false }; Spacer(); Button("OK") { Task { await workspace.performFileCommand() } } }
+                HStack { Button("Cancel") { workspace.cancelFileCommand() }; Spacer(); Button("OK") { Task { await workspace.performFileCommand() } } }
             }.padding().frame(minWidth: 320)
         }
         .sheet(isPresented: Binding(get: { workspace.changes.mode != nil }, set: { if !$0 { workspace.changes.close(workspace) } })) { WorkspaceChangesView(workspace:workspace) }

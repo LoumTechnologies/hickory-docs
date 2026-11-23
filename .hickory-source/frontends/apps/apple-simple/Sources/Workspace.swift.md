@@ -707,6 +707,15 @@ because they may describe names across several source tokens.
 
 Foreground file opening and background intelligence share one acquisition path. A pending read is keyed by workspace generation and path; after it returns, prefer any already available buffer so unsaved text cannot be overwritten. Confirm an intervening startup preview with that same authoritative response. If the response supplies text without a save guard for a first-open source, retain the text in a read-only preview so Refresh Files can retry permission. Retaining source attaches available capabilities without activating a pane. Only the foreground request changes layout and records navigation. Reconnecting cancels old acquisitions and prevents late results from entering the new workspace.
 
+Closing a tab uses its own buffer even when another tab is active. Keep the
+buffer and its native editor mounted while asking what to do. A choice applies
+to the captured editor and draft revision. Saving uses the ordinary guarded
+write or the existing Save As path for drafts that need a filename. Close only
+after the same buffer is clean. Discard evicts the editor and its language
+session so reopening reads saved bytes and cannot undo back into the draft.
+The [focused close tests](../Tests/SaveTests.swift.md#check-dirty-tab-close-choices)
+exercise these decisions.
+
 <ui:copy id="simple-230bbf9308-1">
     func loadBuffer(_ file: FileNode, forStartup: Bool = false) async throws -> DocumentBuffer {
         if let buffer = buffers[file.path] { return buffer }
@@ -985,11 +994,83 @@ Foreground file opening and background intelligence share one acquisition path. 
         adoptTabLayout(next, focus: retained)
         return true
     }
+    struct TabClosePrompt {
+        let tab: String
+        let bufferID: UUID
+        let revision: UUID
+        let name: String
+        let saving: Bool
+        let needsPath: Bool
+    }
+    var tabClosePrompt: TabClosePrompt?
+    private var closeAfterSaveAs: TabClosePrompt?
+
+    private func hasPendingNativeText(_ buffer: DocumentBuffer) -> Bool {
+        guard let editor = buffer.sourceEditorState?(), editor.attached else { return false }
+        return editor.composing || !exactUTF8(editor.source, buffer.text)
+    }
+
     func close(_ tab: String) {
-        if let buffer = bufferForTab(tab), buffer.dirty || buffer.saving {
-            status = "Unsaved edits retained. Save this document before closing its tab."; return
+        if let buffer = bufferForTab(tab), buffer.saving || buffer.dirty || hasPendingNativeText(buffer) {
+            tabClosePrompt = TabClosePrompt(tab: tab, bufferID: buffer.id, revision: buffer.sourceEditIdentity,
+                                            name: buffer.file.name, saving: buffer.saving,
+                                            needsPath: buffer.isUntitledDraft || buffer.resourceDeleted)
+            return
         }
-        if let buffer=bufferForTab(tab){buffer.retireAgentContext();sourceHistory.sourceClosed(buffer);sourceTemplates.sourceClosed(buffer);testSources.sourceClosed(buffer,workspace:self)}
+        removeTab(tab)
+    }
+
+    private func closeTarget(_ prompt: TabClosePrompt) -> DocumentBuffer? {
+        guard layout.groups().contains(where: { $0.tabs.containsTab(prompt.tab) }),
+              let buffer = bufferForTab(prompt.tab), buffer.id == prompt.bufferID,
+              buffer.sourceEditIdentity == prompt.revision, !buffer.saving else {
+            status = "The tab or its edits changed. Review the tab and try closing again."
+            return nil
+        }
+        return buffer
+    }
+
+    func discardAndClose(_ prompt: TabClosePrompt) {
+        guard !prompt.saving, let buffer = closeTarget(prompt) else { return }
+        removeTab(prompt.tab)
+        buffer.language?.close()
+        buffer.language = nil
+        if buffers[buffer.file.path] === buffer { buffers.removeValue(forKey: buffer.file.path) }
+        retainedResourceEditors = retainedResourceEditors.filter { $0.value !== buffer }
+    }
+
+    func saveAndClose(_ prompt: TabClosePrompt) async {
+        guard !prompt.saving, let buffer = closeTarget(prompt) else { return }
+        guard let engine else {
+            status = "Connect to a workspace server to save \(prompt.name). The tab is still open."
+            return
+        }
+        guard !hasPendingNativeText(buffer) else {
+            status = "Finish editing \(prompt.name) before saving. The tab is still open."
+            return
+        }
+        if buffer.isUntitledDraft || buffer.resourceDeleted {
+            chooseFileCommand("Save As")
+            closeAfterSaveAs = prompt
+            return
+        }
+        await buffer.save(using: engine)
+        guard closeTarget(prompt) === buffer, !buffer.dirty,
+              !hasPendingNativeText(buffer), buffer.error.isEmpty else {
+            if !buffer.error.isEmpty { status = buffer.error }
+            else { status = "Review \(prompt.name) before closing. The tab is still open." }
+            return
+        }
+        removeTab(prompt.tab)
+    }
+
+    private func removeTab(_ tab: String) {
+        if let buffer = bufferForTab(tab) {
+            buffer.retireAgentContext()
+            sourceHistory.sourceClosed(buffer)
+            sourceTemplates.sourceClosed(buffer)
+            testSources.sourceClosed(buffer, workspace: self)
+        }
         var next = layout
         next.remove(tab)
         adoptTabLayout(next)
@@ -1019,18 +1100,39 @@ Foreground file opening and background intelligence share one acquisition path. 
         buffers[path] = DocumentBuffer(file: FileNode(name: "Untitled \(buffers.values.filter{$0.isUntitledDraft}.count + 1)", path: path, dir: false), text: FileText(path: path, content: "", hash: ""),isUntitledDraft:true)
         showSource(path)
     }
-    func chooseFileCommand(_ command: String) { filePath = ""; fileCommand = command }
+    func chooseFileCommand(_ command: String) {
+        closeAfterSaveAs = nil
+        filePath = ""
+        fileCommand = command
+    }
+    func cancelFileCommand() {
+        closeAfterSaveAs = nil
+        fileCommand = nil
+        savingAll = false
+    }
     func performFileCommand() async {
         guard let command = fileCommand, let engine else { status = "Connect to a workspace server first."; return }
-        let path = filePath; let source = currentBuffer; fileCommand = nil
+        let path = filePath
+        let closeRequest = closeAfterSaveAs
+        closeAfterSaveAs = nil
+        fileCommand = nil
         if command == "Save As" {
+            let source = if let closeRequest { closeTarget(closeRequest) } else { currentBuffer }
             guard let source, !source.saving, !path.isEmpty else { return }
-            if exactUTF8(path,source.file.path),!source.resourceDeleted,!source.isUntitledDraft { await source.save(using: engine); return }
-            let submitted = source.text
+            if closeRequest == nil, exactUTF8(path,source.file.path),!source.resourceDeleted,!source.isUntitledDraft { await source.save(using: engine); return }
             source.saving = true; defer { source.saving = false }
             do {
                 let created=try await createSourceCopy(source,path:path)
-                showSource(created.file.path);await refresh()
+                if closeRequest != nil {
+                    if !created.dirty, !hasPendingNativeText(created) {
+                        removeTab(nativeSourceTab(created.file.path))
+                    } else {
+                        status = "Review \(created.file.name) before closing. The tab is still open."
+                    }
+                } else {
+                    showSource(created.file.path)
+                }
+                await refresh()
                 source.saving = false
                 if savingAll { await saveAll() }
             } catch { status = "\(error.localizedDescription) Original edits are retained. Choose an unused path and retry Save As." }

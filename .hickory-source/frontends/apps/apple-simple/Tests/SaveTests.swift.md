@@ -411,7 +411,174 @@ and independently captured source retain their existing reveal behavior.
 
 ## Check source writes and agent request encoding
 
+### Check dirty tab close choices
+
+Close an inactive tab to distinguish the target from the focused editor.
+Cancel leaves the original buffer in place. Discard evicts it and a new
+read sees saved text. A valid save receipt closes a clean tab, while a
+rejected write or an intervening edit leaves its draft open. For an untitled
+tab, cancelling the filename sheet or rejecting the destination keeps the
+draft. A confirmed creation closes the renamed tab.
+
 <ui:copy id="native-guarded-writes-and-requests">
+    @MainActor func testDirtyTabCloseCancelAndDiscard() async throws {
+        let (engine, buffer) = try fixture()
+        let workspace = Workspace()
+        workspace.engine = engine
+        let tab = nativeSourceTab(buffer.file.path)
+        workspace.buffers[buffer.file.path] = buffer
+        workspace.show(tab)
+        buffer.text = "discard me"
+        buffer.selection = NSRange(location: 3, length: 2)
+        workspace.newTab()
+        let active = workspace.activeTab
+
+        workspace.close(tab)
+        let stale = try XCTUnwrap(workspace.tabClosePrompt)
+        workspace.tabClosePrompt = nil
+        XCTAssertTrue(workspace.bufferForTab(tab) === buffer)
+        XCTAssertEqual(buffer.selection, NSRange(location: 3, length: 2))
+        XCTAssertEqual(buffer.text, "discard me")
+
+        buffer.text = "a newer draft"
+        workspace.discardAndClose(stale)
+        XCTAssertTrue(workspace.bufferForTab(tab) === buffer)
+        workspace.close(tab)
+        workspace.discardAndClose(try XCTUnwrap(workspace.tabClosePrompt))
+        XCTAssertFalse(workspace.layout.groups().contains { $0.tabs.containsTab(tab) })
+        XCTAssertNil(workspace.bufferForTab(tab))
+        XCTAssertEqual(workspace.activeTab, active)
+
+        ResponseProtocol.status = 200
+        ResponseProtocol.responsesByPath = [:]
+        ResponseProtocol.response = Data(#"{"path":"notes.txt","content":"before","hash":"disk"}"#.utf8)
+        await workspace.open(buffer.file)
+        XCTAssertEqual(workspace.currentBuffer?.text, "before")
+        XCTAssertFalse(workspace.currentBuffer === buffer)
+    }
+
+    @MainActor func testDirtyTabCloseWaitsForGuardedSave() async throws {
+        let (engine, buffer) = try fixture()
+        let workspace = Workspace()
+        workspace.engine = engine
+        let tab = nativeSourceTab(buffer.file.path)
+        workspace.buffers[buffer.file.path] = buffer
+        workspace.show(tab)
+        buffer.text = "next"
+        workspace.newTab()
+        let focused = workspace.activeTab
+        ResponseProtocol.responsesByPath = [:]
+        ResponseProtocol.status = 409
+        ResponseProtocol.response = Data(#"{"error":"changed on disk"}"#.utf8)
+
+        workspace.close(tab)
+        let request = try XCTUnwrap(workspace.tabClosePrompt)
+        await workspace.saveAndClose(request)
+        XCTAssertTrue(workspace.layout.groups().contains { $0.tabs.containsTab(tab) })
+        XCTAssertEqual(buffer.text, "next")
+        XCTAssertTrue(workspace.status.contains("changed on disk"))
+
+        let attempt = try XCTUnwrap(buffer.saveHistoryAttempt)
+        ResponseProtocol.status = 200
+        ResponseProtocol.response = try JSONSerialization.data(withJSONObject: [
+            "version": 1, "history_protocol": 1, "path": buffer.file.path, "request_id": attempt.id,
+            "source_hash": nativeSourceHash("next"), "save_guard": "after",
+            "history": ["available": true, "outcome": "published"],
+        ])
+        let arrived = expectation(description: "close save reached the fixture")
+        let gate = DispatchSemaphore(value: 0)
+        ResponseProtocol.beforeResponse = { incoming in
+            guard incoming.url?.path == "/api/source-history/file" else { return }
+            arrived.fulfill()
+            _ = gate.wait(timeout: .now() + 5)
+        }
+        defer { gate.signal(); ResponseProtocol.beforeResponse = nil }
+        let pending = Task { await workspace.saveAndClose(request) }
+        await fulfillment(of: [arrived], timeout: 3)
+        workspace.close(tab)
+        let busy = try XCTUnwrap(workspace.tabClosePrompt)
+        XCTAssertTrue(busy.saving)
+        workspace.discardAndClose(busy)
+        XCTAssertTrue(workspace.bufferForTab(tab) === buffer)
+        buffer.text = "newer edits"
+        gate.signal()
+        await pending.value
+        ResponseProtocol.beforeResponse = nil
+        XCTAssertEqual(buffer.base, "next")
+        XCTAssertEqual(buffer.text, "newer edits")
+        XCTAssertTrue(workspace.layout.groups().contains { $0.tabs.containsTab(tab) })
+
+        let latest = SourceSaveAttempt(source: buffer.text,
+            base: buffer.base, hash: buffer.hash, guardToken: "after", revision: buffer.sourceEditIdentity)
+        buffer.saveHistoryAttempt = latest
+        ResponseProtocol.response = try JSONSerialization.data(withJSONObject: [
+            "version": 1, "history_protocol": 1, "path": buffer.file.path, "request_id": latest.id,
+            "source_hash": nativeSourceHash("newer edits"), "save_guard": "last",
+            "history": ["available": true, "outcome": "published"],
+        ])
+        workspace.close(tab)
+        await workspace.saveAndClose(try XCTUnwrap(workspace.tabClosePrompt))
+        XCTAssertFalse(buffer.dirty)
+        XCTAssertEqual(buffer.base, "newer edits")
+        XCTAssertFalse(workspace.layout.groups().contains { $0.tabs.containsTab(tab) })
+        XCTAssertEqual(workspace.activeTab, focused)
+    }
+
+    @MainActor func testDirtyTabCloseSaveAsUsesTheRequestedDraft() async throws {
+        let (engine, _) = try fixture()
+        let workspace = Workspace()
+        workspace.engine = engine
+        workspace.newTab()
+        let draft = try XCTUnwrap(workspace.currentBuffer)
+        let tab = try XCTUnwrap(workspace.activeTab)
+        draft.text = "untitled draft"
+        workspace.newTab()
+        let focused = workspace.activeTab
+
+        workspace.close(tab)
+        let prompt = try XCTUnwrap(workspace.tabClosePrompt)
+        XCTAssertTrue(prompt.needsPath)
+        await workspace.saveAndClose(prompt)
+        XCTAssertEqual(workspace.fileCommand, "Save As")
+        workspace.cancelFileCommand()
+        XCTAssertNil(workspace.fileCommand)
+        XCTAssertTrue(workspace.layout.groups().contains { $0.tabs.containsTab(tab) })
+        XCTAssertTrue(workspace.bufferForTab(tab) === draft)
+        XCTAssertEqual(draft.text, "untitled draft")
+
+        workspace.sourceRootAddress = "/fixture"
+        workspace.sourceWorkspaceID = "workspace"
+        ResponseProtocol.status = 409
+        ResponseProtocol.responsesByPath = [:]
+        ResponseProtocol.response = Data(#"{"error":"destination exists"}"#.utf8)
+        await workspace.saveAndClose(prompt)
+        workspace.filePath = "copy.txt"
+        await workspace.performFileCommand()
+        XCTAssertTrue(workspace.layout.groups().contains { $0.tabs.containsTab(tab) })
+        XCTAssertTrue(workspace.status.contains("destination exists"))
+
+        let attempt = try XCTUnwrap(draft.creationAttempt)
+        ResponseProtocol.status = 200
+        ResponseProtocol.responsesByPath = [
+            "/api/source-history/create": try JSONSerialization.data(withJSONObject: [
+                "version": 1, "history_protocol": 1, "workspace": "workspace", "namespace": "/fixture",
+                "path": "copy.txt", "source": draft.text, "source_hash": nativeSourceHash(draft.text),
+                "hash": "confirmed", "request_id": attempt.id, "save_guard": "copy-before",
+                "history": ["available": true, "outcome": "published"],
+            ]),
+            "/api/files": Data(#"{"root":"fixture","root_path":"/fixture","workspace_id":"workspace","tree":[]}"#.utf8),
+        ]
+        defer { ResponseProtocol.responsesByPath = [:] }
+        await workspace.saveAndClose(prompt)
+        workspace.filePath = "copy.txt"
+        await workspace.performFileCommand()
+        XCTAssertFalse(draft.dirty)
+        XCTAssertTrue(workspace.buffers["copy.txt"] === draft)
+        XCTAssertEqual(draft.base, "untitled draft")
+        XCTAssertFalse(workspace.layout.groups().contains { $0.tabs.containsTab(tab) || $0.tabs.containsTab("copy.txt") })
+        XCTAssertEqual(workspace.activeTab, focused)
+    }
+
     @MainActor func testAgentRequestUsesSubscriptionAndPythonBackend() async throws {
         let (engine, _) = try fixture()
         ResponseProtocol.status = 200; ResponseProtocol.responsesByPath = [:]
