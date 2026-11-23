@@ -26,7 +26,7 @@ disk bytes. This flow uses no editor internals; the platform driver owns only
 keyboard spelling and visible control lookup. Run it alone with
 `python3 scripts/test-simple-browser.py --editor-navigation-only`.
 
-Run `python3 scripts/test-simple-browser.py --spreadsheet-only` for the focused spreadsheet flow. The same assertions drive the web simple UI and the exact local native bundle: range selection and contraction, row/column add/remove, formula-range dragging, a real Python result, and keyboard viewport sizing. The Python flow imports no frontend implementation. Its native host adapter forwards only formula HTTP requests and acknowledges revisioned source requests; it does not establish actual UIKit or Android device gesture acceptance. AppKit’s separate WKWebView and undo witness covers that platform boundary.
+Run `python3 scripts/test-simple-browser.py --spreadsheet-only` for the focused spreadsheet flow. The same assertions drive the web simple UI and the exact local native bundle: whole-row and whole-column selection, range selection and contraction, a numeric fill gesture, row/column add/remove, formula-range dragging, a real Python result without a prior language choice, and keyboard viewport sizing. The Python flow imports no frontend implementation. Its native host adapter forwards only formula HTTP requests and acknowledges revisioned source requests; it does not establish actual UIKit or Android device gesture acceptance. AppKit’s separate WKWebView and undo witness covers that platform boundary.
 
 The focused `--table-dataflow-only` flow records the small table example through
 the actual CLI, opens it through the simple browser, edits a price, saves, reruns
@@ -881,10 +881,12 @@ def spreadsheet_acceptance(driver, folder, backend):
     # One UI flow over the browser grid and the exact locally bundled native grid.
     source = "1,2,3\n4,5,6\n7,8,9\n"
     driver.act("open", path="spreadsheet.csv")
-    driver.act("spreadsheet-language", language="python")
     for native in [False, True]:
         if native:
             driver.act("native-table", url=(ROOT / "apps/apple-simple/Sources/Resources/math.html").as_uri() + "?table", backend=backend, source=source, format="csv")
+        assert driver.act("spreadsheet-select", row=0, column=0) == "A1"
+        assert driver.act("spreadsheet-select-header", axis="row", index=1) == "2:2"
+        assert driver.act("spreadsheet-select-header", axis="column", index=1) == "B:B"
         assert driver.act("spreadsheet-select", row=0, column=0, endRow=1, endColumn=1) == "A1:B2"
         assert driver.act("spreadsheet-select", row=0, column=0, endRow=0, endColumn=1) == "A1:B1"
         touch_range = driver.act("spreadsheet-touch-range", row=0, column=0, endRow=1, endColumn=1)
@@ -899,6 +901,12 @@ def spreadsheet_acceptance(driver, folder, backend):
         assert draft == "=sum(A1:B2", draft
         driver.act("spreadsheet-formula", value=draft + ")")
         eventually(lambda: driver.act("spreadsheet-value", row=2, column=2), "12")
+        driver.act("spreadsheet-select", row=2, column=0)
+        driver.act("spreadsheet-formula", value="0")
+        eventually(lambda: driver.act("spreadsheet-value", row=2, column=0), "0")
+        assert driver.act("spreadsheet-select", row=0, column=0, endRow=1, endColumn=0) == "A1:A2"
+        driver.act("spreadsheet-fill", row=2, column=0)
+        eventually(lambda: driver.act("spreadsheet-value", row=2, column=0), "7")
         assert driver.act("spreadsheet-height", key="Home") == 64
         assert driver.act("spreadsheet-height", key="ArrowDown") == 88
         if native:
@@ -1275,7 +1283,7 @@ def table_dataflow_acceptance(driver, folder, backend):
     assert state["total"] == "13" and state["readonly"] == 1, state
     source = path.read_text()
     order = re.search(r'<hick:table id="Order"[^>]*>\n(.*?)</hick:table>', source, re.S).group(1)
-    driver.act("native-table", url=(ROOT / "apps/apple-simple/Sources/Resources/math.html").as_uri() + "?table", backend=backend, source=order, format="csv", header=True, scope={"source": source, "table": "Order"})
+    driver.act("native-table", url=(ROOT / "apps/apple-simple/Sources/Resources/math.html").as_uri() + "?table", backend=backend, source=order, format="csv", header=True, language="python", scope={"source": source, "table": "Order"})
     # The same real formula route receives the full document through the native bridge.
     eventually(lambda: driver.act("spreadsheet-value", row=1, column=2), "8")
     output = "\x1eHICKORY_DISPLAY " + json.dumps({"kind": "table", "schema": [{"name": "Value", "dtype": "text"}], "rows": [["=1+1"]], "offset": 0, "has_more": False})

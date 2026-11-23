@@ -224,9 +224,9 @@ it("renders a published table as literal read-only values in the native surface"
   await act(async () => { bridge = mountNativeOutput(host); bridge.update("\x1eHICKORY_DISPLAY " + JSON.stringify({ kind: "table", schema: [{ name: "Value", dtype: "text" }], rows: [["=1+1"]], offset: 0, has_more: false })); });
   try {
     expect(screen.getByText("=1+1")).toBeTruthy();
-    expect(host.querySelector(".table-panel")).toBeNull();
+    expect(screen.getByRole("region", { name: "Read-only table" }).querySelector(".table-panel")).toBeTruthy();
     expect(host.querySelector('[contenteditable="true"]')).toBeNull();
-    expect(screen.queryByRole("textbox", { name: "Cell contents" })).toBeNull();
+    expect(screen.getByRole<HTMLInputElement>("textbox", { name: "Cell contents" }).disabled).toBe(true);
   } finally { await act(async () => bridge.dispose()); host.remove(); }
 });
 

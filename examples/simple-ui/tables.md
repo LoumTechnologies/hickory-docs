@@ -32,10 +32,10 @@ read formula source instead. The published `Summary` table is read-only.
 Viewing formulas never runs this block. After editing inputs, save and rerun to
 publish current results.
 
-<hick:exec id="summarize" container="python" language="python" tables="Order" table="Summary">
+```python id="summarize" container="python" tables="Order" table="Summary"
 order = table("Order")
 display_table(["Metric", "Value"], [["Order total", sum(order["Total"])]])
-</hick:exec>
+```
 
 ## Read the published result
 

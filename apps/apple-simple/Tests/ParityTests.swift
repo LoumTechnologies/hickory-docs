@@ -321,6 +321,96 @@ final class ParityTests: XCTestCase {
         editor.text.undoManager?.undo()
         XCTAssertEqual(buffer.text, source)
     }
+    @MainActor func testMountedSpreadsheetRestoresWritesAndCalculatesFirstFormula() throws {
+        let source = "Before\n\n| A | B |\n| --- | --- |\n| 2 | 3 |\n| 4 | total |\n\nAfter"
+        let file = FileNode(name: "grid.md", path: "grid.md", dir: false)
+        let buffer = DocumentBuffer(file: file, text: FileText(path: file.path, content: source, hash: "base"))
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [ResponseProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let engine = try Engine(address: "http://spreadsheet.invalid", session: session)
+        buffer.startupObservation = StartupSourceObservation(origin: engine.origin, root: "/fixture", workspace: nil)
+        ResponseProtocol.resetRequests()
+        ResponseProtocol.status = 200
+        ResponseProtocol.responsesByPath = [
+            "/api/formula/languages": Data(#"{"languages":["python","javascript"]}"#.utf8),
+            "/api/formula/evaluate": Data(#"{"values":{"B3":"6"},"errors":{}}"#.utf8),
+        ]
+        let editor = MacEditor(buffer)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 650, height: 450), styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = editor.scroll
+        window.orderFront(nil)
+        defer { window.orderOut(nil); session.invalidateAndCancel(); ResponseProtocol.responsesByPath = [:] }
+
+        func findWebView(_ view: NSView) -> WKWebView? {
+            (view as? WKWebView) ?? view.subviews.lazy.compactMap(findWebView).first
+        }
+        func pump(_ condition: () -> Bool) {
+            let deadline = Date().addingTimeInterval(8)
+            while !condition() && Date() < deadline { RunLoop.current.run(until: Date().addingTimeInterval(0.02)) }
+        }
+        func evaluate(_ view: WKWebView, _ script: String) throws -> Any? {
+            var result: Result<Any?, Error>?
+            view.evaluateJavaScript(script) { value, error in result = error.map(Result.failure) ?? .success(value) }
+            pump { result != nil }
+            return try XCTUnwrap(result, script).get()
+        }
+        func waitFor(_ view: WKWebView, _ script: String, file: StaticString = #filePath, line: UInt = #line) -> Bool {
+            var matched = false
+            pump { matched = (try? evaluate(view, script)) as? Bool == true; return matched }
+            XCTAssertTrue(matched, "\(script) at \(view.url?.path ?? "no resource URL")", file: file, line: line)
+            return matched
+        }
+
+        buffer.inlineMarkup = computeInlineMarkup(source, path: file.path)
+        buffer.renderMarkup?()
+        pump { findWebView(editor.text) != nil }
+        let view = try XCTUnwrap(findWebView(editor.text))
+        let bridge = try XCTUnwrap(view.navigationDelegate as? NativeTableCoordinator)
+        let roots = [Bundle.main.resourceURL, Bundle(for: MathCoordinator.self).resourceURL, Bundle(for: Self.self).resourceURL]
+        _ = try XCTUnwrap(bridge.allowedURL, "Spreadsheet resource roots: \(roots)")
+        guard waitFor(view, "!!document.querySelector('.table-panel__cell')") else {
+            XCTFail("Navigation for \(String(describing: bridge.allowedURL)), ready \(bridge.ready), attached \(view.window != nil), loading \(view.isLoading)")
+            return
+        }
+
+        let selectCell = "document.querySelector('[data-row=\"2\"][data-column=\"1\"]').click(); null"
+        let formulaEnabled = "!document.querySelector('.table-panel__formula').disabled"
+        _ = try evaluate(view, "document.querySelector('.table-panel__gutter').click(); null")
+        guard waitFor(view, "document.querySelector('.table-panel__formula').disabled") else { return }
+        buffer.receiptEngine = engine
+        buffer.startupObservation = nil
+        // The representable normally grants editability to the mounted text view.
+        editor.text.isEditable = !buffer.readOnly
+        guard waitFor(view, formulaEnabled),
+              waitFor(view, "!!document.querySelector('option[value=javascript]')") else { return }
+        _ = try evaluate(view, selectCell)
+
+        // Changing prose below the grid keeps the same table geometry. The
+        // parser still needs to return write permission to this WebView.
+        let end = NSRange(location: source.utf16.count, length: 0)
+        XCTAssertTrue(editor.applySourceEdits([NativeSourceEdit(range: end, text: "!")], source: source))
+        pump { exactUTF8(buffer.inlineMarkup.source, buffer.text) }
+        XCTAssertTrue(exactUTF8(buffer.inlineMarkup.source, buffer.text))
+        XCTAssertTrue(findWebView(editor.text) === view)
+        guard waitFor(view, formulaEnabled) else { return }
+        _ = try evaluate(view, """
+        const field = document.querySelector('.table-panel__formula');
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(field, '=sum(A2:A3)');
+        field.dispatchEvent(new Event('input', { bubbles: true }));
+        null;
+        """)
+        XCTAssertEqual(ResponseProtocol.requestCount("/api/formula/evaluate"), 0)
+        _ = try evaluate(view, """
+        document.querySelector('.table-panel__formula').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+        null;
+        """)
+        guard waitFor(view, "document.querySelector('[data-row=\"2\"][data-column=\"1\"]').textContent === '6'") else { return }
+        let request = try XCTUnwrap(ResponseProtocol.requestBodies("/api/formula/evaluate").last)
+        XCTAssertEqual(request["language"] as? String, "python")
+        XCTAssertEqual((request["rows"] as? [[String]])?.last, ["4", "=sum(A2:A3)"])
+        XCTAssertTrue(buffer.text.contains("| 4 | =sum(A2:A3) |"))
+    }
     @MainActor func testEnterAndBackgroundPresentationKeepTableAndViewport() throws {
         // Contract: .hickory-source/frontends/contract.md
         for hasTable in [false, true] {

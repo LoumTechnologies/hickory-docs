@@ -733,7 +733,7 @@ establish device UI acceptance.
 ## Follow named inputs into a read-only result
 
 Keep the demo small enough to read on a phone: two editable tables, one explicit
-Python consumer and one reference to its published result. Preparation records
+Python fence and one reference to its published result. Preparation records
 real output only when requested. Existing workspaces remain untouched.
 
 <ui:entry path="examples/simple-ui/tables.md">
@@ -771,10 +771,10 @@ read formula source instead. The published `Summary` table is read-only.
 Viewing formulas never runs this block. After editing inputs, save and rerun to
 publish current results.
 
-<hick:exec id="summarize" container="python" language="python" tables="Order" table="Summary">
+```python id="summarize" container="python" tables="Order" table="Summary"
 order = table("Order")
 display_table(["Metric", "Value"], [["Order total", sum(order["Total"])]])
-</hick:exec>
+```
 
 ## Read the published result
 

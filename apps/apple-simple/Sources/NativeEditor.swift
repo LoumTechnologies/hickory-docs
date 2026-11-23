@@ -298,7 +298,8 @@ struct GridCellField: UIViewRepresentable {
         let tableID = inlineTableAttribute("id", table: table, source: source)
         let document = buffer.file.doc_id
         let readOnly = !writable
-        let key = [source, String(readOnly), NSStringFromRange(table.range), format, delimiter,
+        let hasFormulaEngine = buffer.receiptEngine != nil
+        let key = [source, String(readOnly), String(hasFormulaEngine), NSStringFromRange(table.range), format, delimiter,
                    String(header), language, tableID, document].map { $0.map(ExactSourceText.init) }
         if key != identity { identity = key; revision = UUID().uuidString }
         // Geometry refreshes share this same source snapshot. Replacing it
@@ -312,6 +313,7 @@ struct GridCellField: UIViewRepresentable {
             "format": format, "delimiter": delimiter, "readonly": readOnly, "header": header,
         ]
         snapshot["calculationRevision"] = calculationRevision
+        snapshot["hasFormulaEngine"] = hasFormulaEngine
         snapshot["language"] = language
         if let tableID {
             var context: [String: Any] = ["source": source, "table": tableID]
@@ -394,18 +396,21 @@ indirect enum NativeTableJSON: Decodable {
     let owner = Bundle(for: MathCoordinator.self)
     let roots = [Bundle.main.resourceURL, Bundle.main.bundleURL, owner.resourceURL, owner.bundleURL, URL(fileURLWithPath: CommandLine.arguments[0]).deletingLastPathComponent()].compactMap { $0 }
     if let file = resource ?? nativeMathResource(roots: roots, requireSpreadsheet: true) {
-        coordinator.allowedURL = file
-        view.loadFileURL(file, allowingReadAccessTo: file.deletingLastPathComponent())
+        let local = file.standardizedFileURL.resolvingSymlinksInPath()
+        coordinator.allowedURL = local
+        view.loadFileURL(local, allowingReadAccessTo: local.deletingLastPathComponent())
     }
     return view
 }
 struct NativeSpreadsheet: View {
     var table: InlineTable; var source: String; var buffer: DocumentBuffer; var onReady: () -> Void; var onUnavailable: () -> Void = {}
-    var body: some View { NativeSpreadsheetView(calculationRevision: buffer.receiptRevision, table: table, source: source, buffer: buffer, onReady: onReady, onUnavailable: onUnavailable) }
+    var body: some View { NativeSpreadsheetView(calculationRevision: buffer.receiptRevision, permissionsReadOnly: buffer.readOnly, document: buffer.file.doc_id, table: table, source: source, buffer: buffer, onReady: onReady, onUnavailable: onUnavailable) }
 }
 #if os(macOS)
 struct NativeSpreadsheetView: NSViewRepresentable {
-    var calculationRevision: String = ""
+    var calculationRevision: String
+    var permissionsReadOnly: Bool
+    var document: String?
     var table: InlineTable; var source: String; var buffer: DocumentBuffer; var onReady: () -> Void; var onUnavailable: () -> Void = {}
     func makeCoordinator() -> NativeTableCoordinator { NativeTableCoordinator(table: table, source: source, buffer: buffer, onReady: onReady) }
     func makeNSView(context: Context) -> WKWebView { makeNativeTableView(context.coordinator) }
@@ -414,7 +419,9 @@ struct NativeSpreadsheetView: NSViewRepresentable {
 }
 #else
 struct NativeSpreadsheetView: UIViewRepresentable {
-    var calculationRevision: String = ""
+    var calculationRevision: String
+    var permissionsReadOnly: Bool
+    var document: String?
     var table: InlineTable; var source: String; var buffer: DocumentBuffer; var onReady: () -> Void; var onUnavailable: () -> Void = {}
     func makeCoordinator() -> NativeTableCoordinator { NativeTableCoordinator(table: table, source: source, buffer: buffer, onReady: onReady) }
     func makeUIView(context: Context) -> WKWebView { makeNativeTableView(context.coordinator) }
@@ -893,6 +900,7 @@ private struct EquationLayout: Equatable {
     private var diagramViews: [Int: DiagramHost] = [:]
     private var tableSnapshot = InlineSnapshot(source: "")
     private var tableSource = ""
+    private var tableParseCurrent = false
     private var tableSourceVisible = false
     private var sourceTable: Int?
     #if os(macOS)
@@ -1416,11 +1424,13 @@ private struct EquationLayout: Equatable {
         let restore = preserveViewport(); defer { restore() }
         let source = text.string
         let storage = text.textStorage!
-        if exactUTF8(buffer.inlineMarkup.source,source) { tableSnapshot = buffer.inlineMarkup }
+        let parseCurrent = exactUTF8(buffer.inlineMarkup.source,source)
+        if parseCurrent { tableSnapshot = buffer.inlineMarkup }
         else { tableSnapshot = tablePresentation(tableSnapshot, source: source) }
         let tables: [InlineTable] = !buffer.tableSourceVisible ? inlineTables(tableSnapshot).filter { $0.id != buffer.sourceTable }.map { value in var value = value; value.preferredHeight = buffer.tableHeights[value.id]; return value } : []
         let geometryChanged = folding.tables.map { [$0.range.location, $0.range.length, Int($0.height)] } != tables.map { [$0.range.location, $0.range.length, Int($0.height)] }
-        if !exactUTF8(tableSource,source) || tableSourceVisible != buffer.tableSourceVisible || sourceTable != buffer.sourceTable || geometryChanged {
+        if !exactUTF8(tableSource,source) || tableSourceVisible != buffer.tableSourceVisible || sourceTable != buffer.sourceTable || geometryChanged || tableParseCurrent != parseCurrent {
+            tableParseCurrent = parseCurrent
             tableSource = source; tableSourceVisible = buffer.tableSourceVisible; sourceTable = buffer.sourceTable
             storage.beginEditing()
             for table in folding.tables {
@@ -1602,6 +1612,7 @@ import UIKit
     private var diagramViews: [Int: DiagramHost] = [:]
     private var tableSnapshot = InlineSnapshot(source: "")
     private var tableSource = ""
+    private var tableParseCurrent = false
     private var tableSourceVisible = false
     private var sourceTable: Int?
     #if os(macOS)
@@ -2216,11 +2227,13 @@ import UIKit
         let restore = preserveViewport(); defer { restore() }
         let source = text.text ?? ""
         let storage = text.textStorage
-        if exactUTF8(buffer.inlineMarkup.source,source) { tableSnapshot = buffer.inlineMarkup }
+        let parseCurrent = exactUTF8(buffer.inlineMarkup.source,source)
+        if parseCurrent { tableSnapshot = buffer.inlineMarkup }
         else { tableSnapshot = tablePresentation(tableSnapshot, source: source) }
         let tables: [InlineTable] = !buffer.tableSourceVisible ? inlineTables(tableSnapshot).filter { $0.id != buffer.sourceTable }.map { value in var value = value; value.preferredHeight = buffer.tableHeights[value.id]; return value } : []
         let geometryChanged = folding.tables.map { [$0.range.location, $0.range.length, Int($0.height)] } != tables.map { [$0.range.location, $0.range.length, Int($0.height)] }
-        if !exactUTF8(tableSource,source) || tableSourceVisible != buffer.tableSourceVisible || sourceTable != buffer.sourceTable || geometryChanged {
+        if !exactUTF8(tableSource,source) || tableSourceVisible != buffer.tableSourceVisible || sourceTable != buffer.sourceTable || geometryChanged || tableParseCurrent != parseCurrent {
+            tableParseCurrent = parseCurrent
             tableSource = source; tableSourceVisible = buffer.tableSourceVisible; sourceTable = buffer.sourceTable
             let tabs = NSMutableParagraphStyle(); tabs.tabStops = []
             tabs.defaultTabInterval = ("    " as NSString).size(withAttributes: [.font: text.font ?? .monospacedSystemFont(ofSize: 13, weight: .regular)]).width

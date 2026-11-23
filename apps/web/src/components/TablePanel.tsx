@@ -193,9 +193,10 @@ export function TablePanel({
   laneRight = false,
   fitProseDefault = false,
 }: TablePanelProps) {
-  const [chosenLanguage, setChosenLanguage] = useState("");
+  const [chosenLanguage, setChosenLanguage] = useState("auto");
+  const automaticPython = chooseFormulaLanguage && !declaredLanguage && chosenLanguage === "auto";
   const [languages, setLanguages] = useState<string[]>([]);
-  const language = declaredLanguage || (chooseFormulaLanguage ? chosenLanguage : undefined);
+  const language = declaredLanguage || (chooseFormulaLanguage && chosenLanguage !== "auto" ? chosenLanguage || undefined : undefined);
   useEffect(() => {
     if (!chooseFormulaLanguage || declaredLanguage) return;
     let live = true;
@@ -401,7 +402,7 @@ export function TablePanel({
   const fill = useTableFill({ table, selection, revision: `${source}\0${formats ?? ""}`, language, gridRef,
     onFill: (next, range) => { apply(next, false); setSelection(range); } });
 
-  // `=` is ordinary text until the table declares a formula language.
+  // Structural edits rebase references only after formulas have been enabled.
   const insertTableRow = (current: Csv, at: number) =>
     language
       ? insertRowWithFormulaReferences(current, at)
@@ -415,9 +416,11 @@ export function TablePanel({
   const commit = useCallback(
     (at: CellAt, value: string, actor?: UiActor) => {
       if (cellAt(table, at.row, at.column) === value) return true;
-      return apply(withCell(table, at.row, at.column, value), true, actor);
+      const applied = apply(withCell(table, at.row, at.column, value), true, actor);
+      if (applied && automaticPython && !hasFormulas && isFormula(value)) setChosenLanguage("python");
+      return applied;
     },
-    [apply, table],
+    [apply, table, automaticPython, hasFormulas],
   );
 
   /** Commit whatever is being typed and leave edit mode, keeping the cell
@@ -600,11 +603,10 @@ export function TablePanel({
   /**
    * Whether a click on another cell would mean "put its reference here".
    *
-   * Only while a FORMULA is open, and only in a table that names a language:
-   * where `=` is just text there are no references for a click to write.
+   * The first formula draft can pick references before its commit enables Python.
    */
   const pointing =
-    editable && editing && language !== undefined && isFormula(draft);
+    editable && editing && (language !== undefined || automaticPython && !hasFormulas) && isFormula(draft);
 
   /**
    * A click on a cell while a formula is open.
@@ -1192,9 +1194,11 @@ export function TablePanel({
           placeholder={
             !active
               ? "Select a cell"
-              : language
-                ? `Text, or = for a ${language} expression`
-                : "Text — this table names no formula language"
+              : language || automaticPython && !hasFormulas
+                ? `Text, or = for a ${language ?? "python"} expression`
+                : automaticPython
+                  ? "Choose a formula language to calculate existing formulas"
+                  : chooseFormulaLanguage ? "Text — formulas are off" : "Text — this table names no formula language"
           }
           onChange={(event) => {
             if (!active) return;
@@ -1605,8 +1609,10 @@ export function TablePanel({
             sourceCurrent={sourceIsCurrent}
             onChange={(next, actor) => { const ok = apply(next, false, actor); if (ok) setEditing(false); return ok; }} />}
           {chooseFormulaLanguage && !declaredLanguage && <select aria-label="Formula language (session)" value={chosenLanguage} onChange={event => setChosenLanguage(event.target.value)} data-tip="Formula language for this grid session; CSV and Markdown keep their original syntax">
+            <option value="auto">Python for new formulas</option>
             <option value="">Formulas off</option>
-            {languages.map(value => <option key={value} value={value}>{value}</option>)}
+            <option value="python">python</option>
+            {languages.filter(value => value !== "python").map(value => <option key={value} value={value}>{value}</option>)}
           </select>}
           {language && (
             <button

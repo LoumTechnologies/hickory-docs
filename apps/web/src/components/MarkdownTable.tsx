@@ -20,6 +20,7 @@ export interface NativeTableSnapshot {
   delimiter?: string; language?: string; header?: boolean;
   scope?: import("../api/types").FormulaScope;
   calculationRevision?: string;
+  hasFormulaEngine?: boolean;
 }
 type NativeTableMessage = { kind: string; revision?: string; [key: string]: unknown };
 /** The native page has no network capability. Only formula RPC and guarded edits leave it. */
@@ -37,7 +38,11 @@ export function mountNativeTable(host: HTMLElement, post: (message: NativeTableM
     formulaLanguages: () => rpc("languages"), evaluateFormulas: (language, rows) => rpc("evaluate", language, rows), traceFormulas: (language, rows) => rpc("trace", language, rows),
   };
   function Surface({ snapshot }: { snapshot: NativeTableSnapshot }) {
-    const scopedApi = useMemo(() => ({ ...formulaApi }), [snapshot.scope?.source, snapshot.scope?.table, snapshot.calculationRevision]);
+    // Retry on engine attachment, scope changes and new recorded outputs.
+    const scopedApi = useMemo(() => ({ ...formulaApi }), [
+      snapshot.scope?.source, snapshot.scope?.table, snapshot.scope?.document,
+      snapshot.calculationRevision, snapshot.hasFormulaEngine,
+    ]);
     const [layout, setLayout] = useState<TableLayout>({});
     const Panel = snapshot.format === "markdown" ? MarkdownTable : TablePanel;
     return <Panel source={snapshot.source} delimiter={snapshot.delimiter} language={snapshot.language} header={snapshot.header} chooseFormulaLanguage formulaApi={scopedApi}

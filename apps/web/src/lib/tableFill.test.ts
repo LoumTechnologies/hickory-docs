@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vitest";
 import { copyFormulaReferences } from "./formulaReferences";
 import { parseCsv } from "./csv";
-import { fillSelection, fillTable } from "./tableFill";
+import { fillExtent, fillSelection, fillTable } from "./tableFill";
 import { boundsOf, cellSelection, type Selection } from "./tableSelection";
 
 it("copies relative, absolute and mixed references and both range endpoints", () => {
@@ -57,6 +57,19 @@ it("grows within the grid budget and selects only one axis on a diagonal", () =>
   const target = fillSelection(seed, { row: 3, column: 2 }, 1, 1);
   expect(boundsOf(target)).toEqual({ top: 0, bottom: 3, left: 0, right: 0 });
   expect(fillTable(parseCsv("=B1"), seed, target, true).rows).toEqual([["=B1"], ["=B2"], ["=B3"], ["=B4"]]);
+});
+
+it("extends a numeric series in each lane while repeating irregular seeds", () => {
+  const table = parseCsv("0,0,0\n0.1,4,x\n0.2,2,y\n0.3,5,z\n0,0,0");
+  const seed: Selection = { anchor: { row: 1, column: 0 }, focus: { row: 3, column: 2 }, kind: "cells" };
+  expect(fillTable(table, seed, fillExtent(table, seed, { row: 0, column: 0 }), false).rows[0])
+    .toEqual(["0", "5", "z"]);
+  expect(fillTable(table, seed, fillExtent(table, seed, { row: 4, column: 0 }), false).rows[4])
+    .toEqual(["0.4", "4", "x"]);
+  const horizontal = parseCsv("2,5,0\n10,8,0");
+  const across: Selection = { anchor: { row: 0, column: 0 }, focus: { row: 1, column: 1 }, kind: "cells" };
+  expect(fillTable(horizontal, across, fillExtent(horizontal, across, { row: 0, column: 2 }), false).rows)
+    .toEqual([["2", "5", "8"], ["10", "8", "6"]]);
 });
 
 it('keeps Python floor division while moving its operand references', () => {

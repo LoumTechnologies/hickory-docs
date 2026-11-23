@@ -619,7 +619,7 @@ try {
         }
         case "native-table": {
           await page.close(); page = await browser.newPage({ viewport: { width: 900, height: 700 } });
-          nativeTable = { revision: "native:0", source: request.source, format: request.format, readonly: false, language: "python", header: request.header ?? false, scope: request.scope };
+          nativeTable = { revision: "native:0", source: request.source, format: request.format, readonly: false, language: request.language, header: request.header ?? false, scope: request.scope };
           let revision = 0;
           await page.exposeBinding("tableHostMessage", async (_, json) => {
             const message = JSON.parse(json);
@@ -647,6 +647,25 @@ try {
           await cell(request.row, request.column).click();
           if (request.endRow !== undefined) await cell(request.endRow, request.endColumn).click({ modifiers: ["Shift"] });
           value = await table.getByTestId("table-panel-name").textContent(); break;
+        }
+        case "spreadsheet-select-header": {
+          const table = page.getByTestId("table-panel");
+          const headers = request.axis === "row" ? ".table-panel__gutter:not(.table-panel__gutter--lane)" : ".table-panel__head";
+          await table.locator(headers).nth(request.index).click();
+          value = await table.getByTestId("table-panel-name").textContent(); break;
+        }
+        case "spreadsheet-fill": {
+          const table = page.getByTestId("table-panel");
+          const handle = table.getByRole("button", { name: "Fill selected cells" });
+          const cell = table.locator(`.table-panel__cell[data-row="${request.row}"][data-column="${request.column}"]`);
+          await handle.hover();
+          const end = await cell.boundingBox();
+          await page.mouse.down();
+          try {
+            await page.mouse.move(end.x + end.width / 2, end.y + end.height / 2, { steps: 5 });
+            await table.locator(".table-fill-range").waitFor({ timeout: 2500 });
+          } finally { await page.mouse.up(); }
+          break;
         }
         case "spreadsheet-touch-range": {
           const table = page.getByTestId("table-panel");
