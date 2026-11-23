@@ -14,6 +14,8 @@ struct WorkspaceView: View {
     @Bindable var workspace: Workspace
     var launchFile = ProcessInfo.processInfo.environment["HICKORY_OPEN_FILE"]
     @State private var connection = false
+    @State private var connectionError = ""
+    @State private var startupResolved = false
     #if os(macOS)
     @State private var localHost: LocalWorkspaceHost?
     @State private var openingLocalWorkspace = false
@@ -22,7 +24,7 @@ struct WorkspaceView: View {
     @State private var selectionEdit: MobileSelectionEdit?
     @State private var selectionReplacement = ""
     #endif
-    private var menuCommands:[WorkspaceCommand] {workspace.commands(ui:["file.window":{openWindow(id:"workspace")},"file.connect":{connection=true}])}
+    private var menuCommands:[WorkspaceCommand] {workspace.commands(ui:["file.window":{openWindow(id:"workspace")},"file.connect":{showServerConnection()}])}
     var body: some View {
         let epoch = workspace.sourceNavigationEpoch
         let observeAgent = workspace.agent.liveTurn != nil || workspace.layout.groups().contains { $0.active == "agent" }
@@ -53,7 +55,11 @@ struct WorkspaceView: View {
             }.padding(.horizontal, 8).frame(height: 32)
             Divider()
             #endif
-            PaneView(workspace: workspace, id: workspace.layout.rootID)
+            if workspace.engine != nil || workspace.currentBuffer != nil {
+                PaneView(workspace: workspace, id: workspace.layout.rootID)
+            } else {
+                welcome
+            }
             Divider()
             HStack {
                 if let stamp = DevBuildStatus.stamp {
@@ -74,7 +80,7 @@ struct WorkspaceView: View {
                     .frame(width:112).lineLimit(1).popover(isPresented:$workspace.showAnalysis) { WorkspaceAnalysisView(workspace:workspace) }
                 Button("Problems \(workspace.problems.count)") { workspace.showProblems.toggle() }
                     .popover(isPresented: $workspace.showProblems) { WorkspaceProblemsView(workspace: workspace) }
-                Button("⋯") { connection = true }.help("Workspace connection")
+                Button("⋯", action: showServerConnection).help("Workspace connection")
             }.font(.system(size: 11)).padding(.horizontal, 8).frame(height: 24)
         }
         #if os(iOS)
@@ -160,44 +166,71 @@ struct WorkspaceView: View {
         .sheet(isPresented: $workspace.showWorkspaceSearch, onDismiss: { workspace.search.revision = UUID(); workspace.currentBuffer?.focusSource?() }) { WorkspaceSearchView(workspace: workspace) }
         .sheet(isPresented: $connection) {
             VStack(alignment: .leading, spacing: 12) {
-                Text("Workspace server").font(.headline)
-                TextField("http://server:port", text: $workspace.address).textFieldStyle(.roundedBorder).accessibilityLabel("Workspace server")
-                Text("Use the address of the running Hickory backend. On iPhone or iPad, use a host reachable from that device.").font(.caption)
-                Text(workspace.status).font(.caption).textSelection(.enabled)
+                Text("Connect to a Workspace Server").font(.headline)
+                TextField("https://server:port", text: $workspace.address)
+                    .textFieldStyle(.roundedBorder).accessibilityLabel("Workspace server address")
+                    .disabled(connectingWorkspace)
+                if !connectionError.isEmpty {
+                    Text(connectionError).font(.caption).textSelection(.enabled)
+                }
                 HStack {
-                    Button("Cancel") { connection = false }
-                    #if os(macOS)
-                    if LocalWorkspaceHost.isAvailable {
-                        Button("Open Local Workspace…") { chooseLocalWorkspace() }
-                            .disabled(openingLocalWorkspace || workspace.connecting)
-                    }
-                    #endif
+                    Button("Cancel", role: .cancel) { connection = false }
                     Spacer()
-                    Button("Connect") { Task { await connectWorkspace() } }.disabled(connectingWorkspace)
+                    Button("Connect") { Task { await connectWorkspace() } }
+                        .keyboardShortcut(.defaultAction)
+                        .disabled(connectingWorkspace || workspace.address.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }.padding().frame(minWidth: 280, idealWidth: 420)
         }
-        .onReceive(NotificationCenter.default.publisher(for: .simpleConnect)) { _ in connection = true }
+        .onReceive(NotificationCenter.default.publisher(for: .simpleConnect)) { _ in showServerConnection() }
         .task {
-            if workspace.engine == nil {
-                #if os(macOS)
-                if workspace.address.isEmpty, let location = LocalWorkspaceHost.takeLaunchLocation() {
-                    await openLocalWorkspace(location)
-                    if workspace.engine == nil { connection = true }
-                    return
-                }
-                #endif
-                if workspace.address.isEmpty { connection = true }
-                else { connection = !(await workspace.connect(opening: launchFile)) }
+            guard !startupResolved else { return }
+            defer { startupResolved = true }
+            guard workspace.engine == nil else { return }
+            #if os(macOS)
+            if workspace.address.isEmpty, let location = LocalWorkspaceHost.takeLaunchLocation() {
+                await openLocalWorkspace(location)
+                return
             }
+            #endif
+            if !workspace.address.isEmpty { _ = await workspace.connect(opening: launchFile) }
         }
         .onDisappear { workspace.debugger?.closeRecordedFence() }
         #if os(macOS)
         .background(WindowGuard(workspace: workspace))
+        .focusedSceneValue(\.simpleOpenLocalFolder, localFolderAction)
         .onOpenURL { url in
             if url.isFileURL { Task { await openLocalWorkspace(url) } }
         }
         #endif
+    }
+
+    private var welcome: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            if !startupResolved || connectingWorkspace {
+                ProgressView("Opening workspace…")
+            } else {
+                Text("Welcome to Hickory Docs").font(.largeTitle.bold()).accessibilityAddTraits(.isHeader)
+                #if os(macOS)
+                if LocalWorkspaceHost.isAvailable {
+                    Button("Open Folder…", action: chooseLocalWorkspace)
+                        .buttonStyle(.borderedProminent)
+                }
+                #endif
+                Button("Connect to a Workspace Server…", action: showServerConnection)
+                if !workspace.status.isEmpty {
+                    Text(workspace.status).font(.caption).textSelection(.enabled)
+                }
+            }
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func showServerConnection() {
+        guard !connectingWorkspace else { return }
+        connectionError = ""
+        connection = true
     }
 
     private var connectingWorkspace: Bool {
@@ -209,6 +242,8 @@ struct WorkspaceView: View {
 
     private func connectWorkspace() async {
         guard !connectingWorkspace else { return }
+        connectionError = ""
+        workspace.address = workspace.address.trimmingCharacters(in: .whitespacesAndNewlines)
         if await workspace.connect() {
             #if os(macOS)
             if let localHost, workspace.engine?.origin.absoluteString != localHost.origin {
@@ -216,15 +251,22 @@ struct WorkspaceView: View {
             }
             #endif
             connection = false
+        } else {
+            connectionError = workspace.status
         }
     }
 
     #if os(macOS)
+    private var localFolderAction: (() -> Void)? {
+        guard LocalWorkspaceHost.isAvailable, !connectingWorkspace else { return nil }
+        return chooseLocalWorkspace
+    }
+
     private func chooseLocalWorkspace() {
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true
-        panel.canChooseFiles = true
-        panel.prompt = "Open Workspace"
+        panel.canChooseFiles = false
+        panel.prompt = "Open Folder"
         panel.begin { response in
             if response == .OK, let url = panel.url {
                 Task { await openLocalWorkspace(url) }

@@ -8,6 +8,9 @@ to the browser’s smaller default font. Menu and status separators use a quiet
 system-color blend so they remain visible without drawing a dark frame around
 a light workspace.
 
+The welcome screen takes the disconnected window and uses the same system
+colors as the editor. Keep its controls sized for narrow browser windows.
+
 Use one fixed menu row, flexible content and one status row. Tabs and gutter widths remain stable when actions appear. Narrow screens retain all commands and allow scrolling the workspace rather than dropping capabilities.
 
 Keep the text close to the left edge: line numbers grow only with their digits,
@@ -40,6 +43,15 @@ button:disabled { opacity: .45; cursor: default; }
 button:hover:not(:disabled), summary:hover { background: color-mix(in srgb, CanvasText 8%, Canvas); }
 button:focus-visible, summary:focus-visible, .resize:focus-visible { outline: 2px solid Highlight; outline-offset: -2px; }
 main { height: 100dvh; display: grid; grid-template-rows: 29px minmax(0,1fr) 23px; }
+main.workspace-welcome { grid-template-rows: 1fr; place-items: center; overflow: auto; padding: 24px; }
+.workspace-welcome section { width: min(100%, 420px); }
+.workspace-welcome h1 { margin: 0 0 18px; font-size: 24px; }
+.workspace-welcome form { display: grid; gap: 8px; }
+.workspace-welcome input { width: 100%; padding: 8px; }
+.workspace-welcome-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.workspace-welcome-actions button { padding: 8px 12px; border: 1px solid GrayText; border-radius: 5px; }
+.workspace-welcome-actions button:first-child { background: Highlight; color: HighlightText; border-color: Highlight; }
+.workspace-welcome-actions button:first-child:hover:not(:disabled) { background: color-mix(in srgb, Highlight 88%, CanvasText); }
 nav { display: flex; align-items: center; border-bottom: 1px solid color-mix(in srgb, CanvasText 22%, Canvas); padding: 0 8px; gap: 14px; }
 nav details { position: relative; }
 nav summary { list-style: none; cursor: pointer; padding: 3px; }

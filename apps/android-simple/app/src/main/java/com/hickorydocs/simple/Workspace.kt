@@ -426,7 +426,7 @@ class Workspace(private val backgroundScope: kotlinx.coroutines.CoroutineScope? 
         return routes
     }
 
-    var status by mutableStateOf("Connect to a Hickory workspace server")
+    var status by mutableStateOf("")
     var debugger by mutableStateOf<NativeDebugger?>(null)
     var engine by mutableStateOf<Engine?>(null)
     var address by mutableStateOf("")

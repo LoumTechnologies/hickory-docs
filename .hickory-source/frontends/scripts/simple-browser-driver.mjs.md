@@ -98,6 +98,33 @@ try {
           if (request.url) await page.goto(request.url); break;
         case "browser-surface":
           await page.close(); page = await browser.newPage({ viewport: { width: 1100, height: 750 } }); await page.goto(request.url); break;
+        case "workspace-welcome": {
+          const files = "**/api/files";
+          const unavailable = route => route.abort();
+          await page.route(files, unavailable);
+          await page.goto(request.url);
+          const welcome = page.getByRole("heading", { name: "Welcome to Hickory Docs", exact: true });
+          const address = page.getByRole("textbox", { name: "Workspace server address" });
+          await welcome.waitFor();
+          if (await address.count() || await page.getByRole("alert").count())
+            throw new Error("A blank launch should show workspace choices without an address field or a failure.");
+          await page.getByRole("button", { name: "Connect to a Workspace Server…", exact: true }).click();
+          await address.fill("https://user@example.test");
+          await page.getByRole("button", { name: "Connect", exact: true }).click();
+          await page.getByRole("alert").getByText(/without a path or credentials/).waitFor();
+          await page.getByRole("button", { name: "Back", exact: true }).click();
+          if (await address.count() || await page.getByRole("alert").count())
+            throw new Error("Back should return to the welcome choices.");
+          await page.getByRole("button", { name: "Connect to a Workspace Server…", exact: true }).click();
+          await address.fill(new URL(request.url).origin);
+          await page.getByRole("button", { name: "Connect", exact: true }).click();
+          await page.getByRole("alert").getByText(/Could not open the workspace/).waitFor();
+          await page.unroute(files, unavailable);
+          await page.getByRole("button", { name: "Connect", exact: true }).click();
+          await welcome.waitFor({ state: "detached" });
+          await page.locator('.file-tree').getByText("notes.txt", { exact: true }).waitFor();
+          break;
+        }
         case "startup-held": {
           await page.close(); capabilityGates.clear(); rememberedEditors.clear();
           page = await browser.newPage({ viewport: { width: 1100, height: 750 } });

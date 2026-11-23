@@ -5,14 +5,21 @@
 #include <QCloseEvent>
 #include <QCommandLineParser>
 #include <QDesktopServices>
+#include <QDialog>
+#include <QDialogButtonBox>
 #include <QDir>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QFont>
 #include <QIcon>
+#include <QInputDialog>
+#include <QLineEdit>
 #include <QLabel>
 #include <QMessageBox>
 #include <QProcess>
+#include <QPushButton>
 #include <QTimer>
+#include <QVBoxLayout>
 #include <QWebEngineDownloadRequest>
 #include <QWebEngineNewWindowRequest>
 #include <QWebEnginePage>
@@ -27,8 +34,9 @@ constexpr int defaultPort = 38174;
 
 bool sameOrigin(const QUrl &url, const QUrl &workspace)
 {
+    const int defaultSchemePort = workspace.scheme() == QStringLiteral("https") ? 443 : 80;
     return url.scheme() == workspace.scheme() && url.host() == workspace.host()
-        && url.port() == workspace.port() && url.userInfo().isEmpty();
+        && url.port(defaultSchemePort) == workspace.port(defaultSchemePort) && url.userInfo().isEmpty();
 }
 
 bool workspacePage(const QUrl &url, const QUrl &workspace)
@@ -178,6 +186,52 @@ QUrl editorUrl(int port, const QString &file)
     return url;
 }
 
+bool chooseWorkspace(QString &folder, QUrl &server, bool allowServer)
+{
+    QDialog welcome;
+    welcome.setWindowTitle(QObject::tr("Hickory Docs"));
+    auto *layout = new QVBoxLayout(&welcome);
+    auto *title = new QLabel(QObject::tr("Welcome to Hickory Docs"), &welcome);
+    auto font = title->font();
+    font.setBold(true);
+    font.setPointSizeF(font.pointSizeF() * 1.5);
+    title->setFont(font);
+    layout->addWidget(title);
+    auto *openFolder = new QPushButton(QObject::tr("Open Folder…"), &welcome);
+    openFolder->setDefault(true);
+    layout->addWidget(openFolder);
+    QObject::connect(openFolder, &QPushButton::clicked, &welcome, [&] {
+        folder = QFileDialog::getExistingDirectory(&welcome, QObject::tr("Open Folder"), QDir::currentPath());
+        if (!folder.isEmpty()) welcome.accept();
+    });
+    if (allowServer) {
+        auto *connectServer = new QPushButton(QObject::tr("Connect to a Workspace Server…"), &welcome);
+        layout->addWidget(connectServer);
+        QObject::connect(connectServer, &QPushButton::clicked, &welcome, [&] {
+            bool accepted = false;
+            const auto address = QInputDialog::getText(&welcome, QObject::tr("Connect to a Workspace Server"),
+                QObject::tr("Workspace server address"), QLineEdit::Normal, {}, &accepted);
+            if (!accepted) return;
+            QUrl url(address.trimmed(), QUrl::StrictMode);
+            if (!url.isValid() || url.host().isEmpty() || url.authority().contains(QLatin1Char('@'))
+                || (url.scheme() != QStringLiteral("http") && url.scheme() != QStringLiteral("https"))
+                || (!url.path().isEmpty() && url.path() != QStringLiteral("/"))
+                || url.hasQuery() || url.hasFragment() || url.port() == 0) {
+                QMessageBox::warning(&welcome, QObject::tr("Invalid workspace address"),
+                    QObject::tr("Enter the server’s HTTP or HTTPS address, without a path or credentials."));
+                return;
+            }
+            url.setPath(QStringLiteral("/simple.html"));
+            server = url;
+            welcome.accept();
+        });
+    }
+    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Cancel, &welcome);
+    QObject::connect(buttons, &QDialogButtonBox::rejected, &welcome, &QDialog::reject);
+    layout->addWidget(buttons);
+    return welcome.exec() == QDialog::Accepted;
+}
+
 bool resolveLocalTarget(QString &workspace, QString &file)
 {
     const QFileInfo input(workspace);
@@ -249,24 +303,28 @@ int main(int argc, char **argv)
 
     QString file = parser.value(fileOption);
     std::unique_ptr<QWebEngineProfile> profile;
-    const auto open = [&profile, &file, requestedPort](int port) {
-        profile = requestedPort == 0 ? std::make_unique<QWebEngineProfile>()
-            : std::make_unique<QWebEngineProfile>(QStringLiteral("Workspace-%1").arg(port));
+    const auto open = [&profile](const QUrl &url, bool temporary) {
+        profile = temporary ? std::make_unique<QWebEngineProfile>()
+            : std::make_unique<QWebEngineProfile>(QStringLiteral("Workspace-%1").arg(url.port()));
         configureProfile(*profile);
-        auto *window = new WorkspaceWindow(*profile, editorUrl(port, file));
+        auto *window = new WorkspaceWindow(*profile, url);
         window->open();
         window->show();
     };
     if (existing) {
-        open(requestedPort);
+        open(editorUrl(requestedPort, file), false);
         return app.exec();
     }
 
     auto workspace = parser.positionalArguments().value(0);
     if (workspace.isEmpty()) {
-        workspace = QFileDialog::getExistingDirectory(nullptr, QObject::tr("Open workspace"), QDir::currentPath());
-        if (workspace.isEmpty())
+        QUrl server;
+        if (!chooseWorkspace(workspace, server, file.isEmpty()))
             return 0;
+        if (!server.isEmpty()) {
+            open(server, true);
+            return app.exec();
+        }
     }
     if (!resolveLocalTarget(workspace, file)) {
         return showError(QObject::tr("Cannot open the requested workspace or file. Choose an existing folder and a file inside it."));
@@ -297,7 +355,7 @@ int main(int argc, char **argv)
             if (valid && port >= 1 && port <= 65535 && (requestedPort == 0 || port == requestedPort)) {
                 ready = true;
                 deadline.stop();
-                open(port);
+                open(editorUrl(port, file), requestedPort == 0);
                 stdoutBuffer.clear();
                 break;
             }

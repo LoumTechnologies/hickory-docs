@@ -27,8 +27,12 @@ internal sealed class WorkspaceApplication : ApplicationContext
         {
             try
             {
-                host = new WorkspaceHost(launch);
-                var address = launch.EditorUri(await host.ReadyAsync());
+                var address = launch.Server;
+                if (address is null)
+                {
+                    host = new WorkspaceHost(launch);
+                    address = launch.EditorUri(await host.ReadyAsync());
+                }
                 if (window.IsDisposed) return;
                 await window.MountAsync(address, GetEnvironment(), OpenWindowAsync);
                 if (!window.IsDisposed) window.Editor.Source = address;

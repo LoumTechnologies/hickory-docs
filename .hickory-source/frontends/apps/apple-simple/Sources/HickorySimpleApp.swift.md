@@ -12,6 +12,10 @@ WinForms. Opening a local location starts the host and waits for its assigned
 port before calling the ordinary workspace connection. The window owns the
 host's input pipe. Closing the window releases the host's client lease.
 
+On macOS the File menu takes its local folder action from the focused
+window. A user can switch folders after leaving the welcome screen, and the
+existing workspace guards still protect unsaved changes.
+
 <ui:copy id="simple-967795f4aa-0">
 import SwiftUI
 
@@ -22,6 +26,7 @@ import SwiftUI
     @Environment(\.openWindow) private var openWindow
     #if os(macOS)
     @NSApplicationDelegateAdaptor(ApplicationDelegate.self) private var delegate
+    @FocusedValue(\.simpleOpenLocalFolder) private var openLocalFolder
     #endif
     private var menuCommands:[WorkspaceCommand] {workspace.commands(ui:["file.window":{openWindow(id:"workspace")},"file.connect":{NotificationCenter.default.post(name:.simpleConnect,object:nil)}])}
     var body: some Scene {
@@ -36,6 +41,9 @@ import SwiftUI
                 }
         }.commands {
             CommandGroup(replacing: .newItem) {
+                if let openLocalFolder {
+                    Button("Open Local Folder…", action: openLocalFolder)
+                }
                 ForEach(menuCommands.filter {["file.connect","file.open","file.directory","file.new","file.window"].contains($0.id)}) {WorkspaceCommandButton(command:$0)}
             }
             CommandGroup(replacing: .saveItem) {
@@ -55,7 +63,16 @@ import SwiftUI
     }
 }
 private struct SimpleWorkspaceKey: FocusedValueKey { typealias Value = Workspace }
+#if os(macOS)
+private struct SimpleOpenLocalFolderKey: FocusedValueKey { typealias Value = () -> Void }
+#endif
 extension FocusedValues {
+    #if os(macOS)
+    var simpleOpenLocalFolder: (() -> Void)? {
+        get { self[SimpleOpenLocalFolderKey.self] }
+        set { self[SimpleOpenLocalFolderKey.self] = newValue }
+    }
+    #endif
     var simpleWorkspace: Workspace? {
         get { self[SimpleWorkspaceKey.self] }
         set { self[SimpleWorkspaceKey.self] = newValue }

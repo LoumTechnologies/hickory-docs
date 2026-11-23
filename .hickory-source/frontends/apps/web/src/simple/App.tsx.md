@@ -40,6 +40,12 @@ A document component belongs to one buffer path. Switching tabs mounts the next 
 
 Browser source navigation and provider requests translate retained display selection offsets into authored UTF-16 positions. Construction reveals translate the returned authored offset back into the same retained editor; neither operation rewrites source bytes.
 
+The browser lets its own origin open an already configured workspace. The
+welcome screen appears only when that initial lookup fails on a blank launch.
+It can retry that origin or navigate to an editor served by another Hickory
+host. Keep the normal editor mounted for an explicit file or after a workspace
+has loaded, so a failed listing cannot hide the user's source.
+
 <ui:copy id="simple-e8a50a27b2-0">
 import {authoredSource,authoredOffset,editorOffset} from './SourceText';
 import { SourceTestGutterProvider, SOURCE_TEST_INSPECTION, type SourceTestInspection } from "./SourceTestGutters";
@@ -143,6 +149,8 @@ export function App() {
   const [showHistory,setShowHistory]=useState(false),[historyRequest,setHistoryRequest]=useState<GitHistoryRequest>({kind:'log',path:null});
   const [testInspection,setTestInspection]=useState<SourceTestInspection|null>(null);
   const [workspaceRoot,setWorkspaceRoot]=useState("");
+  const [workspaceLookup, setWorkspaceLookup] = useState<"opening" | "welcome" | "opened">("opening");
+  const [requestedPath] = useState(() => new URLSearchParams(window.location.search).get("path"));
   const workspaceIdentity=useRef(workspaceRoot);workspaceIdentity.current=workspaceRoot;
   const [showEverywhere, setShowEverywhere] = useState(false);
   const [showProblems, setShowProblems] = useState(false);
@@ -228,6 +236,10 @@ export function App() {
     try {
       const response = await api.files();
       if (ticket !== filesGeneration.current) return;
+      if (typeof response.root !== "string" || !Array.isArray(response.tree)) {
+        throw new Error("The server did not return a Hickory workspace.");
+      }
+      setWorkspaceLookup("opened");
       const previousFailure = listingFailure.current;
       if (previousFailure) setNotice(current => current === previousFailure ? "" : current);
       listingFailure.current = null;
@@ -241,10 +253,11 @@ export function App() {
       if (ticket !== filesGeneration.current) return;
       listingFailure.current = `${String(error)} Check the Hickory backend and choose File → Refresh.`;
       setNotice(listingFailure.current);
+      setWorkspaceLookup(current => current === "opened" ? current : "welcome");
     }
   }
   useEffect(() => {
-    const path = new URLSearchParams(window.location.search).get("path");
+    const path = requestedPath;
     const initial = liveLayout.current;
     let attached = true;
     let resolved = false;
@@ -497,6 +510,7 @@ export function App() {
   }
   useEffect(() => {
     const command = (event: KeyboardEvent) => {
+      if (requestedPath === null && workspaceLookup !== "opened") return;
       // Terminal control keys belong to the PTY, including Ctrl+N and Ctrl+S.
       if (event.defaultPrevented || (event.target instanceof Element && event.target.closest(".terminal-screen"))) return;
       if (!(event.metaKey || event.ctrlKey)) return;
@@ -505,7 +519,7 @@ export function App() {
       } else if (event.key === "s") { event.preventDefault(); void saveCurrent(); }
     };
     window.addEventListener("keydown", command); return () => window.removeEventListener("keydown", command);
-  }, [buffer, layout, focused]);
+  }, [buffer, layout, focused, requestedPath, workspaceLookup]);
 </ui:copy>
 
 The window keyboard handler consumes Ctrl/Cmd+N before the browser default and uses the current layout and focused group so the draft opens beside the active document. Shift and Alt combinations remain available for other commands.
@@ -571,6 +585,15 @@ Menu and tab-strip commands expose the same operations as native menus. Empty le
   const commands=workspaceCommands(()=>contextRef.current,Object.fromEntries(Object.keys(handlers).map(id=>[id,()=>handlersRef.current[id]?.()])));
   const commandMenu=(group:string)=>commands.filter(command=>command.group===group&&command.id in handlers).map(command=><button key={command.id} disabled={command.reason!==null} title={command.reason??command.label} onClick={command.run}>{command.label}</button>);
   const statusNotices = [notice, buffer?.completionNotice, buffer?.inlineRenderNotice].filter(Boolean).join(" · ");
+  if (requestedPath === null && workspaceLookup !== "opened") {
+    if (workspaceLookup === "opening") {
+      return <main className="workspace-welcome"><p role="status">Opening workspace…</p></main>;
+    }
+    return <WorkspaceWelcome retry={async () => {
+      await loadFiles();
+      return listingFailure.current;
+    }} />;
+  }
   return <SimpleLanguages buffers={buffers}><SourceTestGutterProvider workspace={workspaceRoot}><SourceCoverageProvider workspace={workspaceRoot}><main>
     {/* Shared gutter controls declare data-tip; mount their delegated reader here. */}
     <TooltipLayer />
@@ -650,6 +673,52 @@ Menu and tab-strip commands expose the same operations as native menus. Empty le
     <footer role="status" title={statusNotices}>{buildStamp && <DevBuildStatus ui={buildStamp} />}<WorkspaceAnalysisView buffers={buffers} files={workspaceFiles} model={analysis} focusCurrent={() => { if (buffer) editorForBuffer(buffer)?.view.focus(); }} /><WorkspaceProblems buffers={buffers} visible={showProblems} setVisible={setShowProblems} current={currentLocation} focusCurrent={() => { if (buffer) editorForBuffer(buffer)?.view.focus(); }} />{active === "agent" ? <AgentStatus session={agent} /> : <>{statusNotices ? `${statusNotices} · ` : ""}{buffer && <EditorPosition buffer={buffer} />}{buffer ? `${buffer.file.name} · ${buffer.resourceDeleted?"Deleted source · retained snapshot":buffer.readonly ? "Read-only" : buffer.saving ? "Saving…" : buffer.dirty ? "Modified" : "Saved"}` : status}</>}</footer>
   </main></SourceCoverageProvider></SourceTestGutterProvider></SimpleLanguages>;
 }
+function WorkspaceWelcome({ retry }: { retry: () => Promise<string | null> }) {
+  const [connecting, setConnecting] = useState(false);
+  const [address, setAddress] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  async function retryCurrent() {
+    setBusy(true);
+    setError("");
+    const failure = await retry();
+    if (failure) {
+      setError("Could not open the workspace on this server. Check its address and try again.");
+      setBusy(false);
+    }
+  }
+  function connect() {
+    let url: URL;
+    try {
+      url = new URL(address.trim());
+      if (!["http:", "https:"].includes(url.protocol) || url.username || url.password ||
+          url.pathname !== "/" || url.href.includes("?") || url.href.includes("#") || url.port === "0") {
+        throw new Error();
+      }
+    } catch {
+      setError("Enter the server’s HTTP or HTTPS address, without a path or credentials.");
+      return;
+    }
+    if (url.origin === window.location.origin) void retryCurrent();
+    else window.location.assign(new URL("/simple.html", url));
+  }
+  return <main className="workspace-welcome"><section aria-labelledby="workspace-welcome-title">
+    <h1 id="workspace-welcome-title">Welcome to Hickory Docs</h1>
+    {connecting ? <form onSubmit={event => { event.preventDefault(); connect(); }}>
+      <label htmlFor="workspace-server-address">Workspace server address</label>
+      <input id="workspace-server-address" autoFocus required disabled={busy} value={address}
+        placeholder="https://server:port" onChange={event => setAddress(event.target.value)} />
+      <div className="workspace-welcome-actions">
+        <button type="submit" disabled={busy || !address.trim()}>{busy ? "Connecting…" : "Connect"}</button>
+        <button type="button" disabled={busy} onClick={() => { setConnecting(false); setError(""); }}>Back</button>
+      </div>
+    </form> : <div className="workspace-welcome-actions">
+      <button type="button" disabled={busy} onClick={() => { setConnecting(true); setError(""); }}>Connect to a Workspace Server…</button>
+    </div>}
+    {error && <p role="alert">{error}</p>}
+  </section></main>;
+}
+
 function Tree({ nodes, open }: { nodes: FileNode[]; open: (file: FileNode) => void }) {
   return <ul>{nodes.map(node => <li key={node.path}>{node.dir
     ? <details><summary>{node.name}</summary><Tree nodes={node.children ?? []} open={open} /></details>

@@ -37,9 +37,15 @@ The macOS recipe builds a locally signed `Hickory Simple.app` under `target/simp
 The Apple build requires full Xcode. `simple-dev` honors `DEVELOPER_DIR` and otherwise finds Xcode under `/Applications` if command-line tools are selected. For standalone build/test recipes, set `DEVELOPER_DIR` to your installed Xcode's `Contents/Developer` directory when needed. `xcodegen` is needed for the iOS project. Run `just simple-build ios`, then open `apps/apple-simple/HickorySimple.xcodeproj` for device or simulator work. Device signing is not configured by this comparison scaffold.
 
 On macOS, `just local-install` builds and installs **Hickory Simple.app**.
-Choose **Open Local Workspace…** in the connection sheet, or run
+Choose **Open Folder…** on the welcome screen, or run
 `hick open /absolute/path` with the CLI installed separately. The bundle
 starts its own loopback workspace host for the selected folder or file.
+
+On macOS, Linux and Windows, **Connect to a Workspace Server…** opens the
+address form from the same welcome screen. KDE and Windows load the Simple
+Browser editor served at that address. The browser also opens that hosted
+editor when you connect from a disconnected Simple page. iOS and Android
+offer the server action and open the workspace using their native editors.
 
 ## Run on Windows
 
@@ -55,7 +61,7 @@ just simple-test windows
 
 The build stages the WinForms executable, its .NET runtime, the workspace host
 and Simple Browser assets in `target/simple-windows/app`. Run the executable
-without a path for a folder picker. A file opens in its containing folder.
+without a path for the welcome screen. A file opens in its containing folder.
 To open a file below a workspace root, pass the root and `--file relative/path`.
 Use `--port` with a different loopback port for a separate running workspace.
 The default port is 38174. Reuse it for editor session recovery, or pass
@@ -79,7 +85,7 @@ just simple-test linux
 ```
 
 Pass a folder to show its files, a file to open it with its containing folder,
-or no argument to choose a workspace folder. For a file below a workspace root,
+or no argument for the welcome screen. For a file below a workspace root,
 pass the root and `--file relative/path`. The CMake install tree includes a
 Plasma launcher. Install it for your account with
 `cmake --install target/simple-linux/cmake --prefix "$HOME/.local"`.

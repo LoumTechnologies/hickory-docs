@@ -522,7 +522,7 @@ cache after that selection is retired.
 
 <ui:copy id="simple-resource-adoption-android-workspace">
 
-    var status by mutableStateOf("Connect to a Hickory workspace server")
+    var status by mutableStateOf("")
     var debugger by mutableStateOf<NativeDebugger?>(null)
     var engine by mutableStateOf<Engine?>(null)
     var address by mutableStateOf("")

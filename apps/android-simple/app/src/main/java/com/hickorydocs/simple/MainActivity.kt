@@ -16,6 +16,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.key.*
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
@@ -53,7 +55,9 @@ class MainActivity : ComponentActivity() {
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable fun SimpleWorkspace(workspace: Workspace) {
     ObserveSimpleAgent(workspace)
-    var connection by remember { mutableStateOf(workspace.engine == null) }
+    var connection by remember { mutableStateOf(false) }
+    var connectionError by remember { mutableStateOf("") }
+    val showServerConnection = { connectionError = ""; connection = true }
     val scope = rememberCoroutineScope()
     val workspaceFocus = LocalFocusManager.current
     val moveOpen = workspace.changes.mode == "entryMove"
@@ -63,7 +67,7 @@ class MainActivity : ComponentActivity() {
     LaunchedEffect(workspace){workspace.editorRecovery.captureLoop(workspace)}
     val context = androidx.compose.ui.platform.LocalContext.current
     val descriptors=remember {runCatching {context.assets.open("commands.json").bufferedReader().use {commandDescriptors(it.readText())}}.getOrDefault(emptyList())}
-    val commands=workspace.commands(descriptors,mapOf("file.connect" to {connection=true},"file.window" to {context.startActivity(android.content.Intent(context,MainActivity::class.java).putExtra("hickory_api_origin",workspace.address).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_DOCUMENT or android.content.Intent.FLAG_ACTIVITY_MULTIPLE_TASK));Unit}))
+    val commands=workspace.commands(descriptors,mapOf("file.connect" to showServerConnection,"file.window" to {context.startActivity(android.content.Intent(context,MainActivity::class.java).putExtra("hickory_api_origin",workspace.address).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_DOCUMENT or android.content.Intent.FLAG_ACTIVITY_MULTIPLE_TASK));Unit}))
     LaunchedEffect(workspace.engine) {
         if (workspace.engine != null) connection = false
     }
@@ -85,7 +89,22 @@ class MainActivity : ComponentActivity() {
             CommandMenu("View",commands.filter {it.group=="View"})
         }
         HorizontalDivider()
-        Box(Modifier.weight(1f)) { Pane(workspace, workspace.layout.rootID) }
+        Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = androidx.compose.ui.Alignment.Center) {
+            if (workspace.engine != null || workspace.currentBuffer != null) {
+                Pane(workspace, workspace.layout.rootID)
+            } else {
+                Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    if (workspace.connecting) {
+                        Text("Opening workspace…")
+                    } else {
+                        Text("Welcome to Hickory Docs", style = MaterialTheme.typography.headlineMedium,
+                            modifier = Modifier.semantics { heading() })
+                        Button(onClick = showServerConnection) { Text("Connect to a Workspace Server…") }
+                        if (workspace.status.isNotEmpty()) Text(workspace.status, fontSize = 12.sp)
+                    }
+                }
+            }
+        }
         HorizontalDivider()
         Row(Modifier.fillMaxWidth().height(24.dp).padding(horizontal = 8.dp)) {
             if (BuildConfig.DEV_BUILD_STAMP.isNotEmpty()) {
@@ -125,14 +144,30 @@ class MainActivity : ComponentActivity() {
     if(workspace.showEverywhere) androidx.compose.ui.window.Dialog(onDismissRequest={workspace.showEverywhere=false;workspace.currentBuffer?.focusSource?.invoke()}) {Surface {SearchEverywhereView(workspace,commands)}}
     if (workspace.changes.mode != null) androidx.compose.ui.window.Dialog(onDismissRequest={workspace.changes.close(workspace)}) { Surface { WorkspaceChangesView(workspace) } }
     if (workspace.showWorkspaceSearch) androidx.compose.ui.window.Dialog(onDismissRequest = { workspace.showWorkspaceSearch = false; workspace.search.revision = java.util.UUID.randomUUID(); workspace.currentBuffer?.focusSource?.invoke() }) { Surface { WorkspaceSearchView(workspace) } }
-    if (connection && (workspace.engine != null || !workspace.connecting)) AlertDialog(onDismissRequest = { connection = false }, title = { Text("Workspace server") }, text = {
-        Column {
-            OutlinedTextField(workspace.address, { workspace.address = it }, label = { Text("Workspace server") }, singleLine = true)
-            Text("Use a host reachable from this device. For an emulator, adb reverse can forward the backend port.", fontSize = 12.sp)
-            Text(workspace.status, fontSize = 12.sp)
-        }
-    }, confirmButton = { TextButton(enabled = !workspace.connecting, onClick = { scope.launch { if (workspace.connect()) connection = false } }) { Text("Connect") } },
-        dismissButton = { TextButton(onClick = { connection = false }) { Text("Cancel") } })
+    if (connection) AlertDialog(
+        onDismissRequest = { connection = false },
+        title = { Text("Connect to a Workspace Server") },
+        text = {
+            Column {
+                OutlinedTextField(workspace.address, { workspace.address = it },
+                    label = { Text("Workspace server address") },
+                    placeholder = { Text("https://server:port") },
+                    enabled = !workspace.connecting, singleLine = true)
+                if (connectionError.isNotEmpty()) Text(connectionError, fontSize = 12.sp)
+            }
+        },
+        confirmButton = {
+            TextButton(enabled = !workspace.connecting && workspace.address.isNotBlank(), onClick = {
+                connectionError = ""
+                workspace.address = workspace.address.trim()
+                scope.launch {
+                    if (workspace.connect()) connection = false
+                    else connectionError = workspace.status
+                }
+            }) { Text("Connect") }
+        },
+        dismissButton = { TextButton(onClick = { connection = false }) { Text("Cancel") } },
+    )
 }
 @Composable private fun CommandMenu(label: String, commands: List<WorkspaceCommand>) {
     var expanded by remember { mutableStateOf(false) }

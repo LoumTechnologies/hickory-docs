@@ -427,7 +427,7 @@ struct StartupSourceObservation {
         return source
     }
 
-    var status = "Connect to a Hickory workspace server"
+    var status = ""
     var debugger: NativeDebugger?
     var engine: Engine?
     var address = ProcessInfo.processInfo.environment["HICKORY_API_ORIGIN"] ?? ""

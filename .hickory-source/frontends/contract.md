@@ -7,6 +7,14 @@ retain their original limits; they do not narrow the required outcomes below.
 
 ## IDE parity required by the maintainer
 
+A launch without a selected workspace offers a welcome screen. On a desktop
+with a bundled host, **Open Folder…** starts a local workspace for the selected
+folder. **Connect to a Workspace Server…** reveals the address field on every
+frontend. iOS, Android and the browser use an existing host. The browser,
+KDE and WinForms use the editor served at that host's origin. File and
+preconfigured workspace launches go directly to the requested workspace.
+A readable startup preview stays available while workspace authority loads.
+
 Development launches show the running UI's build commit in the status bar.
 The focused source tab shows its one-based line and column. The focused Agent
 tab shows the provider, model, effort and reported conversation usage. Selecting

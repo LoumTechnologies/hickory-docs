@@ -83,6 +83,11 @@ inline-rendering load attaches to the existing editor. An aborted renderer
 stylesheet leaves the authored source, exact scroll and selection, draft,
 Undo and viewport in place. The status bar reports the failed capability.
 
+Run `python3 scripts/test-simple-browser.py --workspace-welcome-only` against
+a real workspace with the first file-tree request blocked. The browser should
+offer the server action without an error until the user tries to connect.
+After the blocked request is restored, retry should open the existing editor.
+
 <ui:copy id="simple-0799b7d31b-0">
 # Contract: .hickory-source/frontends/contract.md
 """Focused real-engine browser acceptance for the independent frontend."""
@@ -156,6 +161,9 @@ class BrowserDriver:
     def close(self):
         try: self.act("quit")
         finally: stop(self.process)
+
+def welcome_acceptance(driver):
+    driver.act("workspace-welcome", url=driver.url)
 
 def early_source_acceptance(driver, folder):
     path, sibling = "nested/README #é.md", "nested/peer.txt"
@@ -1453,8 +1461,11 @@ raise RuntimeError('wrong assistant fence')
                     cwd=ROOT, env={**environment, "HICKORY_WORKBOOK_TEST_ORIGIN": backend, "HICKORY_WORKBOOK_TEST_ROOT": str(folder)}, check=True)
                 sys.exit(0)
             vite = start(["node", "node_modules/vite/bin/vite.js", "--config", "vite.simple.config.ts", "--host", "127.0.0.1", "--port", str(ui_port), "--strictPort"], cwd=ROOT / "apps/web", env={**environment, "HICKORY_API_ORIGIN": backend}); processes.append(vite)
-            driver = BrowserDriver(origin(vite) + "/simple.html", navigate=not any(flag in sys.argv for flag in ["--delayed-capabilities-only", "--early-source-only"]))
-            if "--early-source-only" in sys.argv:
+            driver = BrowserDriver(origin(vite) + "/simple.html", navigate=not any(flag in sys.argv for flag in ["--delayed-capabilities-only", "--early-source-only", "--workspace-welcome-only"]))
+            if "--workspace-welcome-only" in sys.argv:
+                welcome_acceptance(driver)
+                print("Browser: neutral welcome, explicit server address, failed retry and recovered file tree passed")
+            elif "--early-source-only" in sys.argv:
                 early_source_acceptance(driver, folder)
                 print("Browser: readable first-open source survives delayed and failed ownership; guarded editing attaches to the same editor")
             elif "--delayed-capabilities-only" in sys.argv:

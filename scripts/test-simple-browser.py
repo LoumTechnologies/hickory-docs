@@ -71,6 +71,9 @@ class BrowserDriver:
         try: self.act("quit")
         finally: stop(self.process)
 
+def welcome_acceptance(driver):
+    driver.act("workspace-welcome", url=driver.url)
+
 def early_source_acceptance(driver, folder):
     path, sibling = "nested/README #é.md", "nested/peer.txt"
     text = (folder / path).read_text()
@@ -1367,8 +1370,11 @@ raise RuntimeError('wrong assistant fence')
                     cwd=ROOT, env={**environment, "HICKORY_WORKBOOK_TEST_ORIGIN": backend, "HICKORY_WORKBOOK_TEST_ROOT": str(folder)}, check=True)
                 sys.exit(0)
             vite = start(["node", "node_modules/vite/bin/vite.js", "--config", "vite.simple.config.ts", "--host", "127.0.0.1", "--port", str(ui_port), "--strictPort"], cwd=ROOT / "apps/web", env={**environment, "HICKORY_API_ORIGIN": backend}); processes.append(vite)
-            driver = BrowserDriver(origin(vite) + "/simple.html", navigate=not any(flag in sys.argv for flag in ["--delayed-capabilities-only", "--early-source-only"]))
-            if "--early-source-only" in sys.argv:
+            driver = BrowserDriver(origin(vite) + "/simple.html", navigate=not any(flag in sys.argv for flag in ["--delayed-capabilities-only", "--early-source-only", "--workspace-welcome-only"]))
+            if "--workspace-welcome-only" in sys.argv:
+                welcome_acceptance(driver)
+                print("Browser: neutral welcome, explicit server address, failed retry and recovered file tree passed")
+            elif "--early-source-only" in sys.argv:
                 early_source_acceptance(driver, folder)
                 print("Browser: readable first-open source survives delayed and failed ownership; guarded editing attaches to the same editor")
             elif "--delayed-capabilities-only" in sys.argv:
