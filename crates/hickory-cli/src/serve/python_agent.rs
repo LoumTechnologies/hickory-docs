@@ -186,8 +186,12 @@ pub async fn snapshot(
     }
     let result = runtime(&state);
     let edits = queue(&state, &doc).edits.snapshot();
+    let turn = state.agent.turns.lock().unwrap().get(&doc)
+        .and_then(|turns| turns.last())
+        .filter(|turn| turn.status == "running")
+        .map(|turn| turn.id.clone());
     Ok(Json(
-        json!({"backend":"python","ready":result.is_ok(),"canRewind":true,"error":result.err().map(|e| format!("{e:#}")),"edits":edits}),
+        json!({"backend":"python","ready":result.is_ok(),"canRewind":true,"error":result.err().map(|e| format!("{e:#}")),"turn":turn,"edits":edits}),
     ))
 }
 pub async fn decide(

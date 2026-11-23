@@ -883,7 +883,7 @@ def agent_acceptance(driver, folder):
     assert state["retained"] == text, state
     assert state["payload"] == {"backend": "python", "prompt": text,
         "parent_id": "agent-history", "provider": "claude-subscription",
-        "context": {"live": False, "buffers": []},
+        "context": {"live": True, "buffers": []},
         "model": "unavailable-model", "effort": "high"}, state
     assert "# Previous question" in state["history"], state
     driver.act("screenshot", path=str(ROOT / "target/simple-agent.png"))

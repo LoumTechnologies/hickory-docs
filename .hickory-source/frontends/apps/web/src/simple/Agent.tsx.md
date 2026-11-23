@@ -31,6 +31,7 @@ import type {AgentEditorContext} from "../api/agentTypes";
 import { Document, editorForBuffer } from "./Document";
 import { RichOwners } from "./RichInline";
 import { api, request } from "../api/client";
+import { acpApi } from "../api/acp";
 import { parseHickDoc, proseCodeFences } from "../editor/hickDoc";
 import { useHickLangStatus } from "../editor/hickLang";
 import { normalizeLanguage } from "../editor/languages";
@@ -129,6 +130,7 @@ export class AgentSession {
   busy = false;
   error = "";
   mutation = 0;
+  liveTurn: string | null = null;
   private version = 0;
   private listeners = new Set<() => void>();
   subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };
@@ -140,7 +142,8 @@ export class AgentSession {
     const text = this.prompt; this.busy = true; this.error = ""; this.mutation++; this.publish();
     try {
       const context=this.captureContext?.();
-      const started = await api.agent("workspace", text, this.turns.at(-1)?.id, this.provider, this.model, "python", context, undefined, this.effort || undefined);
+      const started = await api.agent("workspace", text, this.turns.at(-1)?.id, this.provider, this.model, "python", context && { ...context, live: true }, undefined, this.effort || undefined);
+      this.liveTurn = context ? started.session_id : null;
       this.setTurns([...this.turns.filter(turn => turn.id !== started.session_id), { id: started.session_id, prompt: text, answer: null, status: "running", parent_id: null, error: null, created_at: "", provider: this.provider, model: this.model, usage: null }]);
       if (this.prompt === text) this.prompt = "";
     } catch (reason) { this.error = `${String(reason)} The request was not retried. Refresh history before sending again.`; }
@@ -151,6 +154,11 @@ export class AgentSession {
 
 ## Refresh history independently of the composer
 
+The completion supervisor asks for a fresh editor snapshot before it accepts
+an artifact. Only the pane that started the turn answers that request. Capture
+the current authored buffers after observing the request and keep the engine's
+request ID, so an expired request cannot approve a later turn.
+
 A send captures the complete retained authored editor roster with original loaded guards. The snapshot is labelled non-live; later editor changes must retire proposal application rather than silently refresh the agent’s source authority. Conversation content and agent claims never stand in for implementation or test evidence.
 
 History polling never recreates the draft editor. Reject replies from before a
@@ -158,24 +166,46 @@ send mutation, and stop polling when the pane detaches. Provider failures remain
 visible beside the retained draft; no request is automatically retried.
 
 <ui:copy id="simple-agent-history-refresh">
-export function Agent({ session, reviewProposals, reviewRecordedPatch }: {
-  session: AgentSession; reviewProposals?: () => void; reviewRecordedPatch?: ReviewRecordedPatch;
-}) {
+export function AgentHistory({ session, visible }: { session: AgentSession; visible: boolean }) {
   useSyncExternalStore(session.subscribe, session.snapshot);
+  const observing = visible || session.liveTurn !== null;
   useEffect(() => {
+    if (!observing) return;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout>;
     const refresh = async () => {
       const mutation = session.mutation;
       try {
         const response = await api.agentTurns("workspace");
-        if (!cancelled && mutation === session.mutation && !session.busy) { session.setTurns(response.turns); session.publish(); }
+        if (!cancelled && mutation === session.mutation && !session.busy) {
+          const own = session.liveTurn;
+          session.setTurns(response.turns);
+          session.publish();
+          if (own && response.turns.some(turn => turn.id === own && turn.status === "running")) {
+            const state = await request<{ turn: string | null; edits: { captureRequest?: string } }>("GET", "/api/docs/workspace/agent/python");
+            const capture = state.edits?.captureRequest;
+            if (capture && state.turn === own && !cancelled && mutation === session.mutation && own === session.liveTurn) {
+              const context = session.captureContext?.();
+              if (context) await acpApi.edits("workspace", { capture_request: capture, context: { ...context, live: true } }, "python");
+            }
+          } else if (own) {
+            session.liveTurn = null;
+            session.publish();
+          }
+        }
       } catch (reason) { if (!cancelled) { session.error = `${String(reason)} Check subscription sign-in on the workspace server, then refresh.`; session.publish(); } }
       if (!cancelled) timer = setTimeout(refresh, 1000);
     };
     void refresh();
     return () => { cancelled = true; clearTimeout(timer); };
-  }, [session]);
+  }, [session, observing]);
+  return null;
+}
+
+export function Agent({ session, reviewProposals, reviewRecordedPatch }: {
+  session: AgentSession; reviewProposals?: () => void; reviewRecordedPatch?: ReviewRecordedPatch;
+}) {
+  useSyncExternalStore(session.subscribe, session.snapshot);
   const conversation = useRef<HTMLDivElement>(null);
   const following = useRef(true);
   const { turns, prompt, error } = session;

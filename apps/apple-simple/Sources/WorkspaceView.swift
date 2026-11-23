@@ -23,6 +23,8 @@ struct WorkspaceView: View {
     #endif
     private var menuCommands:[WorkspaceCommand] {workspace.commands(ui:["file.window":{openWindow(id:"workspace")},"file.connect":{connection=true}])}
     var body: some View {
+        let epoch = workspace.sourceNavigationEpoch
+        let observeAgent = workspace.agent.liveTurn != nil || workspace.layout.groups().contains { $0.active == "agent" }
         VStack(spacing: 0) {
             #if !os(macOS)
             HStack {
@@ -92,6 +94,14 @@ struct WorkspaceView: View {
         }
         #endif
         .task{await workspace.editorRecovery.captureLoop(workspace)}
+        .task(id: epoch.uuidString + String(observeAgent)) {
+            guard observeAgent else { return }
+            guard let engine = workspace.engine else {
+                workspace.agent.error = "Connect to a workspace server to use the agent."
+                return
+            }
+            await workspace.agent.observe(engine) { workspace.sourceNavigationEpoch == epoch }
+        }
         .popover(isPresented:Binding(get:{workspace.editorRecovery.showing},set:{if !$0{workspace.editorRecovery.close()}})){EditorRecoveryView(workspace:workspace).onKeyPress(.escape){workspace.editorRecovery.close();return .handled}}
         .popover(isPresented:$workspace.showCoverage) {SimpleCoverageView(workspace:workspace).onKeyPress(.escape){workspace.showCoverage=false;workspace.currentBuffer?.focusSource?();return .handled}}
         .popover(isPresented:$workspace.showRecovery) {SourceRecoveryView(workspace:workspace).onKeyPress(.escape){workspace.showRecovery=false;workspace.currentBuffer?.focusSource?();return .handled}}

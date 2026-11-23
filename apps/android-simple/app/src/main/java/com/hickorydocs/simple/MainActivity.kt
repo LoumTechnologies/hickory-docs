@@ -46,6 +46,7 @@ class MainActivity : ComponentActivity() {
 }
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable fun SimpleWorkspace(workspace: Workspace) {
+    ObserveSimpleAgent(workspace)
     var connection by remember { mutableStateOf(workspace.engine == null) }
     val scope = rememberCoroutineScope()
     val workspaceFocus = LocalFocusManager.current

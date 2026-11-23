@@ -154,7 +154,8 @@ acknowledgment. A refusal leaves the draft available for inspection.
         error = ""
         mutation++
         try {
-            val id = engine.send(submitted, parent, provider, model, effort, captureContext())
+            val id = engine.send(submitted, parent, provider, model, effort, captureContext().put("live", true))
+            liveTurn = id
             turns = turns.filter { it.id != id } + AgentTurn(id, submitted, null, null, "running")
             if (draft.sourceRevision == revision && prompt == submitted && draft.state.composition == null) prompt = ""
         } catch (cancelled: CancellationException) { throw cancelled }
@@ -169,6 +170,7 @@ acknowledgment. A refusal leaves the draft available for inspection.
     var sending by mutableStateOf(false)
     var error by mutableStateOf("")
     var mutation = 0
+    var liveTurn by mutableStateOf<String?>(null)
     val running get() = sending || turns.any { it.status == "running" }
 }
 </ui:copy>
@@ -321,23 +323,49 @@ Under the keyboard, the composer footer measures before the scrollable editor
 and options. Send and Stop keep their regular positions beneath the form and
 remain reachable when the form needs to scroll. Without pressure the scroll
 container measures to its content. One mounted editor retains focus and draft
-through the viewport change. The session outlives tab composition;
-polling cancels when hidden, while an acknowledged send continues independently.
+through the viewport change. The workspace keeps answering matching capture requests while its own
+turn runs, even when the reader switches back to the code pane. It stops
+polling once the turn ends and the Agent pane is hidden.
 
 <ui:copy id="simple-android-agent-pane">
-@OptIn(ExperimentalLayoutApi::class)
-@Composable fun AgentPane(engine: Engine?, session: AgentSession, workspace: Workspace) {
-    val scope = workspace.viewModelScope
-    val running = session.running
-    LaunchedEffect(engine) {
+@Composable internal fun ObserveSimpleAgent(workspace: Workspace) {
+    val engine = workspace.engine
+    val session = workspace.agent
+    val observing = session.liveTurn != null || workspace.layout.groups().any { it.active == "agent" }
+    LaunchedEffect(engine, observing) {
+        if (!observing) return@LaunchedEffect
         if (engine == null) { session.error = "Connect to a workspace server to use the agent."; return@LaunchedEffect }
         while (isActive) {
-            try { val mutation = session.mutation; val latest = engine.turns(); if (mutation == session.mutation && !session.sending) session.turns = latest }
+            try {
+                val mutation = session.mutation
+                val latest = engine.turns()
+                if (workspace.engine !== engine) return@LaunchedEffect
+                if (mutation == session.mutation && !session.sending) {
+                    session.turns = latest
+                    val own = session.liveTurn
+                    if (own != null && latest.any { it.id == own && it.status == "running" }) {
+                        val state = engine.request("GET", "/api/docs/workspace/agent/python")
+                        val capture = state.optJSONObject("edits")?.opt("captureRequest") as? String
+                        if (capture != null && state.opt("turn") == own && isActive && workspace.engine === engine &&
+                            mutation == session.mutation && own == session.liveTurn) {
+                            engine.request("POST", "/api/docs/workspace/agent/python/review",
+                                JSONObject().put("capture_request", capture)
+                                    .put("context", simpleAgentContext(workspace).put("live", true)))
+                        }
+                    } else if (own != null) session.liveTurn = null
+                }
+            }
             catch (cancelled: CancellationException) { throw cancelled }
             catch (failure: Exception) { session.error = "${failure.message} Check subscription sign-in on the workspace server." }
             delay(1000)
         }
     }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable fun AgentPane(engine: Engine?, session: AgentSession, workspace: Workspace) {
+    val scope = workspace.viewModelScope
+    val running = session.running
     Column(Modifier.fillMaxSize()) {
         Text("Workspace agent · Hickory Python only", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(12.dp))
         LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(10.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {

@@ -126,7 +126,8 @@ class AgentSession {
         error = ""
         mutation++
         try {
-            val id = engine.send(submitted, parent, provider, model, effort, captureContext())
+            val id = engine.send(submitted, parent, provider, model, effort, captureContext().put("live", true))
+            liveTurn = id
             turns = turns.filter { it.id != id } + AgentTurn(id, submitted, null, null, "running")
             if (draft.sourceRevision == revision && prompt == submitted && draft.state.composition == null) prompt = ""
         } catch (cancelled: CancellationException) { throw cancelled }
@@ -141,6 +142,7 @@ class AgentSession {
     var sending by mutableStateOf(false)
     var error by mutableStateOf("")
     var mutation = 0
+    var liveTurn by mutableStateOf<String?>(null)
     val running get() = sending || turns.any { it.status == "running" }
 }
 internal data class RecordedRunTerminal(val id: String, val state: String, val exit: Int?) {
@@ -258,19 +260,44 @@ private fun recordedConstructionReceipt(reply: JSONObject): RecordedConstruction
     }
     return RecordedConstructionReceipt(document, operation, changes)
 }
-@OptIn(ExperimentalLayoutApi::class)
-@Composable fun AgentPane(engine: Engine?, session: AgentSession, workspace: Workspace) {
-    val scope = workspace.viewModelScope
-    val running = session.running
-    LaunchedEffect(engine) {
+@Composable internal fun ObserveSimpleAgent(workspace: Workspace) {
+    val engine = workspace.engine
+    val session = workspace.agent
+    val observing = session.liveTurn != null || workspace.layout.groups().any { it.active == "agent" }
+    LaunchedEffect(engine, observing) {
+        if (!observing) return@LaunchedEffect
         if (engine == null) { session.error = "Connect to a workspace server to use the agent."; return@LaunchedEffect }
         while (isActive) {
-            try { val mutation = session.mutation; val latest = engine.turns(); if (mutation == session.mutation && !session.sending) session.turns = latest }
+            try {
+                val mutation = session.mutation
+                val latest = engine.turns()
+                if (workspace.engine !== engine) return@LaunchedEffect
+                if (mutation == session.mutation && !session.sending) {
+                    session.turns = latest
+                    val own = session.liveTurn
+                    if (own != null && latest.any { it.id == own && it.status == "running" }) {
+                        val state = engine.request("GET", "/api/docs/workspace/agent/python")
+                        val capture = state.optJSONObject("edits")?.opt("captureRequest") as? String
+                        if (capture != null && state.opt("turn") == own && isActive && workspace.engine === engine &&
+                            mutation == session.mutation && own == session.liveTurn) {
+                            engine.request("POST", "/api/docs/workspace/agent/python/review",
+                                JSONObject().put("capture_request", capture)
+                                    .put("context", simpleAgentContext(workspace).put("live", true)))
+                        }
+                    } else if (own != null) session.liveTurn = null
+                }
+            }
             catch (cancelled: CancellationException) { throw cancelled }
             catch (failure: Exception) { session.error = "${failure.message} Check subscription sign-in on the workspace server." }
             delay(1000)
         }
     }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable fun AgentPane(engine: Engine?, session: AgentSession, workspace: Workspace) {
+    val scope = workspace.viewModelScope
+    val running = session.running
     Column(Modifier.fillMaxSize()) {
         Text("Workspace agent · Hickory Python only", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(12.dp))
         LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(10.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {

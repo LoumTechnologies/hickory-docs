@@ -30,10 +30,48 @@ import Observation
         return text.map { exactUTF8($0, buffer.text) } == true && documents["\(id)-\(side.bufferSuffix)"] === buffer
     }
     var captureContext:(()throws->[String:Any])?
+    var liveTurn: String?
     var sending = false
     var error = ""
     var mutation = 0
     var running: Bool { sending || turns.contains { $0.status == "running" } }
+
+    func observe(_ engine: Engine, current: () -> Bool) async {
+        while !Task.isCancelled && current() {
+            do {
+                let mutation = self.mutation
+                let history = try await engine.turns()
+                guard !Task.isCancelled, current() else { return }
+                if mutation == self.mutation && !sending {
+                    turns = history.turns
+                    try await answerCapture(engine, mutation: mutation, current: current)
+                }
+            } catch {
+                guard !Task.isCancelled, current() else { return }
+                self.error = error.localizedDescription
+            }
+            do { try await Task.sleep(for: .seconds(1)) } catch { return }
+        }
+    }
+
+    private func answerCapture(_ engine: Engine, mutation: Int, current: () -> Bool) async throws {
+        guard let turn = liveTurn else { return }
+        guard turns.contains(where: { $0.id == turn && $0.status == "running" }) else {
+            liveTurn = nil
+            return
+        }
+        struct CaptureState: Decodable {
+            struct Edits: Decodable { let captureRequest: String? }
+            let turn: String?
+            let edits: Edits?
+        }
+        let state: CaptureState = try await engine.request("GET", "/api/docs/workspace/agent/python")
+        guard !Task.isCancelled, current(), mutation == self.mutation, turn == liveTurn, state.turn == turn,
+              let capture = state.edits?.captureRequest, var context = try captureContext?() else { return }
+        context["live"] = true
+        let _: CaptureState = try await engine.request("POST", "/api/docs/workspace/agent/python/review",
+            body: ["capture_request": capture, "context": context])
+    }
 }
 </ui:copy>
 
@@ -325,16 +363,12 @@ struct AgentPane: View {
             }
         }
         #endif
-        .task {
-            guard let engine else { session.error = "Connect to a workspace server to use the agent."; return }
-            while !Task.isCancelled {
-                do { let mutation = session.mutation; let history = try await engine.turns(); guard !Task.isCancelled else { return }; if mutation == session.mutation && !session.sending { session.turns = history.turns } }
-                catch { if Task.isCancelled { return }; session.error = "\(error.localizedDescription) Check subscription sign-in on the workspace server." }
-                do { try await Task.sleep(for: .seconds(1)) } catch { return }
-            }
-        }
     }
 </ui:copy>
+
+The workspace polls only while Agent is visible or owns a running turn. This
+keeps capture answers available when the reader switches to source. Each reply
+requires the same workspace and turn plus the engine’s current capture ID.
 
 Capture the prompt before sending and clear it only if the user has not typed a replacement. An optimistic running record prevents a second send before the next history refresh.
 
@@ -384,7 +418,11 @@ The iPhone inspector is owned by the Agent pane instead of its scrolling message
         session.sending = true; session.error = ""; session.mutation += 1
         defer { session.sending = false; session.mutation += 1 }
         do {
-            let started = try await engine.send(submitted, parent: session.turns.last?.id, provider: session.provider, model: session.model, effort: session.effort,context:try session.captureContext?())
+            var context = try session.captureContext?()
+            context?["live"] = true
+            let started = try await engine.send(submitted, parent: session.turns.last?.id, provider: session.provider, model: session.model, effort: session.effort, context: context)
+            guard workspaceCurrent() else { return }
+            session.liveTurn = context == nil ? nil : started.session_id
             session.turns.append(AgentTurn(id: started.session_id, prompt: submitted, status: "running"))
             #if os(iOS)
             if session.draft.sourceEditIdentity == submittedDraft && exactUTF8(session.prompt, submitted) {
